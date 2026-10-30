@@ -11,7 +11,7 @@ import { currentLanguage, useT } from "./i18n";
 /// is listed; never "unavailable" (Leo 2026-10-21: "second pic is weird has "this chat isn't
 /// available"") and no spinner or "Reconnecting…" (Leo, 2026-10-29: "STOP SHOWING FUCKING BULLSHIT
 /// ON LOAD"). Not listed and never seen here (it may be deleted, or in an acpmux this tab is
-/// not routed to): "Can't find this chat", never "deleted". Every case keeps what MissingChat.tsx
+/// not routed to): "Can't find this chat", never "deleted". Every case but loading keeps what MissingChat.tsx
 /// offered (Lawrence, 86dec887282): the chat's short session id, so a person knows which chat it was,
 /// Resume from Transcript, which opens All Chats, where the chat's saved transcript resumes in a new
 /// session, and Close Tab (a deleted chat's is Remove from Sidebar).

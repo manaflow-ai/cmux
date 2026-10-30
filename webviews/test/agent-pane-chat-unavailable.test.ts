@@ -203,8 +203,9 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     expect(await page.evaluate(() => (window as any).__unavailableSeen)).toEqual([]);
     await page.close();
 
-    // A chat on a machine acpmux is still connecting to: the pane says it is connecting, never that
-    // the chat is unavailable, and opens it once that machine lists it.
+    // A chat on a machine acpmux is still connecting to: the pane shows nothing (Leo, 2026-10-29:
+    // "STOP SHOWING FUCKING BULLSHIT ON LOAD"), never that the chat is unavailable, and opens it
+    // once that machine lists it.
     scenario = {
       sessions: [summary("chat-other")],
       peers: [{ name: "build-box", transport: "ssh", connected: false, state: "connecting", attempts: 0 }],
@@ -216,12 +217,10 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     );
     const connecting = waiting.locator('[data-unavailable="connecting"]');
     await connecting.waitFor({ timeout: 60_000 });
-    // A neutral "Reconnecting…" with a spinner, never an error (86ebb89edfcf, #26115).
-    expect(await connecting.locator("h2").innerText()).toBe("Reconnecting…");
-    expect(await connecting.getAttribute("role")).toBe("status");
-    // Loading: nothing to reconnect or remove yet; the missing-chat line's Resume and Close Tab stay.
-    expect(await connecting.getByRole("button", { name: /Reconnect|Remove from Sidebar/ }).count()).toBe(0);
-    expect(await connecting.getByRole("button", { name: "Close Tab" }).count()).toBe(1);
+    // An empty area: no spinner, no "Reconnecting…", no buttons until the grace ends.
+    expect(await connecting.innerText()).toBe("");
+    expect(await connecting.locator("*").count()).toBe(0);
+    expect(await connecting.getAttribute("role")).toBeNull();
     // The socket opens and acpmux is still in its handshake (it says `connected` before it has read
     // that machine's chats): still connecting, never "deleted". The pane reads the peers again every
     // 2 s while connecting; after two reads it has drawn the first.
@@ -233,7 +232,7 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     await waiting.evaluate(
       () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(null)))),
     );
-    expect(await connecting.locator("h2").innerText()).toBe("Reconnecting…");
+    expect(await connecting.innerText()).toBe("");
     // The machine connects and acpmux lists its chats.
     scenario.peers = [{ name: "build-box", transport: "ssh", connected: true, state: "connected" }];
     const listed = summary("chat-on-box", { peer: "build-box" });
