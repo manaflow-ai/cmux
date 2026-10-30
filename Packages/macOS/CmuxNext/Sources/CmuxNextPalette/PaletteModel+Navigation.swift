@@ -13,17 +13,13 @@ extension PaletteModel {
         defer { isDraining = false }
         while !queue.isEmpty {
             let next = queue.removeFirst()
-            let previousLevelID = nav.top?.id
-            let previousQuery = nav.top?.query
+            let before = nav.top
             let effects = navigation.reduce(&nav, next)
-            // A held Cmd-W belongs to the page and query where it was pressed.
-            // Cancel before effects start a replacement search; a refresh of
-            // the same page and query still honors the pending close.
-            if nav.top?.id != previousLevelID || nav.top?.query != previousQuery {
+            // A held Cmd-W belongs to the page and query where it was pressed: leaving it, or
+            // replacing the page in place, cancels it before effects start a replacement search.
+            if nav.top?.id != before?.id || nav.top?.query != before?.query || next.restartsPage {
                 pendingClose = false
             }
-            // Replacing a page in place can keep both its level and query.
-            if case .restart = next { pendingClose = false }
             for effect in effects { perform(effect) }
         }
         mirror()

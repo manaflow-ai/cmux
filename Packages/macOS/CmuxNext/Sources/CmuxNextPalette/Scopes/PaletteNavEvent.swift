@@ -62,3 +62,11 @@ nonisolated public enum PaletteNavEffect: Equatable, Sendable {
 nonisolated public enum PaletteNavRefusal: Equatable, Sendable {
     case depthLimit
 }
+
+extension PaletteNavEvent {
+    /// The top level shows another page in its place, so its level and query can stay as they were.
+    var restartsPage: Bool {
+        if case .restart = self { return true }
+        return false
+    }
+}

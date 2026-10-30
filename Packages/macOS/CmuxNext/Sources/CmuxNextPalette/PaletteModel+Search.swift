@@ -168,10 +168,7 @@ extension PaletteModel {
                 self.searchTask = nil
                 self.deliver(Self.leading(queryItems?(request.query), state.resolve(result.sections)), to: state,
                              generation: generation)
-                if self.pendingClose {
-                    self.pendingClose = false
-                    self.handle(.closeItem)
-                }
+                self.closeIfPending()
             }
         }
     }
@@ -206,10 +203,7 @@ extension PaletteModel {
             state.answeringSearch = nil
             if state === self.current { self.isLoading = false }
             self.deliver(last ?? [], to: state, generation: generation)
-            if self.pendingClose {
-                self.pendingClose = false
-                self.handle(.closeItem)
-            }
+            self.closeIfPending()
         }
     }
 
