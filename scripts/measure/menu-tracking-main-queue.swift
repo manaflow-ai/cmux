@@ -94,6 +94,12 @@ final class Bench: NSObject, NSApplicationDelegate {
     }
 }
 
+// A watchdog: a run that makes no progress in 60 s exits 2 instead of hanging its caller.
+Thread.detachNewThread {
+    Thread.sleep(forTimeInterval: 60)
+    FileHandle.standardError.write(Data("menu-tracking-main-queue: no result in 60 s\n".utf8))
+    exit(2)
+}
 let app = NSApplication.shared
 app.setActivationPolicy(.prohibited)
 let bench = Bench()
