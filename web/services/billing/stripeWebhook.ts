@@ -190,6 +190,25 @@ async function processClaimedStripeEvent(
   dependencies: StripeWebhookDependencies,
   span?: Parameters<typeof recordSpanError>[0],
 ): Promise<RecordedStripeEventOutcome> {
+  let objectKey: string | null;
+  try {
+    objectKey = await resolvedStripeEventObjectKey(event, dependencies);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await dependencies.inbox.fail(claim, message, nextAttemptAt(claim.attempts, currentTime(dependencies)));
+    return { ok: false, retryable: true };
+  }
+  const outcome = await dependencies.inbox.runExclusive(claim, objectKey, (inbox) =>
+    processExclusiveStripeEvent(event, claim, { ...dependencies, inbox }, span));
+  if (outcome) return outcome;
+  await dependencies.inbox.fail(claim, "retryable: subscription processing is in progress", nextAttemptAt(claim.attempts, currentTime(dependencies)));
+  return { ok: false, retryable: true };
+}
+
+async function processExclusiveStripeEvent(
+  event: Stripe.Event, claim: StripeWebhookClaim, dependencies: StripeWebhookDependencies,
+  span?: Parameters<typeof recordSpanError>[0],
+): Promise<RecordedStripeEventOutcome> {
   try {
     const { analytics, ...result } =
       await skipSupersededStripeEvent(event, dependencies) ?? await processStripeEvent(event, dependencies);
@@ -314,6 +333,15 @@ function inboxEntry(event: Stripe.Event, hash: string): StripeWebhookInboxEntry 
  * share its id, whether they arrive as checkout, subscription or invoice
  * events, so they run one at a time.
  */
+async function resolvedStripeEventObjectKey(event: Stripe.Event, dependencies: StripeWebhookDependencies): Promise<string | null> {
+  if (event.type !== "charge.refunded") return stripeEventObjectKey(event);
+  const charge = event.data.object as Stripe.Charge & { invoice?: string | Stripe.Invoice | null };
+  const invoiceId = stringId(charge.invoice);
+  if (!invoiceId) return null;
+  const invoice = await dependencies.stripe().invoices.retrieve(invoiceId);
+  return invoiceSubscriptionId(invoice) ?? invoiceId;
+}
+
 function stripeEventObjectKey(event: Stripe.Event): string | null {
   const type: string = event.type;
   if (type.startsWith("customer.subscription.")) {

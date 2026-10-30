@@ -42,6 +42,9 @@ export type StripeWebhookInbox = {
    * leased, or another event of its object holds a live lease.
    */
   claim(id: string, now: Date, leaseUntil: Date): Promise<StripeWebhookClaim | null>;
+  /** Hold database row/object locks for the entire effect, beyond any lease deadline. */
+  runExclusive<T>(claim: StripeWebhookClaim, objectKey: string | null,
+    operation: (inbox: StripeWebhookInbox) => Promise<T>): Promise<T | null>;
   /**
    * The id of an applied event of one of `types` for the same object that
    * Stripe created after this one, if any. Its processing read Stripe's state
@@ -101,15 +104,16 @@ export function createDrizzleStripeWebhookInbox(
           })
           .from(events)
           .where(eq(events.id, id))
-          .for("update");
+          .for("update", { skipLocked: true });
         if (!row || row.processedAt) return null;
         if (row.leaseExpiresAt && row.leaseExpiresAt > now) return null;
         if (row.objectKey) {
           // Serialize claims per object: the holder check below runs after any
           // concurrent claim of a sibling event has committed its lease.
-          await tx.execute(
-            sql`select pg_advisory_xact_lock(hashtextextended(${`stripe:webhook:${row.objectKey}`}, 0))`,
+          const lock = await tx.execute<{ locked: boolean }>(
+            sql`select pg_try_advisory_xact_lock(hashtextextended(${`stripe:webhook:${row.objectKey}`}, 0)) as locked`,
           );
+          if (!lock[0]?.locked) return null;
           const [holder] = await tx
             .select({ id: events.id })
             .from(events)
@@ -128,6 +132,31 @@ export function createDrizzleStripeWebhookInbox(
           .where(eq(events.id, id))
           .returning({ attempts: events.attempts });
         return claimed ? { id, attempts: claimed.attempts } : null;
+      });
+    },
+
+    async runExclusive(claim, objectKey, operation) {
+      return db().transaction(async (tx) => {
+        // No expiry can transfer this event while its effects are running. A
+        // crashed process releases the transaction lock; a slow one keeps it.
+        const [row] = await tx.select({ attempts: events.attempts, processedAt: events.processedAt })
+          .from(events).where(eq(events.id, claim.id)).for("update", { skipLocked: true });
+        if (!row || row.processedAt || row.attempts !== claim.attempts) return null;
+        if (objectKey) {
+          const lock = await tx.execute<{ locked: boolean }>(
+            sql`select pg_try_advisory_xact_lock(hashtextextended(${`stripe:webhook:${objectKey}`}, 0)) as locked`,
+          );
+          if (!lock[0]?.locked) return null;
+          const [holder] = await tx.select({ id: events.id }).from(events).where(and(
+            eq(events.objectKey, objectKey), ne(events.id, claim.id), isNull(events.processedAt),
+            gt(events.leaseExpiresAt, sql`now()`),
+          )).limit(1);
+          if (holder) return null;
+        }
+        await tx.update(events).set({ objectKey }).where(eq(events.id, claim.id));
+        // Completion/failure belongs to this same transaction, so it cannot
+        // block on the row lock the callback owns.
+        return operation(createDrizzleStripeWebhookInbox(() => tx as ReturnType<typeof cloudDb>));
       });
     },
 

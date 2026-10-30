@@ -17,6 +17,7 @@ export type MemoryStripeWebhookRow = StripeWebhookInboxEntry & {
 /** An in-memory `StripeWebhookInbox` with the store's lease and per-object rules. */
 export function memoryStripeWebhookInbox(clock: () => Date = () => new Date()) {
   const rows = new Map<string, MemoryStripeWebhookRow>();
+  const running = new Map<string, string | null>();
   const held = (claim: StripeWebhookClaim) => {
     const row = rows.get(claim.id);
     return row && row.attempts === claim.attempts && !row.processedAt ? row : null;
@@ -40,9 +41,10 @@ export function memoryStripeWebhookInbox(clock: () => Date = () => new Date()) {
     },
     async claim(id, now, leaseUntil) {
       const row = rows.get(id);
-      if (!row || row.processedAt) return null;
+      if (!row || row.processedAt || running.has(id)) return null;
       if (row.leaseExpiresAt && row.leaseExpiresAt > now) return null;
       if (row.objectKey) {
+        if ([...running.values()].includes(row.objectKey)) return null;
         for (const other of rows.values()) {
           if (
             other.id !== id &&
@@ -56,6 +58,17 @@ export function memoryStripeWebhookInbox(clock: () => Date = () => new Date()) {
       row.attempts += 1;
       row.leaseExpiresAt = leaseUntil;
       return { id, attempts: row.attempts };
+    },
+    async runExclusive(claim, objectKey, operation) {
+      const row = held(claim);
+      if (!row || running.has(claim.id)) return null;
+      if (objectKey && [...running.values()].includes(objectKey)) return null;
+      if (objectKey && [...rows.values()].some((other) => other.id !== claim.id &&
+        other.objectKey === objectKey && !other.processedAt && other.leaseExpiresAt && other.leaseExpiresAt > clock())) return null;
+      row.objectKey = objectKey;
+      running.set(claim.id, objectKey);
+      try { return await operation(inbox); }
+      finally { running.delete(claim.id); }
     },
     async supersededBy(entry, types) {
       if (!entry.objectKey || !entry.createdAt) return null;

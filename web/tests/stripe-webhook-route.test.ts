@@ -755,6 +755,17 @@ describe("Stripe billing webhook route", () => {
     expect(revokeCoderouterRouteTokens).not.toHaveBeenCalled();
   });
 
+  test("a refund waits for another event on its invoice's subscription", async () => {
+    await inbox.inbox.record({ id: "evt_busy", type: "customer.subscription.updated", payloadHash: "h", objectKey: "sub_1", createdAt: null });
+    await inbox.inbox.claim("evt_busy", new Date(), new Date(Date.now() + 60_000));
+    currentEvent = { id: "evt_refund_waiting", type: "charge.refunded", data: { object: { id: "ch_1", invoice: "in_1" } } };
+    const response = await POST(webhookRequest());
+    expect(response.status).toBe(200);
+    expect(retrieveInvoice).toHaveBeenCalledWith("in_1");
+    expect(applySubscriptionUpdate).not.toHaveBeenCalled();
+    expect(inbox.rows.get("evt_refund_waiting")?.processedAt).toBeNull();
+  });
+
   test("records refunds without revoking an otherwise active subscription", async () => {
     currentEvent = {
       id: "evt_refunded",

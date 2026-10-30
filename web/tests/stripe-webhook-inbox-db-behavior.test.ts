@@ -125,6 +125,31 @@ describe("Stripe webhook inbox store", () => {
     expect(await inbox.supersededBy({ id: "evt_new", objectKey: "sub_1", createdAt: t(20) }, ["customer.subscription.updated"])).toBeNull();
   });
 
+  dbTest("database effect locks outlive expired claims for an event and its subscription", async () => {
+    await inbox.record(entry("evt_slow"));
+    await inbox.record(entry("evt_other"));
+    const now = new Date();
+    const claim = (await inbox.claim("evt_slow", now, new Date(now.getTime() + 1_000)))!;
+    let entered!: () => void;
+    let release!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    const waiting = new Promise<void>((resolve) => { release = resolve; });
+    const running = inbox.runExclusive(claim, "sub_1", async (scoped) => {
+      entered();
+      await waiting;
+      return scoped.complete(claim, null);
+    });
+    await started;
+    try {
+      const later = new Date(now.getTime() + 6 * MINUTE);
+      expect(await inbox.claim("evt_slow", later, new Date(later.getTime() + MINUTE))).toBeNull();
+      expect(await inbox.claim("evt_other", later, new Date(later.getTime() + MINUTE))).toBeNull();
+    } finally {
+      release();
+      expect(await running).toBe(true);
+    }
+  });
+
   dbTest("rows stored before the inbox columns existed are drained", async () => {
     await sql!`
       insert into stripe_webhook_events (id, type, payload_hash, error, created_at)
