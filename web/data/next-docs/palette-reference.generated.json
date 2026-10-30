@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1219,
+    "entries": 1225,
     "shortcuts": 189
   },
   "sections": [
@@ -170,6 +170,12 @@
           "title": "Invite to cmux-next…",
           "shortcut": null,
           "command": "cmux home invite"
+        },
+        {
+          "id": "home.inviteToTeam",
+          "title": "Invite to Team…",
+          "shortcut": null,
+          "command": "cmux home invite-to-team"
         },
         {
           "id": "keepMacAwake",
@@ -2639,7 +2645,7 @@
         },
         {
           "id": "palette.copyIdentifiers",
-          "title": "Copy Identifiers",
+          "title": "Copy IDs",
           "shortcut": null,
           "command": null
         },
@@ -5590,6 +5596,12 @@
           "command": "cmux agent archive-chat"
         },
         {
+          "id": "agentPane.sideQuestion",
+          "title": "Ask a Side Question…",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "agentChat.subagentLimit",
           "title": "Chat Subagent Limit…",
           "shortcut": null,
@@ -6076,10 +6088,28 @@
           "command": "cmux agent toggle-acp-inspector"
         },
         {
+          "id": "agentPane.toggleFiles",
+          "title": "Toggle Files Beside Chat",
+          "shortcut": null,
+          "command": "cmux agent toggle-files"
+        },
+        {
+          "id": "agentPane.togglePreview",
+          "title": "Toggle Preview Beside Chat",
+          "shortcut": null,
+          "command": "cmux agent toggle-preview"
+        },
+        {
           "id": "agentPane.toggleSessionInfo",
           "title": "Toggle Session Info",
           "shortcut": null,
           "command": "cmux agent toggle-session-info"
+        },
+        {
+          "id": "agentPane.toggleSideTabs",
+          "title": "Toggle Tabs Beside Chat",
+          "shortcut": null,
+          "command": "cmux agent toggle-side-tabs"
         },
         {
           "id": "agentPane.toggleDisplaySettings",
@@ -6824,6 +6854,12 @@
           "title": "Installed Apps",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "team.invite",
+          "title": "Invite to Team…",
+          "shortcut": null,
+          "command": "cmux team invite"
         },
         {
           "id": "help.discord",
