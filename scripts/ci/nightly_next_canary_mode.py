@@ -177,7 +177,10 @@ def resolve(value: str, enforce_after: str, now: dt.datetime,
                           f"(first: {failed[0]}); triage, then set {variable}=enforce or move "
                           f"{variable}_ENFORCE_AFTER")
     if min_passes > 0:
-        passed = failures_in(entries, start, when, pass_prefix) if pass_prefix else []
+        # Distinct builds, not comments: a rerun of one build can record its pass more than once.
+        in_week = [(at, body) for at, body in entries if start <= at < when]
+        verdicts = build_verdicts(in_week, pass_prefix, failure_prefix) if pass_prefix else {}
+        passed = sorted(sha for sha, verdict in verdicts.items() if verdict == "pass")
         if len(passed) < min_passes:
             return "report", (f"auto: the {gate} passed {len(passed)} build(s) in the report week before {stamp}, "
                               f"fewer than the {min_passes} it needs to enforce; set {variable}=enforce or move "

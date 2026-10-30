@@ -564,6 +564,27 @@ class ModeResolverTests(unittest.TestCase):
                                for i in range(5)]
         self.assertEqual(mode.resolve("", "", flip + mode.REPORT_WEEK, late, **self.OPTIONS)[0], "report")
 
+    def test_min_passes_counts_distinct_builds_not_comments(self):
+        # A rerun of one build can record its pass three times; that is one validated build, and
+        # auto must not enforce on it. Three distinct builds do meet --min-passes 3.
+        mode, flip = self.mode, self.mode.parse_when("2026-10-28T16:00:00Z")
+        day = mode.REPORT_WEEK / 8
+        sha = "ab" * 20
+        one_build = lambda _since: [(flip - day * (i + 1), f"cmux NEXT visual gate passed {sha}: rerun {i}")
+                                    for i in range(3)]
+        got, why = mode.resolve("", "", flip + mode.REPORT_WEEK, one_build, **self.OPTIONS)
+        self.assertEqual(got, "report", why)
+        self.assertIn("passed 1 build(s)", why)
+        # The same SHA in another case is the same build.
+        mixed_case = lambda _since: [(flip - day, f"cmux NEXT visual gate passed {sha}: a"),
+                                     (flip - day * 2, f"cmux NEXT visual gate passed {sha.upper()}: b"),
+                                     (flip - day * 3, f"cmux NEXT visual gate passed {'cd' * 20}: c")]
+        self.assertEqual(mode.resolve("", "", flip + mode.REPORT_WEEK, mixed_case, **self.OPTIONS)[0], "report")
+        three = lambda _since: [(flip - day * (i + 1), f"cmux NEXT visual gate passed {c * 40}: run")
+                                for i, c in enumerate("abc")]
+        got, why = mode.resolve("", "", flip + mode.REPORT_WEEK, three, **self.OPTIONS)
+        self.assertEqual(got, "enforce", why)
+
     def test_each_build_has_its_own_verdict(self):
         mode, flip = self.mode, self.mode.parse_when("2026-10-28T16:00:00Z")
         a, b, c = "a" * 40, "b" * 40, "c" * 40
