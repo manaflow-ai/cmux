@@ -248,4 +248,6 @@ public struct PaneNotReady: Error, CustomStringConvertible {
     }
     /// Plain English for the log (this module has no string catalog); the app shows a localized text.
     public var description: String { "\(command): the pane is still opening (\(reference)); not sent" }
+    /// The person's sentence in English, with no id (`DaemonService.paneNotReadyText` replaces it with the app's).
+    public var reason: String { "This pane is still opening; try again in a moment." }
 }

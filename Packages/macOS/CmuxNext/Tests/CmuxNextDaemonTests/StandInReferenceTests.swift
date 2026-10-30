@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
@@ -31,8 +32,30 @@ import Testing
         #expect(DaemonRequestExecutor.standInReference(inLine: leaking) != nil)
         let daemon = try WireCoding.encodeRequest(ZoomPaneRequest(pane: PaneID(rawValue: 3)), id: 8)
         #expect(!DaemonRequestExecutor.mayNameStandIn(daemon))
+        // Cmd-N's provisional workspace pane lives above 2^62 + 2^61, with other leading digits: caught too (review #5 B3).
+        let workspace = ProvisionalWorkspace(key: WorkspaceKey.generate(), name: "w", tab: ProvisionalTab().terminal(TerminalID.generate(), cwd: nil))
+        let cmdN = try WireCoding.encodeRequest(ZoomPaneRequest(pane: workspace.pane), id: 10)
+        #expect(DaemonRequestExecutor.mayNameStandIn(cmdN))
+        #expect(DaemonRequestExecutor.standInReference(inLine: cmdN) != nil)
+        // The 2^62 floor is exact: one below it is a daemon id.
+        #expect(!DaemonRequestExecutor.mayNameStandIn(Data(#"{"pane":4611686018427387903}"#.utf8)))
+        #expect(DaemonRequestExecutor.mayNameStandIn(Data(#"{"pane":4611686018427387904}"#.utf8)))
         // A stand-in's digits in text (a line typed into a terminal) are not a pane reference.
         let text = try WireCoding.encodeRequest(SendInputRequest(surface: SurfaceID(rawValue: 9), text: "\(standIn.handle.rawValue)"), id: 9)
         #expect(DaemonRequestExecutor.standInReference(inLine: text) == nil)
+    }
+}
+
+/// Review #5 B1: DEBUG builds stop only the creates that resolve their target (`TargetResolvedCreate`); a tab move or a
+/// respawn that names a stand-in is refused locally instead (`PaneNotReady`).
+struct TargetResolvedCreateTests {
+    @Test func onlyTheResolvedCreatesAreAsserted() {
+        #expect(NewTabRequest.self is any TargetResolvedCreate.Type)
+        #expect(SplitRequest.self is any TargetResolvedCreate.Type)
+        #expect(NewColumnRequest.self is any TargetResolvedCreate.Type)
+        #expect(NewRowRequest.self is any TargetResolvedCreate.Type)
+        #expect(!(MoveTabToColumnRespawnRequest.self is any TargetResolvedCreate.Type))
+        #expect(!(MoveTabToSplitRespawnRequest.self is any TargetResolvedCreate.Type))
+        #expect(!(CreateTerminalRequest.self is any TargetResolvedCreate.Type))
     }
 }
