@@ -239,9 +239,13 @@ export function ComposerQueue({
     held.current = false;
     heldId.current = undefined;
     if (!current) return;
+    // Fit while [data-held] still turns the max-height transition off, and have the browser take
+    // the new height (a style read) before the transition comes back: the list shrinks at once,
+    // never animating down over a blank band (closing takes effect on the click).
     current.style.removeProperty("min-height");
-    current.removeAttribute("data-held");
     fitList(current);
+    void current.ownerDocument.defaultView?.getComputedStyle(current).maxHeight;
+    current.removeAttribute("data-held");
   };
   const toggle = (id: string, hovered: boolean) => {
     // Only a hovering pointer's click holds it: a key or a touch has no pointer on the list to

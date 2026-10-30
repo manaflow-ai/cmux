@@ -668,6 +668,38 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       await page.locator(`.acpmux-queued[data-prompt-id="${id}"] .acpmux-queued-text[data-open]`).waitFor();
       await page.evaluate(() => window.cmuxPaintFrame());
     };
+    /// From now, on each of the next `count` painted frames: how far the list's height is past what its
+    /// rows need (its blank band), once row `gone` has left. Starts recording before `act` runs.
+    const blankFrames = async (page: Page, gone: string, act: () => Promise<void>, count = 16) => {
+      await page.evaluate(
+        ([gone, count]) => {
+          const w = window as unknown as { __blank: number[] };
+          w.__blank = [];
+          window.cmuxAfterPaint(() => {
+            const list = document.querySelector<HTMLElement>(".acpmux-composer-queue");
+            if (!document.querySelector(`.acpmux-queued[data-prompt-id="${gone}"]`)) {
+              if (!list) w.__blank.push(0);
+              else {
+                const origin = list.getBoundingClientRect().top - list.scrollTop;
+                const need =
+                  list.lastElementChild!.getBoundingClientRect().bottom -
+                  origin +
+                  (parseFloat(getComputedStyle(list).paddingBottom) || 0);
+                w.__blank.push(Math.round(list.getBoundingClientRect().height - Math.min(need, list.scrollHeight)));
+              }
+            }
+            return w.__blank.length < (count as number);
+          });
+        },
+        [gone, count] as const,
+      );
+      await act();
+      await page.waitForFunction(
+        (count) => (window as unknown as { __blank: number[] }).__blank.length >= count,
+        count,
+      );
+      return page.evaluate(() => (window as unknown as { __blank: number[] }).__blank);
+    };
     /// The list's height against what its rows need (their bottom and its padding), when it shows.
     const band = (page: Page) =>
       page.evaluate(() => {
@@ -685,11 +717,24 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       const long = "a queued prompt long enough to take several lines once it is opened whole ".repeat(4);
       const page = await openChat(["one", long]);
       await openHeld(page, "q-2");
-      // acpmux drains it while the pointer rests on the list: no pointer event comes.
-      drain("q-2");
-      await page.locator('.acpmux-queued[data-prompt-id="q-2"]').waitFor({ state: "detached" });
-      await page.evaluate(() => window.cmuxPaintFrame().then(() => window.cmuxPaintFrame()));
+      // acpmux drains it while the pointer rests on the list: no pointer event comes. From the first
+      // frame without it, the list is its remaining row's height, with no frame in between.
+      const frames = await blankFrames(page, "q-2", async () => drain("q-2"));
+      expect(frames.filter((blank) => blank > 1)).toEqual([]);
       expect((await band(page))!.blank).toBeLessThanOrEqual(1);
+      await page.close();
+    });
+
+    test("trashing the row the pointer opened shrinks the list at once, with no frame of blank band", async () => {
+      // Review (Codex astra) at 879f871: the release re-enabled the max-height transition before it
+      // fitted the list, so the list animated down over a blank band for 180 ms.
+      const long = "a queued prompt long enough to take several lines once it is opened whole ".repeat(4);
+      const page = await openChat(["one", long]);
+      await openHeld(page, "q-2");
+      const trash = page.locator('.acpmux-queued[data-prompt-id="q-2"] .acpmux-queued-action').nth(1);
+      const at = (await trash.boundingBox())!;
+      const frames = await blankFrames(page, "q-2", () => page.mouse.click(at.x + at.width / 2, at.y + at.height / 2));
+      expect(frames.filter((blank) => blank > 1)).toEqual([]);
       await page.close();
     });
 
