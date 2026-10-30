@@ -100,6 +100,9 @@ if os.environ.get("FAKE_UPLOAD_LOG") and not a.download_to:
 # FAKE_DOWNLOAD_FAIL=<key>=<exit> fails that read as a transfer error would,
 # after the real uploader's retries.
 if a.download_to:
+    if os.environ.get("FAKE_READ_LOG"):
+        with open(os.environ["FAKE_READ_LOG"], "a") as log:
+            log.write(a.key + "\n")
     failing, _, code = os.environ.get("FAKE_DOWNLOAD_FAIL", "").partition("=")
     if failing == a.key:
         print(f"R2 download of s3://{a.bucket}/{a.key} failed: Connection reset by peer", file=sys.stderr)
@@ -260,6 +263,22 @@ class RebuildOfAPublishedCommit(unittest.TestCase):
                 self.assertEqual(path.read_bytes(), earlier[key], key)
         for path in (self.box.repo / "assets-legacy").iterdir():
             self.assertEqual(path.read_bytes(), earlier[f"mux/{self.box.sha}/{path.name}"], path.name)
+
+    def test_adopting_reads_each_object_once(self) -> None:
+        """The legacy mux/ manifest lists its own checksums file too; the
+        reads run side by side, so a second read of one name would race on
+        the same local file."""
+        self.box.build("1")
+        self.assertEqual(self.box.run(self.upload).returncode, 0)
+        manifest = json.loads((self.box.r2 / "mux" / self.box.sha / "manifest.json").read_text())
+        self.assertIn("cmux-mux-checksums.txt", manifest["binaries"])
+        self.box.build("2")
+        log = Path(self.tmp.name) / "reads.log"
+        result = self.box.run(self.upload, FAKE_READ_LOG=str(log))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        reads = log.read_text().splitlines()
+        self.assertIn(f"mux/{self.box.sha}/cmux-mux-checksums.txt", reads)
+        self.assertEqual(sorted(reads), sorted(set(reads)), "an object was read twice")
 
     def test_a_rebuild_with_other_optional_binaries_keeps_the_published_set(self) -> None:
         # The agent screen detector is optional: either build may lack it.

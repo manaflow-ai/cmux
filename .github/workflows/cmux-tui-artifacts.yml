@@ -2121,8 +2121,14 @@ jobs:
           print(" ".join(sorted(names)))
           ' "$directory/manifest.json")"
             # The files are independent reads, each to its own name: 8 at once.
+            # A name is read once: the legacy mux/ manifest also lists its
+            # checksums file, and two reads of one name would race on the
+            # same file and its .partial.
+            local -A seen=()
             for name in $checksums $names; do
-              [[ "$name" == manifest.json ]] || pool_run fetch_published "$name"
+              [[ "$name" == manifest.json || -n "${seen[$name]:-}" ]] && continue
+              seen[$name]=1
+              pool_run fetch_published "$name"
             done
             pool_wait
           }
