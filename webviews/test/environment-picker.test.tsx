@@ -40,6 +40,7 @@ let root: Root | undefined;
 let host: HTMLElement;
 /// How often the picker asked the host to read the machines again (`onRefreshMachines`).
 let refreshes = 0;
+let updateProps: (extra: Record<string, unknown>) => Promise<void>;
 
 beforeAll(() => {
   dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, url: "https://cmux.test/" });
@@ -128,14 +129,18 @@ async function mount(environments: boolean, extra: Record<string, unknown> = {})
   } as unknown as Parameters<typeof ComposerContext>[0];
   root = createRoot(host);
   // The composer this row heads: ⌥⌘1–9 work while its field has focus.
-  await act(async () =>
-    root!.render(
-      <form className="acpmux-composer">
-        <ComposerContext {...props} />
-        <textarea aria-label="Prompt" />
-      </form>,
-    ),
-  );
+  updateProps = async (extra) => {
+    Object.assign(props, extra);
+    await act(async () =>
+      root!.render(
+        <form className="acpmux-composer">
+          <ComposerContext {...props} />
+          <textarea aria-label="Prompt" />
+        </form>,
+      ),
+    );
+  };
+  await updateProps({});
   return calls;
 }
 
@@ -235,11 +240,27 @@ test("previews off: the row keeps its plain Computer menu", async () => {
   expect(doc().querySelector(".acpmux-env-popover")).toBeNull();
 });
 
-test("a trust question closes an open destination picker before it can cover the ask", async () => {
-  await mount(true, { closeOnTrustAsk: true });
-  await openPicker();
-  expect(doc().querySelector(".acpmux-env-popover")).toBeNull();
-});
+for (const environments of [false, true]) {
+  const menu = () => doc().querySelector(environments ? ".acpmux-env-popover" : ".acpmux-location-menu");
+  test(`trust question closes an open destination picker (previews ${environments})`, async () => {
+    await mount(environments);
+    await openPicker();
+    expect(menu()).not.toBeNull();
+    await updateProps({ closeOnTrustAsk: true });
+    expect(menu()).toBeNull();
+    expect(computerButton()?.getAttribute("aria-expanded")).toBe("false");
+    await openPicker();
+    expect(menu()).toBeNull();
+    await updateProps({ closeOnTrustAsk: false });
+    await openPicker();
+    expect(menu()).not.toBeNull();
+  });
+  test(`trust question prevents destination picker overlap on first render (previews ${environments})`, async () => {
+    await mount(environments, { closeOnTrustAsk: true });
+    await openPicker();
+    expect(menu()).toBeNull();
+  });
+}
 
 // A fresh home must offer setup without enabling the environments preview. The same
 // plain Computer menu is usable from an existing local chat; its machine stays fixed.
