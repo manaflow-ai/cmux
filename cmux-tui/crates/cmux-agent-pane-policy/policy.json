@@ -116,7 +116,7 @@
     "_acpmux/chat/route.set": {"params": ["sessionId", "routeId", "when"], "acpmux": []},
     "_acpmux/subsession/limits": {"params": ["sessionId", "maxRunning"], "acpmux": []},
     "_acpmux/mcp/reconnect": {"params": ["sessionId", "server"], "acpmux": []},
-    "acp.session.fork": {"params": ["sessionId", "throughSeq"], "acpmux": []},
+    "acp.session.fork": {"params": ["sessionId", "throughSeq", "live"], "acpmux": []},
     "acp.trust.get": {"params": ["cwd", "sessionId"], "acpmux": []},
     "acp.trust.set": {"params": ["cwd", "level", "sessionId"], "acpmux": []},
     "_acpmux/harness_enable": {"params": ["folder", "id"], "acpmux": []},

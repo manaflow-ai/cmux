@@ -18,6 +18,24 @@ import Testing
         #expect(highlights.moreCount == 5)
     }
 
+    @Test func structuredPRsSurvivePickingAndTheSurfaceWireRoundTrip() throws {
+        let pr = try #require(URL(string: "https://github.com/manaflow-ai/cmux/pull/26875"))
+        let entries = (1...4).map { index in
+            WhatsNewDocument.Entry(id: "change-\(index)", category: .new, title: "A change", summary: "Details", pr: pr)
+        }
+        let document = WhatsNewDocument(version: "1.0.0-nightly.42", channel: .nightly, date: "2026-10-20",
+                                        headline: "Changes", entries: entries)
+        let notes = ReleaseNotes(version: 1, build: "42", shortVersion: document.version, date: document.date,
+                                 highlights: [], changes: [], whatsNew: document)
+        let highlights = UpdateHighlights(version: document.version, build: "42", fromVersion: "1.0.0-nightly.41",
+                                          fromBuild: "41", notes: notes, appcast: nil, languages: ["en"])
+        let decoded = try JSONDecoder().decode(UpdateHighlights.self, from: JSONEncoder().encode(highlights))
+        #expect(decoded.items.count == 3)
+        #expect(decoded.rest?.count == 1)
+        #expect(decoded.items.allSatisfy { $0.pr == pr })
+        #expect(decoded.rest?.first?.pr == pr)
+    }
+
     @Test func aRecordSavedBeforeTheRestExistedStillDecodes() throws {
         let json = #"""
         {"version": "1.0.0", "build": "1", "fromVersion": "0.9.0", "fromBuild": "0", "source": "summary",
@@ -27,5 +45,6 @@ import Testing
         let decoded = try JSONDecoder().decode(UpdateHighlights.self, from: Data(json.utf8))
         #expect(decoded.items.count == 1)
         #expect(decoded.rest == nil)
+        #expect(decoded.items.first?.pr == nil)
     }
 }

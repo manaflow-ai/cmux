@@ -6,7 +6,9 @@ reds in cmux-tui/crates/cmux-tui/tests/ and broke base clippy. cmux-tui-clippy-c
 runs `cargo clippy --all-targets -D warnings` on each workspace package a change
 touches and on the members depending on it; these tests drive it on a scratch
 repository with a fake cargo that answers `cargo metadata` from the test's
-workspace and records its other calls.
+workspace and records its other calls. With --panic-ratchet it runs the panic
+ratchet on the same packages (only cmux-tui.yml ran it, so #27935 landed two
+acpmux indexing_slicing hits); a fake ratchet records how it is called.
 """
 
 from __future__ import annotations
@@ -33,9 +35,22 @@ for arg in "$@"; do
     echo "error: this call to clone can be replaced with std::slice::from_ref"
     exit 101
   fi
+  if [[ "$arg" == --message-format=json ]]; then
+    echo '{"reason":"build-finished","success":true}'
+  fi
 done
 """
+# The repository's own ratchet answers --flags and records every other call.
+FAKE_RATCHET = """import os, sys
+if sys.argv[1:] == ["--flags"]:
+    print("-W clippy::unwrap_used -W clippy::indexing_slicing")
+    sys.exit(0)
+with open(os.environ["RATCHET_LOG"], "a") as log:
+    log.write(" ".join(sys.argv[1:]) + "\\n")
+sys.exit(int(os.environ.get("RATCHET_RC", "0")))
+"""
 LINT = ["--all-targets", "--", "-D", "warnings"]
+PANIC = ["--message-format=json", "--", "-W", "clippy::unwrap_used", "-W", "clippy::indexing_slicing"]
 
 
 class ClippyChangedTests(unittest.TestCase):
@@ -62,6 +77,8 @@ class ClippyChangedTests(unittest.TestCase):
         self.write("cmux-tui/vendor/up/Cargo.toml", '[package]\nname = "up"\n')
         self.write("cmux-tui/vendor/up/src/lib.rs", "pub fn u() {}\n")
         self.write("README.md", "readme\n")
+        self.write("scripts/cmux-next/rust_panic_ratchet.py", FAKE_RATCHET)
+        self.write("scripts/cmux-next/rust-panic-baseline.json", "{}\n")
         self.git("init", "-q")
         self.git("add", ".")
         self.git("commit", "-qm", "base")
@@ -75,8 +92,11 @@ class ClippyChangedTests(unittest.TestCase):
         self.metadata = self.tmp / "metadata.json"
         self.members = {"": "cmux-root", "crates/a": "pkg-a", "crates/b": "pkg-b", "crates/c": "pkg-c", "crates/d": "pkg-d"}
         self.uses = {"pkg-c": [("crates/a", "dev")], "pkg-d": [("crates/c", None)], "cmux-root": [("vendor/up", None)]}
+        # The root package is a binary only; the crates are libraries.
+        self.kinds = {"cmux-root": ["bin"]}
+        self.ratchet_log = self.tmp / "ratchet.log"
         self.env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "CARGO_LOG": str(self.log),
-                    "CARGO_METADATA": str(self.metadata)}
+                    "CARGO_METADATA": str(self.metadata), "RATCHET_LOG": str(self.ratchet_log)}
 
     def write_metadata(self) -> None:
         """`cargo metadata --no-deps` for the members and path dependencies the test declares."""
@@ -88,6 +108,7 @@ class ClippyChangedTests(unittest.TestCase):
             # Each also uses a registry crate, which has no path.
             "dependencies": [{"name": dep, "kind": kind, "path": str(root / dep)} for dep, kind in self.uses.get(name, [])]
             + [{"name": "serde", "kind": None, "source": "registry+https://github.com/rust-lang/crates.io-index"}],
+            "targets": [{"name": name, "kind": [kind]} for kind in self.kinds.get(name, ["lib"])],
         } for path, name in self.members.items()]
         self.metadata.write_text(json.dumps({"packages": packages, "workspace_members": [p["id"] for p in packages]}))
 
@@ -122,6 +143,16 @@ class ClippyChangedTests(unittest.TestCase):
         if not self.log.exists():
             return []
         return [line.split() for line in self.log.read_text().splitlines()]
+
+    def ratchet_calls(self) -> list[list[str]]:
+        if not self.ratchet_log.exists():
+            return []
+        return [line.split() for line in self.ratchet_log.read_text().splitlines()]
+
+    def run_ratchet(self, *args: str, rc: int = 0) -> tuple[subprocess.CompletedProcess[str], Path]:
+        out = self.tmp / "out" / "panic-clippy.jsonl"
+        result = self.run_check(*args, "--panic-ratchet", str(out), env_extra={"RATCHET_RC": str(rc)})
+        return result, out
 
     def test_a_changed_integration_test_lints_its_package_with_all_targets(self) -> None:
         # #23163's shape: only a file under the package's tests/ changed.
@@ -214,6 +245,52 @@ class ClippyChangedTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         # The workspace manifest changed with it, so the whole (remaining) workspace is linted.
         self.assertEqual(self.calls(), [["clippy", "--locked", "--keep-going", "--workspace", *LINT]])
+
+    def test_the_panic_ratchet_lints_the_production_targets_of_the_changed_packages(self) -> None:
+        # #27935's shape: a library's source gained an indexing hit.
+        self.change("cmux-tui/crates/a/src/lib.rs")
+        result, out = self.run_ratchet("--base", self.base)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.calls(), [["clippy", "--locked", "-p", "pkg-a", "-p", "pkg-c", "-p", "pkg-d",
+                                         "--lib", "--bins", *PANIC]])
+        self.assertIn('"build-finished"', out.read_text())
+        self.assertEqual(self.ratchet_calls(), [["--repo", str(self.repo.resolve()), "--clippy-json", str(out)]])
+
+    def test_a_red_panic_ratchet_fails_the_check_and_names_the_packages(self) -> None:
+        self.change("cmux-tui/crates/d/src/lib.rs")
+        result, _ = self.run_ratchet("--base", self.base, rc=1)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("::error title=cmux-tui panic ratchet::", result.stdout)
+        self.assertIn("pkg-d", result.stdout)
+
+    def test_the_panic_ratchet_drops_lib_when_no_selected_package_has_one(self) -> None:
+        # Cargo refuses `-p bin-only --lib`.
+        self.change("cmux-tui/src/main.rs", "fn main() { let _ = 2; }\n")
+        result, _ = self.run_ratchet("--base", self.base)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.calls(), [["clippy", "--locked", "-p", "cmux-root", "--bins", *PANIC]])
+
+    def test_the_panic_ratchet_covers_the_whole_workspace_for_workspace_wide_inputs(self) -> None:
+        self.change("cmux-tui/Cargo.lock", "# lock 2\n")
+        result, _ = self.run_ratchet("--base", self.base)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.calls(), [["clippy", "--locked", "--workspace", "--lib", "--bins", *PANIC]])
+        self.assertEqual(len(self.ratchet_calls()), 1)
+
+    def test_the_panic_ratchet_runs_for_a_baseline_only_change(self) -> None:
+        # The baseline is a workspace-wide ratchet input; it must not take the no-package fast path.
+        self.change("scripts/cmux-next/rust-panic-baseline.json", "{\"changed\": true}\n")
+        result, _ = self.run_ratchet("--base", self.base)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.calls(), [["clippy", "--locked", "--workspace", "--lib", "--bins", *PANIC]])
+        self.assertEqual(len(self.ratchet_calls()), 1)
+
+    def test_the_panic_ratchet_skips_a_change_with_no_workspace_rust(self) -> None:
+        self.change("README.md", "changed\n")
+        result, _ = self.run_ratchet("--base", self.base)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.calls(), [])
+        self.assertEqual(self.ratchet_calls(), [])
 
 
 if __name__ == "__main__":

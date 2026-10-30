@@ -49,6 +49,7 @@ import {
   type DevicesRunResult,
   type DevicesState,
   type Domains,
+  type MenuLayout,
   type HarnessesRun,
   type HarnessesState,
   type HostLists,
@@ -511,6 +512,12 @@ export class SettingsStore {
     await this.refreshHost();
   }
 
+  /** Settings > Devices: this joined Mac's Screen sharing or Control on or off, then re-read the host lists. */
+  async setJoinConsent(surface: "screen" | "control", on: boolean): Promise<void> {
+    await this.request("cmux.settings.devices.join_consent", { surface, on });
+    await this.refreshHost();
+  }
+
   /** Settings > Machines: a Cloud machine's "Dedicated agent machine" on or off, then re-read the host lists. */
   async setMachineVmHost(id: string, on: boolean): Promise<void> {
     await this.request("cmux.settings.machines.vm_host", { id, on });
@@ -544,6 +551,21 @@ export class SettingsStore {
     const reply = await this.request(`cmux.settings.web_updates.${action}` as const, {});
     await this.refreshHost();
     return reply.ok;
+  }
+
+  /** Settings > Menus: save `menu`'s arrangement (null resets it), then re-read the host lists.
+   * Throws the host's refusal (a managed key, an unreadable cmux.json). */
+  async setContextMenuLayout(menu: string, layout: MenuLayout | null): Promise<void> {
+    const reply = await this.request("cmux.settings.context_menus.set", { menu, layout });
+    await this.refreshHost();
+    if (!reply.ok) throw new TransportError(reply.error);
+  }
+
+  /** Settings > Menus: whether every right-click menu ends with Customize Menu…; throws a refusal. */
+  async setShowCustomizeMenuItem(show: boolean): Promise<void> {
+    const reply = await this.request("cmux.settings.context_menus.show_item", { show });
+    await this.refreshHost();
+    if (!reply.ok) throw new TransportError(reply.error);
   }
 
   /** Settings > Chief > Voice input: turn the message box's mic on or off, then re-read the host lists. */
@@ -652,9 +674,14 @@ export class SettingsStore {
   }
 
   /** Runs one of the page's catalog actions (`target` is `kind:id`), then re-reads the lists. */
-  async runAction(action: SettingsPageAction, args: Record<string, unknown> = {}, target?: string): Promise<void> {
-    await this.request("cmux.app.action.run", target ? { action, args, target } : { action, args });
+  async runAction(
+    action: SettingsPageAction,
+    args: Record<string, unknown> = {},
+    target?: string,
+  ): Promise<Reply<unknown>> {
+    const reply = await this.request("cmux.app.action.run", target ? { action, args, target } : { action, args });
     await this.refreshHost();
+    return reply;
   }
 
   dispose(): void {
