@@ -64,9 +64,9 @@ import Testing
     }
 
     @Test(.timeLimit(.minutes(1))) func aLaunchWithoutTheDaemonsBootstrapExitsAtOnce() throws {
-        let executable = try #require(Self.executable(), "the built cmux-remote")
+        let built = try #require(Self.executable(), "the built cmux-remote")
         let directory = try Self.temporaryDirectory()
-        let child = try ChildProcess.spawn(executable: executable,
+        let child = try ChildProcess.spawn(executable: built,
                                            arguments: ["host", "--layout-dir", directory + "/l", "--state-dir", directory + "/s", "--scope", "t"],
                                            environment: ["PATH": "/usr/bin:/bin"], logPath: directory + "/log")
         var status: Int32 = 0
@@ -78,7 +78,7 @@ import Testing
     // MARK: Helpers
 
     static func start() throws -> Host {
-        let executable = try #require(executable(), "the built cmux-remote")
+        let built = try #require(Self.executable(), "the built cmux-remote")
         let directory = try temporaryDirectory()
         let layout = RemoteHostLayout(directory: directory + "/l")
         let secret = RemoteWire.makeSecret()
@@ -88,7 +88,7 @@ import Testing
                                     "computer_use": false, "screen_sharing": false, "headless": true])
         _ = LineChannel.writeAll(bootstrap[1], line)
         close(bootstrap[1])
-        let child = try ChildProcess.spawn(executable: executable,
+        let child = try ChildProcess.spawn(executable: built,
                                            arguments: ["host", "--layout-dir", layout.directory, "--state-dir", directory + "/s", "--scope", "test"],
                                            environment: ["PATH": "/usr/bin:/bin", "HOME": NSHomeDirectory()],
                                            logPath: directory + "/host.log", inherit: [(bootstrap[0], 3)])
