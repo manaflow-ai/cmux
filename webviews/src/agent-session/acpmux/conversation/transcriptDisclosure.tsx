@@ -79,8 +79,17 @@ const DisclosureSession = createContext<string>(DEFAULT_SESSION);
 /** The chat's transcript view (transcriptView.ts), read once here for every row under it. */
 const ViewContext = createContext<TranscriptView>("normal");
 
+/// The chat a transcript's disclosure id belongs to, whose view the chat menu sets: a subagent's
+/// transcript (`<chat>:subagent:<id>`) and a replay (`replay:<chat>`) follow their chat's view.
+export function viewChat(sessionId: string | undefined): string | undefined {
+  if (!sessionId) return undefined;
+  const chat = sessionId.startsWith("replay:") ? sessionId.slice("replay:".length) : sessionId;
+  const subagent = chat.indexOf(":subagent:");
+  return subagent < 0 ? chat : chat.slice(0, subagent);
+}
+
 export function TranscriptDisclosureProvider({ sessionId, children }: { sessionId?: string; children: ReactNode }) {
-  const view = useTranscriptView(sessionId || undefined);
+  const view = useTranscriptView(viewChat(sessionId));
   return (
     <DisclosureSession.Provider value={sessionId || DEFAULT_SESSION}>
       <ViewContext.Provider value={view}>{children}</ViewContext.Provider>

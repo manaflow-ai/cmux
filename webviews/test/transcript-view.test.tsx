@@ -12,6 +12,7 @@ import {
   TranscriptDisclosureProvider,
   useTranscriptDisclosure,
   useTranscriptViewContext,
+  viewChat,
 } from "../src/agent-session/acpmux/conversation/transcriptDisclosure";
 import {
   makeTranscriptViewDefault,
@@ -169,4 +170,11 @@ test("a streamed update renders a row once, as before; only a switch adds a rend
   expect(renders - first).toBe(0);
   act(() => setTranscriptView("chat-a", "verbose"));
   expect(renders - first).toBe(1);
+});
+
+test("a subagent's transcript and a replay follow their chat's view", () => {
+  expect(viewChat("chat-a")).toBe("chat-a");
+  expect(viewChat("chat-a:subagent:task-1")).toBe("chat-a");
+  expect(viewChat("replay:chat-a")).toBe("chat-a");
+  expect(viewChat(undefined)).toBeUndefined();
 });
