@@ -105,6 +105,17 @@ impl LogWriter {
         open_logs: usize,
         supervisor: &Supervisor,
     ) -> Self {
+        Self::start_with_write_delay(root, segment_bytes, open_logs, supervisor, test_write_delay())
+    }
+
+    /// [`Self::start`], each write held `delay` first (a test's slow disk; [`test_write_delay`]).
+    pub(super) fn start_with_write_delay(
+        root: PathBuf,
+        segment_bytes: u64,
+        open_logs: usize,
+        supervisor: &Supervisor,
+        delay: Option<std::time::Duration>,
+    ) -> Self {
         let shared = Arc::new(Shared {
             state: Mutex::new(State::default()),
             work: Condvar::new(),
@@ -127,7 +138,7 @@ impl LogWriter {
             cmux_threads::ThreadQos::Utility,
             Fatal,
             ShutdownBehavior::Continue,
-            move || run(&worker),
+            move || run(&worker, delay),
         )
         .map_err(|e| {
             tracing::error!("the event log writer did not start; logs are written in place: {e}")
@@ -272,9 +283,8 @@ fn test_write_delay() -> Option<std::time::Duration> {
     None
 }
 
-fn run(shared: &Shared) {
+fn run(shared: &Shared, delay: Option<std::time::Duration>) {
     let watched = SyncThread::register(THREAD, WRITE_ITEM);
-    let delay = test_write_delay();
     let mut state = lock(&shared.state);
     loop {
         let Some(id) = state.order.pop_front() else {

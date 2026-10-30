@@ -1384,6 +1384,9 @@ mod permission_tests;
 mod line_rev_tests;
 
 #[cfg(test)]
+mod read_settle_tests;
+
+#[cfg(test)]
 mod open_logs_tests {
     use super::*;
 
