@@ -492,6 +492,8 @@ mod tests {
             class: None,
             supersede: None,
             full_access_device: None,
+            message_id: None,
+            message_sender: None,
         })
     }
 
