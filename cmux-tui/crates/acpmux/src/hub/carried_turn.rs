@@ -353,7 +353,7 @@ impl Hub {
                     let on_sent = || self.watch_stalled_turn(&session, None);
                     let id = &turn.turn_id;
                     super::steer_end::agent_prompt_hook(
-                        &session, &child, params, id, false, false, None, false, on_sent,
+                        &session, &child, params, id, false, false, None, false, None, on_sent,
                     )
                     .await
                 }
