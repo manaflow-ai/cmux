@@ -98,6 +98,10 @@ pub struct AttachResult {
     pub page_through: u64,
     /// Who has the chat open now, this attachment included (`hub/presence.rs`).
     pub presence: super::presence::PresenceNote,
+    /// The prompt that opened the turn the page starts inside, when the page starts inside one
+    /// with older records before it (`server/requests/turn_opener.rs`); null otherwise. An older
+    /// acpmux leaves it out, and its client reads it with `_acpmux/events`.
+    pub turn_opener: Option<SessionEvent>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]

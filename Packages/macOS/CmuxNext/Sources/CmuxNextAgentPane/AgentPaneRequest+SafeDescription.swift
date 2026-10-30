@@ -70,6 +70,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .setQuickActions: "setQuickActions"
         case .tabState: "tabState"
         case .tabRowTools: "tabRowTools"
+        case .tabRowToolsSet: "tabRowToolsSet"
         case .btwInline: "btwInline"
         case .sideChat: "sideChat"
         case .chatTab: "chatTab"
