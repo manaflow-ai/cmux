@@ -13,18 +13,17 @@ impl PtySurface {
 
     /// Hand output the parser accepted to the output store. Output never
     /// enters the session journal (output_store.rs); the store only copies
-    /// the bytes into memory here. `resident` is the parser's primary-screen
-    /// resident bytes after it took `bytes`, read under the parser lock: the
-    /// store's scrollback budget starts its pass from it (memory_budget.rs).
-    /// Reading it visits each of the terminal's pages, and the budget keeps
-    /// those under its total divided by the page size.
+    /// the bytes into memory here. `history` is the parser's history size
+    /// after it took `bytes` (`HistoryRows::of`, O(1) under the parser lock):
+    /// the store's scrollback budget measures the terminal when it grew
+    /// (memory_budget.rs).
     pub(super) fn record_output(
         &self,
         (mux, terminal_id): (Arc<Mux>, Arc<TerminalPublicId>),
         bytes: &[u8],
-        resident: Option<u64>,
+        history: Option<crate::output_store::HistoryRows>,
     ) {
-        mux.output_store.append(&terminal_id, &self.journal_generation, bytes, resident);
+        mux.output_store.append(&terminal_id, &self.journal_generation, bytes, history);
     }
 
     pub(super) fn journal_geometry(&self, geometry: PtyGeometry) {

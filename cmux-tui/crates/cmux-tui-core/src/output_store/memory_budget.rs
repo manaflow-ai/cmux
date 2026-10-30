@@ -11,18 +11,22 @@
 //!
 //! The pass runs on the output store's writer thread, after output (memory
 //! only grows when a terminal prints), so an idle session runs nothing. It
-//! runs as soon as the resident total crosses the budget: each PTY read
-//! reports its terminal's resident bytes to the store (`OutputStore::append`),
-//! and the crossing wakes the writer for this pass alone. The writer's
-//! snapshot pass (every `SNAPSHOT_INTERVAL`) also runs it, and gives limits
-//! back. Before P-AUSTIN B8 only that 30 s pass ran it: 16 terminals at
-//! 1 MB/s with a 1 GB `scrollback-limit` took the daemon to 2.25 GB against
-//! this 256 MiB budget before the pass cut it back.
+//! runs as soon as the measured total crosses the budget. Each PTY read
+//! reports its terminal's history row count (O(1), `OutputStore::append`);
+//! when the history moved by a step (`HistoryRows`), the writer wakes,
+//! measures that terminal's resident bytes ([`measure_due`], a page walk on
+//! the writer thread, never on the reader) and runs [`enforce`] when the
+//! total is over the trigger. The writer's snapshot pass (every
+//! `SNAPSHOT_INTERVAL`) also runs it, and gives limits back. Before P-AUSTIN
+//! B8 only that 30 s pass ran it: 16 terminals at 1 MB/s with a 1 GB
+//! `scrollback-limit` took the daemon to 2.25 GB against this 256 MiB budget
+//! before the pass cut it back.
 //!
-//! Owner: the output store (PL-daemon). The bound is the budget itself, up
-//! to the growth of one pass's latency on the writer thread; when every
-//! terminal is at its 1 MiB floor the total can stay over it, and the next
-//! pass waits for growth past where the last one left it.
+//! Owner: the output store (PL-daemon). The bound is the budget, plus up to
+//! 1/16 of each terminal's history that grew since its last measurement,
+//! plus what prints during one pass on the writer thread. When every terminal
+//! is at its 1 MiB floor the total can stay over it; the next pass then waits
+//! for growth past where the last one left it.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -47,6 +51,9 @@ const RESTORE_BELOW_PERCENT: u64 = 80;
 #[derive(Default)]
 pub(super) struct MemoryBudget {
     limited: Mutex<HashMap<TerminalPublicId, (usize, usize)>>,
+    /// The last pass left the total over the budget (its warning is printed
+    /// once per episode, not once per pass).
+    over: std::sync::atomic::AtomicBool,
 }
 
 impl MemoryBudget {
@@ -68,12 +75,49 @@ pub(super) fn effective(budget: u64) -> u64 {
     budget.max(MIN_MEMORY_TOTAL_BYTES)
 }
 
+/// Measure the terminals whose history grew by a step since their last
+/// measurement (`OutputStore::append` marked them), then run [`enforce`]
+/// when the total is over the trigger. On the writer thread.
+pub(super) fn measure_due(mux: &Mux, store: &OutputStore, budget: u64) {
+    let due: Vec<Arc<TerminalLog>> = store
+        .logs
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .values()
+        .filter(|log| {
+            std::mem::take(
+                &mut log.state.lock().unwrap_or_else(PoisonError::into_inner).measure_due,
+            )
+        })
+        .cloned()
+        .collect();
+    for log in &due {
+        let measured = mux
+            .terminal_resource_surface(&log.terminal_id)
+            .and_then(|surface| surface.try_with_terminal(measure).ok().flatten());
+        let (resident, rows) =
+            measured.map_or((0, None), |(resident, rows)| (resident, Some(rows)));
+        store.set_resident(log, resident, rows);
+    }
+    if store.resident_over_trigger() {
+        enforce(mux, store, budget);
+    }
+}
+
+/// A terminal's primary-screen resident bytes and its history rows.
+fn measure(terminal: &mut ghostty_vt::Terminal) -> Option<(u64, u64)> {
+    let resident = terminal.primary_resident_bytes()?;
+    Some((resident, u64::try_from(terminal.scrollback_rows()).unwrap_or(u64::MAX)))
+}
+
 /// Keep the terminals' scrollback RAM under `budget` bytes, then record the
-/// measured total and the next pass's trigger in the store.
+/// next pass's trigger in the store.
 pub(super) fn enforce(mux: &Mux, store: &OutputStore, budget: u64) {
     let budget = effective(budget);
-    let total = shrink_or_restore(mux, store, budget);
-    store.set_resident_trigger(total.max(budget));
+    shrink_or_restore(mux, store, budget);
+    // The store's total, not this pass's sum: output during the pass moved
+    // it on, and the trigger must sit at what the store now counts.
+    store.set_resident_trigger(store.resident_total().max(budget));
 }
 
 /// One pass: shrink the least recently active terminals past the budget,
@@ -81,27 +125,25 @@ pub(super) fn enforce(mux: &Mux, store: &OutputStore, budget: u64) {
 fn shrink_or_restore(mux: &Mux, store: &OutputStore, budget: u64) -> u64 {
     let logs: Vec<Arc<TerminalLog>> =
         store.logs.lock().unwrap_or_else(PoisonError::into_inner).values().cloned().collect();
+    // The pass measures every terminal, and the store's total restarts from
+    // these values; a log it cannot measure (its terminal left, or Ghostty
+    // cannot report) counts 0, so nothing stale stays in the total.
     let mut entries = logs
         .into_iter()
         .filter_map(|log| {
-            let surface = mux.terminal_resource_surface(&log.terminal_id)?;
-            let resident = surface
-                .try_with_terminal(|terminal| terminal.primary_resident_bytes())
-                .ok()
-                .flatten()?;
+            let measured = mux.terminal_resource_surface(&log.terminal_id).and_then(|surface| {
+                let measured = surface.try_with_terminal(measure).ok().flatten()?;
+                Some((surface, measured))
+            });
+            let Some((surface, (resident, rows))) = measured else {
+                store.set_resident(&log, 0, None);
+                return None;
+            };
+            store.set_resident(&log, resident, Some(rows));
             let last_output = log.state.lock().unwrap_or_else(PoisonError::into_inner).last_output;
             Some(Entry { log, surface, resident, last_output })
         })
         .collect::<Vec<_>>();
-    // The pass measures every terminal: the store's running total restarts
-    // from these values (output between the reads moves it on as usual).
-    for entry in &entries {
-        let previous = std::mem::replace(
-            &mut entry.log.state.lock().unwrap_or_else(PoisonError::into_inner).resident,
-            entry.resident,
-        );
-        store.account_resident(previous, entry.resident);
-    }
     let mut total = entries.iter().map(|entry| entry.resident).sum::<u64>();
     // Ghostty's `scrollback-limit`, the per-terminal cap.
     let configured = mux.surface_options.lock().unwrap_or_else(PoisonError::into_inner).scrollback;
@@ -126,27 +168,28 @@ fn shrink_or_restore(mux: &Mux, store: &OutputStore, budget: u64) -> u64 {
                 .surface
                 .try_with_terminal(|terminal| {
                     terminal.set_scrollback_max_bytes(keep).ok()?;
-                    terminal.primary_resident_bytes()
+                    measure(terminal)
                 })
                 .ok()
                 .flatten();
-            let Some(after) = after else { continue };
+            let Some((after, rows)) = after else { continue };
             total = total.saturating_sub(entry.resident.saturating_sub(after));
-            let previous = std::mem::replace(
-                &mut entry.log.state.lock().unwrap_or_else(PoisonError::into_inner).resident,
-                after,
-            );
-            store.account_resident(previous, after);
+            store.set_resident(&entry.log, after, Some(rows));
             limited.insert(entry.log.terminal_id.clone(), (configured, keep));
         }
-        if total > budget {
+        let over = total > budget;
+        if over && !store.memory_budget.over.swap(true, std::sync::atomic::Ordering::AcqRel) {
             eprintln!(
                 "cmux-tui: terminal scrollback uses {total} bytes, over the {budget} byte budget \
                  after shrinking idle terminals"
             );
         }
+        if !over {
+            store.memory_budget.over.store(false, std::sync::atomic::Ordering::Release);
+        }
         return total;
     }
+    store.memory_budget.over.store(false, std::sync::atomic::Ordering::Release);
     if limited.is_empty() || total * 100 >= budget * RESTORE_BELOW_PERCENT {
         return total;
     }
