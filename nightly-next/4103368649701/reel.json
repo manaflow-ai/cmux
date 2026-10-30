@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "build": "4103368649701",
+  "notes": "notes/4103368649701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 28013,
+      "title": "acpmux: every command's --help ends with examples",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27833,
+      "title": "cmux-next: pin mode never bundles a stale cmux-tui",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27809,
+      "title": "acpmux: keep session rows stable across short peer reconnects",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
