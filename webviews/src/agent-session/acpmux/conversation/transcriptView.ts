@@ -25,27 +25,48 @@ const LIMIT = 200;
 let own: Map<string, TranscriptView> | undefined;
 const listeners = new Set<() => void>();
 
-function load(): Map<string, TranscriptView> {
-  if (own) return own;
-  own = new Map();
+/// The choices as stored now; undefined when storage cannot be read.
+function stored(): Map<string, TranscriptView> | undefined {
   try {
-    const stored = JSON.parse(globalThis.localStorage?.getItem(STORAGE_KEY) ?? "null") as unknown;
-    if (stored && typeof stored === "object")
-      for (const [sessionId, view] of Object.entries(stored as Record<string, unknown>))
-        if (view === "normal" || view === "thinking" || view === "verbose") own.set(sessionId, view);
+    const value = JSON.parse(globalThis.localStorage?.getItem(STORAGE_KEY) ?? "null") as unknown;
+    const views = new Map<string, TranscriptView>();
+    if (value && typeof value === "object")
+      for (const [sessionId, view] of Object.entries(value as Record<string, unknown>))
+        if (view === "normal" || view === "thinking" || view === "verbose") views.set(sessionId, view);
+    return views;
   } catch {
     // Private windows, test DOMs and full storage keep the choices for this page only.
+    return undefined;
   }
+}
+
+function load(): Map<string, TranscriptView> {
+  own ??= stored() ?? new Map();
   return own;
 }
 
-function save(): void {
+/// Writes one chat's choice (or its removal) over what storage holds now, not this page's copy:
+/// another pane's choices made since this page read them stay.
+function write(sessionId: string, view: TranscriptView | undefined): void {
+  const all = stored() ?? load();
+  all.delete(sessionId);
+  if (view) all.set(sessionId, view);
+  while (all.size > LIMIT) all.delete(all.keys().next().value!);
+  own = all;
   try {
-    globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(Object.fromEntries(load())));
+    globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(Object.fromEntries(all)));
   } catch {
     // The in-memory choice still lasts for this page.
   }
 }
+
+// Another pane (another page on the same origin) changed a chat's view: read it again.
+if (typeof globalThis.addEventListener === "function")
+  globalThis.addEventListener("storage", (event: StorageEvent) => {
+    if (event.key !== STORAGE_KEY && event.key !== null) return;
+    own = stored() ?? own;
+    for (const listener of listeners) listener();
+  });
 
 /// Set while a switch opens or closes the rows on screen: their folds snap instead of playing
 /// (useAnchoredCollapse.ts). Cleared on the next frame, after the switch has drawn.
@@ -89,19 +110,15 @@ export function useTranscriptView(sessionId: string | undefined): TranscriptView
 
 /// The chat menu's Normal, Thinking or Verbose: this chat only.
 export function setTranscriptView(sessionId: string, view: TranscriptView): void {
-  const all = load();
-  if (all.get(sessionId) === view) return;
-  all.delete(sessionId);
-  all.set(sessionId, view);
-  while (all.size > LIMIT) all.delete(all.keys().next().value!);
-  save();
+  if (load().get(sessionId) === view && stored()?.get(sessionId) === view) return;
+  write(sessionId, view);
   notify();
 }
 
 /// "Make … the default": every chat without a view of its own shows `view`, this one included (it
 /// follows the default from now on). Normal is the setting's default, so it removes the key.
 export function makeTranscriptViewDefault(sessionId: string | undefined, view: TranscriptView): void {
-  if (sessionId && load().delete(sessionId)) save();
+  if (sessionId && load().has(sessionId)) write(sessionId, undefined);
   snapNextDraw();
   changeChatDisplay(TRANSCRIPT_VIEW_KEY, view === "normal" ? null : view);
   for (const listener of listeners) listener();

@@ -147,6 +147,27 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
       await page.close();
     });
 
+    test("a replay of the chat draws under the chat's view", async () => {
+      const page = await browser!.newPage({ viewport: { width: 900, height: 900 } });
+      await page.addInitScript(() => localStorage.setItem("cmux.experiments", '{"session-replay":"on"}'));
+      await page.goto(pageUrl());
+      await page.getByText(ANSWER).waitFor();
+      await pick(page, "Verbose");
+      await page.getByRole("button", { name: "Chat actions" }).click();
+      await page.getByRole("menuitem", { name: "Replay" }).click();
+      const replay = page.locator(".acpmux-replay");
+      await replay.waitFor();
+      await replay.getByRole("button", { name: "Pause", exact: true }).click();
+      // Scrub to the end of the recording (0:17): every call has run by then.
+      await replay.getByRole("slider", { name: "Replay position" }).fill("17700");
+      const calls = replay.locator(".cv-tools .cv-tool.is-toggle:not(.cv-thought)");
+      await calls.first().waitFor();
+      const open = replay.locator('.cv-tools .cv-tool.is-toggle:not(.cv-thought)[aria-expanded="true"]');
+      await open.first().waitFor();
+      expect((await open.count()) === (await calls.count())).toBe(true);
+      await page.close();
+    });
+
     test("Thinking and Verbose from the chat menu open a finished turn's work; Normal folds it", async () => {
       const page = await browser!.newPage({ viewport: { width: 900, height: 900 } });
       await page.goto(pageUrl());

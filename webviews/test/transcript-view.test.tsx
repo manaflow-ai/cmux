@@ -178,3 +178,31 @@ test("a subagent's transcript and a replay follow their chat's view", () => {
   expect(viewChat("replay:chat-a")).toBe("chat-a");
   expect(viewChat(undefined)).toBeUndefined();
 });
+
+test("two panes' choices both survive: each write reads storage fresh, and a storage event refreshes", () => {
+  act(() => setTranscriptView("chat-a", "thinking"));
+  // Another pane (its own copy of the map) sets chat-b's view and writes storage.
+  const other = JSON.parse(dom!.window.localStorage.getItem("cmux.acpmux.transcriptView")!);
+  dom!.window.localStorage.setItem(
+    "cmux.acpmux.transcriptView",
+    JSON.stringify({ ...other, "chat-b": "verbose" }),
+  );
+  // This pane, before hearing of it, sets chat-c: chat-b's choice must stay.
+  act(() => setTranscriptView("chat-c", "verbose"));
+  expect(JSON.parse(dom!.window.localStorage.getItem("cmux.acpmux.transcriptView")!)).toEqual({
+    "chat-a": "thinking",
+    "chat-b": "verbose",
+    "chat-c": "verbose",
+  });
+  // A storage event from the other pane updates what this pane shows.
+  dom!.window.localStorage.setItem(
+    "cmux.acpmux.transcriptView",
+    JSON.stringify({ "chat-a": "thinking", "chat-b": "normal", "chat-c": "verbose" }),
+  );
+  // The store listens on the page's global (transcriptView.ts), where a storage event arrives.
+  act(() => {
+    const event = Object.assign(new Event("storage"), { key: "cmux.acpmux.transcriptView" });
+    globalThis.dispatchEvent(event);
+  });
+  expect(transcriptViewOf("chat-b")).toBe("normal");
+});
