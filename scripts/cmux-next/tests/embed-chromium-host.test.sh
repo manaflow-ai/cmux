@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# embed-cef.sh puts the Chromium host into every build (Release since
-# p01-process-088): it builds it with build-chromium-host.sh (not with the shim)
+# embed-cef.sh puts the Chromium host into Debug and bench builds, and into
+# Release only with CMUX_NEXT_RELEASE_CHROMIUM_HOST=1 (Release never starts it, and
+# no Developer ID sign and notarization of a bundle with it has passed yet; slice 1
+# review 2026-10-30): it builds it with build-chromium-host.sh (not with the shim)
 # against the shim build and its artifact, and puts it at
 # Contents/MacOS/<Product> Chromium Host (the app is Chromium's main bundle, so
 # the helpers' sandbox reaches the framework); it removes the earlier
@@ -99,11 +101,20 @@ for pair in libcmux_cef_shim.dylib=shim cmux-cef-helper=helper cmux-chromium-hos
 done
 [[ ! -e "$TMP/CEF-dSYMs" ]] || fail "a Debug embed unpacked Chromium's dSYM"
 
-# 2. Release (and so RC and NIGHTLY) on a fresh bundle: the
-# host and its remote shim, as in Debug, for sign-cef.sh to sign as nested code.
+# 2. Release (and so RC and NIGHTLY) on a fresh bundle: no host and no remote
+# shim, and the host is not built, so a shipped bundle has no second executable.
 rm -rf "$TMP/build/app.app" "$TMP/derived" "$TMP/host-builds"
 embed Release
-[[ "$(cat "$TMP/host-builds")" == "arm64 $dist $TMP/shim" ]] || fail "a Release embed did not build the host: $(cat "$TMP/host-builds" 2>/dev/null)"
+[[ ! -e "$TMP/host-builds" ]] || fail "a Release embed built the host: $(cat "$TMP/host-builds")"
+[[ ! -e "$host_app" ]] || fail "a Release embed has a Chromium host"
+[[ ! -e "$remote_shim" ]] || fail "a Release embed has the remote shim"
+[[ ! -e "$TMP/build/cmux-chromium-host.dSYM" && ! -e "$TMP/build/libcmux_cef_shim_remote.dylib.dSYM" ]] ||
+  fail "a Release embed keeps the dSYMs of a host it does not ship"
+# 2a. CMUX_NEXT_RELEASE_CHROMIUM_HOST=1 (a signed dry run of the host): the
+# host and its remote shim, as in Debug, for sign-cef.sh to sign as nested code.
+rm -rf "$TMP/build/app.app" "$TMP/derived" "$TMP/host-builds"
+embed Release CMUX_NEXT_RELEASE_CHROMIUM_HOST=1
+[[ "$(cat "$TMP/host-builds")" == "arm64 $dist $TMP/shim" ]] || fail "a Release embed with CMUX_NEXT_RELEASE_CHROMIUM_HOST=1 did not build the host: $(cat "$TMP/host-builds" 2>/dev/null)"
 [[ "$(cat "$host_app")" == "host binary" ]] || fail "a Release embed has no Chromium host"
 [[ "$(cat "$remote_shim")" == "remote shim" ]] || fail "a Release embed has not the host build's remote shim"
 # Chromium's crash_reporter.cfg stays out: Release never starts the host, and in-process Chromium would read it.
@@ -117,7 +128,7 @@ done
 # A second Release build reuses the unpacked dSYM (the archive is not read again).
 cp "$dist/Chromium Embedded Framework.dSYM.tar.xz" "$TMP/cef-dsym.tar"
 printf 'not a tar' > "$dist/Chromium Embedded Framework.dSYM.tar.xz"
-embed Release
+embed Release CMUX_NEXT_RELEASE_CHROMIUM_HOST=1
 [[ "$(cat "$TMP/CEF-dSYMs/arm64/$cef_dwarf" 2>/dev/null)" == "cef dwarf" ]] ||
   fail "a Release embed read the dSYM archive again instead of the unpacked one: $(cat "$TMP/embed-Release.log")"
 mv "$TMP/cef-dsym.tar" "$dist/Chromium Embedded Framework.dSYM.tar.xz"
@@ -131,7 +142,7 @@ embed Release 'OTHER_SWIFT_FLAGS=-DCMUX_BENCH_HOOKS_OFF'
 
 # 2b. A Release host that does not build: the Release still builds, with a warning and no host.
 : > "$TMP/host-fails"
-embed Release
+embed Release CMUX_NEXT_RELEASE_CHROMIUM_HOST=1
 [[ ! -e "$host_app" ]] || fail "a Release embed whose host did not build keeps a host"
 [[ ! -e "$remote_shim" ]] || fail "a Release embed whose host did not build keeps the remote shim"
 [[ ! -e "$crash_config" ]] || fail "a Release embed whose host did not build keeps Chromium's crash_reporter.cfg"
