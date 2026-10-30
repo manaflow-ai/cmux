@@ -164,6 +164,25 @@ struct PersonalGroupLife {
         commit("delete-personal-group", ending: [group], recheck: { life.isEmptyUnpinned(group) ? [group] : [] }, failed: failed) { _ -> Void in }
     }
 
+    /// Whether a close ends the groups it empties: on a home daemon that
+    /// serves personal state with pinned (saved) groups, the same daemons
+    /// on which Close Workspaces in Group deletes an unpinned group
+    /// (`PersonalGroupPin`). A home daemon without the capability keeps
+    /// groups as they are.
+    var endsGroupsOnClose: Bool {
+        let home = machines.local
+        return personal.isLoaded && home.store.servesStateResources && home.supports(DaemonCapability.workspaceGroupPin.rawValue)
+    }
+
+    /// The personal groups of the workspaces `ids` that a close of them may
+    /// empty, read before they close (none when `endsGroupsOnClose` is false).
+    func groupsClosing(_ ids: [String]) -> Set<WorkspaceGroupID> {
+        guard endsGroupsOnClose else { return [] }
+        return Set(ids.compactMap { id in
+            WindowProfiles.qualified(id, machines: machines).flatMap { personal.workspace(session: $0.session, key: $0.key)?.group }
+        })
+    }
+
     /// How long a close waits for its members' close events to reach the
     /// home store before it stops waiting to delete their group. A close the
     /// daemon refuses (or one that never lands) leaves its members live, so

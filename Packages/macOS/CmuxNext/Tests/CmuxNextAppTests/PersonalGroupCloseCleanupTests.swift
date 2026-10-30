@@ -77,8 +77,8 @@ import Testing
         #expect(ContinuousClock.now - start < .seconds(10), "the wait ran to its deadline instead of ending on the close")
     }
 
-    /// Close Workspaces in Group already deleted the unpinned group (`PersonalGroupPin`): the
-    /// cleanup ends at once and sends no second delete.
+    /// Something else deleted the group meanwhile (another window, the CLI): the cleanup ends at
+    /// once and sends no second delete.
     @Test func aGroupAlreadyGoneIsNotDeletedAgain() async {
         let home = Home()
         home.groupExists = false

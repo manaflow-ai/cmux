@@ -106,11 +106,10 @@ enum WorkspaceBulkClose {
         if members.isEmpty, let none = nothingToClose.first(where: { $0.0 == id })?.1 { throw ActionFailure.invalidTarget(none()) }
         let services = context.services
         let names = members.map { $0.0.name }
-        let groupsToPrune: Set<WorkspaceGroupID> = Set(members.compactMap { workspace, _ in
-            guard let qualified = WindowProfiles.qualified(workspace.id, machines: services.machines),
-                  services.machines.local.store.personal.isLoaded else { return nil }
-            return services.machines.local.store.personal.workspace(session: qualified.session, key: qualified.key)?.group
-        })
+        // The groups these closes may empty. `workspaceGroup.closeOthers` closes whole groups,
+        // whose unpinned ones `PersonalGroupPin` already deletes, so it prunes none.
+        let life = PersonalGroupLife(machines: services.machines)
+        let groupsToPrune: Set<WorkspaceGroupID> = id == "workspaceGroup.closeOthers" ? [] : life.groupsClosing(members.map(\.0.id))
         let seen = Set(DaemonClosedHistory.entries([.workspace], in: services).map(\.item.id))
         var groups: [(String?, [String])] = [(nil, names)]
         if id == "workspaceGroup.closeOthers" {
@@ -125,7 +124,6 @@ enum WorkspaceBulkClose {
             WorkspaceClose.close(members)
         }
         // The unpinned groups these closes empty go once the closes land (cx-rcby); a refused close keeps its group.
-        let life = PersonalGroupLife(machines: services.machines)
         for group in groupsToPrune {
             // task-owner: one cleanup per group, bounded by `PersonalGroupLife.closeSettleLimit`
             Task { @MainActor in await life.deleteWhenEmpty(group, failed: {}) }

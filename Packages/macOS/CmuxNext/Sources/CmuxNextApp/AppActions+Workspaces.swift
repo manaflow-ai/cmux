@@ -199,15 +199,11 @@ extension AppActions {
         let daemon = services.machines.daemon(forWorkspace: workspace.id) ?? services.activeDaemon, offline = !daemon.isLive && invocation.origin == .user
         let id = workspace.id, owner = services.windows.registry.value.owner(of: id)
         let controller = owner.flatMap(services.windows.controller(for:)), shownAtPress = controller?.state.workspaceID == id
-        // Closing the last workspace in an unpinned personal group must remove
-        // the now-empty group from the home state. Capture the group before the
-        // workspace leaves its daemon; `deleteIfEmpty` rechecks after the close
-        // has been applied so a concurrent move keeps it.
-        let personalGroup: WorkspaceGroupID? = {
-            guard let qualified = WindowProfiles.qualified(id, machines: services.machines),
-                  services.machines.local.store.personal.isLoaded else { return nil }
-            return services.machines.local.store.personal.workspace(session: qualified.session, key: qualified.key)?.group
-        }()
+        // Closing the last workspace in an unpinned personal group removes the
+        // now-empty group (cx-rcby, `PersonalGroupLife.endsGroupsOnClose`). Capture
+        // the group before the workspace leaves its daemon; `deleteIfEmpty` rechecks
+        // after the close has been applied so a concurrent move keeps it.
+        let personalGroup = PersonalGroupLife(machines: services.machines).groupsClosing([id]).first
         let warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback, selected = WorkspaceCloseSelection()
         let flow = WorkspaceCloseFlow(
             // Instant (ClosingWorkspaces): the row starts closing and the selection moves now, in one sidebar pass.
