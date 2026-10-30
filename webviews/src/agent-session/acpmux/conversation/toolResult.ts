@@ -334,6 +334,8 @@ const LOG_LINE = [
   /^\s*\[(?:debug|info|warn|error|trace)\]/i,
   /^\s*(?:\[[^\]]+\]\s*)?(?:debug|info|warn|error|trace)\b/i,
   /^\s*(?:line|row|chunk|step|test|pass|fail)\s+\d+\b/i,
+  // A timestamp leading the line, bracketed or not: an ISO date and time, or a time of day.
+  /^\s*\[?(?:\d{4}-\d{2}-\d{2}[T ])?\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?\]?\s/,
 ];
 const CODE_DECLARATION = new RegExp(
   String.raw`^\s*(?:#!|from|import|def|class|const|let|var|function|return|if|for|while|` +
