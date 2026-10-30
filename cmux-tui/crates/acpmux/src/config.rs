@@ -820,9 +820,10 @@ pub struct TitlesConfig {
     pub model: Option<String>,
 }
 
-/// Host-wide limits applied to every Linux session scope. These are daemon
-/// settings, rather than spawn environment, so a CLI can set them without
-/// crossing the app-only spawn-env gate.
+/// Host-wide limits applied to every Linux session scope, and the CPU class
+/// of every macOS session's harness. These are daemon settings, rather than
+/// spawn environment, so a CLI can set them without crossing the app-only
+/// spawn-env gate.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionResourceConfig {
@@ -843,6 +844,11 @@ pub struct SessionResourceConfig {
     /// kernel's `threads-max`, between 16384 and 262144.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sessions_tasks_max: Option<u64>,
+    /// `cpuClass`: the CPU class a macOS session's harness starts at,
+    /// `background` or `normal` (`cpu_class.rs`). Env `ACPMUX_SESSION_CPU_CLASS`
+    /// overrides it, a profile's env overrides both. Unset: `background`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpu_class: Option<crate::cpu_class::CpuClass>,
 }
 
 impl SessionResourceConfig {
@@ -1089,6 +1095,19 @@ impl Config {
     /// `none`, and `clear` remove an override and restore the computed default.
     pub fn set_session_resource(&mut self, key: &str, value: &str) -> Result<()> {
         let key = key.trim().replace('-', "_").to_ascii_lowercase();
+        if matches!(
+            key.as_str(),
+            "session.cpu_class" | "session.cpuclass" | "cpu_class" | "cpuclass"
+        ) {
+            let value = value.trim();
+            self.session.cpu_class = match value.to_ascii_lowercase().as_str() {
+                "" | "default" | "none" | "clear" => None,
+                _ => Some(crate::cpu_class::CpuClass::parse(value).ok_or_else(|| {
+                    anyhow::anyhow!("{key} must be `background`, `normal` or `default`")
+                })?),
+            };
+            return Ok(());
+        }
         let slot = match key.as_str() {
             "session.memory_mb" | "session.memorymb" | "memory_mb" | "memorymb" => {
                 &mut self.session.memory_mb
@@ -1105,7 +1124,8 @@ impl Config {
             | "sessionstasksmax" => &mut self.session.sessions_tasks_max,
             _ => anyhow::bail!(
                 "unknown session resource setting `{key}` (use session.memory_mb, \
-                 session.swap_mb, session.tasks_max or session.sessions_tasks_max)"
+                 session.swap_mb, session.tasks_max, session.sessions_tasks_max or \
+                 session.cpu_class)"
             ),
         };
         let tasks = key.contains("tasks");
