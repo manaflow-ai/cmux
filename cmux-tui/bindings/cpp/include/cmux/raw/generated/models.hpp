@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "ce7fedced903738ee9e05544d13dad77c3128fd142952ef86a3f6e5d30e31390";
+inline constexpr std::string_view kProtocolIrSha256 = "d8b421f4d16b40c144106ba3d62e1a36f9366e6361adf66a8f40db8a39ee1655";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -1805,6 +1805,7 @@ struct CloudInboxChangedEvent {
 };
 
 struct CloudInboxListRequest {
+    Field<std::string> cursor{};
     std::optional<bool> include_archived{};
     Field<std::uint32_t> limit{};
     friend bool operator==(const CloudInboxListRequest&, const CloudInboxListRequest&) = default;
