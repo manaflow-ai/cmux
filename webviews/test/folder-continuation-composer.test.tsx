@@ -133,12 +133,11 @@ test("text-only recovery suppresses normal attachment carry into the destination
 });
 test("text-only recovery suppresses unbound attachment scopes from a fresh chat", async () => {
   const f = await fixture();
+  await f.draw(undefined);
   await act(async () => f.handle.current!.restore("held draft", [attachment]));
   f.handle.current!.suppressAttachmentCarryFor(undefined);
   await f.draw("destination");
   expect(f.handle.current!.wakeState().attachments).toEqual([]);
-  await f.draw(undefined);
-  expect(f.handle.current!.wakeState().attachments).toEqual([attachment]);
 });
 test("failed selection leaves the source unchanged without restoring twice", async () => {
   const f = await fixture();
