@@ -356,8 +356,15 @@ final class GroupHeaderRowView: SidebarRowView {
         chevronFrame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.height / 2, side: chevronSide)
         chevron.frame = chevronFrame
         let control = barHeight - Metrics.space1
-        // The more button sits left of the chevron.
-        moreButton.frame = NSRect(x: max(pad, chevronFrame.minX - Metrics.space1 - control), y: (b.height - control) / 2, width: control, height: control)
+        // The more button and the + center on the slots left of the chevron (`trailingSlotCenterX`), the lines a hovered
+        // row's chevron and menu take, whatever the header's control size (Leo 2026-10-29: "MISALIGNED").
+        // At most one slot wide, so neighbors never overlap (at a comfortable app density the control outgrows the pitch).
+        let slotWidth = min(control, SidebarStyle.trailingSlotPitch)
+        func slotFrame(_ slot: Int) -> NSRect {
+            let x = max(pad, SidebarStyle.trailingSlotCenterX(rowWidth: b.width, slot: slot) - slotWidth / 2)
+            return NSRect(x: x, y: (b.height - control) / 2, width: slotWidth, height: control)
+        }
+        moreButton.frame = slotFrame(1)
         // Lawrence 2026-10-11: the + and more show only on hover, keyboard
         // focus or while the editor is open. Hidden (not only clear): a click
         // there collapses the group, and VoiceOver uses the header's custom
@@ -374,8 +381,7 @@ final class GroupHeaderRowView: SidebarRowView {
         let fades = fadesNextHover && !onColumn
         setHoverShown(moreButton, showsActions, fades: fades, token: .hoverReveal)
         moreButton.setAccessibilityElement(showsActions)
-        addButton.frame = moreButton.frame.offsetBy(dx: -(control + Metrics.space1), dy: 0)
-        addButton.frame.origin.x = max(pad, addButton.frame.minX)
+        addButton.frame = slotFrame(2)
         let offersAdd = onAdd != nil && !isEmpty
         setHoverShown(addButton, offersAdd && showsActions, fades: fades, token: .hoverReveal)
         addButton.setAccessibilityElement(offersAdd && showsActions)

@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextBrowser
+import CmuxNextTestSupport
 import Foundation
 import Testing
 import CmuxNextWakeupsTestSupport
@@ -10,7 +11,7 @@ import CmuxNextWakeupsTestSupport
 /// the pane at once and showed the theme color (no document painted yet) until it painted, a blank
 /// frame between the picture and the page on every wake. The picture now stays over the page until
 /// the page's own first contentful paint. Real WebKit pages, under critical memory pressure.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct HibernationWakeCoverTests {
+@MainActor @Suite(.serialized, .timeLimit(.minutes(2)), .closesItsWindows) struct HibernationWakeCoverTests {
     /// A page whose first paint comes 1.5 s after it loads, as a heavy page's does.
     private static let slowPaint = """
         <script>const until = Date.now() + 1500; while (Date.now() < until) {}</script><p>painted</p>

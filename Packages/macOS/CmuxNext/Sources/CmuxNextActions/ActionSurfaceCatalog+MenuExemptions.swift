@@ -147,8 +147,8 @@ nonisolated extension ActionSurfaceCatalog {
             // Docked workspaces are a default-off prototype (`window.dockedWorkspaces`): palette, CLI and MCP only,
             // so the workspace row's Move menu does not grow six rows nobody can use yet.
             "workspace.dockLeft", "workspace.dockRight", "workspace.dockTop", "workspace.dockBottom", "workspace.undock",
-            "workspace.toggleDockFloating","workspace.setTint", "workspace.copyPath", "copyWorkspaceSSHError", "revealWorkspaceInFinder", "palette.copyWorkspaceID",
-            "palette.copyWorkspaceIDAndRef", "palette.copyWorkspaceLink", "workspace.showResources", "palette.openWorkspacePullRequests",
+            "workspace.toggleDockFloating","workspace.setTint", "workspace.copyPath", "copyWorkspaceSSHError", "revealWorkspaceInFinder",
+            "palette.copyWorkspaceIDAndRef", "workspace.showResources", "palette.openWorkspacePullRequests",
             "workspace.setRemoteLocalhost"],
         .paletteInternal: [
             "commandPaletteNext", "commandPalettePrevious",
