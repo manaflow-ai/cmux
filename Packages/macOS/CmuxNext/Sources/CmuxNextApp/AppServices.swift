@@ -83,8 +83,9 @@ final class AppServices {
     /// Brings a window forward for a jump (`revealTab`, a `cmux://` link).
     /// Tests replace it to record the intent without ordering windows in.
     var showJumpWindow: @MainActor (NSWindow, WindowActivation.Intent) -> Void = { WindowActivation.show($0, $1) }
-    /// The key window, from the composition root (never the global `NSApp`, nil in a test process); tests and `debug.key` replace it.
+    /// The key window and whether the app is active, from the composition root (never the global `NSApp`); tests and `debug.key` replace them.
     var keyWindowSource: @MainActor () -> NSWindow?
+    var appActiveSource: @MainActor () -> Bool
     /// Restart CLI Listener: binds the control socket again. Set once the
     /// app's control socket starts; nil while it has none (tests, socket off).
     var restartControlListener: (@MainActor () throws -> Void)?
@@ -484,17 +485,16 @@ final class AppServices {
     private(set) lazy var remoteTerminals: RemoteTerminalService = RemoteTerminalService(services: self)  // first read in init (no IUO)
     /// Cross-build session discovery and acknowledge-then-close handoff.
     private(set) lazy var sessionTransfer = SessionTransferService(services: self)
-    /// - Parameter launchReveal: The launch load-in the windows' sidebars
-    ///   hold for; the app-wide one by default.
-    /// - Parameter work: the app's one set of blocking-work lanes (task traits, PATTERNS P14); a default
-    ///   instance unless a test passes its own.
+    /// - Parameter launchReveal: The launch load-in the windows' sidebars hold for; the app-wide one by default.
+    /// - Parameter work: the app's one set of blocking-work lanes (task traits, PATTERNS P14); a default instance unless a test passes its own.
     /// - Parameter mainWork: The app's main-thread scheduler (`AppDelegate` passes the one its control
     ///   socket uses); tests get one of their own, with no pending-input check.
-    init(environment: AppEnvironment, keyWindowSource: @escaping @MainActor () -> NSWindow?, launchReveal: LaunchReveal = .shared, agentPaneEnvironment: [String: String]? = nil,
+    init(environment: AppEnvironment, keyWindowSource: @escaping @MainActor () -> NSWindow?, appActiveSource: @escaping @MainActor () -> Bool,
+         launchReveal: LaunchReveal = .shared, agentPaneEnvironment: [String: String]? = nil,
          work: BackgroundWork = BackgroundWork(), mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil)) {
         self.work = work
-        (self.launchImages, self.relaunchWake, self.keyWindowSource) = (launchImages, relaunchWake, keyWindowSource)
+        (self.launchImages, self.relaunchWake, self.keyWindowSource, self.appActiveSource) = (launchImages, relaunchWake, keyWindowSource, appActiveSource)
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
         updater = UpdaterService(work: work)
         registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget))

@@ -39,7 +39,7 @@ extension NotificationCenterService {
 
     /// The tab is the focused content of the key window while cmux is active.
     func isViewed(_ tabID: String) -> Bool {
-        guard let services, NSApp.isActive else { return false }
+        guard let services, services.appActiveSource() else { return false }
         return services.windows.controllers.contains { $0.focus.state.windowKey && Self.shownFocus($0).flatMap(Self.contentTab) == tabID }
     }
 
