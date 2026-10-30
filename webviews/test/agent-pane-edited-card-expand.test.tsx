@@ -295,6 +295,8 @@ test.each([
   // Built from the input, the page never saw the file on disk: Undo is not offered from it.
   if (fromInput) expect(host.querySelector(".acpmux-edited-undo")).toBeNull();
   const chevron = host.querySelector(".acpmux-edited-toggle");
+  expect(host.querySelector(".acpmux-edited-title")?.tagName).toBe("BUTTON");
+  expect(host.querySelector(".acpmux-edited-title")?.getAttribute("type")).toBe("button");
   expect(chevron?.getAttribute("aria-expanded")).toBe("false");
   expect(inlineDiff()).toBeUndefined();
   await click(chevron);

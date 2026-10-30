@@ -6,7 +6,7 @@
 // caller adds under the card (a delivery line, Details, a reply editor). MessageCard.tsx draws an
 // outgoing message with it; IncomingMessageCard.tsx's line is the incoming one. The caller owns
 // whether it is open, so each direction keeps that across the virtualized transcript its own way.
-import { useId, type ReactNode } from "react";
+import { useId, type KeyboardEvent, type ReactNode } from "react";
 import { ChevronRight } from "./icons";
 import { clipMessagePreview } from "./clipMessagePreview";
 import "./AgentMessageRow.css";
@@ -19,6 +19,12 @@ export function messagePreview(text: string): string {
   return clipMessagePreview(
     line.replace(/^\s*(?:#{1,6}\s+|>\s*|[-*+]\s+(?:\[[ xX]\]\s+)?)/, "").replace(/(\*\*|__|`)/g, ""),
   );
+}
+
+function activateOnKeyboard(event: KeyboardEvent<HTMLElement>, action: () => void) {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  event.preventDefault();
+  action();
 }
 
 export function AgentMessageRow({
@@ -90,7 +96,14 @@ export function AgentMessageRow({
         {/* The words toggle too, for the pointer; the toggle button is the control, and its label
             reads the line. */}
         {before.trim() && (
-          <span className="cv-agentmsg__words" data-interactive="" aria-hidden onClick={onToggle}>
+          <span
+            className="cv-agentmsg__words"
+            data-interactive=""
+            role="button"
+            tabIndex={0}
+            onClick={onToggle}
+            onKeyDown={(event) => activateOnKeyboard(event, onToggle)}
+          >
             {before.trim()}
           </span>
         )}
@@ -108,15 +121,24 @@ export function AgentMessageRow({
           <span
             className="cv-agentmsg__name is-plain"
             data-interactive=""
-            aria-hidden
+            role="button"
+            tabIndex={0}
             title={nameTitle}
             onClick={onToggle}
+            onKeyDown={(event) => activateOnKeyboard(event, onToggle)}
           >
             {name}
           </span>
         )}
         {after.trim() && (
-          <span className="cv-agentmsg__words" data-interactive="" aria-hidden onClick={onToggle}>
+          <span
+            className="cv-agentmsg__words"
+            data-interactive=""
+            role="button"
+            tabIndex={0}
+            onClick={onToggle}
+            onKeyDown={(event) => activateOnKeyboard(event, onToggle)}
+          >
             {after.trim()}
           </span>
         )}

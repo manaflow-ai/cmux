@@ -160,19 +160,25 @@ function Card({
         <span className="acpmux-edited-icon">
           <PlusMinus />
         </span>
-        {/* The title is a wider mouse target for the chevron's toggle; the chevron is the keyboard and screen reader control. */}
-        {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
-        <div
-          className={single ? "acpmux-edited-title acpmux-edited-title--toggle" : "acpmux-edited-title"}
-          data-interactive={single ? "" : undefined}
-          onClick={single ? toggleDiff : undefined}
-        >
-          <div>{title}</div>
-          <div className="acpmux-edited-sub">
-            {files.length > 0 && <Counts additions={counts.additions} deletions={counts.deletions} />}
-            {counts.outside && <span className="acpmux-edited-outside">{t("turn.outside.card")}</span>}
+        {/* The title is a wider target for the same disclosure action as the chevron. Keep it a
+            real button so keyboard users can open a one-file diff without reaching the chevron. */}
+        {single ? (
+          <button type="button" className="acpmux-edited-title acpmux-edited-title--toggle" onClick={toggleDiff}>
+            <div>{title}</div>
+            <div className="acpmux-edited-sub">
+              {files.length > 0 && <Counts additions={counts.additions} deletions={counts.deletions} />}
+              {counts.outside && <span className="acpmux-edited-outside">{t("turn.outside.card")}</span>}
+            </div>
+          </button>
+        ) : (
+          <div className="acpmux-edited-title">
+            <div>{title}</div>
+            <div className="acpmux-edited-sub">
+              {files.length > 0 && <Counts additions={counts.additions} deletions={counts.deletions} />}
+              {counts.outside && <span className="acpmux-edited-outside">{t("turn.outside.card")}</span>}
+            </div>
           </div>
-        </div>
+        )}
         {undoable && <UndoButton state={undoState} rowId={row.id} files={changes.files} t={t} />}
         {reviewable && (
           <button
