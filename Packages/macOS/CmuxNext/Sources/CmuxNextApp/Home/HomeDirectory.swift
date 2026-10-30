@@ -40,10 +40,14 @@ final class HomeDirectory {
     @ObservationIgnored private let teamCall: TeamCall?
     /// The signed-in account's Worker user id (`CloudIdentity.workerUserID`), left out of the contacts.
     @ObservationIgnored private let me: @MainActor () -> String?
+    /// The active team's Worker team id (`ActiveTeam`, `CloudIdentity.workerTeamID`), or nil before one loads.
+    @ObservationIgnored private let activeTeam: @MainActor () -> String?
 
-    init(call: @escaping Call, teamCall: TeamCall? = nil, me: @escaping @MainActor () -> String?) {
+    init(call: @escaping Call, teamCall: TeamCall? = nil, activeTeam: @escaping @MainActor () -> String? = { nil },
+         me: @escaping @MainActor () -> String?) {
         self.call = call
         self.teamCall = teamCall
+        self.activeTeam = activeTeam
         self.me = me
     }
 
