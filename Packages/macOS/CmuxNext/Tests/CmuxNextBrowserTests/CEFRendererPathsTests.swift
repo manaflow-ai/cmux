@@ -37,7 +37,7 @@ import Testing
         #expect(tab.setFrozen(true))
         // One per-browser DevTools order: the freeze leaves after the calls the tab sent before it,
         // which nothing here answered yet (`CEFRuntime.postDevTools`).
-        await rig.answeringDevTools { Spy.devToolsCalls.contains("Page.setWebLifecycleState") }
+        await rig.answeringDevTools(until: "Page.setWebLifecycleState")
         #expect(Spy.devToolsCalls.contains("Page.setWebLifecycleState"))
         #expect(!tab.sendClick(x: 1, y: 1))
     }
@@ -106,7 +106,7 @@ import Testing
         #expect(tab.setFrozen(true))
         // One per-browser DevTools order: the freeze leaves after the calls the tab sent before it,
         // which nothing here answered yet (`CEFRuntime.postDevTools`).
-        await rig.answeringDevTools { Spy.devToolsCalls.contains("Page.setWebLifecycleState") }
+        await rig.answeringDevTools(until: "Page.setWebLifecycleState")
         #expect(Spy.devToolsCalls.contains("Page.setWebLifecycleState"))
         #expect(Spy.frozen.isEmpty)
         #expect(!tab.sendClick(x: 1, y: 1))
@@ -542,6 +542,31 @@ import Testing
             for _ in 0..<500 where !condition() { await Task.yield() }
         }
 
+        /// Answers every DevTools call the tab sent (as Chromium's DEVTOOLS_RESULT would), each as the spy
+        /// records it, until the tab sent `method`. Waits on the spy's record of each sent call
+        /// (``Spy/sentSignal``), never on a count of turns: every step the order makes (a call sent after
+        /// an answer, an encoding done) is a sent call. The 10 s limit is a hang guard only.
+        func answeringDevTools(until method: String) async {
+            let (sent, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .unbounded)
+            Spy.sentSignal = signal
+            defer { Spy.sentSignal = nil }
+            let hangGuard = Task {
+                try? await Task.sleep(for: .seconds(10))
+                signal.finish()
+            }
+            defer { hangGuard.cancel() }
+            var next = sent.makeAsyncIterator()
+            while true {
+                for id in Spy.unanswered { runtime.handle(.devToolsResult(browser: 7, messageID: id, success: true, json: "{}")) }
+                Spy.unanswered = []
+                if Spy.devToolsCalls.contains(method) { return }
+                guard await next.next() != nil else {
+                    Issue.record("the tab sent no \(method) within 10 s: \(Spy.devToolsCalls)")
+                    return
+                }
+            }
+        }
+
         /// Answers every DevTools call the tab sent (as Chromium's DEVTOOLS_RESULT would) until `condition`.
         func answeringDevTools(_ condition: () -> Bool) async {
             for _ in 0..<500 where !condition() {
@@ -567,6 +592,8 @@ private nonisolated enum Spy {
     nonisolated(unsafe) static var devToolsSent: [(method: String, browser: Int32)] = []
     /// The methods of `devToolsSent`, which is what most tests here assert on.
     static var devToolsCalls: [String] { devToolsSent.map(\.method) }
+    /// Told once per DevTools call sent, while a rig waits on the calls (``Rig/answeringDevTools(until:)``).
+    nonisolated(unsafe) static var sentSignal: AsyncStream<Void>.Continuation?
     nonisolated(unsafe) static var watched: [Int32] = []
     nonisolated(unsafe) static var evaluations: [Evaluation] = []
     nonisolated(unsafe) static var frozen: [Int32] = []
@@ -617,6 +644,7 @@ private nonisolated enum Spy {
             Spy.devToolsSent.append((method.map { String(cString: $0) } ?? "", browser))
             Spy.nextMessage += 1
             Spy.unanswered.append(Spy.nextMessage)
+            Spy.sentSignal?.yield()
             return Spy.nextMessage
         }
         let watch: @convention(c) (Int32, Int32) -> Void = { _, on in Spy.watched.append(on) }
