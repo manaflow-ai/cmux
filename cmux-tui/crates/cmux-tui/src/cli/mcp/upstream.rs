@@ -250,6 +250,12 @@ impl Upstream {
             .collect()
     }
 
+    /// Starts the server when it is not running, so a stored list gives way
+    /// to its own before a call is checked against it.
+    pub(super) fn connect(&mut self) -> Result<(), String> {
+        if self.conn.is_none() { self.start() } else { Ok(()) }
+    }
+
     /// The server's own name of cmux tool `name`, when it is one of its.
     pub(super) fn owns(&self, name: &str) -> Option<String> {
         let tool = name.strip_prefix(&self.prefix)?.strip_prefix('_')?;
@@ -293,6 +299,8 @@ impl Upstream {
 
     fn try_start(&mut self) -> Result<(), String> {
         self.conn = None;
+        // The key before the start: a list is stored only for the command it came from.
+        let key = self.listings.as_ref().and_then(|_| super::upstream_listing::key(&self.spec));
         let mut child = Command::new(&self.spec.command)
             .args(&self.spec.args)
             // This server's own folding and allowlist stay with it.
@@ -344,9 +352,9 @@ impl Upstream {
                 _ => break,
             }
         }
-        if let Some(dir) = &self.listings {
+        if let (Some(dir), Some(key)) = (&self.listings, &key) {
             let listing = super::upstream_listing::Listing { tools: tools.clone(), instructions: given };
-            super::upstream_listing::store(dir, &self.spec, &listing);
+            super::upstream_listing::store(dir, &self.spec, key, &listing);
         }
         self.tools = Some(tools);
         self.failed = None;
@@ -463,6 +471,12 @@ impl ProxiedCall {
             return result;
         }
         let mut upstream = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Err(message) = upstream.connect() {
+            let error = json!({"code": "upstream.failed",
+                "message": format!("{}: {message}", upstream.name()),
+                "details": {}, "retryable": true});
+            return super::tool_error(super::envelope(error, "not_run", None));
+        }
         let Some(tool) = upstream.owns(&self.name) else {
             let error = json!({"code": "upstream.failed", "message": format!(
                 "{}: the server no longer lists {}", upstream.name(), self.name),

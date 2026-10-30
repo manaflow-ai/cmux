@@ -35,9 +35,11 @@ pub(super) fn default_dir() -> Option<PathBuf> {
 }
 
 /// The entry name for `spec`, or None when its command cannot be read (it
-/// then starts to be listed, as before).
-fn key(spec: &Spec) -> Option<String> {
-    let meta = std::fs::metadata(resolve(&spec.command)?).ok()?;
+/// then starts to be listed, as before). It names the file `PATH` resolves
+/// the command to, so another `PATH` is another entry.
+pub(super) fn key(spec: &Spec) -> Option<String> {
+    let program = resolve(&spec.command)?.canonicalize().ok()?;
+    let meta = std::fs::metadata(&program).ok()?;
     let modified = meta
         .modified()
         .ok()?
@@ -50,6 +52,7 @@ fn key(spec: &Spec) -> Option<String> {
     let what = json!({
         "name": spec.name,
         "command": spec.command,
+        "program": program,
         "args": spec.args,
         "env": env,
         "len": meta.len(),
@@ -70,9 +73,33 @@ fn resolve(command: &Path) -> Option<PathBuf> {
     std::env::split_paths(&path).map(|dir| dir.join(command)).find(|at| at.is_file())
 }
 
+/// Whether `path` is this user's own and not a symlink: a folder only they
+/// can write, or a file only they can read and write. Another user's entry,
+/// or a link to one, is never read or written through.
+fn private(path: &Path, folder: bool) -> bool {
+    let Ok(meta) = std::fs::symlink_metadata(path) else { return false };
+    if folder != meta.is_dir() || (!folder && !meta.is_file()) {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        // SAFETY: geteuid has no preconditions.
+        let own = unsafe { libc::geteuid() };
+        let open = if folder { 0o022 } else { 0o077 };
+        if meta.uid() != own || meta.mode() & open != 0 {
+            return false;
+        }
+    }
+    true
+}
+
 /// The stored list of `spec`, if there is a whole one.
 pub(super) fn load(dir: &Path, spec: &Spec) -> Option<Listing> {
     let file = dir.join(key(spec)?);
+    if !private(dir, true) || !private(&file, false) {
+        return None;
+    }
     let value: Value = serde_json::from_slice(&std::fs::read(file).ok()?).ok()?;
     let tools = value.get("tools")?.as_array()?.clone();
     if tools.iter().any(|tool| tool.get("name").and_then(Value::as_str).is_none()) {
@@ -82,20 +109,29 @@ pub(super) fn load(dir: &Path, spec: &Spec) -> Option<Listing> {
     Some(Listing { tools, instructions })
 }
 
-/// Stores `listing` for `spec`. Best effort: a failure only means the next
-/// `cmux mcp serve` starts the server to list it.
-pub(super) fn store(dir: &Path, spec: &Spec, listing: &Listing) {
-    let Some(key) = key(spec) else { return };
-    if std::fs::create_dir_all(dir).is_err() {
+/// Stores `listing` under `key`, the key `spec` had before its server
+/// started: when the command changed since (an update mid-start), nothing
+/// is stored. Best effort: a failure only means the next `cmux mcp serve`
+/// starts the server to list it.
+pub(super) fn store(dir: &Path, spec: &Spec, key: &str, listing: &Listing) {
+    if self::key(spec).as_deref() != Some(key) {
         return;
     }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt as _;
-        let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+    if std::fs::symlink_metadata(dir).is_err() {
+        let mut builder = std::fs::DirBuilder::new();
+        builder.recursive(true);
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+        if builder.create(dir).is_err() {
+            return;
+        }
+    }
+    if !private(dir, true) {
+        return;
     }
     let body = json!({"tools": listing.tools, "instructions": listing.instructions}).to_string();
     let tmp = dir.join(format!(".{key}.{}", std::process::id()));
+    let _ = std::fs::remove_file(&tmp);
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
@@ -135,7 +171,7 @@ mod tests {
         };
         let folder = home.path().join("listings");
         assert_eq!(load(&folder, &a), None, "nothing stored yet");
-        store(&folder, &a, &listing);
+        store(&folder, &a, &key(&a).unwrap(), &listing);
         assert_eq!(load(&folder, &a), Some(listing.clone()));
         // Another chat's spec differs only in its token's value: the same list.
         assert_eq!(load(&folder, &spec(&binary, "token-b")), Some(listing.clone()));
@@ -150,18 +186,36 @@ mod tests {
         std::fs::write(&binary, "version two").unwrap();
         assert_eq!(load(&folder, &a), None);
         // A torn entry reads as none.
-        store(&folder, &a, &listing);
-        let entry = std::fs::read_dir(&folder)
-            .unwrap()
-            .filter_map(Result::ok)
-            .find(|e| !e.file_name().to_string_lossy().starts_with('.'))
-            .unwrap()
-            .path();
-        std::fs::write(&entry, "{\"tools\": [").unwrap();
+        store(&folder, &a, &key(&a).unwrap(), &listing);
+        assert_eq!(load(&folder, &a), Some(listing.clone()));
+        for entry in std::fs::read_dir(&folder).unwrap().filter_map(Result::ok) {
+            std::fs::write(entry.path(), "{\"tools\": [").unwrap();
+        }
         assert_eq!(load(&folder, &a), None);
         // A missing command has no key: nothing is stored or read.
         let gone = spec(&home.path().join("missing"), "t");
-        store(&folder, &gone, &listing);
+        assert_eq!(key(&gone), None);
         assert_eq!(load(&folder, &gone), None);
+        // A list read before an update is not stored under the old key.
+        let before = key(&a).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(&binary, "version three!").unwrap();
+        store(&folder, &a, &before, &listing);
+        assert_eq!(load(&folder, &a), None);
+        store(&folder, &a, &key(&a).unwrap(), &listing);
+        assert_eq!(load(&folder, &a), Some(listing.clone()));
+        // An entry others may read, or a link, is not read.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let entry = folder.join(key(&a).unwrap());
+            std::fs::set_permissions(&entry, std::fs::Permissions::from_mode(0o644)).unwrap();
+            assert_eq!(load(&folder, &a), None);
+            std::fs::set_permissions(&entry, std::fs::Permissions::from_mode(0o600)).unwrap();
+            let elsewhere = home.path().join("elsewhere");
+            std::fs::rename(&entry, &elsewhere).unwrap();
+            std::os::unix::fs::symlink(&elsewhere, &entry).unwrap();
+            assert_eq!(load(&folder, &a), None);
+        }
     }
 }
