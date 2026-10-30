@@ -92,7 +92,7 @@ class InProgressJobLogGitHub(FakeGitHub):
         if args[:2] == ["run", "view"]:
             raise excuse.Refused("logs will be available when it is complete")
         for job_id, text in self.logs.items():
-            if args == ["api", f"repos/{REPO}/actions/jobs/{job_id}/logs"]:
+            if args == ["api", "--allow-escape-sequences", f"repos/{REPO}/actions/jobs/{job_id}/logs"]:
                 # Raw endpoint output has timestamps but no job/step prefix.
                 return "\n".join(line.split("\t", 2)[-1] for line in text.splitlines())
         raise AssertionError(args)
@@ -106,8 +106,15 @@ class JobLogEndpoint(unittest.TestCase):
         self.assertEqual(github.json(f"repos/{REPO}/actions/runs/10")["status"], "in_progress")
         self.assertEqual(
             github.log_requests,
-            [["api", f"repos/{REPO}/actions/jobs/{job_id}/logs"] for job_id in (1, 2)],
+            [["api", "--allow-escape-sequences", f"repos/{REPO}/actions/jobs/{job_id}/logs"] for job_id in (1, 2)],
         )
+
+    def test_job_logs_are_read_even_with_terminal_colours(self):
+        # gh 2.98 refuses `gh api` output holding escape sequences unless asked, and
+        # almost every job log has ANSI colours: without the flag nothing can be judged.
+        github = InProgressJobLogGitHub()
+        excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assertTrue(all("--allow-escape-sequences" in r for r in github.log_requests))
 
     def test_new_failure_in_finished_job_still_blocks(self):
         github = InProgressJobLogGitHub()
@@ -264,6 +271,81 @@ class Excusing(unittest.TestCase):
                  and "/runs/10/" not in route]
         self.assertEqual(len(reads), excuse.BASE_JOB_READS)
 
+    def tip_daemon_setup(self, *, verdict="failure"):
+        # 2026-10-30 (#27692): a feat-cmux-next push never runs daemon-test, base pushes land every
+        # minute or two, and the base's only daemon-test verdict is main's tip daemon suite run.
+        daemon = "cmux-next daemon tests"
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, name=daemon, step="Run the live-daemon suites")}
+        self.gh.logs[1] = log(daemon, "Run the live-daemon suites", ISSUE)
+        pushes = []
+        for offset in range(excuse.BASE_JOB_READS + 5):
+            run_id = 3000 + offset
+            self.gh.jobs[run_id] = dict(failed_job(run_id, run_id, BASE_SHA, name=daemon), conclusion="skipped",
+                                        steps=[])
+            pushes.append({"id": run_id, "event": "push", "head_branch": "feat-cmux-next",
+                           "status": "completed", "conclusion": "success"})
+        self.gh.base_runs = pushes
+        suite = {"id": 40, "event": "workflow_dispatch", "head_branch": "feat-cmux-next", "status": "completed",
+                 "conclusion": verdict, "display_title": "cmux-next tip daemon suite · " + BASE_SHA,
+                 "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/40"}
+        other = {"id": 41, "event": "workflow_dispatch", "head_branch": "feat-cmux-next", "status": "completed",
+                 "conclusion": "success", "display_title": "cmux NEXT DEV daily · " + BASE_SHA}
+        self.gh.jobs[4] = dict(failed_job(4, 40, BASE_SHA, name=daemon, step="Run the live-daemon suites"),
+                               conclusion=verdict)
+        self.gh.logs[4] = log(daemon, "Run the live-daemon suites", ISSUE, OTHER)
+        plain = self.gh.json
+
+        def json(route, *, paginate=False):
+            if "/actions/workflows/7/runs?" in route and "event=workflow_dispatch" in route:
+                self.gh.routes.append(route)
+                return {"workflow_runs": [copy.deepcopy(other), copy.deepcopy(suite)]}
+            return plain(route, paginate=paginate)
+
+        self.gh.json = json
+
+    def test_the_tip_daemon_suite_past_a_burst_of_base_pushes_is_the_base_verdict(self):
+        self.tip_daemon_setup()
+        text = "\n".join(self.judge())
+        self.assertIn("excused 'cmux-next daemon tests'", text)
+        self.assertIn("run 40", text)
+        lookup = [route for route in self.gh.routes if "event=workflow_dispatch" in route]
+        self.assertEqual(len(lookup), 1)
+        self.assertIn("branch=feat-cmux-next", lookup[0])
+        # Only the tip suite run's jobs are read past the window, never the DEV daily's.
+        self.assertNotIn(f"repos/{REPO}/actions/runs/41/jobs?filter=latest&per_page=100", self.gh.routes)
+
+    def test_a_newer_green_dispatch_stands_over_an_older_red_tip_suite(self):
+        # Review of #28283: a newer ordinary dispatch that ran daemon-test green must not be skipped for
+        # an older red tip suite run, or a regression since would be excused.
+        self.tip_daemon_setup()
+        daemon = "cmux-next daemon tests"
+        newer = {"id": 42, "event": "workflow_dispatch", "head_branch": "feat-cmux-next", "status": "completed",
+                 "conclusion": "success", "display_title": "cmux-next · " + "c" * 40}
+        self.gh.jobs[5] = dict(failed_job(5, 42, BASE_SHA, name=daemon), conclusion="success")
+        listed = self.gh.json
+
+        def json(route, *, paginate=False):
+            answer = listed(route, paginate=paginate)
+            if "event=workflow_dispatch" in route:
+                answer["workflow_runs"].insert(0, copy.deepcopy(newer))
+            return answer
+
+        self.gh.json = json
+        with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 42"):
+            self.judge()
+
+    def test_a_tip_daemon_suite_green_on_the_base_still_blocks(self):
+        self.tip_daemon_setup(verdict="success")
+        with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 40"):
+            self.judge()
+
+    def test_a_job_with_no_tip_suite_gets_no_extra_lookup(self):
+        self.gh.base_runs = []
+        self.gh.jobs[1]["name"] = SCHEME
+        with self.assertRaisesRegex(excuse.Refused, "no completed"):
+            self.judge()
+        self.assertFalse([route for route in self.gh.routes if "event=workflow_dispatch" in route])
+
     def test_a_setup_refusal_is_never_excused(self):
         self.gh.jobs[1]["steps"] = [{"name": "Set up job", "status": "completed", "conclusion": "success"},
                                     {"name": "Set up runner", "status": "completed", "conclusion": "failure"}]
@@ -345,6 +427,126 @@ class Excusing(unittest.TestCase):
                            "details_url": f"https://github.com/{REPO}/actions/runs/10/job/3"}])
         with self.assertRaisesRegex(excuse.Refused, "no failed job"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=["ci-status"])
+
+    def test_a_guard_status_is_judged_by_its_routed_child(self):
+        name = "nightly-guards / Guard status"
+        head = failed_job(3, 10, HEAD, name=name, step="Check routed guard jobs")
+        base = failed_job(4, 20, BASE_SHA, name=name, step="Check routed guard jobs")
+        base["steps"].append({"name": "Report routed guard jobs", "conclusion": "failure"})
+        self.gh.jobs = {3: head, 4: base}
+        self.gh.logs = {
+            3: log(name, "Check routed guard jobs", "workflow-guard-tests: failure (route linux_guard_tests=true)"),
+            4: log(name, "Check routed guard jobs", "workflow-guard-tests: failure (route linux_guard_tests=true)", "Report routed guard jobs"),
+        }
+        self.with_checks([{"id": 3, "name": name, "status": "completed", "conclusion": "failure",
+                           "app": {"slug": "github-actions"},
+                           "details_url": f"https://github.com/{REPO}/actions/runs/10/job/3"}])
+        child_name = "nightly-guards / workflow-guard-tests / release-notary"
+        step = "Test What's New highlights and release notes"
+        self.gh.jobs[5] = failed_job(5, 10, HEAD, name=child_name, step=step)
+        self.gh.jobs[6] = failed_job(6, 20, BASE_SHA, name=child_name, step=step)
+        self.gh.logs[5] = log(child_name, step, "error: missing release note")
+        self.gh.logs[6] = log(child_name, step, "error: missing release note")
+        lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[name])
+        self.assertIn("release-notary", "\n".join(lines))
+
+    def test_a_failed_guard_check_must_still_have_a_failed_aggregate_job(self):
+        # The check-run metadata can remain failed after its Actions job is
+        # replaced or retried.  Do not rescan the run and excuse its children
+        # when the exact aggregate job endpoint is now green.
+        self.test_a_guard_status_is_judged_by_its_routed_child()
+        self.gh.jobs[3]["conclusion"] = "success"
+        with self.assertRaisesRegex(excuse.Refused, "aggregate job"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh,
+                         checks=["nightly-guards / Guard status"])
+
+    def test_guard_route_job_must_match_the_reported_route_input(self):
+        # ci-guards.yml maps linux_guard_tests -> workflow-guard-tests and
+        # linux_guard_source -> workflow-guard-source-lints.  A mismatched
+        # suffix must not let a base-red child hide a routing failure.
+        self.test_a_guard_status_is_judged_by_its_routed_child()
+        name = "nightly-guards / Guard status"
+        self.gh.logs[3] = log(name, "Check routed guard jobs",
+                              "workflow-guard-tests: failure (route linux_guard_source=true)")
+        with self.assertRaisesRegex(excuse.Refused, "does not map"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[name])
+
+    def test_guard_invalid_route_with_base_red_child_is_not_excused(self):
+        self.test_a_guard_status_is_judged_by_its_routed_child()
+        self.gh.logs[3] += "\n" + log("nightly-guards / Guard status", "Check routed guard jobs",
+                                      "linux_guard_source: invalid route linux_guard_source='bogus'")
+        with self.assertRaisesRegex(excuse.Refused, "invalid route"):
+            self.judge()
+
+    def test_guard_required_skipped_route_with_base_red_child_is_not_excused(self):
+        self.test_a_guard_status_is_judged_by_its_routed_child()
+        self.gh.logs[3] += "\n" + log("nightly-guards / Guard status", "Check routed guard jobs",
+                                      "workflow-guard-source-lints: skipped (route linux_guard_source=true)")
+        with self.assertRaisesRegex(excuse.Refused, "skipped"):
+            self.judge()
+
+    def test_guard_unexplained_failed_route_with_base_red_child_is_not_excused(self):
+        self.test_a_guard_status_is_judged_by_its_routed_child()
+        self.gh.logs[3] += "\n" + log("nightly-guards / Guard status", "Check routed guard jobs",
+                                      "workflow-guard-source-lints: failure (route linux_guard_source=true)")
+        with self.assertRaisesRegex(excuse.Refused, "no failed child"):
+            self.judge()
+
+    def test_guard_runtime_error_with_base_red_child_is_not_excused(self):
+        self.test_a_guard_status_is_judged_by_its_routed_child()
+        self.gh.logs[3] += "\n" + log("nightly-guards / Guard status", "Check routed guard jobs",
+                                      "##[error]guard routing failed to parse")
+        with self.assertRaisesRegex(excuse.Refused, "routing failed"):
+            self.judge()
+
+    def test_guard_missing_route_report_with_base_red_child_is_not_excused(self):
+        self.test_a_guard_status_is_judged_by_its_routed_child()
+        self.gh.logs[3] = log("nightly-guards / Guard status", "Check routed guard jobs",
+                              "##[error]Process completed with exit code 1.")
+        with self.assertRaisesRegex(excuse.Refused, "no routed failure"):
+            self.judge()
+
+    def test_guard_child_new_step_is_not_excused(self):
+        self.test_a_guard_status_is_judged_by_its_routed_child()
+        self.gh.jobs[5]["steps"][-1]["name"] = "New source lint"
+        with self.assertRaisesRegex(excuse.Refused, "New source lint"):
+            self.judge()
+
+    def test_guard_child_new_error_is_not_excused(self):
+        self.test_a_guard_status_is_judged_by_its_routed_child()
+        self.gh.logs[5] = "error: new source lint violation"
+        with self.assertRaisesRegex(excuse.Refused, "new source lint violation"):
+            self.judge()
+
+    def test_guard_child_new_job_is_not_excused(self):
+        self.test_a_guard_status_is_judged_by_its_routed_child()
+        self.gh.jobs[5]["name"] = "nightly-guards / workflow-guard-source-lints / lint"
+        with self.assertRaisesRegex(excuse.Refused, "no failed child"):
+            self.judge()
+
+    def test_newest_red_base_job_wins_over_older_green(self):
+        self.test_a_guard_status_is_judged_by_its_routed_child()
+        older = copy.deepcopy(self.gh.jobs[6])
+        older.update(id=7, run_id=19, conclusion="success")
+        older["steps"][-1]["conclusion"] = "success"
+        self.gh.jobs[7] = older
+        self.gh.base_runs.append({"id": 19, "event": "push", "conclusion": "success"})
+        self.assertIn("run 20", "\n".join(self.judge()))
+
+    def test_a_guard_status_does_not_match_an_unrelated_routed_job(self):
+        name = "nightly-guards / Guard status"
+        head = failed_job(3, 10, HEAD, name=name, step="Check routed guard jobs")
+        base = failed_job(4, 20, BASE_SHA, name=name, step="Check routed guard jobs")
+        self.gh.jobs = {3: head, 4: base}
+        self.gh.logs = {
+            3: log(name, "Check routed guard jobs", "workflow-guard-source-lints: failure (route linux_guard_source=true)"),
+            4: log(name, "Check routed guard jobs", "workflow-guard-tests: failure (route linux_guard_tests=true)"),
+        }
+        self.with_checks([{"id": 3, "name": name, "status": "completed", "conclusion": "failure",
+                           "app": {"slug": "github-actions"},
+                           "details_url": f"https://github.com/{REPO}/actions/runs/10/job/3"}])
+        with self.assertRaisesRegex(excuse.Refused, "no failed job"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[name])
 
 
 def crashed(job, signal, unfinished, frames, *extra):

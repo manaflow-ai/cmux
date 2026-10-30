@@ -307,7 +307,7 @@ impl Hub {
         blocks: Vec<Value>,
         client: &str,
         steer: bool,
-        opts: PromptOptions,
+        mut opts: PromptOptions,
         joined: &super::digest::DigestTurn,
     ) -> Result<Value, RpcError> {
         // Stop can arrive during dispatch setup, before session.turn is installed. Keep
@@ -359,8 +359,9 @@ impl Hub {
             && self.turn_cap_holds(session, opts.provenance.as_ref(), opts.agent.as_deref());
         // Another agent's message goes into the chat's inbox, never a turn or a steer of its own
         // (`inbox.rs`). Boxed, out of this future.
-        if let Some(inbox) = self.inbox_route(
+        let route = self.inbox_route(
             session,
+            &prompt_id,
             &blocks,
             control,
             opts.send_now,
@@ -368,20 +369,40 @@ impl Hub {
             opts.provenance.as_ref(),
             opts.agent.as_deref(),
             opts.inbox,
-        ) {
-            let (agent, class) = inbox;
-            return Box::pin(self.inbox_accept(
-                session,
-                &blocks,
-                client,
-                &prompt_id,
-                &agent,
-                class,
-                opts.thread.as_deref(),
-                opts.provenance.as_ref(),
-                &mut accept,
-            ))
-            .await;
+        );
+        // Held until this prompt ends: its turn, or its refusal (`inbox.rs`).
+        let first_work = match route {
+            super::inbox::Route::First(first) => Some(first),
+            super::inbox::Route::Plain => None,
+            super::inbox::Route::Inbox(agent, class) => {
+                return Box::pin(self.inbox_accept(
+                    session,
+                    &blocks,
+                    client,
+                    &prompt_id,
+                    &agent,
+                    class,
+                    opts.thread.as_deref(),
+                    opts.provenance.as_ref(),
+                    &mut accept,
+                ))
+                .await;
+            }
+        };
+        // A first work says so in its provenance, which its queue entry keeps across a restart
+        // (`queue.rs`): its sender is the delegator whichever turn it runs as.
+        if first_work.is_some()
+            && let Some(p) = opts.provenance.as_mut().and_then(Value::as_object_mut)
+        {
+            p.insert(super::inbox::FIRST_WORK.to_owned(), Value::Bool(true));
+        }
+        #[cfg(test)]
+        if first_work.is_some() {
+            let seam = self.first_work_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
+            if let Some((arrived, release)) = seam {
+                let _ = arrived.send(());
+                let _ = release.await;
+            }
         }
         // An inbox notice steers in only while the turn is under its cap and no prompt waits
         // (`inbox.rs`), checked again here at dispatch.
@@ -389,12 +410,21 @@ impl Hub {
             && running.is_some()
             && super::inbox::is_notice(opts.provenance.as_ref())
             && super::inbox::notice_held(session);
+        // A review box's turn takes no other agent's steer: its message waits behind the review,
+        // as the inbox leaves it (`inbox.rs`). The person's own steer and Send now still go in.
+        // Read with or without a running turn: one that starts before this reaches the queue is
+        // stopped by no agent's interrupt either.
+        let review_held = from_agent && super::inbox::review_box(session);
         let steer_now = steer
             && session.steering.load(Ordering::SeqCst)
             && running.is_some()
             && !capped
-            && !notice_held;
+            && !notice_held
+            && !review_held;
         if steer && opts.steer_only && !steer_now {
+            if review_held && running.is_some() {
+                return Err(super::inbox::review_box_steer_refused());
+            }
             return Err(super::turn_cap::steer_unavailable(capped));
         }
         if !live {
@@ -428,8 +458,9 @@ impl Hub {
             prompt_id: &prompt_id,
             control,
             trust_gate,
-            // Held past the cap, it waits: it stops no turn (`turn_cap.rs`).
-            interrupt: opts.interrupt && !capped,
+            // Held past the cap, it waits: it stops no turn (`turn_cap.rs`); nor does another
+            // agent's message stop a review box's review (`inbox.rs`).
+            interrupt: opts.interrupt && !capped && !review_held,
             interrupt_turn: opts.interrupt_turn.as_deref(),
             provenance: opts.provenance.as_ref(),
             agent: agent.as_deref(),
@@ -577,6 +608,17 @@ impl Hub {
             drafts::clear_sent_draft(&mut m, &text);
             super::titles::set_fallback_title(&mut m, &text);
             m.preview = Some(String::new());
+            // The sender of a chat's first turn is its delegator (`inbox.rs`): named once the
+            // turn starts, so a prompt refused before it names none, and over one a message the
+            // inbox took while this first work waited to start named. Its own sender, not a
+            // digest's: messages that joined its turn (`digest.rs`) name none. A first work a
+            // person's prompt went ahead of still names it.
+            if (m.turn_count == 0 || super::inbox::is_first_work(run.provenance.as_ref()))
+                && let Some(from) = super::inbox::sender_session(run.provenance.as_ref())
+                && from != m.id
+            {
+                m.delegator = Some(from);
+            }
             m.turn_count += 1;
         }
         // A turn on lane reports only reports nothing (`lane_reports.rs`).
@@ -1753,6 +1795,7 @@ impl Hub {
             let mut m = session.meta.lock().unwrap();
             // A chat renamed before it was titled asks no model for a title (`titles.rs`).
             super::titles::title_renamed(&mut m);
+            m.name_given = true;
             std::mem::replace(&mut m.name, name.clone())
         };
         self.append(session, "mux", "renamed", json!({"from": old, "to": name}));
