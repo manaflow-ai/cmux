@@ -54,7 +54,9 @@ VISUAL_VERDICT = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 VERDICT_PLACEHOLDER = "<one sentence: would Leo accept this next to ChatGPT/Claude?>"
-SENTENCE_BOUNDARY = re.compile(r"(?<![.!?])[.!?](?![.!?])(?:[\"')\]]*)(?=\s+[A-Z])")
+SENTENCE_BOUNDARY = re.compile(
+    r"(?P<marks>[.!?]+)(?:[\"')\]]*)\s+(?P<next>[A-Za-z])"
+)
 ABBREVIATIONS = {"dr", "e", "eg", "etc", "g", "i", "ie", "mr", "mrs", "prof", "s", "vs"}
 
 
@@ -87,9 +89,13 @@ def visual_judgment(body: str) -> bool:
     if not VIEWED_AFTER.search(text) or not verdict:
         return False
     value = verdict.group("verdict").strip()
-    if value.casefold() == VERDICT_PLACEHOLDER.casefold():
+    if VERDICT_PLACEHOLDER.casefold() in value.casefold():
         return False
     for boundary in SENTENCE_BOUNDARY.finditer(value):
+        marks = boundary.group("marks")
+        if set(marks) == {"."} and len(marks) > 1:
+            if boundary.group("next").islower():
+                continue
         preceding = re.search(r"([A-Za-z]{1,4})$", value[:boundary.start()])
         if not preceding or preceding.group(1).casefold() not in ABBREVIATIONS:
             return False
