@@ -342,7 +342,9 @@ mod tests {
     #[test]
     fn a_vm_kind_that_is_not_a_string_reads_as_not_the_owner() {
         let mut wire = serde_json::to_value(info()).expect("encode");
-        for bad in [json!(true), json!(1), json!(["owner"]), json!({ "kind": "owner" }), json!(null)] {
+        for bad in
+            [json!(true), json!(1), json!(["owner"]), json!({ "kind": "owner" }), json!(null)]
+        {
             wire["vm_kind"] = bad.clone();
             let decoded: ConnectInfo = serde_json::from_value(wire.clone()).expect("decodes");
             assert!(!decoded.caller_owns_vm(), "{bad}");

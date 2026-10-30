@@ -119,7 +119,10 @@ pub(crate) fn run<C: ControlPlane>(
 /// ended, ends its links as a connect's readiness read does
 /// ([`end_links_after`]) and fails the connect. A transient failure is not
 /// the owner.
-fn owner_answer<C: ControlPlane>(server: &mut Server<C>, machine: &str) -> Result<bool, CloudError> {
+fn owner_answer<C: ControlPlane>(
+    server: &mut Server<C>,
+    machine: &str,
+) -> Result<bool, CloudError> {
     server.attach_mut().infos.forget(machine);
     match super::info::connect_info(server, machine) {
         Ok(info) => Ok(info.caller_owns_vm()),
@@ -131,7 +134,11 @@ fn owner_answer<C: ControlPlane>(server: &mut Server<C>, machine: &str) -> Resul
 /// Ends the links a Cloud read's `error` says may not go on: every link on
 /// a sign-out, this machine's on not-found or forbidden (refusing new
 /// links to it). True when it ended any.
-fn end_links_after<C: ControlPlane>(server: &mut Server<C>, machine: &str, error: &CloudError) -> bool {
+fn end_links_after<C: ControlPlane>(
+    server: &mut Server<C>,
+    machine: &str,
+    error: &CloudError,
+) -> bool {
     if error.code == codes::AUTH_REQUIRED {
         // Signed out: no link may outlive the sign-in.
         server.attach_mut().supervisor.disconnect_all("signed out of cmux Cloud");
