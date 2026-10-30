@@ -55,7 +55,11 @@ contains(' <key> ') matches whole keys only:
   runner is no longer than Blacksmith 6 vCPU's queue per slot. A label whose queue is
   deeper than the pool (#26809, 2026-10-29: eleven swift tests queued behind nine busy
   gui runners for 45+ minutes) is written empty, so the GUI jobs take the workflow's
-  Blacksmith macOS leg instead of joining it. With no snapshot to weigh, the live label
+  Blacksmith macOS leg instead of joining it. A label the janitor's snapshot lists as
+  unserved (a job queued on it, none running or started within ten minutes) has no room
+  either, unless one of its runners is idle: cmux#24295's daemon tests waited 90 minutes on
+  a session label whose five online runners were busy, while the gui label moved. An empty
+  session_runner sends those jobs to gui_runner. With no snapshot to weigh, the live label
   stays (today's route; the rescue still watches it);
 - `gui_overflow`: the Blacksmith macOS label the GUI jobs take when the owned GUI route
   is declined above, and on the rescue's full re-run (rerun_main()), whose GUI jobs
@@ -266,12 +270,20 @@ def role_room(candidate: str, runners: Sequence[Mapping[str, Any]], seen: Any = 
     the label only while Blacksmith 6 vCPU's queue per slot is at least as deep (`waiting`, with
     next_macos_cascade.CAPACITY), so the job joins the shorter of the two queues. With no snapshot the
     queue is unknown and the label stays, as before this check.
+
+    A label the janitor found unserved (`seen.unserved`: a job queued on it and none running or started
+    within starved_labels.STARVED_AFTER) has no room whatever its counts say, unless a runner carrying it is
+    idle now: its queue is not moving. On 2026-10-29 cmux#24295's daemon tests waited 90 minutes on
+    glaeda-session-std-xcode-26.6, twice, with five session runners online and busy and the queue shorter
+    than them, while the gui label beside it started jobs within a minute.
     """
     online, idle = _role_online(candidate, runners)
     if not online:
         return False
     if idle:
         return True
+    if candidate in (getattr(seen, "unserved", None) or ()):
+        return False
     queues = getattr(seen, "owned_queued", None)
     if queues is None:
         return True
