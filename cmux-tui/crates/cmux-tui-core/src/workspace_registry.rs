@@ -3906,7 +3906,10 @@ fn check_registry_integrity(connection: &Connection) -> anyhow::Result<()> {
         ("journal_event_index", "sequence"),
         ("journal_segments", "end_sequence"),
         ("journal_checkpoints", "source_sequence"),
-        ("journal_content_blobs", "created_at_ms"),
+        // created_at_ms has no index: ordering by it scanned and sorted every
+        // blob through its overflow pages (0.67 s cold on a 41.6 GB registry).
+        // Blobs are append-only, so the newest rowid is the newest blob.
+        ("journal_content_blobs", "rowid"),
     ] {
         let query = format!("SELECT 1 FROM {table} ORDER BY {order} DESC LIMIT 1");
         let _: Option<i64> = connection.query_row(&query, [], |row| row.get(0)).optional()?;
