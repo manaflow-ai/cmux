@@ -89,6 +89,8 @@ export class AppsStore {
   /** Monotonic token so a slower updates.list response cannot replace a newer one. */
   private updatesGeneration = 0;
   private detailGeneration = 0;
+  private grantsGeneration = 0;
+  private logsGeneration = 0;
   /**
    * The idempotency key of each action still in flight or failed with a retryable error, by op and
    * params: the person's next try of the same action sends the same key, so a retry after a
@@ -193,6 +195,8 @@ export class AppsStore {
     ++this.generation;
     ++this.updatesGeneration;
     ++this.detailGeneration;
+    ++this.grantsGeneration;
+    ++this.logsGeneration;
     this.unpage?.();
     this.unpage = undefined;
     this.starting = false;
@@ -359,7 +363,8 @@ export class AppsStore {
           detailStatus: "ready",
           detailError: undefined,
         });
-      if (detail.installed) await this.loadGrants(app);
+      if (detail.installed && generation === this.detailGeneration && this.snapshot.selection === app)
+        await this.loadGrants(app);
     } catch (error) {
       if (generation === this.detailGeneration && this.snapshot.selection === app) {
         const failed = failure(error);
@@ -382,10 +387,14 @@ export class AppsStore {
 
   private async loadGrants(app: string): Promise<void> {
     if (!this.client) return;
+    const lifetime = this.lifetime;
+    const generation = ++this.grantsGeneration;
     try {
       const grants = await this.client.call<Grants>(AppsOps.grantsGet, { app });
+      if (lifetime !== this.lifetime || generation !== this.grantsGeneration) return;
       this.set({ grants: { ...this.snapshot.grants, [app]: grants } });
     } catch (error) {
+      if (lifetime !== this.lifetime || generation !== this.grantsGeneration) return;
       this.set(failure(error));
     }
   }
@@ -405,6 +414,8 @@ export class AppsStore {
 
   private async loadLogs(app: string): Promise<void> {
     if (!this.client) return;
+    const lifetime = this.lifetime;
+    const generation = ++this.logsGeneration;
     try {
       const wire = await this.client.call<WireLogs>(AppsOps.logs, { app, limit: LOG_LINES });
       const lines: LogLine[] = wire.lines.map((line) => ({
@@ -412,8 +423,10 @@ export class AppsStore {
         message: line.message,
         at_ms: line.ts_ms,
       }));
-      if (this.snapshot.logsShown === app) this.set({ logs: { ...this.snapshot.logs, [app]: lines } });
+      if (lifetime === this.lifetime && generation === this.logsGeneration && this.snapshot.logsShown === app)
+        this.set({ logs: { ...this.snapshot.logs, [app]: lines } });
     } catch (error) {
+      if (lifetime !== this.lifetime || generation !== this.logsGeneration) return;
       this.set(failure(error));
     }
   }
@@ -514,6 +527,7 @@ export class AppsStore {
     { reread = true, mutation = true }: { reread?: boolean; mutation?: boolean } = {},
   ): Promise<void> {
     if (!this.client) return;
+    const lifetime = this.lifetime;
     const action = `${op}\u0000${JSON.stringify(params)}`;
     let key = mutation ? this.pendingKeys.get(action) : undefined;
     if (mutation && !key) {
@@ -523,12 +537,15 @@ export class AppsStore {
     try {
       await this.client.call(op, key ? { ...params, idempotency_key: key } : params);
       this.pendingKeys.delete(action);
+      if (lifetime !== this.lifetime) return;
       if (this.snapshot.error) this.set({ error: undefined });
     } catch (error) {
       if (!(isPageError(error) && error.retryable)) this.pendingKeys.delete(action);
+      if (lifetime !== this.lifetime) return;
       if (!(isPageError(error) && error.code === CANCELLED)) this.set(failure(error));
       return;
     }
+    if (lifetime !== this.lifetime) return;
     if (reread) await this.reload();
   }
 

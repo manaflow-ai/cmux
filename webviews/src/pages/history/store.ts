@@ -227,16 +227,19 @@ export class HistoryStore {
 
   private async intent(op: string, params: unknown, reread = true): Promise<void> {
     if (!this.client) return;
+    const lifetime = this.lifetime;
     try {
       await this.client.call(op, params);
+      if (lifetime !== this.lifetime) return;
       if (this.snapshot.error) this.set({ error: undefined });
     } catch (error) {
+      if (lifetime !== this.lifetime) return;
       this.set(failure(error));
       return;
     }
     // The provider also emits `cmux.history.changed`; re-reading here keeps the page correct when
     // the event is late, and the generation check drops the duplicate reply.
-    if (reread) await this.reload();
+    if (lifetime === this.lifetime && reread) await this.reload();
   }
 
   private key(): string {
