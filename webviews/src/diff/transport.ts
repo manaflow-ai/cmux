@@ -214,6 +214,8 @@ export class WebSocketDiffTransport extends BaseDiffTransport {
   private readonly endpoint: string;
   private socket: WebSocket | null = null;
   private connecting: Promise<WebSocket> | null = null;
+  /** Sockets this transport gave up on: the browser may deliver their close event after a newer socket opened. */
+  private readonly dropped = new WeakSet<WebSocket>();
   private readonly pending = new Map<
     string,
     { resolve: (result: DiffResult) => void; reject: (error: Error) => void }
@@ -260,6 +262,7 @@ export class WebSocketDiffTransport extends BaseDiffTransport {
       );
       socket.addEventListener("message", (message) => this.handleMessage(socket, message));
       socket.addEventListener("close", () => {
+        if (this.dropped.has(socket)) return;
         this.socket = null;
         this.connecting = null;
         this.rejectPending(new DiffTransportError("closed", "Diff transport closed"));
@@ -277,13 +280,15 @@ export class WebSocketDiffTransport extends BaseDiffTransport {
   }
 
   private handleMessage(socket: WebSocket, message: MessageEvent): void {
-    if (typeof message.data !== "string") {
+    if (typeof message.data !== "string" || this.dropped.has(socket)) {
       return;
     }
     const decoded = parseJsonObjectFrame(message.data) as DiffResponse | DiffEvent | null;
     if (!decoded) {
       // A frame that is not a JSON object may be the answer a request waits for, with its id lost.
       // Fail every waiting request instead of leaving it to hang; the next request reconnects.
+      this.dropped.add(socket);
+      if (this.socket === socket) this.socket = null;
       this.rejectPending(new DiffTransportError("invalidResponse", "Diff transport sent a malformed frame"));
       socket.close();
       return;
