@@ -5,17 +5,19 @@
 # and the CLI end to end, at 1 terminal and at 50 workspaces / 200 terminals.
 # Run alone on an idle worker:
 #   cmux-ci run --class exclusive --measurement --script scripts/measure/perf-10x-daemon.sh --ref SHA
-#     [--arg=n=300] [--arg=cli_n=40] [--arg=scenarios=small,scale]
+#     [--arg=n=300] [--arg=cli_n=40] [--arg=scenarios=small,scale] [--arg=agent_cli=0|1]
 # Output: PERF-DAEMON lines; JSON at .build/perf-daemon/result.json.
 set -euo pipefail
 n=300
 cli_n=40
 scenarios="small,scale"
+agent_cli=1
 for arg in "$@"; do
   case "$arg" in
     n=*) n="${arg#n=}" ;;
     cli_n=*) cli_n="${arg#cli_n=}" ;;
     scenarios=*) scenarios="${arg#scenarios=}" ;;
+    agent_cli=*) agent_cli="${arg#agent_cli=}" ;;
     *) echo "perf-10x-daemon.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
@@ -41,5 +43,5 @@ echo "PERF-DAEMON-BUILD seconds=$(( $(date +%s) - t0 ))"
 bin="$CARGO_TARGET_DIR/release/cmux-tui"
 echo "PERF-DAEMON-MACHINE host=$(scutil --get ComputerName 2>/dev/null || hostname) cpu=\"$(sysctl -n machdep.cpu.brand_string)\" cores=$(sysctl -n hw.ncpu) macos=$(sw_vers -productVersion) load=\"$(uptime | sed 's/.*load averages*: //')\""
 ulimit -n "$(ulimit -Hn)" 2>/dev/null || ulimit -n 65536 2>/dev/null || true
-python3 scripts/bench-daemon-latency.py --bin "$bin" --n "$n" --cli-n "$cli_n" --scenarios "$scenarios" \
+python3 scripts/bench-daemon-latency.py --bin "$bin" --n "$n" --cli-n "$cli_n" --scenarios "$scenarios" --agent-cli "$agent_cli" \
   --out "$work/result.json"

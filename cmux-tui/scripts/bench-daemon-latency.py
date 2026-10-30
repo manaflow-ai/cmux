@@ -26,7 +26,8 @@ session.snapshot, identify). It reports the app requests' latency, the
 requests over the app's 2 s timeout, and both daemon locks by site
 (`server-stats` `locks`, or `registry_lock.top_sites` on a daemon without
 it). Arguments: --agents (80), --agent-sleep (0.25 s between an agent's
-hooks), --load-seconds (60).
+hooks), --load-seconds (60), --agent-cli (1; 0 runs the hooks only, the
+shipped agent hooks' real load: no shipped hook calls the CLI per turn).
 
 Usage:
   bench-daemon-latency.py --bin target/release/cmux-tui --out result.json
@@ -343,7 +344,8 @@ class Bench:
             f">/dev/null 2>&1; sleep {self.args.agent_sleep}"
             for event in events
         )
-        script = f"while :; do {loop}; {bin_q} workspace list >/dev/null 2>&1; done"
+        cli = f"; {bin_q} workspace list >/dev/null 2>&1" if self.args.agent_cli else ""
+        script = f"while :; do {loop}{cli}; done"
         return ["/bin/sh", "-c", script]
 
     def server_stats(self, c):
@@ -519,6 +521,8 @@ def main():
     ap.add_argument("--agents", type=int, default=80)
     ap.add_argument("--agent-sleep", type=lambda v: str(float(v)), default="0.25")
     ap.add_argument("--load-seconds", type=float, default=60.0)
+    ap.add_argument("--agent-cli", type=int, choices=(0, 1), default=1,
+                    help="1: each fake agent also runs `cmux workspace list` once per turn; 0: hooks only")
     args = ap.parse_args()
     b = Bench(args)
     status = 0
