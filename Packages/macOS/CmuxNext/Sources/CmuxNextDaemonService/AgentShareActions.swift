@@ -1,5 +1,6 @@
 public import CmuxNextActions
 import CmuxNextDaemon
+import Foundation
 
 /// Share Chat with Guest (design chat-multiplayer.md 1 and 6, hq#4766): one link to one agent chat
 /// that works once and expires in 24 hours by default. The palette, the chat tab's menu, `cmux share
@@ -44,7 +45,17 @@ public struct AgentShareActions {
                                                              ownerToken: token)
                 // Create waits out the hosted room's provisioning (its request budget is 15 s,
                 // agent_session_share_room.rs): its answer is the only copy of the link's secret.
-                let created = try await Self.connected(chat.connection).request(request, timeout: Self.createDeadline)
+                let connection = try Self.connected(chat.connection)
+                let started = UInt64(Date().timeIntervalSince1970 * 1000)
+                let created: AgentSessionShareCreated
+                do {
+                    created = try await connection.request(request, timeout: Self.createDeadline)
+                } catch DaemonError.timedOut(let what) {
+                    // The daemon may still have made the link, but its secret was only in the answer
+                    // that never came: no one can use it, so end it rather than leave it live.
+                    await Self.revokeUnanswered(session: chat.session, since: started, on: connection)
+                    throw DaemonError.timedOut(what)
+                }
                 // A person's palette or menu run copies the link at once; a script gets it back.
                 if person { Self.announce(created, host: host) }
                 return AgentShareResults.created(created)
@@ -137,6 +148,16 @@ public struct AgentShareActions {
 
     private static func argument(_ invocation: ActionInvocation, _ name: String) -> String? {
         invocation[name]?.stringValue.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// Revokes this Mac's shares of `session` made since `since` (ms) whose create was never answered.
+    /// Best effort: a failure leaves them to expire.
+    private static func revokeUnanswered(session: String, since: UInt64, on connection: DaemonConnection) async {
+        guard let listed = try? await connection.request(AgentSessionShareListRequest()) else { return }
+        for share in listed.shares where share.session == session && share.createdAt >= since
+            && (share.state == "provisioning" || share.state == "active") {
+            _ = try? await connection.request(AgentSessionShareRevokeRequest(shareId: share.shareId))
+        }
     }
 
     private static func connected(_ connection: DaemonConnection?) throws -> DaemonConnection {

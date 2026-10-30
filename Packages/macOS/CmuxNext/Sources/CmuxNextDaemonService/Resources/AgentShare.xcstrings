@@ -662,127 +662,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The link may still have been made. Check cmux share list before trying again."
+            "value": "The share service didn’t answer in time, so no link was made. Try again."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der Link wurde möglicherweise trotzdem erstellt. Prüfe cmux share list, bevor du es erneut versuchst."
+            "value": "Der Freigabedienst hat nicht rechtzeitig geantwortet, daher wurde kein Link erstellt. Versuche es erneut."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le lien a peut-être quand même été créé. Vérifiez cmux share list avant de réessayer."
+            "value": "Le service de partage n’a pas répondu à temps, aucun lien n’a donc été créé. Réessayez."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ربما أُنشئ الرابط رغم ذلك. تحقّق من cmux share list قبل المحاولة مرة أخرى."
+            "value": "لم تستجب خدمة المشاركة في الوقت المناسب، لذا لم يُنشأ أي رابط. حاول مرة أخرى."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Es posible que el enlace se haya creado de todos modos. Revisa cmux share list antes de volver a intentarlo."
+            "value": "El servicio de uso compartido no respondió a tiempo, así que no se creó ningún enlace. Vuelve a intentarlo."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "連結可能已經建立。請先查看 cmux share list 再重試。"
+            "value": "分享服務未及時回應，因此未建立連結。請再試一次。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "链接可能已经创建。请先查看 cmux share list 再重试。"
+            "value": "共享服务未及时响应，因此未创建链接。请重试。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "링크가 이미 만들어졌을 수 있습니다. 다시 시도하기 전에 cmux share list를 확인하세요."
+            "value": "공유 서비스가 제때 응답하지 않아 링크가 만들어지지 않았습니다. 다시 시도하세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "リンクはすでに作成されている可能性があります。再試行する前に cmux share list を確認してください。"
+            "value": "共有サービスが時間内に応答しなかったため、リンクは作成されませんでした。もう一度お試しください。"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Link je možda ipak napravljen. Provjeri cmux share list prije ponovnog pokušaja."
+            "value": "Usluga dijeljenja nije odgovorila na vrijeme, pa link nije napravljen. Pokušaj ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Linket er måske alligevel blevet oprettet. Tjek cmux share list, før du prøver igen."
+            "value": "Delingstjenesten svarede ikke i tide, så der blev ikke oprettet et link. Prøv igen."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Il link potrebbe essere stato creato comunque. Controlla cmux share list prima di riprovare."
+            "value": "Il servizio di condivisione non ha risposto in tempo, quindi non è stato creato alcun link. Riprova."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "តំណអាចត្រូវបានបង្កើតរួចហើយ។ សូមពិនិត្យ cmux share list មុនពេលព្យាយាមម្តងទៀត។"
+            "value": "សេវាចែករំលែកមិនបានឆ្លើយតបទាន់ពេល ដូច្នេះមិនបានបង្កើតតំណទេ។ សូមព្យាយាមម្តងទៀត។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lenken kan ha blitt laget likevel. Sjekk cmux share list før du prøver igjen."
+            "value": "Delingstjenesten svarte ikke i tide, så ingen lenke ble laget. Prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Link mógł mimo to zostać utworzony. Sprawdź cmux share list, zanim spróbujesz ponownie."
+            "value": "Usługa udostępniania nie odpowiedziała na czas, więc link nie został utworzony. Spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O link pode ter sido criado mesmo assim. Confira cmux share list antes de tentar de novo."
+            "value": "O serviço de compartilhamento não respondeu a tempo, então nenhum link foi criado. Tente de novo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ссылка, возможно, уже создана. Проверьте cmux share list, прежде чем повторить."
+            "value": "Сервис общего доступа не ответил вовремя, поэтому ссылка не создана. Попробуйте ещё раз."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ลิงก์อาจถูกสร้างไปแล้ว ตรวจสอบ cmux share list ก่อนลองอีกครั้ง"
+            "value": "บริการแชร์ไม่ตอบกลับทันเวลา จึงไม่ได้สร้างลิงก์ ลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bağlantı yine de oluşturulmuş olabilir. Yeniden denemeden önce cmux share list'i kontrol edin."
+            "value": "Paylaşım hizmeti zamanında yanıt vermedi, bu yüzden bağlantı oluşturulmadı. Yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Посилання, можливо, вже створено. Перевірте cmux share list, перш ніж повторити."
+            "value": "Сервіс спільного доступу не відповів вчасно, тож посилання не створено. Спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Có thể liên kết vẫn đã được tạo. Hãy kiểm tra cmux share list trước khi thử lại."
+            "value": "Dịch vụ chia sẻ không phản hồi kịp, nên chưa có liên kết nào được tạo. Hãy thử lại."
           }
         }
       }

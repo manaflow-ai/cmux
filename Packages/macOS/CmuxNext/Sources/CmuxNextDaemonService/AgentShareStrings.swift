@@ -25,7 +25,7 @@ enum AgentShareStrings {
     }
 
     static var timedOut: String {
-        String(localized: "agentShare.timedOut", defaultValue: "The link may still have been made. Check cmux share list before trying again.", table: "AgentShare", bundle: .module)
+        String(localized: "agentShare.timedOut", defaultValue: "The share service didn’t answer in time, so no link was made. Try again.", table: "AgentShare", bundle: .module)
     }
 
     static func noSurface(_ surface: Int) -> String {
