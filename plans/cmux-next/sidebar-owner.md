@@ -1,5 +1,11 @@
 # cmux-next sidebar: owner note
 
+- 2026-10-29: one row per workspace id. Cloud machines made from one image share its workspace ids, and the list keeps
+  one row view per key, so a second row with the same id drew nothing (a blank slot above the Cloud rows) and the one
+  view showed either row's content. `SidebarLayout.make` lists a repeated id once, in the first section that lists it
+  (this Mac's first). Leo: "why is there all this weird stuff at the bottom of the sidebar", "the rendering gets borked
+  there too :(". Regression: `SidebarOneRowPerWorkspaceTests`.
+
 - 2026-10-29 (https://github.com/manaflow-ai/cmux/issues/27701): Shift-click, Cmd-click and Cmd-Shift-click select
   pinned workspaces as list rows, as classic: the range runs over the drawn order, pinned tiles and rows alike. A pinned
   tile in the multi-selection draws the list's secondary selection fill (`Palette.secondarySelectionFill`); the shown

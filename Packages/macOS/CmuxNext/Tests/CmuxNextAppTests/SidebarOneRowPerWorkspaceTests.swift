@@ -56,4 +56,9 @@ import Testing
         #expect(keys.filter { $0 == .workspace(WorkspaceID("ws_image")) }.count == 1)
         #expect(keys.contains(.group(GroupID("g"))))
     }
+
+    @Test func sectionsWithoutARepeatAreUntouched() {
+        let sections = [machine("local", kind: .local, [workspace("ws_mac")]), machine("vm-b", kind: .cloud, [workspace("ws_b")])]
+        #expect(SidebarLayout.listingEachWorkspaceOnce(sections) == sections)
+    }
 }

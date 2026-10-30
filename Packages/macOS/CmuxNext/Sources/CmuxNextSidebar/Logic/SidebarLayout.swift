@@ -137,6 +137,8 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         // A new workspace's drop gap is a row: as short as minimal mode's rows.
         let gapHeight = max(0, o.gapHeight - (base.rowHeight - m.rowHeight))
         if o.hidesWorkspaces { return .empty }
+        // A row per key: a workspace id two machines list draws once (`listingEachWorkspaceOnce`).
+        let sections = Self.listingEachWorkspaceOnce(sections)
         var rows: [SidebarRow] = []
         var y = m.topPadding
         var gapY: CGFloat?
