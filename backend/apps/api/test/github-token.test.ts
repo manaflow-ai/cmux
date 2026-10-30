@@ -296,6 +296,11 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
           ? [{ full_name: "acme/web", private: true }, ...Array.from({ length: 99 }, (_, i) => ({ full_name: `acme/hidden-${i}`, private: true }))]
           : [{ full_name: "acme/api", private: false }] })
       }
+      // Any text, CJK and emoji included, survives the cursor.
+      const unicode = await githubRepos(h, p, { query: "ウェブ 🚀" })
+      expect(unicode).toMatchObject({ ok: true, value: { repos: [], cursor: expect.any(String) } })
+      if (!unicode.ok || !unicode.value.cursor) throw new Error("a unicode query must page too")
+      expect(await githubRepos(h, p, { cursor: unicode.value.cursor, query: "ウェブ 🚀" })).toEqual({ ok: true, value: { repos: [], cursor: null } })
       const first = await githubRepos(h, p, { query: " WEB " })
       expect(first).toMatchObject({ ok: true, value: { repos: [{ full_name: "acme/web", private: true }], cursor: expect.any(String) } })
       if (!first.ok || !first.value.cursor) throw new Error("first page must return a cursor")
@@ -339,7 +344,6 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
   })
 
   it.each([
-    [401, "Bad credentials"],
     [404, "Not Found"],
     [403, "This installation has been suspended"],
   ] as const)("answers needs_reauth and records it when GitHub refuses the installation token mint with HTTP %i (%s)", async (code, message) => {
@@ -357,8 +361,9 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
       expect(await githubRepos(h, p, {})).toMatchObject({ ok: false, status: 409, code: "needs_reauth" })
       expect(needsReauth).toHaveBeenCalledTimes(1)
       // A mint GitHub fails for another reason records nothing and reads as the token mint reads it:
-      // a 500 is an outage, a 403 that is no suspension a refusal.
-      for (const [other, text, status, failure] of [[500, "boom", 503, "integration.unavailable"], [403, "Resource not accessible by integration", 403, "policy.denied"]] as const) {
+      // a 500 is an outage, a 401 GitHub refusing the App's own JWT (an outage that recovers, never a
+      // relink), a 403 that is no suspension a refusal.
+      for (const [other, text, status, failure] of [[500, "boom", 503, "integration.unavailable"], [401, "A JSON web token could not be decoded", 503, "integration.unavailable"], [403, "Resource not accessible by integration", 403, "policy.denied"]] as const) {
         gh.routes["https://api.github.com/app/installations/99/access_tokens"] = () => ok({ message: text }, other)
         expect(await githubRepos(h, p, {})).toMatchObject({ ok: false, status, code: failure })
       }
