@@ -9,11 +9,13 @@ Steps (`rename_chief` through `debug.home.api` is the card's rename, HomeService
   2. rename the default Chief "Mario": saved, the registry record says Mario;
   3. make a second Chief (`cmux chief new --name Ops`), wait for its conversation, rename it
      "Ops Desk" from its card: saved, its record says Ops Desk, every surface follows;
-  4. a 101-character name is refused with the name rule, not "try again in a moment".
+  4. a 101-character name is refused with the name rule, not "try again in a moment";
+  5. a wide picture picked on the card opens Move and Scale; zoomed in and saved, the default
+     Chief's registry record wears a new PNG picture.
 Writes report.json. Exit: 0 all passed; 1 a step failed.
 Usage: chief-rename-avatar-live.py --tag TAG --app APP [--deadline 60] [--out DIR]
 """
-import argparse, json, os, shutil, socket, subprocess, sys, tempfile, time
+import argparse, json, os, shutil, socket, struct, subprocess, sys, tempfile, time, zlib
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--tag", required=True)
@@ -113,6 +115,26 @@ def record_name():
         return f"unreadable ({code}): {out[:200]}"
 
 
+def record_avatar():
+    code, out = cli("chief", "get", "agent_mux", "--json")
+    try:
+        value = json.loads(out)
+        return (value.get("value") or value).get("avatar")
+    except ValueError:
+        return None
+
+
+def wide_png(width, height):
+    """A width x height RGB gradient as PNG bytes (no imaging library on the host)."""
+    rows = b"".join(b"\x00" + b"".join(bytes((x * 255 // width, y * 255 // height, 160)) for x in range(width))
+                    for y in range(height))
+
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
+
+
 keep = ("HOME", "USER", "LOGNAME", "TMPDIR", "SHELL", "LANG")
 env = {k: v for k, v in os.environ.items() if k in keep}
 env.update({"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
@@ -175,6 +197,16 @@ try:
     refused = rpc("debug.home.api", {"call": "rename_chief", "conversation": conv, "name": "x" * 101})
     check((refused or {}).get("failure") == "invalidName", "step 4: a 101-character name is refused by the name rule",
           reply=refused)
+
+    picture = os.path.join(SCRATCH, "wide.png")
+    open(picture, "wb").write(wide_png(600, 300))
+    before = record_avatar()
+    edited = rpc("debug.home.api", {"call": "edit_picture", "conversation": conv, "path": picture, "zoom": 2, "save": True})
+    check((edited or {}).get("opened") is True, "step 5: the picture opens in Move and Scale", reply=edited)
+    check((edited or {}).get("saved") is True, "step 5: Save wrote the crop", reply=edited)
+    after = wait(lambda: (lambda a: a if a and a != before else None)(record_avatar()), opts.deadline)
+    check(after and after.get("media_type") == "image/png", "step 5: the registry record wears the new PNG",
+          before=before, after=after)
 except SystemExit:
     pass
 finally:
