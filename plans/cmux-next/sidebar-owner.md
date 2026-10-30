@@ -581,3 +581,5 @@ The existing status, prompts, history and custom content stay visible. Four clic
 Show more exposes the remaining tabs in the same bounded scroll area. Each click uses the existing workspace/tab
 selection intent. The gallery compares this with three tabs under the title and six compact tabs below the details.
 This carries #24785's interaction and stale-press repair, without its proposed rich-details toggle.
+
+- Gallery variant audit is recorded with the chosen tabs-first default.

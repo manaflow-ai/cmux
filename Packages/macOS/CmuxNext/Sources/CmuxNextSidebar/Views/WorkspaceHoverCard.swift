@@ -261,7 +261,6 @@ final class WorkspaceHoverCardController: HoverCardSource {
 final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardTextReporting {
     enum TabPlacement { case afterTitle, afterStatus, afterDetails }
     let tabList: WorkspaceTabHoverCardView
-    var reportedLines: [String] { lines }
 
     func handleHoverCardKeyDown(_ event: NSEvent) -> Bool { tabList.handleHoverCardKeyDown(event) }
     private static var padding: CGFloat { Metrics.space4 }
