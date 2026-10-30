@@ -49,7 +49,9 @@ stage_root=/Users/Shared/cmux-capture/austins-day/builds
 
 # resolve JOB|SHA -> "JOB COMMIT"
 resolve() {
-  cmux-ci status "$([[ $1 =~ ^[0-9a-f]{40}$ ]] && echo --ref)" "$1" 2>/dev/null | python3 -I -c '
+  local query=("$1")
+  [[ ! $1 =~ ^[0-9a-f]{40}$ ]] || query=(--ref "$1")
+  cmux-ci status "${query[@]}" 2>/dev/null | python3 -I -c '
 import json, sys
 want = sys.argv[1]
 data = json.load(sys.stdin)
