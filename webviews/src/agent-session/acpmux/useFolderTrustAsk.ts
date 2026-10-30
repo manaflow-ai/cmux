@@ -224,8 +224,10 @@ export function useFolderTrustAsk(
   /// Each is kept until Trust has saved and no folder choice or auth refusal holds the chat.
   // Incremented when a pending Trust resend is canceled. A late refusal from the
   // canceled send must not be released by the save that was already in flight.
-  const resendGeneration = useRef(0);
-  const generationAtRender = resendGeneration.current;
+  // Cancellation belongs to one chat: canceling its folder choice must not invalidate
+  // another chat's refusal callback retained in the shared map.
+  const cancelGenerations = useRef(new Map<string | undefined, number>());
+  const generationAtRender = cancelGenerations.current.get(sessionId) ?? 0;
   const resend = useRef(
     new Map<
       string | undefined,
@@ -431,7 +433,7 @@ export function useFolderTrustAsk(
       // (the one acpmux named in a refusal).
       const chatCwd = current.current.cwd;
       const refusalBeforeSave = refusedTrust.current.get(sessionId);
-      const saveGeneration = resendGeneration.current;
+      const saveGeneration = cancelGenerations.current.get(sessionId) ?? 0;
       const repo = ask?.repo ?? (scope?.cwd === asked.cwd ? scope.repo : undefined);
       const recorded = folder ?? asked.cwd;
       const stillHere = () =>
@@ -626,7 +628,7 @@ export function useFolderTrustAsk(
     },
     /// Cancel leaves the draft or failed row in place for a later explicit send/retry.
     cancelResend: useCallback(() => {
-      resendGeneration.current += 1;
+      cancelGenerations.current.set(sessionId, (cancelGenerations.current.get(sessionId) ?? 0) + 1);
       resend.current.delete(sessionId);
     }, [sessionId]),
     /// Trust only the chat's folder.
@@ -643,7 +645,7 @@ export function useFolderTrustAsk(
     refused: useCallback(
       (error: unknown, again?: () => void): boolean => {
         // This callback may be delivered after cancelResend from an older render.
-        if (generationAtRender !== resendGeneration.current) return false;
+        if (generationAtRender !== (cancelGenerations.current.get(sessionId) ?? 0)) return false;
         if (!mounted.current || !sameAuthority() || !sameVisit()) return false;
         const said = trustRefusal(error);
         if (!said) return false;
@@ -671,7 +673,7 @@ export function useFolderTrustAsk(
             authorityEpoch,
             ownerEpoch,
             visitValue,
-            generation: resendGeneration.current,
+            generation: cancelGenerations.current.get(sessionId) ?? 0,
           });
         else {
           const held = resend.current.get(sessionId);

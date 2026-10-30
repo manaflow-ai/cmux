@@ -8085,19 +8085,21 @@ function AcpmuxPane() {
           )
             return;
           const owner = trustRouteOwner.current;
-          if (owner) {
-            // A folder-choice cancel advances cancelEpoch before React necessarily paints the
-            // replacement route. Drop refusals from that canceled send rather than queueing them
-            // into pendingTrustRefusal for the next render.
-            if (
-              owner.client !== client ||
-              owner.cancelEpoch !== trustCancelEpoch.current ||
-              owner.generation !== client.trustGeneration ||
-              (owner.sessionId !== undefined && owner.sessionId !== shownSessionId)
-            )
-              return;
+          // A folder-choice cancel advances cancelEpoch before React necessarily paints the
+          // replacement route. Drop only that canceled request; a changed client/generation
+          // is a valid refusal that must wait for the new route owner to render.
+          if (owner?.client === client && owner.cancelEpoch !== trustCancelEpoch.current) return;
+          if (
+            owner &&
+            owner.client === client &&
+            owner.cancelEpoch === trustCancelEpoch.current &&
+            owner.generation === client.trustGeneration &&
+            (owner.sessionId === undefined || owner.sessionId === shownSessionId)
+          ) {
             if (trustRefused.current?.(refusal, again)) return;
           }
+          // The owner is stale during the selection/render gap. Keep this refusal until the
+          // effect observes the matching current owner instead of dropping the prompt.
           pendingTrustRefusal.current = {
             client,
             generation: client.trustGeneration,
