@@ -210,6 +210,7 @@ export default componentEntry<Props>({
     "attachment-only-actions": {
       note: "A delivered image-only prompt keeps its action row: Copy, Retry, Fork and version arrows under the attachment.",
       props: { images: pasted.slice(0, 2), attachmentOnly: "actions" },
+      play: async (ctx) => ctx.hover({ selector: ".cv-user" }),
     },
   },
 });

@@ -149,26 +149,20 @@ export function UserBubble({
       <div className="cv-user__body">
         {/* No text to read draws no bubble: a prompt of images alone is its images (an empty glass
             bubble under them read as a lost message; Leo 2026-10-21). */}
-        {((row.delivery && !row.steer && row.delivery.state === "sending") ||
-          (strip ? shownParts!.some(readsAsText) : hasInterleaved || text.trim())) && (
-          <div className={`cv-user__bubble-wrap${text.trim() ? "" : " is-empty"}`}>
-            {strip ? shownParts!.some(readsAsText) ? (
-              <div className="ui-glass cv-user__bubble selectable">
-                <InlinePromptContent rowId={row.id} parts={shownParts!} show={show} renderImage={renderImage} />
-              </div>
-            ) : null : hasInterleaved ? (
-              <div className="ui-glass cv-user__bubble selectable">
-                <InlinePromptContent rowId={row.id} parts={shownParts!} show={show} renderImage={renderImage} />
-              </div>
-            ) : text.trim() ? (
-              <div className="ui-glass cv-user__bubble selectable">
-                <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
-              </div>
-            ) : null}
-            {/* A prompt this pane sent that is still on its way; a steer's mark says it instead. */}
+        {(strip ? shownParts!.some(readsAsText) : hasInterleaved || text.trim()) ? (
+          <div className="ui-glass cv-user__bubble selectable">
+            {hasInterleaved ? (
+              <InlinePromptContent rowId={row.id} parts={shownParts!} show={show} renderImage={renderImage} />
+            ) : (
+              <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
+            )}
             {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
           </div>
-        )}
+        ) : row.delivery?.state === "sending" && !row.steer ? (
+          <div className="cv-user__bubble-wrap is-empty">
+            <DeliveryMark delivery={row.delivery} />
+          </div>
+        ) : null}
         {!row.failed && !row.queued && (text || hasAttachment || pending) && (
           <UserFooter
             className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}

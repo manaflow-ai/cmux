@@ -1184,13 +1184,20 @@ function fallbackRowHeight(
     // estimating columns so a narrow pane never lets a second attachment row overlap the next row.
     const inlineParts = row.inlineParts ?? [];
     const imageCount =
-      (row.images?.length ?? 0) + inlineParts.filter((part) => part.kind === "image").length;
+      Math.max(
+        row.images?.length ?? 0,
+        inlineParts.filter((part) => part.kind === "image").length,
+        row.retryAttachments?.filter((part) => part.kind === "image").length ?? 0,
+      );
     const columns = Math.max(1, Math.floor((width * 0.7 + 6) / 198));
     const imageRows = imageCount ? Math.ceil(imageCount / columns) : 0;
     const otherAttachments =
-      (row.retryAttachments?.length ?? 0) + inlineParts.filter((part) => part.kind !== "text" && part.kind !== "image").length;
-    const attachmentHeight = imageRows * 128 + (otherAttachments ? 28 : 0);
-    const deliveryAnchor = row.delivery?.state === "sending" ? 23 : 0;
+      Math.max(
+        row.retryAttachments?.filter((part) => part.kind !== "image").length ?? 0,
+        inlineParts.filter((part) => part.kind !== "text" && part.kind !== "image").length,
+      );
+    const attachmentHeight = imageRows * 128 + otherAttachments * 36;
+    const deliveryAnchor = row.delivery?.state === "sending" && !row.steer ? metrics().lineHeight : 0;
     return finish(attachmentHeight + deliveryAnchor + messageBelow(beforeFooter) + chromeHeight(row, actions));
   }
   if (row.kind === SUBAGENTS) return finish(56);
