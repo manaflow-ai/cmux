@@ -637,6 +637,10 @@ impl Hub {
 #[path = "adoption_page_tests.rs"]
 mod page_tests;
 
+#[cfg(test)]
+#[path = "adoption_profile_tests.rs"]
+mod profile_tests;
+
 // The tests name Unix paths of another machine.
 #[cfg(all(test, unix))]
 mod tests {
