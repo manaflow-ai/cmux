@@ -681,14 +681,8 @@ export function Composer({
       prepareDraftTransfer() {
         const state = { text: field.current?.value() ?? textRef.current, attachments: attachmentsRef.current.filter((chip) => !chip.shellRun) };
         carryPrompt.current = true;
-        // Clear the source before the asynchronous session switch. The new composer owns the
-        // carried state; a failed start restores it, so late completions cannot duplicate it.
-        notTyped();
-        field.current?.reset("");
-        setText("");
-        setCaret(0);
-        setAttachments([]);
-        attachmentsRef.current = [];
+        // Leave the source intact until the new session renders. The composer switch consumes this
+        // carried state exactly once; a failed start leaves the original draft available to retry.
         return state;
       },
       restore(restoredText, restoredAttachments) {

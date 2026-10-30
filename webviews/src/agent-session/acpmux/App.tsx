@@ -10000,8 +10000,7 @@ function AcpmuxPane() {
         if (generation === continuationGeneration.current) setProjectDraft(undefined);
       },
       (error) => {
-        if (generation === continuationGeneration.current && held && (held.text || held.attachments.length > 0))
-          composerHandle.current?.restore(held.text, held.attachments);
+        // The source composer was left intact, so a failed start needs no restore.
         throw error;
       },
     ).finally(() => {
