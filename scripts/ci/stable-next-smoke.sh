@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# stable-next.yml smoke-27 / smoke-26: the fresh-home launch smoke of the cmux NEXT Stable DMG.
+# stable-next.yml smoke-27 / smoke-26: the UI tests of the cmux NEXT Stable DMG.
 #
-# The same harness as the nightly's post-publish smoke (scripts/ci/fresh_home_launch_smoke.py: the
-# app from an empty home stays up 30 s with Home rendered, no crash report), as a publish gate:
-# two attempts, and only a pass ships. A signed DMG (SIGNED=true) must also pass Gatekeeper and
+# scripts/ci/stable_next_ui_journey.py: the nightly's fresh-home launch smoke (the app from an empty
+# home renders Home, no crash report), then a new user's first session on the same launch (terminal
+# and echo, split, Chromium and WebKit pages, palette, Settings, sidebar, close, Home, quit), each
+# step checked in the app's own state, with a screenshot per step and a screen recording. A publish
+# gate: two attempts, and only a pass ships. A signed DMG (SIGNED=true) must also pass Gatekeeper and
 # carry its stapled ticket. Writes tested=<sha256> to GITHUB_OUTPUT on a pass.
 #
 # Environment: DMG, EXPECT_SHA256, SIGNED (true|false), RUNNER_TEMP, GITHUB_OUTPUT.
@@ -26,7 +28,7 @@ for attempt in 1 2; do
   out="$dir/attempt-$attempt"
   mkdir -p "$out" && chmod 0777 "$out"
   status=0
-  scripts/ci/frame-pacing/console-session.sh python3 -I "$PWD/scripts/ci/fresh_home_launch_smoke.py" \
+  scripts/ci/frame-pacing/console-session.sh python3 -I "$PWD/scripts/ci/stable_next_ui_journey.py" \
     --dmg "$DMG" --out "$out" || status=$?
   echo "$status" > "$dir/status-$attempt"
   echo "attempt $attempt: exit $status"

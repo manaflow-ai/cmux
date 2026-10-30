@@ -17,8 +17,10 @@ name: cmux NEXT Stable
 #                 macOS 27 M4 Pro workers (labels macos-27 + ram48; no M6 mini has ram48)
 #   perf-budgets  scripts/cmux-next/perf-budgets.py --gate (split-spring.sh --suite=budgets) on an
 #                 exclusive macOS 27 M4 Pro measure worker, against apple-m4-pro-macos27's baseline
-#   smoke-27      fresh-home launch smoke of the signed stable app on an owned M4 Pro mini, macOS 27
-#   smoke-26      the same launch smoke on Blacksmith macOS 26 (the basic sanity on 26)
+#   smoke-27      UI tests of the signed stable app on an owned M4 Pro mini, macOS 27: fresh-home
+#                 launch, then a first session (terminal echo, split, Chromium and WebKit pages,
+#                 palette, Settings, sidebar, close, Home, quit), scripts/ci/stable_next_ui_journey.py
+#   smoke-26      the same UI tests on Blacksmith macOS 26 (the basic sanity on 26)
 #   soak          the build is still on the cmux NEXT feed, was never pulled, has no fail verdict,
 #                 and Sentry saw no new unhandled issue first seen in its release
 # Signing and notarization stay on Blacksmith macOS 26 like the nightly's: the Developer ID
@@ -570,6 +572,7 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             scripts/ci/fresh_home_launch_smoke.py
+            scripts/ci/stable_next_ui_journey.py
             scripts/ci/nightly_next_launch_smoke.py
             scripts/ci/frame-pacing/console-session.sh
             scripts/ci/lib/signing-runtime-guard.sh
@@ -579,7 +582,7 @@ jobs:
         with:
           name: stable-next-signed
           path: stable-signed
-      - name: Launch cmux NEXT Stable from a fresh home (macOS 27)
+      - name: UI tests of cmux NEXT Stable (macOS 27)
         id: smoke
         env:
           DMG: stable-signed/${{ needs.sign.outputs.dmg_name }}
@@ -614,6 +617,7 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             scripts/ci/fresh_home_launch_smoke.py
+            scripts/ci/stable_next_ui_journey.py
             scripts/ci/nightly_next_launch_smoke.py
             scripts/ci/frame-pacing/console-session.sh
             scripts/ci/lib/signing-runtime-guard.sh
@@ -623,7 +627,7 @@ jobs:
         with:
           name: stable-next-signed
           path: stable-signed
-      - name: Launch cmux NEXT Stable from a fresh home (macOS 26)
+      - name: UI tests of cmux NEXT Stable (macOS 26)
         id: smoke
         env:
           DMG: stable-signed/${{ needs.sign.outputs.dmg_name }}
