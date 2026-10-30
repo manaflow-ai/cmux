@@ -289,7 +289,7 @@ kase(
 /** transport.md 3.1: the real derivation (fd7c:6d78::/32 + 96 bits of sha256(host id)). */
 const overlay = new Map<number, string>()
 for (const n of [1, 2, 4]) overlay.set(n, await overlayAddress(host(n)))
-const connectInfo = (n: number, state: string, rev: number): Obj => ({
+const connectInfo = (n: number, state: string, rev: number, vmKind: "owner" | "team" = "owner"): Obj => ({
   machine: vm(n),
   host: host(n),
   epoch: 1,
@@ -298,12 +298,13 @@ const connectInfo = (n: number, state: string, rev: number): Obj => ({
   gateway: null,
   services: ["daemon", "ssh"],
   daemon: { version: "0.40.0", capabilities: ["terminal", "files", "ports"] },
+  vm_kind: vmKind,
   revision: String(rev)
 })
 kase("machine.connect_info", "cloud.machine.connect_info", { machine: vm(1) }, [readOk("cloud.machine.connect_info", connectInfo(1, "running", 7), "7")])
 kase("machine.connect_info.by_host", "cloud.machine.connect_info", { host: host(1) }, [readOk("cloud.machine.connect_info", connectInfo(1, "running", 7), "7")])
-kase("machine.connect_info.paused", "cloud.machine.connect_info", { machine: vm(2) }, [readOk("cloud.machine.connect_info", connectInfo(2, "paused", 4), "4")], {
-  note: "A paused machine is not an error: the result says state paused (contract 1.7)."
+kase("machine.connect_info.paused", "cloud.machine.connect_info", { machine: vm(2) }, [readOk("cloud.machine.connect_info", connectInfo(2, "paused", 4, "team"), "4")], {
+  note: "A paused machine is not an error: the result says state paused (contract 1.7). vm_kind team: a shared-team machine, or a caller who is not its creator (only the exact value owner grants owner privileges)."
 })
 kase("machine.connect_info.not_bound", "cloud.machine.connect_info", { machine: vm(4) }, [readErr(400, "BadRequest", "cloud.machine.not_bound", "the machine is still provisioning")])
 
@@ -315,7 +316,7 @@ const mintOk = (value: Obj): Obj => ({
   http: { path: "/v1/ops", status: 200 },
   body: { ok: true, op: "cloud.machine.link_token", value, transaction: tx(), idempotency_key: "", replayed: false, stream: "", sequence: 0 }
 })
-const linkToken = (n: number) => ({ token: `lt_vector_${String(n).padStart(4, "0")}`, expires_at: 1790000300000 + n * 1000, host: host(1), epoch: 1, services: ["daemon", "ssh"] })
+const linkToken = (n: number) => ({ token: `lt_vector_${String(n).padStart(4, "0")}`, expires_at: 1790000300000 + n * 1000, host: host(1), epoch: 1, services: ["daemon", "ssh"], vm_kind: "owner" })
 kase(
   "machine.link_token",
   "cloud.machine.link_token",
