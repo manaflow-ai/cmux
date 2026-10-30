@@ -64,7 +64,7 @@ class PublishedInTests(unittest.TestCase):
 
         with patch.object(module, "status_api", api), patch.object(module.time, "sleep"):
             self.assertEqual(module.publish("o/r", 7, stable, comments.copy(), 0), "written")
-        self.assertEqual(writes, ["PATCH", "DELETE"])
+        self.assertEqual(writes, ["PATCH"])
         self.assertEqual(module.pr_status.parse(comments[0]["body"]),
                          {"checks": "green", "published": "Shipped in:\n" + nightly + "\n" + stable})
 

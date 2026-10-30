@@ -168,7 +168,7 @@ def http_api(method: str, path: str, payload: dict | None = None, *,
 
 def list_comments(api: Api, repo: str, pr: int) -> list[dict]:
     found, page = [], 1
-    while page <= 30:
+    while True:
         items = api("GET", f"/repos/{repo}/issues/{pr}/comments?per_page=100&page={page}", None) or []
         found += items
         if len(items) < 100:

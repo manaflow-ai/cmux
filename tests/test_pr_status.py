@@ -56,6 +56,20 @@ def upsert(gh, key, text, **kw):
 
 
 class PrStatusTests(unittest.TestCase):
+    def test_list_comments_reads_past_the_old_thirty_page_cap(self):
+        pages = []
+
+        def api(method, path, payload):
+            page = int(path.rsplit("page=", 1)[1])
+            pages.append(page)
+            if page > 31:
+                return []
+            return [{"id": page, "body": "", "user": {"login": "github-actions[bot]"}}] * 100
+
+        comments = pr_status.list_comments(api, "o/r", 7)
+        self.assertEqual(len(comments), 3100)
+        self.assertEqual(pages[-1], 32)
+
     def test_a_clean_pull_request_gets_no_comment(self):
         gh = FakeGitHub()
         self.assertEqual(upsert(gh, "checks", None), "unchanged")
