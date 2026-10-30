@@ -1,29 +1,38 @@
 //! The size bound of a stored frontend projection (P-AUSTIN B9 row 15).
 //!
-//! A frontend keeps a whole document in one projection: the app's window
-//! state (`WindowStateStore`, subject `windows`) lists every window with its
-//! workspaces, selected tab per pane and focused pane per workspace, so it
-//! grows with the session. A fixed 1 MiB cap refused a large session's save,
-//! and the next launch restored an older layout.
+//! A frontend keeps a whole document in one projection (the app's window
+//! state, subject `windows`), and every native projection also goes into the
+//! launch snapshot, so the bound is a share of the snapshot's.
 
-/// Largest stored native projection, in bytes of canonical JSON. Every native
-/// projection also goes into the launch snapshot, which the app reads before
-/// it connects to draw the last layout at once; a projection larger than the
-/// snapshot's whole bound can never be drawn from it, and one at half of it
-/// still leaves the other half for the tree and personal state. When the
-/// snapshot is still over its bound, its writer drops the largest
-/// projections first and reports which (`launch_snapshot`), so the first
-/// frame's loss is seen; the registry row stays and the app reads it after
-/// it connects. The Unix socket and the app's line transport carry a request
-/// of this size (16 MiB and 64 MiB). A larger projection is refused with an
-/// error that names its size; nothing is cut.
-pub(super) const MAX_PROJECTION_BYTES: usize = crate::server::MAX_LAUNCH_SNAPSHOT_BYTES / 2;
+/// Launch-snapshot bytes kept for the workspace tree and the personal state,
+/// which every snapshot carries before any projection. Estimate: 4,096 tabs
+/// x ~1 KiB; not measured. Nothing bounds the tree itself; a snapshot whose
+/// projections do not fit drops the largest ones first and reports them
+/// (`launch_snapshot`).
+pub(super) const LAUNCH_SNAPSHOT_TREE_RESERVE_BYTES: usize = 4 * 1024 * 1024;
+/// The native projections the app keeps, each in the launch snapshot:
+/// `windows`, `history.hidden`, `history.locations`, `icon-picker.prefs` and
+/// `ssh-hosts`.
+pub(super) const LAUNCH_SNAPSHOT_PROJECTION_SLOTS: usize = 5;
+/// The bound before it was derived, and its floor.
+const PROJECTION_FLOOR_BYTES: usize = 1024 * 1024;
+
+/// Largest stored native projection, in bytes of canonical JSON: an even
+/// share of what the launch snapshot leaves after the tree reserve, never
+/// below the old 1 MiB. With today's numbers ((8 - 4) MiB / 5 = 819 KiB) the
+/// floor applies. A realistic window state is about 30 KB. A larger
+/// projection is refused with an error that names its size; nothing is cut.
+pub(super) const MAX_PROJECTION_BYTES: usize = {
+    let share = (crate::server::MAX_LAUNCH_SNAPSHOT_BYTES - LAUNCH_SNAPSHOT_TREE_RESERVE_BYTES)
+        / LAUNCH_SNAPSHOT_PROJECTION_SLOTS;
+    if share > PROJECTION_FLOOR_BYTES { share } else { PROJECTION_FLOOR_BYTES }
+};
 
 /// Largest resource-API projection, in bytes: the bound older daemons check
 /// when they read these rows at start (`public_projections`), so a larger row
 /// written here would stop an older daemon after a rollback or handoff. Its
 /// writers (the resource API, 4 MiB messages) keep it.
-pub(super) const MAX_RESOURCE_API_PROJECTION_BYTES: usize = 1024 * 1024;
+pub(super) const MAX_RESOURCE_API_PROJECTION_BYTES: usize = PROJECTION_FLOOR_BYTES;
 
 /// Logs when a projection's size passes half of [`MAX_PROJECTION_BYTES`]
 /// (from below, so a document that stays large logs once, not on each
