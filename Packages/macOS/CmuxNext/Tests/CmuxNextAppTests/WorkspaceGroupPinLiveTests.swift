@@ -273,6 +273,48 @@ struct WorkspaceGroupPinLiveTests {
         }
     }
 
+    /// The menu item titled `title` and the menu holding it, in `menu` or a folder under it.
+    private static func menuItem(_ title: String, in menu: NSMenu) -> (NSMenu, Int)? {
+        for (index, item) in menu.items.enumerated() {
+            if item.title == title { return (menu, index) }
+            if let sub = item.submenu, let found = menuItem(title, in: sub) { return found }
+        }
+        return nil
+    }
+
+    private static func titles(_ menu: NSMenu) -> [String] {
+        menu.items.flatMap { [$0.title] + ($0.submenu.map(titles) ?? []) }.filter { !$0.isEmpty }
+    }
+
+    /// The right-click menu a person opens on a pinned group's header: it offers Unpin Group and Delete Group,
+    /// and choosing each does it (https://github.com/manaflow-ai/cmux/issues/27700).
+    @Test func thePinnedGroupMenuUnpinsAndDeletes() async throws {
+        try await Self.withLaunched { launched in
+            let services = launched.services
+            let group = try await Self.makeGroup("menu-items", launched)
+            let window = try #require(services.windows.active?.state.id)
+            let sidebar = try #require(services.windows.controller(for: window)?.sidebar)
+            @MainActor func choose(_ title: String) throws {
+                let menu = try #require(sidebar.contextMenu(for: .group(group.shown)), "no menu for the group")
+                let (holder, index) = try #require(Self.menuItem(title, in: menu), "no \(title) in \(Self.titles(menu))")
+                holder.performActionForItem(at: index)
+            }
+            try choose(WorkspaceVerbStrings.pinGroup)
+            await Self.expectPinned(true, group, launched, "the menu's Pin Group")
+            try choose(WorkspaceVerbStrings.unpinGroup)
+            await Self.expectPinned(false, group, launched, "the menu's Unpin Group")
+            try choose(WorkspaceVerbStrings.pinGroup)
+            await Self.expectPinned(true, group, launched, "the menu's Pin Group again")
+            try choose("Delete Group")
+            @MainActor func gone() -> Bool {
+                SidebarDocStore.current?.records.items[group.shown.rawValue] == nil
+                    && services.machines.local.store.personal.group(group.personal) == nil
+            }
+            await Self.wait(within: .seconds(20)) { gone() }
+            #expect(gone(), "the menu's Delete Group left the pinned group: \(Self.state(group, launched)), refusals \(launched.refusals.reasons)")
+        }
+    }
+
     /// The MCP tool names the group by its own id and sets a state: the same state twice is no toggle.
     @Test func pinnedArgumentSetsTheState() async throws {
         try await Self.withLaunched { launched in
