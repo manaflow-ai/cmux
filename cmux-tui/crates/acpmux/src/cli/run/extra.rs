@@ -65,10 +65,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             let id = crate::cli::resolve::control_id(&client, &session).await?;
             let mut params = json!({"sessionId": id, "purge": purge});
             if condition.if_idle {
-                params["ifIdle"] = json!(true);
+                cmux_json::JsonSet::set(&mut params, "ifIdle", json!(true));
             }
             if let Some(rev) = condition.expect_revision {
-                params["expectRevision"] = json!(rev);
+                cmux_json::JsonSet::set(&mut params, "expectRevision", json!(rev));
             }
             let v = client.request(method::MUX_KILL, params).await?;
             if json_out {

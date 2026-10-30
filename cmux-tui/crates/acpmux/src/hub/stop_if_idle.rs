@@ -95,11 +95,11 @@ pub(crate) fn refusal(
         }
         _ => "session is not idle: not stopped".to_owned(),
     };
-    let mut data = json!({"reason": reason, "revision": revision, "sessionId": session.id});
+    let mut data = json!({"reason": reason, "revision": revision, "sessionId": session.id,
+        "retryable": true});
     if let Some(what) = busy_with {
-        data["busyWith"] = json!(what);
+        data.set("busyWith", json!(what));
     }
-    data["retryable"] = json!(true);
     RpcError::new(NOT_IDLE_CODE, message).with_data(data)
 }
 
