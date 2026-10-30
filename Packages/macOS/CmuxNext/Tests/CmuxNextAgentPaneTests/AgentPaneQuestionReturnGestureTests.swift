@@ -217,6 +217,25 @@ struct AgentPaneQuestionReturnGestureTests {
         #expect(!gestures.consumeQuestionReturn(second))
     }
 
+    @Test func anOrdinaryGrantAndAQuestionReturnCannotBothSpendOneGesture() throws {
+        let gestures = AgentPaneUserGestures()
+
+        // The ordinary granting path wins first (as a queued prompt or a
+        // reserved ticket can), so the pending Chromium answer loses its key.
+        gestures.record()
+        gestures.recordQuestionReturn(true)
+        let ordinaryFirst = try #require(gestures.questionReturnWitness)
+        #expect(gestures.consume())
+        #expect(!gestures.consumeQuestionReturn(ordinaryFirst))
+
+        // If Chromium redeems first, it clears the ordinary grant as well.
+        gestures.record()
+        gestures.recordQuestionReturn(true)
+        let questionFirst = try #require(gestures.questionReturnWitness)
+        #expect(gestures.consumeQuestionReturn(questionFirst))
+        #expect(!gestures.consume())
+    }
+
     @Test func aSameIDQuestionReissueDoesNotMatchTheOldBindingContext() {
         let old = AcpmuxDecisionContexts.Context(nonce: String(repeating: "a", count: 64),
                                                  instance: String(repeating: "b", count: 32))

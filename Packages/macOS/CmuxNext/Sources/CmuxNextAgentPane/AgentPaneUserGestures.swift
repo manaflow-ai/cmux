@@ -67,6 +67,11 @@ import CmuxNextCompat
     public func consume() -> Bool {
         guard let last else { return false }
         self.last = nil
+        // A normal granting frame (including a reserved ticket) wins the
+        // person's one grant credit. It must also revoke a Return witness
+        // captured by Chromium, so the same physical key cannot authorize a
+        // second granting request when the two paths race.
+        questionReturn = nil
         return now() - last <= Self.lifetime
     }
 
@@ -77,6 +82,8 @@ import CmuxNextCompat
     public func consumeForSend() -> Bool {
         guard last != nil else { return false }
         last = nil
+        // Sending a queued prompt is another granting use of the gesture.
+        questionReturn = nil
         return true
     }
 
