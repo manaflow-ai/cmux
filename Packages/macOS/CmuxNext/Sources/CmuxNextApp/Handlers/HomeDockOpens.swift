@@ -15,7 +15,7 @@ enum HomeDockOpens {
     /// Owns the outbound hold from the moment a creator is prepared until it
     /// names a surface. If creation is refused or cancelled before invoking
     /// the callback, releasing this token restores the Home strip immediately.
-    private final class PlacementHold {
+    @MainActor private final class PlacementHold {
         let outbound: OutboundTab?
         private var completed = false
 
