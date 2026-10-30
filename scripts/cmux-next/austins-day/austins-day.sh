@@ -15,7 +15,15 @@
 # OUT/summary.txt. Never run on a person's Mac; run from an agent VM or a workstation that reaches
 # the capture minis (CAPTURE_HOST_HOSTS, see README.md).
 set -euo pipefail
-here=$(cd "$(dirname "$0")" && pwd)
+# Bash reads a script while it runs: an edit to this file during a run changes the running copy (the A/A of
+# 2026-10-30 died at its end that way). Run a private copy, so the owner can edit the harness meanwhile.
+if [ -z "${AUSTINS_DAY_COPY:-}" ]; then
+  copy=$(mktemp "${TMPDIR:-/tmp}/austins-day.XXXXXX.sh") && cp "$0" "$copy" && chmod +x "$copy"
+  AUSTINS_DAY_COPY=1 AUSTINS_DAY_HERE=$(cd "$(dirname "$0")" && pwd) exec "$copy" "$@"
+fi
+# The private copy: unlinked at once (bash keeps reading it through its open file).
+case "$0" in "${TMPDIR:-/tmp}"/austins-day.*.sh) rm -f "$0" ;; esac
+here=${AUSTINS_DAY_HERE:-$(cd "$(dirname "$0")" && pwd)}
 cmux_next=$(cd "$here/.." && pwd)
 repo=$(cd "$here/../../.." && pwd)
 # The harness commit each run used (its tree must be clean: a result names the harness it came from).
