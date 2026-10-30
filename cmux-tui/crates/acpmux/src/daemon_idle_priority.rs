@@ -39,8 +39,9 @@ pub(crate) async fn install(hub: &Arc<Hub>) -> Option<tokio::task::JoinHandle<()
         tracing::info!("idle helpers keep their priority: this process could not raise it again");
         return None;
     }
+    // scratch mutant (proof ref, never merge): the pool is never lowered.
     #[cfg(debug_assertions)]
-    hub.set_pool_priority(Arc::new(stall_for_tests(process_priority::set_group)));
+    hub.set_pool_priority(Arc::new(stall_for_tests(|_, _| Ok(()))));
     #[cfg(not(debug_assertions))]
     hub.set_pool_priority(Arc::new(process_priority::set_group));
     hub.clients.install_priority(Arc::new(process_priority::set_self));
