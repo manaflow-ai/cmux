@@ -79,7 +79,7 @@ function McpCallRow({ item }: { item: AcpmuxActivity }) {
   const t = useT();
   const names = useContext(McpNamesContext);
   // Closed, or open in the Verbose transcript view.
-  const [open, setOpen] = useRowDisclosure();
+  const [open, setOpen] = useRowDisclosure(item.tool?.id);
   const [reveal, setReveal] = useState(0);
   useFindReveal(
     useMemo(() => [item], [item]),

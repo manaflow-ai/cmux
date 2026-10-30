@@ -63,7 +63,7 @@ export function toolIcon(kind?: string): ReactNode {
 export function ToolRow({ item }: { item: AcpmuxActivity }) {
   const t = useT();
   // Closed, or open in the Verbose transcript view.
-  const [open, setOpen] = useRowDisclosure();
+  const [open, setOpen] = useRowDisclosure(item.tool?.id);
   // Find in Chat counts matches in the whole output, so a call it reveals shows all of it.
   const [reveal, setReveal] = useState(0);
   useFindReveal(

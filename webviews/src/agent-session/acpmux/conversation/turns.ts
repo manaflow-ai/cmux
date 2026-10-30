@@ -356,8 +356,9 @@ function shapedTurn(
   lineBelow = false,
 ): AcpmuxRow[] {
   const user = rows[start]!;
-  const open = openFolds(rows, start, end, expanded);
-  // A running turn changes with every event.
+  // A running turn changes with every event: it is neither read from nor kept in the cache, so its
+  // open-fold key is never needed, and a streamed token does no work over its rows for it.
+  const open = live ? "" : openFolds(rows, start, end, expanded);
   const cached = live ? undefined : shapedTurns.get(user);
   if (
     cached &&

@@ -120,15 +120,17 @@ export function useTranscriptDisclosure(
 }
 
 /**
- * A row's own open state, kept while it is mounted (a lone call's details): closed, or open in the
- * Verbose view. Toggles are kept per view, so switching back finds the old toggle where it was.
+ * A lone call's details: closed, or open in the Verbose view. In Normal the choice is the row's own,
+ * kept while it is mounted, as before the views. In Thinking and Verbose it is kept per view in the
+ * session's disclosures under `key` (the call's id), so a row drawn again finds it.
  */
-export function useRowDisclosure(): [boolean, (open: boolean) => void] {
+export function useRowDisclosure(key: string | undefined): [boolean, (open: boolean) => void] {
   const view = useContext(ViewContext);
-  const [choices, setChoices] = useState<Partial<Record<TranscriptView, boolean>>>({});
-  const open = choices[view] ?? view === "verbose";
-  const setOpen = useCallback((next: boolean) => setChoices((current) => ({ ...current, [view]: next })), [view]);
-  return [open, setOpen];
+  const [mounted, setMounted] = useState(false);
+  const [kept, setKept] = useTranscriptDisclosure(key ? `row:${key}` : "", false, true);
+  const persists = view !== "normal" && key !== undefined;
+  const setOpen = useCallback((next: boolean) => (persists ? setKept(next) : setMounted(next)), [persists, setKept]);
+  return [persists ? kept : mounted, setOpen];
 }
 
 /** Test/gallery reset; production callers keep each session's choices. */
