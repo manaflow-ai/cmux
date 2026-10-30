@@ -989,7 +989,8 @@ export function Composer({
     const owned = command?.kind === "cmux" ? command.command : undefined;
     if (owned) {
       // Side questions carry text only; staged files stay here for the main turn.
-      if (owned.action === "btw" && attachments.length > 0) return false;
+      // A file still being read counts too: /btw must not cancel it.
+      if (owned.action === "btw" && (attachments.length > 0 || pending.length > 0)) return false;
       if (owned.name === "import") {
         if (importSandboxed) {
           setAttachError(t("composer.cmuxImportSandbox"));

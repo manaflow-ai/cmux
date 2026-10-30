@@ -433,6 +433,34 @@ test("Quick Chat Cmd-Return opens /import immediately despite an earlier pending
   await act(async () => resolve(bytes));
 });
 
+test("/btw keeps a file still being read for the main turn", async () => {
+  let asked = 0;
+  const page = await composer(chat(), "/btw question", () => {
+    asked += 1;
+    return true;
+  });
+  const file = new File([PNG], "pending.png", { type: "image/png" });
+  const bytes = await file.arrayBuffer();
+  let resolve!: (bytes: ArrayBuffer) => void;
+  Object.defineProperty(file, "arrayBuffer", {
+    value: () =>
+      new Promise<ArrayBuffer>((done) => {
+        resolve = done;
+      }),
+  });
+  const paste = new window.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", {
+    value: { files: [file], types: ["Files"], getData: () => "" },
+  });
+  await act(async () => page.field.dispatchEvent(paste));
+  await dispatch(page.field, key({ key: "Enter", keyCode: 13 }));
+  expect(asked).toBe(0);
+  expect(page.field.textContent).toBe("/btw question");
+  await act(async () => resolve(bytes));
+  expect(host.querySelector(".acpmux-attachment-image")).not.toBeNull();
+  expect(page.sent).toEqual([]);
+});
+
 for (const outcome of ["resolve", "reject", "edited"] as const) {
   test(`an asynchronous owned command consumes files but preserves its draft until ${outcome}`, async () => {
     let settle!: () => void;
