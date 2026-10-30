@@ -416,6 +416,8 @@ CMUX_SHIM_EXPORT void cmux_shim_load_url(int browser_id, const char* url);
 CMUX_SHIM_EXPORT void cmux_shim_go_back(int browser_id);
 CMUX_SHIM_EXPORT void cmux_shim_go_forward(int browser_id);
 CMUX_SHIM_EXPORT void cmux_shim_reload(int browser_id);
+// Chrome's Hard Reload: the current entry again, every resource fetched past the cache.
+CMUX_SHIM_EXPORT void cmux_shim_reload_ignore_cache(int browser_id);
 CMUX_SHIM_EXPORT void cmux_shim_stop(int browser_id);
 CMUX_SHIM_EXPORT void cmux_shim_set_focus(int browser_id, int focus);
 // Without a handler every focus request wins (CEF's default).
