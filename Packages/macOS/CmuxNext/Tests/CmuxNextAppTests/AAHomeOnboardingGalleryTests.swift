@@ -16,6 +16,7 @@ import Testing
         try #require(NSScreen.main != nil, "A fleet GUI session is required")
         let root = AANestedGroupsGalleryTests.packageRoot
         let out = root.appending(path: "native-home-onboarding-gallery")
+        try? FileManager.default.removeItem(at: out)
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         var captures: [[String: Any]] = []
         for width in [460, 280] {
@@ -95,6 +96,7 @@ import Testing
         if let first = actionRects.first, actionRects.contains(where: { abs($0.minX - first.minX) > 1 }) {
             violations.append("action-leading-edges-differ-over-1pt")
         }
+        #expect(violations.isEmpty, "home-\(width)-\(mode) geometry: \(violations)")
         return ["scene": "empty-chief-transcript", "requestedAppearance": mode,
                 "effectiveAppearance": view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])?.rawValue ?? "unknown",
                 "theme": theme, "file": name, "sha256": SHA256.hash(data: try Data(contentsOf: path)).map { String(format: "%02x", $0) }.joined(),
