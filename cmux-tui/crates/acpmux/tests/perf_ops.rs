@@ -1,65 +1,315 @@
-//! The acpmux daemon's speed budgets (plans/cmux-next/perf-lead.md, "Daemon and acpmux
-//! targets"): every request answers in under 2 ms p95 from send to reply, a streamed token
-//! reaches an attached client in under 2 ms p95, and an idle daemon with live agents does not
-//! wake. Measured on the real daemon binary, its real file store, its agent hosts and a
-//! stand-in agent (`fake_stream_agent.py`, no model), in a light session (one chat) and in
-//! STRESS (16 chats streaming at once to two attached clients while a third connection sends
-//! requests). Every number goes to stderr as `ACPMUX-PERF` lines and to
-//! `.build/acpmux-perf/perf_ops.json` at the repository root (a fleet step returns it with
-//! `--artifact .build/acpmux-perf/perf_ops.json`).
+//! SCRATCH BENCH (acpmux-durable-ab, never merged; listed in stopped.txt): the acpmux request
+//! latency, send to reply, with and without the "answer only after the write" commits, on a
+//! loaded Mac. Run by `scripts/measure/acpmux-overhead.sh --arg=bench=daemon` at arm B (no
+//! `before=`: the step checkout has no `origin` to fetch it from). The test builds arm A's
+//! release daemon itself from a worktree of HEAD with `durable_ab_arm_a.patch` applied, then:
+//! - starts the load once (a memory hog into swap, F_FULLFSYNC writers,
+//!   CPU spinners), then runs arm A's and arm B's daemons in turn, A B A B A B, under the same
+//!   load. Each run: 80 chats stream at once (the background agents), then N = 1, 16 and 80
+//!   clients, each on its own connection and chat, send the request mix for a fixed time.
+//! Output: `ACPMUX-PERF ab ...` rows (p50/p95/p99/max per arm, round, N and request kind),
+//! `ACPMUX-PERF load ...` rows (load average and swap during each run) and pooled rows per arm.
 #![cfg(target_os = "macos")]
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 // This process starts the stand-in agent only.
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+// It keeps the toolchain variables: it builds arm A's daemon with cargo before any daemon starts.
+// Every daemon still gets the hermetic environment (`daemon_env::apply`).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
+    "PATH",
+    "HOME",
+    "CARGO_HOME",
+    "RUSTUP_HOME",
+    "RUSTUP_TOOLCHAIN",
+]);
 
 use serde_json::{Value, json};
-use std::collections::HashMap;
-use std::io::{BufRead, BufReader};
+use std::collections::{BTreeMap, HashMap};
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Stdio};
+use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
 use tokio::sync::oneshot;
 
 const AGENT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_stream_agent.py");
-/// The plan's budget for every daemon op and for a token's trip to a client.
-const OP_P95: Duration = Duration::from_millis(2);
-/// Requests timed per op in the light session (after a warm-up).
-const ROUNDS: usize = 100;
-/// Chats streaming at once in STRESS.
-const STRESS_CHATS: usize = 16;
-/// Chats streaming at once in the many-chats phase: more than the file store keeps open
-/// (`store.rs` OPEN_LOGS, 64), as a STRESS app with an agent chat in each of 60 workspaces has.
-const MANY_CHATS: usize = 72;
-/// Idle windows; the daemon is judged by its median window.
-const IDLE_WINDOW: Duration = Duration::from_secs(5);
-const IDLE_WINDOWS: usize = 3;
-/// Context switches allowed in a median idle window: a 1 Hz wake gives 5.
-const IDLE_SWITCHES: u64 = 3;
-/// Rows still over the budget, each with the open finding that fixes it
-/// (plans/cmux-next/acpmux-audit.md): printed as `ACPMUX-PERF-OPEN`, not failed, so the bench
-/// guards everything already fixed. A fix removes its row here in the same commit, which turns
-/// its budget on.
-const OPEN: &[(&str, &str)] = &[
-    (".op.sessions", "finding 7: the session list is O(chats)"),
-    (".op.session_new", "finding 6: session/new answers after the agent starts"),
-    ("stress.token_to_client", "finding 19: token to client under STRESS"),
-    ("many.token_to_client", "finding 19: token to client under STRESS"),
-];
+/// Chats streaming in the background during each run (the field case: about 80 agents).
+const BG_CHATS: usize = 80;
+/// Request clients per phase.
+const PHASES: [usize; 3] = [1, 16, 80];
+/// How long each phase sends requests.
+const PHASE: Duration = Duration::from_secs(20);
+/// Rounds; each runs arm A, then arm B.
+const ROUNDS: usize = 3;
+/// A request with no reply in this time counts as an error (the app restarts acpmux at 2 s;
+/// this bound only keeps the bench moving).
+const REPLY_BOUND: Duration = Duration::from_secs(30);
+/// The memory hog stops growing at the first of these.
+const SWAP_TARGET_BYTES: u64 = 6 << 30;
+const HOG_OVER_RAM_BYTES: u64 = 8 << 30;
+const MIN_FREE_DISK_BYTES: u64 = 40 << 30;
+const HOG_CHUNK_U64S: usize = 32 << 20; // 256 MB
+/// Background fsync writers and their file bound.
+const FSYNC_WRITERS: usize = 4;
+const FSYNC_FILE_BYTES: u64 = 512 << 20;
 
 fn now_ns() -> u64 {
     unsafe extern "C" {
         fn clock_gettime_nsec_np(clock: u32) -> u64;
     }
-    /// Darwin's `CLOCK_UPTIME_RAW` (`<time.h>`): the clock the stand-in agent stamps its
-    /// tokens on (Python's `time.CLOCK_UPTIME_RAW`).
     const CLOCK_UPTIME_RAW: u32 = 8;
     // SAFETY: no preconditions.
     unsafe { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
+}
+
+// ------------------------------------------------------------------ host readings
+
+fn sysctl(name: &str) -> String {
+    Command::new("/usr/sbin/sysctl")
+        .args(["-n", name])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
+        .unwrap_or_default()
+}
+
+/// The 1-minute load average.
+fn load1() -> f64 {
+    // "{ 12.34 10.00 9.00 }"
+    sysctl("vm.loadavg")
+        .trim_matches(|c| c == '{' || c == '}' || c == ' ')
+        .split_whitespace()
+        .next()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0.0)
+}
+
+/// Swap used, in bytes ("total = 2048.00M  used = 1024.50M  free = ...").
+fn swap_used() -> u64 {
+    let s = sysctl("vm.swapusage");
+    let Some(after) = s.split("used = ").nth(1) else { return 0 };
+    let v = after.split_whitespace().next().unwrap_or("0");
+    let (num, unit) = v.split_at(v.len().saturating_sub(1));
+    let n: f64 = num.parse().unwrap_or(0.0);
+    let mul = match unit {
+        "K" => 1u64 << 10,
+        "M" => 1 << 20,
+        "G" => 1 << 30,
+        _ => 1,
+    };
+    (n * mul as f64) as u64
+}
+
+/// macOS memory pressure: 1 normal, 2 warn, 4 critical.
+fn pressure() -> u64 {
+    sysctl("kern.memorystatus_vm_pressure_level").parse().unwrap_or(0)
+}
+
+fn free_disk(path: &Path) -> u64 {
+    use std::os::unix::ffi::OsStrExt;
+    let c = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+    let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
+    // SAFETY: valid C string and out pointer.
+    if unsafe { libc::statvfs(c.as_ptr(), &mut st) } != 0 {
+        return 0;
+    }
+    st.f_bavail as u64 * st.f_frsize as u64
+}
+
+// ------------------------------------------------------------------ the load
+
+struct Load {
+    stop: Arc<AtomicBool>,
+    fsyncs: Arc<AtomicU64>,
+    hog_bytes: Arc<AtomicU64>,
+    /// Bytes the hog freed at critical pressure (the safety bound fired).
+    released: Arc<AtomicU64>,
+    threads: Vec<std::thread::JoinHandle<()>>,
+}
+
+impl Load {
+    /// Starts the memory hog, the fsync writers and the CPU spinners; returns once the hog
+    /// stopped growing (or after 240 s).
+    fn start(dir: &Path) -> Self {
+        let stop = Arc::new(AtomicBool::new(false));
+        let fsyncs = Arc::new(AtomicU64::new(0));
+        let hog_bytes = Arc::new(AtomicU64::new(0));
+        let released = Arc::new(AtomicU64::new(0));
+        let grown = Arc::new(AtomicBool::new(false));
+        let mut threads = Vec::new();
+        let ram: u64 = sysctl("hw.memsize").parse().unwrap_or(16 << 30);
+        let ncpu: usize = sysctl("hw.ncpu").parse().unwrap_or(8);
+        eprintln!(
+            "ACPMUX-PERF loadcfg ram_gb={} ncpu={ncpu} swap_target_gb={} spinners={} fsync_writers={FSYNC_WRITERS}",
+            ram >> 30,
+            SWAP_TARGET_BYTES >> 30,
+            (3 * ncpu).min(64)
+        );
+        // Memory hog: incompressible chunks (xorshift) so the compressor cannot absorb them and
+        // the host swaps; then a slow re-touch of every page keeps swap traffic on the disk.
+        {
+            let (stop, hog_bytes, grown, dir, released) =
+                (stop.clone(), hog_bytes.clone(), grown.clone(), dir.to_owned(), released.clone());
+            threads.push(std::thread::spawn(move || {
+                let mut chunks: Vec<Vec<u64>> = Vec::new();
+                let mut x: u64 = 0x9E37_79B9_7F4A_7C15;
+                let why = loop {
+                    if stop.load(Ordering::Relaxed) {
+                        break "stopped";
+                    }
+                    let held = chunks.len() as u64 * (HOG_CHUNK_U64S as u64 * 8);
+                    if swap_used() >= SWAP_TARGET_BYTES {
+                        break "swap target";
+                    }
+                    if pressure() >= 4 {
+                        break "pressure critical";
+                    }
+                    if free_disk(&dir) < MIN_FREE_DISK_BYTES {
+                        break "disk floor";
+                    }
+                    if held >= ram + HOG_OVER_RAM_BYTES {
+                        break "hog cap";
+                    }
+                    let mut c = vec![0u64; HOG_CHUNK_U64S];
+                    for v in c.iter_mut() {
+                        x ^= x << 13;
+                        x ^= x >> 7;
+                        x ^= x << 17;
+                        *v = x;
+                    }
+                    chunks.push(c);
+                    hog_bytes.store(held + (HOG_CHUNK_U64S as u64 * 8), Ordering::Relaxed);
+                };
+                eprintln!(
+                    "ACPMUX-PERF hog grown={}MB why=\"{why}\" swap_used_mb={} pressure={}",
+                    hog_bytes.load(Ordering::Relaxed) >> 20,
+                    swap_used() >> 20,
+                    pressure()
+                );
+                grown.store(true, Ordering::SeqCst);
+                // Re-touch one word per 16 KB page, chunk by chunk. Safety bound: at critical
+                // pressure (the kernel is about to kill processes) free 1 GB, counted in
+                // `released` and printed per run, so the host never dies of the bench.
+                let mut i = 0usize;
+                let mut checked = Instant::now();
+                while !stop.load(Ordering::Relaxed) && !chunks.is_empty() {
+                    if checked.elapsed() >= Duration::from_secs(2) {
+                        checked = Instant::now();
+                        if pressure() >= 4 {
+                            for _ in 0..4 {
+                                if chunks.pop().is_some() {
+                                    released
+                                        .fetch_add(HOG_CHUNK_U64S as u64 * 8, Ordering::Relaxed);
+                                    hog_bytes
+                                        .fetch_sub(HOG_CHUNK_U64S as u64 * 8, Ordering::Relaxed);
+                                }
+                            }
+                            if chunks.is_empty() {
+                                break;
+                            }
+                        }
+                    }
+                    let at = i % chunks.len();
+                    let c = &mut chunks[at];
+                    let mut j = 0;
+                    while j < c.len() {
+                        c[j] = c[j].wrapping_add(1);
+                        j += 2048;
+                    }
+                    i += 1;
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+            }));
+        }
+        // fsync writers: 256 KB writes, each followed by F_FULLFSYNC, files bounded.
+        for w in 0..FSYNC_WRITERS {
+            let (stop, fsyncs) = (stop.clone(), fsyncs.clone());
+            let path = dir.join(format!("fsync-{w}.bin"));
+            threads.push(std::thread::spawn(move || {
+                use std::os::fd::AsRawFd;
+                let Ok(mut f) = std::fs::File::create(&path) else { return };
+                let buf: Vec<u8> = (0..256 * 1024).map(|i| (i * 31 + w) as u8).collect();
+                let mut written = 0u64;
+                while !stop.load(Ordering::Relaxed) {
+                    if f.write_all(&buf).is_err() {
+                        break;
+                    }
+                    written += buf.len() as u64;
+                    // SAFETY: an open descriptor; F_FULLFSYNC takes no argument.
+                    unsafe { libc::fcntl(f.as_raw_fd(), libc::F_FULLFSYNC) };
+                    fsyncs.fetch_add(1, Ordering::Relaxed);
+                    if written >= FSYNC_FILE_BYTES {
+                        let _ = f.set_len(0);
+                        let _ = std::io::Seek::seek(&mut f, std::io::SeekFrom::Start(0));
+                        written = 0;
+                    }
+                }
+                let _ = std::fs::remove_file(&path);
+            }));
+        }
+        // CPU spinners.
+        for _ in 0..(3 * ncpu).min(64) {
+            let stop = stop.clone();
+            threads.push(std::thread::spawn(move || {
+                let mut x = 1u64;
+                while !stop.load(Ordering::Relaxed) {
+                    for _ in 0..100_000 {
+                        x = x.wrapping_mul(6364136223846793005).wrapping_add(1);
+                    }
+                    std::hint::black_box(x);
+                }
+            }));
+        }
+        let start = Instant::now();
+        while !grown.load(Ordering::SeqCst) && start.elapsed() < Duration::from_secs(240) {
+            std::thread::sleep(Duration::from_millis(500));
+        }
+        Self { stop, fsyncs, hog_bytes, released, threads }
+    }
+
+    fn stop(self) {
+        self.stop.store(true, Ordering::SeqCst);
+        for t in self.threads {
+            let _ = t.join();
+        }
+    }
+}
+
+/// Samples load and swap every 2 s until dropped; the max of each.
+struct Sampler {
+    stop: Arc<AtomicBool>,
+    max: Arc<Mutex<(f64, u64)>>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Sampler {
+    fn start() -> Self {
+        let stop = Arc::new(AtomicBool::new(false));
+        let max = Arc::new(Mutex::new((0.0f64, 0u64)));
+        let (s, m) = (stop.clone(), max.clone());
+        let thread = std::thread::spawn(move || {
+            while !s.load(Ordering::Relaxed) {
+                let (l, w) = (load1(), swap_used());
+                let mut g = m.lock().unwrap();
+                g.0 = g.0.max(l);
+                g.1 = g.1.max(w);
+                drop(g);
+                std::thread::sleep(Duration::from_secs(2));
+            }
+        });
+        Self { stop, max, thread: Some(thread) }
+    }
+
+    fn finish(mut self) -> (f64, u64) {
+        self.stop.store(true, Ordering::SeqCst);
+        if let Some(t) = self.thread.take() {
+            let _ = t.join();
+        }
+        *self.max.lock().unwrap()
+    }
 }
 
 // ------------------------------------------------------------------ daemon
@@ -71,7 +321,7 @@ struct Daemon {
 }
 
 impl Daemon {
-    fn start(scratch: &Path) -> Self {
+    fn start(exe: &Path, scratch: &Path) -> Self {
         let home = scratch.join("h");
         let work = scratch.join("work");
         std::fs::create_dir_all(&home).unwrap();
@@ -83,7 +333,9 @@ impl Daemon {
             .to_string(),
         )
         .unwrap();
-        let mut child = daemon_env::command(scratch, daemon_env::Agents::StandIn, &[])
+        let mut cmd = Command::new(exe);
+        daemon_env::apply(&mut cmd, scratch, daemon_env::Agents::StandIn, &[]);
+        let mut child = cmd
             .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "warn"])
             .env("ACPMUX_HOME", &home)
             .env("ACPMUX_SOCKET", scratch.join("s.sock"))
@@ -106,30 +358,14 @@ impl Daemon {
             .unwrap_or_else(|| scratch.join("s.sock"));
         Self { child, socket, work }
     }
-
-    fn pid(&self) -> u32 {
-        self.child.id()
-    }
-}
-
-impl Daemon {
-    /// Stops the daemon as an update does (SIGTERM): hosted agents keep running for the next
-    /// daemon to adopt.
-    fn restart_stop(mut self) {
-        // SAFETY: signalling this test's own child.
-        unsafe { libc::kill(self.child.id() as i32, libc::SIGTERM) };
-        let _ = self.child.wait();
-        std::mem::forget(self);
-    }
 }
 
 impl Drop for Daemon {
-    /// Ends the daemon and every agent it hosts (`_acpmux/shutdown {endAgents}`, the app's Quit
-    /// Everything), so the bench leaves no process behind; SIGTERM if the call fails.
+    /// Ends the daemon and every agent it hosts (`_acpmux/shutdown {endAgents}`); SIGTERM if
+    /// the call fails.
     fn drop(&mut self) {
-        use std::io::Write;
         let asked = std::os::unix::net::UnixStream::connect(&self.socket).and_then(|mut s| {
-            s.set_read_timeout(Some(Duration::from_secs(30)))?;
+            s.set_read_timeout(Some(Duration::from_secs(60)))?;
             let lines = [
                 json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": 1}}),
                 json!({"jsonrpc": "2.0", "id": 2, "method": "_acpmux/shutdown", "params": {"endAgents": true}}),
@@ -155,14 +391,12 @@ impl Drop for Daemon {
 // ------------------------------------------------------------------ client
 
 type Pending = Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>>;
+type Accepts = Arc<Mutex<HashMap<String, oneshot::Sender<u64>>>>;
 
-/// One daemon connection. Its reader stamps every line as it arrives: replies go to their
-/// caller, each streamed token's age (agent write to arrival) goes to `tokens`.
 struct Client {
     writer: tokio::io::WriteHalf<UnixStream>,
     pending: Pending,
-    tokens: Arc<Mutex<Vec<u64>>>,
-    accepted: Arc<Mutex<HashMap<String, u64>>>,
+    accepts: Accepts,
     next: u64,
 }
 
@@ -171,13 +405,16 @@ impl Client {
         let stream = UnixStream::connect(socket).await.expect("connect");
         let (rd, writer) = tokio::io::split(stream);
         let pending: Pending = Arc::default();
-        let tokens: Arc<Mutex<Vec<u64>>> = Arc::default();
-        let accepted: Arc<Mutex<HashMap<String, u64>>> = Arc::default();
-        let (p, t, a) = (pending.clone(), tokens.clone(), accepted.clone());
+        let accepts: Accepts = Arc::default();
+        let (p, a) = (pending.clone(), accepts.clone());
         tokio::spawn(async move {
             let mut lines = tokio::io::BufReader::new(rd).lines();
             while let Ok(Some(line)) = lines.next_line().await {
                 let at = now_ns();
+                // Only replies and accepted notes matter; skip the token stream cheaply.
+                if line.contains("\"session/update\"") {
+                    continue;
+                }
                 let Ok(v) = serde_json::from_str::<Value>(&line) else { continue };
                 match v.get("method").and_then(Value::as_str) {
                     None => {
@@ -187,25 +424,21 @@ impl Client {
                             let _ = tx.send(v);
                         }
                     }
-                    Some("session/update") => {
-                        let text = v.pointer("/params/update/content/text").and_then(Value::as_str);
-                        if let Some(sent) = text.and_then(|t| {
-                            t.strip_prefix('t')?.strip_suffix(';')?.parse::<u64>().ok()
-                        }) {
-                            t.lock().unwrap().push(at.saturating_sub(sent));
-                        }
-                    }
                     Some("_acpmux/prompt_accepted") => {
-                        if let Some(id) = v.pointer("/params/promptId").and_then(Value::as_str) {
-                            a.lock().unwrap().insert(id.to_owned(), at);
+                        if let Some(id) = v.pointer("/params/promptId").and_then(Value::as_str)
+                            && let Some(tx) = a.lock().unwrap().remove(id)
+                        {
+                            let _ = tx.send(at);
                         }
                     }
                     Some(_) => {}
                 }
             }
         });
-        let mut c = Self { writer, pending, tokens, accepted, next: 0 };
-        c.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "perf"}})).await;
+        let mut c = Self { writer, pending, accepts, next: 0 };
+        c.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "perf-ab"}}))
+            .await
+            .expect("initialize");
         c
     }
 
@@ -218,418 +451,392 @@ impl Client {
         rx
     }
 
-    async fn call(&mut self, method: &str, params: Value) -> Value {
-        let rx = self.send(method, params).await;
-        let v = tokio::time::timeout(Duration::from_secs(60), rx).await.expect("reply").unwrap();
-        assert!(v.get("error").is_none(), "{method} failed: {v}");
-        v["result"].clone()
+    async fn notify(&mut self, method: &str, params: Value) {
+        let line = json!({"jsonrpc": "2.0", "method": method, "params": params});
+        self.writer.write_all(format!("{line}\n").as_bytes()).await.unwrap();
     }
 
-    /// Send to reply, in ns.
-    async fn timed(&mut self, method: &str, params: Value) -> u64 {
+    /// The result, or None on an error reply or no reply within REPLY_BOUND.
+    async fn call(&mut self, method: &str, params: Value) -> Option<Value> {
+        let rx = self.send(method, params).await;
+        match tokio::time::timeout(REPLY_BOUND, rx).await {
+            Ok(Ok(v)) if v.get("error").is_none() => Some(v["result"].clone()),
+            Ok(Ok(v)) => {
+                eprintln!("ACPMUX-PERF-ERR {method} {}", v["error"]);
+                None
+            }
+            _ => None,
+        }
+    }
+
+    /// Send to reply in ns; None on an error or no reply.
+    async fn timed(&mut self, method: &str, params: Value) -> Option<u64> {
         let start = now_ns();
-        self.call(method, params).await;
-        now_ns() - start
+        self.call(method, params).await.map(|_| now_ns() - start)
+    }
+
+    /// Sends a prompt; send to its `_acpmux/prompt_accepted` in ns (it queues behind the
+    /// running turn). Its own reply comes at its turn's end, or `cancelled` once removed.
+    async fn queue_prompt(&mut self, s: &str, id: &str) -> Option<u64> {
+        let (tx, rx) = oneshot::channel();
+        self.accepts.lock().unwrap().insert(id.to_owned(), tx);
+        let start = now_ns();
+        let _reply = self
+            .send(
+                "session/prompt",
+                json!({"sessionId": s, "prompt": [{"type": "text", "text": "hi"}],
+                       "_meta": {"acpmux": {"promptId": id}}}),
+            )
+            .await;
+        match tokio::time::timeout(REPLY_BOUND, rx).await {
+            Ok(Ok(at)) => Some(at.saturating_sub(start)),
+            _ => {
+                self.accepts.lock().unwrap().remove(id);
+                None
+            }
+        }
     }
 
     async fn new_chat(&mut self, work: &Path) -> String {
         let v = self.call("session/new", json!({"cwd": work, "mcpServers": []})).await;
-        v["sessionId"].as_str().expect("session id").to_owned()
-    }
-
-    fn take_tokens(&self) -> Vec<u64> {
-        std::mem::take(&mut *self.tokens.lock().unwrap())
+        v.and_then(|v| v["sessionId"].as_str().map(str::to_owned)).expect("session id")
     }
 }
 
 // ------------------------------------------------------------------ numbers
 
-#[derive(Default)]
-struct Report {
-    rows: serde_json::Map<String, Value>,
-    over: Vec<String>,
+type Samples = BTreeMap<&'static str, (Vec<u64>, u64)>;
+
+fn record(s: &mut Samples, kind: &'static str, v: Option<u64>) {
+    let e = s.entry(kind).or_default();
+    match v {
+        Some(ns) => e.0.push(ns),
+        None => e.1 += 1,
+    }
 }
 
-/// The open finding a row is over the budget for, if it is one of [`OPEN`].
-fn open_finding(name: &str) -> Option<&'static str> {
-    OPEN.iter().find(|(row, _)| name.contains(row)).map(|(_, finding)| *finding)
-}
-
-fn pct(sorted: &[u64], p: f64) -> u64 {
+fn pct(sorted: &[u64], p: f64) -> f64 {
     if sorted.is_empty() {
-        return 0;
+        return 0.0;
     }
-    sorted[((sorted.len() as f64 - 1.0) * p).round() as usize]
+    let ns = sorted[((sorted.len() as f64 - 1.0) * p).round() as usize];
+    (ns as f64 / 1e3).round() / 1e3
 }
 
-impl Report {
-    /// One latency row in ms (p50, p95, max, n); over budget when p95 > `budget`.
-    fn latency(&mut self, name: &str, mut ns: Vec<u64>, budget: Option<Duration>) {
-        ns.sort_unstable();
-        let ms = |v: u64| (v as f64 / 1e6 * 1000.0).round() / 1000.0;
-        let (p50, p95, max) = (pct(&ns, 0.5), pct(&ns, 0.95), *ns.last().unwrap_or(&0));
-        eprintln!(
-            "ACPMUX-PERF {name} p50_ms={} p95_ms={} max_ms={} n={}",
-            ms(p50),
-            ms(p95),
-            ms(max),
-            ns.len()
-        );
-        if let Some(b) = budget
-            && (ns.is_empty() || p95 > b.as_nanos() as u64)
-        {
-            let over = format!("{name} p95 {} ms > {} ms", ms(p95), b.as_millis());
-            match open_finding(name) {
-                Some(finding) => eprintln!("ACPMUX-PERF-OPEN {over} ({finding})"),
-                None => self.over.push(over),
-            }
-        }
-        self.rows.insert(
-            name.to_owned(),
-            json!({"p50_ms": ms(p50), "p95_ms": ms(p95), "max_ms": ms(max), "n": ns.len()}),
-        );
-    }
-
-    fn value(&mut self, name: &str, v: Value) {
-        eprintln!("ACPMUX-PERF {name} {v}");
-        self.rows.insert(name.to_owned(), v);
-    }
-
-    fn write(&self) {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
-        let dir = root.join(".build/acpmux-perf");
-        let _ = std::fs::create_dir_all(&dir);
-        let _ = std::fs::write(
-            dir.join("perf_ops.json"),
-            serde_json::to_string_pretty(&Value::Object(self.rows.clone())).unwrap(),
-        );
-    }
-}
-
-/// CPU ns, context switches, threads and resident bytes of one process (proc_pidinfo).
-#[derive(Clone, Copy, Debug, Default)]
-struct Usage {
-    cpu_ns: u64,
-    switches: u64,
-    threads: u64,
-    rss: u64,
-}
-
-fn usage(pid: u32) -> Usage {
-    use std::os::raw::{c_int, c_void};
-    // The C layout of PROC_PIDTASKINFO: most fields are only there for their offsets.
-    #[allow(dead_code)]
-    #[repr(C)]
-    #[derive(Default)]
-    struct TaskInfo {
-        virtual_size: u64,
-        resident_size: u64,
-        total_user: u64,
-        total_system: u64,
-        threads_user: u64,
-        threads_system: u64,
-        policy: i32,
-        faults: i32,
-        pageins: i32,
-        cow_faults: i32,
-        messages_sent: i32,
-        messages_received: i32,
-        syscalls_mach: i32,
-        syscalls_unix: i32,
-        csw: i32,
-        threadnum: i32,
-        numrunning: i32,
-        priority: i32,
-    }
-    #[repr(C)]
-    #[derive(Default)]
-    struct Timebase {
-        numer: u32,
-        denom: u32,
-    }
-    unsafe extern "C" {
-        fn proc_pidinfo(
-            pid: c_int,
-            flavor: c_int,
-            arg: u64,
-            buf: *mut c_void,
-            size: c_int,
-        ) -> c_int;
-        fn mach_timebase_info(info: *mut Timebase) -> c_int;
-    }
-    let mut task = TaskInfo::default();
-    let mut tb = Timebase::default();
-    let size = size_of::<TaskInfo>() as c_int;
-    // SAFETY: the buffer matches PROC_PIDTASKINFO's layout and size.
-    let n = unsafe { proc_pidinfo(pid as c_int, 4, 0, (&raw mut task).cast(), size) };
-    if n != size {
-        return Usage::default();
-    }
-    // SAFETY: writes the two fields.
-    unsafe { mach_timebase_info(&raw mut tb) };
-    let ticks = (task.total_user + task.total_system) as u128;
-    Usage {
-        cpu_ns: (ticks * tb.numer as u128 / tb.denom.max(1) as u128) as u64,
-        switches: task.csw.max(0) as u64,
-        threads: task.threadnum.max(0) as u64,
-        rss: task.resident_size,
-    }
-}
-
-/// Every process under `pid` (agent hosts and their agents), by `ps`.
-fn descendants(pid: u32) -> Vec<u32> {
-    let out = std::process::Command::new("ps").args(["-A", "-o", "pid=,ppid="]).output().unwrap();
-    let pairs: Vec<(u32, u32)> = String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .filter_map(|l| {
-            let mut f = l.split_whitespace();
-            Some((f.next()?.parse().ok()?, f.next()?.parse().ok()?))
-        })
-        .collect();
-    let mut found = vec![pid];
-    let mut i = 0;
-    while i < found.len() {
-        let parent = found[i];
-        found.extend(pairs.iter().filter(|(_, pp)| *pp == parent).map(|(p, _)| *p));
-        i += 1;
-    }
-    found.remove(0);
-    found
-}
-
-fn tree(pid: u32) -> Value {
-    let kids = descendants(pid);
-    let own = usage(pid);
-    let rss: u64 = kids.iter().map(|p| usage(*p).rss).sum();
-    let threads: u64 = kids.iter().map(|p| usage(*p).threads).sum();
-    json!({"daemon_threads": own.threads, "daemon_rss_mb": own.rss >> 20,
-           "processes": kids.len(), "processes_threads": threads, "processes_rss_mb": rss >> 20})
-}
-
-fn scratch() -> PathBuf {
-    // Short: the socket path must stay under the macOS limit.
-    let dir = std::env::temp_dir().join(format!("amx-perf-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-// ------------------------------------------------------------------ the bench
-
-/// The ops a client sends most, each timed `ROUNDS` times on chat `s`.
-async fn time_ops(c: &mut Client, s: &str, rounds: usize, label: &str, report: &mut Report) {
-    let mut rows: Vec<(&str, Vec<u64>)> = Vec::new();
-    for op in ["status", "sessions", "draft_set", "rename", "attach", "events"] {
-        let mut ns = Vec::with_capacity(rounds);
-        for i in 0..rounds + 5 {
-            let (m, p) = match op {
-                "status" => ("_acpmux/status", json!({})),
-                "sessions" => ("_acpmux/sessions", json!({})),
-                "draft_set" => {
-                    ("_acpmux/draft_set", json!({"sessionId": s, "text": format!("draft {i}")}))
-                }
-                "rename" => (
-                    "_acpmux/rename",
-                    json!({"sessionId": s, "newName": format!("perf-{label}-{i}")}),
-                ),
-                "attach" => ("_acpmux/attach", json!({"sessionId": s, "limit": 50})),
-                _ => ("_acpmux/events", json!({"sessionId": s, "limit": 50})),
-            };
-            let t = c.timed(m, p).await;
-            if i >= 5 {
-                ns.push(t);
-            }
-        }
-        rows.push((op, ns));
-    }
-    for (op, ns) in rows {
-        report.latency(&format!("{label}.op.{op}"), ns, Some(OP_P95));
-    }
-}
-
-/// One prompt: send to `_acpmux/prompt_accepted` on the same connection, in ns.
-async fn prompt(c: &mut Client, s: &str, text: &str, id: &str) -> oneshot::Receiver<Value> {
-    c.send(
-        "session/prompt",
-        json!({"sessionId": s, "prompt": [{"type": "text", "text": text}],
-               "_meta": {"acpmux": {"promptId": id}}}),
-    )
-    .await
-}
-
-/// Where the daemon spends a session list's time: macOS `sample` of the daemon for 2 s while
-/// one connection asks for `_acpmux/sessions` back to back. Prints the heaviest frames of the
-/// samples (top of stack) as `ACPMUX-PROFILE` lines; a diagnostic, not a budget.
-async fn profile_sessions_list(daemon: &Daemon, c: &mut Client) {
-    let out = std::env::temp_dir().join(format!("amx-sample-{}.txt", std::process::id()));
-    let Ok(mut sample) = std::process::Command::new("/usr/bin/sample")
-        .args([&daemon.pid().to_string(), "2", "-mayDie", "-file"])
-        .arg(&out)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-    else {
-        eprintln!("ACPMUX-PROFILE sample did not start");
-        return;
-    };
-    let mut lists = 0;
-    while sample.try_wait().ok().flatten().is_none() {
-        c.call("_acpmux/sessions", json!({})).await;
-        lists += 1;
-    }
-    let text = std::fs::read_to_string(&out).unwrap_or_default();
-    let _ = std::fs::remove_file(&out);
-    eprintln!("ACPMUX-PROFILE sessions lists during the sample: {lists}");
-    let top = text.split("Sort by top of stack").nth(1).unwrap_or("");
-    for line in top.lines().filter(|l| !l.trim().is_empty()).take(40) {
-        eprintln!("ACPMUX-PROFILE {}", line.trim());
-    }
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn acpmux_ops_and_streaming_meet_the_daemon_budgets_light_and_stress() {
-    let dir = scratch();
-    let daemon = Daemon::start(&dir);
-    let mut report = Report::default();
-    report.value("idle0.tree", tree(daemon.pid()));
-
-    // -------- light: one chat, one client
-    let mut app = Client::connect(&daemon.socket).await;
-    let chat = app.new_chat(&daemon.work).await;
-    app.call("_acpmux/attach", json!({"sessionId": chat, "limit": 1})).await;
-    // The first prompt starts the agent (its host and harness).
-    let first = now_ns();
-    let rx = prompt(&mut app, &chat, "hello", "warm-0").await;
-    rx.await.unwrap();
-    report.value("light.first_prompt_ms", json!((now_ns() - first) as f64 / 1e6));
-    time_ops(&mut app, &chat, ROUNDS, "light", &mut report).await;
-    let mut accepted = Vec::new();
-    for i in 0..30 {
-        let id = format!("light-{i}");
-        let start = now_ns();
-        let rx = prompt(&mut app, &chat, "hi", &id).await;
-        rx.await.unwrap();
-        if let Some(at) = app.accepted.lock().unwrap().get(&id) {
-            accepted.push(at - start);
-        }
-    }
-    report.latency("light.op.prompt_accepted", accepted, Some(OP_P95));
-    let mut created = Vec::new();
-    for _ in 0..10 {
-        let start = now_ns();
-        app.new_chat(&daemon.work).await;
-        created.push(now_ns() - start);
-    }
-    report.latency("light.op.session_new", created, Some(OP_P95));
-    app.take_tokens();
-    let rx = prompt(&mut app, &chat, "stream 400 2", "light-stream").await;
-    rx.await.unwrap();
-    report.latency("light.token_to_client", app.take_tokens(), Some(OP_P95));
-
-    // -------- STRESS: 16 chats streaming to two attached clients; a third sends requests
-    let mut viewer = Client::connect(&daemon.socket).await;
-    let mut chats = Vec::new();
-    for _ in 0..STRESS_CHATS {
-        let s = app.new_chat(&daemon.work).await;
-        for c in [&mut app, &mut viewer] {
-            c.call("_acpmux/attach", json!({"sessionId": s, "limit": 1})).await;
-        }
-        let rx = prompt(&mut app, &s, "hello", &format!("warm-{s}")).await;
-        rx.await.unwrap();
-        chats.push(s);
-    }
-    report.value("stress.tree", tree(daemon.pid()));
-    app.take_tokens();
-    viewer.take_tokens();
-    let mut turns = Vec::new();
-    for (i, s) in chats.iter().enumerate() {
-        turns.push(prompt(&mut app, s, "stream 300 5", &format!("stress-{i}")).await);
-    }
-    let mut ops = Client::connect(&daemon.socket).await;
-    time_ops(&mut ops, &chats[0], 40, "stress", &mut report).await;
-    for t in turns {
-        t.await.unwrap();
-    }
-    report.latency("stress.token_to_client.app", app.take_tokens(), Some(OP_P95));
-    report.latency("stress.token_to_client.viewer", viewer.take_tokens(), Some(OP_P95));
-
-    // -------- idle: every agent alive, both clients attached, nothing streaming
-    tokio::time::sleep(Duration::from_secs(3)).await;
-    let mut windows = Vec::new();
-    let mut kid_windows = Vec::new();
-    for _ in 0..IDLE_WINDOWS {
-        let kids = descendants(daemon.pid());
-        let (before, kb): (Usage, Vec<Usage>) =
-            (usage(daemon.pid()), kids.iter().map(|p| usage(*p)).collect());
-        tokio::time::sleep(IDLE_WINDOW).await;
-        let after = usage(daemon.pid());
-        windows.push((after.switches - before.switches, after.cpu_ns - before.cpu_ns));
-        let ka: Vec<Usage> = kids.iter().map(|p| usage(*p)).collect();
-        let (sw, cpu) = kb.iter().zip(&ka).fold((0, 0), |(s, c), (b, a)| {
-            (s + a.switches.saturating_sub(b.switches), c + a.cpu_ns.saturating_sub(b.cpu_ns))
-        });
-        kid_windows.push((sw, cpu));
-    }
-    windows.sort_unstable();
-    kid_windows.sort_unstable();
-    let (sw, cpu) = windows[IDLE_WINDOWS / 2];
-    let (ksw, kcpu) = kid_windows[IDLE_WINDOWS / 2];
-    report.value(
-        "idle.stress",
-        json!({"window_s": IDLE_WINDOW.as_secs(), "daemon_switches": sw, "daemon_cpu_ms": cpu / 1_000_000,
-               "agent_processes_switches": ksw, "agent_processes_cpu_ms": kcpu / 1_000_000}),
+fn row(prefix: &str, kind: &str, ns: &mut Vec<u64>, errors: u64) -> Value {
+    ns.sort_unstable();
+    let (p50, p95, p99) = (pct(ns, 0.5), pct(ns, 0.95), pct(ns, 0.99));
+    let max = pct(ns, 1.0);
+    eprintln!(
+        "ACPMUX-PERF {prefix} kind={kind} p50_ms={p50} p95_ms={p95} p99_ms={p99} max_ms={max} n={} errors={errors}",
+        ns.len()
     );
-    if sw > IDLE_SWITCHES {
-        report.over.push(format!(
-            "idle daemon: {sw} context switches in {} s (at most {IDLE_SWITCHES})",
-            IDLE_WINDOW.as_secs()
-        ));
-    }
+    json!({"p50_ms": p50, "p95_ms": p95, "p99_ms": p99, "max_ms": max, "n": ns.len(), "errors": errors})
+}
 
-    // -------- many chats: more chats writing at once than the store keeps logs open
-    let mut many = chats.clone();
-    while many.len() < MANY_CHATS {
+/// The kinds that change state (they wait for their record in arm B).
+const WRITE_KINDS: &[&str] =
+    &["queue_edit_update", "queue_edit_move", "queue_remove", "rename", "draft_set"];
+
+/// One client's request mix on chat `s` until `until`.
+async fn client_loop(
+    mut c: Client,
+    s: String,
+    idle: String,
+    tag: String,
+    until: Instant,
+) -> Samples {
+    let mut out = Samples::new();
+    let mut cycle = 0u64;
+    while Instant::now() < until {
+        let (p1, p2) = (format!("{tag}-{cycle}-a"), format!("{tag}-{cycle}-b"));
+        let idle = idle.as_str();
+        let v = c.queue_prompt(&s, &p1).await;
+        record(&mut out, "prompt_queue", v);
+        let v = c.queue_prompt(&s, &p2).await;
+        record(&mut out, "prompt_queue", v);
+        let v = c
+            .timed(
+                "_acpmux/queue_edit",
+                json!({"sessionId": s, "promptId": p1, "op": "update", "text": format!("edited {cycle}")}),
+            )
+            .await;
+        record(&mut out, "queue_edit_update", v);
+        let v = c
+            .timed(
+                "_acpmux/queue_edit",
+                json!({"sessionId": s, "promptId": p1, "op": "move", "index": 1}),
+            )
+            .await;
+        record(&mut out, "queue_edit_move", v);
+        let v = c.timed("_acpmux/queue_remove", json!({"sessionId": s, "promptId": p1})).await;
+        record(&mut out, "queue_remove", v);
+        // p2 leaves the queue too, so the queue stays short (prompt_withdraw is not timed: it
+        // refuses a person's prompt, `withdraw.not_a_message`, before any write).
+        let v = c.timed("_acpmux/queue_remove", json!({"sessionId": s, "promptId": p2})).await;
+        record(&mut out, "queue_remove", v);
+        let v = c
+            .timed("_acpmux/rename", json!({"sessionId": s, "newName": format!("{tag}-{cycle}")}))
+            .await;
+        record(&mut out, "rename", v);
+        let v = c
+            .timed("_acpmux/draft_set", json!({"sessionId": s, "text": format!("draft {cycle}")}))
+            .await;
+        record(&mut out, "draft_set", v);
+        let v = c.timed("_acpmux/status", json!({})).await;
+        record(&mut out, "status", v);
+        // On the idle chat: a log read of a streaming chat waits in `LogWriter::settle` until
+        // the chat has no queued line at all, which a chat streaming every 10 ms seldom has
+        // (job 88f5f7da34f5: every such read went past 30 s, in both arms).
+        let v = c.timed("_acpmux/events", json!({"sessionId": idle, "limit": 50})).await;
+        record(&mut out, "events", v);
+        cycle += 1;
+    }
+    out
+}
+
+/// One run of one arm's daemon under the load; returns samples per N.
+async fn run_arm(
+    exe: &Path,
+    arm: &str,
+    round: usize,
+    base: &Path,
+    load: &Load,
+) -> BTreeMap<usize, Samples> {
+    let scratch = base.join(format!("{arm}{round}"));
+    let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::create_dir_all(&scratch).unwrap();
+    let (l0, w0) = (load1(), swap_used());
+    let sampler = Sampler::start();
+    let f0 = load.fsyncs.load(Ordering::Relaxed);
+    let t0 = Instant::now();
+    let daemon = Daemon::start(exe, &scratch);
+    let mut app = Client::connect(&daemon.socket).await;
+    let mut chats = Vec::new();
+    for _ in 0..BG_CHATS {
         let s = app.new_chat(&daemon.work).await;
         app.call("_acpmux/attach", json!({"sessionId": s, "limit": 1})).await;
-        let rx = prompt(&mut app, &s, "hello", &format!("warm-{s}")).await;
-        rx.await.unwrap();
-        many.push(s);
+        chats.push(s);
     }
-    report.value("many.tree", tree(daemon.pid()));
-    app.take_tokens();
-    let mut turns = Vec::new();
-    for (i, s) in many.iter().enumerate() {
-        turns.push(prompt(&mut app, s, "stream 40 25", &format!("many-{i}")).await);
+    // Start every agent, then wait for all of them.
+    let mut warm = Vec::new();
+    for (i, s) in chats.iter().enumerate() {
+        warm.push(
+            app.send(
+                "session/prompt",
+                json!({"sessionId": s, "prompt": [{"type": "text", "text": "hello"}],
+                       "_meta": {"acpmux": {"promptId": format!("warm-{i}")}}}),
+            )
+            .await,
+        );
     }
-    time_ops(&mut ops, &many[0], 20, "many", &mut report).await;
-    for t in turns {
-        t.await.unwrap();
+    for w in warm {
+        let _ = tokio::time::timeout(Duration::from_secs(120), w).await;
     }
-    report.latency("many.token_to_client", app.take_tokens(), Some(OP_P95));
-    profile_sessions_list(&daemon, &mut ops).await;
-
-    // -------- restart: four chats with long logs, every agent left running under its host
-    for (i, s) in chats.iter().take(4).enumerate() {
-        prompt(&mut app, s, "stream 25000 0", &format!("long-{i}")).await.await.unwrap();
+    // The background turns: each chat streams for longer than the run (cancelled at its end).
+    for (i, s) in chats.iter().enumerate() {
+        let _ = app
+            .send(
+                "session/prompt",
+                json!({"sessionId": s, "prompt": [{"type": "text", "text": "stream 100000 10"}],
+                       "_meta": {"acpmux": {"promptId": format!("bg-{i}")}}}),
+            )
+            .await;
     }
-    drop((app, viewer, ops));
-    daemon.restart_stop();
-    let started = now_ns();
-    let daemon = Daemon::start(&dir);
-    let ready = now_ns() - started;
-    let mut c = Client::connect(&daemon.socket).await;
-    let attach = c.timed("_acpmux/attach", json!({"sessionId": chats[0], "limit": 50})).await;
-    // A restart reads the chat logs after its ready line; attach waits for them
-    // (acpmux-audit.md finding 9, D7).
-    report.value(
-        "restart",
-        json!({"chats": many.len(), "long_logs": 4, "records_per_long_log": 25_000,
-               "ready_ms": ready as f64 / 1e6, "first_attach_ms": attach as f64 / 1e6,
-               "ready_to_attach_ms": (now_ns() - started) as f64 / 1e6}),
+    // The chat the reads go to: one with a short log and no turn.
+    let idle = app.new_chat(&daemon.work).await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let mut by_n = BTreeMap::new();
+    for n in PHASES {
+        let mut clients = Vec::new();
+        for _ in 0..n {
+            clients.push(Client::connect(&daemon.socket).await);
+        }
+        let until = Instant::now() + PHASE;
+        let mut tasks = Vec::new();
+        for (i, c) in clients.into_iter().enumerate() {
+            let tag = format!("{arm}{round}-n{n}-c{i}");
+            let (chat, idle) = (chats[i].clone(), idle.clone());
+            tasks.push(tokio::spawn(client_loop(c, chat, idle, tag, until)));
+        }
+        let mut merged = Samples::new();
+        for t in tasks {
+            for (k, (ns, err)) in t.await.unwrap() {
+                let e = merged.entry(k).or_default();
+                e.0.extend(ns);
+                e.1 += err;
+            }
+        }
+        by_n.insert(n, merged);
+    }
+    for s in &chats {
+        app.notify("session/cancel", json!({"sessionId": s})).await;
+    }
+    let secs = t0.elapsed().as_secs_f64();
+    let fsyncs = load.fsyncs.load(Ordering::Relaxed) - f0;
+    let (lmax, wmax) = sampler.finish();
+    eprintln!(
+        "ACPMUX-PERF load round={round} arm={arm} load1_start={l0:.1} load1_max={lmax:.1} load1_end={:.1} swap_start_mb={} swap_max_mb={} swap_end_mb={} hog_mb={} hog_released_mb={} bg_fsyncs_per_s={:.1} pressure={}",
+        load1(),
+        w0 >> 20,
+        wmax >> 20,
+        swap_used() >> 20,
+        load.hog_bytes.load(Ordering::Relaxed) >> 20,
+        load.released.load(Ordering::Relaxed) >> 20,
+        fsyncs as f64 / secs,
+        pressure()
     );
+    drop(app);
+    drop(daemon);
+    let _ = std::fs::remove_dir_all(&scratch);
+    by_n
+}
 
-    report.write();
-    drop((c, daemon));
-    let _ = std::fs::remove_dir_all(&dir);
-    assert!(report.over.is_empty(), "over the daemon budgets: {:#?}", report.over);
+/// Runs `cmd` to its end; panics with `what` when it fails.
+fn must(cmd: &mut Command, what: &str) {
+    let status = cmd.status().unwrap_or_else(|e| panic!("{what}: {e}"));
+    assert!(status.success(), "{what}: {status}");
+}
+
+/// Builds arm A's release daemon: a worktree of this checkout's HEAD with the arm A patch
+/// (`durable_ab_arm_a.patch`: perf 3ae4c8c922b with 0599e2aee73, 8b2fe7eba54 and 6a5173856d0
+/// reverted, exactly cp-scratch/acpmux-durable-ab-a's source) applied. The step checkout has no
+/// `origin` remote, so acpmux-overhead.sh's `before=` cannot fetch it (job ad7383091037).
+fn build_arm_a(root: &Path, work: &Path) -> PathBuf {
+    let patch = root.join("cmux-tui/crates/acpmux/tests/durable_ab_arm_a.patch");
+    let tree = work.join("arm-a-src");
+    let _ = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["worktree", "remove", "--force"])
+        .arg(&tree)
+        .status();
+    must(
+        Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(["worktree", "add", "--detach"])
+            .arg(&tree)
+            .arg("HEAD"),
+        "git worktree add for arm A",
+    );
+    must(
+        Command::new("git").arg("-C").arg(&tree).arg("apply").arg(&patch),
+        "git apply arm A patch",
+    );
+    assert!(
+        !tree.join("cmux-tui/crates/acpmux/src/hub/request_writes.rs").exists(),
+        "arm A still has the request write rule"
+    );
+    let target = work.join("target-arm-a");
+    let started = Instant::now();
+    let mut cargo = Command::new(env!("CARGO"));
+    cargo
+        .current_dir(tree.join("cmux-tui"))
+        .args(["build", "--release", "--locked", "-p", "acpmux", "--bin", "acpmux"])
+        .env("CARGO_TARGET_DIR", &target);
+    if let Some(rustc) = Path::new(env!("CARGO")).parent().map(|d| d.join("rustc"))
+        && rustc.exists()
+    {
+        cargo.env("RUSTC", rustc);
+    }
+    must(&mut cargo, "cargo build of arm A's daemon");
+    eprintln!("ACPMUX-PERF arm-a-built secs={:.0}", started.elapsed().as_secs_f64());
+    target.join("release/acpmux")
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn acpmux_durable_ab_under_load() {
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = manifest.join("../../..").canonicalize().expect("the checkout root");
+    let work = root.join(".build/acpmux-overhead");
+    std::fs::create_dir_all(&work).unwrap();
+    let a = build_arm_a(&root, &work);
+    assert!(a.exists(), "arm A's daemon is missing: {}", a.display());
+    let b = daemon_env::bin().to_owned();
+    // Short: socket paths must stay under the macOS limit.
+    let base = std::env::temp_dir().join(format!("amx-ab-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    eprintln!(
+        "ACPMUX-PERF start load1={:.1} swap_mb={} pressure={} a={} b={}",
+        load1(),
+        swap_used() >> 20,
+        pressure(),
+        a.display(),
+        b.display()
+    );
+    let load = Load::start(&base);
+    let mut pooled: BTreeMap<(String, usize), Samples> = BTreeMap::new();
+    let mut report = serde_json::Map::new();
+    for round in 0..ROUNDS {
+        for (arm, exe) in [("A", &a), ("B", &b)] {
+            let by_n = run_arm(exe, arm, round, &base, &load).await;
+            for (n, samples) in by_n {
+                let mut writes_all = Vec::new();
+                let mut writes_err = 0;
+                for (kind, (mut ns, err)) in samples {
+                    if WRITE_KINDS.contains(&kind) {
+                        writes_all.extend_from_slice(&ns);
+                        writes_err += err;
+                    }
+                    let key = format!("ab.round{round}.{arm}.n{n}.{kind}");
+                    report.insert(
+                        key,
+                        row(&format!("ab round={round} arm={arm} n={n}"), kind, &mut ns, err),
+                    );
+                    let p = pooled.entry((arm.to_owned(), n)).or_default().entry(kind).or_default();
+                    p.0.extend(ns);
+                    p.1 += err;
+                }
+                report.insert(
+                    format!("ab.round{round}.{arm}.n{n}.ALL_WRITES"),
+                    row(
+                        &format!("ab round={round} arm={arm} n={n}"),
+                        "ALL_WRITES",
+                        &mut writes_all,
+                        writes_err,
+                    ),
+                );
+            }
+        }
+    }
+    for ((arm, n), samples) in pooled {
+        let mut writes_all = Vec::new();
+        let mut writes_err = 0;
+        for (kind, (mut ns, err)) in samples {
+            if WRITE_KINDS.contains(&kind) {
+                writes_all.extend_from_slice(&ns);
+                writes_err += err;
+            }
+            report.insert(
+                format!("pooled.{arm}.n{n}.{kind}"),
+                row(&format!("pooled arm={arm} n={n}"), kind, &mut ns, err),
+            );
+        }
+        report.insert(
+            format!("pooled.{arm}.n{n}.ALL_WRITES"),
+            row(&format!("pooled arm={arm} n={n}"), "ALL_WRITES", &mut writes_all, writes_err),
+        );
+    }
+    eprintln!(
+        "ACPMUX-PERF end load1={:.1} swap_mb={} pressure={}",
+        load1(),
+        swap_used() >> 20,
+        pressure()
+    );
+    load.stop();
+    let _ = Command::new("git")
+        .arg("-C")
+        .arg(&root)
+        .args(["worktree", "remove", "--force"])
+        .arg(work.join("arm-a-src"))
+        .status();
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.build/acpmux-perf");
+    let _ = std::fs::create_dir_all(&dir);
+    let _ = std::fs::write(
+        dir.join("perf_ops.json"),
+        serde_json::to_string_pretty(&Value::Object(report)).unwrap(),
+    );
+    let _ = std::fs::remove_dir_all(&base);
 }
