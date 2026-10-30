@@ -4196,9 +4196,11 @@ class MainDispatch(unittest.TestCase):
 class SweepAPI:
     """The sweeper's own reads: marker listings and the runs they name."""
 
-    def __init__(self, runs, *, picker=(), late=(), refusals=(), created=0, attempt_jobs=None, failed=()):
+    def __init__(self, runs, *, picker=(), late=(), refusals=(), created=0, attempt_jobs=None, failed=(), queued=()):
         self.failed = list(failed)  # failed side-lane run ids (failed_runs())
         self.failed_listings = 0
+        self.queued = list(queued)  # queued side-lane run ids (queued_side_runs())
+        self.queued_listings = 0
         self.runs = {run["id"]: run for run in runs}
         self.marked = {rescue.WATCH_MARKER: list(picker), rescue.LATE_WATCH_MARKER: list(late),
                        rescue.REFUSALS_WATCH_MARKER: list(refusals)}
@@ -4218,6 +4220,10 @@ class SweepAPI:
     def failed_runs(self, count, oldest, since=None, pages=1):
         self.failed_listings += 1
         return [(run_id, int(self.runs[run_id]["run_attempt"])) for run_id in self.failed][:count * pages]
+
+    def queued_side_runs(self, count, oldest, pages=1):
+        self.queued_listings += 1
+        return [(run_id, int(self.runs[run_id]["run_attempt"])) for run_id in self.queued][:count * pages]
 
     def run(self, run_id):
         self.reads.append(run_id)
@@ -4516,6 +4522,46 @@ class Sweeper(unittest.TestCase):
                          [(1, 1, False), (2, 2, False), (4, 1, False), (4, 1, False)])
         # One listing per SIDE_FAILURE_TICKS ticks.
         self.assertEqual(api.failed_listings, 2)
+
+    def test_a_queued_side_lane_run_is_adopted_without_a_marker_or_a_failure(self):
+        # Run 41055587932, 2026-10-30: nightly-next-launch-smoke.yml's pull request run put its smoke on
+        # glaeda-side-std-xcode-26.6 at 12:28Z, a label with no runner online, and it sat queued for over five
+        # hours. The workflow uploads no marker and main's rescue has no workflow_run wakeup for it, and a run
+        # that only waits never fails, so no sweeper ever watched it and the open-head failover never saw it.
+        smoke = dict(path=".github/workflows/nightly-next-launch-smoke.yml", status="queued", conclusion=None)
+        api = SweepAPI([listed(1, **smoke)], queued=[1])
+        # Listed every SIDE_FAILURE_TICKS ticks, adopted once per attempt.
+        self.assertEqual(self.sweep(api, ticks=rescue.SIDE_FAILURE_TICKS + 1)[0], [(1, 1, False)])
+        self.assertEqual(api.queued_listings, 2)
+
+    def test_a_queued_side_lane_run_already_watched_through_its_marker_is_not_adopted_again(self):
+        next_run = dict(path=".github/workflows/cmux-next.yml", status="queued", conclusion=None)
+        api = SweepAPI([listed(4, **next_run)], picker=[4], queued=[4])
+        self.assertEqual(self.sweep(api, ticks=rescue.SIDE_FAILURE_TICKS + 1)[0], [(4, 1, False)])
+
+    def test_queued_side_runs_lists_queued_side_lane_runs_only(self):
+        api = rescue.GitHub("token", "manaflow-ai/cmux")
+        seen = []
+        smoke = ".github/workflows/nightly-next-launch-smoke.yml"
+        pages = {1: [{"id": 9, "path": smoke, "run_attempt": 1, "event": "pull_request"},
+                     {"id": 8, "path": ".github/workflows/ci.yml", "run_attempt": 1, "event": "pull_request"},
+                     # A marker adopts cmux-next.yml's runs (sweep()).
+                     {"id": 6, "path": rescue.CMUX_NEXT_WORKFLOW_PATH, "run_attempt": 1, "event": "pull_request"},
+                     # A scheduled smoke is a delivery run (never_fails_over()): not listed.
+                     {"id": 5, "path": smoke, "run_attempt": 1, "event": "schedule"}],
+                 2: [{"id": 9, "path": smoke, "run_attempt": 1, "event": "pull_request"},
+                     {"id": 7, "path": ".github/workflows/cmux-tui.yml", "run_attempt": 2, "event": "push"}]}
+
+        def request(method, path, **_):
+            seen.append(path)
+            page = int(path.split("&page=")[1].split("&")[0])
+            return {"workflow_runs": pages.get(page, [])}
+        api.request = request
+        self.assertEqual(api.queued_side_runs(3, START, pages=5), [(9, 1), (7, 2)])
+        # Only an empty page ends the listing before `pages` (a status-filtered page can come back short).
+        self.assertEqual(len(seen), 3)
+        self.assertTrue(all("status=queued" in path for path in seen), seen)
+        self.assertIn("created=%3E%3D2026-09-24T12:00:00Z", seen[0])
 
     def test_a_failed_marked_run_is_not_taken_up_while_its_watch_goes_on(self):
         next_run = dict(path=".github/workflows/cmux-next.yml", status="completed", conclusion="failure",
