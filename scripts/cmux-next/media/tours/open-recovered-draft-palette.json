@@ -24,7 +24,6 @@
     {"title": "Type 'a'", "rpc": {"method": "debug.key", "params": {"key": "a", "target": "palette"}}, "wait": 0.05, "shot": false},
     {"title": "Type 'f'", "rpc": {"method": "debug.key", "params": {"key": "f", "target": "palette"}}, "wait": 0.05, "shot": false},
     {"title": "Type 't'", "rpc": {"method": "debug.key", "params": {"key": "t", "target": "palette"}}, "wait": 0.05, "shot": false},
-    {"title": "Palette: the field reads Open Recovered Draft and Open Recovered Draft… is the selected row", "wait": 0.5, "expect": {"method": "debug.focus", "fields": {"palette.open": true, "palette.field": "Open Recovered Draft", "palette.query": "Open Recovered Draft", "palette.ranking": false, "palette.loading": false, "palette.selected": "file.openRecoveredDraft", "palette.selected_title": "Open Recovered Draft…"}}},
-    {"title": "Close the palette", "rpc": {"method": "debug.key", "params": {"key": "escape", "target": "palette"}}, "wait": 1, "shot": false}
+    {"title": "Palette: the field reads Open Recovered Draft and Open Recovered Draft… is the selected row", "wait": 0.5, "expect": {"method": "debug.focus", "fields": {"palette.open": true, "palette.field": "Open Recovered Draft", "palette.query": "Open Recovered Draft", "palette.ranking": false, "palette.loading": false, "palette.selected": "file.openRecoveredDraft", "palette.selected_title": "Open Recovered Draft…"}}}
   ]
 }
