@@ -29,6 +29,7 @@ TEST_TARGET = re.compile(r'\.testTarget\(\s*name:\s*"([A-Za-z0-9_]+)"')
 SUITE = re.compile(r"^(?:@\w+(?:\([^\n]*?\))?(?:[ \t]+|\n))*(?:(?:public|package|internal|private|fileprivate|final|open|nonisolated)[ \t]+)*"
                    r"(?:struct|class|enum|actor|extension)[ \t]+([A-Za-z_][A-Za-z0-9_]*)", re.M)
 TEST = re.compile(r"@Test\b|\bfunc test[A-Z0-9_]\w*\(")
+FUNC = re.compile(r"\bfunc[ \t]+([A-Za-z_][A-Za-z0-9_]*)")
 # Memory one test process takes at its peak (the whole test bundle, AppKit and WebKit loaded): it bounds the width.
 PROCESS_GB = 4
 # Suite families that run in a shard of their own, never packed beside other suites: (target, suite-name
@@ -53,6 +54,11 @@ def suite_counts(target_dir: Path) -> dict[str, int]:
     for path in sorted(target_dir.rglob("*.swift")):
         text = path.read_text(encoding="utf-8", errors="replace")
         starts = [(m.start(), m.group(1)) for m in SUITE.finditer(text)]
+        # A free @Test function before any suite (AgentPageOpsBtwTests.swift) is named Target.function().
+        head = text[:starts[0][0]] if starts else text
+        for m in TEST.finditer(head):
+            if func := FUNC.search(head, m.start()):
+                counts[func.group(1)] = counts.get(func.group(1), 0) + 1
         for i, (at, name) in enumerate(starts):
             body = text[at:starts[i + 1][0] if i + 1 < len(starts) else len(text)]
             if n := len(TEST.findall(body)):

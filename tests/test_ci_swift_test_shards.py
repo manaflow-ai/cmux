@@ -85,6 +85,17 @@ class Plan(unittest.TestCase):
             with self.subTest(target=target):
                 self.assertEqual(sum(shards.suite_counts(PACKAGE / "Tests" / target).values()), raw)
 
+    def test_a_free_test_function_runs_in_exactly_one_shard(self) -> None:
+        # AgentPageOpsBtwTests.swift declares its @Test at file scope: Swift Testing names it Target.function().
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "SomeTests"
+            target.mkdir()
+            (target / "Free.swift").write_text('import Testing\n@Test("free")\nfunc freeOne() {}\n'
+                                               "struct ASuite {\n    @Test func a() {}\n}\n")
+            self.assertEqual(shards.suite_counts(target), {"freeOne": 1, "ASuite": 1})
+        plan = shards.plan(PACKAGE / "Tests", PACKAGE / "Package.swift", "all", 10)
+        self.assertEqual(len(matching(plan, "CmuxNextAgentPaneTests.inlineBtwActionIsAllowlisted()")), 1)
+
     def test_one_target_whose_suites_share_a_long_prefix_still_splits_evenly(self) -> None:
         # Under a 4-character prefix cap, AgentPane* (489 tests) stayed one unit: shards of 489, 152, 49 and 47.
         plan = shards.plan(PACKAGE / "Tests", PACKAGE / "Package.swift", "CmuxNextAgentPaneTests", 4)
