@@ -206,6 +206,7 @@ test("index-only pages leave the transcript cursor and row identities alone", as
     ),
   );
   const pane = await fakeClient(history, { page: 40 });
+  pane.client.earlier.subscribe(() => {});
   await settle(40);
   const before = pane.snapshot();
   const firstSeq = before.historyFrom;
@@ -215,6 +216,26 @@ test("index-only pages leave the transcript cursor and row identities alone", as
   expect(pane.snapshot().rows).toBe(rows);
   expect(pane.reads.some((params) => params.kinds?.includes("user_message"))).toBe(true);
   expect(pane.reads.some((params) => params.kinds?.includes("transcript"))).toBe(false);
+});
+
+test("a pane with no rail listening reads no earlier prompts", async () => {
+  const history = records(
+    CHAT,
+    Array.from(
+      { length: 240 },
+      (_, index) => ["mux", "user_message", { text: `Question ${index + 1}`, promptId: `p-${index + 1}` }] as Step,
+    ),
+  );
+  const pane = await fakeClient(history, { page: 40 });
+  await settle(120);
+  const indexRead = (params: Record<string, any>) => Array.isArray(params.kinds) && params.kinds.includes("queue_order");
+  expect(pane.reads.some(indexRead)).toBe(false);
+  expect(pane.client.earlier.get()).toEqual([]);
+  // The rail mounts later: it reads from where the transcript starts.
+  pane.client.earlier.subscribe(() => {});
+  await settle(120);
+  expect(pane.reads.some(indexRead)).toBe(true);
+  expect(pane.client.earlier.get().length).toBeGreaterThan(0);
 });
 
 test("loadThrough materializes an indexed prompt through history paging", async () => {
@@ -284,6 +305,8 @@ const fromTurn = (history: FakeRecord[], turn: number) =>
 
 async function railOf(history: FakeRecord[], page: number, sessions: Record<string, unknown>[] = []) {
   const pane = await fakeClient(history, { page, sessions });
+  // The rail listens: only then are the earlier prompts read.
+  pane.client.earlier.subscribe(() => {});
   await settle(80);
   return pane;
 }

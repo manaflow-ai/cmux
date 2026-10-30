@@ -1676,12 +1676,22 @@ export class AcpmuxDirectClient {
     },
   );
   private earlierListeners = new Set<() => void>();
+  /// Where the chat's earlier prompts start (below the attach page's oldest record). Nothing is read
+  /// until the rail subscribes to `earlier`: a pane with no rail listening pays no paging and holds
+  /// no index.
+  private earlierFrom?: { sessionId: string; beforeSeq: number };
+  private readEarlier(): void {
+    const from = this.earlierFrom;
+    if (!from || this.closed || this.earlierListeners.size === 0 || from.sessionId !== this.selectedSessionId) return;
+    this.earlierPrompts.start(from.sessionId, from.beforeSeq);
+  }
   /// The rail's earlier prompts, as their own store (earlierPrompts.ts): a page that lands renders the
   /// rail alone, not the pane. They are the prompts above the first one drawn (the open turn's opener,
   /// when the held events start mid-turn); a snapshot that moves that bound renders the rail anyway.
   readonly earlier: EarlierPromptsStore = {
     subscribe: (listener) => {
       this.earlierListeners.add(listener);
+      this.readEarlier();
       return () => {
         this.earlierListeners.delete(listener);
       };
@@ -2151,6 +2161,7 @@ export class AcpmuxDirectClient {
     this.turnPrompt = undefined;
     this.historyExhausted = false;
     this.earlierPrompts.stop();
+    this.earlierFrom = undefined;
     this.earlierSenders.clear();
     this.olderRetryAt = 0;
     // Nothing is drawn, so nothing drawn came from a kept tail: the next open says for itself.
@@ -3675,8 +3686,12 @@ export class AcpmuxDirectClient {
     this.queue = mergeQueue(this.queue, detail.queue ?? [], this.queueAuthors);
     // acpmux holds nothing older than the page: the pane offers no more history.
     if (result?.hasMore === false) this.historyExhausted = true;
-    // The rail shows every prompt of the chat: the ones older than the page come in the background.
-    else if (this.firstSeq !== undefined && this.firstSeq > 1) this.earlierPrompts.start(sessionId, this.firstSeq);
+    // The rail shows every prompt of the chat: the ones older than the page come in the background,
+    // once the rail listens (`earlier.subscribe`).
+    else if (this.firstSeq !== undefined && this.firstSeq > 1) {
+      this.earlierFrom = { sessionId, beforeSeq: this.firstSeq };
+      this.readEarlier();
+    }
     this.attachedGeneration = generation;
     // The machine answered: these rows are its chat now, not the Mac's copy.
     this.peerCopy = undefined;
@@ -3953,6 +3968,8 @@ export class AcpmuxDirectClient {
     // text, a record without `text` (one acpmux left out of the page for its size, paging.rs
     // `fit`, keeps only `_meta`), or a steer that carried none. It stays a turn's start, as
     // bookkeeping does. A prompt of images alone keeps its row: the images are what it says.
+    // acpmux's own continuation of a failed turn or subagent (its retry, automatic or the Retry
+    // button's) is not the person's prompt: it draws nothing either (subagents/retryState.ts).
     const blank = !received && (isRetryContinuation(msg) || (!raw.trim() && promptImages(msg.images).length === 0));
     const incoming = received
       ? undefined
