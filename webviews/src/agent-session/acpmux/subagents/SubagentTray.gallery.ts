@@ -308,6 +308,31 @@ export default agentPaneEntry({
       play: scrollPanel,
       snapshot: panel(116),
     },
+    "workflow-progress": {
+      note: "A workflow reports completed/started agents, failures, queued agents and token usage in the default tray.",
+      play: trayLines(1),
+      snapshot: chat(
+        [
+          user("Review the changes across all modules", 2),
+          group(
+            [
+              agent("Review modules", 1.8, "running", {
+                kind: "workflow",
+                action: "Review",
+                agents: { done: 37, started: 101, failed: 2, queued: 4 },
+                tokens: 1_200_000,
+                phases: [{ index: 0, title: "Review" }],
+                workflowAgents: new Map([
+                  [0, { index: 0, label: "Review module", phaseIndex: 0, state: "running", tokens: 12_000 }],
+                ]),
+              }),
+            ],
+            1.8,
+          ),
+        ],
+        { isWorking: true },
+      ),
+    },
     "one-running": {
       note: "One subagent running: its line alone above the composer, its icon in the theme's accent, what it does now, its time and state.",
       play: trayLines(1),

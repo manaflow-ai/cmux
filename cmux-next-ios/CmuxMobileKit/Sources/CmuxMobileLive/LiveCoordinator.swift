@@ -670,6 +670,7 @@ public final class LiveCoordinator {
         if session.fedData { store.handleMacData(.disconnected(at: Date()), macID: id) }
         store.macConnection[id] = nil
         if store.macLinkStatus[id] != nil { store.macLinkStatus[id] = nil }
+        store.macLinkDiagnostics[id] = nil
         session.offlineTask?.cancel()
         session.workspacesTimeout?.cancel()
         session.acpmux.cancelWaiters()
