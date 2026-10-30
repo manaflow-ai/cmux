@@ -121,8 +121,17 @@ test("declining, Stop, Codex settling it, and the turn ending each close the que
     ask(13, [region]),
     { method: "turn/completed", params: { threadId, turn: { id: "turn-1" } } },
   ]);
-  expect(ended.writes).toEqual([]);
+  expect(ended.writes).toEqual([{ jsonrpc: "2.0", id: 13, result: { answers: {} } }]);
   expect(ended.events.map((e) => e.kind)).toEqual(["question", "question-resolved", "done"]);
+
+  const failed = codexSessionForTest();
+  failed.feed([
+    { method: "turn/started", params: { threadId, turn: { id: "turn-1" } } },
+    ask(17, [region]),
+    { method: "turn/failed", params: { threadId, error: { message: "boom" } } },
+  ]);
+  expect(failed.writes).toEqual([{ jsonrpc: "2.0", id: 17, result: { answers: {} } }]);
+  expect(failed.events[1]).toEqual({ kind: "question-resolved", questionId: "codex-item-1", outcome: "expired" });
   expect(ended.events[1]).toEqual({ kind: "question-resolved", questionId: "codex-item-1", outcome: "expired" });
 });
 
@@ -140,11 +149,17 @@ test("an answer that cannot reach an exiting app-server closes the question", ()
   expect(h.events.filter((e) => e.kind === "question-resolved")).toHaveLength(1);
 });
 
-test("a request with nothing answerable is declined so the turn goes on", () => {
+test("a request with a question that cannot be shown is declined whole so the turn goes on", () => {
   const h = codexSessionForTest();
   h.feed([ask(14, [{ header: "no id", question: "?" }])]);
   expect(h.writes).toEqual([{ jsonrpc: "2.0", id: 14, result: { answers: {} } }]);
-  expect(h.events).toEqual([{ kind: "status", text: "declined a Codex question with no answerable items" }]);
+  expect(h.events).toEqual([{ kind: "status", text: "declined a Codex question it could not show" }]);
+
+  // One good question beside a malformed one: never answer only part of it.
+  const partial = codexSessionForTest();
+  partial.feed([ask(18, [region, { header: "no id", question: "?" }])]);
+  expect(partial.writes).toEqual([{ jsonrpc: "2.0", id: 18, result: { answers: {} } }]);
+  expect(partial.events.map((e) => e.kind)).toEqual(["status"]);
 });
 
 test("the chat derives waiting questions from history and live events", () => {

@@ -169,6 +169,7 @@ export const codexAdapter: Adapter = {
       });
       // Completion arrives via the turn/completed notification.
     } catch (err) {
+      settleQuestions(sess, "expired");
       const st = sess.internal.codex as CodexState | undefined;
       const generation = st?.activeGeneration;
       if (st) {
@@ -459,11 +460,13 @@ export function codexQuestionItems(raw: unknown): AgentQuestionItem[] {
 
 function askCodexQuestion(srv: AppServerRouting, sess: SessionCtx | undefined, requestId: string | number, p: any) {
   const items = codexQuestionItems(p.questions);
-  if (!sess || !items.length) {
-    // No chat to ask (an unknown thread) or nothing answerable: decline so
-    // the turn goes on instead of waiting on a card nobody can see.
+  const asked = Array.isArray(p.questions) ? p.questions.length : 0;
+  if (!sess || !items.length || items.length !== asked) {
+    // No chat to ask (an unknown thread), or a question that cannot be
+    // shown (Codex needs every one answered): decline so the turn goes on
+    // instead of waiting on a card nobody can complete.
     srv.write({ jsonrpc: "2.0", id: requestId, result: { answers: {} } });
-    if (sess) sess.emit({ kind: "status", text: "declined a Codex question with no answerable items" });
+    if (sess) sess.emit({ kind: "status", text: "declined a Codex question it could not show" });
     return;
   }
   const questionId = `codex-${typeof p.itemId === "string" && p.itemId ? p.itemId : String(requestId)}`;
@@ -605,7 +608,8 @@ function handleServerMessage(srv: AppServerRouting, msg: any) {
       sess.internal.lastUsage = p.tokenUsage?.total;
       break;
     case "turn/completed": {
-      settleQuestions(sess, "expired", false);
+      // Decline anything still open: an unanswered request must not outlive its turn.
+      settleQuestions(sess, "expired");
       st.turnActive = false;
       st.currentTurnId = undefined;
       const generation = st.activeGeneration;
@@ -622,7 +626,7 @@ function handleServerMessage(srv: AppServerRouting, msg: any) {
       break;
     }
     case "turn/failed": {
-      settleQuestions(sess, "expired", false);
+      settleQuestions(sess, "expired");
       st.turnActive = false;
       st.currentTurnId = undefined;
       const generation = st.activeGeneration;
