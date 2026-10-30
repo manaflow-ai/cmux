@@ -15,17 +15,18 @@ import Testing
     @Test func theSameRunsAgainPaintNothing() {
         let label = ChromeLabel(labelWithString: "")
         label.attributedStringValue = Self.runs("Build")
-        label.needsDisplay = false
+        let paints = DisplayRequestCounter()
+        paints.watch(label)
         label.attributedStringValue = Self.runs("Build")
-        #expect(!label.needsDisplay, "the same runs: no paint")
+        #expect(paints.requests(label) == 0, "the same runs: no paint")
         label.attributedStringValue = Self.runs("Built")
-        #expect(label.needsDisplay, "new runs paint")
-        label.needsDisplay = false
+        #expect(paints.requests(label) > 0, "new runs paint")
+        paints.reset(label)
         label.drawsBackground = false
         label.backgroundColor = nil
-        #expect(!label.needsDisplay, "the same background: no paint")
+        #expect(paints.requests(label) == 0, "the same background: no paint")
         label.drawsBackground = true
-        #expect(label.needsDisplay)
+        #expect(paints.requests(label) > 0)
     }
 
     /// A theme change recolors a hover card's mark; its paths and percentage stay where they are.
@@ -56,15 +57,16 @@ import Testing
         host.addSubview(indicator)
         indicator.configure(.working)
         host.layoutSubtreeIfNeeded()
-        indicator.needsDisplay = false
+        let paints = DisplayRequestCounter()
+        paints.watch(indicator)
         host.requests = 0
 
         let before = StatusIndicatorAppearance.resyncs
         indicator.statusIndicatorResync()
         #expect(StatusIndicatorAppearance.resyncs == before + 1, "the indicator on screen resynced")
-        #expect(!indicator.needsLayout && !indicator.needsDisplay, "the same plan: no layout, no paint")
+        #expect(!indicator.needsLayout && paints.requests(indicator) == 0, "the same plan: no layout, no paint")
         indicator.statusIndicatorConfigDidChange(StatusIndicatorAppearance.shared.config)
-        #expect(!indicator.needsLayout && !indicator.needsDisplay)
+        #expect(!indicator.needsLayout && paints.requests(indicator) == 0)
         #expect(host.requests == 0, "the indicator never invalidates its host for a mark that stays")
 
         indicator.configure(.idle)
@@ -87,11 +89,12 @@ import Testing
     /// A menu row set enabled again paints nothing; disabling it repaints it.
     @Test func aPopupRowSetEnabledAgainPaintsNothing() {
         let row = PopupRowView(leading: PopupRowView.checkMark(false), title: "Copy")
-        row.needsDisplay = false
+        let paints = DisplayRequestCounter()
+        paints.watch(row)
         row.isEnabled = true
-        #expect(!row.needsDisplay)
+        #expect(paints.requests(row) == 0)
         row.isEnabled = false
-        #expect(row.needsDisplay)
+        #expect(paints.requests(row) > 0)
     }
 
     /// A display-options signal says Reduce Transparency may have changed: the sidebar's cards
@@ -99,11 +102,12 @@ import Testing
     @Test func cardsRepaintOnlyWhenReduceTransparencyChanged() {
         let state = ReduceTransparency(system: { false })
         let card = CardSurfaceView(reduceTransparency: state)
-        card.needsDisplay = false
+        let paints = DisplayRequestCounter()
+        paints.watch(card)
         state.override = false
-        #expect(!card.needsDisplay, "still not reduced: the card keeps its paint")
+        #expect(paints.requests(card) == 0, "still not reduced: the card keeps its paint")
         state.override = true
-        #expect(card.needsDisplay, "reduced now: the card draws opaque")
+        #expect(paints.requests(card) > 0, "reduced now: the card draws opaque")
     }
 
     private static func runs(_ text: String) -> NSAttributedString {

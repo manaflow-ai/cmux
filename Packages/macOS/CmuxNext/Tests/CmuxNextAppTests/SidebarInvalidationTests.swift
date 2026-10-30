@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Testing
+import CmuxNextTestSupport
 
 /// Chrome-parity p03-rendering-062 (MQ-damage-owners, CmuxNextSidebar): a sidebar view asks for a paint
 /// or a layout only when a value it draws from changed. A layout pass sets frames and repaints nothing
@@ -9,7 +10,7 @@ import Testing
 /// and a theme repaint of unchanged text ask for no layout. Chromium keeps the same split: paint is
 /// invalidated by the properties that changed, not by a layout (third_party/blink/renderer/core/paint/
 /// paint_invalidator.cc), and `cc::Layer::SetNeedsDisplayRect` is called for changed contents only.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .renderHooks)
 struct SidebarInvalidationTests {
     /// The rows whose `layout()` marked them for display on every pass (a resize repainted each).
     private static let laidOutRows: [SidebarRowView.Type] = [

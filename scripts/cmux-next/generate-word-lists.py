@@ -7,9 +7,11 @@ instead, as Chromium compiles its registry data into the binary (net/base/regist
 effective_tld_names.dat by make_dafsa.py): no file is read at run time.
 
   tlds            CmuxNextBrowser's top-level domains (`TopLevelDomains.all`, the omnibar typo fix and the terminal's
-                  link finder), from IANA's root zone file, which you download:
-                    curl -o /tmp/tlds.txt https://data.iana.org/TLD/tlds-alpha-by-domain.txt
-                    python3 scripts/cmux-next/generate-word-lists.py tlds /tmp/tlds.txt
+                  link finder), from IANA's root zone file, committed as its input
+                  (scripts/cmux-next/word-lists/tlds-alpha-by-domain.txt) so `--check` needs no network. To update it:
+                    curl -o scripts/cmux-next/word-lists/tlds-alpha-by-domain.txt \
+                      https://data.iana.org/TLD/tlds-alpha-by-domain.txt
+                    python3 scripts/cmux-next/generate-word-lists.py tlds
   pairing-words   CmuxNextServer's BIP-39 English list (`PairingWords.list`, the pairing fingerprint words), from the
                   Rust crate's copy, so the app and `cmux_server_core::pairing` never disagree:
                     python3 scripts/cmux-next/generate-word-lists.py pairing-words
@@ -26,6 +28,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 SOURCES = REPO / "Packages/macOS/CmuxNext/Sources"
 TLDS_OUTPUT = SOURCES / "CmuxNextBrowser/Omnibox/TopLevelDomains+List.swift"
+TLDS_SOURCE = REPO / "scripts/cmux-next/word-lists/tlds-alpha-by-domain.txt"
 WORDS_SOURCE = REPO / "cmux-tui/crates/cmux-server-core/src/pairing/bip39-english.txt"
 WORDS_OUTPUT = SOURCES / "CmuxNextServer/Model/PairingWords+List.swift"
 PER_LINE = 10
@@ -80,14 +83,13 @@ def render_words(text: str) -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("list", choices=("tlds", "pairing-words"))
-    parser.add_argument("source", type=Path, nargs="?", help="tlds: IANA's tlds-alpha-by-domain.txt")
+    parser.add_argument("source", type=Path, nargs="?",
+                        help="another source file (default: the committed one of each list)")
     parser.add_argument("--check", action="store_true", help="exit 1 when the Swift file differs from the source")
     parser.add_argument("--output", type=Path, help="write here instead of the Swift file in Sources")
     args = parser.parse_args(argv)
     if args.list == "tlds":
-        if args.source is None:
-            parser.error("tlds needs IANA's tlds-alpha-by-domain.txt")
-        text, output = render_tlds(args.source.read_text(encoding="utf-8")), TLDS_OUTPUT
+        text, output = render_tlds((args.source or TLDS_SOURCE).read_text(encoding="utf-8")), TLDS_OUTPUT
     else:
         text, output = render_words((args.source or WORDS_SOURCE).read_text(encoding="utf-8")), WORDS_OUTPUT
     output = args.output or output

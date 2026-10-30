@@ -25,23 +25,64 @@ extension InternalPageDiscardPolicyCoverageTests {
         }
         #endif
 
-        // MARK: Tab content (MQ-CONTENT)
+        // MARK: Page ids (MQ-PAGES)
 
-        /// Services as the app makes them, with `memoryDiscardInternalPages` on and the app's own page discard
-        /// registration run (AppMemoryConsumers, which AppServices' init calls).
-        @MainActor static func discardingServices() -> AppServices {
-            _ = NSApplication.shared
-            let services = AppServices(environment: AppEnvironment.current([:]))
-            services.features = FeatureList(registry: FeatureRegistry(), channel: .dev,
-                                            overrides: FeatureOverrides(environmentEnabled: [Feature.memoryDiscardInternalPages.name]))
-            AppMemoryConsumers(services: services).registerInternalPageDiscards()
-            return services
+        private final class SettingsLookalike: InternalPageProvider {
+            var page: InternalPageID { .settings }
+            var title: String { "Lookalike" }
+            var symbol: String { "gear" }
+            func makeView(for key: String, in window: WindowController?) -> NSView { NSView() }
         }
 
-        /// With the feature on, the app gives the page store a scheduler for internal pages (InternalPageDiscardTests
-        /// proves what that scheduler releases).
+        private final class OtherSettingsLookalike: InternalPageProvider {
+            var page: InternalPageID { InternalPageID(rawValue: InternalPageID.settings.rawValue) }
+            var title: String { "Other" }
+            var symbol: String { "gear" }
+            func makeView(for key: String, in window: WindowController?) -> NSView { NSView() }
+        }
+
+        /// Two pages with one raw value are one page to the store (one provider per id): the second replaces the
+        /// first. The store records a replacement by another provider, of another type or of the same type (one
+        /// `WebPageTab` type serves several pages), and not the same provider registered again.
+        @MainActor @Test func theStoreRecordsTwoPagesSharingAnID() {
+            let pages = InternalPageTabStore()
+            let first = SettingsLookalike()
+            pages.register(first)
+            pages.register(first)
+            #expect(pages.sharedPageIDs.isEmpty, "a provider registered again is not a second page")
+            pages.register(SettingsLookalike())
+            #expect(pages.sharedPageIDs[.settings]?.count == 2, "a second page of the same type took the id unseen")
+            pages.register(OtherSettingsLookalike())
+            #expect(pages.sharedPageIDs[.settings] == ["SettingsLookalike \"Lookalike\"", "SettingsLookalike \"Lookalike\"",
+                                                      "OtherSettingsLookalike \"Other\""])
+        }
+
+        /// Every page the app registers at launch (the store's own registry after the launch binding) has an id
+        /// no other page shares.
+        @MainActor @Test func everyRegisteredPageHasItsOwnID() {
+            let services = InternalPageDiscardPolicyCoverageTests.homeServices()
+            AppActions.bind(services)
+            #expect(services.pages.registeredPages.count > 20, "the launch registered \(services.pages.registeredPages.count) pages")
+            #expect(services.pages.registeredPages.contains(.settings))
+            #expect(services.pages.sharedPageIDs.isEmpty, "pages share an id: \(services.pages.sharedPageIDs)")
+        }
+
+        // MARK: Tab content (MQ-CONTENT)
+
+        /// Services as the app makes them at launch, with `memoryDiscardInternalPages` on: AppServices' init runs
+        /// the memory consumer registration (`registerMemoryConsumers`), nothing here calls it.
+        @MainActor static func discardingServices(_ enabled: Set<String> = [Feature.memoryDiscardInternalPages.name]) -> AppServices {
+            _ = NSApplication.shared
+            return AppServices(environment: AppEnvironment.current([:]),
+                               features: FeatureList(registry: FeatureRegistry(), channel: .dev,
+                                                     overrides: FeatureOverrides(environmentEnabled: enabled)))
+        }
+
+        /// With the feature on, the app's launch gives the page store a scheduler for internal pages
+        /// (InternalPageDiscardTests proves what that scheduler releases); with it off, none.
         @MainActor @Test func theAppSchedulesInternalPageDiscards() {
             #expect(Self.discardingServices().pages.discards?.kind == .internalPage)
+            #expect(Self.discardingServices([]).pages.discards == nil, "the page store discards with the feature off")
         }
 
         /// Each class that claims a kind names one the app releases: a hibernation kind

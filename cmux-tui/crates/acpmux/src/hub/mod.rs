@@ -11,6 +11,7 @@ pub use agent_pairs::PairGuard;
 mod aside;
 pub(crate) mod auto_resume;
 mod btw;
+mod event_bus;
 mod exit_reason;
 mod turn_errors;
 pub(crate) use btw::SIDE_TAG;
@@ -48,6 +49,7 @@ pub use subagent_transcript::FEATURE as SUBAGENT_TRANSCRIPT_FEATURE;
 mod config_writer;
 mod hosts;
 mod lifecycle;
+mod meta_replay;
 pub(crate) mod meta_writer;
 pub(crate) mod model_availability;
 mod model_options;
@@ -142,6 +144,8 @@ pub(crate) mod outbox;
 #[cfg(test)]
 mod panic_free_tests;
 pub mod rules;
+#[cfg(test)]
+mod status_close_tests;
 mod transcript;
 mod transfer;
 mod transfer_guard;
@@ -351,7 +355,7 @@ pub struct Hub {
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
     /// Where adopt looks for harness sessions.
     pub(super) harness_homes: StdMutex<crate::adopt::HarnessHomes>,
-    pub(super) events: broadcast::Sender<HubEvent>,
+    pub(super) events: event_bus::EventBus,
     /// `_acpmux/models` replies now asking peers for theirs (`server/models_fanout.rs`): a remote
     /// asker meanwhile gets this daemon's own catalog, so mutual peers cannot ping-pong.
     pub models_fanouts: std::sync::atomic::AtomicUsize,
@@ -510,7 +514,7 @@ impl Hub {
         deferred: bool,
         supervisor: crate::supervised::Supervisor,
     ) -> Arc<Self> {
-        let (events, _) = broadcast::channel(8192);
+        let events = event_bus::EventBus::new(8192);
         let (peer_notices, peer_notices_rx) = mpsc::channel(4096);
         let peers_cfg = config.peers.clone();
         let handoffs = handoff::Handoffs::open(store.handoff_dir());
@@ -652,6 +656,16 @@ impl Hub {
         self.events.subscribe()
     }
 
+    /// A receiver and the number of events sent before it (`event_bus.rs`).
+    pub(crate) fn subscribe_counted(&self) -> (broadcast::Receiver<HubEvent>, u64) {
+        self.events.subscribe_counted()
+    }
+
+    /// The number of events published so far (`event_bus.rs`).
+    pub(crate) fn events_sent(&self) -> u64 {
+        self.events.sent()
+    }
+
     pub fn mailbox(&self) -> &Mailbox {
         &self.mailbox
     }
@@ -757,22 +771,36 @@ impl Hub {
         self.catch_up_locked(session);
     }
 
+    /// Every caller holds the session's append lock. `caught_up` is set only once the tail is
+    /// replayed: the read-chat fast path (`seen.rs`) reads it without the lock and must never
+    /// see a session as caught up while the replay is still to come.
     fn catch_up_locked(&self, session: &Session) {
-        if session.caught_up.swap(true, Ordering::SeqCst) {
+        if session.caught_up.load(Ordering::SeqCst) {
             return;
         }
         let last_seq = session.meta.lock_or_recover().last_seq;
-        if let Ok((extra, last)) = self.store.tail_after(&session.id, last_seq)
+        // The settings the saved record may be behind on come from the same one read of the
+        // tail (`meta_replay.rs`).
+        let mut changes = Vec::new();
+        let mut change = |rec: EventRecord| changes.push(rec);
+        let tail = self.store.tail_after(&session.id, last_seq, meta_replay::KINDS, &mut change);
+        if let Ok((extra, last)) = tail
             && extra > 0
         {
             let mut meta = session.meta.lock_or_recover();
+            for rec in &changes {
+                meta_replay::apply(&mut meta, rec);
+            }
             meta.event_count += extra;
             meta.last_seq = last;
-            // The log ran ahead of the saved session (a hard stop): a newer command list may be
-            // in that tail, so a client reads the log for it instead of trusting the saved one.
+            // The log ran ahead of the saved session (a hard stop): a newer command list or `git`
+            // record may be in that tail, so they are read from the log instead of trusting the
+            // saved ones.
             meta.available_commands = None;
+            meta.git_told = None;
             session.seq.fetch_max(last, Ordering::SeqCst);
         }
+        session.caught_up.store(true, Ordering::SeqCst);
     }
 
     /// Runs `work` for each session on up to 8 threads (sessions are independent).
@@ -968,7 +996,21 @@ impl Hub {
     ) -> (EventRecord, bool) {
         // Off the append lock: it reads the disk.
         tool_paths::add_canonical_paths(session, kind, &mut msg);
-        let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.append_locked(&order, session, dir, kind, msg, host_seq, at)
+    }
+
+    /// [`Hub::append_at`] under `session`'s append lock (`_order`, its guard).
+    fn append_locked(
+        &self,
+        _order: &std::sync::MutexGuard<'_, ()>,
+        session: &Session,
+        dir: &str,
+        kind: &str,
+        msg: Value,
+        host_seq: Option<u64>,
+        at: Option<u64>,
+    ) -> (EventRecord, bool) {
         self.catch_up_locked(session);
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let at = at.unwrap_or_else(now_ms);
@@ -1045,9 +1087,11 @@ impl Hub {
     }
 
     pub fn set_rules(&self, session: &Session, rules: Option<Value>) {
-        self.permission_policy_changed(session, |m| m.permission_rules = rules.clone());
+        self.permission_policy_changed(session, "rules", |m| {
+            m.permission_rules = rules.clone();
+            json!({"rules": rules})
+        });
         self.save_meta(session);
-        self.append(session, "mux", "rules", json!({"rules": rules}));
     }
 
     /// The largest composer draft the daemon will persist for one session.
@@ -1253,9 +1297,31 @@ impl Hub {
     }
 
     pub(super) fn set_status(&self, session: &Session, status: SessionStatus) {
+        self.set_status_if(session, status, |_| true);
+    }
+
+    /// `status`, unless the session is closed: a turn's end or an agent that went away never
+    /// reopens a session its close already ended. Decided under the meta lock the close writes
+    /// under, so a close between a caller's read and this write is never overwritten (a read of
+    /// `status()` then `set_status` was a check-then-act race).
+    pub(super) fn set_status_unless_closed(&self, session: &Session, status: SessionStatus) {
+        self.set_status_if(session, status, |was| was != SessionStatus::Closed)
+    }
+
+    /// `set_status` when `allowed(current status)`, read and written under one hold of the
+    /// meta lock.
+    fn set_status_if(
+        &self,
+        session: &Session,
+        status: SessionStatus,
+        allowed: impl FnOnce(SessionStatus) -> bool,
+    ) {
         let (was, link) = {
             let mut m = session.meta.lock_or_recover();
             let was = m.status;
+            if !allowed(was) {
+                return;
+            }
             m.status = status;
             m.updated_at = now_ms();
             // The parent's slot follows the status under the same lock, so

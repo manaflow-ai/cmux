@@ -65,6 +65,7 @@ export function forkWithFeedback(throughSeq: number, fallback: () => unknown): u
   return action({ throughSeq }).then((sessionId) => {
     // direct.fork reports refusal by returning no session id after it has written the localized
     // transcript notice; turn that sentinel into the button's terminal error state too.
+    // l10n-allow: the button's error state only; the transcript notice already says why.
     if (sessionId === undefined || sessionId === null || sessionId === false) throw new Error("fork failed");
     return sessionId;
   });

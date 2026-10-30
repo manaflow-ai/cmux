@@ -41,6 +41,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts"))
+from swift_source_mask import mask_swift_source  # noqa: E402
 DEFAULT_MANIFEST = ROOT / "Packages/macOS/CmuxNext/Package.swift"
 MARKER = "// sorted: scripts/cmux-next/check-package-dependency-lists.py"
 REQUIRED = ("CmuxNextAppTests",)
@@ -49,12 +51,9 @@ REQUIRED = ("CmuxNextAppTests",)
 # CmuxNextBridge's Design import is a ui edge from a domain target (architecture-layers.json): declaring it
 # would add a layer_hard edge, so its fix is to stop importing Design, not to declare it.
 IMPORT_BASELINE = frozenset((
-    "CmuxNextActionsTests: CmuxNextWakeups",
     "CmuxNextApp: CmuxNextFileGrid",
     "CmuxNextBridge: CmuxNextDesign",
-    "CmuxNextControlTests: CmuxNextDesign",
     "CmuxNextCookieImport: CmuxNextCompat",
-    "CmuxNextMobileHostTests: CmuxNextMobile",
     "CmuxNextPaletteTests: CmuxNextActions", "CmuxNextPaletteTests: CmuxNextDesign",
     "CmuxNextPhoneAccessTests: CmuxNextMobile",
 ) + tuple(f"CmuxNextAppTests: {module}" for module in (
@@ -199,6 +198,8 @@ def manifest_targets(text: str) -> dict[str, tuple[str, set[str], str | None]]:
         declared = set(re.findall(r'^\s*"([A-Za-z0-9_]+)"', deps.group(1), re.M)) if deps else set()
         if deps:
             declared |= set(re.findall(r'(?:\[|,)\s*"([A-Za-z0-9_]+)"', deps.group(1)))
+            # `.target(name: "X")`, the form that tells a target from a product of the same name.
+            declared |= set(re.findall(r'\.target\(\s*name:\s*"([A-Za-z0-9_]+)"', deps.group(1)))
         path = re.search(r'path:\s*"([^"]+)"', block)
         targets[name.group(1)] = (kind.group(1), declared, path.group(1) if path else None)
     return targets
@@ -211,7 +212,8 @@ def undeclared_imports(text: str, package_root: Path) -> list[str]:
     for name, (kind, declared, path) in targets.items():
         folder = package_root / (path or (("Tests" if kind == "testTarget" else "Sources") + "/" + name))
         for source in sorted(folder.rglob("*.swift")):
-            for line in source.read_text(encoding="utf-8", errors="replace").split("\n"):
+            # Comments and string contents masked: a test's golden source that says `import X` imports nothing.
+            for line in mask_swift_source(source.read_text(encoding="utf-8", errors="replace")).split("\n"):
                 match = IMPORT.match(line)
                 if match and match.group(5) in targets and match.group(5) != name and match.group(5) not in declared:
                     found.add(f"{name}: {match.group(5)}")

@@ -270,7 +270,9 @@ fn a_long_chat_opens_on_its_newest_page_and_scrolls_to_its_first_message() {
     let commands = json!({"sessionUpdate": "available_commands_update", "availableCommands": [{"name": "compact", "description": "Compact"}]});
     let meta = json!({"schema": "acpmux.session.v1", "id": id, "name": "long", "harness": "claude", "cwd": "/tmp",
                       "status": "idle", "createdAt": 1, "updatedAt": 1, "lastSeq": log.records,
-                      "eventCount": log.records, "availableCommands": commands});
+                      "eventCount": log.records, "availableCommands": commands,
+                      // As this build saves a chat: its log holds no `git` record.
+                      "gitTold": {"recorded": false}});
     std::fs::write(session.join("session.json"), meta.to_string()).unwrap();
     set_private(&session.join("session.json"));
 

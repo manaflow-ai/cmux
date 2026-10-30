@@ -296,7 +296,7 @@ struct ChromiumPageHostBridgeTests {
     /// script ran at document start, not at commit), and a page script finds its handler.
     @Test func thePagesDocumentScriptsRunBeforeThePage() throws {
         let page = try Self.document(at: "cmux-page:", handlers: PageWebView.chromiumFireAndForget + ["extra"],
-                                     documentScripts: PageChromiumDocumentScripts.shared
+                                     documentScripts: PageChromiumDocumentScripts.everyPage
                                          + ["globalThis.sawExtra = typeof webkit.messageHandlers.extra.postMessage;"])
         #expect(page.evaluateScript("sawExtra").toString() == "function")
         // The page's own code: an autofocused input.
@@ -317,6 +317,6 @@ struct ChromiumPageHostBridgeTests {
             (PageInputReadiness.script, false, true), (theme, false, true), (PagePaintProbe.script, true, true),
         ])
         #expect(scripts.perView == [PageChromiumDocumentScripts.chromiumSource((theme, false, true))])
-        #expect(PageChromiumDocumentScripts.shared.contains(PageChromiumDocumentScripts.navigationScript))
+        #expect(PageChromiumDocumentScripts.everyPage.contains(PageChromiumDocumentScripts.navigationScript))
     }
 }

@@ -94,12 +94,17 @@ extension BrowserHibernation {
             restoreEnded(key)
             return
         }
-        // The record's profile: a tab moved to another one while asleep wakes there, without the old one's history.
-        let profile = cache.tabModel(key) == nil ? placeholder.profileID : cache.browserProfile?(key) ?? placeholder.profileID
+        guard let profile = wakeProfile(key, placeholder: placeholder, in: cache) else {
+            // Its incognito session ended: it never wakes, and never in another profile.
+            cache.trace(key, "wake refused: its off-the-record profile ended")
+            cache.applyLifecycle(cache.lifecycle.send(.mountFailed(key, token)))
+            restoreEnded(key)
+            return
+        }
         let history = profile == placeholder.profileID ? placeholder.restoreState : nil
         wakeLog.start(key, engine: placeholder.engineKind, snapshot: snapshotImage(key) != nil)
         if case .appPage(let saved) = placeholder.restoreState {
-            return restoreAppPage(key, saved, token: token)
+            return restoreAppPage(key, saved, profile: profile, token: token)
         }
         var configuration = BrowserTabConfiguration(id: placeholder.id, profile: profile, zoom: placeholder.state.zoom, origin: .user)
         switch placeholder.engineKind {
@@ -130,11 +135,35 @@ extension BrowserHibernation {
         }
     }
 
-    /// A cmux page (`BrowserAppPage`) is built again at its address, as its tab's record opens it,
-    /// and gets its view state back.
-    private func restoreAppPage(_ key: String, _ saved: BrowserAppPageState, token: ContentLifecycle<String>.Token) {
-        guard let cache, let tab = cache.tabModel(key), let page = cache.makeAppPage(saved.url, for: tab) else {
-            cache?.applyLifecycle(cache?.lifecycle.send(.mountFailed(key, token)) ?? [])
+    /// The profile hibernated tab `key` wakes in, or nil when it must not wake.
+    ///
+    /// An off-the-record (incognito) page wakes only in its own profile, and only while that session is active:
+    /// never in a profile a lookup gives (`browserProfile` falls back to the default profile when no incognito
+    /// workspace owns the key), so a private page never runs in a normal profile's history and cookies. Any other
+    /// page wakes in its record's profile (a tab moved to another one while asleep wakes there, without the old one's
+    /// history), and a tab with no record in its own.
+    func wakeProfile(_ key: String, placeholder: HibernatedBrowserTab, in cache: TabContentCache) -> BrowserProfileID? {
+        let offTheRecord = cache.chromium.stores.offTheRecord
+        if offTheRecord.isOffTheRecord(placeholder.profileID) {
+            return offTheRecord.contains(placeholder.profileID) ? placeholder.profileID : nil
+        }
+        return cache.tabModel(key) == nil ? placeholder.profileID : cache.browserProfile?(key) ?? placeholder.profileID
+    }
+
+    /// A cmux page (`BrowserAppPage`) is built again at its address in `profile` (``wakeProfile(_:placeholder:in:)``),
+    /// as its tab's record opens it (a session-local tab, with no record, as its first open built it:
+    /// `sessionLocalAppPage`), and gets its view state back.
+    private func restoreAppPage(_ key: String, _ saved: BrowserAppPageState, profile: BrowserProfileID,
+                                token: ContentLifecycle<String>.Token) {
+        guard let cache else { return restoreEnded(key) }
+        let page: (any BrowserTab)?
+        if let tab = cache.tabModel(key) {
+            page = cache.makeAppPage(saved.url, for: tab, profile: profile)
+        } else {
+            page = cache.sessionLocalAppPage(key: key, url: saved.url, profile: profile)
+        }
+        guard let page else {
+            cache.applyLifecycle(cache.lifecycle.send(.mountFailed(key, token)))
             restoreEnded(key)
             return
         }

@@ -286,15 +286,17 @@ async fn a_suggested_task_sends_its_first_reply_back_to_its_parent_once() {
     );
 }
 
-/// `hub` on a unix socket of its own, as the daemon listens; its path.
+/// `hub` on a unix socket of its own, as the daemon listens: the socket's
+/// directory (removed when dropped) and its path. The directory is a private
+/// one under the short `/tmp` (a worker's temp dir can be too long for a
+/// socket path), because the daemon binds only in a private directory.
 #[cfg(unix)]
-async fn listen(hub: &Arc<Hub>) -> std::path::PathBuf {
-    // `/tmp`, not the temp dir: a worker's can be too long for a socket path.
-    let path =
-        std::path::PathBuf::from("/tmp").join(format!("acpmux-offers-{}.sock", std::process::id()));
+async fn listen(hub: &Arc<Hub>) -> (cmux_unix_socket::TestDir, std::path::PathBuf) {
+    let dir = cmux_unix_socket::short_test_dir("amx-offr");
+    let path = dir.path().join("a.sock");
     let listener = acpmux::server::bind_unix(&path).await.unwrap();
     tokio::spawn(acpmux::server::serve_unix(hub.clone(), listener));
-    path
+    (dir, path)
 }
 
 /// The agent's `cmux-sessions` MCP server lists `suggest_tasks`, and one call
@@ -305,7 +307,7 @@ async fn suggested_tasks_tool_offers_each_task_in_one_group() {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     let (hub, mut person) = setup(PermissionPolicy::Ask).await;
     let id = new_chat(&mut person).await;
-    let socket = listen(&hub).await;
+    let (_socket_dir, socket) = listen(&hub).await;
     let scratch = std::env::temp_dir().join(format!("amx-offer-{}", std::process::id()));
     let mut mcp = crate::daemon_env::tokio_command(&scratch, crate::daemon_env::Agents::Deny)
         .arg("offer-mcp")
@@ -346,7 +348,6 @@ async fn suggested_tasks_tool_offers_each_task_in_one_group() {
         replies.insert(reply["id"].as_i64().unwrap(), reply);
     }
     drop(stdin);
-    let _ = std::fs::remove_file(&socket);
 
     let tools = replies[&2]["result"]["tools"].as_array().unwrap();
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();

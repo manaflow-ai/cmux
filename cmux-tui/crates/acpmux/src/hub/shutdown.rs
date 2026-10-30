@@ -110,9 +110,7 @@ impl Hub {
             } else {
                 *s.turn.lock_or_recover() = None;
             }
-            if s.status() != SessionStatus::Closed {
-                self.set_status(s, SessionStatus::Idle);
-            }
+            self.set_status_unless_closed(s, SessionStatus::Idle);
         }
         let detach = futures::future::join_all(hosted.iter().map(|c| c.detach(SHUTDOWN_GRACE)));
         let _ = tokio::time::timeout(SHUTDOWN_GRACE + LOCK * 2, detach).await;

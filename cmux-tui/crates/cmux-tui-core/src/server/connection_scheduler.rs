@@ -35,12 +35,16 @@
 //! lane (`Mux::work`), not on the control sequence and not on a thread of its
 //! own, so a later Send for another surface answers while it runs.
 //!
-//! Request threads (the WebSocket connection thread) start through
-//! [`spawn_request_thread`]: UserInitiated, blocking disallowed (p02-threads
-//! task 211); the pool's control workers run the same way. A request task
+//! The pool's control workers run requests at UserInitiated with blocking
+//! disallowed (p02-threads task 211). A WebSocket connection thread starts
+//! through [`spawn_connection_thread`] at the same class and disallows
+//! blocking once its connection is admitted (websocket_listener.rs). A request task
 //! then rests at its connection's class (connection_qos.rs, task 224). A
-//! clear-history request runs as a `Mux::work` item at its cause's
-//! priority, blocking disallowed (task 230).
+//! clear-history request runs as a `Mux::work` item on the System lane at
+//! its cause's priority, inside `will_block`, as the connection's other
+//! requests run on its request sequence (`Mux::post_connection_request`): it
+//! waits for the host's acknowledgement or the stream, writes the PTY and
+//! removes the terminal's stored output, so it may block (task 230).
 //!
 //! Lock order: the scheduler's `state`, then the pool's. A pool task or
 //! fence callback takes `state` with no pool lock held.
@@ -96,17 +100,19 @@ use std::time::Instant;
 /// classified (connection_qos.rs, task 224).
 pub(super) const REQUEST_THREAD_QOS: ThreadQos = ThreadType::Interactive.qos();
 
-/// Starts request thread `name` at [`REQUEST_THREAD_QOS`] with blocking
-/// disallowed for its life, as Chrome's `DisallowBlocking` on its UI and IO
-/// threads (base/threading/thread_restrictions.h). A checked blocking call
-/// under it is a `server.blocking` site (recorded by default; panics under
-/// `CMUX_DAEMON_BLOCKING=panic` in Debug), and its work moves to
-/// `cmux_threads::work`.
-///
-/// The thread is registered with the release hang watch for its life; each
-/// request it runs is one scope at its class deadline
-/// (server/request_hang_watch.rs).
-pub(super) fn spawn_request_thread<F, T>(name: &str, f: F) -> std::io::Result<SupervisedThread<T>>
+/// Starts connection thread `name` at [`REQUEST_THREAD_QOS`], registered
+/// with the release hang watch for its life (each request it runs is one
+/// scope at its class deadline, server/request_hang_watch.rs). Blocking is
+/// allowed until `f` disallows it: a connection that must admit itself
+/// first (a WebSocket's request head, a page file or download answer, its
+/// handshake, token and the person's pairing decision, which wait on its
+/// peer, the disk and the person) runs its requests inside
+/// `cmux_threads::blocking::with_blocking_disallowed` once admitted, as
+/// Chrome's `DisallowBlocking` (base/threading/thread_restrictions.h).
+pub(super) fn spawn_connection_thread<F, T>(
+    name: &str,
+    f: F,
+) -> std::io::Result<SupervisedThread<T>>
 where
     F: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
@@ -117,7 +123,6 @@ where
             cmux_hang_watch::ThreadKind::Control,
             thread.name().unwrap_or("mux-request"),
         );
-        cmux_threads::disallow_blocking();
         f()
     })
 }
@@ -1160,9 +1165,12 @@ fn run_clear_history(
         );
     };
     // A work item at the priority of the request it serves (its cause), as
-    // Chrome posts a task at its caller's priority; it runs the request as a
-    // request thread does, blocking disallowed. It waits on the terminal and
-    // its PTY, so it is system-lane work (task 230).
+    // Chrome posts a task at its caller's priority. It runs the request as
+    // the request sequence runs every other request of the connection: it
+    // may block (it waits for the host's acknowledgement or the stream,
+    // writes the PTY and removes the terminal's stored output), so it is
+    // System-lane work inside `will_block` (task 230), never on a thread
+    // that disallows blocking.
     let priority = pending.cause.work_priority();
     let mut clear = ClearWork {
         reply: pending.reply_writer(writer),
@@ -1178,7 +1186,7 @@ fn run_clear_history(
         let _active = clear.active.take();
         let _worker_permit = worker_permit;
         let Some(pending) = clear.pending.take() else { return };
-        cmux_threads::blocking::with_blocking_disallowed(|| {
+        cmux_threads::work::will_block(|| {
             if !run_pending_request(&worker_scheduler, &worker_mux, client, pending, &worker_writer)
             {
                 worker_scheduler.close();

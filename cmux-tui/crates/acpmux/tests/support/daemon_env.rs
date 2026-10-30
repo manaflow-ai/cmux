@@ -196,6 +196,13 @@ pub fn bin() -> &'static Path {
     }
 }
 
+/// The `__agent-host` launcher for this binary. The host process inherits
+/// this test process's environment, which [`enter`] made hermetic, and its
+/// harness gets the `SpawnSpec.env` the test passes (build it with [`vars`]).
+pub fn host_launcher() -> acpmux::agent_host::link::HostLauncher {
+    acpmux::agent_host::link::HostLauncher { exe: bin().into(), prefix: Vec::new() }
+}
+
 /// Whether the daemon may start agent processes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Agents {
