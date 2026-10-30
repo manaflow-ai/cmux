@@ -372,7 +372,14 @@ extension WindowManager {
             let ids = Self.orderedIDs(of: daemon, machines: services.machines)
             for id in ids {
                 live.append(id)
-                seenMachine[id, default: daemon.machineID] = daemon.machineID
+                if let known = seenMachine[id], known != daemon.machineID,
+                   services.machines.daemon(machine: known) == nil {
+                    // A persisted owner may have disappeared; allow a new machine to claim a
+                    // legitimately moved workspace key while retaining provenance for live clones.
+                    seenMachine[id] = daemon.machineID
+                } else {
+                    seenMachine[id, default: daemon.machineID] = daemon.machineID
+                }
             }
             // Only the ids that resolve to this machine: a VM made from another's snapshot keeps its
             // workspace keys, and a window holding the other machine's copy does not open this one.
