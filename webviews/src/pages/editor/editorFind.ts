@@ -106,10 +106,15 @@ export class EditorFind {
   replace = () => {
     const match = this.state.matches[this.state.active];
     if (!match || !this.canReplace() || !this.state.replaceOpen) return;
-    const index = this.state.active;
     this.target?.replace?.([match], this.state.replacement);
-    // The replaced match is gone; the one after it takes its index.
-    this.search({ ...this.state, active: index }, false);
+    // The next match is the first one after the text just written: a replacement that contains
+    // the query would otherwise be found again in the same place, and Replace never moved on.
+    const lines = this.state.replacement.split("\n");
+    const written = {
+      lineNumber: match.startLineNumber + lines.length - 1,
+      column: (lines.length === 1 ? match.startColumn : 1) + lines[lines.length - 1]!.length,
+    };
+    this.search(this.state, written);
   };
 
   /** Writes the replacement over every match, as one undo step. */
@@ -163,12 +168,14 @@ export class EditorFind {
     this.target?.show(this.state.matches, active);
   }
 
-  private search(next: EditorFindState, fromCaret: boolean): void {
+  /** `from`: true starts at the caret; a position starts there; false keeps the active index. */
+  private search(next: EditorFindState, from: boolean | { lineNumber: number; column: number }): void {
     const matches = next.open && next.query && this.target ? this.target.findMatches(next.query, next.matchCase) : [];
     let active = 0;
     if (matches.length) {
-      if (fromCaret && this.target) {
-        const { lineNumber, column } = this.target.caret();
+      const start = from === true ? this.target?.caret() : from === false ? undefined : from;
+      if (start) {
+        const { lineNumber, column } = start;
         const at = matches.findIndex((match) => !before(match, lineNumber, column));
         active = at < 0 ? 0 : at;
       } else {
