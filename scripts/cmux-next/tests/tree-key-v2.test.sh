@@ -36,6 +36,16 @@ git_q -C "$src" commit -m classic
 v1=$(key --version v1); v2=$(key --version v2)
 [[ "$(key)" == "$v2" ]] || fail "the default key is not v2"
 [[ "$v1" != "$v2" ]] || fail "v1 and v2 are equal although v1 hashes the classic gitlink"
+
+# Docs-only commits do not start the artifact publisher, so their consumers
+# must reuse the already-published runtime tree instead of fetching a key that
+# can never be published.
+mkdir -p "$src/cmux-tui/docs"
+echo prose > "$src/cmux-tui/docs/README.md"
+git_q -C "$src" add cmux-tui/docs/README.md
+git_q -C "$src" commit -m docs
+[[ "$(key --version v2)" == "$v2" ]] || fail "a docs-only commit changed the published v2 tree key"
+[[ "$(key --version v1)" != "$v1" ]] || fail "v1 unexpectedly ignored a docs-only commit"
 status=0; key --version v3 >/dev/null 2>&1 || status=$?
 [[ "$status" == 2 ]] || fail "an unknown key version did not exit 2 (exit $status)"
 
