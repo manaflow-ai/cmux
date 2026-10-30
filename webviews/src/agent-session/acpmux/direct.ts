@@ -586,7 +586,8 @@ export function queuedMessage(msg: any, context?: IncomingContext): IncomingMess
   if (!name) return undefined;
   const lead = text.trimStart();
   const named = [`[${name}]`, `From ${name}:`].find((prefix) => lead.toLowerCase().startsWith(prefix.toLowerCase()));
-  return { name, text: (named ? lead.slice(named.length) : text).trim(), raw: text };
+  const harness = typeof msg?.fromHarness === "string" && msg.fromHarness.trim() ? msg.fromHarness.trim() : undefined;
+  return { name, ...(harness ? { harness } : {}), text: (named ? lead.slice(named.length) : text).trim(), raw: text };
 }
 
 /// The images a `queued` or `queue_updated` record names (`images`, in its prompt's order), each
@@ -679,9 +680,22 @@ export function mergeQueue(
     // same), and a name is an agent's, also for a row the pane never read the record of (a
     // reload). An older acpmux lists none.
     const listed = entry?.fromAgent;
-    const listedMessage = queuedMessage({ text: preview, fromAgent: listed });
+    // Keep the complete queue record here: when `fromAgent` is absent, the
+    // sender lives in `_meta.provenance` and `queuedMessage` must see it.
+    // Override only the text with acpmux's current preview; a stale full
+    // prompt would make the provenance branch look like an edit.
+    const listedMessage = queuedMessage({
+      ...entry,
+      text: preview,
+      fromAgent: listed,
+      fromHarness: entry?.fromHarness,
+    });
     const kept = whole ? had.message : undefined;
-    const message = listed === undefined ? kept : listed === null ? undefined : (kept ?? listedMessage);
+    // A queue listing may carry the full provenance even when its compatibility `fromAgent`
+    // field is absent. Preserve that parsed agent message; only an explicit null says that the
+    // prompt is the person's own. Without this, a queued agent_message was rendered as a plain
+    // user prompt until it left the queue, so its received card (and reply actions) disappeared.
+    const message = listed === null ? undefined : (kept ?? listedMessage);
     // A list that names the field says whose it is, null the owner's (acpmux lists it for every
     // prompt once it serves authors); an older acpmux lists none, and the records read decide.
     const author =
@@ -2503,9 +2517,14 @@ export class AcpmuxDirectClient {
     this.historyExhausted = kept.historyExhausted;
     this.configSeq = kept.configSeq;
     this.usageFromSeq = kept.usageFromSeq;
+    // Seed replay from the kept session identity before rebuilding: SubagentFold must know the
+    // native root while it consumes the historical events, not after the malformed tree is drawn.
+    const keptSummary = { ...kept.summary, ...listed };
+    this.summary = keptSummary;
     this.rebuild();
-    // After the replay, not before: a `session_changed` the tail holds would take the live state back.
-    this.summary = { ...kept.summary, ...listed };
+    // A session_changed can carry newer live state than the kept tail. Restore it after replay;
+    // only the root identity needs to be visible during the fold rebuild itself.
+    this.summary = keptSummary;
     this.learnChatThread();
     // A paused queue's failed turn no longer runs, whatever status acpmux last listed (`staleRun`).
     this.turnOpen = listed?.status === "running" && !this.staleRun(listed);
@@ -2626,9 +2645,14 @@ export class AcpmuxDirectClient {
 
   /// A Stop acpmux refused (`_acpmux/cancel_refused`: a chat on another machine that only its owner
   /// can stop, a mode a paired device cannot stop): the turn runs on, so it no longer reads as
-  /// stopping, and the chat says why instead of looking as if Stop did nothing.
+  /// stopping, and the chat says why instead of looking as if Stop did nothing. Only the answer to the
+  /// Stop still waiting counts: none waits, or the refusal names another turn than the one stopped
+  /// (`turnId`), and it is a late answer to an earlier Stop.
   private stopRefused(params: any): void {
     if (typeof params?.sessionId !== "string" || params.sessionId !== this.actingSessionId) return;
+    if (this.stoppingAfterSeq === undefined) return;
+    if (typeof params.turnId === "string" && this.stoppedTurnId !== undefined && params.turnId !== this.stoppedTurnId)
+      return;
     this.stopAfterSeq = undefined;
     this.stoppingEnded();
     const reason =
@@ -3973,13 +3997,17 @@ export class AcpmuxDirectClient {
   /// when an older acpmux recorded that thread as one of its own subagents, a parent or an owner (a Codex child reporting its parent thread), they are
   /// folded again by lineage, so the chat's own rows come back and its subagents stop nesting.
   private learnChatThread(): void {
+    const thread = this.chatThread();
+    if (thread) {
+      this.subagents.setRoot(thread);
+      this.takeSubagentRows();
+    }
     // A shell call that started another family's agent before the chat's harness was known draws
     // as that agent now (subagentFold.ts ``deferredRun``).
     if (this.summary?.harness && !this.subagents.harness && this.subagents.deferredRun) {
       this.rebuildKeepingLiveState();
       return;
     }
-    const thread = this.chatThread();
     if (!thread || this.subagents.chat === thread || !this.subagents.names(thread)) return;
     this.rebuildKeepingLiveState();
   }
@@ -4028,6 +4056,9 @@ export class AcpmuxDirectClient {
     this.toolRows.clear();
     this.planCalls.clear();
     this.subagents = new SubagentFold(this.subagentStops);
+    // Replay knows the native harness id from the session summary. Seed it before any persisted
+    // acpmux records so an echoed root thread cannot be reconstructed as a child of its reporter.
+    this.subagents.setRoot(text(this.summary?.agentSessionId));
     this.pendingPermission = undefined;
     this.waitingPermissions = new Map();
     this.pendingSecret = undefined;
@@ -4441,6 +4472,12 @@ export class AcpmuxDirectClient {
   /// The subagent group rows that changed, into the transcript.
   private takeSubagentRows(): void {
     for (const row of this.subagents.takeRows()) {
+      // A late root seed can empty a previously emitted group after removing a phantom root.
+      // Remove that stale row instead of leaving a blank disclosure in the transcript.
+      if (!row.subagents?.length) {
+        this.rows.delete(row.id);
+        continue;
+      }
       // A new group ends the text and tool calls before it, like a tool call does.
       if (!this.rows.has(row.id)) {
         this.endAssistantSegment();
@@ -4455,7 +4492,10 @@ export class AcpmuxDirectClient {
             agent.state !== previous?.[index]?.state ||
             agent.name !== previous?.[index]?.name,
         );
+      const current = this.rows.current;
+      if (!this.rows.has(row.id) && row.seq !== undefined) this.rows.current = row.seq;
       this.rows.set(row.id, row, changed ?? false);
+      this.rows.current = current;
     }
   }
 
@@ -4671,6 +4711,12 @@ export class AcpmuxDirectClient {
         const fallbackPromptId =
           promptId ??
           (text ? [...this.optimisticPromptTexts.entries()].find(([, value]) => value === text)?.[0] : undefined);
+        // Capture the queue metadata before acceptance removes its row: an older or capped
+        // user_message may carry only text, while the queue still holds its paste/file parts.
+        const knownParts = fallbackPromptId
+          ? (this.optimisticPromptParts.get(fallbackPromptId) ??
+            this.queue.find((entry) => entry.id === fallbackPromptId)?.inlineParts)
+          : undefined;
         settleOptimisticPrompt(this.rows, this.optimisticPromptRows, {
           ...msg,
           promptId: fallbackPromptId,
@@ -4735,6 +4781,10 @@ export class AcpmuxDirectClient {
           this.steerRows.delete(promptId);
           this.waitingSteers = this.waitingSteers.filter((waiting) => waiting.rowId !== steered);
         }
+        // The prompt is in the transcript now: a queue row of it (its `dequeued` record missed, or a
+        // listing from before it went in) gives way, so the message never shows twice.
+        if (promptId && this.queue.some((entry) => entry.id === promptId))
+          this.queue = this.queue.filter((entry) => entry.id !== promptId);
         // A newer prompt means any steer before it was read; a second steer can come in the same step.
         if (msg.steer !== true) this.landSteer();
         if (msg.steer !== true && promptId) this.promptsShown.add(promptId);
@@ -4748,10 +4798,6 @@ export class AcpmuxDirectClient {
         // A new list, never one changed in place: the snapshot names its rows by the list's identity.
         if (steer === "waiting") this.waitingSteers = [...this.waitingSteers, { rowId: `user-${event.seq}`, promptId }];
         if (steer === "waiting" && promptId) this.steerRows.set(promptId, `user-${event.seq}`);
-        const knownParts = fallbackPromptId
-          ? (this.optimisticPromptParts.get(fallbackPromptId) ??
-            this.queue.find((entry) => entry.id === fallbackPromptId)?.inlineParts)
-          : undefined;
         const inlineParts = recordedPromptParts(msg, knownParts) ?? knownParts;
         this.rows.set(`user-${event.seq}`, {
           id: `user-${event.seq}`,
@@ -7699,6 +7745,8 @@ export class AcpmuxDirectClient {
     this.toolRows = new Map();
     this.planCalls = new Set();
     this.subagents = new SubagentFold(this.subagentStops);
+    // An older page replays persisted records too: seed the native root as the full replay does.
+    this.subagents.setRoot(text(this.summary?.agentSessionId));
     this.groupedPermissions = new Map();
     this.waitingPermissions = new Map();
     this.openQuestions = new Set();
