@@ -1,0 +1,3 @@
+BLOCK
+
+- `scripts/ci/pr_capture_check.py:90-92` rejects valid one-sentence verdicts containing an abbreviation, decimal, URL, or ellipsis because any interior `.`, `!`, or `?` is treated as a second sentence. For example, `Visual verdict: The 1.5 px inset looks good.` fails the required CI check. Use sentence-boundary validation that handles such punctuation and add regression coverage.

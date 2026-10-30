@@ -1,0 +1,4 @@
+BLOCK
+
+- `tree/scripts/ci/pr_capture_check.py:90` rejects the placeholder only on exact equality, so `Visual verdict: <one sentence: would Leo accept this next to ChatGPT/Claude?>.` passes the word-count and punctuation checks. Reject placeholder text with surrounding punctuation/formatting and add a regression test.
+- `tree/scripts/ci/pr_capture_check.py:57` detects sentence boundaries only when the next character is uppercase and excludes adjacent punctuation, allowing `Looks good. ship it.` or `Looks good?! Ship it.` to pass as one sentence. Detect lowercase and adjacent-punctuation boundaries, with tests.

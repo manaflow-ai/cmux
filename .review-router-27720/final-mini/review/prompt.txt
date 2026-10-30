@@ -1,0 +1,4 @@
+Independent final review for PR #27720 at the exact head in review/TARGET.
+Read review/TARGET, review/pr.diff, tree/scripts/ci/pr_capture_check.py, and tree/tests/test_pr_capture_check.py. You may run read-only file commands such as cat, sed, and rg; do not run tests or builds.
+Check placeholder rejection, one-sentence verdict handling, capture/label behavior, and regression coverage.
+Return SHIP or BLOCK as the first line, then concise actionable file:line findings only.

@@ -1,0 +1,4 @@
+You are the final independent exact-head reviewer for manaflow-ai/cmux PR #27720.
+Read review/TARGET, review/pr.diff, and only tree/scripts/ci/pr_capture_check.py plus tree/tests/test_pr_capture_check.py.
+Do not run tests or broad searches. Review the final visual-verdict validation and its tests for correctness, especially placeholder rejection, one-sentence handling, and capture/label behavior.
+Return exactly one first line: SHIP or BLOCK. Then list only actionable findings with exact file:line evidence and a concise reason. If there are no blocking findings, return SHIP and say why.

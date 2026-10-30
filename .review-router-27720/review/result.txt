@@ -1,0 +1,2 @@
+BLOCK
+- `tree/scripts/ci/pr_capture_check.py:53,110` — The verdict regex accepts the literal placeholder emitted by the failure message (and even a one-word verdict), so copying the suggested line passes without an actual one-sentence visual judgment. Reject the placeholder/require a meaningful sentence and add a regression test.

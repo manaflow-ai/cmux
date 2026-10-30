@@ -1,0 +1,2 @@
+BLOCK
+- `scripts/ci/pr_capture_check.py:90` — `visual_judgment` accepts multi-sentence verdicts because it only checks word count and terminal punctuation. For example, `Visual verdict: Looks polished. Ship it.` passes despite the template requiring one sentence. Enforce a single sentence and add a regression test.

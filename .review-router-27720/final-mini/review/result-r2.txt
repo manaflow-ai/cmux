@@ -1,0 +1,4 @@
+BLOCK
+
+- scripts/ci/pr_capture_check.py:58 — Sentence detection misses successors beginning with digits or opening quotes, so `Looks polished. 2 px of padding remains.` passes despite containing two sentences. Handle these boundaries and add regression cases.
+- scripts/ci/pr_capture_check.py:103 — Requiring punctuation as the final character rejects valid quoted verdicts such as `"The spacing looks polished."`. Allow closing quotation marks after terminal punctuation and add coverage.
