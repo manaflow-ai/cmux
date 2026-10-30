@@ -160,6 +160,11 @@ import Testing
         #expect(service.attentionMarks(for: workspace).count == 1, "a new request did not ring again")
         service.dismissHighlight(workspace)
         #expect(service.attentionMarks(for: workspace).isEmpty, "Dismiss Highlight left the ring")
+        // Jumping to it (jump to unread, a banner) goes in as a click does.
+        tab.applyState(SessionStateMirror.TabRecord(attention: Self.attention("Approve again", at: 3_000)), progress: nil)
+        #expect(service.attentionMarks(for: workspace).count == 1)
+        service.interacted(.open, tab: tab)
+        #expect(service.attentionMarks(for: workspace).isEmpty, "opening the marked tab left its ring")
     }
 
     /// An older daemon's mark has no request id. Its owner clear stays refused, but going in and

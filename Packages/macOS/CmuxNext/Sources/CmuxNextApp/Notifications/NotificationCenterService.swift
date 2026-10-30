@@ -424,12 +424,13 @@ final class NotificationCenterService {
         acknowledge(tab)
     }
 
-    /// The person went into a tab an agent marked (a click or a key): its ring has done its job,
+    /// The person went into a tab an agent marked (a click, a key or opening it): its ring has done its job,
     /// the mark stays until the agent clears it or the page changes.
     func dismissAttention(_ trigger: NotificationTrigger, tab: TabModel) {
         // Hiding the ring is this client's view state, so a mark without a request id (an older
         // daemon's) hides it too, by its generation; only the owner's clear needs the id.
-        guard tab.attention != nil, trigger == .click || trigger == .keystroke else { return }
+        // Opening it (jump to unread, a banner) goes into the tab as a click does.
+        guard tab.attention != nil, [.click, .keystroke, .open].contains(trigger) else { return }
         tab.attentionRingHiddenThrough = tab.attentionGeneration
     }
 
