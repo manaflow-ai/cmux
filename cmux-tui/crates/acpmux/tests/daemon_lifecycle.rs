@@ -800,6 +800,8 @@ async fn a_daemon_whose_socket_ancestor_is_retargeted_stops() {
 }
 
 /// The acquired identity is a startup boundary: replacement must not receive config/store writes.
+// The deterministic lock-held marker exists only in debug daemon builds.
+#[cfg(debug_assertions)]
 #[tokio::test]
 async fn a_home_replaced_after_lock_acquisition_receives_no_startup_writes() {
     let dir = scratch("startup-swap");
