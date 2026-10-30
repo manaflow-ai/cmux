@@ -29,7 +29,7 @@ struct SplitOfPendingSplitTests {
             PaneHandlers.focus(first.layoutPaneID, in: content)
             #expect(services.registry.perform("splitDown", invocation: terminal))
 
-            func confirmed() -> [PaneController] {
+            @MainActor func confirmed() -> [PaneController] {
                 content.panes.filter { !before.contains($0.key) }.map(\.value)
                     .filter { $0.pane.tabs.contains { $0.kind == .pty && !ProvisionalTab.isProvisional(surface: $0.surface) } }
             }
