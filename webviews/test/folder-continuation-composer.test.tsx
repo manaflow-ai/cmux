@@ -71,7 +71,7 @@ const attachment: ComposerAttachment = {
   size: 16,
   text: "attached content",
 };
-async function fixture() {
+async function fixture(options: { refuse?: boolean; delay?: Promise<void> } = {}) {
   root = createRoot(host);
   const handle = createRef<ComposerHandle>();
   const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
@@ -86,7 +86,8 @@ async function fixture() {
         : Promise.resolve([]),
     write: async (id: string, chips: ComposerAttachment[]) => {
       writes.push({ id, chips });
-      return { held: chips.map((c) => c.id) };
+      if (id === "destination") await options.delay;
+      return { held: options.refuse && id === "destination" ? [] : chips.map((c) => c.id) };
     },
   };
   const draw = (id: string) =>
@@ -168,5 +169,29 @@ test("failed selection after rendering preserves the source, while destination c
   expect(readPersistedDraft("source")).toBe("held draft");
   expect(f.writes.some((w) => w.id === "destination" && w.chips[0]?.id === attachment.id)).toBe(true);
   expect(f.writes.some((w) => w.id === "source" && w.chips.length === 0)).toBe(false);
+  expect(f.sent).toHaveLength(0);
+});
+
+test("a destination store that retains no contents leaves the source intact", async () => {
+  const f = await fixture({ refuse: true });
+  const transfer = f.handle.current!.prepareDraftTransfer("destination");
+  await expect(transfer.ready).rejects.toThrow("draft contents were not retained");
+  transfer.cancel();
+  expect(f.handle.current!.draftState()).toEqual({ text: "held draft", attachments: [attachment] });
+  expect(f.writes.some((w) => w.id === "source" && w.chips.length === 0)).toBe(false);
+});
+test("edits while the destination save waits abort recovery and preserve the newer draft", async () => {
+  let resolve!: () => void;
+  const f = await fixture({
+    delay: new Promise<void>((yes) => {
+      resolve = yes;
+    }),
+  });
+  const transfer = f.handle.current!.prepareDraftTransfer("destination");
+  await act(async () => f.handle.current!.prefill("new edit "));
+  resolve();
+  await expect(transfer.ready).rejects.toThrow("draft changed during recovery");
+  transfer.cancel();
+  expect(f.handle.current!.draftState().text).toBe("new edit held draft");
   expect(f.sent).toHaveLength(0);
 });
