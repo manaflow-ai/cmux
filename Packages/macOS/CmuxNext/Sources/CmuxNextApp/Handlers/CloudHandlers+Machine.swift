@@ -171,7 +171,7 @@ extension CloudHandlers {
             let session = try machine(invocation, context)
             result("kill machine", context, pendingAfter: machineAnswerWait, pending: machineFields(session.machineID)) {
                 try await cloud.deleteMachine(session.machineID)
-                return machineFields(session.machineID, ["status": .string("deleted")])
+                return deletionPending(session.machineID)
             }
         }
         bind("cloudPauseMachine", registry, reason: reason) { invocation in
@@ -338,6 +338,10 @@ extension CloudHandlers {
     static let terminalAnswerWait: Duration = .seconds(30)
 
     /// The `pending` answer of a terminal run that outlasted ``terminalAnswerWait``.
+    static func deletionPending(_ machineID: String) -> [String: ActionResultValue] {
+        machineFields(machineID, ["pending": .bool(true), "status": .string("deleting")])
+    }
+
     static func terminalPending(_ session: CloudMachineSession) -> [String: ActionResultValue] {
         session.machine.status == .paused
             ? ["machine_id": .string(session.machineID), "resuming": .bool(true)]

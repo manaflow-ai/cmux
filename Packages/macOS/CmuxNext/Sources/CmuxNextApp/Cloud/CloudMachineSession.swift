@@ -112,7 +112,7 @@ final class CloudMachineSession {
     /// click never drops a healthy connection, and only a click starts a
     /// paused machine (`cloud.machine.connect` starts it).
     func connect(origin: CloudLinkOrigin = .script) {
-        guard !disconnected else { return }
+        guard !disconnected, !machine.shownStatus.isChanging else { return }
         if appLink != nil {
             guard machine.status.isLive || origin == .user, !appConnecting, appTicket == nil || linkEnded != nil else { return }
             appConnecting = true
@@ -125,13 +125,17 @@ final class CloudMachineSession {
         // task-owner: one lifecycle hop; each later hop waits for this one
         linkTransition = Task {
             await previous?.value
+            guard !disconnected, !machine.shownStatus.isChanging else {
+                appConnecting = false
+                return
+            }
             if let appLink {
                 await connectApp(appLink, origin: origin)
                 return
             }
             guard let link else { return }
             await link.resume()
-            guard !disconnected, machine.status.isLive else { return }
+            guard !disconnected, machine.status.isLive, !machine.shownStatus.isChanging else { return }
             // A link start that a pause overtook changes nothing (`noteLink`).
             let suspendsBefore = suspends
             daemon.start(remote: { [weak self] in
@@ -157,6 +161,7 @@ final class CloudMachineSession {
     /// (its connect starts a paused machine for a click); a live legacy link
     /// reconnects by itself, so nothing else changes.
     func attach(origin: CloudLinkOrigin = .user) {
+        guard !machine.shownStatus.isChanging else { return }
         if appLink != nil { return connect(origin: origin) }
         guard machine.shownStatus == .paused, !resuming, !disconnected, let resumer else { return }
         resuming = true
@@ -209,7 +214,7 @@ final class CloudMachineSession {
             showEnded(error)
             return
         }
-        guard !disconnected, suspends == suspendsBefore, !Task.isCancelled else { return }
+        guard !disconnected, suspends == suspendsBefore, !Task.isCancelled, !machine.shownStatus.isChanging else { return }
         appTicket = ticket.id
         linkPhase = .up
         let localIdentity = localIdentity

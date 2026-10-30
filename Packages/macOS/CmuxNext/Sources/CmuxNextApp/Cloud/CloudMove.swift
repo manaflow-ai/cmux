@@ -277,8 +277,10 @@ struct CloudMove {
         guard session.appLink == nil else { throw Failure(message: CloudMoveStrings.linkUnsupported(session.machine.title)) }
         // A paused machine (idle auto-pause) resumes on this attach; a live one connects. A
         // record that may be stale (paused behind the app) is read again first.
+        try CloudHandlers.requireAttachableState(session)
         if session.daemon.connection == nil {
             await session.refreshIfMaybePaused()
+            try CloudHandlers.requireAttachableState(session)
             if session.machine.status == .paused { session.attach(origin: CloudHandlers.connectOrigin(for: invocation)) } else { session.connect(origin: CloudHandlers.connectOrigin(for: invocation)) }
         }
         let daemon = session.daemon

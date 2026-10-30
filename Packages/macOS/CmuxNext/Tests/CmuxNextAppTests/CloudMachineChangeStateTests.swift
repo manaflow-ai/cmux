@@ -1,6 +1,7 @@
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextCloud
+import CmuxNextCompat
 import CmuxNextDaemon
 @testable import CmuxNextSidebar
 import Foundation
@@ -51,20 +52,46 @@ struct CloudMachineChangeStateTests {
     func runningRetriesAnAppLinkThatFailedWhileStarting() async throws {
         let services = MachineIconTests.services()
         let resolver = StartingLinkResolver()
-        let session = CloudMachineSession(machine: CloudMachine(id: "resume-retry", status: .starting),
+        let session = CloudMachineSession(machine: CloudMachine(id: "resume-retry", status: .running),
             appLink: CloudLinkSession(key: CloudLinkKey(machine: "resume-retry"), resolver: resolver),
             localIdentity: { nil }, mainWork: services.mainWork)
         defer { session.disconnect() }
         session.connect()
-        try await CloudIdlePauseTests.waitUntil { session.linkEnded != nil }
+        for await ended in ObservationStream({ session.linkEnded != nil }) where ended { break }
         #expect(await resolver.attempts == 1)
+        session.applyRecord(CloudMachine(id: session.machineID, status: .starting))
         session.applyRecord(CloudMachine(id: session.machineID, status: .running))
         await resolver.waitForAttempts(2)
-        try await CloudIdlePauseTests.waitUntil { session.linkEnded != nil }
+        for await ended in ObservationStream({ session.linkEnded != nil }) where ended { break }
         #expect(await resolver.attempts == 2)
         session.applyRecord(CloudMachine(id: session.machineID, status: .running))
         await Task.yield()
         #expect(await resolver.attempts == 2, "repeated running lists do not retry a settled failure")
+    }
+
+    @Test func transitionsRejectUserConnectAttachAndActionCallers() async throws {
+        let services = MachineIconTests.services()
+        let resolver = StartingLinkResolver()
+        let session = CloudMachineSession(machine: CloudMachine(id: "transition-gate", status: .running),
+            appLink: CloudLinkSession(key: CloudLinkKey(machine: "transition-gate"), resolver: resolver),
+            localIdentity: { nil }, mainWork: services.mainWork)
+        defer { session.disconnect() }
+        for status: CloudMachine.Status in [.pausing, .starting, .deleting] {
+            session.machine.pendingChange = status
+            session.connect(origin: .user)
+            session.attach(origin: .user)
+            #expect(session.linkPhase == .idle)
+            #expect(!CloudHandlers.attachable(session))
+            #expect(throws: ActionFailure.self) { try CloudHandlers.requireAttachableState(session) }
+        }
+        #expect(await resolver.attempts == 0)
+    }
+
+    @Test func killAcknowledgementReportsPendingDeletion() {
+        let fields = CloudHandlers.deletionPending("vm-delete")
+        #expect(fields["status"] == .string("deleting"))
+        #expect(fields["pending"] == .bool(true))
+        #expect(fields["machine_id"] == .string("vm-delete"))
     }
 
     // MARK: The record
