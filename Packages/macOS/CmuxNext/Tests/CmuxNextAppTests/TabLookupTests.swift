@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import CmuxNextHistory
 import CmuxNextRemote
 import CmuxNextWakeups
 import Foundation
@@ -122,5 +123,13 @@ struct TabLookupTests {
         #expect(replacement.0 !== fixture.remoteTab)
         #expect(fixture.services.locateTab(model: fixture.remoteTab) == nil)
         #expect(fixture.services.locateTab(model: replacement.0)?.1 === replacement.1)
+    }
+    /// A history record carries its machine even when its tab id is duplicated by a fork.
+    @Test func historyResumeUsesTheRemoteMachinePaneForDuplicateTabIDs() throws {
+        let fixture = try Fixture()
+        let session = AgentSession(machine: fixture.remote.machineID, provider: "claude", sessionID: "resume-remote",
+                                   tab: fixture.remoteTab.id, startedAt: .now, lastActivityAt: .now)
+        #expect(HistoryRestorer(services: fixture.services).paneForResume(session) === fixture.remotePane,
+                "history resume must not select the local pane for a remote machine's duplicate tab id")
     }
 }

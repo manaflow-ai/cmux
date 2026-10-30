@@ -75,12 +75,18 @@ struct HistoryRestorer {
         guard services.machines.daemons.contains(where: { $0.machineID == session.machine }) else {
             return services.registry.refuse(HistoryAppStrings.machineOffline)
         }
-        let old = session.tab.flatMap { services.locateTabOnAnyMachine($0) }.flatMap { services.paneController(for: $0.1) }
+        let old = paneForResume(session).flatMap { services.paneController(for: $0) }
         let focused = services.windows.active?.focusedPane.flatMap { pane in
             services.daemon(for: pane.pane).machineID == session.machine ? pane : nil
         }
         guard let pane = old ?? focused else { return services.registry.refuse(HistoryAppStrings.noPane) }
         pane.newTerminalTab(cwd: session.cwd, typing: command + "\n")
+    }
+
+    /// Resolves the old pane for a history session on the session's machine.
+    /// A duplicate tab id on another machine must never redirect a resume.
+    func paneForResume(_ session: AgentSession) -> PaneModel? {
+        session.tab.flatMap { services.locateTabOnAnyMachine($0)?.1 }
     }
 
     /// Runs a command again in a new terminal tab, in its directory, on its
