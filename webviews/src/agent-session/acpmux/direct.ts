@@ -3334,8 +3334,8 @@ export class AcpmuxDirectClient {
     const sent = early?.sent ?? this.sendAttach(sessionId, generation, typeof askedOf !== "string");
     // What came live of the chat since an attach asked with the list (this one, or one the open
     // dropped and attaches again here) applies now, once its rows are drawn and held (`copyLive`).
-    const held = early ?? (this.earlyAttach?.sessionId === sessionId ? this.earlyAttach : undefined);
-    if (held) this.takeEarly(held);
+    const streamed = early ?? (this.earlyAttach?.sessionId === sessionId ? this.earlyAttach : undefined);
+    if (streamed) this.takeEarly(streamed);
     const result = await sent.attaching;
     this.syncView();
     if (!current()) return [];
