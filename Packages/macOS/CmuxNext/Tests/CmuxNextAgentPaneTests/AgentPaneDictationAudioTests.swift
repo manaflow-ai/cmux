@@ -148,8 +148,14 @@ struct AgentPaneDictationAudioTests {
         let longFolder = parent.appending(path: UUID().uuidString.lowercased(), directoryHint: .isDirectory)
         let long = DictationAudioRecording(folder: longFolder)
         feed(long, seconds: 140)
-        let file = try #require(await long.finish()?.file)
+        let longAudio = try #require(await long.finish())
+        let file = try #require(longAudio.file)
         #expect(file == longFolder.appending(path: "Recording.wav"))
+        // The file is named by what the writer left there, so a file put at that path later is not it.
+        let descriptor = open(file.path, O_RDONLY | O_CLOEXEC)
+        defer { close(descriptor) }
+        #expect(longAudio.fileIdentity != nil)
+        #expect(longAudio.fileIdentity == DictationFileIdentity.of(descriptor: descriptor))
     }
 
     /// Review of #26559 at 78df61f4: a finish after a discard answered at once, before the
