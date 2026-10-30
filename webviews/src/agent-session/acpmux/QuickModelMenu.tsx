@@ -1104,7 +1104,7 @@ function QuickRowLabel({ label, value }: { label: string; value?: string }) {
 /// an older route without a kind. A chat bound by its workspace or family checks that route, and CLI login
 /// is disabled: unbinding the chat would leave it on that route. With no routes it says how to add
 /// one; a switch acpmux refused says so first.
-function AccountRows({
+export function AccountRows({
   list,
   failed,
   switchFailed,
@@ -1182,7 +1182,7 @@ function AccountRows({
 /// The chat's accounts, read each time the menu opens (acpmux holds them; nothing polls), and a
 /// pick that switches the chat. A refused switch (acpmux's route.unavailable, a route of another
 /// family) stays named on the Account row until a switch succeeds or the chat changes.
-function useAccountList(open: boolean, account: QuickMenu["account"]) {
+export function useAccountList(open: boolean, account: QuickMenu["account"]) {
   const [list, setList] = useState<ChatAccountList>();
   const [failed, setFailed] = useState(false);
   const [switchFailed, setSwitchFailed] = useState(false);

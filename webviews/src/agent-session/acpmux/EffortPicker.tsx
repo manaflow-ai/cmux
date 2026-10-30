@@ -165,7 +165,10 @@ export function EffortPicker({
               <MenuRadioGroup
                 value={section.current ?? ""}
                 onValueChange={(next) => {
-                  section.onPick(next);
+                  // Base UI reports a press on the checked row too: a section's pick is a switch, so
+                  // that press must change nothing (Fast would go off, Ultracode's Off would send
+                  // Extra High).
+                  if (next !== section.current) section.onPick(next);
                   setOpen(false);
                 }}
               >

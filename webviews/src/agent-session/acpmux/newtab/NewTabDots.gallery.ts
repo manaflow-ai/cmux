@@ -29,12 +29,12 @@ const pick = (dot: NewTabDot) => async (ctx: PlayContext) => {
   const pills = ctx.document.querySelectorAll(".nt-create [data-create]").length;
   if (pills !== (DOT_STATES[dot].actions ? 3 : 0)) throw new Error(`the ${dot} dot shows ${pills} pills`);
   const dots = ctx.document.querySelectorAll(".nt-style input[type=radio]").length;
-  if (dots !== 3) throw new Error(`the page shows ${dots} dots, not three`);
+  if (dots !== 4) throw new Error(`the page shows ${dots} dots, not four`);
 };
 
 export default agentPaneEntry({
   id: "agent-pane.new-tab-dots",
-  title: "New Tab dots (Claude Minimal, Claude + Quick Actions, Codex Minimal)",
+  title: "New Tab dots (Claude Minimal, Claude + Quick Actions, Codex Minimal, Prototype)",
   area: "Agent pane",
   height: 560,
   covers: ["agent-session/acpmux/newtab/PageDots.tsx#PageDots"],

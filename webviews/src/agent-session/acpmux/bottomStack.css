@@ -96,11 +96,11 @@
   :is(.acpmux-md-field, .acpmux-shell-field) {
   align-self: stretch;
 }
-/* Codex keeps its own non-grid bar, but its draft still yields to the fixed footer and 24px
+/* Codex (and the Prototype) keep their own non-grid bar, but the draft still yields to the fixed footer and 24px
    dots row in a short pane. Shrink only the scrolling field; the actions and footer stay reachable. */
 .acpmux-main[data-dock="float"]
   > .acpmux-dock
-  > .acpmux-composer[data-composer-look="codex"]
+  > .acpmux-composer:is([data-composer-look="codex"], [data-composer-look="prototype"])
   > .acpmux-composer-box:not(:has(> .acpmux-chrome-area > .acpmux-composer-inner)) {
   display: flex;
   flex: 0 1 auto;
@@ -109,7 +109,7 @@
 }
 .acpmux-main[data-dock="float"]
   > .acpmux-dock
-  > .acpmux-composer[data-composer-look="codex"]
+  > .acpmux-composer:is([data-composer-look="codex"], [data-composer-look="prototype"])
   > .acpmux-composer-box:not(:has(> .acpmux-chrome-area > .acpmux-composer-inner))
   > .acpmux-composer-field-menu {
   display: flex;
@@ -119,7 +119,7 @@
 }
 .acpmux-main[data-dock="float"]
   > .acpmux-dock
-  > .acpmux-composer[data-composer-look="codex"]
+  > .acpmux-composer:is([data-composer-look="codex"], [data-composer-look="prototype"])
   > .acpmux-composer-box:not(:has(> .acpmux-chrome-area > .acpmux-composer-inner))
   > .acpmux-composer-field-menu
   > .acpmux-md-field {
@@ -128,7 +128,7 @@
 }
 .acpmux-main[data-dock="float"]
   > .acpmux-dock
-  > .acpmux-composer[data-composer-look="codex"]
+  > .acpmux-composer:is([data-composer-look="codex"], [data-composer-look="prototype"])
   > .acpmux-composer-box:not(:has(> .acpmux-chrome-area > .acpmux-composer-inner))
   > .acpmux-composer-field-menu
   > .acpmux-shell-prompt {
@@ -139,7 +139,7 @@
 }
 .acpmux-main[data-dock="float"]
   > .acpmux-dock
-  > .acpmux-composer[data-composer-look="codex"]
+  > .acpmux-composer:is([data-composer-look="codex"], [data-composer-look="prototype"])
   > .acpmux-composer-box:not(:has(> .acpmux-chrome-area > .acpmux-composer-inner))
   > .acpmux-composer-field-menu
   > .acpmux-shell-prompt

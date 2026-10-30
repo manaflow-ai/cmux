@@ -1,8 +1,6 @@
 import { authText, canSessionLogin } from "./sessionAuth";
-import React, { Fragment, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import React, { Fragment, useContext, useId, useLayoutEffect, useRef, useState } from "react";
 import { AgentMark, hasAgentMark } from "../shared/AgentMark";
-import type { ChatAccountList } from "./chatAccounts";
-import { isModelRouterKind } from "./routerKinds";
 import { SearchIcon } from "./ComposerPickers";
 import { harnessIcon } from "../shared/harnessIcons";
 import { useT } from "./i18n";
@@ -22,7 +20,7 @@ import {
   Submenu,
 } from "../../ui/Menu";
 
-import type { QuickFamily, QuickMenu, QuickModel } from "./QuickModelMenu";
+import { AccountRows, useAccountList, type QuickFamily, type QuickMenu, type QuickModel } from "./QuickModelMenu";
 
 /// How many models (the tab's rows and More models) make a list long enough for the `long`
 /// version's search field.
@@ -47,18 +45,14 @@ function firstPartyTop(
   current: string | undefined,
 ): QuickFamily | undefined {
   if (!family || family.starred || (family.mark !== "claude" && family.mark !== "codex")) return family;
-  if (family.models.length <= FIRST_PARTY_ROWS) return family;
-  const top = family.models.slice(0, FIRST_PARTY_ROWS);
+  const all = [...family.models, ...family.more];
+  // The running model, wherever the tab lists it: an older one waits under More models otherwise.
   const running =
-    family.id === chatHarness
-      ? family.models.find((model) => model.id === current || runsOffers(model, current))
-      : undefined;
-  if (running && !top.includes(running)) top[FIRST_PARTY_ROWS - 1] = running;
-  return {
-    ...family,
-    models: top,
-    more: [...family.models.filter((model) => !top.includes(model)), ...family.more],
-  };
+    family.id === chatHarness ? all.find((model) => model.id === current || runsOffers(model, current)) : undefined;
+  let top = family.models.slice(0, FIRST_PARTY_ROWS);
+  if (running && !top.includes(running)) top = [...top.slice(0, FIRST_PARTY_ROWS - 1), running];
+  if (top.length === family.models.length && top.every((model, index) => model === family.models[index])) return family;
+  return { ...family, models: top, more: all.filter((model) => !top.includes(model)) };
 }
 
 /// The Prototype look's model menu (composerLook.ts `prototype`): the chip opens the model panel
@@ -117,7 +111,7 @@ export function QuickModelPanelMenu({
       setScrolled(false);
     }
   }
-  // Typing can unmount the focused row (Effort, Account, a model it filters out); keyboard focus
+  // Typing can unmount the focused row (a footer row, a model it filters out); keyboard focus
   // goes to the first row left, so the next key, Enter and Escape still reach the menu. A
   // re-render with the same filter (a streaming reply hands over new families) keeps the row the
   // keyboard moved to, so Enter picks it.
@@ -493,6 +487,27 @@ export function QuickModelPanelMenu({
           </MenuRadioGroup>
         </fieldset>
       )}
+      {/* A harness's other launch configurations (a second account's profile): start or fork to one. */}
+      {shown?.variants && shown.variants.length > 0 && (
+        <MenuGroup label={shown.name}>
+          {shown.variants.map((variant) => (
+            <MenuItem
+              key={variant.id}
+              className="acpmux-quick-item acpmux-quick-variant"
+              disabled={families?.forkReady === false}
+              closeOnClick
+              onSelect={() => {
+                if (variant.logIn) variant.logIn();
+                else families?.onLaunch?.(variant.id);
+              }}
+            >
+              <span className="acpmux-menu-label">
+                {families?.onFork ? t("picker.forkTo", { harness: variant.name }) : variant.name}
+              </span>
+            </MenuItem>
+          ))}
+        </MenuGroup>
+      )}
       {inlineMore && families.onAddHarness && (moreShown || !shown?.more.length) && (
         <MenuItem className="acpmux-quick-item" onSelect={() => families.onAddHarness?.()}>
           <span className="acpmux-menu-label">{t("modelPicker.addHarness")}</span>
@@ -729,137 +744,4 @@ function QuickRowLabel({ label, value }: { label: string; value?: string }) {
       {value && <span className="acpmux-quick-value">{value}</span>}
     </>
   );
-}
-
-/// The Account submenu: the harness's own login (the chat's default binding), then each route
-/// for a direct account serving this chat, plus its current binding when that is a transport or
-/// an older route without a kind. A chat bound by its workspace or family checks that route, and CLI login
-/// is disabled: unbinding the chat would leave it on that route. With no routes it says how to add
-/// one; a switch acpmux refused says so first.
-function AccountRows({
-  list,
-  failed,
-  switchFailed,
-  onPick,
-  grouped = false,
-}: {
-  list?: ChatAccountList;
-  failed: boolean;
-  switchFailed: boolean;
-  onPick(routeId: string | null): void;
-  grouped?: boolean;
-}) {
-  const t = useT();
-  const refused = switchFailed && (
-    <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
-      {t("picker.accountSwitchFailed")}
-    </MenuItem>
-  );
-  if (!list)
-    return (
-      <>
-        {refused}
-        <MenuItem disabled>{failed ? t("picker.accountFailed") : "…"}</MenuItem>
-      </>
-    );
-  // "" is the harness login: the chat follows its default binding, or none.
-  const value = list.active ?? "";
-  // The session-scoped list has already removed other harness families. Cmux is a provider
-  // choice here, never a harness tab. Preserve the current binding even for older route kinds.
-  const choices = list.accounts.filter(
-    (choice) =>
-      choice.kind === "direct-subscription" ||
-      choice.kind === "direct-api-key" ||
-      isModelRouterKind(choice.kind) ||
-      choice.id === list.active,
-  );
-  const choiceRows = (rows: typeof choices) =>
-    rows.map((choice) => (
-      <MenuRadioItem key={choice.id} value={choice.id} closeOnClick className="acpmux-quick-item">
-        <span className="acpmux-menu-label">{choice.name}</span>
-      </MenuRadioItem>
-    ));
-  const routers = choices.filter((choice) => isModelRouterKind(choice.kind));
-  return (
-    <>
-      {refused}
-      <MenuRadioGroup value={value} onValueChange={(next) => next !== value && onPick(next || null)}>
-        {/* Back to the default only unbinds the chat; a workspace or family route still applies. */}
-        <MenuRadioItem
-          value=""
-          closeOnClick
-          className="acpmux-quick-item"
-          disabled={list.scope !== "chat" && !!list.active}
-        >
-          <span className="acpmux-menu-label">{t("picker.harnessLogin")}</span>
-        </MenuRadioItem>
-        {grouped ? (
-          <>
-            {choiceRows(choices.filter((choice) => !isModelRouterKind(choice.kind)))}
-            {routers.length > 0 && <MenuGroup label={t("picker.provider")}>{choiceRows(routers)}</MenuGroup>}
-          </>
-        ) : (
-          choiceRows(choices)
-        )}
-      </MenuRadioGroup>
-      {choices.length === 0 && (
-        <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
-          {t("picker.accountHint")}
-        </MenuItem>
-      )}
-    </>
-  );
-}
-
-/// The chat's accounts, read each time the menu opens (acpmux holds them; nothing polls), and a
-/// pick that switches the chat. A refused switch (acpmux's route.unavailable, a route of another
-/// family) stays named on the Account row until a switch succeeds or the chat changes.
-function useAccountList(open: boolean, account: QuickMenu["account"]) {
-  const [list, setList] = useState<ChatAccountList>();
-  const [failed, setFailed] = useState(false);
-  const [switchFailed, setSwitchFailed] = useState(false);
-  const sessionId = account?.sessionId;
-  const accounts = account?.accounts;
-  useEffect(() => {
-    if (!open || !sessionId || !accounts) return;
-    let live = true;
-    setFailed(false);
-    accounts.list(sessionId).then(
-      (next) => live && setList(next),
-      () => live && setFailed(true),
-    );
-    return () => {
-      live = false;
-    };
-  }, [open, sessionId, accounts]);
-  // The chat the latest pick was for: a late answer for another chat changes nothing here.
-  const pickFor = useRef(sessionId);
-  // Another chat's accounts never show for this one.
-  useEffect(() => {
-    pickFor.current = sessionId;
-    setList(undefined);
-    setSwitchFailed(false);
-  }, [sessionId]);
-  const pick = (routeId: string | null) => {
-    if (!sessionId || !accounts) return;
-    const forSession = sessionId;
-    setList((old) =>
-      old
-        ? {
-            ...old,
-            ...(routeId ? { active: routeId, scope: "chat" } : { active: undefined, scope: undefined }),
-          }
-        : old,
-    );
-    accounts.set(sessionId, routeId).then(
-      () => pickFor.current === forSession && setSwitchFailed(false),
-      () => {
-        if (pickFor.current !== forSession) return;
-        setSwitchFailed(true);
-        // The next open reads where the chat really is.
-        setList(undefined);
-      },
-    );
-  };
-  return { list, failed, switchFailed, pick };
 }

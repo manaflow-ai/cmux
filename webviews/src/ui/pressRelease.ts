@@ -41,6 +41,9 @@ export function trackPressRelease(start: PressStart, handlers: PressReleaseHandl
     if (!target || trigger.contains(target)) return null;
     const row = target.closest<HTMLElement>(PRESS_ROW);
     if (!row || row.matches('[aria-disabled="true"], :disabled')) return null;
+    // A control inside a row (a model row's star) keeps its own press: a release on it picks nothing.
+    const control = target.closest("button");
+    if (control && control !== row && row.contains(control)) return null;
     return row;
   };
   const move = (event: PointerEvent) => {

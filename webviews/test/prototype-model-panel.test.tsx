@@ -309,6 +309,24 @@ test("the effort chip sets the level and Fast mode, and the model panel draws no
   await click(effortChip()!);
   await click(item("Fast"));
   expect(sent).toContainEqual({ method: "effort", value: "on" });
+  // A press on the checked row changes nothing: Fast stays on.
+  const before = sent.length;
+  await click(effortChip()!);
+  expect(item("Fast").getAttribute("aria-checked")).toBe("true");
+  await click(item("Fast"));
+  expect(sent.slice(before)).toEqual([]);
+});
+
+test("a running older model stays among Claude's four rows", async () => {
+  await mount({ routes: [] }, { model: "claude-opus-4-8" });
+  await click(modelChip());
+  expect(rows()).toHaveLength(4);
+  expect(names()).toContain("Opus 4.8");
+  expect(
+    rows()
+      .find((row) => row.textContent?.includes("Opus 4.8"))
+      ?.getAttribute("aria-checked"),
+  ).toBe("true");
 });
 
 test("Starred is always on the rail, and a row's star adds its model without picking it", async () => {
