@@ -19,9 +19,14 @@
 //! above it (FSEvents watches a folder's whole tree). A command never starts a daemon in the
 //! old, now missing path (`config::autostart_refusal`).
 //!
-//! Once the loss is reported the shutdown removes nothing at the old paths except the socket
-//! it bound, and the daemon process writes nothing under the old home (`config::mark_home_lost`):
-//! either may be another daemon's now. Its agent hosts are other processes: they end with
+//! The home and lock are read as soon as the daemon holds its lock, so one replaced during its
+//! startup is a loss too. Once the loss is reported the shutdown removes nothing at the old
+//! paths except the socket it bound, and the shared write paths (`config::private_state_dir*`,
+//! `write_atomic`, `owner_only`, the store, the registry, the catalog and live-model caches,
+//! `agent_tools::write_private`) refuse to write under the old home (`config::mark_home_lost`):
+//! it may be another daemon's now. A request already being served when the loss is seen may
+//! still finish a write of its own there during the bounded shutdown; base, with no watch,
+//! kept writing there for as long as it ran. Its agent hosts are other processes: they end with
 //! their record (`agent_host` `watch_record`); one still starting when the home is replaced may
 //! write its record into the replacement, as on a daemon without this watch. A renamed
 //! ancestor (above) also leaves an unadopted host running until its folder changes.
@@ -64,6 +69,13 @@ impl Owned {
         Some(Self { paths })
     }
 
+    /// These paths and `other`'s.
+    #[cfg(unix)]
+    fn with(mut self, other: Owned) -> Self {
+        self.paths.extend(other.paths);
+        self
+    }
+
     /// The first owned path that is no longer the file it was, and why.
     #[cfg(unix)]
     pub(crate) fn lost(&self) -> Option<String> {
@@ -98,15 +110,11 @@ pub(crate) type HomeGone = Pin<Box<dyn Future<Output = String> + Send>>;
 
 /// Watch `home`, `socket` and `lock` (see the module doc).
 #[cfg(unix)]
-pub(crate) fn watch(home: &Path, socket: &Path, lock: &Path) -> HomeGone {
+pub(crate) fn watch(held: Option<Owned>, home: &Path, socket: &Path) -> HomeGone {
     use notify::Watcher as _;
-    let Some(owned) = Owned::now(&[home, socket, lock]) else {
-        tracing::warn!(
-            "home watch off: {}, {} or {} cannot be read",
-            home.display(),
-            socket.display(),
-            lock.display()
-        );
+    // The home and lock as the daemon first held them (`held`), and the socket as bound.
+    let Some(owned) = held.zip(Owned::now(&[socket])).map(|(held, bound)| held.with(bound)) else {
+        tracing::warn!("home watch off: {} or {} cannot be read", home.display(), socket.display());
         return Box::pin(std::future::pending());
     };
     // One slot: events that arrive while a check runs fold into the next check.
@@ -174,7 +182,7 @@ impl Owned {
 pub(crate) fn release_socket() {}
 
 #[cfg(not(unix))]
-pub(crate) fn watch(_home: &Path, _socket: &Path, _lock: &Path) -> HomeGone {
+pub(crate) fn watch(_held: Option<Owned>, _home: &Path, _socket: &Path) -> HomeGone {
     Box::pin(std::future::pending())
 }
 

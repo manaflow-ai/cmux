@@ -972,6 +972,7 @@ fn materialize(state_dir: &Path) -> anyhow::Result<PathBuf> {
     if dir.join(".claude-plugin/plugin.json").is_file() {
         return Ok(dir);
     }
+    crate::config::refuse_lost_home(state_dir)?;
     std::fs::create_dir_all(state_dir)?;
     let tmp = state_dir.join(format!(".tmp-{}", uuid::Uuid::now_v7()));
     let manifest = json!({

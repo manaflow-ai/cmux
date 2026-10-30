@@ -198,6 +198,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             }
         }
     };
+    // The home and lock this daemon holds, read as soon as it holds them: one replaced during
+    // the startup below is then a loss, never the watch's baseline (`daemon/home_watch.rs`).
+    let owned_home = home_watch::Owned::now(&[&home(), &lock]);
     // The local CodeRouter relay (crate cmux-coderouter): `cmux-router` and
     // `local-coderouter` routes read its port and mint keys from it. Opt-in
     // (the cmux app sets ACPMUX_LOCAL_ROUTER=1). Its owner ties the router's
@@ -506,13 +509,12 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // (`daemon/home_watch.rs`). Its own task, so it keeps watching through a shutdown that began
     // on a signal: a home replaced while the agents drain is still marked lost before their last
     // writes. Ends with this function, whichever way it returns.
-    let mut home_gone = tokio::spawn(home_watch::watch(&home(), &socket_path(), &lock));
+    let mut home_gone =
+        tokio::spawn(home_watch::watch(owned_home.clone(), &home(), &socket_path()));
     let _home_watch = AbortOnDrop(home_gone.abort_handle());
     // The socket this daemon bound: a shutdown removes only that one.
     let bound_socket = home_watch::Owned::now(&[&socket_path()]);
-    // Its home and lock, re-read during the shutdown: one that began on a signal no longer
-    // watches them, and the home may be replaced while it drains.
-    let owned_home = home_watch::Owned::now(&[&home(), &lock]);
+    // Its home and lock, re-read during the shutdown too.
     let recheck_home = move || {
         if let Some(why) = owned_home.as_ref().and_then(|owned| owned.lost()) {
             if !crate::config::home_lost() {
