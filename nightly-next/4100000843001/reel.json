@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "build": "4100000843001",
+  "notes": "notes/4100000843001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27530,
+      "title": "fix(cmux-next): clarify disclosed workspace tab hierarchy (carries #27128)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27542,
+      "title": "ci: fold push failure attribution into the PR status comment",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26740,
+      "title": "cmux NEXT Cloud: pick a chat's machine from its folder, sent as autosize (no machine or size prompt)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25578,
+      "title": "Home: show who else has the Chief chat open in the native header",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26698,
+      "title": "cmux NEXT Feed: one owner for the Feed's order with row edits; rows say what, who, where and when",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27689,
+      "title": "ci(nightly-next): the legacy-identity sign skips a build the cmux NEXT feed is past",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26568,
+      "title": "cmux NEXT composer: search files, chats, and pages from +",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27876,
+      "title": "Cloud: promote devbox image 202610300253-2346629597-d9c52103aa5b",
+      "author": "manaflow-glaeda-route[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27593,
+      "title": "fix(next): show recent chat placeholders while loading",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27660,
+      "title": "acpmux: session queue list, remove and clear --from-agents",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
