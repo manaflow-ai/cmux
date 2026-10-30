@@ -303,10 +303,7 @@ import CmuxNextTestSupport
     /// as wide as a menu.
     @Test func thePopupIsMenuSizedAndCappedToTheWindow() async throws {
         let h = try await make()
-        defer {
-            h.card.hideNotes()
-            h.window.close()
-        }
+        defer { h.close() }
         try #require(!h.card.isHidden, "the staged update shows no card")
         h.window.orderFront(nil)
         let page = Highlights()
