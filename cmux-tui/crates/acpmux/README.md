@@ -253,7 +253,11 @@ Use the stable `sessionId` from `resolve`, an id prefix, a bare name, or `HOST/N
 Every command that takes a session (send, last, retry, wait, attach, `session
 info|cancel|stop|close|rename`) reads a bare name or prefix the same way: it names the one
 live session with that name across this host and its peers, so `acpmux send review "…"`
-reaches `linux-b/review` when no other live session is called `review`. Closed sessions count
+reaches `linux-b/review` when no other live session is called `review`. A sub-session (named
+`PARENT/SHORT`) also answers to its short name: `acpmux send lane-3` reaches
+`coord/lane-3` when no session on any host has that name or id and none here has a
+name starting with it; `HOST/SHORT` looks on that host only. A name nothing matches is
+refused with the close matches. Closed sessions count
 only when no live one matches. Several live matches are refused (exit 2,
 `session_ambiguous`), never picked; a session here does not win over a peer's. The refusal
 lists each choice and the exact command for it:
@@ -335,6 +339,7 @@ acpmux session deny NAME                                      # an allow is the 
 acpmux session rules NAME '{"autoDeny": ["rm -rf"], "ask": ["execute"], "default": "approve"}'
 acpmux session limits NAME [--max N | --clear]                 # sub-sessions running at once (more wait), running and queued now
 acpmux session turn-cap NAME [--minutes N | --off | --clear]  # past it, other agents' messages wait for the next turn
+acpmux session inbox NAME [--thread T] | --digest [--dry-run]  # other agents' messages, in threads (no turn of their own); --digest: those still queued as one prompt
 acpmux session queue list NAME                                # one row per queued prompt: id, sender, age, first line (--json: whole text)
 acpmux session queue remove NAME PROMPT_ID...                 # take those out; each reported removed or not found
 acpmux session queue clear NAME --from-agents [--dry-run]     # take out every other agent's message; your own prompts stay
@@ -343,6 +348,10 @@ acpmux ls --all --wide                                        # every session, e
 acpmux ls --live --host cosmic-gray                           # filters, text and --json alike (--host local: this machine)
 acpmux ls --status running | --pending                        # filters; --json for the full records
 acpmux ls --limit 20 --fields name,harness,model,status,cwd   # newest sessions, selected fields
+acpmux ls 'review-27*' [huge-blue/*] --fields name,status    # sessions whose name matches a glob (`host/glob` for one peer), on any host
+acpmux ls --tag area=acpmux --fields name,turn.activity       # a dotted field reads a nested value (tags.lane.reportsTo too)
+acpmux session info NAME --fields sessionId                   # one field prints its bare value; several print field<TAB>value; --json an object
+acpmux send --tag area=acpmux [--dry-run] "base is green"     # one --no-wait message to every non-closed session with the tag, on every host; skips your own
 acpmux ls --since 24h --limit 100 --json                     # sessions changed in the last day
 acpmux ls --json --live --fields name,status,peer             # what an agent should read: `ls --json` alone is every record
 acpmux session tail NAME --since <sessionId>:<seq> --follow   # raw events as JSON lines; a cursor past the log is exit 2
@@ -408,6 +417,11 @@ unattended, with `ACPMUX_EVENT`, `ACPMUX_SESSION_NAME` and `ACPMUX_TEXT` set.
 session load or new, config replay): past it the request fails with code -32000 and
 `data.reason` `deadline_exceeded` (`data.wait` `agent_start`), the agent is ended, the
 session stays open, and the log gets `agent_start_timed_out`.
+
+`agentInbox` (default true): another agent's plain send (`acpmux send`, the MCP `send` tool) goes
+into the receiving chat's inbox, in a thread, and the agent hears of it as one notice at its next
+tool step; it is never a turn or a steer of its own. false puts plain sends back on the queue.
+
 `silentTurnMs` (default 90000; 0 turns it off): a turn whose model shows no sign of work
 (no message, thought, tool call, plan, compaction or request, and no harness line only a
 responding model produces, such as Claude's stream and thinking or Codex's moderation
