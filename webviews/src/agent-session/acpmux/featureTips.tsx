@@ -35,7 +35,7 @@ function call<T>(method: string, params: Record<string, unknown>): Promise<T> {
 
 const tipState = (reply: unknown): TipState => {
   const { states, used } = (reply ?? {}) as { states?: unknown; used?: unknown };
-  if (!states || typeof states !== "object" || Array.isArray(states)) throw new Error("tips.state: no records");
+  if (!states || typeof states !== "object" || Array.isArray(states)) throw new Error("tips.state.noRecords");
   const records: TipRecords = Object.fromEntries(
     Object.entries(states).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
   );
