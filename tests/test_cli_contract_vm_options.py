@@ -55,13 +55,15 @@ def help_options(source: str, member: str, command: str) -> set[str]:
         stripped = line.strip()
         if stripped == "Options:":
             in_options = True
-        elif in_options and not stripped:
-            in_options = False
         elif in_options and stripped.startswith("--"):
             # Two spaces separate the declaration from its description. In
             # particular, --sync's description mentions --cwd on vm agent.
             declaration = re.split(r"\s{2,}", stripped, maxsplit=1)[0]
             options.update(OPTION.findall(declaration))
+        elif in_options and stripped and line == stripped:
+            # Blank lines can separate declarations. Only the next top-level
+            # section/prose ends Options, so formatting cannot hide flags.
+            in_options = False
     if not options:
         raise ValueError(f"{member}: no options extracted for vm {command}")
     return options
@@ -188,6 +190,20 @@ class VMOptionContractTests(unittest.TestCase):
         helps["exec"] = helps["exec"].replace("<machine>", "[--new-option] <machine>")
         self.assertIn("vm exec synopsis missing --new-option", "\n".join(
             check_contract(FIXTURE_DOC, fixture_sources(helps))))
+
+    def test_blank_lines_do_not_hide_option_declarations(self):
+        helps = dict(FIXTURE_HELP)
+        helps["run"] = helps["run"].replace("Options:\n", "Options:\n\n")
+        helps["run"] = helps["run"].replace(
+            "  --wait, --output      Accepted for compatibility.",
+            "  --wait               Wait for completion.\n\n"
+            "  --output             Print output.",
+        )
+        sources = fixture_sources(helps)
+        self.assertEqual(check_contract(FIXTURE_DOC, sources), [])
+        document = FIXTURE_DOC.replace("[--wait] [--output]", "")
+        self.assertIn("vm run synopsis missing --output, --wait", "\n".join(
+            check_contract(document, sources)))
 
     def test_description_and_other_commands_do_not_supply_options(self):
         document = FIXTURE_DOC.replace("[--timeout <seconds>] <machine>", "<machine>")
