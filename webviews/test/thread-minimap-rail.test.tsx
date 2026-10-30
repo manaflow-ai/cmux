@@ -381,6 +381,41 @@ test("a wheel over a rail that scrolls itself is not the reader's: the transcrip
   }
 });
 
+test("a wheel over a rail that scrolls itself leaves a jump's landing correction running", async () => {
+  const { settleScroll } = await import("../src/agent-session/acpmux/threadMinimap/scrollMotion");
+  const view = await mount(70);
+  const frames = (count: number) =>
+    act(async () => {
+      for (let frame = 0; frame < count; frame += 1) await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+  try {
+    const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+    // A clicked tick's row is not mounted yet: the landing keeps measuring (offset() undefined) frame
+    // by frame until it lands. A wheel over the rail browses the rail; the landing goes on.
+    let measured = 0;
+    settleScroll(view.scroller, () => void (measured += 1), 45);
+    await frames(2);
+    expect(measured).toBeGreaterThan(0);
+    await act(async () => {
+      list.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: -120, bubbles: true, cancelable: true }));
+    });
+    const before = measured;
+    await frames(3);
+    expect(measured).toBeGreaterThan(before);
+    // The reader's wheel over the transcript ends it where it is.
+    await act(async () => {
+      view.scroller.dispatchEvent(
+        new dom.window.WheelEvent("wheel", { deltaY: -120, bubbles: true, cancelable: true }),
+      );
+    });
+    const ended = measured;
+    await frames(3);
+    expect(measured).toBe(ended);
+  } finally {
+    await view.unmount();
+  }
+});
+
 test("a rail that fits its prompts passes the wheel through to the transcript", async () => {
   const { followTrace } = await import("../src/agent-session/acpmux/followTrace");
   const view = await mount(8);
