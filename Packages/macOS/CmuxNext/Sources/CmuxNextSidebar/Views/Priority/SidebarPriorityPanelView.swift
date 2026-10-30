@@ -377,7 +377,7 @@ final class ScrollReportingClipView: NSClipView {
     var onScroll: (() -> Void)?
 
     override func scroll(to newOrigin: NSPoint) {
-        super.scroll(to: newOrigin) // selector-allow: NSClipView implements scrollToPoint: (Swift scroll(to:)), its documented scrolling primitive.
+        super.scroll(to: newOrigin)
         onScroll?()
     }
 }
