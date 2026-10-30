@@ -893,7 +893,7 @@ impl Surface {
             title_changed,
             pending_bells,
             output_apply_delay: HostedReader::output_apply_delay_from_env(),
-            flap_backoff: TerminalHostReconnectBackoff::default(),
+            flap_backoff: TerminalHostReconnectBackoff::retrying_after_failure(),
             resync_backoff: TerminalHostReconnectBackoff::default(),
             connected_at: None,
         };
