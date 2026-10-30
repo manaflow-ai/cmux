@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "build": "4100414847301",
+  "notes": "notes/4100414847301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 26130,
+      "title": "fix(agent-pane): trust folders opened by the user (cx-pagr0p)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25737,
+      "title": "Agent pane: Retry on a failed subagent's line, its menu, and the tray (part 2 of 2)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24579,
+      "title": "Agent pane: align markdown table actions",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27683,
+      "title": "perf(webviews): reuse path picker name collator",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27936,
+      "title": "cmux agents snapshot: report GUI agent chat tabs as chats, not about:blank browsers",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27337,
+      "title": "fix(websocket): ignore non-object daemon frames",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25405,
+      "title": "cmux NEXT: toggle the chat header's Files, Preview and side tabs from the palette",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/25405/95b38c8c/next-agent-pane-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "95b38c8c",
+      "tour": "agent-pane",
+      "note": "5 captures, head moved past every capture; picked 95b38c8c by name, not by date"
+    }
+  ]
+}
