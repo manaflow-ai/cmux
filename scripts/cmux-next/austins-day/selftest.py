@@ -59,6 +59,8 @@ class FakeClaude(unittest.TestCase):
             self.assertEqual(sum(1 for k in kinds if k == ("hook", "PreToolUse")), tools)
             self.assertEqual(sum(1 for k in kinds if k == ("hook", "PostToolUse")), tools)
             self.assertTrue(all(r["code"] == "server.busy" for r in records if r["kind"] == "cli"))
+            # Each tool call says which command it ran (a Read has none).
+            self.assertTrue(all(r["argv"] for r in records if r["kind"] == "tool" and r["event"] != "Read"))
             hooks = [r for r in records if r["kind"] == "hook" and r["event"] in ("PreToolUse", "PostToolUse")]
             self.assertTrue(all(isinstance(r["cpu_ms"], float) and r["rc"] == 0 for r in hooks), hooks[:2])
             prompts = [r for r in records if r["kind"] == "hook" and r["event"] == "UserPromptSubmit"]

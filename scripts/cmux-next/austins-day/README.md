@@ -140,7 +140,8 @@ Each run directory keeps `run.json` (all samples), `driver.log`, `app-log.txt`, 
 - `daemon_connections`: accepted, refused, peak, limit, and, for comparing arms, `refused_per_s` over the
   run's own server-stats window and `refused_share` of connects (the last answered server-stats comes at
   a different time in each run, so a raw cumulative count is never compared). `pool_holders`: who fills
-  the pool, from the daemon's `list-clients` by kind/name and the live hook-helper and CLI processes, with
+  the pool, from the daemon's client list (`cmux-tui client list`: `client` is a scope only the `cmux-tui`
+  name accepts) by kind/name and the live hook-helper and CLI processes, with
   the refusals each client kind saw itself. `daemon_lock_wait_us`,
   `daemon_lock_hold_us`, `daemon_lock_top_sites`, `journal_commit_us`: from `cmux server stats`.
 - `workspace_close_app_ms` / `workspace_close_daemon_ms`: time from the close action until the

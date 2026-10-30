@@ -142,6 +142,9 @@ if not isinstance(identity, dict) or not identity.get("pid"):
     raise SystemExit(f"austins-day: the app does not answer on {opts.socket}: {identity}")
 APP_PID = int(identity["pid"])
 CLI = os.path.join(opts.app, "Contents", "Resources", "bin", "cmux")
+# `client` (and `raw`) are scopes only the cmux-tui name accepts (cli.rs CMUX_TUI_ONLY_SCOPES): `cmux client
+# list` is refused as usage.invalid by design. The app bundles cmux-tui beside cmux.
+CLI_TUI = os.path.join(opts.app, "Contents", "Resources", "bin", "cmux-tui")
 
 
 def app_env():
@@ -203,13 +206,13 @@ def acpmux_pid(home):
         return None
 
 
-def cli(*args, timeout=30, sock=None):
+def cli(*args, timeout=30, sock=None, binary=None):
     """The bundled CLI on the daemon socket, --json: (ms, parsed or None, error code or None)."""
     sock = sock or DAEMON_SOCK
     env = {"HOME": APP_HOME, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_QUIET": "1"}
     start = time.monotonic()
     try:
-        done = subprocess.run([CLI, "--socket", sock, "--json", *args], capture_output=True, text=True, timeout=timeout, env=env)
+        done = subprocess.run([binary or CLI, "--socket", sock, "--json", *args], capture_output=True, text=True, timeout=timeout, env=env)
     except subprocess.TimeoutExpired:
         return (time.monotonic() - start) * 1000, None, "timeout"
     ms = (time.monotonic() - start) * 1000
@@ -304,7 +307,7 @@ def connection_holders(rows):
     or hook binaries; each holds at most one connection or is waiting for one."""
     # `cmux client list` (the resource operation client.list): one object per connection with name,
     # client_kind, transport and connected_seconds. (`raw command list-clients` was refused: usage.invalid.)
-    _, parsed, code = cli("client", "list", timeout=15)
+    _, parsed, code = cli("client", "list", timeout=15, binary=CLI_TUI)
     clients = client_list_entries(parsed)
     by_label = {}
     ages = {}
@@ -318,6 +321,7 @@ def connection_holders(rows):
         except (TypeError, ValueError):
             pass
     roles = {"hook_helper": 0, "cli": 0, "other_bundle": 0}
+    # The cmux-tui processes this sample starts are counted under other_bundle (one at a time).
     for _, _, _, args in rows:
         if "cmux-tui-hook" in args or "__agent-hook" in args:
             roles["hook_helper"] += 1
