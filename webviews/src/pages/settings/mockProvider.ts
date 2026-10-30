@@ -63,6 +63,8 @@ export type MockOptions = {
   connected?: boolean;
   /** Ops that fail with this code, to test read failures. */
   failing?: Partial<Record<string, string>>;
+  /** Whether the native action registry accepts an invocation. */
+  actionRan?: boolean;
   /** The loaded settings file's path (the host lists' `settings_file`). */
   settingsFile?: string;
   /** The theme file the mock picker returns for `cmux.settings.theme.import`. */
@@ -173,6 +175,7 @@ export class MockSettingsProvider {
   importable: GhosttyTheme | null = null;
   private readonly importTokens = new Map<string, GhosttyTheme>();
   private readonly chatFolders: ListRow["folders"];
+  private readonly actionRan: boolean;
   private readonly failing: Partial<Record<string, string>>;
   private readonly values = new Map<string, unknown>();
   private readonly managed: Map<string, { value: unknown } & ManagedInfo>;
@@ -197,6 +200,7 @@ export class MockSettingsProvider {
     this.diagnostics = options.diagnostics ?? [];
     this.domains = options.domains === undefined ? mockDomains : options.domains;
     this.failing = options.failing ?? {};
+    this.actionRan = options.actionRan ?? true;
     this.connected = options.connected ?? true;
     if (options.settingsFile !== undefined) this.host = { ...this.host, settings_file: options.settingsFile };
     if (options.themeOverrides) this.host = { ...this.host, theme_overrides: options.themeOverrides };
@@ -522,12 +526,13 @@ export class MockSettingsProvider {
         ) {
           throw new ProtocolError("cmux.page.action_refused", `action ${String(params.action)} is not allowed here`);
         }
+        if (!this.actionRan) return { ran: false };
         this.runProfileAction(
           params.action as string,
           (params.args ?? {}) as Params,
           params.target as string | undefined,
         );
-        return {};
+        return { ran: true };
       },
     };
     const native = new Set([
