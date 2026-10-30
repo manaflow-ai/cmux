@@ -115,6 +115,8 @@ SCRIPT_MADE_KEYCHAINS = {
     # nightly-next recovery signs the DMG around the stapled app (feat-cmux-next).
     ("nightly.yml", "recover-nightly-next-notarization"): "scripts/ci/notarize-nightly-dmg.sh",
     ("release.yml", "build-sign-notarize"): "scripts/ci/notarize-nightly-dmg.sh",
+    # Its same-run Blacksmith twin runs the same steps (tests/test_ci_signing_owned_mac.py).
+    ("release.yml", "build-sign-notarize-blacksmith"): "scripts/ci/notarize-nightly-dmg.sh",
     ("auto-resume-nightly-notarization.yml", "wait-and-staple"): "scripts/ci/resume-stapled-app-notarization.sh",
     ("auto-resume-nightly-notarization.yml", "staple-outer"): "scripts/ci/resume-stapled-app-notarization.sh",
     ("resume-nightly-notarization.yml", "resume"): "scripts/ci/resume-stapled-app-notarization.sh",
@@ -130,6 +132,7 @@ STEP_LEVEL_ONLY = {
     # Build, sign, notarize and publish are one job; the split into build,
     # sign, verify and publish jobs is a separate change.
     "release.yml build-sign-notarize",
+    "release.yml build-sign-notarize-blacksmith",  # its same-run Blacksmith twin, the same steps
 }
 # Scripts that launch the app unless their launch smokes are deferred.
 SMOKING_SCRIPTS = re.compile(

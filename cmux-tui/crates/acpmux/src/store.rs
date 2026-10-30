@@ -257,6 +257,9 @@ pub struct SessionMeta {
     /// errorText?, errorSource?, endedAt}.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_turn: Option<Value>,
+    /// Classified harness attempts, projected from turn results; old stores default empty.
+    #[serde(default)]
+    pub harness_failures: crate::session_liveness::HarnessFailures,
     /// Created over a remote-origin connection (the WebSocket listener):
     /// its harness never spawns with a preset's args or system prompt.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -354,6 +357,15 @@ pub struct SessionMeta {
     /// that retry. Never copied to a fork.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub subagent_retry_open: bool,
+    /// The session's own turn cap in ms (`hub/turn_cap.rs`): past it, other agents' messages
+    /// wait for the next turn. 0 turns it off; `None` takes the default its settings give
+    /// (`turn_cap::default_turn_cap_ms`). Set by the person only; never copied to a fork.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_cap_ms: Option<u64>,
+    /// The turn the turn cap's notice went into (`hub/turn_cap.rs`), kept so a turn a restart
+    /// adopts gets no second one. Never copied to a fork.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_cap_noticed: Option<String>,
 }
 
 /// Where a session sits in the tree of sessions that started each other
@@ -591,6 +603,11 @@ pub fn now_ms() -> u64 {
 pub trait Store: Send + Sync {
     fn list(&self) -> Result<Vec<SessionMeta>>;
     fn load(&self, id: &str) -> Result<Option<SessionMeta>>;
+    /// One startup entry, with the same visibility rules as `list`. Raw `load` may still
+    /// return a purged chat's late metadata save for recovery/maintenance callers.
+    fn load_startup(&self, id: &str) -> Result<Option<SessionMeta>> {
+        self.load(id)
+    }
     fn save(&self, meta: &SessionMeta) -> Result<()>;
     fn append(&self, id: &str, record: &EventRecord) -> Result<()>;
     /// Flush one session's event log and metadata to stable storage.
@@ -866,6 +883,49 @@ impl Store for MemoryStore {
             .map(|(_, ev)| ev.iter().filter(|e| e.seq > after).take(limit).cloned().collect())
             .unwrap_or_default())
     }
+    /// Newest first, a bounded window at a time: a visitor that stops early clones only the
+    /// windows it read, and it runs off the lock.
+    fn scan_back(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        const WINDOW: usize = 256;
+        let mut before = before;
+        loop {
+            let (window, lowest) = {
+                let g = self.inner.lock_or_recover();
+                let Some((_, events)) = g.get(id) else { return Ok(()) };
+                let end = events.partition_point(|e| e.seq < before);
+                let mut window = Vec::new();
+                let mut lowest = None;
+                for e in events
+                    .get(..end)
+                    .unwrap_or_default()
+                    .iter()
+                    .rev()
+                    .take_while(|e| e.seq > after)
+                    .take(WINDOW)
+                {
+                    lowest = Some(e.seq);
+                    if !skip(e.dir.as_bytes(), e.kind.as_bytes()) {
+                        window.push(e.clone());
+                    }
+                }
+                (window, lowest)
+            };
+            let Some(lowest) = lowest else { return Ok(()) };
+            for record in window {
+                if !visit(record) {
+                    return Ok(());
+                }
+            }
+            before = lowest;
+        }
+    }
     fn delete(&self, id: &str) -> Result<()> {
         self.inner.lock_or_recover().remove(id);
         Ok(())
@@ -945,6 +1005,51 @@ impl LocalStore {
         }
         out.sort();
         Ok(out)
+    }
+
+    fn list_entry(&self, entry: &std::fs::DirEntry) -> Result<Option<SessionMeta>> {
+        let kind = entry.file_type()?;
+        anyhow::ensure!(!kind.is_symlink(), "session entry {} is a link", entry.path().display());
+        if !kind.is_dir() {
+            return Ok(None);
+        }
+        let session = entry.path();
+        self.validate_session_dir(&session)?;
+        let path = session.join("session.json");
+        let Ok(file) = crate::config::private_state_file(&path) else { return Ok(None) };
+        let mut text = String::new();
+        BufReader::new(file).read_to_string(&mut text)?;
+        // Only a closed chat can be a purged chat revived by a late save. Open chats need
+        // no segment enumeration: that work belongs to their on-demand log read.
+        if let Ok(meta) = serde_json::from_str::<StatusOnly>(&text)
+            && self.purged_startup_entry(&entry.file_name().to_string_lossy(), meta.status)?
+        {
+            return Ok(None);
+        }
+        match serde_json::from_str::<SessionMeta>(&text) {
+            Ok(meta) => Ok(Some(meta)),
+            Err(e) => {
+                tracing::warn!("skip {}: {e}", path.display());
+                Ok(None)
+            }
+        }
+    }
+
+    /// Exact on-demand reads use the same directory checks as the background list before
+    /// trusting metadata or reading any log. In particular, neither directory may be a link.
+    fn validate_session_dir(&self, session: &Path) -> Result<()> {
+        crate::config::private_state_dir(session)?;
+        let events = session.join("events");
+        match std::fs::symlink_metadata(&events) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+            Ok(_) => crate::config::private_state_dir(&events)?,
+        }
+        Ok(())
+    }
+
+    fn purged_startup_entry(&self, id: &str, status: SessionStatus) -> Result<bool> {
+        Ok(status == SessionStatus::Closed && !self.has_records(id)?)
     }
 
     /// Whether the session's log holds a record: a segment with a byte in it (no line
@@ -1190,65 +1295,63 @@ fn first_seq(path: &Path) -> Result<Option<u64>> {
 
 impl Store for LocalStore {
     fn list(&self) -> Result<Vec<SessionMeta>> {
-        let mut out = Vec::new();
-        let mut skipped = 0usize;
         let Ok(rd) = std::fs::read_dir(&self.root) else {
-            return Ok(out);
+            return Ok(Vec::new());
         };
-        for entry in rd {
-            let entry = entry?;
-            let kind = entry.file_type()?;
-            if kind.is_symlink() {
-                anyhow::bail!("session entry {} is a link", entry.path().display());
-            }
-            if !kind.is_dir() {
-                continue;
-            }
-            let session = entry.path();
-            crate::config::private_state_dir(&session)?;
-            let events = session.join("events");
-            match std::fs::symlink_metadata(&events) {
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(error) => return Err(error.into()),
-                Ok(_) => crate::config::private_state_dir(&events)?,
-            }
-            let path = session.join("session.json");
-            if let Ok(file) = crate::config::private_state_file(&path) {
-                let mut text = String::new();
-                BufReader::new(file).read_to_string(&mut text)?;
-                // A closed session with no log is a purged one whose record a late save
-                // wrote back (`Hub::load_from_store`): only its status is read, so a home
-                // of thousands of them never holds their records, not even while listing.
-                let id = entry.file_name().to_string_lossy().into_owned();
-                if !self.has_records(&id)?
-                    && serde_json::from_str::<StatusOnly>(&text)
-                        .is_ok_and(|m| m.status == SessionStatus::Closed)
-                {
-                    skipped += 1;
-                    continue;
-                }
-                match serde_json::from_str::<SessionMeta>(&text) {
-                    Ok(meta) => out.push(meta),
-                    Err(e) => tracing::warn!("skip {}: {e}", path.display()),
-                }
-            }
+        let entries = rd.collect::<std::io::Result<Vec<_>>>()?;
+        if entries.is_empty() {
+            return Ok(Vec::new());
         }
-        if skipped > 0 {
-            tracing::info!(
-                "skipped {skipped} closed sessions with no log (purged; a late save wrote them back)"
-            );
-        }
-        Ok(out)
+        // Metadata reads do independent filesystem/ACL checks. Keep those checks, but do
+        // not put every chat behind every earlier chat's disk latency at daemon startup.
+        let workers = std::thread::available_parallelism().map_or(1, usize::from).min(8);
+        std::thread::scope(|scope| {
+            let workers: Vec<_> = entries
+                .chunks(entries.len().div_ceil(workers))
+                .map(|chunk| {
+                    scope.spawn(move || {
+                        let mut metas = Vec::new();
+                        for entry in chunk {
+                            if let Some(meta) = self.list_entry(entry)? {
+                                metas.push(meta);
+                            }
+                        }
+                        Ok::<_, anyhow::Error>(metas)
+                    })
+                })
+                .collect();
+            let mut metas = Vec::new();
+            for worker in workers {
+                metas.extend(
+                    worker.join().map_err(|_| anyhow::anyhow!("store list worker failed"))??,
+                );
+            }
+            Ok(metas)
+        })
     }
 
     fn load(&self, id: &str) -> Result<Option<SessionMeta>> {
-        let path = self.dir(id).join("session.json");
+        let session = self.dir(id);
+        match std::fs::symlink_metadata(&session) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+            Ok(_) => self.validate_session_dir(&session)?,
+        }
+        let path = session.join("session.json");
         if !path.exists() {
             return Ok(None);
         }
         let mut text = String::new();
         BufReader::new(crate::config::private_state_file(&path)?).read_to_string(&mut text)?;
         Ok(Some(serde_json::from_str(&text)?))
+    }
+
+    fn load_startup(&self, id: &str) -> Result<Option<SessionMeta>> {
+        let Some(meta) = self.load(id)? else { return Ok(None) };
+        if self.purged_startup_entry(id, meta.status)? {
+            return Ok(None);
+        }
+        Ok(Some(meta))
     }
 
     fn save(&self, meta: &SessionMeta) -> Result<()> {
@@ -1852,3 +1955,7 @@ impl LocalStore {
         Ok(())
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "store/startup_tests.rs"]
+mod startup_tests;

@@ -247,6 +247,9 @@ public final class AccountsModel {
     public func saveKey(_ key: String, for provider: AIProvider) -> String? {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return AccountsStrings.errorNeedsPaste }
+        // Detection trusts a saved key by its presence (it never reads the secret), so a key
+        // Connect would refuse is never saved: it would read signed in and fail on Connect.
+        guard CredentialResolver.isWellFormedKey(trimmed, for: provider) else { return AccountsStrings.errorInvalidFormat }
         do {
             try services.saveKey(trimmed, for: provider)
         } catch {
