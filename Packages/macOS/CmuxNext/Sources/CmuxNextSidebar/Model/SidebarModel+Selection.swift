@@ -39,7 +39,7 @@ extension SidebarModel {
         if selection.contains(id) {
             guard selection.count > 1 else { return }
             selection.remove(id)
-            if shownWorkspaceID == id, let next = orderedSelection.first ?? selection.first { select(next, preserving: selection) }
+            if shownWorkspaceID == id, let next = orderedSelection.first { select(next, preserving: selection) }
         } else {
             selection.insert(id)
             selectionAnchor = id
@@ -83,6 +83,12 @@ extension SidebarModel {
         let current = from.flatMap { visibleOrder.firstIndex(of: $0) }
         let next = current.map { max(0, min(visibleOrder.count - 1, $0 + delta)) } ?? (delta > 0 ? 0 : visibleOrder.count - 1)
         let id = visibleOrder[next]
+        // Clamped at an end, on the workspace already shown: nothing moves. Selecting it again would write
+        // `.workspace` over a shown pinned tile's `.topItem`, and the window's echo would then drop the range.
+        if next == current, id == shownWorkspaceID {
+            if !extending { (selection, selectionAnchor, selectionExtent) = ([id], id, nil) }
+            return
+        }
         if extending {
             let anchor = rangeAnchor ?? id
             let a = visibleOrder.firstIndex(of: anchor) ?? next

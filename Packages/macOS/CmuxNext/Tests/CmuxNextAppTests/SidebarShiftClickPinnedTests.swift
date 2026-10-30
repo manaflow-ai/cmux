@@ -125,6 +125,8 @@ struct SidebarShiftClickPinnedTests {
         try harness.click(Self.rows[1], .shift)
         #expect(harness.selected == ["ws-1", "ws-2", "ws-p1", "ws-p2"], "the Shift range did not run from the pinned tile")
         #expect(try harness.drawsSelected(Self.pinned[1]), "the pinned tile inside the range draws unselected")
+        // Close, drag and Move act on the whole range, the pinned workspaces too, in drawn order.
+        #expect(harness.model.orderedSelection.map(\.rawValue) == ["ws-p1", "ws-p2", "ws-1", "ws-2"])
     }
 
     @Test(arguments: [false, true])
