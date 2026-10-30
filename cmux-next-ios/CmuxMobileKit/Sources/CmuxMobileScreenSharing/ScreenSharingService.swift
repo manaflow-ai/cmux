@@ -153,9 +153,9 @@ public final class ScreenSharingService {
     public func signOutBeforeSessionEnds() async {
         guard let hub, !signedOut else { return }
         signedOut = true
-        if let viewer, let id = viewer.sessionID {
-            await viewer.endSession(hub, id, ScreenSharingEndReason.signedOut.rawValue)
-        }
+        // Signing out ends every session of this phone on the hub (reason signed_out); the
+        // viewer only stops here, so stop() sends no second /end after the account is gone.
+        viewer?.ended(reason: ScreenSharingEndReason.signedOut.rawValue)
         try? await hub.signOutDevice()
     }
 
@@ -217,6 +217,10 @@ public final class ScreenSharingService {
         case let .sessionDenied(id) where viewer.sessionID == id: viewer.denied()
         case let .sessionRevoked(id, reason) where viewer.sessionID == id: viewer.ended(reason: reason)
         case let .sessionEnded(id, reason) where viewer.sessionID == id: viewer.ended(reason: reason)
+        // The Mac's own reason, arriving after its stream already dropped here, replaces "failed".
+        case let .sessionRevoked(id, reason) where viewer.droppedSessionID == id,
+             let .sessionEnded(id, reason) where viewer.droppedSessionID == id:
+            viewer.droppedReason(reason)
         case let .sessionDenied(id) where viewer.sessionID == nil: viewer.earlyPush(sessionID: id, denied: true, reason: nil)
         case let .sessionRevoked(id, reason) where viewer.sessionID == nil,
              let .sessionEnded(id, reason) where viewer.sessionID == nil:
