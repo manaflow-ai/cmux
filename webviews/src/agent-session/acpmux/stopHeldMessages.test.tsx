@@ -193,3 +193,29 @@ test("acpmux's list says which messages a Stop holds, also with no record of it,
     close();
   }
 });
+
+test("Send now lets a held message go; an edit makes it the person's, which no Stop holds", async () => {
+  const { daemon, view, until, id, close } = await pane();
+  try {
+    daemon.emit(id, { mux: "queued", msg: { promptId: "p-a", text: "Build is green", fromAgent: "builder" } });
+    daemon.emit(id, { mux: "queued", msg: { promptId: "p-b", text: "Lint is green", fromAgent: "linter" } });
+    daemon.emit(id, { mux: "queue_paused", msg: { held: ["p-a", "p-b"], reason: "stop" } });
+    await until(() => view.shown.queue?.every((entry) => entry.heldByStop) === true);
+    // Send now (hub/queue.rs `put_next`): it runs next, held no more; the other stays held.
+    daemon.emit(id, { mux: "queue_order", msg: { order: ["p-b", "p-a"], promptId: "p-b", next: true } });
+    await until(() => view.shown.queue?.[0]?.id === "p-b");
+    expect(held(view.shown)).toEqual([
+      ["p-b", false],
+      ["p-a", true],
+    ]);
+    // Edited, it is the person's prompt (hub/queue_edit.rs): not a held agent message.
+    daemon.emit(id, { mux: "queue_updated", msg: { promptId: "p-a", text: "Build is green, ship it" } });
+    await until(() => view.shown.queue?.[1]?.prompt === "Build is green, ship it");
+    expect(held(view.shown)).toEqual([
+      ["p-b", false],
+      ["p-a", false],
+    ]);
+  } finally {
+    close();
+  }
+});

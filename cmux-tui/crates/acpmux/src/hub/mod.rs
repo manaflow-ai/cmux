@@ -172,6 +172,8 @@ pub use subsession_send::Delivery;
 mod drafts;
 pub(crate) mod outbox;
 pub mod rules;
+#[cfg(test)]
+mod stop_settles_tests;
 mod transcript;
 mod transfer;
 mod transfer_guard;
@@ -184,8 +186,6 @@ mod turn_usage;
 mod turns;
 #[cfg(test)]
 mod turns_copy_stop_tests;
-#[cfg(test)]
-mod stop_settles_tests;
 pub(crate) mod views;
 mod warm;
 mod watch_events;

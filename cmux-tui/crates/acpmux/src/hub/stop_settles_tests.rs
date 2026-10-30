@@ -175,3 +175,113 @@ async fn a_stop_its_agent_answers_with_an_error_still_ends_the_turn_cancelled() 
     let events = hub.events(&s.id, 0, 100_000).unwrap();
     assert!(!events.iter().any(|e| e.kind == "queue_paused"), "the Stop's turn held the queue");
 }
+
+fn prompt_as(
+    hub: &Arc<Hub>,
+    s: &Arc<Session>,
+    text: &str,
+    prompt_id: &str,
+    agent: Option<&str>,
+) -> tokio::task::JoinHandle<Result<Value, RpcError>> {
+    let (hub, s) = (hub.clone(), s.clone());
+    let blocks = vec![json!({"type": "text", "text": text})];
+    let opts = PromptOptions {
+        prompt_id: Some(prompt_id.to_owned()),
+        agent: agent.map(str::to_owned),
+        ..Default::default()
+    };
+    tokio::spawn(async move { hub.prompt_with(&s, blocks, "test", false, opts).await })
+}
+
+async fn until(what: &str, check: impl Fn() -> bool) {
+    let wait = async {
+        while !check() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    };
+    tokio::time::timeout(WAIT, wait).await.unwrap_or_else(|_| panic!("{what}"));
+}
+
+/// A Stop while the agent starts, and then the start fails: the Stop was taken, so the turn
+/// reads as stopped, not as the start's failure.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_stop_while_the_agent_starts_ends_the_turn_cancelled_when_the_start_then_fails() {
+    let (hub, s) = chat(false).await;
+    hub.kill(&s, false).await.unwrap();
+    let spawning = s.spawn_lock.lock().await;
+    let run = prompt(&hub, &s, "hello while starting");
+    until("the turn opens", || s.turn().is_some()).await;
+    hub.cancel(&s).await.expect("a Stop of a turn whose agent is starting is refused");
+    // The start that comes now misses its budget.
+    hub.config.write().await.agent_start_timeout_ms = Some(1);
+    drop(spawning);
+    let answer = tokio::time::timeout(WAIT, run).await.expect("the prompt answers").unwrap();
+    assert!(answer.is_err(), "{answer:?}");
+    let result = record(&hub, &s, "mux", "turn_result", |_| true).await;
+    assert_eq!(result.msg["status"], "cancelled", "{:?}", result.msg);
+    assert_ne!(state(&hub, &s), "stopping");
+}
+
+/// Other agents' messages that joined a turn a Stop kept from its agent come back held by the
+/// Stop: they never start a turn the moment the stopped one ended.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn messages_that_joined_a_stopped_turn_come_back_held_by_the_stop() {
+    let (hub, s) = chat(false).await;
+    let first = prompt(&hub, &s, "until-cancel");
+    record(&hub, &s, "", "agent_message_chunk", |m| {
+        m["params"]["update"]["content"]["text"] == "running"
+    })
+    .await;
+    // Two agents' messages wait behind the running turn: the second joins the first's turn
+    // (`digest.rs`).
+    let head = prompt_as(&hub, &s, "build is green", "p-head", Some("builder"));
+    until("the first message queues", || s.queue().len() == 1).await;
+    let _joined = prompt_as(&hub, &s, "lint is green", "p-join", Some("linter"));
+    until("both messages queue", || s.queue().len() == 2).await;
+    let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+    let (release, release_rx) = tokio::sync::oneshot::channel();
+    *hub.copy_seam.lock().unwrap() = Some((arrived_tx, release_rx));
+    hub.cancel(&s).await.unwrap();
+    let _ = tokio::time::timeout(WAIT, first).await.expect("the first turn ends");
+    // Their turn has started and is making its prompt's copies: the person stops it.
+    tokio::time::timeout(WAIT, arrived).await.expect("the copies are made").unwrap();
+    assert!(s.queue().is_empty(), "the second message did not join: {:?}", s.queue());
+    hub.person_stop(&s).await.expect("the Stop is refused");
+    release.send(()).unwrap();
+    let answer = tokio::time::timeout(WAIT, head).await.expect("the prompt answers").unwrap();
+    assert!(answer.is_err(), "{answer:?}");
+    record(&hub, &s, "mux", "queue_paused", |m| {
+        m["reason"] == "stop" && m["held"] == json!(["p-join"])
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let row = hub.session_summary(&s);
+    assert_eq!(row["queue"][0]["promptId"], "p-join", "{row}");
+    assert_eq!(row["queue"][0]["heldByStop"], true, "{row}");
+    assert_eq!(written(&hub, &s, "lint is green"), 0, "the message ran after the Stop");
+}
+
+/// An automatic release of the prompts a failed turn held lets the person's go, never another
+/// agent's message a Stop holds: the record names only those it let go.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_automatic_release_names_only_the_prompts_it_let_go() {
+    let (hub, s) = chat(false).await;
+    let _running = prompt(&hub, &s, "until-cancel");
+    record(&hub, &s, "", "agent_message_chunk", |m| {
+        m["params"]["update"]["content"]["text"] == "running"
+    })
+    .await;
+    let turn = s.turn().unwrap().turn_id;
+    let _mine = prompt_as(&hub, &s, "then the tests", "p-mine", None);
+    let _theirs = prompt_as(&hub, &s, "build is green", "p-agent", Some("builder"));
+    until("both queue", || s.queue().len() == 2).await;
+    // A failed turn held both; then the person's Stop holds the agent's.
+    hub.pause_queue(&s, &turn);
+    hub.hold_agent_messages(&s, &turn);
+    assert!(hub.resume_held(&s, &["p-mine".to_owned(), "p-agent".to_owned()]));
+    let resumed = record(&hub, &s, "mux", "queue_resumed", |_| true).await;
+    assert_eq!(resumed.msg["promptIds"], json!(["p-mine"]), "{:?}", resumed.msg);
+    let held: Vec<(String, bool)> =
+        s.queue().iter().map(|q| (q.prompt_id.clone(), q.held)).collect();
+    assert!(held.contains(&("p-agent".to_owned(), true)), "{held:?}");
+}

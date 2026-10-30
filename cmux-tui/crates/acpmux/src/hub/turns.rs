@@ -1239,13 +1239,16 @@ impl Hub {
     ) {
         let turn = session.meta().turn_count;
         *session.turn.lock().unwrap() = None;
-        // It no longer reads `stopping` (`cancel.rs`).
-        take_if_turn(&session.stopping, turn_id);
+        // It no longer reads `stopping`: a Stop that came while its agent started (`cancel.rs`)
+        // ends it as stopped, also when the start then failed.
+        let was_stopping = take_if_turn(&session.stopping, turn_id);
         // The prompt behind it waits for no turn now (`queue_turn`).
         session.queue_moved.notify_waiters();
-        // The agent messages that joined it never reached the agent either: back unheld.
+        // The agent messages that joined it never reached the agent either: back unheld, unless
+        // a person's Stop holds them (`requeue_joined`).
         self.requeue_joined(session, joined, false);
-        if is_stopped_before_prompt(e) {
+        let stopped_early = is_stopped_before_prompt(e);
+        if stopped_early || was_stopping {
             let stop = stopped_answer()["stopReason"].clone();
             self.append(
                 session,
@@ -1257,9 +1260,12 @@ impl Hub {
             self.record_last_turn(session, &msg);
             self.append(session, "mux", "turn_result", msg);
             self.reset_stream(session);
-            // Its agent started: the chat waits for the next prompt.
+            // Its agent started (a Stop kept the prompt from it), or failed to: the chat waits
+            // for the next prompt, or says its agent is not running.
             if session.status() != SessionStatus::Closed {
-                self.set_status(session, SessionStatus::Ready);
+                let status =
+                    if stopped_early { SessionStatus::Ready } else { SessionStatus::Disconnected };
+                self.set_status(session, status);
             }
             self.save_meta(session);
             self.lane_turn_ended(session, false, turn);
