@@ -8,15 +8,21 @@ use std::time::Duration;
 
 const WAIT: Duration = Duration::from_secs(20);
 
-/// A hub with one open chat on the stand-in agent.
-async fn chat() -> (Arc<Hub>, Arc<Session>) {
+/// A hub on the stand-in agent, its store in `dir` (one a restart reads again), else in memory.
+fn hub_in(dir: Option<&std::path::Path>) -> Arc<Hub> {
     use crate::config::{Config, StoreMode};
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let cfg = json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake"});
     let mut cfg: Config = serde_json::from_value(cfg).unwrap();
-    cfg.store.mode = StoreMode::Memory;
-    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
-    let hub = Hub::new(cfg, store);
+    cfg.store.mode = if dir.is_some() { StoreMode::Local } else { StoreMode::Memory };
+    let at = dir.unwrap_or(std::path::Path::new("/nonexistent"));
+    let store = crate::store::open(&cfg.store, at).unwrap();
+    Hub::new(cfg, store)
+}
+
+/// A hub with one open chat on the stand-in agent.
+async fn chat() -> (Arc<Hub>, Arc<Session>) {
+    let hub = hub_in(None);
     let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
     let session = hub.new_session(req).await.unwrap();
     (hub, session)
@@ -208,4 +214,74 @@ async fn a_persons_prompt_before_the_first_work_queues_leaves_its_sender_the_del
     assert_eq!(s.meta().turn_count, 2);
     assert_eq!(s.meta().delegator.as_deref(), Some("s-coord"));
     let _ = std::fs::remove_file(gate);
+}
+
+/// A first work a person's prompt went ahead of, rebuilt by a restart with no hold of its own:
+/// a blocker the inbox took before the restart sends no notice ahead of it (`inbox_review`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_first_work_a_restart_rebuilt_keeps_notices_behind_it() {
+    let dir = std::env::temp_dir().join(format!("acpmux-first-work-{}", uuid::Uuid::now_v7()));
+    let hub = hub_in(Some(&dir));
+    let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    let s = hub.new_session(req).await.unwrap();
+    let (arrived, release) = pause(&hub.first_work_seam);
+    let _first = send(&hub, &s, "s-coord", "p-brief", "do the thing", true);
+    tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
+
+    // The person's prompt takes the first turn and holds it at a gate; the first work queues.
+    let gate = std::env::temp_dir().join(format!("acpmux-first-work-{}", uuid::Uuid::now_v7()));
+    assert!(std::process::Command::new("mkfifo").arg(&gate).status().unwrap().success());
+    let _mine = {
+        let (hub, s) = (hub.clone(), s.clone());
+        let text = format!("gate: {}", gate.display());
+        tokio::spawn(async move {
+            hub.prompt(&s, vec![json!({"type": "text", "text": text})], "test", false).await
+        })
+    };
+    let running = async {
+        while s.turn().is_none() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    };
+    tokio::time::timeout(WAIT, running).await.expect("the person's turn runs");
+    release.send(()).unwrap();
+    let queued = async {
+        while !records(&hub, &s, "queued").iter().any(|m| m["promptId"] == "p-brief") {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    };
+    tokio::time::timeout(WAIT, queued).await.expect("the first work queues");
+
+    // A blocker goes to the inbox; then the daemon restarts.
+    let _blocker = send(&hub, &s, "s-other", "p-blocker", "stuck on this", true);
+    let inboxed = async {
+        while s.inbox.lock().unwrap().items.is_empty() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    };
+    tokio::time::timeout(WAIT, inboxed).await.expect("the inbox takes the blocker");
+    let id = s.id.clone();
+    drop(s);
+    hub.shutdown_all().await;
+    drop(hub);
+
+    let hub = hub_in(Some(&dir));
+    let s = hub.resolve(&id).expect("the chat is restored");
+    assert!(s.inbox.lock().unwrap().first.is_none(), "a restart rebuilds no hold");
+    assert!(s.turn().is_none());
+    // Past the blocker's wake debounce, a review sends no notice ahead of the first work.
+    tokio::time::sleep(Duration::from_millis(inbox::WAKE_DEBOUNCE_MS + 500)).await;
+    hub.inbox_review(&s);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let notice = |m: &Value| m["_meta"]["provenance"]["kind"] == inbox::NOTICE_KIND;
+    let sent: Vec<_> = ["queued", "user_message"]
+        .iter()
+        .flat_map(|k| records(&hub, &s, k))
+        .filter(notice)
+        .collect();
+    assert!(sent.is_empty(), "a notice went ahead of the first work: {sent:?}");
+    assert!(s.inbox.lock().unwrap().in_flight.is_none());
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_file(gate);
+    let _ = std::fs::remove_dir_all(&dir);
 }
