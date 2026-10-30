@@ -10,6 +10,7 @@ import { headerState, setHeaderState } from "../src/agent-session/acpmux/header/
 import {
   dispatchNativeRowTool,
   nativeRowToolBindings,
+  type NativeRowExtras,
   type NativeRowTool,
 } from "../src/agent-session/acpmux/header/nativeRowTools";
 import { configureQuickActions, quickActions } from "../src/agent-session/acpmux/header/quickActions";
@@ -121,6 +122,75 @@ test("every native id dispatches the shared handler; invalid, disabled and menu 
     }),
   );
   expect(calls.at(-1)).toBe("inspector");
+});
+
+test("native bindings describe worktree, pull request and Needs You menus", async () => {
+  const calls: string[] = [];
+  const item = {
+    id: "acpmux:permission-1",
+    kind: "approval" as const,
+    sessionId: "chat-1",
+    ask: "Allow the deploy command?",
+    who: { name: "Claude", chief: false },
+    answers: [{ id: "allow", label: "Allow once", tone: "allow" as const }],
+    permissionId: "permission-1",
+  };
+  const extras: NativeRowExtras = {
+    worktree: {
+      value: { branch: "fix/login", base: "main", mainRoot: "/repo" },
+      onApply: async (key) => void calls.push(`apply:${key.length > 0}`),
+      onRemove: async (_key, discard) => void calls.push(`remove:${discard}`),
+    },
+    pullRequest: {
+      value: {
+        url: "https://github.com/manaflow-ai/cmux/pull/42",
+        number: 42,
+        title: "Fix login",
+        state: "open",
+        review: "approved",
+        mergeable: "mergeable",
+        checks: { state: "passing", passed: 2, total: 2 },
+        checkList: [],
+      },
+      onMerge: async ({ number }) => {
+        calls.push(`merge:${number}`);
+        return { queued: false };
+      },
+    },
+    needsYou: {
+      items: [item],
+      mode: "pinned",
+      actions: {
+        answer: async (_item, choice) => void calls.push(`answer:${choice.id}`),
+        goTo: (value) => void calls.push(`go:${value.id}`),
+        ask: async (value) => void calls.push(`ask:${value.id}`),
+      },
+    },
+  };
+  const bindings = nativeRowToolBindings([], undefined, extras);
+  expect(bindings.map(({ tool }) => tool.id)).toEqual(["worktree", "pullRequest", "needsYou"]);
+  expect(bindings[0]!.tool.menu?.map(({ id }) => id)).toEqual(["worktree.apply", "worktree.remove"]);
+  expect(bindings[1]!.tool).toMatchObject({ badge: "#42", toggled: true });
+  expect(bindings[1]!.tool.menu).toEqual([{ id: "pullRequest.merge", label: "Merge", enabled: true }]);
+  expect(bindings[2]!.tool.badge).toBe("1");
+  expect(bindings[2]!.tool.menu?.[0]?.children?.map(({ id }) => id)).toEqual([
+    "needsYou:acpmux:permission-1:answer:allow",
+    "needsYou:acpmux:permission-1:goToSource",
+    "needsYou:acpmux:permission-1:askAbout",
+  ]);
+
+  dispatchNativeRowTool({ id: "worktree", menuItemId: "worktree.apply" }, bindings);
+  dispatchNativeRowTool({ id: "worktree", menuItemId: "worktree.remove" }, bindings);
+  dispatchNativeRowTool({ id: "pullRequest", menuItemId: "pullRequest.merge" }, bindings);
+  dispatchNativeRowTool({ id: "needsYou", menuItemId: "needsYou:acpmux:permission-1:answer:allow" }, bindings);
+  dispatchNativeRowTool({ id: "needsYou", menuItemId: "needsYou:acpmux:permission-1:goToSource" }, bindings);
+  dispatchNativeRowTool({ id: "needsYou", menuItemId: "needsYou:acpmux:permission-1:askAbout" }, bindings);
+  await Promise.resolve();
+  expect(calls).toContain("remove:false");
+  expect(calls).toContain("merge:42");
+  expect(calls).toContain("answer:allow");
+  expect(calls).toContain("go:acpmux:permission-1");
+  expect(calls).toContain("ask:acpmux:permission-1");
 });
 
 test("conditional quick actions and Browser's preview delegation keep the web behavior", () => {
@@ -294,7 +364,7 @@ test("host events switch the header to native tools and invoke the same web hand
   expect(sent[0]!.tools.map(({ id }) => id)).toEqual(["summary", "terminal", "browser"]);
   expect(container.querySelectorAll("[data-quick-action]")).toHaveLength(0);
   expect(container.querySelector(".acpmux-summary-button")).toBeNull();
-  expect(container.querySelector(".acpmux-needs-you-button")).not.toBeNull();
+  expect(container.querySelector(".acpmux-needs-you-button")).toBeNull();
   expect(container.querySelector('button[aria-label="Chat actions"]')).not.toBeNull();
   await render(true, "latest");
   expect(sent).toHaveLength(1);

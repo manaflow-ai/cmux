@@ -14,6 +14,7 @@ import { HeaderIcon } from "./HeaderIcon";
 import { HEADER_ACTIONS } from "./headerActions";
 import { headerQuickTools } from "./headerQuickTools";
 import { useNativeRowTools, type NativeRowToolsHost } from "./useNativeRowTools";
+import type { NativeRowNeedsYou } from "./nativeRowTools";
 import { tooltipProps, useShortcut } from "../shortcuts";
 import { registerPicker } from "../pickerOpeners";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator, Submenu } from "../../../ui/Menu";
@@ -89,6 +90,7 @@ export function ChatHeaderTools({
   inspector,
   inbox,
   nativeRowTools,
+  nativeNeedsYou,
 }: {
   /// Terminal and Browser run their split with the quick action's mode: the App opens it, or for
   /// `toggle` closes the split this button opened when it is still there.
@@ -144,6 +146,8 @@ export function ChatHeaderTools({
   inbox?: ReactNode;
   /// Only the migrated icons; the host offers this opt-in while its native tab row is visible.
   nativeRowTools?: NativeRowToolsHost;
+  /// Needs You's native menu data; the web inbox remains the source while native tools are off.
+  nativeNeedsYou?: NativeRowNeedsYou;
 }) {
   const t = useT();
   const terminalKey = useShortcut(HEADER_ACTIONS.terminal);
@@ -271,7 +275,17 @@ export function ChatHeaderTools({
     onSideTabs,
     t,
   });
-  const native = useNativeRowTools(nativeRowTools, tools);
+  const native = useNativeRowTools(
+    nativeRowTools,
+    tools,
+    {
+      worktree: worktree ? { value: worktree, onApply: onApplyWorktree, onRemove: onRemoveWorktree } : undefined,
+      pullRequest:
+        pullRequest && pullRequestChip !== false ? { value: pullRequest, onMerge: onMergePullRequest } : undefined,
+      needsYou: nativeNeedsYou,
+    },
+    t,
+  );
   const shortcuts: Partial<Record<QuickActionId, string | undefined>> = {
     terminal: terminalKey,
     splitDown: splitDownKey,
@@ -298,14 +312,16 @@ export function ChatHeaderTools({
     ));
   return (
     <div className="acpmux-header-tools" onPointerEnter={onPointerEnter}>
-      {worktree && <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />}
-      {pullRequest && pullRequestChip !== false && (
+      {!native && worktree && (
+        <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />
+      )}
+      {!native && pullRequest && pullRequestChip !== false && (
         <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />
       )}
       {/* The panel toggle leads the icons, as in Claude and ChatGPT desktop. */}
       {!native && inspector}
       {typeof summary === "function" ? summary(native) : !native && summary}
-      {inbox}
+      {!native && inbox}
       {buttons ? (
         <div className="acpmux-header-tool-group acpmux-header-tool-group-actions">
           {onCustomize ? (

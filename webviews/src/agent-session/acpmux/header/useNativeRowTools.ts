@@ -5,7 +5,9 @@ import {
   nativeRowToolBindings,
   onNativeRowToolInvocation,
   type NativeRowPanel,
+  type NativeRowExtras,
 } from "./nativeRowTools";
+import type { Translate } from "../i18n";
 
 export interface NativeRowToolsHost {
   enabled: boolean;
@@ -15,10 +17,15 @@ export interface NativeRowToolsHost {
 
 /// Publish only changed values. Callback identities can change with a render without sending tools
 /// again; invocation always uses the current handlers. Hidden headers/unmount clear the native list.
-export function useNativeRowTools(host: NativeRowToolsHost | undefined, quick: readonly HeaderQuickTool[]): boolean {
+export function useNativeRowTools(
+  host: NativeRowToolsHost | undefined,
+  quick: readonly HeaderQuickTool[],
+  extras?: NativeRowExtras,
+  t?: Translate,
+): boolean {
   const enabled = host?.enabled === true;
   const callNative = host?.callNative;
-  const bindings = nativeRowToolBindings(quick, host?.panel);
+  const bindings = nativeRowToolBindings(quick, host?.panel, extras, t);
   const current = useRef(bindings);
   current.current = bindings;
   const payload = JSON.stringify({ tools: bindings.map(({ tool }) => tool) });

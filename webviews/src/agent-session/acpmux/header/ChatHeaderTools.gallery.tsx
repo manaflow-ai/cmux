@@ -10,6 +10,7 @@ import type { ChatMenuItem } from "./ChatHeaderTools";
 import { PanelToggle } from "./PanelToggle";
 import type { QuickAction } from "./quickActions";
 import type { NativeRowToolsHost } from "./useNativeRowTools";
+import type { NativeRowNeedsYou } from "./nativeRowTools";
 import { NeedsYouButton } from "../needsYou/NeedsYou";
 
 type HeaderToolsProps = {
@@ -29,6 +30,7 @@ type HeaderToolsProps = {
   summary: ReactNode;
   inbox?: ReactNode;
   nativeRowTools?: NativeRowToolsHost;
+  nativeNeedsYou?: NativeRowNeedsYou;
   menu: () => ChatMenuItem[];
   onMenuOpen?: () => Promise<unknown>;
   onMergePullRequest?: (pullRequest: { number: number; url: string }) => Promise<{ queued: boolean }>;
@@ -352,6 +354,22 @@ const inbox = (
   />
 );
 
+const nativeNeedsYou: NativeRowNeedsYou = {
+  mode: "pinned",
+  items: [
+    {
+      id: "acpmux:gallery",
+      kind: "approval",
+      sessionId: "gallery-chat",
+      ask: "Allow the gallery command?",
+      who: { name: "Claude", chief: false },
+      answers: [{ id: "allow", label: "Allow once", tone: "allow" }],
+      permissionId: "gallery-permission",
+    },
+  ],
+  actions: { answer: async () => undefined, goTo: () => undefined, ask: async () => undefined },
+};
+
 const base: HeaderToolsProps = {
   onTerminal: () => undefined,
   onSplitDown: () => undefined,
@@ -421,10 +439,17 @@ export default componentEntry<HeaderToolsProps>({
       props: { ...base, inbox },
     },
     "native-row-tools": {
-      note: "Native row tools opt-in: Summary and quick-action icons move to the native host. Needs You keeps its web button and anchored rich list; the chat menu stays web. No default changes.",
+      note: "Native row tools opt-in: the worktree, pull request, Needs You, Summary and quick-action controls move to the native host. The chat menu stays web. No default changes.",
       props: {
         ...base,
-        inbox,
+        nativeNeedsYou,
+        folder: "/Users/me/.cmux/worktrees/cmux/fix-login",
+        readStatus: async () => ({
+          branch: "cmux/fix-login",
+          base: "main",
+          detached: false,
+          worktree: { main_root: "/Users/me/Projects/cmux" },
+        }),
         nativeRowTools: {
           enabled: true,
           callNative: async () => undefined,
@@ -433,7 +458,8 @@ export default componentEntry<HeaderToolsProps>({
       },
       play: async (ctx) => {
         await ctx.waitFor(() => !ctx.document.querySelector("[data-quick-action], .acpmux-header-panel-toggle"));
-        ctx.find({ selector: ".acpmux-needs-you-button" });
+        if (ctx.document.querySelector(".acpmux-needs-you-button, .acpmux-header-worktree, .acpmux-header-pr"))
+          throw new Error("native row tools still rendered in the web header");
         ctx.find({ role: "button", name: "Chat actions" });
       },
     },
