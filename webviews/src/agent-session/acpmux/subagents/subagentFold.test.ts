@@ -850,3 +850,11 @@ test("a stale root parent on a known child's progress does not promote its grand
     ["grandchild", "child"],
   ]);
 });
+
+test("late root seeding promotes children of a root that never had its own row", () => {
+  const fold = new SubagentFold();
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "child", parent: "root-native" }] });
+  fold.setRoot("root-native");
+
+  expect(fold.all().map(({ id, parent }) => [id, parent])).toEqual([["child", null]]);
+});
