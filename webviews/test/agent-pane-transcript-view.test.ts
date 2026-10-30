@@ -174,10 +174,19 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
       await openCommands.first().waitFor();
       const verbose = { open: (await openCommands.count()) === (await commands.count()) };
 
-      // The reader's own close of the turn holds in Verbose.
+      // The reader's own close of a turn holds in Verbose: that turn's calls go, the other turn's stay.
+      const before = await commands.count();
       await worked.click();
-      await commands.first().waitFor({ state: "detached" });
-      const closedByHand = { worked: await worked.getAttribute("aria-expanded"), commands: await commands.count() };
+      await page.waitForFunction(
+        (shown) =>
+          document.querySelectorAll(".cv-tools .cv-tool.is-toggle:not(.cv-thought)").length < shown,
+        before,
+      );
+      const closedByHand = {
+        worked: await worked.getAttribute("aria-expanded"),
+        fewer: (await commands.count()) < before,
+        otherTurn: await page.locator(".cv-worked").nth(1).getAttribute("aria-expanded"),
+      };
 
       await pick(page, "Normal");
       const backToNormal = {
@@ -190,7 +199,7 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
         normal: { worked: "false", thoughts: 0, commands: 0 },
         thinking: { worked: "true", thoughts: true, commands: true, open: 0 },
         verbose: { open: true },
-        closedByHand: { worked: "false", commands: 0 },
+        closedByHand: { worked: "false", fewer: true, otherTurn: "true" },
         backToNormal: { worked: "false", thoughts: 0, commands: 0 },
       });
       await page.close();
