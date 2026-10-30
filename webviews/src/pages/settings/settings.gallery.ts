@@ -842,6 +842,20 @@ Object.assign(variants, {
     steps: [wait('[data-card="computer-use"]'), focusComputerUse],
     note: "The legacy helper can't verify this build (not team-signed): legacy Computer Use is off.",
   }),
+  "computer-use-upstream-fallback": variant("agents", {
+    host: {
+      ...host,
+      computer_use: {
+        phase: "ready",
+        accessibility: true,
+        screen_recording: true,
+        helper: "cmux Computer Use",
+        upstream_fallback: true,
+      },
+    },
+    steps: [wait('[data-card="computer-use"]'), focusComputerUse],
+    note: "Driver Upstream in a build without its helper: Legacy runs, and the status line says so.",
+  }),
   "computer-use-not-granted": variant("agents", {
     host: {
       ...host,

@@ -33,6 +33,22 @@ impl Hub {
         self.peer_snapshots.flush(Some(peer));
     }
 
+    /// The cache write a drop owes, outside the rows lock. An outage's first drop
+    /// writes now, not at the row deadline: a row change whose save was throttled
+    /// reaches disk though the daemon may stop inside the grace window, and the
+    /// outage's age is kept for a peer that lists no rows or only closed ones. A drop
+    /// that parks the next retry (`Link::next_retry_at`) writes its deadline, so a
+    /// daemon update during that wait does not probe at once.
+    pub(super) fn save_after_drop(&self, peer: &str, generation: u64, outage_starts: bool) {
+        let parked = self
+            .peer(peer)
+            .filter(|p| p.generation == generation)
+            .is_some_and(|p| p.link().next_retry_at.is_some());
+        if outage_starts || parked {
+            self.save_peer_cache(peer, generation, true);
+        }
+    }
+
     pub(super) async fn peer_notice_loop(self: Arc<Self>) {
         let Some(mut rx) = self.peer_notices_rx.lock().await.take() else { return };
         // A dedicated persistent signal: hub.shutdown's stored Notify permit
@@ -85,13 +101,10 @@ impl Hub {
                         drops.contains_key(&key) || current.outage_ended.load(Ordering::SeqCst);
                     if !ongoing {
                         drops.insert(key, Instant::now() + DROP_GRACE);
-                        // The outage's first drop, by this loop's own record (the
-                        // link's attempt count may already be past it): a row change
-                        // whose save was throttled reaches disk now, not at the
-                        // deadline. The daemon may stop inside the grace window, and
-                        // a peer whose rows are all closed changes no row at the deadline.
-                        self.save_peer_cache(&peer, generation, true);
                     }
+                    // The outage's first drop by this loop's own record: the link's
+                    // attempt count may already be past it.
+                    self.save_after_drop(&peer, generation, !ongoing);
                 }
                 notice => {
                     // A link that brought rows (or a planned restart, which never
