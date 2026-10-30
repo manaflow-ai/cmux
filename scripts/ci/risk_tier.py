@@ -307,9 +307,11 @@ def skip_block_comment(text: str) -> str:
 def rust_test_lines(lines: list[str], edges: set[int] | None = None) -> set[int]:
     """Of a Rust file's lines from its first line on, the indexes of those inside a
     `#[cfg(test)] mod name { ... }`. The lines that open and close the module are not inside: code
-    can sit before or after the module on them, and their indexes go to `edges` when given."""
+    can sit before or after the module on them, and their indexes go to `edges` when given, with
+    the attribute lines above that made the module a test module."""
     braces, inside = RustBraces(), set()
     test_attribute = False
+    attribute_lines: list[int] = []  # lines of the attributes read so far for the next item
     module_depth: int | None = None  # the depth outside the open test module
     for index, text in enumerate(lines):
         opened = False
@@ -318,7 +320,7 @@ def rust_test_lines(lines: list[str], edges: set[int] | None = None) -> set[int]
             # inside a string ends the search.
             rest = skip_block_comment("/*" * braces.comments + text.strip()) if braces.comments else None
             if rest is None:
-                test_attribute = False
+                test_attribute, attribute_lines = False, []
         else:
             rest = text.strip() if module_depth is None else None
         if rest is not None:
@@ -326,15 +328,19 @@ def rust_test_lines(lines: list[str], edges: set[int] | None = None) -> set[int]
                 if attribute := RUST_ATTRIBUTE.match(rest):
                     test_attribute |= RUST_TEST_CFG.fullmatch("".join(attribute.group(1).split())) is not None
                     rest = rest[attribute.end():]
+                    if not attribute_lines or attribute_lines[-1] != index:
+                        attribute_lines.append(index)
                 elif rest.startswith("/*"):
                     rest = skip_block_comment(rest)
                 else:
                     break
             if test_attribute and RUST_MOD.match(rest):
                 module_depth, opened = braces.depth, True
+                if edges is not None:
+                    edges.update(attribute_lines)
             # Blank lines, comments and attribute-only lines keep looking for the item.
             if rest and not rest.startswith("//"):
-                test_attribute = False
+                test_attribute, attribute_lines = False, []
         if braces.feed(text, module_depth) and module_depth is not None:
             module_depth = None
             if edges is not None:
@@ -344,6 +350,23 @@ def rust_test_lines(lines: list[str], edges: set[int] | None = None) -> set[int]
         elif module_depth is not None and not opened:
             inside.add(index)
     return inside
+
+
+# Code that may be test-only although no test module above was read as one: a `test` cfg in a form
+# rust_test_lines doesn't take (`cfg(all(test, any(...)))`, `cfg_attr(test, ...)`, a `#[test]` outside
+# a test module), or an attribute that goes on past its line.
+RUST_TEST_WORD = re.compile(r"\btest\b")
+RUST_OPEN_ATTRIBUTE = re.compile(r"\s*#\s*!?\s*\[")
+
+
+def rust_test_doubt(lines: list[str], tests: set[int], edges: set[int]) -> bool:
+    """Whether lines outside the test modules rust_test_lines found may still be test code."""
+    for index, text in enumerate(lines):
+        if index in tests or index in edges:
+            continue
+        if RUST_TEST_WORD.search(text) or (RUST_OPEN_ATTRIBUTE.match(text) and text.count("[") > text.count("]")):
+            return True
+    return False
 
 
 def patch_hunks(patch: str) -> list[list[tuple[str, int | None, int | None, str]]]:
@@ -372,21 +395,28 @@ def rust_test_roles(patch: str, sign: str, source: str | None = None) -> dict[tu
     hunk shows a module only if the whole file up to it is there, so each hunk is read against
     `source` (the file on that side) when every line of it matches, else on its own only when it
     starts at line 1, else not at all. A line that opens or closes a test module is missing too: it
-    can hold test code and product code at once."""
+    can hold test code and product code at once. On the base side ("-"), where product code earns
+    removal credit, no line is product code when rust_test_doubt finds possible test code the
+    module reading missed."""
     whole = source.splitlines() if source else []
     whole_edges: set[int] = set()
     whole_tests = rust_test_lines(whole, whole_edges)
+    whole_doubt = sign == "-" and rust_test_doubt(whole, whole_tests, whole_edges)
     roles = {}
     for h, hunk in enumerate(patch_hunks(patch)):
         side = [(i, (old if sign == "-" else new), text) for i, (kind, old, new, text) in enumerate(hunk)
                 if kind in (" ", sign)]
         if whole and all(n is not None and 0 < n <= len(whole) and whole[n - 1].rstrip() == text.rstrip()
                          for _, n, text in side):
-            roles |= {(h, i): n - 1 in whole_tests for i, n, _ in side if n - 1 not in whole_edges}
+            roles |= {(h, i): n - 1 in whole_tests for i, n, _ in side
+                      if n - 1 not in whole_edges and not (whole_doubt and n - 1 not in whole_tests)}
         elif side and side[0][1] == 1:
             edges: set[int] = set()
-            tests = rust_test_lines([text for _, _, text in side], edges)
-            roles |= {(h, i): k in tests for k, (i, _, _) in enumerate(side) if k not in edges}
+            texts = [text for _, _, text in side]
+            tests = rust_test_lines(texts, edges)
+            doubt = sign == "-" and rust_test_doubt(texts, tests, edges)
+            roles |= {(h, i): k in tests for k, (i, _, _) in enumerate(side)
+                      if k not in edges and not (doubt and k not in tests)}
     return roles
 
 

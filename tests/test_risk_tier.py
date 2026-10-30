@@ -495,6 +495,23 @@ class RustTestModuleTests(unittest.TestCase):
                      + context("fn prune(dir: &str) {\n    let x = 1;") + ["+    std::fs::remove_dir_all(dir).unwrap();", " }"])
         self.assertEqual(self.tier(patch, {RS: head}, {RS: base}), "high")
 
+    def test_a_removed_cleanup_under_a_test_cfg_the_reader_does_not_take_pays_for_nothing(self):
+        # A test-only module in a form the module reader doesn't take is not shown to be product code.
+        head_prune = ["fn prune(dir: &str) {", "    let x = 1;", "    std::fs::remove_dir_all(dir).unwrap();", "}"]
+        for attribute in (["#[cfg(all(test, any(unix, windows)))]"], ["#[cfg(", "    test", ")]"],
+                          ["#[cfg_attr(test, allow(dead_code))]"]):
+            with self.subTest(attribute=attribute):
+                base = "\n".join(attribute + ["mod tests {", "    fn cleanup(dir: &str) {",
+                                               "        std::fs::remove_dir_all(dir).unwrap();", "    }", "}",
+                                               "fn prune(dir: &str) {", "    let x = 1;", "}"])
+                head = "\n".join(attribute + ["mod tests {", "    fn cleanup(dir: &str) {", "    }", "}"] + head_prune)
+                n = len(attribute)
+                patch = (hunk(n + 2, n + 2, context("    fn cleanup(dir: &str) {")
+                              + ["-        std::fs::remove_dir_all(dir).unwrap();", "     }"]) + "\n"
+                         + hunk(n + 7, n + 6, context("fn prune(dir: &str) {\n    let x = 1;")
+                                + ["+    std::fs::remove_dir_all(dir).unwrap();", " }"]))
+                self.assertEqual(self.tier(patch, {RS: head}, {RS: base}), "high")
+
     def test_an_edited_rust_delete_is_not_new_when_the_base_shows_it_was_product_code(self):
         base = "\n".join(["use std::fs;", "", "fn prune(dir: &Path) {", "    fs::remove_dir_all(dir).ok();", "}"])
         head = base.replace("remove_dir_all(dir).ok()", "remove_dir_all(dir)?")
