@@ -923,11 +923,10 @@ impl Hub {
         if let Some(link) = &meta.subsession {
             self.subsessions.note_name(&link.started_by, &link.short_name);
         }
-        // A sub-session that is not closed holds a slot of its parent (`subsessions.rs`).
-        if let Some(link) =
-            meta.subsession.as_ref().filter(|_| meta.status != SessionStatus::Closed)
-        {
-            self.subsessions.set_open(&link.started_by, &meta.id, true);
+        // A live sub-session holds a slot of its parent (`subsessions.rs`). Idle-finished,
+        // disconnected and closed children are retained in the store but do not use a slot.
+        if let Some(link) = meta.subsession.as_ref() {
+            self.subsessions.set_live(&link.started_by, &meta.id, meta.status);
         }
         let session = self.make_session(meta);
         session.caught_up.store(false, Ordering::SeqCst);
@@ -1552,11 +1551,7 @@ impl Hub {
             // concurrent status writes and the index never disagree (the
             // index is a leaf lock, `subsessions.rs`).
             if let Some(link) = &m.subsession {
-                self.subsessions.set_open(
-                    &link.started_by,
-                    &session.id,
-                    status != SessionStatus::Closed,
-                );
+                self.subsessions.set_live(&link.started_by, &session.id, status);
             }
             (was, m.subsession.clone())
         };

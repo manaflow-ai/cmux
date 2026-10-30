@@ -996,7 +996,7 @@
 			<key>pfm_default</key>
 			<integer>50</integer>
 			<key>pfm_description</key>
-			<string>The most sub-sessions one session can have open at the same time. Closing a sub-session frees its place.</string>
+			<string>The most live sub-sessions one session can have at the same time. Running, waiting and harness-alive children count; finished, dead and closed children do not use a slot.</string>
 			<key>pfm_name</key>
 			<string>agents.subsessions.maxChildren</string>
 			<key>pfm_range_max</key>

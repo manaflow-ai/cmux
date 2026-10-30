@@ -11256,7 +11256,7 @@
       },
       "help" : {
         "key" : "settings.agents.subsessions.maxChildren.help",
-        "text" : "The most sub-sessions one session can have open at the same time. Closing a sub-session frees its place."
+        "text" : "The most live sub-sessions one session can have at the same time. Running, waiting and harness-alive children count; finished, dead and closed children do not use a slot."
       },
       "kept_on_reset_all" : false,
       "key" : "agents.subsessions.maxChildren",

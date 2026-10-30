@@ -9,7 +9,9 @@
 //! caller token, so the daemon, not a request field, says which session acts (`hub/person.rs` (a)).
 //!
 //! Limits, decided here and nowhere else:
-//! - Width: a session has at most `maxChildren` open children (not closed).
+//! - Width: a session has at most `maxChildren` live children. A child counts while its harness
+//!   is alive (`ready`, `running` or `waiting`); idle-finished, disconnected and closed children
+//!   do not use a slot.
 //!   Depth: a session is started at depth `parent.depth + 1` only when that
 //!   is at most the parent's `maxDepth`.
 //! - Running: at most `maxRunning` children run a turn at once; a start or a
@@ -72,7 +74,7 @@
 //! without running anything from that repository: its files are checked out without the
 //! repository's config. A start that fails after it is made removes it again.
 //!
-//! The index of open children per parent is a leaf lock: nothing else is
+//! The index of live children per parent is a leaf lock: nothing else is
 //! locked while it is held, so it may be taken under any other lock.
 
 use super::*;
@@ -176,7 +178,7 @@ fn setting(key: &str, max: u32) -> Option<u32> {
     Some(n.floor().clamp(1.0, f64::from(max)) as u32)
 }
 
-/// The open children of each parent, and the slots reserved by starts in flight.
+/// The live children of each parent, and the slots reserved by starts in flight.
 #[derive(Default)]
 pub struct Index {
     state: StdMutex<IndexState>,
@@ -196,8 +198,8 @@ impl Index {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// Notes `child` of `parent` as open or closed.
-    pub(super) fn set_open(&self, parent: &str, child: &str, open: bool) {
+    /// Notes `child` of `parent` as live or no longer live.
+    fn set_open(&self, parent: &str, child: &str, open: bool) {
         let mut s = self.lock();
         if open {
             s.open.entry(parent.to_owned()).or_default().insert(child.to_owned());
@@ -207,6 +209,11 @@ impl Index {
                 s.open.remove(parent);
             }
         }
+    }
+
+    /// Updates a child's width slot from its session status.
+    pub(super) fn set_live(&self, parent: &str, child: &str, status: SessionStatus) {
+        self.set_open(parent, child, holds_width_slot(status));
     }
 
     /// Notes a loaded child's short name as taken.
@@ -226,12 +233,12 @@ impl Index {
         short
     }
 
-    /// The open children of `parent`.
+    /// The live children of `parent`.
     pub(super) fn open_children(&self, parent: &str) -> Vec<String> {
         self.lock().open.get(parent).map(|s| s.iter().cloned().collect()).unwrap_or_default()
     }
 
-    /// How many children of `parent` are open.
+    /// How many children of `parent` are live.
     pub fn open_count(&self, parent: &str) -> u32 {
         self.lock().open.get(parent).map_or(0, |s| s.len() as u32)
     }
@@ -274,9 +281,7 @@ impl Reservation<'_> {
     /// order of the status writes.
     fn settle(self, child: &Session) {
         let m = child.meta.lock().unwrap_or_else(|e| e.into_inner());
-        if m.status != SessionStatus::Closed {
-            self.index.set_open(self.parent, &child.id, true);
-        }
+        self.index.set_live(self.parent, &child.id, m.status);
     }
 }
 
@@ -284,6 +289,13 @@ impl Drop for Reservation<'_> {
     fn drop(&mut self) {
         self.index.release(self.parent);
     }
+}
+
+/// A width slot represents a harness that can still do work. `Ready` means the harness process
+/// is alive between turns; `Running` and `Waiting` cover an active turn and a prompt waiting for
+/// input. `Idle` has no harness process, and `Disconnected` records a dead one.
+fn holds_width_slot(status: SessionStatus) -> bool {
+    matches!(status, SessionStatus::Ready | SessionStatus::Running | SessionStatus::Waiting)
 }
 
 /// Where a limit value came from.
@@ -507,7 +519,7 @@ impl Hub {
     }
 
     /// Notes a sub-session's status change in its parent's index, and tells
-    /// the parent's watchers when it opened or closed.
+    /// the parent's watchers when it starts or stops holding a live slot.
     pub(super) fn subsession_status(
         &self,
         id: &str,
@@ -515,11 +527,11 @@ impl Hub {
         was: SessionStatus,
         now: SessionStatus,
     ) {
-        let event = match (was == SessionStatus::Closed, now == SessionStatus::Closed) {
-            (false, true) => "closed",
-            // Reopened (a prompt to a closed child, by the user or a client):
-            // it holds a slot again, past the limit if the parent is full.
-            (true, false) => "reopened",
+        let event = match (holds_width_slot(was), holds_width_slot(now)) {
+            (true, false) => "closed",
+            // Reopened (a prompt to an inactive child, by the user or a client): it holds a slot
+            // again, past the limit if the parent is full.
+            (false, true) => "reopened",
             _ => return,
         };
         if let Ok(parent) = self.resolve(&link.started_by) {
@@ -601,15 +613,15 @@ impl Hub {
         }
         let slot = match self.subsessions.reserve(&parent.id, limits.max_children) {
             Ok(slot) => slot,
-            Err(used) => {
+            Err(live) => {
                 return Err(refused(
                     "subsessions.width_limit",
                     format!(
-                        "start_session refused: width limit reached. This session has {used} open sub-sessions and may have at most {} open at once (source: {}). Close finished ones with stop_session (close: true) to free a slot, or ask for more: the user can raise it (Settings > Agents > Sub-sessions > Open Sub-sessions per Session), and your parent session can raise it within its own limit with set_session_limits; ask it with send_message.",
+                        "start_session refused: width limit reached. This session has {live} live sub-sessions (running, waiting for input, or with a harness process alive); finished, dead, idle-finished and closed sub-sessions do not count. It may have at most {} live at once (source: {}). Ask for more: the user can raise it (Settings > Agents > Sub-sessions > Open Sub-sessions per Session), and your parent session can raise it within its own limit with set_session_limits; ask it with send_message.",
                         limits.max_children,
                         limits.max_children_source.as_str()
                     ),
-                    json!({"open": used, "maxChildren": limits.max_children, "source": limits.max_children_source.as_str()}),
+                    json!({"open": live, "live": live, "maxChildren": limits.max_children, "source": limits.max_children_source.as_str(), "counted": "running, waiting, or harness-alive"}),
                 ));
             }
         };
@@ -977,6 +989,7 @@ impl Hub {
                 "depth": self.lineage_depth(&m),
                 "startedBy": m.subsession.as_ref().map(|l| &l.started_by),
                 "openChildren": self.subsessions.open_count(&caller.id),
+                "liveChildren": self.subsessions.open_count(&caller.id),
                 "maxChildren": e.max_children,
                 "maxDepth": e.max_depth,
                 "maxRunning": e.max_running,
@@ -1225,4 +1238,26 @@ impl Hub {
 /// A prompt of `text` alone.
 fn text_block(text: &str) -> Vec<Value> {
     vec![json!({"type": "text", "text": text})]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn width_slots_count_live_children_only() {
+        let index = Index::default();
+        index.set_live("parent", "finished", SessionStatus::Idle);
+        index.set_live("parent", "dead", SessionStatus::Disconnected);
+        index.set_live("parent", "closed", SessionStatus::Closed);
+        index.set_live("parent", "live", SessionStatus::Running);
+
+        assert_eq!(index.open_count("parent"), 1);
+        assert_eq!(index.open_children("parent"), vec!["live"]);
+        assert!(index.reserve("parent", 1).is_err(), "the live child still binds the cap");
+
+        index.set_live("parent", "live", SessionStatus::Idle);
+        assert_eq!(index.open_count("parent"), 0);
+        assert!(index.reserve("parent", 1).is_ok(), "finished children free the slot");
+    }
 }
