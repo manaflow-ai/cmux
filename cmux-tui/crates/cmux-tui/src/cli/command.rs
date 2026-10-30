@@ -3236,6 +3236,9 @@ mod tests {
             &["--term", "xterm-256color", "server", "start"][..],
             &["--term", "server", "server", "start"][..],
             &["--ephemeral", "--term", "xterm-256color", "server", "start"][..],
+            &["--ephemeral", "--force", "server", "start"][..],
+            &["--ephemeral", "--cwd", "/tmp", "server", "start"][..],
+            &["--ephemeral", "srv", "start"][..],
         ] {
             let error = match parse(&strings(args)) {
                 Err(error) => error,

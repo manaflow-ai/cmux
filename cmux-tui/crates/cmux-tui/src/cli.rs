@@ -990,6 +990,7 @@ mod tests {
         assert_eq!(program_name_from(Some(OsStr::new("/usr/local/bin/cmux-tui"))), "cmux-tui");
         assert_eq!(program_name_from(Some(OsStr::new("cmux"))), "cmux");
         assert_eq!(program_name_from(Some(OsStr::new("C:/bin/cmux-tui.exe"))), "cmux-tui");
+        assert_eq!(program_name_from(Some(OsStr::new("C:/bin/CMUX-TUI.EXE"))), "CMUX-TUI");
         assert_eq!(program_name_from(Some(OsStr::new(""))), "cmux");
         assert_eq!(program_name_from(None), "cmux");
     }
