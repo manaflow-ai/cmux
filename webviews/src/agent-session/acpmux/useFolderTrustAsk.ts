@@ -638,9 +638,9 @@ export function useFolderTrustAsk(
     refused: useCallback(
       (error: unknown, again?: () => void): boolean => {
         if (!mounted.current || !sameAuthority() || !sameVisit()) return false;
-        bumpRevision();
         const said = trustRefusal(error);
         if (!said) return false;
+        bumpRevision();
         const named = said.cwd;
         if (named) setRefusal({ sessionId, cwd: named, authorityEpoch });
         const refusedFolder = named ?? cwd;
