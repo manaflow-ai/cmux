@@ -234,6 +234,8 @@ describe("Chief jobs on Upstash Workflow", { timeout: 120_000 }, () => {
         if (n !== 1) return
         seen.badCron = await call(s, { action: "auto_create", name: "Bad", when: "0 25 * * *", prompt: "x" })
         seen.badEvent = await call(s, { action: "auto_create", name: "Bad", when: "github workflow_run.completed conclusion", prompt: "x" })
+        // Over the WHEN limit: refused, never cut into a filter that is made but never matches.
+        seen.longEvent = await call(s, { action: "auto_create", name: "Long", when: `github workflow_run.completed workflow_run.head_branch=${"b".repeat(1000)}`, prompt: "x" })
         // QStash refusing the schedule: the Chief hears it and no record is left behind.
         q.down.schedules = true
         seen.down = await call(s, { action: "auto_create", name: "Down", when: "0 9 * * *", prompt: "x" })
@@ -265,6 +267,7 @@ describe("Chief jobs on Upstash Workflow", { timeout: 120_000 }, () => {
 
     expect(seen.badCron.status).toBe(400)
     expect(seen.badEvent.status).toBe(400)
+    expect(seen.longEvent).toMatchObject({ status: 400, json: { code: "trigger.invalid" } })
     expect(seen.down.status).toBe(502)
     expect(seen.down.body.code).toBe("jobs.unavailable")
     expect(seen.downList.body.jobs).toEqual([])
@@ -471,6 +474,8 @@ describe("Chief jobs on Upstash Workflow", { timeout: 120_000 }, () => {
     q.down.batch = true
     expect(await st.cjStore(a.team, { op: "enqueue", id, run: "cj_run_outbox", trigger: "manual" })).toMatchObject({ status: "accepted" })
     expect(q.runs()).toHaveLength(0)
+    // Its retry job exists (it is made before the first send, so a crash mid-send cannot strand the row).
+    expect(await inDO(st, async (i) => i.ctx.storage.sql.exec(`SELECT fn FROM cf_agents_jobs WHERE id = 'cj-send:cj_run_outbox'`).toArray())).toEqual([{ fn: "cj-send" }])
     const pending = await inDO(st, async (i) => i.ctx.storage.sql.exec(`SELECT state, attempts, next_at FROM cc_job_runs WHERE run = 'cj_run_outbox'`).one())
     expect(pending).toMatchObject({ state: "pending", attempts: 1 })
     expect(pending.next_at).toBeGreaterThan(Date.now())

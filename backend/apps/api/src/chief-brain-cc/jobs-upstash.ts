@@ -184,7 +184,8 @@ export const upstashAuto = async (
       if (action === "auto_rm") {
         // The record first: if the schedule delete then fails, its next fire finds no record and removes it.
         await store(env, team, { op: "remove", id })
-        if (job.trigger.type === "cron") await unschedule(c, id)
+        // The job is gone once its record is: a failed schedule delete is cleaned up by that schedule's next fire.
+        if (job.trigger.type === "cron") await unschedule(c, id).catch((e) => console.warn(JSON.stringify({ msg: "chief job schedule not deleted", team, job: id, reason: String(e instanceof Error ? e.message : e).slice(0, 300) })))
         return { status: 200, json: { removed: id } }
       }
       if (action === "auto_run") {

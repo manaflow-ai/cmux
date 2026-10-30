@@ -176,7 +176,10 @@ const enqueue = async (b: ChiefBrainDO, send: Sender, run: string, body: FireBod
   if (known) return "duplicate"
   // Old outcomes go here too, not only in `cj-send`, which runs only after a failed send.
   b.sql.exec(`DELETE FROM cc_job_runs WHERE state != 'pending' AND created_at < ?`, now - KEEP_SENT_MS)
-  b.sql.exec(`INSERT INTO cc_job_runs (run, job, body, state, attempts, next_at, created_at) VALUES (?, ?, ?, 'pending', 0, ?, ?)`, run, body.job, JSON.stringify(body), now, now)
+  // The retry is scheduled before the first send: if this object dies mid-send, `cj-send` still sends the row
+  // (it does nothing once the row is sent), and a redelivery that finds it as `duplicate` loses nothing.
+  b.sql.exec(`INSERT INTO cc_job_runs (run, job, body, state, attempts, next_at, created_at) VALUES (?, ?, ?, 'pending', 0, ?, ?)`, run, body.job, JSON.stringify(body), now + SEND_BACKOFF_MS, now)
+  await b.schedule(`cj-send:${run}`, "cj-send", now + SEND_BACKOFF_MS)
   await sendOne(b, send, run)
   return "accepted"
 }
@@ -203,8 +206,13 @@ const sendOne = async (b: ChiefBrainDO, send: Sender, run: string): Promise<void
 
 /** The `cj-send:<run>` job: send that run again (each run has its own job, so two never send the same row), prune old rows. */
 export const jobsSendDue = async (b: ChiefBrainDO, send: Sender | null, run: string): Promise<void> => {
-  if (!exists(b) || !send) return
+  if (!exists(b)) return
   const now = Date.now()
+  if (!send) {
+    // Engine off: keep the row pending and look again later, so turning the engine back on still sends it.
+    if (b.sql.exec(`SELECT run FROM cc_job_runs WHERE run = ? AND state = 'pending'`, run).toArray().length > 0) await b.schedule(`cj-send:${run}`, "cj-send", now + SEND_BACKOFF_MAX_MS)
+    return
+  }
   if (b.sql.exec(`SELECT run FROM cc_job_runs WHERE run = ? AND state = 'pending' AND next_at <= ?`, run, now).toArray().length > 0) await sendOne(b, send, run)
   b.sql.exec(`DELETE FROM cc_job_runs WHERE state != 'pending' AND created_at < ?`, now - KEEP_SENT_MS)
 }
