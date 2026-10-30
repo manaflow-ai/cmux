@@ -74,13 +74,13 @@ final class LinkOpener {
     /// frames, which miss a strip column that is scrolled or not laid out yet.
     func target(from source: PaneController, mainPane: Bool = true) -> LinkOpenPlacement<LayoutPaneID>.Target {
         let content = source.workspace
-        let width: (LayoutPaneID) -> CGFloat? = { content?.panes[$0]?.view.bounds.width }
+        let width: (LayoutPaneID) -> CGFloat? = { content?.panes[$0].flatMap(RightColumn.width(of:)) }
         if mainPane, let services, let side = MainPaneLayout.side(from: source, services: services) {
             switch side {
             case .tab(let pane):
                 // The strip column right of the docked chat is its right side: the same lower split (ux-owner 2026-10-30).
                 let column = content.map { RightColumn.panes(beside: source.layoutPaneID, in: $0) } ?? []
-                return LinkOpenPlacement<LayoutPaneID>.inColumn(right: pane, column: column, sourceWidth: source.view.bounds.width, width: width)
+                return LinkOpenPlacement<LayoutPaneID>.inColumn(right: pane, column: column, sourceWidth: RightColumn.width(of: source), width: width)
             case .dockChat: return .dockChat(source.layoutPaneID)
             case .here, .besideDock: break
             }
@@ -100,7 +100,7 @@ final class LinkOpener {
             return PaneHandlers.neighbor(of: source.layoutPaneID, direction: .right, in: content).flatMap { takes($0) ? $0 : nil }
         }
         return LinkOpenPlacement(setting: placement()).target(source: source.layoutPaneID, takesTabs: takesTabs, right: right, column: column,
-                                                              sourceWidth: source.view.bounds.width, width: width)
+                                                              sourceWidth: RightColumn.width(of: source), width: width)
     }
 
     /// Opens through `make` where the rule puts it. `background`: the opened tab takes no focus.

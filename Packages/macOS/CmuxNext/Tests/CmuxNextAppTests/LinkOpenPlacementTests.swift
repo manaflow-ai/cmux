@@ -95,6 +95,12 @@ struct LinkOpenPlacementTests {
                 "a Same Pane link selected its page's tab on the right instead of opening in the source")
     }
 
+    /// A pane with no width yet (not laid out, no window) is unmeasured, not narrow: its link still
+    /// opens in a split on its right (fleet run of #28044 at 8e520360, SideOpenStripTests).
+    @Test func anUnmeasuredSourceIsNotTakenForANarrowOne() {
+        #expect(Rule(setting: .splitRight).target(source: "chat", takesTabs: true, right: nil, sourceWidth: nil) == .splitRight(of: "chat"))
+    }
+
     @Test func aNarrowRightColumnTakesTheTabInsteadOfSplitting() {
         let rule = Rule(setting: .splitRight)
         #expect(rule.target(source: "chat", takesTabs: true, right: "diff", column: ["diff"], sourceWidth: 1400, width: { _ in 419 })

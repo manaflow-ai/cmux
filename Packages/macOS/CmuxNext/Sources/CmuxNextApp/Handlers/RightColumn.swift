@@ -19,11 +19,19 @@ import CmuxNextWakeups
 enum RightColumn {
     /// The right column beside `source`, measured: its panes (layout pane ids) and their widths.
     static func measure(beside source: PaneController) -> RightColumnPlacement.Column {
-        guard let content = source.workspace else { return .init(sourceWidth: source.view.bounds.width) }
+        guard let content = source.workspace else { return .init(sourceWidth: width(of: source)) }
         let panes = panes(beside: source.layoutPaneID, in: content)
         var widths: [String: CGFloat] = [:]
-        for pane in panes { widths[pane.rawValue] = content.panes[pane]?.view.bounds.width }
-        return .init(sourceWidth: source.view.bounds.width, panes: panes.map(\.rawValue), widths: widths)
+        for pane in panes { widths[pane.rawValue] = content.panes[pane].flatMap(width(of:)) }
+        return .init(sourceWidth: width(of: source), panes: panes.map(\.rawValue), widths: widths)
+    }
+
+    /// `pane`'s width, nil while it has none (not laid out yet): an unmeasured pane sets no floor, so
+    /// it is never taken for one too narrow to split (fleet run of #28044 at 8e520360: a pane with no
+    /// window opened its links in place).
+    static func width(of pane: PaneController) -> CGFloat? {
+        let width = pane.view.bounds.width
+        return width > 0 ? width : nil
     }
 
     /// The panes right of `source` in `content`, top to bottom, from the pane frames of the screen
