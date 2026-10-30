@@ -110,9 +110,9 @@ struct CrossMachineTabMoveTests {
             // daemon's barrier so the creation event alone cannot satisfy this lookup.
             try await withThrowingTaskGroup(of: Void.self) { group in
                 defer { group.cancelAll() }
-                group.addTask { @MainActor in
+                group.addTask {
                     try Task.checkCancellation()
-                    try await self.machine.daemon.appliedThroughSyncBarrier()
+                    try await daemon.appliedThroughSyncBarrier()
                     try Task.checkCancellation()
                 }
                 group.addTask {
