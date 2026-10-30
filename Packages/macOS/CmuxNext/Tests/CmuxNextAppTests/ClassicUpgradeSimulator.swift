@@ -117,6 +117,7 @@ final class ClassicUpgradeSimulator {
                                  stateDirectory: mac.root.appendingPathComponent("state")),
             environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
         _ = NSApplication.shared
+        DisplaySleep.asleepOverride = true // DIAG: does treating the display as asleep make a display host pass?
         services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
