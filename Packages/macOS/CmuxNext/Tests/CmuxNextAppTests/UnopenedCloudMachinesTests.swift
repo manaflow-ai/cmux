@@ -90,6 +90,18 @@ struct UnopenedCloudMachinesTests {
         #expect(services.windows.registry.value.owner(of: "ws-first") != nil, "the person's own create shows its workspace")
     }
 
+    /// `cmux cloud new-machine --focus` with no window open: the run asked for focus, so its first
+    /// workspace still opens in a window (review finding).
+    @Test func aCreateWithFocusStillShowsItsWorkspaceWithNoWindowOpen() throws {
+        let services = Self.services()
+        defer { Self.closeWindows(services) }
+        Self.machine(services, id: "vm-focused", workspaces: ["ws-first"])
+        let creation = services.cloud.creations.begin(window: nil)
+
+        CloudHandlers.creationFlow(AppActionContext(services: services), reveals: true).show("ws-first", creation)
+        #expect(services.windows.registry.value.owner(of: "ws-first") != nil, "a create run with --focus left its workspace in no window")
+    }
+
     // MARK: Fixtures
 
     static func services() -> AppServices {
