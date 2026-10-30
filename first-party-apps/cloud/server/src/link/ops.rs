@@ -124,7 +124,7 @@ fn owner_answer<C: ControlPlane>(
     carrier: &Carrier,
 ) -> Result<bool, CloudError> {
     let identity = match server.control_plane_mut().session() {
-        Ok(status) if status.signed_in => (true, status.team),
+        Ok(status) if status.signed_in => Some((true, status.team)),
         Ok(_) | Err(RelayError::NotSignedIn) => {
             let error = CloudError::new(codes::AUTH_REQUIRED, "Sign in to cmux Cloud first");
             end_links_after(server, machine, &error);
@@ -134,9 +134,29 @@ fn owner_answer<C: ControlPlane>(
             let attach = server.attach_mut();
             attach.infos.forget(machine);
             attach.owner_answers.remove(machine);
-            return Ok(false);
+            None
         }
     };
+    // The host-local session exchange may have queued a link exit. Never
+    // return an answer for the old carrier before applying those events.
+    let attach = server.attach_mut();
+    attach.supervisor.pump();
+    if !matches!(attach.supervisor.state(machine), Some(LinkState::Up(current))
+        if current.generation == carrier.generation)
+    {
+        attach.owner_answers.remove(machine);
+        attach.infos.forget(machine);
+        let failure = attach
+            .supervisor
+            .outcome(machine, carrier.generation)
+            .and_then(Result::err)
+            .unwrap_or_else(|| LinkFailure::Down {
+                retryable: true,
+                reason: "carrier changed during session check".into(),
+            });
+        return Err(link_failure_for(machine, failure));
+    }
+    let Some(identity) = identity else { return Ok(false) };
     server.update_auth_identity(identity.0, identity.1);
     let epoch = server.auth_epoch();
     if let Some((generation, cached_epoch, owns)) =
@@ -540,10 +560,10 @@ mod hint_tests {
     fn revoked_state_keeps_recovery_context_on_later_connects() {
         struct NoCalls;
         impl ControlPlane for NoCalls {
-            fn call(&mut self, _: &crate::WireCall) -> Result<crate::WireReply, crate::RelayError> {
+            fn call(&mut self, _: &crate::WireCall) -> Result<crate::WireReply, RelayError> {
                 panic!("a revoked link must not call the backend")
             }
-            fn session(&mut self) -> Result<crate::SessionStatus, crate::RelayError> {
+            fn session(&mut self) -> Result<crate::SessionStatus, RelayError> {
                 panic!("a revoked link must not request a session")
             }
         }

@@ -42,6 +42,7 @@ pub struct FakeControlPlane {
     /// The current host-reported team identity for auth status tests.
     session_team: Option<String>,
     session_unavailable: bool,
+    session_action: Option<Box<dyn FnOnce() + Send>>,
     /// Machines `vm-resume` started.
     started: Vec<String>,
 }
@@ -80,6 +81,7 @@ impl FakeControlPlane {
             connect_info_error: None,
             session_team: None,
             session_unavailable: false,
+            session_action: None,
             started: Vec::new(),
         };
         for name in names {
@@ -110,6 +112,11 @@ impl FakeControlPlane {
 
     pub fn fail_session_unavailable(&mut self) {
         self.session_unavailable = true;
+    }
+
+    /// Run once during the next host-local session exchange.
+    pub fn on_next_session(&mut self, action: impl FnOnce() + Send + 'static) {
+        self.session_action = Some(Box::new(action));
     }
 
     /// Later `connect_info` answers fail with `code` (`cloud.machine.not_found`:
@@ -199,6 +206,9 @@ impl ControlPlane for FakeControlPlane {
     }
 
     fn session(&mut self) -> Result<SessionStatus, RelayError> {
+        if let Some(action) = self.session_action.take() {
+            action();
+        }
         if self.session_unavailable {
             return Err(RelayError::Unavailable("the host did not answer".into()));
         }

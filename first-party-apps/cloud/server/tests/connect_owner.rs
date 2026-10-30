@@ -63,6 +63,37 @@ fn an_up_carrier_reuses_the_owner_answer_for_the_same_identity() {
 }
 
 #[test]
+fn a_link_that_exits_during_the_session_exchange_cannot_return_its_cached_owner() {
+    for unavailable in [false, true] {
+        let spawner = FakeSpawner::default();
+        let mut s = Server::with_attach(
+            FakeControlPlane::with(&["vm-get", "connect-info-owner"]),
+            attach(&spawner, &FakeTransport::default()),
+        );
+        assert_eq!(connect(&mut s, "c-1")["vm_kind"], "owner");
+        let reads = s.control_plane().wire.count("cloud.machine.connect_info");
+        let exiting = spawner.clone();
+        s.control_plane_mut().on_next_session(move || exiting.exit("vm-alpha01", 1));
+        if unavailable {
+            s.control_plane_mut().fail_session_unavailable();
+        }
+        let error = s
+            .handle(
+                &Request::new("cloud.machine.connect", json!({ "machine": "vm-alpha01" }))
+                    .key("c-2"),
+            )
+            .expect_err("a carrier that exited during session() must not be returned");
+        assert_eq!(error.code, "cmux.cloud.link_down");
+        assert!(matches!(
+            s.attach().supervisor().state("vm-alpha01"),
+            Some(cmux_cloud::link::LinkState::Down { .. })
+        ));
+        assert_eq!(spawner.spawns(), 1, "the failed connect does not restart the link");
+        assert_eq!(s.control_plane().wire.count("cloud.machine.connect_info"), reads);
+    }
+}
+
+#[test]
 fn a_switched_identity_rereads_the_owner_answer() {
     let spawner = FakeSpawner::default();
     let mut s = Server::with_attach(
