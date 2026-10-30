@@ -108,8 +108,11 @@ impl State {
     }
 
     /// The end of `forget`, once no write of session `id` is in progress: a flush waits for it
-    /// no more, nothing of it is written now.
+    /// no more, nothing of it is written now. A save queued while `forget` waited is dropped too:
+    /// its count goes, so a save left queued would count as written before it is (and the writer
+    /// would write it after the caller deleted the session).
     fn forgotten(&mut self, id: &str) {
+        self.drop_queued(id);
         self.done.remove(id);
     }
 }
