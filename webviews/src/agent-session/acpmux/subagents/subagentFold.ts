@@ -1026,10 +1026,14 @@ export class SubagentFold {
   }
 
   private bumpParentViews(id: string): void {
-    this.bumpViewRevision(id);
-    this.bump(id);
-    const parent = this.agents.get(id)?.parent;
-    if (parent !== null && parent !== undefined) this.bumpParentViews(parent);
+    // Historical records can make two agents each other's parent (an echoed root): walk once.
+    const seen = new Set<string>();
+    for (let at: string | null | undefined = id; typeof at === "string" && !seen.has(at); ) {
+      seen.add(at);
+      this.bumpViewRevision(at);
+      this.bump(at);
+      at = this.agents.get(at)?.parent;
+    }
   }
 }
 
