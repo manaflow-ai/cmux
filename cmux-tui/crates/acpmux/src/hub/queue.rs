@@ -929,9 +929,24 @@ impl Hub {
     /// They run once `resume_restored` starts them; a client that resends one meanwhile waits for
     /// that run (the ledger entry made here).
     pub(super) fn restore_queue(&self, session: &Arc<Session>) {
+        self.restore_queue_reading(session, &[], &mut |_| {});
+    }
+
+    /// [`Self::restore_queue`], handing `also` every record of `also_kinds` (and of the queue's
+    /// own kinds) its one pass reads, oldest first, so a chat's load folds its log once
+    /// (`log_load.rs`). Returns whether that pass read the whole log; a closed chat's queue reads
+    /// nothing.
+    pub(super) fn restore_queue_reading(
+        &self,
+        session: &Arc<Session>,
+        also_kinds: &[&str],
+        also: &mut dyn FnMut(&EventRecord),
+    ) -> bool {
         if session.meta().status == SessionStatus::Closed {
-            return;
+            return false;
         }
+        let mut kinds = Self::QUEUE_KINDS.to_vec();
+        kinds.extend(also_kinds.iter().copied().filter(|k| !Self::QUEUE_KINDS.contains(k)));
         let mut waiting = queue_waiting::Waiting::default();
         let mut order = queue_waiting::Order::default();
         let mut held: std::collections::HashSet<String> = Default::default();
@@ -945,141 +960,143 @@ impl Hub {
         let mut unstarted = lost_start::Unstarted::default();
         let mut digests = queue_waiting::Digests::default();
         let mut branch = session.meta().git_branch;
-        let scanned =
-            self.store.scan_kinds(&session.id, Self::QUEUE_KINDS, &mut |e: EventRecord| {
-                for (prompt_id, turn_id) in unstarted.read(&e, &waiting, &mut order) {
-                    waiting.remove_turn(Some(&turn_id));
-                    order.remove(&prompt_id);
+        let scanned = self.store.scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
+            also(&e);
+            // Read for `also` only: the queue's fold never saw it.
+            if !Self::QUEUE_KINDS.contains(&e.kind.as_str()) {
+                return true;
+            }
+            for (prompt_id, turn_id) in unstarted.read(&e, &waiting, &mut order) {
+                waiting.remove_turn(Some(&turn_id));
+                order.remove(&prompt_id);
+            }
+            digests.read(&e);
+            let turn_id = e.msg.get("turnId");
+            // Queued or run again under another turn id (a daemon that had not restored it
+            // took its id as new): that copy is the prompt's, so this one does not run too.
+            if matches!(e.kind.as_str(), "queued" | "user_message" | "turn_started")
+                && let Some(id) = e.msg.get("promptId")
+            {
+                waiting.remove_other_turns(id, turn_id);
+            }
+            if matches!(e.kind.as_str(), "queued" | "user_message")
+                && let Some(id) = e.msg.get("promptId").and_then(Value::as_str)
+            {
+                recorded.insert(id.to_owned());
+            }
+            match e.kind.as_str() {
+                "git" if e.dir == "mux" => {
+                    branch = e.msg.get("gitBranch").and_then(Value::as_str).map(str::to_owned);
                 }
-                digests.read(&e);
-                let turn_id = e.msg.get("turnId");
-                // Queued or run again under another turn id (a daemon that had not restored it
-                // took its id as new): that copy is the prompt's, so this one does not run too.
-                if matches!(e.kind.as_str(), "queued" | "user_message" | "turn_started")
-                    && let Some(id) = e.msg.get("promptId")
-                {
-                    waiting.remove_other_turns(id, turn_id);
-                }
-                if matches!(e.kind.as_str(), "queued" | "user_message")
-                    && let Some(id) = e.msg.get("promptId").and_then(Value::as_str)
-                {
-                    recorded.insert(id.to_owned());
-                }
-                match e.kind.as_str() {
-                    "git" if e.dir == "mux" => {
-                        branch = e.msg.get("gitBranch").and_then(Value::as_str).map(str::to_owned);
+                "queued" => {
+                    // A restart's continuation of a cut turn goes ahead of what waited behind
+                    // that turn, also when the daemon stopped before its `queue_order`
+                    // (`restart_resume.rs`); a later reorder still holds.
+                    if e.msg.pointer("/_meta/provenance/reason").and_then(Value::as_str)
+                        == Some("daemon_restart")
+                        && let Some(id) = e.msg.get("promptId")
+                    {
+                        order.prioritize_restart(id);
                     }
-                    "queued" => {
-                        // A restart's continuation of a cut turn goes ahead of what waited behind
-                        // that turn, also when the daemon stopped before its `queue_order`
-                        // (`restart_resume.rs`); a later reorder still holds.
-                        if e.msg.pointer("/_meta/provenance/reason").and_then(Value::as_str)
-                            == Some("daemon_restart")
-                            && let Some(id) = e.msg.get("promptId")
-                        {
-                            order.prioritize_restart(id);
-                        }
-                        // An inbox digest holds the queue's order with it in it, as its
-                        // `queue_order` record does.
-                        if super::digest::inbox_digest::is_digest_record(&e.msg)
-                            && let Some(ids) = e.msg.get("order").and_then(Value::as_array)
-                        {
-                            order.set(ids.iter());
-                            unstarted.lead(&mut order);
-                        }
-                        // Put back after a failed turn (`requeue_joined`): this copy replaces
-                        // the one the turn took (an inbox digest's message is still waiting).
-                        if e.msg.get("requeued") == Some(&Value::Bool(true)) {
-                            waiting.remove_turn(turn_id);
-                        }
-                        waiting.push(e);
-                    }
-                    "agent_pair_held"
-                    | "agent_pair_released"
-                    | "agent_pair_dropped"
-                    | "agent_pair_paused"
-                    | "agent_pair_resumed" => pair_records.push(e),
-                    "transfer_out" => moving = e.msg["transferId"].as_str().map(str::to_owned),
-                    "transfer_aborted" | "imported" => moving = None,
-                    // Left the queue for a turn that has not started (`lost_start.rs`): its
-                    // `queued` record stays waiting, so later records apply to it, and it goes
-                    // back ahead of the queue.
-                    "dequeued" | "user_message" if unstarted.holds(turn_id) => {
+                    // An inbox digest holds the queue's order with it in it, as its
+                    // `queue_order` record does.
+                    if super::digest::inbox_digest::is_digest_record(&e.msg)
+                        && let Some(ids) = e.msg.get("order").and_then(Value::as_array)
+                    {
+                        order.set(ids.iter());
                         unstarted.lead(&mut order);
                     }
-                    // Taken into an inbox digest: it waits until that digest's turn starts
-                    // (`queue_waiting.rs` `Digests`).
-                    "dequeued" if e.msg.get("digestPromptId").is_some() => {}
-                    "dequeued" | "queue_removed" | "user_message" | "turn_started" => {
+                    // Put back after a failed turn (`requeue_joined`): this copy replaces
+                    // the one the turn took (an inbox digest's message is still waiting).
+                    if e.msg.get("requeued") == Some(&Value::Bool(true)) {
                         waiting.remove_turn(turn_id);
                     }
-                    // An edit (`queue_edit.rs`): the prompt and its rules replace the queued ones,
-                    // and it has no `_meta.provenance` (the person rewrote it), unless the edit
-                    // kept a person's own (`author.rs`).
-                    "queue_updated" => {
-                        if let Some(q) = waiting.first_of_turn(turn_id) {
-                            for k in [
-                                "text",
-                                "prompt",
-                                "control",
-                                "trustGate",
-                                "inlineParts",
-                                "displayParts",
-                                "images",
-                                "pasted",
-                            ] {
-                                if let Some(value) = e.msg.get(k) {
-                                    q.msg[k] = value.clone();
-                                } else if let Some(fields) = q.msg.as_object_mut() {
-                                    fields.remove(k);
-                                }
-                            }
-                            if let Some(meta) =
-                                q.msg.get_mut("_meta").and_then(Value::as_object_mut)
-                            {
-                                meta.remove("provenance");
-                                // The person rewrote it: no longer another session's message.
-                                meta.remove(crate::prompt_provenance::MESSAGE_META);
-                            }
-                            if let Some(p) = e.msg.pointer("/_meta/provenance") {
-                                let kept = json!({"provenance": p});
-                                crate::no_panic::JsonExt::set(&mut q.msg, "_meta", kept);
-                            }
-                            // The person's now (`digest.rs`), and no sender's to replace.
-                            if let Some(fields) = q.msg.as_object_mut() {
-                                fields.remove("fromAgent");
-                                fields.remove("class");
-                                fields.remove("supersede");
-                            }
-                        }
-                    }
-                    "queue_paused" => {
-                        let ids = e.msg.get("held").and_then(Value::as_array);
-                        let ids = ids.into_iter().flatten().filter_map(Value::as_str);
-                        held.extend(ids.map(str::to_owned));
-                    }
-                    // `resume_held` names the prompts it resumed; `resume_queue` resumes them all.
-                    "queue_resumed" => match e.msg.get("promptIds").and_then(Value::as_array) {
-                        Some(ids) => ids.iter().filter_map(Value::as_str).for_each(|id| {
-                            held.remove(id);
-                        }),
-                        None => held.clear(),
-                    },
-                    "queue_order" => {
-                        // Sent now (`put_next`): no longer held.
-                        if e.msg.get("next") == Some(&Value::Bool(true))
-                            && let Some(id) = e.msg.get("promptId").and_then(Value::as_str)
-                        {
-                            held.remove(id);
-                        }
-                        let ids = e.msg.get("order").and_then(Value::as_array);
-                        order.set(ids.into_iter().flatten());
-                        unstarted.lead(&mut order);
-                    }
-                    _ => {}
+                    waiting.push(e);
                 }
-                true
-            });
+                "agent_pair_held"
+                | "agent_pair_released"
+                | "agent_pair_dropped"
+                | "agent_pair_paused"
+                | "agent_pair_resumed" => pair_records.push(e),
+                "transfer_out" => moving = e.msg["transferId"].as_str().map(str::to_owned),
+                "transfer_aborted" | "imported" => moving = None,
+                // Left the queue for a turn that has not started (`lost_start.rs`): its
+                // `queued` record stays waiting, so later records apply to it, and it goes
+                // back ahead of the queue.
+                "dequeued" | "user_message" if unstarted.holds(turn_id) => {
+                    unstarted.lead(&mut order);
+                }
+                // Taken into an inbox digest: it waits until that digest's turn starts
+                // (`queue_waiting.rs` `Digests`).
+                "dequeued" if e.msg.get("digestPromptId").is_some() => {}
+                "dequeued" | "queue_removed" | "user_message" | "turn_started" => {
+                    waiting.remove_turn(turn_id);
+                }
+                // An edit (`queue_edit.rs`): the prompt and its rules replace the queued ones,
+                // and it has no `_meta.provenance` (the person rewrote it), unless the edit
+                // kept a person's own (`author.rs`).
+                "queue_updated" => {
+                    if let Some(q) = waiting.first_of_turn(turn_id) {
+                        for k in [
+                            "text",
+                            "prompt",
+                            "control",
+                            "trustGate",
+                            "inlineParts",
+                            "displayParts",
+                            "images",
+                            "pasted",
+                        ] {
+                            if let Some(value) = e.msg.get(k) {
+                                q.msg[k] = value.clone();
+                            } else if let Some(fields) = q.msg.as_object_mut() {
+                                fields.remove(k);
+                            }
+                        }
+                        if let Some(meta) = q.msg.get_mut("_meta").and_then(Value::as_object_mut) {
+                            meta.remove("provenance");
+                            // The person rewrote it: no longer another session's message.
+                            meta.remove(crate::prompt_provenance::MESSAGE_META);
+                        }
+                        if let Some(p) = e.msg.pointer("/_meta/provenance") {
+                            let kept = json!({"provenance": p});
+                            crate::no_panic::JsonExt::set(&mut q.msg, "_meta", kept);
+                        }
+                        // The person's now (`digest.rs`), and no sender's to replace.
+                        if let Some(fields) = q.msg.as_object_mut() {
+                            fields.remove("fromAgent");
+                            fields.remove("class");
+                            fields.remove("supersede");
+                        }
+                    }
+                }
+                "queue_paused" => {
+                    let ids = e.msg.get("held").and_then(Value::as_array);
+                    let ids = ids.into_iter().flatten().filter_map(Value::as_str);
+                    held.extend(ids.map(str::to_owned));
+                }
+                // `resume_held` names the prompts it resumed; `resume_queue` resumes them all.
+                "queue_resumed" => match e.msg.get("promptIds").and_then(Value::as_array) {
+                    Some(ids) => ids.iter().filter_map(Value::as_str).for_each(|id| {
+                        held.remove(id);
+                    }),
+                    None => held.clear(),
+                },
+                "queue_order" => {
+                    // Sent now (`put_next`): no longer held.
+                    if e.msg.get("next") == Some(&Value::Bool(true))
+                        && let Some(id) = e.msg.get("promptId").and_then(Value::as_str)
+                    {
+                        held.remove(id);
+                    }
+                    let ids = e.msg.get("order").and_then(Value::as_array);
+                    order.set(ids.into_iter().flatten());
+                    unstarted.lead(&mut order);
+                }
+                _ => {}
+            }
+            true
+        });
         if scanned.is_ok() {
             self.restore_git_branch(session, branch);
         }
@@ -1091,7 +1108,7 @@ impl Hub {
         });
         let mut waiting = waiting.into_records();
         if scanned.is_err() || waiting.is_empty() {
-            return;
+            return scanned.is_ok();
         }
         // The last reorder holds (a prompt that left the queue for its turn went back ahead of
         // it); a prompt queued after it keeps its place at the end.
@@ -1176,6 +1193,7 @@ impl Hub {
             ledger.push_back((prompt_id, Arc::new(tokio::sync::watch::channel(None).0)));
         }
         tracing::info!(session = %session.id, queued = queue.len(), "restored queued prompts");
+        true
     }
 
     /// Runs the prompts `restore_queue` put back, each in its place in the queue (after any

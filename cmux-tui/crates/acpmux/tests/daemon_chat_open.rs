@@ -253,12 +253,17 @@ fn seqs(page: &Value) -> Vec<u64> {
 /// record once, in order. Budgets (Linux, bytes the daemon reads): an open at most
 /// `ACPMUX_CHAT_OPEN_READ_MB` (default 4), the whole scroll at most
 /// `ACPMUX_CHAT_SCROLL_READ_X` (default 2) times the log, for a log of `ACPMUX_CHAT_LOG_MB`
-/// (default 40).
+/// (default 40). The daemon's start through the restart's read of the chat's log (what the
+/// first open of a chat waits for when the background pass has not reached it) reads the log
+/// about once: at most `ACPMUX_CHAT_LOAD_READ_PCT` (default 150) percent of it. Before, each
+/// fold of that read (the cut turn, the queue, the message projections) read the whole log
+/// again: 3x.
 #[test]
 fn a_long_chat_opens_on_its_newest_page_and_scrolls_to_its_first_message() {
     let mb = env_or("ACPMUX_CHAT_LOG_MB", 40);
     let open_budget = env_or("ACPMUX_CHAT_OPEN_READ_MB", 4) * 1_000_000;
     let scroll_x = env_or("ACPMUX_CHAT_SCROLL_READ_X", 2);
+    let load_pct = env_or("ACPMUX_CHAT_LOAD_READ_PCT", 150);
     let dir = std::env::temp_dir().join(format!("amx-chatopen-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let home = dir.join("home");
@@ -283,6 +288,8 @@ fn a_long_chat_opens_on_its_newest_page_and_scrolls_to_its_first_message() {
     // runs after the session index loads (#27328), so it is no part of an open: `info`
     // waits for it.
     rpc.call("_acpmux/info", json!({"sessionId": id}));
+    // Everything the daemon read so far: its start and this chat's log load.
+    let load_read = read_bytes(pid);
 
     // The pane's open: the newest page, then the open turn's prompt when the page starts mid-turn.
     let before_open = read_bytes(pid);
@@ -351,12 +358,17 @@ fn a_long_chat_opens_on_its_newest_page_and_scrolls_to_its_first_message() {
     );
     println!(
         "acpmux-chat-open: {}",
-        json!({"log_mb": mb, "records": log.records, "open_read_mb": open_read as f64 / 1e6, "attach_read_mb": attach_read as f64 / 1e6,
+        json!({"log_mb": mb, "records": log.records, "load_read_mb": load_read as f64 / 1e6, "open_read_mb": open_read as f64 / 1e6, "attach_read_mb": attach_read as f64 / 1e6,
                "scroll_pages": pages, "scroll_read_mb": scroll_read as f64 / 1e6, "log_bytes_mb": log.bytes as f64 / 1e6})
     );
     drop(daemon);
     let _ = std::fs::remove_dir_all(&dir);
     if cfg!(target_os = "linux") {
+        assert!(
+            load_read * 100 <= load_pct * log.bytes,
+            "the start and the chat's log load read {load_read} bytes, over {load_pct}% of the {}-byte log",
+            log.bytes
+        );
         assert!(
             open_read <= open_budget,
             "opening the chat read {open_read} bytes (budget {open_budget})"

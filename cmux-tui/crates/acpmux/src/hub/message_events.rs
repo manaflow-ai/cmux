@@ -89,32 +89,63 @@ pub(super) fn restore_message_options(opts: &mut PromptOptions, provenance: Opti
 /// after persisting a prompt or queue record. The append path deduplicates by
 /// `messageId` and the outgoing target scope, so this is safe on every log load.
 pub(super) fn recover_message_events(hub: &Arc<Hub>, session: &Arc<Session>) {
-    let mut pending = Vec::new();
-    // A fork copies historical `user_message` records before its `forked` marker. Those records
-    // describe the parent's delivery and must never recreate a sender-side copy in the child.
-    // Stay conservative if a crash left no marker: skip the inherited prefix entirely.
-    let mut inherited = session.meta().fork_seq.is_some();
-    let _ =
-        hub.store.scan_kinds(&session.id, &["queued", "user_message", "forked"], &mut |record| {
-            if inherited {
-                if record.kind == "forked" {
-                    inherited = false;
-                }
-                return true;
+    let mut recovery = MessageRecovery::new(session);
+    let _ = hub.store.scan_kinds(&session.id, MessageRecovery::KINDS, &mut |record| {
+        recovery.read(&record);
+        true
+    });
+    recovery.finish(hub);
+}
+
+/// [`recover_message_events`] as a fold over the log's records, oldest first, so a chat's load
+/// reads its log once: the queue's pass (`Hub::restore_queue_reading`) hands it each record it
+/// reads, and it keeps those of [`MessageRecovery::KINDS`].
+pub(super) struct MessageRecovery {
+    session_id: String,
+    pending: Vec<MessageContext>,
+    /// A fork copies historical `user_message` records before its `forked` marker. Those records
+    /// describe the parent's delivery and must never recreate a sender-side copy in the child.
+    /// Stay conservative if a crash left no marker: skip the inherited prefix entirely.
+    inherited: bool,
+}
+
+impl MessageRecovery {
+    /// The kinds the fold reads; it passes over every other.
+    pub(super) const KINDS: &'static [&'static str] = &["queued", "user_message", "forked"];
+
+    pub(super) fn new(session: &Session) -> Self {
+        Self {
+            session_id: session.id.clone(),
+            pending: Vec::new(),
+            inherited: session.meta().fork_seq.is_some(),
+        }
+    }
+
+    /// The log's next record, oldest first.
+    pub(super) fn read(&mut self, record: &crate::store::EventRecord) {
+        if !Self::KINDS.contains(&record.kind.as_str()) {
+            return;
+        }
+        if self.inherited {
+            if record.kind == "forked" {
+                self.inherited = false;
             }
-            if !matches!(record.kind.as_str(), "queued" | "user_message") {
-                return true;
+            return;
+        }
+        if !matches!(record.kind.as_str(), "queued" | "user_message") {
+            return;
+        }
+        let Some(provenance) = crate::prompt_provenance::recorded(&record.msg) else { return };
+        collect_message_contexts(&provenance, &self.session_id, &mut self.pending);
+    }
+
+    /// Appends what the log's records showed missing.
+    pub(super) fn finish(self, hub: &Arc<Hub>) {
+        for message in self.pending {
+            append_or_repair(hub, &self.session_id, &message, None);
+            if message.record_sender_copy && message.sender_session != self.session_id {
+                append_or_repair(hub, &message.sender_session, &message, Some(&self.session_id));
             }
-            let Some(provenance) = crate::prompt_provenance::recorded(&record.msg) else {
-                return true;
-            };
-            collect_message_contexts(&provenance, &session.id, &mut pending);
-            true
-        });
-    for message in pending {
-        append_or_repair(hub, &session.id, &message, None);
-        if message.record_sender_copy && message.sender_session != session.id {
-            append_or_repair(hub, &message.sender_session, &message, Some(&session.id));
         }
     }
 }

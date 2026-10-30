@@ -160,11 +160,18 @@ impl Hub {
         let continued = if hosted { None } else { self.mark_unknown_outcome(session) };
         // A subagent retry the restart dropped, hosted or not (`subagent_retry.rs`).
         self.settle_subagent_retries(session);
-        self.restore_queue(session);
         // A crash may leave a durable prompt/queue record before its acceptance
         // callback writes `_acpmux/message`; reconstruct those projections before
-        // clients can attach or the restored queue resumes.
-        super::message_events::recover_message_events(self, session);
+        // clients can attach or the restored queue resumes. Folded in the queue's own pass
+        // over the log: a long chat's log is read once, not once per fold.
+        let mut recovery = super::message_events::MessageRecovery::new(session);
+        let kinds = super::message_events::MessageRecovery::KINDS;
+        if self.restore_queue_reading(session, kinds, &mut |e| recovery.read(e)) {
+            recovery.finish(self);
+        } else {
+            // A closed chat's queue reads nothing, and a pass that failed part way read part.
+            super::message_events::recover_message_events(self, session);
+        }
         // A cut turn goes on before what waited behind it (`restart_resume.rs`).
         if let Some(prompt_id) = continued {
             let _ = self.move_queued(session, &prompt_id, 0, None);
@@ -267,20 +274,20 @@ impl Hub {
         if meta.watching.is_some() || meta.status == SessionStatus::Closed {
             return None;
         }
-        // Scan the whole log: a long turn can stream far more records
-        // than any fixed tail window after its `turn_started`.
+        // The log's last `turn_started` or `turn_result` says whether a turn is open: read back
+        // from its end to the first of them, however many records a long turn streamed after
+        // its `turn_started`, and no further.
         let mut open: Option<(u64, Value)> = None;
-        let kinds = ["turn_started", "turn_result"];
+        let kinds = |kind: &[u8]| kind == b"turn_started" || kind == b"turn_result";
         self.store
-            .scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
-                match e.kind.as_str() {
-                    "turn_started" => {
-                        open = Some((e.seq, e.msg.get("turnId").cloned().unwrap_or(Value::Null)))
-                    }
-                    "turn_result" => open = None,
-                    _ => {}
+            .scan_back(&session.id, 0, u64::MAX, &|_, kind| !kinds(kind), &mut |e: EventRecord| {
+                if !kinds(e.kind.as_bytes()) {
+                    return true;
                 }
-                true
+                if e.kind == "turn_started" {
+                    open = Some((e.seq, e.msg.get("turnId").cloned().unwrap_or(Value::Null)));
+                }
+                false
             })
             .ok()?;
         let (seq, turn_id) = open?;
