@@ -29,6 +29,16 @@ enum DebugAgentPaneSubagent {
         }
     }
 
+    /// The name of the fixture's subagent at `index`, as the page shows it (subagentsFixture.ts).
+    static func fixtureName(_ index: Int) -> String? {
+        switch index {
+        case 1: "Reviewer"
+        case 2: "Auditor"
+        case 3...fixtureMax: "Helper \(index - 2)"
+        default: nil
+        }
+    }
+
     /// Opens the subagent's pane for the chat `model` shows in `pane`; `pageSession` reads the page's
     /// session when the model has none.
     static func open(_ params: [String: JSONValue], pane: String, model: AgentPaneModel,
@@ -42,6 +52,9 @@ enum DebugAgentPaneSubagent {
         guard let session, !session.isEmpty else {
             return .object(["pane": .string(pane), "error": .string("the chat has no session yet; send_prompt first")])
         }
+        // The name the page sends with a tray line's chat.subagentPane (Subagent.name), so the pane's tab
+        // is named after the subagent as a click names it (SubagentTabTitles, #28497).
+        SubagentTabTitles.shared.name(agent, of: session, title: fixtureName(index))
         guard header.openSubagent(session, agent, params["focus"]?.boolValue == true) else {
             return .object(["pane": .string(pane), "agent": .string(agent), "opened": .bool(false), "error": .string("the app opened no pane for \(agent)")])
         }
