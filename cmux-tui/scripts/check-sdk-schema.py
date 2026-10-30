@@ -100,6 +100,14 @@ RUNTIME_DECODED_REQUEST_FIELDS = {
 # before or after this list drops it.
 UNSCHEMAD_SNIFFED_COMMANDS = {
     "debug-panic": "debug and --features bench builds only (p09-observability-101), not an SDK command",
+    "energy.set": "app-internal (server/energy_op.rs): only the app sends it (DaemonService+Energy.swift), from its "
+    "trusted user-origin Unix connection; the CLI's off/on verbs ask the app, not the daemon",
+    "energy.status": "the CLI (cli/energy.rs) and MCP (energy_status) read it: an SDK command, schemaed on "
+    "cp/schema-energy-commands (this entry then only prints a note)",
+    "frontend.visibility.set": "app-internal (server/frontend_visibility.rs): the app's own connection scopes its "
+    "subscription to the visible surfaces; no CLI, MCP or SDK client sends it",
+    "memory.limit": "app-internal (server/memory_limit.rs): the app pushes its memory limit and pressure override "
+    "from a trusted user-origin Unix connection; no CLI, MCP or SDK client sends it",
 }
 
 sys.path.insert(0, str(BINDINGS))
