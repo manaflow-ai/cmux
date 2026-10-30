@@ -1,46 +1,50 @@
-//! DEV app orphan exit. The app launches this daemon detached, so it
-//! outlives the app on purpose: its sessions are durable state. Tagged DEV
-//! builds are throwaway, though: scripts quit them or delete their bundles
-//! without stopping the daemon, which then runs forever under launchd (23
-//! such daemons held two cores of one Mac, 2026-10-21). The dead app's
-//! headless owners stay connected, so "no client" never comes; the app's own
-//! control socket is the signal.
+//! App orphan exit. The app launches this daemon detached, so it outlives
+//! the app on purpose: its sessions are durable state. A daemon whose app is
+//! gone for good is not, though: scripts quit tagged DEV builds or delete
+//! their bundles without stopping the daemon (23 such daemons held two cores
+//! of one Mac, 2026-10-21), and a person who deletes a NIGHTLY or Release app,
+//! or moves to another channel and deletes the old one, kept its daemon
+//! running under launchd forever. The dead app's headless owners stay
+//! connected, so "no client" never comes.
 //!
-//! In a DEV build only (the bundle around this executable is
-//! `com.cmuxterm.app.debug[.<tag>]`) that names the app's control socket
-//! (`CMUX_SOCKET_PATH`, the socket its agents reach the app on), the daemon
-//! stops itself, through its ordinary shutdown, once its app was gone for
-//! [`ORPHAN_EXIT_DELAY`]: connects to that socket fail after the app answered
-//! at least once, or no name links to its own executable any more (the bundle
-//! was deleted, or a rebuild wrote a new binary over it),
-//! whatever the socket says: a same-tag DEV rebuilt elsewhere listens on the
-//! same socket. An app that never listens (socket control off, a socket that
-//! failed to start) never stops a daemon whose executable is unchanged. It
-//! tries every [`ORPHAN_RECHECK`]: an app sends no event when it exits or is
-//! deleted, and one try is a single connect that is closed at once. Release,
-//! NIGHTLY and Cloud daemons never start the watcher; neither does any
-//! platform but macOS, nor a daemon run from outside an app bundle (a
-//! checkout's binary, `CMUX_NEXT_ACPMUX_BIN`): no bundle names it a DEV one.
+//! For a daemon run from a cmux app bundle (the bundle around this executable
+//! is `com.cmuxterm.app[.<channel>]`, or the macOS update clone of one,
+//! `<X>.app.bundle`), the daemon stops itself, through its ordinary shutdown,
+//! once its app was gone for [`ORPHAN_EXIT_DELAY`]:
 //!
-//! A bundle deleted in the instant between the daemon's exec and its read of
-//! the bundle's Info.plist cannot be told from a Release or NIGHTLY bundle
-//! being replaced, so it is never watched (as on a daemon without this file).
+//! - Every channel: no name links to its own executable any more. The bundle
+//!   was deleted, an update or a rebuild wrote a new binary over it. A daemon
+//!   run from an update clone (whose file keeps its name there) counts its
+//!   executable gone once the app it cloned is gone from `/Applications`.
+//! - DEV builds (`com.cmuxterm.app.debug[.<tag>]`) that name the app's
+//!   control socket (`CMUX_SOCKET_PATH`, the socket its agents reach the app
+//!   on) also stop once connects to that socket fail after the app answered
+//!   at least once: a quit tag build is throwaway. A same-tag DEV rebuilt
+//!   elsewhere listens on the same socket, so the executable decides even
+//!   while the socket answers. NIGHTLY and Release daemons outlive a quit app
+//!   (remote peers and phones still reach their sessions); only a gone
+//!   executable stops them.
 //!
-//! The app counts as alive while anything accepts a connect on its socket:
-//! the watch cannot tell the app from another process that binds that path
-//! after it quits. A same-tag DEV rebuilt elsewhere is that case, and it is
-//! covered by the executable check; another program binding the app's
-//! private socket path is not.
+//! An app that never listens (socket control off, a socket that failed to
+//! start) never stops a daemon whose executable is unchanged. It tries every
+//! [`ORPHAN_RECHECK`]: an app sends no event when it exits or is deleted, and
+//! one try is a single connect that is closed at once. No platform but macOS
+//! starts the watcher, nor a daemon run from outside a cmux bundle (a
+//! checkout's binary, `CMUX_NEXT_ACPMUX_BIN`, `~/.local/bin/acpmux`).
 //!
-//! When the executable is gone, the shutdown ends the daemon's hosted agents
-//! too: no build of it is left to adopt them. When the app only quit (its
-//! executable is still there), it is the SIGTERM handoff: the agents keep
-//! running, as the app's Quit keeps them, for the next launch to adopt. A
-//! Chief's daemon that inherited the app's socket stops the same way once the
-//! DEV app is gone.
+//! Its agents: when a DEV daemon's executable is gone, or a NIGHTLY or
+//! Release one's app is gone from its install path (deleted, or another app
+//! there now), the shutdown ends the daemon's hosted agents too: no build of
+//! it is left to adopt them. When the app only quit, or a NIGHTLY or Release
+//! update replaced its binary with the same app's next build, it is the
+//! SIGTERM handoff: the agents keep running, as the app's Quit keeps them,
+//! for the next launch to adopt (an update normally hands the daemon off at
+//! once, `AcpmuxVersionHandoff`; this covers an update installed on quit and
+//! not opened since). A Chief's daemon run from the app's bundle stops the
+//! same way.
 //!
-//! Test seams, debug builds only: `ACPMUX_TEST_DEV_ORPHAN_DELAY_MS` and
-//! `ACPMUX_TEST_DEV_ORPHAN_RECHECK_MS` replace the two intervals.
+//! Test seams, debug builds only: `ACPMUX_TEST_APP_ORPHAN_DELAY_MS` and
+//! `ACPMUX_TEST_APP_ORPHAN_RECHECK_MS` replace the two intervals.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -50,13 +54,15 @@ pub(crate) const ORPHAN_EXIT_DELAY: Duration = Duration::from_secs(60 * 60);
 /// How often the daemon tries the app's socket.
 pub(crate) const ORPHAN_RECHECK: Duration = Duration::from_secs(10 * 60);
 
+/// The bundle id of a Release build, and the prefix of every other channel's.
+const APP_BUNDLE_ID: &str = "com.cmuxterm.app";
 /// The bundle id prefix of DEV and tagged debug builds.
 const DEBUG_BUNDLE_ID: &str = "com.cmuxterm.app.debug";
 
 #[cfg(debug_assertions)]
-const TEST_DELAY_ENV: &str = "ACPMUX_TEST_DEV_ORPHAN_DELAY_MS";
+const TEST_DELAY_ENV: &str = "ACPMUX_TEST_APP_ORPHAN_DELAY_MS";
 #[cfg(debug_assertions)]
-const TEST_RECHECK_ENV: &str = "ACPMUX_TEST_DEV_ORPHAN_RECHECK_MS";
+const TEST_RECHECK_ENV: &str = "ACPMUX_TEST_APP_ORPHAN_RECHECK_MS";
 
 /// The watcher's two intervals.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -95,12 +101,38 @@ pub(crate) fn is_dev_bundle(bundle_id: &str) -> bool {
         .is_some_and(|rest| rest.is_empty() || rest.starts_with('.'))
 }
 
-/// The `<X>.app` around `exe` (`<X>.app/Contents/...`).
+/// Whether `bundle_id` is any cmux app's (`com.cmuxterm.app[.<channel>]`).
+pub(crate) fn is_cmux_bundle(bundle_id: &str) -> bool {
+    bundle_id
+        .strip_prefix(APP_BUNDLE_ID)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('.'))
+}
+
+/// The app bundle around `exe` (`<X>.app/Contents/...`, or macOS's update
+/// clone of one, `.../code_sign_clone.<nonce>/<X>.app.bundle/Contents/...`).
 pub(crate) fn containing_app_bundle(exe: &Path) -> Option<PathBuf> {
     exe.ancestors()
-        .find(|path| path.extension().is_some_and(|extension| extension == "app"))
+        .find(|path| {
+            path.extension().is_some_and(|extension| extension == "app")
+                || path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.ends_with(".app.bundle"))
+        })
         .filter(|bundle| exe.starts_with(bundle.join("Contents")))
         .map(Path::to_path_buf)
+}
+
+/// Where the app of `bundle` is installed: the bundle itself, or for macOS's
+/// update clone of an app (`<X>.app.bundle` in a `code_sign_clone.<nonce>`
+/// folder) the app it cloned, `/Applications/<X>.app`.
+pub(crate) fn install_path(bundle: &Path) -> PathBuf {
+    let clone = bundle.file_name().and_then(|name| name.to_str()).and_then(|name| {
+        let installed = name.strip_suffix(".bundle")?;
+        let nonce = bundle.parent()?.file_name()?.to_str()?;
+        nonce.starts_with("code_sign_clone.").then(|| Path::new("/Applications").join(installed))
+    });
+    clone.unwrap_or_else(|| bundle.to_path_buf())
 }
 
 /// The bundle's `CFBundleIdentifier`, from its Info.plist.
@@ -130,28 +162,78 @@ pub(crate) fn decide(absent_since: Option<Instant>, now: Instant, timing: Timing
     }
 }
 
-/// Resolves when this DEV daemon's app has been gone for the delay, with whether its
-/// executable is gone too (then its agents end: see the module doc); never for any other
-/// build. The bundle is read and the executable opened here, at once (a deleted bundle has no
-/// Info.plist to read later, and one deleted before the first poll would be missed): call it
-/// before the ready line.
+/// Resolves when this daemon's cmux app has been gone for the delay, with whether its agents
+/// end too (see the module doc); never for a daemon outside a cmux bundle. The bundle is read
+/// and the executable opened here, at once (a deleted bundle has no Info.plist to read later,
+/// and one deleted before the first poll would be missed): call it before the ready line.
 pub(crate) fn watch() -> impl std::future::Future<Output = bool> + Send + 'static {
     // One read of the executable's path, opened at once: a second read could name a rebuild
     // that replaced it in between, and the watch would hold that one.
     let facts = std::env::current_exe().ok().and_then(|exe| {
         let opened = std::fs::File::open(&exe);
-        let socket = dev_app_socket(&exe)?;
-        // A DEV bundle whose binary was already unlinked (a rebuild in the instant before the
-        // open): gone from the start, or the watch could never see it go. Only "not found":
-        // any other refusal (a binary it may not read) is never taken for gone.
+        let app = App::of(&exe)?;
+        // A binary already unlinked (a rebuild in the instant before the open): gone from the
+        // start, or the watch could never see it go. Only "not found": any other refusal (a
+        // binary it may not read) is never taken for gone.
         let missing = matches!(&opened, Err(e) if e.kind() == std::io::ErrorKind::NotFound);
-        Some((socket, Executable(opened.ok(), missing)))
+        Some((app, Executable(opened.ok(), missing)))
     });
     async move {
         match facts {
-            Some((socket, executable)) => watch_app(socket, executable).await,
+            Some((app, executable)) => watch_app(app, executable).await,
             None => std::future::pending().await,
         }
+    }
+}
+
+/// The cmux app around this daemon's executable, read once at start.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct App {
+    /// The app bundle the executable runs from.
+    pub(crate) bundle: PathBuf,
+    pub(crate) bundle_id: String,
+    /// A DEV build's control socket (`CMUX_SOCKET_PATH`): its refusals count as the app gone.
+    /// None for every other channel, and for a DEV build started without one.
+    pub(crate) socket: Option<PathBuf>,
+}
+
+impl App {
+    fn of(exe: &Path) -> Option<Self> {
+        if !cfg!(target_os = "macos") {
+            return None;
+        }
+        let bundle = containing_app_bundle(exe)?;
+        Self::new(bundle.clone(), bundle_id(&bundle)?, app_socket_env())
+    }
+
+    /// The app of a bundle with `bundle_id`, given the daemon's `CMUX_SOCKET_PATH`; None when
+    /// it is not a cmux app.
+    pub(crate) fn new(bundle: PathBuf, bundle_id: String, socket: Option<PathBuf>) -> Option<Self> {
+        if !is_cmux_bundle(&bundle_id) {
+            return None;
+        }
+        let socket = socket.filter(|_| is_dev_bundle(&bundle_id));
+        Some(Self { bundle, bundle_id, socket })
+    }
+
+    /// For a daemon run from macOS's update clone of an app, whose file keeps its name in the
+    /// clone whatever happens to the app: whether the app it cloned is gone from its install
+    /// path (deleted, or another app there). False for every other bundle.
+    fn clone_orphaned(&self) -> bool {
+        let install = install_path(&self.bundle);
+        install != self.bundle && bundle_id(&install).as_deref() != Some(self.bundle_id.as_str())
+    }
+
+    fn is_dev(&self) -> bool {
+        is_dev_bundle(&self.bundle_id)
+    }
+
+    /// Whether this app's agents end with a daemon that stops with its executable `gone`:
+    /// a DEV build's whenever its executable is gone, any other channel's only when its install
+    /// path holds no app of its bundle id any more (`installed` is that path's bundle id: none
+    /// once deleted). An update of the same app keeps them for its next launch to adopt.
+    pub(crate) fn ends_agents(&self, gone: bool, installed: Option<&str>) -> bool {
+        gone && (self.is_dev() || installed != Some(self.bundle_id.as_str()))
     }
 }
 
@@ -175,7 +257,7 @@ impl Executable {
         Self(std::fs::File::open(path).ok(), false)
     }
 
-    /// One already unlinked when a DEV daemon started (see `watch`): always gone.
+    /// One already unlinked when the daemon started (see `watch`): always gone.
     #[cfg(test)]
     fn gone_at_start(self) -> Self {
         Self(self.0, true)
@@ -198,23 +280,34 @@ impl Executable {
     }
 }
 
-async fn watch_app(socket: PathBuf, executable: Executable) -> bool {
+async fn watch_app(app: App, executable: Executable) -> bool {
     let timing = Timing::for_daemon();
-    tracing::info!(
-        socket = %socket.display(),
-        "DEV daemon: stops after {:?} with its app's socket refusing connects",
-        timing.delay
-    );
+    match &app.socket {
+        Some(socket) => tracing::info!(
+            socket = %socket.display(),
+            bundle = %app.bundle.display(),
+            "DEV daemon: stops after {:?} with its app's socket refusing connects or its executable gone",
+            timing.delay
+        ),
+        None => tracing::info!(
+            bundle = %app.bundle.display(),
+            "daemon: stops after {:?} with its executable gone",
+            timing.delay
+        ),
+    }
     let mut answered = false;
     let mut absent_since = None;
     loop {
-        let probe = socket.clone();
-        let reachable = tokio::task::spawn_blocking(move || app_reachable(&probe)).await;
+        // No socket to try: only the executable decides.
+        let reachable = match app.socket.clone() {
+            Some(probe) => tokio::task::spawn_blocking(move || app_reachable(&probe)).await.ok(),
+            None => Some(true),
+        };
         let now = Instant::now();
         // A failed task changes nothing.
-        if let Ok(reachable) = reachable {
+        if let Some(reachable) = reachable {
             answered |= reachable;
-            if !gone(reachable, answered, executable.gone()) {
+            if !gone(reachable, answered, executable.gone() || app.clone_orphaned()) {
                 absent_since = None;
             } else if absent_since.is_none() {
                 absent_since = Some(now);
@@ -222,14 +315,19 @@ async fn watch_app(socket: PathBuf, executable: Executable) -> bool {
         }
         match decide(absent_since, now, timing) {
             Decision::Exit => {
-                let deleted = executable.gone();
+                let deleted = executable.gone() || app.clone_orphaned();
+                let install = install_path(&app.bundle);
+                let installed = bundle_id(&install);
+                let end_agents = app.ends_agents(deleted, installed.as_deref());
                 tracing::info!(
-                    socket = %socket.display(),
+                    bundle = %app.bundle.display(),
                     executable_gone = deleted,
-                    "stopping: the app of this DEV build was gone for {:?}",
+                    installed = installed.as_deref().unwrap_or("none"),
+                    end_agents,
+                    "stopping: the app of this daemon was gone for {:?}",
                     timing.delay
                 );
-                return deleted;
+                return end_agents;
             }
             Decision::Wait(after) => tokio::time::sleep(after).await,
         }
@@ -241,16 +339,6 @@ async fn watch_app(socket: PathBuf, executable: Executable) -> bool {
 /// tag may listen there now), or its socket refuses after it answered once.
 pub(crate) fn gone(reachable: bool, answered: bool, executable_gone: bool) -> bool {
     executable_gone || (!reachable && answered)
-}
-
-/// The app's control socket when this executable sits in a DEV bundle.
-fn dev_app_socket(exe: &Path) -> Option<PathBuf> {
-    if !cfg!(target_os = "macos") {
-        return None;
-    }
-    let socket = app_socket_env()?;
-    let bundle = containing_app_bundle(exe)?;
-    is_dev_bundle(&bundle_id(&bundle)?).then_some(socket)
 }
 
 /// The app's control socket this daemon was started with (`CMUX_SOCKET_PATH`).
@@ -285,6 +373,76 @@ mod tests {
         assert!(!is_dev_bundle("com.cmuxterm.app.nightly"));
         assert!(!is_dev_bundle("com.cmuxterm.app.nightly.cmux-next"));
         assert!(!is_dev_bundle("com.cmuxterm.app"));
+    }
+
+    #[test]
+    fn every_channel_is_a_cmux_bundle() {
+        for id in [
+            "com.cmuxterm.app",
+            "com.cmuxterm.app.nightly",
+            "com.cmuxterm.app.nightly.cmux-next",
+            "com.cmuxterm.app.debug.orphan",
+        ] {
+            assert!(is_cmux_bundle(id), "{id}");
+        }
+        assert!(!is_cmux_bundle("com.cmuxterm.appx"));
+        assert!(!is_cmux_bundle("com.example.app"));
+    }
+
+    #[test]
+    fn only_a_dev_app_watches_its_socket() {
+        let socket = Some(PathBuf::from("/tmp/app.sock"));
+        let app = |id: &str| App::new(PathBuf::from("/A/x.app"), id.into(), socket.clone());
+        assert_eq!(app("com.cmuxterm.app.debug.t").unwrap().socket, socket);
+        assert_eq!(
+            app("com.cmuxterm.app.nightly").unwrap().socket,
+            None,
+            "NIGHTLY outlives a quit"
+        );
+        assert_eq!(app("com.cmuxterm.app").unwrap().socket, None, "Release outlives a quit");
+        assert_eq!(app("com.example.app"), None, "not a cmux app: no watch");
+    }
+
+    #[test]
+    fn a_deleted_app_ends_its_agents_an_updated_one_keeps_them() {
+        let app = |id: &str| App::new(PathBuf::from("/A/x.app"), id.into(), None).unwrap();
+        let nightly = app("com.cmuxterm.app.nightly");
+        assert!(nightly.ends_agents(true, None), "deleted");
+        assert!(nightly.ends_agents(true, Some("com.cmuxterm.app")), "another app at its path");
+        assert!(!nightly.ends_agents(true, Some("com.cmuxterm.app.nightly")), "updated in place");
+        assert!(!nightly.ends_agents(false, None), "its executable is still there");
+        let release = app("com.cmuxterm.app");
+        assert!(release.ends_agents(true, None));
+        assert!(!release.ends_agents(true, Some("com.cmuxterm.app")));
+        // A DEV rebuild ends them: no build of it is left to adopt them.
+        let dev = app("com.cmuxterm.app.debug.t");
+        assert!(dev.ends_agents(true, Some("com.cmuxterm.app.debug.t")));
+        assert!(!dev.ends_agents(false, None));
+    }
+
+    #[test]
+    fn an_update_clone_watches_the_app_it_cloned() {
+        let clone = Path::new(
+            "/private/var/folders/a/b/T/com.cmuxterm.app.nightly.code_sign_clone/code_sign_clone.9gP34C/cmux NIGHTLY.app.bundle",
+        );
+        let exe = clone.join("Contents/Resources/bin/acpmux");
+        assert_eq!(containing_app_bundle(&exe).as_deref(), Some(clone));
+        assert_eq!(install_path(clone), Path::new("/Applications/cmux NIGHTLY.app"));
+        let app = Path::new("/Applications/cmux NIGHTLY.app");
+        assert_eq!(install_path(app), app);
+        // A bundle named like a clone outside a clone folder is its own install.
+        let lookalike = Path::new("/tmp/x/cmux NIGHTLY.app.bundle");
+        assert_eq!(install_path(lookalike), lookalike);
+        let own = App::new(app.to_path_buf(), "com.cmuxterm.app.nightly".into(), None).unwrap();
+        assert!(!own.clone_orphaned(), "an installed app is never a clone");
+        // The clone of an app no longer installed (none at this path on a test host).
+        let cloned = App::new(
+            clone.to_path_buf(),
+            "com.cmuxterm.app.nightly.orphan-test-absent".into(),
+            None,
+        )
+        .unwrap();
+        assert!(cloned.clone_orphaned(), "the app it cloned is gone");
     }
 
     #[test]
@@ -352,7 +510,7 @@ mod tests {
         let third = Executable::open(&exe);
         std::fs::remove_file(&exe).unwrap();
         assert!(third.gone(), "deleted");
-        // Not opened at the start: never gone, unless marked gone then (a DEV binary unlinked).
+        // Not opened at the start: never gone, unless marked gone then (a binary unlinked).
         assert!(!Executable::open(&dir.join("missing")).gone());
         assert!(Executable::open(&dir.join("missing")).gone_at_start().gone());
         let _ = std::fs::remove_dir_all(&dir);
