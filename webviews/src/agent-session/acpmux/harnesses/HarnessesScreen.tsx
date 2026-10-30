@@ -95,6 +95,21 @@ export function HarnessesScreen({
     if (live.current) setHealth((current) => ({ ...current, [harness]: row }));
     return row;
   };
+  useEffect(() => {
+    // A failed terminal launch can race with a health refresh that reports the harness ready.
+    // Reconcile that completed state so the stale failure cannot keep the row stuck on Sign In.
+    setProgress((current) => {
+      let changed = false;
+      const next = { ...current };
+      for (const [harness, state] of Object.entries(current)) {
+        if (state?.kind === "failed" && state.retrySignIn && health[harness]?.auth === "signedIn") {
+          next[harness] = undefined;
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [health]);
   const installed = useMemo(
     () =>
       catalog.harnesses

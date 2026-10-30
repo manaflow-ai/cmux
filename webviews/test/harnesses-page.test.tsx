@@ -216,13 +216,10 @@ test("a failed sign-in retries its saved login after health refresh marks the ro
   auth.codex = "signedIn";
   await act(async () => window.dispatchEvent(new Event("focus")));
   await until(() => codex.dataset.harnessStatus === "ready", "the refreshed ready row");
+  expect(codex.querySelector("button")?.textContent).toBe("Start Chat");
   await act(async () => codex.querySelector<HTMLButtonElement>("button")!.click());
-  expect(attempts).toBe(2);
-  expect(calls.some((call) => call.method === "chat.new")).toBe(false);
-  expect(calls.filter((call) => call.method === "tab.open")[1]).toEqual({
-    method: "tab.open",
-    params: { kind: "terminal", text: "codex login", cwd: "/Users/you/src/cmux", run: true, keep: true },
-  });
+  expect(attempts).toBe(1);
+  expect(calls.filter((call) => call.method === "chat.new")).toHaveLength(1);
 });
 
 test("Start Chat starts a chat on that harness in this tab", async () => {
