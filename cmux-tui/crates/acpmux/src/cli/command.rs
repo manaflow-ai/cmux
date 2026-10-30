@@ -1286,9 +1286,9 @@ pub struct NewArgs {
 #[derive(Args, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct StopIf {
     /// Stop only when the session is idle: no turn (one admitted but not started yet included),
-    /// queued prompt, pending permission, agent request or background subagent. Checked under the
-    /// lock that admits turns, so none starts between the check and the stop. Refused: exit 6,
-    /// error `busy`, with `busyWith` and the session's revision.
+    /// queued prompt, pending permission, agent request, background subagent or process. Checked
+    /// under the lock that admits turns, so none starts between the check and the stop. Refused:
+    /// exit 6, error `busy`, with `busyWith` and the session's revision.
     #[arg(long, conflicts_with = "mesh")]
     pub if_idle: bool,
     /// With --if-idle: stop only while the session's revision (its `lastSeq` in `acpmux ls

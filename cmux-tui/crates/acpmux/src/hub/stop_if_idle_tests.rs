@@ -143,6 +143,45 @@ async fn a_stop_without_if_idle_stops_a_busy_session_as_before() {
     let _ = tokio::time::timeout(WAIT, run).await.expect("the stopped turn answers");
 }
 
+/// Work the daemon sees outside a turn of its own makes the session busy too: a turn the harness
+/// started itself, a background process its harness runs, and a Claude conversation with turns
+/// but none stored. Each is refused and the session stays open; once it is gone the stop runs.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn work_outside_an_acpmux_turn_is_refused_as_busy() {
+    let if_idle = StopCondition { if_idle: true, expect_revision: None };
+    let refused = |e: RpcError| reason(&e).1;
+
+    let (hub, s) = chat().await;
+    // Claude Code's own turn, from its `system/init` to its `result` (`tap.rs`).
+    s.harness_turn.store(true, Ordering::SeqCst);
+    let e = hub.stop(&s, false, if_idle).await.expect_err("a harness turn's session was stopped");
+    assert_eq!(refused(e), json!("turn"));
+    assert!(!closed(&s));
+    s.harness_turn.store(false, Ordering::SeqCst);
+
+    // A shell the harness runs in the background (`processes.rs`).
+    let update = json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "own", "update": {"sessionUpdate": "background_task_update", "toolCallId": "bg", "taskId": "bg", "state": "running", "command": "serve"}}});
+    let rec = hub.append(&s, "in", "background_task_update", update);
+    hub.note_process(&s, &rec, None);
+    assert!(hub.any_process_running(&s), "the stand-in process does not run");
+    let e = hub.stop(&s, false, if_idle).await.expect_err("a running process was ended");
+    assert_eq!(refused(e), json!("process"));
+    assert!(!closed(&s));
+
+    let (hub, s) = chat().await;
+    {
+        let mut m = s.meta.lock().unwrap();
+        m.claude_unstored = true;
+        m.turn_count = 1;
+    }
+    let e = hub.stop(&s, false, if_idle).await.expect_err("an unstored conversation was stopped");
+    assert_eq!(refused(e), json!("unstored"));
+    assert!(!closed(&s));
+    s.meta.lock().unwrap().claude_unstored = false;
+    hub.stop(&s, false, if_idle).await.unwrap();
+    assert!(closed(&s));
+}
+
 #[test]
 fn the_condition_reads_from_the_request() {
     let read = |v: Value| StopCondition::from_params(&v);
@@ -161,4 +200,9 @@ fn the_condition_reads_from_the_request() {
     assert!(StopCondition::asked(&json!({"ifIdle": true})));
     assert!(StopCondition::asked(&json!({"expectRevision": 3})));
     assert!(!StopCondition::asked(&json!({"ifIdle": false, "purge": true})));
+    assert!(!StopCondition::asked(&json!({"ifIdle": null, "expectRevision": null})));
+    // A malformed condition is never forwarded to a peer as a plain stop.
+    assert!(StopCondition::asked(&json!({"ifIdle": "yes"})));
+    assert!(StopCondition::asked(&json!({"ifIdle": 1})));
+    assert!(StopCondition::asked(&json!({"expectRevision": "7"})));
 }

@@ -70,12 +70,14 @@ boundary); `--no-steer` queues it instead.
 | Export it as a bundle; import the folder it prints elsewhere | `acpmux session export coord --dest ~/bundles` |
 
 `session stop --if-idle` stops nothing while the session has a turn (one admitted but not started
-yet included), a queued prompt, a pending permission, an agent request or a background subagent,
+yet included, or one its harness started itself), a queued prompt, a pending permission, an agent
+request, a background subagent or a background process,
 and with `--expect-revision REV` nothing once its revision (`lastSeq` in `acpmux ls --json` and
 `session info --json`, each record's `seq` in `session tail`) is no longer REV. The check and the
 stop happen under the lock that admits turns, so no turn starts in between. A refusal exits 6; with
 `--json` its `error.detail` is `busy` (`error.data.busyWith` says what: `turn`, `queued`,
-`permission`, `tool_call`, `subagent`, `starting`, `moving`) or `revision_moved`, and
+`permission`, `tool_call`, `subagent`, `process` (a background shell of its harness), `unstored` (a
+Claude conversation that was never stored), `starting`, `moving`) or `revision_moved`, and
 `error.data.revision` is the current revision. It runs on the daemon that owns the session: it is
 refused with `--mesh` and for a peer's session (`stop_if_idle_remote`), and by a daemon that predates
 it (`stop_if_idle_unsupported`, exit 1).

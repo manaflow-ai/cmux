@@ -16,9 +16,17 @@
 //! request appends a record. With `expectRevision`, a session whose revision is no longer REV is
 //! refused: something happened since the caller read it.
 //!
+//! A turn the harness starts on its own (Claude Code's, for a task notification: it never took a
+//! prompt from acpmux) takes no lock of acpmux's; nothing in this daemon can fence it. It counts
+//! once its `system/init` is read (`Session::harness_turn`, after the inbound drain below), and
+//! what such a turn is started for, a background subagent or process that ends, makes the session
+//! busy on its own. Left open: a turn the harness starts in the moment between this check and the
+//! stop, with nothing of its own running, as for the idle pass.
+//!
 //! A refusal is JSON-RPC error [`NOT_IDLE_CODE`] with data `{"reason": "busy" | "revision_moved",
 //! "revision": N, "sessionId": ID}`, plus `busyWith` for `busy` (`turn`, `queued`, `permission`,
-//! `tool_call`, `subagent`, `starting`, `moving`). The CLI exits 6 (`cli/errors.rs`).
+//! `tool_call`, `subagent`, `process`, `unstored`, `starting`, `moving`). The CLI exits 6
+//! (`cli/errors.rs`).
 
 use super::*;
 
@@ -64,9 +72,11 @@ impl StopCondition {
         Ok(Self { if_idle, expect_revision })
     }
 
-    /// Whether the request asks for a conditional stop at all.
+    /// Whether the request may ask for a conditional stop: any `ifIdle` but `false` or null, or
+    /// any `expectRevision` but null, malformed ones included. A peer that would ignore the
+    /// condition gets none of these (`server/peer_forward.rs`).
     pub(crate) fn asked(params: &Value) -> bool {
-        params.get("ifIdle").and_then(Value::as_bool) == Some(true)
+        params.get("ifIdle").is_some_and(|v| !matches!(v, Value::Null | Value::Bool(false)))
             || params.get("expectRevision").is_some_and(|v| !v.is_null())
     }
 }
@@ -191,6 +201,19 @@ impl Hub {
             || session.work_below_since.lock().is_ok_and(|v| *v != 0)
         {
             return Some("subagent");
+        }
+        // A harness's own background process (a dev server, a watcher) ends with its harness;
+        // its end is also what a harness starts a turn of its own for (module docs).
+        if self.any_process_running(session) {
+            return Some("process");
+        }
+        // A Claude chat with turns but none stored: stopped, it would come back as a fresh
+        // conversation (`idle.rs` keeps it awake for the same reason).
+        {
+            let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            if m.claude_unstored && m.turn_count > 0 {
+                return Some("unstored");
+            }
         }
         if session.moving().is_some() {
             return Some("moving");
