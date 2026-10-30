@@ -9944,7 +9944,7 @@ function AcpmuxPane() {
         )}
         {!harnessCard && (
           <HarnessHealthNotice
-            health={harnessHealth ?? targetSignInHealth}
+            health={targetSignInHealth ?? harnessHealth}
             harness={healthHarness}
             name={catalog.find((entry) => entry.id === healthHarness)?.name ?? healthHarness ?? ""}
             {...(snapshot.summary?.cwd ? { cwd: snapshot.summary.cwd } : {})}
