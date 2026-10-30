@@ -234,10 +234,10 @@ acpmux session stop worker/review    # stop its agent; keep the session
 
 Use the stable `sessionId` from `resolve`, a unique name or prefix, or `HOST/NAME`. A
 sub-session (named `PARENT/SHORT`) also answers to its short name: `acpmux send mac-ci-3`
-reaches `claude-sr2/mac-ci-3` when no session on any host is named `mac-ci-3` outright and
-no other session, here or on a peer, has the short name `mac-ci-3` (then the send is refused
-with each one's name). `HOST/SHORT` looks on that host only, after its exact names. A name
-nothing matches is refused with the close matches.
+reaches `claude-sr2/mac-ci-3` when nothing else does (no session on any host has that id,
+name or a name or id starting with `mac-ci-3`) and no other session, here or on a peer, has
+the short name `mac-ci-3` (then the send is refused with each one's name). `HOST/SHORT` looks
+on that host only. A name nothing matches is refused with the close matches.
 Resume, retry, cancel and stop refuse ambiguous matches, including a local and remote
 session with the same name, and list qualified IDs to select from. Once resolved, a control
 keeps the owning peer and session ID even if another host has a copy of that session.

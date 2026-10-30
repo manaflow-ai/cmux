@@ -189,8 +189,8 @@ fn by_link<'a>(summaries: &'a [Value], link: &AgentLink, own: &str) -> Vec<&'a V
 /// host, so a local chat cannot hide a peer's chat with the same name from control callers.
 /// Qualified names select their host; bead ids still find the sessions that carry them. A
 /// sub-session's short name (`mac-ci-3` for `claude-sr2/mac-ci-3`,
-/// `session_name::ends_with_segments`) names it when no whole name does, ahead of a prefix: a
-/// bare one on every host, `HOST/SHORT` on that host only and after its exact names.
+/// `session_name::ends_with_segments`) names it only where no id, name or prefix does: a bare
+/// one on every host, `HOST/SHORT` on that host only.
 fn by_key<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Value> {
     let exact: Vec<&Value> = summaries
         .iter()
@@ -216,16 +216,6 @@ fn by_key<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Value> {
             return carry;
         }
     }
-    // A bare short name, on every host: several are the tie a control caller refuses.
-    if !key.contains('/') {
-        let by_segment: Vec<&Value> = summaries
-            .iter()
-            .filter(|s| crate::session_name::ends_with_segments(bare_name(s), key))
-            .collect();
-        if !by_segment.is_empty() {
-            return by_segment;
-        }
-    }
     if let Some((host, rest)) = key.split_once('/') {
         let on_host: Vec<&Value> =
             summaries.iter().filter(|s| host_of(s, own).eq_ignore_ascii_case(host)).collect();
@@ -237,17 +227,27 @@ fn by_key<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Value> {
         if !exact.is_empty() {
             return exact;
         }
-        let by_segment: Vec<&Value> = on_host
-            .iter()
-            .copied()
-            .filter(|s| crate::session_name::ends_with_segments(bare_name(s), rest))
-            .collect();
-        if !by_segment.is_empty() {
-            return by_segment;
+        let prefixed: Vec<&Value> =
+            on_host.iter().copied().filter(|s| key_prefix(s, rest)).collect();
+        if !prefixed.is_empty() || rest.contains('/') {
+            return prefixed;
         }
-        return on_host.into_iter().filter(|s| key_prefix(s, rest)).collect();
+        return by_short_name(on_host, rest);
     }
-    summaries.iter().filter(|s| key_prefix(s, key)).collect()
+    let prefixed: Vec<&Value> = summaries.iter().filter(|s| key_prefix(s, key)).collect();
+    if !prefixed.is_empty() {
+        return prefixed;
+    }
+    // A bare short name, on every host, only where nothing above matched: several are the tie
+    // a control caller refuses.
+    by_short_name(summaries.iter().collect(), key)
+}
+
+/// The sessions whose last name segment is `key` (`session_name::ends_with_segments`).
+fn by_short_name<'a>(rows: Vec<&'a Value>, key: &str) -> Vec<&'a Value> {
+    rows.into_iter()
+        .filter(|s| crate::session_name::ends_with_segments(bare_name(s), key))
+        .collect()
 }
 
 /// Keep the CLI's unique id/name prefixes, collecting all candidates before a control
@@ -434,6 +434,10 @@ mod tests {
         assert!(by_key(&rows, "nohost/x", "hb").is_empty());
         assert_eq!(ids(&by_key(&rows, "hb/x", "hb")), ["m4"], "on host hb only, not cg's m3");
         assert_eq!(ids(&by_key(&rows, "x", "hb")), ["m3", "m4"], "a bare one: both, a tie");
+        // A prefix still wins, as before short names.
+        let mut rows = rows;
+        rows.push(json!({"sessionId": "m5", "name": "xy", "harness": "claude"}));
+        assert_eq!(ids(&by_key(&rows, "x", "hb")), ["m5"]);
     }
 
     #[test]

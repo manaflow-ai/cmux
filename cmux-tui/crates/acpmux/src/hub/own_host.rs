@@ -162,15 +162,33 @@ mod segment_tests {
         assert_eq!(remote_id(&hub, "lane").as_deref(), Some("hb/r1"));
     }
 
-    /// Two sub-sessions with the short name are refused with their names, so the caller picks;
-    /// a third session the key is a prefix of does not settle it.
+    /// Two sub-sessions with the short name are refused with their names, so the caller picks.
     #[test]
     fn two_sub_sessions_with_the_short_name_are_refused_with_both() {
-        let hub = hub_with(&[("m1", "a/lane"), ("m2", "b/lane"), ("m3", "lane-2")]);
+        let hub = hub_with(&[("m1", "a/lane"), ("m2", "b/lane")]);
         let e = err(hub.resolve("lane"));
         assert!(e.message.contains("matches 2 sessions"), "{}", e.message);
         assert!(e.message.contains("a/lane (m1), b/lane (m2)"), "{}", e.message);
         assert_eq!(e.data.unwrap()["reason"], "ambiguous_session");
+    }
+
+    /// Short names are the last tier: a key that found a session before by a prefix, here or
+    /// on a peer, finds the same one now (review of #27791 at 8fb3993).
+    #[test]
+    fn a_prefix_here_or_on_a_peer_still_wins_over_a_short_name() {
+        let hub = hub_with(&[("m1", "a/lane"), ("m2", "lane-2")]);
+        assert_eq!(id(hub.resolve("lane")), "m2", "a unique prefix, as before");
+        let hub = hub_with(&[("m1", "a/s")]);
+        add_peer(&hub, "hb");
+        peer_row(&hub, "hb", "s123", "hb/other");
+        assert!(hub.resolve("s").is_err(), "the peer's id prefix is meant");
+        assert_eq!(remote_id(&hub, "s").as_deref(), Some("hb/s123"));
+        // A local prefix keeps a peer's short name from taking the key.
+        let hub = hub_with(&[("m1", "sx")]);
+        add_peer(&hub, "hb");
+        peer_row(&hub, "hb", "r1", "hb/a/s");
+        assert_eq!(id(hub.resolve("s")), "m1");
+        assert_eq!(remote_id(&hub, "s"), None);
     }
 
     /// Review of #27791: a short name here and one on a peer are a tie on both routes, never

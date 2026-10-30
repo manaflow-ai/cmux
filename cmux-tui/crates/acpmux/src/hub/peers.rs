@@ -947,20 +947,15 @@ impl Hub {
         }
     }
 
-    /// How many peer sessions have `key` as their whole name (`NAME` or `PEER/NAME`), or as
-    /// the id they are listed under. A local session's short name gives way to one
+    /// [`Self::remote_matches`] without short names: how many peer sessions `key` names by id,
+    /// id prefix, whole name or `PEER/NAME`. A local short name gives way to any of them
     /// (`Hub::resolve_here`).
-    pub(super) fn remote_whole_names(&self, key: &str) -> usize {
+    pub(super) fn remote_strict_matches(&self, key: &str) -> usize {
         let map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
         if map.get(key).is_some() {
             return 1;
         }
-        map.values()
-            .filter(|r| {
-                let name = r.summary.get("name").and_then(Value::as_str).unwrap_or("");
-                name == key || name.strip_prefix(&format!("{}/", r.peer)) == Some(key)
-            })
-            .count()
+        map.iter().filter(|(id, r)| names_remote(id, r, key)).count()
     }
 
     /// The names (with their ids) of the peer sessions whose short name is `key`
@@ -978,11 +973,11 @@ impl Hub {
 
     /// Look a key up among peer sessions: exact id, `peer/name`, or a unique name or id prefix;
     /// failing those, the one peer session whose short name `key` is ([`remote_segment`]):
-    /// `mac-ci-3` for `claude-sr2/mac-ci-3` when no session here has that short or whole name,
-    /// or `PEER/mac-ci-3` on that peer only.
+    /// `mac-ci-3` for `claude-sr2/mac-ci-3` when `key` names no session here in any way
+    /// (`Hub::local_matches`), or `PEER/mac-ci-3` on that peer only.
     pub fn resolve_remote(&self, key: &str) -> Option<(Arc<crate::peer::Peer>, String, Value)> {
         // Read before the peers' rows are locked: never this daemon's sessions under them.
-        let bare_is_local = !key.contains('/') && self.local_short_matches(key) > 0;
+        let bare_is_local = !key.contains('/') && self.local_matches(key) > 0;
         let map = self.remote_sessions.lock().unwrap();
         let row = |r: &RemoteSession| {
             (r.peer.clone(), r.receipt.mux_session_id.clone(), r.summary.clone())

@@ -1123,13 +1123,13 @@ impl Hub {
     }
 
     /// This daemon's own session `key` names: its id, its whole name, then a unique prefix of
-    /// either. A bare key (no `/`) that is a sub-session's last name segment (`mac-ci-3` for
-    /// `claude-sr2/mac-ci-3`, `session_name::ends_with_segments`) names it too, ahead of a
-    /// prefix, when it is the only session here or on a peer with that short name and no peer
-    /// lists a session with that whole name (that one is meant, and is the peer route's to
-    /// find). A short name only a peer's session has is the peer route's too
-    /// (`Hub::resolve_remote`). A short name several sessions share, here or on peers, is
-    /// refused with their names; a miss is the plain `no session matches`
+    /// either. Only when none of those finds a session here and no peer lists one `key` names
+    /// (by id, id prefix, whole name or `PEER/NAME`, `Hub::remote_strict_matches`), a bare key
+    /// (no `/`) that is a sub-session's last name segment (`mac-ci-3` for `claude-sr2/mac-ci-3`,
+    /// `session_name::ends_with_segments`) names it: so no key that found a session before
+    /// short names, or was refused, finds another now. A short name only a peer's session has
+    /// is the peer route's (`Hub::resolve_remote`); one several sessions share, here or on
+    /// peers, is refused with their names. A miss is the plain `no session matches`
     /// (`Hub::unknown_session` adds the close names where a caller is told). A key with a `/`
     /// never matches by short name here: `HOST/NAME` stays a host's (`own_host.rs`).
     pub(super) fn resolve_here(&self, key: &str) -> Result<Arc<Session>, RpcError> {
@@ -1180,18 +1180,21 @@ impl Hub {
             names.dedup();
             crate::session_name::ambiguous(key, &names)
         };
-        // A short name, when no session here has the whole name (several with it stay a tie a
-        // short name does not break). The peers' rows are read with this daemon's sessions
-        // unlocked. A peer's session with the whole name is meant: then this answers as it did
-        // before short names matched, and the peer route finds it.
-        if by_name.is_empty() && bare && self.remote_whole_names(key) == 0 {
+        // A short name, only where the rules above find nothing here and no peer lists a session
+        // `key` names: then this answers as it did before short names matched. The peers' rows
+        // are read with this daemon's sessions unlocked.
+        if by_name.is_empty()
+            && by_prefix.is_empty()
+            && bare
+            && self.remote_strict_matches(key) == 0
+        {
             let remote = self.remote_segment_names(key);
             match (by_segment.len(), remote.len()) {
                 (0, 0) => {}
                 (1, 0) => return Ok(by_segment.remove(0)),
                 // The peer's alone: `resolve_remote` takes it.
                 (0, 1) => return Err(crate::session_name::not_found(key, &[])),
-                // Never settled by a third session's prefix.
+                // Several, here or on peers: a tie, refused with every name.
                 _ => {
                     let mut names = named(&by_segment);
                     names.extend(remote);
@@ -1206,17 +1209,18 @@ impl Hub {
         }
     }
 
-    /// How many of this daemon's own sessions have `key` as their whole name or, for a bare
-    /// key, as their last name segment: a peer's session with that short name gives way to them
-    /// (`Hub::resolve_remote`).
-    pub(super) fn local_short_matches(&self, key: &str) -> usize {
+    /// How many of this daemon's own sessions `key` names in any way: id or name, a prefix of
+    /// either, or, for a bare key, the last name segment. A peer's session with that short name
+    /// gives way to any of them (`Hub::resolve_remote`).
+    pub(super) fn local_matches(&self, key: &str) -> usize {
         let bare = !key.contains('/');
         let sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         sessions
             .values()
             .filter(|s| {
                 let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                meta.name == key
+                s.id.starts_with(key)
+                    || meta.name.starts_with(key)
                     || (bare && crate::session_name::ends_with_segments(&meta.name, key))
             })
             .count()
