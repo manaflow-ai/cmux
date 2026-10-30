@@ -180,7 +180,10 @@ public final class PaneToolbarView: NSView {
             row.isEnabled = tool.enabled
             row.state = tool.toggled ? .on : .off
             if tool.menu.isEmpty {
-                let invoker = NativeMenuInvoker { [weak self] in self?.onNativeTool?(tool.id, nil) }
+                let invoker = NativeMenuInvoker(enabled: { tool.enabled }) { [weak self] in
+                    guard tool.enabled else { return }
+                    self?.onNativeTool?(tool.id, nil)
+                }
                 row.action = #selector(NativeMenuInvoker.run)
                 row.target = invoker
                 row.representedObject = invoker
@@ -198,7 +201,10 @@ public final class PaneToolbarView: NSView {
         let row = NSMenuItem(title: item.label, action: #selector(NativeMenuInvoker.run), keyEquivalent: "")
         row.isEnabled = item.enabled
         if let checked = item.checked { row.state = checked ? .on : .off }
-        let invoker = NativeMenuInvoker { [weak self] in self?.onNativeTool?(toolID, item.id) }
+        let invoker = NativeMenuInvoker(enabled: { item.enabled }) { [weak self] in
+            guard item.enabled else { return }
+            self?.onNativeTool?(toolID, item.id)
+        }
         row.target = invoker
         row.representedObject = invoker
         if !item.children.isEmpty {
@@ -345,10 +351,19 @@ public final class PaneToolbarView: NSView {
     }
 }
 
-private final class NativeMenuInvoker: NSObject {
+private final class NativeMenuInvoker: NSObject, NSMenuItemValidation {
+    let enabled: () -> Bool
     let action: () -> Void
-    init(action: @escaping () -> Void) { self.action = action }
-    @objc func run() { action() }
+    init(enabled: @escaping () -> Bool, action: @escaping () -> Void) {
+        self.enabled = enabled
+        self.action = action
+    }
+    @objc func run() { guard enabled() else { return }; action() }
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        let enabled = enabled()
+        menuItem.isEnabled = enabled
+        return enabled
+    }
 }
 
 // Like the strip's empty space (TabStripView+TitlebarDrag): in the window's top row, a press
