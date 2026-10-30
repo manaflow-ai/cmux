@@ -19,7 +19,12 @@ below 0, `worse` when it is above 0, else `no difference`. No verdict at all ("i
 
 `austin_failure` per run names which of Austin's failures the run showed: refused daemon
 connections, app requests with no reply in time, registry lock waits over 1 s at p99, acpmux
-restarts, cmux main-thread stalls over 100 ms. A run that shows none did not reproduce his day.
+restarts, cmux main-thread CODE stalls over 100 ms. A run that shows none did not reproduce his day.
+
+Stalls (P-MAIN rule G, lead 2026-10-30): a stall over 100 ms is CODE when the main thread was on the CPU
+for at least 50 % of it (cpu_ms >= duration_ms / 2; or the app's own `cause` from debug.hangs), else a
+WAIT (page faults, swap-ins, a lock). Only CODE stalls with a cmux frame are reds, named by their top
+cmux symbol; WAITs are counted apart and reported next to memory and swap (owner: B8, memory).
 """
 import json
 import math
@@ -109,10 +114,28 @@ def owner_of(symbol):
     return best[1] if best else None
 
 
+CODE_CPU_SHARE = 0.5
+
+
+def stall_cause(stall):
+    """`code` or `wait` (P-MAIN rule G, lead 2026-10-30): the app's own `cause` when its debug.hangs gives one;
+    else `code` when the main thread was on the CPU for at least half the stall (cpu_ms >= 50 % of
+    duration_ms), `wait` when less (blocked: page faults and swap-ins under memory pressure, a lock, I/O).
+    A stall without cpu_ms counts as code, so an unknown is never hidden as a wait."""
+    cause = stall.get("cause")
+    if cause in ("code", "wait"):
+        return cause
+    duration, cpu = stall.get("duration_ms"), stall.get("cpu_ms")
+    if not isinstance(duration, (int, float)) or not isinstance(cpu, (int, float)) or duration <= 0:
+        return "code"
+    return "code" if cpu >= CODE_CPU_SHARE * duration else "wait"
+
+
 def stall_sites(stalls):
+    """CODE stalls with a cmux frame, by their top cmux symbol (the reds of rule G); WAITs are not listed."""
     sites = {}
     for s in stalls:
-        if not s.get("cmux_frame"):
+        if not s.get("cmux_frame") or stall_cause(s) != "code":
             continue
         site = sites.setdefault(s["symbol"], {"symbol": s["symbol"], "count": 0, "total_ms": 0.0, "max_ms": 0.0,
                                                "owner": owner_of(s["symbol"])})
@@ -208,8 +231,16 @@ def run_metrics(run):
         "fds": {proc: dist(s.get(f"{proc}_fds") for s in samples) for proc in ("app", "daemon", "acpmux")},
         "growth_per_hour": {proc: {key: slope_per_hour(samples, f"{proc}_{key}") for key in ("rss_mb", "footprint_mb", "fds")}
                             for proc in ("app", "daemon", "acpmux")},
-        "stalls_over_100ms_cmux": sum(1 for s in run["stalls"] if s.get("cmux_frame")),
+        "stalls_over_100ms_cmux": sum(1 for s in run["stalls"] if s.get("cmux_frame") and stall_cause(s) == "code"),
         "stalls_over_100ms_all": len(run["stalls"]),
+        "stall_code_count": sum(1 for s in run["stalls"] if stall_cause(s) == "code"),
+        "stall_code_total_ms": round(sum(s.get("duration_ms") or 0 for s in run["stalls"] if stall_cause(s) == "code"), 1),
+        "stall_wait_count": sum(1 for s in run["stalls"] if stall_cause(s) == "wait"),
+        "stall_wait_total_ms": round(sum(s.get("duration_ms") or 0 for s in run["stalls"] if stall_cause(s) == "wait"), 1),
+        "stall_wait_cpu_share_max": max((round(s["cpu_ms"] / s["duration_ms"], 3) for s in run["stalls"]
+                                         if stall_cause(s) == "wait" and isinstance(s.get("cpu_ms"), (int, float))
+                                         and (s.get("duration_ms") or 0) > 0), default=None),
+        "stall_wait_task_pageins": sum(s.get("task_pageins") or 0 for s in run["stalls"] if stall_cause(s) == "wait"),
         "stall_sites": stall_sites(run["stalls"]),
         "notes": series.get("notes", []),
     }
@@ -219,6 +250,7 @@ def run_metrics(run):
         "app_no_reply": (m["app_no_reply_within"] or 0) > 0 or bool(m["app_requests"] and m["app_requests"].get("timeouts")),
         "lock_wait_p99_over_1s": (lock_wait.get("p99") or 0) > 1_000_000,
         "acpmux_restarts": restarts > 0 or (m["acpmux_unresponsive_log"] or 0) > 0,
+        # Only CODE stalls are a cmux red (rule G); WAITs are the memory owner's (B8), reported apart.
         "cmux_stalls": m["stalls_over_100ms_cmux"] > 0,
     }
     return m
@@ -241,7 +273,9 @@ KEY = [  # (label, path in metrics) for the text summary
     ("acpmux RSS max MB", ("memory", "acpmux", "rss_mb", "max")),
     ("load1 max", ("load1", "max")),
     ("swap used max MB", ("swap_used_mb", "max")),
-    ("cmux stalls >100 ms", ("stalls_over_100ms_cmux",)),
+    ("cmux CODE stalls >100 ms", ("stalls_over_100ms_cmux",)),
+    ("WAIT stalls total ms", ("stall_wait_total_ms",)),
+    ("WAIT stalls count", ("stall_wait_count",)),
     ("app fds max", ("fds", "app", "max")),
     ("daemon fds max", ("fds", "daemon", "max")),
     ("app RSS growth MB/h", ("growth_per_hour", "app", "rss_mb")),
@@ -406,6 +440,9 @@ def main():
         seen = [k for k, v in m["austin_failure"].items() if v]
         lines.append(f"{r.get('arm')} round {r.get('round')} on {r.get('host')}: agents {m['agents_started']}/{m['agents']} "
                      f"(hooked {m['agents_hooked']}), hooks {m['agent_hooks']}; Austin's failures seen: {', '.join(seen) or 'NONE'}")
+        lines.append(f"   stalls >100 ms: CODE {m['stall_code_count']} ({m['stall_code_total_ms']} ms), "
+                     f"WAIT {m['stall_wait_count']} ({m['stall_wait_total_ms']} ms, max CPU share {m['stall_wait_cpu_share_max']}) "
+                     f"next to swap max {m['swap_used_mb']['max']} MB, memory level min {m['memory_level_min']}; WAITs: owner B8 (memory)")
         for site in m["stall_sites"][:5]:
             lines.append(f"   stall {site['total_ms']} ms x{site['count']} (max {site['max_ms']}) {site['symbol']} owner {site['owner']}")
         for n in m["notes"][:5]:

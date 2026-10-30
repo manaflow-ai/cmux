@@ -593,7 +593,11 @@ def stalls(hangs):
         tops.append(own or (frames[0] if frames else None))
     out = []
     for r, top in zip(long, tops):
+        # The app's own cause and fault counts when it reports them (debug.hangs from
+        # fix/stall-hang-wait-split on); summarize.py classifies older records from cpu_ms / duration_ms.
         out.append({"duration_ms": r.get("duration_ms"), "cpu_ms": r.get("cpu_ms"), "kind": r.get("kind"),
+                    "cause": r.get("cause"), "task_faults": r.get("task_faults"), "task_pageins": r.get("task_pageins"),
+                    "fault_window_ms": r.get("fault_window_ms"),
                     "cmux_frame": bool(top), "symbol": names.get(top["symbol"], top["symbol"]) if top else None,
                     "image": top.get("image") if top else None})
     return out

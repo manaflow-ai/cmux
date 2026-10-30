@@ -74,7 +74,7 @@ to explore, and say so next to any number you cite.
 
 - **The base must reproduce Austin's day.** Each run lists `austin_failure`: refused daemon connections,
   app requests with no reply in time, registry lock wait p99 over 1 s, acpmux restarts, cmux main-thread
-  stalls over 100 ms. If any base run shows none of them, the summary says "invalid: base did not
+  CODE stalls over 100 ms. If any base run shows none of them, the summary says "invalid: base did not
   reproduce" and gives no verdict.
 - **The head must not change the harness** ("invalid: head edits the harness").
 - **Noise.** For each metric the summary gives a paired percentile bootstrap 95 % confidence interval of
@@ -114,10 +114,15 @@ Each run directory keeps `run.json` (all samples), `driver.log`, `app-log.txt`, 
 - `memory`: RSS and footprint over time for the app, the daemon and acpmux; `growth_per_hour` (RSS,
   footprint and fds, least-squares slope); `fds` (open file descriptors, `lsof`); `load1`,
   `swap_used_mb`, `memory_level_min`.
-- `stall_sites`: `debug.hangs` at the end of the run. Each stall over 100 ms with a cmux frame is
-  listed by its top cmux symbol, with the owner from `plans/cmux-next/OWNERS.md` (P-MAIN rule G).
+- `stall_sites`, `stall_code_*`, `stall_wait_*`: `debug.hangs` at the end of the run (P-MAIN rule G).
+  A stall over 100 ms is **CODE** when the main thread was on the CPU for at least half of it
+  (`cpu_ms >= duration_ms / 2`, or the app's own `cause` when its `debug.hangs` gives one), else a
+  **WAIT** (page faults, swap-ins, a lock). Only CODE stalls with a cmux frame are reds, listed by their
+  top cmux symbol with the owner from `plans/cmux-next/OWNERS.md`. WAITs are counted apart (count, total
+  ms, largest CPU share, page-ins) and reported next to memory and swap: under memory pressure they are
+  what a person feels, and B8 (memory) owns them.
 - `austin_failure`: which of Austin's failures the run showed (refused connections, app no-reply,
-  lock wait p99 over 1 s, acpmux restarts, cmux stalls). A run that shows none did not reproduce
+  lock wait p99 over 1 s, acpmux restarts, cmux CODE stalls). A run that shows none did not reproduce
   his day; say so, do not cite it as a reproduction.
 
 ## Check the harness

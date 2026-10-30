@@ -94,8 +94,13 @@ def synthetic_run():
             "app_probe": {"start": {"bounds_us": [1000, 10000, 100000], "counts": [5, 0, 0], "timeouts": 0, "max_us": 900},
                           "end": {"bounds_us": [1000, 10000, 100000], "counts": [95, 4, 1], "timeouts": 2, "max_us": 80000}},
             "app_log": {"ok": True, "no_reply_within": 3, "no_reply_by_cmd": {"put-frontend-projection": 3}},
-            "stalls": [{"duration_ms": 300.0, "cmux_frame": True, "symbol": "CmuxNextSidebar.Foo.bar()"},
-                       {"duration_ms": 200.0, "cmux_frame": False, "symbol": None}], "host": "h"}
+            "stalls": [{"duration_ms": 300.0, "cpu_ms": 250.0, "cmux_frame": True, "symbol": "CmuxNextSidebar.Foo.bar()"},
+                       {"duration_ms": 200.0, "cpu_ms": 150.0, "cmux_frame": False, "symbol": None},
+                       # A WAIT: 27 % on the CPU (run 1's largest share), with a cmux frame: not a red.
+                       {"duration_ms": 1000.0, "cpu_ms": 270.0, "cmux_frame": True, "symbol": "CmuxNextSidebar.Wait.row()"},
+                       # The app's own cause wins over the CPU share.
+                       {"duration_ms": 400.0, "cpu_ms": 390.0, "cause": "wait", "task_pageins": 12, "cmux_frame": True,
+                        "symbol": "CmuxNextSidebar.Paged.in()"}], "host": "h"}
 
 
 class Summary(unittest.TestCase):
@@ -122,7 +127,11 @@ class Summary(unittest.TestCase):
             self.assertEqual(m["workspace_close_not_done"], 1)
             self.assertEqual(m["acpmux_restarts"], 1)
             self.assertEqual(m["stalls_over_100ms_cmux"], 1)
+            self.assertEqual([s["symbol"] for s in m["stall_sites"]], ["CmuxNextSidebar.Foo.bar()"])
             self.assertEqual(m["stall_sites"][0]["owner"], "a590 (sidebar-owner agent)")
+            self.assertEqual((m["stall_code_count"], m["stall_code_total_ms"]), (2, 500.0))
+            self.assertEqual((m["stall_wait_count"], m["stall_wait_total_ms"]), (2, 1400.0))
+            self.assertEqual(m["stall_wait_task_pageins"], 12)
             self.assertTrue(all(m["austin_failure"].values()), m["austin_failure"])
 
 
@@ -207,6 +216,26 @@ class Verdicts(unittest.TestCase):
                     write_run(tmp, "base-2", "base", head, 2), write_run(tmp, "head-2", "head", head, 2, scale=2.0)]
             summary = summarize(os.path.join(tmp, "s.json"), dirs)
             self.assertEqual(summary["comparison"]["metrics"]["person CLI p99 ms"]["verdict"], "no difference")
+
+
+class StallCause(unittest.TestCase):
+    def test_only_code_stalls_are_reds(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_ = synthetic_run()
+            # Every stall is a WAIT (run 1's shape: the hog held 13.5 GB with 9.2 GB of swap).
+            run_["stalls"] = [{"duration_ms": 3365.8, "cpu_ms": 120.0, "cmux_frame": True, "symbol": "CmuxNextSidebar.Row.configure()"},
+                              {"duration_ms": 150.0, "cpu_ms": 74.9, "cmux_frame": True, "symbol": "CmuxNextSidebar.Section.filter()"}]
+            d = os.path.join(tmp, "run-1")
+            os.makedirs(d)
+            with open(os.path.join(d, "run.json"), "w") as f:
+                json.dump(run_, f)
+            m = summarize(os.path.join(tmp, "s.json"), [d])["runs"][0]["metrics"]
+            self.assertEqual(m["stall_sites"], [])
+            self.assertEqual(m["stalls_over_100ms_cmux"], 0)
+            self.assertFalse(m["austin_failure"]["cmux_stalls"])
+            self.assertEqual((m["stall_wait_count"], m["stall_wait_total_ms"]), (2, 3515.8))
+            # 74.9 of 150 is under half: a WAIT; exactly half would be CODE.
+            self.assertEqual(m["stall_code_count"], 0)
 
 
 class Hog(unittest.TestCase):
