@@ -1574,10 +1574,10 @@ export class AcpmuxDirectClient {
   private attachedGeneration = -1;
   private historyExhausted = false;
   /// The oldest `native_history` record held (reduced): where the transcript's older turns end.
-  private nativeSeed?: { seq: number; before: number };
+  private nativeSeed?: { seq: number; before: number; mark?: string };
   /// Where the next older native page ends, once one was read, for the held transcript
   /// (`historyEpoch`): 0 when nothing older holds a turn or the daemon serves no pages.
-  private nativeNext?: { epoch: number; before: number };
+  private nativeNext?: { epoch: number; before: number; mark?: string };
   /// Bumped when the held transcript's older end moves on its own: a kept tail dropped because the
   /// attach page did not continue it. An older page in flight from before belongs to a transcript
   /// the chat no longer holds, so it is dropped instead of merged above the new one.
@@ -4293,7 +4293,7 @@ export class AcpmuxDirectClient {
       // page's (a page of the log seq order puts first).
       const before = Number(msg.before);
       if (event.seq >= 1 && before > 0 && (this.nativeSeed === undefined || event.seq < this.nativeSeed.seq))
-        this.nativeSeed = { seq: event.seq, before };
+        this.nativeSeed = { seq: event.seq, before, mark: typeof msg.mark === "string" ? msg.mark : undefined };
       return;
     }
     const update = sessionUpdate(event);
@@ -7217,6 +7217,7 @@ export class AcpmuxDirectClient {
     const generation = this.selectionGeneration;
     const epoch = this.historyEpoch;
     let before = this.nativeBefore();
+    let mark = this.nativeNext?.epoch === epoch ? this.nativeNext.mark : this.nativeSeed?.mark;
     // A kept tail cut inside a native turn holds that turn's end only (KEPT_EVENTS): the turn comes
     // again whole with its page, so the part held goes and the rows are drawn again.
     const cut = this.events[0] !== undefined && this.events[0].seq < 1 && this.events[0].kind !== "turn_started";
@@ -7226,7 +7227,7 @@ export class AcpmuxDirectClient {
     for (let pages = 0; before !== undefined && before > 0 && pages < NATIVE_PAGES_PER_ASK; pages++) {
       let result: any;
       try {
-        result = await this.request("_acpmux/native_history", { sessionId, before }, 15_000);
+        result = await this.request("_acpmux/native_history", { sessionId, before, mark }, 15_000);
       } catch (error) {
         // An older daemon serves no pages, an older host relays none, a peer that serves none is
         // never asked, and a Web client may not read the transcript: the chat stops paging, as at
@@ -7236,7 +7237,8 @@ export class AcpmuxDirectClient {
           code === METHOD_NOT_FOUND ||
           code === "transport.method_refused" ||
           reason === "transcriptRead.unsupported" ||
-          reason === "transcriptRead.remote";
+          reason === "transcriptRead.remote" ||
+          reason === "transcriptRead.stale";
         if (!unserved) throw error;
         result = { events: [], before: 0 };
       }
@@ -7249,9 +7251,10 @@ export class AcpmuxDirectClient {
       const next = Number(result?.before);
       // A cursor moves back, or the transcript is done.
       before = Number.isFinite(next) && next > 0 && next < before ? next : 0;
+      mark = typeof result?.mark === "string" ? result.mark : undefined;
       if (older.some(startsTurn)) break;
     }
-    this.nativeNext = { epoch, before: before ?? 0 };
+    this.nativeNext = { epoch, before: before ?? 0, mark };
     if (cut) this.events = this.events.filter((event) => event.seq >= heldFrom);
     if (older.length > 0) {
       this.events = mergeEventRecords(older, this.events);
