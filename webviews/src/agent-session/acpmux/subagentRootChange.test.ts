@@ -41,8 +41,9 @@ async function openPane() {
   const id = mockHost.sessionId!;
   const view = { shown: {} as Shown };
   const snapshots: Array<() => void> = [];
+  const next = () => new Promise<void>((resolve) => snapshots.push(resolve));
   const until = async (check: () => boolean) => {
-    while (!check()) await new Promise<void>((resolve) => snapshots.push(resolve));
+    while (!check()) await next();
   };
   const client = await AcpmuxDirectClient.connect(
     mockHost,
@@ -67,7 +68,7 @@ async function openPane() {
       .map(({ id: agent, parent }) => [agent, parent])
       .sort(([a], [b]) => String(a).localeCompare(String(b)));
   await until(() => view.shown.summary !== undefined);
-  return { client, daemon, id, until, changes, root, topLevel };
+  return { client, daemon, id, next, until, changes, root, topLevel };
 }
 
 test("a root learned from a live session_changed repairs and never folds as a subagent", async () => {
@@ -132,7 +133,7 @@ test("a rebuild keeps every earlier native root the summary names a root", async
 // learnChatThread has nothing to learn, so the pane must fold again by itself. No later update
 // comes to flush the fold's rows, so the phantom group must be gone from that change alone.
 test("a retired root learned live leaves the transcript with no later update", async () => {
-  const { client, daemon, id, until, changes, root, topLevel } = await openPane();
+  const { client, daemon, id, next, until, changes, root, topLevel } = await openPane();
   try {
     daemon.touch(id, { harness: "codex", agentSessionId: "root-2" });
     await until(() => root() === "root-2");
@@ -141,12 +142,12 @@ test("a retired root learned live leaves the transcript with no later update", a
     changes([{ id: "helper", parent: "root-1" }]);
     await until(() => topLevel().some(([agent]) => agent === "root-1"));
 
+    // The change's own snapshot is the next one: nothing else is sent.
+    const drawn = next();
     daemon.touch(id, { retiredAgentSessionIds: ["root-1"] });
-    const retired = () =>
-      (client as unknown as { summary?: { retiredAgentSessionIds?: string[] } }).summary?.retiredAgentSessionIds;
-    await until(() => retired()?.includes("root-1") === true);
-    // Let the change's own snapshot draw; nothing else is sent.
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await drawn;
+    const retired = (client as unknown as { summary?: { retiredAgentSessionIds?: string[] } }).summary;
+    expect(retired?.retiredAgentSessionIds).toEqual(["root-1"]);
 
     expect(topLevel()).toEqual([["helper", null]]);
   } finally {
