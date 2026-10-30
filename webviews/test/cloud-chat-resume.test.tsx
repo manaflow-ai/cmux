@@ -309,21 +309,19 @@ test("a recheck that never resolves still ends recovery at the deadline", async 
       </div>
     );
   }
-  try {
-    await act(async () => root.render(<Recovery />));
-    await act(async () => {
-      mount.querySelector<HTMLButtonElement>('[data-action="deadline-wake"]')!.click();
-      jest.useFakeTimers();
-      jest.advanceTimersByTime(60_000);
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    const state = mount.querySelector('[data-action="deadline-state"]')?.textContent ?? "";
-    expect(state).toContain('"resuming":false');
-    expect(state).toContain('"error":');
-  } finally {
-    await act(async () => root.render(null));
-  }
+  await act(async () => root.render(<Recovery />));
+  const wake = mount.querySelector<HTMLButtonElement>('[data-action="deadline-wake"]');
+  expect(wake).not.toBeNull();
+  await act(async () => wake!.click());
+  jest.useFakeTimers();
+  await act(async () => {
+    jest.advanceTimersByTime(60_000);
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  const state = mount.querySelector('[data-action="deadline-state"]')?.textContent ?? "";
+  expect(state).toContain('"resuming":false');
+  expect(state).toContain('"error":');
 }, 10_000);
 
 test("an old chat's late inventory refusal leaves the new recovery running", async () => {
