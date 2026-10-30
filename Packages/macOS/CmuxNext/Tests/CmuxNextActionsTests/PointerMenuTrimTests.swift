@@ -18,19 +18,38 @@ struct PointerMenuTrimTests {
         "column.dockLeft", "column.dockRight", "column.dockTop", "column.dockBottom",
     ]
 
-    @Test func theTabMenuDropsSixteenLongTailRows() throws {
+    @Test func theTabMenuDropsFourteenLongTailRows() throws {
         let catalog = ContextMenuCatalog.shared
         let shown = Set(catalog.referencedIDs(catalog.entries(for: .tab)))
         #expect(shown.isDisjoint(with: Self.tabTrimmed))
-        // Context-dependent rows remain declared for targets that support them.
-        for id: ActionID in ["tab.pictureInPicture", "agentChat.copyIdentifier", "disconnectRemoteTab", "home.messageAbout"] {
-            #expect(shown.contains(id), "conditional tab action \(id)")
-        }
+        // Includes every More/Copy row and every target-dependent action.
+        let retained: Set<ActionID> = [
+            "agentChat.copyIdentifier", "agentChat.subagentLimit", "agentPane.togglePointerInspector",
+            "browser.openInChromium", "browserProfile.duplicateTab", "browserProfile.moveTab",
+            "closeOtherTabsInPane", "closeTab", "closeTabsToLeft",
+            "closeTabsToRight", "disconnectRemoteTab", "duplicateTab",
+            "home.messageAbout", "moveSurfaceLeft", "moveSurfaceRight",
+            "moveSurfaceToNextPane", "moveSurfaceToPaneDown", "moveSurfaceToPaneLeft",
+            "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "moveSurfaceToPreviousPane",
+            "newSurface", "newTab.atEnd", "newTab.atStart",
+            "newTab.ofKind", "newTab.toRight", "openBrowser.chromium",
+            "palette.clearTabName", "palette.copyIdentifiers", "palette.copyPaneID",
+            "palette.copyPaneLink", "palette.copySurfaceID", "palette.copySurfaceLink",
+            "palette.moveTabToNewWorkspace", "palette.toggleTabPin", "reloadTab",
+            "renameTab", "tab.clearIcon", "tab.moveToNewColumn",
+            "tab.moveToNewDockColumn", "tab.moveToNewSplit", "tab.moveToNewWindow",
+            "tab.moveToWorkspace", "tab.pictureInPicture", "tab.restart",
+            "tab.setIcon", "tab.setTint", "tab.showResources",
+            "tab.stash", "tab.stashOthers", "tab.stashToRight",
+            "tabGroup.addTab", "tabGroup.create", "tabGroup.removeTab",
+            "toggleTabAudioMute",
+        ]
+        #expect(shown == retained)
         for id in Self.tabTrimmed {
             let descriptor = try #require(ActionCatalog.all.first { $0.id == id })
             #expect(!descriptor.surfacePlan.contextMenus.contains { $0.context == .tab })
             if descriptor.surfacePlan.contextMenus.isEmpty {
-                #expect(descriptor.surfacePlan.contextMenuExemption == .minimalMenu, "\(id)")
+                #expect(descriptor.surfacePlan.contextMenuExemption == .pointerMenuTrim, "\(id)")
             }
         }
         // Shared commands retain their other pointer surfaces.
@@ -56,7 +75,7 @@ struct PointerMenuTrimTests {
             let descriptor = try #require(ActionCatalog.all.first { $0.id == id })
             #expect(descriptor.isPaletteVisible, "\(id)")
             #expect(descriptor.surfacePlan.contextMenus.isEmpty, "\(id)")
-            #expect(descriptor.surfacePlan.contextMenuExemption == .minimalMenu, "\(id)")
+            #expect(descriptor.surfacePlan.contextMenuExemption == .pointerMenuTrim, "\(id)")
         }
     }
 }

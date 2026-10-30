@@ -406,7 +406,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 keywords: ["screenshot", "capture", "image", "png", "picture"], category: .tab, symbol: "camera",
                 surfaces: [.palette], arguments: [CatalogArgument.screenshotOut], targets: [.tab],
                 cliName: "tab screenshot",
-                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .minimalMenu)
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .pointerMenuTrim)
             ),
             ActionDescriptor(
                 id: "palette.copyPaneID",

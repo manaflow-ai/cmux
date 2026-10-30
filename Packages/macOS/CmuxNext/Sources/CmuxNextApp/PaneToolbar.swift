@@ -272,7 +272,6 @@ final class PaneToolbar {
             menu.addItem(.separator())
             menu.addItem(showInTabBarItem(registry: registry))
         }
-        }
         let native = view.nativeOverflowItems()
         if !native.isEmpty {
             if !menu.items.isEmpty { menu.addItem(.separator()) }
