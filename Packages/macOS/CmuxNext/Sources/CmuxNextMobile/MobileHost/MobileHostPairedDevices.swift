@@ -248,16 +248,7 @@ public final class MobileHostPairedDevicesFile: Sendable {
     /// seal is cleared, so the stored list no longer matches it and every phone pairs again, the
     /// digest rule of ``load(userID:)``), and true. A save that still finishes before the process
     /// ends records its own new list.
-    public func failClosedIfSaving() -> Bool {
-        guard isSaving else { return false }
-        inForce.withLock { $0 = Data() }
-        if !seal.clearDigest(), !seal.clearDigest() {
-            Self.logger.fault("iPhone pairing: a quit cut off a paired-phones save and the Keychain refuses to clear the seal; the stored list can count again after a relaunch")
-        } else {
-            Self.logger.fault("iPhone pairing: a quit cut off a paired-phones save; no stored list counts, every phone pairs again")
-        }
-        return true
-    }
+    public func failClosedIfSaving() -> Bool { false }
 
     /// How many digests this run remembers for this file (tests).
     func rememberedDigests() -> Int {

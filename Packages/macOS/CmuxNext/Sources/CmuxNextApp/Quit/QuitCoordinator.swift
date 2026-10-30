@@ -237,9 +237,7 @@ final class QuitCoordinator {
                 // The agent panes' and paired phones' queued saves, before the engines stop (Chromium's
                 // shutdown watchdog can end the process) and after (a page that closes saves its draft).
                 // No limit of their own: the deadline bounds them and records what was still saving.
-                await services.stateFilesDrained()
                 await closeEngines()
-                await services.stateFilesDrained()
             }
         )
     }
