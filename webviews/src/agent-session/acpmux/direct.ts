@@ -334,8 +334,6 @@ const NATIVE_HISTORY_KIND = "native_history";
 /// Native pages one older read takes at most when the ones it reads hold no turn the pane lacks
 /// (pages it already holds, after its kept tail drew them). Each reads at most 16 MiB of transcript.
 const NATIVE_PAGES_PER_ASK = 4;
-/// The JSON-RPC code of a method a daemon does not serve: an older peer's daemon.
-const METHOD_NOT_FOUND = -32601;
 /** How long a session list that failed to load waits before it is read once more. */
 const SESSION_REREAD_MS = 2000;
 /// How often the pane reads the peers again while a missing chat's machine is still connecting.
