@@ -523,3 +523,27 @@ test("an ended unnamed and unprompted parent run leaves no tombstone that blocks
   );
   expect(fold.isRun("shell")).toBe(true);
 });
+
+test("a known background parent run that times out or is cancelled ends, never stuck running", () => {
+  for (const [state, ended] of [
+    ["timed_out", "failed"],
+    ["timed-out", "failed"],
+    ["timeout", "failed"],
+    ["cancelled", "cancelled"],
+    ["stopped", "cancelled"],
+  ] as const) {
+    const { fold, send } = folder();
+    expect(send(call("c1", PARENT_RUN, { run_in_background: true }))).toBe(false);
+    send({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "c1",
+      status: "completed",
+      content: text("Command running in background with ID: c1. Output is being written to: /tmp/c1.output."),
+    });
+    child(fold, 2, { event: "started", shortName: "fix", prompt: "Fix the flaky test", harness: "codex" });
+    expect(fold.isRun("c1")).toBe(true);
+    expect(fold.all()[0]!.state).toBe("running");
+    expect(send({ sessionUpdate: "background_task_update", toolCallId: "c1", state })).toBe(true);
+    expect(fold.all()[0]).toMatchObject({ state: ended, endedAt: 3000 });
+  }
+});
