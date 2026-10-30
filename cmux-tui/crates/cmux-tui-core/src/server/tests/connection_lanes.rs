@@ -215,6 +215,36 @@ fn budget_with_soft_limit(soft: u64) -> u64 {
 /// (3) The connection budget is derived from the open-file limit: a higher
 /// limit admits more connections, and the connections never take more than
 /// half the descriptors (the rest stay for terminals, files and listeners).
+/// #28408 review: a connection draws its queued replies' bytes from a share
+/// of its socket's budget, not the whole pool. One that stops reading stops
+/// at half of what is left; a newcomer's first reply always fits while the
+/// pool has room, so no client starves another. No stall signal and no
+/// timer decide it: only bytes.
+#[test]
+fn a_connection_takes_at_most_half_of_what_is_left_and_a_newcomer_always_fits() {
+    let pool = RenderService::new_with_outbound_budgets(100, 100);
+    let stalled = pool.for_connection();
+    let mut taken = 0;
+    while taken < 100 && stalled.outbound_budget.try_retain(10) {
+        taken += 10;
+    }
+    assert!(taken <= 50, "one connection took {taken} of a 100-byte pool");
+    let newcomer = pool.for_connection();
+    assert!(newcomer.outbound_budget.try_retain(10), "a newcomer's first reply did not fit");
+    let second = pool.for_connection();
+    assert!(second.outbound_budget.try_retain(10), "a second newcomer's first reply did not fit");
+    // The control budget shares the same way.
+    let mut control = 0;
+    while control < 100 && stalled.control_budget.try_retain(10) {
+        control += 10;
+    }
+    assert!(control <= 50, "one connection took {control} of a 100-byte control pool");
+    assert!(newcomer.control_budget.try_retain(10));
+    // What a connection gives back returns to the pool.
+    stalled.outbound_budget.release(taken);
+    assert_eq!(pool.outbound_budget.retained_bytes.load(Ordering::Acquire), 20);
+}
+
 #[cfg(unix)]
 #[test]
 fn the_connection_budget_follows_the_open_file_limit() {
@@ -458,4 +488,103 @@ fn a_client_that_stops_reading_for_a_while_keeps_its_connection() {
 
     socket.client_hang_up();
     handler.join().unwrap();
+}
+
+/// One session-socket client on a socket pair whose daemon side has a small
+/// send buffer, so the daemon's writer stops on it as soon as the client
+/// stops reading.
+#[cfg(unix)]
+struct SessionClient {
+    stream: std::os::unix::net::UnixStream,
+    reader: BufReader<std::os::unix::net::UnixStream>,
+}
+
+#[cfg(unix)]
+impl SessionClient {
+    fn connect(session: &listen::ServedSession) -> Self {
+        use std::os::fd::AsRawFd;
+        let (daemon_side, client) = std::os::unix::net::UnixStream::pair().unwrap();
+        let small: libc::c_int = 4 * 1024;
+        for fd in [daemon_side.as_raw_fd(), client.as_raw_fd()] {
+            for option in [libc::SO_SNDBUF, libc::SO_RCVBUF] {
+                // SAFETY: a valid descriptor and a c_int option value of its size.
+                unsafe {
+                    libc::setsockopt(
+                        fd,
+                        libc::SOL_SOCKET,
+                        option,
+                        (&raw const small).cast(),
+                        size_of::<libc::c_int>() as libc::socklen_t,
+                    );
+                }
+            }
+        }
+        session.serve(Box::new(daemon_side), ConnectionLane::Shared);
+        // No read deadline (R5): the daemon answers, or closes a connection
+        // whose reply it can't make; either ends the read.
+        let reader = BufReader::new(client.try_clone().unwrap());
+        Self { stream: client, reader }
+    }
+
+    fn send(&mut self, id: u64) {
+        writeln!(self.stream, "{}", json!({"id": id, "cmd": "identify"})).unwrap();
+    }
+
+    /// The next reply, or `Value::Null` once the daemon closed the connection.
+    fn read(&mut self) -> Value {
+        let mut line = String::new();
+        match self.reader.read_line(&mut line) {
+            Ok(0) | Err(_) => Value::Null,
+            Ok(_) => serde_json::from_str(&line).unwrap(),
+        }
+    }
+}
+
+/// #27698 follow-up (review of #28343): with no write deadline, a
+/// session-socket client that stops reading (a frontend stopped with
+/// Ctrl-Z) holds its queued replies' bytes, which come from the session
+/// socket's shared outbound budget. Once that budget can't fit a reply, the
+/// daemon ends the client that holds the most bytes while its socket can't
+/// take more (the kernel says it does not read), so every other client, the
+/// next one asking and an idle one that reads, is still served. No timer
+/// decides who is stalled; the test waits on the daemon's own events.
+#[cfg(unix)]
+#[test]
+fn a_stalled_client_never_starves_the_other_clients_of_the_shared_budget() {
+    let mux = test_mux();
+    let session =
+        listen::ServedSession::with_small_session_budgets_for_test(mux.clone(), 64 * 1024);
+    let mut idle = SessionClient::connect(&session);
+    idle.send(1);
+    assert_eq!(idle.read()["ok"], true);
+
+    // The stalled client asks for far more than the budget holds and never
+    // reads. Its connection ends when one of its replies can't fit: before
+    // the fix it is only closed, its queued bytes still held by a writer that
+    // waits on its full socket; with it, the daemon ends it and frees them.
+    let events = mux.subscribe();
+    let stalled = SessionClient::connect(&session);
+    // On its own thread: once the daemon stops reading this client, the
+    // writes wait on its full socket.
+    let mut requests = stalled.stream.try_clone().unwrap();
+    std::thread::spawn(move || {
+        for id in 1..=256 {
+            if writeln!(requests, "{}", json!({"id": id, "cmd": "identify"})).is_err() {
+                return;
+            }
+        }
+    });
+    loop {
+        if let MuxEvent::ClientDetached(_) = events.recv().unwrap() {
+            break;
+        }
+    }
+
+    let mut asking = SessionClient::connect(&session);
+    asking.send(1);
+    let reply = asking.read();
+    assert_eq!(reply["ok"], true, "a stalled client starved the next client: {reply}");
+    idle.send(2);
+    assert_eq!(idle.read()["ok"], true, "the daemon ended a client that reads");
+    drop(stalled);
 }
