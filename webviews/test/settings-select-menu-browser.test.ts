@@ -1,4 +1,4 @@
-// cmux-web-test-timeout: 300
+// cmux-web-test-timeout: 600
 // l10n-allow-file: browser test diagnostics, not shipped UI.
 // Leo 2026-10-30, on Settings > Updates with the Update Channel menu open: "look for wastage".
 // Real Chromium and WebKit lay out the settings gallery's Updates page with its Update Channel menu
@@ -14,6 +14,7 @@ import { mkdir } from "node:fs/promises";
 import { chromium, webkit, type Browser, type BrowserType } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { categories } from "../src/pages/settings/categories";
 
 await requireBrowserLane("settings-select-menu-browser.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -177,4 +178,77 @@ await requireBrowserLane("settings-select-menu-browser.test.ts", async () => {
         // Check Every in hours: the default hour reads "1 hr", never "3600 s".
         expect(m.interval).toEqual({ value: "1", unit: "hr" });
       });
+
+  // The same rule for every select on every Settings page: each opens at its trigger's left edge,
+  // never narrower, on the menu row token, with its text at 22 (design/settings.md, "Menus").
+  test("every Settings select menu hugs and aligns with its trigger", async () => {
+    const port = (vite!.httpServer!.address() as { port: number }).port;
+    const [engine] = engines[0]!;
+    const page = await browsers
+      .get(engine)!
+      .newPage({ viewport: { width: 900, height: 640 }, reducedMotion: "reduce" });
+    const failures: string[] = [];
+    let opened = 0;
+    try {
+      for (const category of categories) {
+        await page.goto(
+          `http://127.0.0.1:${port}${galleryFrame("pages.settings", { variant: category.id, width: 900, height: 640 })}`,
+        );
+        await page.waitForFunction(() => document.documentElement.dataset.galleryReady);
+        const triggers = page.locator(".ui-select-button:not(:disabled)");
+        const count = await triggers.count();
+        for (let index = 0; index < count; index++) {
+          const trigger = triggers.nth(index);
+          if (!(await trigger.isVisible())) continue;
+          await trigger.scrollIntoViewIfNeeded();
+          await trigger.click();
+          const popup = page.locator(".ui-select-popup").last();
+          await popup.locator(".ui-menu-item").first().waitFor();
+          const m = await page.evaluate(() => {
+            const popup = [...document.querySelectorAll(".ui-select-popup")].at(-1)!;
+            const button = document.querySelector('.ui-select-button[aria-expanded="true"]')!;
+            const p = popup.getBoundingClientRect();
+            const probe = document.createElement("div");
+            probe.style.height = "var(--ds-control-row)";
+            document.body.append(probe);
+            const token = probe.getBoundingClientRect().height;
+            probe.remove();
+            const items = [...popup.querySelectorAll(".ui-menu-item")];
+            const textLeft = items.map((item) => {
+              const walker = document.createTreeWalker(item, NodeFilter.SHOW_TEXT);
+              for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+                if (!node.textContent?.trim() || node.parentElement?.closest(".ui-menu-check, .ui-menu-shortcut"))
+                  continue;
+                const range = document.createRange();
+                range.selectNodeContents(node);
+                return range.getBoundingClientRect().left - p.left;
+              }
+              return 22;
+            });
+            const row = button.closest("[data-row-key]")?.getAttribute("data-row-key") ?? button.textContent ?? "";
+            return {
+              row,
+              left: p.left - button.getBoundingClientRect().left,
+              narrower: button.getBoundingClientRect().width - p.width,
+              rows: items.map((item) => item.getBoundingClientRect().height).filter((h) => Math.abs(h - token) > 0.5),
+              text: textLeft.filter((left) => Math.abs(left - 22) > 1),
+            };
+          });
+          opened++;
+          const where = `${category.id} ${m.row}`;
+          if (Math.abs(m.left) > 1) failures.push(`${where}: menu starts ${m.left.toFixed(1)}px from its trigger`);
+          if (m.narrower > 0.5) failures.push(`${where}: menu ${m.narrower.toFixed(1)}px narrower than its trigger`);
+          if (m.rows.length) failures.push(`${where}: rows ${m.rows.join(", ")}px, not the menu row token`);
+          if (m.text.length) failures.push(`${where}: text at ${m.text.map((x) => x.toFixed(1)).join(", ")}, not 22`);
+          await page.keyboard.press("Escape");
+          await page.locator(".ui-select-popup").waitFor({ state: "detached" });
+        }
+      }
+    } finally {
+      await page.close();
+    }
+    console.log(`settings-select-menu: opened ${opened} Settings selects; ${failures.length} findings`);
+    expect(opened).toBeGreaterThan(10);
+    expect(failures).toEqual([]);
+  }, 480_000);
 });
