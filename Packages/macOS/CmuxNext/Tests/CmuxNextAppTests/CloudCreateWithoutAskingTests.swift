@@ -29,7 +29,7 @@ import Testing
     /// An agent's create that the plan gate refuses shows no card and opens no pricing page: the agent gets the refusal as its error.
     @Test func anAgentsCreateOnTheFreePlanShowsNoUpgradeCard() async throws {
         let sent = Sent()
-        await #expect(throws: CloudMachineCreateFlow.Failure.upgradeRequired) {
+        await #expect(throws: CloudMachineCreateFlow.Failure.upgradeRequired(.freePlan)) {
             try await CloudMachineCreateFlow.legacy(name: nil, startedByPerson: false, gate: { .upgrade(.init(reason: .freePlan)) },
                                                     confirm: { sent.prompts.append($0); return false },
                                                     create: { sent.send() })
@@ -40,7 +40,7 @@ import Testing
 
     @Test func theFreePlanGetsTheUpgradeCardAndSendsNothing() async throws {
         let sent = Sent()
-        await #expect(throws: CloudMachineCreateFlow.Failure.upgradeRequired) {
+        await #expect(throws: CloudMachineCreateFlow.Failure.upgradeRequired(.freePlan)) {
             try await CloudMachineCreateFlow.legacy(name: nil, startedByPerson: true, gate: { .upgrade(.init(reason: .freePlan)) },
                                                     confirm: { sent.prompts.append($0); return false },
                                                     create: { sent.send() })
@@ -51,7 +51,7 @@ import Testing
 
     @Test func aServerPlanRefusalBecomesTheUpgradeCard() async throws {
         let sent = Sent()
-        await #expect(throws: CloudMachineCreateFlow.Failure.upgradeRequired) {
+        await #expect(throws: CloudMachineCreateFlow.Failure.upgradeRequired(.server)) {
             try await CloudMachineCreateFlow.legacy(name: nil, startedByPerson: false, gate: { .allowed },
                                                     confirm: { sent.prompts.append($0); return false },
                                                     create: { () async throws -> String in throw CloudAPIError.http(status: 402, code: "vm_active_limit_exceeded", message: "full") })

@@ -174,7 +174,17 @@ extension SidebarListViewComponents {
         let insertRuns = SidebarRowTransition.runTops(of: layout, missingFrom: old, reopened: reopened)
         // Without motion the rows that leave park first (as they would after the loop), so the rows that
         // come take their views: a space switch reuses the old space's views, it makes none (space-switch-fast).
-        if !animate, !adopting {
+        // RowMotion also snaps when sidebar movement is disabled (Reduce Motion or the sidebar switch),
+        // even though `animate` is true. Park leaving views before that snap realizes replacements too.
+        if (!animate || !Motion.sidebar.animatesMovement), !adopting {
+            // An animated apply removes a leaving row from `rowViews` but keeps it in the list until its
+            // close finishes. A no-motion reload can arrive before that completion and otherwise leave the
+            // old, still-visible row's spring running beside a newly realized row for the same key.
+            let active = Set(rowViews.values.map { ObjectIdentifier($0) })
+            for view in subviews.compactMap({ $0 as? SidebarRowView })
+                where !view.isHidden && !active.contains(ObjectIdentifier(view)) {
+                recycle(view)
+            }
             for (key, view) in rowViews where layout.row(for: key) == nil {
                 rowViews[key] = nil
                 recycle(view)
@@ -262,7 +272,7 @@ extension SidebarListViewComponents {
             }
         }
         // Only an external drop's new-workspace slot has an underlay (R77: a row drag reorders in place).
-        let gapFrame = layout.gapHeight > 0 ? layout.gapY.map { NSRect(x: inset, y: $0, width: max(0, bounds.width - inset * 2), height: layout.gapHeight) } : nil
+        let gapFrame = layout.gapHeight > 0 ? layout.gapY.map { NSRect(x: inset, y: $0, width: indentWidth, height: layout.gapHeight) } : nil
         decorations.frame = bounds
         decorations.setGap(gapFrame, animated: animate || adopting)
         let history = chatHistory.place(layout, state: SidebarChatHistory.shared.state, metrics: model.minimal ? metrics.minimal : metrics,
@@ -293,9 +303,9 @@ extension SidebarListViewComponents {
             guard let content = blockContent(id, includeGap: true) else { return }
             view.region.activeItem = activeTopItem
             if springsRows, animated { view.springShow(content, width: bounds.width) } else { view.show(content, width: bounds.width, animated: animated) }
-        case let (.tab(_, tabID), view as SidebarTabRowView):
+        case let (.tab(workspaceID, tabID), view as SidebarTabRowView):
             guard let tab = tabs[tabID] else { return }
-            view.configure(tab, row: row)
+            view.configure(tab, row: row, focused: workspaces[workspaceID]?.focusedTab == tabID)
         case let (.group(id), view as GroupHeaderRowView):
             // The model's own group when the cache (rebuilt on reload) lags it: a held drag shows the live sections.
             guard var group = groups[id] ?? model.group(id) else { return }
@@ -318,7 +328,10 @@ extension SidebarListViewComponents {
             if !row.isCollapsed {
                 subtree.workspaces += (groupSubtrees[id] ?? []).filter { $0 != id }.compactMap { groups[$0] }.flatMap(\.workspaces)
             }
-            view.configure(group, row: row, details: details, status: subtree.statusRollUp(collapsed: row.isCollapsed), animated: animated)
+            // The chevron turns on every fold of the user's own (Lawrence msg 15763), also an opening whose new rows show
+            // at once (`ui.animations.newWorkspace` off makes both the fold and a full apply step without motion).
+            view.configure(group, row: row, details: details, status: subtree.statusRollUp(collapsed: row.isCollapsed),
+                           animated: animated || model.followsUserIntent)
             view.railReach = railReach(for: row)
             view.isDropTarget = drag?.target == .intoGroup(id) || external?.proposal == .intoGroup(id)
         case let (.section(id), view as SectionHeaderRowView):

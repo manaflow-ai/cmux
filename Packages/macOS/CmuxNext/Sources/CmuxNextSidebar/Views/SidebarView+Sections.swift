@@ -91,7 +91,9 @@ extension SidebarViewComponents {
         let look = SidebarSectionTunables.currentLook
         // The footer keeps the full row (its avatar and search); the bands' rows follow Minimal Mode like the list's.
         let footerBase = SidebarRegionMetrics.standard
-        let metrics = SidebarRegionMetrics.standard(minimal: design.sidebarSections.minimal)
+        // The bands' rows end where the list's do, `rowEdgeGap` from the sidebar's edge (Leo 2026-10-27); the footer keeps its own.
+        var metrics = SidebarRegionMetrics.standard(minimal: design.sidebarSections.minimal)
+        metrics.trailingTrim = SidebarStyle.rowTrailingTrim
         // The selection is not content: `showActiveTopItem` marks its item active (its glyph, accessibility).
         var selectedInfos = model.resolvedItemInfo
         for transient in model.transientTopItems { selectedInfos[transient.item.id] = transient.info }
@@ -107,7 +109,8 @@ extension SidebarViewComponents {
             let docSections = model.placingTransientItems(in: above.presenting(hidingItems: hidden, apps: apps), anchoredOnly: true).map(titled)
             // Only the blocks' own items' infos: another item's change does not reload the list.
             let shownIDs = Set(docSections.flatMap(\.items).map(\.id))
-            // A block's rows end where the list's other rows do, short of the inset (`rowTrailingTrim`).
+            // A block's rows end where the list's other rows do, `rowEdgeGap` from the edge (`rowTrailingTrim`): a
+            // row's pill is inset `horizontalInset` in its frame, as the region metrics' inset is.
             var listMetrics = metrics
             listMetrics.trailingTrim = SidebarStyle.rowTrailingTrim
             let blocks = SidebarListBlocks(sections: Dictionary(docSections.map { ($0.id.rawValue, $0) }, uniquingKeysWith: { first, _ in first }),

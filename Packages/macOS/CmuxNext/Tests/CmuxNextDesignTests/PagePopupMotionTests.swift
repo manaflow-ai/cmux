@@ -78,6 +78,32 @@ import Testing
         #expect(await GUIAnimationTestSupport.settle { !panel.isVisible }, "the close never ended")
     }
 
+    /// Native menus and popovers use the host's default: no entrance motion. The explicit
+    /// `entrance` opt-in remains available for the command palette's own presentation.
+    @Test(.enabled("needs an awake display and animations on, or every popup snaps anyway") { await GUIAnimationTestSupport.animatesHere() })
+    func aNativePopupDefaultsToAnInstantOpenAndFadesOnClose() async throws {
+        let (window, _) = try Self.page()
+        defer { window.orderOut(nil) }
+        let panel = NativePopupPanel(identifier: "cmux.tests.instant-popup")
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 160, height: 80))
+        content.wantsLayer = true
+        panel.contentView = content
+        let host = NativePopupHost(panel: panel)
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+
+        _ = try #require(host.show(size: content.frame.size,
+                                   anchor: CGRect(x: 300, y: 580, width: 24, height: 24),
+                                   in: window))
+        #expect(content.layer?.animation(forKey: "opacity") == nil, "the popup fades in")
+        #expect(content.layer?.animation(forKey: "sublayerTransform") == nil, "the popup grows in")
+        #expect(content.layer?.opacity == 1)
+
+        host.hide()
+        #expect(content.layer?.animation(forKey: "opacity") != nil, "the popup lost its close fade")
+        #expect(await GUIAnimationTestSupport.settle { !panel.isVisible }, "the close never ended")
+    }
+
     /// A window on screen with a page view, and the page menu panel of `host` once shown.
     static func page() throws -> (NSWindow, NSView) {
         let window = NSWindow(contentRect: NSRect(x: 200, y: 300, width: 500, height: 400), styleMask: [.titled],

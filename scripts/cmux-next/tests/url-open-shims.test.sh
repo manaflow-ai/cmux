@@ -75,6 +75,25 @@ env PATH="$bin:/usr/bin:/bin" BROWSER=firefox CMUX_BUNDLED_CLI_PATH="$bin/cmux" 
 expect_file "$TMP/user-browser.system" "https://example.com/"
 expect_absent "$TMP/user-browser.cli"
 
+# BROWSER=open names the system opener, not another browser: prezto's stock
+# .zprofile exports it in every login shell that starts without BROWSER, such
+# as the `zsh -lc` Codex runs each command in. A device-code page an agent or a
+# program opens there still reaches cmux (the user saw these open in Helium).
+for value in open /usr/bin/open xdg-open; do
+  name="browser-${value//\//_}"
+  export CMUX_TEST_LOG="$TMP/$name"
+  env PATH="$bin:/usr/bin:/bin" BROWSER="$value" CMUX_BUNDLED_CLI_PATH="$bin/cmux" CMUX_SYSTEM_OPEN="$TMP/system-open" \
+    open "https://example.com/device?code=ABCD-1234"
+  expect_file "$TMP/$name.stdin" "https://example.com/device?code=ABCD-1234"
+  expect_absent "$TMP/$name.system"
+done
+# Python's webbrowser with BROWSER=open runs `open` from PATH: the shim, then cmux.
+export CMUX_TEST_LOG="$TMP/python-browser-open"
+env PATH="$bin:/usr/bin:/bin" BROWSER=open CMUX_BUNDLED_CLI_PATH="$bin/cmux" CMUX_SYSTEM_OPEN="$TMP/system-open" \
+  python3 -I -c 'import webbrowser,sys; sys.exit(0 if webbrowser.open("https://example.com/device?code=PY") else 1)'
+expect_file "$TMP/python-browser-open.stdin" "https://example.com/device?code=PY"
+expect_absent "$TMP/python-browser-open.system"
+
 # The app cannot be reached: the system open gets the URL.
 CMUX_TEST_CLI_FAILS=1 run unreachable cmux-open-url "https://example.com/x"
 expect_file "$TMP/unreachable.system" "https://example.com/x"

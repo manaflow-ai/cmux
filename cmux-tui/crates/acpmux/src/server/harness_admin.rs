@@ -159,6 +159,15 @@ pub(super) async fn handle(
             "harness profiles are changed only from the local app or the unix socket, never from a remote WebSocket connection or a peer",
         ));
     }
+    // A capture fixture's daemon (`harness_fixture.rs`) neither reads the ACP
+    // Registry nor adds a harness: both read this host's PATH and the network.
+    if matches!(m, method::MUX_HARNESS_ADD | method::MUX_REGISTRY)
+        && crate::harness_fixture::active().is_some()
+    {
+        return Err(RpcError::invalid_params(
+            "this daemon serves a capture fixture's harnesses (ACPMUX_HARNESS_FIXTURE)",
+        ));
+    }
     let sources = hub.config.read().await.profile_sources.clone();
     let home = crate::config::home();
     let text = |key: &str| params.get(key).and_then(Value::as_str).filter(|v| !v.is_empty());
@@ -321,11 +330,17 @@ pub(super) async fn handle(
 }
 
 /// One payload of the watchers' harness feed to watching connection `conn`:
-/// `_acpmux/harnesses_changed`, or `_acpmux/start_mode_changed {}` when
+/// `_acpmux/harnesses_changed`, `_acpmux/peer_state_changed` when marked a peer
+/// state note (`peer.rs` `report_states`), or `_acpmux/start_mode_changed {}` when
 /// marked a start-mode notice (`hub/start_mode.rs`), which only local
 /// connections get (a remote-origin connection's chats get no start mode).
 pub(super) fn watch_note(conn: &super::Conn, note: Value) {
-    if note.get(crate::hub::start_mode::START_MODE_NOTE).is_none() {
+    if let Some(state) = note.get(crate::peer_states::STATE_NOTE) {
+        conn.send(&crate::rpc::Message::notification(
+            method::MUX_PEER_STATE_CHANGED,
+            state.clone(),
+        ));
+    } else if note.get(crate::hub::start_mode::START_MODE_NOTE).is_none() {
         conn.send(&crate::rpc::Message::notification(method::MUX_HARNESSES_CHANGED, note));
     } else if !conn.origin.web_class() {
         conn.send(&crate::rpc::Message::notification(method::MUX_START_MODE_CHANGED, json!({})));

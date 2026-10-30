@@ -62,6 +62,17 @@ enum SidebarHiddenSections {
         }
         bindBand(into: registry, context: context)
         bindNoFade(into: registry, context: context)
+        bindControlsOnHover(into: registry, context: context)
+    }
+
+    /// `sidebar.controlsOnHover` (Show Sidebar Controls Only on Hover): Only on Hover while the controls always show, Always
+    /// while they show on hover. Each writes the setting, so cmux.json and Settings show one switch.
+    private static func bindControlsOnHover(into registry: ActionRegistry, context: AppActionContext) {
+        let onHover = { @MainActor @Sendable in context.services.settings?.snapshot.sidebarSections.controlsOnHover ?? false }
+        for (id, value) in [("sidebar.controlsOnHover.on", true), ("sidebar.controlsOnHover.off", false)] as [(ActionID, Bool)] {
+            registry.bindEffect(id) { invocation in writeFlag(SidebarSectionsSetting.controlsOnHoverPath, value, invocation, context) }
+            ActionTargetVisibility.hide(id, in: registry) { _ in onHover() == value }
+        }
     }
 
     /// `sidebar.noFade`: Show Whole Sidebar (No Fade) while the edges fade, Restore Sidebar Fade
@@ -76,8 +87,13 @@ enum SidebarHiddenSections {
 
     /// Writes `sidebar.noFade` on the input's turn; a refused write (a managed key) reports why.
     private static func writeNoFade(_ on: Bool, _ invocation: ActionInvocation, _ context: AppActionContext) -> ActionEffect {
+        writeFlag(SidebarSectionsSetting.noFadePath, on, invocation, context)
+    }
+
+    /// Writes one `sidebar.*` flag on the input's turn; a refused write (a managed key) reports why.
+    private static func writeFlag(_ path: [String], _ on: Bool, _ invocation: ActionInvocation, _ context: AppActionContext) -> ActionEffect {
         do {
-            try write([(SidebarSectionsSetting.noFadePath, on)], invocation, context)
+            try write([(path, on)], invocation, context)
             return .done
         } catch let failure as ActionFailure {
             return .refused(failure.message)
