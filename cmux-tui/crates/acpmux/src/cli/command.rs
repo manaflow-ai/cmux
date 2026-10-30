@@ -180,11 +180,22 @@ pub enum Command {
     Pending,
     /// Send a prompt and stream the reply until the turn ends.
     #[command(alias = "prompt", alias = "send-keys")]
+    #[command(
+        after_help = "Examples:\n  acpmux send --no-wait ao-cli-ls 'rebase onto #27899'\n  acpmux send --tag area=acpmux 'base is green again; update your PRs'   every live session with the tag, --no-wait\n  acpmux send --tag area=acpmux --dry-run 'hello'                         list who would get it\n  acpmux send --status 01a18b33-75ca-7a62-a361-0f3c67b4402e"
+    )]
     Send {
-        #[arg(required_unless_present = "status")]
+        #[arg(required_unless_present_any = ["status", "tag"])]
         session: Option<String>,
         /// Prompt text. Reads stdin when omitted or "-".
         prompt: Vec<String>,
+        /// Send to every session, on every host, that carries this tag (`key` or `key=value`)
+        /// and is not closed, as `--no-wait` messages: one delivery each, one line each. The
+        /// sender's own session is skipped. Give the prompt without a SESSION.
+        #[arg(long, value_name = "TAG", conflicts_with_all = ["status", "prompt_id", "timeout", "quiet"])]
+        tag: Option<String>,
+        /// With --tag: print the sessions it would go to and send nothing.
+        #[arg(long, requires = "tag")]
+        dry_run: bool,
         /// Send this message into the running turn when the agent supports steering. On by
         /// default for an agent's send (--from, or one in an acpmux session) and with
         /// --no-wait; the person's send that waits for the reply queues unless given this. A
@@ -258,8 +269,16 @@ pub enum Command {
         audience: String,
     },
     /// List sessions on every host.
-    #[command(alias = "list", alias = "list-sessions")]
+    #[command(
+        alias = "list",
+        alias = "list-sessions",
+        after_help = "Examples:\n  acpmux ls review-27*                       sessions whose name matches a glob, on any host\n  acpmux ls huge-blue/* --status running     one peer's running sessions\n  acpmux ls --tag area=acpmux --fields name  just the names of one area's sessions\n  acpmux ls ao-cli-ls --fields status,turn.activity   a nested field, as text"
+    )]
     Ls {
+        /// Only sessions whose name matches one of these (a glob: `*`, `?`; `host/name` for one
+        /// peer's), or with this session id.
+        #[arg(value_name = "PATTERN")]
+        patterns: Vec<String>,
         /// Include tool inventories in JSON rows (otherwise read `session info SESSION`).
         #[arg(long)]
         with_tools: bool,
@@ -275,7 +294,8 @@ pub enum Command {
         /// Return at most N sessions, newest first.
         #[arg(long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..))]
         limit: Option<u64>,
-        /// Select comma-separated fields from each session record.
+        /// Select comma-separated fields from each session record; a dotted path reads a
+        /// nested one (`turn.activity`, `lane.state`).
         #[arg(long, value_name = "FIELD[,FIELD…]")]
         fields: Option<String>,
         /// Only sessions updated within this duration (for example `24h` or `30m`).
@@ -449,7 +469,11 @@ pub enum Command {
         refresh: bool,
     },
     #[command(hide = true)]
-    Info { session: String },
+    Info {
+        session: String,
+        #[arg(long, value_name = "FIELD[,FIELD…]")]
+        fields: Option<String>,
+    },
     #[command(hide = true)]
     Cancel { session: String },
     #[command(hide = true, alias = "kill-session")]
@@ -768,7 +792,17 @@ pub enum SessionCmd {
     /// Read one mesh lifecycle receipt without waiting.
     Receipt { message_id: String },
     /// Show session details.
-    Info { session: String },
+    #[command(
+        after_help = "Examples:\n  acpmux session info ao-cli-ls\n  acpmux session info ao-cli-ls --fields sessionId          just the id, for a script\n  acpmux session info review-27899 --fields status,turn.activity,stuckReason\n  acpmux --json session info ao-cli-ls --fields name,lane.state"
+    )]
+    Info {
+        session: String,
+        /// Print only these comma-separated fields, one per line as `field<TAB>value` (a single
+        /// field prints its bare value); a dotted path reads a nested one (`turn.activity`).
+        /// With --json, an object of just those fields.
+        #[arg(long, value_name = "FIELD[,FIELD…]")]
+        fields: Option<String>,
+    },
     /// Cancel the running turn.
     Cancel { session: String },
     /// Stop the agent process. The session stays resumable.
@@ -1158,7 +1192,7 @@ pub struct NewArgs {
 pub fn flatten(c: Command) -> Command {
     match c {
         Command::Session(sc) => match sc {
-            SessionCmd::Info { session } => Command::Info { session },
+            SessionCmd::Info { session, fields } => Command::Info { session, fields },
             SessionCmd::Cancel { session } => Command::Cancel { session },
             SessionCmd::Stop { session, purge, mesh } if !mesh.mesh => {
                 Command::Kill { session, purge }

@@ -125,6 +125,9 @@ acpmux last NAME [-n 3]                            # last reply text
 acpmux history NAME                                # one line per turn: prompt, status, tools, tokens, wall time
 acpmux ls [--status running|ready|waiting|idle|closed] [--pending] [--tag k=v]
 acpmux session info NAME                           # model, mode, policy, pending permissions, usage
+acpmux session info NAME --fields status,turn.activity   # just those fields (one field: its bare value), no `--json | python3`
+acpmux ls 'review-*' --fields name,status          # name globs (`host/glob` for one peer); --fields takes dotted paths
+acpmux send --tag area=X [--dry-run] "…"           # a --no-wait message to every live session with the tag, one line each
 acpmux session set NAME model=… | effort=… | mode=… | policy=…
 acpmux session fork NAME [--name NEW]              # new session sharing the history so far
 acpmux session cancel NAME                         # stop the running turn; the session stays

@@ -15,6 +15,7 @@ mod permission;
 pub(crate) use permission::{answer_permission, answer_question};
 
 mod extra;
+mod fanout;
 mod launch;
 mod parent;
 mod send_async;

@@ -1,6 +1,7 @@
 //! Owns the primary session and prompt command dispatch arms.
 
 use super::*;
+use crate::cli::select;
 use cmux_json::JsonSet as _;
 use std::io::IsTerminal;
 use std::sync::Arc;
@@ -235,15 +236,17 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             Ok(())
         }
-        Command::Ls { status, pending, tag, limit, fields, since, with_tools } => {
+        Command::Ls { patterns, status, pending, tag, limit, fields, since, with_tools } => {
             let since_ms = since.as_deref().map(parse_duration_ms).transpose()?;
             let selected = limit.is_some() || fields.is_some() || since_ms.is_some();
-            let fields = fields.as_deref().map(parse_fields).transpose()?;
+            let fields = fields.as_deref().map(select::parse_fields).transpose()?;
+            let named = !patterns.is_empty();
             let client = connect(true).await?;
             // The daemon already sorts pages newest first. Ask it to trim the response when
             // possible; a `--since` filter must run before the limit, so that combination reads
             // the complete list and applies both filters locally.
-            let daemon_limit = limit.filter(|_| status.is_none() && !pending && tag.is_none());
+            let daemon_limit =
+                limit.filter(|_| status.is_none() && !pending && tag.is_none() && !named);
             let mut params = if since_ms.is_none() {
                 daemon_limit.map_or_else(|| json!({}), |n| json!({"limit": n}))
             } else {
@@ -253,7 +256,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 params["withTools"] = json!(true);
             }
             let mut v = client.request(method::MUX_SESSIONS, params).await?;
-            if status.is_some() || pending || tag.is_some() || selected {
+            if status.is_some() || pending || tag.is_some() || selected || named {
                 let mut sessions = match v.get_mut("sessions") {
                     Some(Value::Array(rows)) => std::mem::take(rows),
                     _ => Vec::new(),
@@ -283,33 +286,19 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         Some("waiting") => pend,
                         Some(want) => st == want,
                     };
-                    let tag_ok = match tag.as_deref() {
-                        None => true,
-                        Some(t) => {
-                            let (k, want) =
-                                t.split_once('=').map(|(k, v)| (k, Some(v))).unwrap_or((t, None));
-                            s.get("tags")
-                                .and_then(|m| m.get(k))
-                                .map(|v| {
-                                    want.map(|w| {
-                                        v.as_str() == Some(w)
-                                            || v.get("value").and_then(Value::as_str) == Some(w)
-                                    })
-                                    .unwrap_or(true)
-                                })
-                                .unwrap_or(false)
-                        }
-                    };
+                    let tag_ok = tag.as_deref().is_none_or(|t| select::tag_matches(s, t));
+                    let name_ok = !named || select::name_matches(s, &patterns);
                     let since_ok = cutoff.is_none_or(|at| {
                         s.get("updatedAt").and_then(Value::as_u64).unwrap_or(0) >= at
                     });
-                    status_ok && (!pending || pend) && tag_ok && since_ok
+                    status_ok && (!pending || pend) && tag_ok && name_ok && since_ok
                 });
                 if let Some(limit) = limit {
                     sessions.truncate(usize::try_from(limit).unwrap_or(usize::MAX));
                 }
                 if let Some(fields) = fields.as_deref() {
-                    sessions = sessions.into_iter().map(|s| project_fields(&s, fields)).collect();
+                    sessions =
+                        sessions.into_iter().map(|s| select::project_fields(&s, fields)).collect();
                 }
                 v["sessions"] = Value::Array(sessions);
             }
@@ -329,7 +318,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         "{}",
                         fields
                             .iter()
-                            .map(|field| text_field(session.get(field)))
+                            .map(|field| select::text_field(session.get(field)))
                             .collect::<Vec<_>>()
                             .join("\t")
                     );
@@ -774,6 +763,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             supersede,
             class,
             attach,
+            tag,
+            dry_run,
         } => {
             if let Some(delivery) = status {
                 let client = before_deadline(deadline, &delivery, connect(true)).await?;
@@ -784,7 +775,6 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 )
                 .await;
             }
-            let session = session.ok_or_else(|| anyhow!("a session is required"))?;
             let mut prompt_id = PromptId::new(prompt_id);
             prompt_id.from_agent = from.or_else(crate::cli::sender::of_this_process);
             prompt_id.cli_host = crate::cli::sender::person_host(prompt_id.from_agent.is_some());
@@ -795,6 +785,23 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // An agent's send and a message (--no-wait) steer; the person's waiting send queues.
             let agent = crate::cli::sender::from_an_agent(prompt_id.from_agent.is_some());
             let mut steer = send_steers(steer, no_steer, no_wait, agent);
+            if let Some(tag) = tag {
+                if !attach.is_empty() {
+                    return Err(errors::AppError::usage(
+                        "send --tag carries text only, not --attach",
+                    )
+                    .into());
+                }
+                // No SESSION with --tag: clap read the prompt's first word as one.
+                let words: Vec<String> = session.into_iter().chain(prompt).collect();
+                let text = arg_or_stdin(&words)?;
+                let steer = send_steers(false, no_steer, true, agent);
+                return super::fanout::send_to_tag(
+                    &tag, &text, &prompt_id, steer, dry_run, json_out,
+                )
+                .await;
+            }
+            let session = session.ok_or_else(|| anyhow!("a session is required"))?;
             let text = arg_or_stdin(&prompt)?;
             // A team address (`@member/agent`, `@team/role`); a bare `@` is the caller's own
             // session (`orchestrate::expand_session_key`), never the team path.
@@ -1078,10 +1085,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             orchestrate::tail(connect(true).await?, &session, last, since, follow, suppress_reads)
                 .await
         }
-        Command::Info { session } => {
+        Command::Info { session, fields } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;
             let v = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
+            if let Some(fields) = fields {
+                return super::fanout::print_info_fields(&v, &fields, json_out);
+            }
             if json_out {
                 print_json(&v);
                 return Ok(());
@@ -1379,39 +1389,6 @@ fn parse_duration_ms(text: &str) -> Result<u64> {
     Ok(total)
 }
 
-fn parse_fields(text: &str) -> Result<Vec<String>> {
-    let fields: Vec<String> = text
-        .split(',')
-        .map(str::trim)
-        .filter(|field| !field.is_empty())
-        .map(str::to_owned)
-        .collect();
-    if fields.is_empty() {
-        return Err(
-            errors::AppError::usage("--fields requires a comma-separated field list").into()
-        );
-    }
-    Ok(fields)
-}
-
-fn project_fields(session: &Value, fields: &[String]) -> Value {
-    let mut row = serde_json::Map::new();
-    for field in fields {
-        if let Some(value) = session.get(field) {
-            row.insert(field.clone(), value.clone());
-        }
-    }
-    Value::Object(row)
-}
-
-fn text_field(value: Option<&Value>) -> String {
-    match value {
-        None | Some(Value::Null) => String::new(),
-        Some(Value::String(text)) => text.clone(),
-        Some(value) => serde_json::to_string(value).unwrap_or_default(),
-    }
-}
-
 fn team_receipt_line(receipt: &Value) -> String {
     let canonical =
         receipt.pointer("/to/teamAddress").and_then(Value::as_str).unwrap_or("unresolved");
@@ -1431,8 +1408,8 @@ mod tests {
         assert!(line.contains("startWork=information"));
     }
     use super::{
-        new_requires_tty, new_without_prompt_requires_tty, parse_duration_ms, parse_fields,
-        project_fields, send_steers, started_by,
+        new_requires_tty, new_without_prompt_requires_tty, parse_duration_ms, send_steers,
+        started_by,
     };
     use serde_json::json;
 
@@ -1463,15 +1440,9 @@ mod tests {
     }
 
     #[test]
-    fn ls_selection_parses_duration_and_projects_fields() {
+    fn ls_selection_parses_duration() {
         assert_eq!(parse_duration_ms("1h30m").unwrap(), 5_400_000);
         assert!(parse_duration_ms("oops").is_err());
-        let fields = parse_fields("name, status").unwrap();
-        assert_eq!(fields, ["name", "status"]);
-        assert_eq!(
-            project_fields(&json!({"name": "one", "status": "idle", "cwd": "/tmp"}), &fields),
-            json!({"name": "one", "status": "idle"})
-        );
     }
 
     #[test]
