@@ -490,7 +490,8 @@ pub struct ConnectionStats {
 impl ConnectionStats {
     /// Counts one connection that already holds a slot as terminal-bound, if
     /// fewer than `limit` terminal-bound connections are active. A refusal
-    /// counts in `refused`; the caller gives the slot back.
+    /// moves the connection from `accepted` to `refused`; the caller gives
+    /// the slot back.
     pub fn try_claim_terminal(&self, limit: u64) -> bool {
         let claimed = self
             .terminal_active
@@ -499,6 +500,7 @@ impl ConnectionStats {
             })
             .is_ok();
         if !claimed {
+            self.accepted.fetch_sub(1, Ordering::Relaxed);
             self.refused.fetch_add(1, Ordering::Relaxed);
         }
         claimed

@@ -45,7 +45,7 @@ fn is_codex_app_server_daemon(argv: &[String]) -> bool {
 }
 
 #[cfg(target_os = "linux")]
-fn process_arguments(pid: u32) -> Option<Vec<String>> {
+pub(super) fn process_arguments(pid: u32) -> Option<Vec<String>> {
     let cmdline = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
     let cmdline = cmdline.strip_suffix(&[0]).unwrap_or(&cmdline);
     Some(
@@ -57,7 +57,7 @@ fn process_arguments(pid: u32) -> Option<Vec<String>> {
 }
 
 #[cfg(target_os = "linux")]
-fn parent_process_id(pid: u32) -> Option<u32> {
+pub(super) fn parent_process_id(pid: u32) -> Option<u32> {
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
     // Fields after the parenthesized command name are state(3) ppid(4).
     let fields = stat.get(stat.rfind(')')? + 1..)?;
@@ -65,7 +65,7 @@ fn parent_process_id(pid: u32) -> Option<u32> {
 }
 
 #[cfg(target_os = "macos")]
-fn process_arguments(pid: u32) -> Option<Vec<String>> {
+pub(super) fn process_arguments(pid: u32) -> Option<Vec<String>> {
     let pid = libc::c_int::try_from(pid).ok()?;
     let mut arg_max: libc::c_int = 0;
     let mut size = size_of::<libc::c_int>();
@@ -119,7 +119,7 @@ fn process_arguments(pid: u32) -> Option<Vec<String>> {
 }
 
 #[cfg(target_os = "macos")]
-fn parent_process_id(pid: u32) -> Option<u32> {
+pub(super) fn parent_process_id(pid: u32) -> Option<u32> {
     let pid = libc::c_int::try_from(pid).ok()?;
     let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::zeroed();
     let size = libc::c_int::try_from(size_of::<libc::proc_bsdinfo>()).ok()?;
@@ -136,12 +136,12 @@ fn parent_process_id(pid: u32) -> Option<u32> {
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn process_arguments(_pid: u32) -> Option<Vec<String>> {
+pub(super) fn process_arguments(_pid: u32) -> Option<Vec<String>> {
     None
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn parent_process_id(_pid: u32) -> Option<u32> {
+pub(super) fn parent_process_id(_pid: u32) -> Option<u32> {
     None
 }
 

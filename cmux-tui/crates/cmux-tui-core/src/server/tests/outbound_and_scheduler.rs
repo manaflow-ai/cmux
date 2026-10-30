@@ -291,6 +291,9 @@ fn terminal_connections_leave_slots_for_the_app() {
     // One more terminal connection is refused and gives its slot back.
     assert!(claim_terminal().is_none());
     assert_eq!(connections.active(), MAX_TERMINAL_CONNECTIONS as u64);
+    let snapshot = connections.snapshot(MAX_SERVER_CONNECTIONS as u64);
+    assert_eq!(snapshot.accepted, MAX_TERMINAL_CONNECTIONS as u64, "a refusal is not accepted");
+    assert_eq!(snapshot.refused, 1);
 
     let app: Vec<ConnectionPermit> = (MAX_TERMINAL_CONNECTIONS..MAX_SERVER_CONNECTIONS)
         .map(|_| claim_connection(&connections).expect("slot left for the app"))

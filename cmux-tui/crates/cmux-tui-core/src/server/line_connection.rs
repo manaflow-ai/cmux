@@ -10,20 +10,6 @@ pub(super) fn handle_connection_with_permit(
     render_service: Arc<RenderService>,
     connection_permit: Option<ConnectionPermit>,
 ) {
-    // A process inside one of the session's terminals may hold only its
-    // share of the connections, so agents cannot lock the app out (#27698).
-    let connection_permit = match connection_permit {
-        Some(permit)
-            if origin_gate::is_terminal_peer(&mux, stream.peer_process_key().as_deref()) =>
-        {
-            let Some(permit) = permit.into_terminal() else {
-                listen::refuse_busy(stream);
-                return;
-            };
-            Some(permit)
-        }
-        permit => permit,
-    };
     serve_line_connection(
         mux,
         stream,

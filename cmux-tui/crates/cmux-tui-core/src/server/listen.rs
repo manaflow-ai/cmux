@@ -407,7 +407,15 @@ impl ServedSession {
     /// Serve one accepted connection on its own thread (bounded by the
     /// session's connection permits).
     pub(super) fn serve(&self, stream: Box<dyn transport::Stream>) {
-        let Some(permit) = claim_connection(self.mux.connection_stats()) else {
+        // A process inside a cmux terminal (an agent, its hooks, `cmux` run in
+        // a pane) may hold only its share of the connections, so a burst of
+        // agents cannot lock the app out of its own daemon (#27698). Read from
+        // the peer itself, before a slot is taken and without a daemon lock.
+        let in_terminal =
+            stream.peer_process_key().is_some_and(|key| platform::peer_runs_in_terminal(&key));
+        let permit = claim_connection(self.mux.connection_stats())
+            .and_then(|permit| if in_terminal { permit.into_terminal() } else { Some(permit) });
+        let Some(permit) = permit else {
             refuse_busy(stream);
             return;
         };
@@ -430,7 +438,7 @@ pub(super) const REFUSED_BUSY_LINE: &str = concat!(
 
 /// Best effort: a short write timeout keeps the accept loop from waiting on a
 /// client that does not read.
-pub(super) fn refuse_busy(mut stream: Box<dyn transport::Stream>) {
+fn refuse_busy(mut stream: Box<dyn transport::Stream>) {
     use std::io::Write as _;
     let _ = stream.set_write_timeout(Some(Duration::from_millis(50)));
     let _ = stream.write_all(REFUSED_BUSY_LINE.as_bytes());

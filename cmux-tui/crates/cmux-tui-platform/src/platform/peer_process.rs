@@ -83,6 +83,38 @@ fn linux_start_time(stat: &str) -> Option<u64> {
     after_name.split_whitespace().nth(19)?.parse().ok()
 }
 
+/// argv[1] of a terminal host process (cmux-host `TERMINAL_HOST_ARG`).
+const TERMINAL_HOST_ARG: &str = "__terminal-host";
+
+/// Whether the peer a key names runs inside a cmux terminal: the leader of
+/// its session (the terminal's PTY child, which the host started with
+/// setsid) is a child of a `cmux-tui __terminal-host`. Only this connected
+/// socket's peer, its session leader and that leader's parent are read;
+/// nothing is enumerated and no daemon lock is taken. A process that left
+/// its terminal's session (setsid) answers false.
+pub(crate) fn runs_in_terminal(key: &str) -> bool {
+    let Some(pid) = key
+        .strip_prefix("token:")
+        .and_then(|rest| rest.split_once('.'))
+        .and_then(|(pid, _)| pid.parse::<libc::pid_t>().ok())
+        .filter(|pid| *pid > 0)
+    else {
+        return false;
+    };
+    // SAFETY: getsid only reads kernel process metadata for the positive pid.
+    let Ok(leader) = u32::try_from(unsafe { libc::getsid(pid) }) else { return false };
+    let Some(host) = super::codex_daemon::parent_process_id(leader).filter(|host| *host > 1)
+    else {
+        return false;
+    };
+    super::codex_daemon::process_arguments(host)
+        .is_some_and(|argv| is_terminal_host(&argv))
+}
+
+fn is_terminal_host(argv: &[String]) -> bool {
+    argv.get(1).is_some_and(|arg| arg == TERMINAL_HOST_ARG)
+}
+
 #[cfg(all(unix, not(any(target_vendor = "apple", target_os = "linux", target_os = "android"))))]
 pub(crate) fn key(_fd: RawFd) -> Option<String> {
     None
@@ -115,6 +147,24 @@ mod tests {
             ["", "token:", "pid:1.2", "token:x.1", "token:../self.1", "token:0.1", "token:-1.1"]
         {
             assert_eq!(super::executable(bad), None, "{bad}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod terminal_peer_tests {
+    #[test]
+    fn a_terminal_host_is_named_by_its_second_argument() {
+        let argv = |args: &[&str]| args.iter().map(|arg| arg.to_string()).collect::<Vec<_>>();
+        assert!(super::is_terminal_host(&argv(&["/x/cmux-tui", "__terminal-host", "--owner"])));
+        assert!(!super::is_terminal_host(&argv(&["/x/cmux-tui", "--headless"])));
+        assert!(!super::is_terminal_host(&argv(&["__terminal-host"])));
+    }
+
+    #[test]
+    fn a_malformed_key_is_not_terminal_bound() {
+        for bad in ["", "token:", "token:x.1", "token:0.1", "token:-1.1"] {
+            assert!(!super::runs_in_terminal(bad), "{bad}");
         }
     }
 }
