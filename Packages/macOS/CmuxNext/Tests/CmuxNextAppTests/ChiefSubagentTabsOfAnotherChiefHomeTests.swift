@@ -101,6 +101,12 @@ import CmuxNextWakeups
         })
         #expect(try await tabs.hostRunning(kept) == ChiefHomeAcpmux.host(muxHome: old))
         #expect(try await tabs.hostRunning("01a1610c-24e0-75a3-8440-e4bcf537a4ba") == nil)
+
+        // Every Chief home's acpmux answers that it does not run the chat: refused, no dead tab.
+        tabs.chiefHomes = ChiefHomeDirectory(parents: [base], work: BackgroundWork(), environment: { _ in nil }) { _, _ in
+            SessionProbe(runs: false)
+        }
+        await #expect(throws: AgentTabRefusal.self) { try await tabs.hostRunning(kept) }
     }
 
     /// A Chief home made after the first lookup is found too.

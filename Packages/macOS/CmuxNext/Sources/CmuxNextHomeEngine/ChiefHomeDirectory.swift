@@ -86,7 +86,7 @@ public actor ChiefHomeDirectory {
     /// acpmux resolves it; `allSayNo` when every home's daemon answered that it does not run it.
     /// Reads the homes again (a home made since), asks each acpmux once (a named Chief shares its
     /// home's), all at once, and starts no daemon.
-    func host(running session: String) async -> (host: String?, allSayNo: Bool) {
+    public func host(running session: String) async -> (host: String?, allSayNo: Bool) {
         let parents = parents
         if let found = try? await work.run(.userVisible, mayBlock: .files, { Self.homes(in: parents) }) {
             lastScan = ContinuousClock.now
@@ -98,13 +98,15 @@ public actor ChiefHomeDirectory {
             byOwner[found.acpmuxOwner] = host
         }
         var probes: [(String, any AgentPaneHostProviding)] = []
+        // A home whose acpmux was not found (cut short) cannot say: the others are still asked.
+        var everyHomeAsked = true
         for host in byOwner.values {
-            guard let own = await ownAcpmux(of: host) else { return (nil, false) }
+            guard let own = await ownAcpmux(of: host) else { everyHomeAsked = false; continue }
             probes.append((host, own.attaching))
         }
         return await withTaskGroup(of: (String, Bool?).self) { group in
             for (host, probe) in probes { group.addTask { (host, await probe.runsSession(session)) } }
-            var allSayNo = true
+            var allSayNo = everyHomeAsked
             for await (host, runs) in group {
                 if runs == true { group.cancelAll(); return (host, false) }
                 if runs != false { allSayNo = false }
