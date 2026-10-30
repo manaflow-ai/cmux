@@ -20,8 +20,11 @@ final class MachineRegistry {
     /// kind here, so the id decides: SSH machines are `ssh-…` (`SSHHost.machineID`), paired servers
     /// `server-…` (`ServerReach.machineID`), this Mac `local`; every other id is a Cloud machine.
     static func isCloudMachineID(_ machineID: String) -> Bool {
-        true
+        machineID != localID && !nonCloudIDPrefixes.contains { machineID.hasPrefix($0) }
     }
+
+    /// The id prefixes of machines that are not Cloud machines (`SSHHost.machineID`, `ServerReach.machineID`).
+    private static let nonCloudIDPrefixes = ["ssh-", "server-"]
 
     let local: DaemonService
     /// Cloud machines in sidebar order (newest last).

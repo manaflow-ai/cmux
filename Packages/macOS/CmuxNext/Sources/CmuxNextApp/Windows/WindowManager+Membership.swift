@@ -429,8 +429,10 @@ extension WindowManager {
         if let machine = seenMachine[id] {
             // Its machine connected and loaded without it: gone. Connecting or paused: it waits.
             if let daemon = services.machines.daemon(machine: machine) { return daemon.store.isLoaded }
-            // No daemon this run: gone only if the machine left the account, never because the
-            // Cloud is not connected (signed out, turned off, its list not loaded; P-AUSTIN B7b).
+            // An SSH machine or server with no session this run was forgotten (it is in no Cloud list).
+            guard MachineRegistry.isCloudMachineID(machine) else { return cloudSettled }
+            // A Cloud machine with no daemon this run is gone only if it left the account, never because
+            // the Cloud is not connected (signed out, turned off, its list not loaded; P-AUSTIN B7b).
             return Self.remoteMachineLeft(listed: services.machines.anyDaemon(machine: machine) != nil,
                                           accountListLoaded: accountMachineListLoaded)
         }
