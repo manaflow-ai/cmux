@@ -48,7 +48,7 @@ const clip = { mimeType: "audio/wav", data: "UklGRg==" };
 
 /// A composer field and the dictation hook on it; returns what the host was asked, what was
 /// attached, and the field's text at each attach.
-async function mount(accepts: boolean, chat?: () => string | undefined) {
+async function mount(accepts: boolean, chat?: () => string | undefined, save?: () => Promise<void>) {
   const { createRoot } = await import("react-dom/client");
   const { useDictation } = await import("../src/agent-session/acpmux/dictation");
   const calls: [string, unknown][] = [];
@@ -84,7 +84,10 @@ async function mount(accepts: boolean, chat?: () => string | undefined) {
     elsewhere: () => {
       elsewhere += 1;
     },
-    attach: (a) => attached.push({ audio: a, textThen: text }),
+    attach: (a) => {
+      attached.push({ audio: a, textThen: text });
+      return save?.();
+    },
     omitted: (reason) => omitted.push(reason),
   };
   const container = document.createElement("div");
@@ -282,4 +285,24 @@ test("a recording that finishes in another chat never attaches, splices or auto-
     root = undefined;
   }
   configureDictation(undefined);
+});
+
+// Saving an older host's oversized inline recording is asynchronous; auto-send must keep it.
+test("auto-send waits for the recording upload before submitting its words", async () => {
+  const { deliverDictation, configureDictation } = await import("../src/agent-session/acpmux/dictation");
+  configureDictation({ dictation: { autoSend: true } });
+  let finish!: () => void;
+  const saved = new Promise<void>((resolve) => { finish = resolve; });
+  const pane = await mount(true, undefined, () => saved);
+  await act(async () => {
+    deliverDictation({ state: "listening", text: "keep audio", level: 0, cancelled: false });
+    deliverDictation({ state: "idle", text: "keep audio", level: 0, cancelled: false, audio: clip });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  });
+  expect(pane.submitted()).toBe(0);
+  await act(async () => { finish(); await new Promise((resolve) => setTimeout(resolve, 10)); });
+  expect(pane.submitted()).toBe(1);
+  configureDictation(undefined);
+  act(() => root?.unmount());
+  root = undefined;
 });
