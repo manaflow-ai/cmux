@@ -883,7 +883,9 @@ async fn a_send_to_an_older_peer_records_no_sender_copy() {
     })
     .await
     .expect("the receiver accepted the prompt");
-    let _ = b;
+    // The receiver here is a current build that does record it: only the capability it listed
+    // decides the sender's side.
+    assert_eq!(C::new(b).await.message_events(&id).await.len(), 1);
     assert!(person.message_events(&sender).await.is_empty(), "a sender copy no receiver keeps");
     assert_eq!(a.outbox_unsettled(), 0, "an intent waits on a message the receiver never records");
 }
