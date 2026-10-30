@@ -308,9 +308,12 @@ public final class RemoteMachinesSidebar {
     /// The groups: every peer the daemon lists (none listed yet: every peer a lane names), each
     /// with its live chats newest first, reachable machines first. A peer the daemon cannot reach has no chats.
     static func machines(lanes: some Collection<AgentActivityLane>, peers: [AcpmuxPeerList.Peer]?) -> [Machine] {
+        // Fleet sessions always enter the existing machine group keyed by peer;
+        // local sessions stay with their workspace/lineage projection instead of
+        // becoming loose rows in this feed.
         var byPeer: [String: [AgentActivityLane]] = [:]
         for lane in lanes {
-            guard let peer = lane.peer else { continue }
+            guard case .fleet(let peer) = SidebarLaneGroup.forLane(peer: lane.peer, workspaceID: lane.workspaceID, parent: lane.parent) else { continue }
             byPeer[peer, default: []].append(lane)
         }
         let online = Dictionary((peers ?? []).map { ($0.name, $0.connected) }, uniquingKeysWith: { first, _ in first })
