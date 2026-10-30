@@ -424,7 +424,7 @@ async fn agent_messages_a_failed_turn_held_go_in_by_themselves() {
     queue(&mut c, from_agent(&id, "p-a", "lane-a", "held from a")).await;
     queue(&mut c, from_agent(&id, "p-b", "lane-b", "held from b")).await;
     queue(&mut c, person(&id, "p-me", "mine")).await;
-    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    end_busy(&hub, &id).await;
     c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "boom").await;
 
     // Nobody sends anything: the held agent messages go in together.

@@ -22,6 +22,12 @@ async fn busy(c: &mut TestClient) -> (String, i64) {
     (id, turn)
 }
 
+/// Ends the busy turn with an agent's Stop: the person's Stop holds the agent messages, a
+/// digest of them too, until the person's next turn (`cancel.rs` `hold_agent_messages`).
+async fn end_busy(hub: &Arc<Hub>, id: &str) {
+    hub.cancel(&hub.resolve(id).unwrap()).await.unwrap();
+}
+
 /// Sends `params` on `c` and waits until it is queued; returns its request id.
 async fn queue(c: &mut TestClient, params: Value) -> i64 {
     let prompt_id = params["_meta"]["acpmux"]["promptId"].as_str().unwrap().to_owned();
@@ -496,7 +502,7 @@ async fn resent_after_a_restart(cut_dequeued: bool) {
     let (id, _) = busy(&mut c).await;
     let a = queue(&mut c, from_agent(&id, "p-a", "lane-a", "from a")).await;
     let made = c.request(DIGEST, json!({"sessionId": id})).await.unwrap();
-    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    end_busy(&hub, &id).await;
     let answered = answers(&mut c, &[a]).await;
     assert_eq!(answered[&a]["_meta"]["acpmux"]["turnId"], made["turnId"], "{answered:?}");
     hub.shutdown_all().await;
@@ -740,7 +746,7 @@ async fn a_restart_does_not_bring_back_the_messages_of_a_withdrawn_digest() {
 #[tokio::test]
 async fn a_restart_between_a_digests_prompt_and_its_turn_gives_its_messages_back() {
     let (dir, hub, mut c, id, digest) = waiting_digest(&["p-a", "p-b"]).await;
-    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    end_busy(&hub, &id).await;
     record_until(&hub, &id, "turn_result", |m| m["promptId"] == *digest).await;
     hub.shutdown_all().await;
     drop(c);
@@ -947,7 +953,7 @@ async fn an_edited_digest_whose_turn_fails_puts_its_messages_back_held() {
 async fn a_resend_of_a_message_given_back_before_its_digests_turn_answers_from_its_own() {
     let (dir, hub, mut c, id, digest) = waiting_digest(&["p-a"]).await;
     let own = record_until(&hub, &id, "queued", |m| m["promptId"] == "p-a").await["turnId"].clone();
-    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    end_busy(&hub, &id).await;
     record_until(&hub, &id, "turn_result", |m| m["promptId"] == *digest).await;
     hub.shutdown_all().await;
     drop(c);
