@@ -57,6 +57,11 @@ pub struct Attach {
     pub(crate) paused_restarts: BTreeSet<String>,
     /// `cloud.machine.connect_info` answers by machine (info::InfoCache).
     pub(crate) infos: info::InfoCache,
+    /// The owner answer of each machine's link, by generation
+    /// (cmux-platform#89): read fresh when that generation started (or, for
+    /// a respawned one, at its first connect answer) and never given for
+    /// another generation. Dropped when its link ends and on sign-out.
+    pub(crate) owners: BTreeMap<String, (u64, bool)>,
     /// The server's allowlisted environment; children get only
     /// [`AppEnv::child_env`].
     pub(crate) env: AppEnv,
@@ -99,6 +104,7 @@ impl Attach {
             hosts: BTreeMap::new(),
             paused_restarts: BTreeSet::new(),
             infos: info::InfoCache::default(),
+            owners: BTreeMap::new(),
             env: AppEnv::default(),
             rescue: RescueBackend::new(rescue),
             rescue_terminals: BTreeMap::new(),
@@ -170,11 +176,19 @@ impl Attach {
             match &event {
                 CarrierEvent::Down { target, generation, retryable, reason, .. } => {
                     self.infos.forget(target);
+                    if self.owners.get(target).is_some_and(|(g, _)| g == generation) {
+                        self.owners.remove(target);
+                    }
                     let lost = cmux_terminal_iface::Lost::new(reason.clone(), *retryable);
                     self.frames.link_down(target, Some(*generation), &lost);
                 }
                 CarrierEvent::Revoked { target, reason, generation } => {
                     self.infos.forget(target);
+                    if generation.is_none_or(|ended| {
+                        self.owners.get(target).is_some_and(|(g, _)| *g == ended)
+                    }) {
+                        self.owners.remove(target);
+                    }
                     let lost = cmux_terminal_iface::Lost::new(reason.clone(), false);
                     self.frames.link_down(target, *generation, &lost);
                 }

@@ -389,6 +389,7 @@ impl<C: ControlPlane> Server<C> {
         if outcome.as_ref().is_err_and(|e| e.code == codes::AUTH_REQUIRED) {
             self.ledger.clear();
             self.attach.infos.clear();
+            self.attach.owners.clear();
         }
         outcome
     }

@@ -95,11 +95,7 @@ pub(crate) fn run<C: ControlPlane>(
             if let Some(token) = open_token {
                 server.request_frame_link(&carrier, token);
             }
-            // The owner answer of this link: the connect_info read for it
-            // (the info cache drops it when the link goes down or is
-            // revoked, and on sign-out). A failed read is not the owner.
-            let owns =
-                super::info::connect_info(server, &id).is_ok_and(|info| info.caller_owns_vm());
+            let owns = owner_answer(server, &id, carrier.generation);
             Ok(carrier_json(&carrier, owns))
         }
         DISCONNECT => {
@@ -112,6 +108,24 @@ pub(crate) fn run<C: ControlPlane>(
         RESCUE_OPEN => rescue_open(server, raw, origin, key, open_token),
         _ => Err(CloudError::new(codes::UNKNOWN_OP, format!("{name} has no handler"))),
     }
+}
+
+/// The owner answer of link `generation` of `machine` (cmux-platform#89):
+/// the one read when that generation started. A generation with none (a
+/// respawn after a link-details change) gets a fresh read now, never a
+/// cached answer of another link or sign-in. A failed read is not the
+/// owner and is not kept.
+fn owner_answer<C: ControlPlane>(server: &mut Server<C>, machine: &str, generation: u64) -> bool {
+    if let Some(&(g, owns)) = server.attach_mut().owners.get(machine)
+        && g == generation
+    {
+        return owns;
+    }
+    server.attach_mut().infos.forget(machine);
+    let Ok(info) = super::info::connect_info(server, machine) else { return false };
+    let owns = info.caller_owns_vm();
+    server.attach_mut().owners.insert(machine.to_owned(), (generation, owns));
+    owns
 }
 
 fn carrier_json(carrier: &Carrier, owns: bool) -> Value {
@@ -273,7 +287,10 @@ pub(crate) fn begin_connect<C: ControlPlane>(
     };
     let key = if restart { format!("{start_key}/restart") } else { start_key };
     // The readiness check is a read (connect_info), never a dial: a dial
-    // mints a link token, and each mint is one real connection.
+    // mints a link token, and each mint is one real connection. A new link
+    // reads it fresh: its owner answer must not come from an earlier link's
+    // read or another sign-in's (cmux-platform#89).
+    server.attach_mut().infos.forget(machine);
     let info = ensure_running(server, machine, origin, &key, restart)
         .and_then(|()| super::info::connect_info(server, machine))
         .and_then(|info| match info.state {
@@ -318,6 +335,7 @@ pub(crate) fn begin_connect<C: ControlPlane>(
             "This Mac may not reach the machine's cmux daemon (team policy)",
         ));
     }
+    let owns = info.caller_owns_vm();
     let host = info.host;
     let command = link_command(&paths, machine, &host, &child_env);
     let attach = server.attach_mut();
@@ -331,7 +349,9 @@ pub(crate) fn begin_connect<C: ControlPlane>(
     if let Some(generation) = attach.supervisor.connecting(machine) {
         return Ok(Begun::Connecting(generation));
     }
-    attach.supervisor.begin(machine, &command).map(Begun::Connecting).map_err(link_failure)
+    let generation = attach.supervisor.begin(machine, &command).map_err(link_failure)?;
+    attach.owners.insert(machine.to_owned(), (generation, owns));
+    Ok(Begun::Connecting(generation))
 }
 
 /// Reads the machine when the projection does not know it, and starts it
