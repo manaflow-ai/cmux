@@ -43,7 +43,7 @@ enum WorkspaceSelectionClose {
             listed: { services.workspace(id: $0) != nil }, machines: { services.machines.daemons },
             offerUndo: { names, undone in
                 guard names.count > 1, let undoWindow else { return }
-                WorkspaceGroupClose.offerUndo("workspaces-closed", WorkspaceBulkClose.closedToast(names.count), groups: [(nil, names)], after: seen, in: undoWindow, services, undone: undone)
+                WorkspaceGroupClose.offerUndo("workspaces-closed", WorkspaceBulkClose.closedToast(names.count), groups: WorkspaceGroupClose.undoGroups(names, pruned: groupsToPrune), after: seen, in: undoWindow, services, undone: undone)
             },
             settled: {
                 let life = PersonalGroupLife(machines: services.machines)

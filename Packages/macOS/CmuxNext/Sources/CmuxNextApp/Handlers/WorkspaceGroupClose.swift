@@ -62,6 +62,14 @@ enum WorkspaceGroupClose {
     /// daemon's closed items to reach the store.
     static let arrivalLimit: Duration = .seconds(5)
 
+    /// The Undo of a close of `names` that may delete the `pruned` groups it empties
+    /// (`PersonalGroupLife.groupsClosing`): the workspaces first, then each group's own record,
+    /// so Undo reopens the workspaces and then forms each deleted group again around them, with
+    /// its id, name, pin and place, as this close's own Undo does.
+    static func undoGroups(_ names: [String], pruned: Set<WorkspaceGroupID>) -> [(String?, [String])] {
+        [(nil, names)] + pruned.map(\.rawValue).sorted().map { ($0, []) }
+    }
+
     /// The closed items of this close: the new workspace items (newest first)
     /// whose members carry the closing workspaces' names, each name taken
     /// once (one bulk close is one item of several members, `BulkClosePlan`;
@@ -96,7 +104,11 @@ enum WorkspaceGroupClose {
     private static func reopen(group id: String?, names: [String], after seen: Set<String>, _ services: AppServices) async {
         let arrived: @MainActor @Sendable () -> Bool = { [weak services] in
             guard let services else { return true }
-            return matches(names: names, group: id, after: seen, services).missing.isEmpty
+            let found = matches(names: names, group: id, after: seen, services)
+            // A group-only entry (`undoGroups`) waits for the record of a group a cleanup deleted.
+            let awaitsGroup = names.isEmpty && found.group == nil
+                && id.map { services.machines.local.store.personal.group(WorkspaceGroupID(rawValue: $0)) == nil } == true
+            return found.missing.isEmpty && !awaitsGroup
         }
         if !arrived() { await ObservationDeadline(owner: "workspace-group-close-undo").until(arrived, limit: arrivalLimit) }
         let found = matches(names: names, group: id, after: seen, services)

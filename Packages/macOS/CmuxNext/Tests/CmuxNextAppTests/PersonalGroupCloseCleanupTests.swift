@@ -77,6 +77,14 @@ import Testing
         #expect(ContinuousClock.now - start < .seconds(10), "the wait ran to its deadline instead of ending on the close")
     }
 
+    /// A close's Undo reopens the workspaces first, then the record of each group the cleanup may
+    /// have deleted, so each group forms again around its reopened workspaces.
+    @Test func theUndoReopensTheWorkspacesBeforeTheGroupsTheyEmptied() {
+        let groups = WorkspaceGroupClose.undoGroups(["a", "b"], pruned: [WorkspaceGroupID(rawValue: "g2"), WorkspaceGroupID(rawValue: "g1")])
+        #expect(groups.map(\.0) == [nil, "g1", "g2"])
+        #expect(groups.map(\.1) == [["a", "b"], [], []])
+    }
+
     /// Something else deleted the group meanwhile (another window, the CLI): the cleanup ends at
     /// once and sends no second delete.
     @Test func aGroupAlreadyGoneIsNotDeletedAgain() async {

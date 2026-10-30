@@ -111,7 +111,7 @@ enum WorkspaceBulkClose {
         let life = PersonalGroupLife(machines: services.machines)
         let groupsToPrune: Set<WorkspaceGroupID> = id == "workspaceGroup.closeOthers" ? [] : life.groupsClosing(members.map(\.0.id))
         let seen = Set(DaemonClosedHistory.entries([.workspace], in: services).map(\.item.id))
-        var groups: [(String?, [String])] = [(nil, names)]
+        var groups = WorkspaceGroupClose.undoGroups(names, pruned: groupsToPrune)
         if id == "workspaceGroup.closeOthers" {
             // Each group closes as Close Workspaces in Group does (an unpinned group goes);
             // Undo reopens each group's workspaces, then its record.
