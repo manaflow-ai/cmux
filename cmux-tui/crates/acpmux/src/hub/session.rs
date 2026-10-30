@@ -10,6 +10,15 @@ pub(super) struct SteerNow {
     pub(super) waiting: std::collections::HashMap<String, Option<String>>,
     /// Queued prompts sent now: their steer stops the agent's current step.
     pub(super) step: std::collections::HashSet<String>,
+    /// What each steer of `waiting` is, by prompt id: the turn it starts when its agent reads
+    /// it after the turn it was steered into ended (`carried_turn.rs`).
+    pub(super) sent: std::collections::HashMap<String, super::carried_turn::SteerSent>,
+    /// The turns the agent's latest carries started, newest last, by the carry's number: a
+    /// steer it reads in one names it (`carried_turn.rs`).
+    pub(super) carries: std::collections::VecDeque<(u64, String)>,
+    /// Each carried turn after the turn it took the place of (from, to), newest last: a Stop
+    /// that saw the turn before still stops the one its agent runs now (`cancel.rs`).
+    pub(super) successors: std::collections::VecDeque<(String, String)>,
 }
 
 pub struct Session {
@@ -53,6 +62,8 @@ pub struct Session {
     pub(super) turn: StdMutex<Option<TurnInfo>>,
     pub(super) queued: AtomicU64,
     pub(super) queue: StdMutex<Vec<QueuedPrompt>>,
+    /// Durable team notices, indexed once per session; receiving one never queues a turn.
+    pub(super) team_information: StdMutex<Option<super::team_information::State>>,
     /// Fired when the queue's head may have changed (a prompt left the queue,
     /// a turn ended): queued prompts wait on it for their turn (`queue.rs`).
     pub(super) queue_moved: Notify,
@@ -200,6 +211,8 @@ pub struct Session {
     pub(super) last_model_at: AtomicU64,
     /// The turn that logged `turn_silent` and has not heard its model since (`silent_turn.rs`).
     pub(super) silent_turn: StdMutex<Option<String>>,
+    /// The turn cap's timer for the running turn (`turn_cap.rs`); the next turn aborts it.
+    pub(super) turn_cap_timer: StdMutex<Option<tokio::task::AbortHandle>>,
     /// The hub clock's time (`Hub::clock_now`) of the last record or
     /// attach change; the idle harness exit counts from it (`idle.rs`).
     pub(super) last_active: AtomicU64,

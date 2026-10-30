@@ -412,7 +412,10 @@ const IN_PLACE: &str = "ACPMUX_IN_PLACE=";
 /// full disk is started again until it stays up. huge-blue (2026-10-25)
 /// shows why: a full disk failed the daemon five times in a minute, the old
 /// limit (5 in 60 s) left the unit failed, and acpmux stayed down for 33
-/// minutes until someone started it by hand. The delay grows from
+/// minutes until someone started it by hand. A start that loses a handover
+/// because another daemon still owns `daemon.lock` exits with status 75;
+/// `RestartPreventExitStatus` makes that a clean handover instead of a
+/// restart loop. The delay grows from
 /// `RestartSec=3` to `RestartMaxDelaySec=60` over `RestartSteps=5`
 /// (systemd 254+; Ubuntu 24.04 has 255). An older systemd logs "Unknown key
 /// name ... ignoring" once per load and restarts every 3 s. A daemon that
@@ -432,6 +435,7 @@ Environment=PATH=%h/.local/bin:%h/.bun/bin:%h/.cargo/bin:%h/bin:/usr/local/bin:/
 ExecStart=%h/.local/bin/acpmux daemon run
 WorkingDirectory=%h
 Restart=always
+RestartPreventExitStatus=75
 RestartSec=3
 RestartSteps=5
 RestartMaxDelaySec=60
@@ -446,7 +450,7 @@ WantedBy=default.target
 /// replaces one of them with [`SYSTEMD_UNIT`] ([`unit_refresh`]). A unit
 /// with any other text was written or edited by someone else and is left
 /// as it is.
-const OLD_SYSTEMD_UNITS: [&str; 1] = [
+const OLD_SYSTEMD_UNITS: [&str; 2] = [
     // #22899 (2026-10-21): gave up after 5 failed starts in 60 s.
     "[Unit]
 Description=acpmux daemon
@@ -461,6 +465,29 @@ ExecStart=%h/.local/bin/acpmux daemon run
 WorkingDirectory=%h
 Restart=on-failure
 RestartSec=3
+KillMode=process
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target
+",
+    // #24232: the daemon was always restarted, including when a second
+    // process still held daemon.lock. Keep this exact text migratable so an
+    // existing lane receives the lock handover guard.
+    "[Unit]
+Description=acpmux daemon
+After=default.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Environment=PATH=%h/.local/bin:%h/.bun/bin:%h/.cargo/bin:%h/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/bin/acpmux daemon run
+WorkingDirectory=%h
+Restart=always
+RestartSec=3
+RestartSteps=5
+RestartMaxDelaySec=60
 KillMode=process
 TimeoutStopSec=30
 
@@ -518,12 +545,18 @@ fi; fi
 const SYSTEMD_STARTED: &str = "ACPMUX_SYSTEMD_STARTED";
 
 /// Sets `$p` to the running daemon's pid (from `daemon status`) and `$u` to
-/// the acpmux systemd unit it runs under, if any. A daemon some other service
-/// started (`ssh.service`, a CI runner, `tmux.service`, or
+/// the acpmux systemd unit it runs under, if any. Prefer the user manager's
+/// `MainPID`: it is authoritative even when `/proc/$p/cgroup` is hidden from
+/// the update service. Fall back to the cgroup for older managers. A daemon
+/// some other service started (`ssh.service`, a CI runner, `tmux.service`, or
 /// `acpmux-update.service` when the self-update had to start it detached) has
 /// no `$u`: it is shut down keeping its agents like a detached one.
 const DAEMON_UNIT: &str = r#"p=$(~/.local/bin/acpmux --json daemon status 2>/dev/null | sed -n 's/^ *"pid": *\([0-9][0-9]*\).*/\1/p' | head -1); u=
-if [ -n "$p" ] && [ -r "/proc/$p/cgroup" ]; then u=$(sed -n 's|.*/\(acpmux[^/]*\.service\)$|\1|p' "/proc/$p/cgroup" | head -1); fi
+if [ -n "$p" ]; then
+  acpmux_main=$(systemctl --user show acpmux.service -p MainPID --value 2>/dev/null) || acpmux_main=
+  [ "$acpmux_main" = "$p" ] && u=acpmux.service
+  if [ -z "$u" ] && [ -r "/proc/$p/cgroup" ]; then u=$(sed -n 's|.*/\(acpmux[^/]*\.service\)$|\1|p' "/proc/$p/cgroup" | head -1); fi
+fi
 if [ "$u" = acpmux-update.service ]; then u=; fi
 "#;
 
@@ -583,9 +616,9 @@ fn linux_restart(install: bool, json: bool) -> String {
         "{refresh}{DAEMON_UNIT}{foreign}if {usable}; then
 acpmux_auto_update() {{
 {auto_update}}}
-if systemctl --user is-active --quiet acpmux.service; then systemctl --user restart acpmux.service && acpmux_auto_update && echo {SYSTEMD_STARTED}
+if systemctl --user is-active --quiet acpmux.service && {{ [ -z \"$p\" ] || [ \"$u\" = acpmux.service ]; }}; then systemctl --user restart acpmux.service && acpmux_auto_update && echo {SYSTEMD_STARTED}
 else {SHUTDOWN_KEEPING_AGENTS}; {STILL_RUNNING_CHECK}
-if systemctl --user enable --now acpmux.service; then acpmux_auto_update; echo {SYSTEMD_STARTED}; else {detached}; fi; fi
+systemctl --user enable --now acpmux.service && acpmux_auto_update && echo {SYSTEMD_STARTED}; fi
 else {detached}; fi"
     )
 }
@@ -920,10 +953,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(home.join(".local/bin")).unwrap();
         let fake = home.join(".local/bin/acpmux");
-        std::fs::write(&fake, format!("#!/bin/sh\necho \"$*\" >> \"$HOME/calls\"\n{body}\n"))
-            .unwrap();
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::test_exec::write_executable(
+            &fake,
+            format!("#!/bin/sh\necho \"$*\" >> \"$HOME/calls\"\n{body}\n"),
+        );
         std::process::Command::new("sh")
             .args(["-c", SHUTDOWN_KEEPING_AGENTS])
             .env("HOME", &home)
@@ -994,19 +1027,16 @@ mod tests {
     /// `linux_restart(install, true)` in a fake home on `host`.
     #[cfg(unix)]
     fn linux_restart_run(tag: &str, install: bool, host: LinuxHost) -> LinuxRun {
-        use std::os::unix::fs::PermissionsExt;
         let home = std::env::temp_dir().join(format!("acpmux-lx-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
         let bin = home.join(".local/bin");
         std::fs::create_dir_all(&bin).unwrap();
         let fake = |name: &str, body: &str| {
             let file = bin.join(name);
-            std::fs::write(
+            crate::test_exec::write_executable(
                 &file,
                 format!("#!/bin/sh\necho \"{name} $*\" >> \"$HOME/calls\"\n{body}\n"),
-            )
-            .unwrap();
-            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+            );
         };
         let code = |ok: bool| if ok { "exit 0" } else { "exit 1" };
         // The daemon answers `daemon status` until a shutdown it does not survive.
@@ -1296,10 +1326,12 @@ mod tests {
         let run = linux_restart_run("linger-on", true, LinuxHost { linger: false, ..LINGERING });
         assert!(run.calls.contains(&"loginctl enable-linger".to_owned()));
         assert!(run.started_by_systemd());
-        // A unit that does not start: the detached start, so a daemon runs.
+        // A managed unit that fails to start is reported to the caller; do not
+        // spawn a second daemon outside the unit (the lock would loop).
         let run =
             linux_restart_run("enable-fails", true, LinuxHost { enables: false, ..LINGERING });
-        assert!(run.detached_start() && !run.started_by_systemd(), "{:?}", run.calls);
+        assert!(!run.detached_start() && !run.started_by_systemd(), "{:?}", run.calls);
+        assert_ne!(run.code, Some(0));
     }
 
     #[test]
@@ -1310,7 +1342,14 @@ mod tests {
             let run = linux_restart_run(tag, install, host);
             assert_eq!(run.code, Some(3));
             assert!(run.err.contains("acpmux-agent-huge-blue.service"), "{}", run.err);
-            assert_eq!(run.calls, ["acpmux --json daemon status"], "nothing else may run");
+            assert_eq!(
+                run.calls,
+                [
+                    "acpmux --json daemon status",
+                    "systemctl --user show acpmux.service -p MainPID --value",
+                ],
+                "only read-only ownership probes may run"
+            );
             assert!(run.unit.is_empty());
         }
         // The daemon under acpmux.service itself, in a session scope, or in a

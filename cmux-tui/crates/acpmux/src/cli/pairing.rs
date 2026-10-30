@@ -20,6 +20,7 @@ use crate::cli::output::print_json;
 use crate::client::Client;
 use crate::pairing::{Role, Ticket};
 use crate::rpc::{Message, method};
+use cmux_json::JsonSet as _;
 
 /// The install script a new machine pipes the ticket into
 /// (`web/public/tui/install-static.sh`). `CMUX_INSTALL_URL` overrides it.
@@ -40,10 +41,10 @@ pub(crate) async fn ticket(client: Arc<Client>, cmd: TicketCmd, json_out: bool) 
             let ttl = parse_ttl(&ttl)?;
             let mut params = json!({"role": role.as_str(), "ttlSeconds": ttl});
             if let Some(url) = url {
-                params["url"] = json!(url);
+                params.set("url", json!(url));
             }
             if let Some(label) = label {
-                params["label"] = json!(label);
+                params.set("label", json!(label));
             }
             let mut v = client.request(method::MUX_PAIR_TICKET_NEW, params).await?;
             let ticket = v["ticket"].as_str().unwrap_or_default().to_owned();
@@ -53,8 +54,8 @@ pub(crate) async fn ticket(client: Arc<Client>, cmd: TicketCmd, json_out: bool) 
                 Role::Daemon => format!(" --advertise '{ADVERTISE_PLACEHOLDER}'"),
                 Role::Client | Role::ReadOnly | Role::Phone => String::new(),
             };
-            v["install_command"] = json!(format!("{}{advertise}", install_command(&ticket)));
-            v["join_command"] = json!(format!("{}{advertise}", join_line("cmux", "", &ticket)));
+            v.set("install_command", json!(format!("{}{advertise}", install_command(&ticket))));
+            v.set("join_command", json!(format!("{}{advertise}", join_line("cmux", "", &ticket))));
             if !json_out {
                 print_minted(&v);
                 return Ok(());
@@ -294,8 +295,8 @@ pub(crate) async fn join(client: Arc<Client>, args: JoinArgs, json_out: bool) ->
             let issued = client
                 .request(method::MUX_PAIR_ISSUE, json!({"name": peer_name, "role": "client"}))
                 .await?;
-            params["advertiseUrl"] = json!(url);
-            params["advertiseToken"] = issued["token"].clone();
+            params.set("advertiseUrl", json!(url));
+            params.set("advertiseToken", issued["token"].clone());
             issued_here = issued["deviceId"].as_str().map(str::to_owned);
         }
         Role::Client | Role::ReadOnly | Role::Phone => {
@@ -337,7 +338,7 @@ pub(crate) async fn join(client: Arc<Client>, args: JoinArgs, json_out: bool) ->
         "url": ticket.url,
     });
     if role == Role::Daemon {
-        out["peer"] = reply["peer"].clone();
+        out.set("peer", reply["peer"].clone());
     } else {
         let token = reply["token"]
             .as_str()
@@ -354,7 +355,7 @@ pub(crate) async fn join(client: Arc<Client>, args: JoinArgs, json_out: bool) ->
                     reply["deviceId"].as_str().unwrap_or("the device")
                 )
             })?;
-        out["peer"] = json!({"name": peer_name, "url": ticket.url});
+        out.set("peer", json!({"name": peer_name, "url": ticket.url}));
     }
     if json_out {
         print_json(&out);
@@ -434,9 +435,7 @@ mod tests {
 
     #[cfg(unix)]
     fn executable(path: &std::path::Path, text: &str) {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::write(path, text).unwrap();
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::test_exec::write_executable(path, text);
     }
 
     /// Runs `line` with `sh -c` and `bin` first on PATH: (argv, stdin) of

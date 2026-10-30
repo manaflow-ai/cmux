@@ -37,6 +37,10 @@ const stackHttp = (quota: number) => {
       return new Response("{}", { status: 429, headers: { "retry-after": "1" } })
     }
     const url = new URL(req.url)
+    if (url.pathname.startsWith("/api/v1/team-member-profiles/")) {
+      const [t, u] = url.pathname.slice("/api/v1/team-member-profiles/".length).split("/").map(decodeURIComponent)
+      return teams.get(t!) === u ? Response.json({ display_name: "Member" }) : new Response("{}", { status: 404, headers: { "x-stack-known-error": "TEAM_MEMBERSHIP_NOT_FOUND" } })
+    }
     const team = url.pathname.startsWith("/api/v1/teams/") ? decodeURIComponent(url.pathname.slice("/api/v1/teams/".length)) : url.searchParams.get("team_id") ?? ""
     const user = teams.get(team)
     if (!user) return new Response("{}", { status: 404, headers: { "x-stack-known-error": "TEAM_NOT_FOUND" } })
@@ -248,6 +252,36 @@ describe("Stack webhook: queued syncs under the shared pace (cx-f5tk4)", { timeo
     await step([stackTeam], s, p as unknown as ReturnType<typeof pace>, row!.due_at)
     expect(await pending(stackTeam)).toEqual([])
     expect(await memberRow(teamIdOf(stackTeam), userIdFor(PROJECT, joiner))).toMatchObject({ role: "member" })
+  })
+
+  it("a flood of syncs for teams cmux never saw (cmux.com visitors) leaves the pace for a join in a known team (prod 2026-10-29)", async () => {
+    // Prod: STACK_READ_LIMIT is 4 a minute and anonymous visitors' sign-up teams come about 7 a minute; each
+    // team.created of a team cmux never mirrored took a token to learn it is to be ignored, so a join waited ~70 s.
+    const s = stackHttp(1000)
+    const shared = pace(4)
+    const low = pace(2)
+    const known = crypto.randomUUID()
+    const joiner = crypto.randomUUID()
+    const unknown = Array.from({ length: 6 }, () => crypto.randomUUID())
+    for (const t of unknown) s.teams.set(t, crypto.randomUUID())
+    s.teams.set(known, joiner)
+    const all = [known, ...unknown]
+    await wire(all, s, shared)
+    for (const t of all) await inDO(teamStub(teamIdOf(t)), async (instance) => void (instance.stackLowPace = low.take))
+    // The known team is mirrored first, in an earlier pace window.
+    expect((await deliver("team.created", { id: known, display_name: "Known", profile_image_url: null, created_at_millis: 0 })).body.outcome).toBe("team_mirrored")
+    shared.window()
+    low.window()
+    // A fresh window: the flood comes first, then the join.
+    const lowBefore = low.taken()
+    const sharedBefore = shared.taken()
+    for (const t of unknown) await deliver("team.created", { id: t, display_name: "T", profile_image_url: null, created_at_millis: 0 })
+    expect(low.taken() - lowBefore).toBeLessThanOrEqual(2)
+    const join = await deliver("team_membership.created", { team_id: known, user_id: joiner })
+    expect(join.body.outcome, JSON.stringify(join.body)).toBe("member_present")
+    expect(await memberRow(teamIdOf(known), userIdFor(PROJECT, joiner))).toMatchObject({ role: "member" })
+    // Never more Stack reads than the shared pace allows.
+    expect(shared.taken() - sharedBefore).toBeLessThanOrEqual(4)
   })
 
   it("a sync that never gets a token is abandoned after 50 failures, logged with a stable message", async () => {

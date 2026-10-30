@@ -128,6 +128,13 @@ final class NotificationCenterService {
     }
     private static let logLimit = 64
 
+    // The Dock badge watcher owns an NSRunningApplication KVO token. Cancel
+    // every watcher before this service goes away so AsyncStream terminates
+    // and invalidates that token while the observed application still exists.
+    nonisolated deinit {
+        tasks.forEach { $0.cancel() }
+    }
+
     func start(services: AppServices) {
         self.services = services
         AgentTurnStateStore.shared.onTurnEnded = { [weak self] session in self?.agentTurnEnded(session: session) }
@@ -151,7 +158,7 @@ final class NotificationCenterService {
         desktop.onOpen = { [weak self] id, surface in
             if id == IPhonePairNotices.id { try? self?.services?.settingsWindow.show(section: nil, route: IPhonePairNotices.settingsRoute); return }
             if let request = AppBrowserPasskeyHost.requestID(banner: id) { self?.onPasskeyBanner?(request); return }
-            if self?.services?.agentTabs.pageChats.runNotices?.open(banner: id) == true { return }
+            if self?.services?.agentTabs.pageChats.openNotice(banner: id) == true { return }
             self?.open(surface: surface.map(SurfaceID.init(rawValue:)))
             self?.webNotificationClicks.run(bannerID: id)
         }

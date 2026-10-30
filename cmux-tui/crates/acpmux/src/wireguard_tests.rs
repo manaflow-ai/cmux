@@ -23,10 +23,18 @@ async fn pair(
     target: SocketAddr,
     wrong_key: bool,
 ) -> (Arc<Transport>, Arc<Transport>, Vec<tempfile::TempDir>) {
+    pair_on(UdpSocket::bind("127.0.0.1:0").await.unwrap(), target, wrong_key).await
+}
+
+/// A pair whose `a` side runs on `a_socket`.
+async fn pair_on(
+    a_socket: UdpSocket,
+    target: SocketAddr,
+    wrong_key: bool,
+) -> (Arc<Transport>, Arc<Transport>, Vec<tempfile::TempDir>) {
     let homes = vec![tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
     let a_key = crate::cli::mesh_node_key::load_or_create_at(homes[0].path()).unwrap();
     let b_key = crate::cli::mesh_node_key::load_or_create_at(homes[1].path()).unwrap();
-    let a_socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let b_socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let a = StaticConfig {
         listen: a_socket.local_addr().unwrap(),
@@ -46,6 +54,21 @@ async fn pair(
     let a = Transport::from_socket(&a, &a_peers, homes[0].path(), target, a_socket).await.unwrap();
     let b = Transport::from_socket(&b, &b_peers, homes[1].path(), target, b_socket).await.unwrap();
     (a, b, homes)
+}
+
+/// What `/proc/self/fd` shows for `socket`'s descriptor: `socket:[inode]`.
+#[cfg(target_os = "linux")]
+fn fd_link(socket: &impl std::os::fd::AsRawFd) -> std::path::PathBuf {
+    std::fs::read_link(format!("/proc/self/fd/{}", socket.as_raw_fd())).unwrap()
+}
+
+/// Whether any descriptor of this process is `link`'s socket.
+#[cfg(target_os = "linux")]
+fn this_process_holds(link: &std::path::Path) -> bool {
+    std::fs::read_dir("/proc/self/fd")
+        .unwrap()
+        .flatten()
+        .any(|fd| std::fs::read_link(fd.path()).is_ok_and(|target| target == link))
 }
 
 fn runtime() -> tokio::runtime::Runtime {
@@ -265,7 +288,10 @@ fn loopback_throughput_and_shutdown() {
     runtime().block_on(async {
         let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let target_address = target.local_addr().unwrap();
-        let (a, b, _homes) = pair(target_address, false).await;
+        let a_socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        #[cfg(target_os = "linux")]
+        let a_socket_link = fd_link(&a_socket);
+        let (a, b, _homes) = pair_on(a_socket, target_address, false).await;
         // Both paths use the same token-authenticated WebSocket echo fixture,
         // payload, limits and runner. Only the stream beneath WS changes.
         let echo = tokio::spawn(async move {
@@ -308,8 +334,17 @@ fn loopback_throughput_and_shutdown() {
         let after_handshake_ms = started.elapsed().as_secs_f64() * 1000.0;
         let (mut tunneled, after_rate) = measure_websocket(stream, &payload).await;
         println!("WIREGUARD_PERF before_tcp_ms={before_handshake_ms:.3} after_wg_tcp_ms={after_handshake_ms:.3} before_authenticated_ws_mib_s={before_rate:.3} after_authenticated_ws_mib_s={after_rate:.3} bytes={}", payload.len());
+        #[cfg(target_os = "linux")]
+        assert!(this_process_holds(&a_socket_link), "the transport runs on its UDP socket");
+        #[cfg(not(target_os = "linux"))]
         let local = a.local_addr();
         a.shutdown().await;
+        // Releasing UDP is this process closing its socket. A process another test is spawning
+        // holds a copy from its fork until its exec, and the port stays bound until that copy
+        // closes too, so a rebind here could fail with nothing of ours left holding it.
+        #[cfg(target_os = "linux")]
+        assert!(!this_process_holds(&a_socket_link), "shutdown must release UDP");
+        #[cfg(not(target_os = "linux"))]
         assert!(UdpSocket::bind(local).await.is_ok(), "shutdown must release UDP");
         let closed = tokio::time::timeout(BOUND, tunneled.next()).await
             .expect("shutdown must resolve a pending stream read");
