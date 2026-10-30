@@ -137,24 +137,21 @@ extension NewTabPage {
         if let refusal = MacScreenPages.pairingLinkRefusal(for: request.text) { return services.registry.refuse(refusal) }
         // The page closes one frame after the new tab shows, so the frame that builds the
         // terminal surface does not also pay for the page (R81: 17.8 ms frames at 120 Hz).
-        let close: @MainActor (SurfaceID) -> Void = { [weak pane] _ in
-            guard !keep else { return }
-            closeFrame.scheduleFrame { BenchSpans.measure("newTab.closePage") { pane?.close([StripTabID(key)]) } }
-        }
-        if case .terminal = request.kind, request.run, command(request.text) == nil { return } // opens nothing
-        // The pick takes the page's place, like a browser's new tab (Leo 2026-10-20); the Debug toggle
-        // `newTab.picksFollowLinks` lands it where links do (Lawrence 2026-10-19).
-        if !keep, Self.opensBeside(key, in: pane) { return Self.openBeside(key, with: request, cwd: cwd, from: pane) }
-        let placed = keep ? close : NewTabSlot.placing(replacing: key, onMachine: pane.daemon.machineID, services: services, then: close) ?? close // the page's slot
         // A page beside a lone chat, the main pane: the pick takes the page's place, then the chat docks left and the
         // pick's pane is the column on its right, as for a link (Leo 2026-10-30: "not to fucking open it up in the
         // main fucking pane").
         let docksChat = !keep && MainPaneLayout.isOn(services: services)
             && ChatColumnPlacement.resolve(from: pane, services: services, ignoringPages: true) == .dockChat
-        let closePage: @MainActor (SurfaceID) -> Void = !docksChat ? placed : { [weak pane] surface in
-            placed(surface)
-            if let pane { MainPaneLayout.dockChat(of: pane, keeping: surface, focus: true, services: services) }
+        let close: @MainActor (SurfaceID) -> Void = { [weak pane] surface in
+            guard !keep else { return }
+            closeFrame.scheduleFrame { BenchSpans.measure("newTab.closePage") { pane?.close([StripTabID(key)]) } }
+            if docksChat, let pane { MainPaneLayout.dockChat(of: pane, keeping: surface, focus: true, services: services) }
         }
+        if case .terminal = request.kind, request.run, command(request.text) == nil { return } // opens nothing
+        // The pick takes the page's place, like a browser's new tab (Leo 2026-10-20); the Debug toggle
+        // `newTab.picksFollowLinks` lands it where links do (Lawrence 2026-10-19).
+        if !keep, Self.opensBeside(key, in: pane) { return Self.openBeside(key, with: request, cwd: cwd, from: pane) }
+        let closePage = keep ? close : NewTabSlot.placing(replacing: key, onMachine: pane.daemon.machineID, services: services, then: close) ?? close // the page's slot
         switch request.kind {
         case .terminal where !request.run:
             // `!` on the screen: type, never run; keys typed while the
