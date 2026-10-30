@@ -50,13 +50,8 @@ fn stamp(path: &Path) -> Option<Value> {
 /// the same way), so editing it is a new entry.
 pub(super) fn key(spec: &Spec) -> Option<String> {
     let program = stamp(&resolve(spec)?)?;
-    let files: Vec<Value> = spec
-        .args
-        .iter()
-        .map(Path::new)
-        .filter(|arg| arg.is_file())
-        .filter_map(stamp)
-        .collect();
+    let files: Vec<Value> =
+        spec.args.iter().map(Path::new).filter(|arg| arg.is_file()).filter_map(stamp).collect();
     let mut env: Vec<&str> = spec.env.iter().map(|(k, _)| k.as_str()).collect();
     env.sort_unstable();
     env.dedup();
