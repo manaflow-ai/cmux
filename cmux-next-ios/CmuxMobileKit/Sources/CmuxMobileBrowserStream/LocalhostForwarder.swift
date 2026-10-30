@@ -98,7 +98,8 @@ public final class LocalhostForwarder {
 
     public func stop(_ port: UInt16) {
         guard let forward = forwards.removeValue(forKey: port) else { return }
-        if forward.isUp { held[port] = .now }
+        // Bound once (up, or ended by iOS): its closed connections may still hold the port.
+        if forward.isUp || held[port] != nil { held[port] = .now }
         forward.binding?.cancel()
         forward.cancel()
         refusals[port] = nil

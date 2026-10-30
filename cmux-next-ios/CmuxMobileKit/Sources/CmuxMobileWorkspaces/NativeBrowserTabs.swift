@@ -97,6 +97,11 @@ public final class NativeBrowserTabs {
         }
         do throws(LocalhostForwarder.Failure) {
             try await forwarder.forward(port: port, macID: Self.macID(ofKey: key))
+            // The tab closed or mirrored while the port was starting: nothing keeps it.
+            guard nativeKeys.contains(key) else {
+                retainPorts()
+                return .forwarded
+            }
             tabPorts[key, default: []].insert(port)
             return .forwarded
         } catch .portInUse {
@@ -182,6 +187,7 @@ public final class NativeBrowserTabs {
             let next = key.replacingOccurrences(of: old, with: new, options: [.anchored, .backwards])
             entries[next] = entries.removeValue(forKey: key)
             models[next] = models.removeValue(forKey: key)
+            tabPorts[next] = tabPorts.removeValue(forKey: key)
             nativeKeys.remove(key)
             nativeKeys.insert(next)
             if let model = models[next] { observe(model, key: next) }
