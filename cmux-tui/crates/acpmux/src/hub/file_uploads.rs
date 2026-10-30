@@ -19,6 +19,7 @@
 //! the daemon did not name that way is never deleted.
 
 use crate::rpc::RpcError;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -316,7 +317,7 @@ fn begin(session: &str, params: &Value) -> Result<Value, RpcError> {
         let owner = parent.join(OWNER);
         crate::agent_tools::write_private(&owner, token.as_bytes())
             .map_err(|e| failed_anyhow("cannot record upload", &owner, &e, None))?;
-        answer["ownerToken"] = json!(token);
+        answer.set("ownerToken", json!(token));
     }
     Ok(answer)
 }

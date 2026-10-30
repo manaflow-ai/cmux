@@ -116,6 +116,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case setAgentAvatar(String)
     /// `agent.avatar.remove {sessionId}`: Remove Avatar: the session's harness mark again.
     case removeAgentAvatar(String)
+    /// `chief.face {chief}`: the name and avatar Chief `chief` (a participant id, `agent_mux` or
+    /// `agent_…`) shows in the sidebar and Home, for a message it sent this chat (acpmux
+    /// `fromChief`, manaflow-ai/cmux#27914): `name`, and `src` (a small data URL) or `text`.
+    case chiefFace(String)
     /// `harness.symbol {name}`: a custom harness's SF Symbol icon as a template PNG `data:` URL
     /// (``HarnessSymbolImages``); a name this Mac cannot draw answers nothing.
     case harnessSymbol(String)
@@ -166,6 +170,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `pane.tabRowTools {width}`: the chat header's tools take `width` CSS pixels at the trailing
     /// end of the pane's tab row (``AgentPaneTabRow``), 0 when the page draws none there.
     case tabRowTools(width: Double)
+    /// `/btw <question>` asks acpmux for one bounded inline side answer.
+    case btwInline(question: String, sessionId: String)
     /// New side chat: open the fork `sessionId` the page just made beside this chat.
     case sideChat(String)
     /// A chat this one made (a fork, a Continue In…), opened at a destination of its own: a tab,
@@ -192,6 +198,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The page reports whether repository checkpoint actions are available so
     /// native palette actions can stay capability-gated with the pane.
     case checkpointAvailability(Bool)
+    /// `pane.commandAvailability`: the page commands the native palette may run in this chat now
+    /// (``AgentPageCommand``); the palette greys out the others.
+    case commandAvailability([String])
     /// `pane.painted`: the document drew its first frame after the handshake
     /// (once per document). `fromKeptTail` is the page's own account of what it
     /// drew there: a chat it took from a kept tail (tailCache.ts), which is

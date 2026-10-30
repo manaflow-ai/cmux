@@ -222,6 +222,11 @@ pub(crate) mod agent_transcript;
 mod agent_transcript_tests;
 #[cfg(test)]
 mod background_output_tests;
+// A turn ends when Claude Code ends it; a steer it reads after is the next turn's (`carry.rs`).
+mod carry;
+pub use carry::HOLD_MAX as CARRY_HOLD_MAX;
+#[cfg(test)]
+mod carry_tests;
 #[cfg(test)]
 mod context_usage_tests;
 mod early_calls;
@@ -288,6 +293,11 @@ pub const MCP_RECONNECT: &str = "_acpmux/claude/mcp_reconnect";
 /// names (`context_breakdown`; the lists the largest first, categories in Claude Code's order): a chat with hundreds of MCP
 /// tools would otherwise log every one at each turn's end.
 const BREAKDOWN_ROWS: usize = 50;
+
+/// The internal ACP request for Claude Code's native, transcript-free `/btw`
+/// control request. The translator turns this into a `side_question`
+/// `control_request` on Claude's running stream-json process.
+pub const SIDE_QUESTION: &str = "_acpmux/claude/side_question";
 
 /// The refusal of a steered prompt when no turn is running (the turn ended
 /// between the hub's check and the adapter).
@@ -431,6 +441,11 @@ pub struct Translator {
     /// The waiting lines of other sessions' messages, and those being written again with more
     /// (`steer_batch.rs`). Taken before `steers`.
     batches: Mutex<steer_batch::Batches>,
+    /// Turns Claude Code runs on steers it read after its turn ended (`carry.rs`). Taken before
+    /// `pending`, and after `batches`, `steers` and `steer_lines`.
+    carry: Mutex<carry::Carry>,
+    /// Carried turns whose prompt has not come yet (`carry.rs` `holding`).
+    carry_owed: tokio::sync::watch::Sender<usize>,
     /// Text streamed so far in the current turn, to build the prompt result.
     pub cancelled: AtomicBool,
     pub slash_commands: Mutex<Vec<Value>>,
@@ -542,6 +557,9 @@ enum Pending {
     Control(Setting, String),
     /// A `stop_task` (`STOP_TASK`), answered when claude takes it.
     StopTask,
+    /// Claude Code's native `side_question`, answered once its callback
+    /// returns `{response, synthetic}` (or another response payload).
+    SideQuestion,
     /// A `background_tasks` (`BACKGROUND_TASKS`), with the shells it marked
     /// `asked` and when the hub stops waiting for it (its `timeoutMs`):
     /// `end_background_asks` unmarks them when nothing moved, at that
@@ -581,6 +599,8 @@ impl Translator {
             steers: Mutex::new(std::collections::VecDeque::new()),
             steer_lines: Mutex::new(HashMap::new()),
             batches: Mutex::new(Default::default()),
+            carry: Mutex::new(carry::Carry::new()),
+            carry_owed: tokio::sync::watch::channel(0).0,
             cancelled: AtomicBool::new(false),
             slash_commands: Mutex::new(Vec::new()),
             skills: Mutex::new(Vec::new()),
@@ -640,6 +660,8 @@ impl Translator {
         self.steer_lines.lock().await.clear();
         drop(steers);
         drop(batches);
+        // A carried turn whose prompt has not come yet lost its answer too (`carry.rs`).
+        self.carry.lock().await.fail_owed(message);
         held.extend(ids.into_iter().map(|id| {
             let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
             Message::err(id, RpcError::internal(message))
@@ -656,6 +678,8 @@ impl Translator {
         let held = Self::end_batches(&mut batches, STEER_NO_TURN);
         let failed: Vec<_> = steers.drain(..).collect();
         self.steer_lines.lock().await.clear();
+        // None of them is read after a carry now.
+        self.carry.lock().await.steers.clear();
         drop(steers);
         drop(batches);
         let failed = failed.into_iter().map(|(_, id)| {
@@ -962,7 +986,7 @@ pub(super) fn context_breakdown(usage: &Value) -> Option<Value> {
             let mut kept =
                 json!({"name": c.get("name"), "tokens": tokens(c), "kind": c.get("kind")});
             if let Some(id) = c.get("id").filter(|id| id.is_string()) {
-                kept["id"] = id.clone();
+                kept.set("id", id.clone());
             }
             kept
         })
@@ -976,7 +1000,7 @@ pub(super) fn context_breakdown(usage: &Value) -> Option<Value> {
     });
     // Claude Code names its skills only when they take context.
     if let Some(skills) = usage.pointer("/skills/skillFrontmatter").filter(|s| s.is_array()) {
-        breakdown["skills"] = json!(rows(Some(skills), &["name"]));
+        breakdown.set("skills", json!(rows(Some(skills), &["name"])));
     }
     Some(breakdown)
 }

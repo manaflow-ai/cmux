@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "7ab19e2949e8f0b31d2f38035d4d9e3f646770fad5164b47a17153493d2e12a1";
+pub const ir_sha256 = "2461ff8aeeb5d34f4dd06fbf14db7a02d2e540305fe2174488fd74e38e0b2f8d";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -5167,6 +5167,7 @@ pub fn conversationRunAppend(client: anytype, request: ConversationRunAppendRequ
 }
 
 pub const ConversationRunsRequest = struct {
+    answers: wire.Field([]const []const u8) = .absent,
     before_started_at: wire.Field(u64) = .absent,
     conversation: []const u8,
     limit: wire.Field(u32) = .absent,
@@ -5186,6 +5187,9 @@ pub fn conversationRuns(client: anytype, request: ConversationRunsRequest) !wire
             .authority = "local-admin",
             .since = 12,
             .capability = "conversation-runs-v1",
+            .fields = &.{
+                .{ .name = "answers", .since = null, .capability = "conversation-run-answers-v1" },
+            },
         },
         request,
     );

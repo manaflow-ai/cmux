@@ -18,6 +18,7 @@
 //! Claude stores starts a fresh conversation from the transcript each time.
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 impl Hub {
     /// Why a spawn of profile `harness` for this chat could not start on its route now (the
@@ -50,7 +51,7 @@ impl Hub {
         let from = session.meta().harness;
         let mut msg = json!({"from": from, "to": to, "reason": reason, "turnId": turn_id});
         if back {
-            msg["back"] = json!(true);
+            msg.set("back", json!(true));
         }
         self.append(session, "mux", "failover", msg);
         {

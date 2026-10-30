@@ -271,7 +271,8 @@ class WebviewsWarnSplitCoversCheck(unittest.TestCase):
 
     def test_every_part_of_bun_run_check_runs_in_the_warn_branch(self) -> None:
         package = json.loads((ROOT / "webviews/package.json").read_text(encoding="utf-8"))
-        parts = [part.strip() for part in package["scripts"]["check"].split("&&")]
+        scripts = package["scripts"]
+        parts = [part.strip() for part in scripts.get("check:pieces", scripts["check"]).split("&&")]
         jobs = yaml.safe_load((ROOT / ".github/workflows/ci-web.yml").read_text(encoding="utf-8"))["jobs"]
         runs = [
             step["run"]
@@ -804,10 +805,15 @@ class PathRoutingStructure(unittest.TestCase):
                         "needs.macos-placement.outputs.runner": "stale-owned-label",
                         "needs.macos-placement.outputs.session_runner": "stale-owned-label",
                         "needs.macos-placement.outputs.gui_runner": "stale-owned-label",
+                        "needs.macos-placement.outputs.placed_attempt": "1",
                         "needs.macos-placement.outputs.retry_runner": "blacksmith-6vcpu-macos-26",
                     }
+                    # GUI/session routes need a fresh reading on human reruns too. Discover the role
+                    # consumer from the expression, so this also covers a newly added job.
+                    routed_role = "needs.macos-placement.outputs.gui_runner" in expression
+                    wanted = "blacksmith-6vcpu-macos-26" if attempt > 1 and routed_role else expected
                     with self.subTest(job=name, event=event, attempt=attempt, actor=actor):
-                        self.assertEqual(evaluate(expression, context), expected)
+                        self.assertEqual(evaluate(expression, context), wanted)
         # 7242a82b4a8 (#24763): the rescue re-admits a queued run, a free owned Mac first, then Blacksmith.
         self.assertIn("The rescue re-admits a queued run after the\n# five-minute queue alarm: placement first uses a free owned GUI/session Mac,\n# then the workflow's Blacksmith macOS route.", text)
         self.assertIn("Bot attempt 2 and later drop the stale placement output\n# and re-admits it through the same fast-checks/owned-Mac/Blacksmith order", text)
@@ -2142,22 +2148,24 @@ PLACED_THIS_ATTEMPT = "needs.macos-placement.outputs.placed_attempt == format('{
 FREE_ROLE_CLAUSE = (PLACED_THIS_ATTEMPT + "needs.macos-placement.outputs.free_session_runner || "
                     + PLACED_THIS_ATTEMPT + "needs.macos-placement.outputs.free_gui_runner || ")
 SESSION_LANE_CLAUSE = (
-    "vars.CI_SESSION_LANE_RUNNER != '' && vars.CI_PR_POOL_OWNED == '1' && (needs.macos-placement.outputs.session_lane_runner != '' || needs.macos-placement.outputs.placed_attempt != format('{0}', github.run_attempt)) && "
+    "vars.CI_SESSION_LANE_RUNNER != '' && vars.CI_PR_POOL_OWNED == '1' && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && "
+    "needs.macos-placement.outputs.session_lane_runner != '' && "
     "(github.run_attempt == 1 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) && vars.CI_SESSION_LANE_RUNNER || "
 )
 # Generated files' runs-on before CI_SESSION_LANE_RUNNER: with the variable unset it must route exactly so.
 GENERATED_FILES_RUNNER_WITHOUT_SESSION_LANE = (
     "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || " + FAST_TIER_FORK_CLAUSE + FREE_ROLE_CLAUSE
-    + "(github.run_attempt == 1 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) "
+    + "needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) "
+    "&& (github.run_attempt == 1 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) "
     "&& (needs.macos-placement.outputs.session_runner || needs.macos-placement.outputs.gui_runner) || "
     "github.repository_owner != 'manaflow-ai' && 'macos-26' || (" + FAST_TIER_FORK_CLAUSE
     + "(needs.macos-placement.outputs.runner != '' && 'blacksmith-6vcpu-macos-26') || "
     "needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && "
     "needs.macos-placement.outputs.gui_overflow != '' && needs.macos-placement.outputs.gui_overflow || "
     "vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) "
-    "&& (github.run_attempt == 1 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) "
+    "&& github.run_attempt == 1 "
     "&& (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6') "
-    "|| contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) && 'blacksmith-6vcpu-macos-26' "
+    "|| github.run_attempt != 1 && 'blacksmith-6vcpu-macos-26' "
     "|| vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}"
 )
 

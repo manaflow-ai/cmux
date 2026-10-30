@@ -650,13 +650,16 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     # Unread runners are no reading: the lane is not vouched for, so the job keeps the route it had without it.
     session_lane = (healthy_role_label(lane, runners, seen, waiting)
                     if lane.startswith("glaeda-") and runners is not None else "")
-    # An empty session route falls through to gui_runner in the workflow, so only a declined gui route overflows.
-    gui_overflow = GUI_OVERFLOW if live_gui and not gui_route else ""
+    # A known fleet with no usable GUI route must overflow, including when every role runner is offline.
+    # An unreadable fleet is not evidence of an empty one and keeps the existing fail-open route.
+    gui_overflow = GUI_OVERFLOW if runners is not None and not gui_route else ""
     if live_gui and not gui_route:
         # Its own name: `owned` is the jobs the idle minis took, which cascade.place() reads below.
         role_queues = getattr(seen, "owned_queued", None) or {}
         why += (f"; `{live_gui}` has no room ({role_queues.get(live_gui, 0)} queued, "
                 f"{_role_online(live_gui, runners or [])[0]} online, none idle), so the GUI jobs take `{GUI_OVERFLOW}`")
+    elif gui_overflow:
+        why += f"; no online GUI runner, so the GUI jobs take `{GUI_OVERFLOW}`"
     if route and route != label:
         why += (f"; `{route}` has more live room than `{label}`, routing jobs there"
                 if route.startswith(pool.SIDE_PREFIX) else f"; no online side runner, routing jobs on `{route}`")
