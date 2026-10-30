@@ -67,13 +67,22 @@ fn generation_key(generation: &str) -> String {
     digest.iter().take(8).map(|byte| format!("{byte:02x}")).collect()
 }
 
+/// The key files were named with before the stable digest (std's hasher):
+/// read only, so a daemon upgrade still finds the segments it stored.
+fn legacy_generation_key(generation: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    generation.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
 fn terminal_directory(directory: &Path, terminal_id: &TerminalPublicId) -> PathBuf {
     directory.join(terminal_id.as_str())
 }
 
 /// The segment files of one generation, oldest first: (first offset, path).
 fn generation_files(terminal_directory: &Path, generation: &str) -> Vec<(u64, PathBuf)> {
-    let key = generation_key(generation);
+    let keys = [generation_key(generation), legacy_generation_key(generation)];
     let Ok(entries) = fs::read_dir(terminal_directory) else { return Vec::new() };
     let mut files = entries
         .flatten()
@@ -84,7 +93,7 @@ fn generation_files(terminal_directory: &Path, generation: &str) -> Vec<(u64, Pa
                 return None;
             }
             let (file_key, start) = stem.split_once('-')?;
-            (file_key == key).then_some(())?;
+            keys.iter().any(|key| key == file_key).then_some(())?;
             Some((start.parse::<u64>().ok()?, path))
         })
         .collect::<Vec<_>>();
@@ -116,7 +125,10 @@ pub(super) fn flush_logs(
             if unchanged && !quitting && state.pending.len() < UNCHANGED_FLUSH_BYTES {
                 continue;
             }
-            let bytes = std::mem::take(&mut state.pending);
+            // A copy: the bytes stay readable from memory until the frame
+            // that holds them is in the file (a read never sees them in
+            // neither place).
+            let bytes = state.pending.clone();
             state.segment_digest = *digest;
             (state.generation.clone(), state.pending_start, bytes)
         };
@@ -128,6 +140,17 @@ pub(super) fn flush_logs(
                 log.terminal_id
             ),
         }
+        // Drop the flushed bytes (written or, as before, given up on), unless
+        // a new generation, a mode change or a clear replaced them meanwhile.
+        let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.generation == generation
+            && state.pending_start == start
+            && state.pending.len() >= bytes.len()
+        {
+            state.pending.drain(..bytes.len());
+            state.pending_start = start + bytes.len() as u64;
+        }
+        drop(state);
         enforce_terminal_cap(&terminal_directory, policy.max_bytes_per_terminal);
     }
     if wrote {
@@ -355,8 +378,9 @@ pub(super) fn all_stream_ends(
 }
 
 /// The generation key of segment file names.
-pub(super) fn key_of(generation: &str) -> String {
-    generation_key(generation)
+/// Every key a generation's files may be named with (current, legacy).
+pub(super) fn keys_of(generation: &str) -> [String; 2] {
+    [generation_key(generation), legacy_generation_key(generation)]
 }
 
 /// Raw bytes a rebuild replays at most (the newest frames).

@@ -98,3 +98,54 @@ fn a_generation_key_is_a_stable_digest() {
     assert_ne!(generation_key("g1"), generation_key("g2"));
     assert_eq!(generation_key(""), "e3b0c44298fc1c14", "the first 8 bytes of SHA-256(\"\")");
 }
+
+#[test]
+fn files_named_with_the_legacy_key_are_still_read_and_resumed() {
+    let directory = store_directory("legacy");
+    let terminal_directory = terminal_directory(&directory, &terminal());
+    fs::create_dir_all(&terminal_directory).unwrap();
+    append_frame(&Segments::default(), &terminal_directory, "g1", 0, b"abc").unwrap();
+    // The file as an older daemon named it (std's hasher).
+    let current = only_file(&directory);
+    let legacy =
+        terminal_directory.join(format!("{}-{:020}.{SUFFIX}", legacy_generation_key("g1"), 0));
+    fs::rename(&current, &legacy).unwrap();
+    // A new frame after an upgrade goes on in the same stream.
+    append(&Segments::default(), &directory, 3, b"def");
+    let window = read_after(&directory, &terminal(), "g1", 0, 1024).unwrap();
+    assert_eq!(window.bytes, b"abcdef");
+    let ends = all_stream_ends(&directory);
+    let resumed = keys_of("g1").into_iter().filter_map(|key| ends.get(&(terminal(), key))).max();
+    assert_eq!(resumed, Some(&6));
+    fs::remove_dir_all(&directory).unwrap();
+}
+
+#[test]
+fn a_flush_keeps_its_bytes_in_memory_until_the_frame_is_written() {
+    let directory = store_directory("flush");
+    let log = Arc::new(TerminalLog {
+        terminal_id: terminal(),
+        state: std::sync::Mutex::new(super::super::LogState {
+            generation: Arc::from("g1"),
+            tail_start: 0,
+            tail: std::collections::VecDeque::from(b"abcd".to_vec()),
+            dirty: false,
+            snapshot_digest: None,
+            snapshot_at: None,
+            segment_digest: None,
+            last_output: std::time::Instant::now(),
+            pending: b"abcd".to_vec(),
+            pending_start: 0,
+        }),
+    });
+    let policy = PersistencePolicy::resolve(Some("full"), None, None);
+    flush_logs(&Segments::default(), &directory, &[(log.clone(), Some(1))], policy, false);
+    {
+        let state = log.state.lock().unwrap();
+        assert!(state.pending.is_empty(), "the written bytes leave memory");
+        assert_eq!(state.pending_start, 4);
+    }
+    let window = read_after(&directory, &terminal(), "g1", 0, 1024).unwrap();
+    assert_eq!(window.bytes, b"abcd");
+    fs::remove_dir_all(&directory).unwrap();
+}

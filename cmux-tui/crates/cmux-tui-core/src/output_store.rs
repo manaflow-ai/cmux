@@ -361,11 +361,13 @@ impl OutputStore {
             .remove(terminal_id)
             .filter(|(resumed, _)| resumed.as_str() == generation.as_ref())
             .map(|(_, end)| end);
-        let segment_end = self
-            .segment_resume
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .remove(&(terminal_id.clone(), segments::key_of(generation)));
+        let segment_end = {
+            let mut ends = self.segment_resume.lock().unwrap_or_else(PoisonError::into_inner);
+            segments::keys_of(generation)
+                .into_iter()
+                .filter_map(|key| ends.remove(&(terminal_id.clone(), key)))
+                .max()
+        };
         let start = snapshot_end.into_iter().chain(segment_end).max().unwrap_or(0);
         let log = Arc::new(TerminalLog {
             terminal_id: terminal_id.clone(),
