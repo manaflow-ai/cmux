@@ -290,15 +290,15 @@ fn report(
     if untracked_skipped > 0 {
         value.set("untracked_skipped", json!(clamp(untracked_skipped as u64)));
     }
-    if files_omitted > 0 {
-        if let Some(last) = files.last() {
-            value["next_path"] = json!(last.path);
-        }
+    if files_omitted > 0
+        && let Some(last) = files.last()
+    {
+        value.set("next_path", json!(last.path));
     }
-    if let Some(extra) = metadata.as_object() {
-        if let Some(object) = value.as_object_mut() {
-            object.extend(extra.clone());
-        }
+    if let Some(extra) = metadata.as_object()
+        && let Some(object) = value.as_object_mut()
+    {
+        object.extend(extra.clone());
     }
     if let Some(offset) = page_offset {
         if files.len() != 1 || files[0].path != paths[0] || !files[0].has_patch() {
