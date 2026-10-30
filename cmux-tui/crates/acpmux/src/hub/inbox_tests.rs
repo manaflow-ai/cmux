@@ -35,6 +35,11 @@ fn a_thread_is_the_senders_pr_or_topic_else_the_pr_its_first_line_names_else_the
     assert_eq!(thread_key(None, "lane-a", link), "from:lane-a/pr:27520");
     assert_eq!(thread_key(None, "lane-a", "no number here\n#5 below"), "from:lane-a");
     assert_eq!(thread_key(None, "lane-a", "#0 is nothing"), "from:lane-a");
+    // Multibyte text around the markers: the number after `#` or `pull/` is read on its own
+    // char boundary.
+    assert_eq!(thread_key(None, "lane-a", "合并 #42 完成"), "from:lane-a/pr:42");
+    assert_eq!(thread_key(None, "lane-a", "見て pull/7"), "from:lane-a/pr:7");
+    assert_eq!(thread_key(None, "lane-a", "末尾#"), "from:lane-a");
 }
 
 #[test]

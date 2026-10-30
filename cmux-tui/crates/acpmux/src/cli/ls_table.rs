@@ -58,7 +58,11 @@ fn hidden(row: &Value) -> Option<Hidden> {
     if text(row, "status") == "closed" {
         return Some(Hidden::Closed);
     }
-    let tags = row["tags"].as_object().into_iter().flat_map(|tags| tags.keys().map(String::as_str));
+    let tags = row
+        .get("tags")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|tags| tags.keys().map(String::as_str));
     if crate::review_box::is(text(row, "harness"), tags) {
         return Some(Hidden::Reviewer);
     }
