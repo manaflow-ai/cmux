@@ -44,9 +44,19 @@ enum HomeMapping {
             if let mid = item.messageID, wanted.contains(mid), !item.isRetracted { byID.updateValue(item, forKey: mid) }
         }
         let found = byID
+        // A root with many replies is asked once per reply, per diff: map its parts once.
+        let mapped = RootCache()
         return { root in
-            found.value(for: root).map { (id($0, aliases: aliases), projectedParts($0, summary: summary, media: media, links: links).owners) }
+            if let hit = mapped.entries[root] { return hit }
+            let entry = found.value(for: root).map { (id($0, aliases: aliases), projectedParts($0, summary: summary, media: media, links: links).owners) }
+            mapped.entries[root] = .some(entry)
+            return entry
         }
+    }
+
+    /// The roots one `roots(in:)` answer already mapped (nil: not among the items).
+    private final class RootCache {
+        var entries: [MessageID: (id: ID, owners: [Int])?] = [:]
     }
 
     /// A thread reply's root as MessagesLab's `replyTo` (HomeStore `threadRoot`; the part from
