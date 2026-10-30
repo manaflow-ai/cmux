@@ -66,7 +66,7 @@ struct PhoneAdmissionStoreTests {
 
     /// Invoke removal inside the sealed read, after bytes were read but before publication.
     /// No sleeps, blocked threads, or scheduling assumptions are needed.
-    private final class ReadHookSeal: MobileHostPairingSealStore {
+    private final class ReadHookSeal: MobileHostPairingSealStore, @unchecked Sendable {
         let backing = MobileHostMemoryPairingSeal()
         let hook = Mutex<(@Sendable () -> Void)?>(nil)
         func digest() -> Data? {
