@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "build": "4110699040101",
+  "notes": "notes/4110699040101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 28462,
+      "title": "fix(webview): put the card corner copy's fade on the motion scale",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28109,
+      "title": "carry of #27671: accessible sidebar folds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27677,
+      "title": "fix(chat): include completed tool media in Gallery",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28464,
+      "title": "fix(cmux NEXT): retry the close of an emptied workspace the daemon refused, across reconnects (carries #28108)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28419,
+      "title": "acpmux: a WireGuard stop delivers the restart close 1012 before the tunnel ends",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25409,
+      "title": "cmux NEXT: retain New Tab chat identity in CLI and MCP",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28466,
+      "title": "cmux-next tours: a shot no expect checked reports \"unchecked\", not \"ok\"",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28456,
+      "title": "cmux: a refused key names its form; cmux --help runs commands with send --wait none; flaky upstream test fixed (round 8)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
