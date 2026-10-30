@@ -31,7 +31,7 @@ const SUITES = {
   // Most landings reach the daemon tier, but a burst that does not still leaves base_red_excuse.py a
   // fresh base verdict to compare with every 20 landings.
   daemon: { title: 'cmux-next tip daemon suite · ', job: 'cmux-next daemon tests', input: 'tip_daemon_suite',
-            everyLandings: 20 },
+            everyLandings: 20, deferrable: true },
 };
 // Steps whose failure is a verdict on the code: the package build and the test steps.
 const VERDICT_STEP = /^(Build package and tests|Run |Test |Script tests)/;
@@ -39,6 +39,11 @@ const MIN_GAP_MS = 25 * 60 * 1000;
 const MAX_ATTEMPTS = 3;
 // Job listings per tick, so a long red streak cannot spend the token's budget.
 const MAX_JOB_READS = 10;
+// A daemon suite run whose tree was still publishing ends with daemon-test skipped and leaves a tree
+// wait marker; the publish then starts its same-tree run (named like it, so it reads as in flight).
+// Until then the run is pending, not a no-verdict run to retry: a retry would start a second same-tree
+// run of the same sha. A tree publishes within the hour; after DEFERRED_GRACE_MS it is a lost run.
+const DEFERRED_GRACE_MS = 90 * 60 * 1000;
 const SWIFT_JOB = SUITES.swift.job;
 
 function suiteOf(name) {
@@ -54,7 +59,8 @@ function testedSha(suite, run) {
   return /^[0-9a-f]{40}$/.test(sha) ? sha : '';
 }
 
-// 'pass', 'fail', null (no verdict), or undefined (not read: the tick's budget is spent).
+// 'pass', 'fail', 'skipped' (the job was skipped: no verdict, but see DEFERRED_GRACE_MS), null (no
+// verdict), or undefined (not read: the tick's budget is spent). Callers treat 'skipped' as no verdict.
 // `reads` counts job listings.
 async function verdict({ github, owner, repo, run, reads, suite = SUITES.swift }) {
   if (run.status !== 'completed') return null;
@@ -66,13 +72,15 @@ async function verdict({ github, owner, repo, run, reads, suite = SUITES.swift }
   });
   const job = (data.jobs || []).find((j) => j.name === suite.job);
   if (!job || job.status !== 'completed') return null;
+  if (job.conclusion === 'skipped') return 'skipped';
   if (job.conclusion === 'success') return 'pass';
   if (job.conclusion !== 'failure') return null;
   const failed = (job.steps || []).filter((s) => s.conclusion === 'failure');
   return failed.some((s) => VERDICT_STEP.test(s.name)) ? 'fail' : null;
 }
 
-async function plan({ github, context, now = Date.now(), suite: name = 'swift' }) {
+async function plan({ github, context, now = Date.now(), suite: requested }) {
+  const name = requested || 'swift';
   const suite = suiteOf(name);
   const { owner, repo } = context.repo;
   const { data: ref } = await github.rest.git.getRef({ owner, repo, ref: `heads/${SOURCE}` });
@@ -94,7 +102,10 @@ async function plan({ github, context, now = Date.now(), suite: name = 'swift' }
   if (onTip.length) {
     for (const run of onTip) {
       const v = await verdict({ github, owner, repo, run, reads, suite });
-      if (v) return out('skip', `the tip has a ${suite.job} verdict (${v}) in run ${run.id}`);
+      if (v === 'skipped' && suite.deferrable && now - Date.parse(run.created_at) < DEFERRED_GRACE_MS) {
+        return out('skip', `run ${run.id} skipped ${suite.job} while its tree publishes; its same-tree run follows`);
+      }
+      if (v && v !== 'skipped') return out('skip', `the tip has a ${suite.job} verdict (${v}) in run ${run.id}`);
     }
     if (onTip.length >= MAX_ATTEMPTS) {
       return out('skip', `${onTip.length} runs on the tip gave no ${suite.job} verdict; not retrying`);
@@ -111,6 +122,7 @@ async function plan({ github, context, now = Date.now(), suite: name = 'swift' }
     const v = await verdict({ github, owner, repo, run, reads, suite });
     if (v === undefined) break;
     if (v === 'pass') { green = testedSha(suite, run); break; }
+    // A deferred run of an older sha (its same-tree run may still come) is no verdict here.
     if (v === 'fail' && !red) red = testedSha(suite, run);
   }
   const base = green || red;
@@ -127,7 +139,8 @@ async function plan({ github, context, now = Date.now(), suite: name = 'swift' }
   return out('route', `diff ${what} ${base} with the tip`, base);
 }
 
-async function dispatch({ github, context, suite: name = 'swift', core }) {
+async function dispatch({ github, context, suite: requested, core }) {
+  const name = requested || 'swift';
   const suite = suiteOf(name);
   const { owner, repo } = context.repo;
   try {
@@ -140,7 +153,10 @@ async function dispatch({ github, context, suite: name = 'swift', core }) {
   } catch (error) {
     // The tip's cmux-next.yml does not take the input yet (it lands on feat-cmux-next separately):
     // a warning, not a red tick. The Swift suite's input is long there; its refusal stays an error.
-    if (name !== 'swift' && error.status === 422) {
+    // GitHub answers an input the workflow does not declare with 422 `Unexpected inputs provided:
+    // ["tip_daemon_suite"]`; any other 422 (a bad ref, a disabled workflow) is a real failure.
+    if (name !== 'swift' && error.status === 422 && /Unexpected inputs provided/.test(error.message || '')
+        && (error.message || '').includes(suite.input)) {
       if (core) core.warning(`feat-cmux-next's ${WORKFLOW} refused ${suite.input}: ${error.message}`);
       return false;
     }
@@ -149,4 +165,4 @@ async function dispatch({ github, context, suite: name = 'swift', core }) {
   return true;
 }
 
-module.exports = { plan, dispatch, verdict, testedSha, SUITES, MIN_GAP_MS, MAX_ATTEMPTS, SWIFT_JOB };
+module.exports = { plan, dispatch, verdict, testedSha, SUITES, MIN_GAP_MS, MAX_ATTEMPTS, DEFERRED_GRACE_MS, SWIFT_JOB };

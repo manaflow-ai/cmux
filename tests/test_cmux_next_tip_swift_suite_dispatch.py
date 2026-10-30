@@ -47,6 +47,13 @@ check(re.search(r"matrix:\n\s+suite: \[swift, daemon\]", text) is not None,
       "the Swift and daemon suites each get a matrix leg")
 check('sed -n "s/^${SUITE}=//p"' in text, "the router verdict read is the suite's own tier (swift= or daemon=)")
 check(text.count("SUITE: ${{ matrix.suite }}") == 3, "the plan, router and dispatch steps all take the leg's suite")
+# The router on feat-cmux-next emits both tier lines the legs read (a pull_request event routes per path).
+route_text = subprocess.run(["git", "-C", str(ROOT), "show", "origin/feat-cmux-next:scripts/ci/cmux_next_route.py"],
+                            capture_output=True, text=True).stdout
+if route_text:
+    for key in ("swift", "daemon"):
+        check(f'"{key}": flag(result.{key})' in route_text,
+              f"feat-cmux-next's router must print {key}= for the {key} leg to read")
 
 HARNESS = r"""
 const fixture = JSON.parse(require('fs').readFileSync(process.argv[2], 'utf8'));
@@ -69,7 +76,7 @@ const github = { rest: {
     },
     createWorkflowDispatch: async (args) => {
       calls.push(['dispatch', args.workflow_id, args.ref, args.inputs]);
-      if (fixture.refuse) { const e = new Error('Unexpected inputs provided'); e.status = 422; throw e; }
+      if (fixture.refuse) { const e = new Error(fixture.refuse); e.status = 422; throw e; }
     },
   },
 } };
@@ -78,8 +85,11 @@ const core = { warning: (m) => calls.push(['warning', m]) };
 (async () => {
   const p = await plan({ github, context, now: fixture.now, suite: fixture.suite });
   let sent = null;
-  if (p.action === 'dispatch') sent = await dispatch({ github, context, suite: fixture.suite, core });
-  console.log(JSON.stringify({ plan: p, calls, sent }));
+  let thrown = null;
+  if (p.action === 'dispatch') {
+    try { sent = await dispatch({ github, context, suite: fixture.suite, core }); } catch (e) { thrown = e.message; }
+  }
+  console.log(JSON.stringify({ plan: p, calls, sent, thrown }));
 })().catch((e) => { console.error(e); process.exit(1); });
 """
 
@@ -131,7 +141,7 @@ def run(runs, jobs=None, compare="ahead", suite=None, ahead_by=1, refuse=False):
         failures.append(f"the plan failed:\n{result.stderr}")
         return {"action": "error"}, []
     out = json.loads(result.stdout.strip().splitlines()[-1])
-    return out["plan"], out["calls"] + [["sent", out["sent"]]]
+    return out["plan"], out["calls"] + [["sent", out["sent"]], ["thrown", out["thrown"]]]
 
 
 def dispatched(calls):
@@ -161,7 +171,7 @@ check(p["action"] == "route", f"a run created 26 minutes ago must not hold back 
 
 # Change filter: a new tip with a green ancestor goes to the router with that green.
 p, calls = run([tip_run(GREEN, conclusion="success")])
-check(p == {"action": "route", "reason": p.get("reason"), "tip": TIP, "base": GREEN, "suite": None},
+check(p == {"action": "route", "reason": p.get("reason"), "tip": TIP, "base": GREEN, "suite": "swift"},
       f"a new tip with a green ancestor must be routed from that green, got {p}")
 check(["compare", f"{GREEN}...{TIP}"] in calls, "the ancestry check is one compare from the green to the tip")
 check(not dispatched(calls), "the plan must not dispatch before the router says swift test is reached")
@@ -240,8 +250,8 @@ p, calls = run([daemon_run(TIP, conclusion="success", head_sha="9" * 40)], suite
 check(p["action"] == "skip", f"a same-tree daemon run of the tip is the tip's verdict, got {p}")
 p, calls = run([daemon_run(GREEN, conclusion="success", head_sha=TIP)], suite="daemon")
 check(p["action"] == "route" and p["base"] == GREEN, f"the daemon green is the commit its name tests, got {p}")
-# The verdict comes from the daemon job; a skipped one (its tree was still publishing) is none.
-r = daemon_run(TIP, conclusion="success")
+# The verdict comes from the daemon job; a skipped one is none (retried once past the deferred grace).
+r = daemon_run(TIP, conclusion="success", age_min=100)
 p, calls = run([r], jobs={r["id"]: daemon_job("skipped")}, suite="daemon")
 check(p["action"] == "dispatch", f"a run whose daemon tests were skipped must be retried, got {p}")
 r = daemon_run(TIP)
@@ -259,10 +269,43 @@ p, calls = run([daemon_run(GREEN, status="in_progress", conclusion=None, age_min
 check(p["action"] == "skip", f"a daemon run in flight must skip the daemon tick, got {p}")
 p, calls = run([daemon_run(GREEN, status="in_progress", conclusion=None, age_min=5)])
 check(p["action"] == "dispatch", f"a daemon run in flight must not hold the Swift tick, got {p}")
-# Before feat-cmux-next's cmux-next.yml takes the input: a warning, not a red tick. Swift still throws.
-p, calls = run([], suite="daemon", refuse=True)
-check(["sent", False] in calls and any(c[0] == "warning" for c in calls),
-      f"a refused daemon dispatch must warn and report nothing sent, got {calls}")
+# Before feat-cmux-next's cmux-next.yml takes the input: a warning, not a red tick.
+UNKNOWN = 'Unexpected inputs provided: ["tip_daemon_suite"]'
+p, calls = run([], suite="daemon", refuse=UNKNOWN)
+check(["sent", False] in calls and ["thrown", None] in calls and any(c[0] == "warning" for c in calls),
+      f"a daemon dispatch refused for the unknown input must warn and report nothing sent, got {calls}")
+# Any other 422 is a real failure, for the daemon leg and the Swift leg alike.
+for suite, message in (("daemon", "No ref found for: refs/heads/feat-cmux-next"),
+                       ("daemon", 'Unexpected inputs provided: ["something_else"]'),
+                       (None, 'Unexpected inputs provided: ["tip_swift_suite"]')):
+    p, calls = run([], suite=suite, refuse=message)
+    check(["thrown", message] in calls and not any(c[0] == "warning" for c in calls),
+          f"a {suite or 'swift'} dispatch refused with {message!r} must fail the tick, got {calls}")
+
+# A daemon run whose tree was still publishing (daemon-test skipped) is pending until its same-tree
+# run starts: never dispatched again meanwhile, so one sha gets one same-tree run.
+r = daemon_run(TIP, conclusion="success", age_min=30)
+p, calls = run([r], jobs={r["id"]: daemon_job("skipped")}, suite="daemon")
+check(p["action"] == "skip" and not dispatched(calls), f"a deferred daemon run must not be re-dispatched, got {p}")
+# Its same-tree run (named for the same sha, head_sha the moved tip) in flight holds the leg too.
+r = daemon_run(TIP, conclusion="success", age_min=30)
+p, calls = run([daemon_run(TIP, status="in_progress", conclusion=None, age_min=2, head_sha="9" * 40), r],
+               jobs={r["id"]: daemon_job("skipped")}, suite="daemon")
+check(p["action"] == "skip" and not dispatched(calls), f"a deferred run's same-tree run in flight must skip, got {p}")
+# ...and its verdict, once in, is the tip's.
+st = daemon_run(TIP, conclusion="failure", age_min=26, head_sha="9" * 40)
+r2 = daemon_run(TIP, conclusion="success", age_min=80)
+p, calls = run([st, r2], jobs={st["id"]: daemon_job("failure", "Run the live-daemon suites"),
+                               r2["id"]: daemon_job("skipped")}, suite="daemon")
+check(p["action"] == "skip" and "verdict" in p["reason"], f"the same-tree run's verdict must stand, got {p}")
+# A deferred run past the grace whose same-tree run never came is a lost run: retried.
+r = daemon_run(TIP, conclusion="success", age_min=100)
+p, calls = run([r], jobs={r["id"]: daemon_job("skipped")}, suite="daemon")
+check(p["action"] == "dispatch", f"a deferred run past the grace must be retried, got {p}")
+# The Swift suite has no deferred state: a skipped swift test is retried at once (as before).
+r = tip_run(TIP, conclusion="success", age_min=30)
+p, calls = run([r], jobs={r["id"]: swift_job("skipped")})
+check(p["action"] == "dispatch", f"a skipped Swift suite job is retried, got {p}")
 
 if failures:
     print("FAIL: cmux NEXT tip Swift suite dispatcher\n  " + "\n  ".join(failures))
