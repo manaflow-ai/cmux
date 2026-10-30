@@ -62,6 +62,9 @@ final class TerminalEchoRouter: Sendable {
     /// size state goes to `sizeState` (the attachment orders generations under its own lock); it touches no
     /// surface, so it keeps no order with output. Never waits: what holds the reader (the lane's capacity, the
     /// hold limit, the queue's high water) the reader waits for after the line.
+    /// Each echoed key's output passes here; the ledger adds integer counts under the lock already held (no
+    /// lock, allocation or per-byte work of its own).
+    // perf-hot: 10us terminal-key
     func admit(_ decoded: DecodedAttachLine, sizeState: (TerminalSizeState, String?) -> Void) {
         let next = state.withLock { state -> Next in
             state.ledger.decoded(decoded)
