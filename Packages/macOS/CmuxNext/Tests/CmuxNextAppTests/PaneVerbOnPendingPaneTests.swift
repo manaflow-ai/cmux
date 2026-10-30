@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+import CmuxNextSettings
 import Foundation
 import Testing
 
@@ -116,6 +117,39 @@ struct PaneVerbOnPendingPaneTests {
                                             report: { "the split did not confirm" })
             let tabs = content.panes.values.reduce(0) { $0 + $1.pane.tabs.count }
             #expect(tabs == tabsBefore + 1, "the refused typed new tab opened a tab: \(tabs) tabs, \(tabsBefore) before the split")
+            #expect(services.refusalHUD.shownCount == shown + 1, "the refusal showed \(services.refusalHUD.shownCount - shown) times")
+        }
+    }
+
+    /// Perf review B1 at b898fc6c2d3: a person's run (a key, the menu, the palette) binds a person command scope that
+    /// never closes, and the connection's notice must still show for it. A cmux.json `newTabInCurrentPane` command run
+    /// through the registry with origin `.user` on a pending split's pane: refused before it is sent, one notice, no tab.
+    @Test func aPersonsConfigCommandOnAPendingPaneShowsOneNotice() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            let content = try #require(services.windows.active?.workspaceContent)
+            let command = ConfigCommandAction(name: "p0PendingTyped", title: "P0 pending typed", command: "true")
+            services.configActions.apply([command])
+            var terminal = ActionInvocation(origin: .user)
+            terminal.opensTerminal = true
+            let before = Set(content.panes.keys)
+            let tabsBefore = content.panes.values.reduce(0) { $0 + $1.pane.tabs.count }
+            #expect(services.registry.perform("splitDown", invocation: terminal))
+            let pending = try #require(content.panes.first { !before.contains($0.key) }?.value, "the split shows no pane in its turn")
+            #expect(pending.pane.handle.rawValue >= ProvisionalPane.firstHandle, "the split already confirmed")
+            PaneHandlers.focus(pending.layoutPaneID, in: content)
+            let shown = services.refusalHUD.shownCount
+            // The palette's or a shortcut's run: the registry, origin `.user` (a person scope is bound for it).
+            #expect(services.registry.perform(ActionID(rawValue: command.actionID), invocation: ActionInvocation(origin: .user)))
+
+            try await PinnedPageTests.until({ services.refusalHUD.shownCount > shown }, report: {
+                "a person's typed command on the pending pane showed nothing (HUD \(services.refusalHUD.shownCount), was \(shown))"
+            })
+            #expect(services.refusalHUD.message?.contains(MiscHandlerStrings.paneNotReady) == true,
+                    "the notice is not the pane-still-opening one: \(services.refusalHUD.message ?? "")")
+            try await PinnedPageTests.until({ content.panes.values.allSatisfy { $0.pane.handle.rawValue < ProvisionalPane.firstHandle } },
+                                            report: { "the split did not confirm" })
+            let tabs = content.panes.values.reduce(0) { $0 + $1.pane.tabs.count }
+            #expect(tabs == tabsBefore + 1, "the refused typed command opened a tab: \(tabs) tabs, \(tabsBefore) before the split")
             #expect(services.refusalHUD.shownCount == shown + 1, "the refusal showed \(services.refusalHUD.shownCount - shown) times")
         }
     }
