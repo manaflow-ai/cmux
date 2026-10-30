@@ -114,7 +114,7 @@ const pointer = (type: string, clientY: number) =>
 test("the default layout: three blocks and their sections, in order", async () => {
   const { container, root } = await mount();
   expect(layout(container)).toEqual([
-    { group: "about", sections: ["environment", "context", "connectors"] },
+    { group: "about", sections: ["environment", "context", "usage", "connectors"] },
     { group: "made", sections: ["changes", "sources", "outputs"] },
     { group: "running", sections: ["subagents", "tasks"] },
   ]);
@@ -133,18 +133,18 @@ test("the default layout: three blocks and their sections, in order", async () =
 
 test("dragging a handle past a neighbour's middle moves the section there, and the order stays", async () => {
   const { container, root } = await mount();
-  stack(container, { environment: 100, context: 28, connectors: 28 });
+  stack(container, { environment: 100, context: 28, usage: 28, connectors: 28 });
   const grip = handle(container, "environment");
   await act(async () => grip.dispatchEvent(pointer("pointerdown", 10)));
   expect(container.querySelector('section[data-section="environment"]')!.hasAttribute("data-dragging")).toBe(true);
   // Past Context's middle (114) only.
   await act(async () => dom.window.dispatchEvent(pointer("pointermove", 120)));
-  expect(layout(container)[0]!.sections).toEqual(["context", "environment", "connectors"]);
-  // Past Connectors' middle too.
-  stack(container, { context: 28, environment: 100, connectors: 28 });
-  await act(async () => dom.window.dispatchEvent(pointer("pointermove", 150)));
-  expect(layout(container)[0]!.sections).toEqual(["context", "connectors", "environment"]);
-  await act(async () => dom.window.dispatchEvent(pointer("pointerup", 150)));
+  expect(layout(container)[0]!.sections).toEqual(["context", "environment", "usage", "connectors"]);
+  // Past Usage's (142) and Connectors' (170) middles too.
+  stack(container, { context: 28, environment: 100, usage: 28, connectors: 28 });
+  await act(async () => dom.window.dispatchEvent(pointer("pointermove", 180)));
+  expect(layout(container)[0]!.sections).toEqual(["context", "usage", "connectors", "environment"]);
+  await act(async () => dom.window.dispatchEvent(pointer("pointerup", 180)));
   expect(container.querySelector("[data-dragging]")).toBeNull();
   // The other blocks never moved.
   expect(layout(container).slice(1)).toEqual([
@@ -156,7 +156,7 @@ test("dragging a handle past a neighbour's middle moves the section there, and t
   // A fresh page reads the saved order.
   resetSectionOrderForTests();
   const again = await mount();
-  expect(layout(again.container)[0]!.sections).toEqual(["context", "connectors", "environment"]);
+  expect(layout(again.container)[0]!.sections).toEqual(["context", "usage", "connectors", "environment"]);
   await act(async () => again.root.unmount());
 });
 
@@ -226,8 +226,9 @@ test("a saved order with unknown or missing sections keeps every section once", 
   );
   const { container, root } = await mount();
   expect(layout(container).map((block) => block.sections)).toEqual([
-    // Connectors, missing, takes its place after Context, the section it follows by default.
-    ["context", "connectors", "environment"],
+    // Usage and Connectors, missing, take their places after the sections they follow by default:
+    // Usage after Context, Connectors after Usage.
+    ["context", "usage", "connectors", "environment"],
     ["changes", "sources", "outputs"],
     ["subagents", "tasks"],
   ]);
