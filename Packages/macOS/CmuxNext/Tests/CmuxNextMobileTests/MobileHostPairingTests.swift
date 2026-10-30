@@ -351,10 +351,11 @@ import Testing
         #expect(relaunched.hostd.isEmpty, "hostd pins the forgotten phone after a relaunch: \(relaunched.hostd)")
     }
 
-    /// R9 review of #28275: a removal still saving when a quit deadline ends the process (its save held
-    /// before it cleared the old digest) is named, and the list from before it does not count after a
-    /// relaunch: the seal is cleared, so every phone pairs again. No clock decides it: the removal's save
-    /// waits at the seal until the test lets it go, after its checks.
+    /// R9 review of #28275: a removal still saving when a quit deadline ends the process is marked by
+    /// the deadline's end, which never calls the Keychain (a hung securityd must not hold the process's
+    /// end); the next launch clears the seal before its first read, so the list from before the removal
+    /// does not count and every phone pairs again. No clock decides it: the removal's save waits at the
+    /// seal, before its own clear, until the test lets it go after its checks.
     @Test func aRemovalCutOffByAQuitDeadlineIsNotTrustedAfterARelaunch() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -367,14 +368,21 @@ import Testing
         let started = seal.heldClearStarted()
         let watch = MobileHostPairedQuitWatch()
         watch.watch(file)
-        let cutOff = watch.failClosedIfSaving()
-        let relaunched = Self.relaunched(directory, seal: seal)
+        let cutOff = watch.markCutOffIfSaving()
+        // The held save has not cleared the seal yet: a seal without its digest now means the
+        // deadline's end called the Keychain itself.
+        let sealUntouchedAtTheEnd = seal.digest() != nil
+        // The next launch: a new file object on the same Keychain.
+        let relaunched = MobileHostPairedDevicesFile(directory: directory, seal: seal)
+        let list = await relaunched.loadInBackground(userID: "u")
+        let cleared = await relaunched.sealClearedForCutOff()
         seal.gate.signal()
         await file.drained()
         #expect(started, "the removal's save never started")
         #expect(cutOff == [MobileHostPairedDevicesFile.fileName], "the quit deadline named \(cutOff)")
-        #expect(relaunched.approvers.isEmpty, "the removed phone is an approver after a relaunch: \(relaunched.approvers)")
-        #expect(relaunched.hostd.isEmpty, "hostd pins the removed phone after a relaunch: \(relaunched.hostd)")
+        #expect(sealUntouchedAtTheEnd, "the deadline's end called the Keychain")
+        #expect(list.devices.isEmpty, "the list from before the removal counts after a relaunch: \(list.devices.map(\.id))")
+        #expect(cleared, "the next launch did not clear the seal for the cut-off save")
     }
 
     /// Review 90 (2): a new hostd gets the newest paired list the app set, at once: a restart that

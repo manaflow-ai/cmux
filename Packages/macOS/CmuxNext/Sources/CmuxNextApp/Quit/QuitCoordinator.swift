@@ -235,7 +235,8 @@ final class QuitCoordinator {
                 if wedgesEngineStop { deadline.wedgeMainThread(watchdog) }
                 #endif
                 // The agent panes' and paired phones' queued saves, before the engines stop (Chromium's
-                // shutdown watchdog can end the process) and after (a page that closes saves its draft).
+                // shutdown watchdog can end the process) and after (a Chromium-hosted agent page that
+                // closes saves its draft in its page-hide flush; only those pages close here).
                 // No limit of their own: the deadline bounds them and records what was still saving.
                 await services.stateFilesDrained()
                 await closeEngines()

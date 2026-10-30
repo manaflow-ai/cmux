@@ -188,10 +188,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let apps = services?.apps, apps.isStoreWaiting { Task { @MainActor in apps.windowDidShowContent() } }
             // Recovered unsaved changes from a quit, crash or power-off (R96 quit hook).
             // And a chat's unsent text the last quit's deadline ended before it saved (AgentPaneStateLoss).
-            if let window = services?.windows.active?.window, let drafts = services?.recoveryDrafts, let loss = services?.agentPaneStateLoss {
+            if let window = services?.windows.active?.window, let drafts = services?.recoveryDrafts, let loss = services?.agentPaneStateLoss,
+               let iphone = services?.iphone {
                 Task { @MainActor in
                     await RecoveryNotice.show(store: drafts, in: window)
-                    await loss.showNotice(in: window)
+                    await loss.showNotice(in: window, pairedSealCleared: await iphone.pairedSealClearedForCutOff())
                 }
             }
             CATransaction.setCompletionBlock { [weak self] in

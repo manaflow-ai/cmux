@@ -763,10 +763,10 @@ final class AppServices {
         return nil
     }
 
-    /// A quit deadline's end: it names and records the state files still saving (the paired phones' list
-    /// fails closed), then ends the process (`AgentPaneStateLoss`).
+    /// A quit deadline's end: it names and records the state files still saving (a paired-phones save is
+    /// marked, and the next launch clears its seal), then ends the process (`AgentPaneStateLoss`).
     func quitDeadlineEnd() -> @Sendable () -> Void {
-        agentPaneStateLoss.deadlineEnd(files: agentPaneStateFiles, alsoCutOff: { [watch = iphone.pairedQuitWatch] in watch.failClosedIfSaving() })
+        agentPaneStateLoss.deadlineEnd(files: agentPaneStateFiles, alsoCutOff: { [watch = iphone.pairedQuitWatch] in watch.markCutOffIfSaving() })
     }
 
     /// The quit's state-file saves (the agent panes' drafts and scroll places, the paired phones' list),

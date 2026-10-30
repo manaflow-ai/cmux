@@ -135,7 +135,7 @@ public final class IPhoneHostService {
     }
     /// The paired list's one file for the state directory: its queue keeps this host's reads and saves in order.
     @ObservationIgnored private(set) var pairedFile: MobileHostPairedDevicesFile?
-    /// That file for a quit deadline's end, on its own thread: a save it cuts off fails closed.
+    /// That file for a quit deadline's end, on its own thread: a save it cuts off is marked.
     @ObservationIgnored public let pairedQuitWatch = MobileHostPairedQuitWatch()
     @ObservationIgnored private var listing: Task<Void, Never>?
     @ObservationIgnored let supervisor = MobileHostSupervisor()
@@ -398,6 +398,11 @@ public final class IPhoneHostService {
         let supervisor = supervisor
         // task-owner: teardown hop; the supervisor's stop is idempotent
         Task { await supervisor.stop() }
+    }
+
+    /// Whether this launch cleared the paired list's seal for a save the last quit cut off.
+    public func pairedSealClearedForCutOff() async -> Bool {
+        await pairedFile?.sealClearedForCutOff() ?? false
     }
 
     /// The app's quit: awaits, holding no thread, the paired list's queued saves (a removal's new list

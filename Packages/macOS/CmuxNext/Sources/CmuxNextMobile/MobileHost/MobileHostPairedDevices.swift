@@ -180,10 +180,18 @@ public final class MobileHostPairedDevicesFile: Sendable {
     let seal: any MobileHostPairingSealStore
     /// Saves and withdrawals queued or running.
     private let saving = Mutex(0)
+    /// Written by a quit deadline that cut off a save (``markCutOffIfSaving()``), beside the file.
+    let cutOffMarker: URL
+    /// Whether this file object cleared the seal for a cut-off save (``sealClearedForCutOff()``).
+    private let clearedForCutOff = Mutex(false)
 
+    /// Before any read or save it queues (the first item on the file's queue), a save the last quit cut
+    /// off makes the stored list stop counting (``distrustIfCutOff()``).
     public init(directory: URL, seal: any MobileHostPairingSealStore) {
         file = directory.appendingPathComponent(Self.fileName, isDirectory: false)
+        cutOffMarker = directory.appendingPathComponent("paired-devices.cut-off", isDirectory: false)
         self.seal = seal
+        queue.async { [self] in distrustIfCutOff() }
     }
 
     /// One serial queue for the list's reads and writes: they leave the caller's thread (the
@@ -244,19 +252,36 @@ public final class MobileHostPairedDevicesFile: Sendable {
     }
 
     /// A quit deadline's end, on its own thread, while a save may be cut off (a removal among them):
-    /// when one is queued or running, no list counts any more, in this run and after a relaunch (the
-    /// seal is cleared, so the stored list no longer matches it and every phone pairs again, the
-    /// digest rule of ``load(userID:)``), and true. A save that still finishes before the process
-    /// ends records its own new list.
-    public func failClosedIfSaving() -> Bool {
+    /// when one is queued or running, it writes the cut-off marker and returns true. It never calls the
+    /// Keychain (a hung securityd must not hold the process's end): the next launch clears the seal
+    /// (``distrustIfCutOff()``).
+    public func markCutOffIfSaving() -> Bool {
         guard isSaving else { return false }
-        inForce.withLock { $0 = Data() }
-        if !seal.clearDigest(), !seal.clearDigest() {
-            Self.logger.fault("iPhone pairing: a quit cut off a paired-phones save and the Keychain refuses to clear the seal; the stored list can count again after a relaunch")
-        } else {
-            Self.logger.fault("iPhone pairing: a quit cut off a paired-phones save; no stored list counts, every phone pairs again")
-        }
+        try? Data().blockingWrite(to: cutOffMarker, options: .atomic)
         return true
+    }
+
+    /// On the file's queue, first: when the last quit cut off a save, no stored list counts in this run,
+    /// and the seal is cleared, so after it the stored list no longer matches its seal and every phone
+    /// pairs again (the digest rule of ``load(userID:)``). A Keychain that refuses the clear keeps the
+    /// list refused for this run and the marker for the next launch (a fault).
+    private func distrustIfCutOff() {
+        guard FileManager.checked.fileExists(atPath: cutOffMarker.path) else { return }
+        inForce.withLock { $0 = Data() }
+        guard seal.clearDigest() || seal.clearDigest() else {
+            Self.logger.fault("iPhone pairing: the last quit cut off a paired-phones save and the Keychain refuses to clear the seal; no phone is trusted in this run")
+            return
+        }
+        try? FileManager.checked.removeItem(at: cutOffMarker)
+        clearedForCutOff.withLock { $0 = true }
+        Self.logger.error("iPhone pairing: the last quit cut off a paired-phones save; the seal is cleared, every phone pairs again")
+    }
+
+    /// Whether this launch cleared the seal for a save the last quit cut off (its notice says so).
+    public func sealClearedForCutOff() async -> Bool {
+        await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+            queue.async { [self] in done.resume(returning: clearedForCutOff.withLock { $0 }) }
+        }
     }
 
     /// How many digests this run remembers for this file (tests).
@@ -359,7 +384,7 @@ public struct MobileHostPairedLoad: Sendable {
 }
 
 /// The iPhone host's paired-phones file as a quit deadline sees it, from any thread: the host sets it
-/// on the main actor whenever its file changes, and the deadline's end asks it to fail closed.
+/// on the main actor whenever its file changes, and the deadline's end asks it to mark a cut-off save.
 public final class MobileHostPairedQuitWatch: Sendable {
     private let file = Mutex<MobileHostPairedDevicesFile?>(nil)
 
@@ -369,8 +394,8 @@ public final class MobileHostPairedQuitWatch: Sendable {
         self.file.withLock { $0 = file }
     }
 
-    /// The names of the files a quit cut off (``MobileHostPairedDevicesFile/failClosedIfSaving()``).
-    public func failClosedIfSaving() -> [String] {
-        file.withLock { $0 }?.failClosedIfSaving() == true ? [MobileHostPairedDevicesFile.fileName] : []
+    /// At a quit deadline: the file's name when a save of it is cut off (``MobileHostPairedDevicesFile/markCutOffIfSaving()``).
+    public func markCutOffIfSaving() -> [String] {
+        file.withLock { $0 }?.markCutOffIfSaving() == true ? [MobileHostPairedDevicesFile.fileName] : []
     }
 }

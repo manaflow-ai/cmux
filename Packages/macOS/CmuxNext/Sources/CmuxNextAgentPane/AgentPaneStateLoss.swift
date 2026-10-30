@@ -20,8 +20,8 @@ public nonisolated struct AgentPaneStateLoss: Sendable {
     }
 
     /// A quit deadline's end (`QuitDeadline(end:)`), run on the deadline's own thread: names and records
-    /// the files of `files` still saving and those `alsoCutOff` names (it may act on them first: the
-    /// paired phones' list fails closed), then runs `end` (the process's end; tests pass their own).
+    /// the files of `files` still saving and those `alsoCutOff` names (it may mark them: never a call
+    /// that can hang, such as the Keychain), then runs `end` (the process's end; tests pass their own).
     public func deadlineEnd(files: AgentPaneStateFiles, alsoCutOff: @escaping @Sendable () -> [String] = { [] },
                             end: (@Sendable () -> Void)? = nil) -> @Sendable () -> Void {
         let end = end ?? { _exit(0) }
@@ -54,17 +54,20 @@ public nonisolated struct AgentPaneStateLoss: Sendable {
     /// The paired phones' list (`MobileHostPairedDevicesFile.fileName`; QuitStateFilesTests checks they match).
     public static let pairedPhonesFileName = "paired-devices.json"
 
-    /// The notices for `names`: a new chat's unsent text, and a paired-phones change (that list failed
-    /// closed, so every phone pairs again). A scroll place comes back by itself at the next scroll.
+    /// The notices for the last quit's `names`: a new chat's unsent text, and, when this launch cleared
+    /// the paired list's seal for a save that quit cut off (`pairedSealCleared`), that every phone pairs
+    /// again. A scroll place comes back by itself at the next scroll.
     @MainActor
-    public static func notices(for names: [String]) -> [String] {
+    public static func notices(for names: [String], pairedSealCleared: Bool) -> [String] {
         var notices: [String] = []
         if names.contains(AgentUnsentDrafts.fileName) {
             notices.append(String(localized: "agentPane.stateLoss.unsentDraft",
                                   defaultValue: "Text typed in a new chat just before cmux quit was not saved.", bundle: .module))
         }
         if names.contains(pairedPhonesFileName) {
-            logger.error("the last quit cut off a paired-phones save; no stored list counts, every phone pairs again")
+            logger.error("the last quit cut off a paired-phones save (seal cleared at launch: \(pairedSealCleared, privacy: .public))")
+        }
+        if pairedSealCleared {
             notices.append(String(localized: "agentPane.stateLoss.pairedPhones",
                                   defaultValue: "A change to your paired iPhones was cut off when cmux quit. Pair your iPhones again.",
                                   bundle: .module))
@@ -74,8 +77,8 @@ public nonisolated struct AgentPaneStateLoss: Sendable {
 
     /// Takes the last quit's record and shows its notices in `window`.
     @MainActor
-    public func showNotice(in window: NSWindow) async {
-        for (index, message) in Self.notices(for: await take()).enumerated() {
+    public func showNotice(in window: NSWindow, pairedSealCleared: Bool) async {
+        for (index, message) in Self.notices(for: await take(), pairedSealCleared: pairedSealCleared).enumerated() {
             _ = CmuxToastCenter.shared.show(CmuxToast(id: "state-lost-\(index)", message: message, duration: .seconds(12)), in: window)
         }
     }
