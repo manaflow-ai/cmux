@@ -51,3 +51,34 @@ test("a cut preview listed again stays a preview", () => {
   const again = mergeQueue(first, [{ promptId: "p1", prompt: preview, fromAgent: "nx-sidebar" }]);
   expect(again[0]?.preview).toBe(true);
 });
+
+// Review at 2a2493745a6: a queued message with a waiting steer's words was hidden behind the steer,
+// and its queue entry went nowhere, so Send now on the steer left it queued and it came back. A steer
+// (already in the running turn) and a queued message (due after it) are two deliveries: the queued one
+// stays shown with its own Dismiss and Send now, unless both are the one prompt.
+test("a queued message with a waiting steer's words is not hidden behind the steer", () => {
+  const words = "#27128 own red fixed and pushed exact d60a3ddc";
+  const incoming = { kind: "message" as const, message: { name: "nx-sidebar", text: words, raw: words } };
+  const steer = {
+    id: "steer-s1",
+    version: 1,
+    at: 1,
+    kind: "user",
+    text: words,
+    steer: "waiting" as const,
+    steerPromptId: "s1",
+    incoming,
+  };
+  const queued = queuedMessageRows(mergeQueue([], [{ promptId: "q1", prompt: words, fromAgent: "nx-sidebar" }]));
+  const group = pendingMessagesRow([steer], queued)!;
+  // Send now on the steer drops it from the waiting rows; the queued copy must be covered either way:
+  // shown on its own now, or carried by a row that still shows.
+  const shownIds = group.pendingMessages!.rows.flatMap((row) => [
+    row.queuedMessage?.promptId,
+    ...(row.queuedMessage?.twins ?? []),
+  ]);
+  expect(shownIds).toContain("q1");
+  // The same prompt as a steer and a queue entry at once is still one message.
+  const same = queuedMessageRows(mergeQueue([], [{ promptId: "s1", prompt: words, fromAgent: "nx-sidebar" }]));
+  expect(pendingMessagesRow([steer], same)!.pendingMessages!.rows.map((row) => row.id)).toEqual(["steer-s1"]);
+});
