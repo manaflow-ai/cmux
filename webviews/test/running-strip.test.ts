@@ -180,7 +180,9 @@ await requireBrowserLane("running-strip.test.ts", async () => {
   }
 
   test("in a pane under 360px tall View all stays in reach: focus scrolls it into view", async () => {
-    const page = await browser!.newPage({ viewport: { width: 760, height: 300 } });
+    // Reduced motion opens the folded tray at once: a played fold lets go of its clip only in its
+    // finish event, after this test would focus and measure.
+    const page = await browser!.newPage({ viewport: { width: 760, height: 300 }, reducedMotion: "reduce" });
     try {
       const { port } = vite!.httpServer!.address() as { port: number };
       await page.goto(`http://127.0.0.1:${port}/test/browser/running-strip.html`);
