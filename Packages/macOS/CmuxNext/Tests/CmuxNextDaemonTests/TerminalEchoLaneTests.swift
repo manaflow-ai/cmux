@@ -437,6 +437,36 @@ import Testing
         #expect(router.routesToLane)
     }
 
+    /// Review of 3ee8bbb5a3f5: once a shared stream overflowed and asked for a READY, the output it drops must not
+    /// reach the lane by another way. The lane drains and the markers pass, so the route opens again, but until
+    /// the READY comes every live chunk goes onto the stream, which drops it: the view never parses output with a
+    /// hole in it (an escape sequence cut in the middle).
+    @Test func outputWaitingForAResyncNeverReachesTheLane() async throws {
+        let requests = Atomic<Int>(0)
+        let queue = TerminalEventQueue(highWater: 10, lowWater: 4, mergeLimit: 1,
+                                       backpressure: .dropAndResync({ _ in requests.add(1, ordering: .relaxed) }),
+                                       recorder: nil)
+        let ready = TerminalChannelEvent.snapshot(
+            TerminalSnapshotFrame(phase: .ready, generation: 1, offset: 0, version: 1, data: Data([1])))
+        queue.push(ready)
+        queue.arm()
+        #expect(await queue.next() == ready)
+        let lane = FakeLane()
+        let router = try await Self.openRoute(queue, to: lane)
+
+        lane.holdNext() // the first chunk fills the lane: the rest goes onto the stream until it wakes
+        for text in ["aaaaa", "bbbbb", "ccccc", "ddddd"] { router.receive(Self.output(text)) { _, _ in } }
+        #expect(requests.load(ordering: .relaxed) == 1, "the stream did not overflow and ask for a READY")
+
+        lane.drain()
+        while !router.routesToLane {
+            guard case .outputResume(let marker)? = await queue.next() else { throw EchoLaneTestError.noMarker }
+            marker.resume()
+        }
+        router.receive(Self.output("eeeee")) { _, _ in }
+        #expect(lane.chunks == [Data("aaaaa".utf8)], "output reached the lane while the stream waited for its READY")
+    }
+
     /// With no lane named, output and the echo of its press stay on the stream, the echo right behind its chunk.
     @Test func withNoLaneAnEchoRidesBehindItsChunk() async throws {
         let queue = TerminalEventQueue(recorder: nil)

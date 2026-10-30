@@ -181,7 +181,7 @@ struct TerminalAttachmentStreamTests {
     /// Lawrence's "no new terminals" (2026-10-30, cmux20, v2.2.9-opt): the app's shared connection reader sat in
     /// `parkReader()` behind one view's full lane, so `new-tab`'s reply, sent at once by an idle daemon, waited
     /// unread for 3 s. The reply to a request behind 4 MiB of that view's output comes, and with the view's lane
-    /// still full the next request is answered in under 50 ms.
+    /// still full the next request is answered.
     @Test func aReplyNeverWaitsBehindAViewWhoseLaneIsFull() async throws {
         let daemon = try StreamWireDaemon()
         defer { daemon.stop() }
@@ -206,11 +206,9 @@ struct TerminalAttachmentStreamTests {
         await lane.waitUntilFull()
         _ = try await emitted.value
 
-        let clock = ContinuousClock()
-        let start = clock.now
+        // The deadlines above only end a red run (the reply never comes while the reader is parked); no time
+        // decides the result (R5).
         _ = try await connection.request(IdentifyRequest(), timeout: .seconds(2))
-        let elapsed = clock.now - start
-        #expect(elapsed < .milliseconds(50), "a reply waited \(elapsed) behind a view whose lane is full")
         view.detachNow()
         await connection.close()
     }
