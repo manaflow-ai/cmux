@@ -120,9 +120,10 @@ function pxValues(value: string): number[] {
   return [...value.matchAll(/(-?(?:\d+\.?\d*|\.\d+))px\b/gi)].map((match) => Number(match[1]));
 }
 
-function isOutsideScale(property: string, value: string): boolean {
+export function isOutsideScale(property: string, value: string): boolean {
   const values = pxValues(value);
-  if (!values.length || value.includes("var(--ds-")) return false;
+  // Tokens do not exempt adjacent literals or fallback values from the scale.
+  if (!values.length) return false;
   const allowed = HEIGHT_PROPERTY.test(property) ? CONTROL_HEIGHT : SPACING;
   return values.some((number) => !allowed.has(number));
 }
