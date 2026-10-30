@@ -124,6 +124,39 @@ struct ClickedLinkFocusTests {
         }
     }
 
+    /// Background opens and callers that do not request reuse keep creating a fresh browser tab.
+    @Test(arguments: [false, true])
+    func backgroundAndNonReusingClicksStillOpenFreshTabs(background: Bool) async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            let store = services.daemon.store
+            let content = try #require(services.windows.active?.workspaceContent)
+            let model = try #require(store.workspaces.first?.screens.first?.panes.first)
+            let source = try #require(services.paneController(for: model))
+            let right = try await Self.splitRight(services, content)
+            services.linkOpener.placement = { .splitRight }
+            let existing = try await Self.click(services, from: source)
+            try await PinnedPageTests.until({ right.pane.tabs.contains { $0.id == existing } && Self.shownURL(services, existing) != nil })
+            PaneHandlers.focus(source.layoutPaneID, in: content)
+            try await PinnedPageTests.until({ content.focusedPane === source })
+            let selected = right.stripModel.selectedID
+            let before = Set(right.pane.tabs.map(\.id))
+
+            #expect(services.linkOpener.openWeb(Self.link, from: source, background: background, reusesTab: background))
+            func opened() -> TabModel? {
+                right.pane.tabs.first { !before.contains($0.id) && !ProvisionalTab.isProvisional($0.id) }
+            }
+            try await PinnedPageTests.until({ opened() != nil }, report: { "the click reused an existing tab instead of opening a fresh one" })
+            let fresh = try #require(opened())
+            #expect(fresh.id != existing)
+            if background {
+                #expect(content.focusedPane === source)
+                #expect(right.stripModel.selectedID == selected)
+            } else {
+                try await PinnedPageTests.until({ content.focusedPane === right && right.stripModel.selectedID?.rawValue == fresh.id })
+            }
+        }
+    }
+
     /// A chip clicked in an agent chat goes through ``LinkRouter`` (the page's link navigation), not
     /// the card's Open: clicked again, it too selects the tab the pane on the right has for the page.
     /// The dogfood of the first fix found this path still opening a tab per click.

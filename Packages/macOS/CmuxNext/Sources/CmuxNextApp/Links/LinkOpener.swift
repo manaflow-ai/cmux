@@ -147,8 +147,7 @@ final class LinkOpener {
         // The same link clicked again (a chat's PR link or card): the pane on the right selects the
         // tab it already has for that page instead of piling up another (Austin 2026-10-25, eleven
         // tabs of one PR). A tab in the source's own pane stays Chrome's: each click is a new tab.
-        if reusesTab, !background, let from, case .pane(let id) = target(from: from), id != from.layoutPaneID,
-           let pane = from.workspace?.panes[id], let shown = browserTab(showing: url, in: pane) {
+        if reusesTab, !background, let from, let (pane, shown) = browserTab(showing: url, from: from) {
             // As for a new tab clicked open there: its close, emptying that pane, gives the focus back.
             if let content = from.workspace { returnFocus(of: shown.surface, to: from.layoutPaneID, in: content) }
             pane.select(StripTabID(shown.id))
@@ -168,6 +167,13 @@ final class LinkOpener {
             }
             return pane.newBrowserTab(url: url, background: background || placed != nil, opener: opener, then: then)
         }
+    }
+
+    /// The existing browser tab the source's foreground link may reuse.
+    func browserTab(showing url: URL, from source: PaneController) -> (PaneController, TabModel)? {
+        guard case .pane(let id) = target(from: source), id != source.layoutPaneID,
+              let pane = source.workspace?.panes[id], let shown = browserTab(showing: url, in: pane) else { return nil }
+        return (pane, shown)
     }
 
     /// A browser tab of `pane` showing `url`'s page (``SidebarBridge/samePage(_:_:)``) at the same
