@@ -59,7 +59,7 @@ impl Hub {
 /// Whether `host` is this machine's name as its peers know it (`pairing::machine_name`, the
 /// host name's first label; any case, as `Air-Blue` for `air-blue`). The fallback `host` (a host
 /// name that is no session name) is no one's name.
-fn is_own_machine_name(host: &str) -> bool {
+pub(super) fn is_own_machine_name(host: &str) -> bool {
     static NAME: std::sync::LazyLock<String> =
         std::sync::LazyLock::new(crate::pairing::machine_name);
     NAME.as_str() != "host" && host.eq_ignore_ascii_case(&NAME)
