@@ -135,7 +135,18 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
       };
 
       await pick(page, "Thinking");
-      await thought.first().waitFor();
+      // What the pane shows once the pick lands, so a miss says where it stopped.
+      await page
+        .locator('.cv-worked[aria-expanded="true"]')
+        .first()
+        .waitFor({ timeout: 10_000 })
+        .catch(() => undefined);
+      const picked = await page.evaluate(() => ({
+        stored: localStorage.getItem("cmux.acpmux.transcriptView"),
+        worked: [...document.querySelectorAll(".cv-worked")].map((node) => node.getAttribute("aria-expanded")),
+        rows: [...document.querySelectorAll("[data-row-kind], .cv-tool")].length,
+      }));
+      if (!(await thought.count())) throw new Error(`Thinking drew no thought: ${JSON.stringify(picked)}`);
       const thinking = {
         worked: await worked.getAttribute("aria-expanded"),
         thoughts: (await thought.count()) > 0,
