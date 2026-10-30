@@ -106,6 +106,23 @@ import Testing
         #expect(text.components(separatedBy: "gpu-box").count - 1 == 1, "\(mode): the computer was named twice: \(text)")
     }
 
+    /// Review of #28510 at 4acab8c2: the detail holds the facts the person turned on, so it proves nothing about
+    /// the machine. A branch named after the machine, or starting with its name, never hides the machine or its status.
+    @Test(arguments: [("dev", "develop", nil), ("dev", "dev", "Failed to start")] as [(String, String, String?)])
+    func aBranchNamedLikeTheMachineHidesNeitherTheMachineNorItsStatus(_ name: String, _ branch: String, _ status: String?) throws {
+        let dev = SidebarMachine(id: MachineID("dev"), name: name, kind: .ssh)
+        let model = SidebarModel(sections: [mac, dev].map(section))
+        var o = model.listOptions()
+        o.workspaceRow = WorkspaceRowPreferences(base: WorkspaceRowElements(shown: WorkspaceRowElements.standard.shown.union([.branch])))
+        if let status { o.machineStatusLabels[dev.id] = status }
+        let ws = SidebarWorkspace(id: WorkspaceID("w"), machineID: dev.id, title: "w", branch: branch)
+        let content = o.rowContent(ws, machine: SidebarLayout.machineLabel(section(dev), options: o))
+        try #require(content.detail == branch, "fixture: the branch is the row's second line")
+        let text = WorkspaceRowView.accessibilityText(ws, content: content, tabCount: nil, presence: [])
+        let label = status.map { "\(name) · \($0)" } ?? name
+        #expect(text.hasSuffix(", \(label)") || text.contains(", \(label),"), "the machine or its status went unsaid: \(text)")
+    }
+
     /// A machine whose name holds the row's separator (`gpu · box`) is still named once.
     @Test func aNameWithTheSeparatorIsNamedOnce() throws {
         let dotted = SidebarMachine(id: MachineID("dotted"), name: "gpu · box", kind: .ssh)
