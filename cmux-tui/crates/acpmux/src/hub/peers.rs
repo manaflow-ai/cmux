@@ -441,6 +441,12 @@ impl Hub {
             .collect()
     }
 
+    /// Integration-test stand-in for an older peer (`Peer::forget_session_messages_for_tests`).
+    #[doc(hidden)]
+    pub fn forget_peer_session_messages_for_tests(&self, name: &str) -> bool {
+        self.peer(name).map(|p| p.forget_session_messages_for_tests()).is_some()
+    }
+
     pub(super) fn peer(&self, name: &str) -> Option<Arc<crate::peer::Peer>> {
         self.peers.lock().unwrap().get(name).cloned()
     }
@@ -1019,8 +1025,12 @@ impl Hub {
         }
     }
 
-    /// Each summary once, local before remote, without retaining the JSON trees.
-    pub(super) fn visit_session_summaries(&self, with_tools: bool, mut visit: impl FnMut(Value)) {
+    /// This daemon's own sessions' summaries, without retaining the JSON trees.
+    pub(super) fn visit_own_session_summaries(
+        &self,
+        with_tools: bool,
+        mut visit: impl FnMut(Value),
+    ) {
         for session in self.sessions() {
             visit(if with_tools {
                 self.session_summary(&session)
@@ -1028,6 +1038,11 @@ impl Hub {
                 self.session_list_summary(&session)
             });
         }
+    }
+
+    /// Each summary once, local before remote, without retaining the JSON trees.
+    pub(super) fn visit_session_summaries(&self, with_tools: bool, mut visit: impl FnMut(Value)) {
+        self.visit_own_session_summaries(with_tools, &mut visit);
         self.visit_remote_rows(
             |_| true,
             |row| {

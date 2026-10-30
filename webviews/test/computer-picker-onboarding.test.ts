@@ -41,7 +41,7 @@ await requireBrowserLane("computer-picker-onboarding.test.ts", async () => {
           if (!(await computer.getAttribute("aria-expanded"))?.includes("true")) await computer.click();
           const menu = page.locator('.acpmux-location-menu[aria-label="Computer"]');
           const add = menu.getByRole("button", { name: "Add a computer…", exact: true });
-          const cloud = menu.getByRole("button", { name: "New Cloud Machine…", exact: true });
+          const cloud = menu.getByRole("button", { name: /^New Cloud Machine…/ });
           await add.waitFor();
           expect(await add.isVisible()).toBe(true);
           expect(await cloud.isVisible()).toBe(true);

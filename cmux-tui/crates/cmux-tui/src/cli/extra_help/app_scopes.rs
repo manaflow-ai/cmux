@@ -185,15 +185,12 @@ recent. Each list reads new log lines first unless --no-harvest. The journal
 is under ~/Library/Application Support/<bundle id>/errors, at most about 8 MB.";
 
 const TEAM_HELP: &str = "\
-usage: cmux team invite --email <address>[,<address>...] [--team <name|id>]
-                        [--role member|admin] [--reason <text>]
-Emails an invite to join a cmux team as the person signed in to the app. The
-app first shows a confirmation with who asked, the reason, the addresses, the
-team and the role; nothing is sent until the person clicks Send Invite, and
-Don't Send or 3 minutes without an answer sends nothing. An accepted invite
-adds a member, which can raise the team's bill. An agent must give --reason.
-Without --team the one shared team is used. The result lists each invitation
-with state pending.";
+usage: cmux team invite --email <address>
+       (the same as cmux home invite-to-team --email <address>)
+Opens Invite to Team for the active team in the app, prefilled with the
+address and the line that an agent asked. The dialog shows what one more
+member costs the team; nothing is sent until the person clicks Send, and the
+command waits for that answer (up to about 3 minutes).";
 
 const GHOSTTY_HELP: &str = "\
 usage: cmux ghostty diagnostics
