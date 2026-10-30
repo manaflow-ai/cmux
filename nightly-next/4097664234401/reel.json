@@ -1,0 +1,109 @@
+{
+  "version": 1,
+  "build": "4097664234401",
+  "notes": "notes/4097664234401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27239,
+      "title": "cmux-next tests: batch B suites close the windows they open (1 of 2), popups close their panels",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26975,
+      "title": "perf: suspend parked New Tab and Settings renderers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26286,
+      "title": "feat(agent-chat): isolate artifacts on shared WK page host",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27519,
+      "title": "acpmux: _acpmux/queue_text, and the sender session and harness on queued agent messages",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25979,
+      "title": "cmux NEXT: preserve validated prompt upload references through native relay",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27350,
+      "title": "fix(tabs): keep the plus lit while its menu is open",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27285,
+      "title": "fix(ios): render math in short Feed replies",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25957,
+      "title": "ci(nightly-next): move legacy identity after publication",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26224,
+      "title": "feat(agent-chat): serve artifacts in the shared CEF page host",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27127,
+      "title": "Palette, design, browser, floating and terminal test suites close the windows they open (21 suites, 57 windows), with .closesItsWindows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26122,
+      "title": "fix(next): retry failed older chat pages",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27506,
+      "title": "fix(sidebar): keep tab tuck visible until its fade starts",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/27506/tuck-after.mp4",
+      "source": "manual",
+      "note": "2 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 27496,
+      "title": "fix(sidebar): clear the gap after releasing a single-tab workspace drag",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26470,
+      "title": "feat(acpmux): supervise opted-in tailnet access across restarts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27508,
+      "title": "ci(nightly-next): run verify-signed's checks on the DMG Mac, beside the DMG",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27554,
+      "title": "fix(ci): never excuse signal exit annotations as base reds",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
