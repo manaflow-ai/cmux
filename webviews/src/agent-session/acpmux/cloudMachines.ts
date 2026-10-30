@@ -15,8 +15,9 @@ export type CloudMachine = { id: string; name: string; stage: string };
 /// A Cloud machine as a row of the machine list: a Cloud environment carrying its machine.
 export type CloudMachineRow = Environment & { cloudMachine: CloudMachine };
 
-/// Whether the app's Cloud account is signed in. `undefined` means the app has not answered a
-/// machine-list request yet, so the picker does not add an account action until it knows the state.
+/// Whether the app's Cloud account is signed in. `undefined` means the app did not provide an
+/// explicit account state (for example, a fresh home where Cloud is not available yet); the
+/// picker treats that the same as signed out until a reply says `true`.
 let accountSignedIn: boolean | undefined;
 
 type Call = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
@@ -158,6 +159,12 @@ export function useCloudMachines(): readonly CloudMachine[] {
 
 export function useCloudSignedIn(): boolean | undefined {
   return useSyncExternalStore(subscribe, accountSnapshot, accountSnapshot);
+}
+
+/// The account state shown in capture diagnostics. This is deliberately read-only and mirrors the
+/// value consumed by EnvironmentPicker, including the fresh-home `undefined` state.
+export function cloudSignedInForDebug(): boolean | undefined {
+  return accountSignedIn;
 }
 
 function subscribe(listener: () => void): () => void {

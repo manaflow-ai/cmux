@@ -430,7 +430,9 @@ export function ComposerContext({
               onPick={pickEnvironment}
               {...(offload && onOffload ? { offload, onOffload } : {})}
               {...(!started && onConnect ? { onConnect } : {})}
-              {...(cloudSignedIn !== undefined ? { cloudSignedIn } : {})}
+              // A fresh home may not have a Cloud list reply at all. EnvironmentPicker treats only
+              // an explicit true as signed in, so it can offer the existing sign-in action there.
+              cloudSignedIn={cloudSignedIn}
               {...(savedRows ? { saved: savedRows } : {})}
               {...(onRefreshMachines ? { onOpen: onRefreshMachines } : {})}
               {...(runMode && !started && !readOnly ? { runMode } : {})}

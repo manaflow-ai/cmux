@@ -152,6 +152,26 @@ test("signed out keeps existing Cloud actions and adds a sign-in row", async () 
   expect(calls).toEqual(["cloud"]);
 });
 
+test("an absent Cloud account state still offers sign-in, while an explicit signed-in state does not", async () => {
+  const { setCloudMachinesForTestAccount } = await import("../src/agent-session/acpmux/cloudMachines");
+  const rows = async () => {
+    await openPicker();
+    return [...doc().querySelectorAll<HTMLElement>(".acpmux-location-menu .acpmux-menu-item")].filter((item) =>
+      item.querySelector(".acpmux-location-name"),
+    );
+  };
+  setCloudMachinesForTestAccount(undefined);
+  await mount(true, { cloudMachines: [], onConnect: () => undefined });
+  expect((await rows()).map(label)).toContain("Sign in for Cloud");
+
+  act(() => root?.unmount());
+  root = undefined;
+  host.replaceChildren();
+  setCloudMachinesForTestAccount(true);
+  await mount(true, { cloudMachines: [], onConnect: () => undefined });
+  expect((await rows()).map(label)).not.toContain("Sign in for Cloud");
+});
+
 test("a reply lists the account's machines only once the app holds the signed-in account's list", async () => {
   const { cloudMachinesFromReply } = await import("../src/agent-session/acpmux/cloudMachines");
   const machines = [{ id: "vm-1", name: "one", stage: "paused" }];

@@ -125,7 +125,9 @@ export function EnvironmentPicker({
   current: string;
   onPick(id: string): void;
   onConnect?(kind: ConnectKind): void;
-  /// The app's Cloud account state; signed out adds the sign-in action to Cloud.
+  /// The app's Cloud account state; only an explicit signed-in reply hides the sign-in action.
+  /// A fresh home can have no Cloud section or no reply from the host yet, and is still signed out
+  /// for the purpose of offering the existing sign-in entry point.
   cloudSignedIn?: boolean;
   saved?: SavedEnvironmentRows;
   /// The list opened, and every few seconds while it stays open: the host reads the machines
@@ -257,7 +259,7 @@ export function EnvironmentPicker({
       : []),
     ...(onConnect
       ? [
-          ...(cloudSignedIn === false
+          ...(cloudSignedIn !== true
             ? [
                 {
                   value: ACTION + "cloudSignIn",
