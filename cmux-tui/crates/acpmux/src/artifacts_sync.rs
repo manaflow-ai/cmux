@@ -27,22 +27,42 @@ const BLOB_THRESHOLD: usize = 8 * 1024 * 1024;
 const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
-#[derive(Debug, Clone, Default, PartialEq)]
+/// What this machine last synced for one path: the digest of its bytes and the commit that wrote
+/// them, when known.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Synced {
+    pub sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
+}
+
+/// Kept on disk (`persist_at`), so a restart neither sends every file again nor takes a file
+/// deleted while the daemon was down for one to restore.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SyncState {
+    #[serde(default)]
     pub head_sha: Option<String>,
-    /// Last content sent for each path. This is the merge base after a CAS conflict.
+    #[serde(default)]
+    pub synced: BTreeMap<String, Synced>,
+    /// Last content synced for each path, the merge base after a CAS conflict. Memory only: after
+    /// a restart a conflict merges against an empty base, which keeps both sides with markers.
+    #[serde(skip)]
     pub base: BTreeMap<String, Vec<u8>>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct SyncReport {
     pub uploaded: usize,
+    pub deleted: usize,
     pub pulled: usize,
     pub skipped: usize,
     pub conflicts: usize,
 }
 
+/// One change of a save, in the platform's `ArtifactChange` shape (camelCase).
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct Change {
     path: String,
     op: &'static str,
@@ -84,6 +104,19 @@ struct RepoResponse {
 struct SaveResponse {
     #[serde(rename = "headSha")]
     head_sha: String,
+    #[serde(default)]
+    commit: Option<SaveCommit>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SaveCommit {
+    sha: String,
+}
+
+impl SaveResponse {
+    fn commit_sha(&self) -> Option<String> {
+        self.commit.as_ref().map(|commit| commit.sha.clone())
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -97,12 +130,24 @@ struct ListResponse {
     #[serde(rename = "headSha")]
     head_sha: Option<String>,
     items: Vec<ListItem>,
+    #[serde(default)]
+    cursor: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 struct ListItem {
     path: String,
+    /// Set on a saved artifact's folder (`artifacts/<id>`), which lists as one item, not a file.
+    #[serde(default)]
+    id: Option<String>,
+    /// The commit that last wrote the path.
+    #[serde(default)]
+    commit: Option<String>,
 }
+
+/// A listing reads at most this many pages of `LIST_PAGE` items per pass.
+const LIST_PAGE: usize = 100;
+const LIST_PAGES: usize = 1_000;
 
 #[derive(Debug, Deserialize)]
 struct BlobResponse {
@@ -117,12 +162,22 @@ pub struct ArtifactsSync {
     client: Client,
     state: SyncState,
     roots: Vec<SyncRoot>,
+    state_path: Option<PathBuf>,
+    /// The state as last written to `state_path`, so an unchanged pass writes nothing.
+    saved_state: Vec<u8>,
 }
 
 #[derive(Debug, Clone)]
 struct SyncRoot {
     local: PathBuf,
     remote_prefix: String,
+}
+
+impl SyncRoot {
+    /// A root that is itself a symlink is not synced: its files live somewhere else.
+    fn usable(&self) -> bool {
+        fs::symlink_metadata(&self.local).is_ok_and(|meta| meta.is_dir())
+    }
 }
 
 /// HTTP client shared by the MCP artifact tools and the background synchronizer.
@@ -362,6 +417,7 @@ pub async fn run_background(hub: Arc<crate::hub::Hub>) {
     }) else {
         return;
     };
+    sync.persist_at(crate::config::home().join("artifacts-sync-state.json"));
     let trailers = Trailers { machine: env::var("HOSTNAME").ok(), ..Default::default() };
     let period =
         std::time::Duration::from_millis(config.artifacts_sync.poll_interval_ms.max(1_000));
@@ -419,6 +475,9 @@ where
         refused |= unauthorized(&error);
         tracing::warn!("artifacts sync pull failed: {error:#}");
     }
+    if let Err(error) = sync.save_state() {
+        tracing::warn!("artifacts sync state not saved: {error:#}");
+    }
     refused
 }
 
@@ -438,7 +497,60 @@ impl ArtifactsSync {
             client: http_client()?,
             state: SyncState::default(),
             roots: discover_roots(),
+            state_path: None,
+            saved_state: Vec::new(),
         }))
+    }
+
+    /// Keep the synced state in `path` across restarts, starting from what it holds. A state that
+    /// can't be read starts over: every file then counts as unsynced, which sends or keeps it and
+    /// never replaces it.
+    pub fn persist_at(&mut self, path: PathBuf) {
+        match fs::read(&path) {
+            Ok(bytes) => match serde_json::from_slice::<SyncState>(&bytes) {
+                Ok(state) => {
+                    self.state = state;
+                    self.saved_state = bytes;
+                }
+                Err(error) => {
+                    tracing::warn!("artifacts sync state unreadable, starting over: {error}")
+                }
+            },
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => tracing::warn!("artifacts sync state unreadable, starting over: {error}"),
+        }
+        self.state_path = Some(path);
+    }
+
+    /// Write the state when it changed, whole (a temporary file renamed over it).
+    fn save_state(&mut self) -> Result<()> {
+        let Some(path) = &self.state_path else { return Ok(()) };
+        let bytes = serde_json::to_vec(&self.state)?;
+        if bytes == self.saved_state {
+            return Ok(());
+        }
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let temporary = path.with_extension("json.tmp");
+        fs::write(&temporary, &bytes)?;
+        fs::rename(&temporary, path)?;
+        self.saved_state = bytes;
+        Ok(())
+    }
+
+    fn mark(&mut self, path: String, bytes: Vec<u8>, commit: Option<String>) {
+        self.state.synced.insert(path.clone(), Synced { sha256: sha256(&bytes), commit });
+        self.state.base.insert(path, bytes);
+    }
+
+    fn forget(&mut self, path: &str) {
+        self.state.synced.remove(path);
+        self.state.base.remove(path);
+    }
+
+    fn synced_digest(&self, path: &str) -> Option<&str> {
+        self.state.synced.get(path).map(|synced| synced.sha256.as_str())
     }
 
     pub fn enabled(&self) -> bool {
@@ -467,22 +579,25 @@ impl ArtifactsSync {
         let mut report = SyncReport::default();
         let mut batch = Vec::new();
         let mut batch_bytes = 0usize;
+        let mut deleted = Vec::new();
         // A copy: pushing a full batch mid-walk borrows `self` mutably.
         for root in self.roots.clone() {
-            if !root.local.exists() {
+            if !root.usable() {
                 continue;
             }
             let mut files = Vec::new();
             collect_files(&root.local, &root.local, &mut files)?;
+            let mut present = std::collections::BTreeSet::new();
             for (path, bytes) in files {
                 let remote =
                     format!("{}{}", root.remote_prefix, path.to_string_lossy().replace('\\', "/"));
+                present.insert(remote.clone());
                 if should_skip(&remote, &bytes) {
                     report.skipped += 1;
                     debug!(path = %remote, "artifacts sync skipped secret-looking file");
                     continue;
                 }
-                if self.state.base.get(&remote) == Some(&bytes) {
+                if self.synced_digest(&remote) == Some(sha256(&bytes).as_str()) {
                     continue; // already synced; a pass sends only what changed
                 }
                 let estimated = bytes.len().saturating_mul(4).div_ceil(3) + remote.len() + 256;
@@ -494,11 +609,72 @@ impl ArtifactsSync {
                 batch_bytes = batch_bytes.saturating_add(estimated);
                 batch.push((remote, bytes));
             }
+            // A file this machine synced that is gone from its (still present) root was deleted
+            // here, and the server deletes it too.
+            deleted.extend(
+                self.state
+                    .synced
+                    .keys()
+                    .filter(|path| {
+                        path.starts_with(&root.remote_prefix) && !present.contains(*path)
+                    })
+                    .filter(|path| {
+                        self.local_for_remote(path).is_some_and(|local| {
+                            fs::symlink_metadata(local)
+                                .is_err_and(|error| error.kind() == io::ErrorKind::NotFound)
+                        })
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>(),
+            );
         }
         if !batch.is_empty() {
             report.uploaded += self.push_batch(batch, &trailers).await?;
         }
+        if !deleted.is_empty() {
+            report.deleted += self.push_deletes(deleted, &trailers).await?;
+        }
         Ok(report)
+    }
+
+    /// Delete on the server the files deleted here. A conflict fails the pass; its pull reads
+    /// the new head, and a file changed remotely since comes back instead of being deleted.
+    async fn push_deletes(&mut self, paths: Vec<String>, trailers: &Trailers) -> Result<usize> {
+        let token = self
+            .token
+            .as_ref()
+            .map(|token| token.to_string())
+            .ok_or_else(|| anyhow!("artifacts sync access token unavailable"))?;
+        let request = SaveRequest {
+            expected_head_sha: self.state.head_sha.clone(),
+            branch: "main",
+            message: "Sync local deletions".into(),
+            trailers: trailers.clone(),
+            changes: paths
+                .iter()
+                .map(|path| Change {
+                    path: path.clone(),
+                    op: "delete",
+                    content_base64: None,
+                    blob_sha256: None,
+                    content_type: None,
+                })
+                .collect(),
+        };
+        let response = self
+            .client
+            .post(self.url("/v1/artifacts/save"))
+            .bearer_auth(&token)
+            .json(&request)
+            .send()
+            .await?;
+        ensure_success(response.status(), "artifact delete")?;
+        let saved: SaveResponse = response.json().await.context("decode delete response")?;
+        self.state.head_sha = Some(saved.head_sha);
+        for path in &paths {
+            self.forget(path);
+        }
+        Ok(paths.len())
     }
 
     async fn push_batch(
@@ -529,9 +705,10 @@ impl ArtifactsSync {
         if response.status() != StatusCode::CONFLICT {
             ensure_success(response.status(), "artifact save")?;
             let saved: SaveResponse = response.json().await.context("decode save response")?;
+            let commit = saved.commit_sha();
             self.state.head_sha = Some(saved.head_sha);
             for (path, bytes) in files {
-                self.state.base.insert(path, bytes);
+                self.mark(path, bytes, commit.clone());
             }
             return Ok(request.changes.len());
         }
@@ -544,7 +721,7 @@ impl ArtifactsSync {
             response.json().await.unwrap_or(ConflictResponse { current_head_sha: None });
         let current_head = conflict.current_head_sha.or_else(|| self.state.head_sha.clone());
         let mut resolved = Vec::new();
-        // (remote path, bytes) that become the synced base once the retry is saved.
+        // (remote path, bytes, sent by the retry) that become synced once the retry is saved.
         let mut synced = Vec::new();
         // (remote path, bytes this pass read, bytes to write) for the local copies.
         let mut writes = Vec::new();
@@ -552,14 +729,16 @@ impl ArtifactsSync {
             // A failed read fails the pass: read as empty, it would merge to an empty file.
             let remote = self.remote_file(&path, &token).await?;
             let base = self.state.base.get(&path).map(Vec::as_slice).unwrap_or(&[]);
-            if path.to_ascii_lowercase().ends_with(".md") {
-                let merged = merge_markdown(base, &local, remote.as_deref().unwrap_or_default());
+            if path.to_ascii_lowercase().ends_with(".md")
+                && let Some(remote) = remote.as_deref()
+            {
+                let merged = merge_markdown(base, &local, remote);
                 resolved.push(self.change_for(path.clone(), merged.clone(), &token).await?);
                 writes.push((path.clone(), Some(local), merged.clone()));
-                synced.push((path, merged));
+                synced.push((path, merged, true));
             } else {
                 match remote {
-                    Some(remote) if remote == local => synced.push((path, local)),
+                    Some(remote) if remote == local => synced.push((path, local, false)),
                     // Changed on both sides: ours goes beside it as a conflict copy, and the
                     // original takes the remote bytes as its synced version, so the next pass
                     // does not send ours over theirs.
@@ -569,19 +748,19 @@ impl ArtifactsSync {
                             .push(self.change_for(sibling.clone(), local.clone(), &token).await?);
                         writes.push((sibling.clone(), None, local.clone()));
                         writes.push((path.clone(), Some(local.clone()), remote.clone()));
-                        synced.push((sibling, local));
-                        synced.push((path, remote));
+                        synced.push((sibling, local, true));
+                        synced.push((path, remote, false));
                     }
                     // Gone remotely: ours is the only version.
                     None => {
                         resolved.push(self.change_for(path.clone(), local.clone(), &token).await?);
-                        synced.push((path, local));
+                        synced.push((path, local, true));
                     }
                 }
             }
         }
-        let head = if resolved.is_empty() {
-            current_head
+        let (head, commit) = if resolved.is_empty() {
+            (current_head, None)
         } else {
             let retry = SaveRequest {
                 expected_head_sha: current_head,
@@ -600,16 +779,19 @@ impl ArtifactsSync {
             ensure_success(response.status(), "artifact conflict resolution save")?;
             let saved: SaveResponse =
                 response.json().await.context("decode conflict save response")?;
-            Some(saved.head_sha)
+            (Some(saved.head_sha.clone()), saved.commit_sha())
         };
         self.state.head_sha = head;
         let count = synced.len();
-        for (path, bytes) in synced {
-            self.state.base.insert(path, bytes);
+        for (path, bytes, sent) in synced {
+            // A file the retry did not write keeps its commit unknown; the next pull reads it
+            // once and records it.
+            self.mark(path, bytes, if sent { commit.clone() } else { None });
         }
         for (path, read, bytes) in writes {
             if let Some(destination) = self.local_for_remote(&path) {
                 // A file edited again since this pass read it keeps that edit for the next pass.
+                let read = read.as_deref().map(sha256);
                 replace_if_unchanged(&destination, read.as_deref(), &bytes)?;
             }
         }
@@ -666,7 +848,9 @@ impl ArtifactsSync {
         Ok(Some(response.bytes().await?.to_vec()))
     }
 
-    /// Pull the indexed paths and apply remote bytes to the corresponding local root.
+    /// Pull the listed files into their local roots. A file whose commit is the one this machine
+    /// last synced is not read again. Remote deletions are not applied here: the listing shows a
+    /// saved artifact's folder as one item, so a file it does not name may still exist.
     pub async fn pull_once(&mut self) -> Result<SyncReport> {
         if !self.config.enabled {
             return Ok(SyncReport::default());
@@ -674,46 +858,73 @@ impl ArtifactsSync {
         let token = self
             .token
             .as_deref()
+            .map(str::to_owned)
             .ok_or_else(|| anyhow!("artifacts sync access token unavailable"))?;
-        let response = self.client.get(self.url("/v1/artifacts")).bearer_auth(token).send().await?;
-        ensure_success(response.status(), "artifact list")?;
-        let listed: ListResponse = response.json().await.context("decode artifact list")?;
-        self.state.head_sha = listed.head_sha.or_else(|| self.state.head_sha.clone());
+        let (head, items) = self.list_all(&token).await?;
+        self.state.head_sha = head.or_else(|| self.state.head_sha.clone());
         let mut report = SyncReport::default();
-        for item in listed.items {
+        for item in items {
+            if item.id.is_some() {
+                continue; // a saved artifact's folder, not a file
+            }
             let Some(local) = self.local_for_remote(&item.path) else { continue };
-            let response = self
-                .client
-                .get(with_query(
-                    &self.url("/v1/artifacts/file"),
-                    &[("path", item.path.as_str()), ("ref", "main")],
-                )?)
-                .bearer_auth(token)
-                .send()
-                .await?;
-            if response.status() == StatusCode::NOT_FOUND {
+            let synced = self.state.synced.get(&item.path);
+            if item.commit.is_some()
+                && synced.and_then(|synced| synced.commit.as_ref()) == item.commit.as_ref()
+            {
+                // Unchanged remotely: a local edit or delete is the upload's to send.
                 continue;
             }
-            ensure_success(response.status(), "artifact file")?;
-            let bytes = response.bytes().await?.to_vec();
+            let Some(bytes) = self.remote_file(&item.path, &token).await? else { continue };
             if should_skip(&item.path, &bytes) {
                 report.skipped += 1;
                 continue;
             }
-            // Only over what this machine last synced: a local edit the server hasn't taken yet
-            // (a failed upload, or an edit made during this pass) stays, and the next pass sends it.
-            if !replace_if_unchanged(
-                &local,
-                self.state.base.get(&item.path).map(Vec::as_slice),
-                &bytes,
-            )? {
+            // Only over what this machine last synced, or a missing file: a local edit the server
+            // hasn't taken yet stays, and the next pass sends it. A file deleted here but changed
+            // remotely since comes back: the remote edit wins over the delete.
+            let expected = self.synced_digest(&item.path).map(str::to_owned);
+            if !replace_if_unchanged(&local, expected.as_deref(), &bytes)? {
                 report.conflicts += 1;
                 continue;
             }
-            self.state.base.insert(item.path, bytes);
+            self.mark(item.path, bytes, item.commit);
             report.pulled += 1;
         }
         Ok(report)
+    }
+
+    /// Every listed item at one head, page by page. A head that moves between pages fails the
+    /// pass, so a pull never mixes two versions; the next pass lists again.
+    async fn list_all(&self, token: &str) -> Result<(Option<String>, Vec<ListItem>)> {
+        let mut items = Vec::new();
+        let mut head = None;
+        let mut cursor: Option<String> = None;
+        let limit = LIST_PAGE.to_string();
+        for page in 0..LIST_PAGES {
+            let mut query = vec![("limit", limit.as_str())];
+            if let Some(cursor) = cursor.as_deref() {
+                query.push(("cursor", cursor));
+            }
+            let response = self
+                .client
+                .get(with_query(&self.url("/v1/artifacts"), &query)?)
+                .bearer_auth(token)
+                .send()
+                .await?;
+            ensure_success(response.status(), "artifact list")?;
+            let listed: ListResponse = response.json().await.context("decode artifact list")?;
+            if page > 0 && listed.head_sha != head {
+                return Err(anyhow!("artifacts changed while listing; listing again next pass"));
+            }
+            head = listed.head_sha;
+            items.extend(listed.items);
+            match listed.cursor {
+                Some(next) if Some(&next) != cursor.as_ref() => cursor = Some(next),
+                _ => return Ok((head, items)),
+            }
+        }
+        Err(anyhow!("artifact list longer than {} items", LIST_PAGE * LIST_PAGES))
     }
 
     /// The local file for a remote path, only when it stays inside its root: a listed path is the
@@ -722,6 +933,9 @@ impl ArtifactsSync {
     fn local_for_remote(&self, remote: &str) -> Option<PathBuf> {
         self.roots.iter().find_map(|root| {
             let relative = remote.strip_prefix(&root.remote_prefix)?;
+            if !root.usable() {
+                return None;
+            }
             let inside = !relative.is_empty()
                 && !relative.contains(['\\', '\0'])
                 && Path::new(relative)
@@ -829,12 +1043,13 @@ fn collect_files(root: &Path, current: &Path, out: &mut Vec<(PathBuf, Vec<u8>)>)
     Ok(())
 }
 
-/// Write `bytes` to `path` only when the file is missing, still holds `expected`, or already holds
-/// `bytes`. Returns whether the file now holds `bytes`; anything else is a local edit to keep.
-fn replace_if_unchanged(path: &Path, expected: Option<&[u8]>, bytes: &[u8]) -> io::Result<bool> {
+/// Write `bytes` to `path` only when the file is missing, still has the digest `expected`, or
+/// already holds `bytes`. Returns whether the file now holds `bytes`; anything else is a local
+/// edit to keep.
+fn replace_if_unchanged(path: &Path, expected: Option<&str>, bytes: &[u8]) -> io::Result<bool> {
     match fs::read(path) {
         Ok(current) if current == bytes => return Ok(true),
-        Ok(current) if Some(current.as_slice()) != expected => return Ok(false),
+        Ok(current) if expected != Some(sha256(&current).as_str()) => return Ok(false),
         Ok(_) => {}
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => return Err(error),
@@ -911,7 +1126,7 @@ pub fn should_skip(path: &str, bytes: &[u8]) -> bool {
 static CREDENTIAL_ASSIGNMENT: std::sync::LazyLock<Option<regex::Regex>> = std::sync::LazyLock::new(
     || {
         regex::Regex::new(
-        r#"(?i)(?:password|passwd|pwd|secret|client[_-]?secret|api[_-]?key|access[_-]?key|access[_-]?token|auth[_-]?token|refresh[_-]?token|bearer[_-]?token|private[_-]?key|secret[_-]?key)["']?\s*[:=]\s*["']?[^\s"',;]{4,}"#,
+        r#"(?i)(?:password|passwd|pwd|secret|client[_-]?secret|api[_-]?key|access[_-]?key|access[_-]?token|auth[_-]?token|refresh[_-]?token|bearer[_-]?token|private[_-]?key|secret[_-]?key)["']?\s*[:=]\s*["']?[^\s"',;]+"#,
     )
     .ok()
     },
@@ -968,9 +1183,19 @@ mod tests {
     /// A fake platform: answers each request by the first route whose `METHOD /path` starts its
     /// request line, until the test drops it. A route listed again answers the next such request.
     fn serve(
-        mut routes: Vec<(&'static str, &'static str, String)>,
+        routes: Vec<(&'static str, &'static str, String)>,
     ) -> (String, tokio::task::JoinHandle<()>) {
+        let (url, task, _) = serve_recording(routes);
+        (url, task)
+    }
+
+    /// `serve`, also keeping each request (head and body) it answered.
+    fn serve_recording(
+        mut routes: Vec<(&'static str, &'static str, String)>,
+    ) -> (String, tokio::task::JoinHandle<()>, Arc<std::sync::Mutex<Vec<String>>>) {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let log = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = Arc::clone(&log);
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());
@@ -997,6 +1222,7 @@ mod tests {
                     let size = stream.read(&mut buffer).await.unwrap();
                     request.extend_from_slice(&buffer[..size]);
                 }
+                seen.lock().unwrap().push(String::from_utf8_lossy(&request).into_owned());
                 let matches = |route: &&'static str| head.starts_with(&route.to_ascii_lowercase());
                 let at = routes
                     .iter()
@@ -1011,7 +1237,7 @@ mod tests {
                 stream.write_all(response.as_bytes()).await.unwrap();
             }
         });
-        (address, task)
+        (address, task, log)
     }
 
     fn sync_at(base_url: String, root: &Path) -> ArtifactsSync {
@@ -1036,8 +1262,8 @@ mod tests {
         fs::write(dir.path().join("edited.md"), "local edit").unwrap();
         fs::write(dir.path().join("synced.md"), "old").unwrap();
         let mut sync = sync_at(url, dir.path());
-        sync.state.base.insert("memory/codex/edited.md".into(), b"old".to_vec());
-        sync.state.base.insert("memory/codex/synced.md".into(), b"old".to_vec());
+        sync.mark("memory/codex/edited.md".into(), b"old".to_vec(), None);
+        sync.mark("memory/codex/synced.md".into(), b"old".to_vec(), None);
         let report = sync.pull_once().await.unwrap();
         server.abort();
         assert_eq!(fs::read_to_string(dir.path().join("edited.md")).unwrap(), "local edit");
@@ -1058,7 +1284,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("a.md"), "keep me\n").unwrap();
         let mut sync = sync_at(url, dir.path());
-        sync.state.base.insert("memory/codex/a.md".into(), b"keep me\n".to_vec());
+        sync.mark("memory/codex/a.md".into(), b"keep me\n".to_vec(), None);
         let files = vec![("memory/codex/a.md".to_owned(), b"keep me\n".to_vec())];
         assert!(sync.push_batch(files, &Trailers::default()).await.is_err());
         server.abort();
@@ -1078,7 +1304,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("a.md"), "local\n").unwrap();
         let mut sync = sync_at(url, dir.path());
-        sync.state.base.insert("memory/codex/a.md".into(), b"base\n".to_vec());
+        sync.mark("memory/codex/a.md".into(), b"base\n".to_vec(), None);
         let files = vec![("memory/codex/a.md".to_owned(), b"local\n".to_vec())];
         assert!(sync.push_batch(files, &Trailers::default()).await.is_err());
         server.abort();
@@ -1095,14 +1321,14 @@ mod tests {
             (
                 "POST /v1/artifacts/save",
                 "200 OK",
-                json!({"headSha":"h3","commit":"c3"}).to_string(),
+                json!({"headSha":"h3","commit":{"sha":"c3"}}).to_string(),
             ),
             ("GET /v1/artifacts/file", "200 OK", "theirs".into()),
         ]);
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("data.bin"), "ours").unwrap();
         let mut sync = sync_at(url, dir.path());
-        sync.state.base.insert("memory/codex/data.bin".into(), b"old".to_vec());
+        sync.mark("memory/codex/data.bin".into(), b"old".to_vec(), None);
         let files = vec![("memory/codex/data.bin".to_owned(), b"ours".to_vec())];
         sync.push_batch(files, &Trailers::default()).await.unwrap();
         server.abort();
@@ -1117,6 +1343,126 @@ mod tests {
         assert_eq!(copies.len(), 1, "{copies:?}");
         assert_eq!(fs::read_to_string(dir.path().join(&copies[0])).unwrap(), "ours");
         assert_eq!(sync.state.base[&format!("memory/codex/{}", copies[0])], b"ours");
+    }
+
+    /// A file deleted here is deleted on the server, and a pull never brings it back while the
+    /// server still has the version this machine synced (the delete failed, or is in flight).
+    #[tokio::test]
+    async fn a_local_delete_is_sent_and_never_restored() {
+        let listed =
+            json!({"headSha":"h2","items":[{"path":"memory/codex/gone.md","commit":"c1"}]});
+        let (url, server, log) = serve_recording(vec![
+            ("POST /v1/artifacts/save", "409 Conflict", json!({"currentHeadSha":"h2"}).to_string()),
+            (
+                "POST /v1/artifacts/save",
+                "200 OK",
+                json!({"headSha":"h3","commit":{"sha":"c3"}}).to_string(),
+            ),
+            ("GET /v1/artifacts?", "200 OK", listed.to_string()),
+            ("GET /v1/artifacts?", "200 OK", json!({"headSha":"h3","items":[]}).to_string()),
+        ]);
+        let dir = tempfile::tempdir().unwrap();
+        let mut sync = sync_at(url, dir.path());
+        sync.state.head_sha = Some("h1".into());
+        sync.mark("memory/codex/gone.md".into(), b"old".to_vec(), Some("c1".into()));
+        // The delete meets a concurrent save: it fails, and the pull leaves the file deleted.
+        assert!(sync.sync_once(Trailers::default()).await.is_err());
+        sync.pull_once().await.unwrap();
+        assert!(!dir.path().join("gone.md").exists());
+        assert!(sync.state.synced.contains_key("memory/codex/gone.md"));
+        // The next pass sends it at the new head.
+        assert_eq!(sync.sync_once(Trailers::default()).await.unwrap().deleted, 1);
+        sync.pull_once().await.unwrap();
+        server.abort();
+        assert!(!dir.path().join("gone.md").exists());
+        assert!(sync.state.synced.is_empty());
+        let saves: Vec<_> =
+            log.lock().unwrap().iter().filter(|r| r.starts_with("POST")).cloned().collect();
+        assert!(
+            saves
+                .iter()
+                .all(|r| r.contains(r#""op":"delete""#) && r.contains("memory/codex/gone.md"))
+        );
+        assert!(saves[1].contains(r#""expectedHeadSha":"h2""#), "{}", saves[1]);
+    }
+
+    /// A file deleted here but changed on the server since comes back: their edit wins.
+    #[tokio::test]
+    async fn a_remote_edit_wins_over_a_local_delete() {
+        let listed = json!({"headSha":"h2","items":[{"path":"memory/codex/a.md","commit":"c9"}]});
+        let (url, server) = serve(vec![
+            ("GET /v1/artifacts?", "200 OK", listed.to_string()),
+            ("GET /v1/artifacts/file", "200 OK", "theirs".into()),
+        ]);
+        let dir = tempfile::tempdir().unwrap();
+        let mut sync = sync_at(url, dir.path());
+        sync.mark("memory/codex/a.md".into(), b"old".to_vec(), Some("c1".into()));
+        sync.pull_once().await.unwrap();
+        server.abort();
+        assert_eq!(fs::read_to_string(dir.path().join("a.md")).unwrap(), "theirs");
+        assert_eq!(sync.state.synced["memory/codex/a.md"].commit.as_deref(), Some("c9"));
+    }
+
+    /// The listing is read page by page to its end; an unchanged commit is not read again, and a
+    /// head that moves between pages fails the pass instead of mixing two versions.
+    #[tokio::test]
+    async fn the_listing_reads_every_page_at_one_head() {
+        let (url, server, log) = serve_recording(vec![
+            ("GET /v1/artifacts?limit=100 ", "200 OK", json!({"headSha":"h1","items":[{"path":"memory/codex/a.md","commit":"c1"}],"cursor":"memory/codex/a.md"}).to_string()),
+            ("GET /v1/artifacts?limit=100&cursor=", "200 OK", json!({"headSha":"h1","items":[{"path":"memory/codex/b.md","commit":"c2"},{"id":"01J0000000000000000000000","path":"artifacts/01J0000000000000000000000","commit":"c2"}]}).to_string()),
+            ("GET /v1/artifacts?limit=100 ", "200 OK", json!({"headSha":"h1","items":[],"cursor":"x"}).to_string()),
+            ("GET /v1/artifacts?limit=100&cursor=", "200 OK", json!({"headSha":"h2","items":[]}).to_string()),
+            ("GET /v1/artifacts/file", "200 OK", "b".into()),
+        ]);
+        let dir = tempfile::tempdir().unwrap();
+        let mut sync = sync_at(url, dir.path());
+        fs::write(dir.path().join("a.md"), "a").unwrap();
+        sync.mark("memory/codex/a.md".into(), b"a".to_vec(), Some("c1".into()));
+        assert_eq!(sync.pull_once().await.unwrap().pulled, 1);
+        assert_eq!(fs::read_to_string(dir.path().join("b.md")).unwrap(), "b");
+        let reads: Vec<_> = log
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|r| r.starts_with("GET /v1/artifacts/file"))
+            .cloned()
+            .collect();
+        assert_eq!(reads.len(), 1, "a.md's commit is unchanged, the folder item is not a file");
+        assert!(reads[0].contains("b.md"));
+        assert!(sync.pull_once().await.is_err(), "the head moved between pages");
+        server.abort();
+    }
+
+    /// The synced state survives a restart (and is written only when it changed), so a file
+    /// deleted while the daemon was down is not restored, and nothing synced is sent again.
+    #[test]
+    fn synced_state_survives_a_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state/artifacts-sync-state.json");
+        let mut sync = sync_at("http://127.0.0.1:9".into(), dir.path());
+        sync.persist_at(path.clone());
+        sync.state.head_sha = Some("h1".into());
+        sync.mark("memory/codex/a.md".into(), b"a".to_vec(), Some("c1".into()));
+        sync.save_state().unwrap();
+        let written = fs::metadata(&path).unwrap().modified().unwrap();
+        sync.save_state().unwrap();
+        assert_eq!(fs::metadata(&path).unwrap().modified().unwrap(), written);
+        let mut restarted = sync_at("http://127.0.0.1:9".into(), dir.path());
+        restarted.persist_at(path);
+        assert_eq!(restarted.state.head_sha.as_deref(), Some("h1"));
+        assert_eq!(restarted.state.synced, sync.state.synced);
+        assert!(restarted.state.base.is_empty(), "file contents stay out of the state file");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_root_that_is_a_symlink_is_not_synced() {
+        let dir = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(outside.path(), dir.path().join("memories")).unwrap();
+        let sync = sync_at("http://127.0.0.1:9".into(), &dir.path().join("memories"));
+        assert!(!sync.roots[0].usable());
+        assert_eq!(sync.local_for_remote("memory/codex/x.md"), None);
     }
 
     #[cfg(unix)]
@@ -1142,7 +1488,8 @@ mod tests {
     fn a_remote_path_never_maps_outside_its_root() {
         let config = ArtifactsSyncConfig { enabled: true, ..Default::default() };
         let mut sync = ArtifactsSync::new(config, None).unwrap().unwrap();
-        let root = PathBuf::from("/home/u/.codex/memories");
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
         sync.roots = vec![SyncRoot { local: root.clone(), remote_prefix: "memory/codex/".into() }];
         assert_eq!(sync.local_for_remote("memory/codex/notes/a.md"), Some(root.join("notes/a.md")));
         for path in [
@@ -1156,6 +1503,30 @@ mod tests {
         ] {
             assert_eq!(sync.local_for_remote(path), None, "{path}");
         }
+    }
+
+    /// The save body uses the platform's field names (`ArtifactSave`, `ArtifactChange` in
+    /// cmux-platform's src/api/Artifacts.ts): snake_case keys reached the server as no content.
+    #[test]
+    fn a_save_request_uses_the_platform_field_names() {
+        let request = SaveRequest {
+            expected_head_sha: Some("h1".into()),
+            branch: "main",
+            message: "m".into(),
+            trailers: Trailers::default(),
+            changes: vec![Change {
+                path: "memory/codex/a.md".into(),
+                op: "put",
+                content_base64: Some("YQ==".into()),
+                blob_sha256: Some("0".repeat(64)),
+                content_type: Some("text/markdown".into()),
+            }],
+        };
+        let body = serde_json::to_value(&request).unwrap();
+        assert_eq!(
+            body,
+            json!({"expectedHeadSha":"h1","branch":"main","message":"m","trailers":{},"changes":[{"path":"memory/codex/a.md","op":"put","contentBase64":"YQ==","blobSha256":"0".repeat(64),"contentType":"text/markdown"}]})
+        );
     }
 
     #[test]
@@ -1172,6 +1543,7 @@ mod tests {
         assert!(!should_skip("memory/claude/scope/notes.md", b"safe notes"));
         for text in [
             "password: hunter22",
+            "password: x",
             "apiKey: 9f8e7d6c5b4a",
             "access_token: abcd1234efgh",
             "client_secret = \"s3cr3tvalue\"",
@@ -1225,7 +1597,7 @@ mod tests {
                         request.extend_from_slice(&buffer[..size]);
                     }
                     let request = String::from_utf8(request).unwrap().to_ascii_lowercase();
-                    assert!(request.starts_with("get /v1/artifacts "), "{request}");
+                    assert!(request.starts_with("get /v1/artifacts?"), "{request}");
                     let bearer = request
                         .lines()
                         .find_map(|line| line.strip_prefix("authorization: bearer "))
