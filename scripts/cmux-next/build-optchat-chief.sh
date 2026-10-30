@@ -143,15 +143,22 @@ deliver() {
   if [[ "$print_path" -eq 1 ]]; then printf '%s\n' "$found"; else echo "optchat-chief $verb at $found"; fi
 }
 
-if [[ -x "$cache_bin" ]]; then
+# A restored entry may hold links in place of its directories. Drop them (the
+# links, never their targets) so every read, removal and write below stays
+# inside the cache root; the build recreates the directories.
+for entry_dir in "${cache_dir%/*}" "$cache_dir"; do
+  [[ ! -L "$entry_dir" ]] || rm -f "$entry_dir"
+done
+if [[ -f "$cache_bin" && -x "$cache_bin" ]]; then
   if [[ "${CMUX_NEXT_OPTCHAT_CHIEF_REQUIRE_IDENTITY:-0}" == 1 ]]; then
     ref="$cache_bin.ref"
     actual_sha=""
     [[ -L "$cache_bin" || -L "$ref" ]] || actual_sha="$(shasum -a 256 "$cache_bin" | awk '{print $1}')"
-    if [[ ! -r "$ref" ]] || [[ -L "$cache_bin" || -L "$ref" ]] || ! grep -Fxq "inputs=$input_key" "$ref" || ! grep -Fxq "environment=$environment_key" "$ref" || ! grep -Fxq "archs=$archs" "$ref" || ! grep -Fxq "sha256=$actual_sha" "$ref"; then
+    if [[ ! -f "$ref" || ! -r "$ref" ]] || [[ -L "$cache_bin" || -L "$ref" ]] || ! grep -Fxq "inputs=$input_key" "$ref" || ! grep -Fxq "environment=$environment_key" "$ref" || ! grep -Fxq "archs=$archs" "$ref" || ! grep -Fxq "sha256=$actual_sha" "$ref"; then
       echo "cached optchat-chief identity does not match; rebuilding" >&2
-      # Remove links themselves before the rebuild writes its provenance.
-      rm -f "$cache_bin" "$ref"
+      # Remove links themselves (or a directory in the file's place) before
+      # the rebuild writes its provenance.
+      rm -rf "$cache_bin" "$ref"
     else
       prune_input_keyed
       deliver "already cached"
@@ -206,8 +213,9 @@ mkdir -p "$cache_dir"
 # Every rebuild path writes the binary and its provenance fresh. A restored or
 # reused entry may hold links in their place (a missing binary skips the
 # identity check above), so remove the links themselves, never their targets,
-# before anything is written; a directory there stops the build.
-rm -f "$cache_bin" "$cache_bin.ref"
+# and any directory in a file's place, before anything is written. The entry
+# directories are not links (checked above), so this stays inside the cache.
+rm -rf "$cache_bin" "$cache_bin.ref"
 slices=()
 for target in "${targets[@]}"; do
   echo "==> building optchat-chief ($commit, $target)"
