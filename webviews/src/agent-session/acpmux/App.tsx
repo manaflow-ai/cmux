@@ -426,6 +426,7 @@ import { handoffTurns } from "./cloudHandoffTurn";
 import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { archiveClosesTab } from "./header/archiveClose";
+import { afterDeleteDismiss } from "./header/deleteDismiss";
 import { avatarRows } from "./header/avatarRow";
 import { agentAvatarChanged, removeAgentAvatar, setAgentAvatar, useAgentAvatar } from "./agentAvatar";
 import { copyRow } from "./header/copyRow";
@@ -11445,7 +11446,10 @@ function AcpmuxPane() {
             setDeleteConfirmOpen(next);
             if (!next) {
               setDeleteConfirmSession(undefined);
-              deleteInFlight.current = undefined;
+              deleteInFlight.current = afterDeleteDismiss(
+                deleteInFlight.current,
+                directClient.current?.purgeInFlight === true,
+              );
             }
           }}
           label={t("permission.verb.delete")}
@@ -11464,7 +11468,10 @@ function AcpmuxPane() {
               onClick={() => {
                 setDeleteConfirmOpen(false);
                 setDeleteConfirmSession(undefined);
-                deleteInFlight.current = undefined;
+                deleteInFlight.current = afterDeleteDismiss(
+                  deleteInFlight.current,
+                  directClient.current?.purgeInFlight === true,
+                );
               }}
             >
               {t("chatMenu.close")}
