@@ -8,7 +8,7 @@ import Testing
 /// `TerminalSurfaceView` a test made before anything started the runtime had no surface (`surface == nil`), and the
 /// test then passed or failed by which suite ran first. A suite that makes terminal surfaces carries `.ghosttyStarted`
 /// instead of calling ``GhosttyRuntime/startedForTests()`` in each test, so a new test cannot miss it.
-struct GhosttyStarted: SuiteTrait, TestTrait, TestScoping {
+nonisolated struct GhosttyStarted: SuiteTrait, TestTrait, TestScoping {
     var isRecursive: Bool { true }
 
     /// One scope per test function, not for the suite itself.
@@ -16,8 +16,8 @@ struct GhosttyStarted: SuiteTrait, TestTrait, TestScoping {
         test.isSuite || testCase != nil ? nil : self
     }
 
-    func provideScope(for test: Test, testCase: Test.Case?,
-                      performing function: @Sendable () async throws -> Void) async throws {
+    @concurrent func provideScope(for test: Test, testCase: Test.Case?,
+                                  performing function: @concurrent @Sendable () async throws -> Void) async throws {
         await MainActor.run { _ = GhosttyRuntime.startedForTests() }
         try await function()
     }
