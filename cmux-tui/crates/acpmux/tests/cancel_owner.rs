@@ -200,13 +200,15 @@ async fn guests_other_members_and_forged_owner_claims_cannot_stop_it_and_hear_wh
         let r = other.call(method::SESSION_CANCEL, cancel(&id, meta.clone())).await;
         assert_eq!(r["error"]["data"]["reason"], REFUSED, "{what}: {r}");
         let message = r["error"]["message"].as_str().unwrap_or_default();
-        assert!(message.contains(&host) && message.contains("owner"), "{what}: {message}");
+        // It says why, and names nothing about this machine to a caller that is not its owner.
+        assert!(message.contains("only its owner"), "{what}: {message}");
+        assert!(!message.contains(&host), "{what} learned the host name: {message}");
 
         other.notify(method::SESSION_CANCEL, cancel(&id, meta.clone())).await;
         let told = other.wait_for(method::MUX_CANCEL_REFUSED, |_| true).await;
         assert_eq!(told["sessionId"], id, "{what}: {told}");
         assert_eq!(told["reason"], REFUSED, "{what}: {told}");
-        assert!(told["message"].as_str().is_some_and(|m| m.contains(&host)), "{what}: {told}");
+        assert_eq!(told["message"], message, "{what}: {told}");
 
         assert!(!turn_ended(&mut local, &id, 300).await, "{what}: a refused Stop ended the turn");
         local.notify(method::SESSION_CANCEL, json!({"sessionId": id})).await;

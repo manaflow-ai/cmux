@@ -30,26 +30,31 @@ fn reason(e: &RpcError) -> Option<&str> {
 }
 
 /// The Stop of peer `peer`'s chat, which `conn` named `key`, sent on as a request (every acpmux
-/// answers one, `{}` once the cancel reaches the agent), on its own task so a slow link holds no
-/// notification slot here. A refusal or an unreachable peer: `conn` hears it. An error that names
-/// no reason (the link's request limit, a closed link): the notification, as before this, and
-/// `conn` hears only if that cannot go either.
-pub(super) fn forward(conn: &Arc<Conn>, peer: Arc<crate::peer::Peer>, key: &str, forwarded: Value) {
-    let (conn, key) = (conn.clone(), Value::from(key));
-    tokio::spawn(async move {
-        let Err(e) = peer.request(method::SESSION_CANCEL, forwarded.clone()).await else { return };
-        let e = if reason(&e).is_some() {
-            e
-        } else {
+/// answers one, `{}` once the cancel reaches the agent). It runs on the connection's own
+/// notification worker, which bounds how many wait at once (`NOTIFICATION_WORK_LIMIT`). Any error
+/// is told to `conn`, never followed by a second cancel: the request may have reached the peer
+/// and stopped this turn before its answer was lost, and a second cancel would stop the next. The
+/// one exception is the peer's `connection.busy` (its request limit), which it answers without
+/// handling the request: then the notification goes, as before this.
+pub(super) async fn forward(
+    conn: &Conn,
+    peer: Arc<crate::peer::Peer>,
+    key: &str,
+    forwarded: Value,
+) {
+    let e = match peer.request(method::SESSION_CANCEL, forwarded.clone()).await {
+        Ok(_) => return,
+        Err(e) if reason(&e) == Some("connection.busy") => {
             match peer.notify(method::SESSION_CANCEL, forwarded).await {
                 Ok(()) => return,
                 Err(e) => e,
             }
-        };
-        tracing::debug!(conn = %conn.id, peer = %peer.name, "forwarded cancel refused: {e}");
-        conn.send(&Message::notification(
-            method::MUX_CANCEL_REFUSED,
-            notice(key, &e, Some(&peer.name)),
-        ));
-    });
+        }
+        Err(e) => e,
+    };
+    tracing::debug!(conn = %conn.id, peer = %peer.name, "forwarded cancel refused: {e}");
+    conn.send(&Message::notification(
+        method::MUX_CANCEL_REFUSED,
+        notice(Value::from(key), &e, Some(&peer.name)),
+    ));
 }

@@ -49,10 +49,12 @@ fn owner(origin: crate::server::Origin, auth: crate::server::ConnAuth, params: &
         && crate::hub::vm_boundary::owner(auth, super::control_of(origin, auth, params), params)
 }
 
+/// No host name: a guest who can name a chat here learns nothing more about this machine.
 fn refused() -> RpcError {
-    let host = crate::hand::pair::hostname();
-    RpcError::invalid_params(format!("This chat runs on {host}, and only its owner can stop it"))
-        .with_data(serde_json::json!({"reason": REASON}))
+    RpcError::invalid_params(
+        "This chat runs on the machine that started it, and only its owner can stop it",
+    )
+    .with_data(serde_json::json!({"reason": REASON}))
 }
 
 #[cfg(test)]

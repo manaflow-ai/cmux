@@ -169,7 +169,7 @@ pub(super) async fn handle_notification(
                         &params,
                         &mut forwarded,
                     );
-                    cancel_refused::forward(conn, peer, key, forwarded);
+                    cancel_refused::forward(conn, peer, key, forwarded).await;
                 }
             }
         }
