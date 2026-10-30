@@ -2,7 +2,9 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextBrowser
+import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextTerminal
 import Foundation
 import Testing
 
@@ -40,6 +42,64 @@ struct HomeDockOpensTests {
     }
 
     private static func target(_ dock: PaneModel) -> ActionTargetRef { ActionTargetRef(kind: .pane, id: dock.id) }
+
+    /// Creation replies before its move. Keys must stay buffered while the old terminal still
+    /// has focus, including a move delayed beyond the input buffer's ordinary focus timeout.
+    @Test(arguments: [true, false])
+    func terminalKeysWaitForTheDelayedMove(moves: Bool) async throws {
+        try await PasswordManagerRouteTests.withApp { services, connection in
+            let (controller, _, dock) = try await Self.openHome(services, connection)
+            let window = try #require(controller.window)
+            window.makeKeyAndOrderFront(nil)
+            // A terminal dragged into Home is a legitimate existing selection. Make it directly
+            // through the daemon so the app's new-terminal placement does not move it away.
+            let original = try await connection.newTab(in: dock.pane.handle)
+            try await PasswordManagerRouteTests.until({ dock.pane.tabs.contains { $0.surface == original.surface } })
+            dock.selectWhenReported(surface: original.surface)
+            dock.focusContent()
+            try await PasswordManagerRouteTests.until({
+                dock.selectedTab?.surface == original.surface && window.firstResponder is TerminalSurfaceView
+            })
+            let input = services.keyRouter.creationInputCoordinator
+            input.holdLimit = .milliseconds(50)
+            let move = services.linkOpener.moveToColumn
+            var answer: (() -> Void)?
+            var created: SurfaceID?
+            services.linkOpener.moveToColumn = { tab, anchor, after, services, keepFocus, done in
+                created = tab.surface
+                answer = {
+                    if moves { move(tab, anchor, after, services, keepFocus, done) }
+                    else { done(false) }
+                }
+            }
+            defer {
+                answer?()
+                services.linkOpener.moveToColumn = move
+            }
+            dock.newTerminalTab(fromSelectedTab: true)
+            try await PasswordManagerRouteTests.until({ answer != nil })
+            // The creation task has returned and its ticket resolved. Only the move ticket can
+            // protect the keys now; its pending reply must outlive the normal focus timeout.
+            try await Task.sleep(for: .milliseconds(200))
+            #expect(dock.selectedTab?.surface == original.surface)
+            let key = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, characters: "x", charactersIgnoringModifiers: "x", isARepeat: false, keyCode: 7))
+            #expect(input.capture(key, in: window), "typing escaped to the original terminal before the move answered")
+            let complete = try #require(answer)
+            answer = nil
+            complete()
+            let surface = try #require(created)
+            try await PasswordManagerRouteTests.until({
+                controller.focusedPane?.selectedTab?.surface == surface
+                    && controller.focus.state.expectation == nil
+                    && CreationInputCoordinator.responderTakesKeys(controller, window: window)
+            })
+            #expect((controller.focusedPane === dock) == !moves)
+            try await Task.sleep(for: .milliseconds(100))
+            #expect(!input.capture(key, in: window), "the completed move left the input ticket pending")
+        }
+    }
 
     /// A terminal or browser tab the CLI, MCP or a script opens in Home's pane opens beside it. A
     /// browser aimed at the focused Home from MCP or a script is an agent's background tab: the
@@ -95,6 +155,9 @@ struct HomeDockOpensTests {
             }
             let right = try await Self.untilBeside(home, dock.pane, via)
             #expect(right.tabs.contains { $0.kind == .browser })
+            try await PasswordManagerRouteTests.until({ OutboundTab.count(in: dock) == 0 }, report: {
+                "\\(via): Home's browser open left \\(OutboundTab.count(in: dock)) outbound hold(s)"
+            })
             #expect(dock.view.hidesStrip, "Home's dock shows a tab bar")
         }
     }
@@ -130,6 +193,42 @@ struct HomeDockOpensTests {
                 let right = try await Self.untilBeside(home, dock.pane, "Inbox page")
                 #expect(right.tabs.contains { $0.page == InternalPageID.inbox.rawValue })
             }
+        }
+    }
+
+    /// Exercise the actual creator exits, rather than treating every cancellation as a direct
+    /// call to OutboundTab.finish in the state-machine test.
+    @Test(arguments: ["terminal cancellation", "page rejection", "browser refusal"])
+    func failedCreatorsReleaseTheirOwnHomeHold(_ failure: String) async throws {
+        try await PasswordManagerRouteTests.withApp { services, connection in
+            let (window, _, dock) = try await Self.openHome(services, connection)
+            #expect(OutboundTab.count(in: dock) == 0)
+            switch failure {
+            case "terminal cancellation":
+                dock.newTerminalTab()
+                let pending = try #require(dock.pane.tabs.first { ProvisionalTab.isProvisional($0.id) })
+                #expect(OutboundTab.count(in: dock) == 1)
+                #expect(dock.daemon.cancelCreation(tab: pending.id))
+            case "page rejection":
+                let create = services.pages.createStoreTab
+                defer { services.pages.createStoreTab = create }
+                services.pages.createStoreTab = { _, _, _, _, _ in throw DaemonError.notConnected }
+                #expect(services.pages.openStoreTab(.inbox, in: dock, window: window, focus: true) != nil)
+                #expect(OutboundTab.count(in: dock) == 1)
+            default:
+                let browserTabs = services.cache.browserTabs
+                let serves = browserTabs.serves
+                browserTabs.serves = { _ in false }
+                defer { browserTabs.serves = serves }
+                var outbound: OutboundTab?
+                let placed = HomeDockOpens.placing(dock.pane, services: services, focus: true, then: nil) { outbound = $0 }
+                #expect(OutboundTab.count(in: dock) == 1)
+                #expect(!dock.newBrowserTab(url: URL(string: "https://example.com"),
+                                           outbound: outbound, then: placed))
+            }
+            try await PasswordManagerRouteTests.until({ OutboundTab.count(in: dock) == 0 }, report: {
+                "\(failure) retained a Home outbound hold"
+            })
         }
     }
 

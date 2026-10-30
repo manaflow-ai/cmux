@@ -111,9 +111,9 @@ extension PaneController {
     /// (NEW-TERMINAL-INHERITS-CWD).
     func newTerminalTab(cwd: String? = nil, typing text: String? = nil, typingAhead page: String? = nil, keep: Bool? = nil,
                         fromSelectedTab: Bool = false, daemonResolvesCwd: Bool = false,
-                        then: (@MainActor (SurfaceID) -> Void)? = nil) {
+                        outbound suppliedOutbound: OutboundTab? = nil, then: (@MainActor (SurfaceID) -> Void)? = nil) {
         // Nothing opens in Home's dock: without a placement of the caller's, the tab moves beside it.
-        let then = then ?? HomeDockOpens.placing(pane, services: services, focus: true, then: nil)
+        guard let connection = daemon.connection else { suppliedOutbound?.finish(moved: false); return }
         let handle = pane.handle
         // From an agent tab, the agent's cwd (#16620), asked when the tab is made.
         let agent = cwd == nil && fromSelectedTab && !daemonResolvesCwd ? selectedAgentView : nil
@@ -122,9 +122,10 @@ extension PaneController {
         let cwd = daemonResolvesCwd ? cwd : cwd ?? (fromSelectedTab ? NewTerminalStart.inherited(besides: selectedTab, in: pane, services: services) : nil) ?? selectedTab?.cwd
         // From another machine's terminal (an SSH tab in a mixed pane), a terminal on that machine (cx-2s5t).
         if fromSelectedTab, text == nil, page == nil,
-           services.remoteTerminals.openTerminal(besides: selectedTab, in: pane, home: daemon, cwd: cwd) { return }
+           services.remoteTerminals.openTerminal(besides: selectedTab, in: pane, home: daemon, cwd: cwd) { suppliedOutbound?.finish(moved: false); return }
+        var outbound = suppliedOutbound
+        let then = then ?? HomeDockOpens.placing(pane, services: services, focus: true, then: nil) { outbound = $0 }
         let workspace = services.workspaceKey(of: pane)
-        guard let connection = daemon.connection else { return }
         let intent = self.workspace?.beginFocusIntent()
         // The window's keys wait until the new terminal has the keyboard (cx-wb5.76); a creation
         // that types its own text first keeps the keys where they are.
@@ -134,7 +135,7 @@ extension PaneController {
         let size = newTerminalSize
         let command = NewTerminalTabCommand(pane: handle, options: SpawnOptions(cwd: cwd, size: size, workspace: workspace, keep: keep))
         if text == nil, page == nil, command.isOptimistic(on: daemon) {
-            return newTerminalTabNow(command, agent: agent, intent: intent, keys: keys, window: window, then: then)
+            return newTerminalTabNow(command, agent: agent, intent: intent, keys: keys, window: window, outbound: outbound, then: then)
         }
         services.registry.track(Task { [services] in
             var landed = false
@@ -147,12 +148,14 @@ extension PaneController {
                 if let page {
                     try await services.newTabTypeAhead.drain(page) { try await connection.send(created.surface, text: $0) }
                 }
+                outbound?.made(created.surface)
                 selectWhenReported(surface: created.surface)
                 self.workspace?.expectFocus(on: created.surface, generation: intent)
                 landed = true
                 then?(created.surface)
                 return nil
             } catch {
+                outbound?.finish(moved: false)
                 daemon.logger.error("new-tab failed: \(String(describing: error), privacy: .public)")
                 return ActionWorkFailure("new-tab", error)
             }
@@ -165,7 +168,7 @@ extension PaneController {
     /// daemon's tab takes its place (``NewTerminalTabCommand``). The keys typed meanwhile wait for
     /// the daemon's terminal, as before.
     private func newTerminalTabNow(_ command: NewTerminalTabCommand, agent: AgentPaneView?, intent: UInt64?, // perf-hot: 10ms new-tab (the terminal stand-in shows in the key's turn)
-                                   keys: CreationInputBuffer.Ticket?, window: NSWindow?, then: (@MainActor (SurfaceID) -> Void)?) {
+                                   keys: CreationInputBuffer.Ticket?, window: NSWindow?, outbound: OutboundTab?, then: (@MainActor (SurfaceID) -> Void)?) {
         // task-owner: the selected agent's cwd, read while the stand-in shows (#16620)
         let agentCwd = agent.map { agent in
             Task { @MainActor () -> String? in
@@ -174,12 +177,14 @@ extension PaneController {
             }
         }
         let pending = BenchSpans.measure("newTerminal.intend") { command.intendNow(on: daemon, cwd: agentCwd) }
+        outbound?.made(key: pending.tab)
         selectWhenReported(surface: pending.surface)
         services.registry.track(Task { [services] in
             var landed = false
             defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
             do {
                 let created = try await pending.send(); BenchSpans.mark("daemon.newTab.returned")
+                outbound?.made(created.surface)
                 // The swap moved the selection already (NewTabSuccession); a pane still on the stand-in follows it.
                 if stripModel.selectedID?.rawValue == pending.tab { selectWhenReported(surface: created.surface) }
                 self.workspace?.expectFocus(on: created.surface, generation: intent)
@@ -187,8 +192,10 @@ extension PaneController {
                 then?(created.surface)
                 return nil
             } catch is NewTerminalTabCancelled {
+                outbound?.finish(moved: false)
                 return nil // the person closed the stand-in first
             } catch {
+                outbound?.finish(moved: false)
                 daemon.logger.error("new-tab failed: \(String(describing: error), privacy: .public)")
                 return ActionWorkFailure("new-tab", error)
             }
@@ -200,9 +207,9 @@ extension PaneController {
     @discardableResult
     func newBrowserTab(url: URL? = nil, engine requested: String? = nil, inherited: String? = nil,
                        adopting child: (any BrowserTab)? = nil, background: Bool = false, profile: String? = nil,
-                       notice: String? = nil, opener: SurfaceID? = nil, then: (@MainActor (SurfaceID) -> Void)? = nil) -> Bool {
+                       notice: String? = nil, opener: SurfaceID? = nil, outbound: OutboundTab? = nil, then: (@MainActor (SurfaceID) -> Void)? = nil) -> Bool {
         PaneBrowserTabOpener(controller: self).open(url: url, engine: requested, inherited: inherited, adopting: child, background: background,
-                                                    profile: profile, notice: notice, opener: opener, then: then)
+                                                    profile: profile, notice: notice, opener: opener, outbound: outbound, then: then)
     }
 
     /// Several tabs (close others, to the left, to the right) close in one

@@ -42,6 +42,11 @@ final class LinkOpener {
     /// The setting, read on every open (``LinkPlacement/fallback`` before settings load).
     var placement: () -> LinkPlacement
 
+    /// Column move transport; completion means the daemon has answered the move.
+    var moveToColumn: (TabModel, PaneModel, DaemonColumnID?, AppServices, Bool, @escaping TabMoves.Completion) -> Void = {
+        TabMoves.toNewColumn($0, anchor: $1, afterColumn: $2, services: $3, keepFocus: $4, completion: $5)
+    }
+
     init(services: AppServices) {
         self.services = services
         placement = { [weak services] in services?.settings?.snapshot.linkPlacement ?? .fallback }
@@ -117,12 +122,14 @@ final class LinkOpener {
             })
         case .besideDock:
             // A lone pinned dock closed to tabs: the daemon makes a tab aimed at it in a new column
-            // right of it. Home's dock takes tabs, so the tab is made there and moves to the right.
+            // right of it. Home's dock takes tabs, so the tab is made there and moves to the right,
+            // left out of the dock's strip on the way (``OutboundTab``): it first shows on the right.
             guard source.isOpenPinnedDockPane else { return make(source, nil) }
-            return make(source) { [weak self, weak source] surface in
-                guard let self, let source else { return }
-                self.moveBeside(surface, from: source, focus: !background)
-            }
+            let outbound = OutboundTab.begin(in: source)
+            return outbound.started(make(source) { [weak self, weak source] surface in
+                guard let self, let source else { return outbound.finish(moved: false) }
+                self.moveBeside(surface, from: source, focus: !background, outbound: outbound)
+            })
         case .dockChat:
             let outbound = OutboundTab.begin(in: source)
             return outbound.started(make(source) { [weak source] surface in
@@ -284,8 +291,10 @@ final class LinkOpener {
 
     /// Moves new tab `surface`, made in `source`, to a new column right of it, focusing `target` in
     /// it when `focus` (Home's dock, which takes tabs, opens its tools beside itself this way).
-    func moveBeside(_ surface: SurfaceID, from source: PaneController, focus: Bool, target: FocusState.Target = .content) {
-        move(surface, from: source, to: .besideColumn, focus: focus, target: target)
+    /// `outbound`, begun before the tab was made, keeps it out of `source`'s strip until it has moved.
+    func moveBeside(_ surface: SurfaceID, from source: PaneController, focus: Bool, target: FocusState.Target = .content,
+                    outbound: OutboundTab? = nil) {
+        move(surface, from: source, to: .besideColumn, focus: focus, target: target, outbound: outbound)
     }
 
     /// Moves the new tab on `surface` out of `source` to `destination` (a new split, column or dock)
@@ -296,7 +305,13 @@ final class LinkOpener {
         outbound?.made(surface)
         let services = source.services, store = source.daemon.store
         let intent = focus ? source.workspace?.beginFocusIntent() : nil
+        // Take over before the creator resolves its ticket: the source still shows the previous
+        // terminal, and this move's new intent replaced the creation's focus expectation.
+        let window = outbound == nil ? nil : source.view.window
+        let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent)
         services.registry.track(Task { @MainActor [weak source] () -> ActionWorkFailure? in
+            var landed = false
+            defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
             let listed = Task { @MainActor () -> TabModel? in
                 if let tab = store.tab(surface: surface) { return tab }
                 // `tabListRevision`: the tracked read hears the tab appear (AppServices.locateTab).
@@ -319,9 +334,9 @@ final class LinkOpener {
                 switch destination {
                 case .besideColumn:
                     let after = AgentBesidePlacement.newColumn(beside: anchor, in: store)
-                    TabMoves.toNewColumn(tab, anchor: anchor, afterColumn: after, services: services, keepFocus: keepFocus) { done.resume(returning: $0) }
+                    self.moveToColumn(tab, anchor, after, services, keepFocus) { done.resume(returning: $0) }
                 case .column(let after):
-                    TabMoves.toNewColumn(tab, anchor: anchor, afterColumn: after, services: services, keepFocus: keepFocus) { done.resume(returning: $0) }
+                    self.moveToColumn(tab, anchor, after, services, keepFocus) { done.resume(returning: $0) }
                 case .split(let edge):
                     TabMoves.toNewSplit(tab, pane: anchor, edge: edge, services: services, keepFocus: keepFocus) { done.resume(returning: $0) }
                 case .dock(let edge):
@@ -332,6 +347,7 @@ final class LinkOpener {
             outbound?.finish(moved: moved)
             if moved {
                 if let intent { source.workspace?.expectFocus(on: surface, target: target, awayFrom: source.paneKey, generation: intent) }
+                landed = true
                 if column { await AgentBesidePlacement.revealMoved(tab.id, from: anchor, services: services) }
                 return nil
             }

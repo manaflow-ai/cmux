@@ -222,10 +222,12 @@ final class InternalPageTabStore {
                       controller pane: PaneController?, window: WindowController, focus: Bool, key given: String? = nil,
                       created onCreated: (@MainActor (SurfaceID) -> Void)? = nil) -> InternalPageView? {
         let store = daemon.store
-        // Nothing opens in Home's dock (an app page, a file): without a placement of the caller's, the tab moves beside it.
-        let onCreated = onCreated ?? HomeDockOpens.placing(model, services: services, focus: focus, then: nil)
         guard let provider = providers[page], daemon.supports(DaemonCapability.pageTabs.rawValue),
               case .connected = store.connectionState else { return nil }
+        // Nothing opens in Home's dock (an app page, a file): without a placement of the caller's, the tab moves beside it.
+        // Build this only after the creation preconditions pass, so a refused page never leaves an outbound hold.
+        var outbound: OutboundTab?
+        let onCreated = onCreated ?? HomeDockOpens.placing(model, services: services, focus: focus, then: nil) { outbound = $0 }
         let provisional = ProvisionalTab()
         let key = given.flatMap { LocalPageTab.page(of: $0) == page ? $0 : nil } ?? LocalPageTab.makeKey(page)
         var snapshot = TabSnapshot(surface: provisional.surface, tabResourceID: ResourceID(rawValue: provisional.id),
@@ -240,6 +242,7 @@ final class InternalPageTabStore {
             self?.storeTabCreated(provisional, as: tab.id, surface: tab.surface)
         }
         let transaction = ClientTransactionID.generate()
+        outbound?.made(key: provisional.id)
         store.intend(.createTab(pane: model.handle, provisional: snapshot), transaction: transaction)
         if let pane {
             if focus {
@@ -258,8 +261,13 @@ final class InternalPageTabStore {
                 // The store's tab replaces the provisional one in one step, never beside it.
                 ProvisionalTab.created(transaction, surface: created.surface, in: store)
                 if let sequence { store.noteSettled(transaction, at: sequence) } else { store.noteSettledAtNextSnapshot(transaction) }
-                if !store.creations.wasCancelled(transaction) { onCreated?(created.surface) }
+                if store.creations.wasCancelled(transaction) {
+                    outbound?.finish(moved: false)
+                } else {
+                    onCreated?(created.surface)
+                }
             } catch {
+                outbound?.finish(moved: false)
                 daemon.logger.error("new-conversation-tab (page) failed: \(String(describing: error), privacy: .public)")
                 if !store.creations.wasCancelled(transaction) {
                     self?.keepAsLocalTab(provisional.id, key: key, page: page, in: paneKey, controller: pane, store: store, window: window)
@@ -276,6 +284,7 @@ final class InternalPageTabStore {
     /// and the selection move to it.
     func storeTabCreated(_ provisional: String, as real: String, surface: SurfaceID) {
         guard provisional != real, let key = storeKeys[provisional] else { return }
+        OutboundTab.rekeyed(provisional, to: real)
         storeKeys[real] = key
         storeTabStores[real] = storeTabStores[provisional]
         // The provisional id resolves until the tree drops it.

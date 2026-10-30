@@ -63,10 +63,11 @@ enum TabLifecycle {
                 target = ChatColumnPlacement.route(from: controller, respawn: .terminal(spawn), services: ctx.services)
             }
             // A script's tab aimed at Home's dock opens beside it (HomeDockOpens), in its slot or not.
+            var outbound: OutboundTab?
             let placed = target.flatMap { HomeDockOpens.placing($0.pane, services: ctx.services, focus: true,
-                                                                then: NewTabSlot.placing(slot, services: ctx.services, then: nil)) }
+                                                                then: NewTabSlot.placing(slot, services: ctx.services, then: nil)) { outbound = $0 } }
             target?.newTerminalTab(cwd: target === controller ? tabCwd : chatStart, keep: keep, fromSelectedTab: true, daemonResolvesCwd: target !== controller,
-                                   then: placed)
+                                   outbound: outbound, then: placed)
             return
         }
         let handle = pane.handle
@@ -253,6 +254,7 @@ enum TabLifecycle {
         // A tab the CLI, MCP or a script opens is an agent's: no saved password fills in it (plans/cmux-next/browser.md).
         let cache: TabContentCache? = ctx.services.cache
         var agentTab: (@MainActor (SurfaceID) -> Void)?
+        var homeOutbound: OutboundTab?
         if [.cli, .mcp, .script].contains(invocation.origin) {
             agentTab = { @MainActor [weak cache] surface in cache?.markAgentDriven(surface: surface) }
         }
@@ -271,20 +273,26 @@ enum TabLifecycle {
         // chat is placed by AgentBesidePlacement.
         if !invocation.besideCaller {
             agentTab = HomeDockOpens.placing(pane, services: ctx.services, focus: !background,
-                                             target: url == nil ? .addressBar : .content, then: agentTab)
+                                             target: url == nil ? .addressBar : .content, then: agentTab) { homeOutbound = $0 }
         }
         switch profileRequest {
         case .cascade: break
         case .explicit(let id):
-            return openInProfile(ctx, pane: pane, url: url, engine: engine, profile: id, background: background, then: agentTab)
+            if !openInProfile(ctx, pane: pane, url: url, engine: engine, profile: id, background: background, outbound: homeOutbound, then: agentTab) {
+                homeOutbound?.finish(moved: false)
+            }
+            return
         case .agent:
             let profiles = ctx.services.browserProfiles
             ctx.registry.track(Task { @MainActor in
                 do {
                     let id = try await AgentBrowserProfile.ensure(profiles)
-                    openInProfile(ctx, pane: pane, url: url, engine: engine, profile: id, background: background, then: agentTab)
+                    if !openInProfile(ctx, pane: pane, url: url, engine: engine, profile: id, background: background, outbound: homeOutbound, then: agentTab) {
+                        homeOutbound?.finish(moved: false)
+                    }
                     return nil
                 } catch {
+                    homeOutbound?.finish(moved: false)
                     return "agent-browser-profile: \(error)"
                 }
             })
@@ -299,6 +307,8 @@ enum TabLifecycle {
             ctx, invocation, from: pane, tiles: PanePlacementRouting.browsersTile(ctx)
         ) {
             opener = target
+            homeOutbound?.finish(moved: false)
+            homeOutbound = nil
             then = { @MainActor surface in PanePlacementRouting.moveToSplit(ctx, surface, of: target, direction: direction) }
         }
         if let beside {
@@ -309,10 +319,14 @@ enum TabLifecycle {
         if then == nil { then = NewTabSlot.placing(slot, services: ctx.services, then: agentTab) }
         if let controller = ctx.services.paneController(for: opener) {
             // No URL given: what the selected tab works on (#16620), the chat's from the chat dock.
-            if url == nil { (context ?? controller).newBrowserTabFromSelectedTab(engine: engine, in: controller, then: then) }
-            else { controller.newBrowserTab(url: url, engine: engine, background: background, then: then) }
+            if url == nil {
+                (context ?? controller).newBrowserTabFromSelectedTab(engine: engine, in: controller, outbound: homeOutbound, then: then)
+            } else if !controller.newBrowserTab(url: url, engine: engine, background: background, outbound: homeOutbound, then: then) {
+                homeOutbound?.finish(moved: false)
+            }
             return
         }
+        homeOutbound?.finish(moved: false)
         openOffscreen(ctx, pane: pane, url: url, engine: engine, profile: nil, then: agentTab)
     }
 
@@ -331,13 +345,15 @@ enum TabLifecycle {
     /// A new browser tab in browser profile `profile` (openBrowser's
     /// `profile` argument). Without a URL it opens the new tab page rather
     /// than copying the selected tab, whose page belongs to another profile.
+    @discardableResult
     private static func openInProfile(_ ctx: AppActionContext, pane: PaneModel, url: URL?, engine: String?, profile: String,
-                                      background: Bool = false, then agentTab: (@MainActor (SurfaceID) -> Void)?) {
+                                      background: Bool = false, outbound: OutboundTab? = nil, then agentTab: (@MainActor (SurfaceID) -> Void)?) -> Bool {
         if let controller = ctx.services.paneController(for: pane) {
-            controller.newBrowserTab(url: url, engine: engine, background: background, profile: profile, then: agentTab)
-            return
+            return controller.newBrowserTab(url: url, engine: engine, background: background, profile: profile, outbound: outbound, then: agentTab)
         }
+        outbound?.finish(moved: false)
         openOffscreen(ctx, pane: pane, url: url, engine: engine, profile: profile, then: agentTab)
+        return true
     }
 
     /// A new browser tab (in `profile`, else the cascade's) in a pane that is not on screen.

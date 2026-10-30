@@ -35,6 +35,10 @@ final class OutboundTab {
 
     private weak var pane: PaneController?
     private let key: ObjectIdentifier
+    /// Home's own creators select their new tab before the move callback runs. Keep that
+    /// selection hidden in the source dock until the move completes; other outbound opens
+    /// preserve the normal "a person selected it" release behavior.
+    private let holdSelectionUntilLanded: Bool
     /// The pane's tabs when the open began.
     private let known: Set<String>
     /// The tab's surface, once the open names it.
@@ -50,20 +54,24 @@ final class OutboundTab {
     /// Left out only while the pane still holds this tab (the chat docking away from the tab).
     private var holding: String?
     private var answering = true
+    /// Only an unanswered timeout may resume on a late answer; cancelled/finished holds cannot.
+    private var answerTimedOut = false
     /// The move landed: the hold ends once the pane no longer lists the tab.
     private var landed = false
+    private var ended = false
     private let timer = DemandTimer(owner: "OutboundTab")
 
-    private init(pane: PaneController) {
+    private init(pane: PaneController, holdSelectionUntilLanded: Bool) {
         self.pane = pane
         key = ObjectIdentifier(pane)
+        self.holdSelectionUntilLanded = holdSelectionUntilLanded
         known = Set(pane.pane.tabs.map(\.id))
         timer.schedule(after: Self.answerLimit) { @MainActor [weak self] in
-            // Not named yet (slow, refused or failed): the pane's new tabs show; a late answer still hides its own.
+            // Release the registration and timer now. The creator retains the token and may
+            // later name its own tab; only that named tab is held again, never all new tabs.
             guard let self, self.answering else { return }
-            self.answering = false
-            self.pane?.syncStripFromStore()
-            self.timer.schedule(after: Self.backstop) { @MainActor [weak self] in self?.end() }
+            self.end()
+            self.answerTimedOut = true
         }
     }
 
@@ -107,6 +115,12 @@ final class OutboundTab {
     /// The tab `pane` shows or waits to select: never the open's (made unselected).
     private func shownByPane(_ tab: TabModel) -> Bool {
         guard let pane else { return false }
+        if holdSelectionUntilLanded {
+            // Home's creator selects its new tab before the move callback. Keep that tab hidden
+            // even after the move reports success; the source snapshot is the authority that it
+            // has left the dock. Other tabs selected by the person are still released normally.
+            if tab.surface == surface || own.contains(tab.id) || names.contains(tab.id) { return false }
+        }
         return tab.surface == pane.pendingSelectSurface || tab.id == pane.pendingSelectTab || tab.id == pane.stripModel.selectedID?.rawValue
     }
 
@@ -129,12 +143,14 @@ final class OutboundTab {
 
     /// The open named its tab: only that one stays out.
     func made(_ surface: SurfaceID) {
+        guard resumeIfTimedOut() else { return }
         self.surface = surface
         didName()
     }
 
     /// Same, by tab id: an agent tab's stand-in, then the store's tab that replaces it.
     func made(key: String) {
+        guard resumeIfTimedOut() else { return }
         names.insert(key)
         if let real = pane?.services.agentTabs.aliases[key] { names.insert(real) }
         didName()
@@ -144,6 +160,15 @@ final class OutboundTab {
     /// holds `key` holds `real` too, before the pane lists it.
     static func rekeyed(_ key: String, to real: String) {
         for tab in open.values.joined() where tab.names.contains(key) { tab.names.insert(real) }
+    }
+
+    private func resumeIfTimedOut() -> Bool {
+        guard ended else { return true }
+        guard answerTimedOut, pane != nil else { return false }
+        answerTimedOut = false
+        ended = false
+        Self.open[key, default: []].append(self)
+        return true
     }
 
     private func didName() {
@@ -161,7 +186,10 @@ final class OutboundTab {
     /// The move is over. Landed: the tab stays out until the pane no longer lists it (``prune(_:)``),
     /// at most ``landLimit``. Failed or never made: the strip lists it now, so it never stays hidden.
     func finish(moved: Bool) {
+        answerTimedOut = false
+        guard !ended else { return }
         answering = false
+        clearPendingSelection()
         guard moved else { return end() }
         landed = true
         timer.schedule(after: Self.landLimit) { @MainActor [weak self] in self?.end() }
@@ -175,16 +203,31 @@ final class OutboundTab {
 
     /// Stops holding: the timer stops and the open leaves its pane's list.
     private func drop() {
+        clearPendingSelection()
+        answerTimedOut = false
+        ended = true
+        answering = false
         timer.cancel()
         Self.open[key]?.removeAll { $0 === self }
         if Self.open[key]?.isEmpty == true { Self.open[key] = nil }
     }
 
+    private func clearPendingSelection() {
+        guard holdSelectionUntilLanded, let pane else { return }
+        if let pending = pane.pendingSelectSurface,
+           pending == surface || seen.contains(where: { (names.contains($0.key) || own.contains($0.key)) && $0.value == pending }) {
+            pane.pendingSelectSurface = nil
+        }
+        if let pending = pane.pendingSelectTab, names.contains(pending) || own.contains(pending) {
+            pane.clearPendingSelection(tab: pending)
+        }
+    }
+
     /// Starts leaving out of `pane`'s strip the tab about to be made there for a move to the side.
-    static func begin(in pane: PaneController) -> OutboundTab {
+    static func begin(in pane: PaneController, holdSelectionUntilLanded: Bool = false) -> OutboundTab {
         // Opens of closed panes go now, not at their timers (collected first: `drop()` edits `open`).
         for tab in open.values.joined().filter({ $0.pane == nil }) { tab.drop() }
-        let tab = OutboundTab(pane: pane)
+        let tab = OutboundTab(pane: pane, holdSelectionUntilLanded: holdSelectionUntilLanded)
         open[tab.key, default: []].append(tab)
         return tab
     }
@@ -202,4 +245,5 @@ final class OutboundTab {
     static func count(in pane: PaneController) -> Int {
         open[ObjectIdentifier(pane)]?.count { $0.pane === pane } ?? 0
     }
+
 }

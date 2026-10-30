@@ -16,6 +16,9 @@ import Testing
 @MainActor @Suite(.serialized) struct SideOpenStripTests {
     private static let left = PaneID(rawValue: 1), right = PaneID(rawValue: 2)
     private static let home = SurfaceID(rawValue: 1), link = SurfaceID(rawValue: 2)
+    private static let other = SurfaceID(rawValue: 3)
+
+    private static func tabID(for surface: SurfaceID) -> String { "surface:\(surface.rawValue)" }
 
     /// One screen: the left pane with `surfaces`, and with `moved` a pane split off on its right holding those.
     /// `ids` names a surface's tab by a resource id (an agent tab's), else the tab is the surface's.
@@ -32,13 +35,22 @@ import Testing
         return DaemonTree(workspaces: [WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: nil, name: "w1", screens: [screen])])
     }
 
-    /// The left pane, with one terminal and nothing on its right.
+    /// Home's pinned dock (taking tabs, as Home's does) alone on its screen, its pane holding `surfaces`.
+    private static func homeDock(_ surfaces: [SurfaceID]) -> DaemonTree {
+        let dock = DockSnapshot(edge: .left, mode: .docked, role: .agentChat, isPinned: true, allowsTabs: true)
+        let pane = PaneSnapshot(id: left, tabs: surfaces.map { TabSnapshot(surface: $0, title: "~") })
+        let screen = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: .leaf(left),
+                                    columns: [ColumnSnapshot(id: 10, width: 0.5, layout: .leaf(left), dock: dock)], panes: [pane])
+        return DaemonTree(workspaces: [WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: nil, name: "Home", screens: [screen])])
+    }
+
+    /// The left pane, with one terminal and nothing on its right (or the pane of `tree`).
     /// A pane holds its window state weakly (its window owns it): the caller keeps the returned state
     /// alive for the test, or the pane selects nothing.
-    private static func pane() throws -> (AppServices, PaneController, WindowState) {
+    private static func pane(_ tree: DaemonTree = tree(left: [home])) throws -> (AppServices, PaneController, WindowState) {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
-        services.daemon.store.apply(snapshot: tree(left: [home]))
+        services.daemon.store.apply(snapshot: tree)
         let model = try #require(services.daemon.store.workspaces.first?.screens.first?.panes.first)
         let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"w1","workspace_key":"w1"}"#.utf8))
         let state = WindowState(record: record)
@@ -73,6 +85,155 @@ import Testing
         services.daemon.store.apply(snapshot: Self.tree(left: [Self.home], right: [Self.link]))
         #expect(Self.listed(pane) == [Self.home])
         #expect(services.daemon.store.workspaces.first?.screens.first?.panes.first { $0.handle == Self.right }?.tabs.map(\.surface) == [Self.link])
+    }
+
+    /// Leo 2026-10-29: "I open a link, or whatever the fuck, and it opens up on the right by default. Then just
+    /// open it up on the fucking right. Stop playing the animation that it's opening up a new tab on the main pane."
+    /// What Home's pinned dock opens is made in the dock and moved to a column on its right (``HomeDockOpens``):
+    /// the dock's strip never lists it on the way, so Home shows no tab bar and no tab growing in, and the tab
+    /// first opens on the right.
+    @Test func aLinkFromHomesDockNeverShowsInTheDocksStrip() throws {
+        let (services, pane, state) = try Self.pane(Self.homeDock([Self.home]))
+        defer { withExtendedLifetime(state) { pane.teardown() } }
+        #expect(Self.listed(pane) == [Self.home])
+        #expect(pane.isOpenPinnedDockPane)
+        guard case .besideDock(_) = services.linkOpener.target(from: pane) else {
+            Issue.record("a link from Home's dock alone goes \(services.linkOpener.target(from: pane)), not beside it")
+            return
+        }
+        var placed: (@MainActor (SurfaceID) -> Void)?
+        let opened = services.linkOpener.open(from: pane) { _, then in
+            placed = then
+            return true
+        }
+        #expect(opened)
+        services.daemon.store.apply(snapshot: Self.homeDock([Self.home, Self.link]))
+        #expect(Self.listed(pane) == [Self.home], "the new tab opened in Home's strip before its answer")
+        let then = try #require(placed)
+        then(Self.link)
+        #expect(Self.listed(pane) == [Self.home], "the new tab opened in Home's strip on its way right")
+    }
+
+    /// Home's terminal and page creators select their provisional tab before their async creation
+    /// callback moves it. That selection is an instruction for the destination, not permission to
+    /// reveal the tab in Home's source strip.
+    @Test func homeDockOutboundHoldIgnoresPreMoveSelection() throws {
+        let (services, pane, state) = try Self.pane(Self.homeDock([Self.home]))
+        defer { withExtendedLifetime(state) { pane.teardown() } }
+        let outbound = OutboundTab.begin(in: pane, holdSelectionUntilLanded: true)
+        outbound.made(Self.link)
+        pane.selectWhenReported(surface: Self.link)
+        services.daemon.store.apply(snapshot: Self.homeDock([Self.home, Self.link]))
+        #expect(OutboundTab.hidden(in: pane).contains(Self.tabID(for: Self.link)))
+        outbound.finish(moved: true)
+        #expect(OutboundTab.count(in: pane) == 1)
+        #expect(pane.pendingSelectSurface == nil)
+        #expect(OutboundTab.hidden(in: pane).contains(Self.tabID(for: Self.link)), "the move reply must not reveal the selected source tab")
+        services.daemon.store.apply(snapshot: Self.homeDock([Self.home]))
+        #expect(Self.listed(pane) == [Self.home])
+        #expect(OutboundTab.count(in: pane) == 0)
+    }
+
+    @Test func concurrentOutboundCancellationReleasesOnlyItsOwnHold() throws {
+        let (services, pane, state) = try Self.pane(Self.homeDock([Self.home]))
+        defer { withExtendedLifetime(state) { pane.teardown() } }
+        let first = OutboundTab.begin(in: pane, holdSelectionUntilLanded: true)
+        let second = OutboundTab.begin(in: pane, holdSelectionUntilLanded: true)
+        #expect(OutboundTab.count(in: pane) == 2)
+        first.finish(moved: false)
+        #expect(OutboundTab.count(in: pane) == 1)
+        second.finish(moved: false)
+        #expect(OutboundTab.count(in: pane) == 0)
+        _ = services
+    }
+
+    @Test func outboundHoldStateMachineKeepsHomeTabsHiddenAcrossEveryOrdering() async throws {
+        enum Event {
+            case sourceListsTab
+            case namesTab
+            case moveReportsSuccess
+            case sourceDropsTab
+            case fails
+            case cancels
+            case pageRejected
+            case timeout
+            case lateReply
+        }
+        let scenarios: [(String, [Event])] = [
+            ("snapshot before move response", [.sourceListsTab, .namesTab, .sourceDropsTab, .moveReportsSuccess]),
+            ("move response before snapshot", [.sourceListsTab, .namesTab, .moveReportsSuccess, .sourceDropsTab]),
+            ("open failure", [.sourceListsTab, .namesTab, .fails]),
+            ("open cancellation", [.sourceListsTab, .namesTab, .cancels]),
+            ("page creation rejected", [.sourceListsTab, .namesTab, .pageRejected]),
+            ("timeout", [.sourceListsTab, .timeout]),
+            ("late reply after timeout", [.sourceListsTab, .timeout, .lateReply, .moveReportsSuccess, .sourceDropsTab])
+        ]
+        for (name, events) in scenarios {
+            let (services, pane, state) = try Self.pane(Self.homeDock([Self.home]))
+            defer { withExtendedLifetime(state) { pane.teardown() } }
+            let outbound = OutboundTab.begin(in: pane, holdSelectionUntilLanded: true)
+            for event in events {
+                let showsFailedOpen = switch event {
+                case .fails, .cancels, .pageRejected, .timeout: true
+                default: false
+                }
+                switch event {
+                case .sourceListsTab:
+                    services.daemon.store.apply(snapshot: Self.homeDock([Self.home, Self.link]))
+                case .namesTab:
+                    outbound.made(Self.link)
+                    pane.selectWhenReported(surface: Self.link)
+                case .moveReportsSuccess:
+                    outbound.finish(moved: true)
+                case .sourceDropsTab:
+                    services.daemon.store.apply(snapshot: Self.homeDock([Self.home]))
+                case .fails, .cancels, .pageRejected:
+                    outbound.finish(moved: false)
+                case .timeout:
+                    try await Task.sleep(for: .seconds(2.1))
+                    // DemandTimer's sleeper resumes on a task before its MainActor action is
+                    // enqueued; yield so the timeout transition is observed deterministically.
+                    await Task.yield()
+                    await Task.yield()
+                    #expect(OutboundTab.count(in: pane) == 0)
+                case .lateReply:
+                    outbound.made(Self.link)
+                    #expect(OutboundTab.count(in: pane) == 1)
+                }
+                let expected = showsFailedOpen ? [Self.home, Self.link] : [Self.home]
+                #expect(Self.listed(pane) == expected, "\(name): unexpected strip state after \(String(describing: event))")
+            }
+            if events.contains(where: { if case .sourceDropsTab = $0 { true } else { false } }) {
+                #expect(OutboundTab.count(in: pane) == 0, "\(name): source drop did not release the hold")
+            } else {
+                #expect(OutboundTab.count(in: pane) == 0, "\(name): failure or timeout left a hold behind")
+            }
+        }
+
+        let (services, pane, state) = try Self.pane(Self.homeDock([Self.home]))
+        defer { withExtendedLifetime(state) { pane.teardown() } }
+        let first = OutboundTab.begin(in: pane, holdSelectionUntilLanded: true)
+        let second = OutboundTab.begin(in: pane, holdSelectionUntilLanded: true)
+        services.daemon.store.apply(snapshot: Self.homeDock([Self.home, Self.link]))
+        first.made(Self.link)
+        first.finish(moved: false)
+        #expect(Self.listed(pane) == [Self.home], "concurrent opens exposed the failed tab while the other hold was active")
+        second.finish(moved: false)
+        #expect(OutboundTab.count(in: pane) == 0, "concurrent opens left a hold behind")
+    }
+
+    @Test func homeOutboundHoldDoesNotHideAUserSelectedTab() throws {
+        let (services, pane, state) = try Self.pane(Self.homeDock([Self.home]))
+        defer { withExtendedLifetime(state) { pane.teardown() } }
+        let outbound = OutboundTab.begin(in: pane, holdSelectionUntilLanded: true)
+        outbound.made(Self.link)
+        pane.selectWhenReported(surface: Self.link)
+        services.daemon.store.apply(snapshot: Self.homeDock([Self.home, Self.link, Self.other]))
+        pane.selectWhenReported(surface: Self.other)
+        _ = outbound.started(true)
+        #expect(Self.listed(pane) == [Self.home, Self.other], "Home hold hid a tab the person selected")
+        outbound.finish(moved: false)
+        #expect(Self.listed(pane) == [Self.home, Self.link, Self.other])
     }
 
     /// A lone chat's link (Leo: "it plays the opening animation on the main window and then opens the
