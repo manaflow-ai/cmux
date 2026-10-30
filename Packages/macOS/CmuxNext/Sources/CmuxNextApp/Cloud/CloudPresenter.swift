@@ -97,7 +97,7 @@ enum CloudPresenter {
         guard AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: services.cloud.configuration.linkSource,
                                                                 isSignedIn: services.cloud.isSignedIn),
               let userID = services.cloud.auth.user?.id,
-              let (tab, _) = services.locateTab(chat),
+              let (tab, _) = services.locateTab(chat, onMachine: request.machineID),
               let daemon = try? services.machines.agentDaemon(forTab: tab),
               daemon.machineID == request.machineID,
               let session = services.machines.session(daemon.machineID),
@@ -128,7 +128,7 @@ enum CloudPresenter {
         guard services.cloud.auth.user?.id == userID,
               services.cloud.auth.teamID == teamID,
               tab.agentSession?.session == request.sessionID,
-              let (currentTab, _) = services.locateTab(chat),
+              let (currentTab, _) = services.locateTab(chat, onMachine: request.machineID),
               currentTab === tab,
               (try? services.machines.agentDaemon(forTab: currentTab)) === daemon else { return false }
 
@@ -155,7 +155,7 @@ enum CloudPresenter {
                                        confirmed: true, refresh: true)
             }
             guard services.cloud.auth.user?.id == userID, services.cloud.auth.teamID == teamID,
-                  let (currentTab, _) = services.locateTab(chat),
+                  let (currentTab, _) = services.locateTab(chat, onMachine: request.machineID),
                   currentTab.agentSession?.session == request.sessionID,
                   currentTab === tab,
                   (try? services.machines.agentDaemon(forTab: currentTab)) === daemon else { return false }
