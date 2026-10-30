@@ -8,8 +8,12 @@ Blacksmith macOS last. On an owned Mac a signing job must:
 
 1. reach it only through scripts/ci/signing_runner.py, the picker that offers a
    drained mini (no busy runner) and only while vars.CI_SIGN_OWNED is 1, and
-   only on attempt 1 (`github.run_attempt == 1 && <owned pick> && fromJSON(...)`),
-   so a re-run leaves the fleet. Every picker output a signing job's runs-on
+   only on the attempt that ran the pick (`github.run_attempt == 1 && <owned
+   pick> && fromJSON(...)`, or `needs.<picker>.outputs.attempt ==
+   github.run_attempt && ...` with the picker's `attempt` output its own
+   github.run_attempt), so a re-run of failed jobs, which keeps an older pick,
+   leaves the fleet; a re-run that picks again may take an owned Mac
+   (nightly.yml's legacy sign, 2026-10-30). Every picker output a signing job's runs-on
    reads comes from that script or from nightly_sign_runner.py, which prints
    Blacksmith labels only; any other source fails here;
 2. claim the whole Mac before any credential is in reach: its first step is
@@ -108,6 +112,8 @@ if [ -n "$owned" ]; then
 fi
 """
 TWIN_SUFFIX = "-blacksmith"
+# A picker output that is its own attempt number, which a signing job compares with github.run_attempt.
+ATTEMPT_OUTPUT = "${{ github.run_attempt }}"
 # Signing jobs whose twin also signs when the owned attempt passed its claim and then failed, with the condition that
 # says it failed. sign-nightly-identity-legacy runs with continue-on-error, so its result reads success after a failed
 # step; signed_ok (true only when every step passed) says, unless the old feed already had the build (skip) or Apple
@@ -199,6 +205,19 @@ def picker_scripts(jobs: dict, needed: str, output: str) -> list[str]:
     return found or [f"needs.{needed}.outputs.{output} (no step output)"]
 
 
+def attempt_clauses(jobs: dict, read: str) -> list[str]:
+    """The conditions that hold an owned pick `read` (needs.<picker>.outputs.<x>) to the attempt that made it.
+
+    `github.run_attempt == 1`, or the picker's own attempt when its `attempt` output is exactly its run_attempt: a
+    re-run of failed jobs keeps the older pick, and the clause is then false, so the job takes Blacksmith."""
+    picker = read.split(".")[1]
+    clauses = ["github.run_attempt == 1"]
+    attempt = str(((jobs.get(picker) or {}).get("outputs") or {}).get("attempt", "")).strip()
+    if attempt == ATTEMPT_OUTPUT:
+        clauses.append(f"needs.{picker}.outputs.attempt == github.run_attempt")
+    return clauses
+
+
 def twin_failures(jobs: dict, name: str, owned_reads: list[str], workflow: str = "") -> list[str]:
     """Why the owned-routed signing job `name` lacks a same-run Blacksmith twin that every reader of it also reads.
 
@@ -226,9 +245,13 @@ def twin_failures(jobs: dict, name: str, owned_reads: list[str], workflow: str =
     if own != ([first] if isinstance(first, str) else list(first)):
         failures.append(f"{twin_name} needs must be {name}'s needs, then {name}")
     condition = re.sub(r"\s+", " ", str(twin.get("if", "")))
+    runs_on_job = str(job.get("runs-on", ""))
     for read in owned_reads:
         refused = f"needs.{name}.outputs.claim != 'owned'"
-        want = (f"!cancelled() && github.run_attempt == 1 && {read} != '' && needs.{name}.result != 'skipped' && "
+        # The twin's attempt clause is the one the signing job's runs-on uses (the first form, if it uses none).
+        clauses = attempt_clauses(jobs, read)
+        attempt = next((clause for clause in reversed(clauses) if f"{clause} && {read}" in runs_on_job), clauses[0])
+        want = (f"!cancelled() && {attempt} && {read} != '' && needs.{name}.result != 'skipped' && "
                 f"needs.{name}.result != 'cancelled' && " + (f"({refused} || {failed})" if failed else refused))
         if condition != want:
             failures.append(f"{twin_name} if must be exactly: {want}")
@@ -270,6 +293,8 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
             runs_on = str(job.get("runs-on", ""))
             owned_reads = []
             for needed, output in dict.fromkeys(NEEDS_OUTPUT.findall(runs_on)):
+                if str(((jobs.get(needed) or {}).get("outputs") or {}).get(output, "")).strip() == ATTEMPT_OUTPUT:
+                    continue  # the picker's own attempt number (attempt_clauses()), not a runner label
                 scripts = picker_scripts(jobs, needed, output)
                 for script in scripts:
                     if script == OWNED_PICKER:
@@ -290,9 +315,11 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
                 failures.append(f"{label}: routed to owned Macs but not in SIGNING_JOBS (add it here and to glaeda's "
                                 "SIGNING_JOBS, which gives it the whole mini)")
             for read in owned_reads:
-                if not re.search(r"github\.run_attempt\s*==\s*1\s*&&\s*" + re.escape(read) + r"\s*&&\s*fromJSON\(\s*"
-                                 + re.escape(read) + r"\s*\)", runs_on):
-                    failures.append(f"{label}: reads {read} other than as `github.run_attempt == 1 && {read} && "
+                clauses = attempt_clauses(jobs, read)
+                if not any(re.search(re.escape(clause).replace(r"\ ", r"\s*") + r"\s*&&\s*" + re.escape(read)
+                                     + r"\s*&&\s*fromJSON\(\s*" + re.escape(read) + r"\s*\)", runs_on)
+                           for clause in clauses):
+                    failures.append(f"{label}: reads {read} other than as `{' or '.join(clauses)} && {read} && "
                                     f"fromJSON({read})`, so a re-run could stay on the fleet")
             steps = [step for step in keychain_guard.inline_step_scripts(job).get("steps") or []
                      if isinstance(step, dict)]
@@ -364,8 +391,8 @@ class LegacyTwinAfterAFailedOwnedSign(unittest.TestCase):
         cls.jobs = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))["jobs"]
 
     def run_twin(self, **owned: str) -> bool:
-        context = {"github.run_attempt": 1, "needs.pick-nightly-sign-runner.outputs.sign_owned": '["x"]',
-                   f"needs.{self.OWNED}.result": "success"}
+        context = {"github.run_attempt": 1, "needs.pick-nightly-sign-runner.outputs.attempt": "1",
+                   "needs.pick-nightly-sign-runner.outputs.sign_owned": '["x"]', f"needs.{self.OWNED}.result": "success"}
         context.update({f"needs.{self.OWNED}.outputs.{key}": value for key, value in owned.items()})
         condition = str(self.jobs[self.TWIN]["if"]).replace("!cancelled() && ", "", 1)
         return bool(self.evaluate(self.parse(condition), context))
@@ -396,6 +423,59 @@ class LegacyTwinAfterAFailedOwnedSign(unittest.TestCase):
         self.assertEqual(self.evaluate(node, {**twin_ran, f"needs.{self.TWIN}.outputs.stapled_app_fallback_id": "t"}),
                          "t")
         self.assertEqual(self.evaluate(node, {**owned, f"needs.{self.TWIN}.result": "skipped"}), "owned-submission")
+
+
+class LegacySignReRunTakesAnOwnedMacFirst(unittest.TestCase):
+    """A re-run of nightly.yml whose pickers run again routes the legacy sign to an owned Mac first.
+
+    Runs 41077184190 and 41094107023 (2026-10-30): after the owned sign was refused on attempt 1, every later attempt
+    (the rescue's re-runs, up to attempt 4) sent sign-nightly-identity-legacy to Blacksmith macOS, which was stalled,
+    because its owned route and its twin read the pick on attempt 1 only and the picker was skipped on a re-run that
+    built nothing. The old feed got no build from either run."""
+
+    SIGN, TWIN, PICK = "sign-nightly-identity-legacy", "sign-nightly-identity-legacy-blacksmith", "pick-nightly-sign-runner"
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        from test_ci_fork_runner_routing import parse_expression
+        from test_nightly_trusted_routing import evaluate
+        cls.parse, cls.evaluate = staticmethod(parse_expression), staticmethod(evaluate)
+        cls.jobs = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))["jobs"]
+
+    def value(self, job: str, field: str, context: dict) -> Any:
+        source = str(self.jobs[job][field]).strip().removeprefix("${{").removesuffix("}}").strip()
+        source = source.replace("!cancelled() && ", "", 1)
+        base = {"github.repository_owner": "manaflow-ai", "github.ref": "refs/heads/nightly-next",
+                "needs.legacy-identity-target.outputs.sign_alternate": "blacksmith-12vcpu-macos-26",
+                "needs.legacy-identity-target.outputs.sign_runner": "blacksmith-6vcpu-macos-26"}
+        return self.evaluate(self.parse(source), {**base, **context})
+
+    def test_a_re_run_that_picked_again_takes_the_owned_mac(self) -> None:
+        for attempt in (1, 2, 3):
+            picked = {"github.run_attempt": attempt, "needs.pick-nightly-sign-runner.outputs.attempt": str(attempt),
+                      "needs.pick-nightly-sign-runner.outputs.sign_owned": '["glaeda-runner-m"]'}
+            with self.subTest(attempt=attempt):
+                self.assertEqual(self.value(self.SIGN, "runs-on", picked), ["glaeda-runner-m"])
+                twin = {**picked, f"needs.{self.SIGN}.result": "success"}
+                self.assertTrue(self.value(self.TWIN, "if", twin), "a refused owned sign must get its twin")
+
+    def test_a_re_run_of_failed_jobs_keeps_the_old_pick_off_the_fleet(self) -> None:
+        stale = {"github.run_attempt": 2, "needs.pick-nightly-sign-runner.outputs.attempt": "1",
+                 "needs.pick-nightly-sign-runner.outputs.sign_owned": '["glaeda-runner-m"]'}
+        self.assertEqual(self.value(self.SIGN, "runs-on", stale), "blacksmith-12vcpu-macos-26")
+        self.assertFalse(self.value(self.TWIN, "if", {**stale, f"needs.{self.SIGN}.result": "success"}))
+
+    def test_the_picker_runs_when_only_the_legacy_sign_does(self) -> None:
+        # A full re-run of a published build: no app build, so prepare-nightly-variant is skipped.
+        legacy_only = {"needs.prepare-nightly-variant.result": "skipped", "needs.decide.result": "success"}
+        self.assertTrue(self.value(self.PICK, "if", legacy_only))
+        self.assertFalse(self.value(self.PICK, "if", {**legacy_only, "vars.NIGHTLY_NEXT_LEGACY_IDENTITY": "off"}))
+        self.assertFalse(self.value(self.PICK, "if", {**legacy_only, "github.ref": "refs/heads/main"}))
+        self.assertTrue(self.value(self.PICK, "if", {"needs.prepare-nightly-variant.result": "success"}))
+        outputs = self.jobs[self.PICK]["outputs"]
+        self.assertEqual(str(outputs["attempt"]).strip(), "${{ github.run_attempt }}")
+        # Any attempt's pick stands (attempt 1 of a push, or once the sweeper's marker is up), as `owned` does.
+        self.assertEqual(str(outputs["sign_owned"]).replace("sign-owned", "owned"), str(outputs["owned"]))
 
 
 class SigningOwnedMacTests(unittest.TestCase):
@@ -590,6 +670,11 @@ class SigningOwnedMacTests(unittest.TestCase):
         for change in ({"ENABLED": ""}, {"ENABLED": "0"}, {"GITHUB_RUN_ATTEMPT": "2"}, {"ROUTE_TOKEN": ""}):
             with self.subTest(change):
                 self.assertEqual(signing_runner.owned_pick({**env, **change}, read, jobs)[0], "")
+        # A workflow that picks again on a re-run and reads it only there (nightly.yml's legacy sign) opts in.
+        self.assertTrue(signing_runner.owned_pick({**env, "GITHUB_RUN_ATTEMPT": "3", "PICK_ON_RERUN": "1"}, read,
+                                                  jobs)[0])
+        self.assertEqual(signing_runner.owned_pick({**env, "GITHUB_RUN_ATTEMPT": "3", "PICK_ON_RERUN": "0"}, read,
+                                                   jobs)[0], "")
         self.assertEqual(signing_runner.owned_pick(env, read)[0], "", "no actions: read token: no owned Mac")
 
         def broken(token: str, repo: str) -> list:
