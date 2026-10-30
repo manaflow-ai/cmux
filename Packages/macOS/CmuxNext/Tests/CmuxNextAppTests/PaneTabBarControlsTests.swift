@@ -104,7 +104,7 @@ import Testing
     @Test func thePaneChooserStaysBesidePlusDuringMovementAndInterruptedScroll() throws {
         _ = NSApplication.shared
         let tabs = [TabItem(id: TabID("first"), title: "First"), TabItem(id: TabID("last"), title: "Last")]
-        let strip = TabStripView(model: TabStripModel(tabs: tabs, selectedID: tabs[0].id))
+        let strip = TabStripView.testing(model: TabStripModel(tabs: tabs, selectedID: tabs[0].id))
         strip.showsNewTabMenuButton = true
         strip.frame = NSRect(x: 0, y: 0, width: 1000, height: 40)
         let window = NSWindow(contentRect: strip.frame, styleMask: [.borderless], backing: .buffered, defer: false)
@@ -138,7 +138,7 @@ import Testing
         let start = MotionPath(plus, "position").value(at: scroll.begin).x
         let end = MotionPath(plus, "position").value(at: scroll.begin + motion.duration).x
         try #require(abs(start - end) > 1, "the fixture must scroll the controls")
-        strip.settleScroll()
+        strip.scroller.settle()
         strip.applyFrames()
         let now = CACurrentMediaTime()
         for fraction in [0.0, 0.5, 1.0] {

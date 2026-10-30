@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextRemoteView
 @testable import CmuxNextRemoteViewSessions
+import CmuxNextWakeups
 import CmuxVNC
 import Foundation
 import Testing
@@ -126,10 +127,11 @@ struct RemoteVNCReconnectTests {
     @Test func manualReconnectCancelsStaleAutomaticRetry() async throws {
         let record = try #require(RemoteViewTabRecord(host: "vm-test", target: .virtual, mode: .view, cloudDesktop: true))
         let attempts = AttemptCounter()
-        let session = RemoteVNCSession(cloudRecord: record) {
+        let session = RemoteVNCSession(cloudRecord: record, makeTransport: {
             attempts.increment()
             return CountingRFBTransport()
-        }
+        }, work: BackgroundWork(label: "test.remote-vnc"), mainWork: MainWorkScheduler(budget: MainFrameBudget()),
+           signIns: RemoteVNCSignIns())
         session.scheduleAutomaticRetryForTesting(after: .milliseconds(50))
         #expect(session.hasPendingRetryForTesting)
 
