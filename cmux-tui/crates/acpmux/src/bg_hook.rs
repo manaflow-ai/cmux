@@ -44,7 +44,7 @@ pub fn route(config: &Value) -> Option<Route> {
     let folded = upstreams
         .as_array()?
         .iter()
-        .any(|s| s["name"].as_str() == Some(crate::acpmux_mcp::SERVER_NAME));
+        .any(|s| s.get("name").and_then(Value::as_str) == Some(crate::acpmux_mcp::SERVER_NAME));
     if !folded {
         return None;
     }
@@ -52,7 +52,10 @@ pub fn route(config: &Value) -> Option<Route> {
     if let Some(allowed) = env(crate::agent_tools::MCP_TOOLS_ENV) {
         return allowed.split(',').any(|t| t.trim() == FOLDED_TOOL).then_some(Route::Listed);
     }
-    let all = cmux["args"].as_array().is_some_and(|a| a.iter().any(|a| a == "--all-tools"));
+    let all = cmux
+        .get("args")
+        .and_then(Value::as_array)
+        .is_some_and(|a| a.iter().any(|a| a == "--all-tools"));
     Some(if all { Route::Listed } else { Route::CodeMode })
 }
 
@@ -68,7 +71,7 @@ pub fn denied_path(config: &std::path::Path) -> std::path::PathBuf {
 
 /// The hook's answer to one PreToolUse `input`, or None to let the call run.
 pub fn decide(input: &Value, route: Option<Route>) -> Option<Value> {
-    if input["tool_name"].as_str() != Some("Bash")
+    if input.get("tool_name").and_then(Value::as_str) != Some("Bash")
         || input.pointer("/tool_input/run_in_background") != Some(&json!(true))
     {
         return None;
@@ -76,7 +79,7 @@ pub fn decide(input: &Value, route: Option<Route>) -> Option<Value> {
     let command = input.pointer("/tool_input/command")?.as_str()?;
     let route = route?;
     let mut args = json!({"command": command});
-    if let Some(cwd) = input["cwd"].as_str().filter(|c| !c.is_empty()) {
+    if let Some(cwd) = input.get("cwd").and_then(Value::as_str).filter(|c| !c.is_empty()) {
         args.set("cwd", json!(cwd));
     }
     let call = match route {

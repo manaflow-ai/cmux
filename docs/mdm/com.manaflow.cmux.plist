@@ -220,6 +220,18 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>Cmd-T and the + button open the native New Tab page instead of the web one. It opens faster and lists every command palette action as you type. Recent chats and widgets are only on the web page for now.</string>
+			<key>pfm_name</key>
+			<string>tabs.nativeNewTabPage</string>
+			<key>pfm_title</key>
+			<string>Native New Tab Page</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>New tabs (Cmd-T, the tab bar's +), splits (Cmd-D, Cmd-Shift-D), new workspaces (Cmd-N, the sidebar's +) and new windows open a terminal, as in cmux classic, instead of the New Tab page. To open the New Tab page while this is on, right-click or press and hold the tab bar's +, or run New Tab Page from the command palette (Cmd-Shift-P). Cmd-I still opens an agent chat and Cmd-Shift-L a browser tab.</string>
 			<key>pfm_name</key>
 			<string>tabs.terminalFirst</string>
@@ -996,7 +1008,7 @@
 			<key>pfm_default</key>
 			<integer>50</integer>
 			<key>pfm_description</key>
-			<string>The most sub-sessions one session can have open at the same time. Closing a sub-session frees its place.</string>
+			<string>The most live sub-sessions one session can have at the same time. Running, waiting and harness-alive children count; finished, dead and closed children do not use a slot.</string>
 			<key>pfm_name</key>
 			<string>agents.subsessions.maxChildren</string>
 			<key>pfm_range_max</key>
@@ -3830,6 +3842,23 @@
 			</array>
 			<key>pfm_title</key>
 			<string>Chat Minimap</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>left</string>
+			<key>pfm_description</key>
+			<string>The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.rail.side</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>left</string>
+				<string>right</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Prompt Rail Side</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
@@ -8152,6 +8181,18 @@
 			<string>agentPane.scrollToBottomOnSend</string>
 			<key>pfm_title</key>
 			<string>Scroll to Bottom When I Send</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Shows a warning when a remote machine is at its CPU or memory budget in the Computer menu.</string>
+			<key>pfm_name</key>
+			<string>agentPane.showMachineLoadWarnings</string>
+			<key>pfm_title</key>
+			<string>Show Machine Load Warnings</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
