@@ -19,6 +19,7 @@ mod fanout;
 mod launch;
 mod parent;
 mod send_async;
+mod session_move;
 mod standard;
 mod transfer;
 

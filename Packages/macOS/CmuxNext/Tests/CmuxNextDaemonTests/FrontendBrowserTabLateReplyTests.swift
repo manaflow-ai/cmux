@@ -56,7 +56,7 @@ struct FrontendBrowserTabLateReplyTests {
     """#
 
     private func connection(keyed: Bool) -> DaemonConnection {
-        let bridge = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", Self.script, keyed ? "keyed" : "unkeyed"])
+        let bridge = DaemonBridge.fakePython(["-c", Self.script, keyed ? "keyed" : "unkeyed"])
         return DaemonConnection(
             endpoint: .init(socketPath: "/tmp/cmux-late-reply-test-\(UUID().uuidString).sock", bridge: bridge),
             configuration: .init(requiredCapabilities: [], requestTimeout: .seconds(1), terminalEnvironment: nil))
