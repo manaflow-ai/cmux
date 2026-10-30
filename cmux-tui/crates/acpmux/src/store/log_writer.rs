@@ -108,6 +108,13 @@ struct State {
     close_after: HashSet<String>,
     progress: HashMap<String, tokio::sync::watch::Sender<Progress>>,
     stop: bool,
+    /// Tests only ([`LogWriter::write_only_while_a_reader_waits`]): the writer starts no write
+    /// while no reader waits in `settle`, until it stops.
+    #[cfg(test)]
+    hold_for_reader: bool,
+    /// Tests only: the readers waiting in `settle` now.
+    #[cfg(test)]
+    settling: usize,
 }
 
 impl State {
@@ -331,9 +338,26 @@ impl LogWriter {
         state.wait_first(id);
         // The writer runs at this reader's QoS while it waits.
         let _raise = self.shared.boost.wait();
+        #[cfg(test)]
+        {
+            state.settling += 1;
+            self.shared.work.notify_all();
+        }
         while !state.written(id, ticket) {
             state = self.shared.done.wait(state).unwrap_or_else(|e| e.into_inner());
         }
+        #[cfg(test)]
+        {
+            state.settling -= 1;
+        }
+    }
+
+    /// Tests only: from now on the writer starts a write only while a reader waits for a log
+    /// (`settle`), or once it stops. A read that touches a chat's files before it waits then finds
+    /// none of the lines queued before it on disk, every time, with no clock involved.
+    #[cfg(test)]
+    pub(super) fn write_only_while_a_reader_waits(&self) {
+        lock(&self.shared.state).hold_for_reader = true;
     }
 
     /// What of session `id`'s log is on disk, as it changes.
@@ -466,6 +490,11 @@ fn run(shared: &Shared, delay: Option<std::time::Duration>) {
     let watched = SyncThread::register(THREAD, WRITE_ITEM);
     let mut state = lock(&shared.state);
     loop {
+        #[cfg(test)]
+        if state.hold_for_reader && state.settling == 0 && !state.stop {
+            state = shared.work.wait(state).unwrap_or_else(|e| e.into_inner());
+            continue;
+        }
         let Some(id) = state.next() else {
             if state.stop {
                 return;

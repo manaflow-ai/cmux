@@ -150,10 +150,26 @@ fn read_settle_a_flush_while_a_chat_streams_returns_with_every_record_queued_bef
 /// A strict read (`Store::scan_strict`) sees every append made before it, as every other read of
 /// the log does (`LocalStore::segments`): right after a new chat's first append, while the line is
 /// still queued and the writer thread has not made the chat's `events` folder yet, it returns that
-/// record. It does not fail because the folder is not there yet.
+/// record. It does not fail because the folder is not there yet. The writer here starts a write
+/// only while a reader waits for it (`LogWriter::write_only_while_a_reader_waits`), so the folder
+/// is missing every time the read lists it before it waits: no clock decides the order.
 #[test]
 fn a_strict_scan_right_after_a_chats_first_append_reads_that_record() {
-    let store = store("strict-first-append");
+    let root = std::env::temp_dir().join(format!(
+        "acpmux-read-settle-strict-first-append-{}-{}",
+        std::process::id(),
+        uuid::Uuid::now_v7()
+    ));
+    crate::config::private_state_dir(&root).unwrap();
+    let log = log_writer::LogWriter::start_with_write_delay(
+        root.clone(),
+        1 << 20,
+        OPEN_LOGS,
+        &crate::supervised::embedded(),
+        None,
+    );
+    log.write_only_while_a_reader_waits();
+    let store = LocalStore { root, log };
     store.append(CHAT, &record(1)).unwrap();
     let mut seqs = Vec::new();
     let read = store.scan_strict(CHAT, 0, &mut |r| {
