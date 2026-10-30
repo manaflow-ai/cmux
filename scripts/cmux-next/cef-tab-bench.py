@@ -285,6 +285,7 @@ def bench_session(session, window):
             rows.append(arm_quick(window, rnd))
         if session == "light" and "cold" in ARMS:
             rows.append(arm_cold_dropped(rnd))
+            settle()  # the next round's warm press finds the spare the cold press asked for
     return rows
 
 

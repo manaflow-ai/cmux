@@ -8,7 +8,7 @@ the display frame at which the result shows (`visible_ms`, `frames_to_visible`),
 daemon's object replaced the provisional one (`confirmed_ms`) and its BenchSpans marks.
 
 Two phases: `idle`, then `load` (every core busy with `yes`, plus `--storm` workers looping the
-tag's CLI against its daemon). With `--budget-frames N` the run fails when any command's p95
+tag's CLI against its daemon). With `--budget-frames N` (which times the warm arm alone unless `--arms` says otherwise) the run fails when any command's p95
 display frame of visibility (1 = the first frame drawn after the key) is above N or a key's main-thread time is above `--budget-key-ms`.
 
 `--commands` picks the commands (default all); `--workspaces 10,100` runs every phase again at
@@ -54,7 +54,9 @@ parser.add_argument("--hang-stacks", action="store_true",
                     help="as the every-action sweep: hang watchdog at 8 ms, the agent pane mock (Cmd-N opens its New Tab page), "
                          "and each run's longest main-thread stall with its whole stack (64 frames) in the row and the log")
 parser.add_argument("--native-new-tab", action="store_true", help="run with tabs.nativeNewTabPage on (Cmd-T opens the native New Tab page)")
-parser.add_argument("--arms", default="warm,quick,cold", help="the arms to time (bench_arms.py)")
+parser.add_argument("--arms", default=None,
+                    help="the arms to time (bench_arms.py; default warm,quick,cold, or warm alone with --budget-frames: a "
+                         "budget run judges the warm rows only, so its time and its pass or fail do not change)")
 parser.add_argument("--quick-runs", type=int, default=6, help="quick arm: pairs of presses per command")
 parser.add_argument("--cold-launches", type=int, default=2, help="cold arm: launches per command, each timing its first press")
 parser.add_argument("--out", default="/tmp")
@@ -74,6 +76,8 @@ CLI_ENV = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.env
            "CMUX_BUNDLE_ID": BUNDLE_ID, "CMUX_BUNDLED_CLI_PATH": CLI}
 LAUNCHED, LOAD = [], []
 COMMANDS = [c for c in opts.commands.split(",") if c]
+if opts.arms is None:
+    opts.arms = "warm" if opts.budget_frames else "warm,quick,cold"
 ARMS = [a for a in opts.arms.split(",") if a]
 if set(ARMS) - set(bench_arms.ARMS):
     parser.error(f"--arms: one of {', '.join(bench_arms.ARMS)}")
@@ -199,7 +203,8 @@ def arm_quick(window):
     for command in COMMANDS:
         for index in range(opts.quick_runs):
             if not ensure_terminal():
-                sys.exit("no focused terminal: " + json.dumps(panes())[:800])
+                rows.append({"phase": "quick", "run": index, "command": command, "arm": "quick", "error": "no focused terminal"})
+                continue
             before = len(panes())
             name, modifiers = KEYS[command]
             rpc("debug.key", {"key": name, "modifiers": modifiers, "window": window})
@@ -225,7 +230,12 @@ def arm_cold(relaunch):
     rows = []
     for index in range(opts.cold_launches):
         for command in COMMANDS:
-            window = relaunch()
+            try:
+                relaunch()
+            except SystemExit as error:  # bench_launch.LaunchError and other launch refusals: a missed run
+                print(f"cold {command} #{index}: launch failed: {error}", flush=True)
+                rows.append({"phase": "cold", "run": index, "command": command, "arm": "cold", "error": f"launch: {error}"})
+                continue
             if command != "new_workspace" and not ensure_terminal(settle=False):
                 rows.append({"phase": "cold", "run": index, "command": command, "arm": "cold", "error": "no focused terminal"})
                 continue
@@ -411,6 +421,11 @@ def main():
         rows += arm_quick(window)
     if "cold" in ARMS:
         rows += arm_cold(relaunch)  # last: it relaunches the app
+        if not app or app.poll() is not None:
+            try:
+                launch()  # a failed last relaunch: the report below reads nothing from the app, cleanup needs none
+            except SystemExit as error:
+                print(f"cold: no app after the cold arm ({error}); the report is written from the rows", flush=True)
     result = {"tag": TAG, "host": os.uname().nodename, "cpus": os.cpu_count(), "summary": summary(rows), "runs": rows}
     print("\nSUMMARY", json.dumps(result["summary"], indent=1), flush=True)
     print("", flush=True)

@@ -157,14 +157,16 @@ if opts.split > 1:
 OPENINGS = []
 
 
-def strip(key, run, arm, cold, label):
+def strip(key, run, arm, cold, label, judged=False):
     """One recorded opening: `debug.new_tab frame_strip` presses Cmd-<key> and reads the frames around it. Its row
-    has the warm rule's bad frames (blank or intermediate), the blank frames, the spare, and the arm."""
+    has the warm rule's bad frames (blank or intermediate), the blank frames, the spare, and the arm. A `judged`
+    opening (the warm ones and the --cold launch opening, which the exit status reads) stops the script on a
+    frame_strip error, as before; the quick and cold arms' openings record it as a missed run."""
     openings = len((rpc("debug.new_tab", {"action": "state"}) or {}).get("openings") or [])
     out = f"{opts.out}/cmd-{key}-{label}"
     reply = rpc("debug.new_tab", {"action": "frame_strip", "key": key, "dir": out, "duration_ms": opts.duration_ms}) or {}
     if "error" in reply:
-        if arm == "warm":
+        if judged:
             sys.exit(f"FAIL frame_strip Cmd-{key.upper()}: {reply}")
         print(f"Cmd-{key.upper()} {label}: frame_strip failed: {reply}", flush=True)
         row = {"key": key, "arm": arm, "label": label, "bad_frames": None, "blank_frames": None, "spare": None}
@@ -198,6 +200,21 @@ def close_new(count):
         time.sleep(0.5)  # test harness wait
 
 
+def ready_spare(label):
+    """The new arms' wait for a ready spare before their first press: never stops the script (a missed run)."""
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        if spare_ready():
+            return True
+        time.sleep(0.2)  # test harness wait, not app code
+    print(f"{label}: no ready spare in 30 s; the opening is a missed run", flush=True)
+    return False
+
+
+def missed(key, arm, label):
+    OPENINGS.append({"key": key, "arm": arm, "label": label, "bad_frames": None, "blank_frames": None, "spare": None})
+
+
 def terminal_tab():
     # Cmd-T on a New Tab page only focuses it: open from a terminal tab (Control-`).
     rpc("debug.key", {"key": "`", "modifiers": ["control"]})
@@ -216,7 +233,7 @@ for run in range(opts.runs):
             wait(f"a ready spare before Cmd-{key.upper()}", spare_ready, 30)
             time.sleep(0.5)  # test harness wait: the window settles (caret, hover) before the strip
         # The --cold launch opening is the cold arm's launch press; the rest are the warm arm.
-        _, opening, bad = strip(key, run, "cold" if cold else "warm", cold, str(run))
+        _, opening, bad = strip(key, run, "cold" if cold else "warm", cold, str(run), judged=True)
         if opening is not None and not opening.get("spare") and not cold:
             failures.append(f"Cmd-{key.upper()} run {run} (no spare adopted: {opening or 'no opening'})")
         if bad:
@@ -227,7 +244,9 @@ for key in opts.keys.split(","):
     for index in range(opts.quick_runs if "quick" in ARMS else 0):
         if key == "t":
             terminal_tab()
-        wait(f"a ready spare before the first of two Cmd-{key.upper()}", spare_ready, 30)
+        if not ready_spare(f"quick Cmd-{key.upper()} {index}"):
+            missed(key, "quick", f"quick-{index}")
+            continue
         # The first press takes the ready spare; the recorded one follows at once.
         rpc("debug.key", {"key": key, "modifiers": ["command"]})
         if key == "t":
@@ -237,7 +256,9 @@ for key in opts.keys.split(","):
     for index in range(opts.cold_runs if "cold" in ARMS else 0):
         if key == "t":
             terminal_tab()
-        wait(f"a ready spare before the dropped Cmd-{key.upper()}", spare_ready, 30)
+        if not ready_spare(f"cold Cmd-{key.upper()} {index}"):
+            missed(key, "cold", f"cold-{index}")
+            continue
         rpc("debug.new_tab", {"action": "drop_spare"})  # the spare is gone; nothing waits for its refill
         strip(key, index, "cold", True, f"cold-{index}")
         close_new(1)
