@@ -207,4 +207,27 @@ describe("Home attachments: a direct completion recovers from lost answers and t
     const done = await run(alice, id, r.json.value.slot, parts)
     expect([done.status, done.json.value?.state]).toEqual([200, "stored"])
   })
+
+  it("a read-back step whose R2 get fails or whose body stream errors answers 503 retryable, and completing again stores the file", async () => {
+    const alice = await signIn("att-direct-readback-transient")
+    const { id } = await group(alice)
+    const body = new Uint8Array(32 * MiB + 15).map((_, i) => (i * 13) % 227)
+    const r = await ask(alice, id, body)
+    const parts = await sendParts(id, r.json.value, body)
+    const throwing = bucketWith(small, { get: async () => { throw new Error("get: We encountered an internal error. Please try again. (10001)") } })
+    const first = await complete(alice, id, r.json.value.slot, parts, throwing, 64 * MiB)
+    expect([first.status, first.json.error?.code, first.json.error?.retryable]).toEqual([503, "attachment.verify_retry", true])
+    const broken = bucketWith(small, {
+      get: async (b, key: string, options: R2GetOptions) => {
+        const object = await b.get(key, options)
+        if (!object) return object
+        const stream = new ReadableStream<Uint8Array>({ start: (ctl) => ctl.error(new Error("Network connection lost.")) })
+        return new Proxy(object, { get: (o, q) => (q === "body" ? stream : Reflect.get(o, q)) })
+      }
+    })
+    const second = await complete(alice, id, r.json.value.slot, parts, broken, 64 * MiB)
+    expect([second.status, second.json.error?.code, second.json.error?.retryable]).toEqual([503, "attachment.verify_retry", true])
+    const done = await run(alice, id, r.json.value.slot, parts)
+    expect([done.status, done.json.value?.state]).toEqual([200, "stored"])
+  })
 })
