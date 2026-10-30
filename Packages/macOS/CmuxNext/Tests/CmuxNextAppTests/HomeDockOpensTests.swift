@@ -136,6 +136,42 @@ struct HomeDockOpensTests {
         }
     }
 
+    /// Exercise the actual creator exits, rather than treating every cancellation as a direct
+    /// call to OutboundTab.finish in the state-machine test.
+    @Test(arguments: ["terminal cancellation", "page rejection", "browser refusal"])
+    func failedCreatorsReleaseTheirOwnHomeHold(_ failure: String) async throws {
+        try await PasswordManagerRouteTests.withApp { services, connection in
+            let (window, _, dock) = try await Self.openHome(services, connection)
+            #expect(OutboundTab.count(in: dock) == 0)
+            switch failure {
+            case "terminal cancellation":
+                dock.newTerminalTab()
+                let pending = try #require(dock.pane.tabs.first { ProvisionalTab.isProvisional($0.id) })
+                #expect(OutboundTab.count(in: dock) == 1)
+                #expect(dock.daemon.cancelCreation(tab: pending.id))
+            case "page rejection":
+                let create = services.pages.createStoreTab
+                defer { services.pages.createStoreTab = create }
+                services.pages.createStoreTab = { _, _, _, _, _ in throw DaemonError.notConnected }
+                #expect(services.pages.openStoreTab(.inbox, in: dock, window: window, focus: true) != nil)
+                #expect(OutboundTab.count(in: dock) == 1)
+            default:
+                let browserTabs = services.cache.browserTabs
+                let serves = browserTabs.serves
+                browserTabs.serves = { _ in false }
+                defer { browserTabs.serves = serves }
+                var outbound: OutboundTab?
+                let placed = HomeDockOpens.placing(dock.pane, services: services, focus: true, then: nil) { outbound = $0 }
+                #expect(OutboundTab.count(in: dock) == 1)
+                #expect(!dock.newBrowserTab(url: URL(string: "https://example.com"),
+                                           outbound: outbound, then: placed))
+            }
+            try await PasswordManagerRouteTests.until({ OutboundTab.count(in: dock) == 0 }, report: {
+                "\(failure) retained a Home outbound hold"
+            })
+        }
+    }
+
     /// With no daemon browser tabs, the app's own (WebKit) tab never lands in Home's dock either: it
     /// opens in the pane right of Home, or, with Home alone, is refused.
     @Test func aSessionLocalBrowserTabNeverLandsInHome() async throws {

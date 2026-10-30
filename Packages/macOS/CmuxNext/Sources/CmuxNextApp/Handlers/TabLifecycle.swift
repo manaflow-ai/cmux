@@ -307,6 +307,8 @@ enum TabLifecycle {
             ctx, invocation, from: pane, tiles: PanePlacementRouting.browsersTile(ctx)
         ) {
             opener = target
+            homeOutbound?.finish(moved: false)
+            homeOutbound = nil
             then = { @MainActor surface in PanePlacementRouting.moveToSplit(ctx, surface, of: target, direction: direction) }
         }
         if let beside {

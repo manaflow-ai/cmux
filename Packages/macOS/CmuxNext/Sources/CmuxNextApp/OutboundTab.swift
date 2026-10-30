@@ -54,6 +54,8 @@ final class OutboundTab {
     /// Left out only while the pane still holds this tab (the chat docking away from the tab).
     private var holding: String?
     private var answering = true
+    /// Only an unanswered timeout may resume on a late answer; cancelled/finished holds cannot.
+    private var answerTimedOut = false
     /// The move landed: the hold ends once the pane no longer lists the tab.
     private var landed = false
     private var ended = false
@@ -65,11 +67,11 @@ final class OutboundTab {
         self.holdSelectionUntilLanded = holdSelectionUntilLanded
         known = Set(pane.pane.tabs.map(\.id))
         timer.schedule(after: Self.answerLimit) { @MainActor [weak self] in
-            // Not named yet (slow, refused or failed): release the hold once the answer window closes.
-            // A late answer must not resurrect a stale source hold; the open's failure path still
-            // finishes its own token when it reports before this deadline.
+            // Release the registration and timer now. The creator retains the token and may
+            // later name its own tab; only that named tab is held again, never all new tabs.
             guard let self, self.answering else { return }
             self.end()
+            self.answerTimedOut = true
         }
     }
 
@@ -141,14 +143,14 @@ final class OutboundTab {
 
     /// The open named its tab: only that one stays out.
     func made(_ surface: SurfaceID) {
-        guard !ended else { return }
+        guard resumeIfTimedOut() else { return }
         self.surface = surface
         didName()
     }
 
     /// Same, by tab id: an agent tab's stand-in, then the store's tab that replaces it.
     func made(key: String) {
-        guard !ended else { return }
+        guard resumeIfTimedOut() else { return }
         names.insert(key)
         if let real = pane?.services.agentTabs.aliases[key] { names.insert(real) }
         didName()
@@ -158,6 +160,15 @@ final class OutboundTab {
     /// holds `key` holds `real` too, before the pane lists it.
     static func rekeyed(_ key: String, to real: String) {
         for tab in open.values.joined() where tab.names.contains(key) { tab.names.insert(real) }
+    }
+
+    private func resumeIfTimedOut() -> Bool {
+        guard ended else { return true }
+        guard answerTimedOut, pane != nil else { return false }
+        answerTimedOut = false
+        ended = false
+        Self.open[key, default: []].append(self)
+        return true
     }
 
     private func didName() {
@@ -175,8 +186,10 @@ final class OutboundTab {
     /// The move is over. Landed: the tab stays out until the pane no longer lists it (``prune(_:)``),
     /// at most ``landLimit``. Failed or never made: the strip lists it now, so it never stays hidden.
     func finish(moved: Bool) {
+        answerTimedOut = false
         guard !ended else { return }
         answering = false
+        clearPendingSelection()
         guard moved else { return end() }
         landed = true
         timer.schedule(after: Self.landLimit) { @MainActor [weak self] in self?.end() }
@@ -190,11 +203,24 @@ final class OutboundTab {
 
     /// Stops holding: the timer stops and the open leaves its pane's list.
     private func drop() {
+        clearPendingSelection()
+        answerTimedOut = false
         ended = true
         answering = false
         timer.cancel()
         Self.open[key]?.removeAll { $0 === self }
         if Self.open[key]?.isEmpty == true { Self.open[key] = nil }
+    }
+
+    private func clearPendingSelection() {
+        guard holdSelectionUntilLanded, let pane else { return }
+        if let pending = pane.pendingSelectSurface,
+           pending == surface || seen.contains(where: { (names.contains($0.key) || own.contains($0.key)) && $0.value == pending }) {
+            pane.pendingSelectSurface = nil
+        }
+        if let pending = pane.pendingSelectTab, names.contains(pending) || own.contains(pending) {
+            pane.clearPendingSelection(tab: pending)
+        }
     }
 
     /// Starts leaving out of `pane`'s strip the tab about to be made there for a move to the side.

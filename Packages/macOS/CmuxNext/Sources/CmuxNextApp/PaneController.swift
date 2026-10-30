@@ -403,6 +403,12 @@ final class PaneController: SurfacePresenter, PresentablePane {
         apply(snapshot())
     }
 
+    /// Clears a pending selection when its outbound hold has ended or landed.
+    func clearPendingSelection(tab: String) {
+        guard pendingSelectTab == tab else { return }
+        pendingSelectTab = nil
+    }
+
     /// Re-pushes daemon truth after a rejection.
     func resyncStrip() {
         apply(snapshot(), force: true)

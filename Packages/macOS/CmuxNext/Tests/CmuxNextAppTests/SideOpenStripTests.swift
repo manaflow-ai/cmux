@@ -120,11 +120,17 @@ import Testing
         let (services, pane, state) = try Self.pane(Self.homeDock([Self.home]))
         defer { withExtendedLifetime(state) { pane.teardown() } }
         let outbound = OutboundTab.begin(in: pane, holdSelectionUntilLanded: true)
+        outbound.made(Self.link)
         pane.selectWhenReported(surface: Self.link)
         services.daemon.store.apply(snapshot: Self.homeDock([Self.home, Self.link]))
         #expect(OutboundTab.hidden(in: pane).contains(Self.tabID(for: Self.link)))
         outbound.finish(moved: true)
-        #expect(!OutboundTab.hidden(in: pane).contains(Self.tabID(for: Self.link)), "a landed tab is released once it is no longer in transit")
+        #expect(OutboundTab.count(in: pane) == 1)
+        #expect(pane.pendingSelectSurface == nil)
+        #expect(OutboundTab.hidden(in: pane).contains(Self.tabID(for: Self.link)), "the move reply must not reveal the selected source tab")
+        services.daemon.store.apply(snapshot: Self.homeDock([Self.home]))
+        #expect(Self.listed(pane) == [Self.home])
+        #expect(OutboundTab.count(in: pane) == 0)
     }
 
     @Test func concurrentOutboundCancellationReleasesOnlyItsOwnHold() throws {
@@ -150,6 +156,7 @@ import Testing
             case cancels
             case pageRejected
             case timeout
+            case lateReply
         }
         let scenarios: [(String, [Event])] = [
             ("snapshot before move response", [.sourceListsTab, .namesTab, .sourceDropsTab, .moveReportsSuccess]),
@@ -157,7 +164,8 @@ import Testing
             ("open failure", [.sourceListsTab, .namesTab, .fails]),
             ("open cancellation", [.sourceListsTab, .namesTab, .cancels]),
             ("page creation rejected", [.sourceListsTab, .namesTab, .pageRejected]),
-            ("timeout", [.sourceListsTab, .timeout])
+            ("timeout", [.sourceListsTab, .timeout]),
+            ("late reply after timeout", [.sourceListsTab, .timeout, .lateReply, .moveReportsSuccess, .sourceDropsTab])
         ]
         for (name, events) in scenarios {
             let (services, pane, state) = try Self.pane(Self.homeDock([Self.home]))
@@ -173,6 +181,7 @@ import Testing
                     services.daemon.store.apply(snapshot: Self.homeDock([Self.home, Self.link]))
                 case .namesTab:
                     outbound.made(Self.link)
+                    pane.selectWhenReported(surface: Self.link)
                 case .moveReportsSuccess:
                     outbound.finish(moved: true)
                 case .sourceDropsTab:
@@ -181,7 +190,14 @@ import Testing
                     outbound.finish(moved: false)
                 case .timeout:
                     try await Task.sleep(for: .seconds(2.1))
-                    _ = Self.listed(pane)
+                    // DemandTimer's sleeper resumes on a task before its MainActor action is
+                    // enqueued; yield so the timeout transition is observed deterministically.
+                    await Task.yield()
+                    await Task.yield()
+                    #expect(OutboundTab.count(in: pane) == 0)
+                case .lateReply:
+                    outbound.made(Self.link)
+                    #expect(OutboundTab.count(in: pane) == 1)
                 }
                 let expected = showsFailedOpen ? [Self.home, Self.link] : [Self.home]
                 #expect(Self.listed(pane) == expected, "\(name): unexpected strip state after \(String(describing: event))")
@@ -209,9 +225,11 @@ import Testing
         let (services, pane, state) = try Self.pane(Self.homeDock([Self.home]))
         defer { withExtendedLifetime(state) { pane.teardown() } }
         let outbound = OutboundTab.begin(in: pane, holdSelectionUntilLanded: true)
+        outbound.made(Self.link)
         pane.selectWhenReported(surface: Self.link)
         services.daemon.store.apply(snapshot: Self.homeDock([Self.home, Self.link, Self.other]))
         pane.selectWhenReported(surface: Self.other)
+        _ = outbound.started(true)
         #expect(Self.listed(pane) == [Self.home, Self.other], "Home hold hid a tab the person selected")
         outbound.finish(moved: false)
         #expect(Self.listed(pane) == [Self.home, Self.link, Self.other])
