@@ -30,15 +30,17 @@ enum CEFThumbnail {
     }
 
     /// One `Page.captureScreenshot` of `tab` (here, not in CEFTab, which is at its type-size limit), in the browser's
-    /// call order: sent now, in the caller's turn, when no earlier call to the page waits, else right after them,
-    /// checked again there (``mayPicture(_:evenHidden:)``); a refused one sends nothing.
+    /// call order: sent now, in the caller's turn, when no earlier call to the page waits, else right after them; a
+    /// refused one sends nothing. Whether the page shows is judged when it is asked for, as when every picture left
+    /// in that turn: a hide the caller makes next (a pane switch after a hover picture) reaches Chromium after it.
+    /// Its turn checks again only that the page lives and the quit did not begin.
     @MainActor static func start(_ tab: CEFTab, _ params: [String: Any], evenHidden: Bool) -> BrowserPictureRequest {
         guard mayPicture(tab, evenHidden: evenHidden), let browserID = tab.browserID else {
             return .refused(.snapshotUnavailable)
         }
         let answer = tab.runtime.sendDevToolsInOrder(browserID, method: "Page.captureScreenshot", params: params,
                                                      refused: .snapshotUnavailable) { [weak tab] in
-            tab.map { mayPicture($0, evenHidden: evenHidden) } ?? false
+            tab.map { mayPicture($0, evenHidden: true) } ?? false
         }
         return BrowserPictureRequest { [weak tab] in
             let json = try await answer.value()
