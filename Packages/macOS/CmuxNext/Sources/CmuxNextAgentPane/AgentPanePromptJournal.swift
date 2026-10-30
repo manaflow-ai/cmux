@@ -164,7 +164,8 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
             }
             state.entries.remove(at: index)
             state.holders[key] = nil
-            let live = { (holder: Holder?) in holder.flatMap { state.ended.contains($0.owner) ? nil : $0 } }
+            let ended = state.ended
+            let live = { (holder: Holder?) in holder.flatMap { ended.contains($0.owner) ? nil : $0 } }
             for out in dropped.reversed() {
                 let outKey = Self.key(out.entry.daemon, out.entry.promptId)
                 guard !state.entries.contains(where: { Self.key($0.daemon, $0.promptId) == outKey }) else { continue }
