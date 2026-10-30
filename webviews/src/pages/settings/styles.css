@@ -1017,6 +1017,12 @@ mark {
   padding-left: 0;
 }
 
+/* New Team is the row itself, not details under a title: its title starts where a team's name does. */
+.accounts-team-create,
+.accounts-team-create > .accounts-form {
+  padding-top: 0;
+}
+
 .accounts-team-title {
   display: flex;
   align-items: center;
