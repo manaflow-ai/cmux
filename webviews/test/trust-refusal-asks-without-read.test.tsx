@@ -59,7 +59,7 @@ function slowPeer() {
 let latest: ReturnType<typeof useFolderTrustAsk> | undefined;
 function Chat(props: {
   trust: TrustSource;
-  sessionId: string;
+  sessionId?: string;
   blockSend?: boolean;
   cwd?: string;
   authority?: () => unknown;
@@ -247,6 +247,26 @@ for (const moved of ["visit", "authority"] as const) {
     expect(resent).toBe(0);
   });
 }
+
+// Review at 72a044be (P2): fresh chats have no session id, so a retry held in one fresh chat must
+// not be sent in the next fresh chat the pane shows once the folder choice lets go.
+test("a fresh chat's held trust retry is not sent in another fresh chat", async () => {
+  const { source } = slowPeer();
+  let liveVisit = "fresh-a";
+  const visit = () => liveVisit;
+  const render = (blockSend: boolean) =>
+    act(async () =>
+      root.render(<Chat key="fresh-chats" trust={source} visit={visit} cwd={peerFolder} blockSend={blockSend} />),
+    );
+  await render(true);
+  let resent = 0;
+  await act(async () => latest!.refused({ reason: "trust.pending", cwd: peerFolder }, () => resent++));
+  await act(async () => latest!.trust());
+  expect(resent).toBe(0);
+  liveVisit = "fresh-b";
+  await render(false);
+  expect(resent).toBe(0);
+});
 
 test("a throwing trust retry shows the failed trust question instead of escaping React", async () => {
   const { source } = slowPeer();
