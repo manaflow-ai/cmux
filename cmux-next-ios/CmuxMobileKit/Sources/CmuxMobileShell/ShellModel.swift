@@ -10,6 +10,7 @@ import CmuxMobileModel
 import CmuxMobileSettings
 import CmuxMobileTerminal
 import CmuxMobileVoice
+import CmuxMobileWorkspaces
 import Observation
 import OSLog
 import SwiftUI
@@ -225,6 +226,9 @@ final class ShellModel {
             StreamedBrowserDirectory.shared.opener = { [weak live] in await live?.browserLink() }
             StreamedBrowserDirectory.shared.macOpener = { [weak live] macID in await live?.browserLink(macID: macID) }
             creator.onTabResolved = { from, to in StreamedBrowserDirectory.shared.rename(tab: from, to: to) }
+            // Browser tabs opened on this iPhone follow the Macs' tab lists.
+            StreamedBrowserDirectory.shared.tabsRetained = { NativeBrowserTabs.shared.retain(tabs: $0) }
+            StreamedBrowserDirectory.shared.tabRenamed = { NativeBrowserTabs.shared.rename(tab: $0, to: $1) }
         } else {
             StreamedBrowserDirectory.shared.opener = nil
             StreamedBrowserDirectory.shared.macOpener = nil
