@@ -76,6 +76,7 @@ import { Icon } from "../icons/Icon";
 import { type NewTabTranslate, useNt } from "./strings";
 import { screenSections, type ScreenTemplate } from "./templates";
 import { type Translate, useT } from "../i18n";
+import { composerPlusSearchExtensions } from "../composerPlusRegistry";
 import { ChromeArea } from "../../../ui/HideableChrome";
 import { Popover } from "../../../ui/Popover";
 import { PromptFocus } from "../promptFocus";
@@ -92,13 +93,14 @@ import { useMinuteClock } from "../clock";
 import { usePasteAnywhere } from "../composer/pasteAnywhere";
 import { SlashMenu } from "../SlashMenu";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand } from "../slashCommands";
+import { useNewTabCommand, type NewTabCommandActions } from "./useNewTabCommand";
 import { useHarnessesListed } from "../catalog";
 import { openHarnessesPage } from "../harnesses/harnessesPage";
 import { NewTabExtras } from "./NewTabExtras";
 import type { SuggestionOrder } from "./suggestionOrder";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
-export type NewTabScreenActions = {
+export type NewTabScreenActions = NewTabCommandActions & {
   /// Setup can start the pending chat with its newly available harness, keeping this draft.
   onSetup?(continueWith: (harness: string) => void): void;
   /// Enter on a prompt: a chat with `harness` in `cwd` (the project picked on the page).
@@ -132,6 +134,9 @@ export type NewTabScreenActions = {
   /// One page of All chats from the host (`chats.page`); without it the page shows no All chats list.
   loadChatsPage?: LoadChatsPage;
   onShowAll(): void;
+  /// The + menu's Search chats and Search pages: runs that app action (PLUS_SEARCH_ACTIONS); it
+  /// rejects when the app refused it, and the page says so. Without it the + menu leaves both rows out.
+  onPlusCommand?(id: string): Promise<unknown>;
   onInputReady?(token: string): void;
   /// The first user input reached the page (the host recycles only an untouched page, R81).
   onTouched?(): void;
@@ -393,6 +398,18 @@ export function NewTabScreen(props: Props) {
   // chat starts, so a file still streaming has no next prompt to go with. A video's read is waited
   // for a few seconds at most (composer/videoAttachments.ts).
   const holdForAttachments = useSendWhenAttached(unsettled + videoReading);
+  const command = useNewTabCommand(
+    text,
+    setText,
+    { ...props, importSandboxed: props.importSandboxed || props.runMode?.mode === "sandboxed" },
+    {
+      attachments,
+      setAttachments,
+      pending: reading,
+      cancel,
+      cancelHeldSend: holdForAttachments.cancel,
+    },
+  );
   // WEB-SWAP: a web update's reload would lose what this page holds only in its state: a typed
   // query (the location comes back with the page) and staged attachments (pages/shared/webSwap.ts).
   useWebSwapHold(
@@ -480,6 +497,7 @@ export function NewTabScreen(props: Props) {
   /// False only when a Sandboxed send started nothing, so the caller's one-shot guards stay open.
   const askChat = (agent: string, prompt: string, cwd?: string, model?: string): boolean | void => {
     if (targetAuthPending || authBlocksSend(targetAuth)) return false;
+    if (command.intercept(prompt, agent, attachments.length)) return false;
     if (props.runMode?.mode === "sandboxed" && props.onSandbox) {
       const started = props.onSandbox(agent, prompt, attachments);
       setSandboxRefusal(typeof started === "string" ? started : undefined);
@@ -835,11 +853,14 @@ export function NewTabScreen(props: Props) {
     );
   };
   const submit = () => {
+    const prompt = text.trim();
+    if (command.intercept(prompt, harness, attachments.length, true)) return;
     // A pairing link (its room secret) is never searched, asked or opened: the host refuses it
     // with the address bar's word, and the page keeps the text.
     if (!shell && pairingLinkRefused(text)) return props.onOpen(text.trim());
     // A screenshot pasted a moment ago is still being read: Return goes once its chip is ready.
     if (holdForAttachments(() => submitNow.current())) return;
+    if (command.intercept(prompt, harness, attachments.length)) return;
     // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com). So does an
     // address with no row selected (↑ from the top row): there is no prompt to send.
     const list = rows.length ? rows : suggested;
@@ -848,7 +869,6 @@ export function NewTabScreen(props: Props) {
     // Staged attachments go with a chat: a row that opens a page or a tab would drop them.
     const keeps =
       !row || attachments.length === 0 || row.type === "ask" || (row.type === "create" && row.kind === "chat");
-    const prompt = text.trim();
     // With no harness, a default text suggestion would search before setup can open. A row
     // explicitly selected with the keyboard, and navigation matches, keep their own actions.
     if (!harness && prompt && !isAddress(prompt, home) && row?.type === "search" && selected === undefined) {
@@ -892,8 +912,9 @@ export function NewTabScreen(props: Props) {
       return;
     }
     if (created.current) return;
-    created.current = true;
     const prompt = shell ? "" : text.trim();
+    if (command.intercept(prompt, harness, attachments.length)) return;
+    created.current = true;
     const asked = askChat(
       harness,
       prompt && !isAddress(prompt, home) && !pairingLinkRefused(prompt) ? prompt : "",
@@ -1197,6 +1218,18 @@ export function NewTabScreen(props: Props) {
   /// split draws the chat composer's box instead.
   const pill = template === "cards" && !split;
 
+  const onPlusCommand = props.onPlusCommand;
+  const plusSearchRows = useMemo(() => composerPlusSearchExtensions(t), [t]);
+  /// The + search the app refused (turned off, or not for this tab), said over the composer until
+  /// the next pick or the next edit of the prompt.
+  const [plusRefusal, setPlusRefusal] = useState<{ action: string; text: string }>();
+  const plusRefused = plusRefusal && plusRefusal.text === text ? plusRefusal.action : undefined;
+  const runPlusSearch = (id: string) => {
+    setPlusRefusal(undefined);
+    const action = plusSearchRows.find((row) => row.id === id)?.name ?? id;
+    const asked = text;
+    void onPlusCommand?.(id).catch(() => setPlusRefusal({ action, text: asked }));
+  };
   const attachmentPicker = (
     <>
       <input
@@ -1227,6 +1260,22 @@ export function NewTabScreen(props: Props) {
               if (id === "attach") chooser.current?.click();
             },
           },
+          // Search chats and Search pages, as the chat composer's + (the page has no folder to
+          // search files in, so it offers no Search files).
+          ...(onPlusCommand
+            ? [
+                {
+                  title: t("sidebar.searchPlaceholder"),
+                  choices: plusSearchRows.map((row) => ({
+                    id: row.id,
+                    name: row.name,
+                    description: row.description,
+                    icon: <Icon name={row.icon} size={18} />,
+                  })),
+                  onPick: runPlusSearch,
+                },
+              ]
+            : []),
         ]}
       />
     </>
@@ -1262,7 +1311,7 @@ export function NewTabScreen(props: Props) {
         {...(browseProject ? { onBrowseProject: browseProject } : {})}
         {...(props.environments ? { environments: true } : {})}
         {...(newWorktreeHere ? { onNewWorktree: newWorktreeHere } : {})}
-        {...(props.environments && props.onConnect ? { onConnect: props.onConnect } : {})}
+        {...(props.onConnect ? { onConnect: props.onConnect, connectOnlyWhenEmpty: !props.environments } : {})}
         {...(props.environments && props.runMode ? { runMode: props.runMode } : {})}
         {...(saved.on
           ? {
@@ -1372,6 +1421,7 @@ export function NewTabScreen(props: Props) {
       {sections.chats !== "none" && !allChats && widgets.has("chats") && (
         <ChatCards
           cards={cards}
+          pending={props.chatsPending}
           variant={sections.chats}
           onOpen={openCard}
           {...(props.onOpenChatInTerminal ? { onOpenInTerminal: openCardInTerminal } : {})}
@@ -1420,6 +1470,11 @@ export function NewTabScreen(props: Props) {
         {sandboxRefusal && props.runMode?.mode === "sandboxed" && (
           <output className="acpmux-switch-notice">
             <span role="alert">{t(sandboxFailureKey(sandboxRefusal) ?? "sandbox.error.failed")}</span>
+          </output>
+        )}
+        {plusRefused && (
+          <output className="acpmux-switch-notice">
+            <span role="alert">{t("composer.offloadNotRun", { action: plusRefused })}</span>
           </output>
         )}
         {/* Above the box: the project strip (Cards draws it under the field). */}
@@ -1496,7 +1551,7 @@ export function NewTabScreen(props: Props) {
           <AttachmentStrip
             attachments={attachments}
             pending={reading}
-            {...(attachError ? { error: attachError } : {})}
+            {...(command.error || attachError ? { error: command.error ?? attachError } : {})}
             codex={harness === "codex"}
             onRemove={(id) => {
               setAttachments((current) => current.filter((item) => item.id !== id));
@@ -1509,6 +1564,7 @@ export function NewTabScreen(props: Props) {
             onRetry={retry}
             onReorder={(id, index) => setAttachments((current) => reordered(current, id, index))}
           />
+          {command.input}
           {!pill && !split && pickers}
         </div>
         {/* Claude Code's one quiet row: folder and computer lead the mode, model and effort;
@@ -1775,6 +1831,7 @@ export function NewTabScreen(props: Props) {
                       <div
                         key={rowKey(row)}
                         id={`nt-row-${index}`}
+                        ref={index === current ? keepInView : undefined}
                         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
                         role="option"
                         tabIndex={-1}
