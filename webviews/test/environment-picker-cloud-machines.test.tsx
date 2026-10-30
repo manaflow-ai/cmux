@@ -136,6 +136,22 @@ const pickerRows = () =>
     row.querySelector(".acpmux-env-row:not(.acpmux-env-new)"),
   );
 
+test("signed out keeps existing Cloud actions and adds a sign-in row", async () => {
+  const { setCloudMachinesForTestAccount } = await import("../src/agent-session/acpmux/cloudMachines");
+  setCloudMachinesForTestAccount(false);
+  const calls: string[] = [];
+  await mount(true, { cloudMachines: [], onConnect: (kind: string) => calls.push(kind) });
+  await openPicker();
+  const rows = [...doc().querySelectorAll<HTMLElement>(".acpmux-location-menu .acpmux-menu-item")].filter((item) =>
+    item.querySelector(".acpmux-location-name"),
+  );
+  expect(rows.map(label)).toContain("Sign in for Cloud");
+  expect(rows.map(label)).toContain(t("composer.newCloudMachine"));
+  expect(rows.map(label)).toContain(t("composer.connectSSH"));
+  await act(async () => rows.find((row) => label(row) === "Sign in for Cloud")!.click());
+  expect(calls).toEqual(["cloud"]);
+});
+
 test("a reply lists the account's machines only once the app holds the signed-in account's list", async () => {
   const { cloudMachinesFromReply } = await import("../src/agent-session/acpmux/cloudMachines");
   const machines = [{ id: "vm-1", name: "one", stage: "paused" }];
