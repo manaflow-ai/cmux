@@ -41,11 +41,11 @@
 .acpmux-workflow-side-tab__timeline { position: relative; display: flex; flex-direction: column; gap: var(--ds-space-3); margin: 0; padding: 0; list-style: none; }
 .acpmux-workflow-side-tab__timeline::before { content: ""; position: absolute; top: 10px; bottom: 10px; left: 6px; width: 1px; background: var(--agent-border); }
 .acpmux-workflow-side-tab__phase { position: relative; display: flex; gap: calc(var(--ds-space-2) + 2px); min-width: 0; }
-.acpmux-workflow-side-tab__phase-marker { z-index: var(--layer-raised); display: grid; place-items: center; width: calc(var(--ds-space-3) + 1px); height: calc(var(--ds-space-3) + 1px); margin-top: 2px; border-radius: 50%; background: var(--agent-page-bg); color: var(--agent-muted); }
+.acpmux-workflow-side-tab__phase-marker { z-index: var(--layer-raised); display: grid; place-items: center; width: calc(var(--ds-space-3) + 1px); height: calc(var(--ds-space-3) + 1px); border-radius: 50%; background: var(--agent-page-bg); color: var(--agent-muted); }
 .acpmux-workflow-side-tab__phase[data-state="running"] .acpmux-workflow-side-tab__phase-marker { color: var(--agent-accent); }
 .acpmux-workflow-side-tab__phase[data-state="failed"] .acpmux-workflow-side-tab__phase-marker { color: var(--agent-status-failure); }
 .acpmux-workflow-side-tab__phase-body { flex: 1; min-width: 0; }
-.acpmux-workflow-side-tab__phase-head { display: flex; align-items: baseline; gap: var(--ds-space-2); min-height: calc(var(--ds-space-2) + var(--ds-space-1) + 2px); color: var(--agent-text); font-size: var(--text-control); }
+.acpmux-workflow-side-tab__phase-head { display: flex; align-items: baseline; gap: var(--ds-space-2); min-height: calc(var(--ds-space-2) + var(--ds-space-1) + 2px); color: var(--agent-text); font-size: var(--text-control); line-height: var(--text-control); }
 .acpmux-workflow-side-tab__phase-head strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acpmux-workflow-side-tab__phase-head span { flex: none; color: var(--agent-muted); font-size: var(--text-detail); font-variant-numeric: tabular-nums; }
 .acpmux-workflow-side-tab__agents { margin: 4px 0 0; padding: 0; list-style: none; }

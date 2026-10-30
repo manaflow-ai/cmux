@@ -1,6 +1,7 @@
 //! Attach replay and live-stream delivery, shared by every native attach caller.
 use super::*;
 use crate::panic_free::JsonFields;
+use cmux_json::JsonSet as _;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn connect_and_attach(
@@ -77,7 +78,7 @@ pub(super) fn connect_and_attach(
     // the descendants it names are followed from now on.
     let mut watch = json!({"enabled": true});
     if let Some(author) = &author {
-        watch["_meta"]["acpmux"]["author"] = author.clone();
+        watch.set_path(&["_meta", "acpmux", "author"], author.clone());
     }
     let watched = link.call("_acpmux/watch", watch, CALL_TIMEOUT);
     let page = if author.is_some() { without_drafts(page) } else { page };

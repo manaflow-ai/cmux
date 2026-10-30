@@ -12,11 +12,9 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct DiffRemoteWiringTests {
-    /// The app's services, with the shared application they read (`NSApp`) made first.
-    private static func services() -> AppServices {
-        _ = NSApplication.shared
-        return AppServices(environment: AppEnvironment.current([:]))
-    }
+    /// AppServices reads `NSApp` (an implicitly unwrapped Optional) from its observers and services;
+    /// a suite run in its own process has no shared application until something makes it.
+    init() { _ = NSApplication.shared }
 
     /// The selected chat's session link, set by each step of a test.
     @MainActor private final class ChatLink {
@@ -29,7 +27,7 @@ struct DiffRemoteWiringTests {
     }
 
     @Test func unresolvedRemoteChatDoesNotFallBackToLocalGitLink() {
-        let services = Self.services()
+        let services = AppServices(environment: AppEnvironment.current([:]))
         let id = "remote-diff-chat"
         var tab = TabSnapshot(surface: SurfaceID(rawValue: 1), tabResourceID: ResourceID(rawValue: id),
                               kind: .conversation, title: "Remote")
@@ -49,7 +47,7 @@ struct DiffRemoteWiringTests {
     /// selected tab is a chat whose session runs elsewhere (#26113): a chat this Mac runs reads
     /// this Mac, a refused one stays refused, and only a chat on the pane's machine joins it.
     @Test func aCloudPaneReadsOnItsMachineOnlyWhenTheSelectedChatRunsThere() {
-        let services = Self.services()
+        let services = AppServices(environment: AppEnvironment.current([:]))
         var chat = TabSnapshot(surface: SurfaceID(rawValue: 1), tabResourceID: ResourceID(rawValue: "chat"),
                                kind: .conversation, title: "Chat")
         chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "install:dev-vm"))
