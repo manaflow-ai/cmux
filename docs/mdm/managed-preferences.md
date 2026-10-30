@@ -261,6 +261,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.inspector.placement` | string | `"overlay"` | `push`, `overlay` | Session Info. Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat. |
 | `agentPane.display.environment.placement` | string | `"left"` | `left`, `right`, `off` | Session Info Chip. Left puts it in a row below the tab row; Right keeps it in the header (or leads the tab-row tools); Off hides it. |
 | `agentPane.display.minimap` | string | `"compact"` | `compact`, `full`, `off` | Chat Minimap. What runs down the chat's edge: the rail, one tick per prompt; the full map, every message at its place with a box for what is on screen; or nothing. |
+| `agentPane.display.rail.side` | string | `"left"` | `left`, `right` | Prompt Rail Side. The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it. |
 | `terminal.fontFamily` | string |  |  | Font Family. A monospaced font installed on this Mac. |
 | `terminal.fontSize` | real |  | 4 to 96 | Font Size |
 | `terminal.linkOpener.default` | string | `"cmux"` |  | Open Program Links In. Where a URL goes when a program in a terminal opens a browser, such as aws login or gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, a profile after @ (chrome@Profile 1), or command:<command> to let your script decide. A BROWSER you set yourself wins. |
