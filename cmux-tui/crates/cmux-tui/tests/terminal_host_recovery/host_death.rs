@@ -435,6 +435,9 @@ mod dead_host_restart;
 #[path = "terminal_respawn.rs"]
 mod terminal_respawn;
 
+#[path = "output_store.rs"]
+mod output_store;
+
 #[path = "archive_on_close.rs"]
 mod archive_on_close;
 

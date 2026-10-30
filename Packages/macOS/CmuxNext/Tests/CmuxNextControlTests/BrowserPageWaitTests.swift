@@ -29,10 +29,11 @@ import Testing
         var operations: [BrowserPageOperation] { calls.withLock { $0 } }
     }
 
-    func install(_ respond: @escaping @Sendable (BrowserPageOperation, Int) throws -> JSONValue) -> (ControlRouter, ScriptedEngine) {
-        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor())
+    func install(allowsUnsafeCapture: Bool = false,
+                 _ respond: @escaping @Sendable (BrowserPageOperation, Int) throws -> JSONValue) -> (ControlRouter, ScriptedEngine) {
+        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), configuration: .loadTolerant)
         let engine = ScriptedEngine(respond)
-        BrowserPageService(engine: engine).install(on: router)
+        BrowserPageService(engine: engine, leases: BrowserTabLeases(), allowsUnsafeCapture: allowsUnsafeCapture).install(on: router)
         var snapshot = ControlSnapshot.sample()
         let browser = ControlTabInfo(id: "tab_0123abcd", surface: "12", kind: "browser", title: "Example", url: "https://example.com/")
         snapshot.topology.workspaces[0].screens[0].panes[0].tabs.append(browser)
@@ -132,8 +133,19 @@ import Testing
         #expect(engine.operations.isEmpty)
     }
 
-    @Test func screenshotsTheViewportByDefaultAndTheWholePageOnRequest() async throws {
+    /// The direct app control method has no access to the browser host's
+    /// cross-session secret masker, so it must fail closed before asking the
+    /// page engine for pixels.
+    @Test func rawBrowserScreenshotsAreRefusedBeforeThePageRuns() async {
         let (router, engine) = install { _, _ in ["png_base64": "iVBO", "width": 800, "height": 600] }
+        let result = await router.handle(ControlRequest(method: "browser.page.screenshot", params: ["tab": "tab_0123"]))
+        #expect(result.failure?.code == "unavailable")
+        #expect(result.failure?.message == ControlStrings.text("control.error.personOnly", "Only a person in cmux can run this action"))
+        #expect(engine.operations.isEmpty)
+    }
+
+    @Test func screenshotsTheViewportByDefaultAndTheWholePageOnRequest() async throws {
+        let (router, engine) = install(allowsUnsafeCapture: true) { _, _ in ["png_base64": "iVBO", "width": 800, "height": 600] }
         let shot = try await router.handle(ControlRequest(method: "browser.page.screenshot", params: ["tab": "tab_0123"])).get()
         #expect(shot["png_base64"] == "iVBO")
         #expect(shot["width"] == 800)
@@ -143,7 +155,7 @@ import Testing
     }
 
     @Test func anElementScreenshotClipsToWhereTheElementIs() async throws {
-        let (router, engine) = install { operation, _ in
+        let (router, engine) = install(allowsUnsafeCapture: true) { operation, _ in
             if case .evaluate = operation {
                 return ["value": ["value": ["x": 10, "y": 20, "width": 30, "height": 40, "viewport_width": 800, "viewport_height": 600]]]
             }
@@ -162,7 +174,7 @@ import Testing
     }
 
     @Test func aMissingElementOrConflictingScopeIsRefused() async {
-        let (router, engine) = install { operation, _ in
+        let (router, engine) = install(allowsUnsafeCapture: true) { operation, _ in
             if case .evaluate = operation { return ["value": ["error": "Element not found: #nope"]] }
             return ["png_base64": "iVBO", "width": 1, "height": 1]
         }

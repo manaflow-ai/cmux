@@ -1,0 +1,35 @@
+{
+  "name": "cmux-mobile-api",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run",
+    "dev": "wrangler dev",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "deploy:dev": "wrangler deploy --env dev",
+    "smoke": "bun scripts/smoke.ts"
+  },
+  "dependencies": {
+    "drizzle-orm": "0.45.4",
+    "jose": "6.2.12",
+    "mysql2": "3.23.1",
+    "pg": "8.23.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "0.22.0",
+    "@cloudflare/workers-types": "5.20260925.1",
+    "@types/node": "26.6.2",
+    "@types/pg": "8.23.1",
+    "drizzle-kit": "0.31.11",
+    "typescript": "7.0.2",
+    "vitest": "4.1.12",
+    "wrangler": "4.139.0"
+  },
+  "overrides": {
+    "sharp": "0.35.5",
+    "undici": "7.29.1"
+  }
+}

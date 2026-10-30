@@ -2,6 +2,7 @@
 // by project. It follows the acpmux TUI sidebar (crates/acpmux/src/tui/render),
 // so a session reads the same in the terminal and in the pane.
 import { type Translate, translate } from "./i18n";
+import { readRetry, type RetryState } from "./subagents/retryState";
 
 /** A session as the sidebar sees it, cut from acpmux's session summary. */
 export type AcpmuxSessionEntry = {
@@ -14,8 +15,16 @@ export type AcpmuxSessionEntry = {
   agentSessionId?: string;
   status?: string;
   model?: string;
+  /** The harness's thinking effort, when a summary producer supplies it. */
+  effort?: string;
   cwd?: string;
+  /** acpmux's last write to the session: any logged record, a warm, resume or stop of its agent too. */
   updatedAt?: number;
+  /** When the person or the agent last did something in the chat (`activityAt`): what the chat
+   *  lists sort and label by, so warming, resuming or stopping an agent moves no row. */
+  activityAt?: number;
+  /** When acpmux made the session (`SessionSummary.createdAt`). */
+  createdAt?: number;
   pendingPermissions?: number;
   unread?: boolean;
   /** The status dot acpmux decided (`SessionSummary.indicator`, cx-zlox); absent for none. */
@@ -35,15 +44,68 @@ export type AcpmuxSessionEntry = {
   /** A side chat: a fork tagged `side` with its chat's session, shown beside that chat and off every list. */
   side?: boolean;
   pullRequest?: SessionPullRequest;
+  /** The pull request URLs the session's `gh pr create` calls printed (acpmux `pullRequests`),
+   *  oldest first; absent from an acpmux that does not record them. */
+  pullRequestUrls?: string[];
   /** A line of the session's latest reply, for previews. */
   preview?: string;
+  /** The latest message text from acpmux's summary, when present. */
+  lastMessage?: string;
   /** A fork: the chat it was forked from and that chat's event it branched after (cx-ncc.61). */
   parentId?: string;
+  /** Started by another session's agent (acpmux `spawnedBy`): it folds under that chat, off every list. */
+  spawnedBy?: string;
+  /** A sub-session: the chat whose agent started it with its `start_session` tool (acpmux
+   *  `startedBy`, kept at any depth and after that chat closes). */
+  startedBy?: string;
+  /** A sub-session's name among its parent's (acpmux `shortName`, "tests"). */
+  shortName?: string;
+  /** What it is doing (acpmux `lane.state`): working, waiting on the person, failed, lost or idle. */
+  lane?: SessionLane;
+  /** Prompts waiting behind its running turn, when any. */
+  queued?: number;
+  /** Its parent already runs as many sub-sessions as `maxRunning` allows: its first prompt waits
+   *  for a run slot (acpmux `waitsForSlot`), so it has not started. */
+  waitsForSlot?: true;
+  /** One line of what its running turn does now: its plan step and latest tool, as acpmux says it
+   *  to the parent's agent (`doing`). */
+  doing?: string;
+  /** The tool part of `doing` (acpmux `turn.activity`, its latest tool call's title), when it has
+   *  one: the tray reads a shell call's title, the command as typed, as "Running <command>". */
+  doingTool?: string;
+  /** What it waits on the person for, while it does: an agent question (with its first prompt)
+   *  or a tool's permission. acpmux names it on a sub-session's family rows (`waitingOn`,
+   *  subsession_send.rs `waiting_on`); a summary that does not leaves it unknown. */
+  waitingOn?: SessionWaiting;
   forkSeq?: number;
   /** Completed turns, the copied ones of a fork included. */
   turnCount?: number;
+  /** Nothing was sent in it yet (acpmux names no last prompt, no turn, nothing queued or waiting on
+   *  the person, and no turn running or waiting): a New Tab's chip pick starts such a session before
+   *  its first prompt. */
+  unsent?: boolean;
   /** Its last turn completed: its harness profile runs here (signed in, routed). */
   worked?: boolean;
+  /** Explicit lifecycle evidence; absent until the protocol producer supplies a validated receipt. */
+  lifecycleReceipt?: LifecycleReceipt;
+  /** The folder of a sub-session this chat's agent wants to start but cannot until the person trusts
+   *  it (acpmux tag `trust.pending:<name>`, hub/trust_wait.rs): the row says "Needs trust". */
+  trustPending?: string;
+  /** acpmux's retry of its failed turn while one waits (session/list `retry`, subagents/retryState.ts). */
+  retry?: RetryState;
+  /** acpmux is settling whether its failed turn is retried, or that retry starts or runs
+   *  (session/list `retryDeciding`): no Retry is offered meanwhile. */
+  retryDeciding?: true;
+  /** Why its failed or lost turn failed, as acpmux's lane says it (`lane.error`, secrets masked):
+   *  a retry acpmux refused before its turn started leaves it failed with this. */
+  laneError?: string;
+};
+
+export type LifecycleReceipt = {
+  id: string;
+  sequence: number;
+  state: string;
+  source: string;
 };
 
 export type SessionPullRequest = {
@@ -62,14 +124,6 @@ export const text = (value: unknown) => (typeof value === "string" && value ? va
 /** "local" or "cloud", else undefined. */
 export const hostKind = (value: unknown) => (value === "local" || value === "cloud" ? value : undefined);
 
-export type SessionGroup = {
-  key: string;
-  label: string;
-  cwd?: string;
-  host?: string;
-  sessions: AcpmuxSessionEntry[];
-};
-
 /** The tag that pins a session to the top of the list. */
 export const PINNED_TAG = "pinned";
 /** The tag the chat menu's Archive sets. */
@@ -82,21 +136,68 @@ const ASIDE_TAG = "aside";
 /** Whether a session belongs in the sidebar, Home and recents: neither archived nor a side chat. */
 export const listed = (session: AcpmuxSessionEntry) => !session.archived && !session.side;
 
+/** `entries` without the chats that fold under another of them (`spawnedBy`). A child whose parent
+ *  is not in `entries` (gone, archived, filtered out) or that waits on the user lists on its own,
+ *  so no chat is hidden everywhere. */
+export function withoutChildren(entries: AcpmuxSessionEntry[]): AcpmuxSessionEntry[] {
+  const parents = new Set(entries.filter((entry) => !entry.spawnedBy).map((entry) => entry.sessionId));
+  return entries.filter((entry) => !folded(entry, parents));
+}
+
+/** Whether `entry` folds under a parent in `parents`: it has one there and needs no answer. */
+export const folded = (entry: AcpmuxSessionEntry, parents: ReadonlySet<string>) =>
+  Boolean(entry.spawnedBy && parents.has(entry.spawnedBy) && sessionMark(entry, false) !== "input");
+
 /** Whether acpmux's tags (an object of key to value; a list in older fixtures) hold `tag`. */
 function tagged(tags: unknown, tag: string): boolean {
   if (Array.isArray(tags)) return tags.includes(tag);
   return typeof tags === "object" && tags !== null && tag in tags;
 }
 
+/** The tag acpmux sets on a chat while a sub-session of it waits for a folder's trust (hub/trust_wait.rs). */
+const TRUST_PENDING_TAG = "trust.pending:";
+
+/** The folder a chat's waiting sub-session needs trusted, from its tags (an object of key to value). */
+function trustPending(tags: unknown): string | undefined {
+  if (typeof tags !== "object" || tags === null || Array.isArray(tags)) return undefined;
+  for (const [key, value] of Object.entries(tags)) {
+    if (key.startsWith(TRUST_PENDING_TAG) && typeof value === "string" && value) return value;
+  }
+  return undefined;
+}
+
 /** acpmux's status dots (`SessionSummary.indicator`). */
 export type SessionIndicator = "input" | "working" | "failed" | "lost" | "done";
 const INDICATORS: readonly string[] = ["input", "working", "failed", "lost", "done"];
 
+/** acpmux's lane states (`SessionSummary.lane.state`). */
+export type SessionLane = "working" | "input" | "failed" | "lost" | "idle";
+const LANES: readonly string[] = ["working", "input", "failed", "lost", "idle"];
+
+/** A running turn's line as acpmux's `doing_line` (hub/activity.rs) writes it: its plan step and
+ *  latest tool, either alone; else what the turn was asked (`lane.step`). */
+function doingLine(session: Record<string, any>): string | undefined {
+  if (session.lane?.state !== "working") return undefined;
+  const step = text(session.turn?.planStep);
+  const tool = text(session.turn?.activity);
+  if (step && tool && step !== tool) return `${step} · ${tool}`;
+  return step ?? tool ?? text(session.lane?.step);
+}
+
+/** What a session waits on the person for: only the person answers either, in the app. */
+export type SessionWaiting = { on: "question"; prompt?: string } | { on: "permission" };
+
+/** `waitingOn` while the session waits on the person, with a question's first prompt
+ *  (`waitingPrompt`) when acpmux gives it. */
+export function sessionWaiting(session: Record<string, any>): SessionWaiting | undefined {
+  if (session.waitingOn === "permission") return { on: "permission" };
+  if (session.waitingOn !== "question") return undefined;
+  const prompt = text(session.waitingPrompt);
+  return prompt ? { on: "question", prompt } : { on: "question" };
+}
+
 /** What a row draws at its right edge, most urgent first. */
 export type SessionMark = "input" | "running" | "error" | "unread" | undefined;
-
-/** A long group shows this many rows and a "Show more" (the TUI's GROUP_ROWS). */
-export const GROUP_ROWS = 6;
 
 /** Cuts acpmux's session summary down to the fields the pane uses. */
 export function sessionEntry(session: Record<string, any> & { sessionId: string }): AcpmuxSessionEntry {
@@ -110,8 +211,11 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     agentSessionId: text(session.agentSessionId),
     status: session.status,
     model: text(session.model),
+    effort: text(session.effort),
     cwd: typeof session.cwd === "string" ? session.cwd : undefined,
     updatedAt: typeof session.updatedAt === "number" ? session.updatedAt : undefined,
+    activityAt: summaryActivityAt(session),
+    createdAt: typeof session.createdAt === "number" ? session.createdAt : undefined,
     pendingPermissions: Number.isFinite(pending) ? pending : 0,
     unread: session.unread === true,
     indicator: INDICATORS.includes(session.indicator) ? session.indicator : undefined,
@@ -125,12 +229,86 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     // A side question's throwaway copy (`aside`, acpmux hub/aside.rs) is never listed either.
     side: session.side === true || tagged(session.tags, SIDE_TAG) || tagged(session.tags, ASIDE_TAG),
     pullRequest: pullRequest(session.pullRequest),
+    pullRequestUrls: pullRequestUrls(session.pullRequests),
     preview: text(session.preview),
+    lastMessage: text(session.lastMessage?.text) ?? text(session.preview),
     parentId: text(session.parentId),
+    spawnedBy: text(session.spawnedBy),
+    startedBy: text(session.startedBy),
+    shortName: text(session.shortName),
+    lane: LANES.includes(session.lane?.state) ? session.lane.state : undefined,
+    queued: Number(session.queued) > 0 ? Number(session.queued) : undefined,
+    ...(session.waitsForSlot === true && { waitsForSlot: true as const }),
+    doing: doingLine(session),
+    doingTool: session.lane?.state === "working" ? text(session.turn?.activity) : undefined,
+    waitingOn: sessionWaiting(session),
     forkSeq: typeof session.forkSeq === "number" ? session.forkSeq : undefined,
     turnCount: typeof session.turnCount === "number" ? session.turnCount : undefined,
+    unsent:
+      session.lastPrompt === null &&
+      !(typeof session.turnCount === "number" && session.turnCount > 0) &&
+      // A first prompt waiting in the queue, a turn, or the person (a permission, an answer) is sent.
+      !(Number(session.queued) > 0) &&
+      !(Number(session.pendingPermissions) > 0) &&
+      session.inputSince == null &&
+      // Running or waiting is a first turn under way; any other state (an agent gone away) is not.
+      session.status !== "running" &&
+      session.status !== "waiting",
     worked: session.lastTurn?.status === "completed",
+    lifecycleReceipt: lifecycleReceipt(session.lifecycleReceipt),
+    trustPending: trustPending(session.tags),
+    retry: readRetry(session.retry) ?? undefined,
+    ...(session.retryDeciding === true && { retryDeciding: true as const }),
+    laneError: text(session.lane?.error),
   };
+}
+
+const time = (value: unknown) => (typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined);
+
+/** When the person or the agent last did something in a chat, from acpmux's session summary.
+ *  `updatedAt` moves on every record acpmux logs, a pane warming or resuming the chat's agent and
+ *  the idle pool stopping it included, so it is activity only while a turn runs. A chat waiting on
+ *  the person counts from when it began to wait; any other from when its last turn ended, or, with
+ *  no turn ended here (adopted, or never answered), from when it was made: it never jumps to now. */
+export function summaryActivityAt(session: Record<string, any>): number | undefined {
+  const updated = time(session.updatedAt);
+  // Waiting on the person (a permission inside a turn too) counts from when the wait began, so a
+  // draft or a tag saved meanwhile moves nothing.
+  const waiting = time(session.inputSince);
+  if (waiting !== undefined) return waiting;
+  if (session.status === "running" || session.status === "waiting" || Number(session.pendingPermissions) > 0)
+    return updated;
+  // A turn that never ended on a chat no longer running (disconnected, unreachable) counts from its
+  // start, so retries to reach the agent move nothing.
+  if (session.turn && typeof session.turn === "object") return time(session.turn.startedAt) ?? updated;
+  return time(session.lastTurn?.endedAt) ?? time(session.createdAt) ?? updated;
+}
+
+/** The time a chat list sorts and labels an entry by: its activity, or for an entry cut by an
+ *  older producer (gallery fixtures), its `updatedAt`. */
+export const activityTime = (entry: Pick<AcpmuxSessionEntry, "activityAt" | "updatedAt">) =>
+  entry.activityAt ?? entry.updatedAt;
+
+/** Reuses a direct-client entry while retaining compatibility with raw summary fixtures/callers. */
+export function normalizedSessionEntry(session: Record<string, any> & { sessionId: string }): AcpmuxSessionEntry {
+  return typeof session.displayTitle === "string" ? (session as AcpmuxSessionEntry) : sessionEntry(session);
+}
+
+function lifecycleReceipt(value: unknown): LifecycleReceipt | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const raw = value as Record<string, unknown>;
+  const sequence = raw.sequence;
+  if (typeof raw.id !== "string" || !raw.id) return undefined;
+  if (typeof sequence !== "number" || !Number.isSafeInteger(sequence) || sequence < 1) return undefined;
+  if (typeof raw.state !== "string" || !raw.state) return undefined;
+  if (typeof raw.source !== "string" || !raw.source) return undefined;
+  return { id: raw.id, sequence, state: raw.state, source: raw.source };
+}
+
+function pullRequestUrls(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const urls = value.filter((url): url is string => typeof url === "string" && url.startsWith("https://"));
+  return urls.length ? urls : undefined;
 }
 
 function pullRequest(value: any): SessionPullRequest | undefined {
@@ -172,6 +350,51 @@ export function isAgentHome(cwd: string | undefined): boolean {
   return /\/Library\/Application Support\/cmux\/agent-home(?:\/|$)/.test(cwd ?? "");
 }
 
+/// The folder of the most recently used chat on this Mac (Leo 2026-10-18): where a New Tab with no
+/// folder of its own starts. Not a private agent-home folder, the home folder or `/`, and not a chat
+/// on another machine (a peer or a Cloud host). With `known` (the host's project list, which drops
+/// folders that no longer exist), only a folder in it: a deleted or removed project never starts one.
+/// An empty list is one not loaded yet, so every local chat folder counts until it lands.
+export function mostRecentProject(
+  sessions: readonly AcpmuxSessionEntry[],
+  home?: string,
+  known?: readonly string[] | null,
+): string | undefined {
+  return firstProject(recentLocalFolders(sessions), home, known);
+}
+
+/// This Mac's chat folders, newest chat first, each once: not a private agent-home folder, `~` or a
+/// chat on another machine. `mostRecentProject` picks from it; a New Tab page keeps it for the next
+/// page's first frame (newtab/recentProject.ts).
+export function recentLocalFolders(sessions: readonly AcpmuxSessionEntry[], limit = Infinity): string[] {
+  const local = sessions.filter((session) => {
+    const cwd = session.cwd?.replace(/\/+$/, "");
+    if (!cwd || cwd === "~" || isAgentHome(cwd)) return false;
+    return !session.peer && (!session.hostKind || session.hostKind === "local") && listed(session);
+  });
+  const folders: string[] = [];
+  for (const session of byRecency(local)) {
+    const cwd = session.cwd!.replace(/\/+$/, "");
+    if (!folders.includes(cwd)) folders.push(cwd);
+    if (folders.length >= limit) break;
+  }
+  return folders;
+}
+
+/// The first of `folders` (newest first) a New Tab may start in: not the home folder, and with
+/// `known` (the host's project list; absent or empty is not loaded yet) one in it. `null`: the host
+/// answered and lists no project (every one removed or missing), so no folder is one.
+export function firstProject(
+  folders: readonly string[],
+  home?: string,
+  known?: readonly string[] | null,
+): string | undefined {
+  if (known === null) return undefined;
+  const projects = known?.length ? new Set(known.map((path) => path.replace(/(.)\/+$/, "$1"))) : undefined;
+  const homeFolder = home?.replace(/\/+$/, "");
+  return folders.find((cwd) => cwd !== homeFolder && (!projects || projects.has(cwd)));
+}
+
 /** A project's name for its header: the folder's last component, `~` for a home folder. */
 export function projectLabel(cwd: string | undefined, t: Translate = translate): string {
   const trimmed = (cwd ?? "").replace(/\/+$/, "");
@@ -188,49 +411,12 @@ export function homePath(path: string): string {
 
 /** Newest first. */
 function byRecency(sessions: AcpmuxSessionEntry[]): AcpmuxSessionEntry[] {
-  return [...sessions].sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0));
-}
-
-/** A stable newest-first view for ungrouped sidebar sections. */
-export function sortByRecency(sessions: AcpmuxSessionEntry[]): AcpmuxSessionEntry[] {
-  return byRecency(sessions);
-}
-
-/** Sessions under one header per folder (a cloud-only folder per machine). Groups follow their most recent session; sessions stay newest first. */
-export function groupByProject(
-  sessions: AcpmuxSessionEntry[],
-  // Every session, pinned ones too, so pinning a local session doesn't regroup its cloud siblings.
-  all: AcpmuxSessionEntry[] = sessions,
-): SessionGroup[] {
-  const folder = (session: AcpmuxSessionEntry) => (session.cwd ?? "").replace(/\/+$/, "");
-  // A cloud session joins the local project at the same path; otherwise its folder is only
-  // known on its machine, so `/workspace` on two machines stays two projects.
-  const local = new Set(all.filter((session) => !cloudHost(session)).map(folder));
-  const groups = new Map<string, SessionGroup>();
-  for (const session of byRecency(sessions)) {
-    const cwd = folder(session);
-    const host = cloudHost(session);
-    const key = host && !local.has(cwd) ? `${host}:${cwd}` : cwd;
-    let group = groups.get(key);
-    if (!group) {
-      group = { key, label: projectLabel(cwd), cwd: cwd || undefined, sessions: [] };
-      groups.set(key, group);
-    }
-    group.sessions.push(session);
-  }
-  for (const group of groups.values()) group.host = sharedCloudHost(group.sessions);
-  return [...groups.values()];
+  return [...sessions].sort((left, right) => (activityTime(right) ?? 0) - (activityTime(left) ?? 0));
 }
 
 /** The remote machine a session runs on. A host not marked local counts as remote; this Mac is never named. */
 export const cloudHost = (session: AcpmuxSessionEntry) =>
   session.hostKind === "local" ? undefined : (session.peer ?? session.host);
-
-/** The one cloud machine every session in a group runs on, else undefined. */
-function sharedCloudHost(sessions: AcpmuxSessionEntry[]) {
-  const host = cloudHost(sessions[0]!);
-  return host && sessions.every((session) => cloudHost(session) === host) ? host : undefined;
-}
 
 /** Where a row says it runs, beyond its project: a cloud machine, then a worktree, then a branch. */
 export type SessionPlace =
@@ -249,57 +435,6 @@ export function sessionPlace(session: AcpmuxSessionEntry, groupHost?: string): S
   return undefined;
 }
 
-/** Sessions whose title, name, folder, branch, worktree or cloud machine contains every word of the query, ignoring case. */
-export function filterSessions(sessions: AcpmuxSessionEntry[], query: string): AcpmuxSessionEntry[] {
-  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
-  if (terms.length === 0) return sessions;
-  return sessions.filter((session) => {
-    const text = [
-      session.displayTitle,
-      session.title,
-      session.name,
-      // Folder names, not full paths: a path prefix like `/Users/me` would match every session.
-      session.cwd && projectLabel(session.cwd),
-      session.branch,
-      session.worktree && projectLabel(session.worktree),
-      cloudHost(session),
-    ]
-      .filter(Boolean)
-      .join("\n")
-      .toLowerCase();
-    return terms.every((term) => text.includes(term));
-  });
-}
-
-/** The list's two sections: pinned sessions, newest first, then every other session grouped by project. A query narrows both. Archived sessions and side chats are in neither. */
-export function sidebarSections(
-  all: AcpmuxSessionEntry[],
-  query = "",
-): {
-  pinned: AcpmuxSessionEntry[];
-  groups: SessionGroup[];
-} {
-  const sessions = all.filter(listed);
-  const pinned = byRecency(
-    filterSessions(
-      sessions.filter((session) => session.pinned),
-      query,
-    ),
-  );
-  const groups = groupByProject(
-    sessions.filter((session) => !session.pinned),
-    sessions,
-  );
-  if (!query.trim()) return { pinned, groups };
-  // Projects and their headers come from every session, so a search only hides rows.
-  return {
-    pinned,
-    groups: groups
-      .map((group) => ({ ...group, sessions: filterSessions(group.sessions, query) }))
-      .filter((group) => group.sessions.length > 0),
-  };
-}
-
 /** The row's mark, from acpmux's `indicator`: a done chat is marked only until the user opens it. */
 export function sessionMark(session: AcpmuxSessionEntry, selected: boolean): SessionMark {
   switch (session.indicator) {
@@ -315,31 +450,6 @@ export function sessionMark(session: AcpmuxSessionEntry, selected: boolean): Ses
     default:
       return undefined;
   }
-}
-
-/** The rows a group shows: all of a short group, else its first GROUP_ROWS unless expanded or holding the selection. */
-export function visibleSessions(
-  group: SessionGroup,
-  expanded: boolean,
-  selectedId?: string,
-): { rows: AcpmuxSessionEntry[]; hidden: number } {
-  const open =
-    expanded ||
-    group.sessions.length <= GROUP_ROWS + 1 ||
-    group.sessions.slice(GROUP_ROWS).some((session) => session.sessionId === selectedId);
-  if (open) return { rows: group.sessions, hidden: 0 };
-  return { rows: group.sessions.slice(0, GROUP_ROWS), hidden: group.sessions.length - GROUP_ROWS };
-}
-
-/** A project header's mark: the most urgent of its sessions' needs-input and lost marks. */
-export function groupMark(group: SessionGroup, selectedId?: string): "input" | "error" | undefined {
-  let mark: "input" | "error" | undefined;
-  for (const session of group.sessions) {
-    const own = sessionMark(session, session.sessionId === selectedId);
-    if (own === "input") return "input";
-    if (own === "error") mark = "error";
-  }
-  return mark;
 }
 
 /** A compact age for the history list: `now`, `5m`, `3h`, `2d`, `6w`. */

@@ -26,6 +26,7 @@ extension DaemonConnection {
         handoffHold = [:]
         if inFlight > 0 { await withCheckedContinuation { quietWaiters.append($0) } }
         let startSerial = serial
+        // concurrency-allow: async binding on the connection actor, always inside a Swift task (no fallback storage, cx-bpcj)
         let result = await Self.$passesHandoffHold.withValue(true) { await handoff() }
         if !accepted(result) || (isReady && serial != startSerial) {
             releaseHandoffHold()

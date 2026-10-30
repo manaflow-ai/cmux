@@ -21,14 +21,14 @@ pub fn decode(text: &str) -> Option<Vec<u8>> {
     }
     let mut out = Vec::with_capacity(bytes.len() / 4 * 3);
     let chunks = bytes.len() / 4;
-    for (index, chunk) in bytes.chunks(4).enumerate() {
+    for (index, chunk) in bytes.chunks_exact(4).enumerate() {
         let last = index + 1 == chunks;
         let pad = chunk.iter().rev().take_while(|&&c| c == b'=').count();
         if pad > 2 || (pad > 0 && !last) {
             return None;
         }
         let mut acc = 0u32;
-        for &c in &chunk[..4 - pad] {
+        for &c in chunk.get(..4 - pad)? {
             acc = (acc << 6) | value(c)?;
         }
         acc <<= 6 * pad as u32;
@@ -37,7 +37,7 @@ pub fn decode(text: &str) -> Option<Vec<u8>> {
         if (pad == 1 && three[2] != 0) || (pad == 2 && (three[1] != 0 || three[2] != 0)) {
             return None;
         }
-        out.extend_from_slice(&three[..3 - pad]);
+        out.extend_from_slice(three.get(..3 - pad)?);
     }
     Some(out)
 }

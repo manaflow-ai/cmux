@@ -4,9 +4,10 @@ import CmuxNextDesign
 import CmuxNextIcons
 
 /// Borderless icon button with gray hover and press fills (no accent color).
-final class ChromeIconButton: NSButton {
+final class ChromeIconButton: ClickableButton {
     private let density = DensityBinding()
-    private var iconName = IconName.placeholder
+    /// The pack icon the button draws (`BrowserToolbarReport.icons`).
+    private(set) var iconName = IconName.placeholder
     private var iconLabel = ""
     /// Where the pointer is now (`OmnibarPointer`); a disabled button shows none.
     private var hover: PointerHover?
@@ -69,7 +70,7 @@ final class ChromeIconButton: NSButton {
 
     private func applyIcon() {
         let label = iconLabel
-        let side = CGFloat.iconRowSize(forLabelPointSize: isToolbar ? OmnibarStyle.buttonSymbolSize : BrowserMetrics.symbolPointSize)
+        let side = isToolbar ? OmnibarStyle.toolbarIconSize : CGFloat.iconRowSize(forLabelPointSize: BrowserMetrics.symbolPointSize)
         let icon = NSImage.icon(iconName, size: side)
         icon.accessibilityDescription = label
         image = icon
@@ -94,6 +95,76 @@ final class ChromeIconButton: NSButton {
     /// fill; the app accent is a neutral gray, so a tint would not read.
     var isOn = false {
         didSet { if isOn != oldValue { updateFill() } }
+    }
+
+    /// A ring around the icon (`BrowserToolbarButtonState.progress`): 0...1
+    /// fills that much of it from the top, clockwise; a negative value (size
+    /// unknown) draws a short arc; nil hides it.
+    var progress: Double? {
+        didSet { if progress != oldValue { updateProgressRing() } }
+    }
+    private var ringTrack: CAShapeLayer?
+    private var ringArc: CAShapeLayer?
+
+    private func updateProgressRing() {
+        guard let layer, let progress else {
+            ringTrack?.isHidden = true
+            ringArc?.isHidden = true
+            return
+        }
+        let track = ringTrack ?? makeRingLayer(in: layer)
+        let arc = ringArc ?? makeRingLayer(in: layer)
+        ringTrack = track
+        ringArc = arc
+        // No implicit animation: the ring follows the bytes in steps (motion: allow, it never animates).
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        let inset: CGFloat = 2.5
+        let rect = bounds.insetBy(dx: inset, dy: inset)
+        let path = CGMutablePath()
+        // From 12 o'clock, clockwise on screen: in a flipped view y grows down,
+        // so the top is -90° and a growing angle turns clockwise.
+        let top: CGFloat = isFlipped ? -.pi / 2 : .pi / 2
+        path.addArc(center: CGPoint(x: rect.midX, y: rect.midY), radius: min(rect.width, rect.height) / 2,
+                    startAngle: top, endAngle: isFlipped ? top + 2 * .pi : top - 2 * .pi, clockwise: !isFlipped)
+        for ring in [track, arc] {
+            ring.frame = layer.bounds
+            ring.path = path
+            ring.isHidden = false
+        }
+        performWithTheme {
+            track.strokeColor = Palette.textPrimary.withAlphaComponent(0.18).cgColor
+            arc.strokeColor = Palette.textPrimary.cgColor
+        }
+        arc.strokeStart = 0
+        arc.strokeEnd = progress < 0 ? 0.2 : CGFloat(max(0.02, min(1, progress)))
+        CATransaction.commit()
+    }
+
+    private func makeRingLayer(in layer: CALayer) -> CAShapeLayer {
+        let ring = CAShapeLayer()
+        ring.fillColor = nil
+        ring.lineWidth = 2
+        ring.lineCap = .round
+        ring.actions = ["strokeEnd": NSNull(), "path": NSNull(), "strokeColor": NSNull(), "hidden": NSNull()]
+        layer.addSublayer(ring)
+        return ring
+    }
+
+    override func layout() {
+        super.layout()
+        if progress != nil { updateProgressRing() }
+    }
+
+    /// Chrome's pressed lock: the button keeps its pressed fill while its menu or bubble is
+    /// open. When it closes the hover is read again from the pointer: an `NSMenu` tracks the
+    /// mouse itself, so the button got no exit event while it was open (u2426).
+    var isMenuOpen = false {
+        didSet {
+            guard isMenuOpen != oldValue else { return }
+            if !isMenuOpen { hover?.refresh() }
+            updateFill()
+        }
     }
 
     // A button hidden under a still pointer (collapsed, its tab parked)
@@ -140,7 +211,9 @@ final class ChromeIconButton: NSButton {
     private func showHoldMenu() {
         guard let menu = menuProvider?() else { return }
         showedHoldMenu = true
-            menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: self, gap: 2), in: self)
+        isMenuOpen = true
+        menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(for: menu, in: self, gap: 2), in: self)
+        isMenuOpen = false
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -158,9 +231,9 @@ final class ChromeIconButton: NSButton {
         performWithTheme {
             let color: NSColor = if !isEnabled {
                 .clear
-            } else if isHighlighted || isOn {
+            } else if isHighlighted || isOn || isMenuOpen {
                 Palette.selectionFill
-            } else if isHovering {
+            } else if isHovering, DesignSettings.shared.showsHoverFills {
                 Palette.hoverFill
             } else {
                 .clear
@@ -169,12 +242,14 @@ final class ChromeIconButton: NSButton {
             if let layer { ChromeHover.paint(layer, color, animated: animated && window != nil, pressed: isHighlighted) }
             contentTintColor = isToolbar ? Palette.textPrimary : Palette.textSecondary
         }
+        // The ring's colors follow the theme with the fill.
+        if progress != nil { updateProgressRing() }
     }
 }
 
 /// Text button for prompts and error pages. `prominent` uses a stronger
 /// gray fill instead of the system accent.
-class ChromeTextButton: NSButton {
+class ChromeTextButton: ClickableButton {
     private let density = DensityBinding()
     private let prominent: Bool
     private var hover: PointerHover?

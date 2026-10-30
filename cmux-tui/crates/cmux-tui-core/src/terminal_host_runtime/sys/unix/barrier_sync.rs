@@ -19,6 +19,9 @@ use std::path::Path;
 /// Order `file`'s writes before later writes. Falls back to the full sync
 /// where the filesystem refuses the barrier, and on other platforms.
 pub(crate) fn barrier_sync(file: &File) -> io::Result<()> {
+    if let Some(delay) = slow_discovery_sync_delay() {
+        std::thread::sleep(delay);
+    }
     #[cfg(target_os = "macos")]
     {
         use std::os::fd::AsRawFd;
@@ -29,6 +32,21 @@ pub(crate) fn barrier_sync(file: &File) -> io::Result<()> {
         }
     }
     file.sync_all()
+}
+
+/// Debug seam (`CMUX_TUI_DEBUG_SLOW_DISCOVERY_SYNC_MS=N`, off by default):
+/// every discovery-file sync takes N ms longer, as on a busy disk, so a test
+/// can see which of them a new terminal's first text waits for
+/// (new-terminal-100x). Terminal hosts inherit it from their daemon.
+fn slow_discovery_sync_delay() -> Option<std::time::Duration> {
+    static DELAY: std::sync::OnceLock<Option<std::time::Duration>> = std::sync::OnceLock::new();
+    *DELAY.get_or_init(|| {
+        std::env::var("CMUX_TUI_DEBUG_SLOW_DISCOVERY_SYNC_MS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .filter(|ms| *ms > 0)
+            .map(std::time::Duration::from_millis)
+    })
 }
 
 /// [`barrier_sync`] for the directory entry changes in `dir`.

@@ -2,6 +2,11 @@
 //! resolves it (refused when it cannot be), carries no mode field, and is
 //! accepted only in a mode the reviewed per-harness table lists.
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;
@@ -125,14 +130,20 @@ async fn a_web_source_is_resolved_like_its_handler_and_refused_when_it_cannot_be
             .new_on(&d, "fake", json!({"_meta": {"acpmux": {"harness": "fake", "name": n}}}))
             .await);
     }
-    for key in ["no-such-session", "dup"] {
+    // The ambiguous prefix is refused first by the VM-boundary admission
+    // (`Hub::refuse_at_vm_boundary`), which every request that is not the
+    // person's own passes before the guard, with the resolver's own error.
+    for (key, refusal) in
+        [("no-such-session", "cannot be resolved"), ("dup", "\"dup\" matches 2 sessions")]
+    {
         let r = web
             .call(
                 "session/load",
                 json!({"sessionId": key, "cwd": d.join("work"), "mcpServers": []}),
             )
             .await;
-        assert!(err(&r).contains("cannot be resolved"), "{key}: {r}");
+        assert!(r.get("result").is_none(), "{key}: {r}");
+        assert!(err(&r).contains(refusal), "{key}: {r}");
     }
     let _ = std::fs::remove_dir_all(&d);
 }

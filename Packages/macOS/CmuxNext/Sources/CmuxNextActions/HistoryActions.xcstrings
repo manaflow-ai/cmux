@@ -1447,128 +1447,128 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "إظهار السجل"
+            "state": "translated",
+            "value": "إظهار سجل المتصفح"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Prikaži historiju"
+            "state": "translated",
+            "value": "Prikaži historiju preglednika"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Vis historik"
+            "state": "translated",
+            "value": "Vis browserhistorik"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Verlauf anzeigen"
+            "state": "translated",
+            "value": "Browserverlauf anzeigen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show History"
+            "value": "Show Browser History"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostrar historial"
+            "state": "translated",
+            "value": "Mostrar historial del navegador"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Afficher l’historique"
+            "state": "translated",
+            "value": "Afficher l’historique du navigateur"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostra cronologia"
+            "state": "translated",
+            "value": "Mostra cronologia del browser"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "履歴を表示"
+            "state": "translated",
+            "value": "ブラウザの履歴を表示"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "បង្ហាញប្រវត្តិ"
+            "state": "translated",
+            "value": "បង្ហាញប្រវត្តិកម្មវិធីរុករក"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "기록 보기"
+            "state": "translated",
+            "value": "브라우저 기록 보기"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Vis historikk"
+            "state": "translated",
+            "value": "Vis nettleserhistorikk"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Pokaż historię"
+            "state": "translated",
+            "value": "Pokaż historię przeglądarki"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostrar histórico"
+            "state": "translated",
+            "value": "Mostrar histórico do navegador"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Показать историю"
+            "state": "translated",
+            "value": "Показать историю браузера"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "แสดงประวัติ"
+            "state": "translated",
+            "value": "แสดงประวัติเบราว์เซอร์"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Geçmişi göster"
+            "state": "translated",
+            "value": "Tarayıcı geçmişini göster"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Показати історію"
+            "state": "translated",
+            "value": "Показати історію браузера"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hiện lịch sử"
+            "state": "translated",
+            "value": "Hiện lịch sử trình duyệt"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "显示历史记录"
+            "state": "translated",
+            "value": "显示浏览器历史记录"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "顯示記錄"
+            "state": "translated",
+            "value": "顯示瀏覽器記錄"
           }
         }
       }
@@ -3805,128 +3805,128 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "فتح عنصر السجل"
+            "state": "translated",
+            "value": "فتح عنصر السجل…"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Otvori stavku historije"
+            "state": "translated",
+            "value": "Otvori stavku historije…"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Åbn historikelement"
+            "state": "translated",
+            "value": "Åbn historikelement…"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Verlaufseintrag öffnen"
+            "state": "translated",
+            "value": "Verlaufseintrag öffnen…"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open History Entry"
+            "value": "Open History Entry…"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Abrir entrada del historial"
+            "state": "translated",
+            "value": "Abrir entrada del historial…"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ouvrir l’entrée de l’historique"
+            "state": "translated",
+            "value": "Ouvrir l’entrée de l’historique…"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Apri voce della cronologia"
+            "state": "translated",
+            "value": "Apri voce della cronologia…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "履歴の項目を開く"
+            "value": "履歴の項目を開く…"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "បើកធាតុប្រវត្តិ"
+            "state": "translated",
+            "value": "បើកធាតុប្រវត្តិ…"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "기록 항목 열기"
+            "state": "translated",
+            "value": "기록 항목 열기…"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Åpne loggoppføring"
+            "state": "translated",
+            "value": "Åpne loggoppføring…"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Otwórz wpis historii"
+            "state": "translated",
+            "value": "Otwórz wpis historii…"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Abrir item do histórico"
+            "state": "translated",
+            "value": "Abrir item do histórico…"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Открыть запись истории"
+            "state": "translated",
+            "value": "Открыть запись истории…"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "เปิดรายการประวัติ"
+            "state": "translated",
+            "value": "เปิดรายการประวัติ…"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Geçmiş öğesini aç"
+            "state": "translated",
+            "value": "Geçmiş öğesini aç…"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Відкрити запис історії"
+            "state": "translated",
+            "value": "Відкрити запис історії…"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Mở mục lịch sử"
+            "state": "translated",
+            "value": "Mở mục lịch sử…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "打开历史记录项"
+            "state": "translated",
+            "value": "打开历史记录项…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "開啟歷史記錄項目"
+            "state": "translated",
+            "value": "開啟歷史記錄項目…"
           }
         }
       }

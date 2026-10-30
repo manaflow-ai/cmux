@@ -16,6 +16,7 @@ git_q() { git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=m
 src="$TMP/src"
 mkdir -p "$src/scripts/cmux-next" "$src/cmux-tui/crates/acpmux" "$src/Native/OptChat/optchat-chief" "$TMP/bin"
 cp "$ROOT/scripts/cmux-next/build-acpmux.sh" "$ROOT/scripts/cmux-next/build-optchat-chief.sh" "$src/scripts/cmux-next/"
+mkdir -p "$src/scripts/lib"; cp "$ROOT/scripts/lib/rust-targets.sh" "$src/scripts/lib/"
 echo '[package]' > "$src/cmux-tui/crates/acpmux/Cargo.toml"
 echo '[package]' > "$src/Native/OptChat/optchat-chief/Cargo.toml"
 printf '[toolchain]\nchannel = "1.95.0"\n' > "$src/cmux-tui/rust-toolchain.toml"
@@ -62,6 +63,7 @@ run "$src/scripts/cmux-next/build-optchat-chief.sh" --cached-only --print-path >
 dev="$TMP/dev"
 mkdir -p "$dev/scripts/cmux-next" "$dev/cmux-tui/crates/acpmux" "$dev/tree"
 cp "$ROOT/scripts/cmux-next/build-acpmux.sh" "$dev/scripts/cmux-next/"
+mkdir -p "$dev/scripts/lib"; cp "$ROOT/scripts/lib/rust-targets.sh" "$dev/scripts/lib/"
 echo '[package]' > "$dev/cmux-tui/crates/acpmux/Cargo.toml"
 printf '#!/usr/bin/env bash\n[[ "$1" == acpmux-path ]] && echo %q\n' "$dev/tree/acpmux" > "$dev/scripts/cmux-next/pin-cmux-tui.sh"
 printf '#!/bin/sh\necho "$FAKE_ARCHS"\n' > "$TMP/bin/lipo"
@@ -80,4 +82,13 @@ echo '// two' >> "$src/cmux-tui/crates/acpmux/Cargo.toml"; git_q -C "$src" commi
 run CMUX_FLEET_BUILD_TAG=x "$src/scripts/cmux-next/build-acpmux.sh" >/dev/null 2>&1 || fail "a fleet build did not build acpmux"
 dirs=$(grep -c . "$TMP/cargo.log"); first=$(sed -n 1p "$TMP/cargo.log"); last=$(sed -n '$p' "$TMP/cargo.log")
 [[ "$first" == "$last" && "$first" == "$src/"* ]] || fail "acpmux did not build in one persistent target dir in the tree:" "$(cat "$TMP/cargo.log")"
+
+# A CI job whose checkout is cleaned (or recreated) every run keeps optchat-chief
+# warm in a target dir outside the checkout: the media tour rebuilt it from
+# scratch in ~100 s for each of its two apps (cmux-next-media.yml).
+echo '// three' >> "$src/Native/OptChat/optchat-chief/Cargo.toml"; git_q -C "$src" commit -am three
+run CI=1 CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR="$TMP/chief-target" "$src/scripts/cmux-next/build-optchat-chief.sh" >/dev/null 2>"$TMP/err" ||
+  fail "a CI build with a target dir did not build optchat-chief: $(cat "$TMP/err")"
+[[ "$(sed -n '$p' "$TMP/cargo.log")" == "$TMP/chief-target" ]] ||
+  fail "optchat-chief did not build in CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR:" "$(cat "$TMP/cargo.log")"
 echo "rust-daemon-miss-builds: ok ($dirs builds)"

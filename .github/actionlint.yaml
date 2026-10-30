@@ -16,10 +16,12 @@ self-hosted-runner:
     - blacksmith-4vcpu-ubuntu-2404
     - blacksmith-4vcpu-ubuntu-2404-arm
     - blacksmith-8vcpu-ubuntu-2404
+    - blacksmith-16vcpu-ubuntu-2404
     - blacksmith-4vcpu-windows-2025
     - blacksmith-32vcpu-ubuntu-2404
     - warp-ubuntu-latest-x64-4x
-    # GitHub-hosted, not self-hosted. actionlint 1.7.7 ships a fixed list of
+    # GitHub-hosted, not self-hosted (1.7.12 knows this label; the entry stays
+    # for older local actionlint builds). actionlint 1.7.7 shipped a fixed list of
     # hosted labels and macos-15-intel postdates it, so the only way to say
     # "this label is real" is here. It is: run 34656982146's
     # `compat-tests (macos-15-intel, ...)` job was served by "GitHub Actions
@@ -38,3 +40,12 @@ paths:
       # The workflow is dispatch-only and driven from outside this repository,
       # so that call belongs to whoever owns those dispatchers.
       - 'string should not be empty'
+  .github/workflows/nightly.yml:
+    ignore:
+      # await-release-surface-ack and promote-nightly-next-acked are retired
+      # with `if: false` (main retired the live release-surface ack on
+      # 2026-10-18, #21544; feat-cmux-next took main's copy in #25995). They
+      # stay in main's exact shape so a sync between the branches never
+      # brings the live approval back, and tests/test_nightly_promotion_admission.py
+      # pins that shape. Deleting them is a cross-branch decision, not a lint fix.
+      - 'constant expression "false" in condition'

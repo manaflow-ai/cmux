@@ -11,12 +11,14 @@ import { MockVMProvider } from "../services/vms/drivers/mock";
 describe("vm capability derivation", () => {
   test("freestyle: derived from the real driver, not hardcoded", () => {
     const caps = vmCapabilitiesFor("freestyle");
+    expect(caps.restart).toBe(false);
     expect(caps).toEqual({
       snapshot: true,
       restore: true,
       fork: false,
       exec: true,
       stats: true,
+      restart: false,
       // Port previews ride the platform's TLS edge (style.dev capability URLs).
       ports: true,
       desktop: true,
@@ -27,17 +29,19 @@ describe("vm capability derivation", () => {
     });
   });
 
-  test("freestyle driver no longer carries throwing attach/ssh stubs", () => {
+  test("freestyle driver serves scoped SSH identities without advertising SSH as a transport", () => {
     const driver = getProvider("freestyle");
     expect(driver.openAttach).toBeUndefined();
-    expect(driver.openSSH).toBeUndefined();
-    expect(driver.revokeSSHIdentity).toBeUndefined();
+    expect(typeof driver.openSSH).toBe("function");
+    expect(typeof driver.revokeSSHIdentity).toBe("function");
+    expect(vmCapabilitiesOf(driver).attachTransports).toEqual(["cmux-remote"]);
   });
 
   test("a minimal provider derives the minimal capability set", () => {
     const caps = vmCapabilitiesOf(new MockVMProvider({ features: { cmuxRemote: false } }));
     expect(caps.fork).toBe(false);
     expect(caps.stats).toBe(false);
+    expect(caps.restart).toBe(false);
     expect(caps.ports).toBe(false);
     expect(caps.desktop).toBe(false);
     expect(caps.sizing).toBe(false);

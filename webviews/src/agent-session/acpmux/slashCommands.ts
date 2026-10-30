@@ -3,12 +3,16 @@
 /// `/word` at its start, filters by that word, and picking a command writes
 /// `/name ` back so its arguments can follow.
 
+import type { StringKey } from "./i18n";
+
 export type SlashCommand = {
   name: string;
   description: string;
+  /** A pane string that replaces `description`, for commands cmux owns. */
+  descriptionKey?: StringKey;
   hint?: string;
   /** Where the command came from. Harness commands are the default for old snapshots. */
-  source?: "agent" | "cmux";
+  source?: "agent" | "cmux" | "skill" | "prompt";
 };
 
 /// One menu row: the command and the ranges of its name the query matched.
@@ -21,6 +25,11 @@ export function commandsFromUpdate(update: any): SlashCommand[] | undefined {
     return undefined;
   const commands: SlashCommand[] = [];
   for (const entry of update.availableCommands) {
+    // Harness commands, skills and prompts share this update, one picker and one
+    // insertion path. A skill or prompt may carry `_meta.kind`, ACP's extension slot
+    // (acpmux does not tag Claude skills yet). codex-acp names a skill `$name` and
+    // passes `/$name` through to Codex as a skill mention, so only a leading `/` is
+    // dropped.
     const name = typeof entry?.name === "string" ? entry.name.replace(/^\//, "").trim() : "";
     if (!name) continue;
     const hint = typeof entry.input?.hint === "string" && entry.input.hint.trim() ? entry.input.hint.trim() : undefined;
@@ -28,10 +37,35 @@ export function commandsFromUpdate(update: any): SlashCommand[] | undefined {
       name,
       description: typeof entry.description === "string" ? entry.description : "",
       hint,
-      source: "agent",
+      source:
+        name.startsWith("$") || entry?._meta?.kind === "skill" || entry?.kind === "skill" || entry?.source === "skill"
+          ? "skill"
+          : entry?._meta?.kind === "prompt" || entry?.kind === "prompt" || entry?.source === "prompt"
+            ? "prompt"
+            : "agent",
     });
   }
   return commands;
+}
+
+/// Whether `command` is the harness's own `/fast` (Claude Code lists it as "Toggle fast mode"). The
+/// `/` menu draws it as ChatGPT does (Leo 2026-10-22): the bolt, the plain name Fast, and what
+/// picking it does in the chat's current state (fastModeState).
+export function isFastCommand(command: SlashCommand): boolean {
+  return (command.source ?? "agent") === "agent" && command.name.toLowerCase() === "fast";
+}
+
+type FastOption = { id: string; name?: string; currentValue?: string; options: { value: string }[] };
+
+/// The chat's fast mode, from its config options as the model menu reads them (ComposerPickers.tsx):
+/// Claude Code's `fast-mode`, or an option named for it. Undefined when the session reports none or
+/// no current value.
+export function fastModeState(options: readonly FastOption[] | undefined): "on" | "off" | undefined {
+  const option = options?.find((entry) => entry.id === "fast-mode" || /fast[ _-]?mode/i.test(entry.name ?? ""));
+  if (!option || option.currentValue === undefined) return undefined;
+  const off =
+    option.options.find((choice) => /^(off|false|disabled)$/i.test(choice.value))?.value ?? option.options[0]?.value;
+  return option.currentValue === off ? "off" : "on";
 }
 
 /// The query while the caret is in a leading `/word` (no space yet), else undefined.

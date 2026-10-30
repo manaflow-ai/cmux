@@ -8,11 +8,22 @@
 // from a short-lived URL on the daemon's listener, which answers byte ranges (seeking); a page
 // whose policy has no `media-src` for that origin (the app's page scheme today) cannot play it.
 import type { PageClient } from "../shared/pageClient";
-import { HomeOps, type HomeAttachment, type HomeAttachmentSupport, type HomeDerivedImage } from "./types";
+import {
+  HomeOps,
+  MESSAGE_PARTS,
+  type HomeAttachment,
+  type HomeAttachmentSupport,
+  type HomeDerivedImage,
+} from "./types";
 
 export type AttachmentClass = "image" | "video" | "audio" | "file";
 
-/** The owner's allow list (home-core attachments.ts ATTACHMENT_TYPES). */
+/** A file with no listed type that does not read as UTF-8 text (home-core GENERIC_FILE_TYPE). */
+export const GENERIC_FILE_TYPE = "application/octet-stream";
+
+/** The owner's types (home-core attachments.ts ATTACHMENT_TYPES). Any file attaches: a file with no
+ * listed type goes as text/plain when its bytes read as UTF-8 (HTML, source code, dotfiles), else
+ * as GENERIC_FILE_TYPE (`resolvedType`). */
 const TYPES: Readonly<Record<string, AttachmentClass>> = {
   "image/jpeg": "image",
   "image/png": "image",
@@ -25,6 +36,7 @@ const TYPES: Readonly<Record<string, AttachmentClass>> = {
   "text/csv": "file",
   "application/json": "file",
   "application/zip": "file",
+  [GENERIC_FILE_TYPE]: "file",
   "video/mp4": "video",
   "video/quicktime": "video",
   "audio/mp4": "audio",
@@ -46,7 +58,6 @@ const BY_EXTENSION: Readonly<Record<string, string>> = {
 };
 
 export const MAX_ATTACHMENT_BYTES = 100_000_000;
-export const MAX_ATTACHMENTS = 10;
 const PREVIEW_MAX_BYTES = 512_000;
 const POSTER_MAX_BYTES = 2_000_000;
 const PREVIEW_EDGE = 720;
@@ -66,22 +77,72 @@ export function attachmentClass(mimeType: string): AttachmentClass {
   return TYPES[mimeType] ?? "file";
 }
 
-/** The type the owner will see for `file`, or undefined when it is not on the allow list. */
+/** The listed type the owner will see for `file` from its declared type or extension, or undefined
+ * when it has none (`resolvedType` then reads its bytes). */
 export function attachmentType(file: File): string | undefined {
   const declared = file.type.toLowerCase();
-  if (TYPES[declared]) return declared;
+  if (TYPES[declared] && declared !== GENERIC_FILE_TYPE) return declared;
   const extension = file.name.slice(file.name.lastIndexOf(".") + 1).toLowerCase();
   const guessed = BY_EXTENSION[extension];
   return guessed && TYPES[guessed] ? guessed : undefined;
 }
 
-export type Refusal = "type" | "size";
+/** How many leading bytes the text check reads. */
+const SNIFF_BYTES = 64 * 1024;
 
-/** Why the owner would refuse `file`, before any byte moves. */
+/** True when `bytes` read as UTF-8 text: no NUL, valid UTF-8 (a character cut at the end of a
+ * prefix counts unless `complete`), and almost no control characters besides tab, line breaks,
+ * form feed and escape. Matches CmuxHomeCore's HomeAttachmentPolicy.looksLikeText. */
+export function looksLikeText(bytes: Uint8Array, complete: boolean): boolean {
+  let controls = 0;
+  for (const byte of bytes) {
+    if (byte === 0) return false;
+    if (byte < 0x20 && byte !== 0x09 && byte !== 0x0a && byte !== 0x0c && byte !== 0x0d && byte !== 0x1b) controls += 1;
+  }
+  if (controls * 100 > Math.max(bytes.length, 1)) return false;
+  const decoder = () => new TextDecoder("utf-8", { fatal: true });
+  for (let cut = 0; cut <= (complete ? 0 : Math.min(3, bytes.length)); cut += 1) {
+    try {
+      decoder().decode(bytes.subarray(0, bytes.length - cut));
+      return true;
+    } catch {
+      // try a shorter prefix: the last character may be cut
+    }
+  }
+  return false;
+}
+
+/** The type the owner will see for `file` whose bytes are `bytes`: its listed type, else text/plain
+ * for UTF-8 text, else GENERIC_FILE_TYPE. */
+export function resolvedType(file: File, bytes: Uint8Array): string {
+  const listed = attachmentType(file);
+  if (listed) return listed;
+  const prefix = bytes.subarray(0, SNIFF_BYTES);
+  return looksLikeText(prefix, prefix.length === bytes.length) ? "text/plain" : GENERIC_FILE_TYPE;
+}
+
+export type Refusal = "size";
+
+/** Why the owner would refuse `file`, before any byte moves: only an empty file or one over the
+ * size cap (any type attaches). */
 export function refusal(file: File): Refusal | undefined {
-  if (!attachmentType(file)) return "type";
   if (file.size <= 0 || file.size > MAX_ATTACHMENT_BYTES) return "size";
   return undefined;
+}
+
+/** The messages one send of `text` and `files` becomes, in order: each within `MESSAGE_PARTS`, the
+ * text (when there is any) with the first files. No files: the text alone. */
+export function messageGroups<T>(text: string, files: readonly T[]): { text: string; files: T[] }[] {
+  const groups: { text: string; files: T[] }[] = [];
+  let at = 0;
+  let first = true;
+  do {
+    const room = MESSAGE_PARTS - (first && text ? 1 : 0);
+    groups.push({ text: first ? text : "", files: files.slice(at, at + room) });
+    at += room;
+    first = false;
+  } while (at < files.length);
+  return groups;
 }
 
 export function formatBytes(bytes: number): string {
@@ -226,9 +287,9 @@ export class AttachmentService {
     onProgress: (progress: UploadProgress) => void,
     signal?: AbortSignal,
   ): Promise<HomeAttachment> {
-    const mimeType = attachmentType(file);
-    if (!mimeType || refusal(file)) throw new Error("refused");
+    if (refusal(file)) throw new Error("refused");
     const bytes = new Uint8Array(await file.arrayBuffer());
+    const mimeType = resolvedType(file, bytes);
     const kind = attachmentClass(mimeType);
     const facts: Facts = kind === "image" ? await imageFacts(file) : kind === "video" ? await videoFacts(file) : {};
     const derived = facts.preview ?? facts.poster;

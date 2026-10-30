@@ -5,6 +5,7 @@ import CmuxNextBrowser
 import CmuxNextLayout
 import CmuxNextSidebar
 import CmuxNextTabs
+import CmuxNextAgentCursor
 
 /// Reads the live models into the agent cursor's visibility snapshot for
 /// one target tab (`AgentCursorVisibilityResolver` decides). Only the facts
@@ -27,11 +28,11 @@ struct AgentCursorSnapshotBuilder {
 
     /// The workspace and pane of tab `id` (daemon tabs, then this session's local browser tabs).
     private func locate(_ id: String, _ services: AppServices) -> AgentCursorVisibilitySnapshot.TabLocation? {
-        if let (_, pane) = services.locateTab(id), let workspace = workspaceID(containingPane: pane.id, services) {
+        if let (_, pane) = services.locateTabOnAnyMachine(id), let workspace = workspaceID(containingPane: pane.id, services) {
             return .init(workspace: workspace, pane: pane.id)
         }
         for controller in services.windows.controllers {
-            for (pane, tabs) in controller.state.localBrowserTabs where tabs.contains(where: { $0.id == id }) {
+            for (pane, tabs) in controller.state.localBrowserTabs.all where tabs.contains(where: { $0.id == id }) {
                 if let workspace = workspaceID(containingPane: pane, services) { return .init(workspace: workspace, pane: pane) }
             }
         }
@@ -56,13 +57,17 @@ struct AgentCursorSnapshotBuilder {
     }
 
     private func window(_ controller: WindowController, target: String,
-                        location: AgentCursorVisibilitySnapshot.TabLocation?, _ services: AppServices) -> AgentCursorVisibilitySnapshot.Window {
+                        location own: AgentCursorVisibilitySnapshot.TabLocation?, _ services: AppServices) -> AgentCursorVisibilitySnapshot.Window {
         let window = controller.window
         let content = controller.content
         let space = window?.contentView.map(AgentCursorContentSpace.init)
         // The Home page draws the home workspace's chief conversation: that workspace is on screen.
         let homePage = controller.shownTopPage == .home ? controller.topPages.views[.home] : nil
         let shown = content?.workspace.id ?? homePage.flatMap { _ in services.home.homeWorkspace?.id }
+        // A tab mirrored into the shown workspace (`TabMirrors`) is there for this window: its
+        // cursor follows the mirror, which holds the live page (plans/cmux-next/shared-browser-tabs.md).
+        let location = own.flatMap { own in own.workspace == shown ? own : nil }
+            ?? Self.mirror(of: target, inWorkspace: shown, content: content, services) ?? own
         var rows: [String: AgentCursorRect] = [:]
         var panes: [AgentCursorVisibilitySnapshot.Pane] = []
         if let location, let space {
@@ -96,6 +101,20 @@ struct AgentCursorSnapshotBuilder {
         )
     }
 
+    /// Where the shown workspace mirrors `target`, if it does.
+    private static func mirror(of target: String, inWorkspace shown: String?, content: WorkspaceContentController?,
+                               _ services: AppServices) -> AgentCursorVisibilitySnapshot.TabLocation? {
+        guard let shown else { return nil }
+        let workspace = content.map(\.workspace) ?? services.workspace(id: shown)
+        guard let workspace, workspace.id == shown else { return nil }
+        for screen in workspace.screens {
+            if let pane = screen.panes.first(where: { services.tabMirrors.mirrors(target, in: $0.id) }) {
+                return .init(workspace: shown, pane: pane.id)
+            }
+        }
+        return nil
+    }
+
     // MARK: Pane
 
     /// A top page that draws `pane`'s content: the page's bounds are the
@@ -121,7 +140,7 @@ struct AgentCursorSnapshotBuilder {
         if selected == target, controller.currentTabKey == target, case let .browser(entry)? = controller.currentContent,
            entry.chrome.window != nil {
             page = .init(viewport: AgentCursorRect(space.rect(entry.chrome.pageViewportRect, from: entry.chrome)),
-                         zoom: entry.tab.state.zoom)
+                         zoom: entry.tab.state.zoom, scale: Double(entry.chrome.pageViewportScale))
         }
         return AgentCursorVisibilitySnapshot.Pane(
             id: key,

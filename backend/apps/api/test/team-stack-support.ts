@@ -21,6 +21,8 @@ export const stackWorld = () => {
   const perms = new Map<string, Array<string>>()
   /** Memberships the cmux side removed in Stack (`${team}:${user}`). */
   const removedInStack: Array<string> = []
+  /** Stack anonymous users (profile user.is_anonymous), by user id. */
+  const anonymous = new Set<string>()
   let calls = 0
   const fake = {
     findUserByEmail: async () => undefined,
@@ -34,16 +36,21 @@ export const stackWorld = () => {
       calls++
       return teams.has(t) ? { display_name: teams.get(t)!, plan: null } : null
     },
+    listUserTeams: async (u: string) => {
+      calls++
+      return [...members.keys()].filter((k) => k.endsWith(`:${u}`) && teams.has(k.slice(0, k.length - u.length - 1))).map((k) => k.slice(0, k.length - u.length - 1))
+    },
     getUserPlan: async () => null,
+    getUserVmPlan: async () => ({ vm_plan: null }),
     listTeamMembers: async (t: string) => {
       calls++
       if (!teams.has(t)) return "team_gone" as const
-      return [...members.entries()].filter(([k]) => k.startsWith(`${t}:`)).map(([k, name]) => ({ user_id: k.slice(t.length + 1), display_name: name, permissions: perms.get(k) ?? [] }))
+      return [...members.entries()].filter(([k]) => k.startsWith(`${t}:`)).map(([k, name]) => ({ user_id: k.slice(t.length + 1), display_name: name, permissions: perms.get(k) ?? [], anonymous: anonymous.has(k.slice(t.length + 1)) }))
     },
     getTeamMember: async (t: string, u: string) => {
       calls++
       if (!teams.has(t)) return "team_gone" as const
-      return members.has(`${t}:${u}`) ? { display_name: members.get(`${t}:${u}`)!, permissions: perms.get(`${t}:${u}`) ?? [] } : null
+      return members.has(`${t}:${u}`) ? { display_name: members.get(`${t}:${u}`)!, permissions: perms.get(`${t}:${u}`) ?? [], anonymous: anonymous.has(u) } : null
     },
     removeTeamMember: async (t: string, u: string) => {
       calls++
@@ -54,7 +61,7 @@ export const stackWorld = () => {
       return had ? ("removed" as const) : ("absent" as const)
     }
   }
-  return { teams, members, perms, removedInStack, fake, calls: () => calls }
+  return { teams, members, perms, removedInStack, anonymous, fake, calls: () => calls }
 }
 export type World = ReturnType<typeof stackWorld>
 

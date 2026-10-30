@@ -53,14 +53,14 @@ final class WhichKeyOverlay {
             handle = WindowOverlayHost.host(for: parent).present(glass, options: OverlayOptions(kind: .toast, anchor: bottom, passesThroughClicks: true))
         }
         if glass.alphaValue < 1 || wasDismissing {
-            Motion.animateTimed(.fadeIn, in: glass) { glass.animator().alphaValue = 1 }
+            Motion.overlays.animateTimed(.fadeIn, in: glass) { glass.animator().alphaValue = 1 }
         }
     }
 
     func dismiss() {
         guard let handle, !handle.isDismissed, !isDismissing else { return }
         isDismissing = true
-        Motion.animateTimed(.fadeOut, in: glass, { glass.animator().alphaValue = 0 }, completion: { [weak self] in
+        Motion.overlays.animateTimed(.fadeOut, in: glass, { glass.animator().alphaValue = 0 }, completion: { [weak self] in
             guard let self, self.isDismissing else { return }
             self.isDismissing = false
             self.handle?.dismiss()
@@ -88,7 +88,7 @@ final class WhichKeyView: NSView {
     /// Longest a title draws before it truncates.
     private static let maxTitleWidth: CGFloat = 280
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     func update(prefix: [String], rows newRows: [WhichKeyRow]) {
         prefixCaps = prefix

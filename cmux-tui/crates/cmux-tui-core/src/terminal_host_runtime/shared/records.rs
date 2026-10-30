@@ -9,6 +9,7 @@ use std::fs;
 use std::io as std_io;
 use std::io::Write;
 use std::sync::Arc;
+use std::sync::PoisonError;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
@@ -54,6 +55,7 @@ pub fn validate_terminal_host_record(
             || record.supports_viewer_size_priority
             || record.supports_pty_custody
             || record.supports_program_status
+            || record.supports_shell_activity
         {
             anyhow::bail!("legacy terminal-host record has unexpected liveness fields");
         }
@@ -80,6 +82,9 @@ pub fn validate_terminal_host_record(
         if record.record_version < HOST_RECORD_VERSION && record.supports_program_status {
             anyhow::bail!("pre-v4 terminal-host record advertises program status");
         }
+        if record.record_version < HOST_RECORD_VERSION && record.supports_shell_activity {
+            anyhow::bail!("pre-v4 terminal-host record advertises shell activity");
+        }
         let nonce = decode_lower_hex_array::<HOST_START_NONCE_LEN>(
             &record.host_start_nonce,
             "process-start nonce",
@@ -103,8 +108,8 @@ pub fn validate_terminal_host_record(
         anyhow::bail!("terminal-host record filename is not canonical");
     }
     let uid = sys::file_owner(parent)?;
-    let expected_endpoint = sys::canonical_endpoint(uid, &record.terminal_id);
-    if Path::new(&record.endpoint) != expected_endpoint {
+    let expected = sys::canonical_endpoints(uid, parent, &record.terminal_id);
+    if !expected.iter().any(|endpoint| Path::new(&record.endpoint) == endpoint) {
         anyhow::bail!("terminal-host endpoint is not canonical");
     }
     if let Ok(metadata) = fs::symlink_metadata(record_path)
@@ -174,7 +179,10 @@ pub fn terminal_host_record_liveness(
         Err(_) => return Ok(TerminalHostLiveness::Indeterminate),
     };
     let metadata = file.metadata()?;
-    let expected_uid = sys::file_owner(record_path.parent().unwrap())?;
+    let Some(record_dir) = record_path.parent() else {
+        return Ok(TerminalHostLiveness::Indeterminate);
+    };
+    let expected_uid = sys::file_owner(record_dir)?;
     if !sys::is_private_file(&metadata, expected_uid) || !sys::has_single_link(&metadata) {
         return Ok(TerminalHostLiveness::Indeterminate);
     }
@@ -193,7 +201,7 @@ static RECORD_REMOVAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// Wait until no stale-record removal of this process is in progress.
 pub(crate) fn wait_for_terminal_host_record_removals() {
-    drop(RECORD_REMOVAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+    drop(RECORD_REMOVAL.lock().unwrap_or_else(PoisonError::into_inner));
 }
 
 /// Remove a discovery record only after the process-lifetime proof says
@@ -203,7 +211,7 @@ pub fn remove_stale_terminal_host_record(
     record_path: &Path,
     expected: &TerminalHostRecord,
 ) -> anyhow::Result<bool> {
-    let _removal = RECORD_REMOVAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _removal = RECORD_REMOVAL.lock().unwrap_or_else(PoisonError::into_inner);
     if terminal_host_record_liveness(record_path, expected)? != TerminalHostLiveness::Dead {
         return Ok(false);
     }
@@ -398,6 +406,8 @@ pub fn acknowledge_terminal_host_exit_record(
     Ok(true)
 }
 
+/// Tests write host records directly; the daemon queues them (`record_mirror`).
+#[cfg(test)]
 pub(crate) fn write_record(path: &Path, record: &TerminalHostRecord) -> anyhow::Result<()> {
     write_json_record(path, record)
 }
@@ -478,7 +488,28 @@ pub(crate) fn next_exit_persistence_retry_delay(delay: Duration) -> Duration {
     delay.saturating_mul(2).min(HOST_EXIT_PERSIST_RETRY_MAX)
 }
 
+#[cfg(test)]
 pub(crate) fn write_json_record(path: &Path, record: &impl Serialize) -> anyhow::Result<()> {
+    write_json_record_syncing_dir(path, record, true)
+}
+
+/// [`write_record`] without its directory entry sync, which the caller runs
+/// later: a new host syncs it after its Ready, off its terminal's first
+/// output (new-terminal-100x). The data barrier before the rename stays, so
+/// a power cut never leaves a torn record (an explicit reset refuses one);
+/// a lost entry only loses a host the same power cut killed.
+pub(crate) fn write_record_deferring_dir_sync(
+    path: &Path,
+    record: &TerminalHostRecord,
+) -> anyhow::Result<()> {
+    write_json_record_syncing_dir(path, record, false)
+}
+
+fn write_json_record_syncing_dir(
+    path: &Path,
+    record: &impl Serialize,
+    sync_dir: bool,
+) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         sys::prepare_private_dir(parent)?;
     }
@@ -493,7 +524,7 @@ pub(crate) fn write_json_record(path: &Path, record: &impl Serialize) -> anyhow:
         file.write_all(&bytes)?;
         sys::barrier_sync(&file)?;
         fs::rename(&temporary, path)?;
-        if let Some(parent) = path.parent() {
+        if sync_dir && let Some(parent) = path.parent() {
             sys::barrier_sync_dir(parent)?;
         }
         Ok(())

@@ -26,8 +26,22 @@ extension DaemonConnection {
     }
 
     @discardableResult
-    public func renameWorkspace(_ key: WorkspaceKey, to name: String) async throws -> WorkspaceMutationResult {
-        try await request(RenameWorkspaceRequest(workspace: .key(key), name: name, mutation: mutation()))
+    public func renameWorkspace(_ key: WorkspaceKey, to name: String, source: WorkspaceNameSource? = nil,
+                                expectedNameRevision: UInt64? = nil, release: Bool = false) async throws -> WorkspaceMutationResult {
+        if source == .auto {
+            guard identity?.supports(DaemonCapability.workspaceNameSource.rawValue) == true else {
+                throw DaemonError.missingCapabilities([DaemonCapability.workspaceNameSource.rawValue])
+            }
+        }
+        let nameMutation: MutationIdentity = {
+            guard source == .auto else { return mutation() }
+            var identity = mutation()
+            identity.expectedGeneration = self.identity?.generation
+            return identity
+        }()
+        return try await request(RenameWorkspaceRequest(workspace: .key(key), name: name, source: source,
+                                                        expectedNameRevision: expectedNameRevision, release: release,
+                                                        mutation: nameMutation))
     }
 
     @discardableResult
@@ -59,11 +73,11 @@ extension DaemonConnection {
     }
 
     /// Whether this daemon takes `if_empty` on `close-workspace`.
-    public var supportsCloseIfEmpty: Bool { identity?.supports(DaemonCapabilities.shared.closeWorkspaceIfEmpty) == true }
+    public var supportsCloseIfEmpty: Bool { identity?.supports(DaemonCapability.closeWorkspaceIfEmpty.rawValue) == true }
 
     /// Whether this daemon closes many tabs, and the terminals they end, in
     /// one commit (`close-tabs`, `end_terminals`).
-    public var supportsBatchClose: Bool { identity?.supports(DaemonCapabilities.shared.batchClose) == true }
+    public var supportsBatchClose: Bool { identity?.supports(DaemonCapability.batchClose.rawValue) == true }
 
     /// Closes `surfaces` in one daemon commit (`batch-close-v1`). With
     /// `endTerminals`, each terminal whose tabs all close ends too, unless kept.
@@ -80,7 +94,7 @@ extension DaemonConnection {
     /// provider's when the daemon supports `terminal-env-v1`.
     func terminalEnvironment(_ explicit: [String: String]?) async -> [String: String]? {
         if let explicit { return explicit }
-        guard identity?.supports(DaemonCapabilities.shared.terminalEnv) == true, let provider = configuration.terminalEnvironment else {
+        guard identity?.supports(DaemonCapability.terminalEnv.rawValue) == true, let provider = configuration.terminalEnvironment else {
             return nil
         }
         let env = await provider()
@@ -94,14 +108,21 @@ extension DaemonConnection {
     @discardableResult
     public func createTerminal(in key: WorkspaceKey, cwd: String? = nil, argv: [String]? = nil, name: String? = nil,
                                size: CellSize? = nil, env: [String: String]? = nil, keep: Bool? = nil) async throws -> CreateTerminalResult {
+        try await request(createTerminalRequest(in: key, cwd: cwd, argv: argv, name: name, size: size, env: env, keep: keep))
+    }
+
+    /// One `create-terminal` for workspace `key`: a new terminal id and mutation identity, so the
+    /// request sent again replays the terminal instead of starting a second one.
+    func createTerminalRequest(in key: WorkspaceKey, cwd: String?, argv: [String]? = nil, name: String? = nil,
+                               size: CellSize? = nil, env: [String: String]? = nil, keep: Bool? = nil) async -> CreateTerminalRequest {
         let terminal = TerminalID.generate()
         var env = await terminalEnvironment(env)
-        if identity?.supports(DaemonCapabilities.shared.terminalEnv) == true {
+        if identity?.supports(DaemonCapability.terminalEnv.rawValue) == true {
             env = (env ?? [:]).merging(Self.placementEnvironment(workspace: key, terminal: terminal)) { _, placement in placement }
         }
-        let keep = identity?.supports(DaemonCapabilities.shared.terminalReap) == true ? keep : nil
-        return try await request(CreateTerminalRequest(workspace: .key(key), argv: argv, cwd: cwd, name: name, size: size,
-                                                       terminalID: terminal, env: env, keep: keep, mutation: mutation()))
+        let keep = identity?.supports(DaemonCapability.terminalReap.rawValue) == true ? keep : nil
+        return CreateTerminalRequest(workspace: .key(key), argv: argv, cwd: cwd, name: name, size: size,
+                                     terminalID: terminal, env: env, keep: keep, mutation: mutation())
     }
 
     /// New terminal tab in `pane` (the daemon's focused pane when nil).
@@ -129,7 +150,8 @@ extension DaemonConnection {
         }
         if supportsPlacementEnv {
             let options = await placed(options)
-            return Self.created(try await request(SplitRequest(pane: pane, direction: direction, options: options)), options: options)
+            // The client-minted terminal id keys the split: a late start is waited for, not taken back.
+            return Self.created(try await requestPaneCreation(SplitRequest(pane: pane, direction: direction, options: options)), options: options)
         }
         if let placed = try await spawnPlacedByMove(options, into: .split(pane, direction)) { return placed }
         var options = served(options)
@@ -143,16 +165,25 @@ extension DaemonConnection {
     public func newPaneInColumn(of pane: PaneID, options: SpawnOptions = SpawnOptions()) async throws -> SurfaceCreated {
         guard supportsPlacementEnv else { return try await request(NewPaneRequest(pane: pane, options: served(options))) }
         let options = await placed(options)
-        return Self.created(try await request(NewPaneRequest(pane: pane, options: options)), options: options)
+        return Self.created(try await requestPaneCreation(NewPaneRequest(pane: pane, options: options)), options: options)
     }
 
     /// New scrolling column right of `pane`'s. `cwd`, `env`, and `keep`
     /// reach the daemon only with `terminal-placement-env-v1`.
     @discardableResult
     public func newColumn(rightOf pane: PaneID, width: Double? = nil, options: SpawnOptions = SpawnOptions()) async throws -> SurfaceCreated {
-        guard supportsPlacementEnv else { return try await request(NewColumnRequest(pane: pane, width: width, options: served(options))) }
+        try await newColumn(beside: pane, left: false, width: width, options: options)
+    }
+
+    /// New scrolling column beside `pane`'s: before it when `left` (`column-left-v1`, New
+    /// Column Left), else after it.
+    @discardableResult
+    public func newColumn(beside pane: PaneID, left: Bool, width: Double? = nil, options: SpawnOptions = SpawnOptions()) async throws -> SurfaceCreated {
+        guard supportsPlacementEnv else {
+            return try await request(NewColumnRequest(pane: pane, width: width, left: left, options: served(options)))
+        }
         let options = await placed(options)
-        return Self.created(try await request(NewColumnRequest(pane: pane, width: width, options: options)), options: options)
+        return Self.created(try await requestPaneCreation(NewColumnRequest(pane: pane, width: width, left: left, options: options)), options: options)
     }
 
     @discardableResult
@@ -176,8 +207,8 @@ extension DaemonConnection {
     /// gets `missingCapabilities` and no request.
     @discardableResult
     public func setTabPinned(_ surface: SurfaceID, _ pinned: Bool) async throws -> SetTabPinnedRequest.Response {
-        guard identity?.supports(DaemonCapabilities.shared.tabMetadata) == true else {
-            throw DaemonError.missingCapabilities([DaemonCapabilities.shared.tabMetadata])
+        guard identity?.supports(DaemonCapability.tabMetadata.rawValue) == true else {
+            throw DaemonError.missingCapabilities([DaemonCapability.tabMetadata.rawValue])
         }
         return try await request(SetTabPinnedRequest(surface: surface, pinned: pinned))
     }
@@ -186,7 +217,7 @@ extension DaemonConnection {
     @discardableResult
     public func newFrontendBrowserTab(url: String, engine: BrowserEngine, in pane: PaneID?, title: String? = nil, profileID: String? = nil,
                                       activate: Bool? = nil, after: SurfaceID? = nil) async throws -> NewFrontendBrowserTabRequest.Response {
-        try await request(NewFrontendBrowserTabRequest(url: url, engine: engine, pane: pane, title: title, profileID: profileID, activate: activate, after: after))
+        try await NewFrontendBrowserTabRequest(url: url, engine: engine, pane: pane, title: title, profileID: profileID, activate: activate, after: after).send(on: self)
     }
 
     @discardableResult
@@ -236,8 +267,27 @@ extension DaemonConnection {
 
     // Input and sizing on the control connection (views use TerminalAttachment)
 
-    public func send(_ surface: SurfaceID, text: String? = nil, bytes: Data? = nil, paste: Bool = false) async throws {
-        _ = try await request(SendInputRequest(surface: surface, text: text, bytes: bytes, paste: paste ? true : nil))
+    /// - Parameter expectForeground: write only while this executable is still the terminal's
+    ///   foreground (`send-expect-foreground-v1`); an older daemon ignores it.
+    public func send(_ surface: SurfaceID, text: String? = nil, bytes: Data? = nil, paste: Bool = false,
+                     expectForeground: String? = nil) async throws {
+        _ = try await request(SendInputRequest(surface: surface, text: text, bytes: bytes, paste: paste ? true : nil,
+                                               expectForeground: expectForeground))
+    }
+
+    /// Pastes `text`, then Return, into `surface` only while a program other than its shell runs in the
+    /// foreground. The check and both writes go over this connection back to back, and each write names
+    /// the program the check saw, so a daemon with `send-expect-foreground-v1` refuses it once that
+    /// program has exited. A bare shell fails with ``DaemonError/command(cmd:message:code:details:retryable:)``
+    /// code `foreground.shell` and nothing is written.
+    public func typeToForegroundProgram(_ surface: SurfaceID, text: String) async throws {
+        let process = try await request(TerminalProcessInfoRequest(surface: surface), timeout: .seconds(1))
+        guard process.runningProgram != nil, let program = process.foregroundExecutable else {
+            throw DaemonError.command(cmd: SendInputRequest.command, message: "only a shell runs in the foreground",
+                                      code: "foreground.shell")
+        }
+        try await send(surface, text: text, paste: true, expectForeground: program)
+        try await send(surface, text: "\r", expectForeground: program)
     }
 
     /// Input by host terminal id, also for a terminal still being created
@@ -261,6 +311,12 @@ extension DaemonConnection {
         try await request(GetFrontendProjectionRequest(frontend: Self.origin, scope: scope, subjectKey: subject))
     }
 
+    /// The same read with its own deadline instead of the control-plane default.
+    public func frontendProjection(subject: String, scope: ProjectionScope = .personal,
+                                   timeout: Duration) async throws -> FrontendProjection {
+        try await request(GetFrontendProjectionRequest(frontend: Self.origin, scope: scope, subjectKey: subject), timeout: timeout)
+    }
+
     @discardableResult
     public func putFrontendProjection(subject: String, scope: ProjectionScope = .personal, schemaVersion: UInt32,
                                       projection: JSONValue, expectedRevision: UInt64? = nil) async throws -> FrontendProjection {
@@ -280,7 +336,7 @@ extension DaemonConnection {
     /// `terminal`, `agent`, `daemon`) reaches daemons that serve it.
     public func notify(title: String, body: String = "", level: NotificationLevel = .info, surface: SurfaceID? = nil,
                        source: String? = nil) async throws -> NotificationID {
-        let source = identity?.supports(DaemonCapabilities.shared.notificationSource) == true ? source : nil
+        let source = identity?.supports(DaemonCapability.notificationSource.rawValue) == true ? source : nil
         return try await request(NotifyRequest(title: title, body: body, level: level, surface: surface, source: source))
             .notification
     }
@@ -314,8 +370,8 @@ extension DaemonConnection {
         guard endTerminals else {
             return try await request(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation))
         }
-        guard identity.supports(DaemonCapabilities.shared.terminalReap) else {
-            throw DaemonError.missingCapabilities([DaemonCapabilities.shared.terminalReap])
+        guard identity.supports(DaemonCapability.terminalReap.rawValue) else {
+            throw DaemonError.missingCapabilities([DaemonCapability.terminalReap.rawValue])
         }
         guard let endpoint else { throw DaemonError.notConnected }
         let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge)

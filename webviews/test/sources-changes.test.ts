@@ -1,11 +1,12 @@
 // The chat's summary card holds the last turn's diffs (cx-ncc.43). In Chromium on the gallery
 // stage, a turn that edited fourteen files:
-// - the card's Changes section lists the turn's files under its totals row, each with its own
-//   counts, five at first and every one after View all;
+// - the card's Outputs section lists the turn's files, each with its own counts, five at first
+//   and every one after View all (Changes is the one totals row, hq#2569 item 4);
 // - a file there opens the turn's diff at that file, and the card hides behind the diff review.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("sources-changes.test.ts", async () => {
@@ -27,7 +28,7 @@ await requireBrowserLane("sources-changes.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
     const port = (vite!.httpServer!.address() as { port: number }).port;
     for (let attempt = 0; ; attempt += 1) {
-      await page.goto(`http://127.0.0.1:${port}/gallery/frame.html?entry=${entry}&variant=${variant}`);
+      await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant })}`);
       try {
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
           timeout: 60_000,
@@ -48,6 +49,7 @@ await requireBrowserLane("sources-changes.test.ts", async () => {
     });
     await vite.listen();
     browser = await chromium.launch({ headless: true });
+    await warmGalleryFrame(vite, "agent-pane.edited-files", { browser });
   });
   afterAll(async () => {
     await browser?.close();

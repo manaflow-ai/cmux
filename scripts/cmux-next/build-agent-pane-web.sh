@@ -38,11 +38,11 @@ trap 'rm -rf "$WORK"' EXIT
 cd "$ROOT/webviews"
 [ -d node_modules ] || bun install --frozen-lockfile >/dev/null
 
-# The pane's strings (acpmux/Localizable.xcstrings -> generated/strings.json) must be current. The
+# The pane's strings (acpmux/Localizable.xcstrings -> generated/strings.json, build output). The
 # bundle does not inline them: they ship as locales/<code>.js beside index.html, and the <head>
 # loader runs English plus the app's language synchronously, before the module (no frame of
 # English, no fetch before first paint). The loader is a file too (locales/loader.js).
-bun scripts/pages/gen-strings.mjs --check agentPane
+bun scripts/pages/gen-strings.mjs agentPane
 LOADER="$(bun scripts/pages/split-strings.mjs "$SRC/acpmux/generated/strings.json" "$WORK/locales" __cmuxPaneStrings --loader-file)"
 
 # `shiki` resolves to a trimmed copy (acpmux/shiki): the JavaScript regex engine and
@@ -57,35 +57,32 @@ bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$W
 # marks the module side-effect free, so an import of it would be dropped. Both hosts serve it
 # with a policy that allows no network.
 bun scripts/agent-pane/bundle.mjs node_modules/@pierre/diffs/dist/worker/worker.js "$SRC/acpmux/shiki" "$WORK/highlight-worker.js"
+# An attached image's decode, scale and encode run in a worker beside the page too
+# (composer/imagePool.ts), so pasting large screenshots never blocks typing.
+bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/composer/imageWorker.ts" - "$WORK/image-worker.js"
 
-# The desktop layer first (R139): chrome never selects, so Cmd-A highlights only
-# fields and `.selectable` content. desktop.ts imports it, but the bundle drops CSS.
-cat "$ROOT/webviews/src/pages/shared/desktop.css" > "$WORK/styles.css"
-# The shared stylesheet opens with a Tailwind @import that only Vite resolves;
-# the pane needs just its variables and rules, so drop @import lines.
-grep -v '^@import ' "$SRC/shared/styles.css" >> "$WORK/styles.css"
-# KaTeX's rules and fonts (data URLs: the CSP below allows fonts only from data:) for the
-# transcript's math (conversation/Math.tsx).
-bun scripts/agent-pane/katex-css.mjs >> "$WORK/styles.css"
-# One surface for every menu and popover (the pane does not load ui.css, which imports it).
-cat "$ROOT/webviews/src/ui/popupSurface.css" >> "$WORK/styles.css"
-# The shared icon+label button (New Tab's tools, the composer footer), imported by main.tsx.
-cat "$ROOT/webviews/src/ui/ghost.css" >> "$WORK/styles.css"
-cat "$SRC/acpmux/styles.css" "$SRC/acpmux/conversation/conversation.css" "$SRC/acpmux/chips/chips.css" "$SRC/acpmux/previewCard/previewCard.css" >> "$WORK/styles.css"
-# changes.css @imports git.css; an @import never loads here (mid-sheet, and the CSP loads no
-# style file), so inline it where the import stood.
-cat "$SRC/acpmux/changes/git.css" >> "$WORK/styles.css"
-grep -v '^@import ' "$SRC/acpmux/changes/changes.css" >> "$WORK/styles.css"
-cat "$SRC/acpmux/handoff/styles.css" "$SRC/acpmux/checkpoints/styles.css" "$SRC/acpmux/composerControls.css" "$SRC/acpmux/composerStates.css" "$SRC/acpmux/composerLocation.css" "$SRC/acpmux/composerAttachments.css" "$SRC/acpmux/markdownField.css" \
-  "$SRC/acpmux/modelPicker.css" "$SRC/acpmux/keys.css" "$SRC/acpmux/summary/summary.css" "$SRC/acpmux/subagents/subagents.css" "$SRC/acpmux/header/header.css" "$SRC/acpmux/newtab/screen.css" "$SRC/acpmux/newtab/history.css" "$SRC/acpmux/threadMinimap/threadMinimap.css" >> "$WORK/styles.css"
-cat "$SRC/acpmux/turnChanges/turnChanges.css" "$SRC/acpmux/Inspector.css" >> "$WORK/styles.css"
-cat "$SRC/acpmux/addProject.css" "$SRC/acpmux/harnesses/harnesses.css" "$SRC/acpmux/replay/replay.css" "$ROOT/webviews/src/markdown-task-checkbox.css" >> "$WORK/styles.css"
-# Every sheet the pane imports ships: a missing one renders its component unstyled in the app
-# only (the dev server loads imports), as New Tab's tools did.
+# The page's sheets, derived, never a hand-kept list here (a sheet missing from one shipped its
+# component unstyled in the app only, and five times this month failed every app build at the check
+# below): every sheet the dev server applies, in its order. dev.tsx (the dev server's entry) imports
+# the base sheets in the page's order, then main.tsx, whose components import the rest; bundle.mjs
+# lists them depth-first as the modules run (cssInImportOrder). A new sheet a component imports
+# ships with no change here, after the base sheets, and the app and the dev server agree.
+bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/dev.tsx" "$SRC/acpmux/shiki" "$WORK/order/dev.js" --split --css-inputs "$WORK/page-sheets" --css-inputs-only
+# A sheet's own @import never loads here (mid-sheet, and the CSP loads no style file): the walk
+# lists an imported local sheet before its importer, and Tailwind's import is compiled last below.
+strip_imports() { perl -ne 'print unless /^\@import /' "$1"; }
+: > "$WORK/styles.css"
 while IFS= read -r sheet; do
+  case "$sheet" in src/agent-session/acpmux/tailwind.css) continue ;; esac
+  strip_imports "$ROOT/webviews/$sheet" >> "$WORK/styles.css"
+done < "$WORK/page-sheets"
+# Every sheet the pane imports ships (main.tsx's list against the page): dev.tsx imports main.tsx,
+# so this holds unless the dev entry stops loading the pane.
+while IFS= read -r sheet; do
+  strip_imports "$ROOT/webviews/$sheet" > "$WORK/one.css"
   perl -0777 -e 'open my $all, "<", shift or die; open my $one, "<", shift or die; exit(index(<$all>, <$one>) < 0)' \
-    "$WORK/styles.css" "$ROOT/webviews/$sheet" && continue
-  echo "error: the agent pane imports webviews/$sheet but build-agent-pane-web.sh does not add it to the page's styles" >&2
+    "$WORK/styles.css" "$WORK/one.css" && continue
+  echo "error: the agent pane imports webviews/$sheet but the page's styles (dev.tsx's sheets) leave it out" >&2
   exit 1
 done < "$WORK/imported-sheets"
 if grep -n '^@import ' "$WORK/styles.css" >&2; then
@@ -95,12 +92,12 @@ fi
 # Tailwind utilities last (acpmux/tailwind.css): compiled over the classes the pane's sources use.
 bun scripts/agent-pane/tailwind-css.mjs "$SRC/acpmux/tailwind.css" >> "$WORK/styles.css"
 
-# Same-origin script files only (no inline script, no eval) and inline style. No connection of its own: the
+# Same-origin script files only (no inline script, no eval; WebAssembly compiles for Ondine's Mermaid diagrams) and inline style. No connection of its own: the
 # host's native transport (AgentPaneTransport) carries acpmux. No remote loads. Frames show only loopback web
 # pages (a turn's preview card; URL+AgentPanePreview.swift keeps the same hosts) and the render frame
 # (a render card; AgentPaneRenderFrame.swift). The page host sends the same
 # script-src (PageDescriptor.agent, test/fixtures/agent-page-csp.txt).
-CSP="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src data:; media-src 'self'; font-src data:; connect-src 'none'; frame-src cmux-agent://render http://localhost:* http://127.0.0.1:* https://localhost:* https://127.0.0.1:*"
+CSP="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'unsafe-inline'; img-src data:; media-src 'self'; font-src data:; connect-src 'none'; frame-src cmux-agent://render http://localhost:* http://127.0.0.1:* https://localhost:* https://127.0.0.1:*"
 
 {
   printf '<!doctype html>\n<html lang="en">\n<head>\n'
@@ -114,6 +111,17 @@ CSP="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src d
   printf '\n</style>\n</head>\n<body>\n<main id="root"></main>\n<script type="module" src="pane.js"></script>\n</body>\n</html>\n'
 } | perl -pe 's/[ \t]+$//' > "$WORK/index.html"
 
+# KaTeX's rules and fonts load with KaTeX, only when a reply draws math (conversation/Math.tsx,
+# katexStylePlugin.mjs): never in the page's first <style>, always in a chunk.
+if grep -q 'KaTeX_Main' "$WORK/index.html"; then
+  echo "error: KaTeX's stylesheet reached the page's <style>; it loads with KaTeX (katexStylePlugin.mjs)" >&2
+  exit 1
+fi
+if ! grep -lq 'KaTeX_Main' "$WORK"/pane/chunks/*.js; then
+  echo "error: no chunk carries KaTeX's stylesheet (katexStylePlugin.mjs)" >&2
+  exit 1
+fi
+
 if [ "$MODE" = "--check" ]; then
   echo "agent pane web bundle builds"
   exit 0
@@ -125,6 +133,7 @@ cp "$WORK/pane/pane.js" "$OUT/pane.js"
 rm -rf "$OUT/chunks"
 cp -R "$WORK/pane/chunks" "$OUT/chunks"
 cp "$WORK/highlight-worker.js" "$OUT/highlight-worker.js"
+cp "$WORK/image-worker.js" "$OUT/image-worker.js"
 rm -rf "$OUT/locales"
 cp -R "$WORK/locales" "$OUT/locales"
 echo "wrote $OUT/index.html ($(wc -c < "$OUT/index.html" | tr -d ' ') bytes) pane.js ($(wc -c < "$OUT/pane.js" | tr -d ' ') bytes) and $(ls "$OUT/chunks" | wc -l | tr -d ' ') chunks"

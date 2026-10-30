@@ -77,10 +77,18 @@ impl Brain {
             };
             match daemon.op(&conversation, &key, &op) {
                 Ok(change) => {
+                    self.reply_posted(&conversation, &key, &op);
+                    if key.starts_with("send-")
+                        || key.starts_with("reply-")
+                        || key.starts_with("turn:optchat:")
+                    {
+                        self.outcome_posted(&op);
+                    }
                     if is_message {
                         self.last_agent_send = Some(now_ms());
                     }
                     if let Some(cmux_conversation::Change::Message { message }) = change {
+                        self.note_posted(&conversation, &key, &message);
                         self.sent(&key, &message.id);
                     }
                 }
@@ -134,6 +142,39 @@ impl Brain {
                     ));
                     continue;
                 }
+                Err(OpError::Rejected(reason))
+                    if super::replies::unthreaded(&op, &reason).is_some() =>
+                {
+                    // The owner refused the reply's thread: the same reply
+                    // goes at the top level under a new key (the refused key
+                    // is spent), never dropped.
+                    let top = super::replies::unthreaded(&op, &reason).expect("checked above");
+                    let head = &mut self.state.outbox[0];
+                    let new_key = format!("{key}:top");
+                    head.idempotency_key = new_key.clone();
+                    head.attempted = false;
+                    head.op = match top {
+                        Op::MessageSend {
+                            parts,
+                            answers,
+                            answers_pending,
+                            ..
+                        } => Op::MessageSend {
+                            client_msg_id: new_key,
+                            parts,
+                            reply_to: None,
+                            answers,
+                            answers_pending,
+                            thread_root: None,
+                        },
+                        other => other,
+                    };
+                    self.save();
+                    (self.log)(&format!(
+                        "op {key}: the owner refused its thread ({reason}); posting it at the top level"
+                    ));
+                    continue;
+                }
                 Err(OpError::Rejected(reason)) => {
                     (self.log)(&format!("dropping rejected op {key}: {reason}"))
                 }
@@ -151,7 +192,14 @@ impl Brain {
 }
 
 /// Whether `op` sends link cards (a reply the preview thread filled).
+/// Whether a send carries parts an owner may refuse where text would pass:
+/// link cards, or an approval card (a `question` part).
 fn has_cards(op: &Op) -> bool {
-    matches!(op, Op::MessageSend { parts, .. }
-        if parts.iter().any(|p| matches!(p, cmux_conversation::Part::LinkPreview { .. })))
+    use cmux_conversation::Part;
+    let Op::MessageSend { parts, .. } = op else {
+        return false;
+    };
+    parts
+        .iter()
+        .any(|p| matches!(p, Part::LinkPreview { .. } | Part::Question(_)))
 }

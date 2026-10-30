@@ -35,6 +35,7 @@ fail() {
 }
 
 command -v bun >/dev/null 2>&1 || fail "bun is required to build the shared palette ranker"
+"$ROOT/scripts/check-webviews-bun-version.sh" || fail "this bun does not meet webviews/package.json devEngines (above)"
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/cmux-palette-ranker.XXXXXX")"
 cleanup() {

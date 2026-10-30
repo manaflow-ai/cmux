@@ -13,13 +13,15 @@ use crate::{PaneId, ScreenId, SplitDir, SplitId, Surface, SurfaceId, WorkspaceId
 
 mod layout_columns;
 mod layout_rows;
+mod split_around;
 
 #[cfg(test)]
 pub(crate) use layout_columns::normalize_dock_columns;
 pub use layout_columns::{ColumnDock, DockEdge, DockMode, DockRole, ViewportColumn};
 pub(crate) use layout_columns::{
     ColumnProjection, LayoutColumn, LayoutMutationKey, LayoutResizeOwner,
-    dock_columns_are_consistent, dock_flags_are_consistent, project_layout_columns,
+    dock_columns_are_consistent, dock_flags_are_consistent, flags_are_lone_pinned,
+    project_layout_columns,
 };
 pub(crate) use layout_rows::{LayoutRow, ROW_HEIGHT_PERMILLE};
 
@@ -599,6 +601,10 @@ pub struct Workspace {
     /// a frontend's richer layout state.
     pub key: String,
     pub name: String,
+    /// Who chose `name` (the registry's `name_source`).
+    pub name_source: crate::resource_name::NameSource,
+    /// The registry's `name_revision` for `name`.
+    pub name_revision: u64,
     pub screens: Vec<Screen>,
     pub active_screen: usize,
 }

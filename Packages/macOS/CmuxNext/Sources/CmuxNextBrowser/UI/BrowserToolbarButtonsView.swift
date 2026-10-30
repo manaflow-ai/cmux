@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextIcons
 
@@ -23,6 +24,8 @@ public final class BrowserToolbarButtonsView: NSStackView {
     /// The pinned buttons' ids (`browser.toolbarButtons`), read the same way,
     /// so a pin from any window or from cmux.json reaches every toolbar.
     public var pins: (() -> [String])? { didSet { rebind() } }
+    /// The media hub's cards, kept between opens.
+    public let mediaRows = BrowserMediaRows()
     /// Design mode and color scheme of the bound tab.
     public let modes = BrowserPageModes()
     /// 0 shows every button; 1 hides design mode and DevTools; 2 also
@@ -102,13 +105,28 @@ public final class BrowserToolbarButtonsView: NSStackView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window != nil { refresh() }
+        if window != nil { refresh() } else { onDetach?() }
+    }
+
+    /// The toolbar left the screen (its pane parked it, the tab closed or
+    /// moved): a popup open under one of its buttons closes. Set by the popup.
+    public var onDetach: (() -> Void)?
+
+    public override func viewDidHide() {
+        super.viewDidHide()
+        onDetach?()
     }
 
     /// Shown again after its pane parked it (another tab showed).
     public override func viewDidUnhide() {
         super.viewDidUnhide()
         if window != nil { refresh() }
+    }
+
+    /// Shows `menu` at a point of a view and returns when it closes (`NSMenu.popUp`). Tests
+    /// replace it: a real menu runs its own tracking loop.
+    var popUpMenu: (NSMenu, NSPoint, NSView) -> Void = { menu, point, view in
+        menu.popUp(positioning: nil, at: point, in: view)
     }
 
     /// The button's view, the anchor for its menu.
@@ -123,17 +141,28 @@ public final class BrowserToolbarButtonsView: NSStackView {
 
     /// Pops `menu` up under `button` (under More when the button is
     /// collapsed, at the top of the view when the toolbar is hidden) on the
-    /// next run-loop turn, so a CLI or palette caller returns first.
-    public func present(_ menu: NSMenu, from button: BrowserToolbarButton) {
+    /// next run-loop turn, so a CLI or palette caller returns first. `themed` opens it in the
+    /// toolbar's light or dark look (`NSMenu.themeRows(in:)`; the downloads and device menus), a
+    /// standard macOS menu.
+    public func present(_ menu: NSMenu, from button: BrowserToolbarButton, themed: Bool = false) {
         refresh()
-        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) { [weak self] in
-            MainActor.assumeIsolated { // main-proof: a CFRunLoopGetMain() block runs on the main thread
-                guard let self, let anchor = self.anchor(for: button) else { return }
-                menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: anchor, gap: 4), in: anchor)
-            }
+        if themed { menu.themeRows(in: themeScope.fullStrength) }
+        MainRunLoopBlock.perform { [weak self] in
+            guard let self, let anchor = self.anchor(for: button) else { return }
+            // Pressed while the menu is open, normal again when it closes (Chrome).
+            let pressed = anchor as? ChromeIconButton
+            pressed?.isMenuOpen = true
+            self.popUpMenu(menu, CmuxPopoverAnchor.menuPoint(for: menu, in: anchor, gap: 4), anchor)
+            pressed?.isMenuOpen = false
         }
-        CFRunLoopWakeUp(CFRunLoopGetMain())
     }
+
+    /// The view a popup of `button` opens under: the button, More when it is
+    /// collapsed, the toolbar's view when the toolbar is hidden.
+    public func popupAnchor(for button: BrowserToolbarButton) -> NSView? { anchor(for: button) }
+
+    /// Draws `anchor` (a toolbar button) pressed while its popup is open, as its menu does (Chrome).
+    public func setPopupOpen(_ open: Bool, anchor: NSView) { (anchor as? ChromeIconButton)?.isMenuOpen = open }
 
     func anchor(for button: BrowserToolbarButton) -> NSView? {
         let shown = [button, .overflow].compactMap { buttons[$0] }.first { !$0.isHiddenOrHasHiddenAncestor && $0.window != nil }
@@ -154,7 +183,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
     /// Width of the buttons shown at collapse `level`.
     func width(collapse level: Int) -> CGFloat {
         let count = BrowserToolbarButton.allCases.filter { $0.isShown(at: level, facts, pinned: pinned) }.count
-        return CGFloat(count) * OmnibarStyle.buttonSize + CGFloat(max(0, count - 1)) * BrowserMetrics.buttonSpacing
+        return CGFloat(count) * OmnibarStyle.buttonSize + CGFloat(max(0, count - 1)) * OmnibarStyle.buttonSpacing
     }
 
     @objc private func pressed(_ sender: NSButton) {
@@ -186,6 +215,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
             view.setIcon(state.icon, label: state.label)
             view.isEnabled = state.isEnabled
             view.isOn = state.isActive
+            view.progress = state.progress
         }
     }
 

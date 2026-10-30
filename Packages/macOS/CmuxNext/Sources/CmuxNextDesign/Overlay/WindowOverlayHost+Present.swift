@@ -7,6 +7,15 @@ public extension WindowOverlayHost {
     func present(_ content: NSView, options: OverlayOptions) -> OverlayHandle {
         let handle = OverlayHandle(id: nextID, content: content, options: options, host: self)
         nextID += 1
+        // The window closed (a late caller got its torn-down host): nothing shows, and no view,
+        // observer, modal state or Escape monitor is installed for a window that is gone. The
+        // handle ends on the next main-actor turn, after the caller wired its `onDismiss`, so the
+        // caller's own cleanup runs as it does for an overlay whose window closes.
+        if isTearingDown {
+            handle.host = nil
+            Task { @MainActor in handle.dismiss() }
+            return handle
+        }
         if content.frame.size == .zero { content.setFrameSize(content.fittingSize) }
         let container = panel.container(for: options.effectiveLayer)
         var scrim: OverlayScrimView?
@@ -57,7 +66,7 @@ public extension WindowOverlayHost {
         for view in views {
             view.wantsLayer = true
             guard let layer = view.layer else { continue }
-            Motion.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: Float(0))
+            Motion.overlays.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: Float(0))
         }
     }
 
@@ -106,7 +115,7 @@ public extension WindowOverlayHost {
     /// over a modal or dimming overlay's window, a modal region, or an
     /// overlay that does not pass clicks through.
     func acceptsMouse(at point: NSPoint) -> Bool {
-        interactiveRegions().contains { $0.contains(point) }
+        interactiveRegions().contains { $0.contains(point) } || agentCursorTag(atPanelPoint: point) != nil
     }
 
     /// Input-blocking rects, window coordinates (cached until something changes).
@@ -166,7 +175,7 @@ extension WindowOverlayHost {
     private func fadeOut(_ views: [NSView], content: NSView) {
         fadingOut += 1
         let parents = (views + [content]).map { ($0, $0.superview) }
-        Motion.animate(.fadeOut, in: views.first, {
+        Motion.overlays.animate(.fadeOut, in: views.first, {
             views.forEach { $0.animator().alphaValue = 0 }
         }, completion: { [weak self] in
             guard let self else { return }

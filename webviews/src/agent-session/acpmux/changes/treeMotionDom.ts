@@ -25,6 +25,7 @@ import {
   type FolderMotion,
   type TreeArm,
 } from "./treeMotion";
+import { isAgentMotionOff } from "../../shared/motion";
 
 type Snapshot = {
   time: number;
@@ -46,7 +47,7 @@ const reducedMotion = () => globalThis.matchMedia?.("(prefers-reduced-motion: re
  * Returns the cleanup. Arm a (today's instant layout) attaches nothing.
  */
 export function attachTreeMotion(container: HTMLElement, arm: TreeArm): () => void {
-  if (arm === "a") return () => {};
+  if (arm === "a" || isAgentMotionOff()) return () => {};
   let shadow: ShadowRoot | null = null;
   let observer: MutationObserver | null = null;
   let snapshot: Snapshot | null = null;
@@ -56,6 +57,7 @@ export function attachTreeMotion(container: HTMLElement, arm: TreeArm): () => vo
   let animations: Animation[] = [];
   let generation = 0;
   let snapshotFrame = 0;
+  let motionObserver: MutationObserver | null = null;
 
   const list = () => shadow?.querySelector<HTMLElement>('[data-file-tree-virtualized-list="true"]') ?? null;
   const scroller = () => shadow?.querySelector<HTMLElement>('[data-file-tree-virtualized-scroll="true"]') ?? null;
@@ -145,6 +147,15 @@ export function attachTreeMotion(container: HTMLElement, arm: TreeArm): () => vo
     layer = null;
     scheduleSnapshot();
   };
+
+  // `ui.animationSpeed: off` can change without a tree mutation. CSS transitions stop from the
+  // root policy, but Web Animations keep their controller state until they are canceled; finish
+  // the active plan immediately so ghosts and motion markers cannot survive the policy change.
+  const motionRoot = container.ownerDocument.documentElement;
+  motionObserver = new MutationObserver(() => {
+    if (isAgentMotionOff()) finish();
+  });
+  motionObserver.observe(motionRoot, { attributes: true, attributeFilter: ["data-agent-motion"] });
 
   const ghostLayer = (listElement: HTMLElement) => {
     if (layer?.isConnected) return layer;
@@ -270,6 +281,10 @@ export function attachTreeMotion(container: HTMLElement, arm: TreeArm): () => vo
   };
 
   function onMutations(records: MutationRecord[]) {
+    if (isAgentMotionOff()) {
+      finish();
+      return;
+    }
     if (
       records.every(
         (record) =>
@@ -297,6 +312,7 @@ export function attachTreeMotion(container: HTMLElement, arm: TreeArm): () => vo
   scheduleSnapshot();
   return () => {
     observer?.disconnect();
+    motionObserver?.disconnect();
     finish();
     if (snapshotFrame) cancelAnimationFrame(snapshotFrame);
   };

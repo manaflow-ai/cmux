@@ -4,6 +4,7 @@
 use super::*;
 
 use crate::harness_health::{REFRESH_EVERY, Subject};
+use cmux_json::JsonSet as _;
 
 impl Hub {
     /// Every configured harness as the health check sees it.
@@ -14,26 +15,8 @@ impl Hub {
             .iter()
             .filter_map(|(id, p)| {
                 let auth = cfg.profile_meta.get(id).and_then(|m| m.auth.as_ref());
-                Some(Subject {
-                    id: id.clone(),
-                    program: p.argv.first()?.clone(),
-                    family: crate::config::derive_family(id, p),
-                    check: auth.map(|a| a.check.clone()).unwrap_or_default(),
-                    env: p
-                        .env
-                        .iter()
-                        .filter(|(_, v)| !v.contains("${"))
-                        .map(|(k, v)| (k.clone(), v.clone()))
-                        .collect(),
-                    login: auth.and_then(|a| a.login.clone()),
-                    unresolved: p
-                        .env
-                        .iter()
-                        .filter(|(_, v)| v.contains("${"))
-                        .map(|(k, _)| k.clone())
-                        .collect(),
-                    probe_error: probe_errors.get(id).cloned(),
-                })
+                let probe_error = probe_errors.get(id).cloned();
+                Subject::of(id, p, auth).map(|s| Subject { probe_error, ..s })
             })
             .collect()
     }
@@ -67,10 +50,17 @@ impl Hub {
             self.health.set_auto_update(id, on).map_err(RpcError::internal)?;
             update |= on;
         }
-        let mut rows = self.health.rows();
+        let rows;
         if flag("refresh") || check_latest {
+            // Before the login environment is read, PATH may miss harnesses
+            // and a sign-in the login shell exports is not seen: a check
+            // waits for startup, as the daemon's own does (`run_health`).
+            self.wait_startup().await;
             rows = self.health.check(self.health_subjects().await, check_latest).await;
-        } else if rows.is_empty() {
+        } else {
+            // Even a persisted health snapshot needs the current profile's login command:
+            // account-home changes are not reflected in the cached row.
+            self.wait_startup().await;
             rows = self.health.first_check(self.health_subjects().await).await;
         }
         if update {
@@ -78,6 +68,74 @@ impl Hub {
             tokio::spawn(async move { hub.auto_update_harnesses().await });
         }
         Ok(json!({"harnesses": rows}))
+    }
+
+    /// `_acpmux/harness/update {ids?}` (Update Everything, cx-1mbnu): checks
+    /// this machine's harnesses again (newest versions as last read), runs
+    /// now the updater of each named one (every outdated one without `ids`)
+    /// that needs no sudo (`harness_health::auto::run_updates`), waits for
+    /// them and checks again. Answers `{results: [{id, ok, version?,
+    /// error?}]}`; a harness already current is `ok` without a run. The
+    /// caller names only harness ids, never a command. Sessions keep their
+    /// process (`restart_harnesses` moves them); pooled ones end, so new
+    /// chats start the new version.
+    pub async fn update_harnesses(&self, params: &Value) -> Result<Value, RpcError> {
+        let ids = match params.get("ids") {
+            None | Some(Value::Null) => None,
+            Some(Value::Array(list)) => Some(
+                list.iter()
+                    .map(|v| v.as_str().map(str::to_owned))
+                    .collect::<Option<std::collections::BTreeSet<String>>>()
+                    .ok_or_else(|| RpcError::invalid_params("ids must be harness ids"))?,
+            ),
+            Some(_) => return Err(RpcError::invalid_params("ids must be harness ids")),
+        };
+        let check = async { self.health.check(self.health_subjects().await, false).await };
+        let (rows, ran) = self.health.run_updates(check, ids.as_ref()).await;
+        use crate::harness_health::auto::Requested;
+        let any_ran = ran.iter().any(|(_, r)| matches!(r, Requested::Ran { .. }));
+        let rows = if any_ran {
+            if ran.iter().any(|(_, r)| matches!(r, Requested::Ran { ok: true, .. })) {
+                self.drain_pool();
+            }
+            self.health.check(self.health_subjects().await, false).await
+        } else {
+            rows
+        };
+        let row = |id: &str| rows.iter().find(|r| r.id == id);
+        let version = |id: &str| row(id).and_then(|r| r.version.clone());
+        let results: Vec<Value> = ran
+            .into_iter()
+            .map(|(id, requested)| {
+                let (ok, error) = match requested {
+                    // An updater that exits 0 but leaves the old version on PATH (an npm
+                    // prefix other than the one PATH finds) did not update it.
+                    Requested::Ran { ok: true, .. } if row(&id).is_some_and(|r| r.outdated) => (
+                        false,
+                        Some(format!(
+                            "the update ran, but {} still reports {}",
+                            row(&id).map_or(id.as_str(), |r| r.program.as_str()),
+                            version(&id).unwrap_or_default()
+                        )),
+                    ),
+                    Requested::Ran { ok: true, .. } | Requested::Current => (true, None),
+                    Requested::Ran { ok: false, detail } if detail.is_empty() => {
+                        (false, Some("the update failed".to_owned()))
+                    }
+                    Requested::Ran { ok: false, detail } => (false, Some(detail)),
+                    Requested::Refused(why) => (false, Some(why)),
+                };
+                let mut out = json!({"id": id, "ok": ok});
+                if let Some(v) = version(&id) {
+                    out.set("version", json!(v));
+                }
+                if let Some(e) = error {
+                    out.set("error", json!(e));
+                }
+                out
+            })
+            .collect();
+        Ok(json!({"results": results}))
     }
 
     /// Runs auto-update for the harnesses that want it, and checks again after any ran.
@@ -100,7 +158,19 @@ impl Hub {
     /// (call after `begin_startup`), then every `REFRESH_EVERY`.
     /// `ACPMUX_HEALTH_FETCH=0` or `ACPMUX_CATALOG_FETCH=0` keeps newest-version
     /// lookups off (the local checks still run).
+    ///
+    /// A capture fixture (`ACPMUX_HARNESS_FIXTURE`, `harness_fixture.rs`)
+    /// replaces all of it: its rows are the check, and neither the registry
+    /// nor a newest version is fetched, nor a copy saved.
     pub fn start_harness_checks(self: &Arc<Self>) {
+        if let Some(fixture) = crate::harness_fixture::active() {
+            self.health.attach(crate::harness_health::Settings {
+                home: dirs::home_dir().unwrap_or_default(),
+                fixture: Some(fixture.health.clone()),
+                ..Default::default()
+            });
+            return;
+        }
         if !std::env::var("ACPMUX_REGISTRY_FETCH").is_ok_and(|v| v == "0") {
             let hub = self.clone();
             tokio::spawn(async move {
@@ -129,6 +199,7 @@ impl Hub {
             cache: Some(crate::config::home().join("harness-health.json")),
             auto_update: Some(crate::config::home().join("harness-auto-update.json")),
             home: dirs::home_dir().unwrap_or_default(),
+            fixture: None,
         });
         tokio::spawn(self.clone().run_health());
     }

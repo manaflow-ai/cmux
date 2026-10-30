@@ -28,7 +28,7 @@ FAILURES = []
 # jobs run in the `artifacts` environment (policy: main, feat-cmux-next,
 # cmux-tui-pin-*), which holds only the R2 upload credentials.
 ARTIFACT_JOBS = {
-    "cmux-tui-artifacts.yml": ["publish", "publish-tree", "publish-tree-tested"],
+    "cmux-tui-artifacts.yml": ["publish", "publish-windows", "publish-tree", "publish-tree-tested", "point-feat-channel", "mark-tree-commits"],
     "dogfood-artifact-publish.yml": ["publish"],
 }
 ARTIFACT_SECRETS = {
@@ -45,13 +45,19 @@ NIGHTLY_TRACK_ENVIRONMENT_RULE = "core.setOutput('environment', isNextRef ? 'rel
 
 RELEASE_JOBS = {
     "release.yml": ["build-sign-notarize"],
-    "nightly.yml": ["build-sign-notarize-nightly", "publish-nightly"],
+    "nightly.yml": ["build-sign-notarize-nightly", "publish-nightly", "publish-nightly-next-github", "publish-nightly-next-github-names"],
     "ios-app-store.yml": ["upload-and-validate"],
     "ios-testflight.yml": ["set-testflight-notes", "assign-internal-group"],
     "ios-appstore-upload.yml": ["set-testflight-notes", "assign-internal"],
     "repair-v0-64-25-helper-rpaths.yml": ["repair"],
     "repair-nightly-appcast-content-types.yml": ["repair"],
     "update-homebrew.yml": ["update-cask"],
+}
+
+# The cmux NEXT feed's own token lives in `release-next` (policy: branch
+# nightly-next only).
+RELEASE_NEXT_JOBS = {
+    "nightly-next-rollback.yml": ["rollback", "pulled-json"],
 }
 
 
@@ -77,6 +83,11 @@ def main():
                        f"{name} {job} environment is release except release-next for nightly-next")
                 continue
             _check(environment == "release", f"{name} {job} runs in the release environment")
+    for name, jobs in RELEASE_NEXT_JOBS.items():
+        document = yaml.load(open(os.path.join(WORKFLOWS, name), encoding="utf-8"), Loader=yaml.BaseLoader)
+        for job in jobs:
+            _check(document["jobs"].get(job, {}).get("environment") == "release-next",
+                   f"{name} {job} runs in the release-next environment")
     for name, jobs in ARTIFACT_JOBS.items():
         text = open(os.path.join(WORKFLOWS, name), encoding="utf-8").read()
         document = yaml.load(text, Loader=yaml.BaseLoader)

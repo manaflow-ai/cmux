@@ -59,20 +59,26 @@ struct ClosedBlankItemsTests {
     }
 
     /// One row per page (Leo 2026-10-14): a page closed again shows once, at its newest close,
-    /// newest first. Terminals and chats carry no identity beyond a name or folder, so each close
-    /// of them stays its own row.
-    @Test func aPageClosedAgainShowsOnceAtItsNewestClose() {
-        func entry(_ id: String, _ kind: CmuxNextHistory.ClosedItem.Kind, at seconds: Double, url: String? = nil, cwd: String? = nil) -> HistoryEntry {
-            let item = CmuxNextHistory.ClosedItem(id: id, kind: kind, title: url ?? cwd ?? "", machine: "local", cwd: cwd, url: url)
-            return HistoryEntry(id: id, kind: .closed, time: Date(timeIntervalSince1970: seconds), title: item.title, payload: .closed(item))
+    /// newest first, by the key the daemon's history list uses (`DaemonClosedHistory.pageKey`).
+    /// Terminals and chats carry no identity beyond a name or folder, so each close of them stays
+    /// its own row.
+    @Test func aPageClosedAgainShowsOnceAtItsNewestClose() throws {
+        let example = """
+            {"kind":"browser","name":null,"cwd":null,"url":"https://example.com/","browser_profile_id":null,"pinned":false}
+            """
+        let cmux = example.replacingOccurrences(of: "example.com", with: "cmux.com")
+        func entry(_ id: String, _ tab: String) throws -> CmuxNextDaemon.ClosedItem {
+            var item = try Self.closed("tab", tab)
+            item.id = id
+            return item
         }
-        let shown = HistoryService.newestOnce([
-            entry("example-1", .browserTab, at: 1, url: "https://example.com/"),
-            entry("shell-1", .terminalTab, at: 2, cwd: "/Users/you"),
-            entry("example-2", .browserTab, at: 3, url: "https://example.com/"),
-            entry("shell-2", .terminalTab, at: 4, cwd: "/Users/you"),
-            entry("cmux", .browserTab, at: 5, url: "https://cmux.com/"),
-        ]).map { $0.id }
+        let shown = try DaemonClosedHistory.newestOnce([
+            entry("cmux", cmux),
+            entry("shell-2", Self.terminal),
+            entry("example-2", example),
+            entry("shell-1", Self.terminal),
+            entry("example-1", example),
+        ]) { ($0, "local") }.map(\.id)
         #expect(shown == ["cmux", "shell-2", "example-2", "shell-1"])
     }
 }

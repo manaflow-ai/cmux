@@ -12,7 +12,8 @@ import type { QuestionAnswer, QuestionPart } from "./question.ts"
 
 export type ParticipantKind = "human" | "agent" | "address"
 export type AgentClass = "mux" | "agent"
-export type ParticipantRole = "owner" | "member"
+/** Cloud roles (roles.ts): one owner; admins manage people; members talk; read_only members only read. */
+export type ParticipantRole = "owner" | "admin" | "member" | "read_only"
 export type ConversationKind = "chief" | "dm" | "group"
 /** `importing`: a promoted local conversation receiving its history; only import ops run. */
 export type ConversationState = "active" | "archived" | "importing"
@@ -227,6 +228,29 @@ export interface Invite {
   readonly locale: string
 }
 
+/**
+ * An open link grant (grants.ts): whoever holds the link's secret joins with `role`. The head
+ * keeps only open grants; the token hash lives in a private row, never in the head.
+ */
+export interface Grant {
+  /** `grt_<26>`. */
+  readonly id: string
+  readonly role: ParticipantRole
+  /** The member who made it; removing or demoting them closes it. */
+  readonly issuer: string
+  readonly created_at: string
+  readonly expires_at: string
+  readonly max_uses: number
+  readonly uses: number
+}
+
+/** A closed grant as its row keeps it. */
+export interface ClosedGrant extends Grant {
+  readonly closed_at: string
+  readonly closed: "revoked" | "used" | "issuer_lost_rights"
+  readonly closed_by?: string
+}
+
 /** What subscribers see of an invite: no token hash. */
 export type PublicInvite = Omit<Invite, "token_hash">
 
@@ -278,6 +302,17 @@ export interface ConversationHead {
   readonly thread_agent_streaks?: Readonly<Record<string, number>>
   /** Provenance of a conversation promoted from a Mac (`conversation.import`). */
   readonly import?: ImportSource & { readonly by: string }
+  /**
+   * Cloud group past INLINE_MAX (large.ts): `participants` is a bounded roster, `read_cursors` is
+   * empty, and every record and cursor is a `member` row. Absent = inline (everything in the head).
+   */
+  readonly tier?: "large"
+  /** Cloud groups: open link grants (grants.ts), at most MAX_OPEN_GRANTS. */
+  readonly grants?: ReadonlyArray<Grant>
+  /** Large tier: current participants, current humans, and the last member row's join number. */
+  readonly member_count?: number
+  readonly human_count?: number
+  readonly member_seq?: number
 }
 
 /** Where an imported conversation came from: the Mac install and its local conversation id. */
@@ -307,6 +342,8 @@ export interface Summary {
   readonly settings?: ConversationSettings
   readonly invites?: ReadonlyArray<PublicInvite>
   readonly retention_days?: number
+  /** Large tier: `participants` is a roster; this counts every current one (`conversation.members` pages them). */
+  readonly member_count?: number
 }
 
 /** The local subset: the ops of the Rust crate (also valid on a cloud head). */
@@ -317,7 +354,8 @@ export type LocalOp =
   | { readonly kind: "reaction.add"; readonly message_id: string; readonly part_index: number; readonly reaction: ReactionKind }
   | { readonly kind: "reaction.remove"; readonly message_id: string; readonly part_index: number; readonly reaction: ReactionKind }
   | { readonly kind: "read_cursor.set"; readonly seq: number }
-  | { readonly kind: "participants.add"; readonly participant: Participant }
+  /** Cloud: `role` (default member) is at most the actor's own (roles.ts). */
+  | { readonly kind: "participants.add"; readonly participant: Participant; readonly role?: ParticipantRole }
   | { readonly kind: "title.set"; readonly title: string }
   /** A person answers the question part at `part_index`; only `answer.selections` is read. */
   | { readonly kind: "question.answer"; readonly message_id: string; readonly part_index: number; readonly answer: QuestionAnswer }
@@ -340,13 +378,38 @@ export interface InviteCreateParams {
 
 /** Cloud extensions. */
 export type CloudOp =
-  | { readonly kind: "participants.remove"; readonly participant: string }
+  /** Leave (self) or remove someone below you; `ban` keeps them out until `participants.unban`. */
+  | { readonly kind: "participants.remove"; readonly participant: string; readonly ban?: boolean }
+  /** An admin or the owner sets the role of someone below them (admin only by the owner). */
+  | { readonly kind: "participants.set_role"; readonly participant: string; readonly role: ParticipantRole }
+  /** The owner hands the conversation to a current human, and becomes an admin. */
+  | { readonly kind: "ownership.transfer"; readonly participant: string }
+  /** Mint a link grant (the Worker derives `grant_id` and `token_hash`, never the client). */
+  | {
+      readonly kind: "grant.create"
+      readonly grant_id: string
+      readonly token_hash: string
+      readonly role?: ParticipantRole
+      readonly expires_in_hours?: number
+      readonly max_uses?: number
+    }
+  /** Close a link grant: its maker, or a manager above the maker. */
+  | { readonly kind: "grant.revoke"; readonly grant_id: string }
+  /** An admin or the owner lifts a ban. */
+  | { readonly kind: "participants.unban"; readonly participant: string }
   | InviteCreateParams
   | { readonly kind: "invite.revoke"; readonly invite_id: string }
   | { readonly kind: "invite.accept"; readonly token_hash: string; readonly display_name: string }
+  /** The invited address's verified owner accepts in Home, without the link (a message request). */
+  | { readonly kind: "invite.accept_verified"; readonly display_name: string }
   /** `approve: false` declines: the invite closes as `revoked`. */
   | { readonly kind: "invite.approve_join"; readonly invite_id: string; readonly approve?: boolean }
   | { readonly kind: "invite.delivery.report"; readonly invite_id: string; readonly delivery: { readonly state: DeliveryState; readonly provider_id?: string } }
+  /**
+   * System only, from the owner's UserDO (`chief.update {display_name}`): a Chief's conversation
+   * takes the Chief's new name as its title and as the Chief participant's display name.
+   */
+  | { readonly kind: "chief.rename"; readonly chief: string; readonly display_name: string }
   | {
       readonly kind: "conversation.settings.set"
       readonly wake_policy?: WakePolicy

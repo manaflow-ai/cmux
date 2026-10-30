@@ -19,6 +19,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::platform::transport;
 
+#[path = "support/private_state.rs"]
+mod private_state;
+
 struct HeadlessServer {
     child: Child,
     socket: PathBuf,
@@ -103,7 +106,10 @@ impl HeadlessServer {
             // cds into GITHUB_WORKSPACE and overrides the terminal's folder.
             .env_remove("SSH_CONNECTION")
             .env_remove("SSH_CLIENT")
-            .env_remove("SSH_TTY")
+            .env_remove("SSH_TTY");
+        // Durable state and the shell integration scripts stay in the test
+        // folder, never below the host's HOME (support/private_state.rs).
+        private_state::use_private_state(&mut command, &dir)
             .envs(env.iter().copied())
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
@@ -1221,34 +1227,53 @@ fn server_status_rejects_a_malformed_lifecycle_readiness_value() {
 #[test]
 fn server_stop_uses_identify_fence_and_refuses_cross_session_targeting() {
     fn fake_server(listener: UnixListener, identified_session: &'static str, expect_stop: bool) {
-        let stream = accept_with_timeout(&listener, Duration::from_secs(5)).unwrap();
-        let mut reader = BufReader::new(stream.try_clone().unwrap());
-        let mut writer = stream;
-        let mut request = String::new();
-        reader.read_line(&mut request).unwrap();
-        let identify_request: serde_json::Value = serde_json::from_str(&request).unwrap();
-        assert_eq!(identify_request["cmd"], "identify");
-        writeln!(
-            writer,
-            "{}",
-            serde_json::json!({
-                "id": identify_request["id"],
-                "ok": true,
-                "data": {
-                    "app": "cmux-tui",
-                    "session": identified_session,
-                    "pid": 4242,
-                    "generation": "generation-a",
-                    "capabilities": ["daemon-handoff-force-v1"]
-                }
-            })
-        )
-        .unwrap();
-        if !expect_stop {
-            return;
-        }
-        request.clear();
-        reader.read_line(&mut request).unwrap();
+        // Answers the identify a new connection opens with; returns its reader and writer.
+        let identify = |stream: UnixStream| {
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut writer = stream;
+            let mut request = String::new();
+            reader.read_line(&mut request).unwrap();
+            let identify_request: serde_json::Value = serde_json::from_str(&request).unwrap();
+            assert_eq!(identify_request["cmd"], "identify");
+            writeln!(
+                writer,
+                "{}",
+                serde_json::json!({
+                    "id": identify_request["id"],
+                    "ok": true,
+                    "data": {
+                        "app": "cmux-tui",
+                        "session": identified_session,
+                        "pid": 4242,
+                        "generation": "generation-a",
+                        "capabilities": ["daemon-handoff-force-v1"]
+                    }
+                })
+            )
+            .unwrap();
+            (reader, writer)
+        };
+        // `server stop` first waits for a restoring owner on a connection of its own
+        // (e64eb4d6735: an identify it closes once the owner is ready), then runs the
+        // lifecycle exchange on another one: every connection gets its identify answered,
+        // and one that sends nothing more is the wait's.
+        let mut first = true;
+        let (mut writer, request) = loop {
+            let timeout = Duration::from_secs(if first { 5 } else { 2 });
+            first = false;
+            let Ok(stream) = accept_with_timeout(&listener, timeout) else {
+                assert!(!expect_stop, "the stop never sent shutdown-daemon");
+                return;
+            };
+            let (mut reader, writer) = identify(stream);
+            let mut request = String::new();
+            let _ = reader.read_line(&mut request);
+            if request.is_empty() {
+                continue;
+            }
+            assert!(expect_stop, "a refused stop sent {request}");
+            break (writer, request);
+        };
         let request: serde_json::Value = serde_json::from_str(&request).unwrap();
         assert_eq!(request["cmd"], "shutdown-daemon");
         assert_eq!(request["pid"], 4242);
@@ -3670,6 +3695,9 @@ mod browser_devices;
 #[path = "cli/browser_profiles.rs"]
 mod browser_profiles;
 #[cfg(unix)]
+#[path = "cli/caller_selector.rs"]
+mod caller_selector;
+#[cfg(unix)]
 #[path = "cli/chief.rs"]
 mod chief;
 #[cfg(unix)]
@@ -3678,6 +3706,9 @@ mod close_workspace_if_empty;
 #[path = "cli/closed_delete.rs"]
 mod closed_delete;
 #[cfg(unix)]
+#[path = "cli/closed_ids.rs"]
+mod closed_ids;
+#[cfg(unix)]
 #[path = "cli/cloud_lease_gate.rs"]
 mod cloud_lease_gate;
 #[path = "cli/command_history.rs"]
@@ -3685,6 +3716,9 @@ mod command_history;
 #[cfg(unix)]
 #[path = "cli/conversation_inbox_state.rs"]
 mod conversation_inbox_state;
+#[cfg(unix)]
+#[path = "cli/conversation_live.rs"]
+mod conversation_live;
 #[cfg(unix)]
 #[path = "cli/conversation_person_credentials.rs"]
 mod conversation_person_credentials;
@@ -3715,16 +3749,27 @@ mod frontend_browser_status;
 mod git_branches;
 #[path = "cli/git_write.rs"]
 mod git_write;
+#[cfg(unix)]
+#[path = "cli/home_inbox.rs"]
+mod home_inbox;
 #[path = "cli/icon_assets.rs"]
 mod icon_assets;
 #[path = "cli/launch_credential.rs"]
 mod launch_credential;
+#[path = "cli/layout_delta.rs"]
+mod layout_delta;
 #[path = "cli/left_dock_undock.rs"]
 mod left_dock_undock;
 #[path = "cli/lone_width.rs"]
 mod lone_width;
 #[path = "cli/new_terminal_cwd.rs"]
 mod new_terminal_cwd;
+#[cfg(unix)]
+#[path = "cli/newtab_agent_identity.rs"]
+mod newtab_agent_identity;
+#[cfg(unix)]
+#[path = "cli/remote_update_need.rs"]
+mod remote_update_need;
 #[path = "cli/settings_owner.rs"]
 mod settings_owner;
 #[path = "cli/state_helpers.rs"]
@@ -3807,65 +3852,6 @@ fn state_cli_rooms_status_and_closed_history_round_trip_through_a_real_daemon() 
     let reopened = state_cli(&server, None, &["closed", item["id"].as_str().unwrap(), "reopen"]);
     assert!(reopened.to_string().contains("\"kind\":\"workspace\""), "{reopened}");
     workspace_id_named(&server, "beta");
-}
-
-#[cfg(unix)]
-#[test]
-fn state_cli_tab_groups_and_caller_workspace_through_a_real_daemon() {
-    let server = HeadlessServer::start("state-cli-groups");
-    state_cli(&server, None, &["workspace", "create", "--name", "alpha"]);
-    state_cli(&server, None, &["workspace", "create", "--name", "beta", "--empty"]);
-    let alpha = workspace_id_named(&server, "alpha");
-    let beta = workspace_id_named(&server, "beta");
-    let snapshot = state_cli_topology(&server);
-    let terminal = snapshot["terminals"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter_map(|terminal| terminal["id"].as_str())
-        .find(|terminal| workspace_of_terminal(&snapshot, terminal) == alpha)
-        .expect("alpha has a terminal")
-        .to_string();
-    let tab = snapshot["terminals"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|item| item["id"] == terminal.as_str())
-        .unwrap()["tab_id"]
-        .as_str()
-        .unwrap()
-        .to_string();
-
-    // Without a selector, status lands in the caller's workspace even when
-    // another workspace is focused.
-    state_cli(&server, None, &["workspace", &beta, "focus"]);
-    state_cli(&server, Some(&terminal), &["workspace", "status", "set", "caller", "yes"]);
-    let mine = state_cli(&server, Some(&terminal), &["workspace", "status", "list"]);
-    assert_eq!(mine[0]["workspace_id"], alpha, "{mine}");
-    assert_eq!(mine[0]["entries"][0]["key"], "caller");
-    let focused = state_cli(&server, None, &["workspace", "current", "status", "list"]);
-    assert!(
-        focused.as_array().unwrap().iter().all(|entry| entry["workspace_id"] != alpha),
-        "{focused}"
-    );
-
-    // Tab groups: created over v2, then addressed by name.
-    state_cli(&server, None, &["tab", &tab, "pin"]);
-    state_cli(&server, None, &["tab", &tab, "unpin"]);
-    state_cli(
-        &server,
-        None,
-        &["tab", "group", "create", "--tabs", &tab, "--name", "agents", "--color", "green"],
-    );
-    let group = state_cli(&server, None, &["tab", "group", "agents", "show"]);
-    assert_eq!(group["name"], "agents");
-    assert_eq!(group["color"], "green");
-    assert_eq!(group["tab_ids"], serde_json::json!([tab]));
-    state_cli(&server, None, &["tab", "group", "agents", "update", "--collapse"]);
-    let groups = state_cli(&server, None, &["tab", "group", "list"]);
-    assert_eq!(groups[0]["collapsed"], true, "{groups}");
-    state_cli(&server, None, &["tab", "group", "agents", "ungroup"]);
-    assert_eq!(state_cli(&server, None, &["tab", "group", "list"]), serde_json::json!([]));
 }
 
 #[cfg(unix)]

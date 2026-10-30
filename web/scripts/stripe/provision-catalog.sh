@@ -272,9 +272,18 @@ price_id_for_lookup_key() {
 }
 
 # The Billing Portal configuration that lets a personal subscription switch
-# from Go to Pro/Max and between Pro and Max (web/app/api/billing/portal/route.ts, flow=switch_plan).
+# between Pro and Max (web/app/api/billing/portal/route.ts, flow=switch_plan).
 # The account's default configuration stays quantity-only; this one is found
 # by its metadata the way Prices are found by lookup key.
+#
+# The portal only switches a subscription whose current price is listed here,
+# and every listed price is also a choice any subscriber can pick. So the list
+# is PORTAL_SWITCHABLE_LOOKUP_KEYS in web/services/billing/plans.ts: current
+# Pro monthly and both Max intervals. Yearly subscribers switch in the
+# dashboard, which keeps their interval, so Pro yearly would only let a
+# monthly subscriber (Max included) move onto it. Grandfathered prices and the
+# release-gated Go plan are never listed; their subscribers switch in the
+# dashboard too.
 ensure_personal_plan_switch_portal() {
   local pro_product_id="$1"
   local max_product_id="$2"
@@ -310,10 +319,9 @@ ensure_personal_plan_switch_portal() {
   fi
   configuration_id="${matching_ids[0]:-}"
 
-  local pro_monthly_price_id max_monthly_price_id
+  local pro_monthly_price_id max_monthly_price_id max_yearly_price_id
   pro_monthly_price_id="$(price_id_for_lookup_key "cmux-pro-monthly-50")"
   max_monthly_price_id="$(price_id_for_lookup_key "cmux-max-monthly-200")"
-  local max_yearly_price_id
   max_yearly_price_id="$(price_id_for_lookup_key "cmux-max-yearly-1920")"
   local -a feature_args=(
     -d "features[subscription_update][enabled]=true"
@@ -351,15 +359,92 @@ ensure_personal_plan_switch_portal() {
   [[ -n "$privacy" ]] && profile_args+=(--data-urlencode "business_profile[privacy_policy_url]=${privacy}")
   [[ -n "$terms" ]] && profile_args+=(--data-urlencode "business_profile[terms_of_service_url]=${terms}")
 
+  # bash 3.2 (macOS) treats an empty "${array[@]}" as unbound under set -u,
+  # so the profile fields are only passed when the default profile has any.
+  if (( ${#profile_args[@]} > 0 )); then
+    feature_args=("${profile_args[@]}" "${feature_args[@]}")
+  fi
   response="$(
     stripe_post "/billing_portal/configurations" \
       -d "metadata[app]=cmux" \
       -d "metadata[purpose]=personal_plan_switch" \
-      "${profile_args[@]}" \
       "${feature_args[@]}"
   )"
   configuration_id="$(jq -er '.id' <<<"$response")"
   echo "Created personal plan switch portal configuration: ${configuration_id}"
+}
+
+# Team quantity is the live member count and is reconciled by cmux. This
+# dedicated portal preserves ordinary billing self-service without allowing a
+# customer to lower the subscription below the members who retain access.
+ensure_team_portal() {
+  local response starting_after page_ids configuration_id default_profile
+  local -a matching_ids=()
+  local -a page_args=()
+
+  starting_after=""
+  while :; do
+    page_args=(--data-urlencode "active=true" --data-urlencode "limit=100")
+    if [[ -n "$starting_after" ]]; then
+      page_args+=(--data-urlencode "starting_after=${starting_after}")
+    fi
+    response="$(stripe_get "/billing_portal/configurations" "${page_args[@]}")"
+    page_ids="$(
+      jq -r '
+        .data[]
+        | select(.metadata.app == "cmux" and .metadata.purpose == "team_billing")
+        | .id
+      ' <<<"$response"
+    )"
+    while IFS= read -r configuration_id; do
+      [[ -n "$configuration_id" ]] && matching_ids+=("$configuration_id")
+    done <<<"$page_ids"
+    if [[ "$(jq -r '.has_more // false' <<<"$response")" != "true" ]]; then
+      break
+    fi
+    starting_after="$(jq -er '.data[-1].id | select(type == "string" and length > 0)' <<<"$response")"
+  done
+  if (( ${#matching_ids[@]} > 1 )); then
+    echo "Multiple Team billing portal configurations found" >&2
+    exit 1
+  fi
+  configuration_id="${matching_ids[0]:-}"
+
+  local -a feature_args=(
+    -d "features[subscription_update][enabled]=false"
+    -d "features[subscription_cancel][enabled]=true"
+    -d "features[subscription_cancel][mode]=at_period_end"
+    -d "features[invoice_history][enabled]=true"
+    -d "features[payment_method_update][enabled]=true"
+  )
+
+  if [[ -n "$configuration_id" ]]; then
+    stripe_post "/billing_portal/configurations/${configuration_id}" "${feature_args[@]}" >/dev/null
+    echo "Updated Team billing portal configuration: ${configuration_id}"
+    return 0
+  fi
+
+  response="$(stripe_get "/billing_portal/configurations" --data-urlencode "is_default=true" --data-urlencode "limit=1")"
+  default_profile="$(jq -c '.data[0].business_profile // {}' <<<"$response")"
+  local -a profile_args=()
+  local headline privacy terms
+  headline="$(jq -r '.headline // empty' <<<"$default_profile")"
+  privacy="$(jq -r '.privacy_policy_url // empty' <<<"$default_profile")"
+  terms="$(jq -r '.terms_of_service_url // empty' <<<"$default_profile")"
+  [[ -n "$headline" ]] && profile_args+=(--data-urlencode "business_profile[headline]=${headline}")
+  [[ -n "$privacy" ]] && profile_args+=(--data-urlencode "business_profile[privacy_policy_url]=${privacy}")
+  [[ -n "$terms" ]] && profile_args+=(--data-urlencode "business_profile[terms_of_service_url]=${terms}")
+  if (( ${#profile_args[@]} > 0 )); then
+    feature_args=("${profile_args[@]}" "${feature_args[@]}")
+  fi
+  response="$(
+    stripe_post "/billing_portal/configurations" \
+      -d "metadata[app]=cmux" \
+      -d "metadata[purpose]=team_billing" \
+      "${feature_args[@]}"
+  )"
+  configuration_id="$(jq -er '.id' <<<"$response")"
+  echo "Created Team billing portal configuration: ${configuration_id}"
 }
 
 echo "Resolving ${MODE} Stripe catalog…" >&2
@@ -413,6 +498,7 @@ ensure_price "$pro_product_id" "cmux-pro-yearly-480" "48000" "year" "cmux Pro Ye
 ensure_price "$team_product_id" "cmux-team-yearly-576" "57600" "year" "cmux Team Yearly (Legacy \$576)"
 
 ensure_personal_plan_switch_portal "$pro_product_id" "$max_product_id"
+ensure_team_portal
 
 if [[ "$MODE" == "live" ]]; then
   webhook_ids=""

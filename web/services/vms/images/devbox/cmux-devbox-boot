@@ -77,9 +77,10 @@
 #
 # Resume housekeeping. The guest's realtime AND monotonic clocks jump by the
 # snapshot's age on resume, so every due timer (logrotate, man-db, fstrim,
-# dpkg-db-backup, tmpfiles-clean, apt) would fire in the clone's first second
-# and compete with the daemon start, and systemd would kill every service
-# whose watchdog "missed" a ping during the jump (logind, udevd, journald).
+# dpkg-db-backup, tmpfiles-clean, apt, cmux-machine-health) would fire in the
+# clone's first second and compete with the daemon start, and systemd would
+# kill every service whose watchdog "missed" a ping during the jump (logind,
+# udevd, journald).
 # The parked branch stops those timers and switches service watchdogs off
 # (runtime state, so the memory snapshot carries it; a bake-time switch is
 # lost when a later step re-executes systemd). A clone re-arms both
@@ -135,7 +136,20 @@ export CMUX_TUI_TEMPLATE_BOUND_FILE="$TEMPLATE_RUN_DIR/bound"
 # The bake names the template workspace workspace-1; the wiped registry forgot it.
 export CMUX_TUI_TEMPLATE_WORKSPACE_NAME=workspace-1
 HOUSEKEEPING_DELAY=10min
-HOUSEKEEPING_TIMERS="apt-daily.timer apt-daily-upgrade.timer dpkg-db-backup.timer e2scrub_all.timer fstrim.timer logrotate.timer man-db.timer motd-news.timer systemd-tmpfiles-clean.timer"
+HOUSEKEEPING_TIMERS="apt-daily.timer apt-daily-upgrade.timer dpkg-db-backup.timer e2scrub_all.timer fstrim.timer logrotate.timer man-db.timer motd-news.timer systemd-tmpfiles-clean.timer cmux-machine-health.timer"
+# A live cmux-tui process can stop servicing its local socket while still
+# holding the VM's CPU. Probe the same local lifecycle command the image bake
+# uses, with a grace period and consecutive-failure fence before replacing it.
+# Restarting the daemon leaves its registry, terminals and agent hosts intact.
+DAEMON_HEALTH_INTERVAL=5
+DAEMON_HEALTH_TIMEOUT=5
+DAEMON_HEALTH_FAILURE_LIMIT=3
+# Registry replay is data-dependent. A published 12 GB registry took about
+# three minutes before the socket became ready; keep a bounded canary window
+# large enough for that legitimate startup.
+DAEMON_HEALTH_STARTUP_GRACE=48
+VM_KIND_SYNC_INTERVAL=60
+vm_kind_sync_at=0
 
 # Selects the daemon's user, home and binary; keep identical to
 # cmuxTuiLayoutSelector() in web/services/vms/drivers/cmuxTuiDaemon.ts.
@@ -158,6 +172,9 @@ boot_id_recovered=""
 daemon_pid=""
 desktop_pid=""
 parked=""
+daemon_health_ticks=0
+daemon_health_failures=0
+daemon_health_grace=$DAEMON_HEALTH_STARTUP_GRACE
 
 # A hard power-off can leave the previous daemon's runtime marker without a
 # shutdown outcome. After a kernel reboot there cannot be a live predecessor
@@ -306,13 +323,96 @@ announce_loop() {
 }
 
 stop_daemon() {
-  [ -n "$daemon_pid" ] || return 0
+  if [ -z "$daemon_pid" ]; then
+    daemon_health_ticks=0
+    daemon_health_failures=0
+    daemon_health_grace=$DAEMON_HEALTH_STARTUP_GRACE
+    return 0
+  fi
   kill "$daemon_pid" 2>/dev/null
   i=0
   while kill -0 "$daemon_pid" 2>/dev/null && [ "$i" -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
   kill -9 "$daemon_pid" 2>/dev/null
-  wait "$daemon_pid" 2>/dev/null
+  # Observe the post-KILL exit separately, then reap the child in this shell.
+  # Keeping the wait here prevents a replacement daemon from starting while
+  # the old child is still a zombie owned by the supervisor.
+  timeout --signal=TERM --kill-after=1s 2s tail --pid="$daemon_pid" -f /dev/null >/dev/null 2>&1 || true
+  wait "$daemon_pid" 2>/dev/null || true
   daemon_pid=""
+  daemon_health_ticks=0
+  daemon_health_failures=0
+  daemon_health_grace=$DAEMON_HEALTH_STARTUP_GRACE
+}
+
+# `server status` checks the daemon-owned local socket. Run it with the same
+# user and HOME as the daemon; probing root's default state would report a
+# healthy legacy session while the work-user daemon is wedged.
+daemon_health_probe() {
+  if ! command -v timeout >/dev/null 2>&1; then
+    if [ -z "${daemon_health_timeout_warning:-}" ]; then
+      echo "cmux-devbox-boot: timeout is unavailable; daemon health probe is failing closed" >&2
+      daemon_health_timeout_warning=1
+    fi
+    return 1
+  fi
+  case "$(cat /etc/cmux/daemon-layout 2>/dev/null)" in
+    user) CMUX_TUI_USER=cmux; CMUX_TUI_HOME=/home/cmux ;;
+    root) CMUX_TUI_USER=root; CMUX_TUI_HOME=/root ;;
+    *) return 1 ;;
+  esac
+  CMUX_TUI_BIN="$CMUX_TUI_HOME/.cmux/bin/cmux-tui"
+  [ -x "$CMUX_TUI_BIN" ] || return 1
+  if [ "$CMUX_TUI_USER" = root ]; then
+    timeout --signal=TERM --kill-after=1s "${DAEMON_HEALTH_TIMEOUT}s" \
+      env HOME="$CMUX_TUI_HOME" TERM=xterm-256color TERM_PROGRAM=ghostty \
+      "$CMUX_TUI_BIN" server status --session cloud >/dev/null 2>&1
+  else
+    timeout --signal=TERM --kill-after=1s "${DAEMON_HEALTH_TIMEOUT}s" \
+      setpriv --reuid="$CMUX_TUI_USER" --regid="$CMUX_TUI_USER" --init-groups \
+      env HOME="$CMUX_TUI_HOME" USER="$CMUX_TUI_USER" LOGNAME="$CMUX_TUI_USER" SHELL=/bin/bash \
+      TERM=xterm-256color TERM_PROGRAM=ghostty "$CMUX_TUI_BIN" server status --session cloud >/dev/null 2>&1
+  fi
+}
+
+check_daemon_health() {
+  [ -n "$daemon_pid" ] || return 0
+  daemon_health_ticks=$((daemon_health_ticks + 1))
+  [ "$daemon_health_ticks" -ge "$DAEMON_HEALTH_INTERVAL" ] || return 0
+  daemon_health_ticks=0
+  if [ "$daemon_health_grace" -gt 0 ]; then
+    daemon_health_grace=$((daemon_health_grace - 1))
+    return 0
+  fi
+  if daemon_health_probe; then
+    daemon_health_failures=0
+    return 0
+  fi
+  daemon_health_failures=$((daemon_health_failures + 1))
+  if [ "$daemon_health_failures" -lt "$DAEMON_HEALTH_FAILURE_LIMIT" ]; then return 0; fi
+  echo "cmux-devbox-boot: cmux-tui health probe failed $DAEMON_HEALTH_FAILURE_LIMIT times; restarting daemon" >&2
+  stop_daemon
+  start_daemon
+}
+
+sync_vm_kind_if_due() {
+  [ -x /usr/local/bin/cmux-vm-kind-sync ] || return 0
+  now=$(date +%s 2>/dev/null) || return 0
+  [ "$now" -ge "$vm_kind_sync_at" ] || return 0
+  vm_kind_sync_at=$((now + VM_KIND_SYNC_INTERVAL))
+  /usr/local/bin/cmux-vm-kind-sync >/dev/null 2>&1 &
+}
+
+# A clone's kind record goes back to `team` before its daemon starts. A reset
+# that cannot take the sync's lock (10 s at most) or cannot write records
+# `team` and a new generation without the lock; the daemon starts either way.
+mark_vm_kind_shared() {
+  [ -x /usr/local/bin/cmux-vm-kind-sync ] || return 0
+  if ! CMUX_VM_KIND_RESET=team /usr/local/bin/cmux-vm-kind-sync >/dev/null 2>&1; then
+    echo "cmux-devbox-boot: vm-kind reset failed; recording team without the lock" >&2
+    CMUX_VM_KIND_RESET=team-unlocked /usr/local/bin/cmux-vm-kind-sync >/dev/null 2>&1 \
+      || echo "cmux-devbox-boot: vm-kind fallback failed; the record may still be the source's" >&2
+  fi
+  vm_kind_sync_at=0
 }
 
 # Start the daemon (command identical to cmuxTuiDaemonCommand()).
@@ -342,6 +442,9 @@ start_daemon() {
   fi
   (if id -u cmux >/dev/null 2>&1 && command -v setpriv >/dev/null 2>&1 && setpriv --reuid=cmux --regid=cmux --init-groups test -w /home/cmux 2>/dev/null && setpriv --reuid=cmux --regid=cmux --init-groups sudo -n true >/dev/null 2>&1; then CMUX_TUI_USER=cmux; CMUX_TUI_HOME=/home/cmux; CMUX_TUI_LAYOUT=user; else CMUX_TUI_USER=root; CMUX_TUI_HOME=/root; CMUX_TUI_LAYOUT=root; fi; CMUX_TUI_BIN="$CMUX_TUI_HOME/.cmux/bin/cmux-tui"; { mkdir -p /etc/cmux 2>/dev/null; printf '%s\n' "$CMUX_TUI_LAYOUT" > /etc/cmux/daemon-layout; } 2>/dev/null; cd "$CMUX_TUI_HOME" && if [ "$CMUX_TUI_USER" = root ]; then exec env HOME="$CMUX_TUI_HOME" TERM=xterm-256color TERM_PROGRAM=ghostty TERM_PROGRAM_VERSION="$(cat /etc/cmux/ghostty-version 2>/dev/null)" "$CMUX_TUI_BIN" server start --session cloud --remote-ws "${CMUX_TUI_REMOTE_WS_BIND:-0.0.0.0:1337}" --remote-ws-insecure-bind --remote-ws-trusted-carrier; else exec setpriv --reuid="$CMUX_TUI_USER" --regid="$CMUX_TUI_USER" --init-groups env HOME="$CMUX_TUI_HOME" USER="$CMUX_TUI_USER" LOGNAME="$CMUX_TUI_USER" SHELL=/bin/bash TERM=xterm-256color TERM_PROGRAM=ghostty TERM_PROGRAM_VERSION="$(cat /etc/cmux/ghostty-version 2>/dev/null)" "$CMUX_TUI_BIN" server start --session cloud --remote-ws "${CMUX_TUI_REMOTE_WS_BIND:-0.0.0.0:1337}" --remote-ws-insecure-bind --remote-ws-trusted-carrier; fi) &
   daemon_pid=$!
+  daemon_health_ticks=0
+  daemon_health_failures=0
+  daemon_health_grace=$DAEMON_HEALTH_STARTUP_GRACE
 }
 
 announce_loop &
@@ -365,7 +468,14 @@ while true; do
       # would run an unbound daemon that the next tick must restart.
       tick=$PARKED_TICK
     else
+      sync_vm_kind_if_due
       if [ -n "$id" ] && [ "$id" != "$(cat "$BOUND_INSTANCE_FILE" 2>/dev/null)" ]; then
+        # A snapshot clone may carry its source's `owner` record and a future
+        # sync deadline. Record `team` before its daemon or first terminal can
+        # start (mark_vm_kind_shared falls back to a write without the lock);
+        # the ordinary sync below may promote it back to owner.
+        mark_vm_kind_shared
+        sync_vm_kind_if_due
         # Announce first: the fabric drops the Mac's SYNs until it sees a frame.
         ( announce_network & )
         # Starts the template shell's bounded wait for the bound file.
@@ -396,6 +506,7 @@ while true; do
         [ -n "$daemon_pid" ] && wait "$daemon_pid" 2>/dev/null
         start_daemon
       fi
+      check_daemon_health
     fi
   fi
   sleep "$tick"

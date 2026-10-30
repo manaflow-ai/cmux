@@ -48,6 +48,30 @@ nonisolated enum FilePageActionCatalog: ActionCatalogGroup {
                 surfaces: [.keyboard], requires: [.codeEditorFocused], arguments: [CatalogArgument.textString],
                 targets: [.pane], cliName: "browser editor-action"
             ),
+            // Settings > Code Editor: the editor's defaults already follow VS Code, Cursor, Windsurf,
+            // VSCodium or Zed (`editor.importFrom`); this writes them into cmux.json (only keys not
+            // set there) so they show and stay as they are. It never writes the other editor's files.
+            ActionDescriptor(
+                id: "fileEditor.importEditorSettings",
+                title: String(localized: "action.fileEditor.importEditorSettings",
+                              defaultValue: "Copy Settings from VS Code or Zed", bundle: .module),
+                keywords: ["editor", "import", "vscode", "zed", "cursor", "windsurf", "vscodium", "settings", "monaco"],
+                category: .settings, symbol: "square.and.arrow.down", surfaces: [.palette],
+                cliName: "settings import-editor-settings",
+                // App-wide like the other headless settings verbs: nothing to right-click.
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            // R96: the recovered drafts of unsaved files (a quit, crash or power-off) after the
+            // launch notice has shown once; Return opens the chosen one as unsaved changes, as the
+            // notice's Open does.
+            ActionDescriptor(
+                id: "file.openRecoveredDraft",
+                title: String(localized: "action.file.openRecoveredDraft", defaultValue: "Open Recovered Draft…", bundle: .module),
+                keywords: ["file", "editor", "recover", "recovered", "draft", "unsaved", "crash", "restore"],
+                category: .pane, symbol: "doc.badge.clock", surfaces: [.palette], cliName: "file open-recovered-draft",
+                // A palette page of drafts to pick from; scripts read the drafts with debug.filepages.
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
         ]
     }
 }

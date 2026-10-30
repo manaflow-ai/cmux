@@ -1,6 +1,6 @@
 # Frozen terminal and agent holders, no process scanning, perfect restore
 
-Epic: cx-t2sqm. Lane: ptyh-noscan. Status: design + slice 1 (guard) landed.
+Epic: cx-t2sqm. Lane: ptyh-noscan. Status: slice 1 (guard) landed 3b015e45086f; decisions D1-D5 taken (section 8).
 
 Order (2026-10-14): the code and process that holds a PTY is as small as
 possible and is assumed to never be updated. Quitting or updating cmux never
@@ -98,10 +98,39 @@ translator become harness-side processes (the holder's child), so an agent
 holder never needs them in-process.
 
 The holder binary is distributed content-addressed (as `host-exe` does
-today); a cmux update that does not change the holder reuses the same file,
-and old holders keep running their own copy, pinned by its lock.
+today); old holders keep running their own copy, pinned by its lock. A cmux
+update makes a new copy even when the holder code did not change: release and
+nightly strip the holder (`strip-release-bundle.sh`) and re-sign it with a
+secure timestamp (`sign-cmux-bundle-helpers.sh`), so its SHA-256 changes in
+every signed build (review 1 of holder items 1-3). Only unsigned builds of
+unchanged code reuse a copy. If reuse across releases matters later, name the
+copy by a hash of the unsigned code (for example the Mach-O `LC_UUID`).
+
+Built (terminals, holder item 2, 2026-10-23): crate `cmux-holder`, bin
+`cmux-holder`, std and libc only, about 3.6k lines with its unit tests. It ships as
+`Contents/Resources/bin/cmux-holder` beside `bin/cmux` (artifact
+`cmux-tui-holder-<target>`, built in its own cargo invocation, signed like
+every helper by `sign-cmux-bundle-helpers.sh`, notices mapped). The daemon
+starts every holder from a verified content-addressed copy of it under
+`~/Library/Application Support/cmux-tui/host-exe/<sha256>/cmux-holder`
+(`host_exe::holder_executable`), named by the holder file's own hash; the
+binary carries no build identity, so an unsigned build whose holder code did
+not change reuses the copy (a signed build's re-signed holder has a new hash). `cmux-holder --version` prints `cmux-holder wire MIN-MAX`; a daemon
+starts only a holder whose range it speaks, else the holder built into
+`cmux-tui-host` (`__holder`). A running holder holds its copy's
+`in-use.lock` shared for its whole life. An update keeps every holder: the
+socket is derived from the session's host root, which an update keeps, and
+the new daemon adopts the running (older) holder by the lower wire version
+(test: `holder_terminals.rs`
+`a_new_daemon_adopts_an_older_holder_by_its_wire_version` against the
+frozen version 3 fixture `cmux-holder-v3`). The terminal wire is
+`magic "CMHX"` (terminal-host-model-DESIGN.md section 4), versions 1-4; the
+`CMHL` v1 below is the earlier draft and is superseded for terminals.
 
 ### 2.1 Holder wire protocol v1 (frozen)
+
+Full spec (frame layouts, kind values, error codes, corpus):
+`plans/cmux-next/holder-protocol-v1.md`. Summary:
 
 Framing: `magic "CMHL" u32 | kind u16 | flags u16 | len u32 | payload`. Little
 endian. Max payload 1 MiB. Payloads are fixed binary structs plus byte
@@ -111,7 +140,7 @@ strings; no JSON in the holder.
 | --- | --- | --- |
 | HELLO | d->h | versions min/max, capability bits wanted, owner token |
 | WELCOME | h->d | chosen version, capability bits granted, identity record bytes |
-| ATTACH | d->h | `from_offset`; the holder streams DATA from there (or GAP if dropped) |
+| ATTACH | d->h | `from_offset`; the holder streams DATA from there (or GAP if dropped). A terminal the daemon SPAWNed or ADOPTed holds at most 256 KiB unsent (`UNSENT_HIGH_WATER`) until its ATTACH, DETACH or the end of the link: the daemon sends SPAWN and ATTACH as two writes, and a holder that read freely between them could lose the terminal's first output to the ring. A client that SPAWNs and never ATTACHes blocks its shell at 256 KiB; the daemon always ATTACHes. |
 | DATA | h->d | `offset`, bytes |
 | GAP | h->d | `requested`, `oldest_available` (log rolled past it) |
 | DETACH | d->h | stop streaming; the holder keeps running |
@@ -122,7 +151,7 @@ strings; no JSON in the holder.
 | EXIT | h->d | wait status, end offset, time; also written to `<id>.exit` |
 | CLOSE | d->h | end the child: SIGHUP/SIGTERM, then SIGKILL after `grace_ms` |
 | PING/PONG | both | liveness of the link only |
-| ERROR | h->d | code (UNKNOWN_KIND, BAD_TOKEN, ...) for a request; link stays up |
+| ERROR | h->d | code (UNKNOWN_KIND, BAD_TOKEN, ...) for a request; link stays up except after BAD_TOKEN / NO_COMMON_VERSION |
 
 Rules that keep it frozen:
 - A holder answers an unknown kind with ERROR UNKNOWN_KIND and keeps the link.
@@ -147,9 +176,10 @@ replica). Agent hosts move the same way: new agents start under
 ## 3. Discovery and restore without scanning
 
 - At spawn the holder writes an identity record (atomic, 0600, O_NOFOLLOW):
-  schema, id, mode, owner install (`<bundle>:<tag>`), session, cwd, argv,
+  schema, id, mode, install (12-hex hash of bundle id + tag), session, cwd, argv,
   start time, protocol min/max, capability bits, socket path, lease nonce.
-  pid fields are informational only and are never used to find or signal.
+  The record has no pid fields: nothing finds or signals a holder by pid.
+- Today (cx-t2sqm.13 landed): host records live in `<state>/terminal-hosts-<session token>/` (one per build, since each build has its own app session). Records may name a socket in the per-install directory `/tmp/cmux-th-<uid>/<session token>/` or the legacy flat one; new hosts still bind flat so a rollback to an older build never strands a terminal, and a later build switches the bind (cx-t2sqm.18). Target for `cmux-holder`:
 - Records and sockets live in a per-install runtime directory (0700):
   `<runtime>/cmux/holders/<install id>/`, where the install id is a short
   hash (12 hex) of BuildIdentity's stable part (bundle id + tag), NOT the
@@ -185,7 +215,7 @@ Audit (2026-10-14, 103 lines in 36 files):
 
 | Site | What it does | Plan |
 | --- | --- | --- |
-| acpmux `adopt_live.rs` | `ps -axww` + `lsof cwd` to find a harness outside acpmux by argv | remove: recent transcript write + hook registry only (cx-t2sqm.2) |
+| acpmux `adopt_live.rs` | `ps -axww` to find an OpenCode outside acpmux by argv (Claude Code and Codex now use their own holder records: the session registry by pid and start time, the thread writer lock) | remove: OpenCode holder record (cx-t2sqm.2) |
 | acpmux `agent_host/tree.rs` | `ps` descendants to end setsid escapees | remove: holder-owned group; Linux cgroup/pidfd; Windows job (cx-t2sqm.3) |
 | acpmux `hub/pool/reaper.rs` | `ps -A` tree RSS for the pool cap | remove: holder-reported rusage of its group, or drop the cap (cx-t2sqm.3) |
 | terminal host `session_cleanup.rs`, `host_scope.rs` | `/proc` walk + `ps -axo` for session members, cgroup reads | remove: signal the session/group the holder owns (cx-t2sqm.4) |
@@ -199,6 +229,7 @@ Audit (2026-10-14, 103 lines in 36 files):
 | `adopted_child.rs` | one held child's zombie state | keep |
 | peer checks (`peer_process.rs`, `UnixSocketPeer`, `ComputerUseHelperV2`, `AgentPanePersonInput`, `PeerProcess`) | identity of the one process on a connected socket | keep (authentication, not discovery) |
 | `ControlPeerAncestry.swift`, CUA helper `PeerInspector.swift` | authorize a peer by walking its ancestors | remove (cx-t2sqm.11, D5) |
+| `SystemProcessLineage.swift` (Task Manager Kill Process, added 2026-10-19) | authorizes ending a named pid by walking its ancestors to the app or a daemon and reading executable paths | remove (cx-t2sqm.11, D5): end only pids the Task Manager's own sample listed |
 | CEF `ChromiumHelperProcess`, `CEFChildProcessMonitor` | this app's own Chromium children | keep |
 | `process_identity.rs` | names the sender of a received signal in a log | keep |
 | browser-host `egress_*` | security guard: who holds a loopback listener (`proc_listpids(UID)`, per loopback connection) | keep until D4 |
@@ -218,6 +249,16 @@ never infers an agent from a process name, argv, foreground group or tree.
   user (or an explicit setting) ends them.
 - Tagged DEV builds and tests may set an orphan grace (env, as today) so
   agents' test runs do not leave terminals for days (cx-h7m67).
+- Landed (cx-t2sqm.16): hosts of normal installs have no orphan grace; the
+  host records `orphan_grace_secs`. Transition limit: hosts already running
+  from an older build keep their built-in 10 min timer; they survive an
+  update only when the new daemon adopts them within 10 min (the app
+  restarts the daemon at once, so this holds for a normal update, not for a
+  quit longer than 10 min before the update).
+- Still open: a plain SIGTERM from any sender ends an orphaned host after
+  2 s (`host_signals.rs`, `HOST_SIGTERM_ORPHAN_MIN`), so a cleanup script or
+  `pkill` can end terminals. Next slice: honor only PID 1 (system shutdown)
+  and an explicit CLOSE.
 
 ## 6. Security
 
@@ -226,15 +267,12 @@ never infers an agent from a process name, argv, foreground group or tree.
 - The holder checks the peer uid (`getpeereid` / `SO_PEERCRED`) equals its
   own before HELLO, then the owner token (constant time). A wrong token gets
   ERROR BAD_TOKEN and the link is closed.
-- Threat model: any process of the same uid, including an agent running in
-  another terminal, can read a 0600 file and connect to a 0600 socket. A
-  token stored in the readable registry therefore stops only other users.
-  To stop a same-uid process from typing into another terminal, the owner
-  token is NOT stored in the registry: the daemon keeps it in its own store
-  (Keychain on macOS, a 0600 file only the daemon reads on Linux), and the
-  holder also checks the peer's code identity on the connected socket
-  (`LOCAL_PEERTOKEN` audit token + code signature on macOS). That is
-  authentication of one connected peer, not a scan.
+- Threat model (D6, Lawrence 2026-10-14): the holder protects against other
+  users only (socket peer uid + owner token). Any process of the same uid,
+  including an agent in another terminal, is trusted like a shell of that
+  user; there is no code-identity check. The owner token stays out of the
+  registry (the daemon keeps it in its own store) so a stale record never
+  hands it out.
 - Per-install directories keep DEV tags, NIGHTLY and Release apart; an
   install only lists its own directory. Cross-install adoption is an explicit
   user action (cx-14hn5), never automatic.
@@ -254,28 +292,23 @@ never infers an agent from a process name, argv, foreground group or tree.
 5. `cmux-holder` crate and binary; move VT and renderer ring to the daemon
    (cx-t2sqm.15).
 
-## 8. Decisions
+## 8. Decisions (decided 2026-10-14)
 
-- D5: the control socket (`ControlPeerAncestry.swift`) and the computer-use
-  helper (`PeerInspector.swift`) authorize a peer by walking its ancestor
-  processes up to the app. Recommend: replace with a capability token handed
-  to children in their environment (as `CMUX_*` routing already does), so no
-  parent walk is needed.
-
-- D1: orphan grace. Today a host ends its terminal after 10 min with no
-  daemon. Recommend: remove the timer for normal installs, keep it only for
-  tagged DEV builds and tests.
-- D2: VT parser location. Recommend: daemon only (holder keeps raw bytes +
-  disk spill). Cost: restore after a very long absence with heavy output can
-  lose old scrollback (screen redraws). Keeping ghostty-vt in the holder
-  gives exact state but makes the holder need updates for VT fixes.
-- D3: terminal-resources (CPU/memory per terminal) needs a process tree on
-  macOS. Recommend: report the holder's group rusage only (no per-process
-  breakdown) on macOS; full tree only where the kernel gives it without a
-  scan (Linux cgroup, Windows job).
-- D4: browser-host egress guard enumerates this user's processes
-  (`proc_listpids(UID)` + fd walk) on each loopback connection of an
-  isolated browser, to find who holds the listener. Recommend: replace with
-  a no-scan rule: an isolated browser reaches only loopback ports that cmux
-  itself opened (known from its own registry); every other loopback port is
-  refused. Until then it stays a reviewed exception.
+- D1 (Lawrence): no orphan timer in normal installs (NIGHTLY, release, RC,
+  standalone release cmux-tui); a terminal lives until the user closes it.
+  Tagged DEV and staging builds, debug builds and tests keep the 10 min
+  grace. The host records its grace in `orphan_grace_secs`.
+- D2 (Lawrence): the daemon parses. The holder keeps only raw output with a
+  capped on-disk log.
+- D3 (chief): macOS CPU/memory per terminal = one total for the terminal's
+  process group; a full process tree only on Linux (cgroup) and Windows
+  (job object).
+- D4 (chief): the browser egress guard becomes an allow-list of loopback
+  ports cmux opened; every other loopback port is refused. No process list.
+- D5 (chief): peer checks that walk parent processes (control socket,
+  computer-use helper) become a capability token the app gives its
+  children.
+- D6 (Lawrence): no code-identity check in the holder; it protects only
+  against other users (socket peer uid + owner token).
+- Pipe mode uses one shared offset space; the holder drops the oldest output
+  and never blocks the child (chief, confirmed 2026-10-14).

@@ -21,6 +21,9 @@ final class PageState {
     var query = ""
     var providerItems: [String: [PaletteItem]] = [:]
     var pendingProviders = Set<String>()
+    /// The search whose `queryResults` stream answers this page's query and has not ended.
+    var answeringSearch: Int?
+    var answersQuery: Bool { answeringSearch != nil }
     var tasks: [Task<Void, Never>] = []
     /// Rows last shown on this page, restored instantly when the page comes
     /// back into view (popping) while a fresh search runs.
@@ -95,8 +98,8 @@ final class PageState {
                     sections.append(item.section)
                 }
                 items.append(item)
-                entries.append(PaletteSearchEntry(item, visible: provider.showsItemsForEmptyQuery && item.queryPrefix == nil,
-                                                  sectionIndex: sectionIndex))
+                let visible = provider.showsItemsForEmptyQuery && item.queryPrefix == nil && !item.hidesWhenQueryEmpty
+                entries.append(PaletteSearchEntry(item, visible: visible, sectionIndex: sectionIndex))
             }
         }
         // The empty query's Pinned section (the user's pins, `PaletteRankSettings`): the searcher

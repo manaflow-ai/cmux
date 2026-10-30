@@ -435,34 +435,24 @@
   "to": -31.997,
   "components": [
    {
-    "delay": -0.0024,
-    "duration": 0.2626,
+    "delay": -0.0165,
+    "duration": 0.303,
     "curve": [
-     0.4253,
-     0.169,
-     0.5558,
-     0.7203
+     0.36,
+     0.0,
+     0.64,
+     1.0
     ],
     "delta": -32.001
    }
   ],
-  "residual": {
-   "maxPxPerRecording": {
-    "original": 0.422,
-    "120fps Test12": 0.892,
-    "120fps Test13": 0.875
-   },
-   "structure": "curve",
-   "structures": {
-    "one": 1.714,
-    "one+v0": 1.714,
-    "curve": 0.892,
-    "two": 0.901
-   },
-   "method": "joint fit over every recorded instance (tools/fit_joint.py); stale and torn frames dropped"
-  },
   "frames": 29,
-  "droppedTorn": []
+  "droppedTorn": [],
+  "truth": {
+   "date": "2026-10-14",
+   "source": "spring-truth 16d90c9 TRUTH.md section 3 (curveshare.py): every non-send rows move of the lossless macOS 27 takes on ONE timing curve",
+   "note": "TRUTH 4.8: shared timing curve (0.36, 0, 0.64, 1), 0.303 s (rms 0.31 pt over 11 events); delay keeps this event's own phase: the curve reaches half its distance at 135.0 ms after the event's begin, as the element it replaces did"
+  }
  },
  "transcript.read": {
   "event": "read",
@@ -472,39 +462,29 @@
   "to": 34.996,
   "components": [
    {
-    "delay": 0.0205,
-    "duration": 0.2709,
+    "delay": -0.0002,
+    "duration": 0.303,
     "curve": [
-     0.4149,
-     0.1242,
-     0.5805,
-     0.9411
+     0.36,
+     0.0,
+     0.64,
+     1.0
     ],
     "delta": 34.996
    }
   ],
-  "residual": {
-   "maxPxPerRecording": {
-    "original": 1.023,
-    "120fps Test12": 0.844,
-    "120fps Test13": 0.828
-   },
-   "structure": "curve",
-   "structures": {
-    "one": 2.088,
-    "one+v0": 2.088,
-    "curve": 1.023,
-    "two": 0.948
-   },
-   "method": "joint fit over every recorded instance (tools/fit_joint.py); stale and torn frames dropped"
-  },
   "frames": 28,
   "droppedTorn": [
    6.6333,
    6.65,
    6.7167,
    6.8167
-  ]
+  ],
+  "truth": {
+   "date": "2026-10-14",
+   "source": "spring-truth 16d90c9 TRUTH.md section 3 (curveshare.py): every non-send rows move of the lossless macOS 27 takes on ONE timing curve",
+   "note": "TRUTH 4.8: shared timing curve (0.36, 0, 0.64, 1), 0.303 s (rms 0.31 pt over 11 events); delay keeps this event's own phase: the curve reaches half its distance at 151.3 ms after the event's begin, as the element it replaces did"
+  }
  },
  "transcript.typing": {
   "event": "typing",
@@ -514,34 +494,24 @@
   "to": -70.0,
   "components": [
    {
-    "delay": -0.0196,
-    "duration": 0.2896,
+    "delay": -0.0296,
+    "duration": 0.303,
     "curve": [
-     0.3498,
-     0.0353,
-     0.6418,
-     0.9999
+     0.36,
+     0.0,
+     0.64,
+     1.0
     ],
     "delta": -70.0
    }
   ],
-  "residual": {
-   "maxPxPerRecording": {
-    "original": 0.874,
-    "120fps Test12": 1.269,
-    "120fps Test13": 1.4
-   },
-   "structure": "curve",
-   "structures": {
-    "one": 4.581,
-    "one+v0": 4.581,
-    "curve": 1.4,
-    "two": 1.63
-   },
-   "method": "joint fit over every recorded instance (tools/fit_joint.py); stale and torn frames dropped"
-  },
   "frames": 37,
-  "droppedTorn": []
+  "droppedTorn": [],
+  "truth": {
+   "date": "2026-10-14",
+   "source": "spring-truth 16d90c9 TRUTH.md section 3 (curveshare.py): every non-send rows move of the lossless macOS 27 takes on ONE timing curve",
+   "note": "TRUTH 4.8: shared timing curve (0.36, 0, 0.64, 1), 0.303 s (rms 0.31 pt over 11 events); delay keeps this event's own phase: the curve reaches half its distance at 121.9 ms after the event's begin, as the element it replaces did"
+  }
  },
  "transcript.receive": {
   "event": "receive",
@@ -551,27 +521,27 @@
   "to": -62.0,
   "components": [
    {
-    "delay": -0.0183,
-    "duration": 0.3008,
-    "bounce": 0.0975,
-    "delta": -76.994
-   },
-   {
-    "delay": 0.0008,
-    "duration": 0.1944,
-    "bounce": 0.589,
-    "delta": 14.994
+    "delay": 0.0,
+    "duration": 0.303,
+    "curve": [
+     0.36,
+     0.0,
+     0.64,
+     1.0
+    ],
+    "delta": -62.0
    }
   ],
-  "residual": {
-   "rms": 0.116,
-   "max": 0.474
-  },
   "frames": 78,
   "droppedTorn": [
    10.5667,
    10.5833
-  ]
+  ],
+  "truth": {
+   "date": "2026-10-14",
+   "source": "spring-truth 16d90c9 TRUTH.md section 3 (curveshare.py): every non-send rows move of the lossless macOS 27 takes on ONE timing curve",
+   "note": "TRUTH 4.8: shared timing curve (0.36, 0, 0.64, 1), 0.303 s (rms 0.31 pt over 11 events); delay 0 (was -0.0773, the old element's half-distance time 74.2 ms): Messages' rows move 1.0-1.1 pt (3.6-4.1 %) on their first changed frame (spring-truth eventfit.json: typing-unfocused-take1 text arrival, send-1line-take2 auto-reply); with -0.0773 ours moved 9.52 of 62 pt (15.4 %) on its first frame"
+  }
  },
  "bubble.opacity": {
   "event": "send",
@@ -670,21 +640,21 @@
   "to": -338.0,
   "components": [
    {
-    "delay": 0.0341,
-    "duration": 0.306,
+    "delay": 0.0351,
+    "duration": 0.303,
     "curve": [
-     0.3636,
+     0.36,
      0.0,
-     0.6309,
-     1.0353
+     0.64,
+     1.0
     ],
     "delta": -338.0
    }
   ],
-  "residual": {
-   "rmsPt": 0.104,
-   "maxPt": 0.25,
-   "method": "lossless send-typed-media-take1, last outgoing bubble top 7.45-8.1 s, curve fit; time 0 = our receive commit (onset - 20 ms)"
+  "truth": {
+   "date": "2026-10-14",
+   "source": "spring-truth 16d90c9 TRUTH.md section 3 (curveshare.py): every non-send rows move of the lossless macOS 27 takes on ONE timing curve",
+   "note": "TRUTH 4.8: shared timing curve (0.36, 0, 0.64, 1), 0.303 s (rms 0.31 pt over 11 events); delay keeps this event's own phase: the curve reaches half its distance at 186.6 ms after the event's begin, as the element it replaces did"
   }
  },
  "transcript.tapback": {
@@ -694,21 +664,21 @@
   "to": -55.0,
   "components": [
    {
-    "delay": 0.0897,
-    "duration": 0.2915,
+    "delay": 0.0808,
+    "duration": 0.303,
     "curve": [
-     0.408,
+     0.36,
      0.0,
-     0.5629,
-     0.9998
+     0.64,
+     1.0
     ],
     "delta": -55.0
    }
   ],
-  "residual": {
-   "rmsPt": 0.251,
-   "maxPt": 0.929,
-   "method": "lossless tapback-menu-heart-take1, rows above Charlie (y 120-280 pt) vertical shift, curve fit; Messages starts at +0.4997 s after the heart click, our react commit at +0.410 s (takes 40, 60, 61: spring fit 0.409-0.411)"
+  "truth": {
+   "date": "2026-10-14",
+   "source": "spring-truth 16d90c9 TRUTH.md section 3 (curveshare.py): every non-send rows move of the lossless macOS 27 takes on ONE timing curve",
+   "note": "TRUTH 4.8: shared timing curve (0.36, 0, 0.64, 1), 0.303 s (rms 0.31 pt over 11 events); delay keeps this event's own phase: the curve reaches half its distance at 232.3 ms after the event's begin, as the element it replaces did"
   }
  },
  "scroll.page": {
@@ -1273,26 +1243,21 @@
   "to": -57.0,
   "components": [
    {
-    "delay": 0.0,
-    "duration": 0.3062,
+    "delay": 0.0216,
+    "duration": 0.303,
     "curve": [
-     0.461,
-     0.001,
-     0.578,
-     0.781
+     0.36,
+     0.0,
+     0.64,
+     1.0
     ],
     "delta": -57.0
    }
   ],
-  "residual": {
-   "rmsPercent": 0.49
-  },
-  "fit": {
-   "method": "lossless typing-unfocused-take1 (window inactive), the bottom of the bubble above the root at x 598-601 pt (right padding, no text), every frame 10.10-10.60 s: on the arrival's first frame (10.158 s) it drops 7 pt (881 -> 888, the gap above the root closes, Springs.threadRootDip), then rises 28.5 pt to 859.5 on one curve; progress against time after Messages' first changed frame of the arrival (10.15 s); a 4-frame hold of Messages at 10.33-10.36 s left out. Time 0 = ours: the receive commit.",
-   "takes": [
-    "typing-unfocused-take1"
-   ],
-   "note": "ours moved the rows above the root with transcript.receive from the first frame without the drop and ended 150 ms early (b5bd5f4, take 8402); a fit of the rise alone (from 881 pt, 0.113 s delay, 0.2 s; 1ef4cb2, take 8403) matched the rise but not the first frame's drop"
+  "truth": {
+   "date": "2026-10-14",
+   "source": "spring-truth 16d90c9 TRUTH.md section 3 (curveshare.py): every non-send rows move of the lossless macOS 27 takes on ONE timing curve",
+   "note": "TRUTH 4.8: shared timing curve (0.36, 0, 0.64, 1), 0.303 s (rms 0.31 pt over 11 events); delay keeps this event's own phase: the curve reaches half its distance at 173.1 ms after the event's begin, as the element it replaces did"
   }
  },
  "typing.scale": {
@@ -1796,15 +1761,16 @@
   "unit": "px@2x",
   "from": 1052.0,
   "to": 300.0,
+  "live": "cx-3cb live-fixes: every component +5 ms (1-line drafts only). Live 120 Hz takes, rows-aligned left edge rms against Messages send-1line-take2: 15.1 -> 10.0 pt (tools/live-motion/widthdelay.py, branch live-motion); motion-gate parity27 send-1line-take2 L 8.012 -> 4.391, W 7.596 -> 4.247. The same +5 ms on bubble.width.fieldShrink made parity27 worse on every narrow take (send-2line-break-take3 L 8.40 -> 13.40, send-3line-take3 22.47 -> 27.31, send-4line-take4 10.75 -> 15.64) and send-typed-take1 (5.07 -> 6.16): not applied there. A 60-75 ms hold before the move worsens every take (live pooled rms 68-79 pt)",
   "components": [
    {
-    "delay": -0.0041,
+    "delay": 0.0009,
     "duration": 0.4317,
     "bounce": 0.2347,
     "delta": -383.6218
    },
    {
-    "delay": 0.0794,
+    "delay": 0.0844,
     "duration": 0.2204,
     "bounce": 0.397,
     "delta": -368.3782
@@ -1874,6 +1840,147 @@
    "date": "2026-10-12",
    "os": "macOS 27 only (Springs.Bubble on macOS and Mac Catalyst); iOS keeps .oneLine",
    "method": "cx-3cb bubble-refit: fit7.py s1 r:delay,w:delay,w:share,cy:delay,cy:dur,sc:delay,sc:depth = 0.7,-0.26,1.29,4.76,2.15,3.85,-2.26 (ms, %, ms, ms, %, ms, %) from the macOS 27 elements a 1-line draft used before (.oneLine where it existed, else the base), on the four 1-line lossless send references, the bubshift3 vertex shift per edge, model first frame 15.8 ms"
+  }
+ },
+ "transcript.delivered.macOS26": {
+  "event": "delivered",
+  "eventTime": 5.6658,
+  "unit": "px@2x",
+  "from": 0.004,
+  "to": -31.997,
+  "components": [
+   {
+    "delay": -0.0024,
+    "duration": 0.2626,
+    "curve": [
+     0.4253,
+     0.169,
+     0.5558,
+     0.7203
+    ],
+    "delta": -32.001
+   }
+  ],
+  "residual": {
+   "maxPxPerRecording": {
+    "original": 0.422,
+    "120fps Test12": 0.892,
+    "120fps Test13": 0.875
+   },
+   "structure": "curve",
+   "structures": {
+    "one": 1.714,
+    "one+v0": 1.714,
+    "curve": 0.892,
+    "two": 0.901
+   },
+   "method": "joint fit over every recorded instance (tools/fit_joint.py); stale and torn frames dropped"
+  },
+  "frames": 29,
+  "droppedTorn": [],
+  "os": "macOS 26 (the original recording, its own fit); macOS 27 uses the shared TRUTH.md curve. The shared curve on macOS 26 moved the motion gate's parity from fail 33 / max 2.96 to fail 39 / max 4.01 (Read 6.717 s excess 4.01, Delivered 5.700 s 2.31)"
+ },
+ "transcript.read.macOS26": {
+  "event": "read",
+  "eventTime": 6.602,
+  "unit": "px@2x",
+  "from": 0.0,
+  "to": 34.996,
+  "components": [
+   {
+    "delay": 0.0205,
+    "duration": 0.2709,
+    "curve": [
+     0.4149,
+     0.1242,
+     0.5805,
+     0.9411
+    ],
+    "delta": 34.996
+   }
+  ],
+  "residual": {
+   "maxPxPerRecording": {
+    "original": 1.023,
+    "120fps Test12": 0.844,
+    "120fps Test13": 0.828
+   },
+   "structure": "curve",
+   "structures": {
+    "one": 2.088,
+    "one+v0": 2.088,
+    "curve": 1.023,
+    "two": 0.948
+   },
+   "method": "joint fit over every recorded instance (tools/fit_joint.py); stale and torn frames dropped"
+  },
+  "frames": 28,
+  "droppedTorn": [
+   6.6333,
+   6.65,
+   6.7167,
+   6.8167
+  ],
+  "os": "macOS 26 (the original recording, its own fit); macOS 27 uses the shared TRUTH.md curve. The shared curve on macOS 26 moved the motion gate's parity from fail 33 / max 2.96 to fail 39 / max 4.01 (Read 6.717 s excess 4.01, Delivered 5.700 s 2.31)"
+ },
+ "bubble.width.fieldShrinkMac3": {
+  "event": "send",
+  "unit": "px@2x",
+  "from": 1052.0,
+  "to": 300.0,
+  "note": "cx-3cb width-model2 (TRUTH.md section 8, branch spring-truth): macOS 27, a draft that shrinks the field, by the sent balloon's text line count (3, 4; 5+ use 4; 1- and 2-line texts keep bubble.width.fieldShrink): ONE width spring, start +50 ms, damping ratio 0.788 (bounce 0.212), duration 0.213 / 0.236 s. Empirical fit (laptop replay of the parity27 frame-box measure on the 8 field-shrink takes of ref27.json, minimax against main 5fbd289); NO known physical cause for the line-count dependence: the corner radius is 15 pt at every height, and per take 2-line narrow and wide balloons differ (0.241-0.244 vs 0.259-0.268 s). The 2-line rule (0.248 s) was dropped: it made the motion gate's fitted scale of 2 wide takes worse than the take-to-take spread (refused, 9ef7761). The height keeps bubble.width.fieldShrink.",
+  "components": [
+   {
+    "delay": 0.05,
+    "duration": 0.213,
+    "bounce": 0.212,
+    "delta": -752.0
+   }
+  ]
+ },
+ "bubble.width.fieldShrinkMac4": {
+  "event": "send",
+  "unit": "px@2x",
+  "from": 1052.0,
+  "to": 300.0,
+  "note": "cx-3cb width-model2 (TRUTH.md section 8, branch spring-truth): macOS 27, a draft that shrinks the field, by the sent balloon's text line count (3, 4; 5+ use 4; 1- and 2-line texts keep bubble.width.fieldShrink): ONE width spring, start +50 ms, damping ratio 0.788 (bounce 0.212), duration 0.213 / 0.236 s. Empirical fit (laptop replay of the parity27 frame-box measure on the 8 field-shrink takes of ref27.json, minimax against main 5fbd289); NO known physical cause for the line-count dependence: the corner radius is 15 pt at every height, and per take 2-line narrow and wide balloons differ (0.241-0.244 vs 0.259-0.268 s). The 2-line rule (0.248 s) was dropped: it made the motion gate's fitted scale of 2 wide takes worse than the take-to-take spread (refused, 9ef7761). The height keeps bubble.width.fieldShrink.",
+  "components": [
+   {
+    "delay": 0.05,
+    "duration": 0.236,
+    "bounce": 0.212,
+    "delta": -752.0
+   }
+  ]
+ },
+ "bubble.width.fieldShrinkMac2": {
+  "event": "send",
+  "unit": "px@2x",
+  "from": 1052.0,
+  "to": 300.0,
+  "note": "cx-3cb send-width-typed, refit in typed-drafts: macOS 27, a 2-line text that shrinks the field. The components are bubble.width.fieldShrink's; travelLaw puts them on a clock k = k0 (travel / refPt)^q times slower and d0 + d1 ln(travel / refPt) s later, travel = field width - balloon width (pt), clamped to [minPt, maxPt] (no extrapolation). Fitted through the motion gate's parity27 measure (frame boxes) by a laptop replay of the gate's own captures (only the unscaled width changed, W' = W x w_new / w_now; right edge, height, scale kept; morph2 refit), each take against the capture of its own draft: 158.6 pt (2-line wide; send-2line-take2, send-typed-take1, send-typed-media-take1) k 1.00, +8 ms (Messages starts the width 8 ms later, same speed; the per-take best starts are +1.5, +5.7 and +39 ms); 472.2 pt (2-line narrow; send-2line-break-take3/4) k 0.87, +12.8 ms. The first fit (k 1.12, -13.5 ms at 158.6 pt) was made against send-2line-take2's draft for all three wide takes and compensated the draft mismatch. Between 158 and 472 pt the law is an interpolation with no take (UNVERIFIED). The height keeps bubble.width.fieldShrink.",
+  "components": [
+   {
+    "delay": -0.0021,
+    "duration": 0.4296,
+    "bounce": 0.1272,
+    "delta": -419.9
+   },
+   {
+    "delay": 0.0658,
+    "duration": 0.2336,
+    "bounce": 0.5084,
+    "delta": -332.1
+   }
+  ],
+  "travelLaw": {
+   "refPt": 300.0,
+   "k0": 0.92184,
+   "q": -0.12761,
+   "d0": 0.0108,
+   "d1": 0.0044,
+   "minPt": 158.6,
+   "maxPt": 472.2
   }
  }
 }

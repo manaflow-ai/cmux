@@ -1,4 +1,5 @@
 {
+  "guestCLI": { "useReasonSharedMachine": "wymagane: ta maszyna jest współdzielona z zespołem" },
   "agentHarness": {
     "title": "Wykryta konfiguracja harnessa",
     "selectionNotice": "Wybranie dostawcy nie uruchamia ani nie włącza tych harnessów.",
@@ -14,6 +15,31 @@
     "benefitSuperpowers": "Planowanie, TDD, subagenci i przegląd"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "Żądanie Cloud VM jest opóźnione",
+      "message": "Przydzielanie Cloud VM jest tymczasowo niedostępne.",
+      "action": "Odczekaj minutę i spróbuj ponownie z tym samym kluczem idempotencji."
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "Żądanie migawki wymaga klucza ponowienia",
+      "message": "Migawki Cloud VM wymagają klucza idempotencji.",
+      "action": "Spróbuj ponownie ze stałym Idempotency-Key o długości najwyżej 128 znaków."
+    },
+    "snapshotInProgress": {
+      "title": "Migawka jest nadal tworzona",
+      "message": "Migawka z tym kluczem idempotencji jest nadal tworzona dla tej Cloud VM.",
+      "action": "Poczekaj na zakończenie pierwszej migawki, a następnie spróbuj ponownie z tym samym kluczem idempotencji."
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "Klucz ponowienia migawki został już użyty",
+      "message": "Ten klucz idempotencji został już użyty dla innego żądania migawki na tej Cloud VM.",
+      "action": "Użyj nowego klucza idempotencji dla migawki o innej nazwie."
+    },
+    "snapshotQuota": {
+      "title": "Osiągnięto limit migawek",
+      "message": "Ta Cloud VM osiągnęła limit migawek.",
+      "action": "Usuń istniejącą migawkę i spróbuj ponownie z tym samym kluczem idempotencji."
+    },
     "guestInstall": {
       "title": "Konfiguracja Cloud VM nie została ukończona",
       "reason": "Konfiguracja gościa Cloud VM nie została ukończona.",
@@ -28,17 +54,17 @@
     "recreateRequired": {
       "title": "Utwórz tę maszynę ponownie",
       "message": "Ta maszyna została utworzona przed aktualizacją Cloud i nie można się z nią połączyć.",
-      "action": "Utwórz nową maszynę, skopiuj pliki za pomocą cmux vm pull i cmux vm push, a potem usuń tę."
+      "action": "Utwórz nową maszynę. Przygotuj punkt połączenia SCP poleceniem `cmux cloud prepare-scp --target machine:<id> --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"`, a następnie skopiuj pliki przez SCP przed usunięciem tej maszyny."
     },
     "guestUnresponsive": {
       "title": "Maszyna nie odpowiada",
       "message": "Ta maszyna nie odpowiedziała na czas, więc nie udało się ukończyć żądania.",
-      "action": "Wstrzymaj maszynę, potem ją wznów i spróbuj ponownie. W aplikacji na Maca wybierz Wstrzymaj maszynę, a potem Wznów maszynę. W terminalu uruchom cmux vm pause '<machine>', a potem cmux vm resume '<machine>'."
+      "action": "Skontaktuj się z pomocą techniczną z identyfikatorem śledzenia przed utworzeniem nowej maszyny."
     },
     "inProgress": {
       "title": "Nadal w toku",
       "message": "Dostawca chmury jeszcze nie ukończył tej zmiany. Może się jeszcze zakończyć.",
-      "action": "Zanim spróbujesz ponownie, sprawdź stan maszyny za pomocą cmux vm ls lub na liście maszyn."
+      "action": "Zanim spróbujesz ponownie, sprawdź stan maszyny za pomocą cmux cloud list-machines lub na liście maszyn."
     },
     "providerTimeout": {
       "title": "Dostawca chmury odpowiada wolno",
@@ -53,7 +79,7 @@
     "stateConflict": {
       "title": "Maszyna jest zajęta",
       "message": "Ta maszyna się uruchamia, wstrzymuje albo nie działa, więc nie może teraz tego zrobić.",
-      "action": "Poczekaj chwilę i spróbuj ponownie. Sprawdź stan maszyny za pomocą cmux vm ls i najpierw ją wznów, jeśli jest wstrzymana."
+      "action": "Poczekaj chwilę i spróbuj ponownie. Sprawdź stan maszyny za pomocą cmux cloud list-machines i najpierw ją wznów, jeśli jest wstrzymana."
     },
     "networkRuleCapacity": {
       "title": "Osiągnięto limit reguł sieciowych",
@@ -76,15 +102,15 @@
       "action": {
         "snapshot": "Nie ponawiaj próby. Praca na tym typie maszyny jest zachowywana na trwałym woluminie domowym.",
         "restore": "Nie ponawiaj próby. Praca na tym typie maszyny jest zachowywana na trwałym woluminie domowym.",
-        "fork": "Nie ponawiaj próby. Utwórz nową VM za pomocą `cmux vm new`.",
-        "openPort": "Nie ponawiaj próby. Uzyskaj dostęp do usługi z wnętrza maszyny za pomocą `cmux vm exec` lub użyj typu maszyny, który może otwierać porty.",
-        "default": "Nie ponawiaj próby. Uruchom `cmux vm ls` lub skontaktuj się z pomocą, jeśli uważasz, że to błąd."
+        "fork": "Nie ponawiaj próby. Utwórz nową VM za pomocą `cmux cloud new-machine`.",
+        "openPort": "Nie ponawiaj próby. Uzyskaj dostęp do usługi z wnętrza maszyny za pomocą `cmux cloud exec --target machine:<id> --command <command>` lub użyj typu maszyny, który może otwierać porty.",
+        "default": "Nie ponawiaj próby. Uruchom `cmux cloud list-machines` lub skontaktuj się z pomocą, jeśli uważasz, że to błąd."
       }
     },
     "requiresPro": {
-      "title": "Wymagany cmux Pro",
-      "message": "Cloud VM wymagają planu cmux Pro.",
-      "action": "Przejdź na cmux Pro na stronie {upgradeUrl}, aby tworzyć Cloud VM."
+      "title": "Wymagany cmux {plan}",
+      "message": "Cloud VM wymagają planu cmux {plan}.",
+      "action": "Przejdź na cmux {plan} na stronie {upgradeUrl}, aby tworzyć Cloud VM."
     },
     "displayName": {
       "title": "Nieprawidłowa nazwa maszyny",
@@ -94,25 +120,35 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "Maszyny z {memory} GiB wymagają cmux {plan}. Twój plan obsługuje do {max} GiB.",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "Nie udało się sprawdzić rozmiaru RAM maszyny źródłowej.",
-      "action": "cmux vm new --size 4g"
+      "action": "cmux cloud new-machine"
     },
     "memoryUnavailable": {
       "message": "Ten rozmiar maszyny jest niedostępny. Wybierz do {max} GiB.",
-      "action": "cmux vm new --size {max}g"
+      "action": "cmux cloud new-machine"
     },
     "goLimit": {
       "savedMessage": "Go obejmuje dwie zapisane maszyny VM, w tym uruchomioną.",
-      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
       "activeMessage": "Go umożliwia uruchomienie jednej maszyny VM naraz.",
-      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
       "hoursMessage": "Wykorzystano 40 godzin VM w Go na ten miesiąc. Zapisane VM będą dostępne w następnym okresie rozliczeniowym.",
-      "hoursAction": "cmux billing checkout --plan pro",
+      "hoursAction": "https://cmux.com/pricing",
       "shapeMessage": "Go obsługuje 2 vCPU, 4 GiB RAM i 16 GiB dysku.",
-      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+      "shapeAction": "cmux cloud new-machine\nhttps://cmux.com/pricing"
+    },
+    "planBudget": {
+      "computeTitle": "Limit obliczeń planu {plan} wyczerpany",
+      "computeMessage": "Twój plan {plan} wykorzystał {included} godzin obliczeniowych w tym okresie rozliczeniowym. Godzina obliczeniowa to 1 vCPU z 2 GB pamięci przez jedną godzinę. Maszyny będzie można ponownie uruchomić {resetDate}.",
+      "computeAction": "Wstrzymane maszyny zachowują swoje pliki. Skontaktuj się z pomocą techniczną, jeśli potrzebujesz więcej mocy obliczeniowej przed {resetDate}.",
+      "computeActionUpgrade": "https://cmux.com/pricing",
+      "storageTitle": "Limit dysku planu {plan} wyczerpany",
+      "storageMessage": "Twój plan {plan} obejmuje łącznie {included} GB dysku dla wszystkich zapisanych maszyn. Zapisane maszyny zajmują {used} GB, a to żądanie wymaga {requested} GB.",
+      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm",
+      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing"
     },
     "resourcePool": {
       "title": "Za mało zasobów Cloud VM",
@@ -514,6 +550,9 @@
         "unavailable": {
           "cancelScheduled": "Wznów plan, aby go zmienić.",
           "granted": "Przyznany przez cmux. Nie ma czego zmieniać.",
+          "grantedNoCancel": "Przyznany przez cmux, więc nie ma czego anulować.",
+          "paymentFailed": "Zaktualizuj metodę płatności przed zmianą planu.",
+          "foundersLifetime": "Founder's Edition obejmuje Pro dożywotnio.",
           "adminOnly": "Tylko administratorzy zespołu mogą zmienić plan."
         },
         "names": {
@@ -556,6 +595,7 @@
       "change": {
         "title": "Zmienić na {plan}?",
         "upgradeBody": "{plan} zaczyna działać teraz. Dziś płacisz {amount} za resztę tego okresu rozliczeniowego. Od {date} płacisz {price} miesięcznie.",
+        "upgradeBodyYearly": "{plan} zaczyna działać teraz. Dziś płacisz {amount} za resztę tego okresu rozliczeniowego. Od {date} płacisz {price} rocznie.",
         "downgradeBody": "{plan} zaczyna działać teraz. Niewykorzystana część obecnego planu, {credit}, zostanie zaliczona na poczet kolejnych faktur. Następna faktura, {date}, wyniesie {amount}.",
         "confirm": "Zmień na {plan}",
         "keep": "Zachowaj obecny plan",
@@ -568,6 +608,8 @@
         "title": "Anulować {plan}?",
         "body": "Zachowujesz {plan} do {date}. Potem tracisz:",
         "bodyNoDate": "Zachowujesz {plan} do końca tego okresu rozliczeniowego. Potem tracisz:",
+        "foundersBody": "Twoja subskrypcja {plan} kończy się {date}. Potem masz Pro, które Founder's Edition obejmuje dożywotnio.",
+        "foundersBodyNoDate": "Twoja subskrypcja {plan} kończy się z końcem tego okresu rozliczeniowego. Potem masz Pro, które Founder's Edition obejmuje dożywotnio.",
         "reasonLabel": "Dlaczego anulujesz? (opcjonalnie)",
         "otherPlaceholder": "Powiedz nam więcej (opcjonalnie)",
         "confirm": "Anuluj plan",
@@ -2243,6 +2285,7 @@
           "currentLineHighlight": "Podświetla kolorem wiersz z kursorem tekstowym, gdy nic nie jest zaznaczone.",
           "tabWidth": "Liczba kolumn, jaką obejmuje jeden tabulator. Linie wcięć używają tego samego odstępu."
         },
+        "actions": "Akcje wielokrotnego użytku dla palety poleceń, skrótów, przycisków paska kart i menu przycisku plus. Obsługuje builtin, command, agent, workspaceCommand, workspace, setting, settingPreset i text. Akcje tekstowe wklejają do aktywnego terminala i zachowują podziały wierszy; submit: true naciska Enter. Akcje ustawień wymagają konfiguracji globalnej.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {

@@ -323,6 +323,7 @@ struct PreparedJournalSegment {
     metadata: JournalSegment,
     compressed: Vec<u8>,
     digest: [u8; 32],
+    kinds: Vec<String>,
 }
 
 pub(super) fn create_journal_extensions_schema(
@@ -414,6 +415,12 @@ pub(super) fn create_journal_extensions_schema(
            sealed_at_ms INTEGER NOT NULL CHECK(sealed_at_ms >= 0),
            actors_json TEXT
          );
+         CREATE TABLE IF NOT EXISTS journal_segment_kinds (
+           segment_id TEXT NOT NULL,
+           kind TEXT NOT NULL,
+           PRIMARY KEY(segment_id, kind),
+           FOREIGN KEY(segment_id) REFERENCES journal_segments(segment_id)
+         ) WITHOUT ROWID;
          CREATE TRIGGER IF NOT EXISTS journal_segments_reject_update
            BEFORE UPDATE ON journal_segments
          BEGIN
@@ -770,11 +777,16 @@ pub(crate) fn validate_journal_hook_manifest(manifest: &JournalHookManifest) -> 
             !regex.pattern.is_empty() && regex.pattern.len() <= 1024,
             "hook regex must contain 1 to 1024 UTF-8 bytes"
         );
+        // A new hook on terminal output would never fire: output is not in
+        // the session journal (output_store.rs). Hooks stored before keep
+        // matching the output records of older registries.
         anyhow::ensure!(
-            matches!(
-                regex.field.as_str(),
-                "kind" | "subjects" | "payload" | "record" | "terminal_output"
-            ),
+            regex.field != "terminal_output",
+            "hook regex field terminal_output is retired: terminal output is not in the session \
+             journal; wait with terminal.wait or read with terminal.output_read"
+        );
+        anyhow::ensure!(
+            matches!(regex.field.as_str(), "kind" | "subjects" | "payload" | "record"),
             "hook regex field is invalid"
         );
         regex::bytes::RegexBuilder::new(&regex.pattern)
@@ -1904,12 +1916,25 @@ impl WorkspaceRegistry {
         migrate_journal_auto_vacuum(&self.connection.get())
     }
 
-    pub(crate) fn incremental_journal_vacuum(&self) -> anyhow::Result<()> {
+    /// Returns up to 256 free pages; true while an incremental-vacuum
+    /// registry still has free pages for a later call.
+    pub(crate) fn incremental_journal_vacuum(&self) -> anyhow::Result<bool> {
         // Fresh registries opt into SQLite's incremental auto-vacuum. This is
         // intentionally a small step: journal sealing must release the
         // registry writer quickly even when a busy VM has many free pages.
-        self.connection.get().execute_batch("PRAGMA incremental_vacuum(256);")?;
-        Ok(())
+        let db = self.connection.get();
+        // SQLite frees one page per step of this pragma, so it must be stepped
+        // until done: `execute_batch` steps once and freed a single page.
+        let mut vacuum = db.prepare("PRAGMA incremental_vacuum(256)")?;
+        let mut steps = vacuum.raw_query();
+        while steps.next()?.is_some() {}
+        drop(steps);
+        drop(vacuum);
+        // A legacy registry (auto_vacuum 0) keeps its free pages until it is
+        // converted, so they are no work for a later call.
+        let mode: i64 = db.query_row("PRAGMA auto_vacuum", [], |row| row.get(0))?;
+        let free: i64 = db.query_row("PRAGMA freelist_count", [], |row| row.get(0))?;
+        Ok(mode == 2 && free > 0)
     }
 
     pub(crate) fn journal_segments(&self) -> anyhow::Result<Vec<JournalSegment>> {
@@ -2068,6 +2093,7 @@ impl WorkspaceRegistry {
         let segments =
             prepared_segments.iter().map(|segment| segment.metadata.clone()).collect::<Vec<_>>();
         for segment in prepared_segments {
+            let kinds = segment.kinds.clone();
             tx.execute(
                 "INSERT INTO journal_segments(
                    segment_id, start_sequence, end_sequence, record_count, codec, content,
@@ -2089,6 +2115,12 @@ impl WorkspaceRegistry {
                     )?,
                 ],
             )?;
+            for kind in kinds {
+                tx.execute(
+                    "INSERT INTO journal_segment_kinds(segment_id, kind) VALUES(?1, ?2)",
+                    params![segment.metadata.segment_id, kind],
+                )?;
+            }
         }
         tx.execute_batch("DROP TRIGGER IF EXISTS session_journal_reject_delete;")?;
         let deleted = tx.execute(
@@ -2174,6 +2206,7 @@ impl JournalSegmentSealPlan {
             uncompressed.push(b'[');
             let mut start_sequence = None;
             let mut record_count = 0_u64;
+            let mut kinds = BTreeSet::new();
             'segment: while cursor < self.through_sequence
                 && record_count < u64::try_from(JOURNAL_SEGMENT_RECORD_LIMIT)?
             {
@@ -2190,6 +2223,7 @@ impl JournalSegmentSealPlan {
                         record.sequence
                     );
                     let sequence = record.sequence;
+                    let kind = record.kind.clone();
                     let record = session_journal::journal_record_for_archive(&record);
                     let record_bytes = serde_json::to_vec(&record)?;
                     anyhow::ensure!(
@@ -2207,6 +2241,7 @@ impl JournalSegmentSealPlan {
                     {
                         break 'segment;
                     }
+                    kinds.insert(kind);
                     if separator != 0 {
                         uncompressed.push(b',');
                     }
@@ -2247,6 +2282,7 @@ impl JournalSegmentSealPlan {
                 },
                 compressed,
                 digest,
+                kinds: kinds.into_iter().collect(),
             });
         }
         validate_prepared_journal_segments(&self, &segments)?;

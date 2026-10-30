@@ -22,7 +22,7 @@ public final class RemoteDesktopPaneView: NSView {
 
     static let toolbarInset: CGFloat = 8
 
-    public override var isFlipped: Bool { true }
+    nonisolated public override var isFlipped: Bool { true }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -59,7 +59,10 @@ public final class RemoteDesktopPaneView: NSView {
         if state.overlay != shownOverlay || state.overlay == nil {
             shownOverlay = state.overlay
             card.isHidden = state.overlay == nil
-            if let overlay = state.overlay { card.configure(overlay: overlay, host: state.hostName, colors: colors) }
+            if let overlay = state.overlay {
+                card.configure(overlay: overlay, host: state.hostName, viaCloudTunnel: state.viaCloudTunnel, reconnecting: state.reconnecting,
+                               colors: colors)
+            }
         }
         setAccessibilityLabel(RemoteViewStrings.accessibilityPane(state.hostName))
         updateToolbarVisibility(animated: true)
@@ -118,7 +121,7 @@ public final class RemoteDesktopPaneView: NSView {
             toolbar.isHidden = !visible
             return
         }
-        Motion.animate(visible ? .fadeIn : .fadeOut, in: self, { toolbar.animator().alphaValue = target }, completion: { [weak self] in
+        Motion.overlays.animate(visible ? .fadeIn : .fadeOut, in: self, { toolbar.animator().alphaValue = target }, completion: { [weak self] in
             guard let self, !self.isHovering, self.state?.pinsToolbar == false else { return }
             self.toolbar.isHidden = true
         })

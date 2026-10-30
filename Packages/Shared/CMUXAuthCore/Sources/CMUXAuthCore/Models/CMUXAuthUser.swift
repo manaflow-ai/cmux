@@ -85,9 +85,16 @@ public struct CMUXAuthUser: Codable, Equatable, Sendable {
         fromClientReadOnlyMetadata metadata: [String: Any]?
     ) -> Bool {
         guard let value = metadata?[demonstrationContentMetadataKey] else { return false }
+        #if canImport(Darwin)
         guard let number = value as? NSNumber else { return false }
         // Reject non-boolean numbers (1, 2.5) so only a JSON `true` counts.
         guard CFGetTypeID(number) == CFBooleanGetTypeID() else { return false }
         return number.boolValue
+        #else
+        // No CFBoolean type ID here: accept a native Bool or the shared boolean NSNumber instance.
+        if type(of: value) == Bool.self, let flag = value as? Bool { return flag }
+        guard let number = value as? NSNumber else { return false }
+        return number === NSNumber(value: true)
+        #endif
     }
 }

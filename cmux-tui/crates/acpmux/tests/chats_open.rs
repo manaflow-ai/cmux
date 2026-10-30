@@ -12,6 +12,11 @@
 //! - An OpenCode chat resumes through adopt too (ACP `session/load`), from
 //!   its `opencode.db`, not as a fresh chat in its folder (cx-6edj).
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use acpmux::adopt::HarnessHomes;
 use acpmux::chats::ChatSources;
 use acpmux::config::{Config, StoreMode};
@@ -71,8 +76,7 @@ fn write_rollout(codex_home: &Path, cwd: &Path) {
     // A person's chat has a user message (the index lists no chat without one).
     let prompt = json!({"type": "event_msg", "timestamp": "2026-10-02T09:00:01Z", "payload": {"type": "user_message", "message": "Fix the build"}});
     std::fs::write(&rollout, format!("{record}\n{prompt}\n")).unwrap();
-    // Written an hour ago: a transcript written in the last minutes is a
-    // chat live in another process, which adopt refuses (adopt_live.rs).
+    // Written an hour ago, like a person's earlier chat.
     let hour_ago = std::time::SystemTime::now() - Duration::from_secs(3600);
     std::fs::File::options().write(true).open(&rollout).unwrap().set_modified(hour_ago).unwrap();
 }
@@ -135,6 +139,8 @@ async fn chat_open_then_session_new_adopts_from_the_profile_store() {
     let plan = &plan["result"];
     assert_eq!(plan["kind"], "adopt", "{plan}");
     assert_eq!(plan["adopt"]["harness"], "fakecodex");
+    // The profile is named freely; the family says what kind of chat it is (View Only needs it).
+    assert_eq!(plan["family"], "codex", "{plan}");
     let created = call(&tx, &mut rx, 3, method::SESSION_NEW, plan["sessionNew"].clone()).await;
     assert!(created.get("error").is_none(), "{created}");
     let session = hub.resolve(created["result"]["sessionId"].as_str().unwrap()).unwrap();

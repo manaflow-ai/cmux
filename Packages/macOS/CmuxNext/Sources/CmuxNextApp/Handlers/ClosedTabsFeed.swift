@@ -28,25 +28,22 @@ final class ClosedTabsFeed {
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            observation?.cancel()
-        }
+        observation?.cancel()
     }
 
-    /// What the feed watches: each connected machine's tab ids in pane
-    /// order and its closed item ids.
+    /// What the feed watches, O(machines): each connected machine's tab
+    /// list revision (`DaemonStore.tabListRevision`, bumped once per apply
+    /// that changes its tabs, their panes or order) and closed item ids.
     private static func signature(of daemons: [DaemonService]) -> [String] {
-        var ids: [String] = []
+        var parts: [String] = []
         for daemon in daemons {
             let store = daemon.store
             guard case .connected = store.connectionState, store.isLoaded else { continue }
-            for workspace in store.workspaces {
-                for pane in workspace.screens.flatMap(\.panes) { ids += pane.tabs.map(\.id) }
-            }
-            ids += store.closedItems.map(\.id)
+            parts.append("\(daemon.machineID):\(store.tabListRevision)")
+            parts += store.closedItems.map(\.id)
         }
-        return ids
+        return parts
     }
 }

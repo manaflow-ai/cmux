@@ -4,6 +4,7 @@
 //! through `use super::*`.
 
 mod deferred_input;
+mod docked_workspaces;
 mod graphics_pointer;
 mod host_input;
 mod machine_sidebar;
@@ -287,6 +288,8 @@ fn provider_machine_ui_with_machine_lifecycle() -> MachineUiState {
                 name: "managed".into(),
                 subtitle: "cloud".into(),
                 status: MachineStatus::Running,
+                platform: None,
+                capabilities: Vec::new(),
             },
             MachineDescriptor {
                 key: MachineKey(42),
@@ -294,6 +297,8 @@ fn provider_machine_ui_with_machine_lifecycle() -> MachineUiState {
                 name: "quiet-forest".into(),
                 subtitle: String::new(),
                 status: MachineStatus::Stopped,
+                platform: None,
+                capabilities: Vec::new(),
             },
         ],
         active: Some(MachineKey(41)),
@@ -360,6 +365,8 @@ fn provider_machine_ui_with_policy(
             name: "managed".into(),
             subtitle: "cloud".into(),
             status: MachineStatus::Running,
+            platform: None,
+            capabilities: Vec::new(),
         }],
         active: Some(machine),
         capabilities: MachineCapabilities { create: true, connect: true },
@@ -619,6 +626,7 @@ fn test_app_with_events(session: Session) -> (App, Receiver<AppEvent>) {
         pane_focus_history: PaneFocusHistory::default(),
         reported_focus: None,
         client_focus_id: None,
+        docks: Default::default(),
         rendered_terminal_bounds: HashMap::new(),
         rendered_kitty_graphics: HashMap::new(),
         visible_size_surfaces: HashSet::new(),

@@ -9,7 +9,7 @@ final class GlassFillRenderer: DropOverlayRenderer {
     let style: DropOverlayStyle
     let view = DropOverlayRenderers.container()
     let surface: OverlaySurfaceView
-    private let label = NSTextField(labelWithString: "")
+    private let label = ChromeLabel(labelWithString: "")
 
     init(style: DropOverlayStyle, material: OverlayMaterial?) {
         self.style = style
@@ -70,7 +70,7 @@ final class GlassOutlineRenderer: DropOverlayRenderer {
         surface.frame = frame.target
         surface.cornerRadius = frame.cornerRadius
         let bounds = CGRect(origin: .zero, size: frame.target.size)
-        Motion.transaction(nil) {
+        Motion.panes.transaction(nil) {
             ring.frame = bounds
             ring.path = DropOverlayGeometry.ringPath(bounds, cornerRadius: frame.cornerRadius,
                                                      width: CGFloat(DropOverlayTunables.outlineWidth.value))
@@ -92,7 +92,7 @@ final class InsetCardRenderer: DropOverlayRenderer {
     private let tint = DropOverlayRenderers.shape()
     private let card: OverlaySurfaceView
     private let icon = NSImageView()
-    private let label = NSTextField(labelWithString: "")
+    private let label = ChromeLabel(labelWithString: "")
     private var zone: DropOverlayZone?
 
     init(material: OverlayMaterial?) {
@@ -118,7 +118,7 @@ final class InsetCardRenderer: DropOverlayRenderer {
     func pinMaterial(_ material: OverlayMaterial?) { card.materialOverride = material }
 
     func update(_ frame: DropOverlayFrame) {
-        Motion.transaction(nil) {
+        Motion.panes.transaction(nil) {
             tint.path = DropOverlayGeometry.roundedRect(frame.target, frame.cornerRadius)
             tint.opacity = Float(DropOverlayTunables.cardRegionOpacity.value)
         }

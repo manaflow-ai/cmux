@@ -409,6 +409,10 @@ impl RemoteSession {
                     source: Arc::from(agent.source.as_str()),
                     session: agent.session.as_deref().map(Arc::from),
                     agent: agent.agent.as_deref().map(Arc::from),
+                    agent_session_id: value
+                        .get("agent_session_id")
+                        .and_then(Value::as_str)
+                        .map(Arc::from),
                     updated_at_ms,
                     // An older daemon sends no state start: count from the last report.
                     since_ms: value
@@ -429,7 +433,7 @@ impl RemoteSession {
             Some("layout-changed") => {
                 self.tree_stale.store(true, Ordering::Release);
                 if let Some(screen) = value.get("screen").and_then(|v| v.as_u64()) {
-                    self.emit(MuxEvent::LayoutChanged(screen));
+                    self.emit(MuxEvent::LayoutChanged(screen, None));
                 } else {
                     self.emit(MuxEvent::TreeChanged);
                 }
@@ -441,7 +445,8 @@ impl RemoteSession {
                     // already fail closed for a known-exited surface.
                     self.drop_surface(id);
                     self.tree_stale.store(true, Ordering::Release);
-                    self.emit(MuxEvent::SurfaceExited(id));
+                    let end = value.get("end").filter(|end| !end.is_null()).cloned();
+                    self.emit(MuxEvent::SurfaceExited(id, end.map(Arc::new)));
                 }
             }
             Some("title-changed") => {
@@ -490,16 +495,32 @@ impl RemoteSession {
                     Some("error") => NotificationLevel::Error,
                     _ => NotificationLevel::Info,
                 };
+                let text = |key: &str| value.get(key).and_then(Value::as_str).map(str::to_string);
                 self.emit(MuxEvent::Notification(NotificationEvent {
+                    id: text("id"),
+                    message: text("message"),
+                    prompt: text("prompt"),
+                    session: text("session"),
                     notification,
                     title: value
                         .get("title")
                         .and_then(Value::as_str)
                         .unwrap_or_default()
                         .to_string(),
+                    subtitle: value.get("subtitle").and_then(Value::as_str).map(str::to_string),
                     body: value.get("body").and_then(Value::as_str).unwrap_or_default().to_string(),
+                    preview: value.get("preview").and_then(Value::as_str).map(str::to_string),
+                    question: value
+                        .get("question")
+                        .filter(|question| question.is_object())
+                        .cloned()
+                        .map(Arc::new),
                     level,
                     surface: surface_id(),
+                    workspace_id: value
+                        .get("workspace_id")
+                        .and_then(Value::as_str)
+                        .and_then(|id| cmux_tui_core::resource::WorkspacePublicId::parse(id).ok()),
                     source: value
                         .get("source")
                         .and_then(Value::as_str)

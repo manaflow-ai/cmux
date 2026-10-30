@@ -16,6 +16,7 @@ use crate::state::agent_message_policy::{self as policy, CrossWorkspace};
 use crate::state::agent_message_store::{
     self as messages, AgentMessageFilter, NewAgentMessage, SendContext,
 };
+use crate::state::agent_message_unsend::{self as unsend, WithdrawError, Withdrawn};
 use crate::state::commit::StateEffects;
 use crate::state::prelude::*;
 use crate::state::store::{StateChanges, StateCommit};
@@ -91,6 +92,7 @@ impl Mux {
                 Ok(StateChanges::new(value, Vec::new()))
             },
         )
+        .inspect(|_| self.wake_agent_message_pump())
     }
 
     /// The workspace keys of the acpmux sessions a send involves: the
@@ -210,6 +212,119 @@ impl Mux {
                     message_id,
                     recipient,
                     decision,
+                    policy::now_ms(),
+                )?;
+                Ok(StateChanges::new(value, Vec::new()))
+            },
+        )
+        .inspect(|_| self.wake_agent_message_pump())
+    }
+
+    /// `agent.message.unsend` (agent_message_unsend.rs): the verified sender,
+    /// or the person in the verified cmux app, takes a message back. Any
+    /// local connection may be an agent that left out its launch credential,
+    /// so the plain local user is refused (as `agent.message.release`
+    /// refuses it). A retry replays, and a reused key or a
+    /// stale revision is refused, before acpmux is asked anything; then
+    /// acpmux decides each acpmux recipient's outcome, and every answer
+    /// commits (a refusal is that recipient's `failed` outcome) whatever
+    /// else committed while acpmux answered: acpmux already acted on it.
+    /// The pump claims no hand-over and records no outcome meanwhile; one
+    /// already out counts as tried, so acpmux decides it.
+    pub(crate) fn agent_message_unsend(
+        &self,
+        mutation: &WorkspaceMutation,
+        expected_revision: Option<u64>,
+        selectors: &crate::ResourceSelectors,
+        message_id: &str,
+        recipient: Option<&str>,
+    ) -> anyhow::Result<StateCommit> {
+        const OPERATION: &str = "agent.message.unsend";
+        let fingerprint = serde_json::json!({
+            "operation": OPERATION,
+            "selectors": selectors,
+            "message_id": message_id,
+            "recipient": recipient,
+        });
+        let session_id = self.session_public_id.as_str().to_owned();
+        let _delivering = self.agent_message_delivery_lock();
+        if let Some(replayed) =
+            self.state_commit_replay(mutation, OPERATION, &fingerprint, expected_revision)?
+        {
+            return Ok(replayed);
+        }
+        let (sender, targets) = self
+            .read_registry_state(|connection| unsend::targets(connection, message_id, recipient))?;
+        let app = matches!(mutation.actor, crate::workspace_registry::Actor::Frontend { .. });
+        match policy::sender_address(&mutation.actor) {
+            _ if app => {}
+            Some(agent) if agent == sender => {}
+            Some(agent) => {
+                return Err(policy::refused_by(
+                    OPERATION,
+                    "unsend_not_sender",
+                    format!(
+                        "{agent} did not send message {message_id}; only its sender or the person, in the cmux app, takes it back"
+                    ),
+                    serde_json::json!({}),
+                ));
+            }
+            None => {
+                return Err(policy::refused_by(
+                    OPERATION,
+                    "unsend_needs_app",
+                    format!(
+                        "an unverified caller cannot take back message {message_id}; its sender's own session, or the cmux app, can"
+                    ),
+                    serde_json::json!({}),
+                ));
+            }
+        }
+        let (mut answers, mut failures) = (HashMap::new(), HashMap::new());
+        for target in targets.iter().filter(|target| target.asks_acpmux()) {
+            let session = target.recipient.trim_start_matches("acp:");
+            let to = target.recipient.clone();
+            // A hand-over went out (or one whose attempt could not be noted).
+            let tried = !target.never_tried()
+                || self.agent_message_attempt_unnoted(message_id, &target.recipient);
+            match self.acp_withdraw_message(session, message_id) {
+                // acpmux holds no such prompt yet, but the hand-over may
+                // still reach it and run: not unsent, try again. A session
+                // acpmux no longer knows (`NoSession`: deleted, and no peer
+                // runs it) takes nothing late.
+                Ok(Withdrawn::NotFound) if tried && target.state == "queued" => {
+                    failures.insert(to, unsend::in_flight(&target.recipient));
+                }
+                Ok(answer) => {
+                    answers.insert(to, answer);
+                }
+                // Not running, and no hand-over was ever tried: still ours.
+                Err(WithdrawError::Unavailable) if !tried => {}
+                Err(WithdrawError::Unavailable) => {
+                    failures.insert(to, unsend::unavailable(&target.recipient));
+                }
+                Err(WithdrawError::Refused(reason)) => {
+                    failures.insert(to, unsend::refused(&target.recipient, &reason));
+                }
+            }
+        }
+        // The revision was checked above, before acpmux acted; the replay
+        // and key checks run again inside the commit.
+        self.commit_state(
+            mutation,
+            OPERATION,
+            &fingerprint,
+            None,
+            StateEffects::EVENTS_ONLY,
+            |transaction, state| {
+                self.resolve_in_state(state, crate::ResourceTarget::Session, selectors)?;
+                let value = unsend::unsend(
+                    transaction,
+                    &session_id,
+                    message_id,
+                    recipient,
+                    &answers,
+                    &failures,
                     policy::now_ms(),
                 )?;
                 Ok(StateChanges::new(value, Vec::new()))

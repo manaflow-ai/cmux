@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextTabs

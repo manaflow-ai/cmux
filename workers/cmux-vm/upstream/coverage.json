@@ -83,20 +83,26 @@
       "status": "denied",
       "reason": "Switches a real power outlet on operator hardware; never exposed to tenants."
     },
+    "upsert_customer": {
+      "status": "denied",
+      "reason": "Customer profiles are account-wide provider abuse-protection records keyed by our own ids; cmux VM sets each VM's customer inline on create from the caller's tenant id and never lets a tenant read or write a profile."
+    },
+    "get_customer": {
+      "status": "denied",
+      "reason": "Customer profiles are account-wide provider abuse-protection records keyed by our own ids; cmux VM sets each VM's customer inline on create from the caller's tenant id and never lets a tenant read or write a profile."
+    },
     "list_identities": {
       "status": "planned",
       "bead": "cx-b4h.6",
       "reason": "planned in cx-b4h.6"
     },
     "create_identity": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["agents.createClientSession"]
     },
     "delete_identity": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["agents.createClientSession", "agents.revokeClientSession", "agents.revokeAgentKey", "vms.deleteVm"]
     },
     "describe_identity": {
       "status": "planned",
@@ -109,9 +115,8 @@
       "reason": "planned in cx-b4h.6"
     },
     "grant_vm_permission": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["agents.createClientSession"]
     },
     "revoke_vm_permission": {
       "status": "planned",
@@ -134,9 +139,8 @@
       "reason": "planned in cx-b4h.6"
     },
     "create_access_token": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["agents.createClientSession"]
     },
     "revoke_access_token": {
       "status": "planned",
@@ -159,7 +163,8 @@
     "get_snapshot": {
       "status": "wrapped",
       "by": [
-        "snapshots.getSnapshot"
+        "snapshots.getSnapshot",
+        "vms.createVm"
       ]
     },
     "update_snapshot": {
@@ -168,9 +173,10 @@
       "reason": "planned in cx-b4h.9"
     },
     "list_tls_rules": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": [
+        "vms.replaceVmHttpsProxy"
+      ]
     },
     "create_tls_rule": {
       "status": "planned",
@@ -213,9 +219,10 @@
       "reason": "planned in cx-b4h.6"
     },
     "update_tls_rule": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": [
+        "vms.replaceVmHttpsProxy"
+      ]
     },
     "list_tunnels": {
       "status": "planned",
@@ -354,9 +361,8 @@
       "reason": "planned in cx-b4h.2"
     },
     "stat_path": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": ["files.statFile"]
     },
     "begin_upload": {
       "status": "planned",
@@ -427,9 +433,8 @@
       ]
     },
     "resize_vm": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": ["vms.createVm", "vms.resizeVm"]
     },
     "snapshot_vm": {
       "status": "wrapped",
@@ -486,6 +491,16 @@
     }
   },
   "sdk": {
+    "CustomersNamespace.upsert": {
+      "operations": ["upsert_customer"]
+    },
+    "CustomersNamespace.get": {
+      "operations": ["get_customer"]
+    },
+    "FreestyleTransportError.toJSON": {
+      "status": "local",
+      "reason": "Local handle or helper: makes no request of its own."
+    },
     "FreestyleClient.authHeaders": {
       "status": "denied",
       "reason": "Returns the provider credential headers; the provider key never leaves the Worker."
@@ -930,6 +945,12 @@
       ]
     },
     "PtySession.detach": {
+      "operations": [
+        "open_pty",
+        "attach_pty"
+      ]
+    },
+    "PtySession.reconnect": {
       "operations": [
         "open_pty",
         "attach_pty"

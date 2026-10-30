@@ -3,7 +3,8 @@
 // 2026-10-11: "so much layout shift"). The pane runs its real client against the in-page mock
 // daemon (`transport: "mock"`, mock.ts), so the play goes through the app's own states: the empty
 // new chat, the sent prompt waiting for its session, Thinking, then the streamed reply. Each step
-// measures the composer, its controls and the turn's status line: none may move or resize.
+// measures the composer, its controls and the turn's status line: none may move or resize. The
+// location strip is no anchor: it leaves on the send by design (locationRow.ts), and the card stays.
 import { agentPaneEntry } from "../../gallery/format";
 import { noChat } from "../../gallery/fixtures/acpmux";
 
@@ -16,10 +17,10 @@ export default agentPaneEntry({
   anchors: [
     { selector: ".acpmux-composer-box" },
     { selector: ".acpmux-composer-bar" },
-    { selector: ".acpmux-composer-context" },
     { selector: ".acpmux-model" },
     { selector: ".acpmux-context" },
-    { selector: ".acpmux-send" },
+    // The mic keeps the right edge from the empty chat on; Send and Stop come and go left of it.
+    { selector: ".acpmux-fit-mic" },
   ],
   checks: {
     anchorMovePx: {
@@ -45,13 +46,18 @@ export default agentPaneEntry({
         await ctx.type("what can you do?", { selector: ".acpmux-md" });
         await ctx.press("Enter");
         await ctx.waitFor(() => doc.querySelector(".cv-thinking, .cv-worked"), { capMs: 10_000 });
-        // The status line keeps its place from Thinking to the streamed reply.
-        const line = doc.querySelector(".cv-worked")?.getBoundingClientRect();
+        // The prompt keeps its place from Thinking to the streamed reply, and the running turn's
+        // line stays its last row, under the reply (agentPane.debug.liveLineBelow).
+        const bubble = doc.querySelector(".cv-user__bubble")?.getBoundingClientRect();
         await ctx.hover({ selector: ".cv-user__bubble" });
         await ctx.waitFor(() => doc.querySelector(".cv-md"), { capMs: 10_000 });
-        const after = doc.querySelector(".cv-worked")?.getBoundingClientRect();
-        if (line && after && Math.abs(line.top - after.top) > 1)
-          throw new Error(`the turn's status line moved ${Math.abs(line.top - after.top).toFixed(1)} px`);
+        const moved = doc.querySelector(".cv-user__bubble")?.getBoundingClientRect();
+        if (bubble && moved && Math.abs(bubble.top - moved.top) > 1)
+          throw new Error(`the prompt moved ${Math.abs(bubble.top - moved.top).toFixed(1)} px`);
+        const line = doc.querySelector(".cv-worked")?.getBoundingClientRect();
+        const reply = doc.querySelector(".cv-md")?.getBoundingClientRect();
+        if (line && reply && line.top < reply.bottom - 1)
+          throw new Error(`the turn's status line is above its reply (${line.top} < ${reply.bottom})`);
       },
     },
   },

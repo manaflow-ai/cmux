@@ -1,6 +1,7 @@
-// The New Tab composer box's focus is quiet (Lawrence 10-14, "don't like this focus thing"): focus
-// keeps the box's one-device-pixel rim (--cmux-hairline) at its own width, takes at most a slight
-// step in tone, never the accent, and still clears with appearance.borders none. The composer's
+// The New Tab composer box's focus is quiet (Lawrence 10-14, "don't like this focus thing"), and now
+// is a hairline (Leo 2026-10-21: "a subtle hairline border that brightens slightly on focus"): a
+// focused box keeps its one-device-pixel rim (--cmux-hairline), a step brighter, and still clears
+// with appearance.borders none. The composer's
 // fill, the New Tab box's and the chat composer's alike, is no longer a gray slab darker than the
 // page ("same bg kinda weird"; Leo 10-14): in a light theme it is the page lifted toward white,
 // lighter than the page; in a dark theme a small step lighter than the page. Both are solid. Their
@@ -11,7 +12,9 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 type Rim = { spread: number; rgba: [number, number, number, number] };
 
@@ -36,6 +39,7 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/test/browser/composer-rim.html");
     browser = await chromium.launch({ headless: true });
   });
   afterAll(async () => {
@@ -68,7 +72,11 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
     return page;
   }
 
-  /** A box's inset rims: spread in CSS px and color as 0...1 channels. */
+  /**
+   * A box's inset rims (rings with a spread): spread in CSS px and color as 0...1 channels. Since
+   * #24593 (2026-10-23) a glass card also draws the glass's light rim, a top and a bottom line with
+   * no spread (composerStates.css, --acpmux-composer-rim); those are not a rim here.
+   */
   function rims(page: Page, id = "newtab"): Promise<Rim[]> {
     return page.evaluate((id) => {
       const shadow = getComputedStyle(document.getElementById(id)!).boxShadow;
@@ -98,7 +106,8 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
           else if (color.startsWith("rgb"))
             rgba = [numbers[0] / 255, numbers[1] / 255, numbers[2] / 255, numbers[3] ?? 1];
           return { spread: lengths[3] ?? 0, rgba };
-        });
+        })
+        .filter(({ spread }) => spread !== 0);
     }, id);
   }
 
@@ -119,11 +128,6 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
     return { rgba: parse(style.color), image: style.image };
   }
 
-  /** A rim as it shows: its color over the box's own fill. */
-  function ink([r, g, b, a]: Rim["rgba"], ground: Rim["rgba"]): number[] {
-    return [r, g, b].map((channel, index) => channel * a + ground[index] * (1 - a));
-  }
-
   function luminance([r, g, b]: Rim["rgba"] | number[]): number {
     return 0.2126 * r + 0.7152 * g + 0.0722 * b;
   }
@@ -137,7 +141,7 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
   for (const [box, field] of boxes)
     for (const theme of ["dark", "light"] as const) {
       for (const scale of [1, 2]) {
-        test(`${box}, ${theme} at ${scale}x: focus keeps the one-device-pixel rim, a slight step in tone, no accent`, async () => {
+        test(`${box}, ${theme} at ${scale}x: focus keeps the one-device-pixel rim, a step brighter`, async () => {
           const page = await open(scale, theme);
           const rest = await rims(page, box);
           expect(rest.length, "the box draws a rim").toBe(1);
@@ -145,17 +149,11 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
           expect(rest[0].rgba[3], "the rim's color parsed and shows").toBeGreaterThan(0);
           await page.focus(`#${field}`);
           const focused = await rims(page, box);
-          expect(focused.length, "focus draws one rim, no extra ring").toBe(1);
+          // No focus ring: the same one rim at the same width, its tone a step brighter.
+          expect(focused.length, "focus draws one rim").toBe(1);
           expect(focused[0].spread, "focus keeps the rim's width").toBe(rest[0].spread);
-          const ground = (await fill(page, box)).rgba!;
-          const [r, g, b] = focused[0].rgba;
-          expect(Math.max(Math.abs(r - g), Math.abs(g - b)), "the focused rim is neutral, not the accent").toBeLessThan(
-            0.02,
-          );
-          const lift = Math.max(
-            ...ink(focused[0].rgba, ground).map((value, index) => Math.abs(value - ink(rest[0].rgba, ground)[index])),
-          );
-          expect(lift, "focus lifts the rim's tone at most slightly").toBeLessThan(0.08);
+          expect(focused[0].rgba[3], "focus brightens the rim").toBeGreaterThan(rest[0].rgba[3]);
+          expect(focused[0].rgba[3] - rest[0].rgba[3], "only a step").toBeLessThan(0.2);
           await page.close();
         });
       }
@@ -189,17 +187,126 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
       await page.close();
     });
 
-  test("the New Tab suggestions popover is the popup surface, as every pane popup", async () => {
+  // A new chat's location strip is chips standing over the card (#25304, Leo 2026-10-25): the strip
+  // draws no rim, and the card keeps its whole rim (no layer reaching up round the strip), which
+  // takes the focused tone when the card has focus.
+  const tone = (shadow: string) => shadow.match(/(?:rgba?|color)\([^)]*\)/)![0];
+  for (const theme of ["dark", "light"] as const)
+    test(`${theme}: under the location strip the card keeps its whole rim, which takes the focused tone`, async () => {
+      const page = await open(2, theme);
+      const edge = () =>
+        page.evaluate(() => ({
+          card: getComputedStyle(document.getElementById("strip-composer")!).boxShadow,
+          layer: getComputedStyle(document.getElementById("strip-composer")!, "::before").content,
+          stripRim: getComputedStyle(document.getElementById("strip")!).boxShadow,
+        }));
+      const rest = await edge();
+      await page.focus("#strip-composer-field");
+      const focused = await edge();
+      expect(focused.layer, "no rim layer round the strip").toBe("none");
+      expect(focused.stripRim, "the strip draws no rim").toBe("none");
+      expect(tone(focused.card), "the card's rim takes the focused tone").not.toBe(tone(rest.card));
+      await page.close();
+    });
+
+  // Queued prompts sit on the card's top edge as part of its outline: their sides and the card's rim
+  // (its rim layer) draw one tone, the focused one while the card has focus.
+  for (const theme of ["dark", "light"] as const)
+    test(`${theme}: queued prompts' edge takes the card's focused tone`, async () => {
+      const page = await open(2, theme);
+      const edges = () =>
+        page.evaluate(() => ({
+          queue: getComputedStyle(document.getElementById("queue")!).boxShadow,
+          card: getComputedStyle(document.getElementById("queue-composer")!, "::before").boxShadow,
+        }));
+      const rest = await edges();
+      await page.focus("#queue-composer-field");
+      const focused = await edges();
+      expect(tone(focused.queue), "the queue's edge takes the focused tone").not.toBe(tone(rest.queue));
+      expect(tone(focused.queue), "the queue and the card draw one tone").toBe(tone(focused.card));
+      await page.close();
+    });
+
+  // A footer chip has no bezel: keyboard focus lays the hover wash and draws no ring (Leo
+  // 2026-10-21: no focus ring; agent-pane-hairline-focus.test.ts). A pointer click draws nothing, and
+  // Increase Contrast keeps the shared ring at its offset.
+  test("a footer chip under keyboard focus: hover wash, no ring", async () => {
+    const page = await open(2, "light");
+    await installPaintedFrames(page);
+    await page.focus("#composer-field");
+    await page.keyboard.press("Tab");
+    // The wash's hover fade settles: a frame paints the focus, then its transitions run out.
+    await page.evaluate(async () => {
+      await window.cmuxPaintFrame();
+      await Promise.all(
+        document
+          .getElementById("composer-chip")!
+          .getAnimations()
+          .map((animation) => animation.finished.catch(() => undefined)),
+      );
+    });
+    const chip = () =>
+      page.evaluate(() => {
+        const element = document.getElementById("composer-chip")!;
+        const style = getComputedStyle(element);
+        // The row's own hover wash (composerLocation.css), resolved in the chip's ink: the same
+        // color :hover paints, so focus and hover can't drift apart.
+        const probe = document.createElement("div");
+        probe.style.color = style.color;
+        probe.style.background = "var(--acpmux-row-hover)";
+        element.parentElement!.append(probe);
+        const wash = getComputedStyle(probe).backgroundColor;
+        probe.remove();
+        return {
+          focused: document.activeElement === element,
+          background: style.backgroundColor,
+          wash,
+          outline: style.outlineStyle,
+          offset: style.outlineOffset,
+          color: style.color,
+          text: getComputedStyle(element.closest(".acpmux-shell")!).getPropertyValue("--agent-text").trim(),
+        };
+      });
+    const keyboard = await chip();
+    expect(keyboard.focused, "Tab reaches the chip").toBe(true);
+    expect(keyboard.wash, "the row's hover wash resolves").not.toBe("rgba(0, 0, 0, 0)");
+    // The hover's soft pill, no stronger step (Leo 2026-10-19: the Claude app's chips).
+    expect(keyboard.background, "the focused chip takes the hover's wash").toBe(keyboard.wash);
+    expect(keyboard.outline, "no ring, the wash alone").toBe("none");
+    expect(keyboard.color, "the chip's ink steps up as on hover").toBe(keyboard.text);
+    await page.emulateMedia({ contrast: "more" });
+    const contrast = await chip();
+    expect(contrast.outline, "Increase Contrast keeps the shared ring").toBe("solid");
+    expect(contrast.offset, "Increase Contrast keeps the shared offset").toBe("2px");
+    await page.emulateMedia({ contrast: "no-preference" });
+    await page.mouse.click(5, 5);
+    await page.click("#composer-chip");
+    const pointer = await chip();
+    expect(pointer.outline, "a click draws no ring").toBe("none");
+    await page.close();
+  });
+
+  // Every pane popup is liquid glass (ui/popupSurface.css): frosted glass under the lens and under
+  // plain glass alike (Leo: glass, never opaque); only Reduce Transparency makes it solid.
+  test("the New Tab suggestions popover is glass, as every pane popup", async () => {
     const page = await open(2, "light");
     await page.evaluate(() => document.documentElement.style.setProperty("--cmux-popup-surface", "rgb(201, 202, 203)"));
+    const glass = await fill(page, "popover");
+    expect(glass.image, "no composer tint over it").toBe("none");
+    expect(glass.rgba?.[3], "the lens's popup is glass, never opaque").toBeLessThan(1);
+    await page.evaluate(() => document.documentElement.setAttribute("data-glass", "plain"));
     const { rgba, image } = await fill(page, "popover");
     expect(image, "no composer tint over it").toBe("none");
-    expect(rgba, "the popup surface").toEqual([201 / 255, 202 / 255, 203 / 255, 1]);
+    expect(rgba?.[3], "plain glass is glass too, never opaque").toBeLessThan(1);
     await page.close();
   });
 
   for (const theme of ["dark", "light"] as const) {
-    test(`${theme}: the New Tab box and the chat composer are a solid surface lighter than the page`, async () => {
+    // Both are the composer's glass on every window (the chat card since #23477, 2026-10-21; the New
+    // Tab box since #24593, 2026-10-23): the composer's solid surface as a translucent tint, never a
+    // clear film (composer-glass.test.ts holds the glass). Over the theme's own page it reads a step
+    // lighter, as the solid box did.
+    test(`${theme}: the New Tab box and the chat composer are the composer's glass, lighter than the page`, async () => {
       const page = await open(2, theme);
       const ground = pages[theme].map((channel) => channel / 255);
       for (const id of ["newtab", "composer"]) {
@@ -208,13 +315,16 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
         const layers = [...image.matchAll(/(?:rgba?|color)\([^)]*\)/g)].map((match) => parse(match[0]));
         for (const layer of layers) expect(layer?.[3], `${id} paints one flat color at rest`).toBe(0);
         expect(rgba, `${id} fill parsed`).not.toBeNull();
-        expect(rgba![3], `${id} is solid over a wallpaper`).toBe(1);
-        const step = luminance(rgba!) - luminance(ground);
+        expect(rgba![3], `${id} is glass, never opaque`).toBeLessThan(1);
+        expect(rgba![3], `${id} is a surface, not a film`).toBeGreaterThanOrEqual(0.4);
+        const shown = [0, 1, 2].map((i) => rgba![i] * rgba![3] + ground[i] * (1 - rgba![3])) as Rim["rgba"];
+        shown[3] = 1;
+        const step = luminance(shown) - luminance(ground);
         if (theme === "light") {
           // The page lifted toward white: lighter than the page, near white, keeping the page's hue.
           expect(step, `${id} is lighter than the page`).toBeGreaterThan(0.03);
-          expect(luminance(rgba!), `${id} is near white`).toBeGreaterThan(0.95);
-          expect(rgba![2], `${id} keeps the page's warmth`).toBeLessThan(rgba![0]);
+          expect(luminance(shown), `${id} is near white`).toBeGreaterThan(0.95);
+          expect(shown[2], `${id} keeps the page's warmth`).toBeLessThan(shown[0]);
         } else {
           // One small step lighter than the page.
           expect(step, `${id} is a step lighter than the page`).toBeGreaterThan(0.02);

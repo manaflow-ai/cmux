@@ -21,16 +21,82 @@ export class OptChat {
         wasm.__wbg_optchat_free(ptr, 0);
     }
     /**
-     * Appends one message (already stored) and returns its id.
+     * `append` for any memory: sizes it does not hold come from `store`.
+     * @param {any} store
+     * @returns {number}
+     */
+    appendIn(store) {
+        const ret = wasm.optchat_appendIn(this.__wbg_ptr, store);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0];
+    }
+    /**
+     * Appends one message (already stored) and returns its id. Not for a lazy memory (`appendIn`).
      * @returns {number}
      */
     append() {
         const ret = wasm.optchat_append(this.__wbg_ptr);
-        return ret;
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0];
+    }
+    /**
+     * A memory tool with no effect outside the memory (chief-kernel
+     * `call_pure`; section 13, export 2): `zoom` or `date`, its arguments
+     * as JSON, and `ctx_json` (`{utc_offset_minutes}`). `date` reads the
+     * store's `date(i)`. Any other tool throws: the host runs it.
+     * @param {any} store
+     * @param {string} name
+     * @param {string} args_json
+     * @param {string} ctx_json
+     * @returns {string}
+     */
+    callPure(store, name, args_json, ctx_json) {
+        let deferred5_0;
+        let deferred5_1;
+        try {
+            const ptr0 = passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            const len0 = WASM_VECTOR_LEN;
+            const ptr1 = passStringToWasm0(args_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            const len1 = WASM_VECTOR_LEN;
+            const ptr2 = passStringToWasm0(ctx_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            const len2 = WASM_VECTOR_LEN;
+            const ret = wasm.optchat_callPure(this.__wbg_ptr, store, ptr0, len0, ptr1, len1, ptr2, len2);
+            var ptr4 = ret[0];
+            var len4 = ret[1];
+            if (ret[3]) {
+                ptr4 = 0; len4 = 0;
+                throw takeFromExternrefTable0(ret[2]);
+            }
+            deferred5_0 = ptr4;
+            deferred5_1 = len4;
+            return getStringFromWasm0(ptr4, len4);
+        } finally {
+            wasm.__wbindgen_free(deferred5_0, deferred5_1, 1);
+        }
+    }
+    /**
+     * Where the memory stands, as JSON for `resume`: `{t, low, view, compact_view, merging, compact_merging}`.
+     * @returns {string}
+     */
+    checkpoint() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.optchat_checkpoint(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
     }
     /**
      * The compactor call for node (l, i) as JSON `{system, context, marks,
-     * step, cut, room}`: `marks` are byte offsets into the UTF-8 context
+     * step, cut, room}`: `marks` are JS string indices (UTF-16 code units) into the context
      * where a cached piece ends (section 8); send each piece as its own
      * block with a breakpoint. `cut` is null, or the prefix a too-long
      * message's line starts with: run the size loop with `sizeCheck(tries,
@@ -75,6 +141,21 @@ export class OptChat {
         }
     }
     /**
+     * `complete` for any memory: sizes it does not hold come from `store`.
+     * @param {number} l
+     * @param {number} i
+     * @param {string} text
+     * @param {any} store
+     */
+    completeIn(l, i, text, store) {
+        const ptr0 = passStringToWasm0(text, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.optchat_completeIn(this.__wbg_ptr, l, i, ptr0, len0, store);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
      * @param {number} l
      * @param {number} i
      * @param {string} text
@@ -112,6 +193,13 @@ export class OptChat {
         return ret !== 0;
     }
     /**
+     * @returns {boolean}
+     */
+    isLazy() {
+        const ret = wasm.optchat_isLazy(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
      * @returns {number}
      */
     len() {
@@ -134,6 +222,13 @@ export class OptChat {
             throw takeFromExternrefTable0(ret[1]);
         }
         return OptChat.__wrap(ret[0]);
+    }
+    /**
+     * Drops the sizes of nodes outside the views (read from the store when needed); from here on
+     * change it with `appendIn` and `completeIn`.
+     */
+    makeLazy() {
+        wasm.optchat_makeLazy(this.__wbg_ptr);
     }
     /**
      * A new, empty memory with a view budget in bytes (`VIEW` when 0).
@@ -172,7 +267,7 @@ export class OptChat {
         }
     }
     /**
-     * The rendered view as JSON `{text, marks}` (marks are byte offsets into the UTF-8 text).
+     * The rendered view as JSON `{text, marks}` (marks are indices into the JS string `text`, UTF-16 code units).
      * @param {any} store
      * @returns {string}
      */
@@ -195,11 +290,65 @@ export class OptChat {
         }
     }
     /**
+     * Picks up from `checkpoint()`'s JSON without reading the whole log (spec 3.2: the saved view is
+     * loaded, never rebuilt): `t` messages, and the frontier as JSON `[[l, i, bytes], ...]` (every stored
+     * node at or above the checkpoint's `low` of its level). Messages after the checkpoint are appended
+     * as live. The result is lazy: change it with `appendIn` and `completeIn`. Undefined when the
+     * checkpoint does not fit the store (the host then folds with `load` + `makeLazy`).
+     * @param {string} checkpoint
+     * @param {number} t
+     * @param {string} frontier_json
+     * @param {number} budget
+     * @param {any} store
+     * @returns {OptChat | undefined}
+     */
+    static resume(checkpoint, t, frontier_json, budget, store) {
+        const ptr0 = passStringToWasm0(checkpoint, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(frontier_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.optchat_resume(ptr0, len0, t, ptr1, len1, budget, store);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] === 0 ? undefined : OptChat.__wrap(ret[0]);
+    }
+    /**
      * @returns {boolean}
      */
     settled() {
         const ret = wasm.optchat_settled(this.__wbg_ptr);
         return ret !== 0;
+    }
+    /**
+     * The turn input of spec 5a as JSON `{frozen: {parts: [[l, i]], front, unbuilt, cuts}, rerendered, view: [piece],
+     * delta: [block]}`: the frozen view cut into its 4-line blocks (`block_pieces`), then the delta
+     * blocks. `frozen` is the JSON this returned last turn, or "" for none; `new` is how many of the
+     * log's last messages are this turn's new ones (never shown in a re-rendered view).
+     * @param {any} store
+     * @param {string} frozen
+     * @param {number} _new
+     * @returns {string}
+     */
+    turnInput(store, frozen, _new) {
+        let deferred3_0;
+        let deferred3_1;
+        try {
+            const ptr0 = passStringToWasm0(frozen, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            const len0 = WASM_VECTOR_LEN;
+            const ret = wasm.optchat_turnInput(this.__wbg_ptr, store, ptr0, len0, _new);
+            var ptr2 = ret[0];
+            var len2 = ret[1];
+            if (ret[3]) {
+                ptr2 = 0; len2 = 0;
+                throw takeFromExternrefTable0(ret[2]);
+            }
+            deferred3_0 = ptr2;
+            deferred3_1 = len2;
+            return getStringFromWasm0(ptr2, len2);
+        } finally {
+            wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+        }
     }
     /**
      * @returns {number}
@@ -277,6 +426,79 @@ export function finishLine(cut, line) {
 }
 
 /**
+ * The reply and outcome ledgers as a pure fold (chief-kernel
+ * `ledger::ledger_apply`; section 13, export 3): applies one event to the
+ * state at `ctx_json.now_ms` and answers `{state, intents}` as JSON. The
+ * host stores the state and performs each intent (`schedule`, `notice`,
+ * `post`) with its key, in one transaction with its own rows.
+ * @param {string} state_json
+ * @param {string} event_json
+ * @param {string} ctx_json
+ * @returns {string}
+ */
+export function ledgerApply(state_json, event_json, ctx_json) {
+    let deferred5_0;
+    let deferred5_1;
+    try {
+        const ptr0 = passStringToWasm0(state_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(event_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(ctx_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ret = wasm.ledgerApply(ptr0, len0, ptr1, len1, ptr2, len2);
+        var ptr4 = ret[0];
+        var len4 = ret[1];
+        if (ret[3]) {
+            ptr4 = 0; len4 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred5_0 = ptr4;
+        deferred5_1 = len4;
+        return getStringFromWasm0(ptr4, len4);
+    } finally {
+        wasm.__wbindgen_free(deferred5_0, deferred5_1, 1);
+    }
+}
+
+/**
+ * The system text of a Chief turn, exactly as the Mac host renders it
+ * (chief-kernel `render_system`; cloud-chief-durable-DESIGN.md section 13,
+ * export 1). `profile_json`: `{person?, instructions?, channels?, record?}`;
+ * `engine`: `claude`, `codex`, `pi-durable`, ...; `tools_json`: `{mode?,
+ * chief?, profile_tool?, chiefs_tool?}`. Throws on bad JSON, an unknown
+ * engine, or a cli engine without its launcher path.
+ * @param {string} profile_json
+ * @param {string} engine
+ * @param {string} tools_json
+ * @returns {string}
+ */
+export function renderSystem(profile_json, engine, tools_json) {
+    let deferred5_0;
+    let deferred5_1;
+    try {
+        const ptr0 = passStringToWasm0(profile_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(engine, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(tools_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ret = wasm.renderSystem(ptr0, len0, ptr1, len1, ptr2, len2);
+        var ptr4 = ret[0];
+        var len4 = ret[1];
+        if (ret[3]) {
+            ptr4 = 0; len4 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred5_0 = ptr4;
+        deferred5_1 = len4;
+        return getStringFromWasm0(ptr4, len4);
+    } finally {
+        wasm.__wbindgen_free(deferred5_0, deferred5_1, 1);
+    }
+}
+
+/**
  * The size loop (section 4.3) on the replies so far (JSON array of strings):
  * JSON `{accept: string} | {retry: string} | {fail: true}`. `room` is the
  * request's `room` (default NODE).
@@ -304,6 +526,37 @@ export function sizeCheck(tries_json, room) {
         wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
     }
 }
+
+/**
+ * The Chief's tool specs for `engine` (`pi-durable`, ...) and a grant
+ * (`{tools?: [names]}`), as JSON `[{name, description, json_schema, replay:
+ * "safe" | "once"}]` (chief-kernel `tools::specs`; section 13, export 2).
+ * @param {string} engine
+ * @param {string} grant_json
+ * @returns {string}
+ */
+export function toolSpecs(engine, grant_json) {
+    let deferred4_0;
+    let deferred4_1;
+    try {
+        const ptr0 = passStringToWasm0(engine, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(grant_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.toolSpecs(ptr0, len0, ptr1, len1);
+        var ptr3 = ret[0];
+        var len3 = ret[1];
+        if (ret[3]) {
+            ptr3 = 0; len3 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred4_0 = ptr3;
+        deferred4_1 = len3;
+        return getStringFromWasm0(ptr3, len3);
+    } finally {
+        wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
+    }
+}
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,
@@ -321,6 +574,13 @@ function __wbg_get_imports() {
         __wbg___wbindgen_throw_41e9ee4f547fc59a: function(arg0, arg1) {
             throw new Error(getStringFromWasm0(arg0, arg1));
         },
+        __wbg_date_75d412f4f330c334: function() { return handleError(function (arg0, arg1, arg2) {
+            const ret = arg1.date(arg2);
+            var ptr1 = isLikeNone(ret) ? 0 : passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            var len1 = WASM_VECTOR_LEN;
+            getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
+            getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
+        }, arguments); },
         __wbg_message_8aa14200b6aff9d2: function() { return handleError(function (arg0, arg1) {
             const ret = arg0.message(arg1);
             return ret;

@@ -148,6 +148,11 @@ env = dict(os.environ)
 env.update({"CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_SCREEN": "last",
             "CMUX_NEXT_CONFIG_FILE": config, "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800",
             "ACPMUX_HOME": HOME_ACP, "ACPMUX_SOCKET": ACP_SOCKET})
+if os.environ.get("CMUX_LIVE_TYPE_KEYS") == "1":
+    # Real typed keys (an --needs input job owns the GUI session): under CMUX_NEXT_NO_ACTIVATE the
+    # app's keyboard guard counts posted CGEvents as synthetic, not user input, and hands the
+    # keyboard back to the previous app at once (job 1014-173056-acf765: 1 key of 130 landed).
+    env.pop("CMUX_NEXT_NO_ACTIVATE")
 app_log = open(os.path.join(OUT, "app.log"), "a")
 TEARDOWN = TagTeardown(APP, acpmux_home=HOME_ACP, acpmux_socket=ACP_SOCKET, log=say)
 TEARDOWN.install()
@@ -459,6 +464,10 @@ print("typed", text.count, "front:", NSWorkspace.shared.frontmostApplication?.pr
         # server while the subagent panes open; every one must land in the chat's composer.
         typer, typed = None, ""
         if os.environ.get("CMUX_LIVE_TYPE_KEYS") == "1":
+            # The input job owns the GUI session: bring the app front first (LaunchServices activates
+            # the running copy; the typer's own activate() is ignored on some runs, job 1014-211210-86eeef).
+            subprocess.run(["open", APP], check=False, timeout=30)
+            say("sp app active", bool(wait(lambda: (rpc("debug.focus") or {}).get("app_active") or None, 10, 0.3)))
             say("sp composer focus", json.dumps(pane("click", pane=PANE, selector=".acpmux-composer-prompt"))[:200])
             say("sp reset typing", json.dumps(pane("reset_typing", pane=PANE)))
             typed = "abcdefghijklmnopqrstuvwxyz" * 5
@@ -467,15 +476,17 @@ print("typed", text.count, "front:", NSWorkspace.shared.frontmostApplication?.pr
             typer = subprocess.Popen(["swift", os.path.join(OUT, "sp-typer.swift"), str(app.pid), typed, "3"],
                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         # The daemon's focus over time while the subagent panes open (the chat should keep it).
-        timeline, last = [], None
+        timeline, last, last_sample = [], None, 0.0
         deadline = time.time() + 240
         while time.time() < deadline:
             focus_now = (topo().get("focus") or {}).get("pane")
             count = len(conversation_panes())
-            if (focus_now, count) != last:
-                last = (focus_now, count)
-                timeline.append((round(time.time(), 2), focus_now, count))
-                say("SP focus timeline", timeline[-1])
+            # With typing: the chat's key count and the app's focus at each change, and every 10 s.
+            if (focus_now, count) != last or (typer and time.time() > last_sample + 10):
+                last, last_sample = (focus_now, count), time.time()
+                keys_now = (pane("typing_stats", pane=PANE) or {}).get("keys") if typer else None
+                timeline.append((round(time.time(), 2), focus_now, count, keys_now))
+                say("SP focus timeline", timeline[-1], "app focus:", json.dumps(rpc("debug.focus"))[:2500] if typer else "")
             if count >= len(before) + 2 and len(timeline) and time.time() > timeline[-1][0] + 8:
                 break
             time.sleep(0.3)

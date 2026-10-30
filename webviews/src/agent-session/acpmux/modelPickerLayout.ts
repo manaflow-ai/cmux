@@ -1,19 +1,27 @@
-// What the composer's model picker shares between its two layouts: the cascade (submenus beside
-// their rows) and, when the pane has no room beside the menu, the in-place drill.
-import type React from "react";
-import { useLayoutEffect } from "react";
+// The composer's model picker's props, the combos it lands, and its height bounds (ModelPicker.tsx).
 import type { AcpmuxSnapshot } from "./model";
 import type { Choice, Combo } from "./ComposerPickers";
+import type { QuickMenuExtras } from "./QuickModelMenu";
+import type { PickerProfile } from "./pickerProfiles";
+import type { SessionAuth } from "./sessionAuth";
 
 /// What the picker gets from ComposerPickers. Picks go through `onLand` (model, then its effort
 /// once the agent reports that model) and `onEffort`.
 export type ModelPickerProps = {
-  /// `top`: the harness's curated models, listed first (topModels/); the rest fold under More models.
+  /// `top`: the harness's own model-menu order, when reported; other models fold under More models.
   catalog: (AcpmuxSnapshot["catalog"][number] & { top?: readonly string[] })[];
   harness?: string;
   model?: string;
   /// The chip's text: the current model's name, or its id when the catalog doesn't list it.
   label: string;
+  /// The current chat or New Tab target's auth, never host-wide cached health.
+  sessionAuth?: SessionAuth;
+  onSessionLogin?(): void;
+  onSessionAuthRefresh?(): void;
+  /// What the composer's controls row draws in the chip (composerRowFit.ts): the name without its
+  /// vendor ("Opus 5.5") and its family ("Opus") for a narrow row; `title` names the model in the
+  /// tooltip of the row's mark-only chip. Away from the row the chip shows `label`.
+  chip?: { short?: string; family?: string; title?: string };
   /// A harness switch in flight: the chip draws this harness's mark and name until it starts.
   switching?: { harness: string; name: string; mark?: string };
   /// The chip's secondary text after the model: the chosen effort, when it is not the default.
@@ -37,6 +45,8 @@ export type ModelPickerProps = {
     offValue: string;
     onLabel: string;
     offLabel: string;
+    lastOnValue?: string;
+    values?: readonly string[];
     onPick(value: string): void;
   };
   /** Refreshes the host-backed model catalog; the host owns transport and live events. */
@@ -54,8 +64,37 @@ export type ModelPickerProps = {
   onHarnessEnable?(folder: string, id: string): void;
   /// Add harness…, the menu's last row: the pane's Harnesses page, in place (cx-uj5g8).
   onAddAgent?(): void;
+  /// Set while the picker is mounted to a call that opens its menu (the compact one when `quick`
+  /// is set), whose rail switches harness: the footer's harness item opens it (ComposerHarness.tsx).
+  opener?: { current: (() => void) | undefined };
+  /// The chat has started, so its harness is fixed, as in Claude Code (Leo 2026-10-19): the menu
+  /// lists `harness`'s models alone, with search and More models, and no harness rail, Starred tab
+  /// or Add harness…; the compact menu draws no rail either. A New Tab or a chat with no message
+  /// yet leaves it unset and keeps the whole rail.
+  harnessFixed?: boolean;
+  /// With `harnessFixed`, the started chat can fork to another harness (Leo 2026-10-22: "need to be
+  /// able to switch to different harnesses, can expose as fork"): the compact menu keeps the whole
+  /// rail, and another harness's tab, or another account of the chat's own, offers Fork to it.
+  /// `to` gets the acpmux profile id; `ready` false (a turn running, a queued prompt) disables it.
+  fork?: { to(harness: string): void; ready: boolean };
+  /// The installed acpmux profiles each catalog entry stands for, by its id (pickerProfiles.ts): the
+  /// launch configurations shown as named harness entries. An entry with none listed is its own profile.
+  profiles?: Readonly<Record<string, readonly PickerProfile[]>>;
   /// A short note per harness in place of "New chat" (a harness that failed to start).
   harnessNotes?: Readonly<Record<string, string>>;
+  /// The harnesses this Mac's acpmux found signed out, by acpmux id, with each one's login
+  /// command (cx-ae9eb). Their rail tab dims and lists Log In in place of models; none of their
+  /// models can be picked, so a pick never starts a chat that fails on its first turn.
+  signedOut?: Readonly<Record<string, string>>;
+  /// Runs a signed-out harness's login (its Log In row).
+  onLogIn?(harness: string, login: string): void;
+  /// The compact menu a click on the chip opens (QuickModelMenu). Every composer passes it (Leo
+  /// 2026-10-20: one model button); the full picker is its More models row. Without it (a picker
+  /// on its own) the chip opens the full picker at once. With it the chip draws `detail` (the
+  /// effort) after the model and no chevron.
+  quick?: QuickMenuExtras;
+  /// The effort's short name ("Med") the compact chip shows in a narrow row (composerRowFit.ts).
+  detailShort?: string;
   /// The room, in px, left of the open menu for its submenus (`menuRoom`). Tests pass a
   /// number in place of real layout.
   measureRoom?(menu: HTMLElement): number;
@@ -70,34 +109,9 @@ export type CatalogRefreshState = {
   refresh(): void | Promise<void>;
 };
 
-/// The keys and pointer moves the chip forwards to the open menu's body.
-export type MenuHandle = {
-  keyDown(event: React.KeyboardEvent): void;
-  track(event: React.PointerEvent): void;
-};
-
-/// What ModelPicker hands the layout it chose. The body mounts with the menu and unmounts when it
-/// closes, so a query, an open path or an expanded fold never outlives one opening.
-export type ModelMenuProps = ModelPickerProps & {
-  trigger: React.RefObject<HTMLButtonElement | null>;
-  menu: React.RefObject<HTMLDivElement | null>;
-  handle: React.RefObject<MenuHandle | undefined>;
-  close(): void;
-};
-
-/// How many recents the menu numbers (keys 1 to this).
-export const RECENT_ROWS = 4;
-/// Rows a level shows before "More…".
-export const LEVEL_ROWS = 3;
-/// How long the pointer rests on a row before its submenu opens.
-export const HOVER_INTENT_MS = 150;
-/// The width one side submenu takes beside the menu: the widest (the reasoning slider, 240px)
-/// plus the 10px gap. Family and model submenus are at least 210px.
-export const SUBMENU_ROOM = 250;
-/// The tallest the open picker gets (Lawrence 2026-10-13: it grew to the window's height when a
-/// machine lists many harnesses). Less when the pane has less room above or below the chip; the
-/// harness rail and the model list scroll inside it.
-export const MODEL_PICKER_MAX_HEIGHT = 480;
+/// A fallback while the anchor has not measured its available room yet. Once measured, the
+/// picker uses all the available height, with no fixed cap.
+const MODEL_PICKER_INITIAL_HEIGHT = 480;
 /// The shortest the open picker gets: the search field and about six model rows. A chip with less
 /// room than this, or a list that loads after the menu opened, never collapses the menu to its
 /// search field (Lawrence 2026-10-13). The menu opens on the side of the chip that has this much
@@ -106,53 +120,19 @@ export const MODEL_PICKER_MAX_HEIGHT = 480;
 /// the top of the window (the New Tab chip's menu, 94 px).
 export const MODEL_PICKER_MIN_HEIGHT = 220;
 
-/// The open picker's height bounds: at most the anchor's room (`room`, when known) and
-/// MODEL_PICKER_MAX_HEIGHT, never below MODEL_PICKER_MIN_HEIGHT; at least its height when it
+/// The agent pane's chat column: the model menus and their submenus stay inside it, never over the
+/// session rail, summary column or sidebar beside it (a composer outside one keeps to the window).
+export const CHAT_COLUMN = ".acpmux-main";
+
+/// The open picker's height bounds: at most the anchor's room (`room`, when known); at least
+/// MODEL_PICKER_MIN_HEIGHT when that fits, or its height when it
 /// opened (`opened`), so a narrowing search does not shrink it, while a list that loads later can
 /// still grow it.
 export function pickerHeightBounds(
   room: unknown,
   opened: number | undefined,
 ): { maxHeight: number; minHeight: number } {
-  const roomed = typeof room === "number" && Number.isFinite(room) ? room : MODEL_PICKER_MAX_HEIGHT;
-  const maxHeight = Math.max(MODEL_PICKER_MIN_HEIGHT, Math.min(roomed, MODEL_PICKER_MAX_HEIGHT));
+  const maxHeight = typeof room === "number" && Number.isFinite(room) ? Math.max(0, room) : MODEL_PICKER_INITIAL_HEIGHT;
   const minHeight = Math.min(maxHeight, Math.max(MODEL_PICKER_MIN_HEIGHT, opened ?? 0));
   return { maxHeight, minHeight };
-}
-
-export type PickerLayout = "cascade" | "drill";
-
-/// The cascade when every side submenu fits between the pane's left edge and the menu, else the
-/// in-place drill. `depth` is how many submenus can stand side by side: 2 when the harness's
-/// models sit under providers and then families, else 1.
-export function pickerLayout(room: number, depth: number): PickerLayout {
-  return room >= depth * SUBMENU_ROOM ? "cascade" : "drill";
-}
-
-/// The room left of the open menu: its left edge in the page, which is the pane.
-export const menuRoom = (menu: HTMLElement) => menu.getBoundingClientRect().left;
-
-/// Hands the chip a body's keys and pointer tracking, and names its highlighted row on the chip
-/// for screen readers following the keys. Both go away when the body unmounts.
-export function useMenuHandle({ trigger, handle }: ModelMenuProps, keys: MenuHandle, activeId?: string) {
-  useLayoutEffect(() => {
-    handle.current = keys;
-    return () => {
-      handle.current = undefined;
-    };
-  });
-  useLayoutEffect(() => {
-    const chip = trigger.current;
-    if (!chip) return;
-    if (activeId) chip.setAttribute("aria-activedescendant", activeId);
-    else chip.removeAttribute("aria-activedescendant");
-    return () => chip.removeAttribute("aria-activedescendant");
-  }, [trigger, activeId]);
-  // The chip keeps DOM focus so Ctrl-N/P and arrows work without stealing focus from the composer.
-  // Keep the virtual highlight visible in the shared surface as it moves through a long level.
-  useLayoutEffect(() => {
-    if (!activeId) return;
-    const row = trigger.current?.ownerDocument.getElementById(activeId);
-    row?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
-  }, [trigger, activeId]);
 }

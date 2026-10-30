@@ -1,13 +1,15 @@
 // The New Tab page's field follows the browser omnibar's pointer and hover rules (OmnibarPointer,
 // cx-d0d.80; Lawrence 2026-10-13): the I-beam over the whole field row at rest and while editing,
-// the arrow over its buttons, a hover lift on the box that eases in and out with the hover token,
-// none while the field has the keyboard, and no easing under Reduce Motion.
+// the pointing hand over its buttons (Leo 2026-10-21: every clickable thing shows the hand; it was
+// the arrow), and no hover lift on the box: it is quiet, as Claude's and ChatGPT's composers are
+// (Leo 2026-10-18).
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("new-tab-omnibar-pointer.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -30,6 +32,7 @@ await requireBrowserLane("new-tab-omnibar-pointer.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/test/browser/new-tab-picker.html");
     browser = await chromium.launch({ headless: true });
   });
   afterAll(async () => {
@@ -48,6 +51,17 @@ await requireBrowserLane("new-tab-omnibar-pointer.test.ts", async () => {
     return page;
   }
 
+  /** Resolves once nothing on the page is easing: no transition or animation left to run (a
+   *  looping one never ends). */
+  const eased = (page: Page) =>
+    page.waitForFunction(() =>
+      document
+        .getAnimations()
+        .every(
+          (animation) => animation.playState !== "running" || animation.effect?.getTiming().iterations === Infinity,
+        ),
+    );
+
   /** The cursor CSS gives the element under a point, and that element's class. */
   function cursorAt(page: Page, x: number, y: number) {
     return page.evaluate(
@@ -60,11 +74,12 @@ await requireBrowserLane("new-tab-omnibar-pointer.test.ts", async () => {
   }
 
   const fill = (page: Page) =>
-    page.evaluate(() => getComputedStyle(document.querySelector(".nt-box")!).backgroundImage);
-  const lift = (page: Page) =>
-    page.evaluate(() => getComputedStyle(document.querySelector(".nt-box")!).getPropertyValue("--nt-box-lift").trim());
+    page.evaluate(() => {
+      const style = getComputedStyle(document.querySelector(".nt-box")!);
+      return `${style.backgroundColor} ${style.backgroundImage}`;
+    });
 
-  test("the I-beam over the whole field row at rest and while editing; the arrow over a button", async () => {
+  test("the I-beam over the whole field row at rest and while editing; the pointing hand over a button", async () => {
     const page = await open("no-preference");
     const row = (await page.locator(".nt-input").boundingBox())!;
     const field = (await page.locator(".nt-field").boundingBox())!;
@@ -87,43 +102,24 @@ await requireBrowserLane("new-tab-omnibar-pointer.test.ts", async () => {
     const box = (await button.boundingBox())!;
     const got = await cursorAt(page, box.x + box.width / 2, box.y + box.height / 2);
     console.log("new-tab-omnibar-pointer button:", JSON.stringify(got));
-    expect(got.cursor).toBe("default");
+    // The first button is the enabled model chip; every enabled button shows the hand (Leo
+    // 2026-10-21: "LOTS OF AREAS LIKE THAT SHOULD BE CHANGING MY CURSOR INDICATOR TO CLICKABLE").
+    expect(got.cursor).toBe("pointer");
     await page.close();
   });
 
-  test("the box lifts on hover with an eased fill, not while it has the keyboard", async () => {
+  test("the box is quiet: the same fill under the pointer, at rest and with the keyboard", async () => {
     const page = await open("no-preference");
-    const duration = await page.evaluate(() => getComputedStyle(document.querySelector(".nt-box")!).transitionDuration);
-    console.log("new-tab-omnibar-pointer transition:", duration);
-    expect(duration).not.toBe("0s");
     await page.mouse.move(5, 5);
     const rest = await fill(page);
-    expect(rest).not.toBe("none");
     const box = (await page.locator(".nt-box").boundingBox())!;
     await page.mouse.move(box.x + box.width / 2, box.y + box.height - 6);
-    await page.waitForFunction(
-      () => getComputedStyle(document.querySelector(".nt-box")!).getPropertyValue("--nt-box-lift").trim() === "100%",
-    );
-    const hovered = await fill(page);
-    console.log("new-tab-omnibar-pointer fill rest/hover:", rest, "|", hovered);
-    expect(hovered).not.toBe(rest);
+    // The page sees the pointer over the box, and any hover ease has run out.
+    await page.waitForFunction(() => document.querySelector(".nt-box")?.matches(":hover"));
+    await eased(page);
+    expect(await fill(page), "no hover lift (Leo 2026-10-18)").toBe(rest);
     await page.locator(".nt-field").focus();
-    await page.waitForFunction(
-      () => getComputedStyle(document.querySelector(".nt-box")!).getPropertyValue("--nt-box-lift").trim() === "0%",
-    );
     expect(await fill(page)).toBe(rest);
-    await page.close();
-  });
-
-  test("under Reduce Motion the fill changes at once", async () => {
-    const page = await open("reduce");
-    expect(await fill(page)).not.toBe("none");
-    const duration = await page.evaluate(() => getComputedStyle(document.querySelector(".nt-box")!).transitionDuration);
-    // desktop.css cuts every transition to 0.01 ms under Reduce Motion.
-    expect(parseFloat(duration)).toBeLessThan(0.001);
-    const box = (await page.locator(".nt-box").boundingBox())!;
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height - 6);
-    expect(await lift(page)).toBe("100%");
     await page.close();
   });
 });

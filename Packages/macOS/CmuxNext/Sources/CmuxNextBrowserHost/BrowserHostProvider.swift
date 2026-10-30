@@ -16,7 +16,13 @@ import os
 /// person's input go back. Leases arrive as frames; the app shows them.
 ///
 /// Everything runs on the main actor in frame order: a `lease` frame marks
-/// its tab agent-driven before the next frame is read. When the link drops,
+/// its tab agent-driven before the next frame is handled. Each frame is
+/// handled as soon as it is read: an agent's CDP and driver traffic is
+/// sequential request and reply, so waiting for a display frame would add up
+/// to a frame (or the frame scheduler's stall timeout while the display
+/// sleeps) to every command. The main actor only dispatches; frames that leave
+/// the app (CDP replies, results) are id-mapped and encoded on the link's
+/// write queue, off the main actor. When the link drops,
 /// the provider reconnects when the credentials source reports new
 /// credentials, or after a `Backoff` delay on the injected clock. It never
 /// polls; with no credentials (before step c2) it stays idle.
@@ -274,17 +280,16 @@ public final class BrowserHostProvider {
         for targetID in ended { notifyLease(targetID, nil) }
     }
 
-    /// Queues a frame on the current link; dropped when there is none.
+    /// Queues a frame on the current link; dropped when there is none. Encoded on the link's
+    /// write queue, off the main actor.
     func send(_ frame: ProviderFrame) {
-        guard let connection else { return }
-        do {
-            try connection.send(frame)
-        } catch {
-            logger.error("browser host provider: \(frame.description, privacy: .public) not sent: \(String(describing: error), privacy: .public)")
-            if case .result(let id, _, _) = frame {
-                _ = try? connection.send(.result(id: id, result: nil, error: DriverError(.invalid, "the result is too large to send").json))
-            }
-        }
+        connection?.send(frame)
+    }
+
+    /// Queues the frames `build` makes on the link's write queue, in order with every other send
+    /// (a CDP reply's id rewrite runs there, off the main actor).
+    func send(building build: @escaping @Sendable () -> [ProviderFrame]) {
+        connection?.send(building: build)
     }
 
     private func sendHello(_ link: ProviderConnection, secret: ProviderSecret) {

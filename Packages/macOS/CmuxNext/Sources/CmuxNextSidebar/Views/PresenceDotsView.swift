@@ -22,8 +22,8 @@ final class PresenceDotsView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var isFlipped: Bool { true }
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     func configure(_ presence: [SidebarPresence]) {
         self.presence = presence
@@ -35,7 +35,7 @@ final class PresenceDotsView: NSView {
             dots.append(dot)
         }
         for (index, dot) in dots.enumerated() { dot.isHidden = index >= shown }
-        overflow.stringValue = presence.count > shown ? Strings.presenceOverflow(presence.count - shown) : ""
+        overflow.setString(presence.count > shown ? Strings.presenceOverflow(presence.count - shown) : "")
         overflow.isHidden = overflow.stringValue.isEmpty
         themedToolTip = presence.isEmpty ? nil : presence.map(Strings.presenceLine).joined(separator: "\n")
         needsLayout = true
@@ -48,7 +48,8 @@ final class PresenceDotsView: NSView {
         guard shown > 0 else { return 0 }
         let d = SidebarStyle.dotSize
         let dotsWidth = CGFloat(shown) * d + CGFloat(shown - 1) * Metrics.space1
-        return overflow.isHidden ? dotsWidth : dotsWidth + Metrics.space1 + ceil(overflow.intrinsicContentSize.width)
+        // The count's frame holds its text and padding (`naturalSize`): the text alone clipped it.
+        return overflow.isHidden ? dotsWidth : dotsWidth + Metrics.space1 + ceil(overflow.naturalSize.width)
     }
 
     override func layout() {
@@ -65,7 +66,7 @@ final class PresenceDotsView: NSView {
             x += d + Metrics.space1
         }
         if !overflow.isHidden {
-            let size = overflow.intrinsicContentSize
+            let size = overflow.naturalSize
             overflow.frame = NSRect(x: x, y: (bounds.height - ceil(size.height)) / 2, width: ceil(size.width), height: ceil(size.height))
         }
     }
@@ -75,7 +76,7 @@ final class PresenceDotsView: NSView {
             for (dot, agent) in zip(dots, presence) {
                 dot.backgroundColor = AgentPresenceColor(key: agent.id).color.cgColor
             }
-            overflow.textColor = Palette.textTertiary
+            overflow.setColor(Palette.textTertiary)
         }
     }
 }

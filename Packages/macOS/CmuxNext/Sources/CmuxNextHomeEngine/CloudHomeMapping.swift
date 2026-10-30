@@ -44,6 +44,13 @@ public nonisolated struct CloudIdentity: Hashable, Sendable {
         return "user_" + digest.map { String(format: "%02x", $0) }.joined().prefix(20)
     }
 
+    /// The Worker's team id for a Stack team of a Stack project (the API's `stackTeamIdFor`), the
+    /// id `x-cmux-team` and `user.teams.list` use for the team `ActiveTeam` names by its Stack id.
+    public static func workerTeamID(stackProjectID: String, stackTeamID: String) -> String {
+        let digest = SHA256.hash(data: Data("stack-team:\(stackProjectID):\(stackTeamID.lowercased())".utf8))
+        return "team_" + digest.map { String(format: "%02x", $0) }.joined().prefix(20)
+    }
+
     func toHome(_ id: String) -> ParticipantID { id == participantID || id == cloudID ? localID : ParticipantID(id) }
     func toCloud(_ id: ParticipantID) -> String { id == localID ? participantID : id.rawValue }
     /// This account as a cloud participant (the creator of a new conversation).
@@ -62,7 +69,8 @@ nonisolated enum CloudHomeMapping {
                            agentClass: isAgent ? (participant.agentClass == "mux" ? .chief : .agent) : nil,
                            ownerUser: participant.ownerUser.map(identity.toHome),
                            membership: isAddress ? .invited : .active,
-                           invitedContact: isAddress ? participant.displayName : nil)
+                           invitedContact: isAddress ? participant.displayName : nil,
+                           role: participant.role.flatMap(Participant.Role.init(rawValue:)))
     }
 
     static func part(_ part: MessagePart, identity: CloudIdentity) -> MessagePart {
@@ -74,7 +82,7 @@ nonisolated enum CloudHomeMapping {
 
     static func message(_ wire: ConversationMessage, identity: CloudIdentity) -> Message {
         let message = HomeCoreMapping.message(wire)
-        return Message(id: message.id, conversation: message.conversation, seq: message.seq,
+        var mapped = Message(id: message.id, conversation: message.conversation, seq: message.seq,
                        clientMessageID: message.clientMessageID, author: identity.toHome(wire.author),
                        parts: message.parts.map { part($0, identity: identity) }, createdAt: message.createdAt,
                        editedAt: message.editedAt, retractedAt: message.retractedAt,
@@ -82,6 +90,11 @@ nonisolated enum CloudHomeMapping {
                            Reaction(author: identity.toHome($0.author.rawValue), partIndex: $0.partIndex, kind: $0.kind)
                        },
                        replyTo: message.replyTo, threadRoot: message.threadRoot)
+        mapped.thread = message.thread.map { t in
+            ThreadInfo(title: t.title, owner: t.owner.map { identity.toHome($0.rawValue) }, resolvedAtSeq: t.resolvedAtSeq,
+                       resolvedBy: t.resolvedBy.map { identity.toHome($0.rawValue) })
+        }
+        return mapped
     }
 
     /// A cloud head. Participants who left are not members any more.
@@ -93,7 +106,19 @@ nonisolated enum CloudHomeMapping {
             createdAt: HomeCoreMapping.date(summary.createdAt) ?? .distantPast,
             updatedAt: HomeCoreMapping.date(summary.updatedAt) ?? .distantPast,
             lastMessage: summary.lastMessage.map { message($0, identity: identity) },
-            readCursors: Dictionary(summary.readCursors.map { (identity.toHome($0.key), $0.value) }, uniquingKeysWith: max))
+            readCursors: Dictionary(summary.readCursors.map { (identity.toHome($0.key), $0.value) }, uniquingKeysWith: max),
+            declaredKind: kind(summary.kind), memberCount: summary.memberCount,
+            chiefReplies: summary.wakePolicy.flatMap(ChiefReplyPolicy.init(rawValue:)))
+    }
+
+    /// The owner's conversation kind (`group`, `dm`, `chief`); nil for one it does not name.
+    static func kind(_ wire: String?) -> CmuxHomeCore.ConversationSummary.Kind? {
+        switch wire {
+        case "group": .group
+        case "dm": .direct
+        case "chief": .chief
+        default: nil
+        }
     }
 
     /// A conversation known only from its inbox entry (not loaded yet): no
@@ -120,6 +145,8 @@ nonisolated enum CloudHomeMapping {
         summary.pinRank = entry.pinned ? (entry.pinPosition ?? 0) : nil
         summary.muted = entry.muted
         summary.mentionCount = Int(clamping: entry.mentions)
+        // A teammate's entry for someone else's shared Chief conversation says group; the head's chief stays.
+        if let kind = kind(entry.kind), summary.declaredKind != .chief { summary.declaredKind = kind }
         if entry.lastSeq > summary.lastSeq {
             summary.lastSeq = entry.lastSeq
             if let at = HomeCoreMapping.date(entry.lastAt) { summary.updatedAt = max(summary.updatedAt, at) }

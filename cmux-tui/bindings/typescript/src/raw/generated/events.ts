@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 3ed4675e0da8dc1564f14fbf58781a06559fea2fb3f14245c0ef3ec57626da36. */
+/* cmux-tui mux protocol 12, IR 98c4043022f88fb5841f377edc178aa568c70700c97ca18735403806195acaf3. */
 
 
 import type * as T from "./types.js";
@@ -13,6 +13,8 @@ export type ActivityChangedEvent = { event: "activity-changed" } & {
 export type AgentChangedEvent = { event: "agent-changed" } & {
   /** Adapter identity when the producer knows it; absent from protocol-11 event senders and null when no adapter was identified. */
   "agent"?: (string) | null;
+  /** The harness's own session id that the agent's hooks reported (`claude`, `codex` session ids), checked to `[A-Za-z0-9._:-]` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep `session` for a human label, so clients find a terminal's agent session by this. */
+  "agent_session_id"?: (string) | null;
   /** The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted. */
   "last_prompt"?: (string) | null;
   "session": (string) | null;
@@ -22,6 +24,20 @@ export type AgentChangedEvent = { event: "agent-changed" } & {
   "state": T.AgentState;
   "surface": T.Id;
   "updated_at_ms": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type AgentInventoryChangedEvent = { event: "agent-inventory-changed" } & {
+  "machine": string;
+  "revision": bigint;
+  "watch_id": string;
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type AgentInventoryWatchEndedEvent = { event: "agent-inventory-watch-ended" } & {
+  "machine": string;
+  "reason": string;
+  "watch_id": string;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
@@ -109,6 +125,20 @@ export type CloudConversationChangedEvent = { event: "cloud-conversation-changed
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudConversationLiveEvent = { event: "cloud-conversation-live" } & {
+  "account"?: string;
+  "conversation": string;
+  "frame": (T.JsonValue) | null;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudConversationPresenceEvent = { event: "cloud-conversation-presence" } & {
+  "account"?: string;
+  "conversation": string;
+  "participants": Array<T.CloudConversationPresenceParticipant>;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
 export type CloudConversationResyncedEvent = { event: "cloud-conversation-resynced" } & {
   "account"?: string;
   "conversation": string;
@@ -124,6 +154,20 @@ export type CloudConversationRunChangedEvent = { event: "cloud-conversation-run-
   "conversation": string;
   "run": (T.JsonValue) | null;
   "steps": Array<T.JsonValue>;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudConversationTypingEvent = { event: "cloud-conversation-typing" } & {
+  "account"?: string;
+  "conversation": string;
+  "on": boolean;
+  "participant": string;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudHostReplicaNeededEvent = { event: "cloud-host-replica-needed" } & {
+  "expires_at"?: (bigint) | null;
+  "reason": string;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
@@ -212,6 +256,12 @@ export type ConversationInboxChangedEvent = { event: "conversation-inbox-changed
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
+export type ConversationLiveEvent = { event: "conversation-live" } & {
+  "conversation": string;
+  "frame": (T.JsonValue) | null;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
 export type ConversationRunChangedEvent = { event: "conversation-run-changed" } & {
   "conversation": string;
   "run": (T.JsonValue) | null;
@@ -287,7 +337,12 @@ export type KeybindingsChangedEvent = { event: "keybindings-changed" } & {
 
 /** Protocol v6; emission: emitted; streams: subscribe. */
 export type LayoutChangedEvent = { event: "layout-changed" } & {
+  "active_pane"?: T.Id;
+  "layout"?: T.Layout;
   "screen": T.Id;
+  "transaction"?: string;
+  "workspace"?: T.Id;
+  "zoomed_pane"?: (T.Id) | null;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
@@ -671,6 +726,8 @@ export interface UnknownEvent {
 export type KnownCmuxEvent =
   | ActivityChangedEvent
   | AgentChangedEvent
+  | AgentInventoryChangedEvent
+  | AgentInventoryWatchEndedEvent
   | AgentPresenceChangedEvent
   | BellEvent
   | BookmarksChangedEvent
@@ -680,8 +737,12 @@ export type KnownCmuxEvent =
   | ClientChangedEvent
   | ClientDetachedEvent
   | CloudConversationChangedEvent
+  | CloudConversationLiveEvent
+  | CloudConversationPresenceEvent
   | CloudConversationResyncedEvent
   | CloudConversationRunChangedEvent
+  | CloudConversationTypingEvent
+  | CloudHostReplicaNeededEvent
   | CloudInboxChangedEvent
   | CloudInboxResetEvent
   | CloudMuxResyncedEvent
@@ -693,6 +754,7 @@ export type KnownCmuxEvent =
   | ConversationChangedEvent
   | ConversationDraftEvent
   | ConversationInboxChangedEvent
+  | ConversationLiveEvent
   | ConversationRunChangedEvent
   | ConversationTypingEvent
   | DaemonShutdownEvent
@@ -765,8 +827,12 @@ export type KnownSubscribeEvent =
   | ClientChangedEvent
   | ClientDetachedEvent
   | CloudConversationChangedEvent
+  | CloudConversationLiveEvent
+  | CloudConversationPresenceEvent
   | CloudConversationResyncedEvent
   | CloudConversationRunChangedEvent
+  | CloudConversationTypingEvent
+  | CloudHostReplicaNeededEvent
   | CloudInboxChangedEvent
   | CloudInboxResetEvent
   | CloudMuxResyncedEvent
@@ -777,6 +843,7 @@ export type KnownSubscribeEvent =
   | ConversationChangedEvent
   | ConversationDraftEvent
   | ConversationInboxChangedEvent
+  | ConversationLiveEvent
   | ConversationRunChangedEvent
   | ConversationTypingEvent
   | EmptyEvent

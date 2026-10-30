@@ -23,6 +23,13 @@ pub const CHIEF_CONVERSATION_TITLE: &str = "Chief";
 pub const CHIEF_DISPLAY_NAME: &str = "Chief";
 /// Tag on every agent the Chief started; its value is the Chief's session name.
 pub const PARENT_TAG: &str = "mux.parent";
+/// acpmux's names for a session in a person's approval card (its
+/// `hub/permissions/display.rs`): who asks (`mux.label` on the asker), and
+/// whom a message reaches (`mux.handle` and `mux.label` on a child, found
+/// among the sessions whose `mux.parent` is the asker's `mux.children`).
+pub const LABEL_TAG: &str = "mux.label";
+pub const HANDLE_TAG: &str = "mux.handle";
+pub const CHILDREN_TAG: &str = "mux.children";
 /// Prefix of host prompts about child agents.
 pub const EVENT_PREFIX: &str = "[mux-event]";
 /// The owner's minimum gap between agent messages (2 s) plus a margin.
@@ -75,6 +82,23 @@ pub struct WakeRule<'a> {
 pub fn is_chief(summary: &Summary, id: &str) -> bool {
     summary.participants.iter().any(|p| {
         p.id == id && p.kind == ParticipantKind::Agent && p.agent_class == Some(AgentClass::Mux)
+    })
+}
+
+/// Whether `message` was written by this Chief owner's own local identity or
+/// one of that person's paired devices. Other human participants may wake a
+/// Chief, but they cannot authorize effects on the owner's machine.
+pub fn is_owner_message(summary: &Summary, message: &Message) -> bool {
+    is_owner_message_as(summary, message, USER_LOCAL)
+}
+
+/// [`is_owner_message`] for an explicit owner participant id (a placed Cloud
+/// brain uses its `user_...` owner rather than the local `user_local`).
+pub fn is_owner_message_as(summary: &Summary, message: &Message, owner: &str) -> bool {
+    summary.participants.iter().any(|p| {
+        p.id == message.author
+            && p.kind == ParticipantKind::Human
+            && (p.id == owner || p.person.as_deref() == Some(owner))
     })
 }
 

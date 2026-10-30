@@ -73,6 +73,14 @@ fn home_id(text: &str) -> Option<String> {
         .then(|| text.to_owned())
 }
 
+impl Builtin {
+    /// A subagent preset (`optchat-sub-<id>`, `-claude`, `-codex`): its chats start at the
+    /// person's start level, as a plain chat does (`hub/start_mode.rs`, cmux#27847).
+    pub fn is_subagent(&self) -> bool {
+        self.role == Role::Sub
+    }
+}
+
 /// The built-in preset `name` names, if any.
 pub fn parse(name: &str) -> Option<Builtin> {
     if let Some(rest) = name.strip_prefix("optchat-chief-codex-") {
@@ -217,6 +225,16 @@ pub fn env(b: &Builtin, family: &str, ctx: &Context) -> Result<BTreeMap<String, 
     match b.role {
         Role::Turn => {
             flags(&mut env, &["CLAUDE_CODE_DISABLE_AUTO_MEMORY"], "1");
+            // Only the cmux MCP server of the agent tools (cx-4a5w2): computer
+            // use, secrets and session offers are subagent work, and their
+            // tool names and instructions came after the turn's cache mark.
+            env.insert(crate::agent_tools::SERVERS_ENV.into(), "cmux".into());
+            // That server lists only the Chief's tools and refuses the rest,
+            // `cmux_exec` scripts included (fail closed without the Chief's env).
+            env.insert(
+                crate::agent_tools::MCP_TOOLS_ENV.into(),
+                crate::agent_tools::CHIEF_TURN_TOOLS.into(),
+            );
             if codex {
                 env.insert("CODEX_PROMPT_CACHE_KEY".into(), key("turn"));
                 let chief = ctx.chief(&b.home_id)?;
@@ -230,6 +248,7 @@ pub fn env(b: &Builtin, family: &str, ctx: &Context) -> Result<BTreeMap<String, 
             } else {
                 flags(&mut env, &["DISABLE_AUTOUPDATER", "CLAUDE_CODE_DISABLE_CLAUDE_MDS"], "1");
                 env.insert("SUBROUTER_SESSION_KEY".into(), key("turn"));
+                env.insert("SUBROUTER_SESSION_HEADER".into(), "1".into());
             }
         }
         Role::Compact(k) => {
@@ -259,6 +278,7 @@ pub fn env(b: &Builtin, family: &str, ctx: &Context) -> Result<BTreeMap<String, 
                     "1",
                 );
                 env.insert("SUBROUTER_SESSION_KEY".into(), key("compact"));
+                env.insert("SUBROUTER_SESSION_HEADER".into(), "1".into());
             }
         }
         Role::Sub => {

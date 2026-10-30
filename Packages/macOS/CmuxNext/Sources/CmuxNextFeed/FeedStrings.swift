@@ -9,8 +9,6 @@ nonisolated enum FeedStrings {
 
     static var title: String { t("feed.title", "Feed") }
     static var empty: String { t("feed.empty", "Nothing new") }
-    static var menubarEmpty: String { t("menubar.empty", "No open requests") }
-    static var openFeed: String { t("menubar.openFeed", "Open Feed") }
     static var markAllRead: String { t("feed.markAllRead", "Mark All Read") }
     static var github: String { t("feed.github", "GitHub") }
     static var addConnection: String { t("feed.addConnection", "Add connection") }
@@ -26,6 +24,24 @@ nonisolated enum FeedStrings {
     static var checkout: String { t("feed.checkout", "Check out") }
     static var startAgent: String { t("feed.startAgent", "Start agent") }
     static var comment: String { t("feed.comment", "Comment") }
+
+    static var reportsTitle: String { t("reports.title", "Reports basket") }
+    static var reportsSubtitle: String { t("reports.subtitle", "Human view · reports do not wake a model") }
+    static var reportsLabs: String { t("reports.labs", "LABS") }
+    static var reportsEmpty: String { t("reports.empty", "No agent reports yet") }
+    static var reportsEmptyHint: String {
+        t("reports.emptyHint", "Deliver to reports:<person> to add one without waking a Chief.")
+    }
+    static var reportsSelect: String { t("reports.select", "Select a report") }
+    static var reportsEmptyBody: String { t("reports.emptyBody", "(empty report)") }
+    static var reportsReplyPlaceholder: String { t("reports.replyPlaceholder", "Reply to this sending session…") }
+    static var reportsReply: String { t("reports.reply", "Reply") }
+    /// Under the reply field when acpmux did not take the reply (the draft stays).
+    static var reportsNotSent: String { t("reports.notSent", "Not sent. Try again.") }
+    /// The detail line under a report's sender: who sent it and when it arrived.
+    static func reportFrom(_ sender: String, _ arrived: String) -> String {
+        t("reports.from", "From \(sender) · \(arrived)")
+    }
 
     static var needsYou: String { t("group.needsYou", "Needs you") }
     static var today: String { t("group.today", "Today") }
@@ -58,7 +74,13 @@ nonisolated enum FeedStrings {
     static var expired: String { t("item.expired", "Expired") }
     static var answeredInTerminal: String { t("item.answeredInTerminal", "Answered in the terminal") }
     static func answeredOn(_ device: String) -> String { t("item.answeredOn", "Answered on \(device)") }
+    static var answered: String { t("item.answered", "Answered") }
     static func threadCount(_ count: Int) -> String { t("item.threadCount", "\(count) items") }
+
+    /// An update card's title: "Claude Code updated to 2.1.305" (UpdateFeedCard).
+    static func updatedTo(_ name: String, _ version: String) -> String { t("update.updatedTo", "\(name) updated to \(version)") }
+    static func updatedFrom(_ version: String) -> String { t("update.from", "From \(version)") }
+    static func moreChanges(_ count: Int) -> String { t("update.moreChanges", "\(count) more changes") }
 
     static var disconnected: String { t("owner.disconnected", "Feed is unreachable") }
     static var moving: String { t("owner.moving", "Moving to the cloud. Try again.") }
@@ -76,7 +98,7 @@ nonisolated enum FeedStrings {
     static func closed(_ item: FeedItem) -> String? {
         switch item.state {
         case .open: nil
-        case .answered: answeredOn(item.answer?.device ?? "")
+        case .answered: (item.answer?.device).flatMap { $0.isEmpty ? nil : answeredOn($0) } ?? answered
         case .expired: expired
         case .cancelled:
             switch item.cancel?.reason {

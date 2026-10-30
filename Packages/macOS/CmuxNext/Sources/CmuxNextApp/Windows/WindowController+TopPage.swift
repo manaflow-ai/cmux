@@ -18,6 +18,7 @@ extension WindowController {
         root.titlebar.title = topPages.title(for: route)
         services.windows.recordSaver.stateDidChange(state)
         services.cloudContextDidChange()
+        services.canvasContextDidChange()
         services.locationTrail.pageHistoryDidChange()
         return true
     }
@@ -35,7 +36,7 @@ extension WindowController {
     /// the parked one under a top page (a tab opened behind the page lands
     /// there).
     var workspaceContent: WorkspaceContentController? {
-        content ?? parked.last { $0.workspace.id == state.workspaceID }
+        content ?? state.workspaceID.flatMap { parked[$0] }
     }
 
     /// Whether a page tab that a focused show opens here would be seen: the
@@ -44,7 +45,7 @@ extension WindowController {
     /// stands for the home workspace lands in that hidden workspace and
     /// shows nothing (cx-cmge7), so such a show uses a top page instead.
     var holdsVisiblePageTab: Bool {
-        guard let workspace = workspaceContent, !workspace.panes.isEmpty else { return false }
+        guard let workspace = workspaceContent, !workspace.modelPanes.isEmpty else { return false }
         return !(services.home.dock.isClassic && workspace.workspace.kind == "home" && SidebarBridge.hidesHome(services.sidebarLayout.document))
     }
 

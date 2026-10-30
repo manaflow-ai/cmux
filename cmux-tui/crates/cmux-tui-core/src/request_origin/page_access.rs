@@ -20,6 +20,7 @@ use serde_json::{Value, json};
 use super::page_router_table::{self, PageGrant};
 use super::{RequestOrigin, forbidden};
 use crate::resource::{ResourceError, ResourceOperation as Op};
+use cmux_json::JsonSet as _;
 
 /// The classes of operations a page may not call.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -73,9 +74,10 @@ const fn access(operation: Op) -> Access {
         | Op::BrowserInputMouse
         | Op::BrowserInputWheel
         // A message becomes an agent's input at its next turn; a release
-        // lets a held one through.
+        // lets a held one through, and an unsend sends the agent a notice.
         | Op::AgentMessageSend
-        | Op::AgentMessageRelease => Access::Denied(Denied::Input),
+        | Op::AgentMessageRelease
+        | Op::AgentMessageUnsend => Access::Denied(Denied::Input),
         Op::TerminalScreenRead
         | Op::TerminalHistoryRead
         | Op::TerminalHistoryClear
@@ -238,6 +240,11 @@ const fn access(operation: Op) -> Access {
         | Op::ClosedList
         | Op::ClosedDelete
         | Op::ClosedReopen
+        | Op::StashCreate
+        | Op::StashList
+        | Op::StashRestore
+        | Op::StashDelete
+        | Op::StashImport
         | Op::WindowRecordList
         | Op::SettingsSchema
         | Op::SettingsList
@@ -278,6 +285,9 @@ const fn access(operation: Op) -> Access {
         | Op::BrowserTabEmulate
         | Op::BrowserTabEmulateClear
         | Op::BrowserTabSetProfile
+        | Op::BrowserProfileList
+        | Op::BrowserProfileCreate
+        | Op::BrowserProfileOpen
         | Op::PaletteUsageGet
         | Op::PaletteUsageRecord
         | Op::PaletteUsageImport
@@ -336,6 +346,10 @@ const fn access(operation: Op) -> Access {
         | Op::WorkspaceStatusClear
         | Op::WorkspaceStatusList
         | Op::WorkspaceStatusSet
+        | Op::WorkspaceChecklistList
+        | Op::WorkspaceChecklistAdd
+        | Op::WorkspaceChecklistUpdate
+        | Op::WorkspaceChecklistRemove
         // A page never sees, mints or rotates launch credentials.
         | Op::CredentialVerify
         | Op::CredentialMint
@@ -355,6 +369,11 @@ const fn access(operation: Op) -> Access {
         | Op::ChiefProfileDelete
         | Op::ChiefProfileAvatarSet
         | Op::ChiefProfileAvatarGet
+        | Op::ChiefProfileHistory
+        | Op::ChiefProfileUndo
+        // Adopting an agent as a Chief: no page route at all (owner only,
+        // from a terminal; chief_registry_resource.rs refuses any page).
+        | Op::ChiefProfileAdopt
         // Avatars: a page reads them only through its allow list
         // (page-router.json: home-channels reads participant.avatar.get).
         | Op::ParticipantAvatarSet
@@ -407,7 +426,7 @@ pub(super) fn page_refusal(
     if hard {
         // The connection's own origin (a WebSocket page derives agent).
         let mut error = refusal(operation, params)?;
-        error.details["derived"] = json!(origin.wire_name());
+        error.details.set("derived", json!(origin.wire_name()));
         return Some(error);
     }
     let grant = match page_router_table::grant(page, operation.wire_name()) {
@@ -452,7 +471,7 @@ pub(crate) fn page_forbidden(
     };
     let mut details = json!({"derived": origin.wire_name(), "reason": reason});
     if reason != "page_not_allowed" {
-        details["required"] = json!(RequestOrigin::User.wire_name());
+        details.set("required", json!(RequestOrigin::User.wire_name()));
     }
     ResourceError::new(super::ORIGIN_FORBIDDEN, message, details, false)
 }

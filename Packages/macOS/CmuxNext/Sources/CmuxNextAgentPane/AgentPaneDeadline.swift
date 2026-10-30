@@ -8,8 +8,14 @@ nonisolated struct AgentPaneDeadlineExceeded: Error, Equatable, CustomStringConv
 }
 
 /// Runs `operation`, cancelling it and throwing `AgentPaneDeadlineExceeded`
-/// when it outlives `duration`. `onTimeout` runs first so work that does not
-/// observe cancellation (a socket, a pipe read) can be torn down.
+/// when it outlives `duration`. `onTimeout` then tears down work that does not
+/// observe cancellation (a socket, a pipe read), before the group waits for it.
+///
+/// `onTimeout` runs only once the deadline is the group's first result: the
+/// teardown makes the operation fail (a cancelled socket reads as closed), and
+/// run from the deadline's own task that failure could reach the group first
+/// on a loaded machine, so a call that missed its deadline said `closed`
+/// (job 122240111475: a hung acpmux's missed status call was not counted).
 nonisolated func withAgentPaneDeadline<T: Sendable>(
     _ duration: Duration, label: String, onTimeout: @escaping @Sendable () -> Void = {},
     _ operation: @escaping @Sendable () async throws -> T
@@ -20,11 +26,15 @@ nonisolated func withAgentPaneDeadline<T: Sendable>(
         group.addTask {
             // wakeup-allow: one-shot deadline (acpmux handshake)
             try await Task.sleep(for: duration)
-            onTimeout()
             throw AgentPaneDeadlineExceeded(label: label)
         }
         defer { group.cancelAll() }
-        guard let first = try await group.next() else { throw AgentPaneDeadlineExceeded(label: label) }
-        return first
+        do {
+            guard let first = try await group.next() else { throw AgentPaneDeadlineExceeded(label: label) }
+            return first
+        } catch let exceeded as AgentPaneDeadlineExceeded {
+            onTimeout()
+            throw exceeded
+        }
     }
 }

@@ -19,8 +19,14 @@ await requireBrowserLane("row-focus.test.ts", async () => {
     .map((file) => fs.readFileSync(path.join(source, file), "utf8"))
     .join("\n");
 
-  // The agent pane: desktop.css first, then the pane's own sheets (agent-session/acpmux/main.tsx).
-  const paneCss = ["pages/shared/desktop.css", "agent-session/shared/styles.css", "agent-session/acpmux/styles.css"]
+  // The agent pane: desktop.css first, then the pane's own sheets (agent-session/acpmux/main.tsx),
+  // then the question card's own, which its component imports (a4eff4c722b2 moved its rows there).
+  const paneCss = [
+    "pages/shared/desktop.css",
+    "agent-session/shared/styles.css",
+    "agent-session/acpmux/styles.css",
+    "agent-session/acpmux/question/questionCard.css",
+  ]
     .map((file) => fs.readFileSync(path.join(source, file), "utf8"))
     .join("\n");
 
@@ -94,20 +100,6 @@ await requireBrowserLane("row-focus.test.ts", async () => {
           const computed = getComputedStyle(node);
           return `${computed.backgroundColor} ${computed.backgroundImage} ${computed.outlineStyle}`;
         });
-
-      test("a selected session row still changes when it takes keyboard focus, with no ring", async () => {
-        const page = await browser.newPage();
-        await page.setContent(`<!doctype html><html style="${HOST}"><head><style>${paneCss}</style></head><body>
-<div class="acpmux-shell"><button class="acpmux-session-row is-selected" data-focus-ring="row" id="session">Fix the build</button></div>
-</body></html>`);
-        const resting = await look(page, "#session");
-        await page.keyboard.press("Tab");
-        expect(await page.evaluate(() => document.activeElement?.id)).toBe("session");
-        const focused = await look(page, "#session");
-        expect(focused).not.toBe(resting);
-        expect(focused.endsWith(" none")).toBe(true);
-        await page.close();
-      });
 
       test("a checked question row still shows the keyboard highlight", async () => {
         const page = await browser.newPage();

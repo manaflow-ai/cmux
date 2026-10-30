@@ -8,11 +8,22 @@ public struct SendInputRequest: DaemonRequest {
     public var text: String?
     public var bytes: Data?
     public var paste: Bool?
-    public init(surface: SurfaceID, text: String? = nil, bytes: Data? = nil, paste: Bool? = nil) {
+    /// `send-expect-foreground-v1`: the daemon writes only while the terminal's foreground
+    /// executable is still this one (``TerminalProcessInfoRequest``'s `foregroundExecutable`), checked
+    /// right before the write, and fails the request otherwise. A daemon without the capability
+    /// ignores it, so a caller keeps its own check first.
+    public var expectForeground: String?
+    /// The key press this input carries (`CMUX_NEXT_TRACE_FLOWS`, `TypingLatencyProbe.openFlow(for:)`): the daemon
+    /// only records it in its flow marks. Nil (left out of the line) otherwise; an older daemon ignores it.
+    public var flow: UInt64?
+    public init(surface: SurfaceID, text: String? = nil, bytes: Data? = nil, paste: Bool? = nil,
+                expectForeground: String? = nil, flow: UInt64? = nil) {
         self.surface = surface
         self.text = text
         self.bytes = bytes
         self.paste = paste
+        self.expectForeground = expectForeground
+        self.flow = flow
     }
 }
 
@@ -73,6 +84,14 @@ public struct SendKeyRequest: DaemonRequest {
 public struct AttachSurfaceRequest: DaemonRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var lease: String?
+        /// This view's sizing participant and the terminal's size state, for a connection that
+        /// lists `shared-sizing-v1`.
+        public var participant: String?
+        public var sizeState: TerminalSizeState?
+        enum CodingKeys: String, CodingKey {
+            case lease, participant
+            case sizeState = "size_state"
+        }
     }
     public static let command = "attach-surface"
     public var surface: SurfaceID?

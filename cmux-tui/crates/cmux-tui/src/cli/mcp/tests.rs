@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use cmux_tui_core::resource::{OperationClass, ResourceOperation};
 use serde_json::{Map, Value, json};
@@ -23,15 +23,121 @@ struct Fake {
     /// The answer to every daemon request but `session.snapshot`; else
     /// `daemon_snapshot`.
     resource_result: Option<Value>,
+    /// A refusal from the resource owner, passed through unchanged.
+    resource_error: Option<Value>,
     /// The app's transport drops after a `feed.*` request is sent, as
     /// `transport::app_method` reports it.
     lose_app_transport: bool,
+    /// Owner state that changes while a call waits (`agents_wait`).
+    live: RefCell<Live>,
+    /// This daemon operation answers `selector.not_found` after the delay,
+    /// as a wait on a terminal that closes.
+    fail_after: Option<(&'static str, Duration)>,
+    /// The app's `feed.list` and `snapshot.get` take this long, and fail
+    /// when it is longer than the caller's timeout.
+    app_delay: Option<Duration>,
+    /// What `Backend::caller` answers: `None` for a client with no caller
+    /// identity, `Some(Null)` for one the app cannot place.
+    caller: Option<Value>,
+    /// The app's `beside` with `caller`: the column right of the chat.
+    beside: Value,
+    /// `Backend::identity` fails, as with no app on the socket.
+    identity_fails: bool,
+    /// What `Backend::caller_terminal` answers (none by default, whatever
+    /// terminal the test runs in).
+    caller_terminal: Option<String>,
+    /// What `Backend::focus` answers.
+    focus: Option<Value>,
+    /// The app's `computer_use.status` through `Backend::app_caller`; no
+    /// app caller when unset.
+    computer_use: Option<Value>,
+    /// The card's answer to `permissions.request`; `granted` when unset.
+    setup_outcome: Option<Value>,
+    /// `{method, params, thread}` of each request the app caller got.
+    app_calls: std::sync::Arc<std::sync::Mutex<Vec<Value>>>,
     sent: RefCell<Vec<Value>>,
+}
+
+/// The daemon's snapshot and the app's pending dialogs at set times after
+/// the test starts, as when an agent finishes or asks while a wait runs.
+#[derive(Default)]
+struct Live {
+    daemon: Option<Value>,
+    feed: Option<Value>,
+    /// The app's topology (`snapshot.get`); a fixed window without it.
+    topology: Option<Value>,
+    /// The daemon's journal: batch `i` is revision `i + 1` of
+    /// [`GENERATION`]. With it, the snapshot carries a cursor and the event
+    /// stream resumes from one (`agents_events`).
+    journal: Option<Vec<Value>>,
+    /// The journal's generation; [`GENERATION`] when unset.
+    generation: Option<String>,
+    /// Revisions before this one are no longer kept: an older cursor
+    /// expired.
+    oldest: usize,
+    /// Every daemon read fails.
+    daemon_down: bool,
+    changes: Vec<(Instant, Change)>,
+}
+
+impl Live {
+    fn generation(&self) -> String {
+        self.generation.clone().unwrap_or_else(|| GENERATION.to_owned())
+    }
+}
+
+/// The fake daemon's journal generation.
+const GENERATION: &str = "gen_fake";
+
+enum Change {
+    Daemon(Value),
+    Feed(Value),
+    Topology(Value),
+    /// One journal batch: its changes.
+    Journal(Value),
+    /// The daemon restarted with a new journal generation.
+    Generation(&'static str),
+    /// The journal dropped the revisions before this one.
+    Expire(usize),
+    /// Daemon reads fail (true) or answer again (false).
+    DaemonDown(bool),
+}
+
+impl Live {
+    /// Applies the changes that are due.
+    fn settle(&mut self) {
+        let now = Instant::now();
+        let (due, later) = std::mem::take(&mut self.changes)
+            .into_iter()
+            .partition::<Vec<_>, _>(|(at, _)| *at <= now);
+        self.changes = later;
+        for (_, change) in due {
+            match change {
+                Change::Daemon(value) => self.daemon = Some(value),
+                Change::Feed(value) => self.feed = Some(value),
+                Change::Topology(value) => self.topology = Some(value),
+                Change::Journal(changes) => self.journal.get_or_insert_with(Vec::new).push(changes),
+                Change::Generation(generation) => self.generation = Some(generation.to_owned()),
+                Change::Expire(oldest) => self.oldest = oldest,
+                Change::DaemonDown(down) => self.daemon_down = down,
+            }
+        }
+    }
 }
 
 impl Fake {
     fn with_actions() -> Self {
         Self { actions: fixture_actions(), ..Self::default() }
+    }
+
+    /// A daemon snapshot and pending dialogs that `then` changes later.
+    fn live(daemon: Option<Value>, feed: Option<Value>) -> Self {
+        Self { live: RefCell::new(Live { daemon, feed, ..Live::default() }), ..Self::default() }
+    }
+
+    fn then(self, after: Duration, change: Change) -> Self {
+        self.live.borrow_mut().changes.push((Instant::now() + after, change));
+        self
     }
 
     fn last(&self, kind: &str) -> Value {
@@ -46,6 +152,21 @@ impl Fake {
 }
 
 impl Backend for Fake {
+    fn app_caller(&self) -> Option<computer_use_gate::AppCaller> {
+        let status = self.computer_use.clone()?;
+        let outcome = self.setup_outcome.clone().unwrap_or_else(|| json!({"outcome": "granted"}));
+        let calls = self.app_calls.clone();
+        Some(std::sync::Arc::new(move |method: &str, params: Value, _timeout: Duration| {
+            calls.lock().unwrap().push(json!({"method": method, "params": params,
+                "thread": format!("{:?}", std::thread::current().id())}));
+            match method {
+                "computer_use.status" => Ok(status.clone()),
+                "permissions.request" => Ok(outcome.clone()),
+                other => panic!("unexpected app call {other}"),
+            }
+        }))
+    }
+
     fn resource(
         &self,
         session: Option<&str>,
@@ -61,6 +182,13 @@ impl Backend for Fake {
             "request": request,
             "prefixes": prefixes.len(),
         }));
+        if let Some(error) = &self.resource_error {
+            return Err(CallFailure {
+                kind: FailureKind::Rejected,
+                error: error.clone(),
+                idempotency_key: key,
+            });
+        }
         if self.fail_resources {
             return Err(CallFailure {
                 kind: FailureKind::InProgress,
@@ -68,10 +196,35 @@ impl Backend for Fake {
                 idempotency_key: key,
             });
         }
+        if let Some((operation, delay)) = self.fail_after
+            && request["operation"] == operation
+        {
+            std::thread::sleep(delay);
+            return Err(CallFailure {
+                kind: FailureKind::Rejected,
+                error: json!({"code": "selector.not_found", "message": "the terminal closed"}),
+                idempotency_key: None,
+            });
+        }
         if request["operation"] != "session.snapshot"
             && let Some(result) = &self.resource_result
         {
-            return Ok(result.clone());
+            // A list answers an array: the record as its one item.
+            let list = request["operation"].as_str().is_some_and(|op| op.ends_with(".list"));
+            return Ok(if list && result.is_object() { json!([result]) } else { result.clone() });
+        }
+        let mut live = self.live.borrow_mut();
+        live.settle();
+        if live.daemon_down {
+            return Err(CallFailure::local(FailureKind::NotRun, "transport.unavailable", "down"));
+        }
+        if let Some(daemon) = &live.daemon {
+            let mut daemon = daemon.clone();
+            if let Some(journal) = &live.journal {
+                daemon["cursor"] =
+                    json!({"generation": live.generation(), "revision": journal.len().to_string()});
+            }
+            return Ok(daemon);
         }
         Ok(self.daemon_snapshot.clone().unwrap_or_else(|| json!([])))
     }
@@ -80,10 +233,18 @@ impl Backend for Fake {
         &self,
         method: &str,
         params: Value,
-        _timeout: Duration,
+        timeout: Duration,
         idempotency_key: Option<&str>,
         mutation: bool,
     ) -> Result<Value, CallFailure> {
+        if let Some(delay) = self.app_delay
+            && matches!(method, "feed.list" | "snapshot.get")
+        {
+            std::thread::sleep(delay.min(timeout));
+            if delay > timeout {
+                return Err(CallFailure::local(FailureKind::NotRun, "app.timeout", "no answer"));
+            }
+        }
         self.sent.borrow_mut().push(json!({
             "kind": "app",
             "method": method,
@@ -109,8 +270,63 @@ impl Backend for Fake {
         }
         match method {
             "action.list" => Ok(self.actions.clone()),
-            "snapshot.get" => Ok(json!({"topology": {"windows": [{"id": "win_a"}]}})),
+            "snapshot.get" => {
+                let mut live = self.live.borrow_mut();
+                live.settle();
+                Ok(live
+                    .topology
+                    .clone()
+                    .unwrap_or_else(|| json!({"topology": {"windows": [{"id": "win_a"}]}})))
+            }
+            "feed.list" => {
+                let mut live = self.live.borrow_mut();
+                live.settle();
+                Ok(live.feed.clone().unwrap_or_else(|| json!({"ran": true})))
+            }
             _ => Ok(json!({"ran": true})),
+        }
+    }
+
+    /// The daemon's stream: its snapshot, then a delta when a daemon change
+    /// is due (a dialog is the app's and has none), and a tick without one.
+    fn session_events(
+        &self,
+        _session: Option<&str>,
+        cursor: Option<&Value>,
+        deadline: Instant,
+        tick: Duration,
+        on_wake: &mut dyn FnMut(Option<&Value>) -> bool,
+    ) -> Result<(), CallFailure> {
+        self.sent.borrow_mut().push(json!({"kind": "events", "cursor": cursor}));
+        if self.fail_resources || self.live.borrow().daemon_down {
+            return Err(CallFailure::local(FailureKind::NotRun, "transport.unavailable", "down"));
+        }
+        if self.live.borrow().journal.is_some() {
+            return self.journal_events(cursor, deadline, tick, on_wake);
+        }
+        if on_wake(Some(&json!({"kind": "snapshot"}))) {
+            return Ok(());
+        }
+        loop {
+            let now = Instant::now();
+            if now >= deadline {
+                return Ok(());
+            }
+            let next_change = self
+                .live
+                .borrow()
+                .changes
+                .iter()
+                .filter(|(_, change)| matches!(change, Change::Daemon(_)))
+                .map(|(at, _)| *at)
+                .min();
+            let wake = next_change.unwrap_or(deadline).min(now + tick).min(deadline);
+            std::thread::sleep(wake.saturating_duration_since(now));
+            let delta = next_change.is_some_and(|at| at <= wake);
+            let item = json!({"kind": "delta"});
+            if on_wake(delta.then_some(&item)) {
+                return Ok(());
+            }
         }
     }
 
@@ -127,6 +343,144 @@ impl Backend for Fake {
             "mutation": mutation,
         }));
         Ok(json!({"session": "default", "output": "ok\n", "truncated": false, "error": null}))
+    }
+
+    fn identity(&self) -> Result<Option<Value>, CallFailure> {
+        self.sent.borrow_mut().push(json!({"kind": "caller"}));
+        if self.identity_fails {
+            return Err(CallFailure::local(FailureKind::NotRun, "socket.no_app", "no cmux app"));
+        }
+        Ok(self.caller.clone().map(|caller| json!({"caller": caller, "beside": self.beside})))
+    }
+
+    fn focus(&self) -> Result<Option<Value>, CallFailure> {
+        self.sent.borrow_mut().push(json!({"kind": "focus"}));
+        Ok(self.focus.clone())
+    }
+
+    fn caller_terminal(&self) -> Option<String> {
+        self.caller_terminal.clone()
+    }
+
+    fn acpmux(
+        &self,
+        method: &str,
+        params: Value,
+        _timeout: Duration,
+        idempotency_key: Option<&str>,
+        mutation: bool,
+    ) -> Result<Value, CallFailure> {
+        self.sent.borrow_mut().push(json!({
+            "kind": "acpmux",
+            "method": method,
+            "params": params,
+            "key": idempotency_key,
+            "mutation": mutation,
+        }));
+        Ok(json!({
+            "brief": {
+                "briefId": "brief_qwen_1",
+                "title": "Qwen task",
+                "from": "acp:opus",
+                "to": "acp:qwen",
+                "target": "auto",
+                "host": "cmux16",
+                "stopCondition": "Report findings",
+                "status": "running",
+                "sessionId": "session_qwen_1"
+            },
+            "event": {"kind": "dispatch", "briefId": "brief_qwen_1"}
+        }))
+    }
+}
+
+impl Fake {
+    /// `session.events` over the fake journal, as the daemon streams it:
+    /// a snapshot without a cursor (or with another generation's), else the
+    /// batches after the cursor, then each batch as it is due.
+    fn journal_events(
+        &self,
+        cursor: Option<&Value>,
+        deadline: Instant,
+        tick: Duration,
+        on_wake: &mut dyn FnMut(Option<&Value>) -> bool,
+    ) -> Result<(), CallFailure> {
+        let head = || {
+            let mut live = self.live.borrow_mut();
+            live.settle();
+            live.journal.as_ref().map_or(0, Vec::len)
+        };
+        let generation = self.live.borrow().generation();
+        let oldest = self.live.borrow().oldest;
+        let mut next = match cursor {
+            Some(cursor)
+                if cursor["generation"] == generation.as_str()
+                    && cursor["revision"].as_str().unwrap().parse::<usize>().unwrap() >= oldest =>
+            {
+                let revision = cursor["revision"].as_str().unwrap().parse::<usize>().unwrap();
+                if revision > head() {
+                    return Err(CallFailure {
+                        kind: FailureKind::Rejected,
+                        error: json!({"code": "cursor.invalid", "message": "ahead"}),
+                        idempotency_key: None,
+                    });
+                }
+                revision
+            }
+            other => {
+                let revision = head();
+                let item = json!({
+                    "kind": "snapshot",
+                    "cursor": {"generation": generation, "revision": revision.to_string()},
+                    "reset_reason": match other {
+                        None => "initial",
+                        Some(cursor) if cursor["generation"] == generation.as_str() => {
+                            "cursor_expired"
+                        }
+                        Some(_) => "generation_changed",
+                    },
+                    "snapshot": self.live.borrow().daemon.clone().unwrap_or_else(|| json!({})),
+                });
+                if on_wake(Some(&item)) {
+                    return Ok(());
+                }
+                revision
+            }
+        };
+        loop {
+            let pending = head();
+            while next < pending {
+                let changes = self.live.borrow().journal.as_ref().unwrap()[next].clone();
+                let item = json!({
+                    "kind": "delta",
+                    "cursor": {"generation": generation, "revision": (next + 1).to_string()},
+                    "previous_revision": next.to_string(),
+                    "revision": (next + 1).to_string(),
+                    "changes": changes,
+                });
+                next += 1;
+                if on_wake(Some(&item)) {
+                    return Ok(());
+                }
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                return Ok(());
+            }
+            let due = self
+                .live
+                .borrow()
+                .changes
+                .iter()
+                .filter(|(_, change)| matches!(change, Change::Journal(_)))
+                .map(|(at, _)| *at)
+                .min();
+            let wake = due.unwrap_or(deadline).min(now + tick).min(deadline);
+            std::thread::sleep(wake.saturating_duration_since(now));
+            if head() == next && on_wake(None) {
+                return Ok(());
+            }
+        }
     }
 }
 
@@ -199,66 +553,48 @@ fn call(server: &mut Server<Fake>, name: &str, arguments: Value) -> Value {
 }
 
 #[test]
-fn every_catalog_operation_is_a_tool_or_excluded_with_a_reason() {
-    let operations = v2_tools::catalog()["operations"].as_object().expect("operations");
-    let tools = v2_tools::tools().iter().map(|tool| tool.wire).collect::<BTreeSet<_>>();
-    let excluded = v2_tools::exclusions()
-        .into_iter()
-        .map(|exclusion| (exclusion.name, exclusion.reason))
-        .collect::<BTreeMap<_, _>>();
-    for name in operations.keys() {
-        assert!(
-            tools.contains(name.as_str()) != excluded.contains_key(name),
-            "{name} must be exactly one of a tool or an exclusion"
-        );
-    }
-    assert_eq!(tools.len() + excluded.len(), operations.len());
-    assert!(excluded.values().all(|reason| reason.len() > 10), "every exclusion has a reason");
-    for tool in v2_tools::tools() {
-        assert!(matches!(tool.operation.class(), OperationClass::Read | OperationClass::Mutation));
-        assert_eq!(tool.mutation, tool.operation.class() == OperationClass::Mutation);
-    }
-    for (name, _) in v2_tools::EXCLUDED {
-        assert!(operations.contains_key(*name), "stale exclusion {name}");
-    }
+fn agent_dispatch_tools_route_one_harness_agnostic_call_without_shell() {
+    let mut server = Server::new(Fake::default(), None);
+    let result = call(
+        &mut server,
+        "agent_dispatch",
+        json!({
+            "title": "Qwen task",
+            "brief": "Inspect the fixture and report the result.",
+            "target": "auto",
+            "harness": "qwen",
+            "stop_condition": "Report findings",
+            "idempotency_key": "brief-qwen-1"
+        }),
+    );
+    assert_eq!(result["isError"], false, "{result}");
+    assert_eq!(result["structuredContent"]["briefId"], "brief_qwen_1");
+    assert_eq!(result["structuredContent"]["event"]["kind"], "dispatch");
+    let sent = server.backend.last("acpmux");
+    assert_eq!(sent["method"], "_acpmux/dispatch");
+    assert_eq!(sent["params"]["model"], "qwen");
+    assert_eq!(sent["params"]["target"], "auto");
+    assert!(sent["params"].get("shell").is_none());
+    assert!(sent["params"].get("ssh").is_none());
+    assert_eq!(sent["key"], "brief-qwen-1");
 }
 
 #[test]
-fn every_tool_is_reachable_from_the_cmux_cli_and_no_excluded_operation_is() {
-    let cases = super::super::command::cases::safe_operation_cases();
-    let sends =
-        |args: &[&str]| match super::super::parse(&strings(args), super::super::Surface::Cmux) {
-            Ok(ParsedCommand::Command { plan: CommandPlan::Protocol(request), .. }) => {
-                request.operation.name().ok()
-            }
-            _ => None,
-        };
-    for tool in v2_tools::tools() {
-        if super::super::command::cases::MULTI_REQUEST_OPERATIONS.contains(&tool.wire) {
-            continue;
-        }
-        let (args, _) = cases
-            .iter()
-            .find(|(_, operation)| *operation == tool.wire)
-            .unwrap_or_else(|| panic!("the CLI has no command for {}", tool.wire));
-        assert_eq!(
-            sends(args.as_slice()).as_deref(),
-            Some(tool.wire),
-            "`cmux {}` must send {}",
-            args.join(" "),
-            tool.wire
-        );
-    }
-    for (wire, _) in v2_tools::EXCLUDED {
-        if let Some((args, _)) = cases.iter().find(|(_, operation)| operation == wire) {
-            assert_eq!(
-                sends(args.as_slice()),
-                None,
-                "`cmux {}` offers excluded {wire}",
-                args.join(" ")
-            );
-        }
-    }
+fn agent_brief_tools_use_the_brief_id_for_steer_list_and_report() {
+    let mut server = Server::new(Fake::default(), None);
+    let _ =
+        call(&mut server, "agent_steer", json!({"brief_id": "brief_qwen_1", "text": "Keep going"}));
+    assert_eq!(server.backend.last("acpmux")["method"], "_acpmux/steer");
+    assert_eq!(server.backend.last("acpmux")["params"]["briefId"], "brief_qwen_1");
+    let _ = call(&mut server, "agent_briefs_list", json!({"status": "running"}));
+    assert_eq!(server.backend.last("acpmux")["method"], "_acpmux/briefs");
+    let _ = call(
+        &mut server,
+        "agent_report",
+        json!({"brief_id": "brief_qwen_1", "summary": "Done", "status": "reported"}),
+    );
+    assert_eq!(server.backend.last("acpmux")["method"], "_acpmux/report");
+    assert_eq!(server.backend.last("acpmux")["params"]["briefId"], "brief_qwen_1");
 }
 
 #[test]
@@ -491,6 +827,8 @@ fn json_rpc_lifecycle_and_errors() {
     let names = tools.iter().filter_map(|tool| tool["name"].as_str()).collect::<BTreeSet<_>>();
     for expected in [
         "workspace_list",
+        "machine_list",
+        "machine_get",
         "terminal_input_write",
         "window_list",
         "agents_snapshot",
@@ -498,7 +836,7 @@ fn json_rpc_lifecycle_and_errors() {
     ] {
         assert!(names.contains(expected), "missing {expected}");
     }
-    for absent in ["machine_list", "session_shutdown", "terminal_attach", "app_accounts_connect"] {
+    for absent in ["session_list", "session_shutdown", "terminal_attach", "app_accounts_connect"] {
         assert!(!names.contains(absent), "{absent} must not be a tool");
     }
     assert_eq!(names.len(), tools.len(), "tool names are unique");
@@ -578,65 +916,6 @@ fn notifications_wait_for_initialization_and_the_capability_says_so() {
 }
 
 #[test]
-fn tool_schemas_follow_the_catalog() {
-    let name_ok = |name: &str| {
-        !name.is_empty()
-            && name.len() <= 64
-            && name
-                .bytes()
-                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
-    };
-    for tool in v2_tools::tools() {
-        assert!(name_ok(&tool.name), "{}", tool.name);
-        let schema = tool.input_schema();
-        let properties = schema["properties"].as_object().expect("properties");
-        assert_eq!(schema["additionalProperties"], false);
-        assert!(!properties.contains_key("machine"), "{} exposes the machine", tool.name);
-        // `git.checkpoint.get` looks a create up by the key it ran under.
-        let lookup = tool.wire == "git.checkpoint.get";
-        let keyed = properties.contains_key("idempotency_key");
-        assert_eq!(keyed, tool.mutation || lookup, "{}", tool.name);
-        assert_eq!(properties.contains_key("offset"), tool.paginated, "{}", tool.name);
-        for required in schema["required"].as_array().unwrap() {
-            assert!(properties.contains_key(required.as_str().unwrap()), "{}", tool.name);
-        }
-        let annotations = &tool.descriptor_json()["annotations"];
-        assert_eq!(annotations["readOnlyHint"], !tool.mutation);
-        assert_eq!(annotations["openWorldHint"], tool.wire == "git.push", "{}", tool.name);
-    }
-    let create = v2_tools::find("workspace_create").expect("workspace_create").input_schema();
-    assert_eq!(create["properties"]["initial_content"]["enum"], json!(["terminal", "empty"]));
-    assert!(create["required"].as_array().unwrap().contains(&json!("initial_content")));
-    assert_eq!(create["properties"]["ephemeral"]["type"], "boolean");
-    assert!(v2_tools::find("workspace_list").unwrap().paginated);
-    assert!(!v2_tools::find("notification_list").unwrap().paginated, "owner's own limit");
-}
-
-#[test]
-fn ids_take_a_unique_prefix_and_a_session_qualifier() {
-    let tool = v2_tools::find("workspace_get").expect("workspace_get");
-    let call = tool.plan(&object(json!({"workspace": "build-box:ws_1a2b"}))).expect("plan");
-    assert_eq!(call.session.as_deref(), Some("build-box"));
-    assert_eq!(call.plan.params["workspace"], "ws_1a2b");
-    assert_eq!(
-        call.prefixes,
-        [Prefix { field: "workspace".into(), list: ResourceOperation::WorkspaceList }]
-    );
-    assert_eq!(call.plan.params["machine"], "current");
-    assert_eq!(call.plan.params["session"], "current");
-
-    for whole in [WORKSPACE, "current", "name:ws_1", "workspace:ws_1a"] {
-        let call = tool.plan(&object(json!({"workspace": whole}))).expect("plan");
-        assert!(call.prefixes.is_empty(), "{whole}");
-        assert_eq!(call.session, None, "{whole}");
-        assert_eq!(call.plan.params["workspace"], whole);
-    }
-    let two = tool.plan(&object(json!({"workspace": "a:ws_1", "session": "b"})));
-    assert!(two.is_err(), "one call reaches one session");
-    assert!(tool.plan(&object(json!({"bogus": "x"}))).is_err());
-}
-
-#[test]
 fn large_reads_page_and_fit_the_result_limit() {
     let page = v2_tools::paginate(json!([1, 2, 3, 4, 5]), v2_tools::Page { offset: 1, limit: 2 });
     assert_eq!(page, json!({"items": [2, 3], "total": 5, "offset": 1, "next_offset": 3}));
@@ -680,6 +959,31 @@ fn terminal_waits_are_bounded() {
     let exit = v2_tools::find("terminal_wait_exit").expect("terminal_wait_exit");
     let call = exit.plan(&object(json!({"terminal": terminal}))).expect("plan");
     assert_eq!(call.plan.params["timeout_ms"], "30000");
+}
+
+#[test]
+fn a_new_workspace_holds_a_terminal_unless_asked_otherwise() {
+    let create = v2_tools::find("workspace_create").expect("workspace_create");
+    let schema = create.input_schema();
+    assert!(!schema["required"].as_array().is_some_and(|r| r.contains(&json!("initial_content"))));
+    assert_eq!(schema["properties"]["initial_content"]["default"], "terminal");
+    let call = create.plan(&object(json!({"name": "eval-proj"}))).expect("plan");
+    assert_eq!(call.plan.params["initial_content"], "terminal");
+    let call = create
+        .plan(&object(json!({"name": "eval-proj", "initial_content": "empty"})))
+        .expect("plan");
+    assert_eq!(call.plan.params["initial_content"], "empty");
+}
+
+#[test]
+fn a_missing_required_field_is_named_with_its_values() {
+    let neighbor = v2_tools::find("pane_neighbor_get").expect("pane_neighbor_get");
+    let error = neighbor.plan(&object(json!({"pane": "current"}))).err().expect("an error");
+    let message = error["message"].as_str().unwrap_or_default();
+    assert!(message.contains("pane_neighbor_get needs direction"), "{error}");
+    assert!(message.contains("right"), "the values: {error}");
+    let call = neighbor.plan(&object(json!({"pane": "current", "direction": "right"})));
+    assert!(call.is_ok(), "{:?}", call.err());
 }
 
 #[test]
@@ -817,6 +1121,35 @@ fn agents_action_tools_are_listed_with_strict_schemas() {
     assert_eq!(
         find("agents_terminal_split")["inputSchema"]["properties"]["direction"]["enum"],
         json!(["left", "right", "up", "down"])
+    );
+}
+
+#[test]
+fn agents_doctor_is_a_read_only_tool_that_changes_nothing() {
+    let mut server = Server::new(Fake::with_actions(), None);
+    let listed =
+        server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
+    let tools = listed["result"]["tools"].as_array().cloned().unwrap();
+    let tool = tools
+        .iter()
+        .find(|tool| tool["name"] == "agents_doctor")
+        .unwrap_or_else(|| panic!("agents_doctor is not listed"));
+    assert_eq!(tool["annotations"]["readOnlyHint"], true, "{tool}");
+    assert_eq!(tool["annotations"]["destructiveHint"], false, "{tool}");
+    assert_eq!(tool["inputSchema"]["additionalProperties"], false, "{tool}");
+    assert_eq!(
+        tool["inputSchema"]["properties"].as_object().unwrap().keys().collect::<Vec<_>>(),
+        ["checks"],
+        "{tool}"
+    );
+    server.backend.sent.borrow_mut().clear();
+    let result = call(&mut server, "agents_doctor", json!({}));
+    assert_eq!(result["isError"], false, "{result}");
+    // At most the one read of the app's Computer Use grants; no run, no change.
+    let sent = server.backend.sent.borrow().clone();
+    assert!(
+        sent.iter().all(|sent| sent["kind"] == "app" && sent["method"] == "computer_use.status"),
+        "{sent:?}"
     );
 }
 
@@ -1110,4 +1443,527 @@ fn render_shows_a_page_in_the_chat_without_reaching_an_owner() {
         assert_eq!(refused["isError"], true, "{arguments}");
         assert_eq!(refused["structuredContent"]["state"], "not_run");
     }
+}
+
+mod agent_events;
+mod agent_wait;
+
+mod caller_scope;
+mod catalog;
+mod machine_catalog;
+mod settings;
+
+fn code_mode_server(fake: Fake) -> Server<Fake> {
+    let mut server = Server::new(fake, None);
+    server.code_mode = true;
+    server
+}
+
+#[test]
+fn code_mode_lists_only_cmux_exec_and_a_script_reaches_every_tool() {
+    let mut server = code_mode_server(Fake::with_actions());
+    let initialize =
+        server.handle(&json!({"jsonrpc": "2.0", "id": "i", "method": "initialize"})).unwrap();
+    assert!(initialize["result"]["instructions"].as_str().unwrap().contains("cmux_exec"));
+    let listed =
+        server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
+    let tools = listed["result"]["tools"].as_array().cloned().unwrap();
+    let names = tools.iter().filter_map(|tool| tool["name"].as_str()).collect::<Vec<_>>();
+    // Only cmux_exec (Lawrence 2026-10-23): a script searches with
+    // `cmux.docs(query)`, and `cmux_docs` stays callable for old prompts.
+    assert_eq!(names, ["cmux_exec"]);
+    let bytes = serde_json::to_vec(&tools).unwrap().len();
+    assert!(bytes < 8 << 10, "the code-mode list is {bytes} bytes");
+    let all = server.list();
+    assert!(all.len() > 100, "the full list stays the API");
+    assert!(tools[0]["description"].as_str().unwrap().contains("app (3)"));
+
+    // Docs returns a matching tool's schema, best match first: the daemon's
+    // tool before the app action that does the same.
+    let found = call(&mut server, "cmux_docs", json!({"query": "workspace rename"}));
+    let tools = found["structuredContent"]["tools"].as_array().cloned().unwrap_or_default();
+    assert_eq!(tools[0]["name"], "workspace_rename", "{found}");
+    let app = tools.iter().find(|tool| tool["name"] == "app_workspace_rename").expect("app twin");
+    assert_eq!(app["inputSchema"]["required"], json!(["name"]));
+    let index = call(&mut server, "cmux_docs", json!({}));
+    assert!(index["structuredContent"]["families"]["workspace"].is_array(), "{index}");
+    let exact = call(&mut server, "cmux_docs", json!({"names": ["window_list", "nope"]}));
+    assert_eq!(exact["structuredContent"]["unknown"], json!(["nope"]));
+
+    // One script calls a daemon tool and an app action through `call`: the
+    // app sees the same MCP-origin action run as a direct tool call.
+    let script = r#"
+        const workspaces = await cmux.workspace_list({});
+        console.log("workspaces", workspaces.items.length);
+        const run = await cmux.call("app_workspace_rename", {target: "ws_1a", name: "Build"});
+        return {run, found: cmux.docs("new window").tools[0].name};
+    "#;
+    let ran = call(&mut server, "cmux_exec", json!({"script": script}));
+    assert_eq!(ran["isError"], false, "{ran}");
+    let content = &ran["structuredContent"];
+    assert_eq!(content["calls"], 2);
+    assert_eq!(content["logs"], json!(["workspaces 0"]));
+    assert_eq!(content["result"]["run"]["ran"], true);
+    assert_eq!(content["result"]["found"], "app_new_window");
+    // `cmux.docs` reads `action.list` after the run, so find the run itself.
+    let runs = sent_of(&server, "app");
+    let sent = runs.iter().rev().find(|sent| sent["method"] == "action.run").expect("a run");
+    assert_eq!(sent["params"]["origin"], "mcp");
+    assert_eq!(sent["params"]["action"], "workspace rename");
+}
+
+#[test]
+fn code_mode_scripts_see_failed_calls_and_report_partial_runs() {
+    let mut server = code_mode_server(Fake { fail_resources: true, ..Fake::with_actions() });
+    // A failed call throws with the owner's error, state and key.
+    let caught = call(
+        &mut server,
+        "cmux_exec",
+        json!({"script": "try { await cmux.workspace_list({}); } catch (e) { return e.cmux.state; }"}),
+    );
+    assert_eq!(caught["structuredContent"]["result"], "in_progress", "{caught}");
+
+    // An uncaught one fails the script and says calls already ran.
+    let failed = call(
+        &mut server,
+        "cmux_exec",
+        json!({"script": "await cmux.app_new_window({}); await cmux.workspace_list({});"}),
+    );
+    assert_eq!(failed["isError"], true);
+    let content = &failed["structuredContent"];
+    assert_eq!(content["state"], "partial");
+    assert_eq!(content["calls"], 2);
+    assert_eq!(content["error"]["cmux"]["state"], "in_progress", "{failed}");
+
+    // No nested scripts, unknown tools throw, syntax errors run nothing.
+    let nested = call(
+        &mut server,
+        "cmux_exec",
+        json!({"script": "return await cmux.cmux_exec({script: 'return 1'});"}),
+    );
+    assert_eq!(nested["isError"], true);
+    let unknown = call(&mut server, "cmux_exec", json!({"script": "await cmux.no_such_tool({});"}));
+    assert!(
+        unknown["structuredContent"]["error"]["message"].as_str().unwrap().contains("unknown tool"),
+        "{unknown}"
+    );
+    let syntax = call(&mut server, "cmux_exec", json!({"script": "return (;"}));
+    assert_eq!(syntax["structuredContent"]["state"], "not_run");
+    // The engine has no file, network, process or timer access (setTimeout only
+    // throws, naming terminal_wait).
+    let sandboxed = call(
+        &mut server,
+        "cmux_exec",
+        json!({"script": "let timer = 'ran'; try { setTimeout(() => {}, 1); } catch { timer = 'threw'; } \
+                          return [typeof require, typeof fetch, typeof process, timer];"}),
+    );
+    assert_eq!(
+        sandboxed["structuredContent"]["result"],
+        json!(["undefined", "undefined", "undefined", "threw"])
+    );
+}
+
+#[test]
+fn code_mode_stops_a_script_that_loops_or_allocates_without_end() {
+    let mut server = code_mode_server(Fake::with_actions());
+    server.script_limits = code_mode::Limits {
+        memory: 16 << 20,
+        compute: Duration::from_millis(300),
+        ..code_mode::Limits::default()
+    };
+    let started = Instant::now();
+    let looped = call(&mut server, "cmux_exec", json!({"script": "while (true) {}"}));
+    assert_eq!(looped["isError"], true);
+    assert_eq!(looped["structuredContent"]["error"]["code"], "script.timeout", "{looped}");
+    assert!(started.elapsed() < Duration::from_secs(10), "the loop was stopped");
+
+    let grew = call(
+        &mut server,
+        "cmux_exec",
+        json!({"script": "const kept = []; while (true) kept.push('x'.repeat(1 << 20) + kept.length);"}),
+    );
+    assert_eq!(grew["isError"], true);
+    let code = grew["structuredContent"]["error"]["code"].as_str().unwrap_or_default().to_owned();
+    assert!(matches!(code.as_str(), "script.memory" | "script.timeout"), "{grew}");
+    assert_eq!(grew["structuredContent"]["state"], "not_run");
+
+    // The server still answers after both.
+    let after = call(&mut server, "cmux_exec", json!({"script": "return 2 + 2;"}));
+    assert_eq!(after["structuredContent"]["result"], 4, "{after}");
+}
+
+#[test]
+fn an_allowlist_lists_only_its_tools_and_refuses_every_other_call() {
+    let mut server = code_mode_server(Fake::with_actions());
+    server.allowed = allowed_tools(Some("agents_snapshot, window_list,app_new_window".into()));
+    let listed =
+        server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
+    let names = listed["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|tool| tool["name"].as_str().map(str::to_owned))
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        names,
+        BTreeSet::from(["agents_snapshot", "window_list", "app_new_window"].map(str::to_owned))
+    );
+    let allowed = call(&mut server, "window_list", json!({}));
+    assert_eq!(allowed["isError"], false, "{allowed}");
+    for refused in ["cmux_exec", "cmux_docs", "workspace_list", "app_workspace_rename"] {
+        let arguments =
+            if refused == "cmux_exec" { json!({"script": "return 1"}) } else { json!({}) };
+        let result = call(&mut server, refused, arguments);
+        assert_eq!(result["structuredContent"]["error"]["code"], "tool.not_allowed", "{refused}");
+    }
+    // Inside a script too (`cmux_exec` is refused before a script starts;
+    // the check is in `call`, which every script call goes through).
+    server.allowed.as_mut().unwrap().insert("cmux_exec".into());
+    let script =
+        call(&mut server, "cmux_exec", json!({"script": "await cmux.workspace_list({});"}));
+    assert_eq!(
+        script["structuredContent"]["error"]["cmux"]["error"]["code"], "tool.not_allowed",
+        "{script}"
+    );
+
+    // Fail closed: an empty value allows nothing; no env is code mode.
+    let mut empty = code_mode_server(Fake::with_actions());
+    empty.allowed = allowed_tools(Some(" , ".into()));
+    let listed =
+        empty.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
+    assert_eq!(listed["result"]["tools"], json!([]));
+    assert_eq!(allowed_tools(None), None);
+}
+
+/// An agent that asks `cmux_docs` how to show its work to the user gets the
+/// guide that names the tools, although no one tool matches every word.
+#[test]
+fn cmux_docs_answers_a_task_with_its_guide() {
+    let mut server = code_mode_server(Fake::with_actions());
+    let found = call(&mut server, "cmux_docs", json!({"query": "show the user my work"}));
+    let guides = found["structuredContent"]["guides"].as_array().cloned().unwrap_or_default();
+    assert_eq!(guides.len(), 1, "{found}");
+    let text = guides[0]["text"].as_str().unwrap_or_default();
+    assert!(text.contains("app_agent_open") && text.contains("workspace_status_set"), "{text}");
+    let plain = call(&mut server, "cmux_docs", json!({"query": "pane split"}));
+    assert!(plain["structuredContent"].get("guides").is_none(), "{plain}");
+}
+
+/// An agent's docs query is often a sentence with a word no tool has
+/// ("pane split terminal send"). It finds the tool that matches the most
+/// words, not nothing (tests/tool-evals, 2026-10-27: Sonnet searched three
+/// times before its first call).
+#[test]
+fn cmux_docs_finds_a_tool_from_a_sentence() {
+    let mut server = code_mode_server(Fake::with_actions());
+    let found = call(
+        &mut server,
+        "cmux_docs",
+        json!({"query": "split the pane to the right and send text"}),
+    );
+    let names = found["structuredContent"]["tools"]
+        .as_array()
+        .map(|tools| tools.iter().filter_map(|tool| tool["name"].as_str()).collect::<Vec<_>>())
+        .unwrap_or_default();
+    assert_eq!(names.first(), Some(&"pane_split"), "{found}");
+    // The answer is compact: no protocol tags or shared idempotency text,
+    // and the shared arguments by name only.
+    let split = &found["structuredContent"]["tools"][0];
+    let text = split.to_string();
+    assert!(!text.contains("cmux.protocol/2") && !text.contains("may have applied"), "{split}");
+    assert!(split["alsoTakes"].to_string().contains("idempotency_key"), "{split}");
+    assert!(split["inputSchema"]["properties"]["direction"]["enum"].is_array(), "{split}");
+
+    // A tool's own name finds that tool first, not a longer one that holds it.
+    let exact = call(&mut server, "cmux_docs", json!({"query": "tab_list"}));
+    assert_eq!(exact["structuredContent"]["tools"][0]["name"], "tab_list", "{exact}");
+
+    // A script that calls a name no tool has hears the near ones.
+    let script = "try { await cmux.context({}); } catch (e) { return e.message; }";
+    let ran = call(&mut server, "cmux_exec", json!({"script": script}));
+    let message = ran["structuredContent"]["result"].as_str().unwrap_or_default();
+    assert!(message.contains("did you mean"), "{ran}");
+}
+
+/// The tools the acpmux sub-session server's instructions point agents at
+/// (`acpmux::subsession_mcp::CMUX_TOOLS`) stay tools of this server, and the
+/// instructions reach them the way an agent's `cmux mcp serve` does: in
+/// code mode, through a `cmux_exec` script, with `cmux.docs` for arguments.
+#[test]
+fn the_subsession_servers_instructions_name_real_cmux_tools() {
+    let mut server = code_mode_server(Fake::with_actions());
+    let rules = acpmux::subsession_mcp::instructions();
+    assert!(rules.contains("cmux_exec") && rules.contains("cmux.docs"), "{rules}");
+    let names = acpmux::subsession_mcp::CMUX_TOOLS;
+    let found = call(&mut server, "cmux_docs", json!({"names": names}));
+    assert_eq!(found["structuredContent"]["unknown"], json!([]), "{found}");
+    for name in names {
+        assert!(rules.contains(&format!("cmux.{name}(")), "the instructions no longer call {name}");
+    }
+}
+
+#[path = "upstream_tests.rs"]
+mod upstream_tests;
+
+/// With no app, a link an agent opens keeps the daemon's `workspace.open_url`:
+/// the app's `browser.open_split` cannot run without the app (review of the
+/// no-app placement fallback, 2026-10-27).
+#[test]
+fn open_url_without_an_app_stays_on_the_daemon() {
+    // The daemon places the caller (terminal, tab, pane, screen and
+    // workspace, and a pane to its right), so the fallback would find a
+    // place for the link if it took links.
+    let place = json!({"tab_id": "tab_1", "pane_id": "pane_1", "screen_id": "screen_1",
+                       "workspace_id": "ws_1", "pane": {"id": "pane_2"}});
+    let fake = Fake {
+        identity_fails: true,
+        caller_terminal: Some("term_1".into()),
+        resource_result: Some(place),
+        ..Fake::default()
+    };
+    let mut server = Server::new(fake, None);
+    server
+        .call(&json!({"name": "workspace_open_url",
+                        "arguments": {"url": "https://example.com"}}))
+        .expect("a tool result");
+    let sent = server.backend.sent.borrow();
+    assert!(!sent.iter().any(|sent| sent["method"] == "browser.open_split"), "{sent:?}");
+    assert!(
+        sent.iter().any(|sent| sent["request"]["operation"] == "workspace.open_url"),
+        "{sent:?}"
+    );
+}
+
+/// What models write and the code mode now takes (tests/tool-evals, 11-model panel
+/// 2026-10-27): a call's `.catch()`, a script wrapped as one async function, and a
+/// missing selector or a timer that names its fix.
+#[test]
+fn code_mode_takes_the_shapes_models_write() {
+    let mut server = code_mode_server(Fake::default());
+    let wrapped = "async function () {\n  const r = await cmux.workspace_list({}).catch(() => null);\n  return {listed: r !== null};\n}";
+    let ran = call(&mut server, "cmux_exec", json!({"script": wrapped}));
+    assert_eq!(ran["structuredContent"]["result"]["listed"], true, "{ran}");
+
+    let missing = call(
+        &mut server,
+        "cmux_exec",
+        json!({"script":
+        "try { await cmux.workspace_get({}); } catch (e) { return e.message; }"}),
+    );
+    let message = missing["structuredContent"]["result"].as_str().unwrap_or_default();
+    assert!(message.contains("needs workspace") && message.contains("current"), "{missing}");
+
+    // Every function form models send runs and returns its value.
+    for wrapped in [
+        "async () => { const r = await cmux.workspace_list({}); return {listed: !!r.items}; }",
+        "(async () => {\n  const r = await cmux.workspace_list({});\n  return {listed: !!r.items};\n})",
+        "async (c) => { return {listed: !!(await c.workspace_list({})).items}; }",
+        "async ({cmux}) => {\n  const r = await cmux.workspace_list({});\n  return {listed: !!r.items};\n}",
+        "async function ({ cmux }) { return {listed: !!(await cmux.workspace_list({})).items}; }",
+        "(async ({cmux}) => { return {listed: !!(await cmux.workspace_list({})).items}; })()",
+    ] {
+        let ran = call(&mut server, "cmux_exec", json!({"script": wrapped}));
+        assert_eq!(ran["structuredContent"]["result"]["listed"], true, "{wrapped}: {ran}");
+    }
+    // A body that only starts like a function (an awaited call in parentheses) and ends
+    // with a block runs as written.
+    let body =
+        "(await cmux.workspace_list({})).items.map((t) => t.id);\nif (1) { return {ran: true}; }";
+    let ran = call(&mut server, "cmux_exec", json!({"script": body}));
+    assert_eq!(ran["structuredContent"]["result"]["ran"], true, "{ran}");
+    // A function that calls itself returns its value too.
+    let called =
+        "(async () => { const r = await cmux.workspace_list({}); return {listed: !!r.items}; })()";
+    let ran = call(&mut server, "cmux_exec", json!({"script": called}));
+    assert_eq!(ran["structuredContent"]["result"]["listed"], true, "{ran}");
+
+    let timer = call(
+        &mut server,
+        "cmux_exec",
+        json!({"script":
+        "try { setTimeout(() => {}, 10); } catch (e) { return e.message; }"}),
+    );
+    let message = timer["structuredContent"]["result"].as_str().unwrap_or_default();
+    assert!(message.contains("terminal_wait"), "{timer}");
+}
+
+/// A terminal tool named by a tab gets that tab's terminal, in the tab's session; a tool
+/// that only filters by tab (`terminal_list`) keeps the tab (review of `terminal_of_tab`).
+#[test]
+fn a_tab_names_its_terminal_only_where_a_terminal_is_needed() {
+    let shown = json!({"id": "tab_1", "content_id": "term_00000000000000000000000000000abc"});
+    let fake = Fake { resource_result: Some(shown), ..Fake::default() };
+    let mut server = Server::new(fake, None);
+
+    server
+        .call(&json!({"name": "terminal_screen_read", "arguments": {"tab": "build:tab_1"}}))
+        .expect("a tool result");
+    server
+        .call(&json!({"name": "terminal_list", "arguments": {"tab": "tab_1"}}))
+        .expect("a tool result");
+
+    let sent = server.backend.sent.borrow();
+    let requests: Vec<&Value> = sent.iter().filter(|s| s["kind"] == "resource").collect();
+    let read = requests.iter().find(|s| s["request"]["operation"] == "terminal.screen.read");
+    let read = read.unwrap_or_else(|| panic!("{requests:?}"));
+    assert_eq!(read["session"], "build", "the read goes to the tab's session: {read}");
+    assert_eq!(
+        read["request"]["params"]["terminal"], "term_00000000000000000000000000000abc",
+        "{read}"
+    );
+    let list = requests.iter().find(|s| s["request"]["operation"] == "terminal.list");
+    let list = list.unwrap_or_else(|| panic!("{requests:?}"));
+    assert_eq!(
+        list["request"]["params"]["tab"], "tab_1",
+        "terminal_list keeps its tab filter: {list}"
+    );
+}
+
+/// A record a tool returned works where its id goes: models pass `n.pane` from
+/// `pane_neighbor_get` (`{pane: {id, ...}}`) to `tab_list` (tests/tool-evals, h7).
+#[test]
+fn a_record_works_where_its_id_goes() {
+    let mut server = Server::new(Fake::default(), None);
+    let answer = server
+        .call(&json!({"name": "tab_list",
+                       "arguments": {"pane": {"id": "pane_00000000000000000000000000000abc", "focused": false}}}))
+        .expect("a tool result");
+    assert_eq!(answer["isError"], false, "{answer}");
+    let sent = server.backend.sent.borrow();
+    let list =
+        sent.iter().find(|s| s["request"]["operation"] == "tab.list").expect("a tab.list request");
+    assert_eq!(
+        list["request"]["params"]["pane"], "pane_00000000000000000000000000000abc",
+        "{list}"
+    );
+    drop(sent);
+
+    // A json field keeps its object even when it has an `id` (review of 7c83a9f).
+    let device = json!({"id": "phone-1", "title": "Phone", "screen": {"vertical": {"width": 390, "height": 844}}});
+    server
+        .call(&json!({"name": "browser_devices_add_custom", "arguments": {"device": device}}))
+        .expect("a tool result");
+    let sent = server.backend.sent.borrow();
+    let add = sent.iter().find(|s| s["request"]["operation"] == "browser.devices.add_custom");
+    let add = add.unwrap_or_else(|| panic!("{sent:?}"));
+    assert_eq!(add["request"]["params"]["device"], device, "{add}");
+}
+
+/// A wait for text the command just typed also shows (`cmd; echo DONE`, then `DONE`) waits
+/// for an output line, not the typed line (tests/tool-evals r3j: GLM said "done" early).
+#[test]
+fn a_wait_for_text_the_command_echoes_waits_for_the_output_line() {
+    let fake = Fake { resource_result: Some(json!({"matched": true})), ..Fake::default() };
+    let mut server = Server::new(fake, None);
+    let terminal = "term_00000000000000000000000000000abc";
+    for (name, arguments) in [
+        ("terminal_input_write", json!({"terminal": terminal, "text": "sleep 4; echo BUILD_OK\n"})),
+        ("terminal_wait", json!({"terminal": terminal, "pattern": "BUILD_OK"})),
+        ("terminal_wait", json!({"terminal": terminal, "pattern": "Finished"})),
+        (
+            "terminal_wait",
+            json!({"terminal": "term_00000000000000000000000000000def", "pattern": "BUILD_OK"}),
+        ),
+    ] {
+        server.call(&json!({"name": name, "arguments": arguments})).expect("a tool result");
+    }
+    let sent = server.backend.sent.borrow();
+    let waits: Vec<&Value> =
+        sent.iter().filter(|s| s["request"]["operation"] == "terminal.wait").collect();
+    assert_eq!(waits.len(), 3, "{sent:?}");
+    assert_eq!(waits[0]["request"]["params"]["pattern"], "(?m)^\\s*(?:BUILD_OK)", "{}", waits[0]);
+    assert_eq!(waits[1]["request"]["params"]["pattern"], "Finished", "not typed: {}", waits[1]);
+    assert_eq!(
+        waits[2]["request"]["params"]["pattern"], "BUILD_OK",
+        "another terminal: {}",
+        waits[2]
+    );
+}
+
+/// A terminal named by its tab, through `terminal` itself: a `tab_…` id or the tab's name
+/// with no scope above it (tests/tool-evals m1: `terminal_wait({terminal: "eval-cmd"})`,
+/// `terminal_screen_read({terminal: tab.tab_id})`).
+#[test]
+fn a_terminal_named_by_its_tab_through_terminal() {
+    // tab_get answers the record; tab_list (a name lookup) the same record as one item.
+    let shown = json!({"id": "tab_1", "name": "eval-cmd", "content_id": "term_00000000000000000000000000000abc"});
+    let fake = Fake { resource_result: Some(shown), ..Fake::default() };
+    let mut server = Server::new(fake, None);
+    for terminal in ["tab_00000000000000000000000000000001", "eval-cmd"] {
+        server
+            .call(&json!({"name": "terminal_screen_read", "arguments": {"terminal": terminal}}))
+            .expect("a tool result");
+    }
+    server
+        .call(&json!({"name": "terminal_screen_read",
+                       "arguments": {"terminal": "term_00000000000000000000000000000def"}}))
+        .expect("a tool result");
+    let sent = server.backend.sent.borrow();
+    let reads: Vec<&Value> =
+        sent.iter().filter(|s| s["request"]["operation"] == "terminal.screen.read").collect();
+    assert_eq!(reads.len(), 3, "{sent:?}");
+    for read in &reads[..2] {
+        assert_eq!(
+            read["request"]["params"]["terminal"], "term_00000000000000000000000000000abc",
+            "{read}"
+        );
+    }
+    assert_eq!(
+        reads[2]["request"]["params"]["terminal"], "term_00000000000000000000000000000def",
+        "a terminal id stays: {}",
+        reads[2]
+    );
+    // A plain name is looked up in the tab list (the daemon refuses an unscoped tab name),
+    // never with tab_get.
+    let gets = sent.iter().filter(|s| s["request"]["operation"] == "tab.get").count();
+    assert_eq!(gets, 1, "only the tab_… id uses tab_get: {sent:?}");
+    assert!(sent.iter().any(|s| s["request"]["operation"] == "tab.list"), "{sent:?}");
+    drop(sent);
+
+    // A `<session>:name` lists that session's tabs.
+    server
+        .call(&json!({"name": "terminal_screen_read", "arguments": {"terminal": "s2:eval-cmd"}}))
+        .expect("a tool result");
+    let sent = server.backend.sent.borrow();
+    let list = sent.iter().rev().find(|s| s["request"]["operation"] == "tab.list");
+    let list = list.unwrap_or_else(|| panic!("{sent:?}"));
+    assert_eq!(list["session"], "s2", "{list}");
+    let lists = sent.iter().filter(|s| s["request"]["operation"] == "tab.list").count();
+    drop(sent);
+
+    // A name under a named pane is that pane's tab: tab_get finds it there, and a tab of
+    // the same name in another pane does not make it ambiguous.
+    server
+        .call(
+            &json!({"name": "terminal_screen_read", "arguments": {"tab": "zsh", "pane": "pane_x"}}),
+        )
+        .expect("a tool result");
+    let sent = server.backend.sent.borrow();
+    assert_eq!(
+        sent.iter().filter(|s| s["request"]["operation"] == "tab.list").count(),
+        lists,
+        "{sent:?}"
+    );
+    let get = sent.iter().rev().find(|s| s["request"]["operation"] == "tab.get");
+    let get = get.unwrap_or_else(|| panic!("{sent:?}"));
+    assert!(get["request"].to_string().contains("pane_x"), "the pane scopes the name: {get}");
+    drop(sent);
+
+    // A pane given as the terminal is the terminal of the tab it shows.
+    server
+        .call(&json!({"name": "terminal_process_get",
+                       "arguments": {"terminal": "pane_00000000000000000000000000000007"}}))
+        .expect("a tool result");
+    let sent = server.backend.sent.borrow();
+    let list = sent.iter().rev().find(|s| s["request"]["operation"] == "tab.list");
+    let list = list.unwrap_or_else(|| panic!("{sent:?}"));
+    assert!(
+        list["request"].to_string().contains("pane_00000000000000000000000000000007"),
+        "{list}"
+    );
+    let last = sent.last().unwrap_or_else(|| panic!("{sent:?}"));
+    assert_eq!(
+        last["request"]["params"]["terminal"], "term_00000000000000000000000000000abc",
+        "{last}"
+    );
 }

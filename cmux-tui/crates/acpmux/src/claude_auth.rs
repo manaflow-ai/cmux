@@ -3,9 +3,13 @@
 //! `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, Bedrock / Vertex /
 //! Foundry switches, `ANTHROPIC_BASE_URL`), the managed and user
 //! `settings.json` (`env`, `apiKeyHelper`, AWS credential helpers), the
-//! Claude home's `.credentials.json`, and the macOS keychain item Claude
-//! Code keeps per Claude home (`Claude Code-credentials`, with
-//! `-<sha256(CLAUDE_CONFIG_DIR)[..8]>` when `CLAUDE_CONFIG_DIR` is set).
+//! Claude home's `.credentials.json`. Never the macOS keychain item Claude
+//! Code keeps (`Claude Code-credentials`): acpmux never asks the login
+//! keychain on its own (cx-hh0vu). A `security` call from a tagged, DEV or
+//! ad hoc signed acpmux left keychain dialogs on GUI test hosts, and a
+//! locked keychain asks to unlock even for attributes. A sign-in kept only
+//! in the keychain is not seen here: health says `unknown` for it, never
+//! signed out.
 //!
 //! acpmux remembers each Claude agent's spawn environment (names, the Claude
 //! home and the endpoint's host only) and, when a turn fails because Claude
@@ -37,7 +41,7 @@ const REMEMBERED: [&str; 4] = ["CLAUDE_CONFIG_DIR", "HOME", BASE_URL, "SHELL"];
 pub struct Found {
     /// The Claude home (`CLAUDE_CONFIG_DIR`, else `~/.claude`).
     pub home: PathBuf,
-    /// `CLAUDE_CONFIG_DIR` is set (Claude then uses its own keychain item).
+    /// `CLAUDE_CONFIG_DIR` is set.
     pub custom_home: bool,
     /// Each sign-in source, in plain words.
     pub sources: Vec<String>,
@@ -53,7 +57,7 @@ impl Found {
     }
 }
 
-fn truthy(v: Option<&String>) -> bool {
+fn truthy(v: Option<&str>) -> bool {
     v.is_some_and(|v| !v.is_empty() && v != "0" && !v.eq_ignore_ascii_case("false"))
 }
 
@@ -83,9 +87,9 @@ fn settings_files(home: &Path) -> Vec<PathBuf> {
     vec![PathBuf::from(managed), home.join("settings.json")]
 }
 
-/// The sign-in sources `env` gives Claude Code. `keychain`: also ask the
-/// keychain (one `security` call, item attributes only, no secret).
-pub fn find(env: &BTreeMap<String, String>, keychain: bool) -> Found {
+/// The sign-in sources `env` gives Claude Code, from the environment and
+/// files only (never the keychain).
+pub fn find(env: &BTreeMap<String, String>) -> Found {
     let user_home = env
         .get("HOME")
         .filter(|h| !h.is_empty())
@@ -96,7 +100,7 @@ pub fn find(env: &BTreeMap<String, String>, keychain: bool) -> Found {
     let home = custom.map(PathBuf::from).unwrap_or_else(|| user_home.join(".claude"));
     let mut found = Found { home: home.clone(), custom_home: custom.is_some(), ..Found::default() };
     for (key, words) in PROVIDER_KEYS {
-        if truthy(env.get(key)) {
+        if truthy(env.get(key).map(String::as_str)) {
             found.sources.push(words.to_owned());
             found.env_keys.push(key.to_owned());
         }
@@ -117,6 +121,17 @@ pub fn find(env: &BTreeMap<String, String>, keychain: bool) -> Found {
         if let Some(senv) = json.get("env").and_then(|e| e.as_object()) {
             let has = |k: &str| {
                 senv.get(k).is_some_and(|v| {
+                    // Provider switches select a credential source only when enabled,
+                    // with the same semantics as the process environment above.
+                    if PROVIDER_KEYS.iter().any(|(key, _)| *key == k) {
+                        return match v {
+                            serde_json::Value::String(value) => truthy(Some(value)),
+                            serde_json::Value::Bool(_) | serde_json::Value::Number(_) => {
+                                truthy(Some(&v.to_string()))
+                            }
+                            _ => false,
+                        };
+                    }
                     v.as_str().is_some_and(|s| !s.is_empty()) || v.is_boolean() || v.is_number()
                 })
             };
@@ -156,55 +171,7 @@ pub fn find(env: &BTreeMap<String, String>, keychain: bool) -> Found {
             .sources
             .push(format!("the sign-in saved in {}", tilde(&home.join(".credentials.json"))));
     }
-    if keychain && !found.signed_in() && keychain_item(custom.map(String::as_str)) {
-        found.sources.push(if found.custom_home {
-            format!("the sign-in saved in the keychain for {}", tilde(&home))
-        } else {
-            "the sign-in saved in the keychain".to_owned()
-        });
-    }
     found
-}
-
-/// Whether the keychain holds Claude Code's sign-in item for this Claude
-/// home. Attributes only (no `-g`/`-w`), so it never prompts.
-fn keychain_item(config_dir: Option<&str>) -> bool {
-    if !cfg!(target_os = "macos") {
-        return false;
-    }
-    use sha2::{Digest, Sha256};
-    let service = match config_dir {
-        None => "Claude Code-credentials".to_owned(),
-        Some(dir) => {
-            let hex: String =
-                Sha256::digest(dir.as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
-            format!("Claude Code-credentials-{}", &hex[..8])
-        }
-    };
-    let Ok(mut child) = std::process::Command::new("/usr/bin/security")
-        .args(["find-generic-password", "-s", &service])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-    else {
-        return false;
-    };
-    // A locked keychain must not hold startup or a turn: 1 s at most.
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => return status.success(),
-            Ok(None) if std::time::Instant::now() < deadline => {
-                std::thread::sleep(std::time::Duration::from_millis(10));
-            }
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return false;
-            }
-        }
-    }
 }
 
 /// The person's terminal: the daemon's environment with the login shell's
@@ -224,13 +191,13 @@ pub fn terminal_env() -> BTreeMap<String, String> {
 }
 
 /// Claude has a sign-in without the login shell: the daemon's own
-/// environment, settings files, credentials file or keychain.
+/// environment, settings files or credentials file (never the keychain).
 pub fn direct_sign_in() -> bool {
     let mut env: BTreeMap<String, String> = std::env::vars().collect();
     if std::env::var_os("CLAUDECODE").is_some() {
         env.retain(|k, _| !crate::config::is_nested_claude_key(k));
     }
-    find(&env, true).signed_in()
+    find(&env).signed_in()
 }
 
 static SPAWNED: Mutex<Option<HashMap<String, BTreeMap<String, String>>>> = Mutex::new(None);
@@ -248,9 +215,9 @@ pub fn remember(session_id: &str, env: &[(String, String)]) {
             kept.insert(k.clone(), "set".to_owned());
         }
     }
-    let found = find(&kept, false);
+    let found = find(&kept);
     if !found.signed_in() {
-        tracing::info!(session = session_id, home = %found.home.display(), "Claude agent starts with no sign-in in its env or settings (the keychain is checked if its turn fails)");
+        tracing::info!(session = session_id, home = %found.home.display(), "Claude agent starts with no sign-in in its env, settings or credentials file (a keychain sign-in is not checked)");
     }
     let mut map = SPAWNED.lock().unwrap_or_else(|e| e.into_inner());
     map.get_or_insert_with(HashMap::new).insert(session_id.to_owned(), kept);
@@ -273,20 +240,45 @@ pub fn is_sign_in_failure(message: &str) -> bool {
         || m.contains("authentication_failed")
 }
 
+/// Whether `message` says a credential expired: "OAuth token has expired", "the token is
+/// expired", "credential expired", "expired API key". One matcher for every place that tells an
+/// expired sign-in from a missing one (a failed auth check, a failed turn), so the two never
+/// drift. Only a statement that one expired counts: "invalid token expiry", "the credential
+/// expires in 30 days" and a bare "session expired" do not.
+pub fn is_expired_credential(message: &str) -> bool {
+    // A constant pattern; the unit test proves it compiles.
+    static EXPIRED: std::sync::LazyLock<Option<regex::Regex>> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(
+            r"(?i)\b(?:tokens?|credentials?|api keys?|logins?|sign-ins?)(?:\s+(?:has|have|is|are|was|were))?\s+expired\b|\bexpired\s+(?:(?:oauth|access|refresh|auth|authentication|session)\s+)?(?:tokens?|credentials?|api keys?|logins?|sign-ins?)\b",
+        )
+        .ok()
+    });
+    EXPIRED.as_ref().is_some_and(|re| re.is_match(message))
+}
+
+/// Whether [`explain`] rewrites `original`: a sign-in failure it has not explained yet, and not
+/// one that says the provider was unreachable ("HTTP 503: OAuth token has expired"), which
+/// stays as the agent said it, so its turn is retried and typed as the outage it is.
+fn explains(original: &str) -> bool {
+    is_sign_in_failure(original)
+        && !crate::hub::turn_errors::says_unreachable(original)
+        && !original.starts_with("Claude is not signed in here")
+}
+
 /// The explanation for a Claude agent's sign-in failure, or None when this
 /// session is not a Claude agent acpmux started (or the text says another
 /// thing). `original` is Claude's own text, kept at the end.
 pub fn explain(session_id: &str, original: &str) -> Option<String> {
-    if !is_sign_in_failure(original) || original.starts_with("Claude is not signed in here") {
+    if !explains(original) {
         return None;
     }
     let agent_env =
         SPAWNED.lock().unwrap_or_else(|e| e.into_inner()).as_ref()?.get(session_id)?.clone();
-    // File reads and the keychain check block: off a multi-thread runtime's workers.
+    // File reads block: off a multi-thread runtime's workers.
     let work = || {
-        let agent = find(&agent_env, true);
+        let agent = find(&agent_env);
         let terminal_env = terminal_env();
-        let terminal = find(&terminal_env, true);
+        let terminal = find(&terminal_env);
         compose(&agent, &terminal, terminal_env.get("SHELL").map(String::as_str), original)
     };
     let multi_thread = tokio::runtime::Handle::try_current()
@@ -372,4 +364,17 @@ fn compose(agent: &Found, terminal: &Found, shell: Option<&str>, original: &str)
     out.push_str(&fix);
     out.push_str(&format!(" (Claude said: {})", original.trim()));
     out
+}
+
+#[cfg(test)]
+mod tests {
+    /// A sign-in failure is explained; one that says the provider was unreachable is not.
+    #[test]
+    fn an_outage_that_names_a_token_is_not_explained_as_a_sign_in() {
+        assert!(super::explains("Not logged in · Please run /login"));
+        assert!(super::explains("API Error: 401 OAuth token has expired"));
+        assert!(!super::explains("HTTP 503: OAuth token has expired"));
+        assert!(!super::explains("connection error: Not logged in"));
+        assert!(!super::explains("Claude is not signed in here. Not logged in"));
+    }
 }

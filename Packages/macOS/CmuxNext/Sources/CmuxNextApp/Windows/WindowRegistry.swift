@@ -32,8 +32,10 @@ struct WindowRegistry: Equatable, Sendable {
     struct Window: Equatable, Sendable, Identifiable {
         let id: String
         /// Owned workspace ids (`WorkspaceModel.id`), in daemon sidebar
-        /// order after `reconcile`. Never empty for a registered window.
-        /// The daemon owns the order; this mirrors it.
+        /// order as of the last membership transition. Never empty for a
+        /// registered window. The daemon owns the order; this mirrors it when
+        /// membership changes, not on every move (the sidebar draws its own
+        /// order): a move must not cost a pass over every workspace.
         var workspaceIDs: [String]
         /// AppKit screen frame (bottom-left origin).
         var frame: CGRect?
@@ -81,7 +83,7 @@ struct WindowRegistry: Equatable, Sendable {
     /// was O(n²) at 1,000 workspaces (a watchdog trip). Derived from
     /// `windows`; not part of `==`.
     private var owners: [String: String] = [:]
-    /// Window ids, most recently active first.
+    /// Window ids, front first: key changes and `WindowActivation` orders keep it (`WindowManager.windowDidOrder`).
     private(set) var recency: [String] = []
     /// Incognito windows, registered or about to be (New Incognito Window
     /// marks the id before its workspace is reported).
@@ -259,6 +261,9 @@ struct WindowRegistry: Equatable, Sendable {
         recency.removeAll { $0 == id }
         recency.insert(id, at: 0)
     }
+
+    /// Window `id` was ordered in behind the app's other windows.
+    mutating func moveToBack(_ id: String) { if window(id) != nil { recency.removeAll { $0 == id }; recency.append(id) } }
 
     mutating func setGeometry(_ id: String, frame: CGRect?, display: String?) {
         guard let index = windows.firstIndex(where: { $0.id == id }) else { return }

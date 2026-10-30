@@ -8,6 +8,8 @@ export type SettingKind =
   | "toggle"
   | "choice"
   | "choice_or_number"
+  // A choice, or an object whose only member `url_key` is an http(s) origin (`home.server`).
+  | "choice_or_url"
   | "number"
   | "color"
   | "sound"
@@ -17,13 +19,20 @@ export type SettingKind =
   | "time_range"
   | "theme"
   | "font_family"
-  // Kinds only cmux-browser keys use today; the page never renders them (see `consumers`).
+  // Free text, empty for none (`files.textEditor`: an app name, bundle ID or app path).
+  | "text"
+  // Numbers as tokens (`editor.rulers`).
   | "number_list"
+  // Keyed values (`browser.siteEngines`: site to engine); `appearance.themeEdits` is the theme
+  // studio's and never a row.
   | "string_map"
+  // Notification sound rules by id or name (`notifications.sounds.workspaces`): a sound name, or
+  // `{sound, volume, events}`. Set from the sidebar menus, the palette and the CLI; never a row.
+  | "sound_rules"
   // Ordered choices (`row.choices`) or free-text tokens (`browser.urlsToAlwaysOpenExternally`).
   | "string_list";
 
-export type NumberUnit = "points" | "seconds" | "minutes" | "days" | "count" | "fraction";
+export type NumberUnit = "points" | "milliseconds" | "seconds" | "minutes" | "days" | "count" | "fraction";
 
 export type NumberRange = { min: number; max: number; step: number; unit: NumberUnit; placeholder: number };
 
@@ -44,6 +53,8 @@ export type SchemaRow = {
   /** A string_list of `choices`: true in an order the user picks, false any subset in choice order. */
   ordered?: boolean;
   range?: NumberRange;
+  /** choice_or_url: the member that holds the address (`selfHosted`). */
+  url_key?: string;
   default: unknown;
   default_label: LocalizedText | null;
   keywords: string[];
@@ -77,6 +88,8 @@ export type PageCategory = {
   actions: string[];
   /** The section ids (old links, `app settings <section>`) that open this category. */
   aliases: string[];
+  /** Shown only in DEV builds (the host says so in `dev_build`); absent means everywhere. */
+  dev_only?: boolean;
 };
 
 export type PageLayout = { default_category: string; categories: PageCategory[] };
@@ -85,7 +98,6 @@ type Schema = {
   rows: SchemaRow[];
   sections: SchemaSection[];
   page: PageLayout;
-  schema_hash: string;
   version: number;
 };
 

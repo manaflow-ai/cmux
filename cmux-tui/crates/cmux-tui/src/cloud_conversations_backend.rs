@@ -6,16 +6,16 @@
 //!
 //! The bearer token is only ever placed in the `authorization` header (HTTP
 //! calls and the socket upgrade; Workers invocation logs record every header
-//! but Authorization, cx-dgsp); errors never include it. Only a Worker that
-//! does not yet read Authorization on the upgrade (its 401 lacks
-//! `x-cmux-wire-auth`) gets the legacy `bearer.<token>` subprotocol, once.
+//! but Authorization, cx-dgsp); errors never include it. The legacy
+//! `bearer.<token>` subprotocol is retired: a 401 on the upgrade is final.
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 use cmux_tui_core::Mux;
 use cmux_tui_core::cloud_conversations::{
-    CloudBackend, CloudWire, ConnectError, HttpReply, RangeReply, TransportError, WireRecv,
+    CloudBackend, CloudWire, ConnectError, HttpReply, PutBody, RangeReply, TransportError, WireRecv,
 };
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
@@ -32,20 +32,21 @@ const SEND_TIMEOUT: Duration = Duration::from_secs(10);
 /// A Home read returns at most 200 messages of at most 64 KiB text each.
 const MAX_BODY_BYTES: usize = 32 * 1024 * 1024;
 const CLIENT_VERSION_HEADER: &str = "x-cmux-client-version";
-/// An attachment upload (up to 100 MB) may take longer than a JSON call.
+/// A derived image upload (at most 2 MB) may take longer than a JSON call.
 const UPLOAD_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+/// A streamed attachment file has no total deadline (it may be any size);
+/// it fails when its body has not moved this long. Hyper asks for the next
+/// read once the last one is in its send buffer, so at a few KB/s reads still
+/// come well inside the window.
+const UPLOAD_STALL: Duration = Duration::from_secs(2 * 60);
+/// How long the reply to a streamed upload may take after its last byte (the
+/// slot commits the object first).
+const UPLOAD_REPLY: Duration = Duration::from_secs(10 * 60);
+/// One read of a streamed attachment file: small, so a slow uplink still
+/// shows progress often (64 KiB at 1 KB/s is about a minute).
+const UPLOAD_CHUNK_BYTES: usize = 64 * 1024;
 /// One ranged attachment read (at most 4 MiB).
 const RANGE_TIMEOUT: Duration = Duration::from_secs(60);
-/// A Worker that reads the upgrade's Authorization header names it on every wire 401.
-const WIRE_AUTH_HEADER: &str = "x-cmux-wire-auth";
-
-/// How the upgrade carries the token.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum WireAuth {
-    Header,
-    LegacySubprotocol,
-}
-
 pub(crate) struct RemoteCloudBackend {
     runtime: tokio::runtime::Runtime,
     http: reqwest::Client,
@@ -78,20 +79,101 @@ impl RemoteCloudBackend {
     }
 }
 
+/// How far a streamed upload got: when its body last moved (milliseconds
+/// since the upload started) and whether all of it went.
+#[derive(Default)]
+struct UploadProgress {
+    moved: AtomicU64,
+    sent: AtomicBool,
+}
+
+/// A staged attachment file as a streamed body, read a chunk at a time as
+/// the connection takes it. Each read stores when it happened in `progress`
+/// (hyper polls the body only when it can send more). Its last `len` byte, or
+/// its end, marks it sent: with a Content-Length hyper may never ask past it.
+fn file_body(
+    file: std::fs::File,
+    len: u64,
+    started: Instant,
+    progress: Arc<UploadProgress>,
+) -> reqwest::Body {
+    reqwest::Body::wrap_stream(file_chunks(file, len, started, progress))
+}
+
+/// [`file_body`]'s chunks: `len` bytes of the file from where it stands, a chunk at a time.
+fn file_chunks(
+    file: std::fs::File,
+    len: u64,
+    started: Instant,
+    progress: Arc<UploadProgress>,
+) -> impl futures_util::Stream<Item = std::io::Result<Vec<u8>>> + Send + 'static {
+    use tokio::io::AsyncReadExt;
+    // Exactly the declared length: the Content-Length counts that many, from where the file stands.
+    let file = tokio::fs::File::from_std(file).take(len);
+    futures_util::stream::try_unfold((file, 0u64), move |(mut file, read_so_far)| {
+        let progress = progress.clone();
+        async move {
+            let mut chunk = vec![0; UPLOAD_CHUNK_BYTES];
+            let read = file.read(&mut chunk).await?;
+            progress.moved.store(elapsed_ms(started), Ordering::Relaxed);
+            let read_so_far = read_so_far + read as u64;
+            if read == 0 || read_so_far >= len {
+                progress.sent.store(true, Ordering::Relaxed);
+            }
+            if read == 0 {
+                return Ok::<_, std::io::Error>(None);
+            }
+            chunk.truncate(read);
+            Ok(Some((chunk, (file, read_so_far))))
+        }
+    })
+}
+
+fn elapsed_ms(started: Instant) -> u64 {
+    u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)
+}
+
+/// How much longer the upload may go without progress before it is given
+/// up: zero once it stalled. `idle` is the time since the body last moved;
+/// `sent` says the whole body went (the upload waits for its reply).
+fn stall_left(idle: Duration, sent: bool) -> Duration {
+    (if sent { UPLOAD_REPLY } else { UPLOAD_STALL }).saturating_sub(idle)
+}
+
+/// How long the slot's reply body may take to arrive once its head came. A
+/// slot answers after it stored the bytes, a streamed file or a derived image
+/// alike.
+fn reply_body_window() -> Duration {
+    UPLOAD_REPLY
+}
+
+/// Resolves once [`stall_left`] says the upload stalled. It ends with its
+/// `select!`, when the upload answers first.
+async fn stalled(started: Instant, progress: Arc<UploadProgress>) {
+    loop {
+        let idle = elapsed_ms(started).saturating_sub(progress.moved.load(Ordering::Relaxed));
+        let left = stall_left(Duration::from_millis(idle), progress.sent.load(Ordering::Relaxed));
+        if left.is_zero() {
+            return;
+        }
+        tokio::time::sleep(left).await;
+    }
+}
+
 impl CloudBackend for RemoteCloudBackend {
     fn post(
         &self,
         url: &str,
-        bearer: &str,
+        bearer: Option<&str>,
         client_version: Option<&str>,
         body: &Value,
     ) -> Result<HttpReply, TransportError> {
-        let mut request = self
-            .http
-            .post(url)
-            .bearer_auth(bearer)
-            .header(reqwest::header::ACCEPT, "application/json")
-            .json(body);
+        let mut request =
+            self.http.post(url).header(reqwest::header::ACCEPT, "application/json").json(body);
+        // A self-hosted server on the tailnet gets no Authorization header.
+        if let Some(bearer) = bearer {
+            request = request.bearer_auth(bearer);
+        }
         if let Some(version) = client_version {
             request = request.header(CLIENT_VERSION_HEADER, version);
         }
@@ -112,14 +194,13 @@ impl CloudBackend for RemoteCloudBackend {
     fn get(
         &self,
         url: &str,
-        bearer: &str,
+        bearer: Option<&str>,
         client_version: Option<&str>,
     ) -> Result<HttpReply, TransportError> {
-        let mut request = self
-            .http
-            .get(url)
-            .bearer_auth(bearer)
-            .header(reqwest::header::ACCEPT, "application/json");
+        let mut request = self.http.get(url).header(reqwest::header::ACCEPT, "application/json");
+        if let Some(bearer) = bearer {
+            request = request.bearer_auth(bearer);
+        }
         if let Some(version) = client_version {
             request = request.header(CLIENT_VERSION_HEADER, version);
         }
@@ -141,16 +222,46 @@ impl CloudBackend for RemoteCloudBackend {
         &self,
         url: &str,
         headers: &[(String, String)],
-        body: Vec<u8>,
+        body: PutBody,
     ) -> Result<HttpReply, TransportError> {
-        let mut request = self.files.put(url).timeout(UPLOAD_TIMEOUT).body(body);
+        let headers_have_length =
+            headers.iter().any(|(name, _)| name.eq_ignore_ascii_case("content-length"));
+        let mut request = self.files.put(url);
         for (name, value) in headers {
             request = request.header(name.as_str(), value.as_str());
         }
         self.runtime.block_on(async move {
-            let response = request.send().await.map_err(|error| transport(&error))?;
+            let response = match body {
+                PutBody::Bytes(bytes) => request.timeout(UPLOAD_TIMEOUT).body(bytes).send().await,
+                PutBody::File { file, len } => {
+                    let started = Instant::now();
+                    let progress = Arc::new(UploadProgress::default());
+                    // A presigned object PUT needs a length, not a chunked body.
+                    let request = if headers_have_length {
+                        request
+                    } else {
+                        request.header(reqwest::header::CONTENT_LENGTH, len)
+                    };
+                    let request = request.body(file_body(file, len, started, progress.clone()));
+                    tokio::select! {
+                        response = request.send() => response,
+                        () = stalled(started, progress.clone()) => {
+                            let waited = if progress.sent.load(Ordering::Relaxed) {
+                                format!("no reply came {} s after the upload's last byte", UPLOAD_REPLY.as_secs())
+                            } else {
+                                format!("the upload made no progress for {} s", UPLOAD_STALL.as_secs())
+                            };
+                            return Err(TransportError(waited));
+                        }
+                    }
+                }
+            };
+            let response = response.map_err(|error| transport(&error))?;
             let status = response.status().as_u16();
-            let bytes = response.bytes().await.map_err(|error| transport(&error))?;
+            let bytes = tokio::time::timeout(reply_body_window(), response.bytes())
+                .await
+                .map_err(|_| TransportError("the upload reply did not finish".into()))?
+                .map_err(|error| transport(&error))?;
             if bytes.len() > MAX_BODY_BYTES {
                 return Err(TransportError(format!(
                     "reply of {} bytes exceeds the limit",
@@ -208,59 +319,36 @@ impl CloudBackend for RemoteCloudBackend {
     fn connect(
         &self,
         url: &str,
-        bearer: &str,
+        bearer: Option<&str>,
         client_version: Option<&str>,
     ) -> Result<Box<dyn CloudWire>, ConnectError> {
-        match self.handshake(url, bearer, client_version, WireAuth::Header) {
-            // A Worker from before cx-dgsp ignores Authorization on the upgrade.
-            Err(Refusal::Legacy) => {
-                self.handshake(url, bearer, client_version, WireAuth::LegacySubprotocol)
-            }
-            other => other,
-        }
-        .map_err(|refusal| match refusal {
-            Refusal::Legacy => ConnectError::Unauthenticated,
-            Refusal::Error(error) => error,
-        })
-        .map(|stream| {
+        self.handshake(url, bearer, client_version).map(|stream| {
             Box::new(RemoteWire { handle: self.runtime.handle().clone(), stream })
                 as Box<dyn CloudWire>
         })
     }
 }
 
-enum Refusal {
-    /// 401 without `x-cmux-wire-auth`: the Worker reads only the legacy subprotocol.
-    Legacy,
-    Error(ConnectError),
-}
-
 impl RemoteCloudBackend {
     fn handshake(
         &self,
         url: &str,
-        bearer: &str,
+        bearer: Option<&str>,
         client_version: Option<&str>,
-        auth: WireAuth,
-    ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, Refusal> {
-        let unavailable = |detail: String| Refusal::Error(ConnectError::Unavailable(detail));
+    ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, ConnectError> {
+        let unavailable = ConnectError::Unavailable;
         let mut request = url
             .into_client_request()
             .map_err(|error| unavailable(format!("bad stream URL: {error}")))?;
         let invalid = || unavailable("the token is not a valid header value".into());
-        let protocols = match auth {
-            WireAuth::Header => {
-                let authorization =
-                    HeaderValue::from_str(&format!("Bearer {bearer}")).map_err(|_| invalid())?;
-                request.headers_mut().insert("authorization", authorization);
-                HeaderValue::from_static("cmux.wire.v1")
-            }
-            WireAuth::LegacySubprotocol => {
-                HeaderValue::from_str(&format!("cmux.wire.v1, bearer.{bearer}"))
-                    .map_err(|_| invalid())?
-            }
-        };
-        request.headers_mut().insert("sec-websocket-protocol", protocols);
+        if let Some(bearer) = bearer {
+            let authorization =
+                HeaderValue::from_str(&format!("Bearer {bearer}")).map_err(|_| invalid())?;
+            request.headers_mut().insert("authorization", authorization);
+        }
+        request
+            .headers_mut()
+            .insert("sec-websocket-protocol", HeaderValue::from_static("cmux.wire.v1"));
         if let Some(version) =
             client_version.and_then(|version| HeaderValue::from_str(version).ok())
         {
@@ -272,13 +360,9 @@ impl RemoteCloudBackend {
         match handshake {
             Err(_) => Err(unavailable("handshake timed out".into())),
             Ok(Err(WsError::Http(response))) => Err(match response.status().as_u16() {
-                401 if auth == WireAuth::Header
-                    && !response.headers().contains_key(WIRE_AUTH_HEADER) =>
-                {
-                    Refusal::Legacy
-                }
-                401 => Refusal::Error(ConnectError::Unauthenticated),
-                403 | 404 => Refusal::Error(ConnectError::Forbidden),
+                401 => ConnectError::Unauthenticated,
+                // 410: the host replica was dropped (its host left the team).
+                403 | 404 | 410 => ConnectError::Forbidden,
                 status => unavailable(format!("handshake answered HTTP {status}")),
             }),
             Ok(Err(error)) => Err(unavailable(error.to_string())),
@@ -352,9 +436,14 @@ impl CloudWire for RemoteWire {
 pub(crate) fn install(mux: &Arc<Mux>) {
     match RemoteCloudBackend::new() {
         Ok(backend) => {
+            let backend = Arc::new(backend);
             let service =
-                cmux_tui_core::cloud_conversations::CloudConversations::new(Arc::new(backend));
+                cmux_tui_core::cloud_conversations::CloudConversations::new(backend.clone());
             mux.install_cloud_conversations(service);
+            // The host's read replica publisher (object-sync phase 3) shares the
+            // transport; it stays off until the app leases an install token.
+            let replica = cmux_tui_core::cloud_conversations::HostReplica::new(backend);
+            cmux_tui_core::server::cloud_host_replica::install_host_replica(mux, replica);
         }
         Err(error) => crate::client_log::stderr_log!(
             "startup",
@@ -375,6 +464,56 @@ mod tests {
     use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
     use super::*;
+
+    /// Review of #26498: a slow uplink or a slow final answer is not a stall.
+    /// One read of the body is small enough that hyper asks for the next one
+    /// within the window at a few KB/s, and the wait for the reply after the
+    /// last byte has its own, longer window.
+    #[test]
+    fn a_slow_upload_or_a_slow_reply_is_not_a_stall() {
+        // 64 KiB at 1 KB/s is about 64 s between reads: inside the window.
+        const { assert!(UPLOAD_CHUNK_BYTES <= 64 * 1024, "one read is at most 64 KiB") };
+        let read_gap = Duration::from_secs((UPLOAD_CHUNK_BYTES / 1024) as u64);
+        assert!(!stall_left(read_gap, false).is_zero());
+        // The whole body went three minutes ago and the slot is still committing it.
+        assert!(!stall_left(Duration::from_secs(3 * 60), true).is_zero());
+        // A body that stopped moving, or a reply that never comes, still ends.
+        assert!(stall_left(UPLOAD_STALL, false).is_zero());
+        assert!(stall_left(UPLOAD_REPLY, true).is_zero());
+    }
+
+    /// Review of #26498 at 2eba8e2f: a staged file's body was read to its end,
+    /// not its declared length, so a file positioned past its start (or longer
+    /// than `len`) sent bytes the Content-Length did not count.
+    #[tokio::test]
+    async fn a_file_body_sends_exactly_len_bytes_from_where_the_file_stands() {
+        use std::io::{Seek, SeekFrom, Write as _};
+        let mut file = tempfile::tempfile().unwrap();
+        file.write_all(b"0123456789abcdefghij").unwrap();
+        file.seek(SeekFrom::Start(7)).unwrap();
+        let progress = Arc::new(UploadProgress::default());
+        let chunks: Vec<Vec<u8>> = file_chunks(file, 4, Instant::now(), progress.clone())
+            .map(|chunk| chunk.unwrap())
+            .collect()
+            .await;
+        assert_eq!(chunks.concat(), b"789a");
+        assert!(progress.sent.load(Ordering::Relaxed), "its last byte marks it sent");
+    }
+
+    /// Review of #26498 at 6a89561a: the reply body of a streamed upload was
+    /// read within the stall window, not the reply window.
+    #[test]
+    fn a_streamed_uploads_reply_body_has_the_reply_window() {
+        assert_eq!(reply_body_window(), UPLOAD_REPLY);
+    }
+
+    /// Review of #26498 at d79ff855: a derived image's (bytes) reply body was
+    /// read within the stall window, not the reply window, though its whole
+    /// request has UPLOAD_TIMEOUT (10 min).
+    #[test]
+    fn a_byte_uploads_reply_body_has_the_reply_window_too() {
+        assert_eq!(reply_body_window(), UPLOAD_REPLY);
+    }
 
     /// Serves one raw HTTP/1.1 exchange and hands back the request head.
     fn one_http_exchange(reply: &'static str) -> (String, mpsc::Receiver<(String, String)>) {
@@ -406,6 +545,18 @@ mod tests {
     }
 
     #[test]
+    fn a_post_without_a_bearer_sends_no_authorization_header() {
+        let backend = RemoteCloudBackend::new().unwrap();
+        let (origin, seen) = one_http_exchange(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 11\r\nconnection: close\r\n\r\n{\"ok\":true}",
+        );
+        let reply = backend.post(&format!("{origin}/v1/read"), None, None, &json!({})).unwrap();
+        assert_eq!(reply.status, 200);
+        let (head, _) = seen.recv().unwrap();
+        assert!(!head.to_ascii_lowercase().contains("authorization:"), "{head}");
+    }
+
+    #[test]
     fn post_sends_the_bearer_version_and_json_and_reads_any_status() {
         let backend = RemoteCloudBackend::new().unwrap();
         let (origin, seen) = one_http_exchange(
@@ -414,7 +565,7 @@ mod tests {
         let reply = backend
             .post(
                 &format!("{origin}/v1/ops"),
-                "tok.en",
+                Some("tok.en"),
                 Some("0.70.0"),
                 &json!({"op": "title.set"}),
             )
@@ -430,10 +581,12 @@ mod tests {
         let (origin, _) = one_http_exchange(
             "HTTP/1.1 401 Unauthorized\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
         );
-        let reply = backend.post(&format!("{origin}/v1/read"), "t", None, &json!({})).unwrap();
+        let reply =
+            backend.post(&format!("{origin}/v1/read"), Some("t"), None, &json!({})).unwrap();
         assert_eq!(reply, HttpReply { status: 401, body: Value::Null });
 
-        let refused = backend.post("http://127.0.0.1:1/v1/ops", "secret-token", None, &json!({}));
+        let refused =
+            backend.post("http://127.0.0.1:1/v1/ops", Some("secret-token"), None, &json!({}));
         let TransportError(detail) = refused.unwrap_err();
         assert!(!detail.contains("secret-token"));
     }
@@ -478,7 +631,7 @@ mod tests {
                 .unwrap();
         });
         let mut wire = backend
-            .connect(&format!("ws://{address}/v1/wire/conv/x"), "tok.en", Some("0.70.0"))
+            .connect(&format!("ws://{address}/v1/wire/conv/x"), Some("tok.en"), Some("0.70.0"))
             .unwrap_or_else(|_| panic!("connect failed"));
         // cx-dgsp: the token is never in the subprotocols (Workers invocation logs record them).
         assert_eq!(
@@ -511,24 +664,25 @@ mod tests {
                 let _ = socket.read(&mut buffer);
                 socket.write_all(reply.as_bytes()).unwrap();
             });
-            match backend.connect(&format!("ws://{address}/v1/wire/user"), "t", None) {
+            match backend.connect(&format!("ws://{address}/v1/wire/user"), Some("t"), None) {
                 Err(error) => assert_eq!(error, expected),
                 Ok(_) => panic!("the handshake must be refused"),
             }
         }
     }
 
-    /// A Worker from before cx-dgsp answers 401 without `x-cmux-wire-auth`: the
-    /// client retries once with the legacy subprotocol, and a refusal there is final.
+    /// Any 401, with or without `x-cmux-wire-auth`, is final: the client never
+    /// retries with the token in a subprotocol, which Workers invocation logs
+    /// record (cx-dgsp; the legacy `bearer.` retry is retired).
     #[test]
-    fn a_worker_without_header_auth_gets_the_legacy_subprotocol_once() {
+    fn a_401_without_header_auth_is_final_and_sends_no_token_subprotocol() {
         let backend = RemoteCloudBackend::new().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let (seen_tx, seen) = mpsc::channel();
         std::thread::spawn(move || {
             for _ in 0..2 {
-                let (mut socket, _) = listener.accept().unwrap();
+                let Ok((mut socket, _)) = listener.accept() else { return };
                 let mut buffer = [0u8; 4096];
                 let read = socket.read(&mut buffer).unwrap();
                 seen_tx
@@ -539,15 +693,16 @@ mod tests {
                     .unwrap();
             }
         });
-        match backend.connect(&format!("ws://{address}/v1/wire/user"), "tok.en", None) {
+        match backend.connect(&format!("ws://{address}/v1/wire/user"), Some("tok.en"), None) {
             Err(error) => assert_eq!(error, ConnectError::Unauthenticated),
             Ok(_) => panic!("the handshake must be refused"),
         }
         let first = seen.recv().unwrap();
         assert!(first.contains("authorization: bearer tok.en"), "{first}");
         assert!(first.contains("sec-websocket-protocol: cmux.wire.v1\r\n"), "{first}");
-        let second = seen.recv().unwrap();
-        assert!(second.contains("sec-websocket-protocol: cmux.wire.v1, bearer.tok.en"), "{second}");
-        assert!(!second.contains("authorization:"), "{second}");
+        assert!(
+            seen.recv_timeout(Duration::from_millis(500)).is_err(),
+            "the client must not retry"
+        );
     }
 }

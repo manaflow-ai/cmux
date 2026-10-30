@@ -12,7 +12,7 @@ pub(crate) fn run(args: Vec<OsString>) -> i32 {
     run_as(args, "cmux acp")
 }
 
-/// `cmux <head> <args>` for `head` = `acp`, `chats`, `harness` or `route`.
+/// `cmux <head> <args>` for `head` = `acp`, `chats` or `harness`.
 pub(crate) fn run_scope(head: &str, args: Vec<OsString>) -> i32 {
     run_as(args, if head == "acp" { "cmux acp" } else { "cmux" })
 }
@@ -127,40 +127,94 @@ fn daemon_socket(configured: Option<&str>, home: &Path, uid: u32) -> PathBuf {
     PathBuf::from(cmux_agent_pane_policy::environment::socket_path(configured, home, uid))
 }
 
+/// Gives the session daemon its acpmux [`daemon_acpmux_starter`] and
+/// [`daemon_acpmux_handoff`], both naming the daemon's `socket`.
+#[cfg(unix)]
+pub(crate) fn install_daemon_acpmux(mux: &cmux_tui_core::Mux, socket: &Path) {
+    mux.set_acpmux_starter(daemon_acpmux_starter(socket));
+    mux.set_acpmux_handoff(daemon_acpmux_handoff(socket));
+}
+
 /// How the session daemon starts the acpmux that [`daemon_socket_path`]
 /// names when an `agent-session-start` finds nothing there: this binary's
 /// `acp daemon start` with that home, as `cmux acp` starts it (acpmux bounds
-/// the wait for its socket), without the daemon's terminal identity. None
-/// with `ACPMUX_SOCKET`: a fixed socket belongs to an acpmux this daemon does
-/// not own.
+/// the wait for its socket), without the daemon's terminal identity, and with
+/// `CMUX_TUI_SOCKET` naming this daemon's `socket`, which mints each agent's
+/// launch credential (acpmux `launch_credential.rs`). None with
+/// `ACPMUX_SOCKET`: a fixed socket belongs to an acpmux this daemon does not
+/// own.
 #[cfg(unix)]
-pub(crate) fn daemon_acpmux_starter() -> Option<cmux_tui_core::server::AcpmuxStarter> {
+pub(crate) fn daemon_acpmux_starter(socket: &Path) -> Option<cmux_tui_core::server::AcpmuxStarter> {
     if env_value("ACPMUX_SOCKET").is_some() {
         return None;
     }
     let home = daemon_acpmux_home()?;
     let exe = std::env::current_exe().ok()?;
+    let socket = socket.to_path_buf();
+    Some(std::sync::Arc::new(move || run_acp_daemon(&exe, &home, &socket, &["start"])))
+}
+
+/// How the session daemon hands the machine's acpmux off before an
+/// `agent-update-apply` (`agent-update-v1`) when it does not know the update
+/// method: the installed binary's `acp daemon shutdown --keep-agents` (agents
+/// keep running) and then its `acp daemon start` with the home
+/// [`daemon_acpmux_starter`] uses, whose acpmux adopts them. The installed
+/// binary, not this process's image: after an in-place upgrade that is the
+/// newer build (on Linux the running image reads `<path> (deleted)`). None
+/// with `ACPMUX_SOCKET`, as the starter.
+#[cfg(unix)]
+pub(crate) fn daemon_acpmux_handoff(
+    socket: &Path,
+) -> Option<cmux_tui_core::server::agent_transfer::agent_update::AcpmuxHandoff> {
+    if env_value("ACPMUX_SOCKET").is_some() {
+        return None;
+    }
+    let home = daemon_acpmux_home()?;
+    let exe = std::env::current_exe().ok()?;
+    let socket = socket.to_path_buf();
     Some(std::sync::Arc::new(move || {
-        let mut command = std::process::Command::new(&exe);
-        // acpmux and every agent it starts outlive this call: none of them
-        // may claim the terminal this daemon was started from.
-        for name in TERMINAL_IDENTITY_ENV {
-            command.env_remove(name);
-        }
-        let status = command
-            .env("ACPMUX_HOME", &home)
-            .args(["acp", "daemon", "start"])
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .map_err(|error| format!("acpmux daemon start: {error}"))?;
-        if status.success() {
-            Ok(())
-        } else {
-            Err(format!("acpmux daemon start exited with {status}"))
-        }
+        let installed = installed_exe(&exe)?;
+        run_acp_daemon(&installed, &home, &socket, &["shutdown", "--keep-agents"])?;
+        run_acp_daemon(&installed, &home, &socket, &["start"])
     }))
+}
+
+/// The binary installed at the path this process started from: the path
+/// without Linux's ` (deleted)` mark of a replaced image; an error when no
+/// file is there.
+#[cfg(unix)]
+fn installed_exe(exe: &Path) -> Result<PathBuf, String> {
+    let text = exe.to_string_lossy();
+    let path = text.strip_suffix(" (deleted)").map_or_else(|| exe.to_path_buf(), PathBuf::from);
+    if path.is_file() {
+        Ok(path)
+    } else {
+        Err(format!("no cmux binary is installed at {}", path.display()))
+    }
+}
+
+/// This binary's `acp daemon <args>` with `home` and the session `socket`,
+/// blocking.
+#[cfg(unix)]
+fn run_acp_daemon(exe: &Path, home: &Path, socket: &Path, args: &[&str]) -> Result<(), String> {
+    let mut command = std::process::Command::new(exe);
+    // acpmux and every agent it starts outlive this call: none of them
+    // may claim the terminal this daemon was started from.
+    for name in TERMINAL_IDENTITY_ENV {
+        command.env_remove(name);
+    }
+    let what = format!("acpmux daemon {}", args.join(" "));
+    let status = command
+        .env("ACPMUX_HOME", home)
+        .env(acpmux::launch_credential::SESSION_SOCKET_ENV, socket)
+        .args(["acp", "daemon"])
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map_err(|error| format!("{what}: {error}"))?;
+    if status.success() { Ok(()) } else { Err(format!("{what} exited with {status}")) }
 }
 
 /// The cmux terminal a process runs in; a detached acpmux has none (the
@@ -318,7 +372,11 @@ pub(crate) fn build_home(home: &Path) -> Option<PathBuf> {
         |name| std::env::var(name).ok(),
         std::env::current_exe().ok().as_deref(),
     )?;
-    Some(identity.build().acpmux_home(home))
+    let build = identity.build();
+    let acpmux_home = build.acpmux_home(home);
+    // cmux NEXT adopts its pre-isolation home once (build_adopt.rs).
+    crate::build_adopt::acpmux_for_cli(&build, &acpmux_home);
+    Some(acpmux_home)
 }
 
 #[cfg(test)]

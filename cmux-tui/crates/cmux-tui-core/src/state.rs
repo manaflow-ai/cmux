@@ -18,22 +18,34 @@ pub(crate) mod agent_message_policy;
 pub(crate) mod agent_message_release;
 pub(crate) mod agent_message_schema;
 pub(crate) mod agent_message_store;
+pub(crate) mod agent_message_unsend;
 pub(crate) mod agent_messages;
 pub(crate) mod agent_start;
 pub(crate) mod app_workspaces;
 pub(crate) mod browser_devices;
+#[cfg(test)]
+mod browser_devices_data_tests;
 pub(crate) mod browser_devices_ops;
+#[cfg(test)]
+mod churn_tree_events_tests;
 #[cfg(test)]
 mod closed_browser_history_tests;
 pub(crate) mod closed_history;
 pub(crate) mod closed_history_delete;
 pub(crate) mod closed_history_privacy;
 pub(crate) mod closed_history_query;
+#[cfg(test)]
+mod closed_history_scrub_tests;
 pub(crate) mod closed_history_store;
 #[cfg(test)]
 mod closed_history_tests;
 #[cfg(test)]
+mod closed_layout_tests;
+mod closed_pane_split;
+#[cfg(test)]
 mod closed_relaunch_tests;
+mod closed_screen_layout;
+mod closed_tab_groups;
 pub(crate) mod command_history_store;
 pub(crate) mod commit;
 pub(crate) mod conversation_tabs;
@@ -61,11 +73,15 @@ pub(crate) mod layout_bulk;
 mod layout_bulk_tests;
 #[cfg(test)]
 mod mixed_order_tests;
+#[cfg(test)]
+mod new_workspace_top_tests;
 pub(crate) mod palette_usage;
 pub(crate) mod palette_usage_ops;
 #[cfg(test)]
 mod palette_usage_protocol_tests;
 pub(crate) mod palette_usage_store;
+#[cfg(test)]
+mod persistent_ids_tests;
 pub(crate) mod personal;
 pub(crate) mod personal_order;
 pub(crate) mod personal_state_store;
@@ -90,8 +106,11 @@ pub(crate) mod screen_state_store;
 pub(crate) mod screens;
 pub(crate) mod sidebar_doc_legacy;
 pub(crate) mod sidebar_doc_ops;
+pub(crate) mod sidebar_doc_order;
 pub(crate) mod sidebar_doc_store;
 pub(crate) mod sidebar_doc_sync;
+#[cfg(test)]
+mod tab_attention_tests;
 #[cfg(test)]
 mod tab_changed_pin_tests;
 pub(crate) use cmux_layout_reducer::sidebar_layout;
@@ -99,6 +118,18 @@ pub(crate) mod sidebar_layout_ops;
 #[cfg(test)]
 mod sidebar_layout_protocol_tests;
 pub(crate) mod sidebar_layout_store;
+pub(crate) mod stash;
+#[cfg(test)]
+mod stash_member_tests;
+#[cfg(test)]
+mod stash_protocol_tests;
+#[cfg(test)]
+mod stash_restore_tests;
+pub(crate) mod stash_router;
+pub(crate) mod stash_store;
+#[cfg(test)]
+mod stash_workspace_tests;
+pub(crate) mod stash_workspaces;
 pub(crate) mod status_meta;
 pub(crate) mod status_owners;
 pub(crate) mod store;
@@ -112,6 +143,10 @@ pub(crate) mod values;
 pub(crate) mod window_record_store;
 pub(crate) mod window_records;
 pub(crate) mod workspace;
+pub(crate) mod workspace_checklist;
+pub(crate) mod workspace_checklist_store;
+#[cfg(test)]
+mod workspace_checklist_tests;
 pub(crate) mod workspace_status_store;
 
 pub(crate) use home_store::error_code as home_error_code;

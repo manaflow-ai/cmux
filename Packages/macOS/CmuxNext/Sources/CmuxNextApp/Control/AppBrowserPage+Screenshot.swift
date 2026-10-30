@@ -42,10 +42,21 @@ extension AppBrowserPage {
         }
         var result: JSONValue = ["path": .string(path), "width": JSONValue(image.width), "height": JSONValue(image.height)]
         if png.count <= inlinePNGLimit, case .object(var members) = result {
-            members["png_base64"] = .string(png.base64EncodedString())
+            members["png_base64"] = .string(await base64(png))
             result = .object(members)
         }
         return result
+    }
+
+    /// Off the main actor: up to 4 MiB of PNG grows to 5.3 MiB of text.
+    @concurrent
+    static func base64(_ data: Data) async -> String { data.base64EncodedString() }
+
+    /// A script's value as the control reply's JSON, converted off the main actor (an agent's DOM
+    /// snapshot or page text is megabytes).
+    @concurrent
+    static func json(_ value: BrowserJSValue) async -> JSONValue {
+        JSONValue(foundation: value.foundationValue) ?? .null
     }
 
     /// The part of a viewport snapshot `clip` covers (CSS px scaled to the
@@ -106,6 +117,10 @@ enum BrowserPageStrings {
     static func captureFailed(_ reason: String) -> String {
         String(format: String(localized: "handlers.browserPage.captureFailed", defaultValue: "The page could not be captured (%@); show the tab and retry",
                               table: "MiscHandlers", bundle: .module), reason)
+    }
+    static var wakeFailed: String {
+        String(localized: "handlers.browserPage.wakeFailed", defaultValue: "The hibernated page did not wake in time; retry",
+               table: "MiscHandlers", bundle: .module)
     }
     static var encodeFailed: String {
         String(localized: "handlers.browserPage.encodeFailed", defaultValue: "The screenshot could not be encoded as PNG", table: "MiscHandlers", bundle: .module)

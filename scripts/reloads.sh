@@ -208,8 +208,19 @@ if [[ -z "$TAG" ]]; then
     PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID"
   )
 fi
+# A staging app never claims http/https at Default rank (Resources/Info.plist;
+# tests/test_web_url_handler_rank.py). Every bundle id here is a staging one.
+XCODEBUILD_ARGS+=(CMUX_WEB_URL_HANDLER_RANK=Alternate)
 XCODEBUILD_ARGS+=(build)
 
+# The Release configuration bundles the pinned cmux-tui by default and fails
+# when that pin is not downloaded; it never falls back to an older client. A
+# local Release build runs this checkout's own cmux-tui instead (tree mode, as
+# reload.sh --release does), fetched before the build (public URL, sha256-checked).
+export CMUX_NEXT_TUI_MODE="${CMUX_NEXT_TUI_MODE:-tree}"
+if [[ -z "${CMUX_NEXT_TUI_BIN:-}" && "$CMUX_NEXT_TUI_MODE" != deferred ]]; then
+  "$(dirname "${BASH_SOURCE[0]}")/cmux-next/pin-cmux-tui.sh" fetch
+fi
 xcodebuild "${XCODEBUILD_ARGS[@]}"
 sleep 0.2
 

@@ -39,13 +39,16 @@
 //!   types while a main turn runs).
 //! - Stop (SIGTERM to its process group; the host ends its own sessions):
 //!   `chief.profile.delete`, 30 minutes with no message and no turn, and
-//!   daemon shutdown.
+//!   daemon shutdown. After a delete, once the brain and its `end-sessions`
+//!   ended, its folder `<home>/c/<id tail>` (memory, state, token) is removed
+//!   when its `chief-id` names it and no brain holds its lock.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak, mpsc};
 use std::time::{Duration, Instant};
 
+use cmux_agent_pane_policy::build_identity::{BuildIdentity, NIGHTLY_BUNDLE_ID};
 use serde::Deserialize;
 
 use crate::chief_registry::{ChiefRecord, ChiefStore, DEFAULT_CHIEF};
@@ -133,11 +136,35 @@ fn config() -> Option<BrainsConfig> {
     }
 }
 
+/// The Chief home of this daemon's brains config (`home`), when it runs
+/// brains: the default Chief's own brain home, and the root of the others'.
+pub(crate) fn configured_home() -> Option<PathBuf> {
+    config().map(|config| config.home)
+}
+
 /// The brain directory of Chief `chief` under the Chief home `home`: the
 /// last 8 characters of its id (40 random bits of the ULID), lowercased.
 pub fn brain_home(home: &Path, chief: &str) -> PathBuf {
     let tail = chief.get(chief.len().saturating_sub(8)..).unwrap_or(chief);
     home.join("c").join(tail.to_ascii_lowercase())
+}
+
+/// The tools socket of Chief `chief`'s brain (`optchat/tools.sock` in its
+/// directory), where `chief.engine.*` and `chief.stop` with `chief` go
+/// (chief-brains-v1). Refused with a reason and a message when this daemon
+/// runs no brains (`not_configured`) or the directory is not this Chief's
+/// (`unavailable`: never started here, or another id with the same tail). A
+/// brain that does not run now (idle stop, restart backoff) has a path whose
+/// socket does not answer: `chief_control::ask` says `unavailable`.
+pub fn tools_socket(chief: &str) -> Result<PathBuf, (&'static str, String)> {
+    let config =
+        config().ok_or(("not_configured", "this daemon runs no Chief brains".to_owned()))?;
+    let mux_home = brain_home(&config.home, chief);
+    let owner = std::fs::read_to_string(mux_home.join("chief-id")).unwrap_or_default();
+    if owner.trim() != chief {
+        return Err(("unavailable", format!("Chief {chief}'s brain is not running")));
+    }
+    Ok(mux_home.join(LONGEST_SOCKET))
 }
 
 /// The longest socket path under a brain directory (the Chief home's acpmux
@@ -166,7 +193,12 @@ pub fn brain_environment(
 ) -> BTreeMap<String, String> {
     let mux_home = brain_home(&config.home, chief);
     let app = &config.app;
-    let user_home = inherited("HOME").unwrap_or_else(|| "/".into());
+    // The account's home, as the app gives the default Chief's host
+    // (`FileManager.homeDirectoryForCurrentUser`), not the HOME the daemon
+    // inherited: an app a job runner started (nx-remote on mac26: HOME is
+    // the job root) passed that on, and the brain then found no Claude
+    // settings env (the person's API route) in it (hq-6d P1 2026-10-14).
+    let user_home = account_home().or_else(|| inherited("HOME")).unwrap_or_else(|| "/".into());
     let mut env = BTreeMap::new();
     let mut put = |key: &str, value: String| {
         env.insert(key.to_owned(), value);
@@ -235,6 +267,39 @@ pub fn brain_environment(
     env
 }
 
+/// The home directory of this process's account in the user database
+/// (getpwuid_r); None where there is none (or off Unix). A brain gets it as
+/// HOME, whoever starts it (the daemon, or `cmux chief`).
+pub fn account_home() -> Option<String> {
+    #[cfg(unix)]
+    {
+        let mut buffer = vec![0 as libc::c_char; 4096];
+        let mut record = std::mem::MaybeUninit::<libc::passwd>::uninit();
+        let mut found: *mut libc::passwd = std::ptr::null_mut();
+        // SAFETY: every pointer is valid for the call and the buffer length
+        // is the buffer's length.
+        let rc = unsafe {
+            libc::getpwuid_r(
+                libc::getuid(),
+                record.as_mut_ptr(),
+                buffer.as_mut_ptr(),
+                buffer.len(),
+                &mut found,
+            )
+        };
+        if rc != 0 || found.is_null() {
+            return None;
+        }
+        // SAFETY: getpwuid_r succeeded, so pw_dir points into `buffer`.
+        let dir = unsafe { std::ffi::CStr::from_ptr((*found).pw_dir) };
+        dir.to_str().ok().filter(|d| d.starts_with('/')).map(str::to_owned)
+    }
+    #[cfg(not(unix))]
+    {
+        None
+    }
+}
+
 /// What the supervisor hears.
 enum Signal {
     /// A committed message: its conversation and author.
@@ -247,9 +312,14 @@ enum Signal {
         participant: String,
         on: bool,
     },
-    Created(Box<ChiefRecord>),
+    /// A new Chief; `reply` hears what happened to its brain.
+    Created(Box<ChiefRecord>, Option<mpsc::Sender<BrainStart>>),
     Updated(Box<ChiefRecord>),
     Deleted(String),
+    /// `chief.engine.set` for this Chief: start its brain when it does
+    /// not run (as a message would); `reply` hears whether a brain process
+    /// runs now (or starts again after the one that is ending).
+    Control(String, Option<mpsc::Sender<bool>>),
     #[cfg_attr(not(unix), allow(dead_code))]
     Exited {
         chief: String,
@@ -269,6 +339,51 @@ pub(crate) struct Slot {
     /// still gets its brain. Kept only when brains are configured, at most
     /// [`EARLY_MAX`]; lock order: `sender`, then `early`.
     early: Mutex<Vec<Signal>>,
+    /// The supervisor stopped ([`ChiefBrains::stop`]): no signal waits for
+    /// it any more, and a new Chief's brain is answered at once.
+    stopped: std::sync::atomic::AtomicBool,
+}
+
+/// What happened to a new Chief's brain (`chief.profile.create` and
+/// `chief.profile.adopt` answer it as the record's `brain`): started, or not
+/// with the reason (`no_supervisor`: this daemon runs no brains, or its
+/// supervisor stopped; `launch_disabled`: agents are off in this build
+/// session; `error`: the start failed, see the daemon log; `unconfirmed`:
+/// the supervisor did not answer in time, it may still start). A create made
+/// while the supervisor starts waits for its real answer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum BrainStart {
+    Started,
+    NotStarted(&'static str),
+}
+
+impl BrainStart {
+    pub(crate) fn wire(&self) -> serde_json::Value {
+        match self {
+            Self::Started => serde_json::json!({"state": "started"}),
+            Self::NotStarted(reason) => {
+                serde_json::json!({"state": "not_started", "reason": reason})
+            }
+        }
+    }
+}
+
+/// A new Chief's brain outcome, known or to wait for.
+pub(crate) enum BrainPending {
+    Ready(BrainStart),
+    Wait(mpsc::Receiver<BrainStart>),
+}
+
+impl BrainPending {
+    /// The outcome; a supervisor that does not answer in 5 s is an error.
+    pub(crate) fn resolve(self) -> BrainStart {
+        match self {
+            Self::Ready(start) => start,
+            Self::Wait(answer) => answer
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap_or(BrainStart::NotStarted("unconfirmed")),
+        }
+    }
 }
 
 /// The most signals [`Slot`] keeps before the supervisor starts.
@@ -276,6 +391,9 @@ const EARLY_MAX: usize = 256;
 
 impl Slot {
     fn send(&self, signal: Signal) {
+        if self.stopped.load(std::sync::atomic::Ordering::Acquire) {
+            return;
+        }
         let sender = self.sender.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(sender) = sender.as_ref() {
             let _ = sender.send(signal);
@@ -309,15 +427,63 @@ impl Slot {
         self.send(signal);
     }
 
-    /// A committed registry write (not a replay).
-    pub(crate) fn chief_written(&self, record: &ChiefRecord, created: bool, deleted: bool) {
+    /// `chief.engine.set` names this Chief (chief_control.rs): start its
+    /// brain when it does not run now. The answer says whether a brain
+    /// process runs now; `None` while the supervisor has not started yet.
+    #[cfg_attr(not(unix), allow(dead_code))]
+    pub(crate) fn start_for_control(&self, chief: &str) -> Option<mpsc::Receiver<bool>> {
+        let sender = self.sender.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(sender) = sender.as_ref() {
+            let (reply, answer) = mpsc::channel();
+            let sent = sender.send(Signal::Control(chief.to_owned(), Some(reply))).is_ok();
+            return sent.then_some(answer);
+        }
+        drop(sender);
+        self.send(Signal::Control(chief.to_owned(), None));
+        None
+    }
+
+    /// A committed registry write (not a replay). For a new Chief, what
+    /// happens to its brain: known now, or the supervisor's answer to wait
+    /// for (never under the registry lock: the supervisor reads it).
+    pub(crate) fn chief_written(
+        &self,
+        record: &ChiefRecord,
+        created: bool,
+        deleted: bool,
+    ) -> Option<BrainPending> {
         if deleted {
             self.send(Signal::Deleted(record.id.clone()));
-        } else if created {
-            self.send(Signal::Created(Box::new(record.clone())));
-        } else {
-            self.send(Signal::Updated(Box::new(record.clone())));
+            return None;
         }
+        if !created {
+            self.send(Signal::Updated(Box::new(record.clone())));
+            return None;
+        }
+        let sender = self.sender.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(sender) = sender.as_ref() {
+            let (reply, answer) = mpsc::channel();
+            if sender.send(Signal::Created(Box::new(record.clone()), Some(reply))).is_ok() {
+                return Some(BrainPending::Wait(answer));
+            }
+            return Some(BrainPending::Ready(BrainStart::NotStarted("error")));
+        }
+        if config().is_none() || self.stopped.load(std::sync::atomic::Ordering::Acquire) {
+            return Some(BrainPending::Ready(BrainStart::NotStarted("no_supervisor")));
+        }
+        // The supervisor is still starting (the control socket accepts
+        // clients before the owner loop starts it): the signal waits in
+        // `early` with its reply, and `start` hands both to the supervisor,
+        // which answers the real state once it handles them. Still under the
+        // `sender` lock, so `start` cannot drain in between.
+        // A create always waits (other early signals stop at EARLY_MAX; creates
+        // are bounded by MAX_CHIEFS), so its brain is never dropped.
+        let mut early = self.early.lock().unwrap_or_else(PoisonError::into_inner);
+        let (reply, answer) = mpsc::channel();
+        early.push(Signal::Created(Box::new(record.clone()), Some(reply)));
+        drop(early);
+        drop(sender);
+        Some(BrainPending::Wait(answer))
     }
 }
 
@@ -333,7 +499,10 @@ impl ChiefBrains {
     /// and the supervisor.
     pub fn stop(mut self) {
         if let Some(mux) = self.mux.upgrade() {
-            mux.chiefs().brains.sender.lock().unwrap_or_else(PoisonError::into_inner).take();
+            let slot = &mux.chiefs().brains;
+            slot.stopped.store(true, std::sync::atomic::Ordering::Release);
+            slot.sender.lock().unwrap_or_else(PoisonError::into_inner).take();
+            slot.early.lock().unwrap_or_else(PoisonError::into_inner).clear();
         }
         let (done, ended) = mpsc::channel();
         if self.sender.send(Signal::Shutdown(done)).is_ok() {
@@ -349,6 +518,14 @@ impl ChiefBrains {
 /// `CMUX_TUI_CHIEF_BRAINS` is set; `None` otherwise.
 pub fn start(mux: &Arc<Mux>, socket: &Path) -> Option<ChiefBrains> {
     let config = config()?;
+    // Tests only (a debug build): hold the install until the test opens this
+    // FIFO for writing, so a create made before it is proven to wait for the
+    // supervisor's answer (tests/cli/chief_brains.rs). Opening a FIFO for
+    // reading blocks until a writer comes: no sleep, no polling.
+    #[cfg(debug_assertions)]
+    if let Some(gate) = std::env::var_os("CMUX_TUI_TEST_CHIEF_BRAINS_GATE") {
+        let _ = std::fs::File::open(gate);
+    }
     let (sender, inbox) = mpsc::channel();
     {
         let slot = &mux.chiefs().brains;
@@ -377,6 +554,25 @@ pub fn start(mux: &Arc<Mux>, socket: &Path) -> Option<ChiefBrains> {
         })
         .ok()?;
     Some(ChiefBrains { sender, thread: Some(thread), mux: Arc::downgrade(mux) })
+}
+
+/// The engine a Chief's record names (`cmux chief new --harness unii`, the
+/// `chiefs` tool's `harness`), as the brain's starting engine: the
+/// `OPTCHAT_CHIEF_*` values it reads before `MUX_HARNESS` and its defaults.
+/// The brain's own `engine.json` (`cmux chief engine`) still wins, so a
+/// switch made later is not undone at the next start.
+pub(crate) fn record_engine_env(engine: &crate::chief_registry::Engine) -> Vec<(String, String)> {
+    [
+        ("OPTCHAT_CHIEF_HARNESS", &engine.harness),
+        ("OPTCHAT_CHIEF_MODEL", &engine.model),
+        ("OPTCHAT_CHIEF_EFFORT", &engine.effort),
+    ]
+    .into_iter()
+    .filter_map(|(key, value)| {
+        let value = value.as_deref()?.trim();
+        (!value.is_empty() && value != "default").then(|| (key.to_owned(), value.to_owned()))
+    })
+    .collect()
 }
 
 /// The record fields the brain renders into its prompt or grant at start.
@@ -550,9 +746,22 @@ impl Supervisor {
                     }
                 }
             }
-            Signal::Created(record) => {
+            Signal::Created(record, reply) => {
                 if !is_default(&record) {
                     self.wake(&record.id);
+                }
+                if let Some(reply) = reply {
+                    let running = self.brains.get(&record.id).is_some_and(|b| b.process.is_some());
+                    let held = lock_held(
+                        &brain_home(&self.config.home, &record.id).join("state/host.lock"),
+                    );
+                    let _ = reply.send(if running || held {
+                        BrainStart::Started
+                    } else if crate::agent_launch::disabled() {
+                        BrainStart::NotStarted("launch_disabled")
+                    } else {
+                        BrainStart::NotStarted("error")
+                    });
                 }
             }
             Signal::Updated(record) => {
@@ -584,6 +793,15 @@ impl Supervisor {
                 stop_lock_holder(&mux_home.join("state/host.lock"));
                 self.end_sessions(&chief);
                 self.brains.remove(&chief);
+            }
+            Signal::Control(chief, reply) => {
+                // As a message: a brain that is ending (idle stop, exit 0)
+                // starts again after its exit (`pending_wake`).
+                self.wake(&chief);
+                if let Some(reply) = reply {
+                    let running = self.brains.get(&chief).is_some_and(|b| b.process.is_some());
+                    let _ = reply.send(running);
+                }
             }
             Signal::Exited { chief, pid, success } => self.exited(&chief, pid, success),
             Signal::Shutdown(_) => {}
@@ -692,6 +910,18 @@ impl Supervisor {
         if is_default(&record) {
             return;
         }
+        // cx-tgf4h: no brain while agents are off in this build session (its
+        // turns could not start an agent; it would only hold the message).
+        if crate::agent_launch::disabled() {
+            let brain = self.brains.entry(chief.to_owned()).or_insert_with(Brain::new);
+            if !std::mem::replace(&mut brain.lock_noted, true) {
+                eprintln!(
+                    "cmux-tui: Chief brain {chief} does not start: {}",
+                    crate::agent_launch::MESSAGE
+                );
+            }
+            return;
+        }
         let mux_home = brain_home(&self.config.home, chief);
         if !sockets_fit(&mux_home) {
             let brain = self.brains.entry(chief.to_owned()).or_insert_with(Brain::new);
@@ -784,6 +1014,7 @@ impl Supervisor {
                 Some(&record.display_name),
                 &inherited,
             ))
+            .envs(record_engine_env(&record.engine))
             .current_dir(&mux_home)
             .stdin(std::process::Stdio::null())
             .stdout(log.try_clone()?)
@@ -833,16 +1064,29 @@ impl Supervisor {
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .spawn();
+        // Only a deleted Chief's sessions end here: its folder goes after them, unless a live
+        // Chief shares it (the same id tail).
+        let shared = self.mux.upgrade().is_some_and(|mux| {
+            list_chiefs(&mux).iter().any(|r| brain_home(&self.config.home, &r.id) == mux_home)
+        });
+        let owner = chief.to_owned();
+        let remove = move || {
+            if !shared {
+                remove_brain_home(&mux_home, &owner);
+            }
+        };
         match spawned {
             Ok(mut child) => {
                 let _ = std::thread::Builder::new().name("chief-sessions-end".into()).spawn(
                     move || {
                         let _ = child.wait();
+                        remove();
                     },
                 );
             }
             Err(error) => {
                 eprintln!("cmux-tui: ending the sessions of Chief {chief} did not start: {error}");
+                remove();
             }
         }
     }
@@ -917,6 +1161,23 @@ fn lock_held(lock: &Path) -> bool {
     }
 }
 
+/// Removes deleted Chief `chief`'s brain folder: a real folder only (never a link out of the
+/// Chief home), whose `chief-id` names that Chief (never another Chief's with the same id tail),
+/// and never while a brain still holds its lock (a stale holder that has not exited yet keeps
+/// it; the folder then stays).
+fn remove_brain_home(dir: &Path, chief: &str) {
+    let owner = std::fs::read_to_string(dir.join("chief-id")).unwrap_or_default();
+    if !std::fs::symlink_metadata(dir).is_ok_and(|m| m.is_dir())
+        || owner.trim() != chief
+        || lock_held(&dir.join("state/host.lock"))
+    {
+        return;
+    }
+    if let Err(error) = std::fs::remove_dir_all(dir) {
+        eprintln!("cmux-tui: removing {}: {error}", dir.display());
+    }
+}
+
 /// SIGTERM to the process that holds `lock` (a brain an earlier owner left),
 /// by the pid optchat-chief writes in it.
 fn stop_lock_holder(lock: &Path) {
@@ -940,7 +1201,7 @@ fn stop_lock_holder(lock: &Path) {
 
 /// Removes the per-Chief acpmux homes `<home>/c/<tail>/a` that brains of
 /// earlier builds used (before one acpmux per Chief home): `acpmux daemon
-/// shutdown` there first (that Chief's own daemon, not the shared one),
+/// shutdown --end-agents` there first (that Chief's own daemon, not the shared one),
 /// then the folder. Only inside this build's Chief home `home`, never in
 /// the person's shared `~/.cmux/chief/default` (NIGHTLY's), and not while
 /// a brain an earlier owner left holds that Chief's lock (it still uses
@@ -949,10 +1210,16 @@ fn stop_lock_holder(lock: &Path) {
 fn remove_old_acpmux_homes(home: &Path, acpmux_bin: Option<&Path>) {
     // Without HOME the person's default home cannot be ruled out: keep all.
     let Some(user) = std::env::var_os("HOME").filter(|h| !h.is_empty()) else { return };
-    let shared_default =
-        std::fs::canonicalize(PathBuf::from(user).join(".cmux/chief/default")).ok();
+    // NIGHTLY's Chief home, named by the build identity resolver.
+    let nightly = BuildIdentity::new(Some(NIGHTLY_BUNDLE_ID), None);
     let Ok(canonical) = std::fs::canonicalize(home) else { return };
-    if shared_default.as_deref() == Some(canonical.as_path()) {
+    // NIGHTLY's home under the inherited HOME and under the account's home
+    // (a job runner's HOME differs from it).
+    let defaults = [Some(PathBuf::from(user)), account_home().map(PathBuf::from)];
+    if defaults.into_iter().flatten().any(|user| {
+        std::fs::canonicalize(nightly.chief_home(&user, "default")).ok().as_deref()
+            == Some(canonical.as_path())
+    }) {
         return;
     }
     let Ok(entries) = std::fs::read_dir(home.join("c")) else { return };
@@ -967,24 +1234,37 @@ fn remove_old_acpmux_homes(home: &Path, acpmux_bin: Option<&Path>) {
         }
         let acpmux = acpmux_bin.map(Path::to_path_buf).unwrap_or_else(|| "acpmux".into());
         let user = |key: &str| std::env::var(key).ok().filter(|v| !v.is_empty());
-        let mut command = std::process::Command::new(acpmux);
-        command
-            .args(["daemon", "shutdown"])
-            .env_clear()
-            .env("ACPMUX_HOME", &old)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null());
-        for key in ["PATH", "HOME", "USER", "TMPDIR"] {
-            if let Some(value) = user(key) {
-                command.env(key, value);
+        let stop = |end_flag: bool| {
+            let mut command = std::process::Command::new(&acpmux);
+            command.args(["daemon", "shutdown"]);
+            if end_flag {
+                command.arg("--end-agents");
             }
+            command
+                .env_clear()
+                .env("ACPMUX_HOME", &old)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null());
+            for key in ["PATH", "HOME", "USER", "TMPDIR"] {
+                if let Some(value) = user(key) {
+                    command.env(key, value);
+                }
+            }
+            command.status().ok()
+        };
+        // On this thread only: `daemon shutdown --end-agents` ends that daemon's agents
+        // first (acpmux bounds its own grace), then the folder goes. An acpmux of a build
+        // before the flag refuses it (usage error, exit 2); its plain shutdown ends them.
+        // A stop that failed (no acpmux to ask, or no daemon there: acpmux exits 1) removes the
+        // folder only when no daemon holds its lock; a running one keeps it.
+        let stopped = match stop(true) {
+            Some(status) if status.code() == Some(2) => stop(false),
+            other => other,
+        };
+        if !stopped.is_some_and(|status| status.success()) && lock_held(&old.join("daemon.lock")) {
+            continue;
         }
-        // On this thread only: `daemon shutdown` ends that daemon's agents
-        // first (acpmux bounds its own grace), then the folder goes.
-        // No acpmux to ask: its daemon may still run there; keep the folder.
-        let Ok(mut child) = command.spawn() else { continue };
-        let _ = child.wait();
         if let Err(error) = std::fs::remove_dir_all(&old) {
             eprintln!("cmux-tui: removing {}: {error}", old.display());
         }
@@ -1005,4 +1285,27 @@ fn list_chiefs(mux: &Mux) -> Vec<ChiefRecord> {
         }
     }
     store.as_ref().and_then(|s| s.list().ok()).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod record_engine_tests {
+    use super::record_engine_env;
+    use crate::chief_registry::Engine;
+
+    #[test]
+    fn a_record_harness_becomes_the_brains_starting_harness() {
+        let engine =
+            Engine { harness: Some("unii".into()), model: None, effort: Some("default".into()) };
+        assert_eq!(
+            record_engine_env(&engine),
+            vec![("OPTCHAT_CHIEF_HARNESS".to_owned(), "unii".to_owned())]
+        );
+        assert!(record_engine_env(&Engine::default()).is_empty());
+        let full = Engine {
+            harness: Some("codex".into()),
+            model: Some("gpt-5.5".into()),
+            effort: Some("high".into()),
+        };
+        assert_eq!(record_engine_env(&full).len(), 3);
+    }
 }

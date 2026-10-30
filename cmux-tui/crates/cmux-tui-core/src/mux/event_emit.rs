@@ -151,7 +151,7 @@ impl Mux {
     #[cfg(test)]
     pub(super) fn emit_terminal_exited(&self, surface: SurfaceId) {
         for placement in self.terminal_event_placements(surface) {
-            self.emit(MuxEvent::SurfaceExited(placement));
+            self.emit(MuxEvent::SurfaceExited(placement, None));
         }
     }
 

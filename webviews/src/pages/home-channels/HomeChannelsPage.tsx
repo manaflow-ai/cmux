@@ -8,6 +8,9 @@ import { AttachmentContext } from "./AttachmentViews";
 import { AvatarContext } from "./avatars";
 import { Avatar, ChannelMark, PicturesContext } from "./Avatar";
 import { Composer } from "./Composer";
+import { GoalStrip } from "./GoalStrip";
+import { useHostSelection, type HomeSelection } from "./hostSelection";
+import { useHostMove } from "./hostMove";
 import { ConversationList, useStamp } from "./ConversationList";
 import { HomeIcon } from "./icons";
 import {
@@ -33,7 +36,10 @@ import { Palette, type PaletteItem } from "./Palette";
 import { backToList, conversationHash, setHash, useHashPane, useNarrow, type Pane } from "./panes";
 import { RunsContext, type RunsContextValue } from "./RunCard";
 import { useRunEntry } from "./runs";
-import { RouteSheets } from "./RouteSheets";
+import { ChiefRoutePage, RouteSheets } from "./RouteSheets";
+import { LiveTyping } from "./LiveTyping";
+import { chiefPresence } from "../../agent-session/acpmux/multiplayer/chiefAdapter";
+import { PresenceStack } from "../../agent-session/acpmux/multiplayer/Faces";
 import { RunSheet } from "./RunSheet";
 import type { HomeChannelsStore } from "./store";
 import { lastLiveReplies, threadObject, type ThreadObject } from "./threads";
@@ -41,6 +47,7 @@ import { ThreadSheet } from "./ThreadSheet";
 import { Timeline } from "./Timeline";
 import type { HomeConversation, HomeMessage, HomeParticipant, HomeRun } from "./types";
 import { useHomeKeys } from "./useHomeKeys";
+import { useWebSwapHold } from "../shared/useWebSwapHold";
 
 const NOTICE_MS = 1600;
 
@@ -55,6 +62,11 @@ export function HomeChannelsPage({
   pane?: Pane;
 }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  // WEB-SWAP: a web update's reload waits while a message lives only in this page: one on its way
+  // to the owner, or a failed one with Retry (pages/shared/webSwap.ts).
+  useWebSwapHold(
+    snap.pending.some((entry) => !entry.failed) ? "home.sending" : snap.pending.length ? "home.send-failed" : null,
+  );
   // Below NARROW_PAGE of its own width the page shows one pane (panes.ts), the one the hash names.
   const shell = useRef<HTMLDivElement>(null);
   const measured = useNarrow(shell);
@@ -63,18 +75,24 @@ export function HomeChannelsPage({
   const pane = fixedPane ?? hashPane;
   const sheetState = useSyncExternalStore(store.sheets.subscribe, store.sheets.getSnapshot);
   const caps = sheetState.capabilities;
+  // New Chief and Edit Chief are a page on the right side, in place of the conversation (u2586).
+  const chiefPage = sheetState.route?.kind === "newChief" || sheetState.route?.kind === "editChief";
   const [palette, setPalette] = useState(false);
   const [editing, setEditing] = useState<{ id: string; surface: "main" | "thread" } | undefined>();
   const [focused, setFocused] = useState<string | undefined>();
   const [notice, setNotice] = useState<string | undefined>();
   /** The run the run sheet shows (an agent turn's whole trajectory). */
   const [openRun, setOpenRun] = useState<{ conversation: string; author: string; id: string } | undefined>();
+  // WEB-SWAP: an open thread, run sheet, palette or edit lives only in this page's state, so a reload
+  // would close it: the update waits until it closes (pages/shared/webSwap.ts).
+  useWebSwapHold(snap.thread || openRun || palette || editing || sheetState.route ? "home.sheet" : null);
   const runs = useMemo<RunsContextValue>(
     () => ({
       book: store.runs,
       strings,
       onOpen: (run: HomeRun) => setOpenRun({ conversation: run.conversation, author: run.author, id: run.id }),
       onLoad: (run: HomeRun) => void store.loadRunSteps(run),
+      live: store.live,
     }),
     [store, strings],
   );
@@ -125,7 +143,10 @@ export function HomeChannelsPage({
     if (snap.me) map.set(snap.me.id, snap.me);
     return map;
   }, [conversations, snap.me]);
-  const runsWithPeople = useMemo<RunsContextValue>(() => ({ ...runs, people }), [runs, people]);
+  const runsWithPeople = useMemo<RunsContextValue>(
+    () => ({ ...runs, people, draftTurn: snap.draft?.turn }),
+    [runs, people, snap.draft?.turn],
+  );
   const mentionable = useMemo(() => others(open, me), [open, me]);
   const online = snap.connection === "online";
   const name = open ? conversationName(open, me) : "";
@@ -157,6 +178,12 @@ export function HomeChannelsPage({
     () =>
       rows.flatMap((row) => (row.kind === "message" && !row.message.id.startsWith("pending:") ? [row.message] : [])),
     [rows],
+  );
+  // The people here and typing, as the agent chat shows them (multiplayer/chiefAdapter.ts): only
+  // this conversation's members, so a stray id never draws someone from another conversation.
+  const presence = useMemo(
+    () => chiefPresence(new Map(open?.participants.map((p) => [p.id, p])), me ?? "", snap.typing, snap.viewing),
+    [open?.participants, me, snap.typing, snap.viewing],
   );
   const typingNames = snap.typing
     .filter((id) => id !== me && id !== snap.draft?.participant)
@@ -242,7 +269,19 @@ export function HomeChannelsPage({
     if (root) void store.updateThread(root, { owner });
   };
   const focusedMessage = focused ? walk.find((m) => m.id === focused) : undefined;
-  const moveList = (delta: 1 | -1, unreadOnly: boolean) => {
+  // What the host's `home.currentSelection` answers (the dock's view switch): the open
+  // conversation and the message the person is on; null on the narrow list pane.
+  const selectionMessage = focusedMessage?.id ?? snap.highlight ?? snap.thread;
+  const selection = useMemo<HomeSelection | null>(
+    () =>
+      // Before the first measure the page does not know yet whether only the list shows.
+      measured === undefined || listShown || !snap.selected
+        ? null
+        : { conversation: snap.selected, ...(selectionMessage ? { message: selectionMessage } : {}) },
+    [measured, listShown, snap.selected, selectionMessage],
+  );
+  useHostSelection(store.host, selection);
+  const moveList = (delta: 1 | -1, unreadOnly: boolean): boolean => {
     // The order the list shows: my pins first, then newest activity.
     const { pinned, rest } = listOrder(snap.conversations.values());
     const order = [...pinned, ...rest];
@@ -253,10 +292,13 @@ export function HomeChannelsPage({
       const next = order[(((base + delta * step) % n) + n) % n];
       if (next && (!unreadOnly || isUnread(next))) {
         select(next.id, true);
-        return;
+        return true;
       }
     }
+    return false;
   };
+  // The host's Cmd-Shift-[ / ] while the docked Home shows Channels (hostMove.ts).
+  useHostMove(store.host, (delta) => moveList(delta, false));
   useHomeKeys({
     openPalette: () => setPalette(true),
     move: moveList,
@@ -482,10 +524,17 @@ export function HomeChannelsPage({
                 onSelect={select}
                 onOpenPalette={() => setPalette(true)}
                 onCompose={online && caps.start ? () => store.sheets.open({ kind: "newMessage" }) : undefined}
+                onNewChief={online && caps.chiefs ? () => store.sheets.open({ kind: "newChief" }) : undefined}
                 actions={rowActions}
+                chiefs={sheetState.chiefs}
               />
-              <section className={`lg-main${snap.thread ? " with-sheet" : ""}`} aria-label={place || t("page.title")}>
-                {snap.loading ? null : empty || !open ? (
+              <section
+                className={`lg-main${snap.thread && !chiefPage ? " with-sheet" : ""}`}
+                aria-label={chiefPage ? undefined : place || t("page.title")}
+              >
+                {chiefPage ? (
+                  <ChiefRoutePage sheets={store.sheets} state={sheetState} strings={strings} />
+                ) : snap.loading ? null : empty || !open ? (
                   <EmptyState
                     strings={strings}
                     noConversations={empty}
@@ -500,7 +549,6 @@ export function HomeChannelsPage({
                         type="button"
                         className="hc-icon-button lg-back"
                         aria-label={t("action.back")}
-                        title={t("action.back")}
                         aria-keyshortcuts="Meta+["
                         onClick={back}
                       >
@@ -538,6 +586,8 @@ export function HomeChannelsPage({
                         </output>
                       )}
                       {notice && <output className="lg-notice">{notice}</output>}
+                      {/* Who else has the chat open: the agent chat's faces (multiplayer/Faces.tsx). */}
+                      <PresenceStack viewing={presence.viewing} />
                       {channel && (
                         <span className="lg-faces" aria-hidden="true">
                           {open.participants.slice(0, 4).map((p) => (
@@ -587,6 +637,7 @@ export function HomeChannelsPage({
                     )}
                     <RunsContext.Provider value={runsWithPeople}>
                       <div className="lg-stage" ref={column} data-drop-zone>
+                        <GoalStrip book={store.runs} conversation={open.id} strings={strings} onOpen={runs.onOpen} />
                         <Timeline
                           conversation={snap.selected}
                           rows={rows}
@@ -609,13 +660,16 @@ export function HomeChannelsPage({
                           empty={t("timeline.empty")}
                           {...editActions("main")}
                         />
-                        <div className="lg-typing" aria-live="polite">
-                          {typingNames.length === 1
-                            ? format("typing.one", typingNames[0]!)
-                            : typingNames.length > 1
-                              ? t("typing.many")
-                              : ""}
-                        </div>
+                        <LiveTyping
+                          conversation={open.id}
+                          live={store.live}
+                          runs={store.runs}
+                          people={people}
+                          typing={typingNames}
+                          draftTurn={snap.draft?.turn}
+                          strings={strings}
+                          onOpen={runs.onOpen}
+                        />
                         <div className="lg-main-compose">
                           <Composer
                             key={open.id}

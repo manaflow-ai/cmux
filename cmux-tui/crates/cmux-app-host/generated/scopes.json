@@ -9,6 +9,10 @@
       "scope": "actions:run",
       "class": "mutation"
     },
+    "agent_cli.list": {
+      "scope": "agent_cli:read",
+      "class": "read"
+    },
     "agent.list": {
       "scope": "agent:read",
       "class": "read"
@@ -129,6 +133,18 @@
       "scope": "browser:write",
       "class": "mutation"
     },
+    "browser.profile.create": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
+    "browser.profile.list": {
+      "scope": "browser:read",
+      "class": "read"
+    },
+    "browser.profile.open": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
     "browser.reload": {
       "scope": "browser:write",
       "class": "mutation"
@@ -209,6 +225,10 @@
       "scope": "chief:read",
       "class": "read"
     },
+    "chief.profile.adopt": {
+      "scope": "chief:write",
+      "class": "mutation"
+    },
     "chief.profile.avatar.get": {
       "scope": "chief:read",
       "class": "read"
@@ -229,9 +249,17 @@
       "scope": "chief:read",
       "class": "read"
     },
+    "chief.profile.history": {
+      "scope": "chief:read",
+      "class": "read"
+    },
     "chief.profile.list": {
       "scope": "chief:read",
       "class": "read"
+    },
+    "chief.profile.undo": {
+      "scope": "chief:write",
+      "class": "mutation"
     },
     "chief.profile.update": {
       "scope": "chief:write",
@@ -266,6 +294,14 @@
       "class": "read"
     },
     "cloud.browser.open": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.environment.list": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.environment.set": {
       "scope": "cloud:write",
       "class": "mutation"
     },
@@ -481,6 +517,10 @@
       "scope": "conversation:read",
       "class": "read"
     },
+    "conversation.members": {
+      "scope": "conversation:read",
+      "class": "read"
+    },
     "conversation.search": {
       "scope": "conversation:read",
       "class": "read"
@@ -681,6 +721,30 @@
       "scope": "github:external",
       "class": "mutation"
     },
+    "group.add_workspace": {
+      "scope": "group:write",
+      "class": "mutation"
+    },
+    "group.archive": {
+      "scope": "group:write",
+      "class": "mutation"
+    },
+    "group.create": {
+      "scope": "group:write",
+      "class": "mutation"
+    },
+    "group.get": {
+      "scope": "group:read",
+      "class": "read"
+    },
+    "group.list": {
+      "scope": "group:read",
+      "class": "read"
+    },
+    "group.rename": {
+      "scope": "group:write",
+      "class": "mutation"
+    },
     "home.search": {
       "scope": "home:read",
       "class": "read"
@@ -835,6 +899,10 @@
     },
     "memory_app.reload": {
       "scope": "memory_app:read",
+      "class": "read"
+    },
+    "memory.search": {
+      "scope": "memory:read",
       "class": "read"
     },
     "message.edit": {
@@ -1002,6 +1070,14 @@
       "class": "mutation"
     },
     "participants.add": {
+      "scope": "participants:write",
+      "class": "mutation"
+    },
+    "participants.set_role": {
+      "scope": "participants:write",
+      "class": "mutation"
+    },
+    "participants.unban": {
       "scope": "participants:write",
       "class": "mutation"
     },
@@ -1237,6 +1313,10 @@
       "scope": "search_app:read",
       "class": "read"
     },
+    "server.network.confirm": {
+      "scope": "server:write",
+      "class": "mutation"
+    },
     "session.get": {
       "scope": "session:read",
       "class": "read"
@@ -1435,6 +1515,26 @@
     },
     "slack.post_as_bot": {
       "scope": "slack:external",
+      "class": "mutation"
+    },
+    "stash.create": {
+      "scope": "stash:write",
+      "class": "mutation"
+    },
+    "stash.delete": {
+      "scope": "stash:write",
+      "class": "mutation"
+    },
+    "stash.import": {
+      "scope": "stash:write",
+      "class": "mutation"
+    },
+    "stash.list": {
+      "scope": "stash:read",
+      "class": "read"
+    },
+    "stash.restore": {
+      "scope": "stash:write",
       "class": "mutation"
     },
     "tab_group.add_tabs": {
@@ -1713,6 +1813,22 @@
       "scope": "window_record:write",
       "class": "mutation"
     },
+    "workspace_checklist.add": {
+      "scope": "workspace_checklist:write",
+      "class": "mutation"
+    },
+    "workspace_checklist.list": {
+      "scope": "workspace_checklist:read",
+      "class": "read"
+    },
+    "workspace_checklist.remove": {
+      "scope": "workspace_checklist:write",
+      "class": "mutation"
+    },
+    "workspace_checklist.update": {
+      "scope": "workspace_checklist:write",
+      "class": "mutation"
+    },
     "workspace_group.create": {
       "scope": "workspace_group:write",
       "class": "mutation"
@@ -1823,6 +1939,7 @@
     "agent.message.mark",
     "agent.message.release",
     "agent.message.send",
+    "agent.message.unsend",
     "automation.delete",
     "automation.settings.set",
     "automation.webhook.get",
@@ -1831,6 +1948,7 @@
     "browser.viewer.release",
     "browser.viewer.resize",
     "chief.archive",
+    "chief.delete",
     "client.cell_pixels.set",
     "client.detach",
     "client.get",
@@ -1839,6 +1957,9 @@
     "client.sizing.release",
     "client.sizing.set",
     "cloud.billing.checkout",
+    "cloud.environment.boot",
+    "cloud.environment.build",
+    "cloud.environment.delete",
     "cloud.fs.remove",
     "cloud.machine.create",
     "cloud.machine.delete",
@@ -1861,6 +1982,8 @@
     "firewall.list",
     "frontend_projection.get",
     "frontend_projection.put",
+    "grant.create",
+    "grant.revoke",
     "history.backups.purge",
     "history.clear",
     "history.entries.list",
@@ -1873,9 +1996,12 @@
     "history.visit.remove",
     "history.visit.summaries",
     "history.visit.title",
+    "home.requests.list",
     "home.settings.set",
     "host.enroll",
+    "host.network.bind",
     "host.remove",
+    "host.replica.purge",
     "install.list",
     "install.register",
     "install.rename",
@@ -1887,17 +2013,20 @@
     "integration.policy.set",
     "integration.revoke",
     "invite.accept",
+    "invite.accept_verified",
     "keybindings.remove",
     "keybindings.reset",
     "keybindings.set",
     "layout.bulk",
     "network.list",
     "origin.confirmation.issue",
+    "ownership.transfer",
     "pairing_request.list",
     "pairing_request.resolve",
     "pane.close",
     "participants.remove",
     "request.cancel",
+    "request.dismiss",
     "screen.close",
     "server.pair.approve",
     "server.pair.preview",

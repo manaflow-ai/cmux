@@ -4,8 +4,13 @@
 use super::driver::Inner;
 use super::keys::{implied_text, modifier_bits, mouse_button, virtual_key_code};
 use crate::protocol::{DriverError, required_str, timeout_of};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
-use std::time::Instant;
+use std::time::{Duration, Instant};
+
+/// At most this long for the page's touch probe before a press (a busy page
+/// answers later; then the press goes as mouse, as before cx-3ny35).
+const TOUCH_PROBE_WAIT: Duration = Duration::from_secs(2);
 
 impl Inner {
     pub(super) fn mouse(&self, params: &Value) -> Result<Value, DriverError> {
@@ -31,33 +36,103 @@ impl Inner {
             }
             (x, y, tab.buttons)
         };
+        // The tab keeps CSS px (`tab.mouse`); Chromium gets view points.
+        let (x, y) = self.input_point((x, y));
+        if kind != "wheel" && self.touch_input(&session, kind, deadline) {
+            return self.touch(&session, kind, (x, y), buttons, modifiers, deadline);
+        }
         let mut event = json!({"x": x, "y": y, "modifiers": modifiers, "buttons": buttons});
         match kind {
             "move" => {
-                event["type"] = json!("mouseMoved");
-                event["button"] = json!(pressed_button(buttons));
+                event.set("type", json!("mouseMoved"));
+                event.set("button", json!(pressed_button(buttons)));
             }
             "down" => {
-                event["type"] = json!("mousePressed");
-                event["button"] = json!(button);
-                event["clickCount"] = json!(click_count);
+                event.set("type", json!("mousePressed"));
+                event.set("button", json!(button));
+                event.set("clickCount", json!(click_count));
             }
             "up" => {
-                event["type"] = json!("mouseReleased");
-                event["button"] = json!(button);
-                event["clickCount"] = json!(click_count);
+                event.set("type", json!("mouseReleased"));
+                event.set("button", json!(button));
+                event.set("clickCount", json!(click_count));
             }
             "wheel" => {
-                event["type"] = json!("mouseWheel");
-                event["button"] = json!("none");
-                event["deltaX"] =
-                    json!(params.get("deltaX").and_then(Value::as_f64).unwrap_or(0.0));
-                event["deltaY"] =
-                    json!(params.get("deltaY").and_then(Value::as_f64).unwrap_or(0.0));
+                event.set("type", json!("mouseWheel"));
+                event.set("button", json!("none"));
+                // Deltas are view points too under the emulation scale.
+                let scale = self.input_scale();
+                event.set(
+                    "deltaX",
+                    json!(params.get("deltaX").and_then(Value::as_f64).unwrap_or(0.0) * scale),
+                );
+                event.set(
+                    "deltaY",
+                    json!(params.get("deltaY").and_then(Value::as_f64).unwrap_or(0.0) * scale),
+                );
             }
             other => return Err(DriverError::invalid(format!("Unknown mouse event {other}"))),
         }
         self.send_until(&session, "Input.dispatchMouseEvent", event, deadline)?;
+        Ok(Value::Null)
+    }
+
+    /// Whether this pointer event goes as touch: the app announced touch
+    /// emulation, or (DevTools device mode, which the app is not told about)
+    /// the page reports touch points at the press. A press decides for its
+    /// moves and its release; a hover move between presses follows the last one.
+    fn touch_input(&self, session: &super::driver::Session, kind: &str, deadline: Instant) -> bool {
+        let announced = self.touch_emulation.load(std::sync::atomic::Ordering::Relaxed);
+        if kind != "down" {
+            return announced
+                || self.lock().tabs.get(&session.target_id).is_some_and(|tab| tab.touch_press);
+        }
+        let touch = announced || self.page_has_touch(session, deadline);
+        if let Some(tab) = self.lock().tabs.get_mut(&session.target_id) {
+            tab.touch_press = touch;
+        }
+        touch
+    }
+
+    /// `navigator.maxTouchPoints` above 0: Chromium's touch emulation is on
+    /// (whoever set it). Any error reads as no touch, the mouse path.
+    fn page_has_touch(&self, session: &super::driver::Session, deadline: Instant) -> bool {
+        let wait = deadline.saturating_duration_since(Instant::now()).min(TOUCH_PROBE_WAIT);
+        self.conn
+            .call(
+                Some(&session.session_id),
+                "Runtime.evaluate",
+                json!({"expression": "navigator.maxTouchPoints", "returnByValue": true}),
+                wait,
+            )
+            .ok()
+            .and_then(|reply| reply["result"]["value"].as_i64())
+            .is_some_and(|points| points > 0)
+    }
+
+    /// Pointer input on a touch-emulating tab (cx-3ny35): a press is a
+    /// touch start, a move with a button held a touch move, a release a touch
+    /// end, which Chromium turns into the tap's click. A hover move has no
+    /// touch form and sends nothing. The wheel stays a mouse wheel.
+    fn touch(
+        &self,
+        session: &super::driver::Session,
+        kind: &str,
+        (x, y): (f64, f64),
+        buttons: i64,
+        modifiers: i64,
+        deadline: Instant,
+    ) -> Result<Value, DriverError> {
+        let point = json!([{"x": x, "y": y}]);
+        let (kind, points) = match kind {
+            "down" => ("touchStart", point),
+            "move" if buttons != 0 => ("touchMove", point),
+            "move" => return Ok(Value::Null),
+            "up" => ("touchEnd", json!([])),
+            other => return Err(DriverError::invalid(format!("Unknown mouse event {other}"))),
+        };
+        let event = json!({"type": kind, "touchPoints": points, "modifiers": modifiers});
+        self.send_until(session, "Input.dispatchTouchEvent", event, deadline)?;
         Ok(Value::Null)
     }
 
@@ -104,18 +179,22 @@ impl Inner {
                     .or_else(|| implied_text(key, modifiers));
                 match text {
                     Some(text) => {
-                        event["type"] = json!("keyDown");
-                        event["text"] = json!(text);
-                        event["unmodifiedText"] = json!(text);
+                        event.set("type", json!("keyDown"));
+                        event.set("text", json!(text));
+                        event.set("unmodifiedText", json!(text));
                     }
-                    None => event["type"] = json!("rawKeyDown"),
+                    None => {
+                        event.set("type", json!("rawKeyDown"));
+                    }
                 }
-                let commands = mac_editing_commands(code, modifiers);
+                let commands = editing_commands(code, modifiers);
                 if !commands.is_empty() {
-                    event["commands"] = json!(commands);
+                    event.set("commands", json!(commands));
                 }
             }
-            "up" => event["type"] = json!("keyUp"),
+            "up" => {
+                event.set("type", json!("keyUp"));
+            }
             other => return Err(DriverError::invalid(format!("Unknown key event {other}"))),
         }
         self.send_until(&session, "Input.dispatchKeyEvent", event, deadline)?;
@@ -139,6 +218,7 @@ impl Inner {
         }
         let session = self.session(&json!({"targetId": target_id}))?;
         let deadline = Instant::now() + super::driver::INTERNAL_TIMEOUT;
+        let (x, y) = self.input_point((x, y));
         let modifier = |key: &str| match key {
             "Alt" => 1,
             "Control" => 2,
@@ -156,6 +236,14 @@ impl Inner {
                 "location": location, "isKeypad": *location == 3,
             });
             self.send_until(&session, "Input.dispatchKeyEvent", event, deadline)?;
+        }
+        let touch_press = self.lock().tabs.get(target_id).is_some_and(|tab| tab.touch_press);
+        if buttons != 0
+            && (touch_press || self.touch_emulation.load(std::sync::atomic::Ordering::Relaxed))
+        {
+            let event = json!({"type": "touchCancel", "touchPoints": []});
+            self.send_until(&session, "Input.dispatchTouchEvent", event, deadline)?;
+            return Ok(());
         }
         let mut left = buttons;
         for (bit, button) in [(1, "left"), (2, "right"), (4, "middle")] {
@@ -197,17 +285,15 @@ fn pressed_button(buttons: i64) -> &'static str {
     }
 }
 
-/// macOS Chromium runs editing shortcuts from `commands` (as Playwright does);
-/// without them Meta+A or Meta+Backspace type nothing. Other platforms handle
-/// these keys natively.
-fn mac_editing_commands(code: &str, modifiers: i64) -> Vec<&'static str> {
-    if !cfg!(target_os = "macos") {
-        return Vec::new();
-    }
-    editing_commands(code, modifiers)
-}
-
-/// The macOS editing command table, independent of the build platform.
+/// The macOS editing command table, sent as `commands` on every platform.
+///
+/// The REPL keyboard is macOS's everywhere (the runtime maps ControlOrMeta
+/// to Meta), but Chromium runs Meta shortcuts natively nowhere: macOS
+/// Chromium needs `commands` (as Playwright sends them), and Linux and
+/// Windows Chromium bind these edits to Control. Chromium runs a key's
+/// commands only when the page did not prevent the keydown, so a page that
+/// handles the key keeps it. Meta+B/I/U format rich text as Chrome's editor
+/// does for Command+B/I/U (classic cmux: BrowserReplFrameGate+FormattingShortcut).
 pub(super) fn editing_commands(code: &str, modifiers: i64) -> Vec<&'static str> {
     const ALT: i64 = 1;
     const CONTROL: i64 = 2;
@@ -216,6 +302,9 @@ pub(super) fn editing_commands(code: &str, modifiers: i64) -> Vec<&'static str> 
     let shift = modifiers & SHIFT != 0;
     let command = match (modifiers & (ALT | CONTROL | META), code) {
         (META, "KeyA") => "selectAll",
+        (META, "KeyB") => "bold",
+        (META, "KeyI") => "italic",
+        (META, "KeyU") => "underline",
         (META, "KeyZ") if shift => "redo",
         (META, "KeyZ") => "undo",
         (META, "Backspace") => "deleteToBeginningOfLine",
@@ -255,5 +344,7 @@ mod tests {
         assert_eq!(editing_commands("ArrowLeft", 9), vec!["moveWordLeftAndModifySelection"]);
         assert!(editing_commands("KeyA", 0).is_empty());
         assert!(editing_commands("KeyA", 6).is_empty(), "Control+Meta+A is not select all");
+        assert_eq!(editing_commands("KeyB", 4), vec!["bold"]);
+        assert!(editing_commands("KeyB", 2).is_empty(), "Control+B stays the platform's own");
     }
 }

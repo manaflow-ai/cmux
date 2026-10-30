@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDesign
 
 /// Which page the palette opens on.
@@ -22,16 +23,28 @@ public final class PaletteController {
     public let registry: ActionRegistry
     public let model: PaletteModel
     public var sources: PaletteSources
+    /// Additional rows the app hides from the registry page based on live Labs/debug state.
+    public var hiddenActionIDs: (() -> Set<ActionID>)?
 
     public private(set) var isVisible = false
     /// Called synchronously when the panel opens (true) or closes (false),
     /// before any key-window change it causes, so the owner's focus overlay
     /// stack never lags the panel (plans/cmux-next/input-spec.md bug B7).
-    public var onVisibilityChange: ((Bool) -> Void)?
+    /// The window is the one the panel is a child of, so the owner puts the
+    /// overlay on the window the palette is actually over (W5, W6) instead
+    /// of guessing it from the active window, which the palette's own
+    /// `relativeTo:` and the key window can both disagree with.
+    public var onVisibilityChange: ((Bool, NSWindow?) -> Void)?
     /// Main-thread phases of each open, request to committed first frame
     /// (the stall bench, `debug.timings`).
     public var onPresented: ((PaletteOpenTiming) -> Void)?
+    /// The `systemUptime` timestamp of the input event that opens the palette
+    /// (a key-down), or nil when no event caused the open (CLI, socket). Read
+    /// at the start of each open so ``PaletteOpenTiming/input`` covers the key
+    /// router's time before the palette runs.
+    public var openingEventTimestamp: (() -> TimeInterval?)?
     private var openStarted: ContinuousClock.Instant?
+    private var openInput: Duration = .zero
     private var modelReady: ContinuousClock.Instant?
 
     /// What the user acted on when the palette opened (`PaletteSources.context`).
@@ -52,6 +65,9 @@ public final class PaletteController {
         self.registry = registry
         self.sources = sources
         self.model = PaletteModel(usage: usage ?? LocalPaletteUsageStore(persistence: frecencyPersistence))
+        // What an open's first frame does not show (the command page's workspaces and tabs)
+        // loads once that frame is committed.
+        model.afterFrame = { work in scheduleAfterFrameCommit(work) }
         model.onDismiss = { [weak self] in self?.hide() }
         // A command that refuses shows why on its row instead of beeping,
         // and the palette comes back on the same page.
@@ -73,7 +89,7 @@ public final class PaletteController {
     public func show(scope: PaletteScopeID, query: String = "", relativeTo window: NSWindow? = nil) -> Bool {
         configureScopes()
         guard model.navigation.graph.contains(scope) else { return false }
-        openStarted = .now
+        markOpenStarted()
         captureContext()
         model.open(scope: scope, query: query)
         modelReady = .now
@@ -84,24 +100,38 @@ public final class PaletteController {
     // MARK: Registry wiring
 
     /// Binds the palette's own catalog actions: Command Palette (toggle),
-    /// Go to Workspace and Search Keyboard Shortcuts. Go to Tab is Search
-    /// Tabs, which the App binds (`tab.search`).
+    /// Go to Workspace (Cmd-P, what is open now), Search (Cmd-Shift-A, everything) and Search
+    /// Keyboard Shortcuts. Go to Tab is Search Tabs, which the App binds (`tab.search`).
     public func bindRegistryActions() {
         registry.bind("commandPalette") { [weak self] in self?.toggle(.commands) }
         registry.bind("palette.searchShortcuts") { [weak self] in self?.show(.keyboardShortcuts) }
+        // Cmd-Shift-A: Search, which adds history and agent chats to the open items
+        // (search-everything-DESIGN.md section 10.1). The id predates the change; user key files name it.
+        registry.bind("search.chats", invoke: { [weak self] invocation in
+            self?.show(scope: PaletteScopeID.search, query: invocation["query"]?.stringValue ?? "")
+        })
         if sources.workspaces != nil {
             // With a workspace (a palette row's typed ref, `palette.run`,
             // the CLI) it switches to it; without one it opens the page.
             registry.bind("goToWorkspace", invoke: { [weak self] invocation in
                 if let workspace = invocation["workspace"]?.targetValue?.id ?? invocation["workspace"]?.stringValue {
-                    self?.sources.workspaces?.selectWorkspace(id: workspace)
-                } else {
+                    guard let self, let source = self.sources.workspaces else { return }
+                    // An id that names no workspace is refused, never a silent success.
+                    guard source.workspaces.contains(where: { $0.id == workspace }) else {
+                        return self.registry.refuseNotFound(PaletteStrings.workspaceNotFound(workspace))
+                    }
+                    source.selectWorkspace(id: workspace)
+                } else if self?.show(scope: PaletteScopeID.workspaces) != true {
+                    // Cmd-P lists only what is open: workspaces, then their groups, panes and tabs.
                     self?.show(.workspaces)
                 }
             })
         }
         registry.argumentCollector = { [weak self] id, invocation in
             self?.collectArguments(for: id, invocation: invocation)
+        }
+        registry.argumentAsker = { [weak self] id, invocation, ask in
+            self?.collectArguments(for: id, invocation: invocation, asking: ask)
         }
     }
 
@@ -159,7 +189,7 @@ public final class PaletteController {
     /// Opens the palette over `window` (default: the key or main window).
     public func show(_ mode: PaletteMode = .commands, relativeTo window: NSWindow? = nil) {
         configureScopes()
-        openStarted = .now
+        markOpenStarted()
         captureContext()
         model.reset(to: page(for: mode))
         modelReady = .now
@@ -170,7 +200,7 @@ public final class PaletteController {
     /// the palette serves as a page).
     public func show(page: PalettePageSpec, relativeTo window: NSWindow? = nil) {
         configureScopes()
-        openStarted = .now
+        markOpenStarted()
         captureContext()
         model.reset(to: page)
         modelReady = .now
@@ -179,15 +209,18 @@ public final class PaletteController {
 
     /// Opens the palette to collect the missing arguments of `id`, then runs
     /// it. Installed as the registry's `argumentCollector`, so a menu item or
-    /// shortcut for an argument-taking action asks inline.
-    public func collectArguments(for id: ActionID, invocation: ActionInvocation, relativeTo window: NSWindow? = nil) {
+    /// shortcut for an argument-taking action asks inline. `ask` also asks for
+    /// one optional argument (``ActionRegistry/ask(_:_:_:)``: a menu Rename with
+    /// no name asks for it here instead of in a separate dialog).
+    public func collectArguments(for id: ActionID, invocation: ActionInvocation, asking ask: ActionArgumentAsk? = nil,
+                                 relativeTo window: NSWindow? = nil) {
         guard let descriptor = registry.descriptor(for: id) else { return }
         // Without its arguments, an action that opens a scope opens it, as its palette row does.
-        if invocation.arguments.isEmpty, let scope = scope(openedBy: id), show(scope: scope, relativeTo: window) { return }
+        if ask == nil, invocation.arguments.isEmpty, let scope = scope(openedBy: id), show(scope: scope, relativeTo: window) { return }
         captureContext()
         let flow = PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: sources.targets,
                                        captured: capturedTargets, preview: sources.argumentPreview,
-                                       swatches: sources.argumentSwatches)
+                                       swatches: sources.argumentSwatches, ask: ask)
         let effect = flow.effect(collected: invocation)
         if case .perform(let handler) = effect {
             // Nothing left to ask.
@@ -195,7 +228,7 @@ public final class PaletteController {
             return
         }
         configureScopes()
-        openStarted = .now
+        markOpenStarted()
         model.reset(to: effect, fallback: commandsPage())
         modelReady = .now
         present(relativeTo: window)
@@ -208,10 +241,22 @@ public final class PaletteController {
         capturedTargets = sources.context?() ?? []
     }
 
+    private func markOpenStarted() {
+        openStarted = .now
+        let now = ProcessInfo.processInfo.systemUptime
+        if let stamp = openingEventTimestamp?(), stamp > 0, stamp <= now {
+            openInput = .microseconds(Int64((now - stamp) * 1_000_000))
+        } else {
+            openInput = .zero
+        }
+    }
+
     private func present(relativeTo window: NSWindow?) {
         model.usage.prepare()
         let started = openStarted ?? .now
         let modelDone = modelReady ?? started
+        let input = openInput
+        openInput = .zero
         openStarted = nil
         modelReady = nil
         let createdPanel = panel == nil
@@ -231,11 +276,12 @@ public final class PaletteController {
             return
         }
         isVisible = true
-        onVisibilityChange?(true)
         parentWindow = parent
+        onVisibilityChange?(true, parent)
         // The room (theme) of the window it opens over.
         (parent?.themeScope ?? .app).adopt(panel)
-        panel.setFrame(frame(for: parent, size: PaletteLayout.windowSize), display: false)
+        let size = PaletteLayout.windowSize
+        panel.setFrame(frame(for: parent, size: size), display: false)
         if let parent, panel.parent !== parent {
             panel.parent?.removeChildWindow(panel)
             parent.addChildWindow(panel, ordered: .above)
@@ -246,10 +292,10 @@ public final class PaletteController {
         contentView?.animateIn()
         if let onPresented {
             let presented = ContinuousClock.now
-            CATransaction.setCompletionBlock {
+            CATransaction.setMainCompletion {
                 let committed = ContinuousClock.now
                 onPresented(PaletteOpenTiming(
-                    model: started.duration(to: modelDone), panel: modelDone.duration(to: panelDone),
+                    input: input, model: started.duration(to: modelDone), panel: modelDone.duration(to: panelDone),
                     present: panelDone.duration(to: presented), commit: presented.duration(to: committed),
                     createdPanel: createdPanel))
             }
@@ -289,7 +335,7 @@ public final class PaletteController {
         guard isVisible, let panel else { return }
         isVisible = false
         registry.context.remove(.paletteOpen)
-        onVisibilityChange?(false)
+        onVisibilityChange?(false, parentWindow)
         model.closeActionsMenu()
         shortcutRecorder.abandon()
         model.shortcutRecorder = nil
@@ -326,10 +372,13 @@ public final class PaletteController {
         }
         content.onRecorderOption = { [weak self] option in self?.shortcutRecorder.choose(option) }
         panel.contentView = content
-        panel.keyHandler = { [weak self] event in self?.handleKeyDown(event) ?? false }
+        panel.keyHandler = { [weak self, weak panel] event in self?.handleKeyDown(event, in: panel) ?? false }
+        panel.onBecomeKey = { [weak self] in self?.contentView?.focusField() }
         panel.capturesKeyEquivalents = { [weak self] in self?.model.shortcutRecorder != nil }
         panel.capturesKeyEquivalent = { [weak self] event in
-            guard let model = self?.model, PaletteKeyMap.isCloseItem(event) else { return false }
+            guard let model = self?.model else { return false }
+            if PaletteKeyMap.isActionsKey(event) { return model.selectedItem != nil || model.actionsMenu != nil }
+            guard PaletteKeyMap.isCloseItem(event) else { return false }
             return model.currentPageOwnsCloseKey || model.selectedItem?.closeCommand != nil
         }
         // Shown without the keys (app inactive): the keys going to another
@@ -363,18 +412,22 @@ public final class PaletteController {
 
     /// Maps a key-down in the panel to a palette command. Returns true when
     /// the event was consumed (so the text field never sees it).
-    func handleKeyDown(_ event: NSEvent) -> Bool {
+    /// `window`: the panel the key went to (the event's own window when nil).
+    func handleKeyDown(_ event: NSEvent, in window: NSWindow? = nil) -> Bool {
+        let window = window ?? event.window
         if model.shortcutRecorder != nil {
             return shortcutRecorder.handle(PaletteShortcutRecorder.shortcut(for: event), keyCode: event.keyCode, event: event)
         }
+        if Self.inputMethodOwns(event, in: window) { return false }
+        let caret = Self.caret(in: window)
         guard let command = PaletteKeyMap.command(
             for: event,
             actionsMenuOpen: model.actionsMenu != nil,
             queryIsEmpty: model.query.isEmpty,
             registry: registry,
             hierarchical: model.currentPageIsHierarchical,
-            caretAtEnd: Self.caret(in: event.window).atEnd,
-            caretAtStart: Self.caret(in: event.window).atStart,
+            caretAtEnd: caret.atEnd,
+            caretAtStart: caret.atStart,
             selectedTogglesInPlace: model.selectedItem?.primary.togglesInPlace == true
         ) else { return false }
         return model.handle(command)
@@ -383,6 +436,9 @@ public final class PaletteController {
 
 /// Phases of one palette open on the main thread.
 public struct PaletteOpenTiming: Sendable {
+    /// The opening key-down's age when the palette began to open (the key
+    /// router and action dispatch); zero without an input event.
+    public var input: Duration = .zero
     /// Building the page's items and first results.
     public var model: Duration
     /// Creating the panel and its views (zero once it exists).
@@ -394,4 +450,6 @@ public struct PaletteOpenTiming: Sendable {
     public var createdPanel: Bool
 
     public var total: Duration { model + panel + present + commit }
+    /// Key-down to the committed first frame: ``input`` plus ``total``.
+    public var keyToFrame: Duration { input + total }
 }

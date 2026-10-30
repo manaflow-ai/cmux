@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 public import CoreGraphics
 import Darwin
 import Foundation
@@ -36,8 +36,9 @@ public nonisolated struct WindowFrame: Sendable {
         }
     }
 
-    /// Reads the window's composited image back to back until `until` ms after `start`.
-    @concurrent public static func record(_ window: CGWindowID, scale: Double, from start: ContinuousClock.Instant,
+    /// Reads the window's composited image back to back until `until` ms after `start`. `crop`: the
+    /// part to keep, as fractions of the image (top-left origin), e.g. a tab strip at full scale.
+    @concurrent public static func record(_ window: CGWindowID, scale: Double, crop: CGRect? = nil, from start: ContinuousClock.Instant,
                                          until: Double) async -> [WindowFrame] {
         typealias CreateImage = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
         guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return [] }
@@ -48,7 +49,12 @@ public nonisolated struct WindowFrame: Sendable {
             // kCGWindowListOptionIncludingWindow; kCGWindowImageBoundsIgnoreFraming | NominalResolution.
             guard let image = create(.null, 1 << 3, window, (1 << 0) | (1 << 9))?.takeRetainedValue() else { break }
             let at = elapsed(since: start)
-            if let frame = WindowFrame(image, scale: scale, at: at) { frames.append(frame) }
+            // A frame the crop cannot cut is dropped, so every frame of a strip has one size.
+            let kept = crop.map { unit in
+                image.cropping(to: CGRect(x: unit.minX * Double(image.width), y: unit.minY * Double(image.height),
+                                          width: unit.width * Double(image.width), height: unit.height * Double(image.height)).integral)
+            } ?? image
+            if let kept, let frame = WindowFrame(kept, scale: scale, at: at) { frames.append(frame) }
         }
         return frames
     }
@@ -133,13 +139,18 @@ public nonisolated struct WindowFrame: Sendable {
     /// The frames side by side, one gap apart, at their recorded size.
     public static func writeStrip(_ frames: [WindowFrame], to path: String) {
         guard let first = frames.first else { return }
-        let gap = 4, width = frames.count * (first.width + gap) - gap
-        guard let context = CGContext(data: nil, width: width, height: first.height, bitsPerComponent: 8, bytesPerRow: 0,
+        // Full-scale frames (their own PNGs) make an overview too wide to draw: it shrinks to 16k pixels.
+        let gap = 4, full = frames.count * (first.width + gap) - gap
+        let factor = min(1, 16_384 / Double(max(1, full)))
+        let cell = Double(first.width + gap) * factor
+        guard let context = CGContext(data: nil, width: Int((Double(full) * factor).rounded(.up)), height: max(1, Int((Double(first.height) * factor).rounded(.up))),
+                                      bitsPerComponent: 8, bytesPerRow: 0,
                                       space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { return }
+        context.interpolationQuality = .medium
         for (index, frame) in frames.enumerated() {
             guard let image = frame.image else { continue }
-            context.draw(image, in: CGRect(x: index * (first.width + gap), y: 0, width: frame.width, height: frame.height))
+            context.draw(image, in: CGRect(x: Double(index) * cell, y: 0, width: Double(frame.width) * factor, height: Double(frame.height) * factor))
         }
         if let strip = context.makeImage() { writePNG(strip, to: path) }
     }

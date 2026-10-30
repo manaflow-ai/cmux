@@ -114,6 +114,21 @@ running, or creates one outside `cmuxnp-dev-`. It changes only
 of one env plus the channel file (old value kept as `previous`): new machines only, never a
 running VM.
 
+**Promote from CI** (`.github/workflows/cloud-vm-image-promote.yml`, dev only): after a
+`cloud-vm-image-bake.yml` run with `keep_snapshot` passes, run
+`gh workflow run cloud-vm-image-promote.yml --repo manaflow-ai/cmux --ref feat-cmux-next -f channel=dev -f snapshot=<sh-id> -f bake_run=<bake run id>`.
+It runs in the bake's environment `cmux-next-vm-image-dev` with the same `FREESTYLE_API_KEY`
+secret (given to promote.ts only as a 0600 file in `$RUNNER_TEMP`) and a token that can only read
+(`contents: read`, `actions: read`). It appends the bake run's `channel-dev.json` to
+`channels/dev.json` `history`, runs promote.ts (fresh-clone smoke), and uploads the diff of
+`channels/dev.json` and `wrangler.jsonc` as the artifact `promote-dev-<sh-id>.diff`, with the
+smoke result in the job summary. It pushes nothing: a lane downloads the artifact, `git apply`s it
+on a branch from feat-cmux-next, opens the channel PR linking the run, and lands it after review;
+the next development deploy ships it. `-f delete_snapshot=<sh-id>` (alone or with a promotion)
+deletes one spare image snapshot by exact id (`cleanup.ts --snapshot`); it refuses an id or name
+that any `channels/*.json` (pointer, previous, history, notes) or `wrangler.jsonc` mentions, or a
+snapshot not named `cmuxnp-dev-vmimg-*`, in the checkout and in feat-cmux-next fetched just before the delete, and prints every reference it found.
+
 ## Ship a migration end to end
 
 ```bash
@@ -246,6 +261,7 @@ smoke (`--expect-capabilities <bake json>` checks the fresh clone's handshake), 
 - Bad migration: roll the code back first, then the file's own `-- Rollback` section (the apply receipt lists it, newest first). Expand migrations normally stay in place.
 - Bad image: `bun images/cmux-vm/promote.ts --channel <c> [--var TEAM_VM_SNAPSHOT] --rollback`, then deploy that env; after the deploy `wrangler rollback <version> --name cmux-api-<env>` undoes it at once.
 - A deploy that adds, renames or deletes a Durable Object class cannot be rolled back across (Cloudflare refuses the rollback). Fix forward only; say so in the landing note.
+- Production cmux-api, one command: `gh workflow run backend.yml --repo manaflow-ai/cmux --ref feat-cmux-next -f target=rollback` (job rollback-production, `prod-promote.ts rollback --execute`): back to the version that served before the current code deployment. It refuses across a DO lifecycle change (env.production.migrations differ between the two source commits). The Chief brain's off switch for that case: `-f target=chief-off` deploys the serving commit again with `CHIEF_BRAIN_ENABLED` "0" (same code, same lifecycle), so `target=rollback` afterwards turns the brain on again. Dry run locally: `bun scripts/cmux-next/release/prod-promote.ts rollback`.
 
 ## Production settings changes (no code)
 
@@ -305,6 +321,7 @@ deploy-staging and on `workflow_dispatch target=promote`:
   candidate, runs `deploy-worker.sh production` with `CMUX_DEPLOY_NO_SECRETS=1
   CMUX_RELEASE_PROMOTE=1` (production keeps its own secrets; CI sends none), then the
   worker-release smoke.
+- **Exact-SHA promote** (2026-10-19): `gh workflow run backend.yml --repo manaflow-ai/cmux --ref feat-cmux-next -f target=promote -f candidate=<40-hex sha>`. G1 must then prove that commit itself (its own green staging run, 60 min soak, no red staging deploy in that window); every other gate is unchanged. The hold accepts a one-shot value `released:<40-hex sha>`: it releases only that commit (gates and recheck), so no other push can promote while it is set; set it back to a hold value after the deploy. The runbook is HQ `skills/infra/cloud-api-promote`.
 - **Staleness**: `prod-promote.ts stale` fails when production has no source tag, lacks a
   commit staging proved more than 24 h ago, or is more than 20 backend commits behind the newest
   staging-proven commit. `--issue` opens or comments on the issue labeled `prod-stale` and closes

@@ -4,7 +4,9 @@ use std::collections::BTreeSet;
 
 use serde_json::{Value, json};
 
-use super::{Choice, DomainKind, Kind, NumberRange, Row, new_tab_page_url_is_valid};
+use super::{
+    Choice, DomainKind, Kind, NumberRange, Row, is_http_origin, new_tab_page_url_is_valid,
+};
 use crate::domains::Domains;
 use crate::refusal::Refusal;
 use crate::text::{
@@ -24,6 +26,11 @@ pub enum Accepted {
         min: f64,
         max: f64,
     },
+    /// One of the choices, or an object of the shape described in words.
+    ChoicesOrShape {
+        choices: Vec<String>,
+        shape: String,
+    },
     /// A fixed shape, described in words (`boolean`, `#RRGGBB or #RRGGBBAA`, ...).
     Shape(&'static str),
     /// A name from a value domain; `values` is `None` while the app has not
@@ -42,6 +49,9 @@ impl Accepted {
             Accepted::ChoicesOrRange { choices, min, max } => {
                 json!({"choices": choices, "range": {"min": min, "max": max}})
             }
+            Accepted::ChoicesOrShape { choices, shape } => {
+                json!({"choices": choices, "shape": shape})
+            }
             Accepted::Shape(shape) => json!({"shape": shape}),
             Accepted::Domain { name, values } => json!({"domain": name, "values": values}),
         }
@@ -55,13 +65,17 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
         return Ok(());
     }
     let accepted = if is_backdrop_selection(row) {
-        Accepted::Shape("none, a listed painting, or system:<absolute path>")
+        Accepted::Shape(
+            "none, a listed painting, system:<absolute path>, file:<absolute path> or folder:<absolute path>",
+        )
     } else if row.validation == super::Validation::Domain(DomainKind::ChatRoots) {
         Accepted::Shape(
             "an array of absolute folders outside / , the home folder, other volumes and privacy-protected folders",
         )
     } else if row.validation == super::Validation::Domain(DomainKind::SearchTemplate) {
         Accepted::Shape("an address with %s or {searchTerms}, or \"\"")
+    } else if row.validation == super::Validation::Domain(DomainKind::CustomDensities) {
+        Accepted::Shape("an array of density objects, each with a lowercase id and a name")
     } else {
         accepted(&row.kind, domains)
     };
@@ -98,12 +112,24 @@ fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
         super::Validation::Domain(DomainKind::SearchTemplate) => {
             return value.as_str().is_some_and(is_search_template);
         }
+        super::Validation::Domain(DomainKind::CustomDensities) => {
+            return value.as_array().is_some_and(|items| items.iter().all(is_custom_density));
+        }
         _ => {}
     }
     if is_backdrop_selection(row) {
         let Some(text) = value.as_str() else { return false };
-        let system_path = text.strip_prefix("system:").is_some_and(|path| path.starts_with('/'));
-        return system_path || is_accepted(&row.kind, value, domains);
+        // `system:<absolute path>` (a macOS wallpaper), `file:<absolute
+        // path>` (the person's own image) or `folder:<absolute path>` (the
+        // pictures of a folder shuffled, never `/` alone), as Swift
+        // `BackdropSelectionSetting`.
+        let path = ["system:", "file:"]
+            .iter()
+            .any(|prefix| text.strip_prefix(prefix).is_some_and(|path| path.starts_with('/')));
+        let folder = text
+            .strip_prefix("folder:")
+            .is_some_and(|path| path.starts_with('/') && path.len() > 1);
+        return path || folder || is_accepted(&row.kind, value, domains);
     }
     is_accepted(&row.kind, value, domains)
 }
@@ -114,6 +140,14 @@ fn is_accepted(kind: &Kind, value: &Value, domains: &Domains) -> bool {
         Kind::ChoiceOrNumber(choices, range) => match value {
             Value::String(text) => has_choice(choices, text),
             Value::Number(number) => number.as_f64().is_some_and(|x| in_range(range, x)),
+            _ => false,
+        },
+        Kind::ChoiceOrUrl(choices, url_key) => match value {
+            Value::String(text) => has_choice(choices, text),
+            Value::Object(members) => {
+                members.len() == 1
+                    && members.get(url_key).and_then(Value::as_str).is_some_and(is_http_origin)
+            }
             _ => false,
         },
         Kind::Toggle => value.is_boolean(),
@@ -134,6 +168,7 @@ fn is_accepted(kind: &Kind, value: &Value, domains: &Domains) -> bool {
             value.as_str().is_some_and(|text| font_ok(text, domains.font_families.as_ref()))
         }
         Kind::Sound => value.as_str().is_some_and(|text| sound_ok(text, domains.sounds.as_ref())),
+        Kind::Text => value.is_string(),
         Kind::FolderList => value.as_array().is_some_and(|items| {
             items.iter().all(|item| {
                 item.as_str().is_some_and(|path| path.starts_with('/') || path.starts_with("~/"))
@@ -153,7 +188,58 @@ fn is_accepted(kind: &Kind, value: &Value, domains: &Domains) -> bool {
         Kind::StringMap => {
             value.as_object().is_some_and(|members| members.values().all(Value::is_string))
         }
+        Kind::SoundRules => {
+            value.as_object().is_some_and(|members| members.values().all(is_sound_rule))
+        }
     }
+}
+
+/// The events a sound rule may name (Swift `NotificationSoundEvent`).
+pub(crate) const SOUND_RULE_EVENTS: [&str; 5] =
+    ["finished", "needsInput", "error", "bell", "message"];
+
+/// Swift `NotificationSoundRule.accepts`: a sound name, or an object of an
+/// optional string `sound`, an optional `volume` from 0 to 1, and optional
+/// `events` naming known events with string sounds; nothing else.
+fn is_sound_rule(value: &Value) -> bool {
+    if value.is_string() {
+        return true;
+    }
+    let Some(members) = value.as_object() else { return false };
+    members.iter().all(|(key, member)| match key.as_str() {
+        "sound" => member.is_string(),
+        "volume" => member.as_f64().is_some_and(|x| x.is_finite() && (0.0..=1.0).contains(&x)),
+        "events" => member.as_object().is_some_and(|events| {
+            events.iter().all(|(name, sound)| {
+                SOUND_RULE_EVENTS.contains(&name.as_str()) && sound.is_string()
+            })
+        }),
+        _ => false,
+    })
+}
+
+/// Swift `CustomDensitiesSetting.density(from:)`: an object with a density
+/// id (1 to 64 lowercase ASCII letters, digits and hyphens, not starting with
+/// a hyphen), a non-blank name, optional finite `level`, `spacing` and
+/// `fontSize` numbers, and optional `tokens` of non-negative finite numbers.
+fn is_custom_density(value: &Value) -> bool {
+    let Some(members) = value.as_object() else { return false };
+    let id_ok = members.get("id").and_then(Value::as_str).is_some_and(|id| {
+        (1..=64).contains(&id.chars().count())
+            && !id.starts_with('-')
+            && id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    });
+    let name_ok =
+        members.get("name").and_then(Value::as_str).is_some_and(|name| !name.trim().is_empty());
+    let numbers_ok = ["level", "spacing", "fontSize"]
+        .iter()
+        .all(|key| members.get(*key).is_none_or(|v| v.as_f64().is_some_and(f64::is_finite)));
+    let tokens_ok = members.get("tokens").is_none_or(|tokens| {
+        tokens.as_object().is_some_and(|entries| {
+            entries.values().all(|v| v.as_f64().is_some_and(|x| x.is_finite() && x >= 0.0))
+        })
+    });
+    id_ok && name_ok && numbers_ok && tokens_ok
 }
 
 /// Swift `BrowserOmnibarSetting.isSearchTemplate`: empty, or an address
@@ -220,6 +306,10 @@ fn accepted(kind: &Kind, domains: &Domains) -> Accepted {
         Kind::ChoiceOrNumber(choices, range) => {
             Accepted::ChoicesOrRange { choices: values(choices), min: range.min, max: range.max }
         }
+        Kind::ChoiceOrUrl(choices, url_key) => Accepted::ChoicesOrShape {
+            choices: values(choices),
+            shape: format!("{{\"{url_key}\": \"http(s)://host[:port]\"}}"),
+        },
         Kind::Number(range) => Accepted::Range { min: range.min, max: range.max },
         Kind::Toggle => Accepted::Shape("boolean"),
         Kind::Color => Accepted::Shape("#RRGGBB or #RRGGBBAA"),
@@ -231,11 +321,15 @@ fn accepted(kind: &Kind, domains: &Domains) -> Accepted {
             domain(domain_name(DomainKind::FontFamily), domains.font_families.as_ref())
         }
         Kind::Sound => domain(domain_name(DomainKind::Sound), domains.sounds.as_ref()),
+        Kind::Text => Accepted::Shape("a string"),
         Kind::FolderList => Accepted::Shape("an array of /absolute or ~/ folder paths"),
         Kind::StringList => Accepted::Shape("an array of non-empty strings"),
         Kind::OrderedChoices(choices) => Accepted::Choices(values(choices)),
         Kind::NumberList(range) => Accepted::Range { min: range.min, max: range.max },
         Kind::StringMap => Accepted::Shape("an object of strings"),
+        Kind::SoundRules => Accepted::Shape(
+            "an object of sound names or {\"sound\": name, \"volume\": 0...1, \"events\": {event: name}}",
+        ),
     }
 }
 
@@ -247,5 +341,6 @@ fn domain_name(kind: DomainKind) -> &'static str {
         DomainKind::BackdropSelection => "backdrop_selection",
         DomainKind::ChatRoots => "chat_roots",
         DomainKind::SearchTemplate => "search_template",
+        DomainKind::CustomDensities => "custom_densities",
     }
 }

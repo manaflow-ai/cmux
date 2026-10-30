@@ -3,21 +3,23 @@
 // a rim thinner than one device pixel (the 0.5px rim on a 1x display, a 1px ring at 125% zoom)
 // loses whole edges and the arcs next to them. Linux engines draw such a rim fine, so this checks
 // the geometry contract instead: at each device scale, every inset ring on these boxes is a whole
-// number of device pixels (the rim one, the focus ring one at 1x and 2x), and the composer's rim
-// clears with `appearance.borders` none, as the New Tab box's does.
+// number of device pixels (the rim one at 1x and 2x), and the composer's rim clears with
+// `appearance.borders` none, as the New Tab box's does. Focus draws no ring and no glass rim: a
+// focused box keeps its one rim at the same width, a step brighter (Leo 2026-10-21: "a subtle
+// hairline border that brightens slightly on focus"; agent-pane-hairline-focus.test.ts).
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
-type Inset = { spread: number; alpha: number };
+type Inset = { offsetY: number; spread: number; alpha: number };
 
 await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
-  /** The composer edge's alpha over this page's transparent background, and its quiet focus step: 8% text over the edge. */
+  /** The composer edge's alpha over this page's transparent background, focused or not. */
   const EDGE = 0.18;
-  const FOCUS = 0.08 + 0.92 * EDGE;
   setDefaultTimeout(120_000);
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -38,6 +40,7 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/test/browser/composer-rim.html");
     browser = await chromium.launch({ headless: true });
   });
   afterAll(async () => {
@@ -80,7 +83,7 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
           const alphaMatch = color.match(/\/\s*([\d.]+)\)|rgba\([^,]+,[^,]+,[^,]+,\s*([\d.]+)\)/);
           const alpha =
             color === "" || color.includes("transparent") ? 0 : alphaMatch ? Number(alphaMatch[1] ?? alphaMatch[2]) : 1;
-          return { spread: lengths[3] ?? 0, alpha };
+          return { offsetY: lengths[1] ?? 0, spread: lengths[3] ?? 0, alpha };
         });
     }, id);
   }
@@ -91,12 +94,15 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
   }
 
   for (const scale of [1, 1.25, 2]) {
-    test(`at ${scale}x the rims are one device pixel and the focus rings whole device pixels`, async () => {
+    test(`at ${scale}x the rims are one device pixel, and focus leaves them as they rest`, async () => {
       const page = await open(scale);
       for (const id of ["composer", "newtab"]) {
         const rest = await insets(page, id);
         expect(rest.length, `${id} draws a rim`).toBeGreaterThan(0);
-        for (const { spread } of rest) expect(devicePixels(spread, scale), `${id} rim at ${scale}x`).toBe(1);
+        // A ring's spread, or a glass rim line's offset (the composer's top-lit and bottom lines,
+        // which have no spread), is one device pixel.
+        for (const { offsetY, spread } of rest)
+          expect(devicePixels(Math.abs(spread || offsetY), scale), `${id} rim at ${scale}x`).toBe(1);
       }
       // The rims keep their colors: only the width changed.
       // The rim is the composer edge hairline (--acpmux-composer-edge: 18% text, hq#1957).
@@ -110,21 +116,15 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
         ["shell", "shell-field"],
         ["newtab", "newtab-field"],
       ]) {
+        const rest = await insets(page, id);
         await page.focus(`#${field}`);
-        const ring = await insets(page, id);
-        expect(ring.length, `${id} draws a focus ring`).toBeGreaterThan(0);
-        if (id === "composer") expect(ring[0]?.alpha, "composer focus rim alpha").toBeCloseTo(FOCUS, 2);
-        for (const { spread } of ring) {
-          const pixels = devicePixels(spread, scale);
-          expect(Number.isInteger(pixels) && pixels >= 1, `${id} focus ring at ${scale}x is ${pixels} device px`).toBe(
-            true,
-          );
-          // The ring keeps its 1px look: one CSS pixel wherever a CSS pixel is whole device pixels.
-          // The New Tab box and the chat composer keep their one-device-pixel rim on focus
-          // (newtab-quiet-focus.test.ts); the shell's mode ring stays one CSS pixel.
-          if (id !== "shell") expect(pixels, `${id} focus rim at ${scale}x`).toBe(1);
-          else if (Number.isInteger(scale)) expect(spread, `${id} focus ring at ${scale}x`).toBe(1);
-        }
+        // No focus ring: the focused box keeps its resting rim's width (the shell its tone too).
+        const focused = await insets(page, id);
+        expect(
+          focused.map(({ spread }) => spread),
+          `${id} focused keeps its rim's width`,
+        ).toEqual(rest.map(({ spread }) => spread));
+        if (id === "shell") expect(focused, "the shell's accent rim stays as it rests").toEqual(rest);
       }
       await page.close();
     });
@@ -137,6 +137,76 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
       const rim = await insets(page, id);
       for (const { alpha } of rim) expect(alpha, `${id} rim with borders none`).toBe(0);
     }
+    await page.close();
+  });
+
+  // The glass card adds a top-lit rim, one device pixel (--cmux-hairline): over art under Lens the
+  // liquid glass's specular line, under Plain glass the composer's light rim (composerStates.css).
+  // Under a queue the card's ring is drawn once, by the ::before layer whose sides the queue carries
+  // on up (composerLocation.css), so the card itself must not draw the ring a second time. Under a
+  // new chat's location strip the card keeps its own whole ring and no layer (#25304, Leo
+  // 2026-10-25: the strip's chips stand over the started chat's card).
+  for (const [mode, rim] of [
+    ["lens", "0px 0.5px 0px 0px inset"],
+    ["plain", "0px 0.5px 0px 0px inset"],
+  ] as const) {
+    test(`over art a card under a queue draws the ${mode} rim but not a second ring; under a strip its own`, async () => {
+      const page = await open(2);
+      await page.evaluate((mode) => {
+        document.documentElement.setAttribute("data-cmux-see-through", "");
+        document.documentElement.setAttribute("data-glass", mode);
+      }, mode);
+      const ring = (id: string) => insets(page, id).then((all) => all.filter(({ spread }) => spread > 0));
+      const shadow = (id: string, pseudo?: string) =>
+        page.evaluate(
+          ([id, pseudo]) => getComputedStyle(document.getElementById(id!)!, pseudo).boxShadow,
+          [id, pseudo],
+        );
+      expect((await ring("composer")).length, "a card on its own keeps its ring").toBe(1);
+      expect(await ring("queue-composer"), "queue-composer draws no ring of its own").toEqual([]);
+      expect(await shadow("queue-composer"), "queue-composer keeps the glass rim").toContain(rim);
+      expect(await shadow("queue-composer", "::before"), "queue-composer's ring layer").toMatch(/inset/);
+      expect((await ring("strip-composer")).length, "strip-composer keeps its one ring").toBe(1);
+      expect(await shadow("strip-composer"), "strip-composer keeps the glass rim").toContain(rim);
+      expect(await shadow("strip-composer", "::before"), "no ring layer round the strip").toBe("none");
+      await page.close();
+    });
+  }
+
+  // Over art the glass card keeps its top-lit rim (#21786) as it rests: focus never brightens it
+  // (#22114's glass focus rim flashed, Leo 2026-10-19); only the hairline ring takes its focused step.
+  test("over art focus leaves the glass card's top-lit rim as it rests and adds no ring", async () => {
+    const page = await open(2);
+    await page.evaluate(() => document.documentElement.setAttribute("data-cmux-see-through", ""));
+    const topRim = async () => (await insets(page, "composer")).find(({ spread }) => spread === 0)?.alpha ?? 0;
+    const rest = await insets(page, "composer");
+    const restTop = await topRim();
+    expect(restTop, "the glass card draws its top-lit rim").toBeGreaterThan(0);
+    await page.focus("#composer-field");
+    expect(await topRim(), "focus leaves the top-lit rim").toBe(restTop);
+    expect(
+      (await insets(page, "composer")).map(({ spread }) => spread),
+      "focus adds no ring and widens none",
+    ).toEqual(rest.map(({ spread }) => spread));
+    await page.close();
+  });
+
+  test("pointer focus on a chip leaves the composer rim; the prompt's focus brightens it a step", async () => {
+    const page = await open(2);
+    const rest = await insets(page, "composer");
+    const chip = page.locator("#composer-chip");
+    await chip.click();
+    // A mouse press may focus the chip, but it is not keyboard focus and must not change the card.
+    expect(await insets(page, "composer")).toEqual(rest);
+
+    // Move from the chip to the prompt with a real reverse-Tab. The prompt is then :focus-visible,
+    // and the card draws its one rim, the same width, a step brighter.
+    await chip.focus();
+    await page.keyboard.press("Shift+Tab");
+    expect(await page.evaluate(() => document.activeElement?.id)).toBe("composer-field");
+    const focused = await insets(page, "composer");
+    expect(focused.map(({ spread }) => spread)).toEqual(rest.map(({ spread }) => spread));
+    expect(focused[0].alpha, "a step brighter").toBeGreaterThan(rest[0].alpha);
     await page.close();
   });
 });

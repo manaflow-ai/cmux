@@ -89,7 +89,7 @@ import Testing
         await settle { harness.scope.backdropSelection == .art(.daily(on: today, calendar: calendar)) }
         let tomorrow = BackdropArt.nextDay(after: today, calendar: calendar).addingTimeInterval(60)
         harness.terminal.now = { tomorrow }
-        harness.terminal.showDailyArt()
+        harness.terminal.showShuffledArt()
         #expect(harness.scope.backdropSelection == .art(.daily(on: tomorrow, calendar: calendar)))
         #expect(harness.scope.backdropSelection != .art(.daily(on: today, calendar: calendar)))
     }
@@ -122,9 +122,8 @@ import Testing
         #expect(BackdropArt.daily(on: start.addingTimeInterval(3_600), calendar: calendar) == works[0])
     }
 
-    /// Over two passes of the catalog's size in days, Shuffle Daily never lands on Goya's Saturn
-    /// Devouring His Son (Leo's call: too scary for a daily backdrop).
-    @Test func shuffleDailyNeverShowsGoyasSaturn() async throws {
+    /// Over two passes of the catalog's size in days, Shuffle Daily shows a work every day.
+    @Test func shuffleDailyShowsAWorkEveryDay() async throws {
         let harness = try await make()
         defer { harness.tearDown() }
         _ = try await harness.page.call("cmux.settings.set", params: ["key": "appearance.background", "value": "daily"],
@@ -136,30 +135,17 @@ import Testing
         for _ in 0..<(2 * BackdropArt.allCases.count) {
             let now = day
             harness.terminal.now = { now }
-            harness.terminal.showDailyArt()
+            harness.terminal.showShuffledArt()
             if case let .art(art) = harness.scope.backdropSelection { shown.append(art) }
             day = BackdropArt.nextDay(after: now, calendar: calendar).addingTimeInterval(60)
         }
         #expect(shown.count == 2 * BackdropArt.allCases.count)
-        #expect(!shown.contains(.goyaSaturn))
     }
 
-    /// The daily set is listed by hand: every catalog work in catalog order except Saturn, no repeats.
-    @Test func theDailySetIsTheCatalogWithoutSaturn() {
+    /// The daily set is listed by hand: every catalog work in catalog order, no repeats.
+    @Test func theDailySetIsTheWholeCatalog() {
         let rotation = BackdropArt.dailyRotation
         #expect(Set(rotation).count == rotation.count)
-        #expect(Set(rotation).isSubset(of: Set(BackdropArt.allCases)))
-        #expect(rotation == BackdropArt.allCases.filter { $0 != .goyaSaturn })
-    }
-
-    /// Saturn stays in the picker, and choosing it by hand shows it.
-    @Test func goyasSaturnStaysPickableByHand() async throws {
-        #expect(BackdropCatalog.bundled.contains(.art(.goyaSaturn)))
-        let harness = try await make()
-        defer { harness.tearDown() }
-        _ = try await harness.page.call("cmux.settings.set", params: ["key": "appearance.background", "value": "goya-saturn"],
-                                        context: Self.gesture)
-        await settle { harness.scope.backdropSelection == .art(.goyaSaturn) }
-        #expect(harness.scope.backdropSelection == .art(.goyaSaturn))
+        #expect(rotation == BackdropArt.allCases)
     }
 }

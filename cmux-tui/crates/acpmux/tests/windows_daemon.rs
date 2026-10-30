@@ -5,6 +5,11 @@
 //! and a peer of another user is refused by the daemon and by the CLI.
 #![cfg(windows)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process starts no agent.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+
 use serde_json::Value;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -17,8 +22,20 @@ fn scratch(tag: &str) -> PathBuf {
     dir
 }
 
+/// `acpmux` in the hermetic environment; it starts no agent.
 fn acpmux(exe: &Path, home: &Path) -> Command {
+    acpmux_with(exe, home, daemon_env::Agents::Deny)
+}
+
+/// `acpmux` for a test whose daemon starts its stand-in agent (cmd.exe, or
+/// this test binary as `ctrl_break_agent`); only the system PATH.
+fn acpmux_agents(exe: &Path, home: &Path) -> Command {
+    acpmux_with(exe, home, daemon_env::Agents::StandIn)
+}
+
+fn acpmux_with(exe: &Path, home: &Path, agents: daemon_env::Agents) -> Command {
     let mut cmd = Command::new(exe);
+    daemon_env::apply(&mut cmd, home, agents, &[]);
     cmd.env("ACPMUX_HOME", home)
         .env("ACPMUX_CATALOG_FETCH", "0")
         .env("ACPMUX_REGISTRY_FETCH", "0")
@@ -38,7 +55,7 @@ fn spawns() -> std::sync::MutexGuard<'static, ()> {
 }
 
 fn exe() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_acpmux"))
+    daemon_env::bin().to_path_buf()
 }
 
 /// A daemon this test started; killed if the test ends early.
@@ -49,10 +66,33 @@ struct Daemon {
 
 impl Daemon {
     fn start(exe: &Path, home: &Path, log: PathBuf) -> Self {
+        Self::start_with(exe, home, log, daemon_env::Agents::Deny, None)
+    }
+
+    /// A daemon that starts its stand-in agents.
+    fn start_agents(exe: &Path, home: &Path, log: PathBuf) -> Self {
+        Self::start_with(exe, home, log, daemon_env::Agents::StandIn, None)
+    }
+
+    fn start_on_socket(exe: &Path, home: &Path, log: PathBuf, socket: &Path) -> Self {
+        Self::start_with(exe, home, log, daemon_env::Agents::Deny, Some(socket))
+    }
+
+    fn start_with(
+        exe: &Path,
+        home: &Path,
+        log: PathBuf,
+        agents: daemon_env::Agents,
+        socket: Option<&Path>,
+    ) -> Self {
         // Its log lines go to stdout, its errors to stderr: both to `log`.
         let out = std::fs::File::create(&log).unwrap();
         let err = out.try_clone().unwrap();
-        let child = acpmux(exe, home)
+        let mut command = acpmux_with(exe, home, agents);
+        if let Some(socket) = socket {
+            command.env("ACPMUX_SOCKET", socket);
+        }
+        let child = command
             .args(["daemon", "run", "--memory", "--listen", "127.0.0.1:0", "--log", "info"])
             .stdout(out)
             .stderr(err)
@@ -74,7 +114,15 @@ impl Drop for Daemon {
 }
 
 fn status(exe: &Path, home: &Path) -> Value {
-    let out = acpmux(exe, home).args(["--json", "status"]).output().expect("run acpmux status");
+    status_on_socket(exe, home, None)
+}
+
+fn status_on_socket(exe: &Path, home: &Path, socket: Option<&Path>) -> Value {
+    let mut command = acpmux(exe, home);
+    if let Some(socket) = socket {
+        command.env("ACPMUX_SOCKET", socket);
+    }
+    let out = command.args(["--json", "status"]).output().expect("run acpmux status");
     assert!(out.status.success(), "acpmux status failed: {}", text(&out));
     serde_json::from_slice(&out.stdout)
         .unwrap_or_else(|e| panic!("status JSON: {e}: {}", text(&out)))
@@ -91,12 +139,21 @@ fn text(out: &Output) -> String {
 
 /// `acpmux status` until the daemon with `pid` answers it over the socket.
 fn wait_ready(exe: &Path, home: &Path, daemon: &mut Daemon) -> Value {
+    wait_ready_on_socket(exe, home, None, daemon)
+}
+
+fn wait_ready_on_socket(
+    exe: &Path,
+    home: &Path,
+    socket: Option<&Path>,
+    daemon: &mut Daemon,
+) -> Value {
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
         if let Some(code) = daemon.child.try_wait().unwrap() {
             panic!("the daemon exited ({code}) before it was ready:\n{}", daemon.log());
         }
-        let v = status(exe, home);
+        let v = status_on_socket(exe, home, socket);
         if v.get("pid").and_then(Value::as_u64) == Some(u64::from(daemon.child.id())) {
             return v;
         }
@@ -196,6 +253,9 @@ fn read_line(stream: &mut cmux::local_socket::Stream, timeout: Duration) -> Stri
 /// Shared with the LocalService peer: a folder both users may enter (the
 /// hosted step makes it and grants Everyone access).
 const OTHER_USER_DIR: &str = r"C:\amx-peer";
+/// Private daemon state, separate from the shared executable/marker/socket directory.
+const OTHER_USER_HOME: &str = r"C:\amx-peer-home";
+const OTHER_USER_SOCKET: &str = r"C:\amx-peer\acpmux.sock";
 
 /// The daemon runs as this user; a peer of another user (LocalService, from
 /// a scheduled task the hosted step starts) connects twice: `acpmux status`
@@ -205,13 +265,14 @@ const OTHER_USER_DIR: &str = r"C:\amx-peer";
 #[ignore = "hosted Windows runner only: the step starts the LocalService peer"]
 fn other_user_peer_is_refused() {
     let dir = Path::new(OTHER_USER_DIR);
-    let home = dir.join("home");
-    std::fs::create_dir_all(&home).unwrap();
+    let home = Path::new(OTHER_USER_HOME);
+    let socket = Path::new(OTHER_USER_SOCKET);
+    let _ = std::fs::remove_dir_all(home);
     // The peer runs this copy: the build folder may be closed to it.
     let peer_exe = dir.join("acpmux.exe");
     std::fs::copy(exe(), &peer_exe).unwrap();
-    let mut daemon = Daemon::start(&exe(), &home, dir.join("daemon.log"));
-    wait_ready(&exe(), &home, &mut daemon);
+    let mut daemon = Daemon::start_on_socket(&exe(), home, dir.join("daemon.log"), socket);
+    wait_ready_on_socket(&exe(), home, Some(socket), &mut daemon);
     std::fs::write(dir.join("ready"), b"1").unwrap();
     let done = dir.join("child-done");
     let deadline = Instant::now() + Duration::from_secs(90);
@@ -238,14 +299,14 @@ fn other_user_peer_is_refused() {
 #[ignore = "run by the hosted runner's LocalService scheduled task"]
 fn other_user_child() {
     let dir = Path::new(OTHER_USER_DIR);
-    let home = dir.join("home");
-    let socket = home.join("acpmux.sock");
+    let home = Path::new(OTHER_USER_HOME);
+    let socket = Path::new(OTHER_USER_SOCKET);
     let identity = cmux::local_socket::win::current_identity().unwrap();
     let mut report = format!("user: {}\n", identity.user_sid);
     let out = Command::new(dir.join("acpmux.exe"))
         .args(["--json", "status"])
-        .env("ACPMUX_HOME", &home)
-        .env_remove("ACPMUX_SOCKET")
+        .env("ACPMUX_HOME", home)
+        .env("ACPMUX_SOCKET", socket)
         .output();
     match out {
         // The daemon runs, so "not running" is the CLI's refusal of a
@@ -258,7 +319,7 @@ fn other_user_child() {
         },
         Err(e) => report.push_str(&format!("cli: did not run: {e}\n")),
     }
-    match cmux::local_socket::connect(&socket) {
+    match cmux::local_socket::connect(socket) {
         Ok(mut stream) => {
             let _ = stream.write_all(
                 b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"_acpmux/status\",\"params\":{}}\n",
@@ -437,6 +498,74 @@ fn owner_only(path: &Path) -> bool {
         .unwrap_or_else(|e| panic!("read the access list of {}: {e}", path.display()))
 }
 
+fn grant_everyone_full(path: &Path) {
+    let granted = Command::new("icacls")
+        .arg(path)
+        .args(["/grant", "*S-1-1-0:(OI)(CI)F"])
+        .output()
+        .expect("run icacls");
+    assert!(granted.status.success(), "icacls failed: {}", text(&granted));
+}
+
+fn protect_for_current_user(path: &Path) {
+    let sid = cmux::local_socket::win::current_identity().unwrap().user_sid;
+    let grant = format!("*{sid}:(OI)(CI)F");
+    let protected = Command::new("icacls")
+        .arg(path)
+        .args(["/inheritance:r", "/grant:r", &grant])
+        .output()
+        .expect("run icacls");
+    assert!(protected.status.success(), "icacls failed: {}", text(&protected));
+}
+
+#[test]
+fn a_safe_direct_parent_below_a_writable_grandparent_is_refused() {
+    let _spawns = spawns();
+    let exe = exe();
+    let grand = scratch("wide-ancestor");
+    let parent = grand.join("private");
+    let home = parent.join("home");
+    std::fs::create_dir_all(&parent).unwrap();
+    grant_everyone_full(&grand);
+    protect_for_current_user(&parent);
+    assert!(owner_only(&parent), "the direct parent control is not private");
+    let out = acpmux(&exe, &home).args(["daemon", "start"]).output().unwrap();
+    if out.status.success() {
+        let _ = acpmux(&exe, &home).arg("shutdown").output();
+    }
+    assert!(!out.status.success(), "daemon trusted a replaceable state path: {}", text(&out));
+    let _ = std::fs::remove_dir_all(&grand);
+}
+
+#[test]
+fn a_linked_panic_log_never_changes_its_target() {
+    use std::os::windows::fs::symlink_file;
+
+    let _spawns = spawns();
+    let exe = exe();
+    let home = scratch("panic-link");
+    std::fs::create_dir_all(&home).unwrap();
+    let target = home.join("target.jsonl");
+    std::fs::write(&target, "unchanged\n").unwrap();
+    symlink_file(&target, home.join("panics.jsonl")).unwrap();
+    let log = std::env::temp_dir().join(format!("amxw-panic-link-{}.log", std::process::id()));
+    let out = std::fs::File::create(&log).unwrap();
+    let err = out.try_clone().unwrap();
+    let child = acpmux(&exe, &home)
+        .env("ACPMUX_TEST_PANIC", "thread")
+        .args(["daemon", "run", "--memory", "--listen", "127.0.0.1:0"])
+        .stdout(out)
+        .stderr(err)
+        .spawn()
+        .expect("start daemon");
+    let mut daemon = Daemon { child, log };
+    wait_ready(&exe, &home, &mut daemon);
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "unchanged\n");
+    let out = acpmux(&exe, &home).arg("shutdown").output().unwrap();
+    assert!(out.status.success(), "shutdown: {}", text(&out));
+    let _ = std::fs::remove_dir_all(&home);
+}
+
 /// What the daemon writes (mode 0600 / 0700 on Unix) is owner-only on
 /// Windows: config.json with its token, the per-launch LocalApp and peer
 /// token files and their run folder, and daemon.log of a started daemon.
@@ -548,5 +677,319 @@ fn two_starts_at_once_share_one_daemon() {
     let out = acpmux(&exe, &home).arg("shutdown").output().expect("run acpmux shutdown");
     assert!(out.status.success(), "acpmux shutdown failed: {}", text(&out));
     assert!(!pids[0].is_empty() && pids[0] == pids[1], "two daemons answered: {pids:?}");
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+/// How many ping.exe processes have `marker` in their command line.
+fn pings_with(marker: &str) -> usize {
+    let script = format!(
+        "@(Get-CimInstance Win32_Process -Filter \"Name='PING.EXE'\" | Where-Object {{ $_.CommandLine -like '*{marker}*' }}).Count"
+    );
+    let out = Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .output()
+        .expect("run powershell");
+    String::from_utf8_lossy(&out.stdout)
+        .trim()
+        .parse()
+        .unwrap_or_else(|_| panic!("count: {}", text(&out)))
+}
+
+/// Until `pings_with(marker)` is `want` (at least `want` with `at_least`),
+/// or `limit`.
+fn wait_pings(marker: &str, want: usize, limit: Duration) -> usize {
+    wait_pings_by(marker, |n| n == want, limit)
+}
+
+fn wait_pings_by(marker: &str, done: impl Fn(usize) -> bool, limit: Duration) -> usize {
+    let deadline = Instant::now() + limit;
+    loop {
+        let n = pings_with(marker);
+        if done(n) || Instant::now() >= deadline {
+            return n;
+        }
+        std::thread::sleep(Duration::from_millis(300));
+    }
+}
+
+/// A loopback address only this test pings, so its processes are found by
+/// command line.
+fn ping_marker(salt: u32) -> String {
+    let n = std::process::id().wrapping_add(salt);
+    format!("127.{}.{}.{}", 1 + n % 250, 1 + (n / 250) % 250, 1 + salt % 250)
+}
+
+/// A config with one harness `grand`: cmd.exe running `script`.
+fn grand_config(home: &Path, script: &str) {
+    std::fs::create_dir_all(home).unwrap();
+    let config = serde_json::json!({
+        "harnesses": {"grand": {"argv": ["cmd.exe", "/d", "/c", script]}},
+        "defaultHarness": "grand",
+        "permissionPolicy": "approve-all",
+    });
+    std::fs::write(home.join("config.json"), config.to_string()).unwrap();
+}
+
+/// An agent that starts a background process and exits at once: the
+/// process it left (in the agent's job) is ended, as killpg ends the
+/// agent's group on Unix.
+#[test]
+fn an_agent_leaves_no_process_behind_when_it_exits() {
+    let _spawns = spawns();
+    let exe = exe();
+    let home = scratch("jobexit");
+    let marker = ping_marker(1);
+    grand_config(&home, &format!("start /b ping -n 300 {marker}"));
+    let out = acpmux_agents(&exe, &home).args(["daemon", "start"]).output().expect("daemon start");
+    assert!(out.status.success(), "acpmux daemon start failed: {}", text(&out));
+    let new = acpmux_agents(&exe, &home)
+        .args(["new", "--detach", "--cwd"])
+        .arg(&home)
+        .output()
+        .expect("run acpmux new");
+    let left = wait_pings(&marker, 0, Duration::from_secs(20));
+    let out = acpmux_agents(&exe, &home).arg("shutdown").output().expect("run acpmux shutdown");
+    assert!(out.status.success(), "acpmux shutdown failed: {}", text(&out));
+    assert_eq!(left, 0, "the agent's background ping outlived it (acpmux new: {})", text(&new));
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+/// A running agent and what it started end with the daemon even when the
+/// daemon is killed outright: the agent's job is kill-on-close.
+#[test]
+fn a_killed_daemon_takes_its_agents_with_it() {
+    let _spawns = spawns();
+    let exe = exe();
+    let home = scratch("jobkill");
+    let marker = ping_marker(2);
+    grand_config(&home, &format!("start /b ping -n 300 {marker} & ping -n 300 {marker}"));
+    let log = std::env::temp_dir().join(format!("amxw-jobkill-{}.log", std::process::id()));
+    let mut daemon = Daemon::start_agents(&exe, &home, log);
+    wait_ready(&exe, &home, &mut daemon);
+    // The agent never answers `initialize`: `new` waits; the agent runs.
+    let mut new = acpmux_agents(&exe, &home)
+        .args(["new", "--detach", "--cwd"])
+        .arg(&home)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn acpmux new");
+    // The session's agent and the harness's model probe each run both.
+    let running = wait_pings_by(&marker, |n| n >= 2, Duration::from_secs(30));
+    daemon.child.kill().unwrap();
+    let _ = daemon.child.wait();
+    let left = wait_pings(&marker, 0, Duration::from_secs(20));
+    let _ = new.kill();
+    let _ = new.wait();
+    assert!(running >= 2, "the agent and its background ping did not start:\n{}", daemon.log());
+    assert_eq!(left, 0, "processes of a killed daemon's agent survived:\n{}", daemon.log());
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+/// Stopping a running agent asks first: its process group gets Ctrl+Break
+/// (SIGTERM on Unix), and only after the grace does the job end it. The
+/// agent is this test binary's `ctrl_break_agent`, which records the event.
+#[test]
+fn a_stopped_agent_gets_ctrl_break_before_its_job_ends() {
+    let _spawns = spawns();
+    let exe = exe();
+    let home = scratch("jobbreak");
+    std::fs::create_dir_all(&home).unwrap();
+    // The agent runs a copy: the build folder may be locked by other runs.
+    let agent = home.join("agent.exe");
+    std::fs::copy(std::env::current_exe().unwrap(), &agent).unwrap();
+    let config = serde_json::json!({
+        "harnesses": {"breaker": {"argv": [agent, "--ignored", "--exact", "ctrl_break_agent", "--test-threads", "1"]}},
+        "defaultHarness": "breaker",
+        "permissionPolicy": "approve-all",
+    });
+    std::fs::write(home.join("config.json"), config.to_string()).unwrap();
+    let log = std::env::temp_dir().join(format!("amxw-jobbreak-{}.log", std::process::id()));
+    let mut daemon = Daemon::start_agents(&exe, &home, log);
+    wait_ready(&exe, &home, &mut daemon);
+    let mut new = acpmux_agents(&exe, &home)
+        .args(["new", "--detach", "--cwd"])
+        .arg(&home)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn acpmux new");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !home.join("agent-ready").exists() {
+        assert!(Instant::now() < deadline, "the agent did not start:\n{}", daemon.log());
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let out = acpmux_agents(&exe, &home).arg("shutdown").output().expect("run acpmux shutdown");
+    let _ = new.kill();
+    let _ = new.wait();
+    let _ = daemon.child.wait();
+    assert!(out.status.success(), "acpmux shutdown failed: {}", text(&out));
+    assert!(
+        home.join("agent-ctrl-break").exists(),
+        "the agent got no Ctrl+Break before its job ended:\n{}",
+        daemon.log()
+    );
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+/// The agent of `a_stopped_agent_gets_ctrl_break_before_its_job_ends`:
+/// records a Ctrl+Break in its session folder, handles it, and keeps
+/// running until its job ends.
+#[test]
+#[ignore = "run as an agent by a_stopped_agent_gets_ctrl_break_before_its_job_ends"]
+fn ctrl_break_agent() {
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn SetConsoleCtrlHandler(
+            handler: Option<unsafe extern "system" fn(u32) -> i32>,
+            add: i32,
+        ) -> i32;
+    }
+    static HOME: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    unsafe extern "system" fn on_ctrl(event: u32) -> i32 {
+        // CTRL_BREAK_EVENT
+        if event == 1 {
+            if let Some(home) = HOME.get() {
+                let _ = std::fs::write(home.join("agent-ctrl-break"), b"1");
+            }
+            return 1;
+        }
+        0
+    }
+    // The session folder (`acpmux new --cwd`) is the agent's current folder.
+    let home = std::env::current_dir().unwrap();
+    HOME.set(home.clone()).unwrap();
+    // SAFETY: a static handler for this process.
+    assert_ne!(unsafe { SetConsoleCtrlHandler(Some(on_ctrl), 1) }, 0);
+    std::fs::write(home.join("agent-ready"), b"1").unwrap();
+    std::thread::sleep(Duration::from_secs(300));
+}
+
+/// One JSON line to the router's admin socket and its one-line answer.
+fn router_ask(socket: &Path, line: &str) -> Value {
+    let mut stream = cmux::local_socket::connect_same_user(socket)
+        .unwrap_or_else(|e| panic!("connect {}: {e}", socket.display()));
+    stream.write_all(format!("{line}\n").as_bytes()).unwrap();
+    let answer = read_line(&mut stream, Duration::from_secs(30));
+    serde_json::from_str(&answer).unwrap_or_else(|e| panic!("{e}: {answer}"))
+}
+
+/// Until the router socket answers status, or `deadline`.
+fn router_status(socket: &Path, deadline: Instant) -> Value {
+    loop {
+        if std::fs::symlink_metadata(socket).is_ok()
+            && let Ok(mut stream) = cmux::local_socket::connect_same_user(socket)
+        {
+            stream.write_all(b"{\"op\":\"status\"}\n").unwrap();
+            let answer = read_line(&mut stream, Duration::from_secs(30));
+            return serde_json::from_str(&answer).unwrap_or_else(|e| panic!("{e}: {answer}"));
+        }
+        assert!(Instant::now() < deadline, "the router never answered on {}", socket.display());
+        std::thread::sleep(Duration::from_millis(200));
+    }
+}
+
+/// `acpmux router serve` binds its admin socket in an owner-only router
+/// folder, answers status with its loopback port, and stops on shutdown.
+#[test]
+fn the_router_serves_its_admin_socket_and_stops() {
+    let _spawns = spawns();
+    let exe = exe();
+    let home = scratch("router");
+    let mut router = acpmux(&exe, &home)
+        .args(["router", "serve"])
+        .env("CMUX_ROUTER_BUILD", "test-build")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn acpmux router serve");
+    let socket = home.join("router").join("router.sock");
+    let status = router_status(&socket, Instant::now() + Duration::from_secs(60));
+    assert_eq!(status.get("build").and_then(Value::as_str), Some("test-build"), "{status}");
+    assert_eq!(status.get("pid").and_then(Value::as_u64), Some(u64::from(router.id())), "{status}");
+    assert!(status.get("port").and_then(Value::as_u64).is_some_and(|p| p > 0), "{status}");
+    assert!(owner_only(&home.join("router")), "the router folder is not owner-only");
+    let stop = router_ask(&socket, r#"{"op":"shutdown"}"#);
+    assert_eq!(stop.get("stopping"), Some(&Value::Bool(true)), "{stop}");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let code = loop {
+        if let Some(code) = router.try_wait().unwrap() {
+            break code;
+        }
+        if Instant::now() >= deadline {
+            let _ = router.kill();
+            panic!("the router did not stop after shutdown");
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    assert!(code.success(), "the router exited with {code}");
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+/// A process handle with SYNCHRONIZE, opened by pid.
+struct Process(windows_sys::Win32::Foundation::HANDLE);
+
+impl Process {
+    fn open(pid: u32) -> Self {
+        use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_SYNCHRONIZE};
+        // SAFETY: no pointers; a pid that is gone only fails.
+        let handle = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
+        assert!(!handle.is_null(), "open process {pid}: {}", std::io::Error::last_os_error());
+        Self(handle)
+    }
+
+    fn exits_within(&self, limit: Duration) -> bool {
+        use windows_sys::Win32::Foundation::WAIT_OBJECT_0;
+        use windows_sys::Win32::System::Threading::WaitForSingleObject;
+        let millis = u32::try_from(limit.as_millis()).unwrap_or(u32::MAX);
+        // SAFETY: a process handle owned here.
+        unsafe { WaitForSingleObject(self.0, millis) == WAIT_OBJECT_0 }
+    }
+}
+
+impl Drop for Process {
+    fn drop(&mut self) {
+        // SAFETY: a handle opened in `open`, closed once.
+        unsafe { windows_sys::Win32::Foundation::CloseHandle(self.0) };
+    }
+}
+
+/// A daemon started with ACPMUX_LOCAL_ROUTER=1 starts the router with its
+/// build, in a kill-on-close job the daemon holds: `taskkill /F` of the
+/// daemon's exact pid (no shutdown path runs) ends the router within 1 s.
+#[test]
+fn a_killed_daemon_takes_its_router_with_it() {
+    let _spawns = spawns();
+    let exe = exe();
+    let home = scratch("routerkill");
+    let log = std::env::temp_dir().join(format!("amxw-routerkill-{}.log", std::process::id()));
+    let out = std::fs::File::create(&log).unwrap();
+    let err = out.try_clone().unwrap();
+    let child = acpmux(&exe, &home)
+        .env("ACPMUX_LOCAL_ROUTER", "1")
+        .args(["daemon", "run", "--memory", "--listen", "127.0.0.1:0", "--log", "info"])
+        .stdout(out)
+        .stderr(err)
+        .spawn()
+        .expect("spawn acpmux daemon run");
+    let mut daemon = Daemon { child, log };
+    wait_ready(&exe, &home, &mut daemon);
+    let socket = home.join("router").join("router.sock");
+    let status = router_status(&socket, Instant::now() + Duration::from_secs(60));
+    let build = status.get("build").and_then(Value::as_str).unwrap_or_default();
+    assert!(!build.is_empty(), "the router has no build: {status}");
+    let router_pid = status.get("pid").and_then(Value::as_u64).expect("router pid");
+    let router_pid = u32::try_from(router_pid).unwrap();
+    // Opened before the kill, so the pid cannot be reused under the wait.
+    let router = Process::open(router_pid);
+    let pid = daemon.child.id().to_string();
+    let out = Command::new("taskkill").args(["/F", "/PID", &pid]).output().expect("run taskkill");
+    assert!(out.status.success(), "taskkill failed: {}", text(&out));
+    let _ = daemon.child.wait();
+    assert!(
+        router.exits_within(Duration::from_secs(1)),
+        "the router (pid {router_pid}) outlived the killed daemon:\n{}",
+        daemon.log()
+    );
     let _ = std::fs::remove_dir_all(&home);
 }

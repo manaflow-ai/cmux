@@ -67,7 +67,7 @@ if sys.argv[1:2] == ["run"]:
     while True:
         conn = s.accept()[0]
         threading.Thread(target=serve, args=(conn,), daemon=True).start()
-elif sys.argv[1:2] == ["shutdown"]:
+elif sys.argv[1:] == ["shutdown", "--end-agents"]:  # the brain ends its agents (cx-qryd0)
     record("shutdown")
     os.kill(int(open(home + "/run.pid").read()), signal.SIGTERM)
 "#;
@@ -244,8 +244,20 @@ fn two_chiefs_on_one_acpmux_reach_only_their_own_sessions() {
 /// A host on `acpmux_home` (it starts the fake there), stopped with SIGTERM
 /// once the fake runs; the fake's pid.
 fn host_stops(dir: &Path, mux_home: &Path, acpmux_home: &Path, shared: Option<&Path>) -> i32 {
+    let host = start_host(dir, mux_home, acpmux_home, shared);
+    stop_host(host, acpmux_home)
+}
+
+/// A host of the Chief at `mux_home` on `acpmux_home` (it starts the fake
+/// there when none answers).
+fn start_host(
+    dir: &Path,
+    mux_home: &Path,
+    acpmux_home: &Path,
+    shared: Option<&Path>,
+) -> std::process::Child {
     let bin = fake_acpmux(acpmux_home);
-    let token = dir.join("agent-token");
+    let token = dir.join(format!("agent-token-{}", home_id(mux_home)));
     std::fs::write(&token, "secret\n").unwrap();
     let mut command = Command::new(env!("CARGO_BIN_EXE_optchat-chief"));
     command
@@ -273,7 +285,12 @@ fn host_stops(dir: &Path, mux_home: &Path, acpmux_home: &Path, shared: Option<&P
             .env("OPTCHAT_ACPMUX_SHARED", "1")
             .env("CMUX_CHIEF_HOME", chief_home);
     }
-    let mut host = command.spawn().unwrap();
+    command.spawn().unwrap()
+}
+
+/// Stops `host` with SIGTERM once the fake on `acpmux_home` runs; the
+/// fake's pid.
+fn stop_host(mut host: std::process::Child, acpmux_home: &Path) -> i32 {
     let mut guard = Leftovers(vec![host.id() as i32]);
     let pid_file = acpmux_home.join("run.pid");
     wait_for("the host starting acpmux", Duration::from_secs(30), || {
@@ -384,5 +401,181 @@ fn the_default_chiefs_host_starts_the_chief_homes_acpmux_without_its_credential(
     assert!(
         identity.get("OPTCHAT_CHIEF_PARTICIPANT").is_none(),
         "{identity}"
+    );
+}
+
+/// The sessions of the default Chief (the Chief home `h` itself) and of the
+/// Chief `b` (`h/c/<id>`), whose turn is running.
+fn default_and_b(h: &Path, b: &Path) -> serde_json::Value {
+    let (ih, ib) = (home_id(h), home_id(b));
+    let mut running = session(
+        "s-b-turn",
+        &format!("optchat-{ib}-turn"),
+        json!({"cmux.chief": ib, "cmux.chief.role": "turn"}),
+    );
+    running["status"] = json!("running");
+    json!([
+        session(
+            "s-default-turn",
+            &format!("optchat-{ih}-turn"),
+            json!({"cmux.chief": ih, "cmux.chief.role": "turn"})
+        ),
+        running,
+    ])
+}
+
+/// One JSON-RPC request to the fake on `socket`; its result.
+fn ask(socket: &Path, method: &str, params: serde_json::Value) -> serde_json::Value {
+    use std::io::{BufRead, BufReader, Write};
+    let mut stream = std::os::unix::net::UnixStream::connect(socket).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    let line = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
+    stream.write_all(format!("{line}\n").as_bytes()).unwrap();
+    let mut reply = String::new();
+    BufReader::new(stream).read_line(&mut reply).unwrap();
+    serde_json::from_str::<serde_json::Value>(&reply).unwrap()["result"].clone()
+}
+
+/// Holds the host lock of the Chief at `home` (as its running host does)
+/// while the returned file is open.
+fn hold_host_lock(home: &Path) -> std::fs::File {
+    std::fs::create_dir_all(home.join("state")).unwrap();
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .append(true)
+        .create(true)
+        .open(home.join("state/host.lock"))
+        .unwrap();
+    file.try_lock().unwrap();
+    file
+}
+
+/// The default Chief's host started the Chief home's acpmux and stops
+/// (Quit, End Sessions, a handoff) while Chief B is mid-turn on it: it ends
+/// only its own sessions and leaves the daemon running, so B's turn
+/// completes; it never shuts the daemon down under another Chief.
+#[test]
+fn the_default_host_stops_while_chief_b_is_mid_turn_and_b_finishes() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = dir.path().join("h");
+    let b = h.join("c/bbbb2222");
+    std::fs::create_dir_all(&b).unwrap();
+    let acpmux_home = h.join("acpmux");
+    std::fs::create_dir_all(&acpmux_home).unwrap();
+    std::fs::write(
+        acpmux_home.join("sessions.json"),
+        default_and_b(&h, &b).to_string(),
+    )
+    .unwrap();
+    let fake = host_stops(dir.path(), &h, &acpmux_home, None);
+    let _guard = Leftovers(vec![fake]);
+    assert_eq!(
+        calls(&acpmux_home),
+        ["_acpmux/kill s-default-turn"],
+        "the default host ended B's turn or the daemon"
+    );
+    assert!(alive(fake), "the Chief home's acpmux stopped under Chief B");
+    // B's turn goes on and answers on the same daemon.
+    let answer = ask(
+        &acpmux_home.join("acpmux.sock"),
+        "session/prompt",
+        json!({"sessionId": "s-b-turn"}),
+    );
+    assert_eq!(answer, json!({}), "B's turn got no answer");
+}
+
+/// An idle Chief whose host runs (its host lock held) also uses the
+/// daemon: the default host leaves it running.
+#[test]
+fn the_default_host_leaves_the_daemon_to_a_running_chief_host() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = dir.path().join("h");
+    let b = h.join("c/bbbb2222");
+    let acpmux_home = h.join("acpmux");
+    std::fs::create_dir_all(&acpmux_home).unwrap();
+    let only_default = json!([session(
+        "s-default-turn",
+        &format!("optchat-{}-turn", home_id(&h)),
+        json!({"cmux.chief": home_id(&h), "cmux.chief.role": "turn"})
+    )]);
+    std::fs::write(acpmux_home.join("sessions.json"), only_default.to_string()).unwrap();
+    let _b_host = hold_host_lock(&b);
+    let fake = host_stops(dir.path(), &h, &acpmux_home, None);
+    let _guard = Leftovers(vec![fake]);
+    assert_eq!(calls(&acpmux_home), ["_acpmux/kill s-default-turn"]);
+    assert!(alive(fake), "the daemon stopped under a running Chief host");
+}
+
+/// The last user leaves: a Chief's shared host that stops when no other
+/// Chief uses the Chief home's acpmux (no other host runs, no other
+/// Chief's session is open) ends its sessions and stops the daemon.
+#[test]
+fn the_last_chief_to_leave_stops_the_chief_homes_acpmux() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = dir.path().join("h");
+    let (a, b) = (h.join("c/aaaa1111"), h.join("c/bbbb2222"));
+    let acpmux_home = h.join("acpmux");
+    std::fs::create_dir_all(&acpmux_home).unwrap();
+    let only_a = json!([session(
+        "s-a-turn",
+        &format!("optchat-{}-turn", home_id(&a)),
+        json!({"cmux.chief": home_id(&a), "cmux.chief.role": "turn"})
+    )]);
+    std::fs::write(acpmux_home.join("sessions.json"), only_a.to_string()).unwrap();
+    std::fs::create_dir_all(&b).unwrap();
+    let fake = host_stops(dir.path(), &a, &acpmux_home, Some(&h));
+    let _guard = Leftovers(vec![fake]);
+    // The shutdown runs on after the host (a brain stops within 5 s).
+    wait_for("the daemon ending", Duration::from_secs(10), || {
+        !alive(fake)
+    });
+    assert_eq!(calls(&acpmux_home), ["_acpmux/kill s-a-turn", "shutdown"]);
+}
+
+/// All Chiefs stop at once (the supervisor stops every brain together, after
+/// the default Chief's host is gone): each marks itself stopping and ends
+/// its own sessions before it looks for other users, so the last one to
+/// look stops the Chief home's acpmux; it does not stay with no user.
+#[test]
+fn chiefs_that_stop_at_once_leave_no_daemon_behind() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = dir.path().join("h");
+    let (a, b) = (h.join("c/aaaa1111"), h.join("c/bbbb2222"));
+    let acpmux_home = h.join("acpmux");
+    std::fs::create_dir_all(&acpmux_home).unwrap();
+    std::fs::create_dir_all(&b).unwrap();
+    let first = start_host(dir.path(), &a, &acpmux_home, Some(&h));
+    let pid_file = acpmux_home.join("run.pid");
+    wait_for("A starting acpmux", Duration::from_secs(30), || {
+        std::fs::read_to_string(&pid_file).is_ok_and(|p| !p.is_empty())
+    });
+    let second = start_host(dir.path(), &b, &acpmux_home, Some(&h));
+    wait_for("B's host running", Duration::from_secs(30), || {
+        b.join("state/host.lock").exists()
+    });
+    let mut hosts = vec![first, second];
+    let fake: i32 = std::fs::read_to_string(&pid_file)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    let _guard = Leftovers(hosts.iter().map(|h| h.id() as i32).chain([fake]).collect());
+    for host in &hosts {
+        // SAFETY: our own children.
+        unsafe { libc::kill(host.id() as i32, libc::SIGTERM) };
+    }
+    for host in &mut hosts {
+        let mut status = None;
+        wait_for("a host exiting", Duration::from_secs(30), || {
+            status = host.try_wait().unwrap();
+            status.is_some()
+        });
+    }
+    wait_for(
+        "the last Chief stopping the daemon",
+        Duration::from_secs(10),
+        || calls(&acpmux_home).contains(&"shutdown".to_owned()),
     );
 }

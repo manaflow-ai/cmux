@@ -45,6 +45,7 @@ pub(super) fn ensure(home: &ChiefHome) -> Result<PathBuf, String> {
         term: None,
         initial_host_colors: None,
         terminal_reap_grace: Some(std::time::Duration::from_secs(30)),
+        exit_with_pid: None,
         install_key: None,
         // An owner this call starts serves chief.engine.* and chief.stop
         // through the home's brain.
@@ -195,7 +196,13 @@ fn write_token(path: &Path, token: &str) -> std::io::Result<()> {
 /// `host.log`, with the app's environment for it.
 fn spawn_brain(brain: &Path, home: &ChiefHome, socket: &Path, user: &str) -> std::io::Result<u32> {
     let log = OpenOptions::new().create(true).append(true).open(home.host_log())?;
-    let user_home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+    // The account's home (the user database), not the caller's HOME: a job
+    // runner's own HOME made the brain miss the person's harness settings
+    // (the daemon's brains do the same, c47dd2fd0112).
+    let user_home = cmux_tui_core::chief_brains::account_home()
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
+        .unwrap_or_default();
     let mut path_dirs: Vec<PathBuf> = std::env::current_exe()
         .ok()
         .and_then(|e| e.parent().map(Path::to_path_buf))

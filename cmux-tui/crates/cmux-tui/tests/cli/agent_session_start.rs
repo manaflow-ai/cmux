@@ -8,7 +8,8 @@
 //! environment (`CMUX_AGENT_START_HOST`), which can only make the daemon
 //! stricter than what it detects.
 
-use std::os::unix::net::UnixStream;
+use std::os::unix::net::{UnixListener, UnixStream};
+use std::sync::mpsc;
 
 use serde_json::{Value, json};
 
@@ -16,10 +17,20 @@ use super::*;
 
 #[path = "agent_chat_notices.rs"]
 mod agent_chat_notices;
+#[path = "agent_focus_cli.rs"]
+mod agent_focus_cli;
 #[path = "agent_home_reopen.rs"]
 mod agent_home_reopen;
+#[path = "agent_input_hint.rs"]
+mod agent_input_hint;
+#[path = "agents_chat_tools.rs"]
+mod agents_chat_tools;
 #[path = "agents_cli_receipt.rs"]
 mod agents_cli_receipt;
+#[path = "agents_events_cli.rs"]
+mod agents_events_cli;
+#[path = "agents_wait_cli.rs"]
+mod agents_wait_cli;
 
 const FAKE_AGENT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../acpmux/tests/fake_agent.py");
 /// The app's install key, so one connection can prove itself the verified
@@ -32,6 +43,8 @@ struct Daemon {
     socket: PathBuf,
     session: String,
     host_kind: Option<&'static str>,
+    /// A Cloud VM's records (debug-only `CMUX_TEST_CLOUD_ETC`).
+    cloud_etc: Option<PathBuf>,
 }
 
 impl Daemon {
@@ -50,6 +63,24 @@ impl Daemon {
         host_kind: Option<&'static str>,
         acpmux_config: Option<Value>,
     ) -> Self {
+        Self::start_in(name, host_kind, acpmux_config, None)
+    }
+
+    /// A Cloud VM (an image stamp) whose own `vm-kind` record reads `kind`.
+    fn start_cloud(name: &str, kind: &str) -> Self {
+        let config = json!({
+            "harnesses": {"fake": {"argv": ["python3", FAKE_AGENT], "family": "fake"}},
+            "defaultHarness": "fake",
+        });
+        Self::start_in(name, None, Some(config), Some(kind))
+    }
+
+    fn start_in(
+        name: &str,
+        host_kind: Option<&'static str>,
+        acpmux_config: Option<Value>,
+        vm_kind: Option<&str>,
+    ) -> Self {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let dir =
             PathBuf::from("/tmp").join(format!("cmux-asx-{name}-{}-{stamp}", std::process::id()));
@@ -60,8 +91,25 @@ impl Daemon {
         if let Some(config) = acpmux_config {
             fs::write(dir.join("acpmux/config.json"), config.to_string()).unwrap();
         }
-        let daemon =
-            Self { socket: dir.join("mux.sock"), session: format!("asx-{name}"), dir, host_kind };
+        let cloud_etc = vm_kind.map(|kind| {
+            let etc = dir.join("etc-cmux");
+            fs::create_dir_all(&etc).unwrap();
+            fs::set_permissions(&etc, fs::Permissions::from_mode(0o755)).unwrap();
+            for (file, text) in
+                [("image-stamp", "test\n".to_owned()), ("vm-kind", format!("{kind}\n"))]
+            {
+                fs::write(etc.join(file), text).unwrap();
+                fs::set_permissions(etc.join(file), fs::Permissions::from_mode(0o644)).unwrap();
+            }
+            etc
+        });
+        let daemon = Self {
+            socket: dir.join("mux.sock"),
+            session: format!("asx-{name}"),
+            dir,
+            host_kind,
+            cloud_etc,
+        };
         let mut child = daemon
             .server("ensure")
             .arg("--install-key-stdin")
@@ -92,9 +140,14 @@ impl Daemon {
             .env("CMUX_TUI_CONFIG", self.dir.join("config.json"))
             .env_remove("ACPMUX_SOCKET")
             .env_remove("CMUX_AGENT_START_HOST")
+            .env_remove("CMUX_TEST_CLOUD_ETC")
+            .env_remove("CMUX_VM_ID")
             .stdin(Stdio::null());
         if let Some(kind) = self.host_kind {
             command.env("CMUX_AGENT_START_HOST", kind);
+        }
+        if let Some(etc) = &self.cloud_etc {
+            command.env("CMUX_TEST_CLOUD_ETC", etc);
         }
         command
     }
@@ -162,10 +215,23 @@ impl Daemon {
                         "cwd": work.to_str().unwrap()}))
     }
 
+    /// A start with the caller's `vm_kind` (the Cloud API's answer it read).
+    fn start_chat_as(&self, surface: u64, vm_kind: impl Into<Value>) -> Value {
+        let work = self.dir.join("work");
+        self.rpc(json!({"id": 6, "cmd": "agent-session-start", "surface": surface,
+                        "cwd": work.to_str().unwrap(), "vm_kind": vm_kind.into()}))
+    }
+
     fn start_chat_with(&self, surface: u64, harness: &str) -> Value {
         let work = self.dir.join("work");
         self.rpc(json!({"id": 5, "cmd": "agent-session-start", "surface": surface,
                         "harness": harness, "cwd": work.to_str().unwrap()}))
+    }
+
+    fn start_chat_with_model(&self, surface: u64, harness: &str, model: &str) -> Value {
+        let work = self.dir.join("work");
+        self.rpc(json!({"id": 8, "cmd": "agent-session-start", "surface": surface,
+                        "harness": harness, "model": model, "cwd": work.to_str().unwrap()}))
     }
 
     /// One call on this machine's acpmux unix socket (the local owner).
@@ -260,7 +326,7 @@ impl Drop for Daemon {
     fn drop(&mut self) {
         let _ = self.server("stop").arg("--end-terminals").output();
         let _ = Command::new(bin())
-            .args(["acp", "daemon", "shutdown"])
+            .args(["acp", "daemon", "shutdown", "--end-agents"])
             .env("HOME", self.dir.join("home"))
             .env("ACPMUX_HOME", self.dir.join("acpmux"))
             .output();
@@ -292,6 +358,103 @@ fn agent_session_start_passes_the_host_gate_on_an_ssh_host() {
     // answered for this new folder.
     let reply = daemon.start_chat(surface);
     assert_eq!(reply["error_code"], "agent_session.untrusted_folder", "{reply}");
+}
+
+/// The guest's own `owner` record never allows a start on a Cloud VM (its
+/// agents keep sudo): only the caller's `vm_kind: "owner"`, the Cloud API's
+/// answer for it, does, and team evidence refuses even then. A machine that
+/// is not a Cloud VM needs no word.
+#[test]
+fn a_cloud_vm_start_needs_the_callers_owner_word_not_the_vms_record() {
+    let owner = Daemon::start_cloud("vmowner", "owner");
+    let surface = owner.own_agent_tab();
+    let reply = owner.start_chat(surface);
+    assert_eq!(reply["error_code"], "agent_session.host_unverified", "{reply}");
+    for other in ["team", "Owner", "", "owner "] {
+        let reply = owner.start_chat_as(surface, other);
+        assert_eq!(reply["error_code"], "agent_session.host_unverified", "{other:?}: {reply}");
+    }
+    // Past the host gate the next check is the folder's trust.
+    let reply = owner.start_chat_as(surface, "owner");
+    assert_eq!(reply["error_code"], "agent_session.untrusted_folder", "{reply}");
+
+    let team = Daemon::start_cloud("vmteam", "team");
+    let surface = team.own_agent_tab();
+    let reply = team.start_chat_as(surface, "owner");
+    assert_eq!(reply["error_code"], "agent_session.team_vm_blocked", "{reply}");
+
+    let ssh = Daemon::start("vmssh", None);
+    let surface = ssh.own_agent_tab();
+    let reply = ssh.start_chat_as(surface, "owner");
+    assert_eq!(reply["error_code"], "agent_session.untrusted_folder", "{reply}");
+    // A machine whose root removed every Cloud sign still reads as a Cloud VM
+    // when the caller says so: only `owner` goes on.
+    let reply = ssh.start_chat_as(surface, "team");
+    assert_eq!(reply["error_code"], "agent_session.host_unverified", "{reply}");
+    // An explicit null is a word, and not `owner`: refused like any other.
+    let reply = ssh.start_chat_as(surface, Value::Null);
+    assert_eq!(reply["error_code"], "agent_session.host_unverified", "{reply}");
+    let identity = owner.rpc(json!({"id": 1, "cmd": "identify"}));
+    let capabilities = identity["data"]["capabilities"].to_string();
+    assert!(capabilities.contains("agent-session-start-vm-kind-v1"), "{identity}");
+}
+
+/// Folder trust on a Cloud VM takes the start's rule: only the caller's
+/// `vm_kind: "owner"` reaches it, never the VM's own record, and team
+/// evidence refuses even then. A page cannot vouch for the Cloud API's
+/// answer, so its routed operations never reach a Cloud VM's trust.
+#[test]
+fn agent_session_trust_on_a_cloud_vm_needs_the_callers_owner_word() {
+    // `kind` null leaves the param out.
+    let trust = |daemon: &Daemon, surface: u64, kind: Value| {
+        let cwd = daemon.dir.join("work");
+        let mut request =
+            json!({"id": 30, "cmd": "agent-session-trust", "surface": surface, "cwd": cwd});
+        if !kind.is_null() {
+            request["vm_kind"] = kind;
+        }
+        daemon.rpc(request)
+    };
+    let owner = Daemon::start_cloud("trustvm", "owner");
+    let surface = owner.own_agent_tab();
+    for kind in [json!(null), json!("team"), json!("Owner")] {
+        let reply = trust(&owner, surface, kind);
+        assert_eq!(reply["error_code"], "agent_session.host_unverified", "{reply}");
+    }
+    let read = trust(&owner, surface, json!("owner"));
+    assert_eq!(read["ok"], true, "{read}");
+    let identity = owner.rpc(json!({"id": 31, "cmd": "identify"}));
+    let capabilities = identity["data"]["capabilities"].to_string();
+    assert!(capabilities.contains("agent-session-trust-vm-kind-v1"), "{identity}");
+    assert!(capabilities.contains("agent-transfer-vm-kind-v1"), "{identity}");
+    let cwd = owner.dir.join("work").to_str().unwrap().to_owned();
+    let read = json!({"surface": surface, "cwd": cwd, "machine": "current", "session": "current"});
+    let (mut page, _) = owner.page_relay("agent");
+    let got = page.v2("agent_session.trust.get", &read, json!({}));
+    assert_eq!(got["error"]["details"]["extra"]["code"], "agent_session.host_unverified", "{got}");
+    let mut vouched = read.clone();
+    vouched["vm_kind"] = json!("owner");
+    let got = page.v2("agent_session.trust.get", &vouched, json!({}));
+    assert_eq!(got["error"]["details"]["extra"]["code"], "agent_session.bad_request", "{got}");
+
+    let team = Daemon::start_cloud("trustteam", "team");
+    let surface = team.own_agent_tab();
+    let reply = trust(&team, surface, json!("owner"));
+    assert_eq!(reply["error_code"], "agent_session.team_vm_blocked", "{reply}");
+
+    // A machine that shows no Cloud sign (its root may have removed them):
+    // a word that is not `owner`, an explicit `null` included, refuses.
+    let plain = Daemon::start("trustplain", None);
+    let surface = plain.own_agent_tab();
+    let cwd = plain.dir.join("work");
+    for kind in [json!(null), json!("team")] {
+        let request = json!({"id": 32, "cmd": "agent-session-trust", "surface": surface,
+                             "cwd": cwd, "vm_kind": kind});
+        let reply = plain.rpc(request);
+        assert_eq!(reply["error_code"], "agent_session.host_unverified", "{kind}: {reply}");
+    }
+    let read = trust(&plain, surface, Value::Null);
+    assert_eq!(read["ok"], true, "{read}");
 }
 
 #[test]
@@ -376,6 +539,97 @@ fn agent_session_start_starts_the_sample_harness_in_its_asking_mode() {
     assert_eq!(started["ok"], true, "{started}");
     assert!(started["data"]["session"].as_str().is_some_and(|s| !s.is_empty()), "{started}");
     assert_eq!(daemon.acpmux_sessions(), 1, "{started}");
+}
+
+/// An acpmux stand-in on the machine's socket that answers a start's calls
+/// with a trusted folder and an asking session, and hands every `session/new`
+/// params it receives to the test.
+fn fake_acpmux(socket: PathBuf) -> mpsc::Receiver<Value> {
+    let listener = UnixListener::bind(&socket).unwrap();
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { return };
+            let sender = sender.clone();
+            std::thread::spawn(move || {
+                let mut writer = stream.try_clone().unwrap();
+                for line in BufReader::new(stream).lines() {
+                    let Ok(line) = line else { return };
+                    let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
+                    let Some(id) = message.get("id").cloned() else { continue };
+                    let params = &message["params"];
+                    let modes = json!({"refusedFamilies": [], "families": {"fake": ["ask"]}});
+                    let result = match message["method"].as_str().unwrap_or_default() {
+                        "_acpmux/web_modes" if params.get("sessionId").is_some() => json!({
+                            "refusedFamilies": [], "families": {"fake": ["ask"]},
+                            "session": {"family": "fake", "mode": "ask"},
+                        }),
+                        "_acpmux/web_modes" => modes,
+                        "_acpmux/harnesses" => {
+                            json!({"defaultHarness": "fake", "families": {"fake": {}}})
+                        }
+                        "acp.trust.get" => {
+                            json!({"cwd": params["cwd"], "decided": true, "level": "trusted"})
+                        }
+                        "session/new" => {
+                            let _ = sender.send(params.clone());
+                            json!({"sessionId": "fake-session-1"})
+                        }
+                        _ => json!({}),
+                    };
+                    let reply = json!({"jsonrpc": "2.0", "id": id, "result": result});
+                    if writeln!(writer, "{reply}").is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    receiver
+}
+
+/// The agent of a chat started on this machine works in the workspace of
+/// its tab (cx-ncc.5): the daemon names that workspace to acpmux on
+/// `session/new` (`_meta.acpmux.workspaceId`, which picks the session's
+/// display), with no session env. The client never names it.
+#[test]
+fn agent_session_start_sends_the_tab_workspace_to_acpmux() {
+    let daemon = Daemon::start_with("wsid", None, None);
+    let new_sessions = fake_acpmux(daemon.dir.join("acpmux/acpmux.sock"));
+    let identity = daemon.rpc(json!({"id": 1, "cmd": "identify"}));
+    let session_id = identity["data"]["session_id"].as_str().unwrap().to_owned();
+    let workspace = daemon.rpc(json!({"id": 2, "cmd": "create-workspace", "name": "wsid"}));
+    assert_eq!(workspace["ok"], true, "{workspace}");
+    let key = workspace["data"]["key"].as_str().unwrap().to_owned();
+    let tab = daemon.rpc(json!({"id": 3, "cmd": "new-conversation-tab",
+                               "workspace": workspace["data"]["workspace"],
+                               "agent_session": {"host": format!("registry:{session_id}")}}));
+    assert_eq!(tab["ok"], true, "{tab}");
+    let surface = tab["data"]["surface"].as_u64().unwrap();
+    let started = daemon.start_chat(surface);
+    assert_eq!(started["ok"], true, "{started}");
+    let new = new_sessions.recv_timeout(Duration::from_secs(5)).unwrap();
+    let acpmux = &new["_meta"]["acpmux"];
+    assert_eq!(acpmux["workspaceId"], json!(key), "{new}");
+    assert_eq!(acpmux.get("env"), None, "{new}");
+    assert_eq!(acpmux["policy"], "ask", "{new}");
+    let _ = fs::remove_file(daemon.dir.join("acpmux/acpmux.sock"));
+}
+
+/// The optional model chosen by `cmux agent new-chat --model` reaches the remote
+/// machine's first `session/new`, while the daemon still validates the folder and
+/// keeps the model behind its additive capability.
+#[test]
+fn agent_session_start_relays_the_requested_model() {
+    let daemon = Daemon::start_with("model", None, None);
+    let new_sessions = fake_acpmux(daemon.dir.join("acpmux/acpmux.sock"));
+    let surface = daemon.own_agent_tab();
+    let started = daemon.start_chat_with_model(surface, "fake", "model-x");
+    assert_eq!(started["ok"], true, "{started}");
+    let new = new_sessions.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(new["_meta"]["acpmux"]["model"], "model-x", "{new}");
+    assert!(new["cwd"].as_str().unwrap().ends_with("/work"), "{new}");
+    let _ = fs::remove_file(daemon.dir.join("acpmux/acpmux.sock"));
 }
 
 /// The person answers the folder trust question of a chat of this machine
@@ -717,6 +971,6 @@ impl PeerAcpmux {
 
 impl Drop for PeerAcpmux {
     fn drop(&mut self) {
-        let _ = self.command(&["acp", "daemon", "shutdown"]).output();
+        let _ = self.command(&["acp", "daemon", "shutdown", "--end-agents"]).output();
     }
 }

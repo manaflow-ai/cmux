@@ -338,7 +338,24 @@ impl HostInputRuntime {
         self.ingress.pop_if(accept)
     }
 
-    pub(super) fn attach_reader(&self, reader: JoinHandle<()>) {
+    /// Start the host input reader thread. The thread reports its own exit,
+    /// even by unwinding, so shutdown can wait for that report with a deadline
+    /// instead of joining a thread that may never return.
+    pub(super) fn spawn_reader(
+        &self,
+        name: &str,
+        body: impl FnOnce() + Send + 'static,
+    ) -> std::io::Result<()> {
+        let control = self.reader.clone();
+        let reader = std::thread::Builder::new().name(name.into()).spawn(move || {
+            let _exit = HostInputReaderExit(control);
+            body();
+        })?;
+        self.attach_reader(reader);
+        Ok(())
+    }
+
+    fn attach_reader(&self, reader: JoinHandle<()>) {
         let mut state = self.reader.state.lock().unwrap();
         assert!(!state.shutting_down, "host input reader cannot attach during shutdown");
         assert!(state.reader.is_none(), "host input reader can only be attached once");
@@ -370,10 +387,16 @@ pub(super) struct HostInputShutdown {
 impl HostInputShutdown {
     pub(super) fn shutdown(&self) {
         self.ingress.close();
-        // The reader checks the closed ingress before each read. The
-        // crossterm wrapper caps every poll at CROSSTERM_POLL_INTERVAL and
-        // only calls read after poll reports a ready event, so joining here
-        // cannot wait on an idle terminal read.
+        // The reader checks the closed ingress before each read, and the
+        // crossterm wrapper caps every poll at CROSSTERM_POLL_INTERVAL, so a
+        // healthy reader reports its exit within one interval. A reader stuck
+        // inside the terminal read (a hung-up tty the event source keeps
+        // re-reading, issue 23088) never reports it. Waiting for that report
+        // up to HOST_INPUT_READER_EXIT_DEADLINE, and leaving such a reader
+        // detached, keeps the client able to restore the terminal and exit.
+        // A detached reader keeps running until the process exits, which
+        // follows shutdown: the binary never starts a second TUI run in the
+        // same process.
         let current_thread = std::thread::current().id();
         let reader = {
             let mut state = self.reader.state.lock().unwrap();
@@ -395,7 +418,19 @@ impl HostInputShutdown {
         if let Some(reader) = reader
             && reader.thread().id() != current_thread
         {
-            let _ = reader.join();
+            if self.reader.wait_for_exit(HOST_INPUT_READER_EXIT_DEADLINE) {
+                // The exit report is the reader's last action, so this join
+                // only waits for the thread itself to finish.
+                let _ = reader.join();
+            } else {
+                crate::client_log::warn(
+                    "input",
+                    &format!(
+                        "host input reader did not stop within \
+                         {HOST_INPUT_READER_EXIT_DEADLINE:?}; leaving it detached"
+                    ),
+                );
+            }
         }
         let mut state = self.reader.state.lock().unwrap();
         state.complete = true;
@@ -403,16 +438,49 @@ impl HostInputShutdown {
     }
 }
 
+/// How long shutdown waits for the reader to report its exit. A healthy
+/// reader notices the closed ingress within one CROSSTERM_POLL_INTERVAL.
+pub(super) const HOST_INPUT_READER_EXIT_DEADLINE: Duration = Duration::from_secs(1);
+
+/// Owned by the reader thread. Dropping it, on return or unwind, is the
+/// reader's exit report.
+struct HostInputReaderExit(Arc<HostInputReaderControl>);
+
+impl Drop for HostInputReaderExit {
+    fn drop(&mut self) {
+        let mut state = self.0.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.reader_exited = true;
+        self.0.exited.notify_all();
+    }
+}
+
 #[derive(Default)]
 pub(super) struct HostInputReaderControl {
     pub(super) state: Mutex<HostInputReaderState>,
     complete: Condvar,
+    exited: Condvar,
+}
+
+impl HostInputReaderControl {
+    /// Wait until the reader reports its exit or `deadline` passes. Returns
+    /// whether it exited.
+    fn wait_for_exit(&self, deadline: Duration) -> bool {
+        // Shutdown also runs from the panic hook, so a poisoned lock must not
+        // turn into a second panic here.
+        let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (state, _) = self
+            .exited
+            .wait_timeout_while(state, deadline, |state| !state.reader_exited)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.reader_exited
+    }
 }
 
 #[derive(Default)]
 pub(super) struct HostInputReaderState {
     reader: Option<JoinHandle<()>>,
     reader_thread: Option<std::thread::ThreadId>,
+    reader_exited: bool,
     shutting_down: bool,
     complete: bool,
 }

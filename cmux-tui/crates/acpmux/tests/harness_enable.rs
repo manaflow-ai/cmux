@@ -6,6 +6,11 @@
 // Unix only until the Windows port runs the daemon (cmux::local_socket).
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process starts no agent.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+
 use acpmux::config::folder_profiles::{self, FolderGate};
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
@@ -76,6 +81,7 @@ fn scratch(name: &str) -> (PathBuf, FolderGate) {
             codex_config: root.join("config.toml"),
             record: root.join("acpmux").join("trust.json"),
             agent_home: None,
+            cmux_worktrees: None,
         },
     };
     (folder, gate)

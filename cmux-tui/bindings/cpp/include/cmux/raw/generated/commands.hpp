@@ -78,13 +78,19 @@ public:
     [[nodiscard]] Result<CloudAttachmentReadResult> cloud_attachment_read(const CloudAttachmentReadRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<CloudAttachmentUploadResult> cloud_attachment_upload(const CloudAttachmentUploadRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_conversation_history(const CloudConversationHistoryRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> cloud_conversation_live(const CloudConversationLiveRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_conversation_op(const CloudConversationOpRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> cloud_conversation_presence(const CloudConversationPresenceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_conversation_run(const CloudConversationRunRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_conversation_runs(const CloudConversationRunsRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_conversation_snapshot(const CloudConversationSnapshotRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_conversation_subscribe(const CloudConversationSubscribeRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_conversation_thread(const CloudConversationThreadRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> cloud_conversation_typing(const CloudConversationTypingRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_conversation_unsubscribe(const CloudConversationUnsubscribeRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> cloud_host_replica_clear(const CloudHostReplicaClearRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> cloud_host_replica_set(const CloudHostReplicaSetRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> cloud_host_replica_status(const CloudHostReplicaStatusRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_inbox_list(const CloudInboxListRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_inbox_op(const CloudInboxOpRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_inbox_subscribe(const CloudInboxSubscribeRequest& request = {}, RequestOptions options = {});
@@ -93,6 +99,8 @@ public:
     [[nodiscard]] Result<JsonValue> cloud_mux_subscribe(const CloudMuxSubscribeRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_mux_unsubscribe(const CloudMuxUnsubscribeRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_participant_avatar_get(const CloudParticipantAvatarGetRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> cloud_requests_list(const CloudRequestsListRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> cloud_selfhost_info(const CloudSelfhostInfoRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_session_clear(const CloudSessionClearRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_session_set(const CloudSessionSetRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_session_status(const CloudSessionStatusRequest& request = {}, RequestOptions options = {});
@@ -108,6 +116,8 @@ public:
     [[nodiscard]] Result<ConversationInboxOpResult> conversation_inbox_op(const ConversationInboxOpRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationLinkResolveResult> conversation_link_resolve(const ConversationLinkResolveRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationListResult> conversation_list(const ConversationListRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<ConversationLiveResult> conversation_live(const ConversationLiveRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<EmptyResult> conversation_live_publish(const ConversationLivePublishRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationOpResult> conversation_op(const ConversationOpRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationRunResult> conversation_run(const ConversationRunRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationRunAppendResult> conversation_run_append(const ConversationRunAppendRequest& request, RequestOptions options = {});
@@ -151,8 +161,10 @@ public:
     [[nodiscard]] Result<GetCellPixelsResult> get_cell_pixels(const GetCellPixelsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> get_frontend_browser_history(const GetFrontendBrowserHistoryRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<FrontendProjection> get_frontend_projection(const GetFrontendProjectionRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<GetHostSizePolicyResult> get_host_size_policy(const GetHostSizePolicyRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<GetSizeStateResult> get_size_state(const GetSizeStateRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<HistorySearchResult> history_search(const HistorySearchRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<HomeInboxResult> home_inbox(const HomeInboxRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<IdentifyResult> identify(const IdentifyRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<IdsResult> ids(const IdsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ImportBookmarksResult> import_bookmarks(const ImportBookmarksRequest& request, RequestOptions options = {});
@@ -177,6 +189,7 @@ public:
     [[nodiscard]] Result<MintTerminalRendererResult> mint_terminal_renderer_by_terminal(const MintTerminalRendererByTerminalRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<BookmarkChangeResult> move_bookmark(const MoveBookmarkRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> move_browser_profile(const MoveBrowserProfileRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> move_column(const MoveColumnRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> move_personal_group(const MovePersonalGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> move_profile(const MoveProfileRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> move_screen(const MoveScreenRequest& request, RequestOptions options = {});
@@ -209,6 +222,7 @@ public:
     [[nodiscard]] Result<JsonValue> page_credential(const PageCredentialRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> pairing_response(const PairingResponseRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<PaneNeighborResult> pane_neighbor(const PaneNeighborRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> park_tabs(const ParkTabsRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<PasteImageResult> paste_image(const PasteImageRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> pin_workspace(const PinWorkspaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<PingResult> ping(const PingRequest& request = {}, RequestOptions options = {});
@@ -255,6 +269,7 @@ public:
     [[nodiscard]] Result<JsonValue> set_column_dock(const SetColumnDockRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> set_default_colors(const SetDefaultColorsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> set_frontend_browser_history(const SetFrontendBrowserHistoryRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<SetHostSizePolicyResult> set_host_size_policy(const SetHostSizePolicyRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> set_personal_terminal(const SetPersonalTerminalRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> set_personal_workspace(const SetPersonalWorkspaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> set_profile_follows(const SetProfileFollowsRequest& request, RequestOptions options = {});
@@ -284,8 +299,10 @@ public:
     [[nodiscard]] Result<EventStream> terminal_clipboard_subscribe(const TerminalClipboardSubscribeRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TerminalEventsResult> terminal_events(const TerminalEventsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<TerminalHistoryPagesResult> terminal_history(const TerminalHistoryRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<TerminalPortsResult> terminal_ports(const TerminalPortsRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TerminalReadRangeResult> terminal_read_range(const TerminalReadRangeRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TerminalResourcesResult> terminal_resources(const TerminalResourcesRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<TerminalResumeCommandResult> terminal_resume_command(const TerminalResumeCommandRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<LayoutUndoResult> undo_layout(const UndoLayoutRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> ungroup_screen_group(const UngroupScreenGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<UngroupTabGroupResult> ungroup_tab_group(const UngroupTabGroupRequest& request, RequestOptions options = {});

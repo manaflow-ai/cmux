@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // An open menu never draws a focus ring around itself, and its items are at full ink (Leo
 // 2026-10-11, the New Tab "…" menu: "hella ugly"). The popup takes focus when it opens so its keys
 // work, and the global keyboard ring (desktop.css) drew a thick square around the whole menu, while
@@ -13,6 +14,8 @@ import net from "node:net";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { loadEntries } from "../scripts/gallery/entries";
+import { stopDevServer } from "./support/devServer";
+import { galleryFrame, reloaded, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("menu-focus.test.ts", async () => {
@@ -66,17 +69,13 @@ await requireBrowserLane("menu-focus.test.ts", async () => {
     // The first loads compile the gallery and can run Vite's dependency optimizer, which reloads
     // the page: with a cold server, whichever test came first timed out in `goto` or lost its page
     // (CI, 2026-10-12). Every entry loads once here, so the tests start on a warm server.
-    const warm = await browser.newPage();
-    try {
-      for (const entry of ENTRIES) await load(warm, entry, THEMES[0]!.theme, THEMES[0]!.colorScheme);
-    } finally {
-      await warm.close();
-    }
-  }, 360_000);
+    // Under the file's 240 s limit, so a stalled warm-up fails here, naming its entry.
+    await warmGalleryFrame(base, ENTRIES, { browser, timeoutMs: 150_000 });
+  }, 200_000);
 
   afterAll(async () => {
     await browser?.close();
-    server?.kill();
+    stopDevServer(server);
   });
 
   /** The open menu: its own ring, the items that are not at the menu's ink, and the highlighted one. */
@@ -112,16 +111,7 @@ await requireBrowserLane("menu-focus.test.ts", async () => {
   /** Opens the entry's first variant and waits for the gallery, through a reload of the page. */
   async function load(page: Page, entry: string, theme: string, colorScheme: string) {
     const variant = Object.keys(entries.get(entry)!.variants)[0]!;
-    const params = new URLSearchParams({
-      entry,
-      variant,
-      theme,
-      colorScheme,
-      frame: "component",
-      width: "760",
-      height: "640",
-    });
-    const url = `${base}/gallery/frame.html?${params}`;
+    const url = `${base}${galleryFrame(entry, { variant, theme, colorScheme, frame: "component", width: "760", height: "640" })}`;
     const deadline = Date.now() + 120_000;
     const left = () => Math.max(1, deadline - Date.now());
     let navigated = false;
@@ -137,7 +127,7 @@ await requireBrowserLane("menu-focus.test.ts", async () => {
         throw new Error(`gallery ${entry}: ${await page.evaluate(() => document.body.textContent?.trim())}`);
       } catch (error) {
         // An optimizer reload destroys the page's context (or interrupts the navigation): wait again.
-        if (Date.now() >= deadline || !/context was destroyed|navigat|ERR_ABORTED/i.test(String(error))) throw error;
+        if (Date.now() >= deadline || !reloaded(error)) throw error;
       }
     }
   }

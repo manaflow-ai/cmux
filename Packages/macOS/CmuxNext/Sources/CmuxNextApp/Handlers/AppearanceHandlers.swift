@@ -3,7 +3,7 @@ import CoreGraphics
 import CmuxNextDesign
 import CmuxNextSettings
 
-/// Density, animation speed, titlebar style, interface size (the chrome body
+/// Animation speed, titlebar style, interface size (the chrome body
 /// font; terminal fonts come from the Ghostty config) and pane chrome
 /// (border, padding). Applied to `DesignSettings` at once, then
 /// written to cmux.json through the validated `setSetting` path
@@ -12,8 +12,7 @@ import CmuxNextSettings
 enum AppearanceHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let uiScale = UIScaleSetting()
-        // Customize Appearance… opens Settings on Appearance (R82: the floating studio panel went
-        // with the Swift Settings UI; the page's sliders preview live in every window).
+        // Customize Appearance… opens Settings on Appearance (R82: the studio panel went with the Swift Settings UI).
         registry.bind("appearance.customize", run: { invocation in
             try context.services.settingsWindow.show(section: .appearance, focus: invocation.allowsViewChange)
         })
@@ -29,8 +28,6 @@ enum AppearanceHandlers {
                 try settings.show(section: .appearance, focus: invocation.allowsViewChange)
             }
         })
-        registry.bind("appearance.density.compact", run: { _ in try setDensity(.compact, context) })
-        registry.bind("appearance.density.comfortable", run: { _ in try setDensity(.comfortable, context) })
         let save: SettingChoiceActions.Save = { path, value in
             if let managed = context.services.settings?.managedKey(forPath: path) { return RefusalStrings.settingManaged(managed.key) }
             context.writeSetting("set \(path.joined(separator: "."))", path, value, reloadOnFailure: true)
@@ -38,9 +35,13 @@ enum AppearanceHandlers {
         }
         SettingChoiceActions.bind(MotionSpeed.allCases, into: registry, id: { "appearance.animationSpeed.\($0.rawValue)" }, path: AnimationSpeedSetting.configPath,
                                   fileValue: { .string($0.rawValue) }, save: save) { context.design.animationSpeed = $0 }
+        AnimationKindsSetting.bindActions(into: registry, design: context.design, save: save)
+        MotionCategoriesSetting.bindActions(into: registry, design: context.design, save: save)
         SettingChoiceActions.bind(CenterFocusedColumn.allCases, into: registry, id: { "layout.centerFocusedColumn.\($0 == .onOverflow ? "onOverflow" : $0.rawValue)" },
                                   path: CenterFocusedColumnSetting.configPath, fileValue: { .string($0.rawValue) }, save: save) { context.design.centerFocusedColumn = $0 }
         ChromeStyleSetting.bindActions(into: registry, design: context.design, save: save)
+        TabOverflowSetting.bindActions(into: registry, design: context.design, save: save)
+        LinkRouting.bindActions(into: registry, save: save)
         registry.bind("appearance.interfaceSize.increase", run: { _ in try stepInterfaceSize(by: 1, context) })
         registry.bind("appearance.interfaceSize.decrease", run: { _ in try stepInterfaceSize(by: -1, context) })
         registry.bind("appearance.uiScale.increase", run: { _ in try stepUIScale(by: uiScale.step, context) })
@@ -61,21 +62,14 @@ enum AppearanceHandlers {
         for style in TitlebarStyle.allCases {
             registry.bind(ActionID(rawValue: "appearance.titlebar.\(style.rawValue)"), run: { _ in try setTitlebar(style, context) })
         }
+        registry.bind("appearance.glass.lens.toggle", run: { _ in GlassLensMode.choose(GlassLensMode.tunable.value.lensToggled) })
         registry.bind("appearance.interfaceSize.reset", run: { _ in
-            try requireUnmanaged(fontSizePath, context)
-            context.design.setOverride(.chromeFontSize, nil)
-            context.writeSetting("reset interface size", fontSizePath, nil, reloadOnFailure: true)
+            let path = context.design.interfaceSizePath; try requireUnmanaged(path, context); context.design.resetInterfaceSize()
+            context.writeSetting("reset interface size", path, nil, reloadOnFailure: true)
         })
     }
 
-    private static let fontSizePath = InterfaceSizeSetting().configPath
     private static let uiScalePath = UIScaleSetting().configPath
-
-    private static func setDensity(_ density: Density, _ context: AppActionContext) throws {
-        try requireUnmanaged(["appearance", "density"], context)
-        context.design.density = density
-        context.writeSetting("set density", ["appearance", "density"], .string(density.rawValue), reloadOnFailure: true)
-    }
 
     /// Subtle border on or off. Subtle is the default, so turning it back
     /// on removes the key instead of writing it.
@@ -135,25 +129,17 @@ enum AppearanceHandlers {
     /// `window.titlebar`: applied at once, then written to cmux.json.
     private static func setTitlebar(_ style: TitlebarStyle, _ context: AppActionContext) throws {
         try requireUnmanaged(WindowTitlebarSetting.configPath, context)
-        // Tab bars at the bottom keep the standard title bar (R109,
-        // `ChromePlacementSetting.effectiveTitlebar`); the choice is saved.
-        context.design.titlebar = context.design.tabBarPosition == .bottom ? .standard : style
+        context.design.titlebar = style
         // The default removes the key (and an emptied `window` object).
         let value: JSONValue? = style == WindowTitlebarSetting.fallback ? nil : .string(style.rawValue)
         context.writeSetting("set titlebar", WindowTitlebarSetting.configPath, value, reloadOnFailure: true)
     }
 
-    /// Body size in points: the override, else the density default.
-    static func interfaceSize(_ design: DesignSettings = .shared) -> Double {
-        Double(design.overrides[.chromeFontSize] ?? (design.density == .compact ? 12 : 13))
-    }
-
     private static func stepInterfaceSize(by delta: Double, _ context: AppActionContext) throws {
-        try requireUnmanaged(fontSizePath, context)
-        let design = context.design
-        design.setOverride(.chromeFontSize, CGFloat(interfaceSize(design) + delta))
-        let size = interfaceSize(design)
-        context.writeSetting("set interface size", fontSizePath, .number(size), reloadOnFailure: true)
+        let path = context.design.interfaceSizePath
+        try requireUnmanaged(path, context)
+        let value = context.design.stepInterfaceSize(by: Int(delta))
+        context.writeSetting("set interface size", path, .number(value), reloadOnFailure: true)
     }
 
     private static func stepUIScale(by delta: Double, _ context: AppActionContext) throws {

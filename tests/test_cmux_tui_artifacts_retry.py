@@ -70,17 +70,17 @@ class RetryPolicyTests(unittest.TestCase):
 
     def test_run_whose_tree_published_is_not_retried(self):
         # feat's macOS fallback publishes the tree although the Linux-cross legs failed.
-        for name in ("publish tree-addressed cmux-tui", "publish pull request tree-addressed cmux-tui"):
+        for name in ("publish tree-addressed cmux-tui",):
             with self.subTest(name=name):
                 published = {"id": 7, "name": name, "conclusion": "success"}
                 decision = retry.decide(run(), tree_jobs(job(2, "failure"), published), {2: []})
                 self.assertEqual(decision.action, "skip")
                 self.assertIn("published", decision.reason)
 
-    def test_only_feat_and_pin_pushes_are_retried(self):
+    def test_only_feat_pushes_are_retried(self):
         # The runs nightly-next promotes from; a lane branch or PR red is usually a real failure.
         for overrides, action in (
-            ({"head_branch": "cmux-tui-pin-0123456789ab"}, "rerun-failed-jobs"),
+            ({"head_branch": "cmux-tui-pin-0123456789ab"}, "skip"),
             ({"head_branch": "op-next-theme/accent"}, "skip"),
             ({"event": "pull_request_target", "head_branch": "op-next-theme/accent"}, "skip"),
             ({"event": "workflow_dispatch"}, "skip"),

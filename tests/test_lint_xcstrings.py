@@ -48,6 +48,13 @@ class XCStringsLintTests(unittest.TestCase):
         result = self.run_lint(path)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_rejects_catalog_without_version(self) -> None:
+        """Require Xcode's catalog schema version at the top level."""
+        path = self.write_catalog({"sourceLanguage": "en", "strings": {}})
+        result = self.run_lint(path)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("missing top-level 'version' key with value '1.0'", result.stderr)
+
     def test_rejects_entries_outside_strings(self) -> None:
         """Identify misplaced root entries and explain the expected nesting."""
         path = self.write_catalog(

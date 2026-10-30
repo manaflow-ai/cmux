@@ -138,6 +138,12 @@ export class VmSnapshotIdempotencyConflictError extends Data.TaggedError("VmSnap
   readonly vmId: string;
 }> {}
 
+/** This machine already retains the maximum number of provider snapshots. */
+export class VmSnapshotQuotaExceededError extends Data.TaggedError("VmSnapshotQuotaExceededError")<{
+  readonly vmId: string;
+  readonly limit: number;
+}> {}
+
 export class VmCreateInProgressError extends Data.TaggedError("VmCreateInProgressError")<{
   readonly idempotencyKey: string;
 }> {}
@@ -217,11 +223,27 @@ export class VmUsageLimitExceededError extends Data.TaggedError("VmUsageLimitExc
   readonly usedHours: number;
 }> {}
 
+/**
+ * A Pro or Max monthly allowance is used up: compute-hours (machines may not
+ * start until `resetsAt`) or the total disk of saved machines.
+ */
+export class VmPlanBudgetExceededError extends Data.TaggedError("VmPlanBudgetExceededError")<{
+  readonly planId: "pro" | "max";
+  readonly resource: "compute" | "storage";
+  /** Compute-hours, or GB of disk. */
+  readonly included: number;
+  readonly used: number;
+  /** GB of disk the refused request needed; 0 for compute. */
+  readonly requested: number;
+  /** When the compute allowance resets (the end of the billing period). */
+  readonly resetsAt: Date;
+}> {}
+
 export class VmSavedLimitExceededError extends Data.TaggedError("VmSavedLimitExceededError")<{
   readonly limit: number;
   readonly current: number;
 }> {}
-export class VmGoShapeError extends Data.TaggedError("VmGoShapeError")<{}> {}
+export class VmGoShapeError extends Data.TaggedError("VmGoShapeError")<Record<string, never>> {}
 
 export class VmCreateCreditsInsufficientError extends Data.TaggedError("VmCreateCreditsInsufficientError")<{
   readonly itemId: string;
@@ -304,6 +326,7 @@ export type VmWorkflowError =
   | VmSnapshotNotFoundError
   | VmSnapshotInProgressError
   | VmSnapshotIdempotencyConflictError
+  | VmSnapshotQuotaExceededError
   | VmFileNotFoundError
   | VmFirewallRuleNotFoundError
   | VmFirewallRuleInvalidError
@@ -318,6 +341,7 @@ export type VmWorkflowError =
   | VmResourcePoolExceededError
   | VmUsageLimitExceededError
   | VmSavedLimitExceededError
+  | VmPlanBudgetExceededError
   | VmGoShapeError
   | VmCreateCreditsInsufficientError
   | VmBillingError
@@ -465,6 +489,7 @@ const vmWorkflowErrorTagRecord = {
   VmSnapshotNotFoundError: true,
   VmSnapshotInProgressError: true,
   VmSnapshotIdempotencyConflictError: true,
+  VmSnapshotQuotaExceededError: true,
   VmFileNotFoundError: true,
   VmFirewallRuleNotFoundError: true,
   VmFirewallRuleInvalidError: true,
@@ -479,6 +504,7 @@ const vmWorkflowErrorTagRecord = {
   VmResourcePoolExceededError: true,
   VmUsageLimitExceededError: true,
   VmSavedLimitExceededError: true,
+  VmPlanBudgetExceededError: true,
   VmGoShapeError: true,
   VmCreateCreditsInsufficientError: true,
   VmBillingError: true,

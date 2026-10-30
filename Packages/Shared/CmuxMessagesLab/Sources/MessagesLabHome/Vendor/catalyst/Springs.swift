@@ -142,16 +142,64 @@ struct SpringElement {
         e.components = components.map { var c = $0; c.delay += s; return c }
         return e
     }
+    /// The same element on a clock `k` times slower, `shift` seconds later: progress(t) becomes
+    /// progress((t - shift) / k). Each spring's duration and each curve's duration scale by `k` (a
+    /// spring keeps its bounce: the same shape in time), each delay becomes `shift + k x delay`, an
+    /// initial velocity (distance per second) divides by `k`.
+    func timeScaled(_ k: Double, shift: Double) -> SpringElement {
+        guard k > 0, k.isFinite, shift.isFinite else { return self }
+        var e = self
+        e.components = components.map { c in
+            var n = c
+            n.delay = shift + k * c.delay
+            n.spring = Spring(duration: c.spring.duration * k, bounce: c.spring.bounce, initialVelocity: c.spring.initialVelocity / k)
+            if let cv = c.curve { n.curve = Curve(x1: cv.x1, y1: cv.y1, x2: cv.x2, y2: cv.y2, duration: cv.duration * k) }
+            return n
+        }
+        return e
+    }
+}
+
+/// springs.json `travelLaw` of an element: the element runs on a clock `k = k0 (travel / refPt)^q` times
+/// slower, `d0 + d1 ln(travel / refPt)` s later, with the travel (pt) clamped to [minPt, maxPt] (the
+/// measured range: no extrapolation).
+struct TravelLaw {
+    var refPt, k0, q, d0, d1, minPt, maxPt: Double
+    func apply(_ e: SpringElement, travel: Double) -> SpringElement {
+        let x = log(min(max(travel, minPt), maxPt) / refPt)
+        return e.timeScaled(k0 * exp(q * x), shift: d0 + d1 * x)
+    }
 }
 
 /// springs.json, bundled. Every animated element of the app takes its timing
 /// from here; nothing else defines a curve.
 enum Springs {
-    static let all: [String: SpringElement] = {
-        // cmux: a package resource (the app's main bundle does not hold it).
-        guard let url = Bundle.module.url(forResource: "springs", withExtension: "json"),
+    private final class Token {}
+    private static let lock = NSLock()
+    private static var current: Bundle?
+    /// Where springs.json is read from. A host that embeds this code sets it before the first motion (a Swift
+    /// package: `Bundle.module`), as `MessagesLabLocalization.bundle`. Default: the bundle that contains this
+    /// code, then `Bundle.main` (the app's own build). Not `Bundle.main` alone: in a host app Bundle.main has
+    /// no springs.json, and every curve would fall back to the default spring without a sign (cx-3cb, hq-6d).
+    static var bundle: Bundle? {
+        get { lock.lock(); defer { lock.unlock() }; return current }
+        set { lock.lock(); current = newValue; lock.unlock() }
+    }
+    /// springs.json, read once for `all` and `travelLaws`. A missing or unreadable file is a build fault: it
+    /// stops a debug build and logs in a release build (the curves then are the default spring).
+    private static let json: [String: [String: Any]] = {
+        let candidates = [bundle, Bundle(for: Token.self), Bundle.main].compactMap { $0 }
+        guard let url = candidates.lazy.compactMap({ $0.url(forResource: "springs", withExtension: "json") }).first,
               let data = try? Data(contentsOf: url),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: [String: Any]] else { return [:] }
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: [String: Any]] else {
+            NSLog("MessagesLab: springs.json missing or unreadable in %@; set Springs.bundle", candidates.map(\.bundlePath).joined(separator: ", "))
+            assertionFailure("springs.json missing or unreadable; set Springs.bundle")
+            return [:]
+        }
+        return obj
+    }()
+    static let all: [String: SpringElement] = {
+        let obj = json
         var out: [String: SpringElement] = [:]
         for (name, e) in obj {
             let comps = (e["components"] as? [[String: Any]] ?? []).map { c in
@@ -167,12 +215,25 @@ enum Springs {
         }
         return out
     }()
+    /// The `travelLaw` objects of springs.json, by element name.
+    static let travelLaws: [String: TravelLaw] = {
+        let obj = json
+        var out: [String: TravelLaw] = [:]
+        for (name, e) in obj {
+            guard let l = e["travelLaw"] as? [String: Double], let r = l["refPt"], let k0 = l["k0"], let q = l["q"], let d0 = l["d0"],
+                  let d1 = l["d1"], let lo = l["minPt"], let hi = l["maxPt"], r > 0, lo > 0, hi >= lo else { continue }
+            out.updateValue(TravelLaw(refPt: r, k0: k0, q: q, d0: d0, d1: d1, minPt: lo, maxPt: hi), forKey: name)
+        }
+        return out
+    }()
     static func element(_ name: String) -> SpringElement {
         all[name] ?? SpringElement(name: name, from: 0, to: 1, components: [.init(delay: 0, spring: Spring(duration: 0.3, bounce: 0), delta: 1)])
     }
     static var send: SpringElement { element("transcript.send") }
-    static var delivered: SpringElement { element("transcript.delivered") }
-    static var read: SpringElement { element("transcript.read") }
+    /// Delivered and Read: macOS 27 the shared TRUTH.md curve; macOS 26 its own fits on the original recording
+    /// (`.macOS26`: with the shared curve the motion gate's parity got worse at Delivered and Read).
+    static var delivered: SpringElement { osElement("transcript.delivered") }
+    static var read: SpringElement { osElement("transcript.read") }
     static var typing: SpringElement { element("transcript.typing") }
     static var receive: SpringElement { element("transcript.receive") }
     /// The first inline reply to the last message: the rows above that new thread root make room for its
@@ -204,10 +265,15 @@ enum Springs {
     /// `.fieldShrink` fits (refit3, cx-3cb.6); after a 1-line draft, on macOS and Mac Catalyst the
     /// `.oneLineMac` fits (right, width, centerY, scale: fit7, cx-3cb bubble-refit), on iOS the `.oneLine`
     /// fits where they exist (`bubble.width`, `bubble.right`: refit4, ANIMATIONS.md section 1); else the elements above.
-    /// macOS 26: the elements above. (gpui and rawmath read the base elements for every send.)
+    /// macOS 26: the elements above. gpui and rawmath mirror this struct with the macOS 27 fits only (they have no macOS 26 path).
     struct Bubble {
-        var right, width, centerY, scale, opacity: SpringElement
-        init(fieldShrinks: Bool) {
+        /// `height`: the body's height (and the tail's place) — the variant's width element; `width` can differ
+        /// (macOS 27 field-shrink drafts of 2 lines: `bubble.width.fieldShrinkMac2` on its travel law; 3+ lines:
+        /// `bubble.width.fieldShrinkMac<lines>`).
+        var right, width, height, centerY, scale, opacity: SpringElement
+        /// `lines`: the sent balloon's text lines (TextLayout.lines.count); 0 = not known (the scale-only callers).
+        /// `travel`: the width change of the send, field width minus balloon width (pt); 0 = not known.
+        init(fieldShrinks: Bool, lines: Int = 0, travel: Double = 0) {
             func e(_ n: String, _ base: SpringElement) -> SpringElement {
                 guard !ComposeMetrics.macOS26 else { return base }
                 // macOS 27, 1-line draft: the `.oneLineMac` fit (four elements, fit7 on the four 1-line
@@ -220,6 +286,25 @@ enum Springs {
             right = e("bubble.right", Springs.bubbleRight); width = e("bubble.width", Springs.bubbleWidth)
             centerY = e("bubble.centerY", Springs.bubbleCenterY); scale = e("bubble.scale", Springs.bubbleScale)
             opacity = e("bubble.opacity", Springs.bubbleOpacity)
+            height = width
+            // macOS 27, a draft that shrinks the field with 3+ text lines: ONE width spring whose duration depends
+            // on the line count (3 / 4+: 0.213 / 0.236 s, start +50 ms, damping ratio 0.788). An empirical fit with
+            // no known physical cause (springtruth TRUTH.md section 8); the height keeps the variant's element.
+            // 1- and 2-line texts that shrink the field keep `.fieldShrink` (a 2-line rule made the gate's fitted
+            // scale of two wide takes worse than their take-to-take spread).
+            #if os(macOS) || targetEnvironment(macCatalyst)
+            if !ComposeMetrics.macOS26, fieldShrinks, lines >= 3, let w = Springs.all["bubble.width.fieldShrinkMac\(min(lines, 4))"] {
+                width = w
+            }
+            // macOS 27, a 2-line text that shrinks the field: `.fieldShrink`'s width curve on a clock set by the
+            // width change (cx-3cb send-width-typed, springs.json bubble.width.fieldShrinkMac2): a 158 pt change
+            // (2-line wide) runs at the same speed 8 ms later, a 472 pt change (2-line narrow) 0.87x from
+            // 12.8 ms later; between them ln-interpolated, outside clamped. The height keeps `.fieldShrink`.
+            if !ComposeMetrics.macOS26, fieldShrinks, lines == 2, travel > 0,
+               let w = Springs.all["bubble.width.fieldShrinkMac2"], let law = Springs.travelLaws["bubble.width.fieldShrinkMac2"] {
+                width = law.apply(w, travel: travel)
+            }
+            #endif
         }
     }
     static func osElement(_ name: String) -> SpringElement {
@@ -342,6 +427,10 @@ enum Springs {
     static var receiptChangeOut: SpringElement { element("receipt.changeOut") }
     static var receiptChangeIn: SpringElement { element("receipt.changeIn") }
     static let ghostOut = simple("row.out", delay: 0, duration: 0.2)
+    /// The send overlay's fade over the landed cell (WindowView.landMorphs): live 120 Hz takes of main f0be76b
+    /// (tools/live-motion, cx-3cb) showed the hand-off as ONE frame that changed every glyph edge of the landed
+    /// balloon (send-typed #405: 10411 px, up to 180 levels, the frame before 1138 px); spread over ~12 frames.
+    static let landFade = simple("land.fade", delay: 0, duration: 0.1)
     static let connectorDraw = simple("connector.draw", delay: 0, duration: 0.25)
     static let textUnblur = simple("text.unblur", delay: 0.035, duration: 0.12)
     static let fieldGrow = simple("field.grow", delay: 0, duration: 0.1)

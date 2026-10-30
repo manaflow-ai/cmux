@@ -172,6 +172,28 @@ async function vmErrorsCopy(key: "providerCapacity" | "stateConflict", locale: L
   };
 }
 
+/** Localized copy for admission and snapshot guards added before provider work. */
+export async function vmMutationGuardCopy(
+  key:
+    | "allocationUnavailable"
+    | "snapshotIdempotencyRequired"
+    | "snapshotInProgress"
+    | "snapshotIdempotencyConflict"
+    | "snapshotQuota",
+  locale: Locale,
+): Promise<VmRequiresProCopy> {
+  const translator = createTranslator({
+    locale,
+    messages: await loadMessages(locale),
+    namespace: `vmErrors.${key}`,
+  }) as unknown as (key: string) => string;
+  return {
+    title: translator("title"),
+    message: translator("message"),
+    action: translator("action"),
+  };
+}
+
 /** Localized guidance when the provider account's network rule capacity is exhausted. */
 export async function vmNetworkRuleCapacityCopy(locale: Locale): Promise<VmRequiresProCopy> {
   const translator = createTranslator({
@@ -231,17 +253,24 @@ export async function vmCreateCleanupPendingCopy(locale: Locale): Promise<VmRequ
 /** Load and translate the `vm_requires_pro` response copy for the request locale. */
 export async function vmRequiresProCopy(
   locale: Locale,
-  values: { readonly upgradeUrl: string },
+  values: { readonly upgradeUrl: string; readonly planId: string },
 ): Promise<VmRequiresProCopy> {
+  const messages = await loadMessages(locale);
   const translator = createTranslator({
     locale,
-    messages: await loadMessages(locale),
+    messages,
     namespace: "vmErrors.requiresPro",
   }) as unknown as (key: string, values?: Record<string, string>) => string;
+  const planTranslator = createTranslator({
+    locale,
+    messages,
+    namespace: "pricing",
+  }) as unknown as (key: string) => string;
+  const plan = planTranslator(`${values.planId}.name`);
   return {
-    title: translator("title"),
-    message: translator("message"),
-    action: translator("action", { upgradeUrl: values.upgradeUrl }),
+    title: translator("title", { plan }),
+    message: translator("message", { plan }),
+    action: translator("action", { plan, upgradeUrl: values.upgradeUrl }),
   };
 }
 
@@ -283,6 +312,37 @@ export async function vmGoLimitCopy(
     namespace: "vmErrors.goLimit",
   }) as unknown as (key: string) => string;
   return { message: t(`${kind}Message`), action: t(`${kind}Action`) };
+}
+
+/**
+ * Localized copy for a used-up Pro or Max allowance. The reset date is the
+ * end of the billing period, shown as a UTC calendar date.
+ */
+export async function vmPlanBudgetCopy(
+  locale: Locale,
+  values: {
+    readonly resource: "compute" | "storage";
+    readonly planId: "pro" | "max";
+    readonly included: number;
+    readonly used: number;
+    readonly requested: number;
+    readonly resetsAt: Date;
+  },
+): Promise<VmRequiresProCopy> {
+  const t = createTranslator({
+    locale,
+    messages: await loadMessages(locale),
+    namespace: "vmErrors.planBudget",
+  }) as unknown as (key: string, values?: Record<string, string | number>) => string;
+  const resetDate = new Intl.DateTimeFormat(locale, { dateStyle: "long", timeZone: "UTC" }).format(values.resetsAt);
+  const plan = values.planId === "max" ? "Max" : "Pro";
+  const args = { plan, included: values.included, used: values.used, requested: values.requested, resetDate };
+  const upgrade = values.planId === "pro" ? "Upgrade" : "";
+  return {
+    title: t(`${values.resource}Title`, args),
+    message: t(`${values.resource}Message`, args),
+    action: t(`${values.resource}Action${upgrade}`, args),
+  };
 }
 
 /**

@@ -11,6 +11,8 @@ package_path="$1"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ "${CMUX_CI_REQUIRED_MACOS_SDK_MAJOR:-}" == "export-settings" ]]; then
   source "$script_dir/swift-test-debug-info.sh"
+  source "$script_dir/swiftpm-binary-module-guard.sh"
+  swiftpm_binary_module_guard "$package_path"
   # SwiftPM copies raw catalogs but can retain old compiled tables on warm
   # slots. Refresh them after building and before either exporter reads them.
   swift build ${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"} --package-path "$package_path" --build-tests
@@ -19,7 +21,16 @@ if [[ "${CMUX_CI_REQUIRED_MACOS_SDK_MAJOR:-}" == "export-settings" ]]; then
   (cd "$package_path" && CMUX_SWIFT_BIN_PATH="$bin_path" "$compile_catalogs")
   CMUX_UPDATE_MDM_SCHEMA=1 swift test ${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"} --package-path "$package_path" --skip-build --filter ManagedPreferencesManifestTests
   CMUX_UPDATE_ACTION_SURFACES=1 swift test ${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"} --package-path "$package_path" --skip-build --filter SettingsSchemaExportTests
-  for file in docs/mdm/com.manaflow.cmux.json docs/mdm/com.manaflow.cmux.plist docs/mdm/managed-preferences.md schemas/settings/settings-schema.json; do
+  # Every file the two exporters write, from scripts/cmux-next/settings-exports.txt: the one list,
+  # so an export added there reaches this artifact without a second edit here (review of #23915).
+  settings_exports=()
+  while IFS= read -r file; do settings_exports+=("$file"); done < <(
+    sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$script_dir/../cmux-next/settings-exports.txt")
+  (( ${#settings_exports[@]} )) || {
+    echo "scripts/cmux-next/settings-exports.txt lists no export" >&2
+    exit 1
+  }
+  for file in "${settings_exports[@]}"; do
     echo "BEGIN_ARTIFACT:$file"
     base64 < "$file" | tr -d "\n"
     echo
@@ -86,10 +97,25 @@ if [ -n "${CMUX_SWIFT_TEST_SHARD:-}" ]; then
   fi
   shard_index="${BASH_REMATCH[1]}" shard_count="${BASH_REMATCH[2]}"
 fi
+# CMUX_SWIFT_TEST_SUITES=A,Target.B runs only the named suites (a bare suite name
+# matches it in any test target), so a fleet step can run one suite of a package
+# (cmux-ci run --env CMUX_SWIFT_TEST_SUITES=SidebarScrollCostTests). Every name
+# must be a suite the package lists: a typo fails, never a green run of nothing.
+only_suites=()
+if [ -n "${CMUX_SWIFT_TEST_SUITES:-}" ]; then
+  if ! [[ "$CMUX_SWIFT_TEST_SUITES" =~ ^[A-Za-z_][A-Za-z0-9_.]*(,[A-Za-z_][A-Za-z0-9_.]*)*$ ]]; then
+    echo "CMUX_SWIFT_TEST_SUITES must be comma-separated suite names, Suite or Target.Suite (got '$CMUX_SWIFT_TEST_SUITES')" >&2
+    exit 2
+  fi
+  IFS=, read -r -a only_suites <<< "$CMUX_SWIFT_TEST_SUITES"
+fi
 # CMUX_SWIFT_TEST_DEBUG_INFO (dwarf|none): every swift call below passes the
 # same debug-info option, so the suites reuse the list build.
 # shellcheck source=scripts/ci/swift-test-debug-info.sh
 source "$script_dir/swift-test-debug-info.sh" || exit 2
+# A reused .build drops its build outputs when a binary target's headers change.
+# shellcheck source=scripts/ci/swiftpm-binary-module-guard.sh
+source "$script_dir/swiftpm-binary-module-guard.sh" || exit 2
 debug_info_args=(${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"})
 evidence_dir="$(mktemp -d)"
 trap 'rm -rf "$evidence_dir"' EXIT
@@ -174,6 +200,7 @@ else
   echo "ci-phase .build has no earlier build of this script (cold or first use)"
 fi
 phase build-and-list
+swiftpm_binary_module_guard "$package_path"
 swift test list ${debug_info_args[@]+"${debug_info_args[@]}"} --package-path "$package_path" > "$evidence_dir/discovered-tests.txt"
 [ ! -d "$package_path/.build" ] || git rev-parse HEAD > "$built_ref_file" 2>/dev/null || true
 phase filters
@@ -256,6 +283,29 @@ fi
 # list each suite's result and exit with the first failure's status (first in
 # suite order, whatever order the suites finish in).
 phase suites
+if [ "${#only_suites[@]}" -gt 0 ]; then
+  # A filter is ^Target\.Suite/ (require_swift_test_execution.py --list-filters);
+  # its plain name is Target.Suite.
+  : > "$evidence_dir/named-filters.txt"
+  for name in "${only_suites[@]}"; do
+    matched=0
+    while IFS= read -r filter; do
+      plain="${filter#^}"
+      plain="${plain%/}"
+      plain="${plain//\\/}"
+      if [ "$plain" = "$name" ] || [ "${plain#*.}" = "$name" ]; then
+        grep -qxF -- "$filter" "$evidence_dir/named-filters.txt" || echo "$filter" >> "$evidence_dir/named-filters.txt"
+        matched=1
+      fi
+    done < "$evidence_dir/filters.txt"
+    if [ "$matched" -eq 0 ]; then
+      echo "CMUX_SWIFT_TEST_SUITES names $name, which is not a suite of $package_path" >&2
+      exit 2
+    fi
+  done
+  mv "$evidence_dir/named-filters.txt" "$evidence_dir/filters.txt"
+  echo "CMUX_SWIFT_TEST_SUITES: $(wc -l < "$evidence_dir/filters.txt" | tr -d ' ') suite(s)"
+fi
 suites=()
 position=0
 while IFS= read -r suite; do

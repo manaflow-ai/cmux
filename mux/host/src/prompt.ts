@@ -5,8 +5,9 @@ export function muxSystemPrompt(options: { mcp: boolean }): string {
   operation. They carry origin "mcp", so they never move the user's focus
   unless you ask for it. The \`cmux\` CLI in your shell drives the same app.`
     : `- Use the \`cmux\` CLI from your shell for every workspace, tab, pane, terminal
-  and browser operation (\`cmux --help\`), for example \`cmux list-workspaces\`,
-  \`cmux new-workspace --name X --cwd DIR\`, \`cmux read-screen\`. It drives the
+  and browser operation (\`cmux --help\`), for example \`cmux workspace list\`,
+  \`cmux workspace create --name X --cwd DIR\`, \`cmux terminal <term_id> screen read\`
+  (term_ ids come from \`cmux terminal list\`). It drives the
   cmux app you live in (CMUX_SOCKET_PATH). Calls carry origin "script", so they
   never move the user's focus unless you pass \`--focus\`.`;
   return `You are mux, the user's orchestrator agent inside cmux. You are one long-lived

@@ -6,7 +6,7 @@ impl App {
     // --------------------------------------------------------- inbound
 
     pub(super) fn on_notification(&mut self, m: &str, p: Value) {
-        let sid = p.get("sessionId").and_then(Value::as_str).map(str::to_owned);
+        let sid = session_route_id(&p);
         match m {
             method::SESSION_UPDATE => {
                 if let Some(id) = sid {
@@ -27,7 +27,7 @@ impl App {
                         let who = self
                             .sessions
                             .iter()
-                            .find(|s| s.get("sessionId").and_then(Value::as_str) == Some(&id))
+                            .find(|s| session_route_id(s).as_ref() == Some(&id))
                             .and_then(|s| s.get("name").and_then(Value::as_str))
                             .unwrap_or("session")
                             .to_owned();
@@ -40,24 +40,22 @@ impl App {
                             },
                         );
                     }
-                    self.transcripts.entry(id).or_default().apply_event(&p);
+                    self.transcripts.entry(id.clone()).or_default().apply_event(&p);
+                    self.follow_removed_rows(&id);
                 }
             }
             method::MUX_SESSION_CHANGED => {
                 if let Some(s) = p.get("session") {
-                    let id = s.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
+                    let Some(id) = sid.clone().or_else(|| session_route_id(s)) else { return };
                     if p.get("kind").and_then(Value::as_str) == Some("purged") {
-                        self.sessions
-                            .retain(|x| x.get("sessionId").and_then(Value::as_str) != Some(&id));
+                        self.sessions.retain(|x| session_route_id(x).as_ref() != Some(&id));
                         self.transcripts.remove(&id);
                         self.attention.remove(&id);
                         self.selected = self.selected.min(self.row_count().saturating_sub(1));
                         return;
                     }
-                    if let Some(slot) = self
-                        .sessions
-                        .iter_mut()
-                        .find(|x| x.get("sessionId").and_then(Value::as_str) == Some(&id))
+                    if let Some(slot) =
+                        self.sessions.iter_mut().find(|x| session_route_id(x).as_ref() == Some(&id))
                     {
                         *slot = s.clone();
                     } else {
@@ -86,9 +84,7 @@ impl App {
                 let who = sid
                     .as_deref()
                     .and_then(|id| {
-                        self.sessions
-                            .iter()
-                            .find(|s| s.get("sessionId").and_then(Value::as_str) == Some(id))
+                        self.sessions.iter().find(|s| session_route_id(s).as_deref() == Some(id))
                     })
                     .and_then(|s| s.get("name").and_then(Value::as_str))
                     .unwrap_or("?");
@@ -102,24 +98,43 @@ impl App {
                 }
             }
             "_acpmux/lagged" => {
-                self.status = "event stream lagged; reattach with Enter on the session".into()
+                // `_acpmux/lagged` is connection-wide and intentionally has
+                // no session id.  Replay every session this TUI has attached
+                // to from its own last applied sequence, with one request per
+                // session at most while the recovery is in flight.
+                let ids: Vec<String> = self.attached.iter().cloned().collect();
+                let mut recovering = 0;
+                for id in ids {
+                    let Some(after_seq) = self.transcripts.get(&id).map(|t| t.last_seq) else {
+                        continue;
+                    };
+                    if self.recover_after_lag(&id, after_seq) {
+                        recovering += 1;
+                    }
+                }
+                self.status = if recovering == 0 {
+                    "event stream lagged; recovery required".into()
+                } else {
+                    format!("event stream lagged; recovering {recovering} session(s)…")
+                };
             }
             _ => {}
         }
     }
 
     pub(super) fn sort_sessions(&mut self) {
-        let selected_id = self.selected_id();
+        self.sort_sessions_preserving(self.selected_id());
+    }
+
+    fn sort_sessions_preserving(&mut self, selected_id: Option<String>) {
         self.sessions.sort_by(|a, b| {
             let ua = a.get("updatedAt").and_then(Value::as_u64).unwrap_or(0);
             let ub = b.get("updatedAt").and_then(Value::as_u64).unwrap_or(0);
             ub.cmp(&ua)
         });
         if let Some(id) = selected_id
-            && let Some(i) = self
-                .sessions
-                .iter()
-                .position(|s| s.get("sessionId").and_then(Value::as_str) == Some(&id))
+            && let Some(i) =
+                self.sessions.iter().position(|s| session_route_id(s).as_ref() == Some(&id))
         {
             self.selected = i + self.drafts.len();
         }
@@ -129,13 +144,70 @@ impl App {
         match msg {
             AppMsg::Sessions(list) => {
                 let had = !self.sessions.is_empty();
+                let selected_id = self.selected_id();
                 self.sessions = list;
-                self.sort_sessions();
+                self.sort_sessions_preserving(selected_id);
                 if !had && !self.sessions.is_empty() && self.drafts.is_empty() {
                     self.select(0);
                 }
             }
-            AppMsg::Attached { id, detail, events } => {
+            AppMsg::Attached { id, detail, events, after_seq, has_more, last_seq: _ } => {
+                if let Some(after_seq) = after_seq {
+                    let mut recovered = 0;
+                    let mut next_seq = after_seq;
+                    if let Some(t) = self.transcripts.get_mut(&id) {
+                        for e in &events {
+                            let seq = e.get("seq").and_then(Value::as_u64).unwrap_or(0);
+                            if seq <= t.last_seq {
+                                continue;
+                            }
+                            t.apply_event(e);
+                            recovered += 1;
+                        }
+                        if let Some(status) = detail.get("status").and_then(Value::as_str) {
+                            t.status = status.to_owned();
+                        }
+                        next_seq = t.last_seq;
+                    }
+                    self.follow_removed_rows(&id);
+                    self.details.insert(id.clone(), detail);
+                    let total_recovered = self.recovery_replayed.entry(id.clone()).or_default();
+                    *total_recovered += recovered;
+                    if has_more {
+                        let page = self.recovery_pages.get(&id).copied().unwrap_or(1);
+                        if recovered == 0 || next_seq <= after_seq {
+                            let total = self.recovery_replayed.remove(&id).unwrap_or(recovered);
+                            let start = self.recovery_start.remove(&id).unwrap_or(after_seq);
+                            self.recovery_pages.remove(&id);
+                            self.recovery_in_flight.remove(&id);
+                            self.status = format!(
+                                "recovery stopped after seq {next_seq}; {total} events recovered from seq {start}, more remain"
+                            );
+                        } else if page >= super::MAX_RECOVERY_PAGES {
+                            let total = self.recovery_replayed.remove(&id).unwrap_or(recovered);
+                            let start = self.recovery_start.remove(&id).unwrap_or(after_seq);
+                            self.recovery_pages.remove(&id);
+                            self.recovery_in_flight.remove(&id);
+                            self.status = format!(
+                                "recovery stopped after {page} pages at seq {next_seq}; {total} events recovered from seq {start}, more remain"
+                            );
+                        } else {
+                            self.recovery_pages.insert(id.clone(), page + 1);
+                            self.status = format!(
+                                "recovering session after seq {next_seq} (page {page}/{})…",
+                                super::MAX_RECOVERY_PAGES
+                            );
+                            self.request_attach(&id, Some(next_seq));
+                        }
+                    } else {
+                        let total = self.recovery_replayed.remove(&id).unwrap_or(recovered);
+                        let start = self.recovery_start.remove(&id).unwrap_or(after_seq);
+                        self.recovery_pages.remove(&id);
+                        self.recovery_in_flight.remove(&id);
+                        self.status = format!("recovered {total} events from seq {start}");
+                    }
+                    return;
+                }
                 if events.is_empty() && self.transcripts.contains_key(&id) {
                     if let Some(t) = self.transcripts.get_mut(&id) {
                         t.mode = detail
@@ -156,11 +228,20 @@ impl App {
                 for e in &events {
                     t.apply_event(e);
                 }
+                // A fresh replay: folds already name its rows.
+                t.removed_items.clear();
                 t.status = detail.get("status").and_then(Value::as_str).unwrap_or("").to_owned();
                 t.mode = detail.get("currentModeId").and_then(Value::as_str).map(str::to_owned);
                 t.model = detail.get("model").and_then(Value::as_str).map(str::to_owned);
                 self.details.insert(id.clone(), detail);
                 self.transcripts.insert(id, t);
+            }
+            AppMsg::RecoveryFailed { id, after_seq, error } => {
+                self.recovery_pages.remove(&id);
+                self.recovery_replayed.remove(&id);
+                self.recovery_start.remove(&id);
+                self.recovery_in_flight.remove(&id);
+                self.status = format!("recovery failed after seq {after_seq}: {error}");
             }
             AppMsg::Agents(list, default) => {
                 self.harnesses = list;
@@ -215,5 +296,49 @@ impl App {
                 self.status = DEFAULT_STATUS.into();
             }
         }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod peer_route_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn peer_events_update_selected_transcript_and_preserve_selection_when_sorted() {
+        let (mut app, _requests) = interaction_tests::app().await;
+        app.drafts.clear();
+        let local = json!({"sessionId": "raw", "name": "local", "updatedAt": 2});
+        let remote = json!({"sessionId": "raw", "peer": "worker", "qualifiedSessionId": "worker/raw", "name": "worker/remote", "updatedAt": 1});
+        app.sessions = vec![local.clone(), remote.clone()];
+        app.selected = 1;
+        app.transcripts.insert("worker/raw".into(), Transcript::default());
+        app.on_notification(method::SESSION_UPDATE, json!({
+            "sessionId": "raw", "peer": "worker",
+            "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "remote reply"}}
+        }));
+        assert!(
+            !app.transcripts["worker/raw"].items.is_empty(),
+            "remote update must reach the selected transcript"
+        );
+        assert!(
+            !app.transcripts.contains_key("raw"),
+            "remote output must not enter a local transcript"
+        );
+        let mut changed = remote.clone();
+        changed["updatedAt"] = json!(3);
+        app.on_notification(
+            method::MUX_SESSION_CHANGED,
+            json!({"sessionId": "raw", "peer": "worker", "session": changed, "kind": "turn_start"}),
+        );
+        assert_eq!(app.sessions.len(), 2);
+        assert_eq!(app.selected, 0);
+        assert_eq!(app.selected_id().as_deref(), Some("worker/raw"));
+        assert_eq!(app.sessions[1], local);
+        // The returned list may already have a new order before sort_sessions runs.
+        app.on_msg(AppMsg::Sessions(vec![local.clone(), remote]));
+        assert_eq!(app.selected_id().as_deref(), Some("worker/raw"));
+        app.on_notification(method::MUX_SESSION_CHANGED, json!({"sessionId": "raw", "peer": "worker", "session": {"sessionId": "raw"}, "kind": "purged"}));
+        assert_eq!(app.sessions, vec![local]);
+        assert!(!app.transcripts.contains_key("worker/raw"));
     }
 }

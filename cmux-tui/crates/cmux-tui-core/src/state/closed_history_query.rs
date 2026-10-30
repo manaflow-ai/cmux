@@ -8,6 +8,9 @@
 //! sees a group of another live window. A live window is one with a window
 //! record.
 
+use std::collections::HashSet;
+
+use cmux_json::JsonSet as _;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Value, json};
 
@@ -34,8 +37,10 @@ fn in_scope(window: Option<&str>) -> &'static str {
 
 /// The public `ClosedTabRecord` of one stored tab. A page tab names its
 /// page, so Recently Closed can title it by the page rather than by its
-/// `about:blank` placeholder (cx-h7y9).
-fn public_tab(tab: &Value) -> Value {
+/// `about:blank` placeholder (cx-h7y9). A terminal in `evicted` lost its
+/// archived screen to the byte budget: its row says the scrollback was not
+/// kept (cx-gzh.4.4).
+fn public_tab(tab: &Value, evicted: &HashSet<String>) -> Value {
     let mut public = json!({
         "kind": tab["kind"],
         "name": tab["name"],
@@ -45,10 +50,13 @@ fn public_tab(tab: &Value) -> Value {
         "pinned": tab["pinned"].as_bool().unwrap_or(false),
     });
     if let Some(page) = tab["conversation"]["page"].as_str() {
-        public["page"] = json!(page);
+        public.set("page", json!(page));
     }
     if reopens_empty(tab) {
-        public["empty"] = json!(true);
+        public.set("empty", json!(true));
+    }
+    if tab["terminal_id"].as_str().is_some_and(|id| evicted.contains(id)) {
+        public.set("scrollback_not_kept", json!(true));
     }
     public
 }
@@ -78,13 +86,14 @@ fn reopens_empty(tab: &Value) -> bool {
 }
 
 /// The public `ClosedMemberRecord` of one stored member.
-fn public_member(member: &Value) -> Value {
+fn public_member(member: &Value, evicted: &HashSet<String>) -> Value {
     let screens = member["screens"]
         .as_array()
         .into_iter()
         .flatten()
         .map(|screen| {
-            let tabs = screen["tabs"].as_array().into_iter().flatten().map(public_tab);
+            let tabs =
+                screen["tabs"].as_array().into_iter().flatten().map(|tab| public_tab(tab, evicted));
             json!({"name": screen["name"], "tabs": tabs.collect::<Vec<_>>()})
         })
         .collect::<Vec<_>>();
@@ -101,8 +110,14 @@ fn public_member(member: &Value) -> Value {
 /// The public `ClosedItemSnapshot` of a stored group. The top-level fields
 /// of a v1 item mirror the first member, so older clients keep working.
 pub(crate) fn public_item(record: &Value) -> Value {
+    public_item_in(record, &HashSet::new())
+}
+
+/// [`public_item`], marking the tabs of `evicted` terminals.
+fn public_item_in(record: &Value, evicted: &HashSet<String>) -> Value {
     let members = record["members"].as_array().cloned().unwrap_or_default();
-    let first = members.first().map(public_member).unwrap_or_else(|| json!({}));
+    let first =
+        members.first().map(|member| public_member(member, evicted)).unwrap_or_else(|| json!({}));
     // A deleted space is named by the space, not its first workspace (cx-ncc.44).
     let room = &record["room"]["profile"][0]["name"];
     let mut item = json!({
@@ -123,7 +138,7 @@ pub(crate) fn public_item(record: &Value) -> Value {
         "screens": first["screens"].as_array().cloned().unwrap_or_default(),
         "window": record["window"],
         "member_count": members.len(),
-        "members": members.iter().map(public_member).collect::<Vec<_>>(),
+        "members": members.iter().map(|member| public_member(member, evicted)).collect::<Vec<_>>(),
     });
     // An ungrouped tab or screen group (no member) sits in its workspace.
     // No pane: the app would take it for a closed tab of that pane.
@@ -131,14 +146,88 @@ pub(crate) fn public_item(record: &Value) -> Value {
         .into_iter()
         .find_map(|field| record.get(field).filter(|group| group.is_object()));
     if let Some(group) = ungrouped {
-        item["workspace_id"] = group["workspace_id"].clone();
+        item.set("workspace_id", group["workspace_id"].clone());
     }
     // A deleted personal workspace group names the group it forms again.
     if let Some(group) = record.get("group").filter(|group| group.is_object()) {
-        item["group"] =
-            crate::workspace_registry::personal_mutations::group_archive::public_group(group);
+        item.set(
+            "group",
+            crate::workspace_registry::personal_mutations::group_archive::public_group(group),
+        );
     }
     item
+}
+
+/// Every tab a public item (`closed.list` shape) would recreate: every member's, else the top
+/// level's (a v1 item), as the Swift `ClosedItem.tabs`.
+pub(crate) fn closed_tabs(item: &Value) -> Vec<&Value> {
+    fn tabs_of(screens: Option<&Value>) -> Vec<&Value> {
+        screens
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|screen| screen.get("tabs").and_then(Value::as_array))
+            .flatten()
+            .collect()
+    }
+    match item.get("members").and_then(Value::as_array).filter(|members| !members.is_empty()) {
+        Some(members) => members.iter().flat_map(|member| tabs_of(member.get("screens"))).collect(),
+        None => tabs_of(item.get("screens")),
+    }
+}
+
+/// The page a public item (`closed.list` shape) is only, by its address: a closed tab of one
+/// browser on a real address. Recently Closed shows a page once however often it was closed,
+/// removing or reopening that row takes every close of it, and the Swift
+/// `DaemonClosedHistory.pageKey` keys a page the same way (Leo 2026-10-14). A terminal, chat,
+/// page tab, screen, workspace, window, group or close of several tabs is no page: nothing tells
+/// one close of it from another (two shells in one folder), so each close stays its own.
+pub(crate) fn closed_page(item: &Value) -> Option<&str> {
+    if item.get("kind").and_then(Value::as_str) != Some("tab")
+        || !item.get("group").is_none_or(Value::is_null)
+    {
+        return None;
+    }
+    let tabs = closed_tabs(item);
+    let &[tab] = tabs.as_slice() else { return None };
+    let empty = tab.get("empty").and_then(Value::as_bool) == Some(true);
+    if tab.get("kind").and_then(Value::as_str) != Some("browser")
+        || empty
+        || !tab.get("page").is_none_or(Value::is_null)
+    {
+        return None;
+    }
+    tab.get("url").and_then(Value::as_str).filter(|url| !url.is_empty() && *url != "about:blank")
+}
+
+/// Removes, in a reopen's commit, every other group that is only the page `page`
+/// ([`closed_page`]; a closed tab group of that one page forms its group again, so it stays):
+/// the page is open again, so no older close of it takes its Recently Closed row or reopens it
+/// a second time. Answers the public changes. Best effort: a group it cannot read stays (and
+/// so does every group, when the list cannot be read), so the reopen whose tabs already exist
+/// still commits.
+pub(crate) fn remove_other_closes(
+    transaction: &Transaction<'_>,
+    page: &str,
+) -> anyhow::Result<Vec<Value>> {
+    let mut changes = Vec::new();
+    let Ok(items) = closed_items(transaction) else { return Ok(changes) };
+    for item in items {
+        let Some(id) = item.get("id").and_then(Value::as_str) else { continue };
+        if closed_page(&item) != Some(page) {
+            continue;
+        }
+        let Ok(record) = closed_record(transaction, id) else { continue };
+        let grouped = record.is_some_and(|record| {
+            ["tab_group", "screen_group"]
+                .iter()
+                .any(|key| record.get(*key).is_some_and(Value::is_object))
+        });
+        if !grouped && remove_closed(transaction, id)? {
+            changes.push(crate::state::store::state_delete("closed", id));
+        }
+    }
+    Ok(changes)
 }
 
 /// The newest [`DEFAULT_LIST_LIMIT`] groups of every window.
@@ -160,7 +249,11 @@ pub(crate) fn closed_items_in(
     let records = statement
         .query_map(params![window, limit], |row| row.get::<_, String>(0))?
         .collect::<Result<Vec<_>, _>>()?;
-    records.iter().map(|record| Ok(public_item(&serde_json::from_str(record)?))).collect()
+    let evicted = crate::workspace_registry::terminal_archive_store::evicted_terminals(connection)?;
+    records
+        .iter()
+        .map(|record| Ok(public_item_in(&serde_json::from_str(record)?, &evicted)))
+        .collect()
 }
 
 /// The group Reopen Closed takes when the caller names none: the newest
@@ -199,6 +292,24 @@ pub(crate) fn newest_for_window(
             |row| row.get::<_, String>(0),
         )
         .optional()?)
+}
+
+/// The public upserts of `closed_ids` (groups whose archive lost its
+/// screen), so a client that follows the change stream shows the note. A
+/// group already gone is skipped.
+pub(crate) fn closed_upserts(
+    connection: &Connection,
+    closed_ids: &[String],
+) -> anyhow::Result<Vec<Value>> {
+    let evicted = crate::workspace_registry::terminal_archive_store::evicted_terminals(connection)?;
+    let mut upserts = Vec::new();
+    for closed_id in closed_ids {
+        if let Some(record) = closed_record(connection, closed_id)? {
+            let item = public_item_in(&record, &evicted);
+            upserts.push(crate::state::store::state_upsert("closed", closed_id, item));
+        }
+    }
+    Ok(upserts)
 }
 
 /// The full stored group (including the terminal ids reopen uses).
@@ -246,11 +357,48 @@ pub(crate) fn keep_members(
     members: Vec<Value>,
 ) -> anyhow::Result<Value> {
     let kind = super::closed_history_store::group_kind(&members);
-    record["kind"] = json!(kind);
-    record["members"] = Value::Array(members);
+    record.set("kind", json!(kind));
+    record.set("members", Value::Array(members));
     transaction.execute(
         "UPDATE closed_groups SET kind = ?2, record_json = ?3 WHERE closed_id = ?1",
         params![closed_id, kind, serde_json::to_string(&record)?],
     )?;
-    Ok(public_item(&record))
+    let evicted =
+        crate::workspace_registry::terminal_archive_store::evicted_terminals(transaction)?;
+    Ok(public_item_in(&record, &evicted))
+}
+
+/// The newest group that holds tab `tab` (a `tab_` id) and the index of its
+/// member that recreates it: a tab member, or the screen or workspace member
+/// whose screens hold it. None when no group holds it (live, or deleted from
+/// the history). For `closed.reopen {tab}` (durable-links-DESIGN.md).
+pub(crate) fn group_member_holding_tab(
+    connection: &Connection,
+    tab: &str,
+) -> anyhow::Result<Option<(String, usize)>> {
+    // A `tab_` id is lowercase hex after its prefix: no LIKE wildcard in it.
+    if !tab.starts_with("tab_") || !tab[4..].bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Ok(None);
+    }
+    let mut statement = connection.prepare(
+        "SELECT closed_id, record_json FROM closed_groups
+         WHERE record_json LIKE '%' || ?1 || '%' ORDER BY seq DESC",
+    )?;
+    let rows = statement
+        .query_map([tab], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?;
+    for row in rows {
+        let (closed_id, record) = row?;
+        let record: Value = serde_json::from_str(&record)?;
+        let members = record["members"].as_array().cloned().unwrap_or_default();
+        let holds = |member: &Value| {
+            member["tab_id"].as_str() == Some(tab)
+                || closed_tabs(&serde_json::json!({"members": [member]}))
+                    .iter()
+                    .any(|closed| closed["tab_id"].as_str() == Some(tab))
+        };
+        if let Some(index) = members.iter().position(holds) {
+            return Ok(Some((closed_id, index)));
+        }
+    }
+    Ok(None)
 }

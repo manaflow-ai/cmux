@@ -5,7 +5,7 @@ public import AppKit
 /// with the shared hover fill only under the pointer. No second capsule, no
 /// accent color.
 @MainActor
-public final class CmuxToastButton: NSButton {
+public final class CmuxToastButton: ClickableButton {
     public enum Style { case action, close }
 
     /// Horizontal padding of the action title inside its hover fill.
@@ -33,7 +33,6 @@ public final class CmuxToastButton: NSButton {
             let config = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
             image = NSImage(systemSymbolName: "xmark", accessibilityDescription: title)?.withSymbolConfiguration(config)
             imagePosition = .imageOnly
-            themedToolTip = title
             widthAnchor.constraint(equalToConstant: Self.closeSide).isActive = true
             heightAnchor.constraint(equalToConstant: Self.closeSide).isActive = true
         }

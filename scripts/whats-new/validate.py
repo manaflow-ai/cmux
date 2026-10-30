@@ -44,7 +44,8 @@ MAX_ENTRIES = 24
 LIMITS = {"headline": 90, "title": 60, "summary": 240, "alt": 160}
 FOREIGN_SLACK = 1.6
 TOP_LEVEL = {"schemaVersion", "version", "channel", "date", "headline", "entries"}
-ENTRY_KEYS = {"id", "category", "title", "summary", "media", "tryIt", "docs", "platforms", "audience"}
+ENTRY_KEYS = {"id", "category", "title", "summary", "media", "tryIt", "pr", "docs", "platforms", "audience"}
+PR_URL = re.compile(r"^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*$")
 
 # Internal names that never reach users. Each is (pattern, what it is).
 INTERNAL = [
@@ -63,6 +64,10 @@ INTERNAL = [
     (re.compile(r"\b(TODO|TBD|FIXME|lorem ipsum)\b", re.I), "a placeholder"),
 ]
 SENTENCE_END = re.compile(r"[.!?。！？](?=\s|$)")
+# Conductor-quality notes (2026-10-20): text written for people, never a commit subject such as
+# "fix(sidebar): ..." or "sidebar: ...". See release-notes/next/WRITING.md.
+COMMIT_STYLE = re.compile(r"^[a-z][\w./-]*(\([^)]*\))?!?:\s")
+WHOLE_SENTENCE = re.compile(r"[.!?。！？][)\"”’»]*$")
 
 
 class Problems:
@@ -91,6 +96,10 @@ def check_text(problems, where, text, kind, language):
         found = pattern.search(text)
         if found:
             problems.add(where, f"{language} names {what} ({found.group(0)!r}); write it for users")
+    if kind in ("title", "summary", "headline") and language == "en" and COMMIT_STYLE.match(text):
+        problems.add(where, f"{language} reads like a commit subject ({text.split(':', 1)[0]!r}:); write what people can do now")
+    if kind == "summary" and language == "en" and not WHOLE_SENTENCE.search(text):
+        problems.add(where, f"{language} does not end a sentence; a summary is one or two whole sentences")
     if kind == "summary" and language == "en" and len(SENTENCE_END.findall(text)) > 2:
         problems.add(where, "en has more than 2 sentences")
     if kind in ("title", "headline") and text.endswith("."):
@@ -181,7 +190,9 @@ def check_entry(problems, index, entry, channel, root, seen, draft=False):
             problems.add(where, "tryIt.deeplink must start with cmux://")
     if docs is not None and not (isinstance(docs, str) and re.match(r"^https://[^\s]+$", docs)):
         problems.add(where, "docs must be an https URL")
-    if try_it is None and docs is None:
+    if "pr" in entry and not (isinstance(entry["pr"], str) and PR_URL.match(entry["pr"])):
+        problems.add(where, "pr must be a GitHub pull request URL")
+    if try_it is None and docs is None and "pr" not in entry:
         problems.add(where, "needs a tryIt action/deeplink or a docs link")
     media = entry.get("media")
     if media is not None:

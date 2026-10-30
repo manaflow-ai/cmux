@@ -388,6 +388,146 @@ fn projects_daemon_sync_imports_codex_app_t3code_and_conductor_projects() {
 }
 
 #[test]
+fn projects_daemon_rejects_an_oversized_codex_project_source() {
+    let daemon = Daemon::start("oversized-codex");
+    let state = daemon.dir.join("home/.codex/.codex-global-state.json");
+    let mut file = fs::File::create(&state).unwrap();
+    file.write_all(
+        br#"{"local-projects":{"p":{"rootPaths":["/srv/cx-m0p7-oversized/codex"],"updatedAt":1}},"padding":""#,
+    )
+    .unwrap();
+    let block = vec![b'x'; 1024 * 1024];
+    for _ in 0..33 {
+        file.write_all(&block).unwrap();
+    }
+    file.write_all(br#""}"#).unwrap();
+    drop(file);
+
+    daemon.mutate("project.sync", json!({"existing": [], "gone": []}), "oversized-codex");
+    let projects = daemon.list(json!({"include_hidden": true}));
+    assert!(
+        projects.iter().all(|project| project["path"] != "/srv/cx-m0p7-oversized/codex"),
+        "an oversized source must not be materialized: {projects:?}"
+    );
+}
+
+#[test]
+fn projects_daemon_keeps_the_last_complete_conductor_list_when_the_next_one_is_overfull() {
+    let daemon = Daemon::start("overfull-conductor");
+    let (config, _) = editor_dirs(&daemon.dir.join("home"));
+    let folder = config.join("com.conductor.app");
+    fs::create_dir_all(&folder).unwrap();
+    let database = folder.join("conductor.db");
+    let db = rusqlite::Connection::open(&database).unwrap();
+    db.execute_batch(
+        "CREATE TABLE repos (id TEXT PRIMARY KEY, name TEXT, root_path TEXT,
+           created_at TEXT NOT NULL, updated_at TEXT NOT NULL, hidden INTEGER DEFAULT 0);
+         INSERT INTO repos VALUES ('keep', 'keep', '/srv/cx-m0p7-overfull/keep',
+           '2026-10-20 00:00:00', '2026-10-20 00:00:00', 0);",
+    )
+    .unwrap();
+    drop(db);
+    daemon.mutate("project.sync", json!({"existing": [], "gone": []}), "conductor-complete");
+    assert!(
+        find(&daemon.list(json!({})), "/srv/cx-m0p7-overfull/keep")["sources"]["conductor"]
+            .is_object()
+    );
+
+    let db = rusqlite::Connection::open(&database).unwrap();
+    db.execute_batch(
+        "WITH RECURSIVE numbers(value) AS (
+           VALUES(1) UNION ALL SELECT value + 1 FROM numbers WHERE value <= 10000
+         )
+         INSERT INTO repos(id, name, root_path, created_at, updated_at, hidden)
+         SELECT 'overflow-' || value, 'overflow', '/srv/cx-m0p7-overfull/' || value,
+                '2026-10-20 00:00:00', '2026-10-20 00:00:00', 0 FROM numbers;",
+    )
+    .unwrap();
+    drop(db);
+    daemon.mutate("project.sync", json!({"existing": [], "gone": []}), "conductor-overfull");
+
+    let projects = daemon.list(json!({"include_hidden": true}));
+    let paths: Vec<&str> = projects.iter().filter_map(|project| project["path"].as_str()).collect();
+    assert_eq!(
+        paths,
+        ["/srv/cx-m0p7-overfull/keep"],
+        "the incomplete scan replaced the last good list"
+    );
+}
+
+#[test]
+fn projects_daemon_keeps_the_last_complete_lists_when_source_cells_exceed_their_budgets() {
+    let daemon = Daemon::start("oversized-source-cells");
+    let (config, zed) = editor_dirs(&daemon.dir.join("home"));
+
+    let conductor_folder = config.join("com.conductor.app");
+    fs::create_dir_all(&conductor_folder).unwrap();
+    let conductor_path = conductor_folder.join("conductor.db");
+    let conductor = rusqlite::Connection::open(&conductor_path).unwrap();
+    conductor
+        .execute_batch(
+            "CREATE TABLE repos (id TEXT PRIMARY KEY, root_path TEXT, updated_at TEXT NOT NULL,
+               hidden INTEGER DEFAULT 0);
+             INSERT INTO repos VALUES ('keep', '/srv/cx-m0p7-cell/conductor',
+               '2026-10-20 00:00:00', 0);",
+        )
+        .unwrap();
+
+    let zed_folder = zed.join("db/0-stable");
+    fs::create_dir_all(&zed_folder).unwrap();
+    let zed_path = zed_folder.join("db.sqlite");
+    let zed = rusqlite::Connection::open(&zed_path).unwrap();
+    zed.execute_batch(
+        "CREATE TABLE workspaces (workspace_id INTEGER PRIMARY KEY, paths TEXT,
+           remote_connection_id INTEGER, timestamp TEXT NOT NULL);
+         INSERT INTO workspaces VALUES (1, '/srv/cx-m0p7-cell/zed', NULL,
+           '2026-10-20 00:00:00');",
+    )
+    .unwrap();
+
+    daemon.mutate("project.sync", json!({"existing": [], "gone": []}), "cells-complete");
+    let complete = daemon.list(json!({}));
+    assert!(find(&complete, "/srv/cx-m0p7-cell/conductor")["sources"]["conductor"].is_object());
+    assert!(find(&complete, "/srv/cx-m0p7-cell/zed")["sources"]["zed"].is_object());
+
+    // Each store changes in one transaction: the daemon's source watch may
+    // read between two statements, and an emptied table is a complete, empty
+    // list (the source's projects gone), not the oversized cell under test.
+    conductor.execute_batch("BEGIN IMMEDIATE; DELETE FROM repos;").unwrap();
+    conductor
+        .execute(
+            "INSERT INTO repos VALUES ('large', ?1, '2026-10-20 00:00:00', 0)",
+            [format!("/{}", "x".repeat(4096))],
+        )
+        .unwrap();
+    conductor.execute_batch("COMMIT").unwrap();
+    drop(conductor);
+
+    zed.execute_batch("BEGIN IMMEDIATE; DELETE FROM workspaces;").unwrap();
+    let large_cell = format!("/{}", "x".repeat(4 * 1024 * 1024 - 1));
+    for id in 1..=9 {
+        zed.execute(
+            "INSERT INTO workspaces VALUES (?1, ?2, NULL, '2026-10-20 00:00:00')",
+            rusqlite::params![id, large_cell],
+        )
+        .unwrap();
+    }
+    zed.execute_batch("COMMIT").unwrap();
+    drop(zed);
+
+    daemon.mutate("project.sync", json!({"existing": [], "gone": []}), "cells-oversized");
+    let projects = daemon.list(json!({"include_hidden": true}));
+    assert!(
+        find(&projects, "/srv/cx-m0p7-cell/conductor")["sources"]["conductor"].is_object(),
+        "an oversized Conductor cell replaced its last complete list: {projects:?}"
+    );
+    assert!(
+        find(&projects, "/srv/cx-m0p7-cell/zed")["sources"]["zed"].is_object(),
+        "an oversized aggregate Zed result replaced its last complete list: {projects:?}"
+    );
+}
+
+#[test]
 fn projects_daemon_watch_picks_up_a_new_codex_app_project_and_keeps_user_edits() {
     let daemon = Daemon::start("watch");
     let state = daemon.dir.join("home/.codex/.codex-global-state.json");

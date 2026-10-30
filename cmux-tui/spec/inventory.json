@@ -8,6 +8,7 @@
     "agent.message.mark",
     "agent.message.release",
     "agent.message.send",
+    "agent.message.unsend",
     "agent.report",
     "browser.activate",
     "browser.attach",
@@ -24,6 +25,9 @@
     "browser.input.wheel",
     "browser.list",
     "browser.navigate",
+    "browser.profile.create",
+    "browser.profile.list",
+    "browser.profile.open",
     "browser.reload",
     "browser.tab.emulate",
     "browser.tab.emulate.clear",
@@ -32,12 +36,15 @@
     "browser.viewer.resize",
     "chief.engine.get",
     "chief.engine.set",
+    "chief.profile.adopt",
     "chief.profile.avatar.get",
     "chief.profile.avatar.set",
     "chief.profile.create",
     "chief.profile.delete",
     "chief.profile.get",
+    "chief.profile.history",
     "chief.profile.list",
+    "chief.profile.undo",
     "chief.profile.update",
     "chief.stop",
     "client.cell_pixels.set",
@@ -220,6 +227,11 @@
     "sidebar_view.input",
     "sidebar_view.reload",
     "sidebar_view.resize",
+    "stash.create",
+    "stash.delete",
+    "stash.import",
+    "stash.list",
+    "stash.restore",
     "stream.cancel",
     "tab.close",
     "tab.create_browser",
@@ -284,6 +296,10 @@
     "workspace.rename",
     "workspace.run",
     "workspace.update",
+    "workspace_checklist.add",
+    "workspace_checklist.list",
+    "workspace_checklist.remove",
+    "workspace_checklist.update",
     "workspace_group.create",
     "workspace_group.delete",
     "workspace_group.list",
@@ -350,6 +366,7 @@
       "get-blob",
       "get-frontend-browser-history",
       "get-frontend-projection",
+      "get-host-size-policy",
       "get-size-state",
       "identify",
       "ids",
@@ -371,6 +388,7 @@
       "machine-usage",
       "move-bookmark",
       "move-browser-profile",
+      "move-column",
       "move-personal-group",
       "move-profile",
       "move-screen",
@@ -401,6 +419,7 @@
       "note-size-activity",
       "notify",
       "pane-neighbor",
+      "park-tabs",
       "paste-image",
       "pin-workspace",
       "ping",
@@ -441,6 +460,7 @@
       "set-column-dock",
       "set-default-colors",
       "set-frontend-browser-history",
+      "set-host-size-policy",
       "set-personal-terminal",
       "set-personal-workspace",
       "set-profile-follows",
@@ -462,8 +482,10 @@
       "swap-pane",
       "terminal-events",
       "terminal-history",
+      "terminal-ports",
       "terminal-read-range",
       "terminal-resources",
+      "terminal-resume-command",
       "undo-layout",
       "ungroup-screen-group",
       "ungroup-tab-group",
@@ -533,6 +555,7 @@
       "conversation-thread",
       "conversation-link-resolve",
       "conversation-inbox-op",
+      "home-inbox",
       "conversation-search",
       "history-search",
       "conversation-op",
@@ -546,9 +569,14 @@
       "cloud-session-set",
       "cloud-session-clear",
       "cloud-session-status",
+      "cloud-host-replica-set",
+      "cloud-host-replica-clear",
+      "cloud-host-replica-status",
       "page-credential",
       "ws-listen",
       "cloud-inbox-list",
+      "cloud-requests-list",
+      "cloud-selfhost-info",
       "cloud-conversation-snapshot",
       "cloud-conversation-history",
       "cloud-conversation-thread",
@@ -561,6 +589,9 @@
       "cloud-inbox-unsubscribe",
       "cloud-conversation-subscribe",
       "cloud-conversation-unsubscribe",
+      "cloud-conversation-live",
+      "cloud-conversation-typing",
+      "cloud-conversation-presence",
       "cloud-mux-subscribe",
       "cloud-mux-unsubscribe",
       "cloud-mux-ack",
@@ -573,6 +604,8 @@
       "conversation-run-append",
       "conversation-runs",
       "conversation-run",
+      "conversation-live-publish",
+      "conversation-live",
       "feed-local-handoff-begin",
       "feed-local-handoff-abort",
       "feed-local-handoff-done"
@@ -682,7 +715,31 @@
       ]
     },
     {
+      "name": "conversation-live",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "cloud-conversation-run-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-conversation-live",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-conversation-typing",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-conversation-presence",
       "streams": [
         "subscribe"
       ]
@@ -1082,6 +1139,24 @@
       "streams": [
         "subscribe"
       ]
+    },
+    {
+      "name": "cloud-host-replica-needed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "agent-inventory-changed",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "agent-inventory-watch-ended",
+      "streams": [
+        "control"
+      ]
     }
   ],
   "tui_actions": [
@@ -1400,6 +1475,72 @@
       "key": "detach",
       "classification": "presentation-only",
       "route": "close frontend transport"
+    },
+    {
+      "variant": "DockWorkspaceLeft",
+      "key": "dock-workspace-left",
+      "classification": "presentation-only",
+      "route": "frontend dock frame + put-frontend-projection"
+    },
+    {
+      "variant": "DockWorkspaceRight",
+      "key": "dock-workspace-right",
+      "classification": "presentation-only",
+      "route": "frontend dock frame + put-frontend-projection"
+    },
+    {
+      "variant": "DockWorkspaceTop",
+      "key": "dock-workspace-top",
+      "classification": "presentation-only",
+      "route": "frontend dock frame + put-frontend-projection"
+    },
+    {
+      "variant": "DockWorkspaceBottom",
+      "key": "dock-workspace-bottom",
+      "classification": "presentation-only",
+      "route": "frontend dock frame + put-frontend-projection"
+    },
+    {
+      "variant": "UndockWorkspace",
+      "key": "undock-workspace",
+      "classification": "presentation-only",
+      "route": "frontend dock frame + put-frontend-projection"
+    },
+    {
+      "variant": "ToggleDockLeft",
+      "key": "toggle-dock-left",
+      "classification": "presentation-only",
+      "route": "frontend dock frame + put-frontend-projection"
+    },
+    {
+      "variant": "ToggleDockRight",
+      "key": "toggle-dock-right",
+      "classification": "presentation-only",
+      "route": "frontend dock frame + put-frontend-projection"
+    },
+    {
+      "variant": "ToggleDockTop",
+      "key": "toggle-dock-top",
+      "classification": "presentation-only",
+      "route": "frontend dock frame + put-frontend-projection"
+    },
+    {
+      "variant": "ToggleDockBottom",
+      "key": "toggle-dock-bottom",
+      "classification": "presentation-only",
+      "route": "frontend dock frame + put-frontend-projection"
+    },
+    {
+      "variant": "ToggleDockFloating",
+      "key": "toggle-dock-floating",
+      "classification": "presentation-only",
+      "route": "frontend dock frame + put-frontend-projection"
+    },
+    {
+      "variant": "ToggleDockOrientation",
+      "key": "toggle-dock-orientation",
+      "classification": "presentation-only",
+      "route": "frontend dock frame + put-frontend-projection"
     },
     {
       "variant": "UserCommand",

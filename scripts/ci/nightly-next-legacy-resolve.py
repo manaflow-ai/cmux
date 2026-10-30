@@ -1,28 +1,39 @@
 #!/usr/bin/env python3
-"""After a cmux NIGHTLY-identity attempt: retire the pending submission? count a failure? (cx-x7hwx)
+"""After a cmux NIGHTLY-identity attempt: retire, keep or mark the submission; count a failure? (cx-x7hwx)
 
 Usage: nightly-next-legacy-resolve.py --action new|continue --pending true|false
-           --notarize success|failure|skipped|cancelled --published true|false --answered true|false
+           --notarize success|failure|skipped|cancelled --published true|false
+           --apple accepted|refused|unknown [--requirement-refused true|false]
 
---answered is true when Apple gave a final answer about the submission: the
-notary log names Accepted, Invalid or Rejected, or the app carries a valid
-stapled ticket (notarize-nightly-dmg.sh staples an Accepted continuation and
-writes no log).
+--apple is Apple's final answer about the submission: accepted when the app
+carries a valid stapled ticket or the notary log says Accepted (an Accepted
+continuation is stapled and writes no log), refused when the log says Invalid
+or Rejected, unknown otherwise.
 
 Prints:
-  retire=true|false   delete the continued submission's artifacts
-  real=true|false     a failure of this attempt counts ("Build N failed:")
+  retire=true|false          delete the continued submission's artifacts
+  mark_accepted=true|false   store metadata "accepted": true for its bundle, so
+                             later runs continue it with no time limit and never
+                             submit the build again
+  real=true|false            a failure of this attempt counts ("Build N failed:")
 
-Rules:
+Rules (hq-a3, 2026-10-15):
 - A submission still in Apple's queue (--pending true) is kept and never counts.
-- A continued submission is retired once published, or when Apple answered and
-  notarization failed (Invalid, Rejected, or Accepted with a staple/spctl/smoke
-  check failing): it can never publish, so the next run submits anew. When
-  notarization passed and only the publication failed, it is kept: the next run
-  publishes it without a new submission.
-- A continued submission whose notarization failed before Apple answered (for
-  example notarytool info failed) is kept and does not count.
-- Any other failure counts.
+- A published continuation is retired.
+- An Accepted submission is never retired by a later failure (a staple, spctl,
+  smoke or license check, or the publication): its bundle is kept and marked
+  accepted, the failure counts, and the next run re-staples, re-checks and
+  publishes it. The target job stops after 2 counted failures of the build.
+- Apple refused the continued submission: retire it and count; the next run
+  submits anew.
+- A continued submission whose attempt failed before Apple answered (for example
+  notarytool info failed) is kept and does not count.
+- The macOS job refused the app because its own commit lacks a commit in
+  NIGHTLY_LEGACY_REQUIRED_COMMITS (--requirement-refused true, before any Apple
+  submission): never counted; a continued submission is retired, because that
+  build must never be published.
+- A failed new attempt counts. (A new submission Apple accepted within the wait
+  keeps no bundle: notarize-nightly-dmg.sh writes no state for it.)
 """
 import argparse
 import sys
@@ -40,23 +51,26 @@ def main(argv):
     parser.add_argument("--pending", type=flag, required=True)
     parser.add_argument("--notarize", choices=["success", "failure", "skipped", "cancelled"], required=True)
     parser.add_argument("--published", type=flag, required=True)
-    parser.add_argument("--answered", type=flag, required=True)
+    parser.add_argument("--apple", choices=["accepted", "refused", "unknown"], required=True)
+    parser.add_argument("--requirement-refused", type=flag, default=False)
     args = parser.parse_args(argv)
 
-    if args.pending:
-        retire, real = False, False
+    retire = mark = real = False
+    if args.requirement_refused:
+        retire = args.action == "continue"
+    elif args.pending:
+        pass
     elif args.action == "new":
-        retire, real = False, True
+        real = True
     elif args.published:
-        retire, real = True, False
-    elif args.notarize == "success":
-        retire, real = False, True
-    elif args.answered:
+        retire = True
+    elif args.apple == "accepted":
+        mark, real = True, True
+    elif args.apple == "refused":
         retire, real = True, True
-    else:
-        retire, real = False, False
-    print(f"retire={'true' if retire else 'false'}")
-    print(f"real={'true' if real else 'false'}")
+    # continue, Apple did not answer: keep, no count
+    for key, value in (("retire", retire), ("mark_accepted", mark), ("real", real)):
+        print(f"{key}={'true' if value else 'false'}")
     return 0
 
 

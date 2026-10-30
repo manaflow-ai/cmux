@@ -235,7 +235,7 @@ pub(super) fn intercept(
         return None;
     }
     Some(match cmd {
-        Command::Identify => Ok(identify()),
+        Command::Identify { .. } => Ok(identify()),
         Command::SetClientInfo { name, capabilities, .. } => {
             set_client_info(mux, client, name.clone(), capabilities.clone())
         }
@@ -322,8 +322,10 @@ impl Mux {
 pub(super) fn refusal(message: &str, code: &str) -> Value {
     let id = serde_json::from_str::<Value>(message).ok().and_then(|frame| frame.get("id").cloned());
     let mut response = json!({"ok": false, "error": code, "error_code": code});
-    if let Some(id) = id {
-        response["id"] = id;
+    if let Some(id) = id
+        && let Some(fields) = response.as_object_mut()
+    {
+        fields.insert("id".to_owned(), id);
     }
     response
 }

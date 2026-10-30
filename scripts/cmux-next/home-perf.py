@@ -16,6 +16,11 @@ Runs on cmux-lawrence-2 (GUI host), never on the laptop. Writes one JSON file.
 Usage: home-perf.py --tag <tag> --out results.json [--messages 300]
 """
 import argparse, json, os, re, socket, statistics, subprocess, sys, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import home_classic  # noqa: E402
+# The shared launch helper's socket paths and session check (bench_launch.py); this bench keeps its own launch
+# (its scratch working folder, its own session).
+from bench_launch import finder_limits, limits_line, require_gui_session, socket_candidates  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -25,6 +30,12 @@ opts = parser.parse_args()
 home = os.environ["HOME"]
 app = f"{home}/Library/Developer/Xcode/DerivedData/cmux-{opts.tag}/Build/Products/Debug/cmux DEV {opts.tag}.app"
 sock = f"/tmp/cmux-debug-{opts.tag}.sock"
+require_gui_session("home-perf")
+
+
+def live_sock():
+    """The app's socket: the state folder first, then the /tmp link (bench_launch.socket_candidates)."""
+    return next((path for path in socket_candidates(opts.tag) if os.path.exists(path)), sock)
 work = os.path.dirname(os.path.abspath(opts.out))
 os.makedirs(work, exist_ok=True)
 results = {"tag": opts.tag, "host": socket.gethostname(), "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
@@ -32,7 +43,7 @@ results = {"tag": opts.tag, "host": socket.gethostname(), "started": time.strfti
 
 def rpc(method, params=None, timeout=35):
     try:
-        c = socket.socket(socket.AF_UNIX); c.settimeout(timeout); c.connect(sock)
+        c = socket.socket(socket.AF_UNIX); c.settimeout(timeout); c.connect(live_sock())
         c.sendall((json.dumps({"id": 1, "method": method, "params": params or {}}) + "\n").encode())
         buf = b""
         while not buf.endswith(b"\n"):
@@ -82,13 +93,18 @@ def frames(label, body):
 
 env = {"HOME": home, "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"), "SHELL": "/bin/zsh",
        "PATH": f"{home}/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1",
-       "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_DEV_BACKEND_MODE": "local"}
+       "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_DEV_BACKEND_MODE": "local", **home_classic.ENV}
 if os.path.exists(sock):
     os.unlink(sock)
-process = subprocess.Popen([f"{app}/Contents/MacOS/cmux DEV"], env=env, cwd=work, stdin=subprocess.DEVNULL,
-                           stdout=open(os.path.join(work, "perf-app.log"), "a"), stderr=subprocess.STDOUT, start_new_session=True)
+with finder_limits() as changed:  # the limits a Finder launch gets (bench_launch.py, Resource limits)
+    process = subprocess.Popen([f"{app}/Contents/MacOS/cmux DEV"], env=env, cwd=work, stdin=subprocess.DEVNULL,
+                               stdout=open(os.path.join(work, "perf-app.log"), "a"), stderr=subprocess.STDOUT,
+                               start_new_session=True)
+print(f"home-perf: app limits {limits_line(changed)}", file=sys.stderr, flush=True)
 pid = process.pid
 try:
+    if not home_classic.require(rpc):  # classic Home: these checks drive the native transcript
+        sys.exit(2)
     if not poll(lambda: "conversations" in (rpc("debug.home.api", {"call": "inbox"}) or {}), timeout=180):
         sys.exit("FAIL the local owner never answered")
     results["memory_launch"] = memory(pid)
@@ -142,7 +158,7 @@ finally:
     rpc("action.run", {"id": "quitEndSessions"})
     poll(lambda: subprocess.run(["kill", "-0", str(pid)], capture_output=True).returncode != 0, timeout=25)
     acp = "%s/.acpmux/builds/com.cmuxterm.app.debug.%s" % (home, re.sub(r"[^a-z0-9]+", ".", opts.tag.lower()).strip("."))
-    subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown"], capture_output=True,
+    subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown", "--end-agents"], capture_output=True,
                    env=dict(os.environ, ACPMUX_HOME=acp, ACPMUX_SOCKET=f"{acp}/acpmux.sock"))
     with open(opts.out, "w") as handle:
         json.dump(results, handle, indent=1)

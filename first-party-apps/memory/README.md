@@ -2,7 +2,7 @@
 
 Browse, search, edit and delete what your agents remember, on every machine and project: `CLAUDE.md`, `CLAUDE.local.md`, Claude project memory (`MEMORY.md` and its topic files), `AGENTS.md` at any depth, `AGENTS.override.md`, `GEMINI.md`, the Copilot instructions file and Cursor rules. Each file shows which agents read it and what kind it is (instructions, personal, override, memory index, memory, rules). Every write shows a diff first; delete moves the file to the Trash. Files reach the app only through root and document handles, never as paths it could open itself.
 
-Status: prototype on today's app runtime (preview harness and bun FakeHost). The memory, document and trash ops are proposed (below). Manifest v2: `cmux-app.v2.json` and `catalog/`; the proposed host ops the app calls are in `proposed/host-catalog.json`, not in its catalog.
+Status: prototype on today's app runtime (preview harness and bun FakeHost). `memory.search` is served from the agent memory index (below); the other memory, document and trash ops are proposed. Manifest v2: `cmux-app.v2.json` and `catalog/`; the proposed host ops the app calls are in `proposed/host-catalog.json`, not in its catalog.
 
 ## Contributions
 
@@ -54,6 +54,12 @@ Owner: the session host of the machine that has the files (V3 document host), wi
 | `fs.trash` | `{root, paths, expected_revisions?}` | `{trashed}` | session host | destructive, origin user | `fs:write` | `memory.watch` | delete must go to the Trash and refuse a changed file |
 | `ui.open` | `{interface, props}` | | shell | mutate-own, gesture | | | open in the user's diff renderer |
 
+### Backing `memory.search` with the agent memory index
+
+`memory.search` is wired to the agent memory index the user's agents query (`optchat-chief agent-memory`, [cmux-agent-memory](../../skills/cmux-agent-memory/SKILL.md)), so people browse the same memory their agents search. The daemon routes the `memory` provider family to the Mac app, and the op needs `memory:read`. The Mac app (`AgentMemorySearchHandler` in `CmuxNextApps`) runs the bundled `optchat-chief agent-memory search --json --limit N -- QUERY` and maps each `{id, kind, date, source, snippet, text}` hit to `{root: "agent-memory", path: source, line: 0, text: snippet}`, plus `id` and `date` (`text` when the snippet is empty). On a machine whose `agents.memory.owner` names another, the owner answers. `roots` is accepted and not used; `limit` defaults to 20 and is capped at 200.
+
+It answers only this app (`cmux/memory`; the index also holds saved notes, `agents.memory.sources` folders and the owner machine's memory), only while `agents.memory.enabled` is `true` in the settings, and only when the build bundles `optchat-chief` (DEV and NIGHTLY). Otherwise `memory.search` is `operation.unsupported`; a failing index (owner down, tool error) answers `memory.unavailable`. On either error the app falls back to matching the file names and texts it already read. The other `memory.*` ops are still proposed. A hit's `agent-memory` root is not a file root yet, so tapping a hit has no document to open until `document.open` exists.
+
 ## Platform gaps (most important first)
 
 1. No documents (V3) on the session host: no handles, revisions, `document.edit` with `base_revision`, `document.watch`, or `document.propose` as a diff resource.
@@ -62,7 +68,7 @@ Owner: the session host of the machine that has the files (V3 document host), wi
 4. Scene: no multi-line text editor (edits are one line at a time: add, change, delete), no ScrollView, no markdown rendering, no inline diff component (the review is built from Text rows).
 5. `machine.list` lists only the local machine (see `cmux/agents`); remote memory needs per-machine owners.
 6. The context menu must sit on the text node because tools that target a node by text (the preview harness) do not walk up to the row; a row-level menu API would be cleaner.
-7. The scope grammar does not know `memory:*` and `document:*` (validator warnings).
+7. The scope grammar does not know `document:*` or `fs:write` (validator warnings); `memory:read` is known through `memory.search`.
 8. Claude project memory folders are named by a path slug; the owner must map them to a project label.
 
 ## Layout and checks

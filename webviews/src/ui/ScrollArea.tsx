@@ -21,11 +21,15 @@ export interface ScrollAreaProps {
 }
 
 const scrollbar =
-  "flex touch-none select-none p-px opacity-0 transition-opacity duration-150 motion-reduce:transition-none " +
+  "flex touch-none select-none p-px opacity-0 transition-opacity duration-(--cmux-motion-micro) motion-reduce:transition-none " +
   "data-hovering:opacity-100 data-scrolling:opacity-100 data-scrolling:duration-0";
 const thumb =
   "rounded-full bg-(--ui-scroll-thumb,color-mix(in_srgb,currentColor_32%,transparent)) " +
-  "hover:bg-(--ui-scroll-thumb-hover,color-mix(in_srgb,currentColor_48%,transparent))";
+  "hover:bg-(--ui-scroll-thumb-hover,color-mix(in_srgb,currentColor_48%,transparent)) " +
+  // Base UI updates the thumb size through --scroll-area-thumb-{height,width}. Keep that size
+  // transition smooth when content changes, but follow a live pointer immediately while dragging.
+  "transition-[height,width,background-color] duration-(--cmux-motion-standard) ease-[cubic-bezier(0.22,1,0.36,1)] " +
+  "will-change-[height,width] data-scrolling:transition-none motion-reduce:transition-none";
 
 export function ScrollArea({
   className,
@@ -40,14 +44,23 @@ export function ScrollArea({
         {...viewportProps}
         className={cx("h-full max-h-[inherit] w-full overscroll-contain outline-none", viewportClassName)}
       >
-        {children}
+        {/* Content is what Base UI watches for size changes: without it the thumb keeps its first size when
+            the list grows or shrinks in place. Its default min-width (fit-content) would stop long rows from
+            truncating, so only a horizontal area keeps it. */}
+        <BaseScrollArea.Content style={horizontal ? undefined : { minWidth: 0 }}>{children}</BaseScrollArea.Content>
       </BaseScrollArea.Viewport>
-      <BaseScrollArea.Scrollbar orientation="vertical" className={cx(scrollbar, "w-1.5 justify-center")}>
-        <BaseScrollArea.Thumb className={cx(thumb, "w-full")} />
+      <BaseScrollArea.Scrollbar
+        orientation="vertical"
+        className={cx("cmux-scrollbar", scrollbar, "w-1.5 justify-center")}
+      >
+        <BaseScrollArea.Thumb className={cx("cmux-scrollbar-thumb", thumb, "w-full")} />
       </BaseScrollArea.Scrollbar>
       {horizontal && (
-        <BaseScrollArea.Scrollbar orientation="horizontal" className={cx(scrollbar, "h-1.5 flex-col justify-center")}>
-          <BaseScrollArea.Thumb className={cx(thumb, "h-full")} />
+        <BaseScrollArea.Scrollbar
+          orientation="horizontal"
+          className={cx("cmux-scrollbar", scrollbar, "h-1.5 flex-col justify-center")}
+        >
+          <BaseScrollArea.Thumb className={cx("cmux-scrollbar-thumb", thumb, "h-full")} />
         </BaseScrollArea.Scrollbar>
       )}
     </BaseScrollArea.Root>

@@ -3,6 +3,11 @@
 //! tests/fake_live_claude.py (stream-json control requests) and
 //! tests/fake_codex_app_server.py (`codex app-server` JSON-RPC lines).
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use acpmux::live_models::{Cache, CacheKey, Cli, LiveModel, probe};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -82,6 +87,13 @@ async fn codex_lists_every_page_without_hidden_models_and_the_default_first() {
     assert_eq!(astra.efforts, ["low", "medium"]);
     assert_eq!(astra.default_effort.as_deref(), Some("medium"));
     assert_eq!(astra.fast, Some(true));
+    assert_eq!(
+        astra.service_tiers,
+        vec![serde_json::json!({"id": "default"}), serde_json::json!({"id": "fast"})]
+    );
+    let mut catalog = vec![serde_json::json!({"id": "gpt-6-astra"})];
+    acpmux::live_models::overlay(&mut catalog, &models);
+    assert_eq!(catalog[0]["serviceTiers"], serde_json::json!(astra.service_tiers));
 }
 
 #[tokio::test]
@@ -140,6 +152,7 @@ fn a_cached_list_lasts_until_its_program_changes() {
     std::fs::write(&program, "v1").unwrap();
     let cache = Cache::new(root.join("live-models"));
     let models = vec![LiveModel {
+        service_tiers: Vec::new(),
         id: "opus".into(),
         name: "Opus".into(),
         efforts: vec!["high".into()],

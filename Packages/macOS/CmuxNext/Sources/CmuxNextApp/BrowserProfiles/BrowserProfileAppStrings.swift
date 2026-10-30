@@ -7,7 +7,6 @@ nonisolated enum BrowserProfileAppStrings {
     static func defaultName(_ number: Int) -> String {
         String(format: text("browserProfiles.defaultName", "Profile %lld"), locale: Locale.current, number)
     }
-    static var renameTitle: String { text("browserProfiles.renameTitle", "Rename Browser Profile") }
     static func deleteTitle(_ name: String) -> String {
         String(format: text("browserProfiles.deleteTitle", "Delete browser profile “%@” and its data?"), name)
     }

@@ -114,9 +114,13 @@ Servers advertising `dock-columns-v1` add `dock` to a column pinned with `set-co
 
 Servers advertising `permanent-dock-v1` accept `permanent: true` in `set-column-dock` and then report `"permanent": true` in that column's `dock` (omitted while false; a record or client without the capability reads the column as an ordinary docked one). A permanent column stays docked on its edge for every client: its `mode` may change, and a later `set-column-dock` that omits `permanent` keeps it. An undock, a move to another edge, another column taking that edge, or any close, move or undo that would remove the column from its workspace (closing its pane, closing the last scrolling column beside it, moving its last tab out) is refused with `error_code` or `reason_code` `"dock-column-permanent"`. Closing the whole workspace, or a terminal in it exiting, is not refused. The flag is never cleared.
 
+Servers advertising `pinned-dock-v1` accept `pinned: true` in `set-column-dock` (and `pinned`, `allow_tabs` in the resource op `column.update`) and report `"pinned": true` and `"allow_tabs": true` in that column's `dock` (each omitted while false). A pinned column is the Home dock: a column kind, not a title or page check. Its first tab is its pinned tab: a close, a move out of the column, or a reorder that takes the first place from it is refused. While `allow_tabs` is false (the default) no other tab enters the column: a new tab, a move in or a drop is refused; with it true, other tabs come and go freely. The column itself is never removed, undocked, moved to another edge or unpinned, and a later `set-column-dock` keeps both flags. Every refusal answers `error_code` or `reason_code` `"dock-column-pinned"`. Closing the whole workspace, or a terminal in it exiting, is not refused. `pinned` is never cleared; `allow_tabs` changes only with `column.update`.
+
+Servers advertising `pinned-dock-alone-v1` let a pinned column be a screen's only column (Home's dock with nothing beside it): every other dock needs a scrolling column beside it, a pinned one does not. `move-tab-to-column` with a `dock` whose `pinned` is true may move a pane's only tab without `respawn`: the source pane closes and, when nothing else was on the screen, the new pinned column is its only column (`columns` lists just it, at its own width). Closing the last column beside a pinned column is no longer refused: the pinned column stays, alone. A frontend draws a lone pinned column across the whole screen. A pinned column alone still takes no other tab; a browser or conversation tab created in it (`tab.create_browser`, `new-frontend-browser-tab`, `new-conversation-tab {pane}`) opens in a new column right of it in the same commit, 0.5 wide (a background tab keeps the focus where it was), and a terminal tab is refused as before. A conversation split to its right (`new-conversation-tab {split: {direction: "right"}}`) is a new column beside it, 0.5 wide like a link `workspace.open_url` opens there. A lone pinned column is stored outside `viewport_json` (which stays empty, so a server without the capability reads the screen as a plain tree) and restored with its id, width and flags.
+
 Servers advertising `edge-docks-v1` also pin columns to the `top` or `bottom` edge: a screen-wide band the frontend draws above or below the scrolling columns. Such a column carries `dock` (same shape as `dock`) instead of `dock`, so a client without the capability renders it as an ordinary column. The per-edge, at-least-one-scrolling and normalization rules cover all four edges. A top or bottom pin persists outside the screen's stored viewport record, so a daemon without the capability reads the column as an ordinary one.
 
-Servers advertising `rows-v1` add `rows` to a column with two or more rows and omit it for a column with one row. Each column is a vertical strip of rows, top to bottom: `id` is the row's stable id, `height` its height in permille of the column's viewport height (100 to 1000; the sum is not fixed, at most 1000 fills the column and more scrolls it), and `layout` the split tree inside the row. The column's `layout` stays the compatibility chain: the rows folded into `down` splits whose `split` ids are the ids of rows 2..n and whose ratios follow the heights, so a client without the capability still sees every pane. `set-split-ratio` and `set-ratio` refuse such a synthetic split with `row-split-compat-readonly`; resize rows with `set-row-heights`. One column with two or more rows keeps `columns`; a removal that leaves one column with one row collapses the screen to its split tree. An emptied row is removed in the same commit. Rows persist across daemon restarts outside the screen's stored viewport record and are restored by `undo-layout`. `workspace.layout.apply` on a screen with rows is refused (`operation.failed`, `reason_code: "rows-layout-replace-unsupported"`) and changes nothing, because layout documents do not carry rows yet. A column keeps its `id` when it is left as the only column of rows and when a second column joins it, across daemon restarts too; the only column fills the screen width (`width` 1.0). A row keeps its `id` for its lifetime, and no row or column id is ever reused.
+Servers advertising `rows-v1` add `rows` to a column with two or more rows and omit it for a column with one row. Each column is a vertical strip of rows, top to bottom: `id` is the row's stable id, `height` its height in permille of the column's viewport height (100 to 1000; the sum is not fixed, at most 1000 fills the column and more scrolls it), and `layout` the split tree inside the row. The column's `layout` stays the compatibility chain: the rows folded into `down` splits whose `split` ids are the ids of rows 2..n and whose ratios follow the heights, so a client without the capability still sees every pane. `set-split-ratio` and `set-ratio` refuse such a synthetic split with `row-split-compat-readonly`; resize rows with `set-row-heights`. One column with two or more rows keeps `columns`; a removal that leaves one column with one row collapses the screen to its split tree. An emptied row is removed in the same commit. Rows persist across daemon restarts outside the screen's stored viewport record and are restored by `undo-layout`. `workspace.layout.apply` with a columns document (`root.kind: "viewport"`, the form `screen.layout.export` returns for a screen with rows) carries each column's rows: a column with two or more rows lists `rows: [{row_id, height}]` top to bottom, where row 2..n's `row_id` is the `split_id` of its compat chain split in the column's `root` (each row's content is its subtree of that chain). Applying a document sets the rows and heights it lists: row 1's `row_id` is the column's current row 1 id or omitted (a new id when the column has none), so a document can turn a vertical split chain into rows; `rows: []` leaves the column one row (the chain splits stay as plain splits); an omitted `rows` keeps the rows of the column with the same `column_id`. A chain split's ratio follows the row heights. A document whose tree does not hold a column's compat chain, or whose height is outside 100 to 1000, is refused and changes nothing. A split-tree document (no viewport columns) cannot carry rows, so applying one to a screen with rows is refused (`operation.failed`, `reason_code: "rows-layout-replace-unsupported"`) and changes nothing. A column keeps its `id` when it is left as the only column of rows and when a second column joins it, across daemon restarts too; the only column fills the screen width (`width` 1.0). A row keeps its `id` for its lifetime, and no row or column id is ever reused.
 
 `Layout`:
 
@@ -291,6 +295,12 @@ back down. A relay that forwards a leaf's input sends it with `send`/`send-key`
 and then `note-size-activity {surface, view}`, so the activity belongs to the
 leaf and not to the relay.
 
+A connection that sends `set-client-info remote:true` (cmux-mobile-host does
+for every phone it splices, with the link's own `device_id`) is a remote
+device's lane: it is never one of this host's own views for the host sizing
+policy (`get-host-size-policy`). The mark is sticky for the connection and is
+never published in `size-state`.
+
 Identity trust: `user_id` in `set-client-info` and in a sub-view `identity` is
 asserted by the connection. This daemon has no Stack session and cannot verify
 it; relay tickets carry no user identity. It only selects the same-user
@@ -339,8 +349,24 @@ Params: none.
 Result:
 
 ```text
-object{app:"cmux-tui",version:string,build_commit?:string|null,build_id?:string|null,cli_path?:string|null,ghostty_commit?:string|null,protocol:uint32,capabilities:array<string>,session:string,pid:uint32,session_id?:string,machine_name?:string,registry_id:string,generation:string,workspace_revision:uint64}
+object{app:"cmux-tui",version:string,build_commit?:string|null,build_id?:string|null,cli_path?:string|null,ghostty_commit?:string|null,protocol:uint32,capabilities:array<string>,session:string,pid:uint32,session_id?:string,machine_id?:string,machine_platform?:object{os:string,arch:string},machine_capabilities?:array<string>,machine_name?:string,registry_id:string,generation:string,workspace_revision:uint64}
 ```
+
+`machine_id` is the opaque owner ID returned by `machine.list`, persisted with the
+machine registry. It is distinct from the session's `registry_id`, the boot's
+`generation`, host names and client UI routes. Older daemons may omit it; clients
+must leave the machine owner unknown rather than derive an ID from other fields.
+`machine_platform` and `machine_capabilities` describe that owner using the same
+source as its native `machine.list` snapshot. Machine capabilities are separate
+from protocol features in `capabilities`. Older owners may omit the new fields;
+clients retain unknown platform and an empty capability list.
+
+With `revisions: true` the reply also carries `build_time`: unix seconds of the
+source commit the daemon was built from, or null when unknown. A client that
+updates the machine (`cmux link machine update --if-older`) moves it only to a
+build with a later time, never back to an older one.
+The conversations-only remote `identify` remains restricted to `app`, `protocol`
+and `capabilities`.
 
 With `launch-snapshot-v1`, `launch_snapshot_path` is the absolute path of the session's launch snapshot, or `null` when the session has no durable registry. The daemon keeps that owner-only JSON file next to its registry: `{schema_version:1, app:"cmux-tui", version, session, registry_id, generation, written_at_ms, tree, personal, frontend_projections}`, where `tree` is the `list-workspaces` result, `personal` is the `list-personal` result without room `defaults.env` (or `null` when it cannot be read), and `frontend_projections` lists every native frontend projection (`{frontend, scope, subject_key, schema_version, projection_revision, projection}`; omitted as `[]` when the file would exceed 8 MiB). It is rewritten atomically (temporary file and rename) once changes to the tree, layout, personal state or projections settle (a title change alone does not rewrite it, so titles are those of the last write) (500 ms after the last change, at most 3 s after the first), once at daemon start, and never while nothing changes. A frontend may read it before it connects, to draw the last known layout, and must replace it with live state after `identify`; the daemon never reads it, so it is never a second source of truth.
 
@@ -348,10 +374,10 @@ With `launch-snapshot-v1`, `launch_snapshot_path` is the absolute path of the se
 
 With `daemon-build-v1`, `build_id` names the exact build of the binary that serves the socket (its source commit, with a hash of uncommitted source changes for a dirty build), and `cli_path` is the absolute, symlink-resolved path of that binary, which is also the `cmux` CLI that matches the daemon (`null` when it cannot be resolved). A daemon advertises the capability only when its entry point recorded both at start. A CLI of another build uses them to run the matching CLI (plans/cmux-next/version-skew.md); it must check the path itself and never trust it for a remote daemon. Remote attach forwards `identify` unchanged, so these fields then describe the remote machine's binary.
 
-`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-provider-v1` advertises the trusted-local, connection-scoped native browser provider lease used by cmux-browser and local automation. `browser-provider-native-hosting-v1` advertises the optional `hosting` field of `register-browser-provider`: a `"native"` provider presents its pages itself, so the daemon never overrides their device metrics and screencasts them only while a frame viewer is attached. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `pane-browser-kind-v1` advertises `kind` and `url` on `split` and `new-pane-right`: `kind:"browser"` with a non-empty `url` puts a browser tab at that URL in the new pane, through the same `pane.split` commit and restart recovery as a terminal pane; public `pane.split` stays terminal-only. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `view-attachment-lease-v1` returns a connection-owned lease for each attach and enables lease-fenced sizing. `view-attachment-detach-v1` enables targeted stream cleanup. `creation-receipts-v1` enables idempotent destination creation, `creation-attempt-keys-v1` separates a stable correlation from the same-key or new-key execution attempt selected by `session.creation.resolve`, and `creation-selector-fallbacks-v1` adds bounded ordered destination continuations. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits. `terminal-idle-close-v1` advertises `set-terminal-idle-policy` and the owner-side reaper that closes a terminal after its policy elapses with no attached view. `terminal-pending-sequence-v1` advertises the separate `pending` field on byte-attach `vt-state` and `resized` events; a client that echoes it in `set-client-info` receives it (see `events.md`). `terminal-placement-env-v1` advertises a caller-chosen `terminal_id` on `new-tab`, `split`, `new-pane`, and `new-pane-right`, `cwd` and `env` on `new-pane` and `new-pane-right`, and `terminal_id`/`terminal_incarnation` in all four results. `split-client-keys-v1` advertises the client-minted `pane_id` and `tab_id` on `split`, `new-pane`, and `new-pane-right`, keyed retries that return the first result with `replayed`, and `pane_id`/`tab_id` in their results (see "Client-minted pane ids"). `terminal-resources-v1` advertises `terminal-resources`, which reads the CPU time and memory of each terminal's shell, descendants, and terminal host at request time. `batch-close-v1` advertises `close-tabs` and the optional `end_terminals` field on `close-pane`, `close-screen`, `close-workspace`, and `close-tab-group`: many placements and the terminals they end close in one durable commit. `close-workspace-if-empty-v1` advertises the optional `if_empty` field on `close-workspace`: the close commits only when the workspace has no tab at commit time, else it fails with `workspace_not_empty` and changes nothing. `end-terminals-keep-layout-v1` advertises `keep_layout` on `shutdown-daemon`: with `end_terminals`, placed terminals keep their tabs across the handoff. `terminal-reap-v1` advertises the owner-side reaper that ends a terminal after it has had no tab placement for the reap grace period (active only when the daemon was started with `--terminal-reap-grace-seconds`), `set-terminal-keep`, the `keep` field on `new-tab`, `split`, and `create-terminal`, the `terminal-reaped` event, and `end_terminals` on `shutdown-daemon`. `dock-columns-v1` advertises `set-column-dock` and the optional `Screen.columns[].dock` field for every edge; the resource API operation `column.update` (resource-operations-v2.json) sets the same flag and the column width. `terminal-env-v1` advertises the per-terminal `env` object on `new-tab`, `split`, and `create-terminal`, and `cwd` on `split`. `tab-groups-v1` advertises Chrome-style tab groups: the `*-tab-group` commands, `Pane.tab_groups`, and `Tab.group`. `saved-tab-groups-v1` advertises saved groups: `save-tab-group`, `unsave-tab-group`, `delete-saved-tab-group`, `list-saved-tab-groups`, and `reopen-saved-tab-group`. `notification-ack-v1` advertises `ack-tab-notifications`, `list-notifications`, durable notification acknowledgement, and `Workspace.unread_count`. `tab-drag-v1` advertises the single-command tab drag outcomes `move-tab-to-split`, `move-tab-to-column`, and `move-tab-to-new-workspace`, layout undo for same-screen tab drags and cross-pane `move-tab`, and the optional `transaction` field on every drag command, echoed in the resulting `tab-changed` delta. `tab-workspace-name-v1` advertises the optional `name` field on `move-tab-to-new-workspace`: the new workspace takes that name in the same commit. `frontend-browser-tabs-v1` advertises `new-frontend-browser-tab`, `update-frontend-browser-tab`, and the frontend browser tab fields. `tab-metadata-v1` advertises `set-tab-pinned`, pinned-first tab order, the `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, and `Tab.git_detached` fields, and the `tab-changed` delta. `workspace-metadata-v1` advertises `set-workspace-metadata`, the `Workspace.color`, `Workspace.icon`, and `Workspace.title` fields, and the `workspace-changed` delta. `workspace-pin-v1` advertises the `pinned` field on `set-workspace-metadata` and `Workspace.pinned`. `notification-mark-unread-v1` advertises the `marked_unread` field on `set-workspace-metadata` and `Workspace.marked_unread`. `workspace-groups-v1` advertises durable sidebar groups: the `*-workspace-group` commands, `move-workspace-to-group`, `Tree.groups`, and `Workspace.group`. `loopback-forward-v1` advertises multiplexed TCP streams to the daemon machine's own loopback services (see "Loopback forwarding"); a Unix client echoes it in `set-client-info` before its first `loopback-open`. `fs-v1` advertises the `fs.*` file ops and their byte streams (see "File system (fs-v1)"); only cmux Cloud hosts serve it. `session-identity-v1` advertises `identify.session_id` (the durable `registry_id`, stable across restarts and upgrades) and `identify.machine_name` (the host name, at most 255 bytes, no control characters). `remote-terminal-tabs-v1` advertises `new-remote-terminal-tab`, `update-remote-terminal-tab`, `remote-terminal-snapshot`, and the `kind:"remote-terminal"` tab with its `remote` object. `detached-terminals-v1` advertises `detached` on `create-terminal` and `terminal_resource_id` in its detached result. `profiles-v1` advertises the home session's personal state: `list-personal`, the `*-profile` room commands, `set-profile-follows`, `pin-workspace`, `unpin-workspace`, `put-session`, `forget-session`, `import-session-organization`, the `*-personal-group` commands, `set-personal-workspace`, and the `personal-changed` event. `personal-terminals-v1` advertises `set-personal-terminal` and `list-personal.terminals`. `screen-metadata-v1` advertises `set-screen-metadata`, `set-screen-pinned`, `move-screen`, the `screen_name`, `color`, `icon`, `pinned`, `index`, `group`, and `cwd` fields on `new-screen` (whose result then also carries `screen`), the `Screen.color`, `Screen.icon`, `Screen.pinned`, and `Screen.group` fields, and the `screen-changed` delta. `screen-groups-v1` advertises Chrome-style screen groups: the `*-screen-group` commands, saved screen groups, and `Workspace.screen_groups`. `browser-profiles-v1` advertises browser profile records in personal state: `browser_profiles` in `list-personal` and `create-browser-profile`, `update-browser-profile`, `move-browser-profile`, and `delete-browser-profile`. `notification-source-v1` advertises `source` on `notify`, the `notification` event, the tab `notification` marker, and `list-notifications` rows (`extra.source` in resource notification snapshots), and daemon-side desktop notifications from terminal output (OSC 9, OSC 777 `notify`, kitty OSC 99) with source `terminal`. `terminal-shell-args-v1` advertises `shell_args` on `new-tab`, `split`, `new-pane`, `new-pane-right`, and `create-terminal`: the terminal runs its `SHELL` from `env` (else the daemon's default shell) with those arguments, so a frontend can apply Ghostty's argv-based shell integration (bash `--posix` with `ENV`, nushell `--execute`). `terminal-frontend-shell-integration-v1` lets a frontend that resolves Ghostty's shell integration itself (from the user's `shell-integration` and `shell-integration-features`, into the terminal's `env` and `shell_args`) echo it in `set-client-info`; the terminals that connection creates with a `SHELL` in `env` then run that shell exactly as given (stored as `argv`), with no host-added integration, on `new-tab`, `split`, `new-pane`, `new-pane-right`, `new-row`, `create-terminal`, and a terminal `respawn`; without a `SHELL` the host integrates as before. `new-workspace`, `new-screen` and the reopen-saved-group commands take no `env` and keep the host integration. `screen-terminal-env-v1` advertises `env`, `terminal_id`, and `shell_args` on `new-screen` (the first terminal takes them as on `new-pane`, including `terminal-frontend-shell-integration-v1`) and `terminal_id` in its result. `launch-snapshot-v1` advertises `launch_snapshot_path` in `identify` and the launch snapshot file described there. `state-resources-v1` advertises the `cmux.protocol/2` state resources (workspace metadata, tab pins and tab groups, personal workspace groups, rooms and saved tab groups, screen metadata, order and screen groups, closed history, ephemeral workspaces, and workspace status, progress and log; see `resource-api-v2.md`), `extra.state` on session snapshots, and `state_upsert`/`state_delete` changes on `session.events`. `window-records-v1` advertises `window_record.list`, `window_record.put` and `window_record.delete` (see `resource-api-v2.md`). `sidebar-layout-v1` advertises `sidebar_layout.get`, `sidebar_layout.update` and `extra.state.sidebar_layout` on session snapshots (see `resource-api-v2.md`). `sidebar-doc-v1` advertises the sidebar document: `sidebar.get`, `sidebar.move`, `sidebar.pin`, `sidebar.unpin`, the `sidebar.item.*`, `sidebar.section.*` and `sidebar.group.*` mutations, `sidebar.adopt`, `sidebar.apply`, `extra.state.sidebar` on session snapshots, and `state_upsert`/`state_delete` changes of resources `sidebar_item`, `sidebar_section` and `sidebar_doc` on `session.events` (see `resource-api-v2.md`). `placement-shift-v1` advertises the placement shift: a client that echoes it in `set-client-info` or `client.metadata.update` gets no `workspace_placement` restatement on `session.events` for rows that a new or moved workspace only shifts; every other connection still gets them (see "Placement shift" in `resource-api-v2.md`). `project-list-v1` advertises the project list: `project.list`, `project.observe`, `project.add`, `project.update`, `project.remove` and `project.sync`, and `state_upsert`/`state_delete` changes of resource `project` on `session.events` (see `resource-api-v2.md` and plans/cmux-next/projects.md). `project-sources-v1` advertises `project.source.update` (a source turned off or on) and `sources` (each source with its on state and project count) in the `project.list` result. `browser-devices-v1` advertises `browser.devices.list`, `browser.devices.add_custom`, `browser.devices.remove_custom`, `browser.tab.emulate` and `browser.tab.emulate.clear`, and a browser tab's `extra.emulation` (the resolved device emulation every engine applies; see `resource-api-v2.md`). `browser-profile-agent-v1` advertises `browser.tab.set_profile` (moves a frontend browser tab to another browser profile in place, as `update-frontend-browser-tab {profile_id}` does; `frontend-browser-tab-profile-v1`) and a frontend browser tab's `extra.browser_profile_id` (see `resource-api-v2.md`). `palette-usage-v1` advertises `palette_usage.get`, `palette_usage.record`, `palette_usage.import`, `palette_usage.hide` and `palette_usage.forget`, the user's local palette usage history (see `resource-api-v2.md`). `frontend-browser-owner-v1` advertises `owner` on `new-frontend-browser-tab` and `update-frontend-browser-tab`, `Tab.browser_owner`, `tab.update {owner}` and the tab's `extra.owner`. `frontend-browser-tab-keys-v1` advertises `idempotency_key` on `new-frontend-browser-tab` and `replayed` in its result: a retry with the same key returns the tab the first request created. The raw screen commands of `screen-metadata-v1` and `screen-groups-v1` and the v2 `screen.*` and `screen_group.*` operations read and write one storage and publish the same changes. `workspace-kind-v1` advertises `workspace.ensure_home` and `extra.kind` on workspace snapshots (see `resource-api-v2.md`). `workspace-agent-folder-v1` advertises `workspace.agent_folder.set` and `extra.agent_folder` on workspace snapshots (see `resource-api-v2.md`). `personal-mixed-order-v1` advertises one personal order for groups and loose workspaces: `top_index` on `workspace_group.update`, on `WorkspaceGroupSnapshot` and on `list-personal` groups, `workspace.list {order}`, and the personal row of a new workspace in its creation commit (see `resource-api-v2.md`). `workspace-group-icon-v1` advertises a personal workspace group's icon: `icon` on `workspace_group.update`, on `WorkspaceGroupSnapshot` and on `list-personal` groups (see `resource-api-v2.md`). `screen-group-icon-v1` advertises a screen group's icon: `icon` on `update-screen-group`, on screen group runs (`Workspace.screen_groups`), on saved screen groups (`list-saved-screen-groups`, kept by `reopen-saved-screen-group`), on `screen_group.update` and on `ScreenGroupSnapshot` (see `resource-api-v2.md`). `tab-group-icon-v1` advertises a tab group's icon: `icon` on `update-tab-group`, on tab group runs (`Pane.tab_groups`), on saved tab groups (`list-saved-tab-groups`, kept by `reopen-saved-tab-group`), on `tab_group.update`, on `TabGroupSnapshot` and on `SavedTabGroupSnapshot` (see `resource-api-v2.md`). `workspace-group-pin-v1` advertises pinned (saved) personal workspace groups: `pinned` on `workspace_group.update`, on `WorkspaceGroupSnapshot` and on `list-personal` groups (see `resource-api-v2.md`). `chief-inspect-v1` advertises `chief-inspect`, the Chief memory inspector's read-only API for the owner's trusted connection. `conversation-tabs-v1` advertises `new-conversation-tab`, the canonical `conversation` tab kind, and `capabilities` on `client.metadata.update`; a client that echoes it in `set-client-info` or `client.metadata.update` reads conversation tabs in their canonical form. `agent-session-tabs-v1` advertises the `agent_session` source of `new-conversation-tab` (an acpmux agent session on the install `host`; its tabs are ordinary store tabs that move, split and close like any tab) and `bind-conversation-tab-session`; a client that echoes it as well reads agent session tabs in their canonical form, and any other connection reads them as `browser` tabs without `conversation`. `page-tabs-v1` advertises the `page` source of `new-conversation-tab` (one of the app's own pages, such as the App Store or Settings; its tabs are ordinary store tabs); a client that echoes it as well reads page tabs in their canonical form, and any other connection reads them as `browser` tabs without `conversation`. `page-tab-route-v1` advertises the optional `route` of a page tab on `new-conversation-tab` and in its `conversation` record. `close-reason-v1` advertises `reason` on `close-tabs` and, with `end_terminals`, on `close-workspace`: `session_end` closes without a closed-history record. `conversation-tab-transaction-v1` advertises `transaction` on `new-conversation-tab`: the created tab's `tab-added` delta and the result echo it. `browser-host-provider-v1` advertises `browser-host-provider`: the verified local app gets the provider credentials of the daemon's own browser host. `frontend-browser-activate-v1` advertises `activate` on `new-frontend-browser-tab`. `frontend-browser-insert-after-v1` advertises `after` on `new-frontend-browser-tab`. `bookmarks-v1` advertises one bookmark tree per browser profile: `list-bookmarks`, `create-bookmark`, `update-bookmark`, `move-bookmark`, `delete-bookmark`, `import-bookmarks`, the `bookmarks-changed` event, and `deleted_bookmarks` in the `delete-browser-profile` result. `bookmark-icon-v1` advertises a bookmark folder's `icon`: set or cleared by `update-bookmark` and shown in `list-bookmarks` (see "Icon values" under `put-blob`). `session-icon-v1` advertises a session's (machine's) `icon` in the home session registry: set or cleared by `set-session-icon`, kept by `put-session`, and shown on each `list-personal` session record. `icon-assets-v1` advertises the asset blob store (`put-blob`, `get-blob`) and the asset icon values `image:sha256-<hex>` and `svg:sha256-<hex>` on the workspace, screen, room, browser profile and workspace status icon fields (see "Icon values" under `put-blob`). `origin-claim-v1` advertises `client-hello` step 1, the optional `origin` claim on `cmux.protocol/2` requests, and `origin.confirmation.issue` (see "client-hello" and `resource-api-v2.md`, "Request origin") `page-router-v1` advertises the daemon page router (`page-router.md`): the optional `page` on a page relay's `client-hello` (the reply carries that page's `page_operations`), the page of a WebSocket connection whose handshake Origin is `cmux-page://cmux.<page>`, the per-page allow list of `cmux.protocol/2` operations in `page-router.json`, and the routed v2 namespaces (`apps.catalog.list`, `apps.catalog.get`, `apps.installed.list`, `apps.grants.get`, `apps.logs`, `apps.asset.get`, `apps.set`, `apps.install`, `apps.uninstall`, `apps.hidden.set`, `apps.grant.set`, `apps.grant.revoke`) answered by their owner outside the operation catalog. `ws-listen-origins-v1` advertises `allow_origins` on `ws-listen` and `origins` in its reply. `page-events-v1` advertises `page_events` in a page relay's `client-hello` reply (the `events` of its page in `page-router.json`) and `subscribe` on a page relay whose page names events: the stream carries only those events (no `surface` output stream, no pairing requests). `terminal-clipboard-read-v1` advertises the OSC 52 clipboard-read broker: `terminal-clipboard-subscribe`, `terminal-clipboard-reply`, and the targeted `terminal-clipboard-read` and `terminal-clipboard-read-cancelled` control events (see "Terminal clipboard reads"). `launch-credential-v1` advertises the optional `credential` member of `cmux.protocol/2` requests and `credential.verify`, `credential.mint` and `credential.rotate` (see `resource-api-v2.md`, "Launch credentials"); a client sends a credential only to a daemon that advertises it. `feed-local-owner-v1` advertises the daemon's local feed owner (plans/cmux-next/feed.md section 9.1): every notification is also a local feed item committed in the same transaction, `select-tab`, `select-workspace`, `select-screen`, `focus-pane` and `focus-direction` no longer clear unread (a client acknowledges with `ack-tab-notifications`, which also reads the tab's local items and reports `refused` items), the `feed-local-list`, `feed-local-read`, `feed-local-handoff-begin`, `feed-local-handoff-abort` and `feed-local-handoff-done` commands, and the error codes `feed.moving`, `owner.unreachable` (both retryable), `feed.invalid_state`, `not_found` and `forbidden` (a handoff step from a connection that is not the verified cmux app). `workspace-open-url-v1` advertises `workspace.open_url`: a web link opens on the right side of a workspace (the home workspace when none is named), reusing its browser tab, never in the agent chat dock and without moving the keyboard focus (see `resource-api-v2.md`).
+`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-provider-v1` advertises the trusted-local, connection-scoped native browser provider lease used by cmux-browser and local automation. `browser-provider-native-hosting-v1` advertises the optional `hosting` field of `register-browser-provider`: a `"native"` provider presents its pages itself, so the daemon never overrides their device metrics and screencasts them only while a frame viewer is attached. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `pane-browser-kind-v1` advertises `kind` and `url` on `split` and `new-pane-right`: `kind:"browser"` with a non-empty `url` puts a browser tab at that URL in the new pane, through the same `pane.split` commit and restart recovery as a terminal pane; public `pane.split` stays terminal-only. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `view-attachment-lease-v1` returns a connection-owned lease for each attach and enables lease-fenced sizing. `view-attachment-detach-v1` enables targeted stream cleanup. `creation-receipts-v1` enables idempotent destination creation, `creation-attempt-keys-v1` separates a stable correlation from the same-key or new-key execution attempt selected by `session.creation.resolve`, and `creation-selector-fallbacks-v1` adds bounded ordered destination continuations. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits. `terminal-idle-close-v1` advertises `set-terminal-idle-policy` and the owner-side reaper that closes a terminal after its policy elapses with no attached view. `resume-command` advertises `terminal-resume-command`: a person's resume command for one terminal, typed on the new prompt when the owner respawns it. `terminal-pending-sequence-v1` advertises the separate `pending` field on byte-attach `vt-state` and `resized` events; a client that echoes it in `set-client-info` receives it (see `events.md`). `terminal-placement-env-v1` advertises a caller-chosen `terminal_id` on `new-tab`, `split`, `new-pane`, and `new-pane-right`, `cwd` and `env` on `new-pane` and `new-pane-right`, and `terminal_id`/`terminal_incarnation` in all four results. `split-client-keys-v1` advertises the client-minted `pane_id` and `tab_id` on `split`, `new-pane`, and `new-pane-right`, keyed retries that return the first result with `replayed`, and `pane_id`/`tab_id` in their results (see "Client-minted pane ids"). `row-client-keys-v1` advertises the same client-minted `pane_id` and `tab_id` on `new-row`, and `pane_id`/`tab_id` in its result. `split-client-split-id-v1` advertises the client-minted `split_id` on `split` and on the `split` of `new-conversation-tab`, and `split_id` (the split's public id) on every split node of a layout (see "Client-minted split ids"). `terminal-resources-v1` advertises `terminal-resources`, which reads the CPU time and memory of each terminal's shell, descendants, and terminal host at request time. `batch-close-v1` advertises `close-tabs` and the optional `end_terminals` field on `close-pane`, `close-screen`, `close-workspace`, and `close-tab-group`: many placements and the terminals they end close in one durable commit. `close-workspace-if-empty-v1` advertises the optional `if_empty` field on `close-workspace`: the close commits only when the workspace has no tab at commit time, else it fails with `workspace_not_empty` and changes nothing. `end-terminals-keep-layout-v1` advertises `keep_layout` on `shutdown-daemon`: with `end_terminals`, placed terminals keep their tabs across the handoff. `tab-restart-kept-layout-v1` (Unix owners, with `tab-restart-v1`) advertises that `restart-tab` of a tab kept by `keep_layout` starts the new shell in the directory the keep recorded and ends the keep once the new shell is in the tab: the tab's `relaunch` is null again, its shell's exit closes it, and a host loss respawns it. `tab-park-v1` (Unix owners) advertises `park-tabs`, which ends the shells of terminal tabs and keeps the tabs as `keep_layout` does, each with `relaunch.on_show: true` so a frontend restarts it when its workspace is first shown. `terminal-reap-v1` advertises the owner-side reaper that ends a terminal after it has had no tab placement for the reap grace period (active only when the daemon was started with `--terminal-reap-grace-seconds`), `set-terminal-keep`, the `keep` field on `new-tab`, `split`, and `create-terminal`, the `terminal-reaped` event, and `end_terminals` on `shutdown-daemon`. `dock-columns-v1` advertises `set-column-dock` and the optional `Screen.columns[].dock` field for every edge; the resource API operation `column.update` (resource-operations-v2.json) sets the same flag and the column width. `terminal-env-v1` advertises the per-terminal `env` object on `new-tab`, `split`, and `create-terminal`, and `cwd` on `split`. `tab-groups-v1` advertises Chrome-style tab groups: the `*-tab-group` commands, `Pane.tab_groups`, and `Tab.group`. `saved-tab-groups-v1` advertises saved groups: `save-tab-group`, `unsave-tab-group`, `delete-saved-tab-group`, `list-saved-tab-groups`, and `reopen-saved-tab-group`. `notification-ack-v1` advertises `ack-tab-notifications`, `list-notifications`, durable notification acknowledgement, and `Workspace.unread_count`. `tab-drag-v1` advertises the single-command tab drag outcomes `move-tab-to-split`, `move-tab-to-column`, and `move-tab-to-new-workspace`, layout undo for same-screen tab drags and cross-pane `move-tab`, and the optional `transaction` field on every drag command, echoed in the resulting `tab-changed` delta. `tab-workspace-name-v1` advertises the optional `name` field on `move-tab-to-new-workspace`: the new workspace takes that name in the same commit. `workspace-name-source-v1` advertises workspace name provenance: `source`, `expected_generation` and `expected_name_revision` on `rename-workspace` and `workspace.rename`, and `name_source` (`user` or `auto`) and `name_revision` (a decimal string) on every workspace (`Workspace.name_source`/`Workspace.name_revision` in the raw tree, `extra.name_source`/`extra.name_revision` in resource snapshots). A workspace the daemon names itself (no requested name) starts `auto`; a requested name, any rename without `source` and every name stored by an older daemon are `user`. An automatic rename never replaces a non-empty user name, never empties a name, and fails when the name revision moved since the caller read it; every rename advances the revision. `frontend-browser-tabs-v1` advertises `new-frontend-browser-tab`, `update-frontend-browser-tab`, and the frontend browser tab fields. `tab-metadata-v1` advertises `set-tab-pinned`, pinned-first tab order, the `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, and `Tab.git_detached` fields, and the `tab-changed` delta. `workspace-metadata-v1` advertises `set-workspace-metadata`, the `Workspace.color`, `Workspace.icon`, and `Workspace.title` fields, and the `workspace-changed` delta. `workspace-pin-v1` advertises the `pinned` field on `set-workspace-metadata` and `Workspace.pinned`. `notification-mark-unread-v1` advertises the `marked_unread` field on `set-workspace-metadata` and `Workspace.marked_unread`. `workspace-groups-v1` advertises durable sidebar groups: the `*-workspace-group` commands, `move-workspace-to-group`, `Tree.groups`, and `Workspace.group`. `loopback-forward-v1` advertises multiplexed TCP streams to the daemon machine's own loopback services (see "Loopback forwarding"); a Unix client echoes it in `set-client-info` before its first `loopback-open`. `fs-v1` advertises the `fs.*` file ops and their byte streams (see "File system (fs-v1)"); only cmux Cloud hosts serve it. `session-identity-v1` advertises `identify.session_id` (the durable `registry_id`, stable across restarts and upgrades) and `identify.machine_name` (the host name, at most 255 bytes, no control characters). `remote-terminal-tabs-v1` advertises `new-remote-terminal-tab`, `update-remote-terminal-tab`, `remote-terminal-snapshot`, and the `kind:"remote-terminal"` tab with its `remote` object. `detached-terminals-v1` advertises `detached` on `create-terminal` and `terminal_resource_id` in its detached result. `profiles-v1` advertises the home session's personal state: `list-personal`, the `*-profile` room commands, `set-profile-follows`, `pin-workspace`, `unpin-workspace`, `put-session`, `forget-session`, `import-session-organization`, the `*-personal-group` commands, `set-personal-workspace`, and the `personal-changed` event. `personal-terminals-v1` advertises `set-personal-terminal` and `list-personal.terminals`. `screen-metadata-v1` advertises `set-screen-metadata`, `set-screen-pinned`, `move-screen`, the `screen_name`, `color`, `icon`, `pinned`, `index`, `group`, and `cwd` fields on `new-screen` (whose result then also carries `screen`), the `Screen.color`, `Screen.icon`, `Screen.pinned`, and `Screen.group` fields, and the `screen-changed` delta. `screen-groups-v1` advertises Chrome-style screen groups: the `*-screen-group` commands, saved screen groups, and `Workspace.screen_groups`. `browser-profiles-v1` advertises browser profile records in personal state: `browser_profiles` in `list-personal` and `create-browser-profile`, `update-browser-profile`, `move-browser-profile`, and `delete-browser-profile`. `notification-source-v1` advertises `source` on `notify`, the `notification` event, the tab `notification` marker, and `list-notifications` rows (`extra.source` in resource notification snapshots), and daemon-side desktop notifications from terminal output (OSC 9, OSC 777 `notify`, kitty OSC 99) with source `terminal`. `terminal-shell-args-v1` advertises `shell_args` on `new-tab`, `split`, `new-pane`, `new-pane-right`, and `create-terminal`: the terminal runs its `SHELL` from `env` (else the daemon's default shell) with those arguments, so a frontend can apply Ghostty's argv-based shell integration (bash `--posix` with `ENV`, nushell `--execute`). `terminal-frontend-shell-integration-v1` lets a frontend that resolves Ghostty's shell integration itself (from the user's `shell-integration` and `shell-integration-features`, into the terminal's `env` and `shell_args`) echo it in `set-client-info`; the terminals that connection creates with a `SHELL` in `env` then run that shell exactly as given (stored as `argv`), with no host-added integration, on `new-tab`, `split`, `new-pane`, `new-pane-right`, `new-row`, `create-terminal`, and a terminal `respawn`; without a `SHELL` the host integrates as before. `new-workspace`, `new-screen` and the reopen-saved-group commands take no `env` and keep the host integration. `screen-terminal-env-v1` advertises `env`, `terminal_id`, and `shell_args` on `new-screen` (the first terminal takes them as on `new-pane`, including `terminal-frontend-shell-integration-v1`) and `terminal_id` in its result. `launch-snapshot-v1` advertises `launch_snapshot_path` in `identify` and the launch snapshot file described there. `state-resources-v1` advertises the `cmux.protocol/2` state resources (workspace metadata, tab pins and tab groups, personal workspace groups, rooms and saved tab groups, screen metadata, order and screen groups, closed history, ephemeral workspaces, and workspace status, progress and log; see `resource-api-v2.md`), `extra.state` on session snapshots, and `state_upsert`/`state_delete` changes on `session.events`. `window-records-v1` advertises `window_record.list`, `window_record.put` and `window_record.delete` (see `resource-api-v2.md`). `sidebar-layout-v1` advertises `sidebar_layout.get`, `sidebar_layout.update` and `extra.state.sidebar_layout` on session snapshots (see `resource-api-v2.md`). `sidebar-doc-v1` advertises the sidebar document: `sidebar.get`, `sidebar.move`, `sidebar.pin`, `sidebar.unpin`, the `sidebar.item.*`, `sidebar.section.*` and `sidebar.group.*` mutations, `sidebar.adopt`, `sidebar.apply`, `extra.state.sidebar` on session snapshots, and `state_upsert`/`state_delete` changes of resources `sidebar_item`, `sidebar_section` and `sidebar_doc` on `session.events` (see `resource-api-v2.md`). `placement-shift-v1` advertises the placement shift: a client that echoes it in `set-client-info` or `client.metadata.update` gets no `workspace_placement` restatement on `session.events` for rows that a new or moved workspace only shifts; every other connection still gets them (see "Placement shift" in `resource-api-v2.md`). `project-list-v1` advertises the project list: `project.list`, `project.observe`, `project.add`, `project.update`, `project.remove` and `project.sync`, and `state_upsert`/`state_delete` changes of resource `project` on `session.events` (see `resource-api-v2.md` and plans/cmux-next/projects.md). `project-sources-v1` advertises `project.source.update` (a source turned off or on) and `sources` (each source with its on state and project count) in the `project.list` result. `browser-devices-v1` advertises `browser.devices.list`, `browser.devices.add_custom`, `browser.devices.remove_custom`, `browser.tab.emulate` and `browser.tab.emulate.clear`, and a browser tab's `extra.emulation` (the resolved device emulation every engine applies; see `resource-api-v2.md`). `browser-fit-v1` advertises `fit` on `browser.tab.emulate` (a desktop layout of aspect W:H, such as 16:9, scaled to the tab's view width with the full view height) and the `mode: "fit"` form of `extra.emulation` (see `resource-operations-v2.json`). `browser-fit-width-v1` advertises a fixed layout width as `fit` (a bare number of CSS px, such as 1280) and `fit.value` in that record. `browser-profile-agent-v1` advertises `browser.tab.set_profile` (moves a frontend browser tab to another browser profile in place, as `update-frontend-browser-tab {profile_id}` does; `frontend-browser-tab-profile-v1`) and a frontend browser tab's `extra.browser_profile_id` (see `resource-api-v2.md`). `palette-usage-v1` advertises `palette_usage.get`, `palette_usage.record`, `palette_usage.import`, `palette_usage.hide` and `palette_usage.forget`, the user's local palette usage history (see `resource-api-v2.md`). `stash-v1` advertises `stash.create`, `stash.list`, `stash.restore`, `stash.delete` and `stash.import`, the user's stashed web pages (a native OneTab; see `resource-api-v2.md`). `stash-workspaces-v1` advertises `workspaces` and `name` on `stash.create`: whole workspaces, terminals included, close into one stash of `kind: "workspace"` members, and `stash.restore` reopens each as its own workspace (see `resource-api-v2.md`). `frontend-browser-owner-v1` advertises `owner` on `new-frontend-browser-tab` and `update-frontend-browser-tab`, `Tab.browser_owner`, `tab.update {owner}` and the tab's `extra.owner`. `frontend-browser-tab-keys-v1` advertises `idempotency_key` on `new-frontend-browser-tab` and `replayed` in its result: a retry with the same key returns the tab the first request created. The raw screen commands of `screen-metadata-v1` and `screen-groups-v1` and the v2 `screen.*` and `screen_group.*` operations read and write one storage and publish the same changes. `workspace-kind-v1` advertises `workspace.ensure_home` and `extra.kind` on workspace snapshots (see `resource-api-v2.md`). `workspace-agent-folder-v1` advertises `workspace.agent_folder.set` and `extra.agent_folder` on workspace snapshots (see `resource-api-v2.md`). `personal-mixed-order-v1` advertises one personal order for groups and loose workspaces: `top_index` on `workspace_group.update`, on `WorkspaceGroupSnapshot` and on `list-personal` groups, `workspace.list {order}`, and the personal row of a new workspace in its creation commit (see `resource-api-v2.md`). `workspace-group-icon-v1` advertises a personal workspace group's icon: `icon` on `workspace_group.update`, on `WorkspaceGroupSnapshot` and on `list-personal` groups (see `resource-api-v2.md`). `screen-group-icon-v1` advertises a screen group's icon: `icon` on `update-screen-group`, on screen group runs (`Workspace.screen_groups`), on saved screen groups (`list-saved-screen-groups`, kept by `reopen-saved-screen-group`), on `screen_group.update` and on `ScreenGroupSnapshot` (see `resource-api-v2.md`). `tab-group-icon-v1` advertises a tab group's icon: `icon` on `update-tab-group`, on tab group runs (`Pane.tab_groups`), on saved tab groups (`list-saved-tab-groups`, kept by `reopen-saved-tab-group`), on `tab_group.update`, on `TabGroupSnapshot` and on `SavedTabGroupSnapshot` (see `resource-api-v2.md`). `workspace-group-pin-v1` advertises pinned (saved) personal workspace groups: `pinned` on `workspace_group.update`, on `WorkspaceGroupSnapshot` and on `list-personal` groups (see `resource-api-v2.md`). `chief-inspect-v1` advertises `chief-inspect`, the Chief memory inspector's read-only API for the owner's trusted connection. `conversation-tabs-v1` advertises `new-conversation-tab`, the canonical `conversation` tab kind, and `capabilities` on `client.metadata.update`; a client that echoes it in `set-client-info` or `client.metadata.update` reads conversation tabs in their canonical form. `agent-session-tabs-v1` advertises the `agent_session` source of `new-conversation-tab` (an acpmux agent session on the install `host`; its tabs are ordinary store tabs that move, split and close like any tab) and `bind-conversation-tab-session`; a client that echoes it as well reads agent session tabs in their canonical form, and any other connection reads them as `browser` tabs without `conversation`. `page-tabs-v1` advertises the `page` source of `new-conversation-tab` (one of the app's own pages, such as the App Store or Settings; its tabs are ordinary store tabs); a client that echoes it as well reads page tabs in their canonical form, and any other connection reads them as `browser` tabs without `conversation`. `page-tab-route-v1` advertises the optional `route` of a page tab on `new-conversation-tab` and in its `conversation` record. `close-reason-v1` advertises `reason` on `close-tabs` and, with `end_terminals`, on `close-workspace`: `session_end` closes without a closed-history record. `conversation-tab-transaction-v1` advertises `transaction` on `new-conversation-tab`: the created tab's `tab-added` delta and the result echo it. `conversation-tab-split-v1` advertises `split` on `new-conversation-tab`: the tab is created in a new pane split from `pane`, in one `pane-added` delta. `browser-host-provider-v1` advertises `browser-host-provider`: the verified local app gets the provider credentials of the daemon's own browser host. `frontend-browser-activate-v1` advertises `activate` on `new-frontend-browser-tab`. `frontend-browser-insert-after-v1` advertises `after` on `new-frontend-browser-tab`. `bookmarks-v1` advertises one bookmark tree per browser profile: `list-bookmarks`, `create-bookmark`, `update-bookmark`, `move-bookmark`, `delete-bookmark`, `import-bookmarks`, the `bookmarks-changed` event, and `deleted_bookmarks` in the `delete-browser-profile` result. `bookmark-icon-v1` advertises a bookmark folder's `icon`: set or cleared by `update-bookmark` and shown in `list-bookmarks` (see "Icon values" under `put-blob`). `session-icon-v1` advertises a session's (machine's) `icon` in the home session registry: set or cleared by `set-session-icon`, kept by `put-session`, and shown on each `list-personal` session record. `icon-assets-v1` advertises the asset blob store (`put-blob`, `get-blob`) and the asset icon values `image:sha256-<hex>` and `svg:sha256-<hex>` on the workspace, screen, room, browser profile and workspace status icon fields (see "Icon values" under `put-blob`). `origin-claim-v1` advertises `client-hello` step 1, the optional `origin` claim on `cmux.protocol/2` requests, and `origin.confirmation.issue` (see "client-hello" and `resource-api-v2.md`, "Request origin") `page-router-v1` advertises the daemon page router (`page-router.md`): the optional `page` on a page relay's `client-hello` (the reply carries that page's `page_operations`), the page of a WebSocket connection whose handshake Origin is `cmux-page://cmux.<page>`, the per-page allow list of `cmux.protocol/2` operations in `page-router.json`, and the routed v2 namespaces (`apps.catalog.list`, `apps.catalog.get`, `apps.installed.list`, `apps.grants.get`, `apps.logs`, `apps.asset.get`, `apps.set`, `apps.install`, `apps.uninstall`, `apps.hidden.set`, `apps.grant.set`, `apps.grant.revoke`) answered by their owner outside the operation catalog. `ws-listen-origins-v1` advertises `allow_origins` on `ws-listen` and `origins` in its reply. `page-events-v1` advertises `page_events` in a page relay's `client-hello` reply (the `events` of its page in `page-router.json`) and `subscribe` on a page relay whose page names events: the stream carries only those events (no `surface` output stream, no pairing requests). `terminal-clipboard-read-v1` advertises the OSC 52 clipboard-read broker: `terminal-clipboard-subscribe`, `terminal-clipboard-reply`, and the targeted `terminal-clipboard-read` and `terminal-clipboard-read-cancelled` control events (see "Terminal clipboard reads"). `launch-credential-v1` advertises the optional `credential` member of `cmux.protocol/2` requests and `credential.verify`, `credential.mint` and `credential.rotate` (see `resource-api-v2.md`, "Launch credentials"); a client sends a credential only to a daemon that advertises it. `feed-local-owner-v1` advertises the daemon's local feed owner (plans/cmux-next/feed.md section 9.1): every notification is also a local feed item committed in the same transaction, `select-tab`, `select-workspace`, `select-screen`, `focus-pane` and `focus-direction` no longer clear unread (a client acknowledges with `ack-tab-notifications`, which also reads the tab's local items and reports `refused` items), the `feed-local-list`, `feed-local-read`, `feed-local-handoff-begin`, `feed-local-handoff-abort` and `feed-local-handoff-done` commands, and the error codes `feed.moving`, `owner.unreachable` (both retryable), `feed.invalid_state`, `not_found` and `forbidden` (a handoff step from a connection that is not the verified cmux app). `workspace-open-url-v1` advertises `workspace.open_url`: a web link opens on the right side of a workspace (the home workspace when none is named), reusing its browser tab, never in the agent chat dock and without moving the keyboard focus (see `resource-api-v2.md`).
 .
 
-`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-provider-v1` advertises the trusted-local, connection-scoped native browser provider lease used by cmux-browser and local automation. `browser-provider-native-hosting-v1` advertises the optional `hosting` field of `register-browser-provider`: a `"native"` provider presents its pages itself, so the daemon never overrides their device metrics and screencasts them only while a frame viewer is attached. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `pane-browser-kind-v1` advertises `kind` and `url` on `split` and `new-pane-right`: `kind:"browser"` with a non-empty `url` puts a browser tab at that URL in the new pane, through the same `pane.split` commit and restart recovery as a terminal pane; public `pane.split` stays terminal-only. `dock-columns-v1` advertises `set-column-dock` and the optional `Screen.columns[].dock` field for every edge. `edge-docks-v1` advertises the edges `top` and `bottom` on `set-column-dock` and on `dock` in `move-tab-to-column` (the `dock` field itself needs `dock-columns-v1`). `dock-column-role-v1` advertises `role` on `set-column-dock` and on `dock` in `move-tab-to-column`, and `Screen.columns[].dock.role`. `rows-v1` advertises `new-row`, `set-row-heights`, and the optional `Screen.columns[].rows` field. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `view-attachment-lease-v1` returns a connection-owned lease for each attach and enables lease-fenced sizing. `view-attachment-detach-v1` enables targeted stream cleanup. `creation-receipts-v1` enables idempotent destination creation, `creation-attempt-keys-v1` separates a stable correlation from the same-key or new-key execution attempt selected by `session.creation.resolve`, and `creation-selector-fallbacks-v1` adds bounded ordered destination continuations. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits. `terminal-idle-close-v1` advertises `set-terminal-idle-policy` and the owner-side reaper that closes a terminal after its policy elapses with no attached view. `terminal-pending-sequence-v1` advertises the separate `pending` field on byte-attach `vt-state` and `resized` events; a client that echoes it in `set-client-info` receives it (see `events.md`). `terminal-placement-env-v1` advertises a caller-chosen `terminal_id` on `new-tab`, `split`, `new-pane`, and `new-pane-right`, `cwd` and `env` on `new-pane` and `new-pane-right`, and `terminal_id`/`terminal_incarnation` in all four results. `split-client-keys-v1` advertises the client-minted `pane_id` and `tab_id` on `split`, `new-pane`, and `new-pane-right`, keyed retries that return the first result with `replayed`, and `pane_id`/`tab_id` in their results (see "Client-minted pane ids"). `terminal-resources-v1` advertises `terminal-resources`, which reads the CPU time and memory of each terminal's shell, descendants, and terminal host at request time. `batch-close-v1` advertises `close-tabs` and the optional `end_terminals` field on `close-pane`, `close-screen`, `close-workspace`, and `close-tab-group`: many placements and the terminals they end close in one durable commit. `close-workspace-if-empty-v1` advertises the optional `if_empty` field on `close-workspace`: the close commits only when the workspace has no tab at commit time, else it fails with `workspace_not_empty` and changes nothing. `end-terminals-keep-layout-v1` advertises `keep_layout` on `shutdown-daemon`: with `end_terminals`, placed terminals keep their tabs across the handoff. `terminal-reap-v1` advertises the owner-side reaper that ends a terminal after it has had no tab placement for the reap grace period (active only when the daemon was started with `--terminal-reap-grace-seconds`), `set-terminal-keep`, the `keep` field on `new-tab`, `split`, and `create-terminal`, the `terminal-reaped` event, and `end_terminals` on `shutdown-daemon`. `terminal-env-v1` advertises the per-terminal `env` object on `new-tab`, `split`, and `create-terminal`, and `cwd` on `split`. `tab-groups-v1` advertises tab groups: the `*-tab-group` commands, `Pane.tab_groups`, and `Tab.group`. `saved-tab-groups-v1` advertises saved groups: `save-tab-group`, `unsave-tab-group`, `delete-saved-tab-group`, `list-saved-tab-groups`, and `reopen-saved-tab-group`. `notification-ack-v1` advertises `ack-tab-notifications`, `list-notifications`, durable notification acknowledgement, and `Workspace.unread_count`. `tab-drag-v1` advertises the single-command tab drag outcomes `move-tab-to-split`, `move-tab-to-column`, and `move-tab-to-new-workspace`, layout undo for same-screen tab drags and cross-pane `move-tab`, and the optional `transaction` field on every drag command, echoed in the resulting `tab-changed` delta. `tab-workspace-name-v1` advertises the optional `name` field on `move-tab-to-new-workspace`: the new workspace takes that name in the same commit. `tab-split-respawn-v1` advertises `respawn` on `move-tab-to-split`: a pane's only tab dropped on its own pane's edge splits that pane and leaves a fresh tab of the same kind behind. `tab-split-keep-focus-v1` advertises `keep_focus` on `move-tab-to-split` and `move-tab-to-column`: the new pane does not take focus. `tab-column-respawn-v1` advertises `respawn` on `move-tab-to-column`: a pane's only tab moves into the new column and leaves a fresh tab of the same kind in its pane. `frontend-browser-tabs-v1` advertises `new-frontend-browser-tab`, `update-frontend-browser-tab`, and the frontend browser tab fields. `frontend-browser-history-v1` advertises `set-frontend-browser-history` and `get-frontend-browser-history`: an opaque per-tab session history object for frontend-rendered browsers, stored durably outside the tree. `tab-metadata-v1` advertises `set-tab-pinned`, pinned-first tab order, the `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, and `Tab.git_detached` fields, and the `tab-changed` delta. `workspace-metadata-v1` advertises `set-workspace-metadata`, the `Workspace.color`, `Workspace.icon`, and `Workspace.title` fields, and the `workspace-changed` delta. `workspace-pin-v1` advertises the `pinned` field on `set-workspace-metadata` and `Workspace.pinned`. `notification-mark-unread-v1` advertises the `marked_unread` field on `set-workspace-metadata` and `Workspace.marked_unread`. `workspace-groups-v1` advertises durable sidebar groups: the `*-workspace-group` commands, `move-workspace-to-group`, `Tree.groups`, and `Workspace.group`. `loopback-forward-v1` advertises multiplexed TCP streams to the daemon machine's own loopback services (see "Loopback forwarding"); a Unix client echoes it in `set-client-info` before its first `loopback-open`. `fs-v1` advertises the `fs.*` file ops and their byte streams (see "File system (fs-v1)"); only cmux Cloud hosts serve it. `session-identity-v1` advertises `identify.session_id` (the durable `registry_id`, stable across restarts and upgrades) and `identify.machine_name` (the host name, at most 255 bytes, no control characters). `profiles-v1` advertises the home session's personal state: `list-personal`, the `*-profile` room commands, `set-profile-follows`, `pin-workspace`, `unpin-workspace`, `put-session`, `forget-session`, `import-session-organization`, the `*-personal-group` commands, `set-personal-workspace`, and the `personal-changed` event. `personal-terminals-v1` advertises `set-personal-terminal` and `list-personal.terminals`. `screen-metadata-v1` advertises `set-screen-metadata`, `set-screen-pinned`, `move-screen`, the `screen_name`, `color`, `icon`, `pinned`, `index`, `group`, and `cwd` fields on `new-screen` (whose result then also carries `screen`), the `Screen.color`, `Screen.icon`, `Screen.pinned`, and `Screen.group` fields, and the `screen-changed` delta. `screen-groups-v1` advertises screen groups: the `*-screen-group` commands, saved screen groups, and `Workspace.screen_groups`. `browser-profiles-v1` advertises browser profile records in personal state: `browser_profiles` in `list-personal` and `create-browser-profile`, `update-browser-profile`, `move-browser-profile`, and `delete-browser-profile`. `conversation-search-v1` advertises `conversation-search` on the local conversation owner. `conversation-draft-v1` advertises `conversation-draft`, the v1 command of the `conversation.draft` operation for a bound agent connection. `conversation-draft-events-v1` advertises the `conversation-draft` event on `subscribe` (the `conversation.events` draft item, with its `conversation` and `participant`) for a trusted local connection that echoes the capability in `set-client-info`; other connections never get drafts on `subscribe`. `conversation-threads-v1` advertises `thread_root` on `message.send` and on `Message`, the `invalid_thread_root` reject, and that a `message.send` moves the sender's own read cursor to the new seq when the sender had read everything before it (see `conversation-op`). `conversation-thread-v1` advertises `conversation-thread`, the `threads` root stats on `conversation-snapshot` and `conversation-history` results, and, with `cloud-conversations-v1`, `cloud-conversation-thread`. `conversation-tree-v1` advertises threads that nest without a limit on the local conversation owner (`reply_to` is the parent, `thread_root` the top root; a `message.send` whose `reply_to` parent is in a thread joins that thread, and a named `thread_root` must be the parent's own; see `conversation-op`) and `conversation-link-resolve`, which opens a conversation or message permalink. `conversation-inbox-state-v1` advertises the person's own list state of a conversation, kept beside it (a pin with its position and a "marked unread" flag): `conversation-inbox-op`, the caller's `pinned`, `pin_position` and `marked_unread` on `conversation-list` items, the `conversation-inbox-changed` event on `subscribe` (only to connections whose principal is that participant), and with `cloud-conversations-v1` also `cloud-inbox-op`. `conversation-thread-objects-v1` advertises threads as objects: the `thread.update` op (a `title`, a `status` of `open` or `resolved`, and an `owner` participant; any participant may send it, an agent too) on `conversation-op` and through `cloud-conversation-op`, the `thread` object on a root `Message`, and the `status`, `title`, `owner`, `resolved_by` and `resolved_at` fields of `ThreadSummary` (see `conversation-op` and `conversation-thread`). `conversation-runs-v1` advertises agent runs on the local conversation owner: `conversation-run-append` for a bound agent participant, `conversation-runs` and `conversation-run` on trusted local connections (Unix, and authenticated WebSocket connections with `ws-conversations-v1`), and the `conversation-run-changed` event on `subscribe` for a connection that echoes the capability in `set-client-info` (see "conversation-run-append, conversation-runs, conversation-run"). `cloud-conversation-runs-v1` (advertised with `cloud-conversations-v1`) advertises `cloud-conversation-runs`, `cloud-conversation-run` and the `cloud-conversation-run-changed` event (see "cloud-conversation-runs, cloud-conversation-run"). `local-attachments-v1` advertises `attachment` message parts on the local conversation owner and the `conversation-attachment-upload` and `conversation-attachment-read` commands on trusted local connections. `cloud-attachments-v1` (advertised with `cloud-conversations-v1`) advertises `cloud-attachment-upload`, `cloud-attachment-read` and `cloud-attachment-link`: the same steps and results for a cloud conversation's attachments, through the daemon with the person's lease. `ws-attachments-v1` advertises the same two commands and `conversation-attachment-link` on an authenticated WebSocket connection (the clients of `ws-conversations-v1`; never a relayed remote device), and the listener's `GET /attachments/<token>` download links with byte ranges (transports.md). `link-preview-v1` advertises `link_preview` message parts on the local conversation owner (see `conversation-attachment-upload`). `conversation-person-credentials-v1` advertises that `conversation-agent-token` and `conversation-bind` also take a person other than the server's own user (a `user_` id that is not `user_local`; never a `remote_` device): the bound Unix connection then acts as that person (sends, thread replies, reactions, edits, typing) and is a human participant (it may answer questions, its messages reset the agent turn budget and wake a Chief the way an imported message of that person does), but never the owner: it cannot mint credentials, import history or use any command reserved to `user_local`. That person's typing ends when their last bound connection ends or their credential is replaced. `participant-avatars-v1` advertises `participant.avatar.set` and `participant.avatar.get` (one picture per participant, a person or a Chief, in one avatar store; resource-api-v2.md "Participant avatars") and the `participant-avatar-changed` event on `subscribe` for a connection that echoes the capability in `set-client-info`. `ws-conversations-v1` advertises the local conversation owner on an authenticated WebSocket connection (the static credential or an approved pairing) as `user_local`, the same as on a Unix connection: `conversation-list`, `conversation-create`, `conversation-snapshot`, `conversation-history`, `conversation-thread`, `conversation-link-resolve` (with `conversation-tree-v1`), `conversation-search`, `conversation-op`, `conversation-typing`, the `conversation.*` operations, and the `conversation-changed`, `conversation-typing` and (with `conversation-draft-events-v1`) `conversation-draft` events on `subscribe`; `conversation-bind`, `conversation-agent-token` and `conversation-import` stay on Unix connections, and the attachment commands come to WebSocket connections only with `ws-attachments-v1` (cmux#13742). `local-conversations-v1` advertises the local conversation owner on trusted local connections: `conversation-list`, `conversation-create`, `conversation-snapshot`, `conversation-history`, `conversation-op`, `conversation-typing`, `conversation-bind`, `conversation-agent-token`, `conversation-import`, and the `conversation-changed` and `conversation-typing` events. `notification-source-v1` advertises `source` on `notify`, the `notification` event, the tab `notification` marker, and `list-notifications` rows (`extra.source` in resource notification snapshots), and daemon-side desktop notifications from terminal output (OSC 9, OSC 777 `notify`, kitty OSC 99) with source `terminal`. `terminal-shell-args-v1` advertises `shell_args` on `new-tab`, `split`, `new-pane`, `new-pane-right`, and `create-terminal`: the terminal runs its `SHELL` from `env` (else the daemon's default shell) with those arguments, so a frontend can apply Ghostty's argv-based shell integration (bash `--posix` with `ENV`, nushell `--execute`). `terminal-frontend-shell-integration-v1` lets a frontend that resolves Ghostty's shell integration itself (from the user's `shell-integration` and `shell-integration-features`, into the terminal's `env` and `shell_args`) echo it in `set-client-info`; the terminals that connection creates with a `SHELL` in `env` then run that shell exactly as given (stored as `argv`), with no host-added integration, on `new-tab`, `split`, `new-pane`, `new-pane-right`, `new-row`, `create-terminal`, and a terminal `respawn`; without a `SHELL` the host integrates as before. `new-workspace` and the reopen-saved-group commands take no `env` and keep the host integration; `new-screen` follows it with `screen-terminal-env-v1`. `screen-terminal-env-v1` advertises `env`, `terminal_id`, and `shell_args` on `new-screen` (the first terminal takes them as on `new-pane`, including `terminal-frontend-shell-integration-v1`) and `terminal_id` in its result. `launch-snapshot-v1` advertises `launch_snapshot_path` in `identify` and the launch snapshot file described there. `close-reason-v1` advertises `reason` on `close-tabs` and, with `end_terminals`, on `close-workspace`: `session_end` closes without a closed-history record. `conversation-tab-transaction-v1` advertises `transaction` on `new-conversation-tab`: the created tab's `tab-added` delta and the result echo it. `browser-host-provider-v1` advertises `browser-host-provider`: the verified local app gets the provider credentials of the daemon's own browser host. `frontend-browser-activate-v1` advertises `activate` on `new-frontend-browser-tab`. `history-search-v1` (advertised only when the daemon has a search index) advertises `history-search`. `frontend-browser-insert-after-v1` advertises `after` on `new-frontend-browser-tab`. `bookmarks-v1` advertises one bookmark tree per browser profile: `list-bookmarks`, `create-bookmark`, `update-bookmark`, `move-bookmark`, `delete-bookmark`, `import-bookmarks`, the `bookmarks-changed` event, and `deleted_bookmarks` in the `delete-browser-profile` result. `bookmark-icon-v1` advertises a bookmark folder's `icon`: set or cleared by `update-bookmark` and shown in `list-bookmarks` (see "Icon values" under `put-blob`). `session-icon-v1` advertises a session's (machine's) `icon` in the home session registry: set or cleared by `set-session-icon`, kept by `put-session`, and shown on each `list-personal` session record. `icon-assets-v1` advertises the asset blob store (`put-blob`, `get-blob`) and the asset icon values `image:sha256-<hex>` and `svg:sha256-<hex>` on the workspace, screen, room, browser profile and workspace status icon fields (see "Icon values" under `put-blob`). `ws-listen-v1` (advertised when the binary can open a page listener) advertises `ws-listen`: a running owner opens its loopback page listener and credential file on request. `cloud-conversations-v1` (advertised only when the daemon has a cloud transport) advertises the cloud conversations proxy on trusted local connections: the `cloud-session-*`, `cloud-inbox-*` and `cloud-conversation-*` commands and the `cloud-*` events (plans/cmux-next/home-cloud-proxy.md). `cloud-lease-app-only-v1` (advertised with `cloud-conversations-v1`) advertises that only the verified cmux app connection may replace, clear or use a lease the app set and send `cloud-conversation-op` with `origin: "user"`; other connections get `cloud_conversation_rejected` with `reason` `forbidden`. `page-credential-v1` advertises `page-credential`: the verified cmux app gets a credential for its own page. `page-credential-scoped-v1` advertises the optional `page` field of `page-credential`: any trusted local connection gets a single-use credential bound to that page of the page-router table, which admits only a WebSocket handshake whose Origin names that page and never carries the Cloud lease. `ws-cloud-conversations-v1` (advertised with `cloud-conversations-v1`) advertises that a WebSocket connection that authenticated with a pairing-store credential (an approved pairing, or a `page-credential`; never the static or file token, which any same-user process can read) acts as the person with the lease the verified app set: `cloud-session-status` (with `participant`), `cloud-inbox-list`, `cloud-conversation-snapshot`, `cloud-conversation-history`, `cloud-conversation-thread`, `cloud-conversation-op` (also with `origin: "user"`), the `cloud-*-subscribe` and `cloud-*-unsubscribe` commands, and the `cloud-*` events on `subscribe`; it never sets or clears a lease, and without the app's lease it is signed out (`cloud_signed_out`), never using a lease another connection set (cmux#13742). `origin-claim-v1` advertises `client-hello` step 1, the optional `origin` claim on `cmux.protocol/2` requests, and `origin.confirmation.issue` (see "client-hello" and `resource-api-v2.md`, "Request origin"). `terminal-clipboard-read-v1` advertises the OSC 52 clipboard-read broker: `terminal-clipboard-subscribe`, `terminal-clipboard-reply`, and the targeted `terminal-clipboard-read` and `terminal-clipboard-read-cancelled` control events (see "Terminal clipboard reads"). `agent-session-attach-v1` (advertised when the daemon resolved an acpmux socket path) advertises the `agent-session-*` commands and events on trusted local connections (see "Agent session attach"). `agent-session-start-v1` (advertised with `agent-session-attach-v1`) advertises `agent-session-start` (see "agent-session-start"). `agent-session-start-keyed-reason-v1` (advertised with `agent-session-start-v1`) advertises `require_person_key` and `person_instance` on `agent-session-start` and its typed `agent_session.needs_keyed_start` refusal. `agent-transfer-v1` (advertised with `agent-session-attach-v1` once the daemon knows its host) advertises the `agent-transfer-*` commands on trusted local connections (see "Agent chat transfer"). `access-request-v1` (advertised on a cmux Cloud host) advertises the `access-request*` commands on trusted local connections (see "Access requests"). `feed-local-owner-v1` advertises the daemon's local feed owner (plans/cmux-next/feed.md section 9.1): every notification is also a local feed item committed in the same transaction, `select-tab`, `select-workspace`, `select-screen`, `focus-pane` and `focus-direction` no longer clear unread (a client acknowledges with `ack-tab-notifications`, which also reads the tab's local items and reports `refused` items), the `feed-local-list`, `feed-local-read`, `feed-local-handoff-begin`, `feed-local-handoff-abort` and `feed-local-handoff-done` commands, and the error codes `feed.moving`, `owner.unreachable` (both retryable), `feed.invalid_state`, `not_found` and `forbidden` (a handoff step from a connection that is not the verified cmux app). `chief-profile-ws-v1` advertises that the person's page (page `home-channels` admitted with a page-bound credential, or an authenticated WebSocket with the daemon's own credential and no page Origin) may call `chief.profile.*`: list, read, and change display_name, role and the avatar; create, delete, instructions, personality and the grant fields need the person's gesture (resource-api-v2.md "Chief registry"). `chief-events-v1` advertises the `chief-changed` event on `subscribe` (a Chief's id and `created`, `updated` or `deleted`, after every committed `chief.profile.*` write) for the person's own connection (`user_local`, the Channels page included) that echoes the capability in `set-client-info`.
+`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-provider-v1` advertises the trusted-local, connection-scoped native browser provider lease used by cmux-browser and local automation. `browser-provider-native-hosting-v1` advertises the optional `hosting` field of `register-browser-provider`: a `"native"` provider presents its pages itself, so the daemon never overrides their device metrics and screencasts them only while a frame viewer is attached. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `pane-browser-kind-v1` advertises `kind` and `url` on `split` and `new-pane-right`: `kind:"browser"` with a non-empty `url` puts a browser tab at that URL in the new pane, through the same `pane.split` commit and restart recovery as a terminal pane; public `pane.split` stays terminal-only. `dock-columns-v1` advertises `set-column-dock` and the optional `Screen.columns[].dock` field for every edge. `layout-delta-v1` advertises the screen layout fields, `workspace` and `transaction` on the `layout-changed` event (see `events.md`): a frontend patches one screen instead of re-fetching the tree. `edge-docks-v1` advertises the edges `top` and `bottom` on `set-column-dock` and on `dock` in `move-tab-to-column` (the `dock` field itself needs `dock-columns-v1`). `dock-column-role-v1` advertises `role` on `set-column-dock` and on `dock` in `move-tab-to-column`, and `Screen.columns[].dock.role`. `rows-v1` advertises `new-row`, `set-row-heights`, and the optional `Screen.columns[].rows` field. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `view-attachment-lease-v1` returns a connection-owned lease for each attach and enables lease-fenced sizing. `view-attachment-detach-v1` enables targeted stream cleanup. `creation-receipts-v1` enables idempotent destination creation, `creation-attempt-keys-v1` separates a stable correlation from the same-key or new-key execution attempt selected by `session.creation.resolve`, and `creation-selector-fallbacks-v1` adds bounded ordered destination continuations. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits. `terminal-idle-close-v1` advertises `set-terminal-idle-policy` and the owner-side reaper that closes a terminal after its policy elapses with no attached view. `resume-command` advertises `terminal-resume-command`: a person's resume command for one terminal, typed on the new prompt when the owner respawns it. `terminal-pending-sequence-v1` advertises the separate `pending` field on byte-attach `vt-state` and `resized` events; a client that echoes it in `set-client-info` receives it (see `events.md`). `terminal-placement-env-v1` advertises a caller-chosen `terminal_id` on `new-tab`, `split`, `new-pane`, and `new-pane-right`, `cwd` and `env` on `new-pane` and `new-pane-right`, and `terminal_id`/`terminal_incarnation` in all four results. `split-client-keys-v1` advertises the client-minted `pane_id` and `tab_id` on `split`, `new-pane`, and `new-pane-right`, keyed retries that return the first result with `replayed`, and `pane_id`/`tab_id` in their results (see "Client-minted pane ids"). `row-client-keys-v1` advertises the same client-minted `pane_id` and `tab_id` on `new-row`, and `pane_id`/`tab_id` in its result. `split-client-split-id-v1` advertises the client-minted `split_id` on `split` and on the `split` of `new-conversation-tab`, and `split_id` (the split's public id) on every split node of a layout (see "Client-minted split ids"). `terminal-resources-v1` advertises `terminal-resources`, which reads the CPU time and memory of each terminal's shell, descendants, and terminal host at request time. `batch-close-v1` advertises `close-tabs` and the optional `end_terminals` field on `close-pane`, `close-screen`, `close-workspace`, and `close-tab-group`: many placements and the terminals they end close in one durable commit. `close-workspace-if-empty-v1` advertises the optional `if_empty` field on `close-workspace`: the close commits only when the workspace has no tab at commit time, else it fails with `workspace_not_empty` and changes nothing. `end-terminals-keep-layout-v1` advertises `keep_layout` on `shutdown-daemon`: with `end_terminals`, placed terminals keep their tabs across the handoff. `tab-restart-kept-layout-v1` (Unix owners, with `tab-restart-v1`) advertises that `restart-tab` of a tab kept by `keep_layout` starts the new shell in the directory the keep recorded and ends the keep once the new shell is in the tab: the tab's `relaunch` is null again, its shell's exit closes it, and a host loss respawns it. `tab-park-v1` (Unix owners) advertises `park-tabs`, which ends the shells of terminal tabs and keeps the tabs as `keep_layout` does, each with `relaunch.on_show: true` so a frontend restarts it when its workspace is first shown. `terminal-reap-v1` advertises the owner-side reaper that ends a terminal after it has had no tab placement for the reap grace period (active only when the daemon was started with `--terminal-reap-grace-seconds`), `set-terminal-keep`, the `keep` field on `new-tab`, `split`, and `create-terminal`, the `terminal-reaped` event, and `end_terminals` on `shutdown-daemon`. `terminal-env-v1` advertises the per-terminal `env` object on `new-tab`, `split`, and `create-terminal`, and `cwd` on `split`. `tab-groups-v1` advertises tab groups: the `*-tab-group` commands, `Pane.tab_groups`, and `Tab.group`. `saved-tab-groups-v1` advertises saved groups: `save-tab-group`, `unsave-tab-group`, `delete-saved-tab-group`, `list-saved-tab-groups`, and `reopen-saved-tab-group`. `notification-ack-v1` advertises `ack-tab-notifications`, `list-notifications`, durable notification acknowledgement, and `Workspace.unread_count`. `tab-drag-v1` advertises the single-command tab drag outcomes `move-tab-to-split`, `move-tab-to-column`, and `move-tab-to-new-workspace`, layout undo for same-screen tab drags and cross-pane `move-tab`, and the optional `transaction` field on every drag command, echoed in the resulting `tab-changed` delta. `tab-workspace-name-v1` advertises the optional `name` field on `move-tab-to-new-workspace`: the new workspace takes that name in the same commit. `workspace-name-source-v1` advertises workspace name provenance: `source`, `expected_generation` and `expected_name_revision` on `rename-workspace` and `workspace.rename`, and `name_source` (`user` or `auto`) and `name_revision` (a decimal string) on every workspace (`Workspace.name_source`/`Workspace.name_revision` in the raw tree, `extra.name_source`/`extra.name_revision` in resource snapshots). A workspace the daemon names itself (no requested name) starts `auto`; a requested name, any rename without `source` and every name stored by an older daemon are `user`. An automatic rename never replaces a non-empty user name, never empties a name, and fails when the name revision moved since the caller read it; every rename advances the revision. `tab-split-respawn-v1` advertises `respawn` on `move-tab-to-split`: a pane's only tab dropped on its own pane's edge splits that pane and leaves a fresh tab of the same kind behind. `tab-split-keep-focus-v1` advertises `keep_focus` on `move-tab-to-split` and `move-tab-to-column`: the new pane does not take focus. `tab-column-respawn-v1` advertises `respawn` on `move-tab-to-column`: a pane's only tab moves into the new column and leaves a fresh tab of the same kind in its pane. `frontend-browser-tabs-v1` advertises `new-frontend-browser-tab`, `update-frontend-browser-tab`, and the frontend browser tab fields. `frontend-browser-history-v1` advertises `set-frontend-browser-history` and `get-frontend-browser-history`: an opaque per-tab session history object for frontend-rendered browsers, stored durably outside the tree. `tab-metadata-v1` advertises `set-tab-pinned`, pinned-first tab order, the `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, and `Tab.git_detached` fields, and the `tab-changed` delta. `workspace-metadata-v1` advertises `set-workspace-metadata`, the `Workspace.color`, `Workspace.icon`, and `Workspace.title` fields, and the `workspace-changed` delta. `workspace-pin-v1` advertises the `pinned` field on `set-workspace-metadata` and `Workspace.pinned`. `notification-mark-unread-v1` advertises the `marked_unread` field on `set-workspace-metadata` and `Workspace.marked_unread`. `workspace-groups-v1` advertises durable sidebar groups: the `*-workspace-group` commands, `move-workspace-to-group`, `Tree.groups`, and `Workspace.group`. `loopback-forward-v1` advertises multiplexed TCP streams to the daemon machine's own loopback services (see "Loopback forwarding"); a Unix client echoes it in `set-client-info` before its first `loopback-open`. `fs-v1` advertises the `fs.*` file ops and their byte streams (see "File system (fs-v1)"); only cmux Cloud hosts serve it. `session-identity-v1` advertises `identify.session_id` (the durable `registry_id`, stable across restarts and upgrades) and `identify.machine_name` (the host name, at most 255 bytes, no control characters). `profiles-v1` advertises the home session's personal state: `list-personal`, the `*-profile` room commands, `set-profile-follows`, `pin-workspace`, `unpin-workspace`, `put-session`, `forget-session`, `import-session-organization`, the `*-personal-group` commands, `set-personal-workspace`, and the `personal-changed` event. `personal-terminals-v1` advertises `set-personal-terminal` and `list-personal.terminals`. `screen-metadata-v1` advertises `set-screen-metadata`, `set-screen-pinned`, `move-screen`, the `screen_name`, `color`, `icon`, `pinned`, `index`, `group`, and `cwd` fields on `new-screen` (whose result then also carries `screen`), the `Screen.color`, `Screen.icon`, `Screen.pinned`, and `Screen.group` fields, and the `screen-changed` delta. `screen-groups-v1` advertises screen groups: the `*-screen-group` commands, saved screen groups, and `Workspace.screen_groups`. `browser-profiles-v1` advertises browser profile records in personal state: `browser_profiles` in `list-personal` and `create-browser-profile`, `update-browser-profile`, `move-browser-profile`, and `delete-browser-profile`. `conversation-search-v1` advertises `conversation-search` on the local conversation owner. `conversation-draft-v1` advertises `conversation-draft`, the v1 command of the `conversation.draft` operation for a bound agent connection. `conversation-draft-events-v1` advertises the `conversation-draft` event on `subscribe` (the `conversation.events` draft item, with its `conversation` and `participant`) for a trusted local connection that echoes the capability in `set-client-info`; other connections never get drafts on `subscribe`. `conversation-threads-v1` advertises `thread_root` on `message.send` and on `Message`, the `invalid_thread_root` reject, and that a `message.send` moves the sender's own read cursor to the new seq when the sender had read everything before it (see `conversation-op`). `conversation-thread-v1` advertises `conversation-thread`, the `threads` root stats on `conversation-snapshot` and `conversation-history` results, and, with `cloud-conversations-v1`, `cloud-conversation-thread`. `conversation-tree-v1` advertises threads that nest without a limit on the local conversation owner (`reply_to` is the parent, `thread_root` the top root; a `message.send` whose `reply_to` parent is in a thread joins that thread, and a named `thread_root` must be the parent's own; see `conversation-op`) and `conversation-link-resolve`, which opens a conversation or message permalink. `home-inbox-v1` advertises `home-inbox`, the Home list rows the caller sees, derived by the owner (kind, display name, unread count, preview, a Chief's live state, the caller's pins and marks, list order). `conversation-inbox-state-v1` advertises the person's own list state of a conversation, kept beside it (a pin with its position and a "marked unread" flag): `conversation-inbox-op`, the caller's `pinned`, `pin_position` and `marked_unread` on `conversation-list` items, the `conversation-inbox-changed` event on `subscribe` (only to connections whose principal is that participant), and with `cloud-conversations-v1` also `cloud-inbox-op`. `conversation-thread-objects-v1` advertises threads as objects: the `thread.update` op (a `title`, a `status` of `open` or `resolved`, and an `owner` participant; any participant may send it, an agent too) on `conversation-op` and through `cloud-conversation-op`, the `thread` object on a root `Message`, and the `status`, `title`, `owner`, `resolved_by` and `resolved_at` fields of `ThreadSummary` (see `conversation-op` and `conversation-thread`). `conversation-runs-v1` advertises agent runs on the local conversation owner: `conversation-run-append` for a bound agent participant, `conversation-runs` and `conversation-run` on trusted local connections (Unix, and authenticated WebSocket connections with `ws-conversations-v1`), and the `conversation-run-changed` event on `subscribe` for a connection that echoes the capability in `set-client-info` (see "conversation-run-append, conversation-runs, conversation-run"). `cloud-conversation-runs-v1` (advertised with `cloud-conversations-v1`) advertises `cloud-conversation-runs`, `cloud-conversation-run` and the `cloud-conversation-run-changed` event (see "cloud-conversation-runs, cloud-conversation-run"). `chief-live-v1` advertises a Chief's live run frames on the local conversation owner: `conversation-live-publish` for the run's bound agent, `conversation-live` (the `run.live` snapshot) on trusted local connections, and the `conversation-live` event on `subscribe` for a connection that echoes the capability in `set-client-info` (see "conversation-live-publish, conversation-live"). `cloud-chief-live-v1` (advertised with `cloud-conversations-v1`) advertises `cloud-conversation-live` and the `cloud-conversation-live` event, a Cloud Chief's live frames of a subscribed conversation passed through unchanged, for a connection that echoes `chief-live-v1`. `cloud-conversation-typing-v1` (advertised with `cloud-conversations-v1`) advertises `cloud-conversation-typing`, the lease participant's typing indicator on a subscribed Cloud conversation, and the `cloud-conversation-typing` event (the owner's `conversation-typing` broadcast of a subscribed conversation) for a connection that echoes the capability in `set-client-info` (see "cloud-conversation-typing"). `cloud-conversation-presence-v1` (advertised with `cloud-conversations-v1`) advertises `cloud-conversation-presence`, a connection's viewing of a subscribed Cloud conversation, and the `cloud-conversation-presence` event (the owner's `conversation-presence` set of a subscribed conversation) for a connection that echoes the capability in `set-client-info` (see "cloud-conversation-presence"). `local-attachments-v1` advertises `attachment` message parts on the local conversation owner and the `conversation-attachment-upload` and `conversation-attachment-read` commands on trusted local connections. `cloud-attachments-v1` (advertised with `cloud-conversations-v1`) advertises `cloud-attachment-upload`, `cloud-attachment-read` and `cloud-attachment-link`: the same steps and results for a cloud conversation's attachments, through the daemon with the person's lease. `cloud-selfhost-v1` (advertised with `cloud-conversations-v1`) advertises `cloud-session-set` with `auth: "tailscale"` (a self-hosted chat server on the tailnet: no token, no Authorization header) and `cloud-selfhost-info` (see "cloud-session-set" and "cloud-selfhost-info"). `ws-attachments-v1` advertises the same two commands and `conversation-attachment-link` on an authenticated WebSocket connection (the clients of `ws-conversations-v1`; never a relayed remote device), and the listener's `GET /attachments/<token>` download links with byte ranges (transports.md). `link-preview-v1` advertises `link_preview` message parts on the local conversation owner (see `conversation-attachment-upload`). `conversation-person-credentials-v1` advertises that `conversation-agent-token` and `conversation-bind` also take a person other than the server's own user (a `user_` id that is not `user_local`; never a `remote_` device): the bound Unix connection then acts as that person (sends, thread replies, reactions, edits, typing) and is a human participant (it may answer questions, its messages reset the agent turn budget and wake a Chief the way an imported message of that person does), but never the owner: it cannot mint credentials, import history or use any command reserved to `user_local`. That person's typing ends when their last bound connection ends or their credential is replaced. `participant-avatars-v1` advertises `participant.avatar.set` and `participant.avatar.get` (one picture per participant, a person or a Chief, in one avatar store; resource-api-v2.md "Participant avatars") and the `participant-avatar-changed` event on `subscribe` for a connection that echoes the capability in `set-client-info`. `chief-profile-adopt-v1` advertises `chief.profile.adopt` (the owner makes an existing agent participant a Chief record under its own id; resource-api-v2.md "Chief registry"). `ws-conversations-v1` advertises the local conversation owner on an authenticated WebSocket connection (the static credential or an approved pairing) as `user_local`, the same as on a Unix connection: `conversation-list`, `conversation-create`, `conversation-snapshot`, `conversation-history`, `conversation-thread`, `conversation-link-resolve` (with `conversation-tree-v1`), `conversation-search`, `conversation-op`, `conversation-typing`, the `conversation.*` operations, and the `conversation-changed`, `conversation-typing` and (with `conversation-draft-events-v1`) `conversation-draft` events on `subscribe`; `conversation-bind`, `conversation-agent-token` and `conversation-import` stay on Unix connections, and the attachment commands come to WebSocket connections only with `ws-attachments-v1` (cmux#13742). `local-conversations-v1` advertises the local conversation owner on trusted local connections: `conversation-list`, `conversation-create`, `conversation-snapshot`, `conversation-history`, `conversation-op`, `conversation-typing`, `conversation-bind`, `conversation-agent-token`, `conversation-import`, and the `conversation-changed` and `conversation-typing` events. `notification-source-v1` advertises `source` on `notify`, the `notification` event, the tab `notification` marker, and `list-notifications` rows (`extra.source` in resource notification snapshots), and daemon-side desktop notifications from terminal output (OSC 9, OSC 777 `notify`, kitty OSC 99) with source `terminal`. `terminal-shell-args-v1` advertises `shell_args` on `new-tab`, `split`, `new-pane`, `new-pane-right`, and `create-terminal`: the terminal runs its `SHELL` from `env` (else the daemon's default shell) with those arguments, so a frontend can apply Ghostty's argv-based shell integration (bash `--posix` with `ENV`, nushell `--execute`). `terminal-frontend-shell-integration-v1` lets a frontend that resolves Ghostty's shell integration itself (from the user's `shell-integration` and `shell-integration-features`, into the terminal's `env` and `shell_args`) echo it in `set-client-info`; the terminals that connection creates with a `SHELL` in `env` then run that shell exactly as given (stored as `argv`), with no host-added integration, on `new-tab`, `split`, `new-pane`, `new-pane-right`, `new-row`, `create-terminal`, and a terminal `respawn`; without a `SHELL` the host integrates as before. `new-workspace` and the reopen-saved-group commands take no `env` and keep the host integration; `new-screen` follows it with `screen-terminal-env-v1`. `screen-terminal-env-v1` advertises `env`, `terminal_id`, and `shell_args` on `new-screen` (the first terminal takes them as on `new-pane`, including `terminal-frontend-shell-integration-v1`) and `terminal_id` in its result. `launch-snapshot-v1` advertises `launch_snapshot_path` in `identify` and the launch snapshot file described there. `close-reason-v1` advertises `reason` on `close-tabs` and, with `end_terminals`, on `close-workspace`: `session_end` closes without a closed-history record. `conversation-tab-transaction-v1` advertises `transaction` on `new-conversation-tab`: the created tab's `tab-added` delta and the result echo it. `conversation-tab-split-v1` advertises `split` on `new-conversation-tab`: the tab is created in a new pane split from `pane`, in one `pane-added` delta. `browser-host-provider-v1` advertises `browser-host-provider`: the verified local app gets the provider credentials of the daemon's own browser host. `frontend-browser-activate-v1` advertises `activate` on `new-frontend-browser-tab`. `history-search-v1` (advertised only when the daemon has a search index) advertises `history-search`. `frontend-browser-insert-after-v1` advertises `after` on `new-frontend-browser-tab`. `bookmarks-v1` advertises one bookmark tree per browser profile: `list-bookmarks`, `create-bookmark`, `update-bookmark`, `move-bookmark`, `delete-bookmark`, `import-bookmarks`, the `bookmarks-changed` event, and `deleted_bookmarks` in the `delete-browser-profile` result. `bookmark-icon-v1` advertises a bookmark folder's `icon`: set or cleared by `update-bookmark` and shown in `list-bookmarks` (see "Icon values" under `put-blob`). `session-icon-v1` advertises a session's (machine's) `icon` in the home session registry: set or cleared by `set-session-icon`, kept by `put-session`, and shown on each `list-personal` session record. `icon-assets-v1` advertises the asset blob store (`put-blob`, `get-blob`) and the asset icon values `image:sha256-<hex>` and `svg:sha256-<hex>` on the workspace, screen, room, browser profile and workspace status icon fields (see "Icon values" under `put-blob`). `ws-listen-v1` (advertised when the binary can open a page listener) advertises `ws-listen`: a running owner opens its loopback page listener and credential file on request. `cloud-conversations-v1` (advertised only when the daemon has a cloud transport) advertises the cloud conversations proxy on trusted local connections: the `cloud-session-*`, `cloud-inbox-*` and `cloud-conversation-*` commands and the `cloud-*` events (plans/cmux-next/home-cloud-proxy.md). `cloud-host-replica-v1` (advertised only when the daemon has a cloud transport) advertises `cloud-host-replica-set`, `cloud-host-replica-clear` and `cloud-host-replica-status`: the host's read replica publisher on the verified cmux app connection (see "cloud-host-replica-set, cloud-host-replica-clear, cloud-host-replica-status"). `cloud-lease-app-only-v1` (advertised with `cloud-conversations-v1`) advertises that only the verified cmux app connection may replace, clear or use a lease the app set and send `cloud-conversation-op` with `origin: "user"`; other connections get `cloud_conversation_rejected` with `reason` `forbidden`. `page-credential-v1` advertises `page-credential`: the verified cmux app gets a credential for its own page. `page-credential-scoped-v1` advertises the optional `page` field of `page-credential`: any trusted local connection gets a single-use credential bound to that page of the page-router table, which admits only a WebSocket handshake whose Origin names that page and never carries the Cloud lease. `ws-cloud-conversations-v1` (advertised with `cloud-conversations-v1`) advertises that a WebSocket connection that authenticated with a pairing-store credential (an approved pairing, or a `page-credential`; never the static or file token, which any same-user process can read) acts as the person with the lease the verified app set: `cloud-session-status` (with `participant`), `cloud-inbox-list`, `cloud-conversation-snapshot`, `cloud-conversation-history`, `cloud-conversation-thread`, `cloud-conversation-op` (also with `origin: "user"`), the `cloud-*-subscribe` and `cloud-*-unsubscribe` commands, and the `cloud-*` events on `subscribe`; it never sets or clears a lease, and without the app's lease it is signed out (`cloud_signed_out`), never using a lease another connection set (cmux#13742). `origin-claim-v1` advertises `client-hello` step 1, the optional `origin` claim on `cmux.protocol/2` requests, and `origin.confirmation.issue` (see "client-hello" and `resource-api-v2.md`, "Request origin"). `terminal-clipboard-read-v1` advertises the OSC 52 clipboard-read broker: `terminal-clipboard-subscribe`, `terminal-clipboard-reply`, and the targeted `terminal-clipboard-read` and `terminal-clipboard-read-cancelled` control events (see "Terminal clipboard reads"). `agent-session-attach-v1` (advertised when the daemon resolved an acpmux socket path) advertises the `agent-session-*` commands and events on trusted local connections (see "Agent session attach"). `agent-session-observe-v1` is advertised alongside it for the read-only `agent-session-observe` endpoint. `agent-session-children-v1` is advertised alongside it for `agent-session-children` (see "agent-session-children"). `agent-session-presence-v1` is advertised alongside it for `agent-session-typing`, `agent-session-view` and the `agent-session-presence` event (see "agent-session-typing, agent-session-view"). `agent-session-start-v1` (advertised with `agent-session-attach-v1`) advertises `agent-session-start` (see "agent-session-start"). `agent-session-start-keyed-reason-v1` (advertised with `agent-session-start-v1`) advertises `require_person_key` and `person_instance` on `agent-session-start` and its typed `agent_session.needs_keyed_start` refusal. `agent-update-v1` (advertised with `agent-session-attach-v1`) advertises `agent-update-plan` and `agent-update-apply` on trusted local connections (see "Agent CLI updates"). `agent-update-owner-v1` adds a canonical `expected_machine_id` condition and an opted-in success owner echo to both update verbs. `agent-transfer-v1` (advertised with `agent-session-attach-v1` once the daemon knows its host) advertises the `agent-transfer-*` commands on trusted local connections (see "Agent chat transfer"). `access-request-v1` (advertised on a cmux Cloud host) advertises the `access-request*` commands on trusted local connections (see "Access requests"). `feed-local-owner-v1` advertises the daemon's local feed owner (plans/cmux-next/feed.md section 9.1): every notification is also a local feed item committed in the same transaction, `select-tab`, `select-workspace`, `select-screen`, `focus-pane` and `focus-direction` no longer clear unread (a client acknowledges with `ack-tab-notifications`, which also reads the tab's local items and reports `refused` items), the `feed-local-list`, `feed-local-read`, `feed-local-handoff-begin`, `feed-local-handoff-abort` and `feed-local-handoff-done` commands, and the error codes `feed.moving`, `owner.unreachable` (both retryable), `feed.invalid_state`, `not_found` and `forbidden` (a handoff step from a connection that is not the verified cmux app). `chief-profile-ws-v1` advertises that the person's page (page `home-channels` admitted with a page-bound credential, or an authenticated WebSocket with the daemon's own credential and no page Origin) may call `chief.profile.*`: list, read, and change display_name, role and the avatar; create, delete, instructions, personality and the grant fields need the person's gesture (resource-api-v2.md "Chief registry"). `chief-events-v1` advertises the `chief-changed` event on `subscribe` (a Chief's id and `created`, `updated` or `deleted`, after every committed `chief.profile.*` write) for the person's own connection (`user_local`, the Channels page included) that echoes the capability in `set-client-info`.
 
 Errors:
 
@@ -1409,6 +1435,8 @@ CLI mapping: verb `apply-layout`; flags `[--workspace <id>] [--name <name>] [--c
 | since | protocol 5 |
 | `paste` field | protocol 7 additive extension |
 | `terminal_id` field | `terminal-input-while-creating-v1` additive extension |
+| `expect_foreground` field | `send-expect-foreground-v1` additive extension |
+| `expect_agent`, `submit` fields | `send-expect-agent-v1` additive extension |
 
 Writes input to a PTY surface. `text`, when present, is UTF-8 encoded and written as bytes. `bytes`, when present, is standard base64 decoded and written as raw bytes. If both are present, v5 writes `text` first and `bytes` second. If neither is present, v5 returns success and writes nothing.
 
@@ -1423,6 +1451,27 @@ Params:
 | `text` | `string` | default null | Written before `bytes` when both are present |
 | `bytes` | `Base64` | default null | Decoded with standard base64 |
 | `paste` | `boolean` | default false | Protocol 7; conditionally wraps the combined non-empty payload when DEC mode 2004 is enabled |
+| `expect_foreground` | `string` | default null | `send-expect-foreground-v1`; needs `surface`; write only while the foreground executable is this one |
+| `expect_agent` | `{session: string}` | default null | `send-expect-agent-v1`; needs `surface`; write only while the terminal's agent is `idle` in `session` |
+| `submit` | `boolean` | default false | `send-expect-agent-v1`; needs `surface`; Return after the payload, in the same request |
+
+With `send-expect-foreground-v1`, `expect_foreground` names the executable the caller saw in the
+foreground (`process-info`'s `foreground_executable`, compared byte for byte). Right before the write the
+server reads the surface's foreground process-group leader again; when it is a different executable, or
+cannot be read, the request fails with `foreground changed: ...` and writes nothing. A reply typed to an
+agent therefore never runs as a shell command after that agent exited. It needs `surface`: with
+`terminal_id` the request fails with `bad request`. A server without the capability ignores the field.
+The check is best effort: the program can still exit between the read and the write, a window of
+microseconds instead of a client round trip.
+
+With `send-expect-agent-v1`, `expect_agent` makes the write wait for nobody: right before it, the
+server reads the agent record of the surface's own terminal, and unless its state is `idle` and its
+`agent_session_id` equals `expect_agent.session` (required; a surface with no terminal id fails
+too), the request fails with `agent not waiting: ...` and writes nothing. `submit:true` writes Return
+(`\r`) after the payload in the same request, so no input can land between the text and its submit;
+a Return that fails after the text was written says `submit failed after the text was written`. The phone's Feed reply uses
+both, with `expect_foreground` and `paste:true`, so a reply typed where the screen is not in view
+never answers an approval or question, a running turn or a new agent session.
 
 With `terminal-input-while-creating-v1`, `terminal_id` addresses the terminal by its host id. A
 `split`, `new-pane`, `new-pane-right` or `new-tab` that names a caller-minted `terminal_id` makes that id
@@ -1808,6 +1857,24 @@ anything is created. The results carry the new pane's `pane_id` and its tab's
 (R81) like `new-tab`, started at that size. Uniqueness is global; a per-client
 namespace for the ids is a later step.
 
+#### Client-minted split ids
+
+With `split-client-split-id-v1`, `split` accepts `split_id` (`split_` and 32
+lowercase hex digits): the public id of the split it makes. A split node of a
+layout carries its split's public id as `split_id`, beside the numeric `split`,
+so a frontend that shows the split before the reply keys it by the id the
+daemon will use, and the daemon's layout names the split the frontend already
+shows (plans/cmux-next/perf-speed-of-light.md, I3). `layout-changed` and
+`screen-changed` name every split of their screen; `list-workspaces` and
+`layout` carry `split_id` for every split the daemon has named, which is each
+split a `split` made and each split of a screen it has sent. The id is fixed when the
+creation is prepared; without `split_id` the daemon picks one then. An id that
+names an existing or deleted resource is refused with `split_id_exists: <id>`,
+and a malformed id with `bad request: ...`, before anything is created. Public
+split ids are stable across daemon restarts (the stored layout keeps them);
+numeric `split` ids are not. The `split` of `new-conversation-tab`
+(`conversation-tab-split-v1`) takes `split_id` the same way.
+
 ### new-browser-tab
 
 | Field | Value |
@@ -1865,7 +1932,7 @@ Example:
 | --- | --- |
 | name | `new-conversation-tab` |
 | status | implemented |
-| since | protocol 12 additive extension; capability `conversation-tabs-v1` (`agent_session`: `agent-session-tabs-v1`; `page`: `page-tabs-v1`; `route`: `page-tab-route-v1`) |
+| since | protocol 12 additive extension; capability `conversation-tabs-v1` (`agent_session`: `agent-session-tabs-v1`; `page`: `page-tabs-v1`; `route`: `page-tab-route-v1`; `split`: `conversation-tab-split-v1`) |
 
 Creates a tab that shows one source, in `pane`, in `workspace` (its active
 pane, or a first pane when the workspace is empty, as the home workspace is),
@@ -1878,7 +1945,7 @@ home whose own acpmux runs it on the app's machine (a Chief subagent; the app
 attaches the tab to that home's acpmux), or `registry:` and this store's
 `identify.session_id` (the session daemon's own machine runs it; the chat
 starts with `agent-session-start`; see below for `session`), `session` the acpmux session id or absent for a new chat,
-`harness` the agent kind, optional; `host_name` the host machine's display
+`harness` the agent kind (1 to 64 letters, digits or `_`, `.`, `-`, such as `claude`), optional; `host_name` the host machine's display
 name, 1 to 255 bytes without control characters, optional), or, with
 `page-tabs-v1`, one of the app's own pages (`page`: its id, 1 to 64
 lowercase letters, digits or `-`, `_`, `.`; for example `app-store` or
@@ -1901,8 +1968,17 @@ creates nothing (send a new key for a new tab). With
 printable ASCII characters, as on `close-tabs`) is echoed on the raw
 `tab-added` delta of the created tab and in the result, so a client
 replaces its provisional tab on whichever arrives first; a keyed replay
-echoes it in the result and emits nothing. The key
-names the source and the target (`pane` or `workspace`); the same key with
+echoes it in the result and emits nothing. With
+`conversation-tab-split-v1`, an optional `split` (`{direction, pane_id, split_id}`,
+only with `pane`) creates the tab in a new pane on the `direction` side of
+`pane` (`right`, `down`, `left` or `up`) instead of in `pane`: one
+`pane.split` commit, so a client sees one `pane-added` delta whose pane holds
+the tab (and carries `transaction`), then the `layout-changed` that places it;
+`pane` never lists the tab and no `tab-added` is sent. The optional
+`pane_id` is the caller-minted public id of the new pane, as on `split`
+(`split-client-keys-v1`), and is refused when it exists or ever existed. A
+refused `split` (an agent chat dock holds one pane) creates no tab. The key
+names the source and the target (`pane` or `workspace`, and `split`); the same key with
 another one fails with `idempotency.conflict`. Concurrent requests with one
 key create one tab. The CLI has no verb for it.
 
@@ -1921,9 +1997,11 @@ in-memory session keeps them in memory only). The file counts only as a
 regular file owned by the daemon's user, opened without following a
 symlink, and a record dated more than a minute ahead is ignored. A chat this
 daemon begins (or commits) moving away again with `agent-transfer-begin` is
-forgotten, so it never opens here again unless it lands here again. Any
-other session, another store's `registry:` host, and every bind stay
-refused.
+forgotten, so it never opens here again unless it lands here again. The
+other exception is a chat an attached tab's session started here, as
+`agent-session-children` listed or followed it (the 1024 most recent, in
+memory only; see "agent-session-children"). Any other session, another
+store's `registry:` host, and every bind stay refused.
 
 Closing the tab deletes its frontend and source records in the close's
 commit (closing any frontend browser tab deletes its frontend record and
@@ -1942,7 +2020,7 @@ absent) for an agent session source, and `{page}` for a page source. A connectio
 browser command and browser operation refuses the tab.
 
 Params: `conversation` and `owner`, `agent_session`, or `page` (one source required);
-`pane` or `workspace`, `origin`, `mutation_id`, `cols`, `rows`, `transaction` (optional).
+`pane` or `workspace`, `split` (with `pane`), `origin`, `mutation_id`, `cols`, `rows`, `transaction` (optional).
 
 Result: `object{surface, tab_resource_id, content_resource_id, conversation, replayed, transaction?}`
 
@@ -1967,8 +2045,18 @@ change. A bind that applies commits a resource revision: `session.events`
 upserts the tab with the new `extra.conversation`, and raw clients get
 `tab-changed`.
 
+An optional `harness` (as on `new-conversation-tab`) is the agent the session
+runs, as its machine's acpmux reports it (`harness` of the session's summary
+in the `session/new` or `_acpmux/attach` reply, a profile such as
+`providers/deepseek` by its last part, else `family`); it is written in the same
+commit as the session, so a tab's brand mark follows the chat it shows. A
+bind that names the tab's own session with another `harness` changes the
+harness alone and commits (whatever `expected_session` says); with the same
+harness, or without one, it is the replay above. A bind without `harness`
+keeps the recorded harness. A daemon from before this field ignores it.
+
 Params: `surface`, `session` (1 to 128 letters, digits or `_ . : -`),
-`expected_session` (required; a session id or null).
+`expected_session` (required; a session id or null), `harness` (optional).
 
 Result: `object{surface, conversation, replayed}`
 
@@ -2096,7 +2184,11 @@ the automatic respawn's worker: the same terminal id gets a new shell and a
 new incarnation in every tab that shows it, below the previous screen and one
 dim marker line; the tab id, placement, name, pin and group stay. An explicit
 restart has no backoff and resets the respawn supervisor's attempt count for
-the terminal.
+the terminal. A tab kept by `keep_layout` (`tab-restart-kept-layout-v1`)
+starts in its kept directory (else the terminal's launch directory, else
+home) and stops being kept once the new shell is in the tab (`relaunch`
+null; an exit closes it as for any terminal tab); a launch that fails first
+leaves it kept.
 The reply comes when the worker started; the tree shows the tab adopting,
 then running, or dead again when the launch failed. Errors (`error_code`):
 `tab-not-dead` (the terminal runs, launches or already restarts),
@@ -2113,6 +2205,38 @@ Result:
 
 ```text
 object{surface:Id, terminal:string, previous_incarnation:string, state:"respawning"}
+```
+
+### park-tabs
+
+| Field | Value |
+| --- | --- |
+| name | `park-tabs` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `tab-park-v1` (Unix owners) |
+
+Ends the shells of terminal tabs but keeps the tabs, as `shutdown-daemon`
+`keep_layout` keeps them: every tab is recorded as kept before any shell is
+asked to exit, and each tab then shows dead with
+`relaunch: {cwd, on_show: true}` once its host exited. A frontend starts a
+parked tab again with `restart-tab` (`tab-restart-kept-layout-v1`) when its
+workspace is first shown. Tabs that are not terminals, or whose terminal
+does not run, launch or adopt, are left as they are. Parking a terminal keeps
+every tab that shows it, also one the request did not name. A terminal whose
+shell could not be asked to exit keeps running and loses its kept record.
+`parked` lists the named tabs whose terminal was chosen to park, before any
+shell is asked to exit; it can name a tab whose terminal then kept running.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `surfaces` (alias `tabs`) | `array<TabRef>` | required | Terminal tabs: numeric ids or public `tab_...` ids |
+
+Result:
+
+```text
+object{parked:[Id]}
 ```
 
 ### set-frontend-browser-history
@@ -2569,6 +2693,7 @@ Params:
 | `width` | `float32` | default `0.6666667` | From 0.1 through 1.0 |
 | `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
 | `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
+| `side` | `string` | default `"right"` | With `column-left-v1`: `"left"` opens the column immediately left of `pane`'s column (New Column Left), `"right"` after it; `"left"` takes a PTY column only |
 | `shell_args` | `string[]` | default null | With `terminal-shell-args-v1`: arguments for the terminal's shell, its `SHELL` in `env` or else the daemon's default shell; none or empty keeps the bare shell |
 | `pane_id` | `string` | default null | With `split-client-keys-v1`: caller-minted id of the new pane, `pane_` and 32 lowercase hex digits; see "Client-minted pane ids" |
 | `tab_id` | `string` | default null | With `split-client-keys-v1`: caller-minted id of the new pane's tab, `tab_` and 32 lowercase hex digits; terminal panes only |
@@ -2588,6 +2713,7 @@ Errors:
 | `pane <id> has no workspace` | Target pane is not in a screen |
 | `viewport pane width must be between 0.1 and 1.0` | `width` is outside the supported range |
 | `pane creation failed` | PTY creation or child spawn fails; raw runtime details are logged internally only |
+| `bad request: side ...` | `side` is not `"left"` or `"right"`, or `"left"` with `kind:"browser"`; nothing is created |
 | `bad request: <cmd> kind ...` | Unknown `kind`, `kind:"browser"` without `url`, `url` without `kind:"browser"`, or `cwd`, `env`, `keep`, `terminal_id` or `shell_args` with `kind:"browser"`; nothing is created |
 | `bad request: ...` | Missing fields or wrong JSON type |
 
@@ -2728,11 +2854,13 @@ Params:
 | `terminal_id` | string | default null | Caller-chosen terminal host id, as on `new-pane-right` |
 | `shell_args` | array<string> | default null | Arguments for the terminal's shell, as on `new-pane-right` |
 | `transaction` | string | default null | 1-128 printable ASCII characters; echoed in the result and in the commit's `screen-changed` delta |
+| `pane_id` | string | default null | `row-client-keys-v1`: caller-minted public id of the new pane (`pane_` and 32 hex digits), as on `split`; refused when it exists |
+| `tab_id` | string | default null | `row-client-keys-v1`: caller-minted public id of the new pane's tab (`tab_` and 32 hex digits) |
 
 Result:
 
 ```text
-object{surface:Id,pane:Id,terminal_id?:string|null,terminal_incarnation?:string|null,transaction?:string}
+object{surface:Id,pane:Id,pane_id?:string,tab_id?:string,terminal_id?:string|null,terminal_incarnation?:string|null,transaction?:string}
 ```
 
 Errors:
@@ -2796,6 +2924,50 @@ Example:
 ```json
 {"id":16,"cmd":"set-row-heights","column":14,"heights":[{"row":40,"height":600},{"row":41,"height":400}],"fit":true}
 {"id":16,"ok":true,"data":{"screen":3,"column":14,"changed":true}}
+```
+
+### move-column
+
+| Field | Value |
+| --- | --- |
+| name | `move-column` |
+| status | implemented |
+| since | protocol 12 additive capability `column-move-v1` |
+
+Moves the whole viewport column holding `pane` one place left or right: it trades places with its neighbor, keeping every pane, split, row, tab and width inside both columns. Focus does not change. A docked column never moves, and a column next to a docked column cannot move across it. A screen stored as one split tree is one implicit column and has no neighbor. A refused request changes nothing. A move is a structural layout change: it advances the screen's layout revision, records one `undo-layout` entry, persists, and emits `screen-changed` and then `layout-changed`.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `pane` | `Id` | required | Any pane of the column that moves |
+| `direction` | string | required | `left` or `right` |
+
+Result:
+
+```text
+object{screen:Id,column:Id,index:uint64,changed:true}
+```
+
+`column` is the moved column's id and `index` its place in `Screen.columns` after the move.
+
+Errors:
+
+| Error | `error_code` | Condition |
+| --- | --- | --- |
+| `unknown pane <id>` | `column-move-missing` | No screen has this pane |
+| `no scrolling column on that side` | `column-move-edge` | The column is first or last, its neighbor on that side is docked, or the screen has no viewport columns |
+| `a docked column does not move` | `column-move-docked` | The column holding `pane` is docked |
+| `direction must be left or right, not "<value>"` | `invalid-argument` | Any other direction |
+| `bad request: ...` | none | Missing fields or wrong JSON type |
+
+CLI mapping: none yet.
+
+Example:
+
+```json
+{"id":17,"cmd":"move-column","pane":15,"direction":"right"}
+{"id":17,"ok":true,"data":{"screen":3,"column":14,"index":2,"changed":true}}
 ```
 
 ### undo-layout
@@ -2884,6 +3056,7 @@ Params:
 | `shell_args` | `string[]` | default null | With `terminal-shell-args-v1`: arguments for the terminal's shell, its `SHELL` in `env` or else the daemon's default shell; none or empty keeps the bare shell |
 | `pane_id` | `string` | default null | With `split-client-keys-v1`: caller-minted id of the new pane, `pane_` and 32 lowercase hex digits; see "Client-minted pane ids" |
 | `tab_id` | `string` | default null | With `split-client-keys-v1`: caller-minted id of the new pane's tab, `tab_` and 32 lowercase hex digits; terminal panes only |
+| `split_id` | `string` | default null | With `split-client-split-id-v1`: caller-minted id of the new split, `split_` and 32 lowercase hex digits; see "Client-minted split ids" |
 | `kind` | `string` | default `"pty"` | With `pane-browser-kind-v1`: `"pty"` or `"browser"` |
 | `url` | `string` | default null | With `pane-browser-kind-v1`: required and non-empty with `kind:"browser"`, refused otherwise |
 
@@ -2901,6 +3074,7 @@ Errors:
 | `pane <id> not found` | Target pane is not in any screen split tree |
 | spawn or PTY error string | PTY creation or child spawn fails |
 | `bad request: <cmd> kind ...` | Unknown `kind`, `kind:"browser"` without `url`, `url` without `kind:"browser"`, or `cwd`, `env`, `keep`, `terminal_id` or `shell_args` with `kind:"browser"`; nothing is created |
+| `split_id_exists: <id>` | `split_id` names an existing or deleted resource; nothing is created |
 | `bad request: ...` | Missing fields or wrong JSON type |
 
 CLI mapping:
@@ -3134,6 +3308,47 @@ Errors: `unknown surface <id>`, `browser surface does not support PTY/VT socket 
 
 CLI mapping: verb `process-info`; flags `--surface <id>`; plain stdout prints `pid=<v> command=<v> cwd=<v> foreground_cwd=<v>`; JSON stdout prints the exact result object.
 
+### terminal-ports
+
+| Field | Value |
+| --- | --- |
+| name | `terminal-ports` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `terminal-ports-v1` |
+
+Returns the dev-server ports a terminal shows that accept a connect on this
+machine's loopback, read when the request arrives (no poller, no cache). The
+daemon never scans processes (plans/cmux-next/pty-holder.md section 4): it
+reads the PTY it holds (the active screen with its scrollback, the last
+1 MiB) for addresses on `localhost`, `127.x.y.z`, `0.0.0.0`, `[::1]`, `[::]`
+or `*` with a port, newest mention first, at most 32 ports, and connects to
+127.0.0.1, then ::1, for at most 150 ms each. Text a server prints in a tmux
+pane reaches the terminal too, because tmux draws its panes into the client's
+PTY. A program that prints nothing is not found. Clients use it to offer
+"open in browser" (plans/cmux-next/workspace-proxy-DESIGN.md section 6); the
+page then reaches the port through `loopback-forward-v1`.
+
+Params: `object{surface:Id}`.
+
+Result:
+
+```text
+object{
+  surface:Id,
+  listeners:array<object{port:uint16,host:string,url:string,bound:string}>,
+  closed:array<uint16>
+}
+```
+
+Example:
+
+```json
+{"id":9,"cmd":"terminal-ports","surface":3}
+{"id":9,"ok":true,"data":{"surface":3,"listeners":[{"port":5173,"host":"localhost","url":"http://localhost:5173/","bound":"127.0.0.1"}],"closed":[3000]}}
+```
+
+Errors: `unknown surface <id>`, `browser surface does not support PTY/VT socket commands`, `bad request: ...`.
+
 ### terminal-resources
 
 Requires the `terminal-resources-v1` capability. Clients must not send this command to a server that omits the capability.
@@ -3337,12 +3552,17 @@ Params:
 Result:
 
 ```text
-object{closed:array<Id>,terminals:array<object{terminal_id:string,terminal_incarnation:string|null}>,resource_revision:uint64,replayed:bool,transaction?:string}
+object{closed:array<Id>,terminals:array<object{terminal_id:string,terminal_incarnation:string|null}>,closed_ids?:array<string>,resource_revision:uint64,replayed:bool,transaction?:string}
 ```
 
 `closed` lists the removed placements in request order. `terminals` lists the
-terminals the commit ended. A retry with the same `origin` and `mutation_id`
-returns the original result with `replayed: true` and changes nothing.
+terminals the commit ended. `closed_ids` lists the `closed.list` groups the
+commit stored, oldest first (a workspace the close emptied joins its group;
+empty with `reason: "session_end"`): `closed.reopen` of each restores exactly
+what this close closed, so an Undo never reopens another close of the same
+name. It is absent only on a replay of a close committed before the field
+existed. A retry with the same `origin` and `mutation_id` returns the original
+result with `replayed: true` and changes nothing.
 
 Errors:
 
@@ -3844,13 +4064,21 @@ Params:
 | `end_terminals` | `bool` | default `false` | With `batch-close-v1`: also end, in the same commit, every terminal whose views all close and that is not kept |
 | `reason` | `CloseReason` (string enum) | optional | With `end_terminals`: `session_end` only (`close-reason-v1`), not recorded in the closed history (the app closing a workspace whose first tab did not start); without `end_terminals` it is a `bad request` |
 | `if_empty` | `bool` | default `false` | With `close-workspace-if-empty-v1`: close only when the workspace has no tab when the close commits; otherwise fail with `workspace_not_empty` and change nothing |
+| `report_closed_ids` | `bool` | default `false` | With `end_terminals`: the result names `closed_ids`. Opt-in, so older decoders (which refuse an unknown result field) keep the result shape; a daemon that predates it ignores it |
 | mutation fields | see common envelope | optional | Exactly-once retry and CAS |
 
 Result:
 
 ```text
-object{workspace:Id,key:string,index:usize,workspace_revision:uint64,changed:bool,replayed:bool,registry_id:string,generation:string}
+object{workspace:Id,key:string,index:usize,workspace_revision:uint64,changed:bool,replayed:bool,registry_id:string,generation:string,closed_ids?:array<string>}
 ```
+
+With `end_terminals` and `report_closed_ids: true`, `closed_ids` lists the
+`closed.list` groups the close stored, oldest first (empty for an ephemeral
+workspace or with `reason`), so `closed.reopen` of each restores exactly this
+workspace even when another closed workspace has the same name. A replay
+names the same ids. It is absent otherwise, and on a replay of a close
+committed before the groups were recorded.
 
 Errors:
 
@@ -4110,7 +4338,10 @@ Params:
 | `workspace` | `Id` | one of id/key | Must identify a live workspace |
 | `key` | `string` | one of id/key | Lowercase canonical workspace UUID |
 | `name` | `string` | required | Empty string is stored |
-| mutation fields | see common envelope | optional | Exactly-once retry and CAS |
+| `source` | `"user"` or `"auto"` | optional, default `user` | `workspace-name-source-v1`; `auto` never replaces a non-empty user name and cannot store an empty or whitespace name |
+| `expected_name_revision` | decimal `string` | optional; required with `source: "auto"` unless `release` | `workspace-name-source-v1`; the workspace's `name_revision` the caller read |
+| `release` | `boolean` | optional, default `false` | `workspace-name-source-v1`; with `source: "auto"`, hands the current name back to the automatic namer: `name` must equal it, the source becomes `auto` and `name_revision` advances |
+| mutation fields | see common envelope | optional | Exactly-once retry and CAS; `source: "auto"` also requires `expected_generation` |
 
 Result:
 
@@ -4126,6 +4357,12 @@ Errors:
 | `unknown workspace key <key>` | Workspace key does not exist |
 | `workspace id and key do not identify the same workspace` | Supplied selectors identify different workspaces |
 | `workspace revision conflict: ...` | Compare-and-swap guard is stale |
+| `the resource revision changed` | `expected_name_revision` is not the workspace's current `name_revision` |
+| `an explicit user name cannot be replaced by an automatic title` | `source: "auto"` over a non-empty user name |
+| `automatic names cannot clear a title` | `source: "auto"` with an empty or whitespace name |
+| `automatic names require a generation and name revision` | `source: "auto"` without `expected_generation` or `expected_name_revision` |
+| `release hands a name to source auto` | `release: true` without `source: "auto"` |
+| `a release keeps the current name` | `release: true` with a `name` other than the current one |
 | `cannot rename a provider-managed workspace directly; use the managed workspace lifecycle controls` | Provider ownership is enabled for this mux generation |
 | `bad request: ...` | Missing fields or wrong JSON type |
 
@@ -4252,6 +4489,27 @@ Example:
 | since | protocol 7 |
 
 Removes the requesting client's sizing lease for a surface without closing its attach stream. Frontends use this when a pane switches tabs or otherwise stops displaying the surface.
+
+Fixed-grid handhelds (`host-grid-view-v1`, advertised in `identify`): a
+phone or tablet connection (`device_kind` `iphone` or `ipad`) that does not
+list `host-grid-view-v1` in `set-client-info` `capabilities` never gets a PTY
+grid larger than the size it reported for a terminal while it is attached
+with that size and counts: the daemon caps the applied grid per dimension at
+it, under every policy. The published size state stays the engine's
+decision. A client lists the capability only once it shows a larger grid
+correctly (letterbox or pan).
+
+Size lease (`size-lease-v1`, advertised in `identify`): a client that lists
+`size-lease-v1` in `set-client-info` `capabilities` keeps each size it reports
+(`resize-surface`, a sized `attach-surface`) for 45 s after the last report.
+A `resize-surface` at the same size renews the lease and never resizes the
+terminal. When a lease ends unrenewed the daemon releases that size as this
+command would: the view stays attached and stops counting, so the grid
+follows the other views at once. When the client disconnected without
+releasing, the departed-view grid hold of that terminal ends at the lease's
+end instead (docs/shared-terminal-sizing.md, "Phone viewers"). A client that
+releases and then closes waits for this command's answer first; an end of
+file the daemon reads before it is a dropped view, which holds.
 
 Params:
 
@@ -4460,6 +4718,69 @@ Params: required `surface:Id`.
 
 Result: `object{state,self_participant:string|null}`.
 
+### get-host-size-policy
+
+| Field | Value |
+| --- | --- |
+| name | `get-host-size-policy` |
+| status | implemented |
+| since | protocol 12 with `host-size-policy-v1` |
+
+Returns the host sizing policy: how this host's terminals are sized when
+several devices show them (cmux-next-ios/PROTOCOL.md "Terminal sizing
+policy"). It applies to every terminal without a `set-size-policy` override
+or workspace default. With `surface`, also the size-state participant ids of
+that terminal that are this host's own views: a desktop device kind on a
+connection that did not send `set-client-info remote:true`.
+
+Params: optional `surface:Id`.
+
+Result: `object{policy:object{mode,order},mac_participants:[string]}`.
+`mode` is `smallest` (the default), `mac`, `latest` or `priority`; `order` is
+a list of device tokens, highest first: `mac` (this host's own views) or
+`device:<id>` (the views whose `device_id` is `<id>`).
+
+```json
+{"id":3,"cmd":"get-host-size-policy","surface":4}
+{"id":3,"ok":true,"data":{"policy":{"mode":"mac","order":[]},"mac_participants":["c2"]}}
+```
+
+### set-host-size-policy
+
+| Field | Value |
+| --- | --- |
+| name | `set-host-size-policy` |
+| status | implemented |
+| since | protocol 12 with `host-size-policy-v1` |
+
+Stores the host sizing policy in the host's settings file
+(`mobile.terminalSizing`, and `mobile.terminalSizingOrder` when `order` is
+given) and applies it to every live terminal that follows it. A hand edit of
+either key, or a settings write, applies the same way. Each terminal expands
+the policy into an engine policy whenever its participants change:
+`smallest` and `latest` as themselves, `mac` as `priority` over this host's
+own views, `priority` as `priority` over the views each token names, in
+order. Every participant of a terminal whose policy changed receives
+`size-state`.
+
+Params: required `policy:object{mode,order?}`. `order`: at most 32 tokens,
+each `mac` or `device:` followed by 1 to 128 of `[A-Za-z0-9_.:-]`; omitted
+keeps the stored order. A bad mode or token is refused with `bad request`.
+
+Only the verified cmux app (origin `user`) and a connection the daemon
+accepted from the `cmux-mobile-host` executable beside its own (a phone's
+lane) may write it; any other connection gets `forbidden`. "This host's own
+views" are desktop-kind views on the in-process frontend or on a local Unix
+connection with no link peer record, not accepted from that executable and
+not marked `remote` in `set-client-info`.
+
+Result: `object{policy:object{mode,order}}`.
+
+```json
+{"id":4,"cmd":"set-host-size-policy","policy":{"mode":"priority","order":["device:A1B2","mac"]}}
+{"id":4,"ok":true,"data":{"policy":{"mode":"priority","order":["device:A1B2","mac"]}}}
+```
+
 ### set-terminal-idle-policy
 
 | Field | Value |
@@ -4554,6 +4875,43 @@ kept terminal with no tab placement attaches this way and takes geometry
 like a placed one (`set-client-sizing`, `resize-attached-view`,
 `release-attached-view-size`): its attached views are not treated as views of
 a closed tab.
+
+### terminal-resume-command
+
+| Field | Value |
+| --- | --- |
+| name | `terminal-resume-command` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `resume-command` |
+
+Reads, sets, or clears the resume command of one hosted terminal: a line a
+person chose for that terminal. When the owner respawns the terminal (after an
+owner restart, an update, or a reboot) it types the resume command on the new
+prompt without a newline, so it never runs on its own; it takes the place of
+the agent resume or command line the owner would otherwise offer. The command
+is stored durably with the terminal and survives owner restarts; the row of a
+closed terminal is removed.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `surface` | `Id` or null | exactly one of `surface`/`terminal_id` | A PTY surface backed by a hosted terminal |
+| `terminal_id` | string or null | exactly one of `surface`/`terminal_id` | Host id (32 lowercase hex) or public `term_` id |
+| `command` | string or null | absent reads | A string sets (trimmed; one line of 1-4096 bytes without control characters); null clears |
+
+Errors: `terminal_not_found` for an unknown or closed terminal,
+`terminal_not_hosted` for a surface without a terminal host, and `bad request`
+when both or neither target is given or the command is empty, too long, or
+holds a control character.
+
+Result:
+
+```text
+object{terminal_id:string, command:string|null}
+```
+
+`command` is the stored resume command after the request, null when none is set.
 
 ### focus-pane
 
@@ -6281,7 +6639,9 @@ the participant's last pin. `position` is at most 2^53-2. Clients that merge
 local and Cloud pins send the pin time in milliseconds as `position`, so one
 list orders both owners' pins by when they were pinned. Unpinning drops the
 position; marking read does not move the read cursor (a client sends
-`read_cursor.set` too). Trusted local connections only.
+`read_cursor.set` too). Trusted local connections only; cmux-mobile-host's
+`chief` channel relays `inbox.pin` and `inbox.mark_unread` (never `inbox.mute`)
+for the owner's paired iPhone, for a conversation in that channel's scope only.
 
 Params: `conversation`, `op` (both required).
 
@@ -6296,8 +6656,11 @@ marked_unread:bool}` (the new state).
 | status | implemented |
 | since | protocol 12 additive extension; capability `conversation-inbox-state-v1` (with `cloud-conversations-v1`) |
 
-The Cloud form of `conversation-inbox-op`: forwards `inbox.pin` or
-`inbox.mark_unread` (the same `op` shapes) for one conversation to the
+The Cloud form of `conversation-inbox-op`: forwards `inbox.pin`,
+`inbox.mark_unread` (the same `op` shapes) or `inbox.mute`
+(`{kind:"inbox.mute", muted:bool, until?:uint64}`, `until` in Unix ms; the
+owner refuses an `until` in the past; approvals still notify a muted
+conversation) for one conversation to the
 person's UserDO inbox with the client's `idempotency_key` (`POST /v1/ops`) and
 answers from a worker thread with the `cloud-conversation-op` reply shape
 (`value` is the inbox entry). Other kinds are refused before anything is sent
@@ -6309,6 +6672,75 @@ change comes back as `cloud-inbox-changed`.
 Params: `conversation`, `idempotency_key`, `op` (all required).
 
 Result: `object{value, replayed, transaction, stream, sequence}`.
+
+### home-inbox
+
+| Field | Value |
+| --- | --- |
+| name | `home-inbox` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `home-inbox-v1` |
+
+The Home list as the caller sees it, over the local conversations and the
+person's Cloud inbox (through this daemon's Cloud lease, as `cloud-inbox-list`): the owner
+derives each row once, so every view (the Messages view, the Channels page,
+the CLI) shows the same list. A read model: it adds facts to the
+`conversation-list` summaries and changes nothing. Trusted local connections
+only, never a relayed remote device; the caller is the connection's principal.
+The one relay is cmux-mobile-host's `chief` channel for the Mac owner's paired
+iPhone: it forwards only `owners: ["local"]` and drops every row outside that
+channel's scope (conversations between the owner and agents;
+`cmux-next-ios/rust/crates/cmux-mobile-host/src/chief_policy.rs`).
+
+Rules. `kind`: a conversation with one other participant is `chief` (that
+participant is an agent of class `mux` or one the Chief registry knows) or `direct`, except a titled later
+conversation with the same one participant as an older one (by `created_at`,
+then id), which is a `channel`; any other conversation is `channel` when it has
+a title, else `group`. `name`: a `chief` row's Chief's current registry name
+(`chief.profile`), else the title, else the other participants' display names
+(a Chief with none is "Chief") joined by ", ". `unread`: `last_seq` minus the caller's read cursor, 0 when the
+caller wrote the last message. `activity_at`: the last message's `created_at`
+(a deleted message too), else `updated_at`. `preview`: the last message's text
+parts joined by a space (else its attachment names joined by ", "), at most 200
+characters, absent for a deleted message. `chief_state` (a `chief` row only):
+`working` while the Chief types (its posted message ends its typing), while one
+of its runs (`conversation-runs-v1`) runs (status `running`, started in the last
+day, written in the last 30 minutes), or when its last message's `work` part is
+`running`; `waiting` when that part is `waiting`; else `idle`. A Chief's live
+reply text (`conversation-draft`) is not stored, so a view that shows it adds
+that state itself. `pinned`,
+`pin_position` and `marked_unread` are the caller's own list state
+(`conversation-inbox-state-v1`). Order: pinned rows by `pin_position` (none
+last), then by `activity_at` newest first; ties by id ascending.
+
+Cloud rows come from the person's Cloud inbox entries (the Cloud owner keeps
+their counts, preview and the person's pins and marks): a removed or archived
+entry is not a row; `dm` is `direct`, a `group` is a `channel` when it has a
+title; `name` is the title, else "Chief" for a `chief` entry, else the direct
+peer's id (the view names people from the conversation); `chief` is the peer of
+a `chief` entry; `muted` is the person's Cloud mute (until `muted_until`); a
+Cloud row has no `last_author` and no `chief_state`. One page of the Cloud
+inbox comes (its newest 200 entries); a malformed entry is skipped. Local and
+Cloud rows share one order (a time's fraction counts as three digits); the two
+owners number their pins separately, so pinned rows of both owners mix by
+number. A view keys rows by `(owner, id)`.
+
+Params: `owners?:[local|cloud]` (default both). In the app the local
+conversations' owner and the daemon that holds the person's Cloud lease can be
+two daemons: a view asks each for its own owner.
+
+Result: `object{me, rows:[HomeInboxRow], cloud}`. `me` is the caller's participant
+id (local). `cloud` is `included`; `signed_out` when this connection is not the
+person with the app's lease (only the verified app and the person's
+authenticated page get Cloud rows), or there is no lease or no Cloud here;
+`unavailable` when the Cloud did not answer; or `not_asked`. The local rows come
+in every case. `HomeInboxRow`: `{id, owner:local|cloud, kind:chief|direct|channel|group, name, unread,
+activity_at, preview?, last_author?, chief?, chief_state?:working|waiting|idle,
+pinned, pin_position?, marked_unread, muted}`. A view reads the conversation itself
+(participants, title) from `conversation-list` or `conversation-snapshot`, and
+asks again (coalesced) on `conversation-changed`, `conversation-inbox-changed`,
+`conversation-typing`, `conversation-run-changed` and `chief-changed`. A pinned
+row without a position sorts after the pinned rows that have one.
 
 ### conversation-search
 
@@ -6490,6 +6922,15 @@ connection whose principal is `user_local` may call it. The owner stores the
 token's SHA-256; a new token replaces the old one and ends the bindings made
 with it. With `conversation-person-credentials-v1`, `participant` may also be
 a person other than `user_local` (a `user_` id), never a `remote_` device.
+For a Chief record other than `agent_mux` (`chief.profile.create` or
+`chief.profile.adopt`), only its brain holds the credential when the daemon
+runs a Chief brain supervisor (the supervisor mints it in process; this
+command is refused), and on a daemon with no supervisor only the person's own
+terminal mints it: a page (WebSocket or the host's page relay), a paired or
+remote device and an agent are refused. `chief.profile.adopt` revokes every
+credential issued for the participant before the adopt, and `conversation-bind`
+checks the credential and binds under one lock, so a revoked credential never
+binds after it.
 
 Params: `participant` (required).
 
@@ -6530,9 +6971,9 @@ Result: `object{conversation:ConversationSummary, imported:array<uint64>, skippe
 | status | implemented |
 | since | protocol 12 additive extension; capability `chief-inspect-v1` |
 
-The Chief memory inspector's read-only API for the Chief's owner
-(plans/cmux-next/optchat-inspector.md). The daemon forwards one line,
-`{"tool":"inspect","method":"GET","path","query"}`, to the brain host's tools
+The Chief memory inspector's API for the Chief's owner
+(plans/cmux-next/optchat-inspector.md, plans/cmux-next/memory-inspector-native-DESIGN.md).
+The daemon forwards one line, `{"tool":"inspect","method","path","query"}`, to the brain host's tools
 socket named by `CMUX_TUI_CHIEF_TOOLS_SOCKET` (a Unix socket, not a symlink,
 owned by the daemon's user) and answers the brain's reply. Only the owner's
 trusted connection may call it: a registered Unix client with no link peer
@@ -6540,8 +6981,14 @@ record whose principal is `user_local`, which is a local client or the link's
 `owner_session` splice. A link-stamped or relayed (`Remote`), WebSocket,
 unregistered or agent-bound connection is refused with `origin.forbidden`
 before anything is forwarded, and the remote relay never admits it. `path` must
-be one of `/api/status`, `/api/turns`, `/api/turn`, `/api/node`, `/api/level`,
-`/api/date`, `/api/search`; a reply line above 5 MiB is refused, never cut.
+be a read path, forwarded with `GET` (`/api/status`, `/api/turns`, `/api/turn`,
+`/api/node`, `/api/level`, `/api/date`, `/api/search`, `/api/view`,
+`/api/memory/changes`), or one of the owner's memory change paths, forwarded
+with `POST` (`/api/memory/edit`, `/api/memory/delete`, `/api/memory/undo`; the
+brain refuses them to the Chief's own turn and subagent sessions). The reserved
+`query` key `chief` names a Chief other than the default (chief-brains-v1): the
+request goes to that Chief's brain socket and the key is not forwarded. A reply
+line above 5 MiB is refused, never cut.
 Every daemon advertises the capability (it speaks the command); without the
 environment variable the daemon answers the owner with
 `error_code:"chief.not_configured"` and forwards nothing. The daemon reads the variable once at startup and
@@ -6591,15 +7038,15 @@ poster?:DerivedImage, preview?:DerivedImage}`. An upload belongs to the
 connection that began it, ends with that connection, and expires after 15
 minutes. At most 32 uploads are open at once. A record no message references
 is removed after 24 hours, with its bytes when no other record names them.
-The store holds at most 10 GB (decimal) across every conversation, uploads in
-flight included: a `begin` that does not fit first removes the oldest records
-no message references, and is refused with `storage_full` when only bytes
-that messages reference are left.
+The store has an advisory 10 GB (decimal) budget across every conversation,
+including uploads in flight. A `begin` above that budget logs a warning and
+continues. Budget pressure never removes fresh unsent or referenced attachments;
+the normal 24-hour sweep still removes abandoned uploads. Filesystem failures,
+including a full disk, remain errors when creating, writing or syncing bytes.
 Refusals have `error_code` `attachment_rejected` and one of the reasons
 `validation_invalid`, `type_refused`, `too_large`, `poster_refused`,
 `preview_refused`, `unknown_upload`, `unknown_piece`, `bad_offset`,
-`chunk_too_large`, `incomplete`, `hash_mismatch`, `too_many_uploads` or
-`storage_full`;
+`chunk_too_large`, `incomplete`, `hash_mismatch` or `too_many_uploads`;
 `unknown_conversation` and `not_participant` are `conversation_rejected`.
 
 A `message.send` or `message.edit` with an `attachment` part commits only
@@ -6737,10 +7184,13 @@ increases by one for every step written and every summary change, so a step's
 `{event:"conversation-run-changed", conversation, run, steps}` on `subscribe`
 to the connections that echoed `conversation-runs-v1` in `set-client-info`.
 
-`conversation-runs` `{conversation, turns?:[key], before_started_at?, limit?}`
-answers `{runs:[Run], has_more}`: with `turns` (at most 200 keys) the runs of
-those replies, else the newest runs that started before `before_started_at`
-(`limit` 1-200, default 50).
+`conversation-runs` `{conversation, turns?:[key], answers?:[key],
+before_started_at?, limit?}` answers `{runs:[Run], has_more}`: with `turns` (at
+most 200 keys) the runs of those replies. With `answers` (at most 200 message
+keys), a local owner advertising `conversation-run-answers-v1` returns runs
+whose `answers` include those messages; this exact lookup is for silent runs
+whose start predates the visible message window. Otherwise it returns the
+newest runs that started before `before_started_at` (`limit` 1-200, default 50).
 
 `conversation-run` `{conversation, run, after_rev?, limit?}` answers
 `{run:Run, steps:[Step], has_more}`: the steps written after `after_rev`
@@ -6771,6 +7221,152 @@ digits. A run the caller may not see answers like a missing one
 steps that changed) on `subscribe`, only to connections that echoed
 `conversation-runs-v1` in `set-client-info`; they are never replayed, so a
 client reads the run again after a gap.
+
+### conversation-live-publish, conversation-live
+
+| Field | Value |
+| --- | --- |
+| name | `conversation-live-publish`, `conversation-live` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `chief-live-v1` |
+
+A Chief's live run frames: while its run (`conversation-run-append`) is
+`running`, the agent streams the text of its talk and thought steps and a
+compact "working on" line, the same frames the Cloud Chief brain sends on a
+Cloud conversation's socket. The owner keeps only the text so far of each
+running run, in memory, so a client that joins or reconnects mid-run reads it;
+the run's end frees it. Never stored: not a message, not a run step, not in a
+snapshot of the log, never the remote relay or `conversation.events`. Trusted
+local connections only.
+
+`conversation-live-publish` `{conversation, frame}` sends one frame of the
+caller's own running run. The caller must be an agent participant
+(`conversation_rejected` `unknown_conversation`, `not_participant`;
+`run_rejected` `not_agent`), the run must exist (`unknown_run`), be its own
+(`not_run_author`) and be `running` (`run_not_running`). `frame` is one of:
+
+- `{type:"step.delta", conversation, run, step, kind:"talk"|"thought", seq,
+  text, final?:true}`: `text` (1-4096 characters) is appended to the step's
+  text; `seq` starts at 0 for each (run, step) and grows by one per frame, so a
+  skipped or repeated `seq` is `seq_gap`; `seq` 0 on a step that is streaming
+  starts it again (a producer that retried): its text is replaced and the
+  clients get the conversation's `run.live` instead of the frame. After a frame
+  with `final` the step takes no more frames (`step_final`); its step row with
+  the whole text follows on the run, and that row frees the step's live text
+  (a later frame of it stays `step_final`). A run streams at most 256 steps
+  (`too_many_live_steps`).
+- `{type:"run.activity", conversation, run, line, since, at}`: `line` (1-80
+  characters, one line) is what the run works on now, newest wins; `since`
+  (at most `at`) is when that work began and `at` the frame's time (ms); a
+  client shows the elapsed time itself.
+
+Order: before it posts the run's reply message (`message.send` with
+`client_msg_id` = the run's `turn`), a producer sends every streaming step's
+last frame (`final`; a step whose stream stopped early, its row carrying the
+text, has none) and then the run's end (`conversation-run-append` with a
+terminal status), so a client sees the reply only after them and the reply
+replaces the streaming text with no jump.
+
+`frame.conversation` must be `conversation`, and `run` and `step` are keys
+like a run id; any other bad frame is `run_rejected` `invalid_live` or a bad
+request. A frame's `author` and `t` are the owner's to set: it stamps the run's
+agent on every frame it sends and on each snapshot entry (Cloud run ids repeat
+across Chiefs, so clients key live text by conversation, author and run), and
+`t` (= `type`) on every frame and snapshot, as the Cloud socket keys its frames. The owner
+sends each accepted frame as `{event:"conversation-live", conversation,
+frame}` on `subscribe` to the connections that echoed `chief-live-v1` in
+`set-client-info`. A run that sent no frame for 30 minutes is dropped from the
+buffer, and a conversation keeps at most 16 streaming runs (the least recent
+goes first).
+
+`conversation-live` `{conversation}` answers the `run.live` snapshot, the
+same answer the Cloud owner gives to `run.live.get`: `{type:"run.live",
+conversation, runs:[{run, author, steps:[{step, kind, seq, text, final?}],
+activity?:{line, since, at}}]}`, the runs that are `running` now (by run id;
+none is an empty array); `final` marks a step whose last frame came. A step's `text` is at most its last 64 KiB (older text is dropped from
+the buffer only) and `seq` is its last frame's. A client reads it when it opens
+a conversation, after a reconnect, and when it sees a `seq` gap, and replaces
+its live text with the answer.
+
+### cloud-conversation-live
+
+| Field | Value |
+| --- | --- |
+| name | `cloud-conversation-live` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `cloud-chief-live-v1` |
+
+A Cloud Chief's live frames through the daemon. The owner's `step.delta`,
+`run.activity` and `run.live` frames of a subscribed Cloud conversation (named
+by `type`, or `t`) reach the person's connections that echoed `chief-live-v1`
+as `{event:"cloud-conversation-live", conversation, frame, account?}`, the
+frame unchanged with both `type` and `t`; the daemon keeps none of them.
+`cloud-conversation-live {conversation}`, from a subscriber of the
+conversation (else `cloud_conversation_rejected` `not_subscribed`), asks the
+owner for its `run.live` snapshot on the shared socket (`run.live.get`, sent
+once the socket is live); the answer arrives as a `cloud-conversation-live`
+event. It answers the subscription's state, like `cloud-conversation-subscribe`.
+
+### cloud-conversation-typing
+
+| Field | Value |
+| --- | --- |
+| name | `cloud-conversation-typing` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `cloud-conversation-typing-v1` |
+
+`cloud-conversation-typing {conversation, on}` says that the lease's
+participant (the person, or the Chief of a chief lease) is typing (`on: true`)
+or stopped (`on: false`) in a Cloud conversation. The daemon sends the owner's
+ephemeral `{t:"typing", on, conversation}` frame on the conversation's shared
+socket (the owner takes it from any member's socket); the owner broadcasts it
+to the other members as `conversation-typing` and turns it off when the socket
+closes. Nothing is stored. While on, the daemon sends it again on each new
+socket after a reconnect, and sends it off when the sending connection closes. Any trusted client of the daemon
+with the lease may send it while some client subscribes the conversation (a
+Chief brain subscribes on one connection and writes on another), else
+`cloud_conversation_rejected` `not_subscribed`. The newest state replaces one
+that has not gone out yet, and it goes out once the socket is live (within
+the socket's poll interval). The owner limits the indicator per participant
+(typing.ts `typingGate`) and drops a repeat silently; a sender that is not a
+current participant gets `auth.forbidden` on the socket, which ends the
+subscription as `forbidden`, as for any other owner refusal of the principal. It answers the
+subscription's state, like `cloud-conversation-subscribe`.
+
+The owner's `conversation-typing {conversation, participant, on}` broadcast
+of a subscribed conversation (a Cloud Chief's reply, or another person
+typing) reaches the person's connections that echoed
+`cloud-conversation-typing-v1` as the `cloud-conversation-typing` event
+(`events.md`); the others never get it.
+
+### cloud-conversation-presence
+
+| Field | Value |
+| --- | --- |
+| name | `cloud-conversation-presence` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `cloud-conversation-presence-v1` |
+
+`cloud-conversation-presence {conversation, viewing}` says that the sending
+connection views a Cloud conversation (`viewing: true`) or stopped. The
+lease's person views it while any client of the daemon does, so only a change
+of that goes out, as the owner's ephemeral
+`{t:"presence.set", conversation, viewing}` frame on the conversation's shared
+socket; the owner broadcasts a change of the set to the members as
+`conversation-presence`. Nothing is stored. While viewing, the daemon sends it
+again on each new socket after a reconnect, and sends `viewing: false` when
+the last viewing connection closes or unsubscribes. Any trusted client of the
+daemon with the lease may send it while some client subscribes the
+conversation, else `cloud_conversation_rejected` `not_subscribed`. The newest
+state replaces one that has not gone out yet, and it goes out once the socket
+is live. A sender that is not a current participant gets `auth.forbidden` on
+the socket, which ends the subscription as `forbidden`. It answers the
+subscription's state, like `cloud-conversation-subscribe`.
+
+The owner's `conversation-presence {conversation, participants}` set of a
+subscribed conversation reaches the person's connections that echoed
+`cloud-conversation-presence-v1` as the `cloud-conversation-presence` event
+(`events.md`); the others never get it.
 
 ### cloud-attachment-upload, cloud-attachment-read, cloud-attachment-link
 
@@ -6866,6 +7462,25 @@ sha256("stack:<aud>:<sub>"): the participant id of the person in cloud
 conversations. `cloud-session-set` and `cloud-session-clear` are refused on a
 WebSocket connection.
 
+With `cloud-selfhost-v1`, `cloud-session-set {api_base_url, auth: "tailscale",
+client_version?}` leases a self-hosted chat server (plans/cmux-next/dm-group-chat-DESIGN.md
+4.5) instead of cmux Cloud. `auth` is `"bearer"` (the default, the fields
+above) or `"tailscale"`. A tailscale lease carries no `access_token` (a
+non-empty one is a bad request) and no expiry (`expires_at` is ignored). Its
+`api_base_url` is an `http` or `https` origin whose host is a MagicDNS
+`*.ts.net` name, an IPv4 address in `100.64.0.0/10` or an IPv6 address in
+`fd7a:115c:a1e0::/48`; any other host, from any connection, is
+`cloud_conversation_rejected` with `reason` `unknown_api_origin` (the known
+origin list below applies to bearer leases only). The daemon sends no
+Authorization header to it on any request or socket: the server identifies the
+caller by Tailscale. The lease never expires and never asks for a new one
+(`cloud-session-needed` is never sent for it); an HTTP 401 answers
+`cloud_unauthenticated` and a socket refused with 401 reports `disconnected`
+(`unauthenticated`) and tries again after its backoff. `cloud-session-set` and
+`cloud-session-status` answer `object{state, api_base_url, auth: "tailscale"}`
+(no `expires_at`), with `participant` (status, the person's clients) once
+`cloud-selfhost-info` named the person.
+
 With `cloud-lease-app-only-v1`, a lease that the verified cmux app connection
 set (the `frontend` actor: a role-main `client-hello` whose code signature or
 install key was proved) belongs to the app. While it exists, `cloud-session-set`
@@ -6889,7 +7504,7 @@ While the app's lease exists, `cloud-*` events reach only the app's
 reach every trusted local `subscribe` stream.
 
 While the app's lease exists it is the human's: every command that uses it
-(`cloud-inbox-list`, `cloud-conversation-snapshot`, `cloud-conversation-history`,
+(`cloud-inbox-list`, `cloud-requests-list`, `cloud-conversation-snapshot`, `cloud-conversation-history`,
 `cloud-conversation-thread`, `cloud-conversation-op` with any origin,
 `cloud-inbox-subscribe`, `cloud-conversation-subscribe`, `cloud-mux-subscribe`,
 `cloud-mux-ack`) from another connection is refused the same way and sends
@@ -6899,6 +7514,59 @@ pairing-store credential (an approved pairing or a `page-credential`) is one of
 the person's own clients: it may use the app's lease like the app (and gets
 its `cloud-*` events), but never a lease another connection set. A WebSocket
 connection with the static or file token gets no `cloud-*` command or event.
+
+### cloud-host-replica-set, cloud-host-replica-clear, cloud-host-replica-status
+
+| Field | Value |
+| --- | --- |
+| name | `cloud-host-replica-set`, `cloud-host-replica-clear`, `cloud-host-replica-status` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `cloud-host-replica-v1` |
+
+The host's read replica publisher (plans/cmux-next/object-sync/DESIGN.md
+phase 3). `cloud-host-replica-v1` is advertised when the daemon has a cloud
+transport. Only the verified cmux app connection (the `frontend` actor) may
+use these commands; any other connection gets `cloud_conversation_rejected`
+with `reason` `forbidden`.
+
+`cloud-host-replica-set {api_base_url, install_token, expires_at,
+client_version?, host_name}` leases the app's install token. The daemon keeps
+it in memory only and never returns it; a chief token (`agt`) is refused. A
+lease for the same user, install and origin is a renewal: the token is swapped
+in place and the open socket stays. The daemon asks for a renewal with the
+`cloud-host-replica-needed` event (spec/events.md): `expiring` within two
+minutes of `expires_at`, `unauthenticated` when the cloud refused the token. The
+daemon enrolls the host (`host.enroll`, idempotent per install), opens
+`/v1/wire/host/<host>` and publishes `host:<host>/session`: a projection of
+the `list-workspaces` tree with, per workspace, only `id`, `resource_id`,
+`short_id`, `name`, `name_revision`, `group`, `color`, `icon`, `pinned`,
+`marked_unread`, `unread_count` and `active`, plus `registry_id` and
+`generation` (no screens, tabs or titles). A snapshot after each connect, then
+one event per settled change, each with the whole new state in
+`effects.state`.
+It also answers the ops the cloud forwards from the host's owner. Only
+`workspace.rename` with the fields `workspace`, `name`,
+`expected_name_revision` and `expected_generation` runs, through the daemon's
+own command path, and only for the token's own user; any other op, field or
+user is refused, and nothing runs. A decided key answers again and never runs
+twice. Every forwarded op is answered with `result` or `reject`, then
+`request-settled`; a change is published before its answer.
+
+`cloud-host-replica-clear {purge?}` drops the lease. With `purge: true` (the
+host's off switch), the cloud copy is deleted first (`replica.purge`), and the
+lease goes when the cloud confirms. `cloud-host-replica-status` returns
+`object{state:"off"|"connecting"|"online"|"unauthenticated"|"forbidden"|"purging"|"backoff"|"replaced",
+api_base_url?, expires_at?, host_name?, host?, stream?, seq?, purge_pending?,
+purge_unconfirmed?, last_error?}`. On `unauthenticated` the app sets a new
+lease; `forbidden` means this install is not the host's publisher or the
+cloud removed the host (or the owner deleted the replica with `host.replica.purge`). A removed host stays `forbidden` through later leases
+of the same install (a token refresh never enrolls it again) until
+`cloud-host-replica-clear`. `replaced` means another socket of the same
+install publishes the host now; the daemon waits for a new lease.
+`purge_unconfirmed` means the cloud refused the install during the off switch,
+so it did not confirm the purge (the cloud drops a removed host's copy
+itself). The stream's `seq` never goes back in one daemon; a stream the cloud
+does not hold starts at the wall clock in milliseconds.
 
 ### page-credential
 
@@ -6936,8 +7604,9 @@ plain `subscribe`, `conversation-list`, `conversation-create`,
 `conversation-runs`, `conversation-run`, `conversation-inbox-op` and the
 `conversation-attachment-upload`, `-read` and `-link` commands, with the
 `conversation-changed`, `conversation-typing`, `conversation-draft`,
-`conversation-run-changed` and `conversation-inbox-changed` events; for every
-other page none); any other line is
+`conversation-run-changed` and `conversation-inbox-changed` events, and
+`chief-changed` and `participant-avatar-changed` for a connection that echoes
+their capability; for every other page none); any other line is
 refused with `origin.forbidden`. It is never the person: no `cloud-*` command
 or event, like the file token. Page-bound credentials have their own bound
 (16), so they never evict the verified app's page credentials. A client checks
@@ -6988,9 +7657,12 @@ Forward to the cloud owners (ConversationDO, UserDO inbox) with the lease and
 answer from a worker thread, so replies may arrive out of order (match by
 `id`). `cloud-conversation-op {conversation?, idempotency_key, origin?, op}`
 forwards one op tagged by `kind` (`dm.open`, `conversation.create`,
-`participants.add`, `participants.remove`, `message.send`, `message.edit`,
+`participants.add`, `participants.remove`, `participants.set_role`,
+`participants.unban`, `ownership.transfer`, `grant.create`, `grant.revoke`,
+`message.send`, `message.edit`,
 `message.retract`, `reaction.add`, `reaction.remove`, `read_cursor.set`,
-`title.set`, `thread.update`, `invite.create`) with the client's key and origin and returns
+`title.set`, `thread.update`, `invite.create`, `invite.accept_verified`,
+`request.dismiss {block?}`) with the client's key and origin and returns
 `object{value, rev?, seq?, change?, replayed, transaction, stream, sequence}`.
 Errors carry `error_code` (`cloud_conversation_rejected`, `cloud_signed_out`,
 `cloud_session_expired`, `cloud_unauthenticated`, `cloud_unavailable`),
@@ -7001,6 +7673,51 @@ refused before anything is sent, with `cloud_conversation_rejected`,
 plans/cmux-next/home-cloud-proxy.md.
 `cloud-conversation-snapshot` and `cloud-conversation-history` pass the
 owner's `threads` field through unchanged when it sends one.
+`cloud-inbox-list {limit?, include_archived?, cursor?}` returns one page of
+UserDO `inbox.list` as `object{entries, revision, next_cursor}`: `limit` (1-200,
+default 200) entries from `cursor` (the `next_cursor` of the page before; absent
+for the first page). `next_cursor` is null on the last page. One page per call,
+so every reply is one bounded read; a client reads the whole inbox by following
+`next_cursor`. `home-inbox`'s Cloud rows do: every page, at most 50, asking for
+no page after 8 s from the start of the read, an entry a later page lists again kept once where it was
+first listed; any page's failure, a refusal included, leaves the Cloud rows
+`unavailable` (`signed_out` only without a usable lease).
+
+### cloud-requests-list
+
+| Field | Value |
+| --- | --- |
+| name | `cloud-requests-list` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `cloud-conversations-v1` |
+
+The lease person's open message requests (plans/cmux-next/home-messaging-invites/DESIGN.md
+2.3): `POST /v1/read home.requests.list {}` with the lease. Takes no fields (an
+unknown field is refused). Returns `object{requests}`, each row
+`{conversation, inviter, kind, title?, preview, created_at, expires_at, trusted}`
+as the owner sent it; a row whose `conversation` is not a conversation id is
+dropped. Accept with `cloud-conversation-op` `invite.accept_verified` and
+dismiss (or block, `block: true`) with `request.dismiss`, both naming the
+conversation. Errors as `cloud-inbox-list`.
+
+### cloud-selfhost-info
+
+| Field | Value |
+| --- | --- |
+| name | `cloud-selfhost-info` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `cloud-selfhost-v1` with `cloud-conversations-v1` |
+
+The self-hosted chat server's identity of the person: `GET /v1/selfhost/info`
+on the lease's origin, without an Authorization header. Takes no fields. Needs
+a tailscale lease (`cloud-session-set` with `auth: "tailscale"`), else
+`cloud_conversation_rejected` with `reason` `not_selfhost`. Returns
+`object{kind: "selfhost", user_id, login?, display_name?, server_name?}`. A
+reply whose `kind` is not `selfhost` or whose `user_id` is not `user_` and
+6-80 characters of `[A-Za-z0-9_.-]` is `cloud_unavailable`. The `user_id`
+becomes the lease's account: every later `cloud-*` event carries it as
+`account`, `cloud-session-status` names it as `participant`, and open
+subscriptions reconnect to carry it. Same admission as `cloud-inbox-list`.
 
 ### cloud-conversation-thread
 
@@ -8234,6 +8951,8 @@ object{
     state: "working"|"blocked"|"idle"|"done"|"unknown",
     source: "plugin"|"detected"|"socket"|"hook",
     session: string|null,
+    agent?: string|null,
+    agent_session_id?: string|null,
     updated_at_ms: uint64,
     since_ms?: uint64,
     last_prompt?: string|null
@@ -8241,10 +8960,24 @@ object{
 }
 ```
 
+`agent_session_id` is the harness's own session id that the agent's hooks reported
+(a `claude` or `codex` session id, at most 256 bytes of `[A-Za-z0-9._:-]`), or null.
+A hook report keeps `session` for a human label, so a client finds the terminal of an
+agent session (a `cmux://agent` link) by this id.
+
 `last_prompt` is the terminal agent's last prompt (at most 200 characters), which the
 hook helper sends beside a turn-start event (`session.journal.append` `live_prompt`).
 The daemon keeps it in memory only: it is never journaled, persisted or logged, and a
 daemon restart, a closed terminal or an ended agent session forgets it.
+
+A finished or failed turn's last agent message rides the same way (`live_reply`), as do
+the error text of a failed tool or turn and, for `live_prompt`, the whole prompt: the hook
+keeps them whole (markdown with its line breaks, at most 4000 characters). The turn's
+`notification` event carries the message as `preview` (folded, at most 200 characters, the
+banner text the app shows per its Show Previews setting) and whole as `message`, the turn's
+prompt as `prompt`, the posting agent's harness session as `session` and the ledger row's id
+as `id` (for the phone's Feed). The daemon drops the message once that event is sent. The
+durable notification row never holds any of them.
 
 `since_ms` is when the agent entered `state` (Unix ms): a report that keeps
 the state keeps it, so a client can show how long an agent has worked or
@@ -8390,7 +9123,7 @@ exact public `terminal_id`, the current attachment `lease`, a 32-hex-character
 
 | `op` | Additional fields | Effect |
 | --- | --- | --- |
-| `begin` | `mime`, `size` | Reserve bounded capacity and create a private daemon-owned file. |
+| `begin` | `mime`, `size` | Reserve an upload slot and create a private daemon-owned file. |
 | `chunk` | `offset`, `data` | Append one sequential, standard-base64 chunk (at most 48 KiB decoded). |
 | `commit` | none | Verify byte count and MIME, then invoke the authoritative terminal paste operation once. |
 | `cancel` | none | Remove an unpublished upload; idempotent when already absent. |
@@ -8402,9 +9135,9 @@ destination path is accepted and no image path or content is returned in an
 acknowledgement. Stable error codes begin with `image-`; clients must treat a
 lost commit acknowledgement as uncertain delivery and must not retry it blindly.
 
-The policy is 20 MiB per PNG/JPEG/GIF/WebP image, eight images per connection,
-32 retained uploads and 128 MiB reserved per daemon. Pending uploads expire in
-two minutes; committed uploads expire in ten minutes. Ownership receipts permit
+The policy is PNG/JPEG/GIF/WebP images of any size, eight images per connection
+and 32 retained uploads per daemon, with no byte budget. A pending upload expires
+two minutes after its last accepted chunk; committed uploads expire in ten minutes. Ownership receipts permit
 restart cleanup with a twelve-minute expiry from creation and recurring bounded
 recovery sweeps. Receipts match a persistent random file ownership marker as well
 as inode identity; the filesystem must support extended attributes. See
@@ -8553,14 +9286,20 @@ an agent or an MCP server, and every unknown param is
 `agent_session.unavailable` (no acpmux), `agent_session.not_attached`,
 `agent_session.limit` (8 attachments per connection, 64 per daemon, 8 calls in
 flight per attachment), `agent_session.timeout` (5 s), `agent_session.refused`
-(acpmux refused), `agent_session.unknown_permission`.
+(acpmux refused), `agent_session.unknown_permission`,
+`agent_session.read_only` (a mutation sent to an observation attachment),
+`agent_session.mode_conflict` (an `agent-session-attach` or
+`agent-session-observe` for a surface this connection already has attached in
+the other mode; detach first to switch modes), `agent_session.not_shared` (a
+teammate's frame for a surface that no longer shows the chat its share named;
+see `agent-session-proxy-bind`).
 
 ### agent-session-attach
 
 `{id, cmd:"agent-session-attach", surface, after_seq?, before_seq?, limit?, kinds?}`
 subscribes the connection to the tab's session and answers acpmux's attach
 page `{session, events, hasMore, lastSeq}` (`limit` 1 to 500, default 200;
-`kinds` at most 8 acpmux record kinds or categories; at most 8 MiB of
+`kinds` at most 32 acpmux record kinds or categories; at most 8 MiB of
 records, the rest left for the next page with `hasMore`). On an attached tab
 it only pages. Live records then arrive as
 `{event:"agent-session-record", surface, record}` (one acpmux record in its
@@ -8575,6 +9314,21 @@ acpmux line over 32 MiB). The close is a control message and can arrive before
 records still queued, which may be dropped; what the client received is
 always a gap-free prefix of the log, so it attaches again with `after_seq` set
 to the newest seq it holds. A record never overtakes the attach reply.
+
+### agent-session-observe
+
+`agent-session-observe-v1` is advertised with `agent-session-attach-v1` when
+the daemon resolved its acpmux socket. `{id, cmd:"agent-session-observe",
+surface, after_seq?, before_seq?, limit?, kinds?}` creates a read-only
+attachment and answers the same page as `agent-session-attach`. It emits the
+same `agent-session-record`, `agent-session-changed`, and
+`agent-session-closed` events, and clients resume from the newest received
+`seq` after a `lagged`, `overflow`, `acpmux_closed`, `too_large`, or `detached`
+close. `agent-session-prompt`, `agent-session-cancel`, and
+`agent-session-permission` are refused before acpmux is called. An observe on a
+surface this connection already attached with `agent-session-attach`, or an
+attach on one it observes, answers `agent_session.mode_conflict` and keeps the
+existing attachment unchanged; the same mode again only pages.
 
 ### agent-session-events
 
@@ -8596,10 +9350,17 @@ single ACP text content block and answers once acpmux recorded it:
 ### agent-session-permission
 
 `{id, cmd:"agent-session-permission", surface, permission_id, option_id,
-decision_nonce?, person_decision?, answered_by?}`
+answers?, annotations?, decision_nonce?, person_decision?, answered_by?}`
 answers a permission request acpmux announced on this attachment (pending at
 attach or sent as `agent-session-permission`), once (a failed answer can be
 sent again). The daemon never answers a request by itself.
+
+`answers` is a question's answers, a JSON object of at most 64 KiB, passed to
+acpmux unchanged as `answers`; acpmux checks them against the question, and a
+decision proof for that answer covers them (`acpmux-person-decision-answers-v1`).
+Any other value is a bad request. `annotations` (Claude Code's chosen preview
+and notes, by question) goes the same way, only beside `answers`, and the proof
+covers it too.
 
 `decision_nonce` and `person_decision` (64 lowercase hex characters each) are
 the person's decision proof for this answer, which the app makes with the
@@ -8616,9 +9377,93 @@ request announced as `agent-session-permission` carries acpmux's
 `{id, cmd:"agent-session-detach", surface}` ends the attachment. Closing the
 connection ends all of its attachments.
 
+### agent-session-children
+
+`agent-session-children-v1`: `{id, cmd:"agent-session-children", surface}` on an
+attached (or observed) tab answers `{sessions}`: the chats the tab's session
+started on this machine, as acpmux summarizes them (`_acpmux/sessions`, in its
+order), at most 256 and 8 MiB. A chat is listed when its `startedBy` (a
+sub-session's link, at any depth) or its `spawnedBy` (`acpmux new` run in the
+session) names the tab's session or another chat listed. Never the session
+itself, another chat of the machine or a peer daemon's session; the command
+names no session (any other param is `agent_session.bad_request`).
+
+From the attach on, the attachment follows those chats: their acpmux
+`session_changed`, and that of a new chat whose summary names the session or
+a followed chat as its parent, also arrive as `agent-session-changed` on the
+tab (`change.sessionId` names the chat). Every chat listed or followed may be
+filed under this store's `registry:` host with its session in
+`new-conversation-tab`, as a chat this machine started (the app opens a child
+chat in a tab of its own and shows it with `agent-session-attach`); any other
+session there is `conversation_tab.machine_mismatch`.
+
+### agent-session-typing, agent-session-view
+
+`agent-session-presence-v1` (advertised with `agent-session-attach-v1`): who is
+in an attached chat (chat multiplayer, hq#4389). On an attached (or observed)
+tab, `{id, cmd:"agent-session-typing", surface, on}` tells acpmux the person
+starts or stops typing (`_acpmux/typing`, at most 2 a second per attachment;
+past it acpmux's `typing.rate_limited` answers `agent_session.limit`; an `on`
+expires after 8 s), and
+`{id, cmd:"agent-session-view", surface, visible}` whether the person's window
+shows the chat (`_acpmux/view`; a new attachment counts as shown). Both answer
+`{}` and name no session: `on` and `visible` are booleans and any other param
+is `agent_session.bad_request`. An observation attachment may send
+`agent-session-view` but never `agent-session-typing` (`agent_session.read_only`).
+
+A connection that echoed `agent-session-presence-v1` in `set-client-info` then
+gets `{event:"agent-session-presence", surface, presence}` on every change (one
+that did not never gets it), where `presence` is acpmux's `_acpmux/presence`
+`{sessionId, participants}` of that session only. The attach page carries the
+set at attach in `presence`, as acpmux answers it.
+
+### agent-session-proxy-bind, agent-session-of
+
+A shared chat (`cmux host share`, chat multiplayer) reaches a teammate through
+the owner's own host proxy, never by a teammate's own connection to this
+daemon. `{id, cmd:"agent-session-proxy-bind", author:{login, node}}` makes a
+same-user Unix connection that proxy's link for one teammate: `login` (at most
+320 bytes, lower-cased) and `node` (at most 255) are the tailnet identity the
+proxy checked, and the daemon fixes the author to
+`{id:"tailnet:<login>", name, login, node}`. It is refused
+(`agent_session.not_trusted`) on a WebSocket or remote-relay connection, a
+second time on the same connection, as anything but the connection's first
+line, or with any `_host_` field; it answers `{app, protocol, version, generation, capabilities}` and nothing
+about the machine's sessions or paths.
+
+Every later `agent-session-*` frame on a bound connection carries
+`_host_author` (exactly the bound author, else `agent_session.not_trusted`)
+and, except `agent-session-detach`, `_host_session`: the chat the owner shared.
+The frame is refused as `agent_session.not_shared` unless the surface shows
+that chat now, so a tab rebound to another chat is not shared. An unbound
+connection sending either field, or any connection sending another `_host_`
+field, is `agent_session.not_trusted`. A bound
+attachment stamps the author on every acpmux call (`_meta.acpmux.author`),
+pages and streams only the `transcript` kinds, never gets a `composer` record
+(a draft), a `presence` set or event, a descendant's change, or the session
+summary's folder, parent, children, tags, tools, rules, MCP servers, peer or
+pull requests (the change keeps `sessionId`, `kind`, `recordKind`, `seq` and
+the cut summary). A bound connection may send only `agent-session-attach`,
+`-observe`, `-events`, `-prompt`, `-cancel` and `-detach`; any other frame
+(`agent-session-start`, `-trust`, `-media`, `-children`, `-permission`,
+`-typing`, `-view`, `-of`, or any other daemon command, resource or page
+line) is `agent_session.not_trusted`. Each request uses the chat its check
+validated: an attach, a page or a command on an attachment of another chat,
+and a page acpmux answers after the tab was rebound, are refused as
+`agent_session.not_shared`. A rebind waits for any write to or for a teammate's
+attachment that has checked its tab, so nothing of the old chat reaches the
+teammate (and no prompt or cancel reaches the old chat) after the tab shows
+another chat; the attachment ends at its next event.
+
+`{id, cmd:"agent-session-of", surface}` answers `{surface, session}`, the
+agent session the tab shows, so `cmux host share` can pin it; only the owner's
+own unbound same-user Unix connection may ask (otherwise
+`agent_session.not_trusted`; a tab with no session is
+`agent_session.unknown_tab`).
+
 ### agent-session-start
 
-`agent-session-start-v1`: `{id, cmd:"agent-session-start", surface, cwd, harness?}`
+`agent-session-start-v1`: `{id, cmd:"agent-session-start", surface, cwd, harness?}` (and, when `agent-session-start-model-v1` is advertised, optional `model`)
 starts a new chat for an agent tab of this store in this machine's own
 acpmux and binds it to the tab, then answers
 `{surface, session, conversation}` (the tab's record, as
@@ -8628,6 +9473,9 @@ whose `host` is `registry:` and this store's `identify.session_id` (so a tab
 recorded for another machine never starts here) and that has no session yet;
 otherwise `agent_session.unknown_tab`, or `agent_session.bound` when it has
 one (also when another start bound it first: the new session is then ended).
+The bind records the harness acpmux answered for the new session (its
+`session/new` reply's `_meta.acpmux.harness`, a profile by its last part,
+else the family it runs).
 `harness` is the agent kind acpmux resolves from its own config (1 to 64
 letters, digits or `_`, `.`, `-`); `cwd` is an absolute folder (at most 4096
 bytes; acpmux checks that it exists). `cwd` follows `agent-session-trust`'s
@@ -8639,14 +9487,26 @@ Claude and Codex), checked before the agent starts and again for the family
 it runs; otherwise `agent_session.untrusted_folder` (the daemon never answers
 the trust question; the person answers it on the machine or through
 `agent-session-trust`). There is no command, env, policy, mode,
-peer, preset or MCP server param; an unknown param is
-`agent_session.bad_request`. The daemon's machine decides first, from its
-own identity read at each start and never from the request: on a Cloud VM, a
-team VM (kind `team` in the root-owned `/etc/cmux/vm-kind` that cmux-host
-writes at a team enroll, or the team files root `/srv/team`, root:`cmux-ssh`)
-answers `agent_session.team_vm_blocked`, and a VM with no readable kind or a
-kind other than `owner` answers `agent_session.host_unverified`; Macs, SSH
-hosts and owner VMs (kind `owner`, written at a machine bind) go on. The session starts with permission policy `ask`
+peer, preset or MCP server param; `model` is only accepted with the additive
+`agent-session-start-model-v1` capability and is passed to the first session; an unknown param is
+`agent_session.bad_request`. The machine kind decides first, read again at
+each start: a team VM (kind `team` in the root-owned `/etc/cmux/vm-kind` that
+cmux-host writes at a team enroll, or the team files root `/srv/team`,
+root:`cmux-ssh`) answers `agent_session.team_vm_blocked`; Macs and SSH hosts
+go on; any other Cloud VM goes on only with `vm_kind: "owner"` and otherwise
+answers `agent_session.host_unverified`. `vm_kind`
+(`agent-session-start-vm-kind-v1`) is the Cloud API's `vmKind` for the
+caller, as the caller read it on its link to this machine (attach-endpoint);
+only the exact string `owner` counts. Any other value says the caller knows
+this machine is a Cloud VM it does not own, so it answers
+`agent_session.host_unverified` on any host (a guest's root can remove every
+Cloud sign the daemon reads). The app starts a chat on a machine it knows as
+Cloud only on the `owner` answer for the link the start goes over, through any
+daemon. The VM's own
+kind `owner` (written at a machine bind) never allows a start by itself: the
+agents there keep sudo and can write it. A chat move in
+(`agent-transfer-receive`, `-finish`) and `agent-session-trust` take the same
+rule with their own `vm_kind`. The session starts with permission policy `ask`
 whatever the daemon default is. It must then be in a mode that acpmux's
 remote table (`_acpmux/web_modes`) says asks before acting: a family that
 table refuses (Codex, opencode) is refused, and a session that starts in a
@@ -8706,9 +9566,11 @@ absolute (at most 4096 bytes, no control characters) or an unknown param is
 `home_confirmed: true` (the person chose it as the chat's folder first, as
 Use Home Folder on the Mac), else `agent_session.home_unconfirmed`. The tab
 must be an `agent_session` tab of this store whose `host` names this store
-(bound or not), else `agent_session.unknown_tab`; the machine kind gate,
-the trusted local connection rule and the acpmux start are those of
-`agent-session-start`. The daemon never answers by itself: a client sends a
+(bound or not), else `agent_session.unknown_tab`; the machine kind gate
+(with `vm_kind`, `agent-session-trust-vm-kind-v1`), the trusted local
+connection rule and the acpmux start are those of `agent-session-start`. A
+page cannot vouch for the Cloud API's answer: the routed operations take no
+`vm_kind` (`agent_session.bad_request`), so they reach no Cloud VM's trust. The daemon never answers by itself: a client sends a
 `level` only for the person's own answer (the app's agent pane relay needs
 a fresh gesture for a set that trusts, as for a chat on the Mac's own
 acpmux). Pages reach the same verb only as the routed v2 operations
@@ -8729,6 +9591,293 @@ without a gesture, as it can on acpmux's own socket (same uid); the app's
 chat on another machine reaches the verb that way, behind its relay's
 fresh-gesture rule. A WebSocket client of acpmux still cannot
 answer (`trust.remote`). At most 8 calls run at once (`agent_session.limit`).
+
+## Machine catalog publication
+
+On Unix builds, `identify` advertises `machine-catalog-publish-v1`. The verified
+local cmux app may send `{id, cmd:"machine-catalog-publish",
+expected_machine_id:"machine_…", sequence:1, machines:[...]}` on its existing
+connection. This is an internal host publication handshake, like app-provider
+registration; callers continue to discover machines through the existing
+`machine.list` and `machine.get` catalog operations, CLI and SDK surfaces.
+It is not another machine-list operation or an enrollment command.
+
+Readers explicitly request `catalog:true` on `machine.list/get` to receive owner
+metadata and projected remote origins. `identify` advertises
+`machine-catalog-read-v1` for this option. Without it, or with `catalog:false`,
+these reads retain the original local-only shape so strict older machine
+decoders remain usable even while a publisher is active. Session snapshots retain that original
+shape too. The CLI exposes the option as `--catalog`; MCP exposes the typed
+boolean `catalog`. A machine-prefix lookup forwards the same opt-in on its
+existing connection. This parameter changes the response format and catalog
+visibility, never execution authority.
+
+The required owner ID must match this daemon's persisted public ID. Each remote
+record has a canonical `id`, bounded display `name`, `origin` (`cloud`, `ssh`,
+`server`), `status` (`running`, `connecting`, `unavailable`, `sleeping`, `stopped`),
+optional `platform:{os?,arch?}`, and up to 16 bounded capability tokens. A snapshot
+has at most 256 records and a 128 KiB frame. Unknown fields, local impersonation,
+duplicate IDs, malformed tokens, control characters, paths and command fields
+are refused atomically. No credentials or connection endpoints are published.
+
+Exactly one live verified-app connection owns the projection. A positive,
+increasing `sequence` replaces it atomically; exact replay is harmless and an
+older or conflicting sequence is `machine_catalog.stale`. A competing connection
+gets `machine_catalog.taken`. Disconnect removes the entire publication under
+the client-registry lock. Unverified, agent-bound, WebSocket and remote relay
+clients cannot publish (`machine_catalog.not_trusted`); a wrong daemon is
+`machine_catalog.owner_mismatch` and malformed data is `machine_catalog.bad_request`.
+
+The native local record always remains first and authoritative. Remote metadata
+is read-only: it never opens a connection, creates a session, supplies routing
+credentials or grants command execution. Remote session operations still require
+their own authenticated owner path; catalog membership never falls back to a local
+session. Without a publisher the existing local-only behavior is preserved.
+The app observes existing policy-admitted registry routes and publishes on its
+captured local connection. A new handshake starts a new lease; temporary source
+loss or restarting the observer preserves the sequence of a still-live lease.
+Removed or denied routes are withdrawn, and late acknowledgements from an old
+owner cannot become current. Platform and capabilities come only from each
+owner's handshake. Legacy owners remain unknown and never receive an
+unnegotiated publication. This transitional projection does not enroll or dial
+machines, and it is not the final shared machine registry.
+
+## Agent CLI inventory
+
+`agent-inventory-v1` is advertised when the daemon has its own acpmux socket
+configured. A trusted native connection (the app's local, SSH or Cloud carrier)
+may send `{id, cmd:"agent-inventory"}`. WebSocket clients and the
+conversations-only remote relay cannot use it. This command reads this daemon's
+machine only; it accepts no machine, session, socket or command selector.
+
+With `agent-inventory-owner-v1`, a client selecting a public machine ID sends
+`{id, cmd:"agent-inventory", expected_machine_id:"machine_…"}`. The daemon
+validates the canonical ID and compares it to its own persisted machine ID
+before checking or opening acpmux. A different owner returns
+`agent_inventory.owner_mismatch` without an owner call or local identity in the
+response. The field is an identity fence, never a routing selector. Clients must
+negotiate this capability separately, require a known public machine ID and
+propagate a mismatch instead of removing the fence or retrying elsewhere.
+All other fields remain refused.
+
+The daemon first calls `initialize` on its own acpmux socket and requires the
+exact `harnessInventory` feature in a string array at `_meta.acpmux.features`.
+Only then, on that same connection, it calls
+`_acpmux/harness/health {view:"inventory"}`. Older owners never receive the health
+request: an older acpmux can ignore `view` and run checks or updates. There is no
+legacy fallback, daemon start, handoff, PATH scan, registry lookup or refresh.
+
+The response's `data` is `{view:"inventory", cached:true, harnesses:[...]}`.
+Each row contains only `id`, optional `family`, `channel`, `version`, `latest`,
+`latestCheckedAt`, `outdated`, `auth` and `checkedAt`. `family` is a recognized
+CLI family inferred from the executable and package saved by the same health
+check, never from the profile id or current configuration. Old owners omit it;
+missing executables, launchers, ACP adapters and conflicting evidence leave it
+null. Native forwarding also leaves unknown future families null. A family does
+not make this partial cache exhaustive. Versions and latest-check times may be null;
+times are milliseconds since the epoch. Channels are `npm`, `bun`, `brew`,
+`brewCask`, `native`, `launcher`, `standalone` or `missing`. Sign-in evidence is
+`signedIn`, `signedOut` or `unknown`, without account labels. No program paths,
+commands or diagnostic output are forwarded. Empty rows mean no cached
+observations, not proof that the machine has no installed agents. At most 256
+rows and eight concurrent reads per daemon are accepted.
+
+Failures have an `agent_inventory.*` error code: `not_trusted`, `bad_request`,
+`unavailable` (including a stopped or unresponsive owner), `unsupported` (no
+negotiated view), `owner_mismatch`, `busy` or `invalid_response`. An unavailable remote owner is
+never replaced with this computer's inventory.
+
+### Explicit registry refresh
+
+`agent-inventory-refresh-v1` adds the internal native carrier
+`{id, cmd:"agent-inventory-refresh", expected_machine_id:"machine_…"}`.
+The canonical owner condition is required, checked before socket lookup or
+worker admission, and never selects another machine. Trust and relay admission
+precede params. Successful replies use the same sanitized partial-cache shape
+as `agent-inventory`, with an additional `machine` echo from the handling daemon.
+This is a machine identity condition, not a daemon-incarnation or job receipt.
+
+On its captured acpmux link, the daemon requires `harnessInventoryRefresh`, then
+calls exactly `_acpmux/harness/inventory/refresh {}`. No caller params reach
+acpmux, and no legacy health fallback, acpmux start or handoff is allowed.
+Both carriers and watch handshakes share the eight-worker budget. The refresh
+RPC waits at most 25 seconds; its acpmux operation is bounded at 20 seconds and
+refuses overlapping health checks/refreshes without queueing.
+
+The raw operation is local-socket-only, accepts only an empty object, and is
+never forwarded to a peer. It asks the owner's fixed registries for the
+installations already represented in the visible cached inventory, deduplicating
+URLs with at most four requests in flight. It never runs a CLI or auth check,
+reads sign-in files, rescans profiles, changes auto-update preferences or
+schedules an update. Empty caches remain unknown. Failed sources retain their
+older latest version and timestamp; only successful comparable answers update
+`latest`, `latestCheckedAt` and `outdated`. Installed-version/auth observations
+and `checkedAt` remain cached, so `cached:true` remains accurate. A configuration
+replacement refuses an answer from its former source.
+
+This carrier supports the existing proposed app operation
+`agent_cli.list {check_latest:true}`; it is not a separate generic SDK, CLI or
+MCP command. App/provider wiring still requires its own verification. Ordinary
+reads and subscription invalidations stay cache-only and never request this
+refresh implicitly. Registry observations cannot complete an execution job.
+
+## Agent CLI updates
+
+### Cached owner-job plan
+
+The internal acpmux operation `_acpmux/harness/update/plan {cli}` requires
+`harnessUpdatePlan` on the captured link. It accepts only a bounded CLI family
+identifier, never a profile, machine, session, command, prefix or package. It is
+local-socket-only and never forwards to a peer. This is an internal carrier,
+not a generic SDK command or permission to execute.
+
+The response is exactly `{cached:true, cli, argv:[...]}`. Selection uses one
+cached snapshot, comparable installed/latest versions and an outdated plan
+that does not need elevated rights. Identical targets across profile aliases
+deduplicate; distinct targets refuse as ambiguous. Bound npm plans preserve
+the recorded package or fork and absolute prefix. Native plans require the
+cached absolute executable and its known update verb. Bun and Homebrew plans
+refuse until they bind their installation explicitly. A cache above 256 rows
+refuses rather than silently omitting another target.
+
+Planning never probes a CLI or credentials, checks registries, starts an owner,
+rescans profiles, changes preferences or schedules an update. An empty cache is
+unavailable. Unknown or unusable version/target evidence is not updatable;
+neither means an already-current success. Execution must separately admit the
+caller, revalidate the actual installation, and create a visible job on this
+owner. A cached argv is advisory and must not be treated as execution authority.
+
+Malformed params return invalid params; nonlocal origins refuse before params.
+Selection failures use `harness_update_plan.unavailable`, `.not_updatable` or
+`.ambiguous` in the RPC error's `data.reason`. No legacy fallback is permitted.
+
+The separately negotiated `harnessUpdatePrepare` operation
+`_acpmux/harness/update/prepare {cli}` uses the same strict input, origin and
+selection rules. It revalidates every matching cached installation against
+the filesystem, refuses a changed channel, package, prefix or native target,
+and captures an absolute npm manager from this owner. It returns only
+`{cli, argv}`. A cache or home change during preparation refuses as
+`harness_update_plan.busy`. It never probes versions/auth, queries registries,
+writes preferences or executes the plan. The admitted job owner must persist
+the exact argv and audit context before execution. Preparation is not a grant
+and cannot complete a job.
+
+### Native visible update job
+
+`agent-cli-update-job-v1` adds the internal native carrier
+`{id, cmd:"agent-cli-update-job", expected_machine_id, expected_session_id, cli, idempotency_key}`.
+Only a proved main-app Unix connection without an agent binding may call it.
+The canonical machine and session conditions are required and checked before
+worker admission or socket access. A machine can host multiple daemon sessions;
+the same machine ID cannot authorize a replacement session to execute a job.
+An enriched `identify {machine_metadata:true}` includes `session_resource_id`
+alongside `machine_id`; the legacy registry UUID is not a public session ID.
+Unknown fields, including argv, shell, socket, session selectors and
+actor claims, refuse. The daemon derives the audit actor from the connection.
+App `agent_cli.update` execution scopes remain unsupported; this carrier does
+not grant one or upgrade an opaque actor forwarded by a provider.
+
+The Rust owner serializes preparation, then looks up stable intent in its
+existing correlated workspace-creation journal before requiring acpmux. The
+intent binds machine, session, CLI, operation and actor to the original mutation key.
+A receipt replays with acpmux offline or inventory changed; a changed intent
+conflicts. A new job negotiates `harnessUpdatePrepare` on one captured local
+link and sends only `{cli}`. There is no legacy update, owner start, handoff,
+focused-pane or shell-typing fallback. The exact prepared argv and original
+audit actor are journaled before a dedicated terminal workspace is executed.
+
+Successful data is `{machine, session, cli, path, revision, replayed}`, where path is
+the existing public created-terminal path and revision is decimal text. This
+acknowledges creation, not update completion. The same owner's
+`terminal.wait_exit` supplies the durable outcome; inventory invalidations
+cannot settle the job. A disconnected observer does not end the owner job.
+Executing-unknown recovery stays `mutation.indeterminate` and never triggers
+an automatic new-key run. An unexecuted reservation can resume only when fresh
+preparation still matches its exact persisted argv. Worker admission shares
+the bounded inventory budget; concurrent job preparation may refuse busy.
+
+`agent-update-v1` (advertised with `agent-session-attach-v1`) lets a trusted
+local (Unix) client, the app's Update Everything on this Mac or through the
+SSH or Cloud carrier, update this machine's agent CLIs and move its chats
+onto the new versions. The daemon asks the machine's own acpmux as its unix
+client; no command travels: acpmux builds every update from how each CLI was
+installed (npm, bun, Homebrew, the vendor's own updater) and never runs one
+that needs elevated rights (an install folder this user cannot write, or a
+program such as `sudo`). The remote relay does not list these verbs and a
+WebSocket client is refused (`agent_update.not_trusted`); an unknown param is
+`agent_update.bad_request`.
+
+With `agent-update-owner-v1`, a client selecting a machine captures its
+canonical `machine_id` from `identify {machine_metadata:true}` on that
+connection and includes `expected_machine_id` on either update verb. The
+condition verifies this exact daemon before socket lookup, health calls,
+acpmux startup or apply-slot admission; it never selects another machine.
+A malformed or null condition (including aliases such as `current`) is
+`agent_update.bad_request`. A foreign canonical ID is
+`agent_update.owner_mismatch`, with no result data or disclosure of the
+actual owner. Trust checks and default-denied relay admission still precede
+the condition.
+
+Successful opted-in replies add `machine`, the daemon's canonical ID.
+Omitting the condition preserves the exact legacy response shape. A client
+requiring a selected owner must negotiate this capability before using the
+condition; an unsupported owner cannot become an unfenced update. This is
+an identity condition, with existing execution admission unchanged. It
+creates no job or idempotency receipt; a lost apply reply remains uncertain.
+
+### agent-update-plan
+
+`{id, cmd:"agent-update-plan"}` answers
+`{harnesses:[{id, name?, version?, latest?}], live_threads, running_threads}`.
+`harnesses` are the rows of acpmux's last agent CLI health check
+(`_acpmux/harness/health`) that are outdated and whose update needs no
+elevated rights; `name` is the profile's display name, `version` the
+installed one and `latest` the newest its channel offers. `live_threads`
+counts the chats with a running agent (status `ready`, `running` or
+`waiting`), `running_threads` those in a turn (`running` or `waiting`),
+leaving out chats mirrored from a peer and the Home Chief's (tag
+`cmux.chief`, a name starting `optchat-`, or a harness starting
+`optchat-compact-`). When nothing listens on the acpmux socket the answer is
+no harness and no thread: a plan never starts acpmux.
+
+### agent-update-apply
+
+`{id, cmd:"agent-update-apply", ids, continue_threads?}` updates the named
+harnesses (at most 64 ids) and answers
+`{results:[{id, ok, version?, error?}], threads_restarted, threads_after_turn, threads_failed, threads_error?}`.
+acpmux checks its harnesses again, runs now the update of each named one that
+is still outdated (one at a time, each command once, whatever its
+auto-update choice), waits for it (each may take 15 minutes) and checks
+again: `ok` with the installed `version`, or `error` with the update's last
+output line or why it did not run (an update that needs elevated rights
+names the command to run by hand). A harness already current is `ok`
+without a run only when its installed and latest known versions are
+comparable and the installed version is at least the latest. Missing or
+unparseable latest-version evidence cannot turn a false `outdated` flag
+into success; the named harness is refused without running an updater.
+With `continue_threads: true` every live chat (as counted by
+the plan) of a harness that ended `ok` then restarts its agent process on
+the installed version and resumes the same conversation: a chat between
+turns now (`threads_restarted`), a chat in a turn when that turn ends
+(`threads_after_turn`; the turn is never cancelled). A chat acpmux could
+not restart keeps running its old agent and counts in `threads_failed`, with
+the first one's reason in `threads_error`. When the restart call itself
+fails the answer still carries `results`, with `threads_error` (a string
+saying why) and every count 0; clients ignore the field when absent. When
+nothing listens on the acpmux socket the daemon starts acpmux as
+`agent-session-start` does (`agent_update.acpmux_unavailable` if it cannot).
+Only when the running acpmux does not know the update method (JSON-RPC
+-32601, a build from before it) does the daemon hand it off to the installed
+binary's build: acpmux stops with its agents kept running (`cmux acp daemon
+shutdown --keep-agents`) and the installed binary's acpmux starts, under the
+same lock as the daemon's other acpmux starts, and adopts them; if that
+acpmux does not answer or still does not know the method the apply is
+`agent_update.acpmux_unavailable`. A running acpmux of another build that
+knows the method is used as it is, so an apply never moves acpmux to an
+older build. The update call waits 15 minutes per named id plus a margin,
+at most two hours. One apply runs at a time per daemon
+(`agent_update.busy`); `agent_update.timeout` and `agent_update.refused`
+report an acpmux that did not answer or refused.
 
 ## Agent chat transfer
 
@@ -8777,9 +9926,19 @@ daemon keeps the receive's folder in memory for its finish; at most 16
 receives are kept, checked before acpmux makes one.
 
 Machine kind: receive and finish read this machine's kind at each call, as
-`agent-session-start` does, and answer `agent_session.team_vm_blocked` on a
-team VM and `agent_session.host_unverified` on a Cloud VM of unknown kind
-(or a daemon never told its kind). A chat under peer control keeps its
+`agent-session-start` does, each with its own `vm_kind`
+(`agent-transfer-vm-kind-v1`, only `owner` counts), and answer
+`agent_session.team_vm_blocked` on a team VM and
+`agent_session.host_unverified` on a Cloud VM without the caller's
+`vm_kind: "owner"` (its own `owner` record never counts) or on a daemon never
+told its kind. `cmux link agent move --vm-kind KIND` (the caller says the
+target is a Cloud machine) sends it to a daemon that serves it; to an older
+one it sends none and refuses any kind but `owner` before the chat freezes,
+whatever that daemon advertises. Without the flag the caller says the target
+is not a Cloud machine. With `--to-pid PID` (the Cloud link process the
+caller read the kind from) the pump sends the receive and the finish only over
+a connection whose peer is that process, else it refuses before the receive
+and gives the chat back. A chat under peer control keeps its
 permission policy and mode and runs its queue at once, so it lands only on
 a Mac, an SSH host or a personal (owner) Cloud VM; under web control
 acpmux also requires a policy and mode that ask.

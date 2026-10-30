@@ -19,8 +19,10 @@ final class TopPageHost {
 
     /// The page's view, made on first show; nil when no provider serves the route.
     func view(for route: TopPageRoute, in window: WindowController) -> NSView? {
-        if let view = views[route] { return view }
         guard let services else { return nil }
+        if case .page(let id) = route, InternalPageTabStore.isPreviewPage(id),
+           services.settings?.snapshot.previewFeatures != true { return nil }
+        if let view = views[route] { return view }
         let view: NSView
         switch route {
         case .home:
@@ -31,7 +33,8 @@ final class TopPageHost {
             guard let provider = TopPages.provider(id, services: services) else { return nil }
             let key = LocalPageTab.makeKey(id)
             keys[route] = key
-            let page = InternalPageView(key: key, page: id, content: provider.makeView(for: key, in: window))
+            let content = provider.makeView(for: key, in: window)
+            let page = InternalPageView(key: key, page: id, content: content, topBar: provider.makeTopBar(for: key))
             page.navigate = services.pages.navigate
             view = page
         }

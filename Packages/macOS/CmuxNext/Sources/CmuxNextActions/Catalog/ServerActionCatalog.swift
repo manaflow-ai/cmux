@@ -22,20 +22,19 @@ nonisolated enum ServerActionCatalog: ActionCatalogGroup {
                 category: .settings, symbol: "stop.circle", surfaces: [.palette], isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
-            ActionDescriptor(
+            personOnly(ActionDescriptor(
                 id: "server.addServer", title: t("action.server.addServer", "Add Server…"),
                 keywords: ["server", "pair", "code", "approve", "add", "chief", "always on"],
                 category: .settings, symbol: "plus.rectangle.on.rectangle", surfaces: [.palette, .menu],
-                // With a code it approves without a window: `cmux servers add --code CODE [--chief] [--name N]`.
                 arguments: [
                     ActionArgument(name: "code", title: t("argument.server.code", "Pairing Code"), kind: .string, isRequired: false),
+                    ActionArgument(name: "words", title: t("argument.server.words", "Fingerprint Words"), kind: .string, isRequired: false),
                     ActionArgument(name: "name", title: t("argument.server.name", "Server Name"), kind: .string, isRequired: false),
                     ActionArgument(name: "chief", title: t("argument.server.chief", "Run My Chief There"), kind: .bool, isRequired: false),
                 ],
                 cliName: "servers add", mainMenu: .server,
-                // Approving a server gives it access to the account: a person does it, never an MCP agent.
-                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject, mcpExemption: .credentials)
-            ),
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            )),
             ActionDescriptor(
                 id: "server.showPanel", title: t("action.server.showPanel", "Server Status"),
                 keywords: ["server", "status", "menu bar", "terminals", "apps", "database", "chief"],
@@ -53,5 +52,13 @@ nonisolated enum ServerActionCatalog: ActionCatalogGroup {
 
     private static func t(_ key: StaticString, _ english: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: english, table: "ServerActions", bundle: .module)
+    }
+
+    /// The code and words identify the server; a process can generate both itself. Pairing grants
+    /// account authority, so the common control bridge must refuse all socket-originated runs.
+    private static func personOnly(_ descriptor: ActionDescriptor) -> ActionDescriptor {
+        var descriptor = descriptor
+        descriptor.isPersonOnly = true
+        return descriptor
     }
 }

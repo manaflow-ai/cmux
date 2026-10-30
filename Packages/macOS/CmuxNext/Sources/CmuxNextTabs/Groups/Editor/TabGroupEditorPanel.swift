@@ -203,29 +203,25 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     }
 
     func present(below anchor: CGRect, parent: NSWindow) {
-        let reopening = dismissing && isVisible
         dismissing = false
         ignoresMouseEvents = false
         self.anchor = anchor
         generation += 1
+        // Restore the whole card before ordering it front, including during a closing fade.
+        showPopupAtOnce()
         if self.parent !== parent {
             self.parent?.removeChildWindow(self)
             parent.addChildWindow(self, ordered: .above)
         }
         glass?.layoutSubtreeIfNeeded()
         let size = glass?.fittingSize ?? .zero
-        var origin = CGPoint(x: anchor.minX, y: anchor.minY - Metrics.space2 - size.height)
-        if let screen = parent.screen ?? NSScreen.main {
-            let visible = screen.visibleFrame
-            origin.x = min(max(origin.x, visible.minX + Metrics.space2), visible.maxX - size.width - Metrics.space2)
-            origin.y = max(origin.y, visible.minY + Metrics.space2)
-        }
-        setFrame(PopupStyle.standard.windowFrame(forCard: CGRect(origin: origin, size: size)), display: true)
-        if !reopening { alphaValue = 0 }
+        // Under the chip, on its leading edge (the one popup placement, `PopupAnchor`).
+        let card = PopupAnchor(rect: anchor, edge: .leading, gap: Metrics.space2)
+            .cardFrame(size: size, visible: (parent.screen ?? NSScreen.main)?.visibleFrame)
+        setFrame(PopupStyle.standard.windowFrame(forCard: card), display: true)
         makeKeyAndOrderFront(nil)
         makeFirstResponder(nameField)
         styleFieldEditor()
-        openPopup(pivot: popupPivot(toward: anchor))
     }
 
     /// Gray selection and caret: the system accent (blue) never shows in chrome.

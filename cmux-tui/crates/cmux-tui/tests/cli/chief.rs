@@ -6,6 +6,8 @@ use super::*;
 use serde_json::{Value, json};
 use std::os::fd::FromRawFd;
 
+#[path = "chief_adopt.rs"]
+mod adopt;
 #[path = "chief_autostart.rs"]
 mod autostart;
 #[cfg(unix)]
@@ -22,6 +24,10 @@ mod link_preview;
 mod participant_avatars;
 #[path = "chief_registry.rs"]
 mod registry;
+#[path = "chief_registry_errors.rs"]
+mod registry_errors;
+#[path = "chief_script.rs"]
+mod script;
 
 /// A JSON-lines client of the daemon; events read while waiting for an
 /// answer are kept in `events`.
@@ -803,6 +809,15 @@ fn a_dead_end_runs_the_daemons_cli_only_when_every_check_passes() {
         assert!(text.contains(reason), "{case}: {text}");
         assert_eq!(text.matches("fix: ").count(), 1, "{case}: {text}");
         assert!(!text.contains("update the"), "{case}: {text}");
+        // The fix keeps the user's session: it runs the daemon's own CLI with
+        // the same arguments and never stops the daemon (and its terminals).
+        assert!(!text.contains("daemon stop"), "{case}: {text}");
+        let fix = text.split("fix: ").nth(1).unwrap_or_default();
+        assert!(
+            fix.contains(&format!("'{}'", path.display()))
+                && fix.contains("session current journal producer list"),
+            "{case}: {text}"
+        );
     }
 
     // The refusal speaks the CLI's language; the fix command stays literal.
@@ -820,7 +835,8 @@ fn a_dead_end_runs_the_daemons_cli_only_when_every_check_passes() {
         .unwrap();
     let text = stderr(&output);
     assert!(text.contains("書き込めます") && text.contains("修正: "), "ja: {text}");
-    assert!(text.contains("daemon stop --socket"), "ja: {text}");
+    assert!(!text.contains("daemon stop"), "ja: {text}");
+    assert!(text.contains(&writable.display().to_string()), "ja: {text}");
 
     // The loop guard: a CLI started by a re-exec never re-execs again.
     let guard_dir = dir.join("guard");

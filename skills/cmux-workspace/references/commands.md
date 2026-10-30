@@ -8,7 +8,7 @@ Use these commands from a cmux terminal; the CLI reads the session from the envi
 cmux app identify              # the app: bundle, tag, socket
 cmux app capabilities
 cmux app ping
-cmux session list
+cmux workspace list            # reaches the cmux-tui daemon
 cmux terminal "$CMUX_TUI_TERMINAL_ID" show --json
 ```
 
@@ -43,8 +43,10 @@ cmux pane list --json
 cmux tab list --json
 cmux terminal list --json
 
-cmux pane pane_… split --right
-cmux pane pane_… split --down --cwd "$PWD"
+cmux pane pane_… neighbor right --json      # the pane to its right: add tabs there
+cmux pane pane_… split --right -- npm run dev   # only when no pane is there; keeps focus
+cmux pane pane_… split --down --cwd "$PWD" --shell 'tail -f logs/dev.log'
+cmux pane pane_… split --right --focus     # moves focus: only when the user asked
 cmux pane pane_… run --name tests -- npm test
 cmux pane pane_… run shell 'tail -f logs/dev.log'
 cmux tab create terminal --pane pane_… --cwd "$PWD" --name shell
@@ -116,6 +118,29 @@ cmux terminal term_… process wait --timeout-ms 600000
 
 `write` sends text literally; it adds no Enter. Key chords join modifiers with `+` (`ctrl+c`, `shift+tab`). `screen wait` exits 1 when the timeout passes without a match.
 
+## Waiting for other agents
+
+Wait instead of polling `cmux agents snapshot`:
+
+```bash
+cmux agents wait --until idle --target term_… --timeout 60       # its agent stops working
+cmux agents wait --until dialog [--target term_…|request_…] --timeout 60
+cmux agents wait --until text --target term_… --text 'tests passed' --timeout 60
+cmux agents wait --until text --target tab_… --text '^done [0-9]+$' --regex
+```
+
+It prints `{until, matched, waited_seconds, match, state}` and exits 1 when the timeout (default 30 s, at most 120 s) passes without a match, as `screen wait` does. `match.state` says how an idle agent stopped (`idle`, `done`, `blocked`, or `closed`). A terminal, tab or agent id no owner knows exits with `selector.not_found`; a dialog target that is not such an id (a request id, a chat session) may name a dialog that has not appeared yet, so it waits. The MCP tool `agents_wait` takes the same arguments.
+
+To react to whatever changes next, long-poll events and keep the cursor:
+
+```bash
+cmux agents events --timeout 0 --json                    # a cursor from now (next_after)
+cmux agents events --after evc1_… --timeout 60 --json    # the events since, or the first one
+cmux agents events --after evc1_… --kind dialog --kind agent
+```
+
+It prints `{events, next_after, timed_out}` and exits 0 either way; pass `next_after` back as `--after` for no gaps or duplicates. Kinds are `dialog`, `notification`, `tab`, `workspace` and `agent`; a `reset` event means the daemon restarted or the cursor had to start over, so read `cmux agents snapshot` again. Dialogs and agent chat states are read every second, so one that opens and resolves between two reads is missed, and their baseline is the first app read that answers. Without `--json` it prints one line per event and the cursor on stderr. The timeout is at most 60 s. The MCP tool `agents_events` takes the same arguments.
+
 ## Notifications and attention
 
 ```bash
@@ -128,14 +153,14 @@ cmux pane flash-focused                                  # app action
 
 ## Not supported
 
-Sidebar status, progress and log (`set-status`, `set-progress`, `log`, `sidebar-state`), `surface-health`, `drag-surface-to-split`, `reorder-surface`, and `cmux docs` have no equivalent in cmux-next. `cmux workspace set-status --target ws_… --status done` sets only the workflow status.
+Sidebar status, progress and log (`set-status`, `set-progress`, `log`, `sidebar-state`), `surface-health`, `drag-surface-to-split`, and `reorder-surface` have no equivalent in cmux-next. `cmux docs` is now a different, catalog-backed help command. `cmux workspace set-status --target ws_… --status done` sets only the workflow status.
 
 ## Settings and actions
 
 ```bash
 cmux settings get
-cmux settings get app.appearance
-cmux settings set app.appearance dark
+cmux settings get diff.layout
+cmux settings set diff.layout split
 cmux settings reload-configuration     # app action
 cmux action list --noun workspace
 cmux action describe "workspace new"

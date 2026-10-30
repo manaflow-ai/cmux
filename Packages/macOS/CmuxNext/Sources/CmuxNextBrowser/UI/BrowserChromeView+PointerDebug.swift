@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 
 /// A toolbar control whose hover follows the pointer (`OmnibarPointer`).
 @MainActor
@@ -51,6 +52,8 @@ extension BrowserChromeView {
         object["probe_cursor"] = report.probeCursor ?? NSNull()
         object["installed_text_cursor"] = report.installedTextCursor ?? NSNull()
         object["tracked_cursor"] = report.trackedCursor ?? NSNull()
+        // The bar's resolved look (cx-d0d.101): fill RGBA, radius, ring, state, coverage.
+        object["bar_style"] = addressBar.pill.debugStyle
         #if DEBUG
         object["omnibar_trace"] = addressBar.controller.trace
         // `ArrowCursorView.pointerDidMove` past its first check: calls and their mean cost.
@@ -120,6 +123,7 @@ extension BrowserChromeView {
         if hit === addressBar || hit.superview === addressBar && hit is NSStackView {
             return addressBar.textArea.contains(addressBar.convert(base, from: nil)) ? .bar : .barEdge
         }
+        if OmnibarPointer.clickable(at: hit, below: toolbar) != nil { return .button }
         var view: NSView? = hit
         while let current = view, current !== toolbar {
             if current is NSControl || current is any PointerHoverReporting || current is ProfileBadgeView || current is MachineBadgeView {

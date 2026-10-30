@@ -18,6 +18,8 @@
 // dispatches DOM events itself. Waiting is on events (DOM mutations, animation and transition ends,
 // frames), never on a fixed time; a wait that never resolves fails at its cap.
 
+import type { MotionController, MotionEvidence } from "./motionEvidence";
+
 export type PlayTarget =
   | { role: string; name?: string | RegExp }
   | { testId: string }
@@ -51,6 +53,8 @@ export type PlayContext = {
   /** Resolves `target` now (throws when it is not there). */
   find(target: PlayTarget): Element;
   document: Document;
+  /** Start/stop a deterministic frame probe during a play step. */
+  motion: MotionController;
 };
 
 export type Play = (ctx: PlayContext) => Promise<void>;
@@ -115,7 +119,12 @@ export type StepReport = {
   /** Popup layer problems (judgePopups); absent where the stage measured none. */
   popupProblems?: string[];
 };
-export type PlayReport = { status: "pass" | "warn" | "fail" | "none"; steps: StepReport[]; error?: string };
+export type PlayReport = {
+  status: "pass" | "warn" | "fail" | "none";
+  steps: StepReport[];
+  motion?: MotionEvidence;
+  error?: string;
+};
 
 // ---- Pure rules (unit tested) ----
 
@@ -158,6 +167,29 @@ export function rectDelta(before: Rect | null, after: Rect | null): number {
     Math.abs(before.y - after.y),
     Math.abs(before.width - after.width),
     Math.abs(before.height - after.height),
+  );
+}
+
+export type LayoutShiftSourceRects = {
+  previousRect?: Pick<DOMRectReadOnly, "x" | "y" | "width" | "height">;
+  currentRect?: Pick<DOMRectReadOnly, "x" | "y" | "width" | "height">;
+};
+
+/** True only for shifts caused by fractional layout rounding below half a CSS pixel. */
+export function isSubpixelLayoutShift(sources: LayoutShiftSourceRects[]): boolean {
+  return (
+    sources.length > 0 &&
+    sources.every(({ previousRect, currentRect }) => {
+      if (!previousRect || !currentRect) return false;
+      return (
+        Math.max(
+          Math.abs(previousRect.x - currentRect.x),
+          Math.abs(previousRect.y - currentRect.y),
+          Math.abs(previousRect.width - currentRect.width),
+          Math.abs(previousRect.height - currentRect.height),
+        ) < 0.5
+      );
+    })
   );
 }
 
@@ -243,6 +275,13 @@ export function roleOf(element: Element): string | undefined {
   return IMPLICIT_ROLES[element.tagName];
 }
 
+/** The text a screen reader names a node by: aria-hidden parts (check glyphs, icons) do not count. */
+function namedText(node: Node): string {
+  if (node.nodeType === 3) return node.textContent ?? "";
+  if (node.nodeType !== 1 || (node as Element).getAttribute("aria-hidden") === "true") return "";
+  return [...node.childNodes].map(namedText).join("");
+}
+
 export function accessibleName(element: Element): string {
   const label = element.getAttribute("aria-label");
   if (label) return label.trim();
@@ -250,12 +289,16 @@ export function accessibleName(element: Element): string {
   if (labelledBy) {
     const text = labelledBy
       .split(/\s+/)
-      .map((id) => element.ownerDocument.getElementById(id)?.textContent ?? "")
+      .map((id) => {
+        const labelElement = element.ownerDocument.getElementById(id);
+        return labelElement ? namedText(labelElement) : "";
+      })
       .join(" ")
+      .replace(/\s+/g, " ")
       .trim();
     if (text) return text;
   }
-  const text = (element.textContent ?? "").replace(/\s+/g, " ").trim();
+  const text = namedText(element).replace(/\s+/g, " ").trim();
   return text || (element.getAttribute("title") ?? element.getAttribute("placeholder") ?? "").trim();
 }
 

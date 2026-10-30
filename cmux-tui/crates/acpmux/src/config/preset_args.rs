@@ -6,9 +6,12 @@
 //! argument). They are an allowlist: on a Claude stdio command line only
 //! `--tools ""` (no tools) or `--tools <built-in names>` (only those), `--strict-mcp-config` (no MCP servers, as no
 //! `--mcp-config` may be given), `--no-session-persistence`,
-//! `--setting-sources project` (no user or local settings: no user MCP
-//! servers, hooks or plugins; the project's own settings, its denied tools
-//! included, stay) and `--disable-slash-commands` (no skills or slash
+//! `--setting-sources project` or `project,local` (no user settings: no
+//! user MCP servers, hooks or plugins; the session folder's own project and
+//! local files, their allowed and denied tools included, stay; both sit in
+//! the same folder; Claude Code takes an MCP tool's allow rule only from
+//! the local file, so a session that can write its folder could allow
+//! itself the tools of MCP servers it already loads, never a new server) and `--disable-slash-commands` (no skills or slash
 //! commands); on any other harness none. Every other word is refused, `=` forms and short aliases
 //! included, so a preset can only take capabilities away, never widen the
 //! permission policy or reach outside the session.
@@ -57,9 +60,55 @@ pub struct Preset {
     pub system_prompt_sha256: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// The mode a session started from this preset starts in. One that does
+    /// not ask is set by the person only, and used without the person only
+    /// while `mode_approval` holds (`hub/person.rs`, (b)).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+    /// The person's approval of this preset's mode: the
+    /// [`Preset::approval_digest`] of the contents the person approved.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode_approval: Option<String>,
 }
 
 impl Preset {
+    /// The sha256 (lowercase hex) of everything this preset starts a
+    /// session with: every field but `description` and `mode_approval`.
+    /// None only if it cannot be serialized (then nothing is approved).
+    pub fn approval_digest(&self) -> Option<String> {
+        let bound = Self { description: None, mode_approval: None, ..self.clone() };
+        // A struct of strings, lists and a BTreeMap: its JSON is stable.
+        serde_json::to_vec(&bound).ok().map(|bytes| crate::sha256::sha256_hex(&bytes))
+    }
+
+    /// `approveMode` of a preset write (`hub/person.rs` (b); the person's
+    /// own for `true`): bind the approval to the contents as they are now,
+    /// or withdraw it. A later change of the contents drops it.
+    pub fn apply_mode_approval(&mut self, approve: Option<bool>) -> Result<(), String> {
+        match approve {
+            Some(true) if self.mode.is_none() => {
+                Err("this preset has no mode to approve: set mode first".into())
+            }
+            Some(true) => {
+                self.mode_approval = self.approval_digest();
+                Ok(())
+            }
+            Some(false) => {
+                self.mode_approval = None;
+                Ok(())
+            }
+            None => Ok(()),
+        }
+    }
+
+    /// Whether the person approved this preset's mode for its current contents.
+    pub fn mode_approved(&self) -> bool {
+        match (&self.mode, &self.mode_approval, self.approval_digest()) {
+            (Some(_), Some(approved), Some(now)) => cmux_local_auth::tokens_match(approved, &now),
+            _ => false,
+        }
+    }
+
     /// Whether the preset changes the harness command line (args or a system
     /// prompt): never for a remote-origin session.
     pub fn shapes_command(&self) -> bool {
@@ -115,11 +164,16 @@ pub fn check_preset_args(kind: HarnessKind, args: &[String]) -> Result<(), Strin
                     );
                 }
             },
+            // `local` is the session folder's own `.claude/settings.local.json`,
+            // next to the project file: Claude Code reads an allow rule for an
+            // MCP tool only from there (2.1.305), so the Chief allows its own
+            // tools in it. Never the user's settings. Fewer sources than no
+            // flag at all (user, project and local).
             "--setting-sources" => match words.next().map(String::as_str) {
-                Some("project") => {}
+                Some("project" | "project,local") => {}
                 _ => {
                     return Err(
-                        "args: --setting-sources takes only \"project\" (no user or local settings)"
+                        "args: --setting-sources takes only \"project\" or \"project,local\" (no user settings)"
                             .to_owned(),
                     );
                 }
@@ -127,7 +181,7 @@ pub fn check_preset_args(kind: HarnessKind, args: &[String]) -> Result<(), Strin
             "--strict-mcp-config" | "--no-session-persistence" | "--disable-slash-commands" => {}
             other => {
                 return Err(format!(
-                    "args: {other:?} is not allowed; a preset may pass only {} (\"--tools\" with an empty value or built-in names, \"--setting-sources\" with \"project\"); set systemPrompt for a system prompt file",
+                    "args: {other:?} is not allowed; a preset may pass only {} (\"--tools\" with an empty value or built-in names, \"--setting-sources\" with \"project\" or \"project,local\"); set systemPrompt for a system prompt file",
                     CLAUDE_ALLOWED.join(", ")
                 ));
             }
@@ -206,6 +260,8 @@ pub fn write_system_prompt(presets: &Path, name: &str, text: &str) -> io::Result
 
 /// Removes preset `name`'s directory (its system prompt file).
 pub fn remove_preset_dir(presets: &Path, name: &str) -> io::Result<()> {
+    // A lost home's presets may be another daemon's now (`config::mark_home_lost`).
+    crate::config::refuse_lost_home(presets).map_err(io::Error::other)?;
     if check_preset_dir_name(name).is_err() {
         return Ok(());
     }

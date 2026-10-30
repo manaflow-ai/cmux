@@ -9,6 +9,9 @@
 //! tab whose group or pin changed and every tab group the change touched,
 //! so `session.events` readers converge without refetching.
 
+pub(crate) mod reopen_identity;
+pub(crate) mod tab_slot;
+
 use std::collections::BTreeSet;
 
 use super::tab_drag;
@@ -75,9 +78,6 @@ pub(crate) struct StripEdit {
     /// recorded as one closed-history group that forms it again
     /// (RECOVERABLE-BY-DEFAULT).
     pub(crate) ungrouped: Option<Value>,
-    /// A group that closes with its tabs (Close Group): its archive joins
-    /// the closed-history group of those tabs, whose reopen forms it again.
-    pub(crate) closed_group: Option<Value>,
     pub(crate) result: StripResult,
 }
 
@@ -108,9 +108,11 @@ impl Mux {
                     tab_state: Vec::new(),
                     saved: None,
                     ungrouped: None,
-                    closed_group: None,
                     result: StripResult::None,
                 };
+                // A screen, pane or workspace close leaves the rows of the
+                // groups it emptied: drop them before the edit sees them.
+                prune_tab_groups(&projected, &mut edit.groups);
                 let result = mutate(&mux, &mut projected, &mut edit)?;
                 Mux::rebuild_split_screen_index(&mut projected);
                 prune_tab_groups(&projected, &mut edit.groups);
@@ -200,8 +202,7 @@ fn strip_state_write(
     before: &crate::workspace_registry::PresentationSnapshot,
     edit: StripEdit,
 ) -> crate::resource_mutation::PlanStateWrite {
-    let StripEdit { groups, pins, tab_state, saved, ungrouped, closed_group, result: result_kind } =
-        edit;
+    let StripEdit { groups, pins, tab_state, saved, ungrouped, result: result_kind } = edit;
     let mut touched_tabs = BTreeSet::new();
     for (tab, group) in &before.tab_groups.members {
         if groups.members.get(tab) != Some(group) {
@@ -243,9 +244,6 @@ fn strip_state_write(
                 "tab_group",
                 archive,
             )?;
-        }
-        if let Some(archive) = &closed_group {
-            crate::state::closed_history_store::attach_closed_tab_group(transaction, archive)?;
         }
         write_tab_groups(transaction, &groups)?;
         for (tab, pinned, url) in &pins {

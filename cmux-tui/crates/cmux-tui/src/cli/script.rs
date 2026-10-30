@@ -11,6 +11,8 @@
 //! starts a new one when a cell ends its session (timeout, limit, cancel).
 //! `types` prints the generated `cmux` declarations plus the script additions.
 
+use cmux_json::JsonSet as _;
+
 mod messages;
 
 #[cfg(test)]
@@ -278,8 +280,7 @@ pub(super) fn error_text(answer: &Value) -> String {
         && message.starts_with("bad request")
         && message.contains("script-")
     {
-        let fix = super::fix_command::restart_routed_daemon(&super::fix_command::this_cli());
-        return format!("cmux: {} {fix}", messages().unsupported_daemon);
+        return format!("cmux: {}", messages().unsupported_daemon);
     }
     let mut text = format!("cmux: {code}: {message}");
     if let Some(details) = answer.get("error_details").filter(|d| !d.is_null()) {
@@ -319,7 +320,7 @@ pub(super) fn run_request(code: &str, args: &Value, timeout_ms: Option<u64>) -> 
     let mut request =
         json!({ "id": "script-run-1", "cmd": "script-run", "code": code, "args": args });
     if let Some(ms) = timeout_ms {
-        request["timeout_ms"] = json!(ms);
+        request.set("timeout_ms", json!(ms));
     }
     request
 }
@@ -387,7 +388,7 @@ where
         }
         let mut request = json!({ "id": next_id("eval"), "cmd": "script-repl-eval", "session": session, "code": code });
         if let Some(ms) = timeout_ms {
-            request["timeout_ms"] = json!(ms);
+            request.set("timeout_ms", json!(ms));
         }
         let outcome =
             exchange(lines, writer, &request, interrupts, &mut |l, m| out.log(l, m), cancel_wait)

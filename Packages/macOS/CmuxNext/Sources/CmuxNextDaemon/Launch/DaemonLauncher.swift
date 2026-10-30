@@ -49,12 +49,18 @@ public struct DaemonLauncher: Sendable {
         /// (`CMUX_NEXT_TUI_BIN`) is still probed, and never gets `webSocketPageOrigins` (``pageListenerArguments(_:)``).
         public var binaryIsBundled: Bool
         public var webSocketPageOrigins: [String] // the page origins the owner's loopback WebSocket admits; empty: no listener
+        /// `server ensure --exit-with-pid`: an owner `ensure` spawns ends its terminals and stops when this process
+        /// exits. For test harnesses (`getpid()`), so a crashed or cancelled run leaves no owner behind; the app
+        /// never sets it, because its owner outlives the app. Needs a same-tree cmux-tui (older ones refuse it).
+        public var exitWithProcess: Int32?
 
         public init(binary: URL, session: String, stateDirectory: URL? = nil, configFile: URL? = nil,
                     runtimeBase: URL = DaemonLauncher.userTemporaryDirectory(),
                     terminalReapGraceSeconds: UInt32 = 30, rememberedSocket: String? = nil,
-                    installKey: FrontendInstallKey? = nil, binaryIsBundled: Bool = false, webSocketPageOrigins: [String] = []) {
+                    installKey: FrontendInstallKey? = nil, binaryIsBundled: Bool = false, webSocketPageOrigins: [String] = [],
+                    exitWithProcess: Int32? = nil) {
             self.binary = binary
+            self.exitWithProcess = exitWithProcess
             self.binaryIsBundled = binaryIsBundled
             self.webSocketPageOrigins = webSocketPageOrigins
             self.session = session
@@ -99,6 +105,8 @@ public struct DaemonLauncher: Sendable {
     private let rememberedSocket: RememberedSocket
     /// Version handoff state (`handOffIfStale`).
     let handoff = DaemonHandoffState()
+    /// How the last endpoint `ensure` ended: the gate of Restart cmux-tui (DaemonLauncher+Replace).
+    public let ensureOutcome = EnsureOutcome()
     let clock: any Clock<Duration>
     private let ensureTimeout: Duration
     /// Hard cap on one `server ensure`. The daemon bounds a restore itself
@@ -341,6 +349,7 @@ public struct DaemonLauncher: Sendable {
         ["--session", configuration.session, "--json", "server", "ensure"]
             + (reapGrace ? ["--terminal-reap-grace-seconds", String(configuration.terminalReapGraceSeconds)] : [])
             + (configuration.installKey == nil ? [] : ["--install-key-stdin"])
+            + (configuration.exitWithProcess.map { ["--exit-with-pid", String($0)] } ?? [])
             + (progress ? ["--restore-progress"] : []) + pageListenerArguments(configuration)
     }
 
@@ -417,28 +426,8 @@ public struct DaemonLauncher: Sendable {
                     return DaemonEndpoint(socketPath: path)
                 }
             }
-            return try await ensure().endpoint
+            return try await ensureRecordingOutcome().endpoint
         }
-    }
-
-    /// Build commit of the bundled binary (`cmux 0.1.0 (<commit>; ghostty …)`).
-    public func bundledBuildCommit() async throws -> String? {
-        let result = try await ProcessRunner.run(executable: configuration.binary, arguments: ["--version"],
-                                                 environment: nil, timeout: .seconds(5), clock: clock)
-        return Self.parseBuildCommit(String(decoding: result.stdout, as: UTF8.self))
-    }
-
-    static func parseBuildCommit(_ version: String) -> String? {
-        guard version.contains("(") else { return nil }
-        let commit = version.drop { $0 != "(" }.dropFirst().prefix { $0.isHexDigit }
-        return commit.count >= 7 ? String(commit) : nil
-    }
-
-    /// True when the running daemon was built from a different commit than
-    /// the bundled binary, so the app should hand off with `restartDaemon`.
-    public func isStale(_ identity: DaemonIdentity) async -> Bool {
-        guard let running = identity.buildCommit, let bundled = try? await bundledBuildCommit() else { return false }
-        return running != bundled
     }
 
     /// Asks the running owner to exit (version handoff), then ensures a new

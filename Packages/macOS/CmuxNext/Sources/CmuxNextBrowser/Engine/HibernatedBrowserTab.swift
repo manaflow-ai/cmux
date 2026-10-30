@@ -3,9 +3,14 @@ public import Foundation
 public import Observation
 
 /// Stands in for a page that hibernated (its engine page was closed to
-/// free memory): keeps the URL, title, favicon and the last snapshot, and
-/// shows the snapshot until the App restores the real page. Navigating or
-/// reloading asks the host (`onWake`) to restore it first.
+/// free memory): keeps the URL, title and favicon, and shows the last
+/// snapshot until the App restores the real page. Navigating or reloading
+/// asks the host (`onWake`) to restore it first.
+///
+/// The snapshot is read from the host's bounded image cache when it is
+/// needed and held only while the pane shows this page: a placeholder that
+/// kept its own full-size picture cost about 7 MB of app memory per
+/// hibernated tab, with no bound.
 @Observable
 public final class HibernatedBrowserTab: BrowserTab {
     public let id: BrowserTabID
@@ -19,9 +24,15 @@ public final class HibernatedBrowserTab: BrowserTab {
     @ObservationIgnored public weak var keyRouter: (any BrowserKeyRouting)?
     /// The saved history the real page is recreated with.
     public let restoreState: BrowserRestoreState
-    /// The last page pixels, for the hover preview and the pane until the
-    /// page is back.
-    public let snapshotImage: CGImage?
+    /// The last page pixels, for the pane until the page is back; nil once
+    /// the host's cache let them go.
+    public var snapshotImage: CGImage? { snapshotSource() }
+    private let snapshotSource: @MainActor () -> CGImage?
+    /// The decoded pixels the pane shows now; nil while the placeholder is not in a window or its
+    /// picture still decodes. A wake hands them to the new page's stand-in
+    /// (`BrowserWakeStandIn`), which then needs no decode of its own.
+    public var shownPicture: CGImage? { pictureView.decodedPicture }
+    @ObservationIgnored private let pictureView: BrowserPictureView
     /// What woke the page, for the host to apply once it is restored.
     public enum Wake: Sendable, Hashable {
         case load(URL)
@@ -36,7 +47,7 @@ public final class HibernatedBrowserTab: BrowserTab {
     @ObservationIgnored public let contentView: NSView
 
     public init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, state: BrowserTabState,
-                favicon: NSImage?, restoreState: BrowserRestoreState, snapshot: CGImage?) {
+                favicon: NSImage?, restoreState: BrowserRestoreState, snapshot: @escaping @MainActor () -> CGImage?) {
         self.id = id
         self.engineKind = engine
         self.profileID = profile
@@ -44,15 +55,17 @@ public final class HibernatedBrowserTab: BrowserTab {
         saved.canGoBack = state.canGoBack
         saved.canGoForward = state.canGoForward
         saved.zoom = state.zoom
+        // The omnibar's lock and the page's icon while it sleeps and wakes, as before it slept.
+        saved.security = state.security
+        saved.faviconURL = state.faviconURL
+        // A muted tab stays muted asleep (the strip's speaker) and wakes muted.
+        saved.isAudioMuted = state.isAudioMuted
         self.state = saved
         self.favicon = favicon
         self.restoreState = restoreState
-        self.snapshotImage = snapshot
-        let view = NSImageView()
-        view.imageScaling = .scaleAxesIndependently
-        view.image = snapshot.map { NSImage(cgImage: $0, size: .zero) }
-        view.wantsLayer = true
-        contentView = view
+        self.snapshotSource = snapshot
+        pictureView = BrowserPictureView(picture: snapshot)
+        contentView = pictureView
     }
 
     public func load(_ url: URL) { onWake?(.load(url)) }
@@ -66,7 +79,7 @@ public final class HibernatedBrowserTab: BrowserTab {
         guard let snapshotImage else { throw BrowserTabError.snapshotUnavailable }
         return snapshotImage
     }
-    public func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue {
+    public func evaluate(_ script: String, world: BrowserScriptWorld, gesture: BrowserScriptGesture) async throws -> BrowserJSValue {
         throw BrowserTabError.closed
     }
     public func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool) async -> BrowserFindResult { .none }

@@ -44,26 +44,30 @@ impl<'a> Reader<'a> {
 
     pub(crate) fn take(&mut self, n: usize) -> Result<&'a [u8], DecodeError> {
         let end = self.at.checked_add(n).ok_or(DecodeError::Invalid("length"))?;
-        if end > self.bytes.len() {
+        let Some(out) = self.bytes.get(self.at..end) else {
             return Err(DecodeError::Truncated { need: end, have: self.bytes.len() });
-        }
-        let out = &self.bytes[self.at..end];
+        };
         self.at = end;
         Ok(out)
     }
 
+    /// The next `N` bytes as an array.
+    fn array<const N: usize>(&mut self) -> Result<[u8; N], DecodeError> {
+        let bytes = self.take(N)?;
+        <[u8; N]>::try_from(bytes).map_err(|_| DecodeError::Invalid("length"))
+    }
+
     pub(crate) fn u8(&mut self) -> Result<u8, DecodeError> {
-        Ok(self.take(1)?[0])
+        let [b] = self.array::<1>()?;
+        Ok(b)
     }
 
     pub(crate) fn u16(&mut self) -> Result<u16, DecodeError> {
-        let b = self.take(2)?;
-        Ok(u16::from_le_bytes([b[0], b[1]]))
+        Ok(u16::from_le_bytes(self.array()?))
     }
 
     pub(crate) fn u32(&mut self) -> Result<u32, DecodeError> {
-        let b = self.take(4)?;
-        Ok(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+        Ok(u32::from_le_bytes(self.array()?))
     }
 
     pub(crate) fn i32(&mut self) -> Result<i32, DecodeError> {
@@ -71,14 +75,11 @@ impl<'a> Reader<'a> {
     }
 
     pub(crate) fn u64(&mut self) -> Result<u64, DecodeError> {
-        let b = self.take(8)?;
-        let mut a = [0u8; 8];
-        a.copy_from_slice(b);
-        Ok(u64::from_le_bytes(a))
+        Ok(u64::from_le_bytes(self.array()?))
     }
 
     pub(crate) fn rest(&mut self) -> &'a [u8] {
-        let out = &self.bytes[self.at..];
+        let out = self.bytes.get(self.at..).unwrap_or_default();
         self.at = self.bytes.len();
         out
     }

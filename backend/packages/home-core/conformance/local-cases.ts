@@ -13,6 +13,12 @@ import { questionCases, questionPart } from "./question-cases.ts"
  * person resets that thread only).
  * The ninth op, `question.answer`, and the `question` part are in question-cases.ts.
  */
+const createdHead = (request: Parameters<typeof create>[0]) => {
+  const result = create(request)
+  if (!result.ok) throw new Error(result.code)
+  return result.head
+}
+
 export const localCases = (c: Corpus): void => {
   const ALICE = "user_local"
   const MUX = "agent_mux"
@@ -207,6 +213,18 @@ export const localCases = (c: Corpus): void => {
   budget.advance(1)
   c.op(budget, "budget: at the gap", MUX, "m11", send("m11", parts("now")), "commit")
 
+  // The gap's free first round: with two agents, both answer a person's text at once; the third
+  // agent text since that person waits the gap (agent-to-agent traffic stays spaced).
+  const round = new CoreHost(createdHead({ ...base, participants: [human(ALICE), agent(MUX), agent("agent_two")] }))
+  round.send(ALICE, "h1", "status?")
+  c.op(round, "gap round: the first agent answers the person", MUX, "r1", send("r1", parts("fine")), "commit")
+  round.advance(50)
+  c.op(round, "gap round: the second agent answers within the gap", "agent_two", "r2", send("r2", parts("also fine")), "commit")
+  round.advance(50)
+  c.op(round, "gap round: a third agent text within the gap is refused", MUX, "r3", send("r3", parts("re")), "agent_rate")
+  round.advance(1_950)
+  c.op(round, "gap round: at the gap", MUX, "r3", send("r3", parts("re")), "commit")
+
   // The work-card bypass: text-less work cards between agent texts must not reset or hide the count.
   const cards = new CoreHost()
   cards.send(ALICE, "h1", "go")
@@ -261,7 +279,9 @@ export const localCases = (c: Corpus): void => {
   c.op(files, "attachment: an agent's attachment-only message is not a turn", MUX, "f5", send("f5", [clip({ hash: sha("3") })]), "commit")
   c.op(files, "attachment: one byte over 100000000", ALICE, "f0", send("f0", [clip({ byte_count: 100_000_001 })]), "invalid_parts")
   c.op(files, "attachment: an SVG is never on the allow list", ALICE, "f0", send("f0", [photo({ name: "logo.svg", mime_type: "image/svg+xml" })]), "invalid_parts")
-  c.op(files, "attachment: a denied extension under an allowed type", ALICE, "f0", send("f0", [photo({ name: "setup.exe", mime_type: "application/zip" })]), "invalid_parts")
+  c.op(files, "attachment: an HTML page goes as text under its own name", ALICE, "f6", send("f6", [{ type: "attachment", hash: sha("4"), name: "index.html", mime_type: "text/plain", byte_count: 1_200 } as never]), "commit")
+  c.op(files, "attachment: any binary goes as a generic file under any name", ALICE, "f7", send("f7", [{ type: "attachment", hash: sha("5"), name: "setup.exe", mime_type: "application/octet-stream", byte_count: 4_096 } as never]), "commit")
+  c.op(files, "attachment: an HTML type is never sent as its own type", ALICE, "f0", send("f0", [photo({ name: "index.html", mime_type: "text/html" })]), "invalid_parts")
   c.op(files, "attachment: an upper-case type", ALICE, "f0", send("f0", [photo({ mime_type: "IMAGE/PNG" })]), "invalid_parts")
   c.op(files, "attachment: a hash that is not 64 lowercase hex digits", ALICE, "f0", send("f0", [photo({ hash: "A".repeat(64) })]), "invalid_parts")
   c.op(files, "attachment: a name with a path separator", ALICE, "f0", send("f0", [photo({ name: "../x.png" })]), "invalid_parts")

@@ -25,11 +25,7 @@ enum BrowserProfileHandlers {
             let id = record.id
             if let name = invocation["name"]?.stringValue, !name.isEmpty {
                 try profiles.rename(id, to: name)
-            } else if let window = context.activeWindow?.window {
-                RenamePrompt.run(title: BrowserProfileAppStrings.renameTitle, initial: record.name, in: window) { name in
-                    try? profiles.rename(id, to: name)
-                }
-            } else {
+            } else if !context.services.registry.ask("browserProfile.rename", invocation, ActionArgumentAsk(argument: "name", initialText: record.name)) {
                 throw ActionFailure.invalidTarget(BrowserProfileAppStrings.invalidName)
             }
         }
@@ -109,7 +105,9 @@ extension AppActionContext {
         return record
     }
 
-    private func explicitBrowserProfile(_ invocation: ActionInvocation) throws -> BrowserProfileRecord? {
+    /// The profile an invocation names (its target, or its `browserProfile`
+    /// argument by id or name), nil when it names none; an unknown one throws.
+    func explicitBrowserProfile(_ invocation: ActionInvocation) throws -> BrowserProfileRecord? {
         let text: String?
         if let target = invocation.target, target.kind == .browserProfile {
             text = target.id

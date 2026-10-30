@@ -15,8 +15,12 @@ mod directory;
 mod exit_state;
 mod frame_producer;
 mod geometry;
+#[cfg(unix)]
+mod holder_spawn;
+mod host_launch;
 mod host_state;
 mod input;
+mod local_output;
 mod metadata;
 mod mouse_input;
 mod options;
@@ -31,6 +35,9 @@ mod stream_progress;
 mod terminal_runtime;
 mod terminal_stream;
 pub use color_overrides::apply_terminal_color_overrides;
+#[cfg(unix)]
+pub(crate) use holder_spawn::{HolderAdoption, HolderSpawn};
+pub(crate) use host_launch::HostLaunch;
 pub use host_state::{TerminalHostConnectionState, TerminalHostFallback};
 // Hosted (unix) code and the unit tests are the only callers.
 use clear_history::LOCAL_PASTE_WRITE_TIMEOUT;
@@ -112,8 +119,6 @@ use hosted_callbacks::hosted_terminal_callbacks;
 use hosted_reader::HostedReader;
 #[cfg(any(unix, windows))]
 mod host_kitty_limits;
-#[cfg(all(test, unix))]
-mod journal_failure_tests;
 #[cfg(any(unix, windows))]
 mod journal_reconnect;
 #[cfg(any(unix, windows))]
@@ -133,9 +138,9 @@ use std::path::PathBuf;
 #[cfg(test)]
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
-use std::sync::mpsc::{
-    Receiver, RecvError, RecvTimeoutError, SyncSender, TryRecvError, TrySendError, sync_channel,
-};
+#[cfg(test)]
+use std::sync::mpsc::{Receiver, SyncSender};
+use std::sync::mpsc::{RecvError, RecvTimeoutError, TryRecvError};
 use std::sync::{Arc, Condvar, Mutex, TryLockError, Weak};
 use std::time::{Duration, Instant};
 
@@ -388,24 +393,13 @@ pub(crate) struct PtyGeometry {
 }
 
 impl PtyGeometry {
-    fn pty_size(self) -> anyhow::Result<PtySize> {
-        let pixel_width = self.cols.checked_mul(self.cell_width.max(1)).ok_or_else(|| {
-            anyhow::anyhow!(
-                "PTY pixel width exceeds {}: {} columns at {} pixels per cell",
-                u16::MAX,
-                self.cols,
-                self.cell_width.max(1)
-            )
-        })?;
-        let pixel_height = self.rows.checked_mul(self.cell_height.max(1)).ok_or_else(|| {
-            anyhow::anyhow!(
-                "PTY pixel height exceeds {}: {} rows at {} pixels per cell",
-                u16::MAX,
-                self.rows,
-                self.cell_height.max(1)
-            )
-        })?;
-        Ok(PtySize { rows: self.rows, cols: self.cols, pixel_width, pixel_height })
+    /// The winsize for this geometry. The pixel fields saturate at
+    /// `u16::MAX`: a grid the size clamp accepts must not fail only because
+    /// `ws_xpixel`/`ws_ypixel` cannot hold its pixel extent.
+    fn pty_size(self) -> PtySize {
+        let pixel_width = self.cols.saturating_mul(self.cell_width.max(1));
+        let pixel_height = self.rows.saturating_mul(self.cell_height.max(1));
+        PtySize { rows: self.rows, cols: self.cols, pixel_width, pixel_height }
     }
 }
 
@@ -580,6 +574,16 @@ impl Surface {
         }
     }
 
+    /// The hex terminal id key-press flow marks name this terminal by (`cmux_flow_trace`): the host's
+    /// terminal id, which the terminal host and the holder also know. Empty for a browser surface or a
+    /// local PTY with no host identity.
+    pub(crate) fn flow_terminal_id(&self) -> &str {
+        match self {
+            Self::Pty(surface) => surface.flow_terminal_id(),
+            Self::Browser(_) => "",
+        }
+    }
+
     /// Create another view placement for this terminal without creating a
     /// second process or terminal emulator.
     pub(crate) fn project_terminal(
@@ -683,6 +687,11 @@ impl Surface {
             terminal_metadata.set_osc_progress(&snapshot.osc_progress),
             "terminal host returned invalid OSC progress metadata"
         );
+        // The prompt or running command the host saw, so a daemon that
+        // adopts a terminal after a restart does not read it as idle.
+        if let Some(activity) = snapshot.shell_activity {
+            terminal_metadata.activity.restore(activity);
+        }
         term.resize(
             snapshot.cols,
             snapshot.rows,
@@ -712,7 +721,7 @@ impl Surface {
         }
         let initial_color_revision = term.color_revision();
         let initial_cursor_activity = term.cursor_activity().ok();
-        let title = term.title().unwrap_or_default();
+        let title = crate::terminal_title::read(&term);
         let pwd = term.pwd();
         let mut mouse_encoders = MouseEncoders::new()?;
         mouse_encoders.sync_from_terminal(&term);
@@ -736,7 +745,7 @@ impl Surface {
             platform::snapshot_cwd_to_local_path(cwd, Some(attachment.record.owner_token.as_str()))
         });
         let render_state = RenderState::new()?;
-        let (frame_requests, frame_rx) = sync_channel(1);
+        let frame_requests = frame_producer::FrameRequests::new();
         #[cfg(test)]
         let frame_producer_before_upgrade = Arc::new(Mutex::new(None));
         let surface = Arc::new(Surface::Pty(PtySurface {
@@ -751,11 +760,12 @@ impl Surface {
                 terminal_public_id: terminal_public_id.map(Arc::new),
                 journal_generation,
                 journal_capture_supported,
+                #[cfg(unix)]
+                local_output: None,
                 journal_capture_epoch: AtomicU64::new(0),
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
-                journal_capture_disabled: AtomicBool::new(false),
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
@@ -858,7 +868,7 @@ impl Surface {
         }));
         Self::install_deferred_cell_pixel_handler(&surface, &control_responses);
         Self::install_clipboard_read_handler(&surface);
-        spawn_frame_producer(&surface, frame_rx)?;
+        spawn_frame_producer(&surface)?;
 
         // Keep exact-child rollback ownership armed through the final thread
         // spawn. If Builder::spawn fails, dropping the closure clone and
@@ -969,6 +979,8 @@ impl Surface {
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PtyGeometryTestStep {
+    LocalReaderReady,
+    LocalDrainSnapshot,
     ResizeStarted,
     ResizeCommitBoundary,
     CellPixelStarted,

@@ -47,7 +47,117 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         // takes retention bounds.
         (vec!["closed", "c1", "delete", "--members", "1"], "closed.delete"),
         (vec!["closed", "clear", "--before-ms", "5", "--keep-newest", "3"], "closed.delete"),
+        // closed.reopen by a closed tab's id (its link), with the pane a tab
+        // whose pane and workspace are gone opens in.
+        (vec!["closed", "reopen", "--tab", TAB, "--fallback-pane", PANE], "closed.reopen"),
+        // Fields added since the case list last covered them: each one's CLI path.
+        (vec!["notification", "clear", "--workspace", WORKSPACE], "notification.clear"),
+        (
+            vec!["notification", "create", "--title", "t", "--body", "", "--workspace", WORKSPACE],
+            "notification.create",
+        ),
+        (vec!["pane", "create", "--shell", "make watch"], "pane.create"),
+        (vec!["pane", "create", "--", "make", "watch"], "pane.create"),
+        (vec!["screen", "create", "--shell", "make watch"], "screen.create"),
+        (vec!["screen", "create", "--", "make", "watch"], "screen.create"),
+        (vec!["tab", "create", "terminal", "--shell", "make watch"], "tab.create_terminal"),
+        (vec!["tab", "create", "terminal", "--", "make", "watch"], "tab.create_terminal"),
+        (
+            vec!["tab", "create", "browser", "--url", "https://a.test", "--engine", "webkit"],
+            "tab.create_browser",
+        ),
+        (vec!["tab", TAB, "update", "--marked-unread", "true"], "tab.update"),
+        (vec!["attention", "request", "--tab", TAB, "--reason", "Confirm"], "tab.update"),
+        (vec!["attention", "clear", "--tab", TAB], "tab.update"),
+        (vec!["workspace", WORKSPACE, "close", "--report-closed-ids"], "workspace.close"),
+        (
+            vec![
+                "workspace",
+                WORKSPACE,
+                "rename",
+                "--name",
+                "logs",
+                "--source",
+                "user",
+                "--expected-generation",
+                "daemon",
+                "--expected-name-revision",
+                "3",
+            ],
+            "workspace.rename",
+        ),
+        (vec!["workspace", WORKSPACE, "rename", "--release-to-auto"], "workspace.rename"),
+        (
+            vec![
+                "workspace",
+                WORKSPACE,
+                "update",
+                "--description",
+                "notes",
+                "--task-status",
+                "review",
+            ],
+            "workspace.update",
+        ),
+        // A finished turn's last message rides beside the event as live_reply.
+        (
+            vec![
+                "agent",
+                "hook",
+                "emit",
+                "--source",
+                "claude",
+                "--event",
+                "Stop",
+                "--terminal",
+                TERMINAL,
+                "--payload-json",
+                r#"{"session_id":"s1","hook_event_name":"Stop","last_assistant_message":"done"}"#,
+            ],
+            "session.journal.append",
+        ),
+        // A terminal agent's question (Claude's AskUserQuestion) rides beside the event as
+        // live_question.
+        (
+            vec![
+                "agent",
+                "hook",
+                "emit",
+                "--source",
+                "claude",
+                "--event",
+                "PreToolUse",
+                "--terminal",
+                TERMINAL,
+                "--payload-json",
+                r#"{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_use_id":"toolu_1","tool_input":{"questions":[{"question":"Which branch?","header":"Branch","options":[{"label":"main"},{"label":"dev"}]}]}}"#,
+            ],
+            "session.journal.append",
+        ),
+        // column.update: the pinned (Home) dock and whether it takes tabs (pinned-dock-v1).
+        (
+            vec![
+                "screen",
+                "current",
+                "column",
+                "split_00000000000000000000000000000011",
+                "update",
+                "--pinned",
+                "true",
+                "--allow-tabs",
+                "false",
+            ],
+            "column.update",
+        ),
+        // machine.list and machine.get: the reader opts in to owner metadata
+        // and admitted remote records.
+        (vec!["machine", "list", "--catalog"], "machine.list"),
+        (
+            vec!["machine", "machine_00000000000000000000000000000001", "show", "--catalog"],
+            "machine.get",
+        ),
         (vec!["pane", PANE, "run", "shell", "printf ok"], "pane.run"),
+        (vec!["pane", PANE, "split", "--down", "--shell", "make watch"], "pane.split"),
         (vec!["tab", TAB, "update", "--icon", "star.fill"], "tab.update"),
         (
             vec![
@@ -59,6 +169,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
             ],
             "browser.tab.emulate",
         ),
+        (vec!["tab", TAB, "emulate", "--fit", "16:9"], "browser.tab.emulate"),
         // layout.bulk: one case in cases.rs; the other levels and --end-terminals.
         (vec!["workspace", WORKSPACE, "close", "--others", "--end-terminals"], "layout.bulk"),
         (vec!["screen", "current", "close", "--to-right"], "layout.bulk"),
@@ -169,6 +280,13 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "palette_usage.import"
                         | "palette_usage.hide"
                         | "palette_usage.forget"
+                        // Stash (stash-v1) is the app's native OneTab; the
+                        // CLI has no stash verbs yet.
+                        | "stash.create"
+                        | "stash.list"
+                        | "stash.restore"
+                        | "stash.delete"
+                        | "stash.import"
                         | "sidebar_layout.update"
                         // The sidebar document (sidebar-doc-v1) is the app's
                         // too; the CLI sets only a section's scroll and row
@@ -227,15 +345,18 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "chief.engine.get"
                         | "chief.engine.set"
                         | "chief.stop"
-                        // `cmux chief list|new|edit|delete` send these
+                        // `cmux chief list|new|adopt|edit|delete` send these
                         // (cli/chief/registry.rs), outside the noun grammar.
                         | "chief.profile.list"
                         | "chief.profile.get"
                         | "chief.profile.create"
+                        | "chief.profile.adopt"
                         | "chief.profile.update"
                         | "chief.profile.delete"
                         | "chief.profile.avatar.set"
                         | "chief.profile.avatar.get"
+                        | "chief.profile.history"
+                        | "chief.profile.undo"
                         // `cmux avatar set|get` and the Channels page send these.
                         | "participant.avatar.set"
                         | "participant.avatar.get"
@@ -288,6 +409,10 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         ("tab.update", "owner"),
         ("tab.update", "back"),
         ("tab.update", "forward"),
+        // The guarded attention clear: an app acknowledging the mark it captured
+        // (`extra.attention.request_id`) sends it with `attention:null`; the CLI
+        // keeps the unconditional clear (docs/protocol.md, #27497).
+        ("tab.update", "attention_request_id"),
         ("client.metadata.update", "capabilities"),
         // layout.bulk: the CLI names the anchor by its selector and has no
         // selection; apps and MCP send anchor and ids.

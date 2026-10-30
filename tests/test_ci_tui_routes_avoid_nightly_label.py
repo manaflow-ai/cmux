@@ -6,8 +6,8 @@ on blacksmith-12vcpu-macos-26. Two cmux-tui workloads reached that label through
 vars.MACOS_RUNNER_PR (which names it):
 
 - cmux-tui.yml's release-path dogfood build, on every attempt (#20612).
-- cmux-tui-artifacts.yml's cmux_next_ daemon tests and macOS build legs on a
-  re-run: attempt 1 takes the owned side label, but
+- cmux-tui-artifacts.yml's cmux_next_ daemon tests (on Blacksmith Linux
+  since 2026-10-26) and macOS build legs on a re-run: attempt 1 takes the owned side label, but
   cmux-tui-artifacts-retry re-runs a failed run's jobs (attempt 2 and 3), and
   those fell through to vars.MACOS_RUNNER_PR. Run 38579574731 attempt 2 ran
   the daemon tests on blacksmith-12vcpu-macos-26.
@@ -33,14 +33,21 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 NIGHTLY_LABEL = "blacksmith-12vcpu-macos-26"
 SIDE_LABEL = "glaeda-side-std-xcode-26.6"
 PROMOTE_LABEL = "glaeda-promote-trusted-std-xcode-26.6"
+DAEMON_LABEL = "glaeda-daemon-tests-xcode-26.6"
+LIGHT_LABEL = "glaeda-side-light-xcode-26.6"
+PIN_LABEL = "glaeda-pin-daemon-xcode-26.6"
+LINUX_DAEMON_LABEL = "blacksmith-32vcpu-ubuntu-2404"
+PIN_REF = "refs/heads/cmux-tui-pin-0123456789ab"
 
 # The repository's variables as of 2026-10-14 (gh variable list), the ones
 # these routes read. MACOS_RUNNER_PR is the nightly label.
 LIVE_VARS = {
     "CI_PR_POOL_OWNED": "1",
     "CI_SIDE_LANE_RUNNER": SIDE_LABEL,
-    "CI_LIGHT_LANE_RUNNER": "glaeda-side-light-xcode-26.6",
+    "CI_LIGHT_LANE_RUNNER": LIGHT_LABEL,
     "CI_NEXT_PROMOTE_POOL": PROMOTE_LABEL,
+    "CI_NEXT_DAEMON_POOL": "",
+    "CI_PIN_DAEMON_POOL": "",
     "CI_PAID_MACOS_OVERFLOW": "",
     "MACOS_RUNNER_15": "blacksmith-6vcpu-macos-15",
     "MACOS_RUNNER_26": NIGHTLY_LABEL,
@@ -51,7 +58,7 @@ OWNERS = ("manaflow-ai", "someone-else")
 EVENTS = ("push", "pull_request", "pull_request_target", "workflow_dispatch", "schedule")
 REFS = (
     "refs/heads/feat-cmux-next",
-    "refs/heads/cmux-tui-pin-0123456789ab",
+    PIN_REF,
     "refs/heads/main",
     "refs/heads/feat-some-lane",
 )
@@ -168,32 +175,61 @@ def test_dogfood_artifacts_never_take_the_nightly_label() -> None:
                 assert label == "blacksmith-6vcpu-macos-15", where
 
 
-def test_daemon_tests_stay_on_the_owned_minis_on_every_attempt() -> None:
+def test_daemon_tests_never_take_a_mac() -> None:
+    # 2026-10-26 (Leo: "I THOUGHT THESE COULD JUST GO ON LINUX"): the
+    # promotion gate runs on Blacksmith Linux on every attempt, so no re-run
+    # reaches the nightly label, the side lane or the promote pool
+    # (tests/test_cmux_tui_daemon_tests_gate.py).
     runs_on = load("cmux-tui-artifacts.yml")["jobs"]["cmux-next-daemon-tests"]["runs-on"]
-    trusted = {"push", "pull_request", "workflow_dispatch", "schedule"}
     for owned in ("1", ""):
-        for context in contexts(CI_PR_POOL_OWNED=owned):
+        for context in contexts(CI_PR_POOL_OWNED=owned, CI_NEXT_DAEMON_POOL=DAEMON_LABEL):
             label = route(runs_on, context)
             where = (context["github.repository_owner"], context["github.event_name"],
                      context["github.ref"], context["github.run_attempt"], owned)
-            if context["github.repository_owner"] != "manaflow-ai":
-                assert label == "macos-26", where
+            expected = LINUX_DAEMON_LABEL if context["github.repository_owner"] == "manaflow-ai" else "ubuntu-24.04"
+            assert label == expected, where
+
+
+def _pin_variable_combinations():
+    """Every value of the variables the pin route reads, the live ones included."""
+    for owned, pin, light, daemon, promote, side in itertools.product(
+        ("1", ""),
+        ("", PIN_LABEL, SIDE_LABEL, DAEMON_LABEL, LIGHT_LABEL, PROMOTE_LABEL),
+        (LIGHT_LABEL, "", SIDE_LABEL, DAEMON_LABEL),
+        ("", DAEMON_LABEL, LIGHT_LABEL, SIDE_LABEL),
+        (PROMOTE_LABEL, "", LIGHT_LABEL),
+        (SIDE_LABEL, ""),
+    ):
+        yield {"CI_PR_POOL_OWNED": owned, "CI_PIN_DAEMON_POOL": pin, "CI_LIGHT_LANE_RUNNER": light,
+               "CI_NEXT_DAEMON_POOL": daemon, "CI_NEXT_PROMOTE_POOL": promote, "CI_SIDE_LANE_RUNNER": side}
+
+
+def test_pin_pushes_never_share_the_side_lane_or_the_promotion_daemon_pool() -> None:
+    # 2026-10-21 (claude-sr2): every merged pull request pushes a
+    # cmux-tui-pin-* branch, and its daemon tests flooded the pull request side
+    # lane; on the feat-cmux-next promotion's daemon pool (CI_NEXT_DAEMON_POOL,
+    # else CI_NEXT_PROMOTE_POOL) they stall nightly-next. Whatever the
+    # variables say, no job of a pin push lands on the side label, and only
+    # the light-lane fallback may share the promotion's pool: the light minis
+    # serve both until promotion gets its own label (ci-repo-variables.yml on
+    # main warns then).
+    jobs = load("cmux-tui-artifacts.yml")["jobs"]
+    routes = {name: job["runs-on"] for name, job in jobs.items() if "runs-on" in job}
+    assert "cmux-next-daemon-tests" in routes
+    for overrides in _pin_variable_combinations():
+        side = overrides["CI_SIDE_LANE_RUNNER"]
+        promotion = overrides["CI_NEXT_DAEMON_POOL"] or overrides["CI_NEXT_PROMOTE_POOL"]
+        light_fallback = overrides["CI_LIGHT_LANE_RUNNER"] if overrides["CI_PR_POOL_OWNED"] == "1" else ""
+        for context in contexts(**overrides):
+            if (context["github.repository_owner"], context["github.event_name"], context["github.ref"]) != (
+                    "manaflow-ai", "push", PIN_REF):
                 continue
-            assert label != NIGHTLY_LABEL, where
-            # cx-km8nz: attempt 1 of a feat-cmux-next push takes the reserved
-            # promote runners, whatever the owned-pool switch says.
-            if (
-                context["github.event_name"] == "push"
-                and context["github.ref"] == "refs/heads/feat-cmux-next"
-                and context["github.run_attempt"] == 1
-            ):
-                assert label == PROMOTE_LABEL, where
-                continue
-            if owned != "1" or context["github.event_name"] not in trusted:
-                assert label == "blacksmith-6vcpu-macos-15", where
-                continue
-            # A cmux-tui-pin-* push, and every re-run, stays on the minis.
-            assert label == SIDE_LABEL, where
+            for name, runs_on in routes.items():
+                label = route(runs_on, context) if runs_on.strip().startswith("${{") else runs_on
+                where = (name, context["github.run_attempt"], overrides)
+                assert not side or label != side, where
+                assert not promotion or label != promotion or label == light_fallback, where
+                assert label != NIGHTLY_LABEL, where
 
 
 def test_artifact_build_legs_never_rerun_on_the_nightly_label() -> None:
@@ -211,7 +247,6 @@ def test_a_dispatch_runner_input_still_wins() -> None:
     artifacts = load("cmux-tui-artifacts.yml")["jobs"]
     for context in contexts(**{}):
         context["inputs.macos_runner"] = "blacksmith-6vcpu-macos-26"
-        assert route(artifacts["cmux-next-daemon-tests"]["runs-on"], context) == "blacksmith-6vcpu-macos-26"
         assert route(artifacts["build"]["with"]["macos_runner"], context) == "blacksmith-6vcpu-macos-26"
 
 

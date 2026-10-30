@@ -55,6 +55,8 @@ final class TabGroupChipCell {
     init(group: TabGroupItem, memberCount: Int) {
         self.group = group
         self.memberCount = memberCount
+        // Anchored at the leading edge, as a tab cell (a strip move of the width never moves its x).
+        layer.anchorPoint = .zero
         let none: [String: any CAAction] = [
             "bounds": NSNull(), "position": NSNull(), "contents": NSNull(), "opacity": NSNull(),
             "string": NSNull(), "foregroundColor": NSNull(), "mask": NSNull(), "zPosition": NSNull(),
@@ -189,7 +191,7 @@ final class TabGroupChipCell {
     }
 
     func updateColors(animated: Bool) {
-        Motion.transaction(animated ? .hover : nil) { applyColors() }
+        Motion.feedback.transaction(animated ? .hover : nil) { applyColors() }
     }
 
     private func applyColors() {

@@ -25,7 +25,13 @@
 
 use super::*;
 use crate::workspace_registry::relaunch_store::RelaunchKind;
-use crate::workspace_registry::terminal_archive_store::{ARCHIVE_MAX_SCREEN_BYTES, ArchiveRow};
+use crate::workspace_registry::terminal_archive_store::{
+    ARCHIVE_BLOB_BUDGET_BYTES, ARCHIVE_MAX_SCREEN_BYTES, ArchiveRow,
+};
+
+/// The mutation origin of the commit that publishes groups whose archive
+/// lost its screen to the byte budget.
+const ARCHIVE_EVICTION_MUTATION_ORIGIN: &str = "cmux-tui-terminal-archive";
 
 /// What one archived terminal keeps (see the module docs).
 pub(crate) struct TerminalArchive {
@@ -117,10 +123,52 @@ impl Mux {
                 screen: archive.screen.as_ref().map(|screen| screen.2.as_slice()),
             })
             .collect::<Vec<_>>();
+        self.put_terminal_archive_rows(&rows, ARCHIVE_BLOB_BUDGET_BYTES);
+    }
+
+    /// Store `rows` within `blob_budget_bytes` of screens across all
+    /// archives ([`ARCHIVE_BLOB_BUDGET_BYTES`] outside tests). Best effort,
+    /// as [`Self::store_terminal_archives`]. The closed groups whose screen
+    /// the budget cleared are published again in the next commit, so a
+    /// client that follows the change stream shows `scrollback_not_kept`.
+    pub(crate) fn put_terminal_archive_rows(
+        &self,
+        rows: &[ArchiveRow<'_>],
+        blob_budget_bytes: u64,
+    ) {
         let now = crate::workspace_registry::session_journal::unix_epoch_ms().unwrap_or_default();
-        let mut registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Err(error) = registry.put_terminal_archives(&rows, now) {
-            eprintln!("cmux-tui: could not store {} terminal archive(s): {error:#}", rows.len());
+        let evicted = {
+            let mut registry =
+                self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+            match registry.put_terminal_archives(rows, now, blob_budget_bytes) {
+                Ok(evicted) => evicted,
+                Err(error) => {
+                    eprintln!(
+                        "cmux-tui: could not store {} terminal archive(s): {error:#}",
+                        rows.len()
+                    );
+                    return;
+                }
+            }
+        };
+        if evicted.is_empty() {
+            return;
+        }
+        let fingerprint = serde_json::json!({ "closed": evicted });
+        let published = self.commit_state(
+            &WorkspaceMutation::daemon_local(ARCHIVE_EVICTION_MUTATION_ORIGIN),
+            "closed.scrollback_evicted",
+            &fingerprint,
+            None,
+            crate::state::commit::StateEffects::EVENTS_ONLY,
+            |transaction, _| {
+                let changes =
+                    crate::state::closed_history_query::closed_upserts(transaction, &evicted)?;
+                Ok(crate::state::store::StateChanges::new(fingerprint.clone(), changes))
+            },
+        );
+        if let Err(error) = published {
+            eprintln!("cmux-tui: could not publish evicted terminal archives: {error:#}");
         }
     }
 
@@ -131,8 +179,13 @@ impl Mux {
         }
         let public_id = runtime.terminal_public_id()?.clone();
         let identity = self.resource_terminal_host_identity(runtime)?;
-        let screen = runtime.try_with_terminal(archive_screen).ok().flatten();
-        if screen.is_none() {
+        // terminal.persistence.mode memory: the archive keeps no screen.
+        let screen = if self.output_store.memory_only() {
+            None
+        } else {
+            runtime.try_with_terminal(archive_screen).ok().flatten()
+        };
+        if screen.is_none() && !self.output_store.memory_only() {
             eprintln!("cmux-tui: terminal {public_id} archive has no screen");
         }
         let stopped = runtime.process_id().and_then(|pid| {

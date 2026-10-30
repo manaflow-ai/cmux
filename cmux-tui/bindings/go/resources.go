@@ -14,15 +14,22 @@ import (
 	"github.com/manaflow-ai/cmux/cmux-tui/bindings/go/internal/wirev2"
 )
 
+type MachinePlatform struct {
+	OS   *string `json:"os,omitempty"`
+	Arch *string `json:"arch,omitempty"`
+}
+
 type MachineSnapshot struct {
-	ID          MachineID            `json:"id"`
-	Name        string               `json:"name"`
-	Origin      string               `json:"origin"`
-	Status      string               `json:"status"`
-	Connectable bool                 `json:"connectable"`
-	Deleted     bool                 `json:"deleted"`
-	Recoverable bool                 `json:"recoverable"`
-	Extra       map[string]JSONValue `json:"extra,omitempty"`
+	ID           MachineID            `json:"id"`
+	Name         string               `json:"name"`
+	Origin       string               `json:"origin"`
+	Status       string               `json:"status"`
+	Connectable  bool                 `json:"connectable"`
+	Deleted      bool                 `json:"deleted"`
+	Recoverable  bool                 `json:"recoverable"`
+	Platform     *MachinePlatform     `json:"platform,omitempty"`
+	Capabilities []string             `json:"capabilities,omitempty"`
+	Extra        map[string]JSONValue `json:"extra,omitempty"`
 }
 
 type SessionSnapshot struct {
@@ -90,6 +97,18 @@ type LayoutColumn struct {
 	// Dock is the column's dock flag (dock-columns-v1); nil while it
 	// scrolls.
 	Dock *LayoutColumnDock `json:"dock,omitempty"`
+	// Rows are the column's rows top to bottom (rows-v1); nil for a column
+	// with one row. Row 2..n's RowID is its compat chain split in Root. In
+	// workspace.layout.apply nil keeps the stored rows.
+	Rows []LayoutRow `json:"rows,omitempty"`
+}
+
+// LayoutRow is one row of a column (rows-v1): its stable id and its Height
+// in permille of the column's viewport height (100 to 1000). Only row 1 may
+// omit RowID, in a document sent to workspace.layout.apply.
+type LayoutRow struct {
+	RowID  *SplitID `json:"row_id,omitempty"`
+	Height uint16   `json:"height"`
 }
 
 // LayoutColumnDock is a pinned column's Edge ("left", "right", "top" or
@@ -296,10 +315,11 @@ func decodeLayoutNode(data []byte) (LayoutNode, error) {
 
 func decodeLayoutColumn(data []byte) (LayoutColumn, error) {
 	var wire struct {
-		ColumnID *SplitID        `json:"column_id"`
-		Width    *float64        `json:"width"`
-		Root     json.RawMessage `json:"root"`
-		Dock     json.RawMessage `json:"dock"`
+		ColumnID *SplitID          `json:"column_id"`
+		Width    *float64          `json:"width"`
+		Root     json.RawMessage   `json:"root"`
+		Dock     json.RawMessage   `json:"dock"`
+		Rows     []json.RawMessage `json:"rows"`
 		// Sticky is the pre-R87 name of Dock: read so a replayed or
 		// older result still decodes; dock wins when both are present.
 		Sticky json.RawMessage `json:"sticky"`
@@ -329,9 +349,31 @@ func decodeLayoutColumn(data []byte) (LayoutColumn, error) {
 	if err != nil {
 		return LayoutColumn{}, err
 	}
+	var rows []LayoutRow
+	for index, rawRow := range wire.Rows {
+		row, err := decodeLayoutRow(rawRow)
+		if err != nil {
+			return LayoutColumn{}, fmt.Errorf("layout column row %d: %w", index, err)
+		}
+		rows = append(rows, row)
+	}
 	return LayoutColumn{
-		ColumnID: *wire.ColumnID, Width: *wire.Width, Root: root, Dock: dock,
+		ColumnID: *wire.ColumnID, Width: *wire.Width, Root: root, Dock: dock, Rows: rows,
 	}, nil
+}
+
+func decodeLayoutRow(data []byte) (LayoutRow, error) {
+	var wire struct {
+		RowID  *SplitID `json:"row_id"`
+		Height *uint16  `json:"height"`
+	}
+	if err := strictDecode(data, &wire); err != nil {
+		return LayoutRow{}, err
+	}
+	if wire.Height == nil || *wire.Height < 100 || *wire.Height > 1000 {
+		return LayoutRow{}, fmt.Errorf("layout row height must be from 100 to 1000")
+	}
+	return LayoutRow{RowID: wire.RowID, Height: *wire.Height}, nil
 }
 
 // decodeLayoutColumnDock reads an omitted or null flag as nil.
@@ -1225,16 +1267,6 @@ func (p *FrontendProjection) cache(value FrontendProjectionSnapshot) error {
 	return nil
 }
 
-func (m *Machine) Refresh(ctx context.Context) (MachineSnapshot, error) {
-	var snapshot MachineSnapshot
-	if err := m.client.readResource(ctx, wirev2.MachineGet, m.route.params(), &snapshot); err != nil {
-		return MachineSnapshot{}, err
-	}
-	m.mu.Lock()
-	m.snapshot = &snapshot
-	m.mu.Unlock()
-	return snapshot, nil
-}
 func (s *Session) Refresh(ctx context.Context) (SessionSnapshot, error) {
 	var snapshot SessionSnapshot
 	if err := s.client.readResource(ctx, wirev2.SessionGet, s.route.params(), &snapshot); err != nil {

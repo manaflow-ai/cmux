@@ -7,8 +7,14 @@ import { syntheticRows } from "./synthetic";
 import { runStream, type StreamOptions } from "./streamDebug";
 import { loadRun, loadSeed, type LoadRunOptions } from "./loadDebug";
 import { workedTurnRows } from "./workedTurn";
+import { incomingRows } from "./incomingFixture";
+import { SUBAGENT_TRAY_STEPS, subagentTrayRows } from "./subagentsFixture";
+import { SHARED_PRESENCE, sharedRows } from "./multiplayer/sharedFixture";
+import { shownPresence } from "./multiplayer/LivePresence";
 import { acpWire, type AcpWireLog } from "./wire";
 import { followTrace } from "./followTrace";
+import { composerChips, layoutWatch, type LayoutWatchOptions } from "./layoutWatch";
+import { queuedRowsState } from "./queuedRowsState";
 
 // `window.cmuxAcpmuxDebug`, called by the DEBUG `debug.agent_pane` socket
 // method. The first measurement call turns on measurement (acpmuxPerf.enabled);
@@ -19,8 +25,12 @@ import { followTrace } from "./followTrace";
 export type FlingOptions = { nominal_ms?: number; wait?: boolean };
 
 export type AcpmuxDebug = {
-  /// Replaces the transcript with `count` synthetic rows, or with the worked turn of
-  /// workedTurn.ts when `fixture` is "worked-turn".
+  /// Replaces the transcript with `count` synthetic rows, with the worked turn of
+  /// workedTurn.ts when `fixture` is "worked-turn", or with received agent messages
+  /// (incomingFixture.ts) when it is "incoming", or with a shared chat (teammates' prompts, who
+  /// answered an ask, who else is here and typing; multiplayer/sharedFixture.ts) when it is "shared",
+  /// or with step `count` (0-5, else 0) of the subagent tray's life (subagentsFixture.ts) when it is
+  /// "subagents".
   seedRows(count?: number, fixture?: string): Promise<Record<string, unknown>>;
   startFling(seconds?: number, options?: FlingOptions): Promise<Record<string, unknown>>;
   flingStats(): Record<string, unknown>;
@@ -48,6 +58,8 @@ export type AcpmuxDebug = {
   openChanges(): Record<string, unknown>;
   setModel(model: string, effort?: string): Promise<Record<string, unknown>>;
   models(): Record<string, unknown>;
+  /** What moved on the page after it first showed its content, watched for `ms` (layoutWatch.ts). */
+  layoutWatch(options?: LayoutWatchOptions): Promise<Record<string, unknown>>;
   /** Streams a scripted reply into a long synthetic transcript and reports the frames (streamDebug.ts). */
   stream(options?: StreamOptions): Promise<Record<string, unknown>>;
   /** Opens a mock session of `turns` heavy turns through the real client (loadDebug.ts). */
@@ -98,6 +110,8 @@ export function createAcpmuxDebug(
   wire: AcpWireLog = acpWire,
 ): AcpmuxDebug {
   let timestamps: number[] = [];
+  /// The live presence the shared fixture replaced (`null`: the fixture is not shown).
+  let beforeShared: ReturnType<typeof shownPresence.get> | null = null;
   let nominal = 1000 / 60;
   let running = false;
   let generation = 0;
@@ -118,14 +132,49 @@ export function createAcpmuxDebug(
     };
   };
 
+  // The subagents fixture's steps share the time its step 0 began, so its rows keep their places.
+  let subagentsAt: number | undefined;
+  const trayStep = (count: number) => (Number.isInteger(count) && count > 0 && count < SUBAGENT_TRAY_STEPS ? count : 0);
+  const trayOrigin = (count: number) => {
+    if (trayStep(count) === 0 || subagentsAt === undefined) subagentsAt = Date.now() - 60_000;
+    return subagentsAt;
+  };
+
   return {
     async seedRows(count = 5000, fixture) {
       acpmuxPerf.enable();
       const rows =
-        fixture === "worked-turn" ? workedTurnRows(Date.now() - 60_000) : syntheticRows(Math.max(3, Math.floor(count)));
+        fixture === "subagents"
+          ? subagentTrayRows(trayStep(count), trayOrigin(count))
+          : fixture === "worked-turn"
+            ? workedTurnRows(Date.now() - 60_000)
+            : fixture === "incoming"
+              ? incomingRows(Date.now() - 120_000)
+              : fixture === "shared"
+                ? sharedRows(Date.now() - 720_000)
+                : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
       const start = performance.now();
       const committed = acpmuxPerf.nextCommit();
       host.replaceRows(rows);
+      if (fixture === "shared") {
+        // The presence to restore on leaving: kept across uninterrupted repeat seeds of this chat,
+        // taken again once live presence or a switch displaced the fixture. The fixture's own
+        // faces over another chat are never a baseline.
+        const now = shownPresence.get();
+        const sessionId = host.sessionId?.();
+        const showing = now?.presence === SHARED_PRESENCE;
+        if (beforeShared === null || !showing || now?.sessionId !== sessionId) {
+          beforeShared = showing ? undefined : now;
+        }
+        shownPresence.set(sessionId, SHARED_PRESENCE);
+      } else if (beforeShared !== null) {
+        // Leaving the shared fixture: its made-up faces go, and the live presence from before
+        // comes back unless the chat's own acpmux has set a newer one since.
+        if (shownPresence.get()?.presence === SHARED_PRESENCE) {
+          shownPresence.set(beforeShared?.sessionId, beforeShared?.presence);
+        }
+        beforeShared = null;
+      }
       const at = await committed;
       return { rows: rows.length, commit_ms: at === undefined ? null : round2(at - start) };
     },
@@ -255,7 +304,13 @@ export function createAcpmuxDebug(
             follow: followTrace.snapshot(),
             // The summary card as drawn (summary/SummaryCard.tsx), and the subagent this pane shows.
             summaryCard: summaryCardState(),
+            // The prompts as drawn, top first: who sent each, its bubble, and the collapsed view line.
+            userBubbles: userBubblesState(),
+            // The queued prompts as drawn: each row's text, its image ids and each thumbnail's state.
+            queued: queuedRowsState(),
             subagentOf: document.querySelector(".cv-subagent-of__parent")?.textContent ?? null,
+            // The composer's chips as drawn (model, effort, access), keyed by their menu label.
+            composer: composerChips(),
             focused: document.hasFocus(),
           }
         : NO_AUTOMATION;
@@ -286,6 +341,9 @@ export function createAcpmuxDebug(
     models() {
       return host.automation ? automation.models(host.automation) : NO_AUTOMATION;
     },
+    layoutWatch(options = {}) {
+      return layoutWatch(options);
+    },
     stream(options = {}) {
       return runStream(host.replaceRows, options);
     },
@@ -298,6 +356,16 @@ export function createAcpmuxDebug(
       return loadRun({ sessionId: () => host.sessionId?.(), rowCount: host.rowCount }, options);
     },
   };
+}
+
+/// The prompts as drawn, top first: the "From the Chief" label, the collapsed view line and the bubble.
+function userBubblesState() {
+  return [...document.querySelectorAll<HTMLElement>(".cv-user")].slice(0, 8).map((row) => ({
+    from: row.querySelector(".cv-user__from")?.textContent ?? null,
+    context: row.querySelector(".cv-user__context summary")?.textContent ?? null,
+    text: (row.querySelector(".cv-user__bubble")?.textContent ?? "").slice(0, 400),
+    top: Math.round(row.getBoundingClientRect().top),
+  }));
 }
 
 /// The summary card's rows as drawn: each subagent's name and status, or null with no card.

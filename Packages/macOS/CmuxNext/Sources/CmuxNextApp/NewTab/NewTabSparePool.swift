@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -70,17 +71,61 @@ final class NewTabSparePool {
     private let warmTimer = DemandTimer(owner: "NewTabSparePool.warm")
     private let fitTimer = DemandTimer(owner: "NewTabSparePool.fit")
     private var inputMonitor: Any?
-    private var memoryPressure: (any DispatchSourceMemoryPressure)?
+    /// The app's memory pressure events; a warning or critical level drops the spare.
+    private let memoryPressure: MemoryPressureEvents
+    private var pressureObservation: MainActorHandlerRegistration<MemoryPressureLevel>?
     private var usedThisSession = false
     private var windowObservers: [any NSObjectProtocol] = []
     private(set) var openings: [Opening] = []
     /// Main-thread time of the last move of the parked spare to another window.
     private(set) var lastRetargetMilliseconds: Double?
 
+    /// The native New Tab page's spare (`tabs.nativeNewTabPage`): one SwiftUI page, made and laid out
+    /// in the parking view at the target pane's size at a quiet moment, so Cmd-T shows it with no
+    /// build or layout (cmux19-perf: a cold native page showed on the 4th frame, 51 ms p50).
+    private(set) var nativeSpare: NativeNewTabHostingView?
+    /// Spares an open took, until the pane makes its tab's view (``claimNative(_:)``).
+    private var nativeAdoptions: [String: NativeNewTabHostingView] = [:]
+    private var wantsNative: Bool { services.settings?.snapshot.nativeNewTabPage == true }
+
+    /// Makes the native spare now, parked in the target window (no-op when the setting is off, a
+    /// spare is parked or no window is the target). The warm timer calls it; tests call it directly.
+    func warmNative() {
+        guard wantsNative, nativeSpare == nil, let content = target?.contentView else { return }
+        park(in: content)
+        let host = BenchSpans.measure("pool.makeNativeSpare") {
+            NativeNewTabView.hosted(NativeNewTabModel(page: NewTabPage.sparePage(services), actions: NativeNewTabActions()))
+        }
+        host.frame = parking.bounds
+        host.autoresizingMask = [.width, .height]
+        parking.addSubview(host)
+        host.layoutSubtreeIfNeeded()
+        nativeSpare = host
+    }
+
+    /// The parked native spare for the new tab `key`, out of the parking view, or nil (the page is made
+    /// cold). The pane's view for `key` claims it (``claimNative(_:)``); the next spare follows when input is quiet.
+    func takeNative(for key: String) -> NativeNewTabHostingView? {
+        defer { scheduleWarm() }
+        guard let host = nativeSpare else { return nil }
+        nativeSpare = nil
+        host.removeFromSuperview()
+        // One opening at a time: a spare an earlier open took but no pane claimed (its tab closed first) goes.
+        nativeAdoptions = [key: host]
+        return host
+    }
+
+    /// Tab `key` shows a spare already made (its showing builds nothing: the presentation budget allows it now).
+    func hasNativeAdoption(_ key: String) -> Bool { nativeAdoptions[key] != nil }
+
+    /// The spare taken for tab `key`, once.
+    func claimNative(_ key: String) -> NativeNewTabHostingView? { nativeAdoptions.removeValue(forKey: key) }
+
     /// In place of ``AgentTabs/makeSpare(_:)`` (WebKit's first load, on the main thread): tests stall it.
     var makeSpare: ((AgentPaneNewTab) -> AgentPaneView?)?
-    init(services: AppServices) {
+    init(services: AppServices, memoryPressure: MemoryPressureEvents) {
         self.services = services
+        self.memoryPressure = memoryPressure
     }
 
 
@@ -99,7 +144,7 @@ final class NewTabSparePool {
         services.agentTabs.takeSpare = { [weak self] in
             guard let self, let window = NSApp.keyWindow.flatMap(self.mainWindow) ?? self.target else { return nil }
             let start = ContinuousClock.now
-            let spare = self.take(for: window, size: self.slot.peek?.frame.size ?? .zero)
+            let spare = self.take(for: window, size: nil)
             self.record(.init(spare: spare != nil, crossWindow: spare?.crossWindow == true, milliseconds: Self.milliseconds(since: start)))
             return spare?.view
         }
@@ -163,8 +208,16 @@ final class NewTabSparePool {
     private var targetPaneSize: NSSize? {
         guard let target, let pane = services.windows.controllers.first(where: { $0.window === target })?.content?.focusedPane
         else { return nil }
-        let size = pane.view.contentHost.bounds.size
+        let size = Self.newTabContentSize(in: pane)
         return size.width > 0 && size.height > 0 ? size : nil
+    }
+
+    /// The size a Cmd-T tab in `pane` shows at: the pane less its tab bar, also where a browser's
+    /// header band holds the bar now (the band goes with the browser).
+    static func newTabContentSize(in pane: PaneController) -> NSSize {
+        let scale = pane.view.window?.backingScaleFactor ?? 2
+        let strip = pane.hidesTabBar || pane.isAppPane ? 0 : PaneChromeMetrics.current.resolvedStripHeight(scale: scale)
+        return NSSize(width: pane.view.bounds.width, height: max(0, pane.view.bounds.height - strip))
     }
 
     /// Sizes the parking view and the spare in it to the target pane now, laid out, so the
@@ -174,6 +227,7 @@ final class NewTabSparePool {
         let size = targetPaneSize ?? content.bounds.size
         guard parking.frame != NewTabSpareParking.frame(in: content.bounds, size: size) else { return }
         BenchSpans.measure("pool.fit") { parking.fit(to: size) }
+        snapshotParked()
     }
 
     /// A pane of `window` changed size, or its focus moved: the parked spare follows the
@@ -188,21 +242,65 @@ final class NewTabSparePool {
     /// The spare for a new tab page in `window`, or nil (the page loads cold).
     /// A spare parked in another window is adopted all the same (a reparent).
     /// The caller adopts it at once; the next spare follows when input is quiet.
-    /// `refit` is true when the spare waited at another size than `size`, the pane's
-    /// (a pane resized or focused less than ``fitSettle`` ago): its adoption resizes it.
-    func take(for window: NSWindow?, size: NSSize) -> (view: AgentPaneView, crossWindow: Bool, refit: Bool)? {
+    /// `refit` is true when the spare waited at another size than `size`, the one it shows at
+    /// (nil: not known yet, Cmd-N): its adoption resizes it.
+    func take(for window: NSWindow?, size: NSSize?) -> (view: AgentPaneView, crossWindow: Bool, refit: Bool)? {
         usedThisSession = true
         observeWindows()
         if target == nil, let window { retarget(window) }
         defer { scheduleWarm() }
         guard let view = slot.take() else { return nil }
+        snapshotGeneration &+= 1
+        view.redraw.newTabFrameCaptureChanged = nil
+        view.isHidden = false
         // The launch's page took the prewarmed spare: the next one starts once that page painted,
         // not after quiet input, so a Cmd-N right after launch finds a page loading (cx-ec99).
         if !warmedOnce {
             warmedOnce = true
             view.model.whenPainted { Task { @MainActor [weak self] in self?.warmNow() } }
         }
-        return (view, window !== target, view.frame.size != size)
+        opening = (ObjectIdentifier(view), size)
+        return (view, window !== target, size.map { view.frame.size != $0 } ?? false)
+    }
+
+    /// The spare taken last and the size its opening shows it at, when known.
+    private var opening: (view: ObjectIdentifier, size: NSSize?)?
+    /// Only the latest parked capture may put its page to sleep.
+    private var snapshotGeneration: UInt64 = 0
+    func openingSize(of view: AgentPaneView) -> NSSize? { opening.flatMap { $0.view == ObjectIdentifier(view) ? $0.size : nil } }
+
+    /// The parked spare's own frame at its size: its adoption's cover (`AgentTabContent.coverMove`),
+    /// not the last New Tab page shown, drawn at another size or moment (4 px off, 2026-10-15).
+    private func snapshotParked() {
+        guard let view = slot.peek, view.superview === parking else { return }
+        view.redraw.newTabFrameCaptureChanged = { [weak self, weak view] capturing in
+            guard let self, let view, slot.peek === view, view.superview === parking else { return }
+            if capturing {
+                // A late chats.page answer invalidates the first cover. Keep the renderer awake
+                // through the replacement capture, and invalidate any older sleep completion.
+                snapshotGeneration &+= 1
+                view.isHidden = false
+            } else {
+                snapshotParked()
+            }
+        }
+        guard !view.redraw.givesNewTabFrame else { return }
+        snapshotGeneration &+= 1
+        let generation = snapshotGeneration
+        // Rendering is needed only until this capture finishes, including after a parked resize.
+        view.isHidden = false
+        let appearance = view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
+        view.model.whenPainted { [weak self, weak view] in
+            guard let self, let view, snapshotGeneration == generation, slot.peek === view,
+                  view.superview === parking else { return }
+            view.redraw.rememberFrame(of: view, appearance: appearance) { [weak self, weak view] in
+                guard let self, let view, snapshotGeneration == generation, slot.peek === view,
+                      view.superview === parking else { return }
+                // A transparent offscreen view still receives frames. Hiding stops its renderer's
+                // animations and lets the transport hold nonurgent pushes until adoption.
+                view.isHidden = true
+            }
+        }
     }
 
     /// A closed new tab page that never became a chat or a terminal: reset to
@@ -241,7 +339,10 @@ final class NewTabSparePool {
 
     /// Drops the spare (memory pressure, the last window closing).
     func dropAll() {
+        nativeSpare?.removeFromSuperview()
+        nativeSpare = nil
         guard let view = slot.drop() else { return }
+        view.redraw.newTabFrameCaptureChanged = nil
         view.removeFromSuperview()
         view.close()
     }
@@ -255,7 +356,8 @@ final class NewTabSparePool {
 
     /// Arms the quiet-input deadline; each key or click pushes it back.
     private func scheduleWarm() {
-        guard services.agentTabs.canHostChat, slot.shouldWarm || unparked != nil, target != nil else { return }
+        let web = services.agentTabs.canHostChat && (slot.shouldWarm || unparked != nil)
+        guard target != nil, web || (wantsNative && nativeSpare == nil) else { return }
         watchMemoryPressure()
         if inputMonitor == nil {
             inputMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .scrollWheel]) {
@@ -288,12 +390,14 @@ final class NewTabSparePool {
     private func warmNow() {
         if let inputMonitor { NSEvent.removeMonitor(inputMonitor) }
         inputMonitor = nil
+        warmNative()
+        guard services.agentTabs.canHostChat else { return }
         if let view = unparked, let content = target?.contentView {
             park(in: content)
             view.frame = parking.bounds
             view.autoresizingMask = [.width, .height]
             BenchSpans.measure("pool.park") { parking.addSubview(view) }
-            return
+            return snapshotParked()
         }
         guard webKit.state == .ready else { return webKit.probe { [weak self] in self?.scheduleWarm() } }
         guard slot.shouldWarm, let content = target?.contentView else { return }
@@ -306,16 +410,14 @@ final class NewTabSparePool {
         view.autoresizingMask = [.width, .height]
         parking.addSubview(view)
         slot.parked(view)
+        snapshotParked()
     }
 
     private func watchMemoryPressure() {
-        guard memoryPressure == nil else { return }
-        let source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
-        source.setEventHandler { [weak self] in
-            MainActor.assumeIsolated { self?.dropAll() } // main-proof: dispatch source on queue: .main
+        guard pressureObservation == nil else { return }
+        pressureObservation = memoryPressure.observe { [weak self] level in
+            if level != .normal { self?.dropAll() }
         }
-        source.resume()
-        memoryPressure = source
     }
 }
 

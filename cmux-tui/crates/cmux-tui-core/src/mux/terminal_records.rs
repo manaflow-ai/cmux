@@ -1,6 +1,7 @@
 //! Terminal registry record helpers: launch specs and create fingerprints, lifecycle names, template terminals, and terminal transition and workspace commits.
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 pub(super) fn terminal_launch_spec(options: &SurfaceOptions) -> Value {
     let cmux_env = options
@@ -24,7 +25,7 @@ pub(super) fn terminal_launch_spec(options: &SurfaceOptions) -> Value {
         // both contain credentials. The respawn recipe is the relaunch record
         // (`relaunch_store`): it keeps a command's argv, minus arguments that
         // look like credentials, so a later daemon can offer the command
-        // again (typed on the prompt, never run). Nothing here needs it.
+        // again (named on the marker line, never run). Nothing here needs it.
         "command_present": options.command.is_some(),
         "cwd_present": options.cwd.is_some(),
         "term": options.term,
@@ -64,7 +65,7 @@ pub(super) fn terminal_create_fingerprint(
     // Absent stays absent: a stored creation intent minted before the exit
     // policy existed must recompute its original digest after an upgrade.
     if let Some(on_exit) = on_exit {
-        request["on_exit"] = Value::String(on_exit.as_str().to_string());
+        request.set("on_exit", Value::String(on_exit.as_str().to_string()));
     }
     let digest = Sha256::digest(serde_json::to_vec(&request)?);
     let request_sha256 = digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>();

@@ -90,8 +90,9 @@ profile only with its `profile` tool on its own bound connection.
 shutdown` (`shutdown`), `/model`, `/effort` and Ctrl+C in the chat (a note,
 no call), `cmux raw operation` or `cmux raw command` naming a `chief.*` write
 (`details.refused` the operation), and the app actions `home.newChief`,
-`home.archiveChief` and `home.stopChief` (by id or CLI name; `details.refused`
-the name given) are refused the same way, before any connection.
+`home.archiveChief`, `home.deleteChief`, `home.stopChief` and `home.stopAllAgents` (by id or CLI
+name; `details.refused` the name given) are refused the same way, before any
+connection.
 `cmux chief engine` with no change and the `chief.engine.get`,
 `chief.profile.list`, `chief.profile.get` and `chief.profile.avatar.get`
 reads stay open. An action alias other than the id or CLI name is not
@@ -107,7 +108,7 @@ English only). Results go to stdout and diagnostics to stderr.
 | Exit | Meaning |
 | --- | --- |
 | 0 | Success. |
-| 1 | Operation failure (the request ran and failed, or `screen wait` timed out). |
+| 1 | Operation failure (the request ran and failed, or `screen wait` or `agents wait` timed out). |
 | 2 | Usage error (`usage.invalid`). |
 | 3 | Transport failure (no session or app socket, unreachable, broken reply). |
 
@@ -205,8 +206,8 @@ cmux workspace <selector> show|focus|close
 cmux workspace <selector> rename --name <value>
 cmux workspace <selector> update [--title <value>|--clear-title] [--color <value>|--clear-color] [--icon <value>|--clear-icon]
 cmux workspace <selector> move --index <n>
-cmux workspace <selector> run [--on-exit <close|keep>] [--cwd <path>] [--name <value>] -- <argv...>
-cmux workspace <selector> run [--on-exit <close|keep>] shell <script>
+cmux workspace <selector> run [--on-exit <close|keep|shell>] [--cwd <path>] [--name <value>] -- <argv...>
+cmux workspace <selector> run [--on-exit <close|keep|shell>] shell <script>
 cmux workspace <selector> layout apply --layout <json>
 cmux workspace <selector> screen ...
 cmux workspace [<selector>] status list
@@ -234,6 +235,19 @@ else `current`; with `--socket` or `--session` they target that session's
 an incognito workspace that the session closes at its next start. Workspace
 groups and their order are personal state of this Mac's home session.
 
+```text
+cmux status wait KEY [--target <ws_…>|current] [--until settled|cleared|state=<s>] [--timeout <500ms|30s|5m>|--timeout-ms <n>]
+```
+
+`cmux status wait` blocks until the status entry `KEY` of the workspace holds
+`--until`, then prints `{workspace_id, key, cleared, entry}`. `settled`, the
+default, returns when the entry is gone (cleared, its owner ended or its TTL
+passed) or shows `success` (exit 0), or shows `error` (exit 1); a key with no
+entry is settled at once. `cleared` waits for the entry to go, and `state=<s>`
+(`busy`, `waiting`, `success`, `error` or `info`) for that state. It follows the
+session's event stream instead of polling, and a passed timeout exits 124 with
+`wait.timeout`, also when the daemon stops answering.
+
 Rooms and groups (workspace, tab, screen and saved tab groups) take their id or
 their exact name. The CLI reads the list on the request's connection and sends
 the id, so a retry with `--idempotency-key` repeats the same request; a name
@@ -243,7 +257,7 @@ two records share is `selector.ambiguous` with their ids.
 
 ```text
 cmux screen list
-cmux screen create [--name <value>] [--correlation-key <value>]
+cmux screen create [--name <value>] [--correlation-key <value>] [--shell <script> | -- <argv...>]
 cmux screen <selector> show|focus|close
 cmux screen <selector> rename --name <value>
 cmux screen <selector> pin|unpin
@@ -267,7 +281,7 @@ Pinned screens sort first and leave their group. Group colors are `grey`,
 
 ```text
 cmux pane list
-cmux pane create [--cwd <path>]
+cmux pane create [--cwd <path>] [--shell <script> | -- <argv...>]
 cmux pane <selector> show|focus|close
 cmux pane <selector> rename --name <value>
 cmux pane <selector> split [--right|--down] [--ratio <value>] [--viewport-width <fraction>] [--cwd <path>]
@@ -277,7 +291,7 @@ cmux pane <selector> swap --other-workspace <sel> --other-screen <sel> --other-p
 cmux pane <selector> zoom [--enabled <bool>]
 cmux pane <selector> split ratio set --split <split_id> --ratio <value>
 cmux pane <selector> viewport width set --columns <value>
-cmux pane <selector> run [--on-exit <close|keep>] [--cwd <path>] [--name <value>] -- <argv...>
+cmux pane <selector> run [--on-exit <close|keep|shell>] [--cwd <path>] [--name <value>] -- <argv...>
 cmux pane <selector> tab ...
 ```
 
@@ -290,7 +304,7 @@ cmux tab list
 cmux tab <selector> show|focus|close
 cmux tab <selector> rename --name <value>
 cmux tab <selector> move --workspace <sel> --screen <sel> --pane <sel> --index <n>
-cmux tab create terminal [--cwd <path>] [--name <value>] [--workspace <sel>] [--screen <sel>] [--pane <sel>]
+cmux tab create terminal [--cwd <path>] [--name <value>] [--workspace <sel>] [--screen <sel>] [--pane <sel>] [--shell <script> | -- <argv...>]
 cmux tab create browser --url <value> [--name <value>] [--workspace <sel>] [--screen <sel>] [--pane <sel>]
 cmux tab <selector> terminal|browser ...
 cmux tab <selector> pin|unpin
@@ -325,6 +339,7 @@ Saved tab groups are personal and belong to a room (default: the default room).
 
 ```text
 cmux terminal list
+cmux terminal list --agents
 cmux terminal <selector> show
 cmux terminal <selector> write [--text <value>|--bytes-base64 <base64>]
 cmux terminal <selector> keys <key...>
@@ -339,6 +354,8 @@ cmux terminal <selector> output read [--after <offset>] [--max-bytes <n>]
 cmux terminal <selector> copy [--mode screen|selection|scrollback]
 cmux terminal <selector> process show
 cmux terminal <selector> process wait [--timeout-ms <n>]
+cmux terminal <selector> wait --until idle|prompt [--timeout <500ms|30s|5m>|--timeout-ms <n>]
+cmux terminal <selector> send --text <message|-> [--wait idle|prompt|none] [--timeout <5m>] [--settle <3s>] [--force]
 cmux terminal <selector> viewport scroll --delta-rows <n>
 cmux terminal <selector> move|project --workspace <sel> --screen <sel> --pane <sel> --index <n>
 cmux terminal <selector> attach [--read-only]
@@ -354,7 +371,43 @@ modifiers `ctrl`, `alt` (or `option`), `shift`; keys `enter`, `tab`, `backtab`,
 Example: `cmux terminal current keys ctrl+c enter`.
 
 `screen wait` prints its result either way and exits 1 when the timeout passes
-without a match.
+without a match. `cmux agents wait` does the same: it prints its receipt
+(`matched: false`) and exits 1 when its timeout passes.
+
+`wait --until prompt` returns when the shell sits at its prompt (`extra.prompt`,
+from OSC 133 shell integration); `--until idle` when no plain command runs, no
+program reports `working` (OSC 7501) and no OSC 9;4 progress is under way. Both
+follow the session's event stream instead of polling and print the terminal
+record. A passed timeout exits 124 with `wait.timeout`, also when the daemon
+stops answering. Both read shell state from OSC 133 marks: in a shell without
+integration `--until idle` returns while a command still runs. After the daemon
+reattaches to a running terminal host, the prompt and command state come back
+only with the shell's next mark.
+
+`list --agents` lists the terminals that run a coding agent, from one
+`session.snapshot`: the harness (Claude Code, Codex, … from hook or plugin
+agent records, else the app of an OSC 7501 status record), its state (`busy`,
+`idle`, `waiting-for-input` when a permission dialog or question waits,
+`ended`), the age of that state, the workspace and the title. Waiting agents
+sort first. `--json` prints `[{terminal, harness, state, title, workspace_id,
+workspace, cwd, updated_at_ms, age_ms, source}]`.
+
+`send` talks to the agent or shell in a terminal in one call. It types the
+message as one bracketed paste when the terminal has paste mode on (so a
+multi-line message stays one message in Claude Code, Codex or a line editor),
+presses Enter 300 ms later, and waits. `--wait idle` (default) ends when no
+agent record or OSC 7501 status newer than the send says `working`, no command
+or OSC 9;4 progress runs, and the screen has not changed for `--settle`
+(default 3s); an agent that stops on a dialog ends it as `waiting-for-input`.
+`--wait prompt` ends when the shell shows its prompt and the screen is still.
+`--wait none` returns after Enter. It prints only what the terminal printed
+after the message's echo (reading history pages when the reply is longer than
+the screen), less the harness's input box and status footer; `--json` prints
+`{terminal, harness, bracketed_paste, state, timed_out, waited_ms, anchored,
+output}`. `--timeout` (default 5m) exits 124 with the output so far. A
+terminal whose agent waits on a dialog is refused (`agent.waiting_for_input`)
+unless `--force`, because the text would answer the dialog. The MCP tools
+`agents_terminal_list` and `agents_terminal_send` run the same code.
 
 ### browser (daemon-owned)
 
@@ -391,7 +444,8 @@ refused. `--window` and `--id-format` are accepted and ignored.
 ### agent
 
 ```text
-cmux agent list [--terminal <term_id>] [--state working|blocked|idle|done|unknown]
+cmux agent list [--terminal <term_id>] [--state working|blocked|idle|done|unknown] [--needs-me]
+                [--sort needs-me|recent|none] [--limit <n>] [--counts]
 cmux agent report --terminal <term_id> --state <state> --source hook|socket [--source-session <id>]
 cmux agent hook install|uninstall|status [provider...]
 cmux agent hook emit --source <agent> --event <native-event> [--terminal <term_id>] [--payload-json <json>]
@@ -400,6 +454,11 @@ cmux agent plugin install <git-url> [--name <value>] [--force]
 cmux agent plugin use|update|remove <name-or-id>
 cmux agent plugin use --builtin
 ```
+
+`agent list` puts blocked agents first, then working, then idle and done
+(`--sort recent|none` for recency or the daemon's order). `--json` stays a bare
+array of agents; `--json --counts` adds the counts by state
+(`{"agents": [...], "counts": {...}}`).
 
 Hook providers are `codex`, `claude` (also `claude-code`), `gemini`, `opencode`
 and `pi`. `hook emit` reads the native payload from stdin when
@@ -475,6 +534,7 @@ cmux window list
 cmux action list [--category <c>] [--noun <n>] [--available]
 cmux action describe <id>
 cmux action run <id> [--target <id>] [--<arg> <value>] [--arg name=value] [--wait] [--interactive]
+cmux action run - [--no-wait] [--no-atomic] < ops
 cmux settings get [<path>]
 cmux settings set <path> <value> [--confirm]
 cmux settings reset <path> [--confirm]
@@ -489,6 +549,19 @@ Mac on a native sheet and waits for the answer with no client deadline; a
 declined sheet prints "declined in cmux" and exits 1. `--` ends the options:
 `cmux settings set <path> -- --confirm` sets the string "--confirm".
 `events` streams JSON lines until interrupted.
+
+`action run -` reads app actions from stdin, a JSON array or one JSON object
+per line of `action.run` params (`{"action": "newColumn", "target": "pane:…",
+"args": {…}}`), and sends them as ONE `action.batch` request: the app checks
+every op before any runs (one bad op runs nothing and names its index), runs
+them in order in one main-thread task (one transaction: the person never sees
+half of it, and the model publishes once), and answers once. A refusal while
+running stops there and says how many ops applied. One transaction holds at
+most 64 ops; `--no-atomic` applies a longer list as consecutive transactions,
+and without it a longer list is refused (`batch_too_large`). Targets name
+objects that exist before the batch. Layout ops the session daemon owns
+(`cmux workspace <ws> move`, `cmux tab <id> move|rename`) are not app actions;
+send those to the daemon.
 
 Browser page commands address a browser tab the app hosts, by `tab_…` id or
 `page` for the focused tab:
@@ -512,6 +585,12 @@ Every action in the app's registry is also a verb under its CLI name:
 `--<argument> <value>` per the action's schema; `--target`, `--wait` and
 `--interactive` work as in `action run`. `cmux action list` lists the names and
 `cmux action describe <id>` shows the arguments and targets.
+
+Move to New Window is `cmux <noun> move-to-new-window --target <id>` for
+`tab`, `tab-group`, `pane`, `screen`, `screen-group`, `workspace` and
+`workspace-group`; `cmux <noun> move-to-window --new --target <id>` is the
+same command. The new window opens beside the old one and takes the focus;
+terminals keep running and pages keep their state.
 
 ## `cmux coderouter`
 

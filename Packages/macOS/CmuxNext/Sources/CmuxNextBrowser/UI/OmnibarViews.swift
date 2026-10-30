@@ -2,21 +2,27 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// The omnibar's rounded background (`OmnibarGlassLook`): at rest nothing
-/// (transparent, the default), the glass material or the flat theme fill; a
+/// The omnibar's rounded background (`OmnibarGlassLook`): at rest the flat
+/// theme fill (the default), the glass material or nothing (transparent); a
 /// hover lift; a neutral ring while editing; and the plain card fill while it
 /// is the top of the suggestion card (the card is opaque, so the bar joins
 /// it).
 final class OmnibarPillView: NSView {
     enum State { case idle, editing, card }
 
-    var state: State = .idle { didSet { if oldValue != state { refresh(animated: true) } } }
+    /// Focus, blur and the card switch the look at once, on the frame of the
+    /// press, as Chrome's omnibox does; only the pointer's hover eases. A
+    /// fade here kept the focusing click's editing fill from showing for
+    /// several frames after the press (omnibar mouse-down latency).
+    var state: State = .idle { didSet { if oldValue != state { refresh(animated: false) } } }
     /// Where the pointer is now (`OmnibarPointer`): a hide, a tab switch or
     /// a window change under a still pointer clears it.
     private var hover: PointerHover?
     private var isHovering: Bool { hover?.isHovering ?? false }
     /// Whether the pointer is over the bar (`debug.omnibar`).
     var debugHovering: Bool { isHovering }
+    /// A fill, ring or shadow animation is still running on the bar's layer.
+    var debugIsFading: Bool { !(layer?.animationKeys() ?? []).isEmpty }
     /// The look in effect; follows cmux.json live.
     private(set) var look = OmnibarGlassLook.current { didSet { if oldValue != look { rebuildMaterial() } } }
     /// The glass under the bar, built while the look has a material.
@@ -106,6 +112,20 @@ final class OmnibarPillView: NSView {
         refresh(animated: false)
     }
 
+    /// The flat fill's state now.
+    private var barState: AddressBarSurface.State { isHovering ? .hover : .rest }
+
+    /// `debug.omnibar` `pointer.bar_style`: the resolved look (fill RGBA in
+    /// sRGB 0...1, corner radius, ring width, state and material).
+    var debugStyle: [String: Any] {
+        let fill = layer?.backgroundColor.flatMap { NSColor(cgColor: $0)?.usingColorSpace(.sRGB) }
+        let rgba: [Double] = fill.map { [$0.redComponent, $0.greenComponent, $0.blueComponent, $0.alphaComponent].map(Double.init) } ?? [0, 0, 0, 0]
+        let coverage = performWithTheme { Palette.addressBar.resolvedCoverage(look.backgroundOpacity) }
+        return ["fill": rgba, "corner_radius": Double(layer?.cornerRadius ?? 0), "ring_width": Double(layer?.borderWidth ?? 0),
+                "state": state == .idle ? barState.rawValue : (state == .card ? "card" : "editing"), "material": look.material.rawValue,
+                "background_opacity": look.backgroundOpacity, "resolved_coverage": coverage, "glass": glass != nil]
+    }
+
     private func applyShape() {
         let radius = look.resolvedCornerRadius(barHeight: bounds.height > 0 ? bounds.height : OmnibarStyle.barHeight)
         CATransaction.begin()
@@ -133,7 +153,7 @@ final class OmnibarPillView: NSView {
         let ring = state == .editing ? OmnibarStyle.ringWidth : 0
         let glassy = drawsGlass && state != .card
         glass?.isHidden = !glassy
-        Motion.transaction(animated ? fade : nil) {
+        Motion.feedback.transaction(animated ? fade : nil) {
             performWithTheme {
                 let fill: NSColor
                 if glassy {
@@ -147,15 +167,14 @@ final class OmnibarPillView: NSView {
                     // ring shows focus); on hover the toolbar buttons' see-through
                     // hover fill, not the opaque lift; the opaque card top.
                     fill = switch state {
-                    case .idle: isHovering ? Palette.hoverFill : .clear
+                    case .idle: isHovering && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : .clear
                     case .editing: .clear
                     case .card: OmnibarStyle.cardFill
                     }
                 } else {
-                    fill = switch state {
-                    case .idle: isHovering ? OmnibarStyle.barHoverFill : OmnibarStyle.barFill
-                    case .editing, .card: OmnibarStyle.cardFill
-                    }
+                    // The flat fill (`AddressBarSurface`): a tonal step over the
+                    // toolbar that keeps a see-through window's transparency.
+                    fill = state == .idle ? OmnibarStyle.barFill(barState, coverage: look.backgroundOpacity) : OmnibarStyle.cardFill
                 }
                 // The backing layer takes no implicit action, so the fill
                 // fades with an explicit animation: it eases between rest,
@@ -172,17 +191,22 @@ final class OmnibarPillView: NSView {
     }
 }
 
-/// The part of the suggestion card that surrounds the bar: 3 pt above and
-/// 6 pt past each side, rounded at the top only. The dropdown panel continues
-/// it below the bar, so bar and rows read as one card.
+/// The part of the suggestion card behind the bar: the bar's own frame and
+/// corners, rounded at the top only. The dropdown panel continues it below
+/// the bar, so bar and rows read as one card. With the toolbar at the bottom
+/// (`browser.toolbarPosition`) the card opens upward: rounded at the bottom
+/// only, the rows above.
 final class OmnibarCardTopView: NSView {
     let card = CALayer()
+    /// The rows sit above the bar.
+    var opensUpward = false {
+        didSet { if opensUpward != oldValue { needsLayout = true } }
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
         layer?.masksToBounds = false
-        card.cornerRadius = OmnibarStyle.cardCornerRadius
         card.cornerCurve = .continuous
         card.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
         // The one popup shadow (PopupStyle), as the panel of rows below.
@@ -204,9 +228,12 @@ final class OmnibarCardTopView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         card.frame = bounds
-        // Extend the shadow shape down past the seam, so no line shows
+        card.cornerRadius = OmnibarStyle.cardCornerRadius
+        // The corners away from the rows (the layer's y points up).
+        card.maskedCorners = opensUpward ? [.layerMinXMinYCorner, .layerMaxXMinYCorner] : [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+        // Extend the shadow shape past the seam toward the rows, so no line shows
         // between the two halves (the panel of rows casts no shadow of its own).
-        let shape = CGRect(x: 0, y: -40, width: bounds.width, height: bounds.height + 40)
+        let shape = CGRect(x: 0, y: opensUpward ? 0 : -40, width: bounds.width, height: bounds.height + 40)
         card.shadowPath = CGPath(roundedRect: shape, cornerWidth: OmnibarStyle.cardCornerRadius, cornerHeight: OmnibarStyle.cardCornerRadius, transform: nil)
         CATransaction.commit()
     }

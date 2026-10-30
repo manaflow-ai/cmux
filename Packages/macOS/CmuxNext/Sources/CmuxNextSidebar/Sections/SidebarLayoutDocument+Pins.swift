@@ -1,8 +1,10 @@
 import Foundation
 
 /// Pinned items (PINNED-ITEMS-END-TO-END, SIDEBAR-TOP-ROWS-AND-PINS):
-/// pinned workspaces are small wrapping icon tiles in `sec_pinned`, a top
-/// section under `sec_top` (built-in look, grid, no title). It is not in
+/// pinned workspaces are full-width rows in `sec_pinned`, a top section
+/// under `sec_top` (built-in look, list, no title) that draws each pinned
+/// workspace like any workspace row with its pin leading (the pinned section
+/// ignores a stored grid or tiles arrangement, see `SectionFlow.mode`). It is not in
 /// the defaults: the first pin adds it (`section.add`), so stored layouts
 /// do not change, and it draws only while it has items (an untitled empty
 /// section has no rows). "Add to Top" puts an item in `sec_top` beside
@@ -13,7 +15,7 @@ extension SidebarLayoutDocument {
 
     /// The pinned section holding `items`.
     public static func pinnedSection(items: [LayoutItem]) -> LayoutSection {
-        LayoutSection(id: pinnedSectionID, region: .top, look: .builtIn, arrangement: .grid, items: items)
+        LayoutSection(id: pinnedSectionID, region: .top, look: .builtIn, arrangement: .list, items: items)
     }
 
     /// Whether `ref` is a pinned tile.
@@ -43,6 +45,20 @@ extension SidebarLayoutDocument {
         let top = sections(in: .top, room: nil).map(\.id)
         let index = top.firstIndex(of: Self.topSectionID).map { $0 + 1 } ?? Int.max
         return .sectionAdd(Self.pinnedSection(items: [item]), index: index)
+    }
+
+    /// The ops that pin (or unpin) every ref in `refs`, each planned against the document the
+    /// earlier ones leave, so they apply in order as one change (Pin on a selection). Refs
+    /// already in the asked state add no op.
+    public func pinOps(_ refs: [(ref: LayoutItemRef, label: String?)], pinned: Bool) -> [SidebarLayoutOp] {
+        var document = self, ops: [SidebarLayoutOp] = []
+        for (ref, label) in refs {
+            guard let op = pinned ? document.pinOp(ref, label: label) : document.unpinOp(ref),
+                  case let .success(next) = SidebarLayoutReducer.reduce(document, op) else { continue }
+            ops.append(op)
+            document = next
+        }
+        return ops
     }
 
     /// Unpins `ref` (its tile only; a top row of the same ref stays). Nil

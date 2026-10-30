@@ -149,6 +149,7 @@ export function ThreadSheet({
             type="button"
             className={`lg-status-button${resolved ? " resolved" : ""}`}
             onClick={onToggleStatus}
+            /* tooltip-allow: the button shows the status; the tooltip names what a click does */
             title={t(resolved ? "thread.reopen" : "thread.resolve")}
             aria-keyshortcuts="E"
           >
@@ -168,13 +169,7 @@ export function ThreadSheet({
               <HomeIcon name="link" size={16} />
             </button>
           )}
-          <button
-            type="button"
-            className="hc-icon-button"
-            aria-label={t("thread.close")}
-            title={t("thread.close")}
-            onClick={onClose}
-          >
+          <button type="button" className="hc-icon-button" aria-label={t("thread.close")} onClick={onClose}>
             <HomeIcon name="close" size={16} />
           </button>
         </div>
@@ -209,6 +204,7 @@ export function ThreadSheet({
             <button
               type="button"
               className="lg-sheet-title-button"
+              /* tooltip-allow: the button shows the title; the tooltip says a click renames it */
               title={t("thread.rename")}
               disabled={!thread}
               onClick={startRename}
@@ -275,7 +271,6 @@ export function ThreadSheet({
               type="button"
               className="hc-icon-button"
               aria-label={t("thread.cancelReply")}
-              title={t("thread.cancelReply")}
               onClick={() => setReplyTo(undefined)}
             >
               <HomeIcon name="close" size={14} />

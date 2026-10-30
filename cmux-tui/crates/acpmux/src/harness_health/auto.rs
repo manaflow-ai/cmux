@@ -9,6 +9,10 @@
 //!
 //! The choice is a list of harness ids in `<acpmux home>/harness-auto-update.json`,
 //! set with `_acpmux/harness/health {autoUpdate: {id, on}}`.
+//!
+//! Update Everything (cx-1mbnu, `_acpmux/harness/update`) runs the same
+//! updaters on request (`run_updates`), whatever the choice, under the same
+//! no-sudo rule.
 
 use super::{HarnessHealth, HealthService, Settings, now_ms, probe};
 use serde::{Deserialize, Serialize};
@@ -51,12 +55,62 @@ fn read(path: Option<&Path>) -> BTreeSet<String> {
         .unwrap_or_default()
 }
 
-/// The updater a row runs on its own, if any.
-fn runnable(row: &HarnessHealth) -> Option<Vec<String>> {
+/// The updater cmux may run for an outdated row, if any: a plan that needs
+/// no elevated rights and whose program does not raise them.
+pub fn updatable(row: &HarnessHealth) -> Option<Vec<String>> {
     let plan = row.update.as_ref().filter(|p| !p.elevated)?;
+    if row.channel == super::channel::Channel::Npm
+        && !super::channel::npm_update_matches(plan, row.package.as_deref())
+    {
+        return None;
+    }
+    if row.channel == super::channel::Channel::Bun
+        && !super::channel::bun::matches(plan, row.package.as_deref(), row.path.as_deref())
+    {
+        return None;
+    }
     let program = plan.argv.first()?;
     let name = Path::new(program).file_name().and_then(|n| n.to_str()).unwrap_or(program);
-    (row.auto_update && row.outdated && !ELEVATING.contains(&name)).then(|| plan.argv.clone())
+    (row.outdated && !ELEVATING.contains(&name)).then(|| plan.argv.clone())
+}
+
+/// The updater a row runs on its own, if any.
+fn runnable(row: &HarnessHealth) -> Option<Vec<String>> {
+    row.auto_update.then(|| updatable(row)).flatten()
+}
+
+/// Runs one updater: whether it succeeded, and its last output line (or why
+/// it did not finish).
+async fn run_updater(argv: &[String], channel: super::channel::Channel) -> (bool, String) {
+    let run = argv.to_vec();
+    let outcome = tokio::task::spawn_blocking(move || {
+        let run = if channel == super::channel::Channel::Bun {
+            super::channel::bun::pin_manager(&run, crate::config::which)
+                .ok_or_else(|| "harness_update_plan.unavailable".to_owned())?
+        } else {
+            run
+        };
+        probe::run(&run, &BTreeMap::new(), UPDATE_LIMIT)
+    })
+    .await
+    .unwrap_or_else(|e| Err(e.to_string()));
+    match outcome {
+        Ok((ok, text)) => {
+            (ok, text.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").trim().to_owned())
+        }
+        Err(e) => (false, e),
+    }
+}
+
+/// What a requested update did for one harness (`run_updates`).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Requested {
+    /// The updater ran: whether it succeeded, and its last output line.
+    Ran { ok: bool, detail: String },
+    /// Nothing to run: the installed version is the newest known.
+    Current,
+    /// Not run, and why (an update that needs sudo, none known, no such harness).
+    Refused(String),
 }
 
 impl HealthService {
@@ -73,10 +127,9 @@ impl HealthService {
             ids.remove(id);
         }
         let body = serde_json::to_vec_pretty(&ids).map_err(|e| e.to_string())?;
-        let tmp = path.with_extension("json.tmp");
-        std::fs::write(&tmp, body)
-            .and_then(|()| std::fs::rename(&tmp, &path))
-            .map_err(|e| format!("auto-update not saved: {e}"))?;
+        // Owner-only whatever the umask, through a new temporary file each time.
+        crate::config::write_atomic(&path, &body)
+            .map_err(|e| format!("auto-update not saved: {e:#}"))?;
         if on {
             self.ran.lock().unwrap_or_else(PoisonError::into_inner).remove(id);
         }
@@ -104,6 +157,11 @@ impl HealthService {
     /// (one at a time, each command once, and not again for the same versions),
     /// and returns the ids it ran for. Callers wait for a run already going.
     pub async fn run_auto_updates(&self) -> Vec<String> {
+        // A build session with agent launches off changes no installed CLI (cx-9ettq).
+        // Nor a capture fixture's harnesses, which name no real install.
+        if crate::launch_policy::agent_launch_disabled() || self.fixed() {
+            return Vec::new();
+        }
         let _one = self.updating.lock().await;
         let mut done: BTreeMap<Vec<String>, AutoUpdateResult> = BTreeMap::new();
         let mut ran = Vec::new();
@@ -124,24 +182,7 @@ impl HealthService {
             let result = match done.get(&argv) {
                 Some(result) => result.clone(),
                 None => {
-                    let run = argv.clone();
-                    let outcome = tokio::task::spawn_blocking(move || {
-                        probe::run(&run, &BTreeMap::new(), UPDATE_LIMIT)
-                    })
-                    .await
-                    .unwrap_or_else(|e| Err(e.to_string()));
-                    let (ok, detail) = match outcome {
-                        Ok((ok, text)) => (
-                            ok,
-                            text.lines()
-                                .rev()
-                                .find(|l| !l.trim().is_empty())
-                                .unwrap_or("")
-                                .trim()
-                                .to_owned(),
-                        ),
-                        Err(e) => (false, e),
-                    };
+                    let (ok, detail) = run_updater(&argv, row.channel).await;
                     tracing::info!(harness = %row.id, ok, "auto-update ran");
                     let result = AutoUpdateResult {
                         at: now_ms(),
@@ -158,5 +199,113 @@ impl HealthService {
             ran.push(row.id);
         }
         ran
+    }
+
+    /// Runs now, for the person (Update Everything, cx-1mbnu), the updater of
+    /// each row named in `ids` (every outdated row when None), whatever its
+    /// auto-update choice and earlier runs, under the same rule: never one
+    /// that needs sudo or whose program raises rights. One at a time, shared
+    /// with auto-update, and each command once. `check` runs once the
+    /// updates are this caller's (after any auto-update ends), so a version
+    /// an auto-update just installed is not installed again; its rows are
+    /// returned with the outcomes.
+    pub async fn run_updates(
+        &self,
+        check: impl std::future::Future<Output = Vec<HarnessHealth>>,
+        ids: Option<&BTreeSet<String>>,
+    ) -> (Vec<HarnessHealth>, Vec<(String, Requested)>) {
+        let _one = self.updating.lock().await;
+        if self.fixed() {
+            // A capture fixture's commands describe no install on this machine.
+            let rows = self.rows();
+            let asked: Vec<String> = match ids {
+                Some(ids) => ids.iter().cloned().collect(),
+                None => rows.iter().filter(|r| r.outdated).map(|r| r.id.clone()).collect(),
+            };
+            let refused = asked
+                .into_iter()
+                .map(|id| (id, Requested::Refused(crate::harness_fixture::REFUSAL.into())))
+                .collect();
+            return (rows, refused);
+        }
+        let rows = check.await;
+        let rows = &rows[..];
+        let asked: Vec<String> = match ids {
+            Some(ids) => ids.iter().cloned().collect(),
+            None => rows.iter().filter(|r| r.outdated).map(|r| r.id.clone()).collect(),
+        };
+        let mut done: BTreeMap<Vec<String>, (bool, String)> = BTreeMap::new();
+        let mut out = Vec::new();
+        for id in asked {
+            let Some(row) = rows.iter().find(|r| r.id == id) else {
+                out.push((id, Requested::Refused("no such harness on this machine".into())));
+                continue;
+            };
+            if !row.outdated {
+                let unknown = || row.problem.clone().unwrap_or("its version is unknown".into());
+                let known_current = row.latest.as_deref().zip(row.version.as_deref()).is_some_and(
+                    |(latest, installed)| {
+                        matches!(
+                            probe::compare_versions(latest, installed),
+                            Some(std::cmp::Ordering::Less | std::cmp::Ordering::Equal)
+                        )
+                    },
+                );
+                let answer =
+                    if known_current { Requested::Current } else { Requested::Refused(unknown()) };
+                out.push((id, answer));
+                continue;
+            }
+            let Some(argv) = updatable(row) else {
+                let why = match &row.update {
+                    Some(plan) => {
+                        format!("its update needs elevated rights: run `{}`", plan.command)
+                    }
+                    None => "cmux cannot update it: update it the way it was installed".to_owned(),
+                };
+                out.push((id, Requested::Refused(why)));
+                continue;
+            };
+            let (ok, detail) = match done.get(&argv) {
+                Some(result) => result.clone(),
+                None => {
+                    let result = run_updater(&argv, row.channel).await;
+                    tracing::info!(harness = %id, ok = result.0, "requested update ran");
+                    done.insert(argv, result.clone());
+                    result
+                }
+            };
+            out.push((id, Requested::Ran { ok, detail }));
+        }
+        (rows.to_vec(), out)
+    }
+}
+
+#[cfg(all(test, unix))]
+mod owner_only_tests {
+    use super::*;
+
+    /// `harness-auto-update.json` is owner-only whatever the umask, like the rest of the acpmux
+    /// home (ergo-walk2, 2026-10-25), and a temporary file a crashed run left changes nothing.
+    #[test]
+    fn the_auto_update_list_is_saved_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("acpmux-auto-mode-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("harness-auto-update.json");
+        let stale = path.with_extension("json.tmp");
+        std::fs::write(&stale, "[]").unwrap();
+        std::fs::set_permissions(&stale, std::fs::Permissions::from_mode(0o666)).unwrap();
+        let service = HealthService::new();
+        service.attach(super::super::Settings {
+            auto_update: Some(path.clone()),
+            home: dir.clone(),
+            ..Default::default()
+        });
+        service.set_auto_update("codex", true).unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        assert!(std::fs::read_to_string(&path).unwrap().contains("codex"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

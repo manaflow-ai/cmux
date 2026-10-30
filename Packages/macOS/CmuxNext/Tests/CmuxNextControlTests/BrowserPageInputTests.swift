@@ -25,7 +25,7 @@ import Testing
     }
 
     func install(_ answer: JSONValue = ["value": true]) -> (ControlRouter, ScriptEngine) {
-        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor())
+        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), configuration: .loadTolerant)
         let engine = ScriptEngine(answer)
         BrowserPageService(engine: engine).install(on: router)
         var snapshot = ControlSnapshot.sample()
@@ -117,5 +117,57 @@ import Testing
         #expect(engine.last.contains("scrollIntoView({ block: 'center'"))
         _ = try await call(router, "hover", ["selector": "#menu"]).get()
         #expect(engine.last.contains("'mouseover'"))
+    }
+}
+
+/// `browser.page.click` moves like a person (plans/cmux-next/human-mouse-DESIGN.md):
+/// the element is measured first, then one awaited script walks the planned
+/// path with pointer and mouse events, rests, presses, holds and releases.
+/// `browser.agentMouse.motion: instant` keeps the old single-script click.
+@Suite(.timeLimit(.minutes(1))) struct BrowserPageHumanClickTests {
+    final class TwoStepEngine: BrowserPageEngine {
+        let operations = Mutex<[BrowserPageOperation]>([])
+        func run(_ operation: BrowserPageOperation, tabID: String, url: String?) async throws -> JSONValue {
+            operations.withLock { $0.append(operation) }
+            if case .evaluate = operation {
+                return ["value": ["value": true, "at": ["x": 600, "y": 400, "w": 80, "h": 30], "from": ["x": 10, "y": 10]]]
+            }
+            return ["value": ["value": true]]
+        }
+    }
+
+    func install(_ mouse: AgentMouseSetting.Value) -> (ControlRouter, TwoStepEngine) {
+        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), configuration: .loadTolerant)
+        let engine = TwoStepEngine()
+        BrowserPageService(engine: engine, agentMouse: { mouse }).install(on: router)
+        var snapshot = ControlSnapshot.sample()
+        snapshot.topology.workspaces[0].screens[0].panes[0].tabs.append(
+            ControlTabInfo(id: "tab_0123abcd", surface: "12", kind: "browser", title: "Form", url: "https://example.com/"))
+        router.snapshots.publish { $0 = snapshot }
+        return (router, engine)
+    }
+
+    @Test func aClickWalksAHumanPathThenPressesAndHolds() async throws {
+        let (router, engine) = install(AgentMouseSetting.Value(motion: .human, maxMoveMs: 350))
+        _ = try await router.handle(ControlRequest(method: "browser.page.click", params: ["tab": "tab_0123abcd", "selector": "#go"])).get()
+        let ops = engine.operations.withLock { $0 }
+        #expect(ops.count == 2, "measure, then walk and click")
+        guard case .evaluateAsync(let walk) = ops.last else { Issue.record("no awaited walk"); return }
+        for event in ["pointermove", "mousemove", "pointerover", "pointerdown", "mousedown", "pointerup", "mouseup", "'click'"] {
+            #expect(walk.contains(event), "\(event)")
+        }
+        let path = try #require(walk.range(of: "const path = ").map { walk[$0.upperBound...] })
+        let samples = path.prefix { $0 != ";" }.components(separatedBy: "{").count - 1
+        #expect(samples >= 10, "many moves, got \(samples)")
+        #expect(walk.contains("const dwell = ") && walk.contains("const hold = "))
+    }
+
+    @Test func instantMotionKeepsTheSingleScriptClick() async throws {
+        let (router, engine) = install(AgentMouseSetting.Value(motion: .instant, maxMoveMs: 350))
+        _ = try await router.handle(ControlRequest(method: "browser.page.click", params: ["tab": "tab_0123abcd", "selector": "#go"])).get()
+        let ops = engine.operations.withLock { $0 }
+        #expect(ops.count == 1)
+        guard case .evaluate(let script) = ops.first else { Issue.record("no script"); return }
+        #expect(script.contains("el.click()"))
     }
 }

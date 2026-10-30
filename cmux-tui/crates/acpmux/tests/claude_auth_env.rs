@@ -8,6 +8,11 @@
 //! Claude Code does and says what it found, or fails like Claude Code.
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -78,26 +83,6 @@ fn scratch(tag: &str, rc: &str) -> PathBuf {
     dir
 }
 
-/// The daemon's PATH: python3 (linked into `<dir>/bin`) and the system
-/// directories, never the host's own PATH. A fleet host's PATH holds real
-/// agent CLIs (codex, claude, gemini): the daemon would discover and probe
-/// them, and Codex's shell snapshot sources the fake HOME's `~/.zshrc`, so
-/// the login shell would seem to run more often than it does.
-fn bare_path(dir: &Path) -> String {
-    let bin = dir.join("bin");
-    std::fs::create_dir_all(&bin).unwrap();
-    let python = std::env::var_os("PATH")
-        .iter()
-        .flat_map(std::env::split_paths)
-        .map(|d| d.join("python3"))
-        .find(|p| p.is_file())
-        .expect("python3 on the test's PATH");
-    let link = bin.join("python3");
-    let _ = std::fs::remove_file(&link);
-    std::os::unix::fs::symlink(python, &link).unwrap();
-    format!("{}:/usr/bin:/bin:/usr/sbin:/sbin", bin.display())
-}
-
 struct Daemon {
     child: std::process::Child,
     socket: PathBuf,
@@ -121,8 +106,12 @@ impl Drop for Daemon {
     }
 }
 
-/// The daemon the way the Chief or launchd starts it: a bare environment
-/// (only PATH for python3, the fake HOME and its login shell) plus `extra`.
+/// The daemon the way the Chief or launchd starts it: the hermetic test
+/// environment (`daemon_env`: a bare PATH with python3, never the host's, so
+/// no real codex or claude is found; the fake HOME) with its login shell, plus
+/// `extra`. A fleet host's real agent CLIs would be probed, and Codex's shell
+/// snapshot sources the fake `~/.zshrc`, so the login shell would seem to run
+/// more often than it does (cx-w014j).
 async fn start(dir: &Path, harnesses: Value, extra: &[(&str, &str)]) -> Daemon {
     let config = json!({"harnesses": harnesses, "defaultHarness": "claude", "permissionPolicy": "approve-all"});
     start_config(dir, config, extra).await
@@ -131,13 +120,10 @@ async fn start(dir: &Path, harnesses: Value, extra: &[(&str, &str)]) -> Daemon {
 async fn start_config(dir: &Path, config: Value, extra: &[(&str, &str)]) -> Daemon {
     std::fs::write(dir.join("config.json"), config.to_string()).unwrap();
     let socket = dir.join("s.sock");
-    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"));
+    // The stand-in claude (fake_claude.py) is the only agent.
+    let mut cmd = daemon_env::command(dir, daemon_env::Agents::StandIn, &[]);
     cmd.args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "info"])
-        .env_clear()
-        .env("PATH", bare_path(dir))
-        .env("HOME", dir.join("home"))
         .env("SHELL", dir.join("loginsh"))
-        .env("TMPDIR", std::env::temp_dir())
         .env("ACPMUX_HOME", dir)
         .env("ACPMUX_SOCKET", &socket)
         .env("ACPMUX_AGENT_HOSTS", "0")
@@ -261,6 +247,102 @@ async fn a_daemon_inside_a_claude_session_gives_agents_the_login_route() {
         let v = found(&reply);
         assert_eq!(v["base"], SUBROUTER, "start {start_no}: {v}");
         assert_eq!(v["auth"], json!(["ANTHROPIC_AUTH_TOKEN"]), "start {start_no}: {v}");
+    }
+}
+
+/// (a3) The daemon's prompt-cache switches never reach an agent; a harness
+/// that sets one on purpose keeps it. Before: an acpmux client run from an
+/// OptChat turn (whose settings env has DISABLE_PROMPT_CACHING=1) started
+/// the NIGHTLY Chief daemon, and every agent it spawned sent no cache marks
+/// (2026-10-19: 277 of 756 sampled requests read and wrote no cache).
+#[tokio::test]
+async fn the_daemons_prompt_cache_switches_never_reach_an_agent() {
+    let dir = scratch("pcache", "export EDITOR=vi\n");
+    let signed_in = json!({"ANTHROPIC_API_KEY": "sk-test"});
+    let on_purpose = json!({"ANTHROPIC_API_KEY": "sk-test", "DISABLE_PROMPT_CACHING": "1"});
+    let harnesses = json!({"claude": claude(signed_in), "marks": claude(on_purpose)});
+    let switches = [
+        ("DISABLE_PROMPT_CACHING", "1"),
+        ("DISABLE_PROMPT_CACHING_OPUS", "1"),
+        ("FORCE_PROMPT_CACHING_5M", "1"),
+        ("ENABLE_PROMPT_CACHING_1H", "1"),
+    ];
+    // Started from inside a Claude Code turn, and with the switches in its
+    // own environment only (the live daemon's state: a scrubbed start keeps
+    // no CLAUDECODE).
+    let inside: Vec<(&str, &str)> =
+        [("CLAUDECODE", "1")].into_iter().chain(switches.iter().copied()).collect();
+    for (case, extra) in [("inside a turn", inside.as_slice()), ("own env", switches.as_slice())] {
+        for (harness, want) in
+            [("claude", json!({})), ("marks", json!({"DISABLE_PROMPT_CACHING": "1"}))]
+        {
+            let d = start(&dir, harnesses.clone(), extra).await;
+            let (reply, _) = ask(&d, harness).await;
+            assert_eq!(found(&reply)["promptCache"], want, "{case}, {harness}: {reply:?}");
+        }
+    }
+}
+
+/// The values of one turn or session of whoever started the daemon (a Chief
+/// turn's subrouter session key and seal, 2026-10-19) never reach an agent
+/// the daemon spawns; a profile that sets one on purpose still passes it.
+#[tokio::test]
+async fn the_daemons_turn_values_never_reach_an_agent() {
+    let dir = scratch("turnenv", "export EDITOR=vi\n");
+    let signed_in = json!({"ANTHROPIC_API_KEY": "sk-test"});
+    let keyed = json!({"ANTHROPIC_API_KEY": "sk-test", "SUBROUTER_SESSION_KEY": "preset-sub"});
+    let harnesses = json!({"claude": claude(signed_in), "keyed": claude(keyed)});
+    let turn = [
+        ("SUBROUTER_SESSION_KEY", "optchat-home-turn"),
+        ("CODEX_PROMPT_CACHE_KEY", "optchat-home-turn"),
+        ("OPTCHAT_TURN_SEAL", "00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff"),
+        ("OPTCHAT_SUBAGENT", "1"),
+        ("AI_AGENT", "claude-code"),
+    ];
+    let inside: Vec<(&str, &str)> =
+        [("CLAUDECODE", "1")].into_iter().chain(turn.iter().copied()).collect();
+    for (case, extra) in [("inside a turn", inside.as_slice()), ("own env", turn.as_slice())] {
+        for (harness, want) in
+            [("claude", json!({})), ("keyed", json!({"SUBROUTER_SESSION_KEY": "preset-sub"}))]
+        {
+            let d = start(&dir, harnesses.clone(), extra).await;
+            let (reply, _) = ask(&d, harness).await;
+            assert_eq!(found(&reply)["turnScoped"], want, "{case}, {harness}: {reply:?}");
+        }
+    }
+}
+
+/// A Chief turn or compactor runs a fresh Claude process per turn; its
+/// preset's SUBROUTER_SESSION_KEY with SUBROUTER_SESSION_HEADER=1 must reach
+/// the API as `X-Subrouter-Session`, next to the route's own header lines,
+/// or the sr2 gateway spreads the turns over accounts and their prompt
+/// cache goes cold (a226: 43% of Chief turns rewrote 38k-83k tokens). A
+/// preset without the opt-in (a subagent, one long session) sends none, and
+/// the daemon's own turn values never become a header.
+#[tokio::test]
+async fn a_turn_session_key_becomes_the_subrouter_session_header() {
+    let dir = scratch("srsession", "export EDITOR=vi\n");
+    let route = "X-Subrouter-Agent: claude";
+    let turn = json!({"ANTHROPIC_API_KEY": "sk-test", "ANTHROPIC_CUSTOM_HEADERS": route,
+        "SUBROUTER_SESSION_KEY": "optchat-c0eb-turn", "SUBROUTER_SESSION_HEADER": "1"});
+    let bare = json!({"ANTHROPIC_API_KEY": "sk-test",
+        "SUBROUTER_SESSION_KEY": "optchat-c0eb-compact", "SUBROUTER_SESSION_HEADER": "1"});
+    let sub = json!({"ANTHROPIC_API_KEY": "sk-test", "ANTHROPIC_CUSTOM_HEADERS": route,
+        "SUBROUTER_SESSION_KEY": "optchat-c0eb-sub"});
+    let bad = json!({"ANTHROPIC_API_KEY": "sk-test", "ANTHROPIC_CUSTOM_HEADERS": route,
+        "SUBROUTER_SESSION_KEY": "two words\nX-Evil: 1", "SUBROUTER_SESSION_HEADER": "1"});
+    let harnesses = json!({"claude": claude(turn), "bare": claude(bare), "sub": claude(sub), "bad": claude(bad)});
+    let daemon_turn = [("SUBROUTER_SESSION_KEY", "daemon-turn"), ("SUBROUTER_SESSION_HEADER", "1")];
+    for (harness, want) in [
+        ("claude", json!("X-Subrouter-Agent: claude\nX-Subrouter-Session: optchat-c0eb-turn")),
+        ("bare", json!("X-Subrouter-Session: optchat-c0eb-compact")),
+        ("sub", json!(route)),
+        ("bad", json!(route)),
+    ] {
+        // One daemon per case: `ask` names every session "auth".
+        let d = start(&dir, harnesses.clone(), &daemon_turn).await;
+        let (reply, _) = ask(&d, harness).await;
+        assert_eq!(found(&reply)["customHeaders"], want, "{harness}: {reply:?}");
     }
 }
 
@@ -431,6 +513,197 @@ async fn the_login_shell_is_cached_without_secrets_and_rerun_on_change() {
         let _ = ask(&d, "claude").await;
     }
     assert_eq!(runs(), 3, "an edited rc file runs the shell again");
+}
+
+#[tokio::test]
+async fn a_linked_login_environment_cache_is_never_trusted() {
+    let dir = scratch("cache-link", "echo run >> \"$HOME/shell-runs\"\nexport NO_PROXY=plain\n");
+    let config = json!({"harnesses": {}, "permissionPolicy": "deny-all"});
+    // The readiness line comes before the login environment resolves (the
+    // shell runs in `finish_startup`), and no agent spawn waits for it here:
+    // wait for startup to finish before the daemon stops.
+    {
+        let d = start_config(&dir, config.clone(), &[]).await;
+        startup_finished(&d).await;
+    }
+    let runs =
+        || std::fs::read_to_string(dir.join("home/shell-runs")).unwrap_or_default().lines().count();
+    assert_eq!(runs(), 1);
+    let cache = dir.join("login-env.json");
+    let planted = dir.join("planted-login-env.json");
+    std::fs::copy(&cache, &planted).unwrap();
+    let mut planted_cache: Value =
+        serde_json::from_slice(&std::fs::read(&planted).unwrap()).unwrap();
+    planted_cache["vars"]["NO_PROXY"] = "from-linked-cache".into();
+    let planted_text = serde_json::to_string(&planted_cache).unwrap();
+    std::fs::write(&planted, &planted_text).unwrap();
+    std::fs::remove_file(&cache).unwrap();
+    std::os::unix::fs::symlink(&planted, &cache).unwrap();
+    {
+        let d = start_config(&dir, config, &[]).await;
+        startup_finished(&d).await;
+    }
+    assert_eq!(runs(), 2, "the daemon trusted a linked login cache");
+    assert_eq!(std::fs::read_to_string(&planted).unwrap(), planted_text);
+    assert!(!std::fs::symlink_metadata(&cache).unwrap().file_type().is_symlink());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Wait until the daemon reports its startup complete (`_acpmux/status`
+/// `ready`): a login shell it had to wait for has run by then.
+async fn startup_finished(d: &Daemon) {
+    let mut rpc = Rpc::connect(&d.socket).await;
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let status = rpc.call("_acpmux/status", json!({})).await;
+        if status["ready"] == true {
+            return;
+        }
+        assert!(Instant::now() < deadline, "the daemon never finished its startup: {status}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// Wait up to `limit` for the daemon's login cache to hold `NO_PROXY=want`.
+async fn cached_no_proxy(dir: &Path, want: &str, limit: Duration) -> bool {
+    let deadline = Instant::now() + limit;
+    loop {
+        let found = std::fs::read_to_string(dir.join("login-env.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+            .is_some_and(|v| v["vars"]["NO_PROXY"] == want);
+        if found || Instant::now() >= deadline {
+            return found;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// D26: an edited shell startup file refreshes the login environment on its
+/// own (a file watcher), not at the next agent spawn. No agent runs here, and
+/// the edit lands inside the 10 s spawn recheck window, so only the watcher
+/// can read it again.
+#[tokio::test]
+async fn an_edited_rc_file_refreshes_the_login_env_without_a_spawn() {
+    let dir = scratch("watch", "export NO_PROXY=before-edit\n");
+    let config = json!({"harnesses": {}, "permissionPolicy": "approve-all"});
+    let _d = start_config(&dir, config, &[]).await;
+    assert!(cached_no_proxy(&dir, "before-edit", Duration::from_secs(8)).await, "the first read");
+    std::fs::write(dir.join("home/.zshrc"), "export NO_PROXY=after-the-edit\n").unwrap();
+    assert!(
+        cached_no_proxy(&dir, "after-the-edit", Duration::from_secs(6)).await,
+        "the edited ~/.zshrc was not read again"
+    );
+}
+
+/// An edit that lands while the login shell is still reading the previous
+/// edit is read too: the login env ends at the last edit, never one behind.
+/// Edit A marks when the shell starts reading it, then takes about 1.5 s;
+/// edit B lands right after the mark, so A's read is running. The shell
+/// lives in a quiet folder: the daemon's log in the scratch folder would
+/// keep the watcher's burst open past A's read.
+#[tokio::test]
+async fn an_edited_rc_file_during_a_read_is_read_again() {
+    let dir = scratch("race", "export NO_PROXY=before-edit\n");
+    std::fs::create_dir_all(dir.join("sh")).unwrap();
+    std::fs::copy(dir.join("loginsh"), dir.join("sh/loginsh")).unwrap();
+    let shell = dir.join("sh/loginsh");
+    let config = json!({"harnesses": {}, "permissionPolicy": "approve-all"});
+    let _d = start_config(&dir, config, &[("SHELL", shell.to_str().unwrap())]).await;
+    assert!(cached_no_proxy(&dir, "before-edit", Duration::from_secs(8)).await, "the first read");
+    // The mark is in no watched folder.
+    let mark = dir.join("reading-a");
+    std::fs::write(
+        dir.join("home/.zshrc"),
+        "touch \"$HOME/../reading-a\"\nsleep 1.5\nexport NO_PROXY=edit-a\n",
+    )
+    .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(8);
+    while !mark.exists() && Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(mark.exists(), "edit A was never read");
+    std::fs::write(dir.join("home/.zshrc"), "export NO_PROXY=edit-b-last\n").unwrap();
+    assert!(
+        cached_no_proxy(&dir, "edit-b-last", Duration::from_secs(10)).await,
+        "the edit made during a read was dropped"
+    );
+}
+
+/// `~/.zshrc -> dotfiles/zshrc`: an edit to the link's target refreshes the
+/// login env (the watcher watches the target's folder too).
+#[tokio::test]
+async fn an_edited_rc_file_behind_a_symlink_refreshes_the_login_env() {
+    let dir = scratch("link", "");
+    std::fs::create_dir_all(dir.join("dotfiles")).unwrap();
+    let target = dir.join("dotfiles/zshrc");
+    std::fs::write(&target, "export NO_PROXY=before-edit\n").unwrap();
+    std::fs::remove_file(dir.join("home/.zshrc")).unwrap();
+    std::os::unix::fs::symlink(&target, dir.join("home/.zshrc")).unwrap();
+    let config = json!({"harnesses": {}, "permissionPolicy": "approve-all"});
+    let _d = start_config(&dir, config, &[]).await;
+    assert!(cached_no_proxy(&dir, "before-edit", Duration::from_secs(8)).await, "the first read");
+    std::fs::write(&target, "export NO_PROXY=after-the-edit\n").unwrap();
+    assert!(
+        cached_no_proxy(&dir, "after-the-edit", Duration::from_secs(6)).await,
+        "the edited symlink target was not read again"
+    );
+}
+
+/// A startup file the login shell rewrites on every read (a tool that
+/// appends to ~/.zshrc) never settles; the daemon stops reading it again
+/// instead of running login shells back to back.
+#[tokio::test]
+async fn an_rc_file_the_shell_rewrites_stops_being_read_again() {
+    let dir = scratch(
+        "rewrite",
+        "echo run >> \"$HOME/../runs\"\necho '#' >> \"$HOME/.zshrc\"\nexport NO_PROXY=self-rewriting\n",
+    );
+    let config = json!({"harnesses": {}, "permissionPolicy": "approve-all"});
+    let _d = start_config(&dir, config, &[]).await;
+    assert!(
+        cached_no_proxy(&dir, "self-rewriting", Duration::from_secs(8)).await,
+        "the first read"
+    );
+    let runs = || std::fs::read_to_string(dir.join("runs")).map(|s| s.lines().count()).unwrap_or(0);
+    // The watcher's burst (300 ms quiet, 2 s at most) and any re-read end well
+    // within this; after it the shell runs no more.
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    let settled = runs();
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert_eq!(
+        runs(),
+        settled,
+        "the daemon kept running the login shell ({settled} runs, then more)"
+    );
+}
+
+/// The first health answer counts a Claude sign-in the login shell exports
+/// (hq#2569 #2), even when it is asked before the shell has answered: the
+/// health call waits for the daemon's startup, as its own check does,
+/// instead of reading an environment without the login shell. (A slow
+/// shell, 1.5 s here, is the case of a loaded machine or a heavy ~/.zshrc.)
+#[tokio::test]
+async fn the_first_health_answer_counts_a_sign_in_from_a_slow_login_shell() {
+    let dir = scratch("hl", "sleep 1.5\nexport ANTHROPIC_API_KEY=from-login-shell\n");
+    // A Claude CLI by path (no PATH harness finds it).
+    std::fs::create_dir_all(dir.join("bin")).unwrap();
+    write_executable(
+        &dir.join("bin/claude"),
+        "#!/bin/sh\n[ \"$1\" = --version ] && echo '2.1.0 (Claude Code)'\nexit 0\n",
+    );
+    let config = json!({"harnesses": {"cl": {"argv": [dir.join("bin/claude")]}},
+        "defaultHarness": "cl", "permissionPolicy": "approve-all"});
+    let d = start_config(&dir, config, &[]).await;
+    let mut rpc = Rpc::connect(&d.socket).await;
+    let health = rpc.call("_acpmux/harness/health", json!({})).await;
+    let row = health["harnesses"]
+        .as_array()
+        .and_then(|rows| rows.iter().find(|row| row["id"] == "cl"))
+        .unwrap_or_else(|| panic!("no cl row: {health}"))
+        .clone();
+    assert_eq!(row["auth"], "signedIn", "{health}");
+    assert_eq!(row["authDetail"], "an API key (ANTHROPIC_API_KEY)", "{health}");
 }
 
 /// A login shell that hangs: the daemon stops waiting after 3 s, and

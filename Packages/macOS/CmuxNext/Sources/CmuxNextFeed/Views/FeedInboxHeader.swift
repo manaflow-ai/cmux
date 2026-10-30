@@ -54,11 +54,14 @@ struct FeedInboxHeader: View {
                 }
                 .menuStyle(.borderlessButton).menuIndicator(.hidden)
                 .frame(width: 16).themedHelp(FeedStrings.filterInbox)
+                .accessibilityLabel(FeedStrings.filterInbox).accessibilityIdentifier("cmux.feed.filter")
                 Button(action: markRead) { Icon(.actionConfirm, size: Self.glyphSide) }
                     .buttonStyle(.plain).disabled(!hasUnread).themedHelp(FeedStrings.markAllRead)
+                    .accessibilityLabel(FeedStrings.markAllRead).accessibilityIdentifier("cmux.feed.markAllRead")
                 if canRefresh {
                     Button(action: refresh) { Icon(.actionReload, size: Self.glyphSide) }
-                        .buttonStyle(.plain).themedHelp(FeedStrings.refresh)
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(FeedStrings.refresh).accessibilityIdentifier("cmux.feed.refresh")
                 }
             }
             .font(.system(size: 12)).foregroundStyle(colors.secondary)

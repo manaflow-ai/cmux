@@ -1,0 +1,15 @@
+{
+  "title": "Sidebar workspace row names: workspace, breadcrumb, focused tab, all tabs",
+  "steps": [
+    {"title": "Launch", "wait": 3},
+    {"title": "Row name preview rows", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "sidebar.rowTitlePreview", "value": true}}, "wait": 2, "optional": "debug.tunables is DEBUG only"},
+    {"title": "Workspace only (default)", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "sidebar.rowTitle", "value": "workspace"}}, "wait": 2, "optional": "debug.tunables is DEBUG only"},
+    {"title": "Workspace › focused tab", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "sidebar.rowTitle", "value": "breadcrumb"}}, "wait": 2, "optional": "debug.tunables is DEBUG only"},
+    {"title": "Focused tab only", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "sidebar.rowTitle", "value": "focusedTab"}}, "wait": 2, "optional": "debug.tunables is DEBUG only"},
+    {"title": "Workspace › all tabs", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "sidebar.rowTitle", "value": "allTabs"}}, "wait": 2, "optional": "debug.tunables is DEBUG only"},
+    {"title": "Workspace › focused tab, single chat names its workspace", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "sidebar.rowTitle", "value": "breadcrumb"}}, "wait": 1, "shot": false, "optional": "debug.tunables is DEBUG only"},
+    {"title": "Workspace › focused tab, single chat names its workspace", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "sidebar.rowTitleSingleChat", "value": true}}, "wait": 2, "optional": "debug.tunables is DEBUG only"},
+    {"title": "Dark", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 2, "optional": "debug.appearance is DEBUG only"},
+    {"title": "Back to the default", "rpc": {"method": "debug.tunables", "params": {"action": "reset", "section": "sidebar"}}, "wait": 2, "optional": "debug.tunables is DEBUG only"}
+  ]
+}

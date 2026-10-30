@@ -1,3 +1,5 @@
+import CmuxNextFocus
+
 /// Keys typed into a page surface before its document can take them (spec
 /// app-screens.md section 3, R59): one surface's printable text, in order,
 /// at most 256 characters and 2 s old. The key router owns one and drops it
@@ -11,6 +13,9 @@ struct TypeAheadQueue: Equatable {
     }
 
     private var wire = Wire()
+    /// Deletes typed after the queued text was taken for the page and before it landed there: they
+    /// belong to that text, so they go to the page after it (``takeDeletes()``), never dropped.
+    private(set) var deletesAfterTaken = 0
     /// Times go to the rule as nanoseconds after this instant: a day before
     /// its first use, so every instant this process passes is after it.
     private static let origin = ContinuousClock.now - .seconds(86_400)
@@ -29,9 +34,29 @@ struct TypeAheadQueue: Equatable {
         apply(.append(characters: characters, surface: surface, nowNs: Self.nanoseconds(now)))
     }
 
-    /// Delete while the page loads removes the last queued character.
-    mutating func deleteBackward(surface: String) {
+    /// Delete while the page loads removes the last queued character. With nothing queued while
+    /// taken text is still on its way to the page (`delivering`), it counts for that text instead.
+    mutating func deleteBackward(surface: String, delivering: Bool = false) {
+        guard pending(for: surface) || !delivering else {
+            deletesAfterTaken += 1
+            return
+        }
         apply(.deleteBackward(surface: surface))
+    }
+
+    /// The Deletes counted for text that was on its way to the page, once.
+    mutating func takeDeletes() -> Int {
+        defer { deletesAfterTaken = 0 }
+        return deletesAfterTaken
+    }
+
+    var pendingDeletes: Int { deletesAfterTaken }
+
+    /// Drops text that has not been taken for delivery while keeping Deletes already typed for the
+    /// in-flight text. A chord or focus move may cancel the waiting text, but it must not reorder a
+    /// Delete behind that text or lose it before `flushTypeAhead` takes it.
+    mutating func dropPendingText() {
+        wire = Wire()
     }
 
     /// The queued text for `surface`, once; nil when none waits or it is
@@ -42,6 +67,7 @@ struct TypeAheadQueue: Equatable {
 
     mutating func drop() {
         wire = Wire()
+        deletesAfterTaken = 0
     }
 
     private enum Op: Encodable {

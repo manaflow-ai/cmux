@@ -1,5 +1,5 @@
 // Sidebar prototype (#16688), dev server only: prototype.html. One stack of open workspaces is the
-// main sidebar; agent history (the pane's project-grouped session list) is a layer opened from the
+// main sidebar; agent history (a plain list of the fixture's sessions) is a layer opened from the
 // rail, and opening a row there jumps to the tab already showing it instead of opening a copy.
 // Dots at the bottom switch spaces, and links from a terminal open in the mini window
 // until Cmd-O promotes them into the workspace. Rows are minimal unless `sidebar.rowDetail` (the
@@ -7,8 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AcpmuxApp } from "../App";
 import { mockSessions, sessionSummary } from "../mockFixture";
-import { SessionSidebar } from "../SessionSidebar";
-import { sessionEntry, sessionMark, type AcpmuxSessionEntry } from "../sessionList";
+import { sessionEntry, sessionMark, sessionTitle, type AcpmuxSessionEntry } from "../sessionList";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import {
@@ -294,21 +293,19 @@ export function WorkspaceShell() {
           <span>{space.name}</span>
           <ProfileChip id={space.browserProfile} />
         </div>
-        {items.groupByStatus ? (
-          // Grouped by each workspace's most urgent agent, in this space's stack order.
-          <div key={space.id} className="proto-stack-list">
-            {groupByStatus(stack.workspaces, (workspace) => details.get(workspace.id)!.status).map((group) => (
+        <div className="proto-stack-list">
+          {items.groupByStatus ? (
+            // Grouped by each workspace's most urgent agent, in this space's stack order.
+            groupByStatus(stack.workspaces, (workspace) => details.get(workspace.id)!.status).map((group) => (
               <section key={group.status} className="proto-stack-group">
                 <StatusHeader group={group} />
                 <ul>{group.items.map(row)}</ul>
               </section>
-            ))}
-          </div>
-        ) : (
-          <ul key={space.id} className="proto-stack-list">
-            {stack.workspaces.map(row)}
-          </ul>
-        )}
+            ))
+          ) : (
+            <ul>{stack.workspaces.map(row)}</ul>
+          )}
+        </div>
         <SpaceDots spaces={spaces} onSelect={(id) => showSpaces(switchSpace(spaces, id))} />
       </nav>
 
@@ -343,12 +340,24 @@ export function WorkspaceShell() {
                 <CloseIcon />
               </button>
             </header>
-            <SessionSidebar
-              sessions={history}
-              selectedId={activeTab.sessionId}
-              openIds={openIds}
-              onSelect={openSession}
-            />
+            <ul className="proto-history-list">
+              {history.map((session) => {
+                const open = openIds.has(session.sessionId);
+                return (
+                  <li key={session.sessionId}>
+                    <button
+                      type="button"
+                      className={`proto-history-row${open ? " is-open" : ""}`}
+                      aria-current={session.sessionId === activeTab.sessionId ? "true" : undefined}
+                      onClick={() => openSession(session.sessionId)}
+                    >
+                      <span>{sessionTitle(session)}</span>
+                      {open && <small>Open</small>}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
           </aside>
         </>
       )}
@@ -557,7 +566,7 @@ function TerminalMock({ tab, onOpenLink }: { tab: WorkspaceTab; onOpenLink: () =
 function ProfileChip({ id }: { id: string }) {
   const profile = browserProfileById.get(id)!;
   return (
-    <span className="proto-profile" title={`Browser profile: ${profile.name}`}>
+    <span className="proto-profile">
       <i style={{ background: `var(--proto-${profile.color})` }} />
       {profile.name}
     </span>
@@ -650,12 +659,7 @@ function MiniBrowser({
             From {mini.source.label} · <b>{workspaceLead(target).title}</b>
           </span>
         </span>
-        <button
-          type="button"
-          className="proto-mini-promote"
-          title={`Open as a tab in ${workspaceLead(target).title}`}
-          onClick={onPromote}
-        >
+        <button type="button" className="proto-mini-promote" onClick={onPromote}>
           <PromoteIcon />
           Open as tab
           <kbd>⌘O</kbd>

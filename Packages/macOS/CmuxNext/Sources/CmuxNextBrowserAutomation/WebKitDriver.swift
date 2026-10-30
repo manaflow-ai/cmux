@@ -46,6 +46,7 @@ public final class WebKitDriver: DriverCallHandler {
 
     public func call(method: String, params json: DriverJSON) async throws(DriverError) -> DriverJSON {
         let params = try DriverParams(method: method, json: json)
+        await wakeIfHibernated(params)
         await keepRendering(params)
         switch method {
         case "tabs.list": return try tabsList(params)
@@ -60,7 +61,7 @@ public final class WebKitDriver: DriverCallHandler {
         case "frame.contentFrame": return try await frameContentFrame(params)
         case "frame.ownerBox": return try await frameOwnerBox(params)
         case "frame.evaluate":
-            let timeout = try params.optionalNumber("timeoutMs").flatMap { $0 > 0 ? Duration.milliseconds(Int64($0)) : nil }
+            let timeout = try params.optionalNumber("timeoutMs").flatMap { $0 > 0 ? DriverParams.duration(milliseconds: $0) : nil }
             return try await CallDeadline.run(timeout, what: "frame.evaluate") { () throws(DriverError) in try await self.frameEvaluate(params) }
         case "input.mouse": return try await inputMouse(params)
         case "input.key":
@@ -80,6 +81,14 @@ public final class WebKitDriver: DriverCallHandler {
         case "cookies.restore": return try await cookiesRestore(params)
         default: throw DriverError(.unsupported, "Unsupported driver method \(method)")
         }
+    }
+
+    /// A call on a hibernated tab: the App restores its page first, so the
+    /// call finds it (a hibernated tab has no WebKit page to drive). A
+    /// session ending its tab closes it as it is.
+    private func wakeIfHibernated(_ params: DriverParams) async {
+        guard params.method != "tabs.close", let raw = try? params.optionalString("targetId") else { return }
+        await provider?.wakeIfHibernated(raw)
     }
 
     /// A call on a tab no pane shows: the App moves it into its render

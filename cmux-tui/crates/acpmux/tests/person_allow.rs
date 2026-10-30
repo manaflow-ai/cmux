@@ -8,6 +8,12 @@
 //! comes to an unsigned daemon only on `--person-key-fd` at spawn) may.
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/). A disposable-account run
+// points `ACPMUX_TEST_BINARY` at a relocated build (`machine_consent_home::binary`).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&["ACPMUX_TEST_BINARY"]);
+
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
 use std::os::unix::process::CommandExt;
@@ -159,13 +165,12 @@ impl Daemon {
         )
         .unwrap();
         let socket = dir.join("s.sock");
-        let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"));
+        let mut cmd = std::process::Command::new(machine_consent_home::binary(daemon_env::bin()));
+        daemon_env::apply(&mut cmd, &dir, daemon_env::Agents::StandIn, &[]);
         cmd.args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn"])
             .env("ACPMUX_HOME", &dir)
             .env("ACPMUX_SOCKET", &socket)
             .env("ACPMUX_LOGIN_ENV", "0")
-            .env_remove("XPC_SERVICE_NAME")
-            .env_remove("CLAUDECODE")
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::null());
@@ -663,13 +668,12 @@ async fn a_person_proof_replayed_on_another_connection_is_refused() {
 /// Starts the real daemon with `args` in `dir` (with its config.json): its
 /// ready line, or None when it exited first, with its exit status and stderr.
 fn run_until_ready(dir: &Path, args: &[&str]) -> (Option<Value>, std::process::Child) {
-    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"))
+    let mut child = daemon_env::acpmux(dir)
         .args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn"])
         .args(args)
         .env("ACPMUX_HOME", dir)
         .env("ACPMUX_SOCKET", dir.join("s.sock"))
         .env("ACPMUX_LOGIN_ENV", "0")
-        .env_remove("XPC_SERVICE_NAME")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -922,13 +926,12 @@ fn start_home(tag: &str) -> PathBuf {
 
 /// `acpmux <args>` with this home, `stdin` as its standard input.
 fn acpmux_cli(home: &Path, args: &[&str], stdin: Option<&str>) -> std::process::Output {
-    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"));
+    // `daemon start` passes this environment on to the daemon it starts.
+    let mut cmd = daemon_env::acpmux(home);
     cmd.args(args)
         .env("ACPMUX_HOME", home)
         .env("ACPMUX_SOCKET", home.join("s.sock"))
         .env("ACPMUX_LOGIN_ENV", "0")
-        .env_remove("XPC_SERVICE_NAME")
-        .env_remove("CLAUDECODE")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
@@ -977,7 +980,7 @@ async fn daemon_start_hands_its_stdin_key_to_the_daemon_it_starts() {
         "{}",
         String::from_utf8_lossy(&again.stderr)
     );
-    let _ = acpmux_cli(&home, &["daemon", "shutdown"], None);
+    let _ = acpmux_cli(&home, &["daemon", "shutdown", "--end-agents"], None);
     let _ = std::fs::remove_dir_all(&home);
 }
 
@@ -997,7 +1000,7 @@ fn the_key_reaches_the_daemon_only_after_it_is_not_dumpable() {
     let kind = libc::SOCK_STREAM | libc::SOCK_CLOEXEC;
     assert_eq!(unsafe { libc::socketpair(libc::AF_UNIX, kind, 0, fds.as_mut_ptr()) }, 0);
     let (ours, theirs) = (fds[0], fds[1]);
-    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"));
+    let mut cmd = daemon_env::acpmux(&home);
     cmd.args([
         "daemon",
         "run",
@@ -1012,7 +1015,6 @@ fn the_key_reaches_the_daemon_only_after_it_is_not_dumpable() {
     .env("ACPMUX_HOME", &home)
     .env("ACPMUX_SOCKET", home.join("s.sock"))
     .env("ACPMUX_LOGIN_ENV", "0")
-    .env_remove("XPC_SERVICE_NAME")
     .stdin(std::process::Stdio::null())
     .stdout(std::process::Stdio::piped())
     .stderr(std::process::Stdio::null());
@@ -1142,3 +1144,447 @@ async fn a_keyed_daemon_proves_it_holds_the_key_over_the_apps_nonce() {
     let r = c.call("_acpmux/person_holds", json!({"nonce": nonce})).await;
     assert_eq!(reason(&r), "person.no_key", "{r}");
 }
+
+// ---- Phone approvers (cnx-ios verify/phone-approvals.md, hub/approvers.rs) ----
+
+/// A phone's Secure Enclave key, as a software P-256 key.
+fn phone_key() -> ring::signature::EcdsaKeyPair {
+    use ring::signature::{ECDSA_P256_SHA256_FIXED_SIGNING, EcdsaKeyPair};
+    let rng = ring::rand::SystemRandom::new();
+    let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, &rng).unwrap();
+    EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, pkcs8.as_ref(), &rng).unwrap()
+}
+
+fn hex_of(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
+}
+
+/// What the phone signs, as `hub/approvers.rs` defines it. Written out here
+/// so the test states the wire contract.
+#[allow(clippy::too_many_arguments)]
+fn approver_signature(
+    key: &ring::signature::EcdsaKeyPair,
+    instance: &str,
+    mac: &str,
+    approver: &str,
+    session: &str,
+    permission: &str,
+    option: &str,
+    nonce: &str,
+    expires: u64,
+    answers_digest: &str,
+) -> String {
+    let expires = expires.to_string();
+    let mut message = b"acpmux-approver-decision-v1".to_vec();
+    for part in [
+        instance,
+        mac,
+        approver,
+        session,
+        permission,
+        option,
+        nonce,
+        expires.as_str(),
+        answers_digest,
+    ] {
+        message.push(0);
+        message.extend_from_slice(part.as_bytes());
+    }
+    hex_of(key.sign(&ring::rand::SystemRandom::new(), &message).unwrap().as_ref())
+}
+
+fn signed(
+    session: &str,
+    permission: &str,
+    option: &str,
+    nonce: &str,
+    approver: &str,
+    expires: u64,
+    sig: &str,
+) -> Value {
+    json!({"sessionId": session, "permissionId": permission, "optionId": option,
+           "_meta": {"acpmux": {"decisionNonce": nonce,
+               "approverDecision": {"approver": approver, "expiresAt": expires, "signature": sig}}}})
+}
+
+fn enroll(key: &ring::signature::EcdsaKeyPair) -> Value {
+    use ring::signature::KeyPair;
+    json!({"macDevice": "mac-1", "approvers": [
+        {"id": "phone-1", "publicKey": hex_of(key.public_key().as_ref()), "name": "iPhone"}]})
+}
+
+/// Only the person enrolls approvers; an agent-side client can neither add
+/// its own key nor read the list.
+#[tokio::test]
+async fn only_the_person_enrolls_approvers() {
+    let d = Daemon::start("apset", Some(KEY));
+    let key = phone_key();
+    let mut agent = Rpc::connect(&d.socket).await;
+    agent.initialize().await;
+    let r = agent.call("_acpmux/approvers_set", enroll(&key)).await;
+    assert_eq!(reason(&r), REASON, "{r}");
+    let r = agent.call("_acpmux/approvers", json!({})).await;
+    assert_eq!(reason(&r), REASON, "{r}");
+    let mut app = Rpc::person(&d.socket, KEY).await;
+    assert_eq!(app.ok("_acpmux/approvers_set", enroll(&key)).await["count"], 1);
+    let listed = app.ok("_acpmux/approvers", json!({})).await;
+    assert_eq!(listed["approvers"][0]["id"], "phone-1");
+    assert_eq!(listed["macDevice"], "mac-1");
+}
+
+/// A phone's signed allow counts once, for that prompt, option, Mac and
+/// daemon run, until it expires; a revoked phone's signature counts nothing.
+#[tokio::test]
+async fn a_phones_signed_allow_counts_once_and_stops_when_revoked() {
+    let d = Daemon::start("apallow", Some(KEY));
+    let key = phone_key();
+    let mut app = Rpc::person(&d.socket, KEY).await;
+    app.ok("_acpmux/approvers_set", enroll(&key)).await;
+    let mut phone = Rpc::connect(&d.socket).await;
+    let id = new_session(&mut phone, &d).await;
+
+    let rid = phone.send("session/prompt", prompt(&id, "ask: write")).await;
+    let pending = phone.note("_acpmux/permission_pending", |_| true).await;
+    let pid = pending["permissionId"].as_str().unwrap().to_owned();
+    let nonce = pending["decisionNonce"].as_str().unwrap().to_owned();
+    let instance = pending["personInstance"].as_str().unwrap().to_owned();
+    let exp = unix_now() + 120;
+    let sign = |k: &ring::signature::EcdsaKeyPair,
+                inst: &str,
+                mac: &str,
+                option: &str,
+                n: &str,
+                e: u64| {
+        approver_signature(k, inst, mac, "phone-1", &id, &pid, option, n, e, "")
+    };
+
+    // Unsigned, another option, Mac, daemon run or key, expired, or too far
+    // ahead: refused, and the prompt stays pending.
+    let r = phone
+        .call(
+            "_acpmux/permission_respond",
+            json!({"sessionId": id, "permissionId": pid, "optionId": "yes"}),
+        )
+        .await;
+    assert_eq!(reason(&r), REASON, "{r}");
+    for (sig, e) in [
+        (sign(&key, &instance, "mac-1", "no", &nonce, exp), exp),
+        (sign(&key, &instance, "mac-2", "yes", &nonce, exp), exp),
+        (sign(&key, "0123456789abcdef", "mac-1", "yes", &nonce, exp), exp),
+        (sign(&phone_key(), &instance, "mac-1", "yes", &nonce, exp), exp),
+        (sign(&key, &instance, "mac-1", "yes", &nonce, unix_now() - 5), unix_now() - 5),
+        (sign(&key, &instance, "mac-1", "yes", &nonce, unix_now() + 900), unix_now() + 900),
+    ] {
+        let r = phone
+            .call(
+                "_acpmux/permission_respond",
+                signed(&id, &pid, "yes", &nonce, "phone-1", e, &sig),
+            )
+            .await;
+        assert_eq!(reason(&r), REASON, "{r}");
+    }
+    assert_eq!(pending_ids(&mut phone, &id).await, vec![pid.clone()]);
+
+    // The phone's signature: the allow counts.
+    let good = sign(&key, &instance, "mac-1", "yes", &nonce, exp);
+    phone
+        .ok("_acpmux/permission_respond", signed(&id, &pid, "yes", &nonce, "phone-1", exp, &good))
+        .await;
+    assert_eq!(turn_said(&mut phone, rid).await, "chose yes");
+
+    // Replayed on the next prompt (spent nonce, other permission): refused.
+    let rid = phone.send("session/prompt", prompt(&id, "ask: again")).await;
+    let next = phone.note("_acpmux/permission_pending", |p| p["permissionId"] != json!(pid)).await;
+    let pid2 = next["permissionId"].as_str().unwrap().to_owned();
+    let nonce2 = next["decisionNonce"].as_str().unwrap().to_owned();
+    let r = phone
+        .call(
+            "_acpmux/permission_respond",
+            signed(&id, &pid2, "yes", &nonce, "phone-1", exp, &good),
+        )
+        .await;
+    assert_eq!(reason(&r), REASON, "{r}");
+
+    // Revoked: a fresh, valid signature counts nothing; a deny still does.
+    app.ok("_acpmux/approvers_set", json!({"macDevice": "mac-1", "approvers": []})).await;
+    let fresh = approver_signature(
+        &key, &instance, "mac-1", "phone-1", &id, &pid2, "yes", &nonce2, exp, "",
+    );
+    let r = phone
+        .call(
+            "_acpmux/permission_respond",
+            signed(&id, &pid2, "yes", &nonce2, "phone-1", exp, &fresh),
+        )
+        .await;
+    assert_eq!(reason(&r), REASON, "{r}");
+    phone
+        .ok(
+            "_acpmux/permission_respond",
+            json!({"sessionId": id, "permissionId": pid2, "optionId": "no"}),
+        )
+        .await;
+    assert_eq!(turn_said(&mut phone, rid).await, "chose no");
+}
+
+/// A phone answers a question with a signature that covers the answers:
+/// other answers under the same signature count nothing.
+#[tokio::test]
+async fn a_phones_signed_answer_covers_exactly_its_answers() {
+    let d = Daemon::start("apq", Some(KEY));
+    let key = phone_key();
+    let mut app = Rpc::person(&d.socket, KEY).await;
+    app.ok("_acpmux/approvers_set", enroll(&key)).await;
+    let mut phone = Rpc::connect(&d.socket).await;
+    let id = new_session(&mut phone, &d).await;
+    let rid = phone.send("session/prompt", prompt(&id, "question: Which one?")).await;
+    let pending = phone.note("_acpmux/permission_pending", |_| true).await;
+    let pid = pending["permissionId"].as_str().unwrap().to_owned();
+    let nonce = pending["decisionNonce"].as_str().unwrap().to_owned();
+    let instance = pending["personInstance"].as_str().unwrap().to_owned();
+    let exp = unix_now() + 120;
+    // sha256 of the canonical answers JSON `{"Which one?":"B"}`.
+    use sha2::Digest;
+    let digest = hex_of(&sha2::Sha256::digest(br#"{"Which one?":"B"}"#));
+    let sig = approver_signature(
+        &key,
+        &instance,
+        "mac-1",
+        "phone-1",
+        &id,
+        &pid,
+        "allow_once",
+        &nonce,
+        exp,
+        &digest,
+    );
+    let mut swapped = signed(&id, &pid, "allow_once", &nonce, "phone-1", exp, &sig);
+    swapped["answers"] = json!({"Which one?": "A"});
+    let r = phone.call("_acpmux/permission_respond", swapped).await;
+    assert_eq!(reason(&r), REASON, "{r}");
+    let mut answer = signed(&id, &pid, "allow_once", &nonce, "phone-1", exp, &sig);
+    answer["answers"] = json!({"Which one?": "B"});
+    phone.ok("_acpmux/permission_respond", answer).await;
+    assert_eq!(turn_said(&mut phone, rid).await, r#"chose allow_once {"Which one?": "B"}"#);
+}
+
+/// The decision proof of a relayed answer to a question (cmux NEXT's pane, a chat on another
+/// machine): as [`decision_proof`] under "acpmux-person-decision-answers-v1", with the
+/// sha256 of the canonical answers JSON (`approvers::answers_digest`) as a sixth part, and the
+/// sha256 of the canonical annotations JSON as a seventh when the answer has annotations.
+fn decision_answers_proof(
+    key: &str,
+    parts: [&str; 5],
+    canonical_answers: &str,
+    canonical_annotations: Option<&str>,
+) -> String {
+    use cmux_local_auth::frontend_proof::{hex, hmac_sha256, unhex};
+    use sha2::Digest;
+    let key = unhex::<32>(key).unwrap();
+    let digest = |text: &str| hex_of(&sha2::Sha256::digest(text.as_bytes()));
+    let digests: Vec<String> = [Some(canonical_answers), canonical_annotations]
+        .into_iter()
+        .flatten()
+        .map(digest)
+        .collect();
+    let mut message = b"acpmux-person-decision-answers-v1".to_vec();
+    for part in parts.into_iter().chain(digests.iter().map(String::as_str)) {
+        message.push(0);
+        message.extend_from_slice(part.as_bytes());
+    }
+    hex(&hmac_sha256(&key, &message))
+}
+
+/// Leo 2026-10-21: answering an agent's question in the app's pane, for a chat on an ssh peer,
+/// was refused as "accepted only from the cmux app". A relayed answer counts with the person's
+/// decision proof over exactly its answers; a proof that covers no answers, or other answers,
+/// counts nothing and the question stays pending.
+#[tokio::test]
+async fn a_relayed_answer_counts_with_the_persons_proof_over_exactly_its_answers() {
+    let d = Daemon::start("decans", Some(KEY));
+    let mut relay = Rpc::connect(&d.socket).await;
+    let id = new_session(&mut relay, &d).await;
+    let rid = relay.send("session/prompt", prompt(&id, "question: Which one?")).await;
+    let pending = relay.note("_acpmux/permission_pending", |_| true).await;
+    let pid = pending["permissionId"].as_str().unwrap().to_owned();
+    let nonce = pending["decisionNonce"].as_str().unwrap().to_owned();
+    let instance = pending["personInstance"].as_str().unwrap().to_owned();
+    let answered = |proof: &str, answers: Value| {
+        let mut frame = decided(&id, &pid, "allow_once", &nonce, proof);
+        frame["answers"] = answers;
+        frame
+    };
+    let parts = [instance.as_str(), id.as_str(), pid.as_str(), "allow_once", nonce.as_str()];
+
+    let covers_none = decision_proof(KEY, &instance, &id, &pid, "allow_once", &nonce);
+    let r = relay
+        .call("_acpmux/permission_respond", answered(&covers_none, json!({"Which one?": "B"})))
+        .await;
+    assert_eq!(reason(&r), REASON, "{r}");
+    let for_b = decision_answers_proof(KEY, parts, r#"{"Which one?":"B"}"#, None);
+    let r = relay
+        .call("_acpmux/permission_respond", answered(&for_b, json!({"Which one?": "A"})))
+        .await;
+    assert_eq!(reason(&r), REASON, "{r}");
+    assert_eq!(pending_ids(&mut relay, &id).await, vec![pid.clone()]);
+
+    relay.ok("_acpmux/permission_respond", answered(&for_b, json!({"Which one?": "B"}))).await;
+    assert_eq!(turn_said(&mut relay, rid).await, r#"chose allow_once {"Which one?": "B"}"#);
+}
+
+/// The answers proof's bytes, as the Mac app computes them too
+/// (`AcpmuxPersonKeyAnswersProofTests`): key order by bytes, escapes as `approvers::canonical_json`.
+#[test]
+fn the_answers_decision_proof_matches_the_apps_vector() {
+    let answers = json!({"Which one?": "B", "Pick a color\n(one)": ["red", "blue"], "é": "\u{1}"});
+    let proof = acpmux::hub::person::decision_answers_proof(
+        KEY,
+        "0123456789abcdef",
+        "sess-1",
+        "perm-1",
+        "allow_once",
+        "nonce-1",
+        &answers,
+        None,
+    );
+    assert_eq!(
+        proof.as_deref(),
+        Some("3b11c2af201d95772c106a4c8463a54b94e615f85e88eac0700f7d657c24f0e9")
+    );
+    // With annotations (a preview with a line break and a character past the BMP).
+    let annotations = json!({"Which one?": {"preview": "[ B ]\n\u{1F600}", "notes": "n"}});
+    let proof = acpmux::hub::person::decision_answers_proof(
+        KEY,
+        "0123456789abcdef",
+        "sess-1",
+        "perm-1",
+        "allow_once",
+        "nonce-1",
+        &answers,
+        Some(&annotations),
+    );
+    assert_eq!(
+        proof.as_deref(),
+        Some("03512f50a44821e899adf320ffd8babf9fc9a34c105e62b4861103c901da6992")
+    );
+}
+
+/// #24356's chosen preview and notes, answered in the pane for a chat on another machine: they
+/// count only under the person's proof over exactly those annotations. A proof over the answers
+/// alone or a proof over other notes counts nothing and the question stays pending; the agent
+/// gets them only from the proved answer.
+#[tokio::test]
+async fn a_relayed_answers_annotations_count_only_under_the_persons_proof_over_them() {
+    let d = Daemon::start("decnotes", Some(KEY));
+    let mut relay = Rpc::connect(&d.socket).await;
+    let id = new_session(&mut relay, &d).await;
+    let rid = relay.send("session/prompt", prompt(&id, "preview-question: Which layout?")).await;
+    let pending = relay.note("_acpmux/permission_pending", |_| true).await;
+    let pid = pending["permissionId"].as_str().unwrap().to_owned();
+    let nonce = pending["decisionNonce"].as_str().unwrap().to_owned();
+    let instance = pending["personInstance"].as_str().unwrap().to_owned();
+    let answered = |proof: &str, notes: &str| {
+        let mut frame = decided(&id, &pid, "allow_once", &nonce, proof);
+        frame["answers"] = json!({"Which layout?": "B"});
+        frame["annotations"] = json!({"Which layout?": {"preview": "[ B ]", "notes": notes}});
+        frame
+    };
+    let parts = [instance.as_str(), id.as_str(), pid.as_str(), "allow_once", nonce.as_str()];
+    let answers = r#"{"Which layout?":"B"}"#;
+    let narrower = r#"{"Which layout?":{"notes":"but narrower","preview":"[ B ]"}}"#;
+
+    let answers_only = decision_answers_proof(KEY, parts, answers, None);
+    let r = relay.call("_acpmux/permission_respond", answered(&answers_only, "but narrower")).await;
+    assert_eq!(reason(&r), REASON, "{r}");
+    let for_narrower = decision_answers_proof(KEY, parts, answers, Some(narrower));
+    let r = relay.call("_acpmux/permission_respond", answered(&for_narrower, "but wider")).await;
+    assert_eq!(reason(&r), REASON, "{r}");
+    assert_eq!(pending_ids(&mut relay, &id).await, vec![pid.clone()]);
+
+    relay.ok("_acpmux/permission_respond", answered(&for_narrower, "but narrower")).await;
+    assert_eq!(
+        turn_said(&mut relay, rid).await,
+        r#"got {"annotations": {"Which layout?": {"notes": "but narrower", "preview": "[ B ]\n"}}, "answers": {"Which layout?": "B"}}"#
+    );
+}
+
+/// A mesh-started shell can create a PTY and omit all agent env vars. Only
+/// the app's connection-bound person proof may change machine consent.
+#[tokio::test]
+#[ignore = "mutates OS-account consent; run with --include-ignored in a disposable Unix account"]
+async fn machine_consent_requires_person_proof_even_on_the_local_socket() {
+    let consent_home = machine_consent_home::ConsentHome::isolated();
+    use std::os::unix::fs::MetadataExt;
+    let daemon = Daemon::start("machine-consent", Some(KEY));
+    let mut shell = Rpc::connect(&daemon.socket).await;
+    shell.initialize().await;
+    let refused = shell
+        .call(
+            "_acpmux/machine_consent_set",
+            json!({"surface":"control","granted":true,"personKey":KEY}),
+        )
+        .await;
+    assert_eq!(reason(&refused), REASON, "{refused}");
+    assert!(!consent_home.root.join("consent.json").exists());
+    let recorded = shell.ok("_acpmux/machine_consent_refused", json!({"surface":"screen"})).await;
+    assert_eq!(recorded["recorded"], true);
+    let denied = shell.ok("_acpmux/machine_consent_get", json!({})).await;
+    assert_eq!(denied["lastRefusal"]["surface"], "screen");
+    assert_eq!(denied["consent"]["screen"], "none");
+    let mut app = Rpc::person(&daemon.socket, KEY).await;
+    let view = app.ok("_acpmux/machine_consent_get", json!({})).await;
+    assert_eq!(view["consentRequired"], false);
+    let granted =
+        app.ok("_acpmux/machine_consent_set", json!({"surface":"control","granted":true})).await;
+    assert_eq!(granted["consent"]["control"], "granted");
+    assert_eq!(granted["consent"]["screen"], "none");
+    assert_eq!(
+        std::fs::metadata(consent_home.root.join("consent.json")).unwrap().mode() & 0o777,
+        0o600
+    );
+    let revoked =
+        app.ok("_acpmux/machine_consent_set", json!({"surface":"control","granted":false})).await;
+    assert_eq!(revoked["consent"]["control"], "none");
+    let view = app.ok("_acpmux/machine_consent_get", json!({})).await;
+    assert_eq!(view["consent"]["control"], "none");
+    assert_eq!(view["consentRequired"], true, "a consent-only record still gates access");
+}
+
+#[tokio::test]
+#[ignore = "mutates OS-account consent; run with --include-ignored in a disposable Unix account"]
+async fn machine_consent_status_is_required_for_joined_or_unreadable_state() {
+    let _consent_home = machine_consent_home::ConsentHome::isolated();
+    use std::os::unix::fs::PermissionsExt;
+    let daemon = Daemon::start("machine-consent-presence", Some(KEY));
+    let mut app = Rpc::person(&daemon.socket, KEY).await;
+    let path = daemon.dir.join("machine-credential.json");
+    std::fs::write(&path, json!({"credential":"cmm_test","machine_id":"machine_test","team_id":"team_test","name":"test","hub_origin":"https://example.com","last_heartbeat":null,"revoked":false,"wgPublicKey":"key"}).to_string()).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let view = app.ok("_acpmux/machine_consent_get", json!({})).await;
+    assert_eq!(view["consentRequired"], true);
+    assert_eq!(view["consent"]["screen"], "none");
+    let other = Daemon::start("machine-consent-other-tag", Some(KEY));
+    let mut other_app = Rpc::person(&other.socket, KEY).await;
+    let shared = other_app.ok("_acpmux/machine_consent_get", json!({})).await;
+    assert_eq!(shared["consentRequired"], true, "an empty other tag still requires consent");
+    app.ok("_acpmux/machine_consent_set", json!({"surface":"screen","granted":true})).await;
+    let view = app.ok("_acpmux/machine_consent_get", json!({})).await;
+    assert_eq!(view["consentRequired"], true);
+    assert_eq!(view["consent"]["screen"], "granted");
+    let shared = other_app.ok("_acpmux/machine_consent_get", json!({})).await;
+    assert_eq!(shared["consent"]["screen"], "granted");
+    other_app.ok("_acpmux/machine_consent_set", json!({"surface":"screen","granted":false})).await;
+    let shared = app.ok("_acpmux/machine_consent_get", json!({})).await;
+    assert_eq!(shared["consent"]["screen"], "none");
+    app.ok("_acpmux/machine_consent_set", json!({"surface":"screen","granted":true})).await;
+    std::fs::write(&path, b"invalid").unwrap();
+    let view = app.ok("_acpmux/machine_consent_get", json!({})).await;
+    assert_eq!(view["consentRequired"], true);
+    assert_eq!(view["consent"]["screen"], "none", "unreadable state fails closed");
+}
+
+#[path = "support/machine_consent_home.rs"]
+mod machine_consent_home;

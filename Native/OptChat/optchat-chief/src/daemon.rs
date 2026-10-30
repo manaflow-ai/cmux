@@ -12,9 +12,9 @@ use cmux::raw::{
     Client, ClientConfig, ConversationAttachmentReadRequest, ConversationAttachmentUploadRequest,
     ConversationAttachmentUploadResult, ConversationBindRequest, ConversationCreateRequest,
     ConversationDraftRequest, ConversationHistoryRequest, ConversationListRequest,
-    ConversationOpRequest, ConversationRunAppendRequest, ConversationSnapshotRequest,
-    ConversationTypingRequest, Error as SdkError, Event, Nullable, Optional, SubscribeRequest,
-    SubscribeRequestTreeEvents,
+    ConversationLivePublishRequest, ConversationOpRequest, ConversationRunAppendRequest,
+    ConversationSnapshotRequest, ConversationTypingRequest, Error as SdkError, Event, Nullable,
+    Optional, SubscribeRequest, SubscribeRequestTreeEvents,
 };
 use cmux_chief::rules::{
     AGENT_MUX, CHIEF_CONVERSATION_TITLE, CHIEF_DISPLAY_NAME, DEFAULT_CONVERSATION_KEY,
@@ -44,6 +44,10 @@ impl std::fmt::Display for OpError {
         }
     }
 }
+
+/// Most bytes the owner sends in one `conversation-attachment-read`, and
+/// takes in one `conversation-attachment-upload` chunk.
+pub const ATTACHMENT_CHUNK_BYTES: u64 = 4 * 1024 * 1024;
 
 /// The conversation operations the brain needs, on a connection bound as `agent_mux`.
 pub trait ConversationPort: Send {
@@ -76,6 +80,13 @@ pub trait ConversationPort: Send {
     ) -> Result<(), OpError> {
         Err(OpError::Rejected("runs_unsupported".into()))
     }
+    /// Sends one live frame of the running turn's run (`conversation-live-publish`,
+    /// `chief-live-v1`): the reply's text as it streams and a "working on"
+    /// line. Display only and never stored: a port without it says so with an
+    /// error and the turn goes on.
+    fn live_publish(&mut self, _conversation: &str, _frame: Value) -> Result<(), OpError> {
+        Err(OpError::Rejected("live_unsupported".into()))
+    }
     /// Uploads a picture a run step shows as an attachment record of
     /// `conversation` this connection's agent may name (one chunk, at most
     /// 4 MiB; the same steps as a link preview's picture).
@@ -92,8 +103,9 @@ pub trait ConversationPort: Send {
         Err(OpError::Rejected("attachments_unsupported".into()))
     }
     /// One attachment variant (`original`, `preview`, `poster`) of `hash`,
-    /// base64, in a single owner read of `bytes` (at most 4 MiB): an error
-    /// when the owner has not sent all of it (`local-attachments-v1`).
+    /// all `bytes` of it, base64 (`local-attachments-v1`). The owner sends at
+    /// most [`ATTACHMENT_CHUNK_BYTES`] a read, so a larger file takes several
+    /// reads; an error when the owner ends before `bytes`.
     fn attachment(
         &mut self,
         conversation: &str,
@@ -102,6 +114,19 @@ pub trait ConversationPort: Send {
         bytes: u64,
     ) -> Result<String, OpError> {
         let _ = (conversation, hash, variant, bytes);
+        Err(OpError::Rejected("attachments_unsupported".into()))
+    }
+    /// Streams a variant into a destination without retaining the original in RAM.
+    /// Ports must reject premature EOF, oversized chunks and a mismatched length.
+    fn attachment_into(
+        &mut self,
+        conversation: &str,
+        hash: &str,
+        variant: &str,
+        bytes: u64,
+        out: &mut dyn std::io::Write,
+    ) -> Result<(), OpError> {
+        let _ = (conversation, hash, variant, bytes, out);
         Err(OpError::Rejected("attachments_unsupported".into()))
     }
     /// `cloud-mux-ack`: the chief handled the wakes of `conversation` up to
@@ -148,6 +173,18 @@ pub trait PreviewPort: Send {
         width: u32,
         height: u32,
     ) -> Result<DerivedImage, OpError>;
+
+    /// `bytes` as an attachment record of `conversation` (a picture or video
+    /// the Chief sends): the same upload, with the size only when known.
+    fn upload_attachment(
+        &mut self,
+        conversation: &str,
+        bytes: &[u8],
+        mime_type: &str,
+        name: &str,
+        width: Option<u32>,
+        height: Option<u32>,
+    ) -> Result<DerivedImage, OpError>;
 }
 
 /// The upload steps of [`PreviewPort::upload_image`] on `client`.
@@ -158,8 +195,37 @@ fn upload_with(
     bytes: &[u8],
     mime_type: &str,
     name: &str,
-    width: u32,
-    height: u32,
+    width: Option<u32>,
+    height: Option<u32>,
+) -> Result<DerivedImage, OpError> {
+    upload_steps(
+        &mut |request| {
+            client
+                .conversation_attachment_upload(request)
+                .map_err(sdk_error)
+        },
+        conversation,
+        bytes,
+        mime_type,
+        name,
+        width,
+        height,
+    )
+}
+
+/// `conversation-attachment-upload` (begin, chunks, commit) through `step`,
+/// one owner request per call.
+#[allow(clippy::too_many_arguments)]
+fn upload_steps(
+    send: &mut dyn FnMut(
+        ConversationAttachmentUploadRequest,
+    ) -> Result<ConversationAttachmentUploadResult, OpError>,
+    conversation: &str,
+    bytes: &[u8],
+    mime_type: &str,
+    name: &str,
+    width: Option<u32>,
+    height: Option<u32>,
 ) -> Result<DerivedImage, OpError> {
     use base64::Engine;
     use sha2::Digest;
@@ -204,18 +270,16 @@ fn upload_with(
             },
         )
     };
-    let begin = client
-        .conversation_attachment_upload(ConversationAttachmentUploadRequest {
-            conversation: Optional::Value(conversation.into()),
-            sha256: Optional::Value(hash),
-            byte_count: Optional::Value(image.byte_count),
-            mime_type: Optional::Value(mime_type.into()),
-            name: Optional::Value(name.into()),
-            width: Optional::Value(width),
-            height: Optional::Value(height),
-            ..step("begin")
-        })
-        .map_err(sdk_error)?;
+    let begin = send(ConversationAttachmentUploadRequest {
+        conversation: Optional::Value(conversation.into()),
+        sha256: Optional::Value(hash),
+        byte_count: Optional::Value(image.byte_count),
+        mime_type: Optional::Value(mime_type.into()),
+        name: Optional::Value(name.into()),
+        width: width.map_or(Optional::Missing, Optional::Value),
+        height: height.map_or(Optional::Missing, Optional::Value),
+        ..step("begin")
+    })?;
     if let Some(done) = stored(&begin) {
         return done.map(|()| image);
     }
@@ -224,21 +288,21 @@ fn upload_with(
             "upload begin without an upload id".into(),
         ));
     };
-    client
-        .conversation_attachment_upload(ConversationAttachmentUploadRequest {
+    // The owner takes at most ATTACHMENT_CHUNK_BYTES a chunk (its
+    // MAX_CHUNK_BYTES): a file sent whole over that is refused.
+    for (index, chunk) in bytes.chunks(ATTACHMENT_CHUNK_BYTES as usize).enumerate() {
+        send(ConversationAttachmentUploadRequest {
             upload: Optional::Value(upload.clone()),
             piece: Optional::Value("original".into()),
-            offset: Optional::Value(0),
-            data: Optional::Value(base64::engine::general_purpose::STANDARD.encode(bytes)),
+            offset: Optional::Value(index as u64 * ATTACHMENT_CHUNK_BYTES),
+            data: Optional::Value(base64::engine::general_purpose::STANDARD.encode(chunk)),
             ..step("chunk")
-        })
-        .map_err(sdk_error)?;
-    let commit = client
-        .conversation_attachment_upload(ConversationAttachmentUploadRequest {
-            upload: Optional::Value(upload),
-            ..step("commit")
-        })
-        .map_err(sdk_error)?;
+        })?;
+    }
+    let commit = send(ConversationAttachmentUploadRequest {
+        upload: Optional::Value(upload),
+        ..step("commit")
+    })?;
     match stored(&commit) {
         Some(done) => done.map(|()| image),
         None => Err(OpError::Transport("upload commit without a record".into())),
@@ -415,6 +479,26 @@ impl PreviewPort for SdkPreviewPort {
             bytes,
             mime_type,
             name,
+            Some(width),
+            Some(height),
+        )
+    }
+
+    fn upload_attachment(
+        &mut self,
+        conversation: &str,
+        bytes: &[u8],
+        mime_type: &str,
+        name: &str,
+        width: Option<u32>,
+        height: Option<u32>,
+    ) -> Result<DerivedImage, OpError> {
+        upload_with(
+            self.client()?,
+            conversation,
+            bytes,
+            mime_type,
+            name,
             width,
             height,
         )
@@ -486,22 +570,59 @@ impl ConversationPort for SdkConversations {
         variant: &str,
         bytes: u64,
     ) -> Result<String, OpError> {
-        let data = self
-            .client
-            .conversation_attachment_read(ConversationAttachmentReadRequest {
-                conversation: conversation.into(),
-                hash: hash.into(),
-                length: Optional::Value(bytes),
-                offset: Optional::Value(0),
-                variant: Optional::Value(variant.into()),
-            })
-            .map_err(sdk_error)?;
-        if !data.eof {
-            return Err(OpError::Rejected(
-                "attachment_needs_more_than_one_read".into(),
-            ));
+        use base64::Engine as _;
+        // Only bounded model-image callers use the in-memory API. Files use
+        // attachment_into directly, regardless of their original size.
+        let mut whole = Vec::new();
+        self.attachment_into(conversation, hash, variant, bytes, &mut whole)?;
+        Ok(base64::engine::general_purpose::STANDARD.encode(whole))
+    }
+
+    fn attachment_into(
+        &mut self,
+        conversation: &str,
+        hash: &str,
+        variant: &str,
+        bytes: u64,
+        out: &mut dyn std::io::Write,
+    ) -> Result<(), OpError> {
+        use base64::Engine as _;
+        let mut offset = 0u64;
+        loop {
+            let length = bytes.saturating_sub(offset).min(ATTACHMENT_CHUNK_BYTES);
+            let data = self
+                .client
+                .conversation_attachment_read(ConversationAttachmentReadRequest {
+                    conversation: conversation.into(),
+                    hash: hash.into(),
+                    length: Optional::Value(length),
+                    offset: Optional::Value(offset),
+                    variant: Optional::Value(variant.into()),
+                })
+                .map_err(sdk_error)?;
+            if data.data.len() as u64 > length.div_ceil(3) * 4 {
+                return Err(OpError::Rejected("attachment_length_mismatch".into()));
+            }
+            let chunk = base64::engine::general_purpose::STANDARD
+                .decode(data.data.as_bytes())
+                .map_err(|e| OpError::Rejected(format!("attachment_bad_base64: {e}")))?;
+            if chunk.len() as u64 > length {
+                return Err(OpError::Rejected("attachment_length_mismatch".into()));
+            }
+            offset += chunk.len() as u64;
+            out.write_all(&chunk)
+                .map_err(|e| OpError::Transport(format!("attachment_write: {e}")))?;
+            if data.eof {
+                return if offset == bytes {
+                    Ok(())
+                } else {
+                    Err(OpError::Rejected("attachment_ended_early".into()))
+                };
+            }
+            if chunk.is_empty() || offset >= bytes {
+                return Err(OpError::Rejected("attachment_length_mismatch".into()));
+            }
         }
-        Ok(data.data)
     }
 
     fn typing(&mut self, conversation: &str, on: bool) -> Result<(), OpError> {
@@ -549,8 +670,8 @@ impl ConversationPort for SdkConversations {
             bytes,
             mime_type,
             name,
-            width,
-            height,
+            Some(width),
+            Some(height),
         )
     }
 
@@ -570,6 +691,21 @@ impl ConversationPort for SdkConversations {
                 conversation: conversation.into(),
                 run: Nullable::value(run),
                 steps: Some(steps),
+            })
+            .map(|_| ())
+            .map_err(sdk_error)
+    }
+
+    /// `conversation-live-publish` (capability `chief-live-v1`): this bound
+    /// connection's principal is the Chief whose run streams.
+    fn live_publish(&mut self, conversation: &str, frame: Value) -> Result<(), OpError> {
+        if !self.supports("chief-live-v1") {
+            return Err(OpError::Rejected("live_unsupported".into()));
+        }
+        self.client
+            .conversation_live_publish(ConversationLivePublishRequest {
+                conversation: conversation.into(),
+                frame: Nullable::value(frame),
             })
             .map(|_| ())
             .map_err(sdk_error)
@@ -991,5 +1127,133 @@ pub fn spawn_link(
         fatal(DaemonEvent::Fatal(format!(
             "cannot start the daemon link thread: {e}"
         )));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use base64::Engine as _;
+    use cmux::raw::ConversationAttachmentUploadResultStored;
+
+    /// The owner's upload rules (cmux-tui conversation_attachments.rs): one
+    /// chunk carries at most 4 MiB, at exactly the received offset, and the
+    /// commit stores the file only when every byte came.
+    #[derive(Default)]
+    struct Owner {
+        declared: Option<(String, u64, String)>,
+        received: Vec<u8>,
+        chunks: Vec<(u64, usize)>,
+    }
+
+    impl Owner {
+        fn step(
+            &mut self,
+            request: ConversationAttachmentUploadRequest,
+        ) -> Result<ConversationAttachmentUploadResult, OpError> {
+            let refused = |code: &str| Err(OpError::Rejected(code.into()));
+            match request.op.as_str() {
+                "begin" => {
+                    let (Optional::Value(hash), Optional::Value(count), Optional::Value(mime)) =
+                        (request.sha256, request.byte_count, request.mime_type)
+                    else {
+                        return refused("bad_begin");
+                    };
+                    self.declared = Some((hash, count, mime));
+                    Ok(ConversationAttachmentUploadResult {
+                        upload: Optional::Value("up-1".into()),
+                        ..Default::default()
+                    })
+                }
+                "chunk" => {
+                    let (Optional::Value(offset), Optional::Value(data)) =
+                        (request.offset, request.data)
+                    else {
+                        return refused("bad_chunk");
+                    };
+                    let bytes = base64::engine::general_purpose::STANDARD
+                        .decode(data)
+                        .map_err(|_| OpError::Rejected("bad_base64".into()))?;
+                    if bytes.len() > ATTACHMENT_CHUNK_BYTES as usize {
+                        return refused("chunk_too_large");
+                    }
+                    if offset != self.received.len() as u64 {
+                        return refused("bad_offset");
+                    }
+                    self.chunks.push((offset, bytes.len()));
+                    self.received.extend_from_slice(&bytes);
+                    Ok(ConversationAttachmentUploadResult {
+                        received: Optional::Value(self.received.len() as u64),
+                        ..Default::default()
+                    })
+                }
+                "commit" => {
+                    let Some((hash, count, mime)) = self.declared.clone() else {
+                        return refused("unknown_upload");
+                    };
+                    if self.received.len() as u64 != count {
+                        return refused("incomplete");
+                    }
+                    Ok(ConversationAttachmentUploadResult {
+                        stored: Optional::Value(ConversationAttachmentUploadResultStored {
+                            byte_count: count,
+                            hash,
+                            mime_type: mime,
+                            poster: Optional::Missing,
+                            preview: Optional::Missing,
+                        }),
+                        ..Default::default()
+                    })
+                }
+                _ => refused("bad_op"),
+            }
+        }
+    }
+
+    fn upload(owner: &mut Owner, bytes: &[u8]) -> Result<DerivedImage, OpError> {
+        upload_steps(
+            &mut |request| owner.step(request),
+            "conv-1",
+            bytes,
+            "image/png",
+            "shot.png",
+            Some(10),
+            Some(10),
+        )
+    }
+
+    /// The user's 9.2 MB screenshot (2026-10-26) came back `chunk_too_large`
+    /// and showed as the text `!alarm-fired-100542Z.png` in Home.
+    #[test]
+    fn a_file_larger_than_one_chunk_uploads_in_4_mib_chunks() {
+        let bytes: Vec<u8> = (0..9_216_808u32).map(|i| (i % 251) as u8).collect();
+        let mut owner = Owner::default();
+        let stored = upload(&mut owner, &bytes).expect("the upload is stored");
+        assert_eq!(stored.byte_count, bytes.len() as u64);
+        assert_eq!(owner.received, bytes);
+        let chunk = ATTACHMENT_CHUNK_BYTES as usize;
+        assert_eq!(
+            owner.chunks,
+            vec![
+                (0, chunk),
+                (chunk as u64, chunk),
+                (2 * chunk as u64, bytes.len() - 2 * chunk)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_small_file_takes_one_chunk() {
+        let mut owner = Owner::default();
+        upload(&mut owner, b"tiny picture").expect("the upload is stored");
+        assert_eq!(owner.chunks, vec![(0, 12)]);
+    }
+
+    #[test]
+    fn a_file_of_exactly_one_chunk_takes_one_chunk() {
+        let bytes = vec![7u8; ATTACHMENT_CHUNK_BYTES as usize];
+        let mut owner = Owner::default();
+        upload(&mut owner, &bytes).expect("the upload is stored");
+        assert_eq!(owner.chunks, vec![(0, bytes.len())]);
     }
 }

@@ -47,13 +47,10 @@ import Testing
         #expect(panel.isVisible)
         #expect(Self.same(try #require(panel.text.textColor), scope.perform { Palette.textPrimary }))
         #expect(Self.same(try #require(panel.hint.textColor), scope.perform { Palette.textSecondary }))
-        let fill = try #require(panel.tint.layer?.backgroundColor.flatMap(NSColor.init(cgColor:)))
-        // The tooltip surface (`TooltipSurface`): frosted glass under the theme's tint, or the
-        // solid popup surface under Reduce Transparency.
-        let surface = TooltipSurface(scope.tokens, lift: ChromeTunables.opaqueOverlayLift.value)
-        let expected = ReduceTransparency.shared.isEnabled ? surface.fill : surface.tint
-        #expect(Self.same(fill, expected.nsColor))
-        #expect(panel.tint.layer?.cornerRadius == TooltipPanel.radius)
+        // The shared overlay glass, drawn in the button's theme scope (Leo 2026-10-21: glass, never solid).
+        #expect(panel.glass.themeScope === scope.fullStrength)
+        #expect(!panel.glass.isCard)
+        #expect(panel.glass.cornerRadius == TooltipPanel.radius)
 
         // Below the button, centered on it (the surface; the window has room for its shadow).
         let anchor = window.convertToScreen(button.convert(button.bounds, to: nil))

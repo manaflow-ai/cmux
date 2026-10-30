@@ -12,13 +12,13 @@ pub(crate) async fn defaults(
 ) -> Result<()> {
     let mut req = json!({});
     if let Some(f) = &family {
-        req["family"] = json!(f);
+        req.set("family", json!(f));
     }
     if clear {
         if family.is_none() {
             return Err(AppError::usage("--clear needs a family").into());
         }
-        req["clear"] = json!(true);
+        req.set("clear", json!(true));
     }
     if !pairs.is_empty() {
         if family.is_none() {
@@ -66,7 +66,7 @@ pub(crate) async fn defaults(
         if !env.is_empty() {
             set.insert("env".into(), Value::Object(env));
         }
-        req["set"] = Value::Object(set);
+        req.set("set", Value::Object(set));
     }
     let v = client.request(method::MUX_DEFAULTS, req).await?;
     if json_out {
@@ -127,13 +127,13 @@ pub(crate) async fn preset(
 ) -> Result<()> {
     let mut req = json!({});
     if let Some(n) = &name {
-        req["name"] = json!(n);
+        req.set("name", json!(n));
     }
     if clear {
         if name.is_none() {
             return Err(AppError::usage("--clear needs a preset name").into());
         }
-        req["clear"] = json!(true);
+        req.set("clear", json!(true));
     }
     if !pairs.is_empty() {
         if name.is_none() {
@@ -149,7 +149,7 @@ pub(crate) async fn preset(
                 .split_once('=')
                 .ok_or_else(|| AppError::usage(format!("expected key=value, got {pair:?}")))?;
             match k {
-                "harness" | "model" | "effort" | "policy" | "description" => {
+                "harness" | "model" | "effort" | "policy" | "description" | "mode" => {
                     set.insert(k.into(), if v.is_empty() { Value::Null } else { json!(v) });
                 }
                 _ if k.starts_with("env.") => {
@@ -170,7 +170,7 @@ pub(crate) async fn preset(
                     set.insert("args".into(), args);
                 }
                 _ => return Err(AppError::usage(format!(
-                    "unknown key {k:?}; use harness, model, effort, policy, description, env.KEY, args"
+                    "unknown key {k:?}; use harness, model, effort, policy, description, mode, env.KEY, args"
                 ))
                 .into()),
             }
@@ -178,7 +178,7 @@ pub(crate) async fn preset(
         if !env.is_empty() {
             set.insert("env".into(), Value::Object(env));
         }
-        req["set"] = Value::Object(set);
+        req.set("set", Value::Object(set));
     }
     let v = client.request(method::MUX_PRESETS, req).await?;
     if json_out {

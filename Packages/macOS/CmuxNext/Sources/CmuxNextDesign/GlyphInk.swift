@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxTheme
+public import CmuxNextDesignTokens
 
 /// One foreground for every glyph on a surface (cx-qno.22, Lawrence
 /// 2026-10-11: the group header's more dots read paler than its chevron).
@@ -36,6 +37,14 @@ extension ThemeTokens {
     }
 }
 
+/// The inks a colored chip may take (`ThemeTokens.chip`).
+public nonisolated enum ChipInks: Sendable {
+    /// The theme's primary text when it reads, else near-black or white.
+    case theme
+    /// Near-black or white, whichever has more contrast on the chip's color.
+    case onColor
+}
+
 extension ThemeTokens {
     /// A colored chip (the solid group header, cx-qno.22) and its one ink:
     /// the ink is chosen once on `color`, then the chip color is moved away
@@ -43,10 +52,16 @@ extension ThemeTokens {
     /// drop steps, and on its buttons' hover and pressed fills over those.
     /// The ink never changes with hover, so it cannot flip while a fill fades.
     ///
-    /// - Parameter color: The chip's color as chosen (opaque).
+    /// - Parameters:
+    ///   - color: The chip's color as chosen (opaque).
+    ///   - inks: Which inks the chip may take.
     /// - Returns: The chip color to paint at rest and its ink.
-    nonisolated public func chip(_ color: ThemeRGB) -> (fill: ThemeRGB, ink: ThemeRGB) {
-        let candidates = [textPrimary.composited(over: color.withAlpha(1)), ThemeRGB(hex: 0x1F1F1F), .white]
+    nonisolated public func chip(_ color: ThemeRGB, inks: ChipInks = .theme) -> (fill: ThemeRGB, ink: ThemeRGB) {
+        let poles = [ThemeRGB(hex: 0x1F1F1F), .white].sorted { $0.contrast(with: color.withAlpha(1)) > $1.contrast(with: color.withAlpha(1)) }
+        let candidates = switch inks {
+        case .theme: [textPrimary.composited(over: color.withAlpha(1)), ThemeRGB(hex: 0x1F1F1F), .white]
+        case .onColor: poles
+        }
         func states(_ bar: ThemeRGB) -> [ThemeRGB] {
             let hovered = hoverFill.composited(over: bar)
             let dropped = pressedFill.composited(over: bar)

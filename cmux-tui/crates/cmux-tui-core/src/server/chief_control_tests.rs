@@ -189,6 +189,16 @@ fn engine_speed_and_a_named_stop_reach_the_brain() {
         ),
         json!({"tool":"engine","action":"set","speed":"fast","compactor_speed":"default","compactor_harness":"claude-sr","compactor_model":"default"})
     );
+    // The reaction classifier's fields reach the brain too (a416).
+    assert_eq!(
+        tool_line(
+            ResourceOperation::ChiefEngineSet,
+            &fields(json!({"classifier_model":"claude-haiku-5-5","classifier_harness":"claude",
+                "classifier_prompt":"Wake only on 👎.","reactions_can_wake":"false"}))
+        ),
+        json!({"tool":"engine","action":"set","classifier_model":"claude-haiku-5-5","classifier_harness":"claude",
+            "classifier_prompt":"Wake only on 👎.","reactions_can_wake":"false"})
+    );
     assert_eq!(
         tool_line(ResourceOperation::ChiefStop, &fields(json!({"name":"a3"}))),
         json!({"tool":"stop","name":"a3"})
@@ -199,5 +209,38 @@ fn engine_speed_and_a_named_stop_reach_the_brain() {
     assert_eq!(
         stop["value"],
         json!({"stopped":true,"subagents":["a3"],"note":"Stopped by the user: a3."})
+    );
+}
+
+/// "Stop all agents" and its toast's Restart (coordinator 2026-10-20):
+/// chief.stop forwards all and restart, and its result keeps the brain's
+/// subagents, restarted and errors.
+#[test]
+fn stop_all_and_restart_reach_the_brain() {
+    assert_eq!(
+        tool_line(ResourceOperation::ChiefStop, &fields(json!({"all":true}))),
+        json!({"tool":"stop","all":true})
+    );
+    assert_eq!(
+        tool_line(ResourceOperation::ChiefStop, &fields(json!({"restart":["a1","a2"]}))),
+        json!({"tool":"stop","restart":["a1","a2"]})
+    );
+    let mux = Mux::new_for_test("chief-control", crate::SurfaceOptions::default());
+    let stopped = result(
+        &mux,
+        ResourceOperation::ChiefStop,
+        Ok(json!({"stopped":false,"subagents":["a1","a2"]})),
+    )
+    .unwrap();
+    assert_eq!(stopped["value"], json!({"stopped":false,"subagents":["a1","a2"]}));
+    let restarted = result(
+        &mux,
+        ResourceOperation::ChiefStop,
+        Ok(json!({"stopped":false,"restarted":["a1"],"errors":["a2: no subagent a2"]})),
+    )
+    .unwrap();
+    assert_eq!(
+        restarted["value"],
+        json!({"stopped":false,"restarted":["a1"],"errors":["a2: no subagent a2"]})
     );
 }

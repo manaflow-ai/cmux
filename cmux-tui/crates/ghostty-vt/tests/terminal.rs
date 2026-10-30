@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use ghostty_vt::{
-    Callbacks, Cell, ColorSpec, CursorShape, Dirty, RenderState, Rgb, Terminal,
+    Callbacks, Cell, ColorSpec, CursorShape, Dirty, Error, RenderState, Rgb, Terminal,
     TerminalColorOverrides,
 };
 
@@ -839,6 +839,84 @@ fn vt_replay_preserves_plain_url_text_across_soft_wrapped_rows() {
     assert!(target_text.contains("#frag-B"), "target text was {target_text:?}");
 }
 
+/// Source terminal with history: numbered short lines, a long line that
+/// soft-wraps at the source width, and enough lines after it that the long
+/// line is in the scrollback.
+fn terminal_with_wrapped_history(cols: u16, long: &str) -> Terminal {
+    let mut source = Terminal::new(cols, 6, 1000, Callbacks::default()).unwrap();
+    for i in 0..30 {
+        source.vt_write(format!("before-{i:02}\r\n").as_bytes());
+    }
+    source.vt_write(long.as_bytes());
+    source.vt_write(b"\r\n");
+    for i in 0..20 {
+        source.vt_write(format!("after-{i:02}\r\n").as_bytes());
+    }
+    source.vt_write(b"$ ");
+    source
+}
+
+fn long_line(len: usize) -> String {
+    (0..len).map(|i| char::from(b'a' + (i % 26) as u8)).collect()
+}
+
+#[test]
+fn history_replay_keeps_soft_wraps_so_the_line_reflows_at_a_new_width() {
+    // A 60-character line soft-wrapped at 54 columns (54 + 6), restored from
+    // a replay and then shown at 48 columns, must re-flow to 48 + 12 as the
+    // live terminal does, not stay split where the old width wrapped it.
+    let long = long_line(60);
+    let mut source = terminal_with_wrapped_history(54, &long);
+    assert!(source.history_rows() > 0, "the long line must be in the history");
+
+    let replay = source.vt_replay_bounded_bytes(1024 * 1024).unwrap();
+    let mut target = Terminal::new(54, 6, 1000, Callbacks::default()).unwrap();
+    target.vt_write(&replay);
+    assert_eq!(target.plain_text().unwrap(), source.plain_text().unwrap());
+    assert_eq!(target.history_rows(), source.history_rows(), "physical rows moved");
+    assert_eq!(target.cursor_position(), source.cursor_position());
+
+    source.resize(48, 6, 8, 16).unwrap();
+    target.resize(48, 6, 8, 16).unwrap();
+    let source_text = source.plain_text().unwrap();
+    let target_text = target.plain_text().unwrap();
+    let expected = format!("\n{}\n{}\n", &long[..48], &long[48..]);
+    assert!(source_text.contains(&expected), "{source_text:?}");
+    assert_eq!(target_text, source_text, "the restored line did not re-flow");
+}
+
+#[test]
+fn history_replay_keeps_rows_where_a_wrap_cannot_be_reprinted() {
+    // A wrapped row whose continuation was erased at its start cannot be
+    // re-created by printing on; the replay keeps that row's break and every
+    // physical row in place.
+    let long = format!("{}\x1b[1K", long_line(30));
+    let mut source = terminal_with_wrapped_history(20, &long);
+    let replay = source.vt_replay_bounded_bytes(1024 * 1024).unwrap();
+    let mut target = Terminal::new(20, 6, 1000, Callbacks::default()).unwrap();
+    target.vt_write(&replay);
+    assert_eq!(target.plain_text().unwrap(), source.plain_text().unwrap());
+    assert_eq!(target.history_rows(), source.history_rows(), "physical rows moved");
+    assert_eq!(target.cursor_position(), source.cursor_position());
+}
+
+#[test]
+fn history_replay_keeps_a_wide_character_soft_wrap() {
+    // 5 + 32 cells at 20 columns: the first row ends in the spacer a wide
+    // character leaves when it wraps.
+    let wide = format!("wide {}", "中文".repeat(8));
+    let mut source = terminal_with_wrapped_history(20, &wide);
+    let replay = source.vt_replay_bounded_bytes(1024 * 1024).unwrap();
+    let mut target = Terminal::new(20, 6, 1000, Callbacks::default()).unwrap();
+    target.vt_write(&replay);
+    assert_eq!(target.plain_text().unwrap(), source.plain_text().unwrap());
+    assert_eq!(target.history_rows(), source.history_rows(), "physical rows moved");
+
+    source.resize(26, 6, 8, 16).unwrap();
+    target.resize(26, 6, 8, 16).unwrap();
+    assert_eq!(target.plain_text().unwrap(), source.plain_text().unwrap());
+}
+
 #[test]
 fn selection_text_absolute_spans_scrolled_out_rows() {
     let mut term = Terminal::new(20, 3, 1000, Callbacks::default()).unwrap();
@@ -1251,4 +1329,153 @@ fn empty_kitty_graphics_probe_keeps_checkpoint_replay_readable() {
     assert!(term.vt_stream_is_ground());
     term.vt_replay_bounded(1024 * 1024)
         .expect("an empty Kitty capability probe must not poison replay capture");
+}
+
+#[test]
+fn oversized_kitty_upload_is_not_resumable() {
+    let mut term = Terminal::new(20, 4, 100, Callbacks::default()).unwrap();
+    term.set_kitty_inflight_storage_limit(64);
+    let mut upload = b"\x1b_Ga=t,t=d,f=24,i=197,s=1,v=1,m=1,q=2;".to_vec();
+    upload.resize(1024, b'A');
+    term.vt_write(&upload);
+
+    assert!(term.discard_unreplayable_replay().is_some());
+    assert!(term.vt_replay_resumes_stream());
+}
+
+#[test]
+fn completed_oversized_kitty_chunk_is_not_can_recoverable() {
+    let mut term = Terminal::new(20, 4, 100, Callbacks::default()).unwrap();
+    term.set_kitty_inflight_storage_limit(64);
+    let mut chunk = b"\x1b_Ga=t,t=d,f=24,i=197,s=1,v=1,m=1,q=2;".to_vec();
+    chunk.resize(1024, b'A');
+    chunk.extend_from_slice(b"\x1b\\");
+    term.vt_write(&chunk);
+
+    assert!(term.vt_replay_resumes_stream());
+    assert!(term.discard_unreplayable_replay().is_none());
+}
+
+#[test]
+fn completed_kitty_overflow_blocks_later_control_string_recovery() {
+    for size in [1024, 1_048_577] {
+        for header in [b"\x1b_Gm=0;".as_slice(), b"\x1b]2;"] {
+            let mut term = Terminal::new(20, 4, 100, Callbacks::default()).unwrap();
+            term.set_kitty_inflight_storage_limit(64);
+            let mut first = b"\x1b_Ga=t,t=d,f=24,i=197,s=1,v=1,m=1,q=2;".to_vec();
+            first.resize(1024, b'A');
+            first.extend_from_slice(b"\x1b\\");
+            term.vt_write(&first);
+
+            let mut active = header.to_vec();
+            active.resize(size, b'B');
+            term.vt_write(&active);
+
+            assert!(
+                term.discard_unreplayable_replay().is_none(),
+                "CAN cannot recover a lost completed prefix: header={header:?}, size={size}"
+            );
+            assert!(matches!(term.vt_replay_bounded(2 * 1024 * 1024), Err(Error::OutOfSpace)));
+        }
+    }
+}
+
+/// The Mac viewer loads a Ghostty config, whose default
+/// `grapheme-width-method = unicode` turns DEC mode 2027 on. The host grid
+/// must measure graphemes the same way, or the viewer and the daemon put
+/// the cursor in different columns after an emoji (and reflow differently on
+/// resize). It must also survive a full reset, as Ghostty's default does.
+#[test]
+fn grapheme_clustering_is_on_by_default_like_the_ghostty_viewer() {
+    let mut term = Terminal::new(20, 4, 1000, Callbacks::default()).unwrap();
+    assert!(term.mode(2027, false), "mode 2027 must default on");
+    term.vt_write("\u{2764}\u{fe0f}x".as_bytes());
+    assert_eq!(term.cursor_position(), Some((3, 0)), "VS16 emoji is two columns wide");
+    term.vt_write(b"\x1bc");
+    assert!(term.mode(2027, false), "a full reset keeps the default");
+    term.vt_write(b"\x1b[?2027l");
+    assert!(!term.mode(2027, false), "programs may still turn it off");
+}
+
+// Resize audit item 7: a cell-pixel-only resize keeps the history rows, so
+// it must not make frontends read the history pages again.
+#[test]
+fn resize_audit_cell_pixel_only_resize_keeps_the_history_epoch() {
+    let mut term = Terminal::new(10, 4, 1000, Callbacks::default()).unwrap();
+    term.resize(10, 4, 8, 16).unwrap();
+    for line in 0..20 {
+        term.vt_write(format!("line {line}\r\n").as_bytes());
+    }
+    let epoch = term.history_epoch();
+    term.resize(10, 4, 9, 18).unwrap();
+    assert_eq!(term.history_epoch(), epoch, "pixel-only resize");
+    term.resize(12, 4, 9, 18).unwrap();
+    assert_ne!(term.history_epoch(), epoch, "a grid resize reflows the history");
+}
+
+/// The screen text with trailing blanks and trailing empty rows removed.
+fn trimmed_text(term: &mut Terminal) -> String {
+    let text = term.plain_text().unwrap();
+    let lines: Vec<&str> = text.lines().map(str::trim_end).collect();
+    let end = lines.iter().rposition(|line| !line.is_empty()).map_or(0, |i| i + 1);
+    lines[..end].join("\n")
+}
+
+/// manaflow-ai/cmux#21341: a Powerlevel10k "lean, 2 lines" prompt under
+/// Ghostty's zsh integration. Each narrowing step must let zsh's SIGWINCH
+/// redraw replace the whole prompt, not leave a copy of line 1 above it.
+/// libghostty-vt clears a prompt on resize only after the shell opts in
+/// with `133;A;redraw=1` (the C API defaults to no redraw), so the prompt
+/// here opts in.
+#[test]
+fn resize_narrowing_a_padded_two_line_prompt_leaves_no_copy_of_line_one() {
+    // zsh draws the prompt: line 1 padded close to the width, then line 2.
+    // p10k owns PS1, so the integration marks it again at zle-line-init
+    // with 133;P;k=i and 133;B, on line 2.
+    fn prompt(line_one: &str) -> Vec<u8> {
+        format!(
+            "\x1b]133;A;cl=line;redraw=1\x07{line_one}\r\n> \x1b]133;B\x07\x1b]133;P;k=i\x07\x1b]133;B\x07"
+        )
+        .into_bytes()
+    }
+    // zsh's redraw after SIGWINCH: it knows the prompt had two rows, so it
+    // moves up one row, erases below and draws the prompt for the new width.
+    fn redraw(line_one: &str) -> Vec<u8> {
+        let mut out = b"\r\x1b[1A\x1b[J".to_vec();
+        out.extend(prompt(line_one));
+        out
+    }
+
+    let mut term = Terminal::new(10, 6, 1000, Callbacks::default()).unwrap();
+    term.vt_write(b"out\r\n");
+    term.vt_write(&prompt("abcdefghi"));
+    for (cols, line_one) in [(8u16, "abcdefg"), (6, "abcde")] {
+        term.resize(cols, 6, 8, 16).unwrap();
+        term.vt_write(&redraw(line_one));
+        assert_eq!(
+            trimmed_text(&mut term),
+            format!("out\n{line_one}\n>"),
+            "after narrowing to {cols} columns"
+        );
+    }
+}
+
+/// Cmd-K on a two-line prompt whose first line sits on the top row, with a
+/// prompt row already in history, must leave a clean screen: the prompt's
+/// first line goes too, and only the input line remains at the top.
+#[test]
+fn cmd_k_clears_multiline_prompt_that_starts_in_history() {
+    let mut term = Terminal::new(20, 2, 100, Callbacks::default()).unwrap();
+    term.vt_write(b"\x1b]133;A\x07one\r\n");
+    term.vt_write(b"\x1b]133;A\x07L1\r\n> \x1b]133;B\x07");
+    assert_eq!(term.history_rows(), 1, "setup must push one prompt row into history");
+
+    let _ = term.clear_history_preserving_prompt();
+
+    let text = term.viewport_text().unwrap();
+    assert!(!text.contains("L1"), "prompt's first line stayed on screen: {text:?}");
+    assert!(!text.contains("one"), "history stayed: {text:?}");
+    // viewport_text drops trailing spaces, so the input line reads as ">".
+    assert!(text.starts_with('>'), "input line did not move to the top: {text:?}");
+    assert_eq!(term.history_rows(), 0, "scrollback was not cleared");
 }

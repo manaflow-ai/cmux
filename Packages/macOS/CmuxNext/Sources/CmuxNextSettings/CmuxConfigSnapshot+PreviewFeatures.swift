@@ -12,6 +12,26 @@ extension CmuxConfigSnapshot {
         }
         return (on, nil)
     }
+
+    /// Another Labs toggle (`labs.classicHome`): absent is `fallback`; a value that is not a bool
+    /// is `fallback` plus a diagnostic.
+    static func parseLabsToggle(_ root: JSONValue, path: [String], fallback: Bool) -> (Bool, SettingsDiagnostic?) {
+        guard let value = root.value(at: path) else { return (fallback, nil) }
+        guard let on = value.boolValue else {
+            return (fallback, SettingsDiagnostic(kind: .invalidValue, path: path.joined(separator: "."), message: "expected true or false"))
+        }
+        return (on, nil)
+    }
+
+    /// A Labs text setting (`labs.voiceRoomURL`): absent is `fallback`; a value that is not a
+    /// string is `fallback` plus a diagnostic; a string is trimmed.
+    static func parseLabsText(_ root: JSONValue, path: [String], fallback: String) -> (String, SettingsDiagnostic?) {
+        guard let value = root.value(at: path) else { return (fallback, nil) }
+        guard let text = value.stringValue else {
+            return (fallback, SettingsDiagnostic(kind: .invalidValue, path: path.joined(separator: "."), message: "expected a string"))
+        }
+        return (text.trimmingCharacters(in: .whitespacesAndNewlines), nil)
+    }
 }
 
 extension CmuxConfigSnapshot {

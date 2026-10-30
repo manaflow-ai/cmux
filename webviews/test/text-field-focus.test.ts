@@ -1,18 +1,23 @@
 // A focused text field never draws a ring of its own (cx-ncc.57). A text field is :focus-visible on
 // every focus, mouse included, and its box is a plain rectangle inside the rounded control that
 // owns it, so a ring drew a square inside the composer, the New Tab box and the model picker's
-// search. The caret and the owning control's own rounded state show focus instead.
+// search. The caret shows focus instead: the composer and the New Tab box draw no focus ring
+// either (Leo 2026-10-19: the focus ring flashed).
 //
 // The gallery plays the named surfaces and the pages with text fields on the real dev server (the
 // same frames the matrix renders) in WebKit, the engine the app's pages run in, in a light and a
 // dark theme. On each stage every visible text field (inputs, textareas, contenteditable prompts,
 // also inside open shadow roots) takes focus; its computed outline must be none. On the surfaces
-// Lawrence named, focus must still show: some ancestor of the field (its rounded box, or the row
-// the field sits in) must change look when the field takes focus, so keyboard users still see
-// where focus is.
+// Lawrence named, focus must still show: the focused field draws its caret, so keyboard users
+// still see where focus is.
 //
 // The engine comes from `playwright install webkit`; where it is not installed, the cases are
 // skipped and say so.
+//
+// Starting Vite, warming the named surfaces' frames and 22 page loads took about 90 s on a busy Huge
+// Blue; warming the whole gallery (about 2,300 modules) instead took 170 s there and 115 s on the CI
+// runner (run-webviews-tests.sh):
+// cmux-web-test-timeout: 240
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawn, type ChildProcess } from "node:child_process";
 import net from "node:net";
@@ -20,6 +25,8 @@ import path from "node:path";
 import fs from "node:fs";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { loadEntries } from "../scripts/gallery/entries";
+import { stopDevServer } from "./support/devServer";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("text-field-focus.test.ts", async () => {
@@ -100,16 +107,22 @@ await requireBrowserLane("text-field-focus.test.ts", async () => {
       server!.on("exit", (code) => reject(new Error(`dev server exited ${code}`)));
     });
     browser = await engine!.launch({ headless: true });
-  }, 120_000);
+    // The named surfaces only: the others may fail to mount, which their tests tolerate (below).
+    await warmGalleryFrame(base, [...new Set(cases.filter(({ named }) => named).map(({ entry }) => entry))], {
+      browser,
+      // Under the file's 240 s limit, so a stalled warm-up fails here, naming its entry.
+      timeoutMs: 150_000,
+    });
+  }, 200_000);
 
   afterAll(async () => {
     await browser?.close();
-    server?.kill();
+    stopDevServer(server);
   });
 
   type FieldReport = { field: string; ring: string; shown: boolean };
 
-  /** Focuses every visible text field on the stage; reports its outline and whether an ancestor changed. */
+  /** Focuses every visible text field on the stage; reports its outline and whether it draws its caret. */
   async function focusEveryField(page: Page, only?: string): Promise<FieldReport[]> {
     return page.evaluate((only) => {
       const TEXT =
@@ -129,20 +142,6 @@ await requireBrowserLane("text-field-focus.test.ts", async () => {
             rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && !(field as HTMLInputElement).disabled
           );
         });
-      // A card under the composer's location strip draws its rim on ::before (composerLocation.css),
-      // so the rim's focus step is read there too.
-      const look = (element: Element) => {
-        const style = getComputedStyle(element);
-        const rim = getComputedStyle(element, "::before").boxShadow;
-        return [style.boxShadow, rim, style.borderColor, style.backgroundColor, style.color, style.outlineStyle].join(
-          "|",
-        );
-      };
-      const ancestors = (field: HTMLElement) => {
-        const chain: Element[] = [];
-        for (let node = field.parentElement; node && chain.length < 6; node = node.parentElement) chain.push(node);
-        return chain;
-      };
       const describe = (field: HTMLElement) =>
         `${field.tagName.toLowerCase()}${field.className && typeof field.className === "string" ? `.${field.className.trim().split(/\s+/).join(".")}` : ""}[${field.getAttribute("aria-label") ?? field.getAttribute("placeholder") ?? ""}]`;
       const reports: FieldReport[] = [];
@@ -159,12 +158,11 @@ await requireBrowserLane("text-field-focus.test.ts", async () => {
           style.outlineStyle !== "none" && parseFloat(style.outlineWidth) > 0
             ? `${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor}`
             : "";
-        const chain = ancestors(field);
-        const focused = chain.map(look);
+        // Focus shows as the caret: the composer and the New Tab box look the same focused or not.
+        const caret = style.caretColor !== "transparent" && style.caretColor !== "rgba(0, 0, 0, 0)";
         field.blur();
         // A popover that closes when its field loses focus shows focus by being open.
-        const shown =
-          !field.isConnected || chain.some((node, index) => !node.isConnected || look(node) !== focused[index]);
+        const shown = !field.isConnected || caret;
         reports.push({ field: describe(field), ring, shown });
       }
       return reports;
@@ -203,16 +201,9 @@ await requireBrowserLane("text-field-focus.test.ts", async () => {
           if (!browser) throw new Error("text-field-focus: the browser did not launch");
           const page = await browser.newPage({ viewport: { width: 1000, height: 760 } });
           try {
-            const params = new URLSearchParams({
-              entry,
-              variant,
-              theme,
-              colorScheme,
-              frame: "component",
-              width: "760",
-              height: "640",
-            });
-            await page.goto(`${base}/gallery/frame.html?${params}`);
+            await page.goto(
+              `${base}${galleryFrame(entry, { variant, theme, colorScheme, frame: "component", width: "760", height: "640" })}`,
+            );
             await page.waitForFunction(
               () => ["1", "error"].includes(document.documentElement.dataset.galleryReady ?? ""),
               null,
@@ -225,7 +216,15 @@ await requireBrowserLane("text-field-focus.test.ts", async () => {
             if (named) expect(ready).toBe("1");
             if (ready !== "1") return;
             if (open) {
-              await page.getByRole("button", { name: open, exact: true }).first().click();
+              // The model button opens its compact menu (Leo 2026-10-20), which has no search; the
+              // full picker with its search opens by its label, as automation and More models do.
+              await page.evaluate(
+                (label) =>
+                  (
+                    window as unknown as { cmuxAcpmuxDebug: { openMenu(label: string): Promise<unknown> } }
+                  ).cmuxAcpmuxDebug.openMenu(label),
+                open,
+              );
               await page.locator(field!).first().waitFor({ state: "visible" });
             }
             const name = `${entry}--${variant}${open ? `--${open.toLowerCase()}-open` : ""}--${colorScheme}`;

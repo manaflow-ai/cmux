@@ -1,10 +1,17 @@
 //! Human and JSON output. JSON mode prints the server's response body itself
 //! (pretty-printed, keys in the server's order), so fields newer than this CLI
-//! still reach the caller. Human mode decodes the body into the generated types.
+//! still reach the caller. Client sessions restrict JSON to known fields to
+//! prevent token disclosure. Human mode decodes into the generated types.
 
+use std::fs::File;
+#[cfg(unix)]
+use std::fs::OpenOptions;
 use std::io::Write;
+use std::path::Path;
 
-use cmux_vm_client::types::{ApiKeyList, CreatedApiKey, Snapshot, SnapshotList, Vm, VmList};
+use cmux_vm_client::types::{
+    ApiKeyList, CreatedApiKey, Snapshot, SnapshotList, Vm, VmImageList, VmList,
+};
 use serde::Serialize;
 use serde_json::json;
 
@@ -15,9 +22,130 @@ pub struct Printer<'a> {
     out: &'a mut dyn Write,
 }
 
+/// Reserve a token path before making the request that mints the one-time
+/// token. Failed requests leave the empty 0600 reservation in place.
+#[cfg(unix)]
+pub fn reserve_token_file(path: &Path) -> Result<File, CliError> {
+    let mut file = OpenOptions::new();
+    file.write(true).create_new(true);
+    use std::os::unix::fs::OpenOptionsExt;
+    file.mode(0o600);
+    file.open(path).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::AlreadyExists {
+            return CliError::usage(format!(
+                "the token file {} already exists; choose a new --token-file",
+                path.display()
+            ));
+        }
+        CliError::unexpected(format!(
+            "could not prepare the token file {}: {e}; choose a new --token-file",
+            path.display()
+        ))
+    })
+}
+
+#[cfg(not(unix))]
+pub fn reserve_token_file(_path: &Path) -> Result<File, CliError> {
+    Err(CliError::usage(
+        "--token-file requires Unix mode 0600 permissions; omit it to print the one-time token to stdout",
+    ))
+}
+
 impl<'a> Printer<'a> {
     pub fn new(json: bool, out: &'a mut dyn Write) -> Self {
         Self { json, out }
+    }
+
+    pub fn overlay_policy(&mut self, body: &[u8]) -> Result<(), CliError> {
+        let policy: cmux_vm_client::types::DeviceOverlayPolicy = decode(body)?;
+        if self.json {
+            return self.raw_json(body);
+        }
+        self.line(&format!("device {}", policy.device_id.as_str()))?;
+        self.line(&format!("ACL version {}", policy.acl_version))?;
+        self.line(&format!("policy {}", policy.policy_digest.as_str()))?;
+        if policy.peers.is_empty() {
+            return self.line("no permitted device peers");
+        }
+        for peer in policy.peers {
+            for (direction, allowed) in [("inbound", peer.inbound), ("outbound", peer.outbound)] {
+                for rule in allowed {
+                    let port = rule
+                        .port
+                        .map(|p| p.to_string())
+                        .unwrap_or_else(|| "*".into());
+                    self.line(&format!(
+                        "{} {direction} {}:{port}",
+                        peer.device_id.as_str(),
+                        rule.protocol
+                    ))?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn overlay_server(&mut self, body: &[u8]) -> Result<(), CliError> {
+        let server: cmux_vm_client::types::OverlayServer = decode(body)?;
+        if self.json {
+            return self.raw_json(body);
+        }
+        self.line(&format!(
+            "{} {}",
+            server.id.as_str(),
+            server.name.escape_debug()
+        ))
+    }
+
+    pub fn overlay_server_code(&mut self, body: &[u8]) -> Result<(), CliError> {
+        let grant: cmux_vm_client::types::OverlayServerCode = decode(body)?;
+        if self.json {
+            return self.raw_json(body);
+        }
+        self.line(&format!(
+            "{} reserved {} expires {}",
+            grant.code.as_str(),
+            grant.device_id.as_str(),
+            grant.expires_at.escape_debug()
+        ))
+    }
+
+    pub fn overlay_server_list(&mut self, body: &[u8]) -> Result<(), CliError> {
+        let list: cmux_vm_client::types::OverlayServerList = decode(body)?;
+        if self.json {
+            return self.raw_json(body);
+        }
+        for server in list.items {
+            self.line(&format!(
+                "{} {}",
+                server.id.as_str(),
+                server.name.escape_debug()
+            ))?;
+        }
+        Ok(())
+    }
+
+    /// A command's result: JSON as is; text prints stdout, sends the guest's
+    /// stderr to stderr, and fails (exit 1) when the command did not exit 0.
+    pub fn exec(&mut self, body: &[u8]) -> Result<(), CliError> {
+        let value: serde_json::Value = serde_json::from_slice(body).map_err(|e| {
+            CliError::unexpected(format!("the cmux VM API sent a body that is not JSON: {e}"))
+        })?;
+        let code = value["exitCode"].as_i64();
+        if self.json {
+            self.json_value(&value)?;
+        } else {
+            write!(self.out, "{}", value["stdout"].as_str().unwrap_or(""))
+                .map_err(|e| CliError::unexpected(format!("write output: {e}")))?;
+        }
+        if code == Some(0) {
+            return Ok(());
+        }
+        let stderr = value["stderr"].as_str().unwrap_or("").trim_end();
+        Err(CliError::unexpected(match code {
+            Some(code) => format!("the command exited with status {code}: {stderr}"),
+            None => format!("the command was killed by its timeout: {stderr}"),
+        }))
     }
 
     pub fn vm(&mut self, body: &[u8]) -> Result<(), CliError> {
@@ -42,6 +170,143 @@ impl<'a> Printer<'a> {
         ];
         for (label, value) in lines {
             self.line(&format!("{label:<11}{value}"))?;
+        }
+        Ok(())
+    }
+
+    pub fn creation_list(
+        &mut self,
+        body: &[u8],
+        pending: bool,
+        index_pages: Option<u32>,
+    ) -> Result<(), CliError> {
+        let _: cmux_vm_client::types::VmCreationList = decode(body)?;
+        if self.json {
+            return self.raw_json(body);
+        }
+        let page: serde_json::Value = decode(body)?;
+        let items = page["items"]
+            .as_array()
+            .ok_or_else(|| CliError::unexpected("invalid creation page"))?;
+        let indexing = page["pendingIndex"].as_str();
+        if indexing == Some("building") {
+            self.line("pending history is being indexed; continue with the cursor below")?;
+        } else if indexing == Some("unavailable") {
+            self.line("pending history is incomplete; some retained work needs reconciliation")?;
+        }
+        if items.is_empty() {
+            if !pending || indexing == Some("ready") {
+                self.line(if pending {
+                    "no pending creations on this page"
+                } else {
+                    "no creations on this page"
+                })?;
+            }
+        } else {
+            self.line(&format!("{:<31} {:<12} VM", "CREATION_KEY", "STATE"))?;
+            for item in items {
+                let key = item["creationKey"]
+                    .as_str()
+                    .unwrap_or("unknown")
+                    .escape_debug();
+                let state = item["state"].as_str().unwrap_or("unknown").escape_debug();
+                let id = item["id"].as_str().unwrap_or("unresolved").escape_debug();
+                self.line(&format!("{key:<31} {state:<12} {id}"))?;
+            }
+        }
+        if let Some(cursor) = page["nextCursor"].as_str() {
+            let mode = if pending { " --pending" } else { "" };
+            let budget = index_pages
+                .map(|value| format!(" --index-pages {value}"))
+                .unwrap_or_default();
+            self.line(&format!(
+                "more: cmux-vm creation list{mode}{budget} --cursor {}",
+                cursor.escape_debug()
+            ))?;
+        }
+        Ok(())
+    }
+
+    pub fn creation(&mut self, body: &[u8]) -> Result<(), CliError> {
+        let _: cmux_vm_client::types::VmCreationStatus = decode(body)?;
+        self.creation_body(body)
+    }
+
+    pub fn creation_cancellation(&mut self, body: &[u8]) -> Result<(), CliError> {
+        let _: cmux_vm_client::types::VmCreationCancellation = decode(body)?;
+        self.creation_body(body)
+    }
+
+    fn creation_body(&mut self, body: &[u8]) -> Result<(), CliError> {
+        if self.json {
+            return self.raw_json(body);
+        }
+        let value: serde_json::Value = decode(body)?;
+        for field in ["state", "id", "cancellation"] {
+            if field == "cancellation" && value.get(field).is_none() {
+                continue;
+            }
+            let text = value[field]
+                .as_str()
+                .unwrap_or("unknown")
+                .escape_debug()
+                .to_string();
+            self.line(&format!("{field:<11}{text}"))?;
+        }
+        Ok(())
+    }
+
+    pub fn retired(&mut self, body: &[u8], id: &str) -> Result<(), CliError> {
+        if self.json {
+            self.raw_json(body)
+        } else {
+            self.line(&format!(
+                "retired {id}; starts and inbound wakes are fenced"
+            ))
+        }
+    }
+
+    pub fn file_stat(&mut self, body: &[u8]) -> Result<(), CliError> {
+        let _: cmux_vm_client::types::FileStat = decode(body)?;
+        if self.json {
+            return self.raw_json(body);
+        }
+        let stat: serde_json::Value = decode(body)?;
+        for field in ["kind", "size", "mode", "mtime", "owner", "group"] {
+            let value = &stat[field];
+            let text = if field == "mode" {
+                format!(
+                    "{:04o}",
+                    value
+                        .as_u64()
+                        .ok_or_else(|| CliError::unexpected("invalid file mode"))?
+                )
+            } else if value.is_null() {
+                "unknown".to_owned()
+            } else if let Some(text) = value.as_str() {
+                text.escape_debug().to_string()
+            } else {
+                value.to_string()
+            };
+            self.line(&format!("{field:<11}{text}"))?;
+        }
+        Ok(())
+    }
+
+    pub fn identity(&mut self, body: &[u8]) -> Result<(), CliError> {
+        let _: cmux_vm_client::types::VmInstanceIdentity = decode(body)?;
+        if self.json {
+            return self.raw_json(body);
+        }
+        let value: serde_json::Value = decode(body)?;
+        for field in ["id", "scheme", "fingerprint"] {
+            self.line(&format!(
+                "{field:<13}{}",
+                value[field].as_str().unwrap_or_default()
+            ))?;
+        }
+        if let Some(presence) = value["presence"].as_str() {
+            self.line(&format!("presence     {presence}"))?;
         }
         Ok(())
     }
@@ -73,6 +338,171 @@ impl<'a> Printer<'a> {
             self.line(&format!("more: cmux-vm list --cursor {cursor}"))?;
         }
         Ok(())
+    }
+
+    pub fn image_list(&mut self, body: &[u8]) -> Result<(), CliError> {
+        if self.json {
+            return self.raw_json(body);
+        }
+        let images: VmImageList = decode(body)?;
+        if images.items.is_empty() {
+            self.line("no approved images")?;
+        } else {
+            self.line(&format!("{:<24} {:<20} NAME", "ID", "REVISION"))?;
+            for image in &images.items {
+                self.line(&format!(
+                    "{:<24} {:<20} {}",
+                    image.id.as_str(),
+                    image.revision.as_str(),
+                    image.display_name
+                ))?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Prints a newly minted client session. The token is emitted exactly
+    /// once, either to stdout or to a caller-selected 0600 file.
+    pub fn client_session_create(
+        &mut self,
+        body: &[u8],
+        token_file: Option<(std::path::PathBuf, File)>,
+        vm_id: &str,
+    ) -> Result<(), CliError> {
+        let mut value: serde_json::Value = serde_json::from_slice(body).map_err(|_| {
+            CliError::unexpected(format!(
+                "client session for VM {vm_id} was not valid JSON; run `cmux-vm client-session list {vm_id}` before retrying"
+            ))
+        })?;
+        let session_id = value.get("id").and_then(serde_json::Value::as_str)
+            .filter(|id| !id.is_empty()).ok_or_else(|| CliError::unexpected(format!(
+                "client session for VM {vm_id} omitted its id; run `cmux-vm client-session list {vm_id}` and revoke the new session before retrying"
+            )))?.to_owned();
+        let recovery =
+            format!("revoke it with `cmux-vm client-session revoke {vm_id} {session_id} --yes`");
+        let field = |name: &str| {
+            value
+                .get(name)
+                .and_then(serde_json::Value::as_str)
+                .filter(|text| !text.is_empty())
+                .map(str::to_owned)
+                .ok_or_else(|| {
+                    CliError::unexpected(format!(
+                        "client session {session_id} for VM {vm_id} omitted {name}; {recovery}"
+                    ))
+                })
+        };
+        let token = field("token")?;
+        let response_vm = field("vmId")?;
+        if response_vm != vm_id {
+            return Err(CliError::unexpected(format!(
+                "client session {session_id} returned a different VM id for VM {vm_id}; run `cmux-vm client-session list {vm_id}` and revoke the new session before retrying"
+            )));
+        }
+        let provider_vm = field("providerVmId")?;
+        let user = field("linuxUser")?;
+        let host = value
+            .pointer("/ssh/host")
+            .and_then(serde_json::Value::as_str)
+            .filter(|host| !host.is_empty())
+            .ok_or_else(|| {
+                CliError::unexpected(format!(
+                    "client session {session_id} for VM {vm_id} omitted the SSH host; {recovery}"
+                ))
+            })?;
+        let ssh = format!("{provider_vm}+{user}@{host}");
+        // Only documented fields may reach output, including in file mode.
+        if let Some(object) = value.as_object_mut() {
+            object.retain(|key, _| {
+                matches!(
+                    key.as_str(),
+                    "id" | "vmId"
+                        | "providerVmId"
+                        | "linuxUser"
+                        | "apiBaseUrl"
+                        | "ssh"
+                        | "createdAt"
+                        | "token"
+                )
+            });
+        }
+        if let Some((path, mut file)) = token_file {
+            if let Err(error) = file.write_all(token.as_bytes()) {
+                return Err(CliError::unexpected(format!(
+                    "could not finish writing the token for VM {vm_id} to {}: {error}; revoke it with `cmux-vm client-session revoke {vm_id} {session_id} --yes`",
+                    path.display(),
+                )));
+            }
+            if let Err(error) = file.sync_all() {
+                return Err(CliError::unexpected(format!(
+                    "could not persist the token for VM {vm_id} to {}: {error}; revoke it with `cmux-vm client-session revoke {vm_id} {session_id} --yes`",
+                    path.display(),
+                )));
+            }
+            if self.json {
+                value["tokenFile"] = serde_json::json!(path.to_string_lossy());
+                value["sshLine"] = serde_json::json!(ssh);
+                if let Some(object) = value.as_object_mut() {
+                    object.remove("token");
+                }
+                return self
+                    .json_value(&value)
+                    .map_err(|error| error.with_recovery(&recovery));
+            }
+            self.line(&format!("ssh {ssh}"))
+                .map_err(|error| error.with_recovery(&recovery))?;
+            return self
+                .line(&format!(
+                    "Token shown once and written to {} (mode 0600).",
+                    path.display()
+                ))
+                .map_err(|error| error.with_recovery(&recovery));
+        }
+        if self.json {
+            value["sshLine"] = serde_json::json!(ssh);
+            return self
+                .json_value(&value)
+                .map_err(|error| error.with_recovery(&recovery));
+        }
+        self.line(&format!("ssh {ssh}"))
+            .map_err(|error| error.with_recovery(&recovery))?;
+        self.line(&format!("token {token}"))
+            .map_err(|error| error.with_recovery(&recovery))?;
+        self.line("This token is shown once; store it now.")
+            .map_err(|error| error.with_recovery(&recovery))
+    }
+
+    /// Lists sessions without ever forwarding a token field from the server.
+    pub fn client_session_list(&mut self, body: &[u8], vm_id: &str) -> Result<(), CliError> {
+        let page: cmux_vm_client::types::ClientSessionList = serde_json::from_slice(body)
+            .map_err(|_| CliError::unexpected(format!(
+                "client sessions for VM {vm_id} were invalid; run `cmux-vm client-session list {vm_id}`"
+            )))?;
+        if self.json {
+            return self.json_value(&page);
+        }
+        if page.sessions.is_empty() {
+            return self.line(&format!("no client sessions for VM {vm_id}"));
+        }
+        for session in page.sessions {
+            self.line(&format!(
+                "{} {} {}",
+                session.id.as_str(),
+                session.linux_user,
+                session.created_at
+            ))?;
+        }
+        Ok(())
+    }
+
+    pub fn revoked_session(&mut self, vm_id: &str, session_id: &str) -> Result<(), CliError> {
+        if self.json {
+            return self
+                .json_value(&json!({ "vmId": vm_id, "sessionId": session_id, "revoked": true }));
+        }
+        self.line(&format!(
+            "revoked client session {session_id} on VM {vm_id}"
+        ))
     }
 
     pub fn deleted(&mut self, id: &str) -> Result<(), CliError> {

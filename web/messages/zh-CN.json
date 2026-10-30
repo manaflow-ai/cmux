@@ -1,4 +1,5 @@
 {
+  "guestCLI": { "useReasonSharedMachine": "必需：此机器与团队共享" },
   "agentHarness": {
     "title": "检测到的 harness 配置",
     "selectionNotice": "选择提供商不会启动或启用这些 harness。",
@@ -14,6 +15,31 @@
     "benefitSuperpowers": "规划、TDD、子代理和审查"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "Cloud VM 请求已延迟",
+      "message": "Cloud VM 分配暂时不可用。",
+      "action": "请等待一分钟，然后使用相同的幂等键重试。"
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "快照请求需要重试键",
+      "message": "Cloud VM 快照需要幂等键。",
+      "action": "请使用不超过 128 个字符的固定 Idempotency-Key 重试。"
+    },
+    "snapshotInProgress": {
+      "title": "快照仍在进行中",
+      "message": "此 Cloud VM 上使用该幂等键的快照仍在运行。",
+      "action": "请等待第一个快照完成，然后使用相同的幂等键重试。"
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "快照重试键已被使用",
+      "message": "该幂等键已用于此 Cloud VM 上的另一个快照请求。",
+      "action": "为使用其他名称的快照使用新的幂等键。"
+    },
+    "snapshotQuota": {
+      "title": "已达到快照上限",
+      "message": "此 Cloud VM 已达到快照上限。",
+      "action": "请删除一个现有快照，然后使用相同的幂等键重试。"
+    },
     "guestInstall": {
       "title": "云端虚拟机设置未完成",
       "reason": "云端虚拟机的来宾设置未完成。",
@@ -28,17 +54,17 @@
     "recreateRequired": {
       "title": "重新创建这台机器",
       "message": "这台机器创建于 Cloud 更新之前，无法连接。",
-      "action": "请创建一台新机器，用 cmux vm pull 和 cmux vm push 复制文件，然后删除这台机器。"
+      "action": "创建一台新机器。用 `cmux cloud prepare-scp --target machine:<id> --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"` 准备 SCP 端点，然后通过 SCP 复制文件，确认完成后再删除这台机器。"
     },
     "guestUnresponsive": {
       "title": "机器无响应",
       "message": "这台机器未能及时响应，因此请求无法完成。",
-      "action": "先暂停机器，再继续运行，然后重试。在 Mac 应用中，先选择“暂停机器”，再选择“继续运行机器”。在终端中，先运行 cmux vm pause '<machine>'，再运行 cmux vm resume '<machine>'。"
+      "action": "创建新机器前，请携带跟踪 ID 联系支持团队。"
     },
     "inProgress": {
       "title": "仍在进行中",
       "message": "云服务提供商尚未完成此更改，它稍后仍可能完成。",
-      "action": "重试之前，请使用 cmux vm ls 或在机器列表中查看机器状态。"
+      "action": "重试之前，请使用 cmux cloud list-machines 或在机器列表中查看机器状态。"
     },
     "providerTimeout": {
       "title": "云服务提供商响应缓慢",
@@ -53,7 +79,7 @@
     "stateConflict": {
       "title": "机器正忙",
       "message": "这台机器正在启动、暂停或未运行，因此现在无法执行此操作。",
-      "action": "请稍候再试。用 cmux vm ls 查看机器状态；如果已暂停，请先继续运行它。"
+      "action": "请稍候再试。用 cmux cloud list-machines 查看机器状态；如果已暂停，请先继续运行它。"
     },
     "networkRuleCapacity": {
       "title": "网络规则已达上限",
@@ -76,15 +102,15 @@
       "action": {
         "snapshot": "请勿重试。此机器类型的工作内容会保存在持久化主目录卷中。",
         "restore": "请勿重试。此机器类型的工作内容会保存在持久化主目录卷中。",
-        "fork": "请勿重试。请使用 `cmux vm new` 创建新的虚拟机。",
-        "openPort": "请勿重试。请在机器内部使用 `cmux vm exec` 访问服务，或使用支持开放端口的机器类型。",
-        "default": "请勿重试。使用 `cmux vm ls` 查看虚拟机；如果你认为这是错误，请联系支持团队。"
+        "fork": "请勿重试。请使用 `cmux cloud new-machine` 创建新的虚拟机。",
+        "openPort": "请勿重试。请在机器内部使用 `cmux cloud exec --target machine:<id> --command <command>` 访问服务，或使用支持开放端口的机器类型。",
+        "default": "请勿重试。使用 `cmux cloud list-machines` 查看虚拟机；如果你认为这是错误，请联系支持团队。"
       }
     },
     "requiresPro": {
-      "title": "需要 cmux Pro",
-      "message": "云端虚拟机需要 cmux Pro 套餐。",
-      "action": "请前往 {upgradeUrl} 升级到 cmux Pro 以创建云端虚拟机。"
+      "title": "需要 cmux {plan}",
+      "message": "云端虚拟机需要 cmux {plan} 套餐。",
+      "action": "请前往 {upgradeUrl} 升级到 cmux {plan} 以创建云端虚拟机。"
     },
     "displayName": {
       "title": "机器名称无效",
@@ -94,25 +120,35 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "{memory} GiB 的机器需要 cmux {plan}。当前套餐最多支持 {max} GiB。",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "无法验证源机器的内存大小。",
-      "action": "cmux vm new --size 4g"
+      "action": "cmux cloud new-machine"
     },
     "memoryUnavailable": {
       "message": "此机器规格当前不可用。请选择不超过 {max} GiB 的规格。",
-      "action": "cmux vm new --size {max}g"
+      "action": "cmux cloud new-machine"
     },
     "goLimit": {
       "savedMessage": "Go 最多保存两台 VM，包括正在运行的 VM。",
-      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
       "activeMessage": "Go 同时可运行一台 VM。",
-      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
       "hoursMessage": "Go 本月的 40 VM 小时已用完。保存的 VM 可在下一个计费周期开始后继续使用。",
-      "hoursAction": "cmux billing checkout --plan pro",
+      "hoursAction": "https://cmux.com/pricing",
       "shapeMessage": "Go 支持 2 vCPU、4 GiB 内存和 16 GiB 磁盘。",
-      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+      "shapeAction": "cmux cloud new-machine\nhttps://cmux.com/pricing"
+    },
+    "planBudget": {
+      "computeTitle": "{plan} 计算额度已用完",
+      "computeMessage": "你的 {plan} 方案已用完本计费周期的 {included} 计算小时。1 计算小时是 1 个 vCPU 搭配 2 GB 内存运行一小时。你的机器可在 {resetDate} 再次启动。",
+      "computeAction": "已暂停的机器会保留其文件。如需在 {resetDate} 之前获得更多计算资源，请联系支持团队。",
+      "computeActionUpgrade": "https://cmux.com/pricing",
+      "storageTitle": "{plan} 磁盘额度已用完",
+      "storageMessage": "你的 {plan} 方案为所有已保存的机器总共提供 {included} GB 磁盘。已保存的机器使用了 {used} GB，此请求需要 {requested} GB。",
+      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm",
+      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing"
     },
     "resourcePool": {
       "title": "Cloud VM 资源不足",
@@ -514,6 +550,9 @@
         "unavailable": {
           "cancelScheduled": "请先恢复套餐再进行更改。",
           "granted": "由 cmux 授予，没有可更改的内容。",
+          "grantedNoCancel": "由 cmux 授予，因此无需取消。",
+          "paymentFailed": "更改方案前，请先更新付款方式。",
+          "foundersLifetime": "Founder's Edition 永久包含 Pro。",
           "adminOnly": "只有团队管理员可以更改套餐。"
         },
         "names": {
@@ -556,6 +595,7 @@
       "change": {
         "title": "切换到 {plan}？",
         "upgradeBody": "{plan} 立即生效。今天为本计费周期的剩余时间支付 {amount}。从 {date} 起，每月支付 {price}。",
+        "upgradeBodyYearly": "{plan} 立即生效。今天为本计费周期的剩余时间支付 {amount}。从 {date} 起，每年支付 {price}。",
         "downgradeBody": "{plan} 立即生效。当前套餐未使用的部分 {credit} 将抵扣后续账单。{date} 的下一张账单为 {amount}。",
         "confirm": "切换到 {plan}",
         "keep": "保留当前套餐",
@@ -568,6 +608,8 @@
         "title": "取消 {plan}？",
         "body": "你可以使用 {plan} 到 {date}。之后你将失去：",
         "bodyNoDate": "你可以使用 {plan} 到本计费周期结束。之后你将失去：",
+        "foundersBody": "你的 {plan} 订阅将于 {date} 结束。之后你将使用 Founder's Edition 永久包含的 Pro。",
+        "foundersBodyNoDate": "你的 {plan} 订阅将在本计费周期结束时结束。之后你将使用 Founder's Edition 永久包含的 Pro。",
         "reasonLabel": "为什么取消？（可选）",
         "otherPlaceholder": "告诉我们更多（可选）",
         "confirm": "取消套餐",
@@ -2242,6 +2284,7 @@
           "currentLineHighlight": "在没有选中内容时，为光标所在的行着色。",
           "tabWidth": "一个制表位占用的列数。缩进参考线使用相同的间距。"
         },
+        "actions": "供命令面板、快捷键、标签栏按钮和加号按钮菜单使用的可复用操作。支持 builtin、command、agent、workspaceCommand、workspace、setting、settingPreset 和 text。text 操作会向当前聚焦的终端粘贴文本并保留换行；submit: true 会按下 Enter。设置操作需要全局配置。",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {

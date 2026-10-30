@@ -13,16 +13,31 @@ public nonisolated struct BrowserContextMenuItem: Hashable, Sendable {
     public var kind: Kind
     public var isEnabled: Bool
     public var isChecked: Bool
+    /// False for a row Chromium keeps in its model but does not show (an
+    /// extension item created with `visible: false`). ``decodeList(_:)``
+    /// drops these rows, as Chrome's menu does.
+    public var isVisible: Bool
     public var children: [BrowserContextMenuItem]
+    /// The image Chrome shows before the title: an extension's icon on its
+    /// top-level row, or the vector icon of a Chrome row such as Translate.
+    /// CEF's menu model carries no images, so the host fills this in
+    /// (``BrowserExtensionMenuIcons``, ``withChromeIcons(_:)``).
+    public var icon: BrowserContextMenuIcon?
+    /// The extension that added this top-level row, when the host could tell.
+    public var extensionID: String?
 
     public init(id: Int, title: String, kind: Kind = .command, isEnabled: Bool = true, isChecked: Bool = false,
-                children: [BrowserContextMenuItem] = []) {
+                isVisible: Bool = true, children: [BrowserContextMenuItem] = [], icon: BrowserContextMenuIcon? = nil,
+                extensionID: String? = nil) {
         self.id = id
         self.title = title
         self.kind = kind
         self.isEnabled = isEnabled
         self.isChecked = isChecked
+        self.isVisible = isVisible
         self.children = children
+        self.icon = icon
+        self.extensionID = extensionID
     }
 
     /// Chromium labels mark mnemonics with `&` and escape a literal one as `&&`.
@@ -39,12 +54,30 @@ public nonisolated struct BrowserContextMenuItem: Hashable, Sendable {
         return result
     }
 
-    /// Decodes the shim's JSON (`CMUX_SHIM_CONTEXT_MENU` items).
+    /// Decodes the shim's JSON (`CMUX_SHIM_CONTEXT_MENU` items), keeping
+    /// only the rows Chrome would show (``visibleItems(_:)``).
     static func decodeList(_ json: String) -> [BrowserContextMenuItem] {
         guard let data = json.data(using: .utf8), let items = try? JSONDecoder().decode([Wire].self, from: data) else {
             return []
         }
-        return items.map(\.item)
+        return visibleItems(items.map(\.item))
+    }
+
+    /// Pure: `items` as Chrome's menu shows them: no hidden row, no submenu
+    /// without a visible child (Chromium's `HasVisibleItems`), and no
+    /// leading, trailing or doubled separator at any level.
+    static func visibleItems(_ items: [BrowserContextMenuItem]) -> [BrowserContextMenuItem] {
+        var result: [BrowserContextMenuItem] = []
+        for var item in items where item.isVisible {
+            if item.kind == .submenu {
+                item.children = visibleItems(item.children)
+                if !item.children.contains(where: { $0.kind != .separator }) { continue }
+            }
+            if item.kind == .separator, result.last.map({ $0.kind == .separator }) ?? true { continue }
+            result.append(item)
+        }
+        if result.last?.kind == .separator { result.removeLast() }
+        return result
     }
 
     private struct Wire: Decodable {
@@ -53,13 +86,14 @@ public nonisolated struct BrowserContextMenuItem: Hashable, Sendable {
         var type: String?
         var enabled: Bool?
         var checked: Bool?
+        var visible: Bool?
         var items: [Wire]?
 
         var item: BrowserContextMenuItem {
             BrowserContextMenuItem(
                 id: id, title: BrowserContextMenuItem.stripMnemonics(label ?? ""),
                 kind: Kind(rawValue: type ?? "") ?? .command, isEnabled: enabled ?? true,
-                isChecked: checked ?? false, children: (items ?? []).map(\.item)
+                isChecked: checked ?? false, isVisible: visible ?? true, children: (items ?? []).map(\.item)
             )
         }
     }
@@ -116,7 +150,8 @@ public nonisolated struct BrowserContextMenuTarget: Hashable, Sendable {
 
 /// A page asks for its context menu. The host shows `items` (it may add its
 /// own) at `location` and calls `complete` exactly once with the chosen
-/// item's id, or nil when the menu was dismissed.
+/// item's id, or nil when the menu was dismissed. A request made with no
+/// `completion` owes the engine no answer, and `complete` does nothing.
 @MainActor
 public final class BrowserContextMenuRequest {
     public let items: [BrowserContextMenuItem]
@@ -126,30 +161,29 @@ public final class BrowserContextMenuRequest {
     /// Set when the engine shows its own menu (WebKit): the host passes its
     /// leading rows here at once instead of presenting a menu.
     public let insertLeading: (([NSMenuItem]) -> Void)?
-    private var completion: ((Int?) -> Void)?
+    /// A host that drops the request unanswered dismisses the menu: the token answers nil
+    /// when it is released with the request. Nil when the engine needs no answer, so a
+    /// released request queues nothing.
+    private let reply: BrowserContextMenuCompletion?
 
+    /// - Parameter completion: Runs once on the main actor with the chosen item's id, or nil
+    ///   when the menu was dismissed or the request was released unanswered. Pass nil when the
+    ///   engine waits for no answer (WebKit shows its own menu and takes `insertLeading`).
     public init(items: [BrowserContextMenuItem], target: BrowserContextMenuTarget, location: CGPoint,
                 insertLeading: (([NSMenuItem]) -> Void)? = nil,
-                completion: @escaping (Int?) -> Void) {
+                completion: ((Int?) -> Void)?) {
         self.items = items
         self.target = target
         self.location = location
         self.insertLeading = insertLeading
-        self.completion = completion
+        if let completion {
+            reply = BrowserContextMenuCompletion { completion($0) }
+        } else {
+            reply = nil
+        }
     }
 
     public func complete(_ id: Int?) {
-        let completion = completion
-        self.completion = nil
-        completion?(id)
-    }
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            // A host that drops the request dismisses the menu.
-            completion?(nil)
-        }
+        reply?.complete(id)
     }
 }

@@ -19,6 +19,13 @@ impl Hub {
     /// reload the catalog so PATH discovery sees it, check launchers, then
     /// let spawns through and probe models.
     pub async fn finish_startup(self: &Arc<Self>) {
+        // deny-all as the default policy in config.json, a lockdown (`policy_mode.rs`): every chat
+        // without a policy of its own follows it. A stopped chat's saved mode is written now; an
+        // adopted agent is reached once startup is done (`child_for` waits for it).
+        if self.config.read().await.permission_policy == crate::config::PermissionPolicy::DenyAll {
+            let hub = self.clone();
+            tokio::spawn(async move { hub.follow_default_policy().await });
+        }
         // Prompts queued under the previous daemon, after any adopted turn (`queue.rs`).
         self.resume_queues();
         // The last live model lists, before anything slow.
@@ -28,10 +35,12 @@ impl Hub {
         if login_env {
             // A cache whose fingerprint matches applies at once; the shell
             // runs only when needed, and agent spawns wait for it (at most
-            // `login_env::TIMEOUT`) only when nothing else can stand in.
+            // two `login_env::TIMEOUT` reads) only when nothing else can stand in.
             let plan = tokio::task::spawn_blocking(crate::login_env::begin)
                 .await
                 .unwrap_or(crate::login_env::Plan { run_shell: true, wait: true });
+            // An edit to a startup file reads the shell again (D26).
+            crate::login_env::watch_startup_files();
             let cached = crate::login_env::outcome() == crate::login_env::Outcome::Cached;
             if cached {
                 reloaded = self.after_login_env().await;
@@ -52,12 +61,11 @@ impl Hub {
         self.catalog_ready.send_replace(true);
         self.verify_launchers().await;
         self.startup_ready.send_replace(true);
+        self.care_worker();
         tracing::info!("startup complete; agents may spawn");
-        // Probes of earlier runs left transcripts in the unattended folder: remove them.
+        // Probes and one-shots of earlier runs left files behind: remove them.
         let _ = tokio::task::spawn_blocking(|| {
-            crate::probe_cleanup::remove_probe_transcripts(
-                &crate::protected_folders::unattended_cwd(),
-            )
+            crate::qos::background(crate::probe_cleanup::at_daemon_start)
         })
         .await;
         // A catalog reload already started fresh probes.
@@ -76,6 +84,11 @@ impl Hub {
 
     pub fn startup_complete(&self) -> bool {
         *self.startup_ready.borrow()
+    }
+
+    /// Whether the chat logs are read (`load_logs`; always outside a deferred start).
+    pub fn logs_loaded(&self) -> bool {
+        *self.logs_ready.borrow()
     }
 
     /// Wait until background startup has finished (immediate outside a daemon).

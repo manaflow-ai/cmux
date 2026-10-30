@@ -771,6 +771,7 @@ impl WorkspaceRegistry {
             rows.iter().find(|row| row.session_id == session && row.workspace_key == key).cloned()
         };
         let before = find(&read_workspaces(tx)?);
+        let home_before = crate::state::home_store::home_first(tx)?;
         if before.is_none() {
             tx.execute(
                 "INSERT INTO personal_workspaces(session_id, workspace_key, position) VALUES(?1, ?2, ?3)",
@@ -793,7 +794,7 @@ impl WorkspaceRegistry {
         if let Some(index) = update.index {
             Self::move_personal_row_in(tx, session, key, index)?;
         }
-        crate::state::home_store::require_home_first(tx)?;
+        crate::state::home_store::require_home_first(tx, home_before)?;
         let after = find(&read_workspaces(tx)?)
             .ok_or_else(|| anyhow::anyhow!("personal workspace vanished"))?;
         let changed = before.as_ref() != Some(&after);

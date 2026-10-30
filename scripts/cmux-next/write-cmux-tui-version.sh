@@ -5,6 +5,9 @@
 # (scripts/install-cmux-tui-client.sh). Same keys as bundle-cmux-tui.sh.
 # Release and nightly jobs pass the commit that published their tree and the
 # tree key (mode=tree); without a key it records the commit as mode=pin.
+# It also rewrites bin/daemon-capabilities.json from that client
+# (write-daemon-capabilities.sh). Not required: a nightly ships the newest
+# published tree, which can predate `capabilities`; then the bundle has none.
 #
 # Usage: write-cmux-tui-version.sh <app> <commit> [<tree-key>]
 set -euo pipefail
@@ -29,3 +32,4 @@ version_line="$("$bin" --version 2>/dev/null | head -n 1 || true)"
   printf 'version=%s\n' "$version_line"
 } > "$bin.version"
 echo "cmux-tui.version: $commit${key:+ (tree $key)} ($(lipo -archs "$bin"))"
+"$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/write-daemon-capabilities.sh" "$app/Contents/Resources/bin"

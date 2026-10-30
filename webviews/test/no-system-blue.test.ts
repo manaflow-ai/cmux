@@ -21,6 +21,17 @@ await requireBrowserLane("no-system-blue.test.ts", async () => {
     "agent-session/shared/styles.css",
     "agent-session/acpmux/styles.css",
   ]);
+  // Send in a composer, with every sheet that styles it (iMessage's blue sheet included, which the
+  // composer still loads for other surfaces).
+  const sendCss = read([
+    "pages/shared/desktop.css",
+    "agent-session/shared/styles.css",
+    "theme/messages.css",
+    "agent-session/acpmux/styles.css",
+    "agent-session/acpmux/composerStates.css",
+    "agent-session/acpmux/composerLocation.css",
+    "agent-session/acpmux/newtab/screen.css",
+  ]);
 
   const engines: [string, BrowserType][] = [];
   for (const engine of [
@@ -80,11 +91,47 @@ await requireBrowserLane("no-system-blue.test.ts", async () => {
         );
         const plan = await tab.$eval("#plan", (node) => {
           const style = getComputedStyle(node);
-          return { color: style.color, edge: style.boxShadow };
+          return { color: style.color, fill: style.backgroundColor, edge: style.boxShadow };
         });
         expect(plan.color).toBe(IRIS);
-        // Pressed reads apart from hover even when the accent is the text color: an accent edge.
-        expect(plan.edge).toMatch(/196|0\.76/);
+        // On is accent ink alone, with no pill at rest (Leo 2026-10-19: the Claude app's chips).
+        expect(plan.fill).toBe("rgba(0, 0, 0, 0)");
+        expect(plan.edge).toBe("none");
+        await tab.close();
+      });
+
+      // Send follows the theme in every composer and state (Leo 2026-10-19: the bright blue disc
+      // was wrong): its disc is the theme's ink, never a blue the theme does not have.
+      test("Send is the theme's ink in every composer and state, never a system blue", async () => {
+        const tab = await browser.newPage();
+        const row = (cls: string) =>
+          `<button class="acpmux-send acpmux-send-ready ${cls}" data-s="ready">↑</button>` +
+          `<button class="acpmux-send ${cls}" data-s="off" disabled>↑</button>` +
+          `<button class="acpmux-send acpmux-cancel ${cls}" data-s="stop">■</button>`;
+        await tab.setContent(
+          page(
+            sendCss,
+            `<div class="acpmux-shell"><div class="acpmux-composer"><div class="acpmux-composer-box"><div class="acpmux-composer-bar" id="chat">${row("")}</div></div></div>` +
+              `<div class="nt-composer"><div class="nt-box"><div class="nt-pickers" id="newtab">${row("nt-send")}</div></div></div></div>`,
+          ),
+        );
+        const blue = (color: string) => {
+          const [r, g, b] = [...color.matchAll(/[\d.]+/g)].map((match) => Number(match[0]));
+          // color(srgb ...) channels are 0...1; rgb() channels are 0...255.
+          const scale = color.startsWith("color(") ? 255 : 1;
+          return (b! - Math.max(r!, g!)) * scale > 24;
+        };
+        const problems: string[] = [];
+        for (const composer of ["chat", "newtab"])
+          for (const state of ["ready", "off", "stop"]) {
+            const selector = `#${composer} [data-s="${state}"]`;
+            const rest = await tab.$eval(selector, (node) => getComputedStyle(node).backgroundColor);
+            if (blue(rest)) problems.push(`${composer} ${state}: ${rest}`);
+            await tab.hover(selector, { force: true });
+            const hover = await tab.$eval(selector, (node) => getComputedStyle(node).backgroundColor);
+            if (blue(hover)) problems.push(`${composer} ${state} hovered: ${hover}`);
+          }
+        expect(problems).toEqual([]);
         await tab.close();
       });
     });

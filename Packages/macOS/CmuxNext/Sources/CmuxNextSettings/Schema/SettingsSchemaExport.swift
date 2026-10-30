@@ -47,10 +47,10 @@ public struct SettingsSchemaExport {
         }
         let rows: [[String: Any]] = SettingsSchema.all.map { row(for: $0, text: text) }
         let page = page(text: text)
-        let rowsData = Data(try DeterministicJSON().string(rows, pretty: false).utf8)
+        // No schema_hash: the daemon computes it from the rows at load. A committed
+        // hash line changed in every settings pull request, so no two merged (#21946).
         let document: [String: Any] = [
             "version": version,
-            "schema_hash": SettingsSchemaHash.hex(rowsData),
             "sections": sections,
             "page": page,
             "rows": rows,
@@ -65,7 +65,7 @@ public struct SettingsSchemaExport {
     nonisolated func page(text: (String, String?) -> [String: Any]) -> [String: Any] {
         let categories: [[String: Any]] = SettingsPageLayout().categories().map { category in
             let spec = category.spec
-            return [
+            var entry: [String: Any] = [
                 "id": spec.id,
                 "title": text(spec.title.text, spec.title.key),
                 "symbol": spec.symbol,
@@ -77,6 +77,9 @@ public struct SettingsSchemaExport {
                 "actions": spec.actions.map(\.rawValue),
                 "aliases": spec.aliases.map(\.rawValue),
             ]
+            // Only DEV builds show it (the page asks the host); absent everywhere else.
+            if spec.devOnly { entry["dev_only"] = true }
+            return entry
         }
         return ["default_category": SettingsPageLayout.defaultCategory, "categories": categories]
     }
@@ -99,6 +102,7 @@ public struct SettingsSchemaExport {
             "kept_on_reset_all": SettingsSchema.keptOnResetAll.contains(descriptor.path),
             "consumers": descriptor.consumers.sorted().map(\.rawValue),
             "page_hidden": descriptor.page != .shown,
+            "surfaces": descriptor.surfacePlan.exportObject,
         ]
         let samples = SettingsSchemaSamples.samples(for: descriptor)
         row["accepts"] = samples.accept.filter(descriptor.accepts).map(foundation)
@@ -115,6 +119,10 @@ public struct SettingsSchemaExport {
             row["kind"] = "choice_or_number"
             row["choices"] = choices(list)
             row["range"] = range(number)
+        case .choiceOrURL(let list, let urlKey):
+            row["kind"] = "choice_or_url"
+            row["choices"] = choices(list)
+            row["url_key"] = urlKey
         case .number(let number):
             row["kind"] = "number"
             row["range"] = range(number)
@@ -126,10 +134,12 @@ public struct SettingsSchemaExport {
         case .timeRange: row["kind"] = "time_range"
         case .theme: row["kind"] = "theme"
         case .fontFamily: row["kind"] = "font_family"
+        case .text: row["kind"] = "text"
         case .numberList(let number):
             row["kind"] = "number_list"
             row["range"] = range(number)
         case .stringMap: row["kind"] = "string_map"
+        case .soundRules: row["kind"] = "sound_rules"
         case .stringList: row["kind"] = "string_list"
         case .orderedChoices(let list):
             row["kind"] = "string_list"
@@ -145,6 +155,8 @@ public struct SettingsSchemaExport {
         // value domain the app publishes, not a fixed rule.
         if descriptor.path == ChatSettings.rootsPath {
             row["validation"] = "domain:chat_roots"
+        } else if descriptor.path == CustomDensitiesSetting().configPath {
+            row["validation"] = "domain:custom_densities"
         } else if descriptor.path == BackdropSelectionSetting().configPath {
             row["validation"] = "domain:backdrop_selection"
         } else if BrowserOmnibarSetting.templatePaths.contains(descriptor.path) {
@@ -164,6 +176,7 @@ public struct SettingsSchemaExport {
     nonisolated func range(_ number: SettingNumber) -> [String: Any] {
         let unit: String = switch number.unit {
         case .points: "points"
+        case .milliseconds: "milliseconds"
         case .seconds: "seconds"
         case .minutes: "minutes"
         case .days: "days"

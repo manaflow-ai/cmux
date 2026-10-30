@@ -71,6 +71,7 @@ pub(super) fn restore_public_projections(
             body: notification.body,
             level,
             terminal_id: notification.terminal_id,
+            workspace_id: notification.workspace_id,
             created_at_ms: notification.created_at_ms,
             source: notification.source,
             surface,

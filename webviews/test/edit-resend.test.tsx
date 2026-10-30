@@ -1,5 +1,5 @@
-// Edit and resend a past message (cx-ncc.60, Claude parity): a prompt shows Copy and Edit under its
-// bubble; Edit opens it in place, Send forks the chat through the turn before it and sends the edited
+// Edit and resend a past message (cx-ncc.60, Claude parity): a prompt shows Edit under its bubble on
+// hover; Edit opens it in place, Send forks the chat through the turn before it and sends the edited
 // text there, Escape or Cancel puts the bubble back. Edit shows only where the chat can fork there.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -69,10 +69,12 @@ test("a prompt edited in place forks the chat through the turn before it and sen
     );
 
   root = createRoot(host);
-  // The first prompt has no turn before it to fork through: Copy only.
+  // The first prompt has no turn before it to fork through: its row offers Copy (Claude Code desktop's
+  // row, GUI push 2026-10-20), but no Edit and no Fork.
   draw(rows[0]!);
   expect(button("Copy")).toBeDefined();
   expect(button("Edit")).toBeUndefined();
+  expect(button("Fork from here")).toBeUndefined();
 
   draw(rows[3]!);
   act(() => button("Edit")!.click());
@@ -101,9 +103,9 @@ test("a prompt edited in place forks the chat through the turn before it and sen
   expect(sent.length).toBe(2);
 });
 
-test("only a chat that can fork through an earlier turn offers Edit", async () => {
+test("Claude and Codex chats that can fork through an earlier turn offer Edit", async () => {
   const { editableTurns } = await import("../src/agent-session/acpmux/conversation/editPrompt");
   expect([...editableTurns(rows, "claude")]).toEqual([["user-4", 3]]);
-  // Other agents fork only at a chat's end, so no earlier turn can be edited.
-  expect(editableTurns(rows, "codex").size).toBe(0);
+  expect([...editableTurns(rows, "codex")]).toEqual([["user-4", 3]]);
+  expect(editableTurns([...rows.slice(0, 3), { ...rows[3]!, steer: "waiting" }], "claude").size).toBe(0);
 });

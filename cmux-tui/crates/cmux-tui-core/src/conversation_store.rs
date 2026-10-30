@@ -17,6 +17,7 @@ use cmux_conversation::{
     ConversationHead, CreateRequest, Message, Op, OpRequest, Origin, Participant, Reject, Summary,
     encode_id, format_rfc3339_millis, summary, valid_participant_id, valid_token,
 };
+use cmux_json::JsonSet as _;
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -144,6 +145,7 @@ impl ConversationStore {
                     .with_context(|| format!("open conversation store {}", path.display()))?;
                 crate::platform::restrict_file(&path)
                     .with_context(|| format!("restrict conversation store {}", path.display()))?;
+                crate::workspace_registry::wal_durability::attach_store(&connection, &path);
                 connection
             }
             None => Connection::open_in_memory()?,
@@ -157,9 +159,7 @@ impl ConversationStore {
     ) -> anyhow::Result<Self> {
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         connection.execute_batch(
-            "PRAGMA journal_mode=WAL;
-             PRAGMA synchronous=FULL;
-             PRAGMA fullfsync=ON;
+            "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA fullfsync=ON;
              CREATE TABLE IF NOT EXISTS meta (
                key TEXT PRIMARY KEY NOT NULL,
                value TEXT NOT NULL
@@ -271,6 +271,14 @@ impl ConversationStore {
             params![participant, token_digest(&token)],
         )?;
         Ok(token)
+    }
+
+    /// Removes `participant`'s credential (`chief.profile.adopt`): no token
+    /// issued for it before binds again; the next credential is minted anew.
+    pub(crate) fn revoke_agent_token(&mut self, participant: &str) -> anyhow::Result<()> {
+        self.connection
+            .execute("DELETE FROM agent_token WHERE participant = ?1", params![participant])?;
+        Ok(())
     }
 
     /// Whether `token` is the current credential of `participant`.
@@ -812,6 +820,11 @@ pub enum ConversationEvent {
     /// only to a connection that echoed `conversation-runs-v1` in
     /// `set-client-info` (never the remote relay or `conversation.events`).
     Run { conversation: String, run: Value, steps: Vec<Value> },
+    /// A live frame of a running run (`step.delta` or `run.activity`,
+    /// `chief-live-v1`): never stored; `subscribe` delivers it only to a
+    /// connection that echoed the capability in `set-client-info` (never the
+    /// remote relay or `conversation.events`).
+    Live { conversation: String, frame: Value },
     /// A participant's avatar changed (`participant-avatars-v1`): the stored
     /// reference, or none. Not conversation state (no conversation, no rev);
     /// `subscribe` delivers it only to a connection that echoed the
@@ -854,7 +867,7 @@ impl ConversationEvent {
                     "marked_unread": marked_unread,
                 });
                 if let Some(position) = pin_position {
-                    value["pin_position"] = json!(position);
+                    value.set("pin_position", json!(position));
                 }
                 value
             }
@@ -863,6 +876,11 @@ impl ConversationEvent {
                 "conversation": conversation,
                 "run": run,
                 "steps": steps,
+            }),
+            Self::Live { conversation, frame } => json!({
+                "event": "conversation-live",
+                "conversation": conversation,
+                "frame": frame,
             }),
             Self::Avatar { participant, avatar } => json!({
                 "event": "participant-avatar-changed",
@@ -880,6 +898,11 @@ impl ConversationEvent {
     /// Run events go on `subscribe` only to a connection that asked for them.
     pub(crate) const fn is_run(&self) -> bool {
         matches!(self, Self::Run { .. })
+    }
+
+    /// Live frames go on `subscribe` only to a connection that asked for them.
+    pub(crate) const fn is_live(&self) -> bool {
+        matches!(self, Self::Live { .. })
     }
 
     /// Avatar changes go on `subscribe` only to a connection that asked.
@@ -908,6 +931,8 @@ pub(crate) struct ConversationHost {
     pub(crate) store: Mutex<Option<ConversationStore>>,
     /// `conversation.draft` replay and rate state (memory only).
     pub(crate) drafts: Mutex<crate::conversation_drafts::DraftGate>,
+    /// The live text of running runs (`chief-live-v1`, memory only).
+    pub(crate) live: Mutex<crate::conversation_live::LiveBuffers>,
     pub(crate) publish: Mutex<()>,
     /// The participant each connection bound with an agent token (memory only).
     pub(crate) bindings: Mutex<std::collections::BTreeMap<u64, String>>,

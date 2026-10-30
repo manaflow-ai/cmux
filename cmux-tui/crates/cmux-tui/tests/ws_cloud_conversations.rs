@@ -222,11 +222,13 @@ impl Page {
 }
 
 /// A loopback stand-in for the cmux Cloud API: `inbox.list` lists one
-/// conversation, every op answers as committed; every request is recorded
+/// conversation (paged by `limit` and `cursor`, as UserDO pages it), every op answers as committed; every request is recorded
 /// with its path and bearer.
 struct FakeCloud {
     base: String,
     requests: Arc<Mutex<Vec<(String, String, Value)>>>,
+    /// The entries `inbox.list` answers.
+    inbox: Arc<Mutex<Value>>,
 }
 
 impl FakeCloud {
@@ -235,6 +237,11 @@ impl FakeCloud {
         let base = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
         let requests = Arc::new(Mutex::new(Vec::new()));
         let seen = requests.clone();
+        let inbox = Arc::new(Mutex::new(json!([{"conversation":CONV,"rev":4,"kind":"group",
+            "title":"Cloud team","last_seq":3,"last_at":"2026-10-13T00:00:00Z","preview":"hi",
+            "removed":false,"unread":1,"mentions":0,"counts_rev":1,"pinned":false,"muted":false,
+            "archived":false,"archived_seq":0,"marked_unread":false}])));
+        let entries = inbox.clone();
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(stream) = stream else { return };
@@ -276,10 +283,18 @@ impl FakeCloud {
                         "status":"done","turn":"turn:cloud:1","started_at":1,"ended_at":2,"step_count":1}],
                         "has_more":false}})
                 } else if body["op"] == "inbox.list" {
-                    json!({"ok":true,"value":{"entries":[{"conversation":CONV,"rev":4,"kind":"group",
-                        "title":"Cloud team","last_seq":3,"last_at":"2026-10-13T00:00:00Z","preview":"hi",
-                        "removed":false,"unread":1,"mentions":0,"counts_rev":1,"pinned":false,"muted":false,
-                        "archived":false,"archived_seq":0,"marked_unread":false}]},"revision":"7"})
+                    // Pages as UserDO does: `limit` entries (at most 200) from `cursor`, and the
+                    // next page's cursor (here the index of its first entry), null on the last.
+                    let entries = entries.lock().unwrap().as_array().cloned().unwrap_or_default();
+                    let limit =
+                        body["params"]["limit"].as_u64().unwrap_or(200).clamp(1, 200) as usize;
+                    let from = body["params"]["cursor"]
+                        .as_str()
+                        .and_then(|c| c.parse().ok())
+                        .unwrap_or(0usize);
+                    let to = (from + limit).min(entries.len());
+                    let next = (to < entries.len()).then(|| to.to_string());
+                    json!({"ok":true,"value":{"entries":entries[from.min(to)..to],"next_cursor":next},"revision":"7"})
                 } else {
                     json!({"ok":true,"op":body["op"],"value":{"rev":5,"seq":4,
                         "message_id":"msg_0000000000000000000000000Z"},
@@ -295,7 +310,7 @@ impl FakeCloud {
                 let _ = reader.get_mut().write_all(response.as_bytes());
             }
         });
-        Self { base, requests }
+        Self { base, requests, inbox }
     }
 
     fn requests(&self) -> Vec<(String, String, Value)> {
@@ -503,6 +518,94 @@ fn an_open_page_learns_that_the_app_signed_in() {
     assert_eq!(page.rpc(json!({"cmd":"cloud-session-status"}))["data"]["state"], "active");
 }
 
+/// Hide Alerts on a Cloud DM or group (plans/cmux-next/home-dm-group-chats/AUDIT.md item 13):
+/// the person's client sends `cloud-inbox-op` `inbox.mute` and the daemon forwards it to the
+/// person's UserDO inbox unchanged, with an optional `until` (Unix ms) and the client's key.
+#[test]
+fn the_persons_page_mutes_a_cloud_conversation_through_the_daemon() {
+    let fixture = Fixture::start("mute");
+    let cloud = FakeCloud::start();
+    let token = person_token();
+    let mut app = fixture.app();
+    assert_eq!(app.rpc(lease(&cloud.base, &token))["ok"], true);
+    let mut page = Page::open(&fixture.credential().0, &page_credential(&mut app));
+    let muted = page.rpc(json!({"cmd":"cloud-inbox-op","conversation":CONV,
+        "idempotency_key":"mute-1","op":{"kind":"inbox.mute","muted":true,"until":1_900_000_000_000_u64}}));
+    assert_eq!(muted["ok"], true, "{muted}");
+    let unmuted = page.rpc(json!({"cmd":"cloud-inbox-op","conversation":CONV,
+        "idempotency_key":"mute-2","op":{"kind":"inbox.mute","muted":false}}));
+    assert_eq!(unmuted["ok"], true, "{unmuted}");
+    let requests = cloud.requests();
+    assert_eq!(
+        requests.iter().map(|(path, _, body)| (path.clone(), body.clone())).collect::<Vec<_>>(),
+        vec![
+            (
+                "/v1/ops".to_string(),
+                json!({"op":"inbox.mute","params":{"muted":true,
+                "until":1_900_000_000_000_u64,"conversation":CONV},"idempotency_key":"mute-1"})
+            ),
+            (
+                "/v1/ops".to_string(),
+                json!({"op":"inbox.mute","params":{"muted":false,
+                "conversation":CONV},"idempotency_key":"mute-2"})
+            ),
+        ],
+        "{requests:?}"
+    );
+}
+
+/// Group roles through the daemon (plans/cmux-next/home-dm-group-chats/DESIGN.md section 4): the
+/// page's `cloud-conversation-op` forwards `participants.set_role`, `ownership.transfer`,
+/// `participants.unban`, a `participants.remove` with `ban`, and the group link ops
+/// `grant.create` and `grant.revoke` to `POST /v1/ops` unchanged.
+#[test]
+fn the_persons_page_manages_group_roles_through_the_daemon() {
+    let fixture = Fixture::start("roles");
+    let cloud = FakeCloud::start();
+    let token = person_token();
+    let mut app = fixture.app();
+    assert_eq!(app.rpc(lease(&cloud.base, &token))["ok"], true);
+    let mut page = Page::open(&fixture.credential().0, &page_credential(&mut app));
+    let ops = [
+        json!({"kind":"participants.set_role","participant":"user_ben","role":"admin"}),
+        json!({"kind":"ownership.transfer","participant":"user_ben"}),
+        json!({"kind":"participants.remove","participant":"user_cat","ban":true}),
+        json!({"kind":"participants.unban","participant":"user_cat"}),
+        json!({"kind":"grant.create","role":"read_only","max_uses":5}),
+        json!({"kind":"grant.revoke","grant_id":"grt_00000000000000000000000001"}),
+    ];
+    for (n, op) in ops.iter().enumerate() {
+        let reply = page.rpc(json!({"cmd":"cloud-conversation-op","conversation":CONV,
+            "idempotency_key":format!("roles-{n}"),"origin":"user","op":op}));
+        assert_eq!(reply["ok"], true, "{op}: {reply}");
+    }
+    let names: Vec<Value> = cloud
+        .requests()
+        .iter()
+        .filter(|(path, _, _)| path == "/v1/ops")
+        .map(|(_, _, body)| body["op"].clone())
+        .collect();
+    assert_eq!(
+        names,
+        vec![
+            json!("participants.set_role"),
+            json!("ownership.transfer"),
+            json!("participants.remove"),
+            json!("participants.unban"),
+            json!("grant.create"),
+            json!("grant.revoke")
+        ]
+    );
+    let bodies: Vec<Value> = cloud
+        .requests()
+        .iter()
+        .filter(|(path, _, _)| path == "/v1/ops")
+        .map(|(_, _, body)| body["params"].clone())
+        .collect();
+    assert_eq!(bodies[0]["role"], "admin");
+    assert_eq!(bodies[2]["ban"], true);
+}
+
 /// The person's pin and "marked unread" of a Cloud conversation
 /// (`conversation-inbox-state-v1`): the page sends `cloud-inbox-op` and the
 /// daemon forwards the Cloud owner's own inbox ops (`inbox.pin`,
@@ -573,3 +676,167 @@ fn the_persons_page_pins_a_cloud_conversation_through_the_daemon() {
 /// Cloud conversations' attachments through the daemon (`cloud-attachments-v1`).
 #[path = "ws_cloud_conversations/attachments.rs"]
 mod attachments;
+
+#[test]
+fn the_persons_page_gets_cloud_rows_in_the_home_inbox() {
+    let fixture = Fixture::start("home");
+    let cloud = FakeCloud::start();
+    let token = person_token();
+    let mut app = fixture.app();
+    let (addr, file_token) = fixture.credential();
+
+    // Before a lease: no Cloud rows, and the result says why.
+    let mut page = Page::open(&addr, &page_credential(&mut app));
+    let identity = page.rpc(json!({"cmd":"identify"}));
+    assert!(
+        identity["data"]["capabilities"].as_array().unwrap().iter().any(|v| v == "home-inbox-v1"),
+        "{identity}"
+    );
+    let before = page.rpc(json!({"cmd":"home-inbox"}));
+    assert_eq!(before["ok"], true, "{before}");
+    assert_eq!(before["data"]["cloud"], "signed_out", "{before}");
+    assert!(
+        before["data"]["rows"].as_array().unwrap().iter().all(|row| row["owner"] != "cloud"),
+        "{before}"
+    );
+
+    // The app leases the person's session: the page's rows include the Cloud inbox.
+    assert_eq!(app.rpc(lease(&cloud.base, &token))["ok"], true);
+    let inbox = page.rpc(json!({"cmd":"home-inbox"}));
+    assert_eq!(inbox["ok"], true, "{inbox}");
+    assert_eq!(inbox["data"]["cloud"], "included", "{inbox}");
+    let row = inbox["data"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["id"] == CONV)
+        .unwrap_or_else(|| panic!("no Cloud row: {inbox}"))
+        .clone();
+    assert_eq!(row["owner"], "cloud", "{row}");
+    assert_eq!(row["kind"], "channel", "{row}");
+    assert_eq!(row["name"], "Cloud team", "{row}");
+    assert_eq!(row["unread"], 1, "{row}");
+    assert_eq!(row["preview"], "hi", "{row}");
+    assert_eq!(row["activity_at"], "2026-10-13T00:00:00Z", "{row}");
+    assert_eq!(row["pinned"], false, "{row}");
+    assert_eq!(row["muted"], false, "{row}");
+    assert!(row.get("chief_state").is_none(), "{row}");
+    assert!(
+        cloud
+            .requests()
+            .iter()
+            .any(|(_, bearer, body)| body["op"] == "inbox.list"
+                && *bearer == format!("Bearer {token}")),
+        "{:?}",
+        cloud.requests()
+    );
+
+    // A view that asks this daemon for its local rows only gets no Cloud rows.
+    let local = page.rpc(json!({"cmd":"home-inbox","owners":["local"]}));
+    assert_eq!(local["data"]["cloud"], "not_asked", "{local}");
+    assert!(
+        local["data"]["rows"].as_array().unwrap().iter().all(|row| row["owner"] == "local"),
+        "{local}"
+    );
+    let cloud_only = page.rpc(json!({"cmd":"home-inbox","owners":["cloud"]}));
+    assert_eq!(cloud_only["data"]["rows"].as_array().unwrap().len(), 1, "{cloud_only}");
+    let refused = page.rpc(json!({"cmd":"home-inbox","owners":["elsewhere"]}));
+    assert_eq!(refused["ok"], false, "{refused}");
+
+    // The file token is any same-user process's: it never gets the person's Cloud rows.
+    let mut agent = Page::open(&addr, &file_token);
+    let other = agent.rpc(json!({"cmd":"home-inbox"}));
+    assert_eq!(other["ok"], true, "{other}");
+    assert_eq!(other["data"]["cloud"], "signed_out", "{other}");
+    assert!(
+        other["data"]["rows"].as_array().unwrap().iter().all(|row| row["owner"] != "cloud"),
+        "{other}"
+    );
+}
+
+/// Home lists the whole Cloud inbox, not its newest page: the owner pages
+/// `inbox.list` by 200, and `home-inbox` read only the first page, so a Chief
+/// or conversation past the newest 200 never showed. `cloud-inbox-list` stays
+/// one page per call and hands back the owner's cursor.
+#[test]
+fn home_inbox_lists_every_page_of_the_cloud_inbox() {
+    let fixture = Fixture::start("pages");
+    let cloud = FakeCloud::start();
+    let template = cloud.inbox.lock().unwrap()[0].clone();
+    let ids: Vec<String> = (0..450).map(|i| format!("conv_PAGE{i:04}0123456789ABCDEFGH")).collect();
+    *cloud.inbox.lock().unwrap() = Value::Array(
+        ids.iter()
+            .map(|id| {
+                let mut entry = template.clone();
+                entry["conversation"] = json!(id);
+                entry
+            })
+            .collect(),
+    );
+    let mut app = fixture.app();
+    assert_eq!(app.rpc(lease(&cloud.base, &person_token()))["ok"], true);
+    let (addr, _) = fixture.credential();
+    let mut page = Page::open(&addr, &page_credential(&mut app));
+    let inbox = page.rpc(json!({"cmd":"home-inbox","owners":["cloud"]}));
+    assert_eq!(inbox["data"]["cloud"], "included", "{inbox}");
+    let rows: Vec<&str> = inbox["data"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|row| row["id"].as_str())
+        .collect();
+    assert_eq!(rows.len(), ids.len(), "rows {}", rows.len());
+    for id in &ids {
+        assert_eq!(rows.iter().filter(|row| **row == id.as_str()).count(), 1, "{id}");
+    }
+    let cursors: Vec<Value> = cloud
+        .requests()
+        .iter()
+        .filter(|(_, _, body)| body["op"] == "inbox.list")
+        .map(|(_, _, body)| body["params"]["cursor"].clone())
+        .collect();
+    assert_eq!(cursors, [Value::Null, json!("200"), json!("400")]);
+
+    // One page per cloud-inbox-list call, with the owner's cursor for the next.
+    let first = app.rpc(json!({"cmd":"cloud-inbox-list"}));
+    assert_eq!(first["data"]["entries"].as_array().unwrap().len(), 200, "{first}");
+    assert_eq!(first["data"]["next_cursor"], "200", "{first}");
+    let last = app.rpc(json!({"cmd":"cloud-inbox-list","cursor":"400"}));
+    assert_eq!(last["data"]["entries"].as_array().unwrap().len(), 50, "{last}");
+    assert_eq!(last["data"]["next_cursor"], Value::Null, "{last}");
+}
+
+/// The shared Cloud row corpus (tests/fixtures/home-inbox-cloud-cases.json):
+/// the daemon's rows for each entry. The Channels page's Cloud list is held to
+/// the same corpus by webviews/test/home-cloud-rows.test.ts, so the two Cloud
+/// projections cannot drift apart silently.
+#[test]
+fn home_inbox_cloud_rows_follow_the_shared_corpus() {
+    let corpus: Value =
+        serde_json::from_str(include_str!("fixtures/home-inbox-cloud-cases.json")).unwrap();
+    let cases = corpus["cases"].as_array().unwrap();
+    let fixture = Fixture::start("corpus");
+    let cloud = FakeCloud::start();
+    *cloud.inbox.lock().unwrap() =
+        Value::Array(cases.iter().map(|case| case["entry"].clone()).collect());
+    let mut app = fixture.app();
+    assert_eq!(app.rpc(lease(&cloud.base, &person_token()))["ok"], true);
+    let (addr, _) = fixture.credential();
+    let mut page = Page::open(&addr, &page_credential(&mut app));
+    let inbox = page.rpc(json!({"cmd":"home-inbox","owners":["cloud"]}));
+    assert_eq!(inbox["data"]["cloud"], "included", "{inbox}");
+    let rows = inbox["data"]["rows"].as_array().unwrap();
+    for case in cases {
+        let id = &case["entry"]["conversation"];
+        let row = rows.iter().find(|row| &row["id"] == id);
+        match case["row"].as_object() {
+            None => assert!(row.is_none(), "{}: {row:?}", case["name"]),
+            Some(expected) => {
+                let row = row.unwrap_or_else(|| panic!("{}: no row in {inbox}", case["name"]));
+                for (field, value) in expected {
+                    assert_eq!(&row[field], value, "{} {field}: {row}", case["name"]);
+                }
+            }
+        }
+    }
+}

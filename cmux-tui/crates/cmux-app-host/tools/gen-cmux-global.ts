@@ -34,12 +34,12 @@ const NEVER_FAMILIES = new Set(["install", "grant", "host", "pairing_request", "
 const EXECUTE = /(^terminal\.input\.(write|keys|mouse)$|\.run$|^terminal\.(attach|project)$|^browser\.input\.|^session\.journal\.hook\.put$)/
 // team_vm.retired.export (cx-lyvg) hands out the whole team's files: a person's session only, never an app.
 // team.audit.list and team.members.remove (cx-3bi.4): the audit chain and member removal are a person's session only.
-// agent.message.list/mark/release/send (#16430): no app access to agent messages until the agent-inbox lane designs a scoped
+// agent.message.list/mark/release/send/unsend (#16430): no app access to agent messages until the agent-inbox lane designs a scoped
 // grant. An app that sends to an agent is a prompt-injection path; an app that reads them sees the agent's context.
 // settings.set/reset/reset_all (cx-9ce.10): the settings file is the person's; an app may read settings only.
 // layout.bulk (cx-gzh.5) closes tabs, panes, screens and workspaces, like every .close op.
 // workspace.open_url (cx-ebm.59.3) navigates the person's browser tabs; Home and the person's tools only.
-const NEVER = /(^settings\.(set|reset|reset_all)$|^layout\.bulk$|^keybindings\.(set|remove|reset)$|\.close$|\.shutdown$|^session\.(open|reload_config|creation\.resolve)$|\.renderer_grant\.|\.history\.clear$|^workspace\.agent_(folder|start)\.|^workspace\.open_url$|^team_vm\.retired\.export$|^team\.(audit\.list|members\.remove)$|^agent\.message\.(list|mark|release|send)$)/
+const NEVER = /(^settings\.(set|reset|reset_all)$|^layout\.bulk$|^keybindings\.(set|remove|reset)$|\.close$|\.shutdown$|^session\.(open|reload_config|creation\.resolve)$|\.renderer_grant\.|\.history\.clear$|^workspace\.agent_(folder|start)\.|^workspace\.open_url$|^team_vm\.retired\.export$|^team\.(audit\.list|members\.remove)$|^agent\.message\.(list|mark|release|send|unsend)$)/
 
 /** Ops no app may call, whatever their risk (cloud.machine.link_token mints dial tokens). */
 export const NEVER_OPS = new Set(["cloud.machine.link_token"])
@@ -148,9 +148,12 @@ export function generate(): Record<string, string> {
     "integration.request": { scope: "integration:<provider>", class: "runtime" },
     // Mac-side app ops (AppHostCapabilities in CmuxNextApp, served over the provider channel).
     "coderouter.status": { scope: "coderouter:read", class: "read" },
+    "agent_cli.list": { scope: "agent_cli:read", class: "read" },
     "coderouter.detect": { scope: "coderouter:read", class: "read" },
     "coderouter.accounts.list": { scope: "coderouter:read", class: "read" },
-    "coderouter.usage.get": { scope: "coderouter:read", class: "read" }
+    "coderouter.usage.get": { scope: "coderouter:read", class: "read" },
+    // The Agent Memory app's search, from the agent memory index (optchat-chief agent-memory).
+    "memory.search": { scope: "memory:read", class: "read" }
   }
   Object.assign(scopes, hostOps)
 

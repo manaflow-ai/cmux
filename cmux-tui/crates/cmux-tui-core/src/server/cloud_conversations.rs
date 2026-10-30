@@ -5,6 +5,7 @@
 //! on a worker thread, so a slow cloud never delays the connection's other
 //! requests; their replies are matched by `id`.
 
+use crate::panic_free::JsonFields;
 use std::sync::Arc;
 
 use serde::Deserialize;
@@ -17,6 +18,7 @@ use crate::cloud_conversations::{
 use crate::conversation_store::LOCAL_USER;
 
 pub(super) use crate::cloud_conversations::CLOUD_CONVERSATIONS_CAPABILITY as CAPABILITY;
+pub(super) use crate::cloud_conversations::CLOUD_SELFHOST_CAPABILITY as SELFHOST_CAPABILITY;
 
 /// Advertised with `cloud-conversations-v1`: only the verified cmux app
 /// connection sets or clears the human's lease and sends `origin: "user"`
@@ -39,6 +41,23 @@ pub(super) const WS_CLOUD_CAPABILITY: &str = "ws-cloud-conversations-v1";
 /// connection that echoes `conversation-runs-v1` (advertised with
 /// `cloud-conversations-v1`).
 pub(super) const CLOUD_RUNS_CAPABILITY: &str = "cloud-conversation-runs-v1";
+/// A Cloud Chief's live frames through the daemon (`chief-live-v1` on the
+/// Cloud socket): the `cloud-conversation-live` event of a subscribed
+/// conversation, for a connection that echoes `chief-live-v1`, and
+/// `cloud-conversation-live`, which asks the owner for its `run.live`
+/// snapshot (advertised with `cloud-conversations-v1`).
+pub(super) const CLOUD_LIVE_CAPABILITY: &str = "cloud-chief-live-v1";
+/// `cloud-conversation-typing`: the owner's ephemeral `typing` frame
+/// through the daemon, and the `cloud-conversation-typing` event (the owner's
+/// `conversation-typing` broadcast of a subscribed conversation) for a
+/// connection that echoes it (advertised with `cloud-conversations-v1`).
+pub(super) const CLOUD_TYPING_CAPABILITY: &str = "cloud-conversation-typing-v1";
+/// `cloud-conversation-presence`: the owner's ephemeral `presence.set` frame
+/// (the person views the conversation while any client of the daemon does)
+/// through the daemon, and the `cloud-conversation-presence` event (the
+/// owner's `conversation-presence` set of a subscribed conversation) for a
+/// connection that echoes it (advertised with `cloud-conversations-v1`).
+pub(super) const CLOUD_PRESENCE_CAPABILITY: &str = "cloud-conversation-presence-v1";
 
 /// Whether `client` is the verified cmux app (the `frontend` actor: a
 /// role-main Unix connection whose code signature or install key was
@@ -55,7 +74,7 @@ fn is_websocket_person(mux: &Mux, client: u64) -> bool {
 
 /// Whether `client` acts as the person with the app's lease: the verified
 /// app, or an authenticated WebSocket client (`ws-cloud-conversations-v1`).
-fn is_person(mux: &Mux, client: u64) -> bool {
+pub(super) fn is_person(mux: &Mux, client: u64) -> bool {
     is_app(mux, client) || is_websocket_person(mux, client)
 }
 
@@ -76,11 +95,17 @@ fn check_origin(mux: &Mux, client: u64, origin: Option<&str>) -> anyhow::Result<
 }
 
 /// `cloud-session-set`: the app's cloud session lease. The token moves into
-/// the cloud link's zeroizing buffer and is never echoed or logged.
+/// the cloud link's zeroizing buffer and is never echoed or logged. With
+/// `auth: "tailscale"` (`cloud-selfhost-v1`) the lease names a self-hosted
+/// chat server on the tailnet and carries no token and no expiry.
 #[derive(Deserialize)]
 pub(super) struct SessionSetParams {
     api_base_url: String,
+    #[serde(default)]
+    auth: Option<String>,
+    #[serde(default)]
     access_token: String,
+    #[serde(default)]
     expires_at: u64,
     #[serde(default)]
     client_version: Option<String>,
@@ -128,6 +153,9 @@ pub(super) struct InboxListParams {
     limit: Option<u32>,
     #[serde(default)]
     include_archived: bool,
+    /// The `next_cursor` of the page before (absent: the first page).
+    #[serde(default)]
+    cursor: Option<String>,
 }
 
 /// `cloud-conversation-snapshot`.
@@ -196,8 +224,23 @@ pub(super) struct TargetParams {
     conversation: String,
 }
 
-/// `cloud-mux-subscribe` / `cloud-mux-unsubscribe`: no fields at all, so a
-/// client cannot name a chief (the queue is the lease token's).
+/// `cloud-conversation-typing`.
+#[derive(Deserialize)]
+pub(super) struct TypingParams {
+    conversation: String,
+    on: bool,
+}
+
+/// `cloud-conversation-presence`.
+#[derive(Deserialize)]
+pub(super) struct PresenceParams {
+    conversation: String,
+    viewing: bool,
+}
+
+/// `cloud-mux-subscribe` / `cloud-mux-unsubscribe` / `cloud-requests-list`: no
+/// fields at all, so a client cannot name a chief (the queue is the lease
+/// token's) or another person (the requests are the lease's).
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct NoParams {
@@ -290,8 +333,8 @@ pub(super) fn session_set(
     client: u64,
     params: SessionSetParams,
 ) -> anyhow::Result<Value> {
-    let SessionSetParams { api_base_url, access_token, expires_at, client_version } = params;
-    let lease = SessionParams { api_base_url, access_token, expires_at, client_version };
+    let SessionSetParams { api_base_url, auth, access_token, expires_at, client_version } = params;
+    let lease = SessionParams { api_base_url, auth, access_token, expires_at, client_version };
     Ok(lease_holder(mux, client)?.set_session_by(lease, is_app(mux, client))?)
 }
 
@@ -312,9 +355,20 @@ pub(super) fn session_status(mux: &Mux, client: u64) -> anyhow::Result<Value> {
     }
     let mut status = service.session_status();
     if person && let Some((account, project)) = service.lease_person() {
-        status["participant"] = json!(worker_user_id(&project, &account));
+        status.insert("participant", json!(worker_user_id(&project, &account)));
+    }
+    // A self-hosted server names the person itself (`cloud-selfhost-info`).
+    if person && let Some((_, Some(user))) = service.lease_selfhost() {
+        status.insert("participant", json!(user));
     }
     Ok(status)
+}
+
+/// `cloud-selfhost-info` (`cloud-selfhost-v1`): the self-hosted server's
+/// `GET /v1/selfhost/info` (`{kind, user_id, login, display_name,
+/// server_name}`); the person's user id becomes the lease's account.
+pub(super) fn selfhost_info(mux: &Mux, client: u64) -> anyhow::Result<Value> {
+    Ok(lease_user(mux, client)?.selfhost_info()?)
 }
 
 /// The Worker's user id for a Stack user of a Stack project (backend
@@ -323,11 +377,20 @@ fn worker_user_id(project: &str, account: &str) -> String {
     use sha2::{Digest, Sha256};
     let digest = Sha256::digest(format!("stack:{project}:{account}").as_bytes());
     let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
-    format!("user_{}", &hex[..20])
+    format!("user_{}", hex.get(..20).unwrap_or(&hex))
 }
 
 pub(super) fn inbox_list(mux: &Mux, client: u64, params: InboxListParams) -> anyhow::Result<Value> {
-    Ok(lease_user(mux, client)?.inbox_list(params.limit, params.include_archived)?)
+    Ok(lease_user(mux, client)?.inbox_list(
+        params.limit,
+        params.include_archived,
+        params.cursor.as_deref(),
+    )?)
+}
+
+/// `cloud-requests-list`: the person's open message requests (`home.requests.list`).
+pub(super) fn requests_list(mux: &Mux, client: u64) -> anyhow::Result<Value> {
+    Ok(lease_user(mux, client)?.requests_list()?)
 }
 
 pub(super) fn snapshot(mux: &Mux, client: u64, params: SnapshotParams) -> anyhow::Result<Value> {
@@ -399,6 +462,24 @@ pub(super) fn subscribe(
     Ok(lease_user(mux, client)?.subscribe(client, target)?)
 }
 
+/// `cloud-conversation-live`: the subscriber asks for the owner's
+/// `run.live` snapshot; it arrives as a `cloud-conversation-live` event.
+pub(super) fn live(mux: &Mux, client: u64, params: TargetParams) -> anyhow::Result<Value> {
+    Ok(lease_user(mux, client)?.request_live(client, &params.conversation)?)
+}
+
+/// `cloud-conversation-typing`: the lease's participant is typing or
+/// stopped, as the owner's `typing` frame on the shared socket.
+pub(super) fn typing(mux: &Mux, client: u64, params: TypingParams) -> anyhow::Result<Value> {
+    Ok(lease_user(mux, client)?.typing(client, &params.conversation, params.on)?)
+}
+
+/// `cloud-conversation-presence`: the connection views the conversation or
+/// stopped, as the owner's `presence.set` frame on the shared socket.
+pub(super) fn presence(mux: &Mux, client: u64, params: PresenceParams) -> anyhow::Result<Value> {
+    Ok(lease_user(mux, client)?.presence(client, &params.conversation, params.viewing)?)
+}
+
 pub(super) fn unsubscribe(
     mux: &Mux,
     client: u64,
@@ -448,9 +529,15 @@ pub(super) fn is_network(cmd: &Command) -> bool {
     if let Command::CloudAttachmentUpload(params) = cmd {
         return params.op == "begin" || params.op == "commit";
     }
+    // The Home rows read the Cloud inbox unless only the local rows are asked.
+    if let Command::HomeInbox(params) = cmd {
+        return params.asks_cloud();
+    }
     matches!(
         cmd,
         Command::CloudInboxList(_)
+            | Command::CloudRequestsList(_)
+            | Command::CloudSelfhostInfo(_)
             | Command::CloudConversationSnapshot(_)
             | Command::CloudConversationHistory(_)
             | Command::CloudConversationThread(_)
@@ -509,29 +596,37 @@ pub(super) fn start(
     cmd: Command,
     writer: &MessageWriter,
 ) -> bool {
-    let precheck = lease_user(mux, client).and_then(|service| {
-        if let Command::CloudConversationOp(params) = &cmd {
-            check_origin(mux, client, params.origin.as_deref())?;
-            service.check_op(&OpRequest {
-                conversation: params.conversation.clone(),
-                idempotency_key: params.idempotency_key.clone(),
-                origin: params.origin.clone(),
-                op: params.op.clone(),
-            })?;
+    let precheck = || {
+        lease_user(mux, client).and_then(|service| {
+            if let Command::CloudConversationOp(params) = &cmd {
+                check_origin(mux, client, params.origin.as_deref())?;
+                service.check_op(&OpRequest {
+                    conversation: params.conversation.clone(),
+                    idempotency_key: params.idempotency_key.clone(),
+                    origin: params.origin.clone(),
+                    op: params.op.clone(),
+                })?;
+            }
+            if let Command::CloudInboxOp(params) = &cmd {
+                check_person(mux, client)?;
+                service.check_inbox_op(&InboxOpRequest {
+                    conversation: params.conversation.clone(),
+                    idempotency_key: params.idempotency_key.clone(),
+                    op: params.op.clone(),
+                })?;
+            }
+            Ok(service.begin_request()?)
+        })
+    };
+    // The Home rows never fail for the Cloud: their worker takes its own lease
+    // and request slot, and without them carries the local rows.
+    let permit = if matches!(cmd, Command::HomeInbox(_)) {
+        None
+    } else {
+        match precheck() {
+            Ok(permit) => Some(permit),
+            Err(error) => return send(writer, id, Err(error)),
         }
-        if let Command::CloudInboxOp(params) = &cmd {
-            check_person(mux, client)?;
-            service.check_inbox_op(&InboxOpRequest {
-                conversation: params.conversation.clone(),
-                idempotency_key: params.idempotency_key.clone(),
-                op: params.op.clone(),
-            })?;
-        }
-        Ok(service.begin_request()?)
-    });
-    let permit = match precheck {
-        Ok(permit) => permit,
-        Err(error) => return send(writer, id, Err(error)),
     };
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
@@ -589,3 +684,11 @@ mod tests;
 #[cfg(test)]
 #[path = "cloud_lease_gate_tests.rs"]
 mod lease_gate_tests;
+
+#[cfg(test)]
+#[path = "cloud_request_tests.rs"]
+mod request_tests;
+
+#[cfg(test)]
+#[path = "cloud_selfhost_tests.rs"]
+mod selfhost_tests;

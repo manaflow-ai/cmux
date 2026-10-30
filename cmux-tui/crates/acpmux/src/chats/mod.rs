@@ -9,12 +9,14 @@
 //! Titles and folders are user data: the cache file is 0600 and nothing
 //! here logs them. Transcripts are read by the adapters only for metadata.
 
+use cmux_json::JsonSet as _;
+
 mod activity;
-mod brand;
+pub(crate) mod brand;
 mod open;
 mod query;
 mod settings;
-mod sources;
+pub(crate) mod sources;
 mod watch;
 
 use std::collections::{HashMap, HashSet};
@@ -104,6 +106,7 @@ impl ChatService {
         let mut state = lock(&service.state);
         state.index.rescan_all();
         service.save(&state.index);
+        state.index.take_structural_change();
         drop(state);
         service
     }
@@ -149,7 +152,7 @@ impl ChatService {
             .roots()
             .map(|root| {
                 let mut value = serde_json::to_value(root).unwrap_or(Value::Null);
-                value["id"] = Value::String(root.id());
+                value.set("id", Value::String(root.id()));
                 value
             })
             .collect();
@@ -266,6 +269,7 @@ impl ChatService {
         state.watch_errors = errors;
         let old = std::mem::replace(&mut state.watcher, watcher);
         self.save(&state.index);
+        state.index.take_structural_change();
         self.publish(&mut state, changes);
         drop(state);
         // Stopping a watcher may wait for its event thread: never under the lock.
@@ -277,8 +281,6 @@ impl ChatService {
     /// roots that hold `paths` (all roots when there are none) scan again.
     pub(crate) fn paths_changed(&self, paths: &[PathBuf], rescan: bool) {
         let mut state = lock(&self.state);
-        let before: HashSet<ChatKey> =
-            state.index.chats().into_iter().map(|chat| chat.entry.key()).collect();
         let mut changes = Vec::new();
         if rescan {
             let ids: Vec<String> = state
@@ -299,11 +301,7 @@ impl ChatService {
         changes.extend(state.index.paths_changed(paths));
         // The cache keeps read offsets with their counts, so a restart is
         // correct from any saved state; save only when the chat set changed.
-        let structural = changes.iter().any(|change| match change {
-            ChatChange::Removed { .. } => true,
-            ChatChange::Upsert { chat } => !before.contains(&chat.entry.key()),
-        });
-        if structural {
+        if state.index.take_structural_change() {
             self.save(&state.index);
         }
         self.publish(&mut state, changes);
@@ -434,8 +432,8 @@ pub fn parse_key(text: &str) -> Option<ChatKey> {
 pub fn chat_value(chat: &IndexedChat) -> Value {
     let mut value = serde_json::to_value(chat).unwrap_or(Value::Null);
     let key = chat.entry.key();
-    value["brand"] = json!(brand::harness_brand(key.harness));
-    value["key"] = Value::String(key_text(&key));
+    value.set("brand", json!(brand::harness_brand(key.harness)));
+    value.set("key", Value::String(key_text(&key)));
     value
 }
 

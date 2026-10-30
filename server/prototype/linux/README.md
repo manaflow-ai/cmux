@@ -136,7 +136,7 @@ Backups (`tests/pg-pitr.sh`, user mode):
 
 ## Headless Chromium
 
-- Version: chrome-headless-shell 154.0.8037.92 (stable), from the Chrome for Testing `known-good-versions-with-downloads.json`, pinned in `tests/chromium.sh`.
+- Version: chrome-headless-shell 156.0.8078.47 (stable), from the Chrome for Testing `known-good-versions-with-downloads.json`, pinned in `tests/chromium.sh`.
 - Zip: sha256 `636aa5c79f2693632e9921b8bbb050038ba11672e02346c06c20f991aed096f9`, 120,477,194 bytes.
 - Binary: sha256 `7c141b276aacc74fe51f06986345fb0dbce0e3756413746fb18541b878c17706`.
 - The base image lacks its shared libraries. Root installed `libnss3`, the atk and atspi libraries, `libcups2t64`, `libxkbcommon0`, the X client libraries, `libgbm1`, `libpango`, `libcairo2`, `libasound2t64` and `fonts-liberation` (9 s).

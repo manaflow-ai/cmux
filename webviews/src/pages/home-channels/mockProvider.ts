@@ -11,6 +11,8 @@ import {
   type HomeConversation,
   type HomeDraftItem,
   type HomeEventBatch,
+  type HomeLiveFrame,
+  type HomeLiveSnapshot,
   type HomeMessage,
   type HomeParticipant,
   type HomeRun,
@@ -29,6 +31,15 @@ const agent = (name: string): HomeParticipant => ({
 const builder = agent("Builder");
 const reviewer = agent("Reviewer");
 const docs = agent("Docs");
+/** Teammates (gallery `teammates`): people on the same Home, as `tailnet:<login>` ids. */
+const human = (login: string, name: string): HomeParticipant => ({
+  id: `tailnet:${login}`,
+  kind: "human",
+  name,
+  chief: false,
+});
+export const ana = human("ana@example.com", "Ana Ruiz");
+export const sam = human("sam@example.com", "Sam Okafor");
 
 const MINUTE = 60_000;
 const BASE = Date.UTC(2026, 9, 10, 9, 0, 0);
@@ -88,7 +99,10 @@ function conversation(
   };
 }
 
-export function sampleHome(): { conversations: HomeConversation[]; messages: Map<string, HomeMessage[]> } {
+export function sampleHome(): {
+  conversations: HomeConversation[];
+  messages: Map<string, HomeMessage[]>;
+} {
   const messages = new Map<string, HomeMessage[]>();
   const chiefDM = [
     text("c-chief", 1, me, BASE, "What is left on the release?"),
@@ -158,6 +172,18 @@ export function addLongThread(home: ReturnType<typeof sampleHome>): void {
   list.push(text(id, 132, chief, BASE - 90 * MINUTE, "Queue is moving again."));
   home.messages.set(id, list);
   home.conversations.push(conversation(id, "incident", "group", [chief, builder, reviewer], list));
+}
+
+/** #launch (gallery `teammates`): a channel two teammates share with you and the Chief. */
+export function addTeammates(home: ReturnType<typeof sampleHome>): void {
+  const id = "c-launch";
+  const list = [
+    text(id, 1, ana, BASE + 40 * MINUTE, "Launch checklist is up. I take the store listing."),
+    text(id, 2, sam, BASE + 41 * MINUTE, "I take the release notes."),
+    text(id, 3, chief, BASE + 42 * MINUTE, "Noted. I post each item here when it lands."),
+  ];
+  home.messages.set(id, list);
+  home.conversations.push(conversation(id, "launch", "group", [ana, sam, chief], list));
 }
 
 /** A sample file part (gallery `media`): the mock draws its pixels when the page reads it. */
@@ -241,13 +267,13 @@ const DRAFT_TEXT = ["Checking the release: ", "Builder's fix is merged, ", "Revi
 
 /** Sample agent runs (`MockRuns`): none, the Chief's finished run on its last DM reply, or that
  * plus a run that works now and streams its steps. */
-export type MockRuns = "none" | "done" | "live";
+export type MockRuns = "none" | "done" | "live" | "messages";
 
 const RUN_TURN = "turn:mock:c-chief-m4";
 const LIVE_TURN = "turn:mock:c-chief-m6";
 const SESSION = { kind: "acpmux", id: "01a139a8-f91e-7be2-86aa-516bf4c7e5e5" };
 
-function sampleRun(): { run: HomeRun; steps: HomeRunStep[] } {
+function sampleRun(messages = false): { run: HomeRun; steps: HomeRunStep[] } {
   const at = BASE + 2 * MINUTE + 4_000;
   const tool = (
     seq: number,
@@ -288,7 +314,17 @@ function sampleRun(): { run: HomeRun; steps: HomeRunStep[] } {
       { file_path: "CHANGELOG.md" },
       "## 0.66.0 (unreleased)\n- Sidebar fix",
     ),
-    tool(3, "t3", "Edit", "edit", "Edit release/checklist.md", { file_path: "release/checklist.md" }, "", {
+    {
+      id: "thought:0",
+      seq: 3,
+      at: at + 18_000,
+      rev: 3,
+      kind: "thought",
+      text: "The changelog has the sidebar fix; the checklist still lists it as open.",
+      attachments: [],
+      links: [],
+    },
+    tool(4, "t3", "Edit", "edit", "Edit release/checklist.md", { file_path: "release/checklist.md" }, "", {
       files: [
         {
           path: "release/checklist.md",
@@ -301,15 +337,46 @@ function sampleRun(): { run: HomeRun; steps: HomeRunStep[] } {
     }),
     {
       id: "talk:0",
-      seq: 4,
+      seq: 5,
       at: at + 50_000,
-      rev: 4,
+      rev: 5,
       kind: "talk",
       text: "Started. I post in #release when each one lands.",
       attachments: [],
       links: [{ label: "Agent session", url: `cmux://chief/5176e030/session/${SESSION.id}` }],
     },
   ];
+  if (messages) {
+    steps.unshift(
+      tool(
+        0,
+        "tell",
+        "mcp__optchat__tell",
+        "other",
+        "Tell a1",
+        {
+          id: "a1",
+          message:
+            "Please verify the release checklist and report the result. Keep the existing settings and check the fresh Home launch before finishing.",
+        },
+        "delivered",
+      ),
+      {
+        id: "report:a1:1:0",
+        seq: 1,
+        at,
+        rev: 1,
+        kind: "note",
+        text: "[a1] Verified the release checklist. The fresh Home launch passed and the existing settings are unchanged.",
+        attachments: [],
+        links: [],
+      },
+    );
+    steps.forEach((step, index) => {
+      step.seq = index + 1;
+      step.rev = index + 1;
+    });
+  }
   return {
     run: {
       id: RUN_TURN,
@@ -319,7 +386,7 @@ function sampleRun(): { run: HomeRun; steps: HomeRunStep[] } {
       startedAt: at,
       endedAt: BASE + 3 * MINUTE,
       updatedAt: BASE + 3 * MINUTE,
-      rev: 5,
+      rev: 6,
       stepCount: steps.length,
       turn: RUN_TURN,
       answers: ["c-chief-m3"],
@@ -349,7 +416,50 @@ function rawChief(c: HomeChief): Record<string, unknown> {
     rev: c.rev,
     created_at: c.createdAt,
     avatar: c.avatar ? { sha256: c.avatar, media_type: "image/png", bytes: 0 } : null,
+    ...(c.engine ? { engine: c.engine } : {}),
+    locked: c.locked === true,
   };
+}
+
+/** The sample acpmux harnesses (`cmux.chief.backend.list`). */
+const MOCK_BACKENDS = {
+  harnesses: {
+    defaultHarness: "claude",
+    harnesses: {
+      claude: { displayName: "Claude Code" },
+      codex: { displayName: "Codex" },
+      "claude-sr2": { displayName: "Claude (SR2)" },
+      opencode: { displayName: "OpenCode" },
+      unii: { displayName: "Unii" },
+    },
+  },
+  models: {
+    harnesses: [
+      {
+        harness: "claude",
+        models: [
+          { id: "claude-opus-5-5", name: "Opus 5.5", efforts: ["low", "medium", "high", "max"] },
+          { id: "claude-sonnet-5-5", name: "Sonnet 5.5", efforts: ["low", "medium", "high"] },
+        ],
+      },
+      { harness: "codex", models: [{ id: "gpt-6-astra", name: "GPT-6 Astra", efforts: ["low", "medium", "high"] }] },
+    ],
+  },
+};
+
+/** The backend and lock a create or update names (an empty engine text clears it). */
+function engineFields(params: Record<string, unknown>, old: HomeChief | undefined): Partial<HomeChief> {
+  const out: Partial<HomeChief> = {};
+  const engine: NonNullable<HomeChief["engine"]> = {};
+  for (const key of ["harness", "model", "effort"] as const) {
+    const value = typeof params[key] === "string" ? (params[key] as string) : old?.engine?.[key];
+    if (value && !(key === "harness" && value === "default")) engine[key] = value;
+  }
+  // Cleared fields drop out; no field left is the Chief's usual.
+  out.engine = Object.keys(engine).length > 0 ? engine : undefined;
+  if (typeof params.locked === "boolean") out.locked = params.locked;
+  else if (old?.locked) out.locked = true;
+  return out;
 }
 
 export class MockHomeProvider implements PageClient {
@@ -359,6 +469,8 @@ export class MockHomeProvider implements PageClient {
   private seq = 0;
 
   private readonly runs = new Map<string, { run: HomeRun; steps: HomeRunStep[] }>();
+  /** The live run's text so far (chief-live-v1): what `cmux.home.live` answers. */
+  private liveSnapshot: HomeLiveSnapshot | undefined;
   private readonly uploads = new Map<string, Record<string, unknown>>();
   /** The Chief records (the sample Chief is the default one). */
   private readonly chiefs = new Map<string, HomeChief>([
@@ -382,6 +494,20 @@ export class MockHomeProvider implements PageClient {
   private readonly pictures = new Map<string, { mediaType: string; data: string }>();
   /** Also serve the host's `cmux.chief.profile.*` relay (a page in the app). */
   hostGrants = false;
+  /** Every committed record state, by Chief id, oldest first (`chief.profile.history`). */
+  private readonly revisions = new Map<
+    string,
+    { rev: number; at: string; actor: string; operation: string; record: HomeChief }[]
+  >();
+  /** Backends the person brought (`cmux.chief.backend.add`). */
+  private readonly brought: Record<string, { displayName: string }> = {};
+
+  private commit(record: HomeChief, operation: string, actor = ""): void {
+    this.chiefs.set(record.id, record);
+    const list = this.revisions.get(record.id) ?? [];
+    list.push({ rev: record.rev, at: new Date(BASE + list.length * MINUTE).toISOString(), actor, operation, record });
+    this.revisions.set(record.id, list);
+  }
 
   /** Adds a Chief (the host's create; the gallery's second Chief). */
   addChief(name: string, fields: Partial<HomeChief> = {}): HomeChief {
@@ -391,7 +517,7 @@ export class MockHomeProvider implements PageClient {
       role: "",
       personality: "",
       instructions: "",
-      tools: ["spawn", "tell", "workspaces"],
+      tools: ["chiefs", "spawn", "tell", "workspaces"],
       harnesses: [],
       selfEdit: ["avatar"],
       isDefault: false,
@@ -425,11 +551,30 @@ export class MockHomeProvider implements PageClient {
     /** The owner refuses pins and marks (the page puts the row back and says why). */
     private readonly refuseInbox = false,
     media = false,
+    teammates = false,
   ) {
     if (longThread) addLongThread(this.data);
     if (media) addMedia(this.data);
+    if (teammates) addTeammates(this.data);
     if (runMode !== "none") {
-      const done = sampleRun();
+      const done = sampleRun(runMode === "messages");
+      if (runMode === "messages") {
+        const reports = done.steps.filter((step) => step.kind === "note");
+        done.steps = done.steps.filter((step) => step.kind !== "note");
+        done.run.stepCount = done.steps.length;
+        const reportRun: HomeRun = {
+          id: `reports:${RUN_TURN}`,
+          conversation: done.run.conversation,
+          author: done.run.author,
+          status: "done",
+          startedAt: done.run.startedAt,
+          updatedAt: done.run.updatedAt,
+          rev: 1,
+          stepCount: reports.length,
+          answers: done.run.answers,
+        };
+        this.runs.set(reportRun.id, { run: reportRun, steps: reports });
+      }
       this.runs.set(done.run.id, done);
       const list = this.data.messages.get("c-chief") ?? [];
       const reply = list.find((m) => m.id === "c-chief-m4");
@@ -499,6 +644,59 @@ export class MockHomeProvider implements PageClient {
     ];
     this.runs.set(run.id, { run, steps });
     this.emit({ messages: [asked], runs: [{ run, steps }] });
+    // It writes its reply as it works (chief-live-v1): two frames, and what it works on now.
+    const since = started + 9_000;
+    const frames: HomeLiveFrame[] = [
+      {
+        type: "run.activity",
+        conversation: "c-chief",
+        run: run.id,
+        author: chief.id,
+        line: "Running gh run view --log-failed",
+        since,
+        at: since,
+      },
+      {
+        type: "step.delta",
+        conversation: "c-chief",
+        run: run.id,
+        author: chief.id,
+        step: "talk:0",
+        kind: "talk",
+        seq: 0,
+        text: "Two of the three runs passed. ",
+      },
+      {
+        type: "step.delta",
+        conversation: "c-chief",
+        run: run.id,
+        author: chief.id,
+        step: "talk:0",
+        kind: "talk",
+        seq: 1,
+        text: "Reading the failed job's log now",
+      },
+    ];
+    this.liveSnapshot = {
+      type: "run.live",
+      conversation: "c-chief",
+      runs: [
+        {
+          run: run.id,
+          author: chief.id,
+          steps: [
+            {
+              step: "talk:0",
+              kind: "talk",
+              seq: 1,
+              text: "Two of the three runs passed. Reading the failed job's log now",
+            },
+          ],
+          activity: { line: "Running gh run view --log-failed", since, at: since },
+        },
+      ],
+    };
+    this.emit({ live: frames });
   }
 
   /** The Chief writes its reply after the page subscribes: one fresh item, then appends. */
@@ -689,9 +887,11 @@ export class MockHomeProvider implements PageClient {
       }
       case HomeOps.chiefAvatarSet: {
         const old = this.chief(String(params.chief));
-        const changed = { ...old, avatar: `pic-${old.rev + 1}`, rev: old.rev + 1 };
+        const clear = params.clear === true;
+        const changed = { ...old, avatar: clear ? "" : `pic-${old.rev + 1}`, rev: old.rev + 1 };
         this.chiefs.set(changed.id, changed);
-        this.pictures.set(changed.id, { mediaType: String(params.mediaType), data: String(params.data) });
+        if (clear) this.pictures.delete(changed.id);
+        else this.pictures.set(changed.id, { mediaType: String(params.mediaType), data: String(params.data) });
         return { chief: changed } as R;
       }
       case HomeOps.chiefAvatar:
@@ -712,7 +912,9 @@ export class MockHomeProvider implements PageClient {
           instructions: String(params.instructions ?? ""),
           ...(Array.isArray(params.tools) ? { tools: params.tools as string[] } : {}),
           ...(Array.isArray(params.harnesses) ? { harnesses: params.harnesses as string[] } : {}),
+          ...engineFields(params, undefined),
         });
+        this.commit(made, "chief.profile.create");
         return { value: rawChief(made) } as R;
       }
       case "cmux.chief.profile.update": {
@@ -726,11 +928,72 @@ export class MockHomeProvider implements PageClient {
           instructions: text("instructions", old.instructions),
           tools: (params.tools as string[] | undefined) ?? old.tools,
           harnesses: (params.harnesses as string[] | undefined) ?? old.harnesses,
+          ...engineFields(params, old),
           rev: old.rev + 1,
         };
-        this.chiefs.set(changed.id, changed);
+        if (!this.revisions.has(old.id)) this.commit(old, "chief.profile.create");
+        this.commit(changed, "chief.profile.update");
         return { value: rawChief(changed) } as R;
       }
+      case "cmux.chief.profile.history": {
+        if (!this.hostGrants) throw pageError("cmux.protocol.unknown_op", op);
+        const id = String(params.chief);
+        const current = this.chief(id);
+        if (!this.revisions.has(id)) this.commit(current, "chief.profile.create");
+        const list = [...(this.revisions.get(id) ?? [])].reverse();
+        return { chief: id, revisions: list.map((r) => ({ ...r, record: rawChief(r.record) })) } as R;
+      }
+      case "cmux.chief.profile.undo": {
+        if (!this.hostGrants) throw pageError("cmux.protocol.unknown_op", op);
+        const old = this.chief(String(params.chief));
+        const list = this.revisions.get(old.id) ?? [];
+        const target =
+          typeof params.to_rev === "number" ? list.find((r) => r.rev === params.to_rev) : list[list.length - 2];
+        if (!target) throw pageError("cmux.home.not_found", "no earlier revision");
+        const changed = { ...target.record, rev: old.rev + 1 };
+        this.commit(changed, "chief.profile.undo");
+        return { value: rawChief(changed) } as R;
+      }
+      case "cmux.chief.backend.list":
+        if (!this.hostGrants) throw pageError("cmux.protocol.unknown_op", op);
+        return {
+          harnesses: {
+            ...MOCK_BACKENDS.harnesses,
+            harnesses: { ...MOCK_BACKENDS.harnesses.harnesses, ...this.brought },
+          },
+          models: MOCK_BACKENDS.models,
+        } as R;
+      case "cmux.chief.backend.add": {
+        if (!this.hostGrants) throw pageError("cmux.protocol.unknown_op", op);
+        const name = String(params.name ?? "backend");
+        const id =
+          name
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-|-$/g, "") || "my-backend";
+        this.brought[id] = { displayName: name };
+        return { id } as R;
+      }
+      case "cmux.chief.backend.doctor":
+        if (!this.hostGrants) throw pageError("cmux.protocol.unknown_op", op);
+        // The sample "broken" backend fails its hello turn, with the fix the doctor names.
+        return (
+          String(params.id).includes("broken")
+            ? {
+                ok: false,
+                steps: [
+                  { name: "launch", ok: true },
+                  { name: "prompt", ok: false, detail: "401 Unauthorized", fix: "Check the API key." },
+                ],
+              }
+            : {
+                ok: true,
+                steps: [
+                  { name: "launch", ok: true },
+                  { name: "prompt", ok: true },
+                ],
+              }
+        ) as R;
       case "cmux.chief.profile.delete":
         if (!this.hostGrants) throw pageError("cmux.protocol.unknown_op", op);
         this.chiefs.delete(String(params.chief));
@@ -792,6 +1055,8 @@ export class MockHomeProvider implements PageClient {
         );
         return { runs, hasMore: false } as R;
       }
+      case HomeOps.live:
+        return (this.liveSnapshot?.conversation === id ? this.liveSnapshot : null) as R;
       case HomeOps.run: {
         const entry = this.runs.get(String(params.run ?? ""));
         if (!entry) throw pageError("cmux.home.run_rejected", "unknown_run");
@@ -816,6 +1081,18 @@ export class MockHomeProvider implements PageClient {
 
   handle(_op: string, _handler: PageHandler): () => void {
     return () => undefined;
+  }
+
+  /** Who has `conversation` open, as the owner's `conversation-presence` says (gallery `teammates`). */
+  viewing(conversation: string, participants: readonly string[]): void {
+    this.emit({
+      presence: [{ conversation, participants: participants.map((participant) => ({ participant, viewing: true })) }],
+    });
+  }
+
+  /** A participant starts or stops typing (gallery `teammates`). */
+  typing(conversation: string, participant: string, on: boolean): void {
+    this.emit({ typing: [{ conversation, participant, on }] });
   }
 
   private emit(batch: HomeEventBatch): void {

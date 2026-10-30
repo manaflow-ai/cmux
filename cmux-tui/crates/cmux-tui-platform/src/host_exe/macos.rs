@@ -8,7 +8,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, Once, PoisonError};
+use std::sync::{Mutex, Once, OnceLock, PoisonError};
 
 use sha2::{Digest, Sha256};
 
@@ -16,6 +16,8 @@ use sha2::{Digest, Sha256};
 const ROOT_ENV: &str = "CMUX_TUI_HOST_EXE_DIR";
 /// The copy's file name: the multi-call binary dispatches on it.
 const EXE_NAME: &str = "cmux-tui";
+/// The slim host binary beside the daemon, and its copy's file name.
+const SIBLING_NAME: &str = "cmux-tui-host";
 const LOCK_NAME: &str = "in-use.lock";
 /// The newest copies besides the current one that collection never
 /// deletes, used or not.
@@ -49,6 +51,53 @@ static INSTALLED: Mutex<Option<Installed>> = Mutex::new(None);
 static FAILED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// Copy directories this process already holds a shared lock on.
 static LOCKED: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+/// The build identity the slim sibling must report (`use_sibling_host`).
+static SIBLING_IDENTITY: OnceLock<&'static str> = OnceLock::new();
+/// The sibling failed (install or identity): this daemon does not try it
+/// again and copies its own executable instead.
+static SIBLING_REFUSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// The holder's verified copy (`holder_copy`), checked again before each use.
+static HOLDER: Mutex<Option<Installed>> = Mutex::new(None);
+
+/// The verified copy of the standalone holder `source` under the host-exe
+/// root, installed when missing; the source itself when there is no root.
+/// `None` when the copy cannot be made or its `--version` is refused.
+pub(super) fn holder_copy(source: &Path, accepts: &dyn Fn(&str) -> bool) -> Option<PathBuf> {
+    let Some(root) = root() else {
+        return super::holder_answers(source, accepts).then(|| source.to_path_buf());
+    };
+    let mut holder = HOLDER.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(copy) = holder.as_ref()
+        && file_key(&copy.path).ok() == Some(copy.key)
+    {
+        return Some(copy.path.clone());
+    }
+    *holder = None;
+    let copy = match install(&root, source, super::HOLDER_NAME) {
+        Ok(copy) => copy,
+        Err(error) => {
+            eprintln!(
+                "cmux-tui: the terminal holder copy at {} is not usable: {error}",
+                root.display()
+            );
+            return None;
+        }
+    };
+    if !super::holder_answers(&copy.path, accepts) {
+        eprintln!(
+            "cmux-tui: {} does not answer as a terminal holder this daemon speaks",
+            copy.path.display()
+        );
+        return None;
+    }
+    let path = copy.path.clone();
+    *holder = Some(copy);
+    Some(path)
+}
+
+pub(super) fn use_sibling_host(identity: &'static str) {
+    let _ = SIBLING_IDENTITY.set(identity);
+}
 
 pub(super) fn terminal_host_executable() -> io::Result<PathBuf> {
     let source = crate::platform::self_exe_for_spawn()?;
@@ -73,6 +122,31 @@ pub(super) fn terminal_host_executable() -> io::Result<PathBuf> {
     }
 }
 
+pub(super) fn prepare_in_background() {
+    static STARTED: Once = Once::new();
+    STARTED.call_once(|| {
+        let warm = || {
+            let Ok(path) = terminal_host_executable() else { return };
+            // The slim host's copy already ran once (its identity check).
+            if crate::platform::self_exe_for_spawn().is_ok_and(|own| own == path)
+                || path.file_name().is_some_and(|name| name == SIBLING_NAME)
+            {
+                return;
+            }
+            // A new file's first exec checks its code signature; a host
+            // started after this one does not wait for that check.
+            let _ = cmux_process::Command::new(&path)
+                .arg0(EXE_NAME)
+                .arg("--version")
+                .stdin(cmux_process::Stdio::null())
+                .stdout(cmux_process::Stdio::null())
+                .stderr(cmux_process::Stdio::null())
+                .status();
+        };
+        let _ = std::thread::Builder::new().name("cmux-host-exe".into()).spawn(warm);
+    });
+}
+
 /// A spawn of `path` failed: stop using the copy for this daemon.
 pub(super) fn copy_failed(path: &Path) {
     let mut installed = INSTALLED.lock().unwrap_or_else(PoisonError::into_inner);
@@ -85,7 +159,7 @@ pub(super) fn copy_failed(path: &Path) {
 pub(super) fn hold_in_use_lock() {
     let (Some(root), Ok(exe)) = (root(), std::env::current_exe()) else { return };
     let Some(dir) = exe.parent() else { return };
-    let runs_a_copy = exe.file_name().is_some_and(|name| name == EXE_NAME)
+    let runs_a_copy = exe.file_name().is_some_and(|name| name == EXE_NAME || name == SIBLING_NAME)
         && dir.parent().and_then(|parent| fs::canonicalize(parent).ok())
             == fs::canonicalize(&root).ok();
     if runs_a_copy {
@@ -119,13 +193,68 @@ fn verified_copy(root: &Path, source: &Path) -> io::Result<PathBuf> {
         );
         *installed = None;
     }
-    let fresh = install(root, source)?;
+    let fresh = match sibling_host(source) {
+        Some((sibling, identity)) => {
+            match install(root, &sibling, SIBLING_NAME)
+                .and_then(|copy| check_identity(&copy.path, identity).map(|()| copy))
+            {
+                Ok(copy) => copy,
+                Err(error) => {
+                    SIBLING_REFUSED.store(true, Ordering::Release);
+                    static REPORTED: Once = Once::new();
+                    REPORTED.call_once(|| {
+                        eprintln!(
+                            "cmux-tui: terminal hosts run from a copy of cmux-tui, not {}: {error}",
+                            sibling.display()
+                        );
+                    });
+                    install(root, source, EXE_NAME)?
+                }
+            }
+        }
+        None => install(root, source, EXE_NAME)?,
+    };
     let path = fresh.path.clone();
     *installed = Some(fresh);
     Ok(path)
 }
 
-fn install(root: &Path, source: &Path) -> io::Result<Installed> {
+/// The slim host beside `own` (the daemon's executable, symlinks resolved)
+/// and the identity it must report, when the daemon enabled it, it was not
+/// refused before, and it is a regular file.
+fn sibling_host(own: &Path) -> Option<(PathBuf, &'static str)> {
+    let identity = *SIBLING_IDENTITY.get()?;
+    if SIBLING_REFUSED.load(Ordering::Acquire) {
+        return None;
+    }
+    let sibling = fs::canonicalize(own).ok()?.parent()?.join(SIBLING_NAME);
+    fs::symlink_metadata(&sibling)
+        .is_ok_and(|meta| meta.file_type().is_file())
+        .then_some((sibling, identity))
+}
+
+/// Run the slim host's verified copy with `--version`: it must be this
+/// daemon's build. That first exec also pays its code-signature check before
+/// a terminal waits on it.
+fn check_identity(copy: &Path, identity: &str) -> io::Result<()> {
+    let output = cmux_process::Command::new(copy)
+        .arg0(SIBLING_NAME)
+        .arg("--version")
+        .stdin(cmux_process::Stdio::null())
+        .stderr(cmux_process::Stdio::null())
+        .output()?;
+    let answer = String::from_utf8_lossy(&output.stdout);
+    let expected = format!("{SIBLING_NAME} {identity}");
+    if !output.status.success() || answer.trim_end() != expected {
+        return Err(io::Error::other(format!(
+            "it reports {:?}, not this daemon's build {expected:?}",
+            answer.trim_end()
+        )));
+    }
+    Ok(())
+}
+
+fn install(root: &Path, source: &Path, name: &str) -> io::Result<Installed> {
     let source = fs::canonicalize(source)?;
     ensure_private_dir(root)?;
     let sha = sha256_file(&source)?;
@@ -134,13 +263,13 @@ fn install(root: &Path, source: &Path) -> io::Result<Installed> {
     // Held for this daemon's life before the copy is checked, so a
     // concurrent collection never removes it under us.
     hold_shared_lock(&dir)?;
-    let path = dir.join(EXE_NAME);
+    let path = dir.join(name);
     let usable = fs::symlink_metadata(&path)
         .is_ok_and(|meta| meta.file_type().is_file() && meta.uid() == effective_uid());
     if !usable || sha256_file(&path)? != sha {
         // The rename replaces a wrong file; a missing one may be another
         // daemon's copy landing now, which the rename also tolerates.
-        write_copy(&source, &dir, &path, &sha)?;
+        write_copy(&source, &dir, &path, name, &sha)?;
     }
     let key = file_key(&path)?;
     collect_unused(root, &sha);
@@ -149,10 +278,10 @@ fn install(root: &Path, source: &Path) -> io::Result<Installed> {
 
 /// Clone (or copy) `source` to a private temporary file in `dir`, check its
 /// hash, then rename it to `path`.
-fn write_copy(source: &Path, dir: &Path, path: &Path, sha: &str) -> io::Result<()> {
+fn write_copy(source: &Path, dir: &Path, path: &Path, name: &str, sha: &str) -> io::Result<()> {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let temporary = dir.join(format!(
-        ".{EXE_NAME}.tmp-{}-{}",
+        ".{name}.tmp-{}-{}",
         std::process::id(),
         NEXT.fetch_add(1, Ordering::Relaxed)
     ));

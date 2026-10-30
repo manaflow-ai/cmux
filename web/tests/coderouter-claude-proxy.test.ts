@@ -263,11 +263,11 @@ describe("claude proxy auth", () => {
     });
   });
 
-  test("tells a Cloud machine that private Claude accounts must be shared with its team", async () => {
+  test("tells a team Cloud machine it needs a team Claude account and how to add one", async () => {
     upstream = null;
     const { response } = await routed(messagesRequest());
     expect(response.status).toBe(403);
-    expect((await response.json()).error.message).toBe("No Claude upstream account is shared with this Cloud machine's team. If one was added as private, the person who added it can choose Share with team at coderouter.dev, or add one here with `cr add claude` (accounts added on a Cloud machine are shared with its team). Or use your own Claude account on this machine: run `cr use own claude` (on older machines, `unset ANTHROPIC_API_KEY ANTHROPIC_BASE_URL` in the terminal instead), then restart claude and sign in with /login.");
+    expect((await response.json()).error.message).toBe("Claude needs a team account on this machine. To add one for the team, run `cr add claude` in this machine's terminal. If someone added one as private, they can choose Share with team at coderouter.dev.");
   });
 });
 
@@ -641,6 +641,30 @@ describe("claude proxy failover across accounts", () => {
     await response.text();
     expect(touched).toEqual(["acct-api-2"]);
     expect(outcome).toMatchObject({ outcome: "success", attempts: 2, upstreamAccountId: "acct-api-2" });
+  });
+
+  test("fails over retryable Claude 408 and 409 responses", async () => {
+    upstream = apiKeyUpstream;
+    moreAccounts = [secondApiKey];
+
+    for (const status of [408, 409]) {
+      fetchCalls = [];
+      cooldowns = [];
+      touched = [];
+      const responses = [
+        () => new Response("{}", { status }),
+        () => Response.json({ id: `msg-${status}`, model: "claude-sonnet-4-5", usage: { input_tokens: 1, output_tokens: 1 } }),
+      ];
+      upstreamResponse = () => responses.shift()!();
+
+      const { response } = await routed(messagesRequest({ model: "claude-sonnet-4-5", max_tokens: 8, messages: [{ role: "user", content: "hi" }] }));
+      expect(response.status).toBe(200);
+      expect(fetchCalls).toHaveLength(2);
+      expect(requestHeaders(fetchCalls[0]!).get("x-api-key")).toBe("sk-ant-api03-real-secret-key-value-1234");
+      expect(requestHeaders(fetchCalls[1]!).get("x-api-key")).toBe("sk-ant-api03-second-key-value-5678");
+      expect(cooldowns).toEqual([{ accountId: "acct-api-1", durationMs: 20_000, failureCode: "upstream_unavailable" }]);
+      expect((await response.json()).id).toBe(`msg-${status}`);
+    }
   });
 
   test("a rejected credential cools the account down for fifteen minutes", async () => {

@@ -134,14 +134,33 @@ final class HeaderView: UIView {
         // Avatar (the contact's picture; colours from screencapture -l, Display P3).
         UIColor(white: 1, alpha: 1).setFill()
         UIBezierPath(ovalIn: CGRect(x: 294, y: 8, width: 40, height: 40)).fill()
-        // Monogram "I": a thin flared stem (no installed font matched it).
+        // Monogram "I". macOS 27: a serif capital I, its outline measured row by row on the real header
+        // (deactivate-activate tp1200ms, same in tp0000ms): ink width per device pixel
+        // row (2x), centre x 314.16 pt; stem 2.03 pt from y 21.75 to 34.25 pt, bracketed serifs out
+        // to 3.57 pt at the top (y 17.4) and 3.65 pt at the bottom (y 38.33). No installed font matched.
+        // macOS 26 keeps the earlier thin flared stem (no macOS 26 Messages header reference;
+        // ComposeMetrics.macOS26, the OS split of the other fits).
         let stem = UIBezierPath()
-        let cx: CGFloat = 314, y0: CGFloat = 17.5, y1: CGFloat = 38, end: CGFloat = 1.4, mid: CGFloat = 0.8
-        stem.move(to: CGPoint(x: cx - end, y: y0))
-        stem.addLine(to: CGPoint(x: cx + end, y: y0))
-        stem.addQuadCurve(to: CGPoint(x: cx + end, y: y1), controlPoint: CGPoint(x: cx + 2 * mid - end, y: (y0 + y1) / 2))
-        stem.addLine(to: CGPoint(x: cx - end, y: y1))
-        stem.addQuadCurve(to: CGPoint(x: cx - end, y: y0), controlPoint: CGPoint(x: cx - 2 * mid + end, y: (y0 + y1) / 2))
+        if ComposeMetrics.macOS26 {
+            let cx: CGFloat = 314, y0: CGFloat = 17.5, y1: CGFloat = 38, end: CGFloat = 1.4, mid: CGFloat = 0.8
+            stem.move(to: CGPoint(x: cx - end, y: y0))
+            stem.addLine(to: CGPoint(x: cx + end, y: y0))
+            stem.addQuadCurve(to: CGPoint(x: cx + end, y: y1), controlPoint: CGPoint(x: cx + 2 * mid - end, y: (y0 + y1) / 2))
+            stem.addLine(to: CGPoint(x: cx - end, y: y1))
+            stem.addQuadCurve(to: CGPoint(x: cx - end, y: y0), controlPoint: CGPoint(x: cx - 2 * mid + end, y: (y0 + y1) / 2))
+        } else {
+            // (y in 2x device px, full ink width in device px.)
+            let rows: [(CGFloat, CGFloat)] = [(34.8, 7.14), (35.5, 7.0), (36.5, 6.07), (37.5, 5.35), (38.5, 4.83), (39.5, 4.48),
+                                              (40.5, 4.24), (41.5, 4.13), (42.5, 4.07), (43.5, 4.06), (68.5, 4.06), (69.5, 4.09),
+                                              (70.5, 4.19), (71.5, 4.32), (72.5, 4.63), (73.5, 5.07), (74.5, 5.69), (75.5, 6.51),
+                                              (76.67, 7.3)]
+            let cx: CGFloat = 314.16
+            for (i, r) in rows.enumerated() {
+                let pt = CGPoint(x: cx - r.1 / 4, y: r.0 / 2)
+                if i == 0 { stem.move(to: pt) } else { stem.addLine(to: pt) }
+            }
+            for r in rows.reversed() { stem.addLine(to: CGPoint(x: cx + r.1 / 4, y: r.0 / 2)) }
+        }
         stem.close()
         Fixture.p3(7, 10, 9).setFill()
         stem.fill()
@@ -161,6 +180,8 @@ final class HeaderView: UIView {
 /// Window chrome: traffic lights and the 1 pt light border.
 final class ChromeView: UIView {
     var drawsTrafficLights = true { didSet { canvas.setNeedsDisplay(); sliceDrawn = nil; setNeedsLayout() } }
+    /// Its window view's inactive-window state (MessagesWindowView.setInactive sets it and redraws): grey lights.
+    var inactive = false
     /// The view's left edge is the window's left edge (true), or it meets a sidebar (false: the
     /// border has no left side and square left corners; only the window's edges get the line).
     var leadingEdgeIsWindowEdge = true {
@@ -201,7 +222,7 @@ final class ChromeView: UIView {
                 // Inactive window: grey lights (measured centre 100, rim lighter).
                 let grey: ((CGFloat, CGFloat, CGFloat), (CGFloat, CGFloat, CGFloat)) = ((92, 92, 92), (104, 103, 103))
                 for (i, c0) in colors.enumerated() {
-                    let c = Fixture.inactive ? grey : c0
+                    let c = self.inactive ? grey : c0
                     let r = CGRect(x: 18.75 + CGFloat(i) * 23, y: 18.75, width: 14, height: 14)
                     func col(_ v: (CGFloat, CGFloat, CGFloat)) -> CGColor {
                         UIColor(red: v.0 / 255, green: v.1 / 255, blue: v.2 / 255, alpha: 1).cgColor

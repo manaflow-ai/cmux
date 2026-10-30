@@ -2,7 +2,7 @@
   "description": "The Chief's self-edit tool (bead cx-ebm.60.3; design hq .cmux-scratch/hq6d-multi-chief/DESIGN.md section 6). The brain (optchat-chief) offers it to a Chief's turn only when the Chief's record lists at least one field in self_edit, and answers each call on its own bound daemon connection (principal = the Chief's id) with chief.profile.get, chief.profile.update and chief.profile.avatar.set (cmux-tui/spec/resource-operations-v2.json). The daemon enforces the rule; this text only tells the model. The brain reads this file at build time, so the turn's tool list stays byte-identical while the file does not change.",
   "tool": {
     "name": "profile",
-    "description": "Read or change your own Chief profile. With no arguments it returns your record: display_name, role, personality, instructions, avatar, tools, harnesses, engine and self_edit, the fields you may change without asking. Give only fields listed in self_edit; the person changes everything else (ask them in the conversation). avatar_path is a PNG, JPEG, GIF or WebP file on this machine, at most 1 MiB, that becomes your profile picture; clear_avatar true removes it. You can never change your own tools, harnesses, engine or self_edit, and you cannot change another Chief.",
+    "description": "Read or change your own Chief configuration. With no arguments it returns your record: display_name, role, personality, instructions, avatar, tools, harnesses, engine, self_edit (the fields you may change without asking) and locked. Give only fields listed in self_edit; engine in self_edit lets you set harness (your backend: an acpmux harness among your harnesses, empty or default for the usual one), model and effort, used from your next turn. avatar_path is a PNG, JPEG, GIF or WebP file on this machine, at most 1 MiB, that becomes your profile picture; clear_avatar true removes it. history true lists your kept versions (rev, when, who); undo true restores the version before your last change, or to_rev. When locked is true the person locked you: change nothing and ask them. You can never change your own tools, harnesses, self_edit or locked; another Chief you change with the chiefs tool, when you have it.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -10,6 +10,12 @@
         "role": {"type": "string", "maxLength": 200},
         "personality": {"type": "string", "maxLength": 4000},
         "instructions": {"type": "string", "maxLength": 32000},
+        "harness": {"type": "string", "maxLength": 128},
+        "model": {"type": "string", "maxLength": 128},
+        "effort": {"type": "string", "maxLength": 128},
+        "history": {"type": "boolean"},
+        "undo": {"type": "boolean"},
+        "to_rev": {"type": "integer", "minimum": 1},
         "avatar_path": {"type": "string", "minLength": 1},
         "clear_avatar": {"type": "boolean"}
       },
@@ -19,6 +25,7 @@
   "answers": {
     "read": "The record as chief.profile.get returns it, as JSON text.",
     "changed": "The record after the change, as JSON text.",
+    "history": "The kept versions as chief.profile.history returns them, as JSON text.",
     "denied": "The daemon's chief_self_edit_denied refusal: 'Not allowed: <fields>. Ask the person to change them, or to add them to your self_edit.'",
     "bad_image": "'The picture must be a PNG, JPEG, GIF or WebP file of at most 1 MiB.'"
   }

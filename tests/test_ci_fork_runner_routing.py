@@ -22,7 +22,6 @@ MACOS_15_FORK_JOBS = {
     # Builds the release Ghostty CLI helper against the macOS 15 SDK.
     ("ci-macos.yml", "swift-package-tests"),
     ("release.yml", "build-ghostty-cli-helper"),
-    ("nightly.yml", "build-nightly-ghostty-cli-helper"),
     # Checks the release Ghostty CLI helper's Zig fetch list with a real
     # build, which must use the same macOS 15 SDK as the helper it describes.
     ("cmux-next-source-archive.yml", "archive"),
@@ -82,6 +81,11 @@ UNGATED_BLACKSMITH_ALLOWED = {
     ),
     ("ci-repo-variables.yml", "MACOS_RUNNER_BACKGROUND=${{ vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}"): (
         "report text that prints the lane's effective label, not a runs-on value"
+    ),
+    ("cmux-next-fast-tier-seed.yml",
+     '[{"pool": "blacksmith", "runner": "blacksmith-6vcpu-macos-26", "workspace": "/Users/runner/_work/cmux/cmux", "timeout": 30}]'): (
+        "a seed pool row in the `due` job, which runs only when github.repository == 'manaflow-ai/cmux' "
+        "(stricter than the owner check); the seed job reading it has the same gate"
     ),
 }
 # (workflow, dispatch input) -> why its Blacksmith default and choices may be
@@ -168,8 +172,9 @@ FORK_PULL_REQUEST_LABEL = re.compile(
 # CI_SIDE_LANE_RUNNER and CI_LIGHT_LANE_RUNNER name owned side labels outright
 # (runner_label_policy.side_lane_reason), and CI_AWS_SIDE_RUNNER the owned AWS
 # pool (aws_side_reason), so every read of them is gated too. CI_FAST_LANE_RUNNER
-# names the fast tier's own owned label, so it is gated as well.
-OWNED_RUNNER_NAME = r"(?:MACOS_RUNNER_\w+|LINUX_RUNNER|LINUX_ARM64_RUNNER|CI_SIDE_LANE_RUNNER|CI_LIGHT_LANE_RUNNER|CI_AWS_SIDE_RUNNER|CI_FAST_LANE_RUNNER)"
+# names the fast tier's own owned label and CI_SESSION_LANE_RUNNER generated
+# files' session label, so they are gated as well.
+OWNED_RUNNER_NAME = r"(?:MACOS_RUNNER_\w+|LINUX_RUNNER|LINUX_ARM64_RUNNER|CI_SIDE_LANE_RUNNER|CI_LIGHT_LANE_RUNNER|CI_AWS_SIDE_RUNNER|CI_FAST_LANE_RUNNER|CI_SESSION_LANE_RUNNER)"
 OWNED_RUNNER_VARIABLE = re.compile(
     rf"\bvars(?:\.{OWNED_RUNNER_NAME}\b|\[\s*'{OWNED_RUNNER_NAME}'\s*\])", re.IGNORECASE
 )
@@ -182,6 +187,19 @@ OWNED_RUNNER_SELECTOR = re.compile(
 )
 # (workflow, stripped line) -> why a runner variable read there picks no runner.
 FORK_GATE_EXEMPT = {
+    ("cmux-next-guards.yml", "LINUX_RUNNER: ${{ vars.LINUX_RUNNER }}"): (
+        "signing-runner-variables reads the value to check it is ephemeral; the job runs on a "
+        "literal label and selects no runner"
+    ),
+    ("cmux-next-guards.yml", "MACOS_RUNNER_26: ${{ vars.MACOS_RUNNER_26 }}"): (
+        "signing-runner-variables reads the value to check it is ephemeral; the job runs on a "
+        "literal label and selects no runner"
+    ),
+    ("cmux-next.yml", "FAST_LABEL: ${{ vars.CI_FAST_LANE_RUNNER }}"): (
+        "side_lane_placement.py's input: the placement step is gated to glaeda routes "
+        "(never a fork) and selects no runner; fast_route() writes it to fast_runner "
+        "only while one of its runners is idle"
+    ),
     ("ci.yml", "DEFAULT_RUNNER: ${{ vars.MACOS_RUNNER_PR }}"): (
         "pr_runner_pool.py's input: it compares the lane with its default and "
         "ignores it for a fork head, and every runs-on reading its output takes "
@@ -1136,7 +1154,7 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         """A workflow_run follower of a pull_request_target workflow acts on fork runs too."""
         follower = (
             "on:\n  workflow_run:\n    workflows: [\"x\"]\n    types: [completed]\n"
-            "env:\n  SOURCE_WORKFLOW_PATHS: .github/workflows/cmux-tui-artifacts.yml\n"
+            "env:\n  SOURCE_WORKFLOW_PATHS: .github/workflows/cla.yml\n"
             "jobs:\n  retry:\n    if: github.event.workflow_run.conclusion == 'failure'\n"
             "    runs-on: ubuntu-24.04\n"
         )

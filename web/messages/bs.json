@@ -1,4 +1,5 @@
 {
+  "guestCLI": { "useReasonSharedMachine": "obavezno: ova mašina se dijeli s timom" },
   "agentHarness": {
     "title": "Otkrivena konfiguracija harnessa",
     "selectionNotice": "Odabir provajdera ne pokreće niti omogućava ove harness-e.",
@@ -14,6 +15,31 @@
     "benefitSuperpowers": "Planiranje, TDD, podagenti i pregled"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "Cloud VM zahtjev je odgođen",
+      "message": "Dodjela Cloud VM-a je privremeno nedostupna.",
+      "action": "Sačekajte minutu, a zatim pokušajte ponovo s istim ključem idempotentnosti."
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "Zahtjev za snimak treba ključ za ponovni pokušaj",
+      "message": "Cloud VM snimci zahtijevaju ključ idempotentnosti.",
+      "action": "Pokušajte ponovo sa stabilnim Idempotency-Key ključem od najviše 128 znakova."
+    },
+    "snapshotInProgress": {
+      "title": "Snimak je još u toku",
+      "message": "Snimak s ovim ključem idempotentnosti još se izrađuje za ovu Cloud VM.",
+      "action": "Sačekajte da se prvi snimak završi, zatim pokušajte ponovo s istim ključem idempotentnosti."
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "Ključ za ponavljanje snimka je već korišten",
+      "message": "Ovaj ključ idempotentnosti već je korišten za drugi zahtjev za snimak na ovoj Cloud VM.",
+      "action": "Koristite novi ključ idempotentnosti za snimak s drugim nazivom."
+    },
+    "snapshotQuota": {
+      "title": "Dostignuto je ograničenje snimaka",
+      "message": "Ovaj Cloud VM je dostigao ograničenje snimaka.",
+      "action": "Izbrišite postojeći snimak, a zatim pokušajte ponovo s istim ključem idempotentnosti."
+    },
     "guestInstall": {
       "title": "Postavljanje Cloud VM-a nije završeno",
       "reason": "Postavljanje gosta za Cloud VM nije završeno.",
@@ -28,17 +54,17 @@
     "recreateRequired": {
       "title": "Ponovo kreirajte ovu mašinu",
       "message": "Ova mašina je kreirana prije ažuriranja Clouda i ne može se povezati.",
-      "action": "Kreirajte novu mašinu, kopirajte datoteke pomoću cmux vm pull i cmux vm push, a zatim obrišite ovu."
+      "action": "Kreirajte novu mašinu. Pripremite SCP pristup pomoću `cmux cloud prepare-scp --target machine:<id> --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"`, zatim kopirajte datoteke putem SCP-a prije brisanja ove mašine."
     },
     "guestUnresponsive": {
       "title": "Mašina ne odgovara",
       "message": "Ova mašina nije odgovorila na vrijeme, pa zahtjev nije mogao biti završen.",
-      "action": "Pauzirajte mašinu, zatim je nastavite i pokušajte ponovo. U Mac aplikaciji odaberite Pauziraj mašinu, zatim Nastavi mašinu. U terminalu pokrenite cmux vm pause '<machine>', zatim cmux vm resume '<machine>'."
+      "action": "Obratite se podršci s ID-om praćenja prije nego što napravite novu mašinu."
     },
     "inProgress": {
       "title": "Još je u toku",
       "message": "Cloud provajder još nije završio ovu promjenu. Možda će se još završiti.",
-      "action": "Provjerite status mašine pomoću cmux vm ls ili na listi mašina prije nego što pokušate ponovo."
+      "action": "Provjerite status mašine pomoću cmux cloud list-machines ili na listi mašina prije nego što pokušate ponovo."
     },
     "providerTimeout": {
       "title": "Cloud provajder je spor",
@@ -53,7 +79,7 @@
     "stateConflict": {
       "title": "Mašina je zauzeta",
       "message": "Ova mašina se pokreće, pauzira ili ne radi, pa to sada ne može uraditi.",
-      "action": "Sačekajte trenutak i pokušajte ponovo. Provjerite status mašine pomoću cmux vm ls i prvo je nastavite ako je pauzirana."
+      "action": "Sačekajte trenutak i pokušajte ponovo. Provjerite status mašine pomoću cmux cloud list-machines i prvo je nastavite ako je pauzirana."
     },
     "networkRuleCapacity": {
       "title": "Mrežna pravila su na kapacitetu",
@@ -76,15 +102,15 @@
       "action": {
         "snapshot": "Ne pokušavajte ponovo. Rad na ovoj vrsti mašine čuva se na njenom trajnom kućnom volumenu.",
         "restore": "Ne pokušavajte ponovo. Rad na ovoj vrsti mašine čuva se na njenom trajnom kućnom volumenu.",
-        "fork": "Ne pokušavajte ponovo. Kreirajte novi VM pomoću `cmux vm new`.",
-        "openPort": "Ne pokušavajte ponovo. Pristupite usluzi iz mašine pomoću `cmux vm exec` ili koristite tip mašine koji može otvoriti portove.",
-        "default": "Ne pokušavajte ponovo. Pokrenite `cmux vm ls` ili kontaktirajte podršku ako mislite da je ovo greška."
+        "fork": "Ne pokušavajte ponovo. Kreirajte novi VM pomoću `cmux cloud new-machine`.",
+        "openPort": "Ne pokušavajte ponovo. Pristupite usluzi iz mašine pomoću `cmux cloud exec --target machine:<id> --command <command>` ili koristite tip mašine koji može otvoriti portove.",
+        "default": "Ne pokušavajte ponovo. Pokrenite `cmux cloud list-machines` ili kontaktirajte podršku ako mislite da je ovo greška."
       }
     },
     "requiresPro": {
-      "title": "Potreban je cmux Pro",
-      "message": "Cloud VM-ovi zahtijevaju cmux Pro plan.",
-      "action": "Nadogradite na cmux Pro na {upgradeUrl} da biste kreirali Cloud VM-ove."
+      "title": "Potreban je cmux {plan}",
+      "message": "Cloud VM-ovi zahtijevaju cmux {plan} plan.",
+      "action": "Nadogradite na cmux {plan} na {upgradeUrl} da biste kreirali Cloud VM-ove."
     },
     "displayName": {
       "title": "Nevažeći naziv mašine",
@@ -94,25 +120,35 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "Mašine sa {memory} GiB zahtijevaju cmux {plan}. Vaš paket podržava do {max} GiB.",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "Nije moguće provjeriti veličinu RAM-a izvorne mašine.",
-      "action": "cmux vm new --size 4g"
+      "action": "cmux cloud new-machine"
     },
     "memoryUnavailable": {
       "message": "Ova veličina mašine nije dostupna. Odaberite do {max} GiB.",
-      "action": "cmux vm new --size {max}g"
+      "action": "cmux cloud new-machine"
     },
     "goLimit": {
       "savedMessage": "Go uključuje dvije sačuvane VM, uključujući pokrenutu VM.",
-      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
       "activeMessage": "Go omogućava jednu pokrenutu VM istovremeno.",
-      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
       "hoursMessage": "Go je potrošio 40 VM-sati za ovaj mjesec. Sačuvane VM bit će dostupne u sljedećem obračunskom periodu.",
-      "hoursAction": "cmux billing checkout --plan pro",
+      "hoursAction": "https://cmux.com/pricing",
       "shapeMessage": "Go podržava 2 vCPU, 4 GiB RAM-a i 16 GiB diska.",
-      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+      "shapeAction": "cmux cloud new-machine\nhttps://cmux.com/pricing"
+    },
+    "planBudget": {
+      "computeTitle": "Kvota računanja za {plan} je potrošena",
+      "computeMessage": "Vaš {plan} plan je potrošio svojih {included} računskih sati za ovaj obračunski period. Jedan računski sat je 1 vCPU sa 2 GB memorije tokom jednog sata. Vaše mašine se ponovo mogu pokrenuti {resetDate}.",
+      "computeAction": "Pauzirane mašine zadržavaju svoje datoteke. Kontaktirajte podršku ako vam treba više računanja prije {resetDate}.",
+      "computeActionUpgrade": "https://cmux.com/pricing",
+      "storageTitle": "Kvota diska za {plan} je potrošena",
+      "storageMessage": "Vaš {plan} plan uključuje ukupno {included} GB diska za sve sačuvane mašine. Sačuvane mašine koriste {used} GB, a ovaj zahtjev treba {requested} GB.",
+      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm",
+      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing"
     },
     "resourcePool": {
       "title": "Nema dovoljno Cloud VM resursa",
@@ -514,6 +550,9 @@
         "unavailable": {
           "cancelScheduled": "Nastavite plan da biste ga promijenili.",
           "granted": "Dodijelio cmux. Nema šta da se mijenja.",
+          "grantedNoCancel": "Dodijelio cmux, pa nema ničega za otkazivanje.",
+          "paymentFailed": "Ažurirajte način plaćanja prije promjene plana.",
+          "foundersLifetime": "Founder's Edition uključuje Pro doživotno.",
           "adminOnly": "Samo administratori tima mogu promijeniti plan."
         },
         "names": {
@@ -556,6 +595,7 @@
       "change": {
         "title": "Preći na {plan}?",
         "upgradeBody": "{plan} počinje odmah. Danas plaćate {amount} za ostatak ovog obračunskog perioda. Od {date} plaćate {price} mjesečno.",
+        "upgradeBodyYearly": "{plan} počinje odmah. Danas plaćate {amount} za ostatak ovog obračunskog perioda. Od {date} plaćate {price} godišnje.",
         "downgradeBody": "{plan} počinje odmah. Neiskorišteni dio trenutnog plana, {credit}, uračunava se u sljedeće fakture. Sljedeća faktura, {date}, iznosi {amount}.",
         "confirm": "Pređi na {plan}",
         "keep": "Zadrži trenutni plan",
@@ -568,6 +608,8 @@
         "title": "Otkazati {plan}?",
         "body": "{plan} zadržavate do {date}. Nakon toga gubite:",
         "bodyNoDate": "{plan} zadržavate do kraja ovog obračunskog perioda. Nakon toga gubite:",
+        "foundersBody": "Vaša {plan} pretplata ističe {date}. Nakon toga imate Pro, koji Founder's Edition uključuje doživotno.",
+        "foundersBodyNoDate": "Vaša {plan} pretplata ističe na kraju ovog obračunskog perioda. Nakon toga imate Pro, koji Founder's Edition uključuje doživotno.",
         "reasonLabel": "Zašto otkazujete? (opcionalno)",
         "otherPlaceholder": "Recite nam više (opcionalno)",
         "confirm": "Otkaži plan",
@@ -2242,6 +2284,7 @@
           "currentLineHighlight": "Obojite red u kojem se nalazi kursor dok ništa nije označeno.",
           "tabWidth": "Koliko kolona obuhvata jedan tabulatorski korak. Vodilice uvlačenja koriste isti razmak."
         },
+        "actions": "Višekratne radnje za paletu komandi, prečice, dugmad na traci kartica i meni dugmeta plus. Podržava builtin, command, agent, workspaceCommand, workspace, setting, settingPreset i text. Tekstualne radnje lijepe tekst u fokusirani terminal i čuvaju prijelome redova; submit: true pritiska Enter. Radnje postavki zahtijevaju globalnu konfiguraciju.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {

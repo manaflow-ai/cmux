@@ -25,7 +25,7 @@ enum TabRestart {
     /// daemon without `tab-restart-v1` gets no button.
     @MainActor
     static func offer(on entry: TerminalEntry, tab: TabModel, daemon: DaemonService, registry: ActionRegistry) {
-        guard daemon.supports(DaemonCapabilities.shared.tabRestart) else {
+        guard daemon.supports(DaemonCapability.tabRestart.rawValue) else {
             entry.session.view.onRestart = nil
             return
         }
@@ -34,7 +34,7 @@ enum TabRestart {
     }
 
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
-        registry.bind(action, unavailable: ctx.needs(DaemonCapabilities.shared.tabRestart), invoke: { invocation in
+        registry.bind(action, unavailable: ctx.needs(DaemonCapability.tabRestart.rawValue), invoke: { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation) else { return }
             guard tab.kind == .pty else { return ctx.refuse(RefusalStrings.notATerminal) }
             guard tab.dead else { return ctx.refuse(RefusalStrings.tabNotDead) }
@@ -51,7 +51,7 @@ enum TerminalTabContent {
     static func make(_ tab: TabModel, in pane: PaneController) -> TabContent {
         let services = pane.services, daemon = pane.daemon
         let entry = BenchSpans.measure("terminal.surface") { services.cache.terminal(for: tab, daemon: daemon) }
-        services.themes.terminalDidMount(entry)
+        services.themes.catchUp(entry, fresh: true)
         TabRestart.offer(on: entry, tab: tab, daemon: daemon, registry: services.registry)
         return .terminal(entry)
     }

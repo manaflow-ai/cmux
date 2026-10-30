@@ -169,7 +169,7 @@ fn surface_exit_retires_stale_view_until_authoritative_topology_refresh() {
     ));
 
     assert_eq!(
-        app.handle(AppEvent::Mux(MuxEvent::SurfaceExited(surface))).unwrap(),
+        app.handle(AppEvent::Mux(MuxEvent::SurfaceExited(surface, None))).unwrap(),
         RenderAction::Draw
     );
     assert!(!app.tab_locations.contains_key(&surface));

@@ -6,12 +6,14 @@ mod agent_wrapper;
 mod agents_doctor;
 mod app_control;
 mod attach;
+mod billing;
 mod browser;
 mod cli_connection;
 mod coderouter;
 mod config;
 mod foreign_viewport;
 mod graphics;
+mod host_share;
 mod layout;
 mod local_server;
 mod machine_agent;
@@ -20,6 +22,7 @@ mod pairing;
 mod remote;
 mod remote_client;
 mod runtime;
+mod sandbox_run;
 mod server_mount;
 mod session;
 mod session_reset;
@@ -30,11 +33,13 @@ mod startup;
 mod terminal;
 mod terminal_input;
 pub(crate) mod terminal_respawn;
+mod update_notice;
 
 pub(crate) use agent_wrapper::AgentWrapperMessages;
 pub(crate) use agents_doctor::AgentsDoctorMessages;
-pub(crate) use app_control::AppControlMessages;
+pub(crate) use app_control::{AppControlMessages, VersionLabels};
 pub(crate) use attach::AttachMessages;
+pub(crate) use billing::BillingMessages;
 pub(crate) use browser::BrowserMessages;
 pub(crate) use cli_connection::CliConnectionMessages;
 pub(crate) use coderouter::CodeRouterMessages;
@@ -49,6 +54,7 @@ pub(crate) use pairing::PairingMessages;
 pub(crate) use remote::RemoteMessages;
 pub(crate) use remote_client::RemoteClientMessages;
 pub(crate) use runtime::RuntimeMessages;
+pub(crate) use sandbox_run::SandboxRunMessages;
 pub(crate) use server_mount::server_mount;
 pub(crate) use session::SessionMessages;
 pub(crate) use session_reset::SessionResetMessages;
@@ -58,17 +64,29 @@ pub(crate) use skew::SkewMessages;
 pub(crate) use startup::StartupMessages;
 pub(crate) use terminal::TerminalMessages;
 pub(crate) use terminal_input::TerminalInputMessages;
+pub(crate) use update_notice::UpdateNoticeMessages;
 
 const FOREIGN_VIEWPORT_HINT_CAPACITY: usize = 64;
 
-/// Format a dollar amount with two decimals and thousands separators.
-/// Non-finite or negative inputs render as zero so a bad upstream number
-/// can never produce a misleading readout.
+/// The English update notice strings, for tests that check both languages.
+#[cfg(test)]
+pub(crate) fn update_notice_english() -> &'static UpdateNoticeMessages {
+    &update_notice::ENGLISH
+}
+
+#[cfg(test)]
+pub(crate) fn update_notice_japanese() -> &'static UpdateNoticeMessages {
+    &update_notice::JAPANESE
+}
+
 /// `cmux attach --help`, naming the program the way it was run.
 pub(crate) fn attach_help() -> String {
     catalog().attach.help.replace("{program}", &crate::cli::BIN.to_string())
 }
 
+/// Format a dollar amount with two decimals and thousands separators.
+/// Non-finite or negative inputs render as zero so a bad upstream number
+/// can never produce a misleading readout.
 pub(crate) fn format_usd(amount: f64) -> String {
     let amount = if amount.is_finite() && amount > 0.0 { amount } else { 0.0 };
     let cents = (amount * 100.0).round() as u64;
@@ -134,11 +152,20 @@ pub(crate) struct Catalog {
     pub sidebar: SidebarMessages,
     pub agent_wrapper: AgentWrapperMessages,
     pub agents_doctor: AgentsDoctorMessages,
+    pub host_share: host_share::Messages,
     pub app_control: AppControlMessages,
     pub coderouter: CodeRouterMessages,
+    pub billing: BillingMessages,
+    pub sandbox_run: SandboxRunMessages,
+    pub update_notice: UpdateNoticeMessages,
 }
 
 impl Catalog {
+    /// Whether this is the Japanese catalog, for help text built in code.
+    pub fn is_japanese(&self) -> bool {
+        self.japanese
+    }
+
     pub fn action_label(&self, action: Action) -> &'static str {
         let definition = action.definition();
         if self.japanese { definition.label_ja } else { definition.label_en }
@@ -148,9 +175,13 @@ impl Catalog {
 static ENGLISH: Catalog = Catalog {
     japanese: false,
     coderouter: coderouter::ENGLISH,
+    billing: billing::ENGLISH,
+    sandbox_run: sandbox_run::ENGLISH,
+    update_notice: update_notice::ENGLISH,
     app_control: app_control::ENGLISH,
     agent_wrapper: agent_wrapper::ENGLISH,
     agents_doctor: agents_doctor::ENGLISH,
+    host_share: host_share::ENGLISH,
     startup: startup::ENGLISH,
     terminal_input: terminal_input::ENGLISH,
     local_server: local_server::ENGLISH,
@@ -178,9 +209,13 @@ static ENGLISH: Catalog = Catalog {
 static JAPANESE: Catalog = Catalog {
     japanese: true,
     coderouter: coderouter::JAPANESE,
+    billing: billing::JAPANESE,
+    sandbox_run: sandbox_run::JAPANESE,
+    update_notice: update_notice::JAPANESE,
     app_control: app_control::JAPANESE,
     agent_wrapper: agent_wrapper::JAPANESE,
     agents_doctor: agents_doctor::JAPANESE,
+    host_share: host_share::JAPANESE,
     startup: startup::JAPANESE,
     terminal_input: terminal_input::JAPANESE,
     local_server: local_server::JAPANESE,

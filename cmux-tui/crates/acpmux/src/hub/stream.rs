@@ -18,6 +18,9 @@ const NEUTRAL_UPDATES: &[&str] = &[
     "agent_thought_chunk",
     // A background shell's end is a note beside the message (cx-ncc.84).
     "background_task_update",
+    // A compaction is a note between messages; its summary is not shown.
+    "compaction",
+    "compaction_summary",
     // A subagent's spawn and end belong to the subagent (`crate::subagents`).
     "subagent_spawned",
     "subagent_state_update",
@@ -42,6 +45,16 @@ impl Hub {
     pub(super) fn before_agent_update(&self, session: &Session, params: Option<&Value>) {
         let Some(update) = params.and_then(|p| p.get("update")) else { return };
         let kind = update.get("sessionUpdate").and_then(Value::as_str).unwrap_or("");
+        if kind == "compaction" {
+            let fenced = session.compaction_metadata_fenced.load(Ordering::SeqCst);
+            match update.get("state").and_then(Value::as_str) {
+                Some("running") => session.compacting.store(true, Ordering::SeqCst),
+                Some("completed") | Some("failed") if !fenced => {
+                    session.compacting.store(false, Ordering::SeqCst)
+                }
+                _ => {}
+            }
+        }
         let mut superseded = None;
         {
             let mut st = session.stream.lock().unwrap();

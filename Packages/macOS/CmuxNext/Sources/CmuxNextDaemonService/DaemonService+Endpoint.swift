@@ -1,4 +1,5 @@
 public import CmuxNextDaemon
+import Foundation
 
 /// The daemon's capabilities and its socket, for callers that open their own connection.
 extension DaemonService {
@@ -18,7 +19,7 @@ extension DaemonService {
 extension DaemonService {
     /// Keys typed into a terminal being created go to this daemon at once (cx-wb5.78): the local
     /// daemon only, whose give-backs the app listens to.
-    public var queuesCreatingInput: Bool { isLocal && supports(DaemonCapabilities.shared.terminalInputWhileCreating) }
+    public var queuesCreatingInput: Bool { isLocal && supports(DaemonCapability.terminalInputWhileCreating.rawValue) }
 
     /// The input of a view whose terminal `terminalID` is still being created goes to this daemon
     /// by that id until `targetKnown` (cx-wb5.78); nil when the daemon does not queue such input.
@@ -26,4 +27,14 @@ extension DaemonService {
         guard let id = terminalID?.rawValue, let connection, queuesCreatingInput else { return nil }
         return CreatingTerminalInput(terminalID: id, connection: connection, targetKnown: targetKnown)
     }
+}
+
+/// Which machine this service reaches.
+extension DaemonService {
+    public var isLocal: Bool { machineID == "local" }
+
+    /// Directory new terminals start in: the Mac's home for the local
+    /// daemon; nil (the machine's own default) on a Cloud machine, where a
+    /// Mac path does not exist.
+    public var defaultCwd: String? { isLocal ? NSHomeDirectory() : nil }
 }

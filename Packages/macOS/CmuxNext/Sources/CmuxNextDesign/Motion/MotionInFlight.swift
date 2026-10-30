@@ -1,8 +1,9 @@
 public import AppKit
 import SwiftUI
+public import CmuxNextDesignTokens
 
 /// The Motion animations that opted in to settling at sleep
-/// (`Motion.animate(_:in:_:settleAtSleep:completion:)`) and are still running.
+/// (`MotionGate.animate(_:in:_:settleAtSleep:completion:)`) and are still running.
 ///
 /// A sleeping display draws no frame, so a running `animator()` change stops
 /// where it is: a sidebar row opening stays half faded, and a closing row's
@@ -72,7 +73,7 @@ enum MotionInFlight {
     }
 }
 
-extension Motion {
+extension MotionGate {
     /// ``animate(_:in:_:completion:)`` for a change that must not stay
     /// half done when the display goes to sleep mid-animation (no frame
     /// draws, so it would never end). Then, or when the display wakes,
@@ -80,13 +81,26 @@ extension Motion {
     /// once (``MotionInFlight``). `settleAtSleep` applies the CURRENT
     /// target, read when it runs, never the values captured by `changes`: a
     /// newer change may have moved things since.
-    public static func animate(_ token: MotionSpring, in view: NSView? = nil, _ changes: () -> Void,
+    public func animate(_ token: MotionSpring, in view: NSView? = nil, _ changes: () -> Void,
                                settleAtSleep: @escaping @MainActor () -> Void,
                                completion: (@MainActor @Sendable () -> Void)? = nil) {
         animateSpring(token, in: view, changes, settleAtSleep: settleAtSleep, completion: completion)
     }
 
-    static func animateSpring(_ token: MotionSpring, in view: NSView?, _ changes: () -> Void,
+    /// Tracks a `token` move that runs on the render server (additive springs from
+    /// ``springAnimation(_:_:from:to:)``, not an `animator()` change) the way
+    /// ``animate(_:in:_:settleAtSleep:completion:)`` tracks an AppKit one: when the display goes
+    /// to sleep, or wakes after the move froze in the gap, `settleAtSleep` runs, then
+    /// `completion`. Call the returned closure when the move ends (its transaction's completion
+    /// block); `completion` runs once, whoever gets there first. An entry ends by itself
+    /// ``MotionInFlight/expirySlack`` past the springs' settling time.
+    public func trackMove(_ token: MotionSpring, settleAtSleep: @escaping @MainActor () -> Void,
+                          completion: (@MainActor @Sendable () -> Void)? = nil) -> @MainActor @Sendable () -> Void {
+        MotionInFlight.track(settle: settleAtSleep, seconds: animatesMovement ? spring(token).settlingTime(within: 0.002) : 0,
+                             completion: completion)
+    }
+
+    func animateSpring(_ token: MotionSpring, in view: NSView?, _ changes: () -> Void,
                                       settleAtSleep: (@MainActor () -> Void)?,
                                       completion: (@MainActor @Sendable () -> Void)?) {
         guard canAnimate(in: view) else { return snap(changes, completion: completion) }

@@ -3,6 +3,11 @@
 // conversation owner plus the Cloud owners) into these shapes. The page keeps a window of it as
 // view state; it is never a second store. Times are milliseconds since 1970.
 
+/** The owner's parts per message (cmux-conversation and home-core `MAX_PARTS`): a protocol bound on
+ * one message, never on a send. A send with more files goes as several messages
+ * (`messageGroups`), so any number of files attaches. cap-allow: route */
+export const MESSAGE_PARTS = 16;
+
 export const HomeOps = {
   inbox: "cmux.home.inbox",
   page: "cmux.home.page",
@@ -19,6 +24,10 @@ export const HomeOps = {
   updateThread: "cmux.home.updateThread",
   pin: "cmux.home.pin",
   markUnread: "cmux.home.markUnread",
+  /** The person views a conversation or stopped (`{conversation, viewing}`): the Cloud owner's
+   * viewing presence (`cloud-conversation-presence-v1`). A local conversation, or a daemon
+   * without the capability, sends nothing; the answer is `{sent}`. */
+  view: "cmux.home.view",
   /** What this host can do with attachments ({local, cloud}); absent op: nothing. */
   attachmentSupport: "cmux.home.attachmentSupport",
   /** One step of an attachment upload (begin, chunk, commit, cancel), the owner's chunked upload. */
@@ -31,6 +40,9 @@ export const HomeOps = {
   avatar: "cmux.home.avatar",
   runs: "cmux.home.runs",
   run: "cmux.home.run",
+  /** The live text of a conversation's running runs ({conversation}): a `run.live` snapshot
+   * (HomeLiveSnapshot), or null when it arrives as a live event instead (a Cloud owner). */
+  live: "cmux.home.live",
   events: "cmux.home.events",
   /** What this host and its owners let the page do beyond messages (HomeCapabilities). */
   capabilities: "cmux.home.capabilities",
@@ -62,9 +74,39 @@ export interface HomeCapabilities {
 /** The tools a Chief may be granted (the daemon's closed catalog). */
 export const CHIEF_TOOLS = ["spawn", "tell", "workspaces", "browser", "cloud_vms", "chiefs", "memory_import"] as const;
 /** A new Chief's tools when the person names none (the daemon's default). */
-export const DEFAULT_CHIEF_TOOLS = ["spawn", "tell", "workspaces"] as const;
+export const DEFAULT_CHIEF_TOOLS = ["spawn", "tell", "workspaces", "chiefs"] as const;
 /** The agent harnesses a Chief's subagents may use (none checked: every harness). */
 export const CHIEF_HARNESSES = ["claude", "codex", "opencode", "pi"] as const;
+
+/** The official engines a Chief's own brain runs on (its record's `engine.harness`). The first is
+ * the default: a record that names none, or "default", runs on it. Not the subagent grant above. */
+export const CHIEF_BACKENDS = [
+  { id: "claude", label: "chief.backend.claude" },
+  { id: "codex", label: "chief.backend.codex" },
+  { id: "unii", label: "chief.backend.unii" },
+] as const;
+export type ChiefBackend = (typeof CHIEF_BACKENDS)[number]["id"];
+/** The engine a Chief starts on when the person picks none. */
+export const DEFAULT_CHIEF_BACKEND: ChiefBackend = "claude";
+
+/** The engine id a record names, with absent and "default" read as the default engine. */
+export function chiefBackend(harness?: string): string {
+  const id = harness?.trim().toLowerCase();
+  return !id || id === "default" ? DEFAULT_CHIEF_BACKEND : id;
+}
+
+/** A Chief engine's display name ("Claude", "Codex", "UniiChat"); an unknown id shows as it is. */
+export function chiefBackendLabel(t: (key: string) => string, harness?: string): string {
+  const id = chiefBackend(harness);
+  const known = CHIEF_BACKENDS.find((backend) => backend.id === id);
+  return known ? t(known.label) : (harness?.trim() ?? id);
+}
+
+/** The engine chip a Chief's row shows: only when it runs on something other than the default. */
+export function chiefBackendChip(t: (key: string) => string, chief: HomeChief | undefined): string | undefined {
+  if (!chief || chiefBackend(chief.engine?.harness) === DEFAULT_CHIEF_BACKEND) return undefined;
+  return chiefBackendLabel(t, chief.engine?.harness);
+}
 
 /** A Chief record (`chief.profile.*`). */
 export interface HomeChief {
@@ -82,6 +124,52 @@ export interface HomeChief {
   createdAt: string;
   /** The picture's hash (the page reads its bytes once per hash). */
   avatar?: string;
+  /** The Chief's backend, the engine its brain runs on (the record's `engine`): an acpmux harness
+   * id, its model and effort. Absent fields: the Chief's usual (the owner's default, Claude). The
+   * Chief editor changes it (`chief.profile.update`, after the harness check passes). */
+  engine?: { harness?: string; model?: string; effort?: string };
+  /** Only the person may change this Chief (`locked`): every Chief write is refused. */
+  locked?: boolean;
+}
+
+/** A Chief's backend as the editor picks it: "" means the Chief's usual (the owner's default). */
+export interface HomeChiefEngine {
+  harness: string;
+  model: string;
+  effort: string;
+}
+
+/** One committed state of a Chief's record (`chief.profile.history`), newest first. */
+export interface HomeChiefRevision {
+  rev: number;
+  /** When it was committed (ISO 8601). */
+  at: string;
+  /** Who made it: a Chief's id, or empty for the person (terminal or app). */
+  actor: string;
+  /** The operation that made it (`chief.profile.update`, `chief.profile.undo`, ...). */
+  operation: string;
+  record: HomeChief;
+}
+
+/** An acpmux harness a Chief may run on (`_acpmux/harnesses` with its probed models). */
+export interface HomeChiefBackend {
+  id: string;
+  name: string;
+  models: { id: string; name: string; efforts: string[] }[];
+  /** Why acpmux will not run it now (a failed launcher check), if it says. */
+  unavailable?: string;
+}
+
+/** Bring your own backend: an ACP agent command, or an Anthropic- or OpenAI-compatible endpoint.
+ * The key goes to the Keychain through the host; the page never keeps it after submit. */
+export type HomeChiefByoBackend =
+  | { kind: "command"; name: string; command: string; args: string[] }
+  | { kind: "anthropic-endpoint" | "openai-endpoint"; name: string; baseUrl: string; model: string; apiKey: string };
+
+/** `_acpmux/harness/doctor {id, prompt: true}`: each step, the first failing one with its fix. */
+export interface HomeChiefDoctor {
+  ok: boolean;
+  steps: { name: string; ok: boolean; detail?: string; fix?: string }[];
 }
 
 /** A Chief's profile text as the sheet edits it. */
@@ -146,6 +234,8 @@ export interface HomeConversation {
   lastAuthor?: string;
   /** The status of the last message's work part, when it has one (a Chief's live state). */
   lastWork?: "running" | "waiting" | "done" | "failed";
+  /** A Chief's state as the owner derives it (home-inbox-v1): typing, its runs, its last work. */
+  chiefState?: "working" | "waiting" | "idle";
 }
 
 export interface HomeMention {
@@ -337,6 +427,10 @@ export interface HomeEventBatch {
   /** Conversations whose open window must be refetched (a gap, a resubscribe). */
   stale?: string[];
   typing?: { conversation: string; participant: string; on: boolean }[];
+  presence?: { conversation: string; participants: { participant: string; viewing: boolean }[] }[];
+  /** Presence frames may have been lost (a stream overflow): every viewer set is unknown until the
+   * owner's next whole set. */
+  presenceLost?: boolean;
   /** Running replies, in order (applied before this batch's messages). */
   drafts?: HomeDraftItem[];
   /** My own list state changes (pins, marks), in order. */
@@ -345,6 +439,47 @@ export interface HomeEventBatch {
   runs?: HomeRunChange[];
   /** Participants whose picture changed (`participant-avatar-changed`). */
   avatars?: string[];
+  /** A Chief's live run frames (`chief-live-v1`), in order: never stored by any owner. */
+  live?: HomeLiveFrame[];
+}
+
+/** One live frame of a running run (the "Live frames" contract both brains send). */
+export type HomeLiveFrame =
+  | {
+      type: "step.delta";
+      conversation: string;
+      run: string;
+      /** The run's agent (the owner stamps it; run ids repeat across Cloud Chiefs). */
+      author?: string;
+      step: string;
+      kind: "talk" | "thought";
+      /** Per (run, step), from 0, +1 per frame. */
+      seq: number;
+      text: string;
+      /** The step's last frame: its row with the whole text follows on the run. */
+      final?: true;
+    }
+  | {
+      type: "run.activity";
+      conversation: string;
+      run: string;
+      author?: string;
+      line: string;
+      since: number;
+      at: number;
+    }
+  | HomeLiveSnapshot;
+
+/** The text so far of a conversation's running runs (`run.live`): on join, reconnect and gap. */
+export interface HomeLiveSnapshot {
+  type: "run.live";
+  conversation: string;
+  runs: {
+    run: string;
+    author?: string;
+    steps: { step: string; kind: "talk" | "thought"; seq: number; text: string; final?: true }[];
+    activity?: { line: string; since: number; at: number };
+  }[];
 }
 
 export interface HomeSearchHit {
@@ -442,10 +577,12 @@ export interface HomeRunChange {
   steps: HomeRunStep[];
 }
 
-/** `cmux.home.runs`: the newest runs of a conversation, or the runs of these reply keys. */
+/** `cmux.home.runs`: runs of these reply keys, or a page of newest runs before `beforeStartedAt`. */
 export interface HomeRunList {
   runs: HomeRun[];
   hasMore: boolean;
+  /** This owner returned every retained run answering the requested message ids. */
+  answersComplete?: boolean;
 }
 
 /** `cmux.home.run`: one run and its steps written after `afterRev`, oldest write first. */

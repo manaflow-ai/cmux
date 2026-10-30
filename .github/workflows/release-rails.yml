@@ -47,7 +47,7 @@ jobs:
     timeout-minutes: 15
     services:
       postgres:
-        image: postgres:17
+        image: postgres:17@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
         env:
           POSTGRES_PASSWORD: postgres
         ports: ["5432:5432"]
@@ -62,7 +62,7 @@ jobs:
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
       - id: install
         run: bun install --frozen-lockfile
       - name: Typecheck
@@ -96,7 +96,7 @@ jobs:
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24"
@@ -105,9 +105,16 @@ jobs:
       - name: Typecheck
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run typecheck
+      # Lint is a style guard: for pull requests into feat-cmux-next it warns (Leo 2026-10-19).
       - name: Oxlint with the gdp-ts preset
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: bun run lint
+        env:
+          CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
+        run: |
+          if ! bun run lint; then
+            echo "::warning title=release rails oxlint::lint findings; see this step's log"
+            [[ "$CMUX_NEXT_STYLE_GUARDS" == warn ]] || exit 1
+          fi
       - name: Store and schema check tests on PGlite
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run test:pg

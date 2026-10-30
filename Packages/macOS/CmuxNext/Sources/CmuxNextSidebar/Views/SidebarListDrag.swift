@@ -7,7 +7,7 @@ final class SidebarListDrag {
     let grabbedKey: SidebarRowKey
     /// Keys hidden while dragging (the lifted rows).
     let hiddenKeys: Set<SidebarRowKey>
-    let grabOffsetY: CGFloat
+    var grabOffsetY: CGFloat
     /// Press x from the row's leading edge; with `grabOffsetY`, the
     /// point a window-drag hand-off keeps under the pointer.
     var grabOffsetX: CGFloat = 0
@@ -18,6 +18,9 @@ final class SidebarListDrag {
     /// head alone, as for a one-row card, so its centre can still reach a
     /// row's onto band (cx-ikxz).
     var headHeight: CGFloat?
+    /// A dragged group's drag (`SidebarGroupDrag`): the frozen base, the capped card and its slot. Nil for every
+    /// other drag; a group drag always has one (`SidebarListView.beginGroupDrag`).
+    var group: SidebarGroupDrag?
     /// The card as drops see it: the head row of a workspace card.
     var probeCard: CGRect {
         var card = lift.frame
@@ -42,9 +45,49 @@ final class SidebarListDrag {
     var renameOnLand: WorkspaceID?
     /// The last pointer y in the list and the drag's vertical direction.
     var lastY: CGFloat = 0, movingUp = false
+    /// The sidebar document's drag (sidebar-v2 S5): the moved items, the
+    /// acceptance table from the drag's one `drag_begin`, the geometry built
+    /// once over the list without the dragged rows, and the move a drop makes.
+    var docItems: [String]?
+    var docAcceptance: [String: SidebarDocAcceptance] = [:]
+    var docGeometry: (SidebarDragGeometry, [String: SidebarRow])?
+    /// The list structure (`SidebarModel.sectionsRevision`) `docGeometry` was built for.
+    var geometryRevision: UInt64 = 0
+    var docTarget: SidebarDocTarget? {
+        didSet { if docTarget != oldValue { docTargetChangedUp = movingUp } }
+    }
+    /// Whether the drag was moving up when `docTarget` last changed: a move the other way turns back (`SidebarDragGeometry.edgeY`).
+    private(set) var docTargetChangedUp: Bool?
+    /// The pointer is beside the sidebar with an item the App removes there (`holdsDragOut`): a release removes it.
+    var removesOnDrop = false
+    /// A drag of an item a list block draws (a Pinned or custom tile or row): its section and item.
+    var tileSource: (section: String, item: LayoutItemID)?
+    /// The region whose tile holds the press (it keeps the view until the release).
+    weak var tileRegion: SidebarRegionView?
+    /// Where the drop opens a gap in a block (a tile section): the section and the index among its items.
+    var blockTarget: SidebarBlockGap?
+    /// Each block's laid-out items without the dragged one, at the drag's begin (its hit test's base).
+    var blockBases: [String: SidebarRegionLayout] = [:]
+    /// The lifted card's shape as a list row (list coordinates; x and size):
+    /// a row drag's own row, a tile drag's row look. The card morphs to it
+    /// over the list and to a slot's shape over a block (`SidebarListView.morphLift`).
+    var restFrame: CGRect = .zero
+    /// The card is shaped as its list row; else as a block slot, and it follows the pointer on both axes.
+    var restShaped = true
+    /// One card drags only: a group or a workspace with tab rows keeps its block shape.
+    var morphs = false
     /// The last drop probe (debug.sidebar_rows "drop"): the card edge that
     /// decided, the row it hit in the base layout and where in that row.
     var probe: SidebarDropProbe?
+    /// The dropped item's real views, invisible under the landing card until it is gone.
+    var heldViews: [NSView] = []
+    /// The list rows among `heldViews`, suppressed until the card is gone (a reload under the flight does not fade them in).
+    var heldKeys: Set<SidebarRowKey> = []
+    /// The model shows the drop (`landSettled`): until the card is gone, a later reload (the blocks reach the
+    /// list after the rows) retargets it to the dropped item's frame then and holds the item's new views.
+    var landsOnModel = false
+    /// The landing's completion, kept for a retarget (only the last landing call's completion runs).
+    var landingThen: (@MainActor () -> Void)?
     init(payload: DragPayload, grabbedKey: SidebarRowKey, hiddenKeys: Set<SidebarRowKey>, grabOffsetY: CGFloat, gapHeight: CGFloat, lift: DragLiftView, head: CGFloat? = nil,
          target: DropTarget?) {
         self.payload = payload
@@ -94,6 +137,8 @@ final class SidebarListDrag {
         switch payload {
         case let .workspaces(ids): ids.allSatisfy { model.workspace($0) != nil }
         case let .group(group): model.group(group) != nil
+        case let .item(id): model.sections.contains { $0.nodes.contains { $0.listedItems.contains { $0.id == id } } }
+            || (tileSource.flatMap { model.layout.section(LayoutSectionID($0.section)) }?.items.contains { $0.id.rawValue == id } ?? false)
         }
     }
 }

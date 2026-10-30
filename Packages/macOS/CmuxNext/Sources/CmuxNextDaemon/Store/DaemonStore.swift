@@ -17,14 +17,22 @@ public enum DaemonConnectionState: Sendable, Equatable {
 /// batches at most once per frame (`run(connection:scheduler:)`).
 @Observable @MainActor
 public final class DaemonStore: StateResourceQueries {
-    public internal(set) var workspaces: [WorkspaceModel] = []
+    public internal(set) var workspaces: [WorkspaceModel] = [] { didSet { adoptUnread() } }
     public internal(set) var groups: [WorkspaceGroupModel] = []
+    /// Tabs the unread count read, one by one (tests: an observer of the badge reads no tab).
+    @ObservationIgnored public internal(set) var unreadTabReads = 0
+    /// The unread counts of all workspaces (``UnreadTotals``), summed from each workspace's own
+    /// count when one changes and assigned only when the sum changes: an observer of the badge
+    /// observes this one value, never the tabs.
+    public internal(set) var unreadTotals = UnreadTotals()
     /// Rooms in order (`profiles-v1`, home session only; the wire calls
     /// them profiles). Empty on a daemon without personal state.
     public internal(set) var profiles: [ProfileModel] = []
     /// The rest of the home session's personal state (`PersonalStore`).
     public internal(set) var personal = PersonalStore()
     public internal(set) var savedTabGroups: [SavedTabGroupModel] = []
+    /// The open groups of `savedTabGroups` (`TabGroupModel.isSaved`).
+    @ObservationIgnored var savedOpenGroups: Set<TabGroupID> = []
     /// Sidebar flattening, recomputed only when order, membership, or groups change.
     public internal(set) var sidebarSections: [SidebarSection] = []
     public internal(set) var connectionState: DaemonConnectionState = .connecting
@@ -39,6 +47,10 @@ public final class DaemonStore: StateResourceQueries {
     public internal(set) var generation: DaemonGeneration?
     public internal(set) var registryID: String?
     public internal(set) var workspaceRevision: UInt64 = 0
+    /// Bumped once per apply (batch, snapshot, intent) that changed which
+    /// tabs the tree lists, their panes or their order: one read for an
+    /// observer that follows every tab list, instead of a walk of every pane.
+    public private(set) var tabListRevision: UInt64 = 0
     public let session = SessionStateStore()
     /// Recent notifications, newest last (bounded).
     public internal(set) var notifications: [DaemonNotification] = []
@@ -71,21 +83,24 @@ public final class DaemonStore: StateResourceQueries {
         var sequence: UInt64?
         var body: @MainActor () -> Void
     }
-    /// Called on the main actor, synchronously, once the loaded workspace
-    /// list (membership or sidebar order) changed: right after the event
-    /// batch, snapshot, or intent that changed it, before any
-    /// observer or frame runs. The App keeps window membership in step here,
-    /// so a window never shows after its last workspace is gone.
+    /// Called on the main actor, synchronously, once the set of loaded
+    /// workspaces changed (one joined or left, or a provisional one was
+    /// confirmed): right after the event batch, snapshot, or intent that
+    /// changed it, before any observer or frame runs. The App keeps window
+    /// membership in step here, so a window never shows after its last
+    /// workspace is gone. A move, a group change or a change to one
+    /// workspace keeps the set and never calls it: the App's membership pass
+    /// visits every workspace, and the sidebar churn ran it per change.
     @ObservationIgnored public var onWorkspaceListChanged: (() -> Void)?
     /// Runs when the connection drops or the daemon shuts down (before any reconnect).
     @ObservationIgnored public var onDisconnected: (@MainActor () -> Void)?
     /// Bookmark and conversation events (not in the tree snapshot), on the main actor.
     @ObservationIgnored public let sideEvents = DaemonSideEvents()
-    /// The list last reported to `onWorkspaceListChanged`.
-    @ObservationIgnored var notifiedWorkspaceList: [String]?
+    /// The workspace set (`listID`s) last reported to `onWorkspaceListChanged`.
+    @ObservationIgnored var notifiedWorkspaceList: Set<String>?
     /// Bumped by every sidebar flattening (`recomputeSidebar`, which every
-    /// structural change runs): while it stays, the workspace list is the one
-    /// last checked, so `workspaceListMayHaveChanged` skips its O(n) list
+    /// structural change runs): while it stays, the workspace set is the one
+    /// last checked, so `workspaceListMayHaveChanged` skips its O(n) set
     /// build (status ticks apply batches several hundred times a second).
     @ObservationIgnored var listGeneration: UInt64 = 0
     @ObservationIgnored var checkedListGeneration: UInt64?
@@ -95,19 +110,38 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored public var transactionLimit = 64
     @ObservationIgnored public var notificationLimit = 200
 
-    @ObservationIgnored var tabsBySurface: [SurfaceID: TabModel] = [:]
-    @ObservationIgnored var panesByHandle: [PaneID: PaneModel] = [:]
-    @ObservationIgnored var screensByHandle: [ScreenID: ScreenModel] = [:]
-    @ObservationIgnored var workspacesByHandle: [WorkspaceHandle: WorkspaceModel] = [:]
-    @ObservationIgnored var workspacesByKey: [WorkspaceKey: WorkspaceModel] = [:]
-    /// By `WorkspaceModel.id` (`workspace(id:)`).
-    @ObservationIgnored var workspacesByID: [String: WorkspaceModel] = [:]
-    @ObservationIgnored var tabGroupsByID: [TabGroupID: TabGroupModel] = [:]
+    /// O(1) lookups kept in step with the records (StoreIndex.swift).
+    @ObservationIgnored var index = StoreIndex()
+    var tabsBySurface: [SurfaceID: TabModel] { index.tabsBySurface }
+    var panesByHandle: [PaneID: PaneModel] { index.panesByHandle }
+    var screensByHandle: [ScreenID: ScreenModel] { index.screensByHandle }
+    var workspacesByKey: [WorkspaceKey: WorkspaceModel] { index.workspacesByKey }
+    var tabGroupsByID: [TabGroupID: TabGroupModel] { index.tabGroupsByID }
     @ObservationIgnored public internal(set) var agents = AgentRoster()
+    /// Presence that arrived before its tab was indexed (an agent hook right after its terminal is
+    /// created, a restored session, a hook replayed on reconnect). No snapshot carries presence, so
+    /// the tab takes it from here when it is indexed (`prime`). Live-only like the tabs': a clear
+    /// drops it (`clearPresence`), and it holds at most ``heldPresenceLimit`` surfaces.
+    @ObservationIgnored var heldPresence: [SurfaceID: AgentPresence] = [:]
+    /// The most surfaces whose presence is held for a tab not indexed yet.
+    static let heldPresenceLimit = 256
+    var heldPresenceCount: Int { heldPresence.count }
     @ObservationIgnored var directories = TerminalDirectories()
     /// Pending typed intents shown on top of the confirmed mirror
     /// (DaemonStore+Intents.swift).
     @ObservationIgnored var intentLog = IntentLog()
+    /// The open script-batch stage, if any (DaemonStore+Stage.swift).
+    @ObservationIgnored var stage: StoreStage?
+    /// Read-your-writes waits by sequence, counted (``beginAppliedWait(_:)``): a stage holds no event
+    /// one of them needs.
+    @ObservationIgnored var sequenceWaits: [UInt64: Int] = [:]
+    /// The one model of each pending split's provisional pane, by public pane id: every overlay
+    /// restore shows it, and the daemon's pane takes it over in place (`confirmedPane`).
+    @ObservationIgnored var provisionalPanes: [String: PaneModel] = [:]
+    /// Stand-in pane handles a pending create names as its target (a New Column or split pressed on
+    /// a create still in flight), by handle: the stand-in's public pane id, under which the
+    /// daemon's pane takes it over with a new handle (``daemonHandle(showing:)``).
+    @ObservationIgnored var standInTargets: [PaneID: String] = [:]
     /// True while daemon state applies to the confirmed records (the
     /// intent overlay is undone).
     @ObservationIgnored var overlayLifted = false
@@ -128,11 +162,20 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored public var onPageTabCreated: ((String, TabModel) -> Void)?
     /// The layout as the last allowed writer left it (debug builds).
     @ObservationIgnored var mirrorFingerprint: Int?
+    @ObservationIgnored var mirrorFingerprintTakenAt: ContinuousClock.Instant?
     /// Events at or below this sequence are superseded by the last snapshot.
     @ObservationIgnored var snapshotBarrier: UInt64 = 0
+    /// The last live snapshot per workspace and what changed since (``SnapshotMemo``): the next
+    /// snapshot applies only the workspaces that differ.
+    @ObservationIgnored var snapshotMemo = SnapshotMemo()
+    /// Workspace snapshots the main actor compared or keyed for ``snapshotMemo`` since creation
+    /// (tests: a live resync with its off-main ``SnapshotDiff`` walks none).
+    @ObservationIgnored var snapshotWorkspacesWalkedOnMain = 0
     /// Set while `run(connection:scheduler:)` drives the store.
     @ObservationIgnored var driver: StoreDriver?
     @ObservationIgnored var isResyncing = false
+    /// The `list-personal` refetch a `personal-changed` asks for (`refetchPersonal`).
+    @ObservationIgnored var personalRefetch = PersonalRefetch()
     /// `refresh()` callers waiting for a snapshot requested after their call.
     @ObservationIgnored var refreshWaiters: [CheckedContinuation<Void, Never>] = []
     /// Spacing and budget of failed-snapshot retries; reset by the next applied one.
@@ -149,38 +192,80 @@ public final class DaemonStore: StateResourceQueries {
     /// connection found already there (page history skips their reload).
     @ObservationIgnored public private(set) var restoredTabIDs: Set<String> = []
     @ObservationIgnored var restoredEpoch: Int?
+    /// The connection epoch of the last live snapshot applied: it changes once
+    /// per connection, when that connection's first tree lands. Observers that
+    /// must look at every workspace once per connection key off it.
+    public internal(set) var liveTreeEpoch: Int?
+    /// Bumped each time the set of loaded workspaces changes (one joined or
+    /// left, or a provisional one was confirmed), never for a move or a
+    /// change to one workspace: observers that track membership read it
+    /// instead of `workspaces`, whose order every move changes.
+    public internal(set) var workspaceSetRevision: UInt64 = 0
 
     public init() {}
 
     // MARK: Lookup (O(1))
 
-    public func workspace(key: WorkspaceKey) -> WorkspaceModel? { workspacesByKey[key] }
-    public func workspace(handle: WorkspaceHandle) -> WorkspaceModel? { workspacesByHandle[handle] }
-    public func screen(_ handle: ScreenID) -> ScreenModel? { screensByHandle[handle] }
-    public func pane(_ handle: PaneID) -> PaneModel? { panesByHandle[handle] }
-    public func tab(surface: SurfaceID) -> TabModel? { tabsBySurface[surface] }
+    public func workspace(key: WorkspaceKey) -> WorkspaceModel? { index.workspacesByKey[key] }
+    public func workspace(handle: WorkspaceHandle) -> WorkspaceModel? { index.workspacesByHandle[handle] }
+    public func screen(_ handle: ScreenID) -> ScreenModel? { index.screensByHandle[handle] }
+    public func pane(_ handle: PaneID) -> PaneModel? { index.panesByHandle[handle] }
+    public func tab(surface: SurfaceID) -> TabModel? { index.tabsBySurface[surface] }
     /// The shell's reported folder (OSC 7); a remote terminal's is never a local cwd.
     public func noteTerminalDirectory(_ directory: String?, surface: SurfaceID) {
-        guard let tab = tabsBySurface[surface], tab.kind != .remoteTerminal else { return }
+        guard let tab = index.tabsBySurface[surface], tab.kind != .remoteTerminal else { return }
         tab.setObservedCwd(directories.note(directory, surface: surface))
     }
-    public func tab(terminal: TerminalID) -> TabModel? { tabsBySurface.values.first { $0.terminalID == terminal } }
+    // The lookups below read `tabListRevision` first, so a tracked caller (a wait for a tab
+    // to appear or move) hears the tab list change; `tab(surface:)` (hot paths) does not
+    // (a wait by surface reads `tabListRevision` itself, as AppServices.locateTab does).
+    public func tab(terminal: TerminalID) -> TabModel? {
+        _ = tabListRevision
+        return index.tabsByTerminal[terminal]
+    }
     /// The tab of a public terminal id (`term_…`, `CMUX_TUI_TERMINAL_ID`).
-    public func tab(terminalResource id: ResourceID) -> TabModel? { tabsBySurface.values.first { $0.terminalResourceID == id } }
+    public func tab(terminalResource id: ResourceID) -> TabModel? {
+        _ = tabListRevision
+        return index.tabsByTerminalResource[id]
+    }
     /// The tab with durable id `id` (`TabModel.id`).
-    public func tab(id: String) -> TabModel? { tabsBySurface.values.first { $0.id == id } }
-    public func tabGroup(_ id: TabGroupID) -> TabGroupModel? { tabGroupsByID[id] }
+    public func tab(id: String) -> TabModel? {
+        _ = tabListRevision
+        return index.tabsByID[id]
+    }
+    /// The tab with durable id or tab resource id `id` (a tab first seen
+    /// without a `tab_` resource id keeps its first id; links name it by
+    /// the resource id).
+    public func tab(idOrResource id: String) -> TabModel? {
+        _ = tabListRevision
+        return index.tabsByID[id] ?? index.tabsByResource[ResourceID(rawValue: id)]
+    }
+    public func tabGroup(_ id: TabGroupID) -> TabGroupModel? { index.tabGroupsByID[id] }
     public func group(_ id: WorkspaceGroupID) -> WorkspaceGroupModel? { groups.first { $0.id == id } }
     public func profile(_ id: ProfileID) -> ProfileModel? { profiles.first { $0.id == id } }
 
-    /// The pane currently holding `surface`.
-    /// The workspace whose screens hold pane `handle`.
+    /// The workspace whose screens hold pane `handle`. It reads
+    /// `workspaces` first, so a tracked caller still hears a workspace come or go.
     public func workspace(containing handle: PaneID) -> WorkspaceModel? {
-        workspaces.first { $0.screens.contains { $0.panes.contains { $0.handle == handle } } }
+        _ = workspaces
+        return index.panesByHandle[handle].flatMap(index.screen(holding:)).flatMap(index.workspace(holding:))
     }
 
+    /// The screen holding pane `handle`.
+    public func screen(containing handle: PaneID) -> ScreenModel? {
+        index.panesByHandle[handle].flatMap(index.screen(holding:))
+    }
+
+    /// The pane currently holding `surface`.
     public func pane(containing surface: SurfaceID) -> PaneModel? {
-        panesByHandle.values.first { pane in pane.tabs.contains { $0.surface == surface } }
+        _ = tabListRevision
+        return index.tabsBySurface[surface].flatMap(index.pane(holding:))
+    }
+
+    /// The pane holding `tab` (by identity).
+    public func pane(holding tab: TabModel) -> PaneModel? {
+        _ = tabListRevision
+        return index.pane(holding: tab)
     }
 
     // MARK: Snapshot
@@ -188,21 +273,48 @@ public final class DaemonStore: StateResourceQueries {
     /// Replaces the confirmed tree, reusing records by durable identity,
     /// then shows the pending intents on it again.
     public func apply(snapshot tree: DaemonTree) {
+        apply(snapshot: tree, diff: nil)
+    }
+
+    /// ``apply(snapshot:)`` with the workspaces that differ from the last applied snapshot already
+    /// found (``SnapshotDiff``, computed off the main thread by the resync); nil or a diff of an
+    /// older memo compares here. Only the changed, new and removed workspaces, and those an event
+    /// touched since, are applied, indexed and laid; a snapshot the memo cannot vouch for
+    /// (``incrementalDiff(_:diff:)``) applies in full.
+    func apply(snapshot tree: DaemonTree, diff: SnapshotDiff?) {
+        // A snapshot holds everything the daemon did: a staged batch shows first (every joined batch's
+        // part), then the snapshot.
+        stage?.commitAll()
         withOverlayLifted(snapshot: true) {
-            applyTree(tree)
+            if let diff = incrementalDiff(tree, diff: diff) {
+                applyTreeIncrementally(tree, touching: touchedWorkspaces(diff))
+                advanceSnapshotMemo(tree, applying: diff)
+            } else {
+                applyTree(tree)
+                rebuildIndex()
+                recordSnapshotMemo(tree)
+            }
             if isProvisional { isProvisional = false }
             if !isLoaded {
                 isLoaded = true
                 DaemonLaunchTimings.shared.mark("daemon.first_tree_applied")
             }
+            if liveTreeEpoch != connectionEpoch { liveTreeEpoch = connectionEpoch }
             if restoredEpoch != connectionEpoch {
                 restoredEpoch = connectionEpoch
                 restoredTabIDs = currentTabIDs
             }
-            structureChanged()
+            ProvisionalSplit.noteDaemonPanes(in: self)
         }
         workspaceListMayHaveChanged()
         runAppliedWaiters(nil, snapshot: true)
+    }
+
+    /// The tree a snapshot applied up to `barrier` holds every personal change at or below it; a
+    /// later one is fetched now.
+    func snapshotCoveredPersonal(through barrier: UInt64) {
+        personalRefetch.covered(through: barrier)
+        if personalRefetch.pending != nil { refetchPersonal() }
     }
 
     /// Shows the daemon's launch snapshot (`LaunchSnapshot`) before the
@@ -216,10 +328,12 @@ public final class DaemonStore: StateResourceQueries {
         guard !isLoaded else { return }
         withOverlayLifted {
             applyTree(tree)
+            // A launch snapshot is not the live tree: the first live one applies in full.
+            snapshotMemo.reset()
             isProvisional = true
             // Launch snapshot tabs are restored tabs (pages made from them reload).
             restoredTabIDs = currentTabIDs
-            structureChanged()
+            rebuildIndex()
         }
     }
 
@@ -240,7 +354,8 @@ public final class DaemonStore: StateResourceQueries {
                                      update: { $0.update($1) }) {
             savedTabGroups = reordered
         }
-        if let reordered = reconcile(workspaces, with: tree.workspaces, id: WorkspaceModel.identity, make: WorkspaceModel.init,
+        savedOpenGroups = Set(savedTabGroups.compactMap(\.openGroup))
+        if let reordered = reconcile(workspaces, with: tree.workspaces, id: WorkspaceModel.identity, make: confirmedWorkspace,
                                      update: { $0.update($1) }) {
             workspaces = reordered
         }
@@ -265,53 +380,90 @@ public final class DaemonStore: StateResourceQueries {
 
     // MARK: Derived state
 
-    /// Rebuilds lookup indexes and the sidebar flattening after a structural change.
-    func structureChanged() {
-        var tabs: [SurfaceID: TabModel] = [:]
-        var panes: [PaneID: PaneModel] = [:]
-        var screens: [ScreenID: ScreenModel] = [:]
-        var byHandle: [WorkspaceHandle: WorkspaceModel] = [:]
-        var byKey: [WorkspaceKey: WorkspaceModel] = [:]
-        var byID: [String: WorkspaceModel] = [:]
-        var tabGroups: [TabGroupID: TabGroupModel] = [:]
+    /// Indexes the whole tree again, primes every record and flattens the
+    /// sidebar: a snapshot only. Events change the index per record
+    /// (`indexed(_:)`), and the sidebar once per batch (`sidebarNeedsRecompute`).
+    func rebuildIndex() {
+        index.rebuild(workspaces)
         for workspace in workspaces {
-            byHandle[workspace.handle] = workspace
-            byID[workspace.id] = workspace
-            if let key = workspace.key { byKey[key] = workspace }
             for screen in workspace.screens {
-                screens[screen.handle] = screen
-                for pane in screen.panes {
-                    panes[pane.handle] = pane
-                    for group in pane.tabGroups { tabGroups[group.id] = group }
-                    for tab in pane.tabs {
-                        tabs[tab.surface] = tab
-                        if tab.agent == nil, let agent = agents.bySurface[tab.surface] { tab.setAgent(agent) }
-                        tab.setObservedCwd(directories.directory(for: tab.surface))
-                    }
-                }
+                for pane in screen.panes { prime(pane) }
             }
         }
-        tabsBySurface = tabs
-        panesByHandle = panes
-        screensByHandle = screens
-        workspacesByHandle = byHandle
-        workspacesByKey = byKey
-        workspacesByID = byID
-        tabGroupsByID = tabGroups
         recomputeSidebar()
         session.overlay(workspaces)
     }
 
-    /// Runs `onWorkspaceListChanged` when the workspace list differs from
-    /// the last one reported (outside a batch, once loaded).
+    /// (Re)indexes `workspace` and its subtree and lays the state over it.
+    func indexed(_ workspace: WorkspaceModel) {
+        index.insert(workspace)
+        for screen in workspace.screens {
+            for pane in screen.panes { prime(pane) }
+        }
+        session.overlay([workspace])
+    }
+
+    /// (Re)indexes `screen` in `workspace` and lays the state over it and
+    /// over the workspace (its screen groups follow the screen order).
+    func indexed(_ screen: ScreenModel, in workspace: WorkspaceModel) {
+        index.insert(screen, in: workspace)
+        for pane in screen.panes { prime(pane) }
+        session.lay(screen: screen)
+        session.lay(workspaceOnly: workspace)
+    }
+
+    /// (Re)indexes `pane` in `screen` and lays the state over its tabs.
+    func indexed(_ pane: PaneModel, in screen: ScreenModel) {
+        index.insert(pane, in: screen)
+        prime(pane)
+        for tab in pane.tabs { SessionStateStore.lay(session.mirror, over: tab) }
+    }
+
+    /// (Re)indexes `tab` in `pane` and lays the state over it.
+    func indexed(_ tab: TabModel, in pane: PaneModel) {
+        index.insert(tab, in: pane)
+        prime(tab)
+        SessionStateStore.lay(session.mirror, over: tab)
+    }
+
+    /// What a pane's records learn when they are indexed: each group whether
+    /// it is a saved group's open one, each tab its agent and folder.
+    private func prime(_ pane: PaneModel) {
+        for group in pane.tabGroups {
+            let saved = savedOpenGroups.contains(group.id)
+            if group.isSaved != saved { group.isSaved = saved }
+        }
+        for tab in pane.tabs { prime(tab) }
+    }
+
+    /// What a tab learns when it is indexed: its agent and its observed folder.
+    private func prime(_ tab: TabModel) {
+        if tab.agent == nil, let agent = agents.bySurface[tab.surface] { tab.setAgent(agent) }
+        if let presence = heldPresence.removeValue(forKey: tab.surface) { tab.setPresence(presence) }
+        tab.setObservedCwd(directories.directory(for: tab.surface))
+    }
+
+    /// Publishes a tab list change once the visible state is complete.
+    func publishTabListChange() {
+        if index.takeTabListChange() { tabListRevision &+= 1 }
+    }
+
+    /// Runs `onWorkspaceListChanged` when the workspace set differs from
+    /// the last one reported (outside a batch, once loaded). Order is not
+    /// membership: a move or a group change leaves the set as it was.
     func workspaceListMayHaveChanged() {
-        guard applyDepth == 0, isLoaded, let hook = onWorkspaceListChanged else { return }
+        // Tracked without a hook too: a hook installed later runs for the next change, not for
+        // a set its installer (`reconcileMembership`) has just read.
+        guard applyDepth == 0, isLoaded else { return }
         guard checkedListGeneration != listGeneration else { return }
         checkedListGeneration = listGeneration
-        let list = sidebarSections.flatMap(\.workspaces).map(\.id) + ["|"] + workspaces.map(\.id)
+        if let notified = notifiedWorkspaceList, notified.count == workspaces.count,
+           workspaces.allSatisfy({ notified.contains($0.listID) }) { return }
+        let list = Set(workspaces.map(\.listID))
         guard list != notifiedWorkspaceList else { return }
         notifiedWorkspaceList = list
-        hook()
+        workspaceSetRevision &+= 1
+        onWorkspaceListChanged?()
     }
 
     func recomputeSidebar() {

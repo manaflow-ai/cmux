@@ -24,13 +24,20 @@
 //!   promptAt?, answerAt?}]}`, the newest 200. A harness with no reader, or a
 //!   file too large or unreadable, answers invalid params with `data.reason`
 //!   `transcript_unsupported`, `transcript_too_large` or `transcript_unreadable`.
+//! - `_acpmux/chat_fork {harness, agentSessionId, cwd?}`: a terminal chat's fork, made by its
+//!   harness's ACP agent (`chat_fork.rs`): `{harness, agentSessionId}` of the new session.
 //! - `_acpmux/chat_roots`: the roots, refused roots with reasons, watcher errors.
 //! - `_acpmux/chat_roots_record {harness, transcriptPath}`: a hook reports
 //!   a transcript; its store root joins the index (recorded roots file).
-//! - `_acpmux/chat_settings {enabled, discovery, roots, managedRoots}`: the
-//!   app's effective cmux.json `agents.chats.*` values (`chats/settings.rs`);
-//!   answers the roots view with `applied: true`. While chats are off,
-//!   `_acpmux/chats` answers `enabled: false` and no chats.
+//! - `_acpmux/chat_settings {enabled, discovery, roots, managedRoots,
+//!   permissionMode?, permissionModeManaged?, allowFullAccess?,
+//!   allowFullAccessManaged?}`: the app's effective cmux.json
+//!   `agents.chats.*` values (`chats/settings.rs`) and its effective
+//!   `agents.defaultPermissionMode` and `sessions.allowFullAccess`, each with
+//!   whether MDM or the team policy forces it (`hub/start_mode_state.rs`; a
+//!   forced full-access off is an upper bound); answers the roots view with
+//!   `applied: true`. While chats are off, `_acpmux/chats` answers
+//!   `enabled: false` and no chats.
 //!
 //! Titles and folders are user data (C5): only the local unix socket gets
 //! them. Every WebSocket origin (Web, LocalApp, Peer) gets "Method not
@@ -40,6 +47,7 @@
 mod offers;
 mod stats;
 
+use crate::no_panic::JsonExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -61,15 +69,45 @@ pub(super) async fn route(
     m: &str,
     params: Value,
 ) -> Result<Value, RpcError> {
+    // A read-only paired machine reads, nothing else (`pairing.rs`), before any dispatcher.
+    let params = super::pairing::gate(conn, m, params)?;
+    hub.prepare_store_request(m, &params).await;
+    if let Some(reply) = super::pairing::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
     // The secret methods check their own callers and never reach a peer (`secrets.rs`).
     if let Some(reply) = super::secrets::dispatch(hub, conn, m, &params).await {
         return reply;
     }
+    // A one-shot completion runs a harness CLI with the user's own login:
+    // the unix socket only. `Hub::complete` is its one gate (it never reaches
+    // `remote_guard` or a peer).
+    if m == crate::rpc::method::MUX_COMPLETE {
+        return hub.complete(conn.origin, &params).await;
+    }
     if let Some(reply) = offers::dispatch(hub, conn, m, &params) {
         return reply;
     }
+    // So do the sub-session methods (`subsessions.rs`): this daemon's own sessions only.
+    if let Some(reply) = super::subsessions::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
+    // So do the forum methods (`forum.rs`): this daemon's own log.
+    if let Some(reply) = super::forum::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
     // So do the process methods (`processes.rs`).
+    // And the worktree cleanup methods (`worktrees.rs`).
+    if let Some(reply) = super::worktrees::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
+    if let Some(reply) = super::worktrees::retention(hub, conn, m, &params).await {
+        return reply;
+    }
     if let Some(reply) = super::processes::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
+    if let Some(reply) = super::bg_tasks::dispatch(hub, conn, m, &params).await {
         return reply;
     }
     // Moving a chat to another daemon (`hub/transfer_out.rs`): a bundle holds the whole chat and
@@ -193,6 +231,32 @@ pub(super) async fn route(
             })
             .await
         }
+        // Fork Conversation of a terminal chat whose agent's CLI has no fork (`chat_fork.rs`).
+        "_acpmux/chat_fork" => {
+            let text = |key: &str| {
+                params.get(key).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty())
+            };
+            let harness =
+                text("harness").ok_or_else(|| RpcError::invalid_params("harness is missing"))?;
+            let id = text("agentSessionId")
+                .ok_or_else(|| RpcError::invalid_params("agentSessionId is missing"))?;
+            let cwd = text("cwd")
+                .map(PathBuf::from)
+                .or_else(dirs::home_dir)
+                .unwrap_or_else(|| PathBuf::from("/"));
+            let (family, profile) = {
+                let cfg = hub.config.read().await;
+                let (name, profile) =
+                    crate::chat_fork::profile_for(&cfg, harness).ok_or_else(|| {
+                        RpcError::invalid_params(format!(
+                            "no ACP harness runs {harness} here, so its chat cannot fork"
+                        ))
+                    })?;
+                (crate::config::derive_family(name, profile), profile.clone())
+            };
+            let forked = crate::chat_fork::fork(harness, &family, &profile, id, &cwd).await?;
+            Ok(json!({"harness": harness, "agentSessionId": forked}))
+        }
         "_acpmux/chat_roots_record" => {
             let service =
                 service.ok_or_else(|| RpcError::internal("the chat index is starting"))?;
@@ -216,6 +280,47 @@ pub(super) async fn route(
         "_acpmux/chat_settings" => {
             let settings = crate::chats::ChatSettings::from_params(&params)
                 .map_err(RpcError::invalid_params)?;
+            let managed = match params.get("permissionModeManaged") {
+                None | Some(Value::Null) => false,
+                Some(Value::Bool(managed)) => *managed,
+                Some(_) => {
+                    return Err(RpcError::invalid_params(
+                        "permissionModeManaged must be true or false",
+                    ));
+                }
+            };
+            // Anything but a short string is no value; forced, that is a
+            // value acpmux does not know (`Hub::apply_permission_push`). The
+            // rest of the push applies either way.
+            let mode = match params.get("permissionMode") {
+                Some(Value::String(mode)) if mode.len() <= 64 => Some(mode.clone()),
+                None | Some(Value::Null) => None,
+                Some(other) => {
+                    let kind =
+                        if other.is_string() { "an over-long string" } else { "not a string" };
+                    tracing::warn!(
+                        managed,
+                        "chat_settings permissionMode is {kind}; read as no value"
+                    );
+                    None
+                }
+            };
+            hub.apply_permission_push(mode, managed).await;
+            // `sessions.allowFullAccess` as MDM or the team policy forces it: only a forced value
+            // counts, and anything but `true` is off. No key (an older app, or nothing forced)
+            // forces nothing.
+            let full_access_managed = match params.get("allowFullAccessManaged") {
+                None | Some(Value::Null) => false,
+                Some(Value::Bool(managed)) => *managed,
+                Some(_) => {
+                    return Err(RpcError::invalid_params(
+                        "allowFullAccessManaged must be true or false",
+                    ));
+                }
+            };
+            let forced = full_access_managed
+                .then(|| params.get("allowFullAccess") == Some(&Value::Bool(true)));
+            hub.apply_full_access_push(forced).await;
             let hub = hub.clone();
             blocking(move || {
                 let running = hub.apply_chat_settings(settings).map_err(RpcError::internal)?;
@@ -223,7 +328,7 @@ pub(super) async fn route(
                     Some(service) if running => service.roots_view(),
                     _ => json!({"ready": false}),
                 };
-                view["applied"] = json!(true);
+                view.set("applied", json!(true));
                 Ok(view)
             })
             .await
@@ -261,7 +366,7 @@ async fn settled_page(
     query: ChatQuery,
 ) -> Result<Value, RpcError> {
     let mut page = page(hub, service, query).await?;
-    page["settled"] = Value::Bool(true);
+    page.set("settled", Value::Bool(true));
     Ok(page)
 }
 
@@ -353,8 +458,17 @@ pub(super) fn push_activity(hub: &Hub, conn: &Conn, ev: &HubEvent) {
         return;
     }
     if let Ok(session) = hub.resolve(&ev.session_id)
-        && let Some(change) = activity_change(&session)
+        && let Some(change) = activity_change(hub, &session)
     {
         conn.send(&Message::notification("_acpmux/chat_changed", change));
     }
+}
+
+/// `_acpmux/watch_take_over {sessionId, ifLive?}`: the watched chat runs the conversation itself
+/// (`hub/watch.rs`).
+pub(super) async fn watch_take_over(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
+    let s = hub.resolve(super::session_key(params)?)?;
+    let if_live = crate::adopt::IfLive::parse(super::str_param(params, "ifLive"))
+        .map_err(RpcError::invalid_params)?;
+    hub.watch_take_over(&s, if_live).await
 }

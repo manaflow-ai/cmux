@@ -1,4 +1,5 @@
 import CmuxNextDaemon
+import CmuxNextDesign
 
 /// Where a page's new tab goes, in Chrome's order (cx-d0d.19,
 /// plans/cmux-next/browser-parity.md Rank 1). This is Chromium's
@@ -26,7 +27,7 @@ import CmuxNextDaemon
 /// (`BrowserTabService.settled`).
 final class BrowserTabOpeners {
     /// Each link tab's opener, by surface.
-    private var openerOf: [SurfaceID: SurfaceID] = [:]
+    private(set) var openerOf: [SurfaceID: SurfaceID] = [:]
     /// The placement each opener's next one waits for.
     private var queue: [SurfaceID: Task<SurfaceID, any Error>] = [:]
     /// A page's new tab exists (child, opener): the browser host reports it
@@ -116,6 +117,30 @@ final class BrowserTabOpeners {
         if !onNewTabPageAtEnd { forgetAll() }
     }
 
+    /// Each of `tabs`' opener tab, by tab id (a pane's tabs, including
+    /// one this client is closing), for the close successor
+    /// (`FocusAfterClose.tab`). Nothing is changed.
+    func relations(among tabs: [TabModel]) -> [String: String] {
+        relations(among: tabs.map { ($0.surface, $0.id) })
+    }
+
+    private func relations(among tabs: [(SurfaceID, String)]) -> [String: String] {
+        let id = Dictionary(tabs) { first, _ in first }
+        return FocusAfterClose.liveOpeners(openerOf, among: tabs.map(\.0)).reduce(into: [:]) { if let c = id[$1.key], let o = id[$1.value] { $0[c] = o } }
+    }
+
+    /// A pane's relations for its close successor (`TabSelectionMemory.resolve`'s `openers`), over
+    /// its `tabs` and `last`, the tabs (surface, tab id) its previous apply saw: a tab this client just
+    /// closed is out of the pane's tabs (TabCloseOverlay) by the apply that picks the successor, and its
+    /// opener picks it. Call on every apply with that pane's own `last` (each window's controller keeps
+    /// its own), so the first close in a pane has its tabs too; the closure runs only on a close.
+    func closeRelations(among tabs: [TabModel], last: inout [(SurfaceID, String)]) -> () -> [String: String] {
+        let now = tabs.map { ($0.surface, $0.id) }
+        let seen = last + now
+        last = now
+        return { [weak self] in self?.relations(among: seen) ?? [:] }
+    }
+
     func forgetAll() {
         openerOf.removeAll()
     }
@@ -123,12 +148,6 @@ final class BrowserTabOpeners {
     /// Tabs the pane no longer shows (closed, moved away) leave the tree;
     /// their children take their opener (`FixOpeners`).
     private func reconcile(with order: [SurfaceID]) {
-        let shown = Set(order)
-        for gone in Set(openerOf.keys).union(openerOf.values) where !shown.contains(gone) {
-            let inherited = openerOf.removeValue(forKey: gone)
-            for (child, parent) in openerOf where parent == gone {
-                openerOf[child] = inherited == child ? nil : inherited
-            }
-        }
+        openerOf = FocusAfterClose.liveOpeners(openerOf, among: order)
     }
 }

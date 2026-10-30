@@ -2,10 +2,10 @@
 // full text wrapped into a tall thin column. A tooltip for truncated text shows the full text,
 // wrapping, up to the source row's width (at least ~480 px), and never narrower than the line.
 // Tooltips also carry a shortcut hint in the secondary ink, like the native one.
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { HoverGroup, HoverIntent } from "./hoverIntent";
-import { installTooltips, tooltipWidth } from "./titleTooltips";
+import { installTooltips, tooltipPosition, tooltipWidth } from "./titleTooltips";
 
 test("a tooltip for truncated text wraps up to its source's width, never narrower than the line", () => {
   // Untruncated: the standard tooltip width.
@@ -112,13 +112,21 @@ test("rows passing under a scroll do not flash their tooltips; the row under the
   const tip = () => doc.querySelector<HTMLElement>(".ui-title-tooltip")!;
   await hover(a);
   expect(tip().hidden).toBe(false);
-  doc.dispatchEvent(new dom!.window.Event("scroll"));
-  a.dispatchEvent(new dom!.window.MouseEvent("pointerout", { bubbles: true, relatedTarget: b }));
-  await hover(b);
-  expect(tip().hidden).toBe(true);
-  await new Promise((resolve) => setTimeout(resolve, 400));
-  expect(tip().hidden).toBe(false);
-  expect(tip().querySelector(".ui-tooltip-text")?.textContent).toBe("Second");
+  // The scroll's quiet time and the frames after it run on a clock the test moves.
+  jest.useFakeTimers();
+  try {
+    doc.dispatchEvent(new dom!.window.Event("scroll"));
+    a.dispatchEvent(new dom!.window.MouseEvent("pointerout", { bubbles: true, relatedTarget: b }));
+    b.dispatchEvent(new dom!.window.MouseEvent("pointerover", { bubbles: true }));
+    // Inside the scroll's quiet time (150 ms) the row under the pointer shows nothing.
+    jest.advanceTimersByTime(100);
+    expect(tip().hidden).toBe(true);
+    jest.advanceTimersByTime(300);
+    expect(tip().hidden).toBe(false);
+    expect(tip().querySelector(".ui-tooltip-text")?.textContent).toBe("Second");
+  } finally {
+    jest.useRealTimers();
+  }
 });
 
 // Leo, 2026-10-14: tooltips showed at once on every control the pointer passed. They wait the hover
@@ -251,4 +259,47 @@ test("a key typed while a toolbar hint waits drops it: it does not pop up mid-ty
   doc.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "a", bubbles: true }));
   clock.advance(2000);
   expect(hint).toEqual([]);
+});
+
+// Leo, 2026-10-20: the chat header's "Chat summary" tooltip, at the window's right edge, read
+// "Chat summar / y". The fixed tooltip kept the place of the last one shown (a shorter one, further
+// right) while it was measured, so its shrink-to-fit width was only the room right of that place,
+// and the text broke inside a word.
+test("a tooltip near the right edge is measured at its full width, wherever the last one stood", async () => {
+  const doc = page(`<button id="close" title="Close"></button><button id="summary" title="Chat summary"></button>`);
+  const close = doc.getElementById("close")!;
+  const summary = doc.getElementById("summary")!;
+  close.getBoundingClientRect = () => ({ left: 970, top: 10, width: 24, height: 24 }) as DOMRect;
+  summary.getBoundingClientRect = () => ({ left: 940, top: 10, width: 26, height: 26 }) as DOMRect;
+  // Laid out on one line its text is 7 px a letter, but a fixed box only gets the room right of its `left`.
+  const proto = dom!.window.HTMLElement.prototype;
+  const original = proto.getBoundingClientRect;
+  proto.getBoundingClientRect = function (this: HTMLElement) {
+    if (!this.classList.contains("ui-title-tooltip")) return original.call(this);
+    const left = parseFloat(this.style.left) || 0;
+    return { left, top: 0, width: Math.min(7 * (this.textContent ?? "").length, 1000 - left), height: 16 } as DOMRect;
+  };
+  try {
+    const tip = doc.querySelector<HTMLElement>(".ui-title-tooltip")!;
+    await hover(close);
+    expect(tip.style.left).toBe(`${1000 - 6 - 35}px`);
+    close.dispatchEvent(new dom!.window.MouseEvent("pointerout", { bubbles: true }));
+    await hover(summary);
+    expect(tip.textContent).toBe("Chat summary");
+    // As wide as its text (84 px), not squeezed into the 41 px right of the last tooltip's place.
+    expect(tip.style.left).toBe(`${1000 - 6 - 84}px`);
+  } finally {
+    proto.getBoundingClientRect = original;
+  }
+});
+
+test("a top-side tooltip (a message's time) sits above its element, below only when there is no room above", () => {
+  const view = { width: 800, height: 600 };
+  const size = { width: 140, height: 22 };
+  const time = { left: 100, top: 300, width: 80, height: 24 };
+  // Centered on the time, 6px above it (as Claude's), and below by default.
+  expect(tooltipPosition(time, size, view, "top")).toEqual({ left: 70, top: 272 });
+  expect(tooltipPosition(time, size, view)).toEqual({ left: 70, top: 330 });
+  // At the pane's top edge: below.
+  expect(tooltipPosition({ ...time, top: 10 }, size, view, "top")).toEqual({ left: 70, top: 40 });
 });

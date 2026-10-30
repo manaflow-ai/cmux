@@ -209,3 +209,57 @@ fn a_thread_has_a_title_an_owner_and_a_status_that_a_chief_resolves_and_a_reply_
         "{snapshot}"
     );
 }
+
+/// A create that reuses its idempotency key with another request is
+/// refused (`idempotency_conflict`). The refusal names the conversation the
+/// key made (`error_details.conversation`) to a creator that takes part in
+/// it: a Chief whose grown DM was also retitled finds its DM again (hq-6d
+/// 2026-10-14). An actor outside that conversation gets the plain refusal,
+/// so a key never discloses a conversation to someone not in it. (A remote
+/// client never reaches the store: the remote relay's command gate refuses
+/// `conversation-create`, and the daemon strips error_details from every
+/// remote reply.)
+#[test]
+fn an_idempotency_conflict_names_the_keyed_conversation_only_to_a_participant() {
+    let server = HeadlessServer::start("conversation-create-conflict");
+    let mut home = Unix::open(&server.socket);
+    let token = |home: &mut Unix, participant: &str| {
+        home.request("conversation-agent-token", json!({"participant": participant}))["token"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    let bound = |participant: &str, token: String| {
+        let mut connection = Unix::open(&server.socket);
+        connection
+            .request("conversation-bind", json!({"participant": participant, "token": token}));
+        connection
+    };
+    let dm = |title: &str| {
+        json!({"idempotency_key": "chief-dm-conflict", "title": title, "participants": [
+            {"id": "user_local", "kind": "human", "display_name": "Tester"},
+            {"id": "agent_mux", "kind": "agent", "display_name": "Chief", "agent_class": "mux"}]})
+    };
+    let chief_token = token(&mut home, "agent_mux");
+    let mut chief = bound("agent_mux", chief_token);
+    let created = chief.request("conversation-create", dm("Chief"));
+    let keyed = created["conversation"]["id"].as_str().unwrap().to_owned();
+
+    // The creator, a participant: the refusal names its conversation.
+    let conflict = chief.reply("conversation-create", dm("Chief, renamed"));
+    rejected(&conflict, "idempotency_conflict");
+    assert_eq!(conflict["reason"], "idempotency_conflict", "{conflict}");
+    assert_eq!(conflict["error_details"]["conversation"], keyed.as_str(), "{conflict}");
+
+    // An agent outside the conversation, with the same key: refused, no id.
+    let outsider_token = token(&mut home, "agent_outsider");
+    let mut outsider = bound("agent_outsider", outsider_token);
+    let conflict = outsider.reply("conversation-create", dm("Chief"));
+    rejected(&conflict, "idempotency_conflict");
+    assert_eq!(conflict["reason"], "idempotency_conflict", "{conflict}");
+    assert!(
+        conflict.get("error_details").is_none(),
+        "an outsider learned the keyed conversation: {conflict}"
+    );
+    assert!(!conflict.to_string().contains(&keyed), "{conflict}");
+}

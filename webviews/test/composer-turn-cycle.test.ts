@@ -4,16 +4,21 @@
 // cycle's snapshots through the pane's bridge, as the app's arrive: running, one then three
 // subagents, a subagent's permission ask, a queued prompt, finished. Across the cycle the prompt,
 // the controls row, the footer and every control keep their boxes (within 0.5 px); the ask and the
-// queue grow upward over the transcript. Typing while the turn runs (Stop becomes Steer and Send)
-// moves neither the mic nor Send. In every phase the row shows no context ring or spinner (the
-// running state is Send turned Stop, nothing else) and one lock at most (hq#1957 item 15 compact
-// row).
+// queue grow upward over the transcript. The draft is empty, so the idle and finished phases draw
+// no Send (Claude desktop's box: no Send until there is a draft, Leo 2026-10-20): the mic holds the
+// right edge throughout, Stop comes in before it while the turn runs and keeps one box, and the
+// prompt keeps its left, top and height while its column gives Stop room. Typing while the turn
+// runs (↵ joins Stop) moves neither the mic nor Stop. In every phase the row shows no context ring
+// or spinner (the running state is Stop, nothing else) and one lock at most (hq#1957 item 15 compact
+// row). The quiet row under the box (ComposerFoot.tsx) ends on the context ring, which holds its
+// place from the first frame, so the first usage report moves nothing.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { TURN_CYCLE } from "../src/agent-session/acpmux/composerTurnCycle.gallery";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
@@ -30,7 +35,7 @@ await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
   const stageURL = (variant: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=agent-pane.composer-turn-cycle&variant=${variant}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame("agent-pane.composer-turn-cycle", { variant })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -41,17 +46,7 @@ await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
     await vite.listen();
     browser = await chromium.launch({ headless: true });
     // Warm the stage once: the first load can run Vite's dependency optimizer and reload mid-compile.
-    const warm = await browser.newPage({ viewport: { width: 720, height: 520 } });
-    await warm.goto(stageURL("idle"));
-    for (;;) {
-      try {
-        await warm.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 0 });
-        break;
-      } catch (error) {
-        if (!/context was destroyed|navigat/i.test(String(error))) throw error;
-      }
-    }
-    await warm.close();
+    await warmGalleryFrame(vite, "agent-pane.composer-turn-cycle", { browser, params: { variant: "idle" } });
   });
   afterAll(async () => {
     await browser?.close();
@@ -61,14 +56,17 @@ await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
   const CONTROLS: Record<string, string> = {
     box: ".acpmux-composer-box",
     prompt: ".acpmux-composer-prompt",
-    bar: ".acpmux-composer-bar",
+    // The box's own row draws no box of its own (display: contents): + and the mic stand for it.
     footer: ".acpmux-composer-context",
     plus: ".acpmux-composer-plus .acpmux-picker-button",
     model: ".acpmux-model .acpmux-picker-button",
-    effort: ".acpmux-effort .acpmux-picker-button",
+    // The model button's own effort label (Leo 2026-10-20: one button, no effort chip).
+    effort: ".acpmux-model .acpmux-model-detail",
     access: ".acpmux-access-trigger",
     mic: ".acpmux-mic",
-    "send or stop": ".acpmux-send",
+    // Stop while the turn runs; an idle row with an empty draft has none (no Send until there is a draft).
+    "send or stop": ".acpmux-send:not(.acpmux-steer-now)",
+    "context ring": ".acpmux-composer-foot .acpmux-context-ring",
   };
 
   /** Each control's box, or "missing". */
@@ -86,15 +84,25 @@ await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
   /** What the row should not show: a ring or spinner, more than one lock, the granted-status chip. */
   const calm = (page: Page) =>
     page.evaluate(() => {
-      const bar = document.querySelector(".acpmux-composer-bar")!;
+      // Both rows: the box's own (+, the mic, Send or Stop) and, with the split, the quiet row under
+      // it that holds the chips (ComposerFoot). The quiet row's one context ring is its own and holds
+      // its place; nothing else rings or spins in either.
+      const rows = [...document.querySelectorAll(".acpmux-composer-bar")];
       const out: string[] = [];
-      for (const element of bar.querySelectorAll(
-        '.acpmux-context, .acpmux-context-ring, [role="progressbar"], [class*="spinner"], [class*="-ring"]',
-      ))
-        out.push(`a ring or spinner (${element.className.toString() || element.tagName})`);
-      const locks = bar.querySelectorAll('svg path[d^="M5.5 7V5.6"]').length;
+      if (!rows.some((row) => row.querySelector(".acpmux-access-trigger, .acpmux-model")))
+        out.push("no row holds the chips");
+      for (const row of rows) {
+        const own = row.classList.contains("acpmux-composer-foot")
+          ? ":not(.acpmux-context):not(.acpmux-context-ring)"
+          : "";
+        for (const element of row.querySelectorAll(
+          `.acpmux-context${own}, .acpmux-context-ring${own}, [role="progressbar"], [class*="spinner"], [class*="-ring"]${own}`,
+        ))
+          out.push(`a ring or spinner (${element.className.toString() || element.tagName})`);
+      }
+      const locks = rows.reduce((sum, row) => sum + row.querySelectorAll('svg path[d^="M5.5 7V5.6"]').length, 0);
       if (locks > 1) out.push(`${locks} locks`);
-      if (bar.querySelector(".acpmux-permission-status")) out.push("the granted-status chip");
+      if (rows.some((row) => row.querySelector(".acpmux-permission-status"))) out.push("the granted-status chip");
       return out;
     });
 
@@ -113,7 +121,7 @@ await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width, height: 520 } });
     await page.goto(stageURL(variant));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-    await page.locator(".acpmux-effort .acpmux-picker-button").waitFor();
+    await page.locator(".acpmux-model .acpmux-model-detail:visible").first().waitFor();
     await page.evaluate(() => document.fonts.ready);
     return page;
   };
@@ -123,6 +131,9 @@ await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
       const page = await open(width, TURN_CYCLE[0]!.name);
       const start = await boxes(page);
       const problems: string[] = (await calm(page)).map((problem) => `${TURN_CYCLE[0]!.name}: ${problem}`);
+      // An empty draft at rest draws no Send; Stop's box is held to the first running phase's.
+      if (start["send or stop"] !== "missing") problems.push(`${TURN_CYCLE[0]!.name}: Send shows with no draft`);
+      let firstStop: number[] | "missing" | undefined;
       for (const { name, snapshot } of TURN_CYCLE.slice(1)) {
         await page.evaluate(
           (next) =>
@@ -130,31 +141,48 @@ await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
           snapshot,
         );
         await page.waitForFunction(
-          (working) => document.querySelector(working ? ".acpmux-cancel" : ".acpmux-send:not(.acpmux-cancel)"),
+          (working) => (document.querySelector(".acpmux-cancel") !== null) === working,
           snapshot.isWorking,
         );
         // Two frames: the pane renders the snapshot, then any effect it lays out from.
         await page.evaluate(
           () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
         );
-        problems.push(...moved(start, await boxes(page)).map((problem) => `${name}: ${problem}`));
+        const now = await boxes(page);
+        if (snapshot.isWorking) firstStop ??= now["send or stop"];
+        const expected = { ...start, "send or stop": snapshot.isWorking ? firstStop! : start["send or stop"] };
+        // While Stop shows, the prompt's column narrows by its width: the prompt keeps its left, top and height.
+        const prompt = (all: typeof now) => {
+          const box = all.prompt!;
+          return { ...all, prompt: box === "missing" ? box : [box[0]!, box[1]!, box[3]!] };
+        };
+        problems.push(...moved(prompt(expected), prompt(now)).map((problem) => `${name}: ${problem}`));
+        if (snapshot.isWorking && now["send or stop"] === "missing") problems.push(`${name}: no Stop`);
         problems.push(...(await calm(page)).map((problem) => `${name}: ${problem}`));
       }
       await page.close();
       expect(problems).toEqual([]);
     });
 
-    test(`at ${width} px typing while the turn runs moves neither the mic nor Send`, async () => {
+    test(`at ${width} px typing while the turn runs moves neither the mic nor Stop`, async () => {
       const page = await open(width, "subagents-three");
       const before = await boxes(page);
       await page.click("[contenteditable='true']");
       await page.keyboard.type("x");
-      await page.locator(".acpmux-steer").waitFor();
+      await page.locator(".acpmux-steer-now").waitFor();
       const after = await boxes(page);
       await page.close();
       // A narrow row makes room for Steer from its left cluster (labels give way by priority).
-      const fixed = width >= 720 ? Object.keys(CONTROLS) : ["prompt", "bar", "footer", "mic", "send or stop"];
-      const pick = (all: typeof before) => Object.fromEntries(fixed.map((name) => [name, all[name]!]));
+      const fixed = width >= 720 ? Object.keys(CONTROLS) : ["prompt", "footer", "mic", "send or stop"];
+      // ↵ takes its place beside the mic, so the prompt's column narrows by its width; the prompt
+      // keeps its place and height (its left, top and height), and every control its box.
+      const pick = (all: typeof before) =>
+        Object.fromEntries(
+          fixed.map((name) => {
+            const box = all[name]!;
+            return [name, name === "prompt" && box !== "missing" ? [box[0]!, box[1]!, box[3]!] : box];
+          }),
+        );
       expect(moved(pick(before), pick(after))).toEqual([]);
     });
   }

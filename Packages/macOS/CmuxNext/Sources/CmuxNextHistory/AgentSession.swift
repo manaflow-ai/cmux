@@ -54,6 +54,7 @@ public nonisolated enum AgentResume {
         case "opencode": return "opencode --session \(id)"
         case "amp": return "amp threads continue \(id)"
         case "gemini": return "gemini --resume \(id)"
+        case "muse": return "muse resume \(id)"
         default: return nil
         }
     }

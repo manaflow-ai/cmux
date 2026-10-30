@@ -1,31 +1,34 @@
+// cmux-web-test-timeout: 300
 // The composer's controls row and footer (hq#1957 item 15). Leo saw a huge empty gap between
 // Effort and the permission chip while the model and effort chips truncated ("Claude Opu…",
 // "Med…"), and the folder footer cut at the card's bottom edge. In the gallery's
 // `agent-pane.composer-row` entry at a narrow, a normal and a wide pane:
-//   - the controls are two clusters: + model effort access on the left, mic and Send (or Stop)
-//     on the right; the row's free space sits only between the two;
+//   - the controls are two clusters: + model access on the left, mic and Send (or Stop) on the
+//     right; the row's free space sits only between the two;
+//   - the effort is the model button's own label, "Opus 5.5  Medium" (Leo 2026-10-20), never a
+//     chip of its own, and it is never cut either;
 //   - the row is compact and calm (hq#1957 item 15 compact row): the left cluster's controls sit
-//     8 to 12 px apart, evenly (within 1 px); no context ring or spinner in the row; one lock at
+//     4 to 12 px apart (composer-row-rhythm.test.ts: one gap per group); no ring or spinner; one lock at
 //     most; no granted-permission status chip; Stop has Send's footprint and a square glyph of 9
-//     to 12 px, centred in a solid text-colored disc with a base-colored square (Q4-B: the faint
-//     disc read as a disabled Send);
-//   - no label is cut while the row has free space, and a short row cuts by priority: the
-//     permission labels go to icons first, then effort shortens, the model last;
-//   - the folder and computer controls sit whole inside the location strip on the card's top edge
-//     (hq#1957 composer location strip; composer-location-strip.test.ts measures the strip itself).
+//     to 12 px, centred in it: a plain glyph in the secondary text color (--agent-muted), with no
+//     disc (Leo 2026-10-21);
+//   - no label is ever cut: a short row swaps whole units instead (a short label, a glyph alone),
+//     in composerRowFit.ts's order, which composer-row-steps.test.ts plays;
+//   - these chats have started, so no location strip heads the card (a new chat's strip is
+//     composer-location-strip.test.ts's).
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 type Rect = { left: number; right: number; top: number; bottom: number; width: number };
 type Row = {
   bar: Rect;
   box: Rect;
-  footer: Rect;
-  footerControls: Rect[];
+  footer: Rect | null;
   /** Left cluster controls in order, with the free space after the last one. */
   left: { name: string; rect: Rect }[];
   right: Rect;
@@ -38,16 +41,22 @@ type Row = {
   locks: number;
   /** Whether the granted-permission status chip sits in the row. */
   status: boolean;
+  /** Whether an effort chip of its own is drawn anywhere (none since Leo 2026-10-20). */
+  effortChip: boolean;
   /** Send or Stop, whichever shows, and Stop's glyph. */
   send: Rect | undefined;
   stop: Rect | undefined;
   stopGlyph: Rect | undefined;
-  /** Send's or Stop's fill and ink, whichever shows. */
+  /** The trailing cluster's controls, left to right by position (mic, Send or Stop, ↵). */
+  trailing: string[];
+  /** Send's or Stop's fill and ink, whichever shows; empty when neither does. */
   fill: string;
   ink: string;
   /** The theme's --agent-text and --acpmux-base, resolved in the bar. */
   text: string;
   base: string;
+  /** The pane's secondary text color (--agent-muted), resolved in the bar: the ink of the mic, Send and Stop. */
+  muted: string;
 };
 
 await requireBrowserLane("composer-row-layout.test.ts", async () => {
@@ -61,11 +70,10 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       element instanceof HTMLElement && element.getBoundingClientRect().width > 0;
     const bar = document.querySelector(".acpmux-composer-bar")!;
     const box = document.querySelector(".acpmux-composer-box")!;
-    const footer = document.querySelector(".acpmux-composer-strip")!;
+    const footer = document.querySelector(".acpmux-composer-strip");
     const named: [string, string][] = [
       ["plus", ".acpmux-composer-plus .acpmux-picker-button"],
       ["model", ".acpmux-model .acpmux-picker-button"],
-      ["effort", ".acpmux-effort .acpmux-picker-button"],
       ["access", ".acpmux-access-trigger"],
       ["plan", ".acpmux-plan"],
     ];
@@ -105,14 +113,35 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
     return {
       bar: rect(bar),
       box: rect(box),
-      footer: rect(footer),
-      footerControls: [...footer.querySelectorAll(".acpmux-location-button, .acpmux-location-readonly")].map(rect),
+      footer: footer && rect(footer),
       left,
       right: rect(bar.querySelector(".acpmux-composer-actions")!),
+      trailing: [...bar.querySelectorAll<HTMLElement>(".acpmux-composer-actions button")]
+        .filter(visible)
+        .sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left)
+        .map((button) =>
+          button.classList.contains("acpmux-mic")
+            ? "mic"
+            : button.classList.contains("acpmux-steer-now")
+              ? "steer"
+              : button.classList.contains("acpmux-cancel")
+                ? "stop"
+                : button.classList.contains("acpmux-send")
+                  ? "send"
+                  : button.className,
+        ),
       barGap: parseFloat(getComputedStyle(bar).columnGap) || 0,
       labels: {
-        model: label(".acpmux-model .acpmux-picker-button", ".acpmux-model-name", ".acpmux-model"),
-        effort: label(".acpmux-effort .acpmux-picker-button", "span", ".acpmux-effort"),
+        model: label(
+          ".acpmux-model .acpmux-picker-button",
+          '[data-fit-part="model"][data-fit-forms~="full"], .acpmux-model-name:not([data-short])',
+          ".acpmux-model",
+        ),
+        effort: label(
+          ".acpmux-model .acpmux-picker-button",
+          '.acpmux-model-detail[data-fit-forms~="full"]:not(.acpmux-fit-label)',
+          ".acpmux-model",
+        ),
         access: label(".acpmux-access-trigger", ".acpmux-mode-text", ".acpmux-access"),
       },
       spinners: [
@@ -123,6 +152,7 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       // LockIcon (ComposerPickers.tsx): its shackle path.
       locks: bar.querySelectorAll('svg path[d^="M5.5 7V5.6"]').length,
       status: bar.querySelector(".acpmux-permission-status") !== null,
+      effortChip: document.querySelector(".acpmux-effort") !== null,
       send: bar.querySelector(".acpmux-send:not(.acpmux-cancel)")
         ? rect(bar.querySelector(".acpmux-send:not(.acpmux-cancel)")!)
         : undefined,
@@ -130,16 +160,26 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       stopGlyph: bar.querySelector(".acpmux-cancel svg rect")
         ? rect(bar.querySelector(".acpmux-cancel svg rect")!)
         : undefined,
-      fill: getComputedStyle(bar.querySelector(".acpmux-send")!).backgroundColor,
-      ink: getComputedStyle(bar.querySelector(".acpmux-send")!).color,
+      // Claude desktop's box: no Send until there is a draft (Leo 2026-10-20), so an idle row may have neither.
+      fill: (() => {
+        const shown = bar.querySelector(".acpmux-send");
+        return shown ? getComputedStyle(shown).backgroundColor : "";
+      })(),
+      ink: (() => {
+        const shown = bar.querySelector(".acpmux-send");
+        return shown ? getComputedStyle(shown).color : "";
+      })(),
       ...(() => {
         const probe = document.createElement("span");
         probe.style.color = "var(--agent-text)";
         probe.style.backgroundColor = "var(--acpmux-base)";
         bar.appendChild(probe);
         const { color, backgroundColor } = getComputedStyle(probe);
+        // The pane's secondary text color, the ink of the mic, Send and Stop.
+        probe.style.color = "var(--agent-muted)";
+        const muted = getComputedStyle(probe).color;
         probe.remove();
-        return { text: color, base: backgroundColor };
+        return { text: color, base: backgroundColor, muted };
       })(),
     };
   }
@@ -157,7 +197,7 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
   const stageURL = (variant: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=agent-pane.composer-row&variant=${variant}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame("agent-pane.composer-row", { variant })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -168,29 +208,25 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
     await vite.listen();
     browser = await chromium.launch({ headless: true });
     // Warm the stage once: the first load can run Vite's dependency optimizer and reload mid-compile.
-    const warm = await browser.newPage({ viewport: { width: 720, height: 300 } });
-    await warm.goto(stageURL("claude-auto"));
-    for (;;) {
-      try {
-        await warm.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 0 });
-        break;
-      } catch (error) {
-        if (!/context was destroyed|navigat/i.test(String(error))) throw error;
-      }
-    }
-    await warm.close();
+    await warmGalleryFrame(vite, "agent-pane.composer-row", { browser, params: { variant: "claude-auto" } });
   });
   afterAll(async () => {
     await browser?.close();
     await vite?.close();
   });
 
-  const row = async (variant: string, width: number) => {
+  /** The row's geometry; `draft` is typed first, so an idle row draws its Send. */
+  const row = async (variant: string, width: number, draft?: string) => {
     const page = await browser!.newPage({ viewport: { width, height: 300 } });
     await page.goto(stageURL(variant));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-    await page.locator(".acpmux-effort .acpmux-picker-button").waitFor();
+    await page.locator(".acpmux-model .acpmux-model-detail:visible").first().waitFor();
     await page.evaluate(() => document.fonts.ready);
+    if (draft) {
+      await page.locator(".acpmux-composer-prompt [contenteditable]").click();
+      await page.keyboard.type(draft);
+      await page.locator(".acpmux-composer-bar .acpmux-send:not(.acpmux-cancel)").waitFor();
+    }
     const measured = await page.evaluate(measure);
     await page.close();
     return measured;
@@ -198,7 +234,7 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
 
   for (const variant of ["claude-auto", "long-model", "granted", "queued"])
     for (const width of [420, 720, 1100])
-      test(`${variant} at ${width} px: two clusters, cut by priority, strip whole`, async () => {
+      test(`${variant} at ${width} px: two clusters, no cut label, no location strip`, async () => {
         const measured = await row(variant, width);
         const { left, right, labels, barGap } = measured;
         const names = left.map((control) => control.name);
@@ -209,32 +245,23 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
           if (gap > barGap + 0.5)
             problems.push(`${Math.round(gap)} px gap between ${names[index - 1]} and ${names[index]}`);
         }
-        // The permission mode follows effort directly, in the left cluster.
-        if (names.indexOf("access") < names.indexOf("effort"))
-          problems.push(`access is not after effort: ${names.join(", ")}`);
-        // The free space is only between the clusters; a cut label means there is none.
-        const free = right.left - left.at(-1)!.rect.right - barGap;
-        // A label dropped for its icon is a step: the row may keep less than that label's width.
-        const cut = Object.entries(labels).flatMap(([name, label]) => (label?.cut ? [name] : []));
-        for (const name of cut)
-          if (labels[name]!.dropped ? free >= labels[name]!.need - 0.5 : free > 1)
-            problems.push(`${name} cut with ${Math.round(free)} px free in the row`);
-        // Priority: the permission label goes first, then effort, the model last.
-        if (labels.effort?.cut && labels.access?.cut === false)
-          problems.push("effort is cut while the permission label shows");
-        if (labels.model?.cut && (labels.effort?.atMin === false || labels.access?.cut === false))
-          problems.push("the model is cut before effort and the permission label");
-        // At a normal and a wide pane every label of Leo's row shows whole.
-        if (width >= 720 && variant !== "long-model" && cut.length > 0)
-          problems.push(`${cut.join(", ")} cut at ${width} px`);
-        // The location strip heads the card, its controls whole inside it.
-        if (Math.abs(measured.footer.bottom - measured.box.top) > 1)
-          problems.push("the strip is not on the card's top edge");
-        for (const control of measured.footerControls) {
-          if (control.top < measured.footer.top - 0.5 || control.bottom > measured.footer.bottom + 0.5)
-            problems.push("a strip control runs out of the strip");
-          if (control.left < measured.footer.left - 0.5) problems.push("a strip control runs out of the strip's side");
-        }
+        // The effort rides the model button: no control of its own (Leo 2026-10-20).
+        if (measured.effortChip) problems.push("an effort chip of its own is drawn");
+        // The row's free space sits between the clusters: the trailing one starts after the left ends.
+        if (right.left < left.at(-1)!.rect.right + barGap - 0.5)
+          problems.push(
+            `the trailing cluster overlaps the chips by ${Math.round(left.at(-1)!.rect.right + barGap - right.left)} px`,
+          );
+        // A drawn label is never cut (an ellipsis, or laid out outside its chip); a label swapped
+        // for its short form or glyph is a step of the row (composer-row-steps.test.ts).
+        const cut = Object.entries(labels).flatMap(([name, label]) => (label?.cut && !label.dropped ? [name] : []));
+        for (const name of cut) problems.push(`${name} cut at ${width} px`);
+        // At a normal and a wide pane every label of Leo's row shows whole, in full.
+        const dropped = Object.entries(labels).flatMap(([name, label]) => (label?.dropped ? [name] : []));
+        if (width >= 720 && variant !== "long-model" && dropped.length > 0)
+          problems.push(`${dropped.join(", ")} not in full at ${width} px`);
+        // A started chat cannot change its folder or machine: no location strip heads the card.
+        if (measured.footer) problems.push("a started chat draws the location strip");
         expect(problems).toEqual([]);
       });
 
@@ -243,16 +270,13 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       test(`${variant} at ${width} px: a compact, calm row`, async () => {
         const measured = await row(variant, width);
         const problems: string[] = [];
-        // Even gaps in the left cluster: each 8 to 12 px, none more than 1 px off another.
-        const gaps = measured.left.slice(1).map((control, index) => ({
-          between: `${measured.left[index]!.name}-${control.name}`,
-          gap: control.rect.left - measured.left[index]!.rect.right,
-        }));
-        for (const { between, gap } of gaps)
-          if (gap < 7.5 || gap > 12.5) problems.push(`${between} ${gap.toFixed(1)} px apart`);
-        const sizes = gaps.map(({ gap }) => gap);
-        if (sizes.length > 1 && Math.max(...sizes) - Math.min(...sizes) > 1)
-          problems.push(`uneven gaps ${gaps.map(({ between, gap }) => `${between} ${gap.toFixed(1)}`).join(", ")}`);
+        // The left cluster's spacing (one gap inside a group, one between groups) is
+        // composer-row-rhythm.test.ts's; here no two of its controls touch or sit far apart.
+        for (const [index, control] of measured.left.slice(1).entries()) {
+          const gap = control.rect.left - measured.left[index]!.rect.right;
+          if (gap < 3.5 || gap > 12.5)
+            problems.push(`${measured.left[index]!.name}-${control.name} ${gap.toFixed(1)} px apart`);
+        }
         if (measured.spinners.length > 0)
           problems.push(`a ring or spinner in the row: ${measured.spinners.join(", ")}`);
         if (measured.locks > 1) problems.push(`${measured.locks} locks in the row`);
@@ -265,23 +289,105 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
         expect(problems).toEqual([]);
       });
 
+  // A short pane with a queued prompt (re-review of #22285): the queue's last row, the card and the
+  // split's quiet row (28 px and its 4 px gap) under it all stay inside the pane. The transcript
+  // gives up room for the quiet row, down to 64 px above the stack.
+  for (const height of [300, 285])
+    test(`queued in a ${height} px pane: the quiet row stays inside the pane`, async () => {
+      const page = await browser!.newPage({ viewport: { width: 720, height } });
+      await page.goto(stageURL("queued"));
+      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+      await page.locator(".acpmux-composer-foot .acpmux-model .acpmux-model-detail:visible").first().waitFor();
+      const drawn = await page.evaluate(() => {
+        const rect = (selector: string) => document.querySelector(selector)?.getBoundingClientRect();
+        const main = rect(".acpmux-main")!;
+        const foot = rect(".acpmux-composer-foot")!;
+        const box = rect(".acpmux-composer-box")!;
+        const queue = rect(".acpmux-composer-queue");
+        const transcript = rect(".acpmux-main .acpmux-scroll")!;
+        const stack = rect(".acpmux-main > .acpmux-dock")!;
+        return {
+          footInside: foot.bottom <= main.bottom + 0.5,
+          footUnderBox: foot.top >= box.bottom - 0.5,
+          queueAboveBox: !queue || queue.bottom <= box.top + 0.5,
+          transcriptRoom: Math.round(stack.top - transcript.top),
+          footBottom: Math.round(foot.bottom),
+          paneBottom: Math.round(main.bottom),
+        };
+      });
+      await page.close();
+      console.log(`queued at ${height} px`, JSON.stringify(drawn));
+      expect({
+        footInside: drawn.footInside,
+        footUnderBox: drawn.footUnderBox,
+        queueAboveBox: drawn.queueAboveBox,
+      }).toEqual({
+        footInside: true,
+        footUnderBox: true,
+        queueAboveBox: true,
+      });
+      // The transcript keeps a row's worth above the stack.
+      expect(drawn.transcriptRoom).toBeGreaterThanOrEqual(64);
+    });
+
+  // Leo 2026-10-21: "WE HAVE TOO MUCH FUCKING STUPID SPACE AT THE BOTTOM COMPAREDE TO CLAUDE CODE".
+  // Claude Code leaves about 8 px under its quiet row; the row's own 10 px margin is the room under
+  // it (Leo 2026-10-20: never on the window's edge), with no composer padding added below that.
+  for (const variant of ["claude-auto", "queued"])
+    test(`${variant}: the quiet row sits about 10 px over the pane's bottom edge`, async () => {
+      const page = await browser!.newPage({ viewport: { width: 720, height: 600 } });
+      await page.goto(stageURL(variant));
+      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+      await page.locator(".acpmux-composer-foot .acpmux-model .acpmux-model-detail:visible").first().waitFor();
+      const under = await page.evaluate(() => {
+        const main = document.querySelector(".acpmux-main")!.getBoundingClientRect();
+        const foot = document.querySelector(".acpmux-composer-foot")!.getBoundingClientRect();
+        return Math.round(main.bottom - foot.bottom);
+      });
+      await page.close();
+      expect(under).toBeGreaterThanOrEqual(6);
+      expect(under).toBeLessThanOrEqual(12);
+    });
+
+  // Only the floating chat dock drops it: a fresh chat's hero layout (no data-dock) keeps the
+  // composer's own 16 px bottom padding.
+  test("a dock that does not float keeps the composer's bottom padding", async () => {
+    const page = await browser!.newPage({ viewport: { width: 720, height: 600 } });
+    await page.goto(stageURL("claude-auto"));
+    await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+    await page.locator(".acpmux-composer-foot .acpmux-model .acpmux-model-detail:visible").first().waitFor();
+    const padding = await page.evaluate(() => {
+      const composer = () => getComputedStyle(document.querySelector(".acpmux-dock > .acpmux-composer")!);
+      const floating = composer().paddingBottom;
+      document.querySelector(".acpmux-main")!.removeAttribute("data-dock");
+      return { floating, fresh: composer().paddingBottom };
+    });
+    await page.close();
+    expect(padding).toEqual({ floating: "0px", fresh: "16px" });
+  });
+
   for (const width of [420, 720, 1100])
-    test(`at ${width} px Stop takes Send's box as a solid, theme-inverted disc`, async () => {
-      const idle = await row("claude-auto", width);
+    test(`at ${width} px Stop has Send's footprint as a plain glyph in the secondary text color`, async () => {
+      // Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, so the idle row
+      // Stop is held against has a prompt typed; there Send comes after the mic. While a turn
+      // runs Stop comes before the mic, which keeps the right edge, so Stop matches Send's size
+      // and line, not its x.
+      const idle = await row("claude-auto", width, "Add a test for the 429 path");
       const running = await row("queued", width);
       const send = idle.send!;
       const stop = running.stop!;
       expect(stop).toBeDefined();
-      const off = (["left", "right", "top", "bottom"] as const).filter(
-        (side) => Math.abs(send[side] - stop[side]) > 0.5,
-      );
+      const off = (["width", "top", "bottom"] as const).filter((side) => Math.abs(send[side] - stop[side]) > 0.5);
       expect(off.map((side) => `${side} ${send[side].toFixed(1)} -> ${stop[side].toFixed(1)}`)).toEqual([]);
-      // A solid disc in the text color with a base-colored square, never the faint resting circle
-      // of an empty draft's Send (design panel Q4-B: that read as a disabled Send).
-      expect(running.fill).not.toBe(idle.fill);
-      expect(running.fill).toBe(running.text);
-      expect(running.ink).toBe(running.base);
-      // The square sits in the disc's centre.
+      expect(idle.trailing.slice(-2)).toEqual(["mic", "send"]);
+      expect(running.trailing.slice(-2)).toEqual(["stop", "mic"]);
+      // A plain glyph, as the mic is (Leo 2026-10-21: "no solid discs"; then the secondary text
+      // color, only a hover background): no fill, the square in the secondary text color, a step
+      // above an empty draft's 45% Send.
+      expect(running.fill).toBe("rgba(0, 0, 0, 0)");
+      expect(running.muted).not.toBe(running.text);
+      expect(running.ink).toBe(running.muted);
+      // The square sits in Stop's centre.
       const glyph = running.stopGlyph!;
       const centre = (low: number, high: number) => (low + high) / 2;
       expect(Math.abs(centre(glyph.left, glyph.right) - centre(stop.left, stop.right))).toBeLessThanOrEqual(0.5);

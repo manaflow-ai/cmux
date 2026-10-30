@@ -118,6 +118,8 @@ IGNORED_JOB_LEVEL_KEYS = frozenset({
     "timeout-minutes",
     "permissions",
     "outputs",
+    # Which credentials the job may read (ci-build-cache-reader), like permissions; not what it builds.
+    "environment",
 })
 
 # Product recipe projection is fail-closed: every named admission step is part

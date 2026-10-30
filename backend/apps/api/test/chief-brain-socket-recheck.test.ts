@@ -31,7 +31,7 @@ const placedChief = async (name: string) => {
 
 /** The chief's socket on its main conversation: op frames, their answers, and a close. */
 const chiefSocket = async (conversation: string, token: string) => {
-  const res = await worker.fetch(`https://api.test/v1/wire/conv/${conversation}`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${token}` } })
+  const res = await worker.fetch(`https://api.test/v1/wire/conv/${conversation}`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": "cmux.wire.v1", authorization: `Bearer ${token}` } })
   expect(res.status).toBe(101)
   const ws = res.webSocket!
   const frames: Array<any> = []
@@ -121,7 +121,7 @@ describe("placed chief rights on an open socket", { timeout: 60_000 }, () => {
     const thread = await call("/v1/read", c.token, { op: "conversation.thread", params: { conversation, root: (msg as unknown as { id: string }).id } })
     expect(thread.status, JSON.stringify(thread.json)).toBe(200)
     // Its wake queue socket and mux.ack.
-    const res = await worker.fetch(`https://api.test/v1/wire/mux/${c.chief.id}`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${c.token}` } })
+    const res = await worker.fetch(`https://api.test/v1/wire/mux/${c.chief.id}`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": "cmux.wire.v1", authorization: `Bearer ${c.token}` } })
     expect(res.status).toBe(101)
     res.webSocket!.accept()
     res.webSocket!.close()

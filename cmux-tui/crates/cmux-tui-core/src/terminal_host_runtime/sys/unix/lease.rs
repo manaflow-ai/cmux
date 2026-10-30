@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Context;
 
 use super::super::super::TERMINAL_HOST_PUBLICATION_LOCK_FILE;
-use super::barrier_sync::{barrier_sync, open_lock_file, sync_new_lock_file};
+use super::barrier_sync::{open_lock_file, sync_new_lock_file};
 use super::prepare_private_dir;
 
 pub(crate) struct HostLivenessLease {
@@ -19,7 +19,12 @@ pub(crate) struct HostLivenessLease {
 }
 
 impl HostLivenessLease {
-    pub(crate) fn acquire(path: PathBuf) -> anyhow::Result<Self> {
+    /// Create and flock the host's liveness lease. Its barrier sync (why no
+    /// full sync: barrier_sync.rs) is left to the caller on the returned
+    /// duplicate, which a new host syncs after its Ready, off its terminal's
+    /// first output (new-terminal-100x). Liveness probes read the flock,
+    /// which holds at once; the sync only orders the file's creation.
+    pub(crate) fn acquire_deferring_sync(path: PathBuf) -> anyhow::Result<(Self, Option<File>)> {
         let file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -34,8 +39,8 @@ impl HostLivenessLease {
             let _ = fs::remove_file(&path);
             return Err(error.into());
         }
-        barrier_sync(&file)?; // why no full sync: barrier_sync.rs
-        Ok(Self { file, path })
+        let unsynced = file.try_clone()?;
+        Ok((Self { file, path }, Some(unsynced)))
     }
 }
 

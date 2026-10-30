@@ -5,8 +5,10 @@ Pull requests run only the cmux-next tiers their change reaches, and every
 feat-cmux-next push runs them all as a backstop (superseded pushes skip their
 Mac jobs, so a burst of merges is checked once, at its newest commit). When a
 push run fails, this finds, for each failed job, the newest earlier push run
-where the same job passed, and comments on every pull request merged in that
-range: one of them broke it, and its lane fixes forward.
+where the same job passed, and updates the shared status comment on every pull
+request merged in that range: one of them broke it, and its lane fixes forward.
+The latest processed failure replaces the push-attribution section instead of
+adding a timeline comment for each failed run.
 
 The run's code never executes here; it reads the Actions and pulls APIs.
 
@@ -26,6 +28,8 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+
+import pr_status
 
 MARKER = "<!-- cmux-next-push-attribution:{run_id} -->"
 # Jobs that report rather than check.
@@ -72,6 +76,13 @@ def last_green(failed: list[str], earlier: list[tuple[str, dict[str, str]]]) -> 
         if len(found) == len(failed):
             return earlier[max(found.values())][0]
     return None
+
+
+def never_passed(failed: list[str], earlier: list[tuple[str, dict[str, str]]]) -> list[str]:
+    """Failed jobs with no pass in the scanned runs: red since before the range (or never
+    run on a push before), so no merge in it is the culprit, and they must not hide the
+    range of the jobs that did pass."""
+    return [name for name in failed if not any(jobs.get(name) == "success" for _, jobs in earlier)]
 
 
 def pull_requests(repo: str, base: str, head: str, branch: str) -> list[int]:
@@ -137,9 +148,12 @@ def main(argv: list[str]) -> int:
         for run in runs
         if run["id"] < args.run_id and run["head_sha"] != args.sha and run.get("status") == "completed"
     ]
-    good = last_green(failed, earlier)
+    long_red = never_passed(failed, earlier)
+    if long_red:
+        report(f"{', '.join(long_red)} did not pass in the last {SCANNED_RUNS} push runs; no culprit range for it.")
+    failed = [name for name in failed if name not in long_red]
+    good = last_green(failed, earlier) if failed else None
     if good is None:
-        report(f"{', '.join(failed)} did not pass in the last {SCANNED_RUNS} push runs; no culprit range.")
         return 0
     numbers = pull_requests(args.repo, good, args.sha, args.branch)
     run_url = f"{args.server_url}/{args.repo}/actions/runs/{args.run_id}"
@@ -151,15 +165,12 @@ def main(argv: list[str]) -> int:
                    "The job has been red for a while; its owner needs the run, not each author.")
         return 0
     body = comment_body(run_url, args.sha, failed, good, numbers, args.run_id)
-    marker = MARKER.format(run_id=args.run_id)
     for number in numbers:
-        comments = gh_api(f"repos/{args.repo}/issues/{number}/comments?per_page=100")
-        if any(marker in (comment.get("body") or "") for comment in comments):
-            continue
         if args.dry_run:
             print(f"--- would comment on #{number}:\n{body}")
             continue
-        subprocess.run(["gh", "pr", "comment", str(number), "--repo", args.repo, "--body", body], check=True)
+        pr_status.upsert(args.repo, number, "push-attribution", body,
+                         legacy="<!-- cmux-next-push-attribution:")
     return 0
 
 

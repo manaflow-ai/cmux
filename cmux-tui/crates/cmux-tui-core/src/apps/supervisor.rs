@@ -12,7 +12,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use cmux_app_host::ToHost;
 use serde_json::{Value, json};
 
 use super::catalog::{self, Catalog, Package, Sources};
@@ -23,6 +22,7 @@ use super::mirror::{self, Effect, Mirror, Op, Origin, Record, SetOp};
 use super::storage::Storage;
 use super::timer::{TimerId, Timers};
 use crate::backoff::Backoff;
+use cmux_json::JsonSet as _;
 
 /// Writes one event or response to a control client; false when it is gone.
 pub type Sink = Arc<dyn Fn(&Value) -> bool + Send + Sync>;
@@ -162,8 +162,8 @@ pub(super) struct Host {
     pub runs: HashMap<u64, Responder>,
     /// The gesture token of each run that has one, revoked at its `done`.
     pub run_gestures: HashMap<u64, String>,
-    /// `run` messages for a host that has no process yet (restart pending).
-    pub queued_runs: Vec<ToHost>,
+    /// Unsent runs for the replacement, separate from the outgoing process's responders.
+    pub queued_runs: Vec<super::runs::PendingRun>,
     pub next_cb: u64,
     pub idle: Option<TimerId>,
     pub backoff: Backoff,
@@ -194,6 +194,7 @@ pub(super) struct Inner {
     pub gestures: Gestures,
     pub next_generation: u64,
     pub events_started: bool,
+    pub inventory_demand: super::subscriptions::InventoryDemand,
     /// Provider connection per family, and calls waiting for a provider
     /// (`provider.rs`).
     pub providers: HashMap<String, u64>,
@@ -297,6 +298,7 @@ impl Supervisor {
                 gestures: Gestures::default(),
                 next_generation: 1,
                 events_started: false,
+                inventory_demand: Default::default(),
                 providers: HashMap::new(),
                 provider_calls: HashMap::new(),
                 next_provider_request: 0,
@@ -353,6 +355,7 @@ impl Supervisor {
             for key in keys {
                 outs.extend(self.unmount_locked(&mut inner, &key));
             }
+            outs.extend(Self::inventory_demand_locked(&mut inner));
             outs
         };
         self.emit(outs);
@@ -382,7 +385,7 @@ impl Supervisor {
                 let mut record =
                     entry(&app, inner.catalog.packages.get(&app), inner.mirror.apps.get(&app));
                 // Lets a client drop list replies older than this commit.
-                record["revision"] = json!(inner.mirror.revision);
+                record.set("revision", json!(inner.mirror.revision));
                 record
             });
             outs.push(Out::Client(client, json!({ "event": "request-settled", "transaction": transaction, "sequence": inner.mirror.revision })));
@@ -419,6 +422,7 @@ impl Supervisor {
         if outcome.changed {
             outs.push(Out::Broadcast(json!({ "event": "apps-changed", "revision": inner.mirror.revision, "transaction": transaction, "app": app })));
         }
+        outs.extend(Self::inventory_demand_locked(inner));
         Ok(())
     }
 
@@ -485,11 +489,15 @@ impl Supervisor {
             .collect()
     }
 
-    pub(super) fn emit(&self, outs: Vec<Out>) {
+    pub(super) fn emit(&self, mut outs: Vec<Out>) {
+        let sinks = {
+            let mut inner = self.inner.lock().unwrap();
+            outs.extend(Self::inventory_demand_locked(&mut inner));
+            inner.sinks.clone()
+        };
         if outs.is_empty() {
             return;
         }
-        let sinks: HashMap<u64, Sink> = self.inner.lock().unwrap().sinks.clone();
         for out in outs {
             match out {
                 Out::Client(client, value) => {

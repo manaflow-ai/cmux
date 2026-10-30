@@ -2,10 +2,12 @@
 //! - ids are unique across sections and items;
 //! - one machine section per session, with id `sec_m_<session>`;
 //! - each workspace ref is placed once (`duplicate_ref`);
-//! - an item's parent is a group of the same section at the top level, and
-//!   a group has no parent (`nesting`);
-//! - a group's workspaces are of one machine, and a machine section holds
-//!   only its machine's workspaces and groups (`cross_machine`);
+//! - an item's parent is a group of the same section; a group may sit in a
+//!   group while its tree has at most [`MAX_GROUP_DEPTH`] levels of groups,
+//!   and parents never cycle (`nesting`);
+//! - the workspaces of one tree (a top-level group and everything under
+//!   it) are of one machine, and a machine section holds only its machine's
+//!   workspaces and groups (`cross_machine`);
 //! - an app section holds no items (`provider_owned`).
 //!
 //! [`touched`] checks only what an op list can have broken: the rows it
@@ -45,17 +47,15 @@ pub(crate) fn touched(
                             check_item(doc, item)?;
                         }
                         for group in doc.list(id, None).filter(|item| item.body.is_group()) {
-                            check_group(doc, group, None)?;
+                            check_tree(doc, group)?;
                         }
                     }
                 }
             }
         }
     }
-    // Groups that may have gained a member or moved, and the touched
-    // children of each.
+    // Groups that may have gained a member or moved.
     let mut groups: HashSet<&str> = HashSet::new();
-    let mut touched_children: HashMap<&str, Vec<&Item>> = HashMap::new();
     for (id, old) in items {
         let now = doc.item(id);
         if let Some(item) = now {
@@ -65,7 +65,6 @@ pub(crate) fn touched(
             }
             if let Some(parent) = &item.parent {
                 groups.insert(parent.as_str());
-                touched_children.entry(parent.as_str()).or_default().push(item);
             }
         }
         // Children of a group that went, moved or stopped being a group.
@@ -88,10 +87,14 @@ pub(crate) fn touched(
             }
         }
     }
+    // Each touched group's whole tree (a member deep in a tree must agree
+    // with the members elsewhere in it), once per tree.
+    let mut roots: HashSet<&str> = HashSet::new();
     for group in groups {
         let Some(item) = doc.item(group) else { continue };
-        if item.body.is_group() {
-            check_group(doc, item, Some(&touched_children))?;
+        let root = doc.root(item);
+        if root.body.is_group() && roots.insert(root.id.as_str()) {
+            check_tree(doc, root)?;
         }
     }
     Ok(())
@@ -113,6 +116,15 @@ fn check_sections(doc: &Doc) -> Result<(), Refusal> {
             return Err(Refusal::DuplicateId);
         }
         if !order_key::is_valid(&section.order) {
+            return Err(Refusal::InvalidValue);
+        }
+        if section.host_group && section.kind.machine().is_none() {
+            return Err(Refusal::InvalidValue);
+        }
+        if section.host_group_opt_out && section.kind.machine().is_none() {
+            return Err(Refusal::InvalidValue);
+        }
+        if section.host_group && section.host_group_opt_out {
             return Err(Refusal::InvalidValue);
         }
         if let Some(title) = &section.title {
@@ -141,13 +153,19 @@ fn check_item(doc: &Doc, item: &Item) -> Result<(), Refusal> {
     }
     if let Some(parent) = &item.parent {
         let parent = doc.item(parent).ok_or(Refusal::UnknownItem)?;
-        if !parent.body.is_group()
-            || parent.parent.is_some()
-            || parent.section != item.section
-            || item.body.is_group()
-        {
+        if !parent.body.is_group() || parent.section != item.section {
             return Err(Refusal::Nesting);
         }
+        if item.body.is_group() {
+            if doc.has_parent_cycle(item) {
+                return Err(Refusal::Nesting);
+            }
+            if doc.group_level(item) + doc.group_height(item) - 1 > MAX_GROUP_DEPTH {
+                return Err(Refusal::Nesting);
+            }
+        }
+    } else if item.body.is_group() && doc.group_height(item) > MAX_GROUP_DEPTH {
+        return Err(Refusal::Nesting);
     }
     if let Some(reference) = item.body.workspace() {
         if doc.ref_count(reference) > 1 {
@@ -162,11 +180,7 @@ fn check_item(doc: &Doc, item: &Item) -> Result<(), Refusal> {
     Ok(())
 }
 
-/// A group's workspaces are of one machine, and that machine owns the
-/// group's section when it is a machine section. With `touched` (an op
-/// list's touched children by group), the members not touched agreed
-/// before, so the first of them names the machine and only the touched ones
-/// are compared with it; without it every member is compared.
+/// `reference` is of the machine the tree's earlier workspaces named.
 fn agree<'a>(machine: &mut Option<&'a str>, reference: &'a WorkspaceRef) -> Result<(), Refusal> {
     match machine {
         Some(m) if *m != reference.session_id => Err(Refusal::CrossMachine),
@@ -177,41 +191,18 @@ fn agree<'a>(machine: &mut Option<&'a str>, reference: &'a WorkspaceRef) -> Resu
     }
 }
 
-fn check_group<'a>(
-    doc: &'a Doc,
-    group: &'a Item,
-    touched: Option<&HashMap<&str, Vec<&'a Item>>>,
-) -> Result<(), Refusal> {
-    let mut machine: Option<&'a str> = None;
-    match touched {
-        None => {
-            for child in doc.list(&group.section, Some(group.id.as_str())) {
-                if let Some(reference) = child.body.workspace() {
-                    agree(&mut machine, reference)?;
-                }
-            }
-        }
-        Some(touched) => {
-            let changed = touched.get(group.id.as_str());
-            let is_touched = |id: &str| {
-                changed.is_some_and(|children| children.iter().any(|child| child.id == id))
-            };
-            if let Some(reference) = doc
-                .list(&group.section, Some(group.id.as_str()))
-                .filter(|child| !is_touched(&child.id))
-                .find_map(|child| child.body.workspace())
-            {
-                agree(&mut machine, reference)?;
-            }
-            for child in changed.into_iter().flatten() {
-                if let Some(reference) = child.body.workspace() {
-                    agree(&mut machine, reference)?;
-                }
-            }
+/// A tree's workspaces (every workspace under the top-level group `root`,
+/// at any depth) are of one machine, and that machine owns the tree's
+/// section when it is a machine section.
+fn check_tree(doc: &Doc, root: &Item) -> Result<(), Refusal> {
+    let mut machine: Option<&str> = None;
+    for item in doc.descendants(root) {
+        if let Some(reference) = item.body.workspace() {
+            agree(&mut machine, reference)?;
         }
     }
     if let Some(machine) = machine
-        && let Some(owner) = doc.section(&group.section).and_then(|s| s.kind.machine())
+        && let Some(owner) = doc.section(&root.section).and_then(|s| s.kind.machine())
         && owner != machine
     {
         return Err(Refusal::CrossMachine);
@@ -225,15 +216,15 @@ pub fn check(doc: &Doc) -> Result<(), Refusal> {
         return Err(Refusal::TooMany);
     }
     check_sections(doc)?;
-    let mut groups = Vec::new();
+    let mut roots = Vec::new();
     for item in doc.items_unordered() {
         check_item(doc, item)?;
-        if item.body.is_group() {
-            groups.push(item);
+        if item.body.is_group() && item.parent.is_none() {
+            roots.push(item);
         }
     }
-    for group in groups {
-        check_group(doc, group, None)?;
+    for root in roots {
+        check_tree(doc, root)?;
     }
     Ok(())
 }
@@ -313,6 +304,13 @@ pub fn repair(doc: &mut Doc) -> bool {
         if section.gap.is_some_and(|gap| !GAP_RANGE.contains(&gap)) {
             section.gap = None;
         }
+        if section.kind.machine().is_none() {
+            section.host_group = false;
+            section.host_group_opt_out = false;
+        } else if section.host_group && section.host_group_opt_out {
+            // An explicit Remove wins over a contradictory grouped flag.
+            section.host_group = false;
+        }
     }
     if sections.iter().any(|section| !order_key::is_valid(&section.order)) {
         let keys = order_key::spread(sections.len());
@@ -339,10 +337,9 @@ pub fn repair(doc: &mut Doc) -> bool {
     items.truncate(MAX_ITEMS);
     let groups: HashMap<String, String> = items
         .iter()
-        .filter(|item| item.body.is_group() && item.parent.is_none())
+        .filter(|item| item.body.is_group())
         .map(|item| (item.id.clone(), item.section.clone()))
         .collect();
-    let mut group_machine: HashMap<String, String> = HashMap::new();
     for item in &mut items {
         if let Body::Group { name, .. } = &mut item.body {
             let fitted = fit_title(name);
@@ -352,20 +349,36 @@ pub fn repair(doc: &mut Doc) -> bool {
             item.span = None;
         }
         let Some(parent) = item.parent.clone() else { continue };
-        let fits = !item.body.is_group() && groups.get(&parent) == Some(&item.section);
-        let fits = fits
-            && match item.body.workspace() {
-                Some(reference) => {
-                    *group_machine.entry(parent).or_insert_with(|| reference.session_id.clone())
-                        == reference.session_id
-                }
-                None => true,
-            };
-        if !fits {
+        if parent == item.id || groups.get(&parent) != Some(&item.section) {
             item.parent = None;
         }
     }
-    // A group whose workspaces belong to another machine than its section.
+    lift_deep_or_cyclic_groups(&mut items);
+    // The top-level group of each grouped item, then one machine per tree:
+    // a workspace that disagrees with its tree's first one is lifted out.
+    let parent_of: HashMap<String, Option<String>> =
+        items.iter().map(|item| (item.id.clone(), item.parent.clone())).collect();
+    let root_of = |id: &str| -> String {
+        let mut current = id.to_string();
+        for _ in 0..=MAX_GROUP_DEPTH {
+            match parent_of.get(&current).cloned().flatten() {
+                Some(parent) => current = parent,
+                None => break,
+            }
+        }
+        current
+    };
+    let mut group_machine: HashMap<String, String> = HashMap::new();
+    for item in &mut items {
+        let (Some(_), Some(reference)) = (&item.parent, item.body.workspace()) else { continue };
+        let root = root_of(&item.id);
+        if *group_machine.entry(root).or_insert_with(|| reference.session_id.clone())
+            != reference.session_id
+        {
+            item.parent = None;
+        }
+    }
+    // A tree whose workspaces belong to another machine than its section.
     items.retain(|item| {
         let Some(machine) = group_machine.get(&item.id) else { return true };
         kinds
@@ -392,4 +405,50 @@ pub fn repair(doc: &mut Doc) -> bool {
     }
     *doc = Doc::from_parts(doc.revision, sections, items);
     true
+}
+
+/// Lift to the top level of its section every group whose parent chain
+/// cycles or puts it (or its subtree) deeper than [`MAX_GROUP_DEPTH`]
+/// levels; repeated until every chain fits. Repair never deletes a group.
+fn lift_deep_or_cyclic_groups(items: &mut [Item]) {
+    loop {
+        let parent_of: HashMap<&str, Option<&str>> = items
+            .iter()
+            .filter(|item| item.body.is_group())
+            .map(|item| (item.id.as_str(), item.parent.as_deref()))
+            .collect();
+        let mut lift: Vec<String> = Vec::new();
+        let mut cycle: Option<String> = None;
+        for item in items.iter().filter(|item| item.body.is_group()) {
+            let mut seen: HashSet<&str> = HashSet::from([item.id.as_str()]);
+            let mut level = 1;
+            let mut current = item.parent.as_deref();
+            while let Some(parent) = current {
+                if !seen.insert(parent) {
+                    cycle.get_or_insert_with(|| item.id.clone());
+                    break;
+                }
+                level += 1;
+                current = parent_of.get(parent).copied().flatten();
+            }
+            // The first group past the limit; its subtree comes along and
+            // is checked again on the next pass.
+            if level == MAX_GROUP_DEPTH + 1 {
+                lift.push(item.id.clone());
+            }
+        }
+        // A cycle first, alone: lifting one member breaks it.
+        let lift = match cycle {
+            Some(id) => vec![id],
+            None => lift,
+        };
+        if lift.is_empty() {
+            return;
+        }
+        for item in items.iter_mut() {
+            if lift.contains(&item.id) {
+                item.parent = None;
+            }
+        }
+    }
 }

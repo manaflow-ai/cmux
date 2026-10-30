@@ -44,11 +44,14 @@ pub(crate) struct FrontendTabPlacement {
     pub(crate) activate: bool,
     /// The tab goes right after this tab of the pane, else at the end.
     pub(crate) after: Option<SurfaceId>,
+    /// The tab goes at this index of the pane's strip (clamped), before
+    /// `after` ([`super::tab_strip::tab_slot`]: Reopen Closed puts a tab back in place).
+    pub(crate) index: Option<usize>,
 }
 
 impl Default for FrontendTabPlacement {
     fn default() -> Self {
-        Self { activate: true, after: None }
+        Self { activate: true, after: None, index: None }
     }
 }
 
@@ -123,8 +126,13 @@ impl Mux {
         let placement = FrontendTabPlacement {
             activate: fields.get(ACTIVATE_FIELD).and_then(Value::as_bool).unwrap_or(true),
             after: fields.get(AFTER_FIELD).and_then(Value::as_u64),
+            index: tab_strip::tab_slot::effect_index(fields),
         };
         let transaction = effect_transaction(fields);
+        // `pinned-dock-v1`: a pinned column that takes no tabs refuses
+        // before the page starts, and again when the tab attaches.
+        let operation = ResourceOperation::TabCreateBrowser.wire_name();
+        self.with_state(|state| ensure_pane_takes_tabs(operation, state, pane))?;
         self.new_browser_tab_reserved(url, Some(pane), size, identity, None, placement, transaction)
     }
 
@@ -168,7 +176,7 @@ impl Mux {
         placement: FrontendTabPlacement,
         transaction: Option<Arc<str>>,
     ) -> anyhow::Result<Arc<Surface>> {
-        let FrontendTabPlacement { activate, after } = placement;
+        let FrontendTabPlacement { activate, after, index: strip_index } = placement;
         let (target, empty_workspace) = {
             let state = self.state.lock().unwrap();
             let target = match pane {
@@ -278,6 +286,8 @@ impl Mux {
                     public_id: workspace_public_id.clone(),
                     key: workspace_key.clone(),
                     name: name.clone(),
+                    name_source: crate::resource_name::NameSource::Auto,
+                    name_revision: 0,
                     group_key: self.session.clone(),
                 });
                 let commit = match registry.commit(
@@ -315,6 +325,8 @@ impl Mux {
                     public_id: workspace_public_id,
                     key: workspace_key,
                     name,
+                    name_source: crate::resource_name::NameSource::Auto,
+                    name_revision: 0,
                     screens: vec![Screen {
                         id: screen_id,
                         public_id: ScreenPublicId::random()?,
@@ -371,12 +383,31 @@ impl Mux {
         let joins;
         let attached = {
             let mut state = self.state.lock().unwrap();
-            joins = joined_group(&state, &notifications.presentation, target, after);
-            let slot = insertion_index(&state, &notifications.presentation, target, after);
+            // `pinned-dock-v1`: the column may have become pinned meanwhile.
+            let operation = ResourceOperation::TabCreateBrowser.wire_name();
+            if let Err(error) = ensure_pane_takes_tabs(operation, &state, target) {
+                state.surfaces.remove(&surface.id);
+                drop(state);
+                surface.kill();
+                return Err(error);
+            }
+            let slot = match strip_index {
+                Some(_) => {
+                    joins = None;
+                    None
+                }
+                None => {
+                    joins = joined_group(&state, &notifications.presentation, target, after);
+                    insertion_index(&state, &notifications.presentation, target, after)
+                }
+            };
             match state.panes.get_mut(&target) {
                 Some(pane) => {
                     let end = pane.tabs.len();
-                    let index = slot.unwrap_or(end);
+                    let index = match strip_index {
+                        Some(index) => tab_strip::tab_slot::slot(Some(index), end),
+                        None => slot.unwrap_or(end),
+                    };
                     pane.tabs.insert(index, surface.id);
                     if activate {
                         pane.active_tab = index;

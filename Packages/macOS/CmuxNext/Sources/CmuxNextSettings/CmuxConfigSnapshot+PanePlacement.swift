@@ -2,7 +2,7 @@ public import CmuxNextDesign
 
 /// Where new panes open (`PanePlacement`): `layout.newPanePlacement` (tab or
 /// split) and `layout.tileBrowsers` (browsers split too under split
-/// placement). A missing key is the default with no diagnostic; a bad value
+/// placement), `layout.linkPlacement` (``LinkPlacement``), `layout.mainPane` (``MainPaneSetting``). A missing key is the default with no diagnostic; a bad value
 /// is the default plus a diagnostic.
 nonisolated extension CmuxConfigSnapshot {
     public static let newPanePlacementPath = ["layout", "newPanePlacement"]
@@ -28,6 +28,10 @@ nonisolated extension CmuxConfigSnapshot {
         } else {
             snapshot.tileBrowsers = tileBrowsersFallback
         }
+        snapshot.linkPlacement = ColumnLayoutSettings.choice(root, LinkPlacement.configPath, fallback: LinkPlacement.fallback,
+                                                             diagnostics: &diagnostics)
+        snapshot.mainPane = ColumnLayoutSettings.choice(root, MainPaneSetting.configPath, fallback: MainPaneSetting.fallback,
+                                                        diagnostics: &diagnostics)
         snapshot.diagnostics += diagnostics
     }
 }

@@ -24,7 +24,7 @@ import {
  * cloud.machine.pause and cloud.machine.start (state-placement.md 7 item 4; CLOUDDO-MONEY-OPS: a
  * signed-in person, the team allowlist and plan, the environment's name prefix, ledger first, the
  * per-team rate limit). The intent commits its ledger row and the transient status (pausing,
- * starting); CloudDO runs the provider call (Freestyle POST /v5/vms/{id}/pause or /start) and commits
+ * starting); CloudDO runs the provider call (CloudProvider pause or start) and commits
  * the outcome. Pause frees an active slot when it lands; start takes one at once (quota at intent).
  * A final failure returns the machine to where it was, with the error.
  */
@@ -52,7 +52,7 @@ export const powerIntent = (config: CloudConfig, state: CloudState, op: "cloud.m
   }
   const rev = state.rev + 1
   const key = ledgerKey(ctx.principal.identity, ctx.idempotencyKey)
-  const ledger: LedgerRow = { key, op: pause ? "pause" : "start", machine: m.id, provider_name: m.provider_name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now }
+  const ledger: LedgerRow = { transport: m.transport ?? "direct", key, op: pause ? "pause" : "start", machine: m.id, provider_name: m.provider_name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now }
   // pause_reason: why cmux paused it by itself (for the app); a person's pause or a start clears it.
   const row: MachineRow = { ...m, status: pause ? "pausing" : "starting", error: null, revision: String(rev), pause_reason: pause && system ? reason : null, ...(pause ? {} : { last_power_at: ctx.now }) }
   const writes: Array<RowWrite> = [upsertLedger(ledger, rev), upsertMachine(row, stored.n)]
@@ -62,7 +62,7 @@ export const powerIntent = (config: CloudConfig, state: CloudState, op: "cloud.m
 }
 
 /**
- * cloud.machine.resize: grow only on every axis (Freestyle grows vCPU and memory live or on resume,
+ * cloud.machine.resize: grow only on every axis (the provider grows vCPU and memory live or on resume,
  * the disk only on a running VM), within the plan. The answer carries the target size; the ledger
  * row keeps the old size, restored after a final failure. One resize at a time per machine.
  */
@@ -88,7 +88,7 @@ export const resizeIntent = (config: CloudConfig, state: CloudState, params: unk
   if (!config.prefix || !ctx.idempotencyKey) return unavailable()
   const rev = state.rev + 1
   const key = ledgerKey(ctx.principal.identity, ctx.idempotencyKey)
-  const ledger: LedgerRow = { key, op: "resize", machine: m.id, provider_name: m.provider_name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now, size: target, size_before: cur }
+  const ledger: LedgerRow = { transport: m.transport ?? "direct", key, op: "resize", machine: m.id, provider_name: m.provider_name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now, size: target, size_before: cur }
   const row: MachineRow = { ...m, size: target, error: null, revision: String(rev) }
   const s = next(state, { pending: { ...state.pending, [key]: { machine: m.id, due_at: ctx.now + PENDING_SAFETY_MS } } }, { machine: m.id, removed: false })
   return { ok: true, state: s, value: { machine: publicMachine(row) }, writes: [upsertLedger(ledger, rev), upsertMachine(row, stored.n)] }

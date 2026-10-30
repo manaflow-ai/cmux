@@ -9,14 +9,21 @@ public struct TabLayoutEngine {
     ///   closes tabs with the mouse, the strip pretends to be only this wide so
     ///   the remaining tabs keep their width and the next close button slides
     ///   under the pointer. Nil outside closing mode.
+    /// - Parameter fullWidthTab: Full Width Tab mode (``TabStripModel/showsSelectedFullWidth``):
+    ///   this tab fills the whole strip and every other item collapses to zero
+    ///   width. Nil, or an id not in `items`, lays out every tab.
     public static func layout(
         items: [TabLayoutItem],
         availableWidth: CGFloat,
         style: TabStripStyle,
         metrics: TabStripMetrics = .standard,
-        closingModeWidth: CGFloat? = nil
+        closingModeWidth: CGFloat? = nil,
+        fullWidthTab: TabID? = nil
     ) -> TabLayoutResult {
         let available = max(0, min(availableWidth, closingModeWidth ?? .infinity))
+        if let fullWidthTab, items.contains(where: { $0.id == fullWidthTab && !$0.isGroupChip }) {
+            return fullWidthLayout(items: items, tab: fullWidthTab, available: available)
+        }
         let pinnedCount = items.count(where: \.isPinned)
         let unpinned = items.filter { !$0.isPinned }
         // Chips and collapsed members have their own widths; the rest share.
@@ -69,6 +76,22 @@ public struct TabLayoutEngine {
         )
     }
 
+    /// `tab` across the whole strip; the rest collapse at its leading or trailing edge, so a
+    /// mode change slides them in from where they sit.
+    private static func fullWidthLayout(items: [TabLayoutItem], tab: TabID, available: CGFloat) -> TabLayoutResult {
+        var passed = false
+        let slots = items.map { item in
+            guard item.id == tab else {
+                return TabLayoutSlot(id: item.id, x: passed ? available : 0, width: 0, isPinned: false,
+                                     groupID: item.groupID, isGroupChip: item.isGroupChip, isCollapsed: true)
+            }
+            passed = true
+            // Not pinned in the slot: a pinned tab here is no fixed band, it is the whole strip.
+            return TabLayoutSlot(id: item.id, x: 0, width: available, isPinned: false, groupID: item.groupID)
+        }
+        return TabLayoutResult(slots: slots, contentWidth: available, standardWidth: available, availableWidth: available)
+    }
+
     private static func unpinnedTabWidths(
         _ tabs: [TabLayoutItem],
         available: CGFloat,
@@ -85,29 +108,19 @@ public struct TabLayoutEngine {
         if ideal >= metrics.maxTabWidth {
             return (Array(repeating: metrics.maxTabWidth, count: count), metrics.maxTabWidth)
         }
-        if ideal >= metrics.minActiveTabWidth {
+        // Crowded: every tab shrinks evenly down to the inactive minimum, then the strip scrolls.
+        // The selected tab gets no larger share (Chrome's active minimum): a selection never
+        // moves or resizes a tab (Lawrence 2026-10-19). A narrow selected tab shows its x and
+        // drops its title, then its icon (`TabChromeVisibility`).
+        if count == 1 {
+            let width = max(ideal.rounded(.down), metrics.minActiveTabWidth)
+            return ([width], width)
+        }
+        if ideal >= metrics.minInactiveTabWidth {
             let widths = distribute(available, count: count)
             return (widths, widths.last ?? 0)
         }
-
-        // Too narrow for everyone: the selected tab keeps its minimum and the
-        // rest share what is left, down to the inactive minimum (then scroll).
-        guard let selectedIndex = tabs.firstIndex(where: \.isSelected), count > 1 else {
-            let width = max(ideal.rounded(.down), metrics.minInactiveTabWidth)
-            let clamped = count == 1 ? max(width, metrics.minActiveTabWidth) : width
-            return (Array(repeating: clamped, count: count), clamped)
-        }
-        let othersAvailable = available - metrics.minActiveTabWidth
-        let perOther = othersAvailable / CGFloat(count - 1)
-        var others: [CGFloat]
-        if perOther >= metrics.minInactiveTabWidth {
-            others = distribute(othersAvailable, count: count - 1)
-        } else {
-            others = Array(repeating: metrics.minInactiveTabWidth, count: count - 1)
-        }
-        let standard = others.last ?? metrics.minInactiveTabWidth
-        others.insert(metrics.minActiveTabWidth, at: selectedIndex)
-        return (others, standard)
+        return (Array(repeating: metrics.minInactiveTabWidth, count: count), metrics.minInactiveTabWidth)
     }
 
     /// Splits `total` into `count` whole-point widths. Leftover points go to

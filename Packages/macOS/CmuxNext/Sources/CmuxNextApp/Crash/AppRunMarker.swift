@@ -1,3 +1,4 @@
+import CmuxNextCrashReporting
 import Darwin
 import Foundation
 import os
@@ -13,7 +14,16 @@ nonisolated(unsafe) private var fatalSignalDescriptor: Int32 = -1
 ///   plain signal with no report);
 /// - any other signal, or one sent by a process or by raise/abort (SIGTERM,
 ///   SIGINT, SIGHUP, abort's SIGABRT): re-raise it, or it would be lost.
-private let fatalSignalHandler: @convention(c) (Int32, UnsafeMutablePointer<__siginfo>?, UnsafeMutableRawPointer?) -> Void = { signal, info, _ in
+///
+/// On Darwin arm64 `si_code` cannot tell them apart (XNU never reports `SI_USER`, cx-sjv65), so a
+/// signal that arrives as a system call returns (raised, or sent to a waiting thread) is re-raised.
+/// One sent to a thread running user code still reads as a fault and is lost, as before.
+///
+/// First `fatalSignalBegan` gives back Sentry's Mach exception ports (the
+/// fault that runs again must reach the system's handler) and starts the
+/// crash deadline (2026-10-20 freezes).
+private let fatalSignalHandler: @convention(c) (Int32, UnsafeMutablePointer<__siginfo>?, UnsafeMutableRawPointer?) -> Void = { signal, info, context in
+    CrashReporter.fatalSignalBegan()
     var bytes: (UInt8, UInt8, UInt8) = (UInt8(48 + (signal / 10) % 10), UInt8(48 + signal % 10), 10)
     let descriptor = fatalSignalDescriptor
     if descriptor >= 0 {
@@ -24,28 +34,26 @@ private let fatalSignalHandler: @convention(c) (Int32, UnsafeMutablePointer<__si
     }
     _ = Darwin.signal(signal, SIG_DFL)
     let sentBySoftware = info.map { $0.pointee.si_code == SI_USER || $0.pointee.si_code == SI_QUEUE } ?? true
+        || arrivedOnASystemCall(context)
     let fault = signal == SIGSEGV || signal == SIGBUS || signal == SIGILL || signal == SIGFPE || signal == SIGTRAP || signal == SIGSYS
     if sentBySoftware || !fault { _ = raise(signal) }
 }
 
-/// Gives the calling thread an alternate signal stack, so a fatal-signal
-/// handler installed with `SA_ONSTACK` still runs when that thread has
-/// overflowed its own stack (cx-30ko). Allocated once per thread and never
-/// freed: a signal can arrive at any time. A usable alternate stack that is
-/// already there (Sentry's) is kept.
-private func installAlternateSignalStack() {
-    var current = stack_t()
-    guard sigaltstack(nil, &current) == 0 else { return }
-    if current.ss_flags & SS_DISABLE == 0, current.ss_size >= Int(MINSIGSTKSZ) { return }
-    let page = Int(getpagesize())
-    let size = (Int(SIGSTKSZ) + page - 1) / page * page
-    // One guard page below the stack: a handler that overflows it faults
-    // instead of writing over other memory.
-    guard let base = mmap(nil, size + page, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0),
-          base != UnsafeMutableRawPointer(bitPattern: -1) else { return }
-    _ = mprotect(base, page, PROT_NONE)
-    var stack = stack_t(ss_sp: base.advanced(by: page), ss_size: size, ss_flags: 0)
-    if sigaltstack(&stack, nil) != 0 { _ = munmap(base, size + page) }
+/// Whether the thread was returning from `svc #0x80`: syndrome class 0x15 and that word before the pc.
+/// Sentry's re-raise arrives on the `sigreturn` to the faulting pc, which may be unmapped, so the
+/// word is read with `vm_read_overwrite` and a failed read is a fault. No context re-raises.
+nonisolated func arrivedOnASystemCall(_ context: UnsafeMutableRawPointer?) -> Bool {
+    #if arch(arm64)
+    guard let state = context?.assumingMemoryBound(to: ucontext_t.self).pointee.uc_mcontext else { return true }
+    guard state.pointee.__es.__esr >> 26 == 0x15 else { return false }
+    let pc = UInt(state.pointee.__ss.__pc)
+    guard pc >= 4 else { return false }
+    var word: UInt32 = 0, read: vm_size_t = 0
+    let result = withUnsafeMutablePointer(to: &word) { vm_read_overwrite(mach_task_self_, vm_address_t(pc - 4), 4, vm_address_t(UInt(bitPattern: $0)), &read) }
+    return result == KERN_SUCCESS && read == 4 && word == 0xD400_1001
+    #else
+    return false
+    #endif
 }
 
 /// Marks this run as live, so the next launch can tell a crash from a
@@ -53,8 +61,9 @@ private func installAlternateSignalStack() {
 /// read each other's marker.
 ///
 /// - `run.json`: pid, launch time, whether this run is a restart, whether
-///   it lived past the quick-crash window, and whether a requested quit had
-///   begun (`markQuitting`).
+///   it lived past the quick-crash window, whether a requested quit had
+///   begun (`markQuitting`), and the restored pages started within that
+///   window (`notePageStarted`).
 /// - `run.signal`: empty until a fatal signal handler writes its number.
 ///
 /// A normal quit removes both. A quit that had begun, or a requested-quit
@@ -88,14 +97,16 @@ final class AppRunMarker {
 
     /// Reads the previous run's marker in `directory`, then marks this run
     /// live and installs the fatal signal handlers.
-    init(directory root: URL, now: Date = Date()) {
+    /// - Parameter build: This build's version and commit, kept so a crash report of this run
+    ///   names the build that crashed, not the one running when it is sent.
+    init(directory root: URL, now: Date = Date(), build: (version: String?, commit: String?) = (nil, nil)) {
         self.directory = root
         file = RunMarkerFile(url: root.appending(path: "run.json"), signalURL: root.appending(path: "run.signal"))
         let previous = Self.readPrevious(marker: root.appending(path: "run.json"), signal: root.appending(path: "run.signal"),
                                          exception: root.appending(path: "run.exception"))
         recovery = LaunchRecovery.decide(previous: previous)
         marker = PreviousRun(pid: getpid(), launched: now, recovery: LaunchRecovery.watchesForLoop(previous: previous),
-                             survived: false, signal: nil)
+                             survived: false, signal: nil, version: build.version, commit: build.commit)
         start()
     }
 
@@ -115,6 +126,8 @@ final class AppRunMarker {
         let descriptor = open(signalFile.path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else { return }
         fatalSignalDescriptor = descriptor
+        CrashReporter.installCrashDeadline()
+        CrashReporter.installCrashWatcher(sampleFile: directory.appending(path: "crash-watcher-sample.txt").path)
         installHandlers()
         let window = LaunchRecovery.quickCrashWindow
         survivalTask = Task { [weak self] in
@@ -126,11 +139,12 @@ final class AppRunMarker {
 
     /// Installs the fatal signal handlers. Call again after CefInitialize:
     /// Chromium resets these signals to their default action at start.
-    /// They run on the main thread's alternate signal stack, so a main
-    /// thread stack overflow is recorded too.
+    /// They run on the faulting thread's alternate signal stack, so a stack
+    /// overflow is recorded too: the main thread's, and one on every thread
+    /// started after the first call.
     func installHandlers() {
         guard fatalSignalDescriptor >= 0 else { return }
-        installAlternateSignalStack()
+        CrashReporter.installAlternateSignalStacks()
         // SIGTERM, SIGINT and SIGHUP are requested quits: `QuitSignal` turns
         // them into "Quit, keep sessions" once installed; until then this
         // handler records them.
@@ -146,8 +160,25 @@ final class AppRunMarker {
         QuitSignal.reclaim()
     }
 
+    /// Stores what the run is doing (`CrashContextRecorder`) for the next launch's crash report.
+    func record(context: CrashContext) {
+        guard marker.context != context else { return }
+        marker.context = context
+        writeMarker()
+    }
+
     private func markSurvived() {
         marker.survived = true
+        marker.startedPages = nil
+        writeMarker()
+    }
+
+    /// Restored browser tab `key` started its page. Recorded only within the quick-crash window: if
+    /// this run then ends early in a restart loop, the next launch holds that page
+    /// (`LaunchRecovery.crashedPages`).
+    func notePageStarted(_ key: String) {
+        guard !marker.survived, marker.startedPages?.contains(key) != true else { return }
+        marker.startedPages = (marker.startedPages ?? []) + [key]
         writeMarker()
     }
 
@@ -184,7 +215,7 @@ final class AppRunMarker {
         file.close()
     }
 
-    /// Encodes the marker (about 120 bytes) and hands it to the background
+    /// Encodes the marker (about 120 bytes, up to about 2 KB with a `CrashContext`) and hands it to the background
     /// writer.
     private func writeMarker() {
         let encoder = JSONEncoder()

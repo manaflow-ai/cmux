@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // IME-KEYS (cx-dd5b4) in real engines (headless Chromium and WebKit from Playwright), on a real
 // page: the History page's dev entry (/history/?mock, the in-memory mock provider).
 //
@@ -16,7 +17,10 @@ import { spawn, type ChildProcess } from "node:child_process";
 import net from "node:net";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { stopDevServer } from "./support/devServer";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmDevServer } from "./support/warmDevServer";
 
 await requireBrowserLane("ime-composition-keys.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -56,10 +60,11 @@ await requireBrowserLane("ime-composition-keys.test.ts", async () => {
       server!.stderr!.on("data", onData);
       server!.on("exit", (code) => reject(new Error(`dev server exited ${code}`)));
     });
-  }, 60_000);
+    await warmDevServer(base, "/history/?mock");
+  }, 240_000);
 
   afterAll(() => {
-    server?.kill();
+    stopDevServer(server);
   });
 
   /** Dispatches a keydown on the focused element as the engine does for an IME key. */
@@ -97,6 +102,7 @@ await requireBrowserLane("ime-composition-keys.test.ts", async () => {
       beforeAll(async () => {
         browser = await engine.launch({ headless: true });
         page = await browser.newPage({ viewport: { width: 1000, height: 700 } });
+        await installPaintedFrames(page);
         await page.goto(`${base}/history/?mock`);
         await page.waitForSelector(".history-search");
         await page.waitForSelector(".history-row");
@@ -117,7 +123,8 @@ await requireBrowserLane("ime-composition-keys.test.ts", async () => {
         expect(await imeKey(page, "Escape", true)).toBe(false);
         // WebKit: the key that ends the composition, after compositionend.
         expect(await imeKey(page, "Escape", false)).toBe(false);
-        await page.waitForTimeout(50);
+        // The page has handled both keys and drawn what they did.
+        await page.evaluate(() => window.cmuxPaintFrame().then(() => window.cmuxPaintFrame()));
         expect(await page.$eval(".history-search", (field) => (field as HTMLInputElement).value)).toBe("re");
 
         await page.keyboard.press("Escape");
@@ -129,7 +136,7 @@ await requireBrowserLane("ime-composition-keys.test.ts", async () => {
         const before = await selectedRow(page);
         await imeKey(page, "ArrowDown", true);
         await imeKey(page, "ArrowDown", false);
-        await page.waitForTimeout(50);
+        await page.evaluate(() => window.cmuxPaintFrame().then(() => window.cmuxPaintFrame()));
         expect(await selectedRow(page)).toBe(before);
 
         await page.keyboard.press("ArrowDown");

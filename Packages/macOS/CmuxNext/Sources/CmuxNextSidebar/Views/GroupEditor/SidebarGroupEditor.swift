@@ -33,7 +33,7 @@ final class SidebarGroupEditor {
     /// False in tests: the bubble is laid out but never put on screen.
     var ordersFront = true
 
-    func show(_ group: SidebarGroup, items: [[SidebarGroupEditorItem]], anchor: CGRect, parent: NSWindow, themeAnchor: NSView) {
+    func show(_ group: SidebarGroup, items: [[SidebarGroupEditorItem]], anchor: PopupAnchor, parent: NSWindow, themeAnchor: NSView) {
         if let shownGroup, shownGroup != group.id { hide() }
         let panel = panel ?? SidebarGroupEditorPanel()
         self.panel = panel
@@ -70,7 +70,7 @@ final class SidebarGroupEditor {
         panel.configure(group, items: items)
         panel.adoptThemeScope(of: themeAnchor)
         // A window off screen (tests, a hidden window) gets no bubble on screen.
-        panel.present(below: anchor, parent: parent, ordersFront: ordersFront && parent.isVisible)
+        panel.present(at: anchor, parent: parent, ordersFront: ordersFront && parent.isVisible)
     }
 
     /// Keeps the open editor on its group after a sidebar update: the same
@@ -185,6 +185,7 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         nameField.delegate = self
         nameField.lineBreakMode = .byTruncatingTail
         nameField.setAccessibilityLabel(GroupEditorStrings.nameLabel)
+        nameField.setAccessibilityIdentifier("cmux.sidebar.groupEditor.name")
         field.wantsLayer = true
         field.layer?.cornerRadius = Metrics.itemCornerRadius
         field.layer?.cornerCurve = .continuous
@@ -199,6 +200,8 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         customSwatch.onPress = { [weak self] in self?.onCustomColor?() }
         // The workspace group's Set Icon action: the shared icon picker, emoji included.
         emojiButton.onPress = { [weak self] in self?.press("workspaceGroup.setIcon") }
+        emojiButton.setAccessibilityIdentifier("cmux.sidebar.groupEditor.icon")
+        customSwatch.setAccessibilityIdentifier("cmux.sidebar.groupEditor.customColor")
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = Metrics.space1
@@ -303,34 +306,30 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         onRename?(text)
     }
 
-    func present(below anchor: CGRect, parent: NSWindow, ordersFront: Bool = true) {
-        let reopening = dismissing && isVisible
+    /// Opens the bubble at `anchor` (screen coordinates): under the control that opened it,
+    /// on the anchor's edge, above it when there is no room below.
+    func present(at anchor: PopupAnchor, parent: NSWindow, ordersFront: Bool = true) {
         dismissing = false
         isPresented = true
         ignoresMouseEvents = false
-        self.anchor = anchor
+        self.anchor = anchor.rect
         generation += 1
+        // Restore the whole card before ordering it front, including during a closing fade.
+        if ordersFront { showPopupAtOnce() }
         if ordersFront, self.parent !== parent {
             self.parent?.removeChildWindow(self)
             parent.addChildWindow(self, ordered: .above)
         }
         glass?.layoutSubtreeIfNeeded()
         let size = glass?.fittingSize ?? .zero
-        var origin = CGPoint(x: anchor.minX, y: anchor.minY - Metrics.space1 - size.height)
-        if let screen = parent.screen ?? NSScreen.main {
-            let visible = screen.visibleFrame
-            origin.x = min(max(origin.x, visible.minX + Metrics.space2), visible.maxX - size.width - Metrics.space2)
-            // No room below: open above the chip.
-            if origin.y < visible.minY + Metrics.space2 { origin.y = anchor.maxY + Metrics.space1 }
-        }
-        setFrame(PopupStyle.standard.windowFrame(forCard: CGRect(origin: origin, size: size)), display: ordersFront)
+        let card = anchor.cardFrame(size: size, visible: (parent.screen ?? NSScreen.main)?.visibleFrame,
+                                    window: parent.convertToScreen(parent.contentLayoutRect))
+        setFrame(PopupStyle.standard.windowFrame(forCard: card), display: ordersFront)
         guard ordersFront else { return }
-        if !reopening { alphaValue = 0 }
         makeKeyAndOrderFront(nil)
         makeFirstResponder(nameField)
         nameField.currentEditor()?.selectAll(nil)
         styleFieldEditor()
-        openPopup(pivot: popupPivot(toward: anchor))
     }
 
     /// Gray selection and caret: the system accent (blue) never shows in chrome.

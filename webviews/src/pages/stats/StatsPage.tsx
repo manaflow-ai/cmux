@@ -1,10 +1,21 @@
 // The Stats page (hq#1920): what this machine's agents did, from the local session logs only.
 // Tiles first (agent time, time waiting on you, turns, peak parallel agents, streak), then the
-// activity heatmap, the time of day, each agent's share and how turns ended.
+// activity heatmap, the time of day, each agent's share, how turns ended and what needed you.
 import { useSyncExternalStore } from "react";
 import type { Strings } from "../shared/i18n";
 import { harnessName } from "./harnessNames";
-import { formatCount, formatDay, formatDays, formatDuration, formatHour, heatmap, hourShares } from "./shape";
+import {
+  attentionRows,
+  formatCount,
+  formatDay,
+  formatDays,
+  formatDuration,
+  formatHour,
+  formatWait,
+  heatmap,
+  hourShares,
+  stripLabel,
+} from "./shape";
 import type { StatsStore } from "./store";
 import { RANGES, type StatsSummary } from "./types";
 
@@ -53,6 +64,10 @@ function Summary({ summary, strings }: { summary: StatsSummary; strings: Strings
   const count = (value: number) => formatCount(value, language);
   const duration = (ms: number) => formatDuration(ms, language);
   const empty = summary.turns === 0 && summary.workingMs === 0;
+  const attention = attentionRows(summary);
+  const ratio = new Intl.NumberFormat(language, { maximumFractionDigits: 2 });
+  const cells = heatmap(summary.days, summary.until, summary.tzOffsetMinutes, range);
+  const days = cells.filter((cell) => cell.day);
   const tiles: { key: string; value: string; detail?: string }[] = [
     { key: "stats.tile.agentTime", value: duration(summary.workingMs) },
     { key: "stats.tile.waiting", value: duration(summary.waitingMs) },
@@ -82,15 +97,34 @@ function Summary({ summary, strings }: { summary: StatsSummary; strings: Strings
       {empty && <p className="stats-message stats-muted">{strings.t("stats.page.empty")}</p>}
       <section className="stats-section">
         <h2 className="stats-section-title">{strings.t("stats.section.activity")}</h2>
-        <div className="stats-heatmap">
-          {heatmap(summary.days, summary.until, summary.tzOffsetMinutes, range).map((cell, index) => (
-            <div
-              key={cell.day ?? `pad-${index}`}
-              className={cell.day ? `stats-heat stats-heat-${cell.level}` : "stats-heat is-padding"}
-              title={cell.day ? `${formatDay(cell.day, language)} · ${duration(cell.workingMs)}` : undefined}
-            />
-          ))}
-        </div>
+        {range > 31 ? (
+          <div className="stats-heatmap">
+            {cells.map((cell, index) => (
+              <div
+                key={cell.day ?? `pad-${index}`}
+                className={cell.day ? `stats-heat stats-heat-${cell.level}` : "stats-heat is-padding"}
+                title={cell.day ? `${formatDay(cell.day, language)} · ${duration(cell.workingMs)}` : undefined}
+              />
+            ))}
+          </div>
+        ) : (
+          // A week or a month is too few columns for the weekday grid: one row of days fills the width.
+          <div className="stats-days">
+            {days.map((cell, index) => (
+              <div
+                key={cell.day}
+                className="stats-day"
+                // tooltip-allow: the day shows a short label; the tooltip is its date and working time
+                title={`${formatDay(cell.day!, language)} · ${duration(cell.workingMs)}`}
+              >
+                <div className={`stats-heat stats-heat-${cell.level}`} />
+                <span className="stats-day-label">
+                  {stripLabel(cell.day!, days.length - 1 - index, range, language)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
       <section className="stats-section">
         <h2 className="stats-section-title">{strings.t("stats.section.hours")}</h2>
@@ -143,6 +177,25 @@ function Summary({ summary, strings }: { summary: StatsSummary; strings: Strings
           ))}
         </dl>
       </section>
+      {attention.length > 0 && (
+        <section className="stats-section stats-attention">
+          <h2 className="stats-section-title">{strings.t("stats.section.attention")}</h2>
+          <dl className="stats-outcomes">
+            {attention.map((row) => (
+              <div key={row.key} className="stats-outcome">
+                <dt>{strings.t(row.key)}</dt>
+                <dd>
+                  {"wait" in row
+                    ? formatWait(row.wait, language)
+                    : "count" in row
+                      ? count(row.count)
+                      : ratio.format(row.ratio)}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      )}
     </>
   );
 }

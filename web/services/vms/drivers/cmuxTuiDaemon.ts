@@ -1,5 +1,6 @@
 import { dirname } from "node:path";
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../images/workUser";
+import { cloudClientGrantRequired } from "../clientGrant";
 import {
   ProviderError,
   ProviderArtifactUnavailableError,
@@ -23,11 +24,8 @@ export function shellQuote(value: string): string {
 export const CMUX_TUI_PORT = 1337;
 export const CMUX_TUI_SESSION = "cloud";
 /**
- * The daemon's cloud listener is reachable only inside the owner's private
- * network (every member is the owner's Mac or another of the owner's machines),
- * so it grants carrier authentication to every link: no device enrollment, no
- * invitation, no approval. The env form is what a systemd drop-in sets on a
- * machine whose baked launch line predates the flag; the daemon reads either.
+ * Compatibility flag for machines whose listener still trusts the private
+ * carrier. Grant-required images omit it and use the enrollment flow.
  */
 export const CMUX_TUI_TRUSTED_CARRIER_ENV = "CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER";
 export const CMUX_TUI_TRUSTED_CARRIER_FLAG = "--remote-ws-trusted-carrier";
@@ -127,10 +125,18 @@ export type CmuxTuiSource = {
   builtAt: string | null;
   hookUrl: string;
   hookSha256: string;
+  /**
+   * acpmux from the same commit (cloud-subagents-DESIGN.md B9), or null for a manifest
+   * published before the artifacts workflow built it. Optional for fixtures; the bake
+   * requires it (requireCmuxTuiAcpmux).
+   */
+  acpmuxUrl?: string | null;
+  acpmuxSha256?: string | null;
 };
 
 export const CMUX_TUI_LINUX_TARGET = "cmux-tui-x86_64-unknown-linux-musl";
 export const CMUX_TUI_HOOK_LINUX_TARGET = "cmux-tui-hook-x86_64-unknown-linux-musl";
+export const CMUX_TUI_ACPMUX_LINUX_TARGET = "cmux-tui-acpmux-x86_64-unknown-linux-musl";
 /** The marker every cmux-owned coding-agent hook entry carries (agent_hook_install.rs COMMAND_MARKER). */
 export const CMUX_TUI_HOOK_MARKER = "cmux-tui-journal-hook";
 /** Coding agents whose hooks every machine ships with; `cmux-tui agent hook install` names them. */
@@ -139,10 +145,12 @@ export const CMUX_TUI_DEFAULT_MANIFEST_URL = "https://files.cmux.com/cmux-tui/la
 const CMUX_TUI_MANIFEST_CACHE_MS = 5 * 60 * 1000;
 
 /**
- * CMUX_VM_CMUX_TUI_MANIFEST_URL pins a deployment to one commit's manifest
+ * CMUX_VM_CMUX_TUI_MANIFEST_URL pins the image scripts (bake, verify, reachability,
+ * BusyBox probe) to one commit's manifest
  * (`https://files.cmux.com/cmux-tui/<commit>/manifest.json`) instead of the rolling
- * `latest`. Nothing else is configured by hand: the build and its sha256 come from
- * the manifest the artifacts workflow publishes.
+ * `latest`; the server never installs cmux-tui, so a deployment ignores it. Nothing
+ * else is configured by hand: the build and its sha256 come from the manifest the
+ * artifacts workflow publishes.
  */
 export function cmuxTuiManifestUrl(provider: ProviderId = "freestyle"): string {
   const url = process.env.CMUX_VM_CMUX_TUI_MANIFEST_URL?.trim() || CMUX_TUI_DEFAULT_MANIFEST_URL;
@@ -164,6 +172,7 @@ export function parseCmuxTuiManifest(
   const digest = (target: string): string => (typeof binaries[target] === "string" ? (binaries[target] as string).toLowerCase() : "");
   const sha256 = digest(CMUX_TUI_LINUX_TARGET);
   const hookSha256 = digest(CMUX_TUI_HOOK_LINUX_TARGET);
+  const acpmuxSha256 = digest(CMUX_TUI_ACPMUX_LINUX_TARGET);
   if (!/^[0-9a-f]{40}$/.test(commit)) {
     throw new ProviderError(provider, `cmux-tui manifest at ${manifestUrl} has no commit`);
   }
@@ -194,7 +203,16 @@ export function parseCmuxTuiManifest(
     builtAt: typeof record.builtAt === "string" ? record.builtAt : null,
     hookUrl: artifactUrl(CMUX_TUI_HOOK_LINUX_TARGET),
     hookSha256,
+    acpmuxUrl: /^[0-9a-f]{64}$/.test(acpmuxSha256) ? artifactUrl(CMUX_TUI_ACPMUX_LINUX_TARGET) : null,
+    acpmuxSha256: /^[0-9a-f]{64}$/.test(acpmuxSha256) ? acpmuxSha256 : null,
   };
+}
+
+/** The image bake refuses a cmux-tui build without acpmux: every Cloud machine ships it (B9). */
+export function requireCmuxTuiAcpmux(source: CmuxTuiSource, manifestUrl: string, provider: ProviderId = "freestyle"): void {
+  if (!source.acpmuxUrl || !source.acpmuxSha256) {
+    throw new ProviderArtifactUnavailableError(provider, { manifestUrl, target: CMUX_TUI_ACPMUX_LINUX_TARGET });
+  }
 }
 
 /** The manifest of one published commit, a sibling of the rolling `latest` pointer. */
@@ -276,8 +294,9 @@ export function cmuxTuiInstallCommand(source: CmuxTuiSource): string {
     `if [ -x ${bin} ] && ${pinnedFile(source.sha256, bin)}; then :; else ${fetchTo(tmp, source.url)} && ${pinnedFile(source.sha256, tmp)} && chmod 755 ${tmp} && mv -f ${tmp} ${bin}; fi`,
     `ln -sfn ${bin} /usr/local/bin/cmux-tui`,
     ...hookHelperInstallSteps(source),
+    ...acpmuxInstallSteps(source),
     // Only the nodes this install created, never the daemon's state tree.
-    `if [ "$CMUX_TUI_USER" != root ]; then chown "$CMUX_TUI_USER:$CMUX_TUI_USER" "$CMUX_TUI_HOME/.cmux" "$CMUX_TUI_HOME/.cmux/bin" ${bin} ${HOOK_BIN} 2>/dev/null || true; fi`,
+    `if [ "$CMUX_TUI_USER" != root ]; then chown "$CMUX_TUI_USER:$CMUX_TUI_USER" "$CMUX_TUI_HOME/.cmux" "$CMUX_TUI_HOME/.cmux/bin" ${bin} ${HOOK_BIN}${source.acpmuxSha256 ? ` ${ACPMUX_BIN}` : ""} 2>/dev/null || true; fi`,
     `${bin} --version`,
     ...agentHooksInstallSteps(),
   ].join(" && ");
@@ -310,6 +329,24 @@ function hookHelperInstallSteps(source: CmuxTuiSource): string[] {
     `CMUX_TUI_HOOK_BIN="$(dirname "$CMUX_TUI_BIN")/cmux-tui-hook"`,
     `CMUX_TUI_HOOK_TMP="$CMUX_TUI_HOOK_BIN.tmp"`,
     `if [ -x ${HOOK_BIN} ] && ${pinnedFile(source.hookSha256, HOOK_BIN)}; then :; else ${fetchTo(HOOK_TMP, source.hookUrl)} && ${pinnedFile(source.hookSha256, HOOK_TMP)} && chmod 755 ${HOOK_TMP} && mv -f ${HOOK_TMP} ${HOOK_BIN}; fi`,
+  ];
+}
+
+const ACPMUX_BIN = '"$CMUX_TUI_ACPMUX_BIN"';
+const ACPMUX_TMP = '"$CMUX_TUI_ACPMUX_TMP"';
+/**
+ * acpmux (cloud-subagents-DESIGN.md B9) beside the daemon, from the same manifest commit, with
+ * the same pin discipline, and on everyone's PATH through /usr/local/bin (a login shell does not
+ * always have the work user's own bin directories). None for a manifest without it.
+ */
+function acpmuxInstallSteps(source: CmuxTuiSource): string[] {
+  if (!source.acpmuxUrl || !source.acpmuxSha256) return [];
+  return [
+    `CMUX_TUI_ACPMUX_BIN="$(dirname "$CMUX_TUI_BIN")/acpmux"`,
+    `CMUX_TUI_ACPMUX_TMP="$CMUX_TUI_ACPMUX_BIN.tmp"`,
+    `if [ -x ${ACPMUX_BIN} ] && ${pinnedFile(source.acpmuxSha256, ACPMUX_BIN)}; then :; else ${fetchTo(ACPMUX_TMP, source.acpmuxUrl)} && ${pinnedFile(source.acpmuxSha256, ACPMUX_TMP)} && chmod 755 ${ACPMUX_TMP} && mv -f ${ACPMUX_TMP} ${ACPMUX_BIN}; fi`,
+    `ln -sfn ${ACPMUX_BIN} /usr/local/bin/acpmux`,
+    `${ACPMUX_BIN} --version`,
   ];
 }
 
@@ -391,7 +428,8 @@ export const CMUX_TUI_DEFAULT_REMOTE_WS_BIND = `0.0.0.0:${CMUX_TUI_PORT}`;
 export function cmuxTuiDaemonCommand(
   remoteWsBind: string = CMUX_TUI_DEFAULT_REMOTE_WS_BIND,
 ): string {
-  const args = `server start --session ${CMUX_TUI_SESSION} --remote-ws ${remoteWsBind} --remote-ws-insecure-bind ${CMUX_TUI_TRUSTED_CARRIER_FLAG}`;
+  const carrier = cloudClientGrantRequired() ? "" : ` ${CMUX_TUI_TRUSTED_CARRIER_FLAG}`;
+  const args = `server start --session ${CMUX_TUI_SESSION} --remote-ws ${remoteWsBind} --remote-ws-insecure-bind${carrier}`;
   return (
     `${cmuxTuiLayoutSelector()}; ` +
     `{ mkdir -p /etc/cmux 2>/dev/null; printf '%s\\n' "$CMUX_TUI_LAYOUT" > ${CMUX_TUI_LAYOUT_MARKER_PATH}; } 2>/dev/null; ` +
@@ -426,6 +464,9 @@ export function parseJsonArray(text: string): Array<Record<string, unknown>> {
  * VM exec API.
  */
 export type CmuxTuiInvoke = (args: string, timeoutMs?: number) => Promise<ExecResult>;
+export type CmuxTuiCommandRunner = {
+  readonly runCommand: (command: string, timeoutMs?: number) => Promise<ExecResult>;
+};
 
 export async function waitForCmuxTuiReady(
   invoke: CmuxTuiInvoke,
@@ -466,7 +507,10 @@ export async function mintCmuxTuiInvitation(
     `remote enroll create --session ${CMUX_TUI_SESSION} --ttl 300 --json`,
   );
   if (created.exitCode !== 0) {
-    throw new ProviderError(provider, `cmux-tui enrollment invitation in ${vmId} failed: ${created.stderr || created.stdout}`);
+    throw new ProviderError(
+      provider,
+      `cmux-tui enrollment invitation in ${vmId} failed (exit ${created.exitCode})`,
+    );
   }
   const uri = parseJsonObject(created.stdout).uri;
   if (typeof uri !== "string" || !uri) {
@@ -476,31 +520,65 @@ export async function mintCmuxTuiInvitation(
   try { parsed = new URL(uri); } catch {
     throw new ProviderError(provider, `cmux-tui enrollment invitation in ${vmId} returned an invalid uri`);
   }
-  const invitationId = parsed.protocol === "cmux:" && parsed.hostname === "enroll"
-    ? parsed.pathname.slice(1)
-    : parsed.searchParams.get("id");
-  if (!invitationId) {
-    throw new ProviderError(provider, `cmux-tui enrollment invitation in ${vmId} returned no id`);
+  if (parsed.protocol !== "cmux:" || parsed.hostname !== "enroll") {
+    throw new ProviderError(provider, `cmux-tui enrollment invitation in ${vmId} has the wrong scheme`);
   }
-  return { uri, invitationId, expiresAtUnix: Math.floor(Date.now() / 1000) + 300 };
+  let invitation: Record<string, unknown>;
+  try {
+    invitation = parseJsonObject(Buffer.from(parsed.pathname.slice(1), "base64url").toString("utf8"));
+  } catch {
+    throw new ProviderError(provider, `cmux-tui enrollment invitation in ${vmId} has an invalid payload`);
+  }
+  const invitationId = invitation.id;
+  const expiresAtUnix = invitation.expires_at_unix;
+  if (typeof invitationId !== "string" || !/^[A-Za-z0-9._:=+/-]{1,128}$/.test(invitationId)) {
+    throw new ProviderError(provider, `cmux-tui enrollment invitation in ${vmId} returned no valid id`);
+  }
+  if (typeof expiresAtUnix !== "number" || !Number.isSafeInteger(expiresAtUnix) || expiresAtUnix <= 0) {
+    throw new ProviderError(provider, `cmux-tui enrollment invitation in ${vmId} returned no expiration`);
+  }
+  return { uri, invitationId, expiresAtUnix };
 }
 
-/** Compatibility approval bridge for pre trusted-carrier clients. */
+/** One guest command that waits for the exact invitation claim before approval. */
+export function cmuxTuiApprovalCommand(invitationId: string, binary?: string): string {
+  if (!/^[A-Za-z0-9._:=+/-]{1,128}$/.test(invitationId)) {
+    throw new ProviderError("freestyle", "invitation id has an unexpected shape");
+  }
+  const bin = binary ? shellQuote(binary) : '"$CMUX_TUI_BIN"';
+  const run = (args: string) => cmuxTuiAsDaemonUser(`${bin} ${args}`);
+  const pending = run(`remote enroll pending --session ${CMUX_TUI_SESSION} --json`);
+  const approve = run(
+    `remote enroll approve ${shellQuote(invitationId)} --session ${CMUX_TUI_SESSION} --json`,
+  );
+  const exactPending =
+    `python3 -c 'import json,sys; wanted=sys.argv[1]; rows=json.load(sys.stdin); ` +
+    `sys.exit(0 if any(isinstance(r,dict) and r.get("invitation_id")==wanted for r in rows) else 1)' ${shellQuote(invitationId)}`;
+  return (
+    `${cmuxTuiLayoutSelector()} && ` +
+    `for cmux_approval_attempt in $(seq 1 120); do ` +
+    `if { ${pending}; } | ${exactPending}; then ${approve}; exit $?; fi; ` +
+    `sleep 0.25; done; ` +
+    `echo 'enrollment claim did not become pending' >&2; exit 75`
+  );
+}
+
+/** Approval bridge for a client claiming a short-lived Cloud invitation. */
 export async function approveCmuxTuiEnrollment(
-  invoke: CmuxTuiInvoke,
+  runner: CmuxTuiCommandRunner,
   provider: ProviderId,
   vmId: string,
   invitationId: string,
 ): Promise<{ approved: boolean; state: "approved" | "pending"; deviceFingerprint?: string }> {
-  if (!/^[A-Za-z0-9._:=+/-]+$/.test(invitationId)) {
-    throw new ProviderError(provider, "invitation id has an unexpected shape");
-  }
-  const result = await invoke(
-    `remote enroll approve ${shellQuote(invitationId)} --session ${CMUX_TUI_SESSION} --json`,
+  const result = await runner.runCommand(
+    cmuxTuiApprovalCommand(invitationId),
     40_000,
   );
   if (result.exitCode !== 0) {
-    throw new ProviderError(provider, `cmux-tui enrollment approval in ${vmId} failed: ${result.stderr || result.stdout}`);
+    throw new ProviderError(
+      provider,
+      `cmux-tui enrollment approval in ${vmId} failed (exit ${result.exitCode})`,
+    );
   }
   const fingerprint = parseJsonObject(result.stdout).fingerprint;
   return {

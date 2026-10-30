@@ -11,7 +11,10 @@
 //!    Claude Code's settings.json `model` (a `[1m]` variant suffix dropped),
 //!    when the catalog lists that model (an alias names its id); the effort
 //!    when it fits the running model and the config names no model or one the
-//!    catalog lists. The file is read only when the saved default leaves a
+//!    catalog lists. Codex runs the model its config.toml names even when the
+//!    catalog does not list it (a provider's own model, or one newer than the
+//!    snapshot), with the config's effort, as raw `codex` does (user
+//!    2026-10-20). The file is read only when the saved default leaves a
 //!    value open;
 //! 3. the curated catalog's `defaultModel` for the harness and that model's
 //!    `defaultEffort` (Claude Code: Opus 5.5, Codex: GPT-6.1 Sol, both
@@ -28,6 +31,7 @@
 use super::*;
 
 use crate::catalog::CatalogHarness;
+use cmux_json::JsonSet as _;
 
 /// Longest model id or effort a pick saves (the pane's own limits).
 const MAX_VALUE: usize = 256;
@@ -39,6 +43,16 @@ const EFFORT_IDS: [&str; 5] =
 /// Whether `id` (a harness's own option id) carries thinking effort.
 pub(super) fn is_effort_id(id: &str) -> bool {
     EFFORT_IDS.contains(&id)
+}
+
+/// The effort a `session/set_config_option` sets, if it sets one: an effort
+/// option's value, or Claude Code's Ultracode switch (on runs `ultracode`,
+/// off leaves xhigh).
+pub(super) fn effort_of<'a>(config_id: &str, value: &'a Value) -> Option<&'a str> {
+    if config_id == crate::claude_stdio::ULTRACODE_OPTION {
+        return Some(if value == "on" { "ultracode" } else { "xhigh" });
+    }
+    if is_effort_id(config_id) { value.as_str() } else { None }
 }
 
 /// Records that `session` runs `model` now. A model change can reset the
@@ -130,7 +144,9 @@ fn effort_fits(curated: Option<&CatalogHarness>, model: Option<&str>, effort: &s
     else {
         return true;
     };
-    entry.efforts.as_ref().is_none_or(|list| list.iter().any(|e| e == effort))
+    // Claude Code's Ultracode runs at xhigh.
+    let level = if effort == "ultracode" { "xhigh" } else { effort };
+    entry.efforts.as_ref().is_none_or(|list| list.iter().any(|e| e == level))
 }
 
 impl Hub {
@@ -175,15 +191,9 @@ impl Hub {
             .clone();
         let r = self.set_config(session, config_id, value.clone()).await?;
         let resolved = super::model_options::resolve_config_id(&session.meta(), config_id);
-        if pick && is_effort_id(&resolved) && before.as_deref() != value.as_str() {
-            self.note_pick(session, None, value.as_str()).await;
-        }
-        // The mode as a config option (Claude Code's `mode`): a mode pick.
-        if pick
-            && resolved == "mode"
-            && let Some(mode) = value.as_str()
-        {
-            self.note_mode_pick(session, mode).await;
+        let effort = effort_of(&resolved, &value);
+        if pick && effort.is_some() && before.as_deref() != effort {
+            self.note_pick(session, None, effort).await;
         }
         Ok(r)
     }
@@ -226,6 +236,12 @@ impl Hub {
         if let Err(e) = cfg.save() {
             tracing::warn!(harness = %meta.harness, "pick not saved to config.json: {e}");
         }
+        // The pick is now the harness's `start` in `_acpmux/harnesses`: pages already open (a
+        // prewarmed New Tab) read it again instead of drawing the old start model and effort.
+        let names: Vec<&String> = cfg.harnesses.keys().collect();
+        self.send_harness_change(
+            json!({"harnesses": names, "diagnostics": cfg.profile_diagnostics}),
+        );
     }
 
     /// The model and effort a new chat on `agent` starts on when nothing
@@ -242,8 +258,13 @@ impl Hub {
         // The harness's own config, read (blocking file IO) only when the request and the saved
         // pick leave a value open.
         let read = std::cell::OnceCell::new();
+        // Never a capture fixture's harness (`harness_fixture.rs`): this host's config would show.
+        let fixture = crate::harness_fixture::active().is_some_and(|f| f.names(agent));
         let own = || {
             read.get_or_init(|| {
+                if fixture {
+                    return crate::harness_config::Choice::default();
+                }
                 crate::harness_config::read(
                     &crate::config::derive_family(agent, profile),
                     &[&profile.env, &saved.env],
@@ -261,6 +282,14 @@ impl Hub {
                     .find(|x| x.id == m || x.aliases.iter().flatten().any(|a| a == m))
             })
         };
+        // The catalog default only when the harness offers it: an account that
+        // lacks it (Codex refusing GPT-6.1 Sol at the first prompt) starts on the
+        // harness's own default, its config's model, instead (cnx-ios full verify D4).
+        let reported = self.reported_model_ids(agent);
+        // Codex: a config model the catalog does not list still runs (module docs).
+        let codex = crate::config::derive_family(agent, profile) == "codex";
+        let own_unlisted =
+            || own().model.clone().filter(|m| codex && !m.is_empty() && own_model().is_none());
         let start_model = match model {
             Some(_) => None,
             None => saved
@@ -272,9 +301,16 @@ impl Hub {
                         .map(|m| StartValue { value: m.id.clone(), source: StartSource::Harness })
                 })
                 .or_else(|| {
+                    own_unlisted().map(|value| StartValue { value, source: StartSource::Harness })
+                })
+                .or_else(|| {
                     curated
                         .as_ref()
                         .and_then(|c| c.default_model.clone())
+                        .filter(|m| {
+                            let ids: Vec<String> = c_ids(curated.as_ref());
+                            offers(&reported, &ids, m)
+                        })
                         .map(|value| StartValue { value, source: StartSource::Catalog })
                 }),
         };
@@ -296,10 +332,12 @@ impl Hub {
                 // in the config is taken; one paired with a model the catalog refused was
                 // chosen for that model, not the catalog default, and is not.
                 let paired = own().model.is_none() || own_model().is_some();
+                // The config's own unlisted model runs with the config's effort as it is.
+                let own_runs = own_unlisted().is_some_and(|m| runs == Some(m.as_str()));
                 own()
                     .effort
                     .clone()
-                    .filter(|e| paired && fits(e))
+                    .filter(|e| own_runs || (paired && fits(e)))
                     .map(|value| StartValue { value, source: StartSource::Harness })
             })
             .or_else(|| {
@@ -310,6 +348,28 @@ impl Hub {
                     .map(|value| StartValue { value, source: StartSource::Catalog })
             });
         (start_model, start_effort)
+    }
+
+    /// The model ids `agent` itself reported (its last session or probe);
+    /// empty when it reported none (Claude Code, a harness not probed yet).
+    pub(super) fn reported_model_ids(&self, agent: &str) -> Vec<String> {
+        self.known_models
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(agent)
+            .map(|list| list.iter().map(|(id, _)| id.clone()).collect())
+            .unwrap_or_default()
+    }
+
+    /// Whether the catalog start model `model` is one `agent`'s harness offers ([`offers`]).
+    pub(super) fn harness_offers(
+        &self,
+        agent: &str,
+        profile: &HarnessProfile,
+        model: &str,
+    ) -> bool {
+        let curated = super::models_view::curated_for(&self.catalog, agent, profile);
+        offers(&self.reported_model_ids(agent), &c_ids(curated.as_ref()), model)
     }
 
     /// `start` for one `_acpmux/harnesses` row: `{model?, effort?,
@@ -339,13 +399,39 @@ impl Hub {
         }
         let mut v = json!({});
         if let Some(m) = model {
-            v["model"] = json!(m.value);
-            v["modelSource"] = json!(m.source.as_str());
+            v.set("model", json!(m.value));
+            v.set("modelSource", json!(m.source.as_str()));
         }
         if let Some(e) = effort {
-            v["effort"] = json!(e.value);
-            v["effortSource"] = json!(e.source.as_str());
+            v.set("effort", json!(e.value));
+            v.set("effortSource", json!(e.source.as_str()));
         }
         Some(v)
     }
+}
+
+/// The curated model ids of a catalog entry.
+fn c_ids(curated: Option<&CatalogHarness>) -> Vec<String> {
+    curated.map(|c| c.models.iter().map(|m| m.id.clone()).collect()).unwrap_or_default()
+}
+
+/// Whether reported id `id` names `model`: the same id, or a DSH route
+/// (`["provider","model"]`) for `model` or `provider/model`, as
+/// `model_catalog::resolve` accepts them.
+fn names(id: &str, model: &str) -> bool {
+    id == model
+        || serde_json::from_str::<Vec<String>>(id)
+            .is_ok_and(|p| p.len() == 2 && (p[1] == model || format!("{}/{}", p[0], p[1]) == model))
+}
+
+/// Whether a harness that reported `reported` offers the catalog's `model`.
+/// Any model when it reported none, or when its ids are not the catalog's
+/// (Claude Code's aliases `default`/`opus`/`sonnet`): then the harness decides,
+/// as before. Otherwise only a model it lists, so an account that lacks the
+/// catalog default (Codex without GPT-6.1 Sol) starts on its own default.
+pub(super) fn offers(reported: &[String], curated: &[String], model: &str) -> bool {
+    if reported.is_empty() || !reported.iter().any(|r| curated.iter().any(|c| names(r, c))) {
+        return true;
+    }
+    reported.iter().any(|r| names(r, model))
 }

@@ -22,8 +22,7 @@ final class SidebarSelectionHold {
 
     /// The window's selection changed to `selected`.
     func offer(_ selected: SidebarItem?) {
-        if case .workspace(let id)? = selected, model.selectedItem != selected,
-           !model.sections.contains(where: { $0.workspaces.contains { $0.id == id } }) {
+        if case .workspace(let id)? = selected, model.selectedItem != selected, !model.lists(id) {
             held = .some(selected)
             backstop.schedule(after: Self.limit) { @MainActor [weak self] in self?.flush() }
             return
@@ -44,6 +43,7 @@ final class SidebarSelectionHold {
     private func apply(_ selected: SidebarItem?) {
         guard model.selectedItem != selected else { return }
         model.selectedItem = selected
-        model.selection = model.activeWorkspaceID.map { [$0] } ?? []
+        // A pinned workspace's tile is selected as its row is: it starts the selection (and a Shift range).
+        model.selection = model.shownWorkspaceID.map { [$0] } ?? []
     }
 }

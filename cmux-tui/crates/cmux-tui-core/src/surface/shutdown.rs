@@ -181,6 +181,15 @@ impl Surface {
                 if matches!(&*pty.runtime.lock().unwrap(), PtyRuntime::ExitedHosted) {
                     return;
                 }
+                // The holder keeps the shell; the next daemon re-attaches.
+                #[cfg(unix)]
+                if let PtyRuntime::Local { holder: Some(holder), .. } =
+                    &*pty.runtime.lock().unwrap()
+                {
+                    pty.owner_detaching.store(true, Ordering::Release);
+                    holder.detach();
+                    return;
+                }
                 self.kill();
             }
             #[cfg(not(any(unix, windows)))]

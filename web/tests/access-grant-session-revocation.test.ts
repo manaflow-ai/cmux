@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // DELETE /api/vm/access-grants/[id] cuts the grant and its tunnels in our
 // database, queues the Stack sessions that enrolled the Mac in the same
@@ -25,6 +25,7 @@ Object.assign(process.env, {
   CRON_SECRET: "cron-secret",
 });
 afterAll(() => {
+  useIdentitySnapshotStub = false;
   for (const key of ENV_KEYS) {
     if (savedEnv[key] === undefined) delete process.env[key];
     else process.env[key] = savedEnv[key];
@@ -48,6 +49,25 @@ mock.module("../app/lib/stack", () => ({
   isStackConfigured: () => true,
   stackServerApp: { getUser },
 }));
+
+const identitySnapshotModule = await import("../services/auth/identitySnapshot");
+const realReadIdentitySnapshot = identitySnapshotModule.readIdentitySnapshot;
+const realWriteIdentitySnapshot = identitySnapshotModule.writeIdentitySnapshot;
+const realDeleteIdentitySnapshot = identitySnapshotModule.deleteIdentitySnapshot;
+let useIdentitySnapshotStub = false;
+mock.module("../services/auth/identitySnapshot", () => ({
+  ...identitySnapshotModule,
+  readIdentitySnapshot: ((...args: Parameters<typeof realReadIdentitySnapshot>) => useIdentitySnapshotStub
+    ? Promise.resolve(null)
+    : realReadIdentitySnapshot(...args)) as typeof realReadIdentitySnapshot,
+  writeIdentitySnapshot: ((...args: Parameters<typeof realWriteIdentitySnapshot>) => useIdentitySnapshotStub
+    ? Promise.resolve("stored" as const)
+    : realWriteIdentitySnapshot(...args)) as typeof realWriteIdentitySnapshot,
+  deleteIdentitySnapshot: ((...args: Parameters<typeof realDeleteIdentitySnapshot>) => useIdentitySnapshotStub
+    ? Promise.resolve()
+    : realDeleteIdentitySnapshot(...args)) as typeof realDeleteIdentitySnapshot,
+}));
+beforeAll(() => { useIdentitySnapshotStub = true; });
 
 type MemoryRow = { stackSessionId: string; userId: string; attempts: number; nextAttemptAt: Date; claimedUntil: Date | null; createdAt: Date; gaveUpAt: Date | null };
 const rows = new Map<string, MemoryRow>();

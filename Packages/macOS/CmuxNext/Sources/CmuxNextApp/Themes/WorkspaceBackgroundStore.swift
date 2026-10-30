@@ -8,7 +8,7 @@ import os
 /// app-local file (`<Application Support>/<bundle id>/workspace-backgrounds.json`). Values are
 /// `appearance.background`'s: a painting, `daily`, `none`, `desktop`, `system:` or `file:` paths.
 /// A workspace without an entry follows `appearance.background`. A second store
-/// (`workspace-background-opacity.json`) keeps each workspace's own glass tint over art, "0"..."0.95".
+/// (`workspace-background-opacity.json`) keeps each workspace's own glass tint over art, "0"..."1".
 ///
 /// The home daemon's personal workspace rows have no background column yet; when one lands, these
 /// entries move there the way terminal themes did (`ThemeCoordinator.migrateTerminalThemes`).
@@ -48,11 +48,12 @@ final class WorkspaceBackgroundStore {
     }
 
     /// What a window shows for a workspace whose own background is `background`: the app's choice
-    /// for none (or one this build cannot read), plain glass for `none`, today's work for `daily`.
+    /// for none (or one this build cannot read), plain glass for `none`, today's work for `daily`,
+    /// today's picture of a `folder:` (a workspace's shuffle turns daily).
     nonisolated static func pin(_ background: String?, now: Date) -> BackdropPin {
         guard let background else { return .inherit }
         if background == "none" { return .none }
-        if background == BackdropSelectionSetting.dailyID { return .selection(.art(.daily(on: now))) }
+        if let shuffle = BackdropSelectionSetting.workspaceShuffle(background) { return shuffle.pick(on: now, calendar: .current).map(BackdropPin.selection) ?? .inherit }
         return BackdropSelection(id: background).map(BackdropPin.selection) ?? .inherit
     }
 

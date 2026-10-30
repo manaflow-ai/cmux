@@ -138,13 +138,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Clear Browser Profile Color"
+            "value" : "Remove Browser Profile Color"
           }
         },
         "ar" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "مسح لون ملف تعريف المتصفح"
+            "state" : "translated",
+            "value" : "إزالة لون ملف تعريف المتصفح"
           }
         },
         "bs" : {
@@ -155,8 +155,8 @@
         },
         "da" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ryd farve for browserprofil"
+            "state" : "translated",
+            "value" : "Fjern farve for browserprofil"
           }
         },
         "de" : {
@@ -173,8 +173,8 @@
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Effacer la couleur du profil de navigateur"
+            "state" : "translated",
+            "value" : "Supprimer la couleur du profil de navigateur"
           }
         },
         "it" : {
@@ -185,20 +185,20 @@
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ブラウザプロファイルの色を消去"
+            "state" : "translated",
+            "value" : "ブラウザプロファイルの色を削除"
           }
         },
         "km" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "សម្អាតពណ៌ប្រវត្តិរូបកម្មវិធីរុករក"
+            "state" : "translated",
+            "value" : "ដកពណ៌ប្រវត្តិរូបកម្មវិធីរុករកចេញ"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "브라우저 프로필 색상 지우기"
+            "state" : "translated",
+            "value" : "브라우저 프로필 색상 제거"
           }
         },
         "nb" : {
@@ -209,38 +209,38 @@
         },
         "pl" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Wyczyść kolor profilu przeglądarki"
+            "state" : "translated",
+            "value" : "Usuń kolor profilu przeglądarki"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Limpar Cor do Perfil do Navegador"
+            "state" : "translated",
+            "value" : "Remover Cor do Perfil do Navegador"
           }
         },
         "ru" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Сбросить цвет профиля браузера"
+            "state" : "translated",
+            "value" : "Убрать цвет профиля браузера"
           }
         },
         "th" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ล้างสีโปรไฟล์เบราว์เซอร์"
+            "state" : "translated",
+            "value" : "ลบสีโปรไฟล์เบราว์เซอร์"
           }
         },
         "tr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Tarayıcı Profili Rengini Temizle"
+            "state" : "translated",
+            "value" : "Tarayıcı Profili Rengini Kaldır"
           }
         },
         "uk" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Скинути колір профілю браузера"
+            "state" : "translated",
+            "value" : "Прибрати колір профілю браузера"
           }
         },
         "vi" : {
@@ -251,14 +251,14 @@
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "清除浏览器配置文件颜色"
+            "state" : "translated",
+            "value" : "移除浏览器配置文件颜色"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "清除瀏覽器設定檔顏色"
+            "state" : "translated",
+            "value" : "移除瀏覽器設定檔顏色"
           }
         }
       }
@@ -269,13 +269,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Clear Browser Profile Icon"
+            "value" : "Remove Browser Profile Icon"
           }
         },
         "ar" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "مسح أيقونة ملف تعريف المتصفح"
+            "state" : "translated",
+            "value" : "إزالة أيقونة ملف تعريف المتصفح"
           }
         },
         "bs" : {
@@ -286,8 +286,8 @@
         },
         "da" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ryd ikon for browserprofil"
+            "state" : "translated",
+            "value" : "Fjern ikon for browserprofil"
           }
         },
         "de" : {
@@ -304,8 +304,8 @@
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Effacer l’icône du profil de navigateur"
+            "state" : "translated",
+            "value" : "Supprimer l’icône du profil de navigateur"
           }
         },
         "it" : {
@@ -316,20 +316,20 @@
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ブラウザプロファイルのアイコンを消去"
+            "state" : "translated",
+            "value" : "ブラウザプロファイルのアイコンを削除"
           }
         },
         "km" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "សម្អាតរូបតំណាងប្រវត្តិរូបកម្មវិធីរុករក"
+            "state" : "translated",
+            "value" : "ដករូបតំណាងប្រវត្តិរូបកម្មវិធីរុករកចេញ"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "브라우저 프로필 아이콘 지우기"
+            "state" : "translated",
+            "value" : "브라우저 프로필 아이콘 제거"
           }
         },
         "nb" : {
@@ -340,38 +340,38 @@
         },
         "pl" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Wyczyść ikonę profilu przeglądarki"
+            "state" : "translated",
+            "value" : "Usuń ikonę profilu przeglądarki"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Limpar Ícone do Perfil do Navegador"
+            "state" : "translated",
+            "value" : "Remover Ícone do Perfil do Navegador"
           }
         },
         "ru" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Сбросить значок профиля браузера"
+            "state" : "translated",
+            "value" : "Убрать значок профиля браузера"
           }
         },
         "th" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ล้างไอคอนโปรไฟล์เบราว์เซอร์"
+            "state" : "translated",
+            "value" : "ลบไอคอนโปรไฟล์เบราว์เซอร์"
           }
         },
         "tr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Tarayıcı Profili Simgesini Temizle"
+            "state" : "translated",
+            "value" : "Tarayıcı Profili Simgesini Kaldır"
           }
         },
         "uk" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Скинути значок профілю браузера"
+            "state" : "translated",
+            "value" : "Прибрати значок профілю браузера"
           }
         },
         "vi" : {
@@ -382,14 +382,14 @@
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "清除浏览器配置文件图标"
+            "state" : "translated",
+            "value" : "移除浏览器配置文件图标"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "清除瀏覽器設定檔圖示"
+            "state" : "translated",
+            "value" : "移除瀏覽器設定檔圖示"
           }
         }
       }
@@ -1831,6 +1831,137 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "在瀏覽器設定檔中打開連結…"
+          }
+        }
+      }
+    },
+    "action.browserProfile.removeImportedData" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove Imported Browser Data…"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importierte Browserdaten entfernen…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Supprimer les données de navigateur importées…"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "إزالة بيانات المتصفح المستوردة…"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eliminar datos de navegador importados…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "移除匯入的瀏覽器資料…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "移除导入的浏览器数据…"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "가져온 브라우저 데이터 제거…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "読み込んだブラウザデータを削除…"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ukloni uvezene podatke preglednika…"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fjern importerede browserdata…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rimuovi dati del browser importati…"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "លុបទិន្នន័យកម្មវិធីរុករកដែលបាននាំចូល…"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fjern importerte nettleserdata …"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usuń zaimportowane dane przeglądarki…"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remover dados de navegador importados…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Удалить импортированные данные браузера…"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ลบข้อมูลเบราว์เซอร์ที่นำเข้า…"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "İçe Aktarılan Tarayıcı Verilerini Kaldır…"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Видалити імпортовані дані браузера…"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Xóa dữ liệu trình duyệt đã nhập…"
           }
         }
       }

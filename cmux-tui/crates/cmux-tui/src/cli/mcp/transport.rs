@@ -5,14 +5,15 @@
 //! so the CLI and MCP send identical requests.
 
 use std::io::{BufRead, BufReader};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use cmux_tui_core::resource::{OperationClass, ResourceOperation};
 use serde_json::{Map, Value, json};
 
 use super::super::GlobalArgs;
-use super::super::command::RequestPlan;
+use super::super::command::{RequestPlan, ResponseView, WireOperation, random_prefixed};
 use super::super::{app, resolve, wire};
+use cmux_json::JsonSet as _;
 
 /// How a request that did not succeed ended: the owner rejected it, it
 /// never reached the owner, or it may have reached the owner and its
@@ -86,7 +87,7 @@ pub(super) fn resource(
     if plan.stream || !plan.resolve.is_empty() {
         return Err(CallFailure::local(NotRun, "usage.invalid", "not a plain unary request"));
     }
-    resolve::apply_global_route(global, &mut plan.params)
+    resolve::apply_global_route(global, &mut plan)
         .map_err(|error| CallFailure::local(NotRun, "usage.invalid", error))?;
     let mut request = wire::request_value(&plan)
         .map_err(|error| CallFailure::local(NotRun, "usage.invalid", error.0))?;
@@ -107,6 +108,14 @@ pub(super) fn resource(
         })?;
     let _ = stream.set_read_timeout(Some(wire::SERVER_PREFLIGHT_TIMEOUT));
     let mut reader = BufReader::new(stream);
+    super::super::tab_capabilities::negotiate(&mut reader).map_err(|failure| match failure {
+        resolve::Failure::Resource(error) => {
+            CallFailure { kind: NotRun, error, idempotency_key: key.clone() }
+        }
+        resolve::Failure::Transport(message) => fail(NotRun, "transport.failed", message),
+        resolve::Failure::Refused => fail(NotRun, "session.busy", "session is busy".into()),
+        _ => fail(NotRun, "transport.failed", "client capability negotiation failed".into()),
+    })?;
     if !prefixes.is_empty() {
         let params = plan.params.as_object_mut().expect("validated params object");
         let route = ["machine", "session"]
@@ -116,21 +125,32 @@ pub(super) fn resource(
         for prefix in prefixes {
             let Some(value) = params.get(&prefix.field).and_then(Value::as_str) else { continue };
             let value = value.to_owned();
-            let records =
-                resolve::read(&mut reader, prefix.list, route.clone()).map_err(|failure| {
-                    match failure {
-                        resolve::Failure::Resource(error) => {
-                            CallFailure { kind: NotRun, error, idempotency_key: key.clone() }
-                        }
-                        _ => fail(NotRun, "transport.failed", "lookup failed".into()),
-                    }
-                })?;
+            let records = resolve::read(
+                &mut reader,
+                prefix.list,
+                if prefix.list == ResourceOperation::MachineList {
+                    params
+                        .get("catalog")
+                        .map(|value| ("catalog".into(), value.clone()))
+                        .into_iter()
+                        .collect()
+                } else {
+                    route.clone()
+                },
+            )
+            .map_err(|failure| match failure {
+                resolve::Failure::Resource(error) => {
+                    CallFailure { kind: NotRun, error, idempotency_key: key.clone() }
+                }
+                resolve::Failure::Refused => fail(NotRun, "session.busy", "session is busy".into()),
+                _ => fail(NotRun, "transport.failed", "lookup failed".into()),
+            })?;
             let id = unique_prefix(&prefix.field, &value, &records).map_err(|error| {
                 CallFailure { kind: NotRun, error, idempotency_key: key.clone() }
             })?;
             params.insert(prefix.field.clone(), Value::String(id));
         }
-        request["params"] = plan.params.clone();
+        request.set("params", plan.params.clone());
     }
     // A browser tab in a session a cmux app owns is the app's to render
     // (frontend_browser.rs), as the CLI's `tab create browser` does.
@@ -151,12 +171,148 @@ pub(super) fn resource(
     // Once sent, a mutation's outcome is unknown until it answers; a read
     // changed nothing either way.
     let sent = if plan.operation.class() == OperationClass::Mutation { InProgress } else { NotRun };
-    resolve::send(&mut reader, &encoded)
-        .map_err(|message| fail(sent, "transport.failed", message))?;
-    match resolve::read_response(&mut reader, &request_id) {
+    resolve::send_request(&mut reader, &encoded).map_err(|failure| match failure {
+        resolve::Failure::Refused => fail(sent, "session.busy", "session is busy".into()),
+        resolve::Failure::Transport(message) => fail(sent, "transport.failed", message),
+        _ => fail(sent, "transport.failed", "request could not be sent".into()),
+    })?;
+    match resolve::read_response(&mut reader, &request_id).map_err(resolve::response_failure) {
         Ok(Ok(result)) => Ok(result),
-        Ok(Err(error)) => Err(CallFailure { kind: Rejected, error, idempotency_key: key.clone() }),
-        Err(message) => Err(fail(sent, "transport.failed", message)),
+        Ok(Err(error)) => {
+            // A browser the cmux app draws: the app runs the verb
+            // (app_browser_route.rs), as `cmux browser <id> <verb>` does.
+            #[cfg(unix)]
+            if let Some(routed) =
+                super::super::app_browser_route::run(global, &plan, &error, &socket)
+            {
+                return routed.map_err(|error| CallFailure {
+                    kind: Rejected,
+                    error,
+                    idempotency_key: key.clone(),
+                });
+            }
+            Err(CallFailure { kind: Rejected, error, idempotency_key: key.clone() })
+        }
+        Err(resolve::Failure::Refused) => Err(fail(sent, "session.busy", "session is busy".into())),
+        Err(resolve::Failure::Transport(message)) => Err(fail(sent, "transport.failed", message)),
+        Err(_) => Err(fail(sent, "transport.failed", "request failed".into())),
+    }
+}
+
+/// Opens the session daemon's `session.events` stream, from `cursor` when
+/// given, and calls `on_wake` with each item (its initial snapshot first, or
+/// the journal batches after `cursor`), and with `None` after each
+/// `tick` without one, until `on_wake` returns `true`, the stream ends or
+/// `deadline` passes. Blocking reads bounded by the tick; the daemon is
+/// never polled, and dropping the connection ends the stream.
+pub(super) fn session_events(
+    global: &GlobalArgs,
+    cursor: Option<&Value>,
+    deadline: Instant,
+    tick: Duration,
+    on_wake: &mut dyn FnMut(Option<&Value>) -> bool,
+) -> Result<(), CallFailure> {
+    use FailureKind::{NotRun, Rejected};
+    let local = |code: &str, message: String| CallFailure::local(NotRun, code, message);
+    let stream_id = random_prefixed("stream").map_err(|error| local("usage.invalid", error.0))?;
+    let mut plan = RequestPlan {
+        operation: WireOperation::Typed(ResourceOperation::SessionEvents),
+        params: json!({"machine": "current", "session": "current", "stream_id": stream_id}),
+        idempotency_key: None,
+        stream: true,
+        resolve: Vec::new(),
+        view: ResponseView::Full,
+    };
+    if let Some(cursor) = cursor {
+        plan.params.set("cursor", cursor.clone());
+    }
+    resolve::apply_global_route(global, &mut plan)
+        .map_err(|error| local("usage.invalid", error.into()))?;
+    let request = wire::request_value(&plan).map_err(|error| local("usage.invalid", error.0))?;
+    let request_id = request["id"].clone();
+    let (socket, derived) = wire::resolve_socket_with_origin(global).map_err(|error| {
+        CallFailure { kind: NotRun, error: wire::resolve_failure(&error), idempotency_key: None }
+    })?;
+    let stream =
+        cmux_tui_core::server::connect_session_socket(&socket, derived).map_err(|error| {
+            let message = format!("cannot connect to session socket {}: {error}", socket.display());
+            local("transport.unavailable", message)
+        })?;
+    let left = deadline.saturating_duration_since(Instant::now());
+    if left.is_zero() {
+        return Ok(());
+    }
+    let _ = stream.set_read_timeout(Some(left.min(wire::SERVER_PREFLIGHT_TIMEOUT)));
+    let mut reader = BufReader::new(stream);
+    let negotiated = super::super::tab_capabilities::negotiate(&mut reader);
+    if Instant::now() >= deadline {
+        return Ok(());
+    }
+    negotiated.map_err(|failure| match failure {
+        resolve::Failure::Resource(error) => {
+            CallFailure { kind: NotRun, error, idempotency_key: None }
+        }
+        resolve::Failure::Transport(message) => local("transport.failed", message),
+        resolve::Failure::Refused => local("session.busy", "session is busy".into()),
+        _ => local("transport.failed", "client capability negotiation failed".into()),
+    })?;
+    let encoded = resolve::encode_request_bytes(&request)
+        .map_err(|message| local("validation.invalid", message))?;
+    resolve::send_request(&mut reader, &encoded).map_err(|failure| match failure {
+        resolve::Failure::Refused => local("session.busy", "session is busy".into()),
+        resolve::Failure::Transport(message) => local("transport.failed", message),
+        _ => local("transport.failed", "request could not be sent".into()),
+    })?;
+    let mut opened = false;
+    let mut line = Vec::new();
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Ok(());
+        }
+        let _ = reader.get_mut().set_read_timeout(Some(left.min(tick)));
+        // A read cut by the timeout keeps its bytes in `line` for the next one.
+        match reader.read_until(b'\n', &mut line) {
+            Ok(0) if opened => return Ok(()),
+            Ok(0) => return Err(local("transport.failed", "the daemon closed the stream".into())),
+            Ok(_) if line.ends_with(b"\n") => {}
+            Ok(_) => continue,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                if opened && on_wake(None) {
+                    return Ok(());
+                }
+                continue;
+            }
+            Err(_) if opened => return Ok(()),
+            Err(error) => return Err(local("transport.failed", error.to_string())),
+        }
+        let frame = serde_json::from_slice::<Value>(&line);
+        line.clear();
+        let Ok(frame) = frame else { continue };
+        match frame["type"].as_str() {
+            Some("response") if frame["id"] == request_id => {
+                if frame["ok"] != true {
+                    let error = frame.get("error").cloned().unwrap_or(Value::Null);
+                    return Err(CallFailure { kind: Rejected, error, idempotency_key: None });
+                }
+                opened = true;
+            }
+            // An item the caller does not stop on keeps the stream open.
+            Some("stream_item")
+                if opened
+                    && frame["stream_id"] == plan.params["stream_id"]
+                    && on_wake(Some(&frame["item"])) =>
+            {
+                return Ok(());
+            }
+            Some("stream_end") if opened => return Ok(()),
+            _ => {}
+        }
     }
 }
 
@@ -174,6 +330,10 @@ fn app_open_failure(failure: resolve::Failure, key: Option<&str>) -> CallFailure
         resolve::Failure::Transport(message) => (
             InProgress,
             json!({"code": "transport.failed", "message": message, "details": {}, "retryable": true}),
+        ),
+        resolve::Failure::Refused => (
+            NotRun,
+            json!({"code": "session.busy", "message": "session is busy", "details": {}, "retryable": true}),
         ),
         resolve::Failure::AppAction { action, .. } => (
             NotRun,
@@ -397,3 +557,7 @@ mod tests {
         assert!(!is_partial_id("ws_XY", "ws"));
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "transport_capabilities_tests.rs"]
+mod capabilities_tests;

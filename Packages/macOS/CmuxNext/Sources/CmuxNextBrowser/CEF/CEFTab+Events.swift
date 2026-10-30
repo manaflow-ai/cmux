@@ -10,6 +10,11 @@ extension CEFTab {
     /// the address and the loading state.
     func handle(_ event: CEFShimEvent) {
         defer { CEFAgentURLGuard.check(self, after: event) }
+        if case .title = event {} else if let waiting = titleCoalescer.flush(now: ProcessInfo.processInfo.systemUptime) {
+            // A title that waited goes before this event, so the state sees them in order.
+            titleTimer.cancel()
+            machine.apply(.titleChanged(waiting.title))
+        }
         switch event {
         case .loadingState(_, let loading, let back, let forward):
             nativeHistory = (back, forward)
@@ -23,7 +28,12 @@ extension CEFTab {
             } else if !loading, state.isLoading, let navigation {
                 machine.apply(.finished(navigation))
             }
-            if !loading { clearTitleBeforeCommit() }
+            if !loading {
+                clearTitleBeforeCommit()
+                // A load that ends without OnLoadEnd (stopped, aborted) also
+                // leaves the page area to its document.
+                documentDidSettle()
+            }
         case .loadStart(_, let url, let fromPost):
             if navigation == nil || !state.isLoading {
                 let id = makeNavigationID()
@@ -37,9 +47,17 @@ extension CEFTab {
             clearTitleBeforeCommit()
             committedURL = URL(string: url)
             pageInfoDocumentCommitted(URL(string: url))
+            resetPageBackdrop()
+            // The document that just committed is the only one that can hear
+            // `prefers-color-scheme`, and after a renderer restart it never did
+            // (`rendererTerminated` forgets what the dead one was told). Costs
+            // nothing on an ordinary navigation: the memo already matches.
+            reapplyColorScheme()
             if PageBackground.isRealPage(URL(string: url)) { reachedFirstRealPage() }
         case .loadEnd:
             if let navigation { machine.apply(.finished(navigation)) }
+            documentDidSettle()
+            samplePageBackdrop()
             restored.documentLoaded()
             // Mixed content shows up while the page loads subresources.
             syncSecurityFromChromium()
@@ -61,12 +79,16 @@ extension CEFTab {
                 committedURL = failing
                 // Chromium's interstitial commits with no OnLoadStart: it ends
                 // the New Tab page's hole, as a committed page does (cx-2nfi).
+                // The interstitial has not committed yet, so the page area
+                // keeps the theme base until `.loadingState` ends the load:
+                // handing it back here would show white until the error page
+                // paints, the very flash this stands in for.
                 if error.engineShowsPage { reachedFirstRealPage() }
             }
         case .address(_, let url):
             machine.apply(.urlChanged(URL(string: url)))
         case .title(_, let title):
-            machine.apply(.titleChanged(title.isEmpty ? nil : title))
+            offerTitle(title.isEmpty ? nil : title)
             if capturesTitleBeforeCommit, state.phase == .provisional { titleBeforeCommit = title.isEmpty ? nil : title }
         case .favicon(_, let url):
             let faviconURL = URL(string: url)
@@ -96,6 +118,7 @@ extension CEFTab {
         case .renderUnresponsive: machine.apply(.unresponsiveChanged(true))
         case .renderResponsive: machine.apply(.unresponsiveChanged(false))
         case .permissionPrompt, .permissionDismissed, .passwordPrompt: CEFPermissionPrompts(tab: self).handle(event)
+        case .beforeUnloadDismissed: beforeUnloadDismissed()
         case .devToolsMessage(_, let json):
             agentRelay.deliver(json)
         default:
@@ -154,9 +177,23 @@ extension CEFTab {
 
     // MARK: Scripts
 
-    public func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue {
+    public func evaluate(_ script: String, world: BrowserScriptWorld, gesture: BrowserScriptGesture) async throws -> BrowserJSValue {
         guard let browserID, !isClosed else { throw BrowserTabError.closed }
+        // `runtime` is `unowned`, so it is read once here, while it is known alive, and held for the
+        // calls below: an isolated-world evaluate is four round trips, and re-reading it after one
+        // of them would trap once the runtime's last owner went (see `CEFMediaBridge.run`).
+        let runtime = self.runtime
+        // No DevTools session for the tab's own scripts (fork API 29): its renderer stays shareable.
+        if runtime.forkFeatures.rendererPaths {
+            let result = try await runtime.evaluate(browserID, world: world == .isolated ? "cmux" : "", script: script,
+                                                    userGesture: gesture == .agent)
+            return try await result.value()
+        }
         var params: [String: Any] = ["expression": script, "returnByValue": true, "awaitPromise": true]
+        // An agent's script runs as a user gesture: its `cmux browser click` on a target=_blank
+        // link or a window.open button opens the tab instead of hitting the popup blocker
+        // (browser use thread, 2026-10-19). cmux's own scripts never do (`BrowserScriptGesture`).
+        if gesture == .agent { params["userGesture"] = true }
         if world == .isolated {
             let tree = try await runtime.devTools(browserID, method: "Page.getFrameTree")
             guard let frame = CEFDevToolsResult.mainFrameID(tree) else { throw BrowserTabError.javaScript("no main frame") }
@@ -170,6 +207,23 @@ extension CEFTab {
         }
         let json = try await runtime.devTools(browserID, method: "Runtime.evaluate", params: params)
         return try CEFDevToolsResult.evaluation(json)
+    }
+
+    /// Applies a page title now, or keeps the latest for the end of the
+    /// coalescing interval (`TitleCoalescer`): a title that changes every
+    /// frame re-rendered the toolbar and the tab's rows every frame.
+    private func offerTitle(_ title: String?) {
+        let now = ProcessInfo.processInfo.systemUptime
+        switch titleCoalescer.offer(title, now: now) {
+        case .apply(let update):
+            machine.apply(.titleChanged(update.title))
+        case .later(let until):
+            titleTimer.scheduleIfIdle(after: .milliseconds(Int64(max(0, until - now) * 1000) + 1)) { @MainActor [weak self] in
+                guard let self, !self.isClosed,
+                      let update = self.titleCoalescer.fire(now: ProcessInfo.processInfo.systemUptime) else { return }
+                self.machine.apply(.titleChanged(update.title))
+            }
+        }
     }
 
     /// Runs a DevTools protocol method on this tab in process (diagnostics
@@ -203,7 +257,7 @@ extension CEFTab {
         if actions != extensionActions { extensionActions = actions }
     }
 
-    public var extensionStore: BrowserExtensionStore { runtime.extensionStores.store(for: profileID) }
+    public var extensionStore: BrowserExtensionStore { runtime.extensionStores.readyStore(for: profileID) }
 
     public func runExtensionAction(_ id: String, anchor: CGRect) {
         guard let browserID else {

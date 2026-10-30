@@ -1,6 +1,6 @@
 // Pure shaping for the Stats page: durations and counts in the person's language (Intl, so no
 // plural strings), the heatmap grid and the hour bars. The page and its tests share these.
-import type { DayStats } from "./types";
+import type { DayStats, StatsSummary } from "./types";
 
 const DAY_MS = 86_400_000;
 
@@ -19,6 +19,48 @@ export function formatDuration(ms: number, language: string): string {
   return rest === 0 ? unit(hours, "hour") : `${unit(hours, "hour")} ${unit(rest, "minute")}`;
 }
 
+/** A permission wait: `12s`, `4m 5s` under ten minutes, else as `formatDuration`. */
+export function formatWait(ms: number, language: string): string {
+  const total = Math.round(ms / 1000);
+  if (total >= 600) return formatDuration(ms, language);
+  const unit = (value: number, name: "minute" | "second") =>
+    new Intl.NumberFormat(language, { style: "unit", unit: name, unitDisplay: "narrow" }).format(value);
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  if (minutes === 0) return unit(seconds, "second");
+  return seconds === 0 ? unit(minutes, "minute") : `${unit(minutes, "minute")} ${unit(seconds, "second")}`;
+}
+
+/** One row of the Attention section: a wait in ms, a count, or a ratio. */
+export type AttentionRow =
+  | { key: string; wait: number }
+  | { key: string; count: number }
+  | { key: string; ratio: number };
+
+/**
+ * The Attention rows the summary has data for: waits only once a question was answered, the
+ * counts only when acpmux sent them (an older one does not), steers per turn once a turn ran.
+ */
+export function attentionRows(summary: StatsSummary): AttentionRow[] {
+  const rows: AttentionRow[] = [];
+  const answered = summary.permissionAnswered;
+  if (answered !== undefined && answered > 0) {
+    if (summary.permissionWaitMs !== undefined) {
+      rows.push({ key: "stats.attention.averageWait", wait: summary.permissionWaitMs / answered });
+    }
+    if (summary.permissionWaitMaxMs !== undefined) {
+      rows.push({ key: "stats.attention.longestWait", wait: summary.permissionWaitMaxMs });
+    }
+  }
+  if (answered !== undefined) rows.push({ key: "stats.attention.answered", count: answered });
+  if (summary.permissionUnanswered !== undefined) {
+    rows.push({ key: "stats.attention.unanswered", count: summary.permissionUnanswered });
+  }
+  if (summary.limitErrors !== undefined) rows.push({ key: "stats.attention.limitErrors", count: summary.limitErrors });
+  if (summary.turns > 0) rows.push({ key: "stats.attention.steersPerTurn", ratio: summary.steers / summary.turns });
+  return rows;
+}
+
 /** `5 days` in the person's language. */
 export function formatDays(days: number, language: string): string {
   return new Intl.NumberFormat(language, { style: "unit", unit: "day", unitDisplay: "long" }).format(days);
@@ -30,6 +72,18 @@ export function formatDay(day: string, language: string): string {
     weekday: "short",
     month: "short",
     day: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(`${day}T00:00:00Z`));
+}
+
+/**
+ * A day strip's label under `day`: the weekday over a week; over a month the day of the month on
+ * today and every seventh day before it (`fromEnd` counts back from today), else none.
+ */
+export function stripLabel(day: string, fromEnd: number, rangeDays: number, language: string): string {
+  if (rangeDays > 7 && fromEnd % 7 !== 0) return "";
+  return new Intl.DateTimeFormat(language, {
+    ...(rangeDays > 7 ? { day: "numeric" } : { weekday: "short" }),
     timeZone: "UTC",
   }).format(new Date(`${day}T00:00:00Z`));
 }

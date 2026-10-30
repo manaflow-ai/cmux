@@ -367,10 +367,66 @@
    "family": "browser"
   },
   {
+   "name": "browser.extensions.manage",
+   "meaning": "Extensions menu Manage extensions (Chrome kSettingsChromeRefreshOldIcon)",
+   "sf": "gearshape",
+   "family": "browser.extensions",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.extensions.sidepanel",
+   "meaning": "Extensions menu row: open the extension's side panel (Chrome kDockToRightOldIcon)",
+   "sf": "sidebar.right",
+   "family": "browser.extensions",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.extensions.webstore",
+   "meaning": "Extensions menu footer: get extensions from the Chrome Web Store (Chrome kStorefrontOldIcon)",
+   "sf": "storefront",
+   "family": "browser.extensions",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.find.next",
+   "meaning": "Find bar next match (Chrome kKeyboardArrowDownChromeRefreshOldIcon)",
+   "sf": "chevron.down",
+   "family": "browser.find",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.find.previous",
+   "meaning": "Find bar previous match (Chrome kKeyboardArrowUpChromeRefreshOldIcon)",
+   "sf": "chevron.up",
+   "family": "browser.find",
+   "source": "chromium",
+   "alias": false
+  },
+  {
    "name": "browser.incognito",
    "meaning": "Incognito / private window",
    "sf": "eyeglasses",
    "family": "browser"
+  },
+  {
+   "name": "browser.menu.cast",
+   "meaning": "Page menu Cast (Chrome kCastChromeRefreshOldIcon)",
+   "sf": "airplayvideo",
+   "family": "browser.menu",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.menu.translate",
+   "meaning": "Page menu Translate (Chrome kGTranslateIcon)",
+   "sf": "translate",
+   "family": "browser.menu",
+   "source": "chromium",
+   "alias": false
   },
   {
    "name": "browser.new",
@@ -379,10 +435,240 @@
    "family": "browser"
   },
   {
+   "name": "browser.omnibox.dangerous",
+   "meaning": "Address bar Dangerous site (Chrome kDangerousChromeRefreshOldIcon)",
+   "sf": "exclamationmark.triangle.fill",
+   "family": "browser.omnibox",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.omnibox.notsecure",
+   "meaning": "Address bar Not secure (Chrome kNotSecureWarningChromeRefreshOldIcon)",
+   "sf": "exclamationmark.triangle",
+   "family": "browser.omnibox",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.omnibox.pageinfo",
+   "meaning": "Address bar site info on a secure page, the tune icon (Chrome kSecurePageInfoChromeRefreshOldIcon)",
+   "sf": "slider.horizontal.3",
+   "family": "browser.omnibox",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.omnibox.search",
+   "meaning": "Address bar search (Chrome kSearchChromeRefreshOldIcon)",
+   "sf": "magnifyingglass",
+   "family": "browser.omnibox",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.omnibox.star",
+   "meaning": "Address bar Bookmark this tab (Chrome kStarChromeRefreshOldIcon)",
+   "sf": "star",
+   "family": "browser.omnibox",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.omnibox.star.active",
+   "meaning": "Address bar page is bookmarked (Chrome kStarActiveChromeRefreshOldIcon)",
+   "sf": "star.fill",
+   "family": "browser.omnibox.star",
+   "source": "chromium",
+   "alias": false
+  },
+  {
    "name": "browser.stop",
    "meaning": "Stop loading",
    "sf": "xmark",
    "family": "browser"
+  },
+  {
+   "name": "browser.tab.audio",
+   "meaning": "Tab is playing audio (Chrome kVolumeUpChromeRefreshOldIcon)",
+   "sf": "speaker.wave.2",
+   "family": "browser.tab",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.tab.muted",
+   "meaning": "Tab audio is muted (Chrome kVolumeOffChromeRefreshOldIcon)",
+   "sf": "speaker.slash",
+   "family": "browser.tab",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.tab.pause",
+   "meaning": "Media controls Pause (Chrome kPauseOldIcon)",
+   "sf": "pause.fill",
+   "family": "browser.tab",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.tab.play",
+   "meaning": "Media controls Play (Chrome kPlayArrowOldIcon)",
+   "sf": "play.fill",
+   "family": "browser.tab",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.toolbar.back",
+   "meaning": "Browser toolbar Back (Chrome kBackArrowChromeRefreshOldIcon)",
+   "sf": "chevron.backward",
+   "family": "browser.toolbar",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.toolbar.bookmarks",
+   "meaning": "Browser toolbar Favorites / bookmarks panel (Chrome kBookmarksSidePanelRefreshOldIcon)",
+   "sf": "book",
+   "family": "browser.toolbar",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.toolbar.close",
+   "meaning": "Browser chrome close / dismiss (find bar, notices; Chrome kCloseChromeRefreshOldIcon)",
+   "sf": "xmark",
+   "family": "browser.toolbar",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.toolbar.devtools",
+   "meaning": "Browser toolbar Developer tools (Chrome kCodeChromeRefreshOldIcon)",
+   "sf": "chevron.left.forwardslash.chevron.right",
+   "family": "browser.toolbar",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.toolbar.downloads",
+   "meaning": "Browser toolbar Downloads button (Chrome kDownloadToolbarButtonChromeRefreshOldIcon)",
+   "sf": "arrow.down.to.line",
+   "family": "browser.toolbar",
+   "source": "chromium"
+  },
+  {
+   "name": "browser.toolbar.downloads.active",
+   "meaning": "Browser toolbar Downloads while a download runs (Chrome kDownloadInProgressChromeRefreshOldIcon)",
+   "sf": "arrow.down",
+   "family": "browser.toolbar.downloads",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.toolbar.extensions",
+   "meaning": "Browser toolbar Extensions button, the puzzle (Chrome kExtensionChromeRefreshOldIcon)",
+   "sf": "puzzlepiece.extension",
+   "family": "browser.toolbar",
+   "source": "chromium"
+  },
+  {
+   "name": "browser.toolbar.extensions.crashed",
+   "meaning": "An extension crashed (Chrome kExtensionCrashedCustomIcon)",
+   "sf": "exclamationmark.triangle",
+   "family": "browser.toolbar.extensions",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.toolbar.forward",
+   "meaning": "Browser toolbar Forward (Chrome kForwardArrowChromeRefreshOldIcon)",
+   "sf": "chevron.forward",
+   "family": "browser.toolbar",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.toolbar.media",
+   "meaning": "Browser toolbar media controls (Chrome kMediaToolbarButtonChromeRefreshOldIcon)",
+   "sf": "music.note.list",
+   "family": "browser.toolbar",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.toolbar.more",
+   "meaning": "Browser toolbar More / app menu, three vertical dots (Chrome kBrowserToolsChromeRefreshOldIcon)",
+   "sf": "ellipsis",
+   "family": "browser.toolbar",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.toolbar.opennewtab",
+   "meaning": "Open in a new tab (side panel; Chrome kOpenInNewChromeRefreshOldIcon)",
+   "sf": "arrow.up.forward.square",
+   "family": "browser.toolbar",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.toolbar.pin",
+   "meaning": "Pin (extensions menu, side panel; Chrome kKeepOldIcon)",
+   "sf": "pin",
+   "family": "browser.toolbar",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.toolbar.profile",
+   "meaning": "Browser toolbar profile / avatar (Chrome kAccountCircleChromeRefreshOldIcon)",
+   "sf": "person.crop.circle",
+   "family": "browser.toolbar",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.toolbar.reload",
+   "meaning": "Browser toolbar Reload (Chrome kReloadChromeRefreshOldIcon)",
+   "sf": "arrow.clockwise",
+   "family": "browser.toolbar",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.toolbar.stop",
+   "meaning": "Browser toolbar Stop loading (Chrome kNavigateStopChromeRefreshOldIcon)",
+   "sf": "xmark",
+   "family": "browser.toolbar",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.toolbar.unpin",
+   "meaning": "Unpin a pinned item (extensions menu, side panel; Chrome kKeepOffOldIcon)",
+   "sf": "pin.slash",
+   "family": "browser.toolbar",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.toolbar.zoom.in",
+   "meaning": "Page zoomed in (Chrome kZoomPlusChromeRefreshOldIcon)",
+   "sf": "plus.magnifyingglass",
+   "family": "browser.toolbar.zoom",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.toolbar.zoom.out",
+   "meaning": "Page zoomed out (Chrome kZoomMinusChromeRefreshOldIcon)",
+   "sf": "minus.magnifyingglass",
+   "family": "browser.toolbar.zoom",
+   "source": "chromium",
+   "alias": false
   },
   {
    "name": "browserprofile.badge",
@@ -478,6 +764,12 @@
   {
    "name": "composer.send",
    "meaning": "Send message.",
+   "sf": "questionmark.square.dashed",
+   "family": "composer"
+  },
+  {
+   "name": "composer.steer",
+   "meaning": "Steer: send a queued message into the running turn now (the queued row's Steer, as ChatGPT and Codex draw it).",
    "sf": "questionmark.square.dashed",
    "family": "composer"
   },
@@ -606,6 +898,13 @@
    "meaning": "Expanded disclosure / expand",
    "sf": "chevron.down",
    "family": "disclosure"
+  },
+  {
+   "name": "disclosure.folded",
+   "meaning": "A folded group whose rows are hidden (Chrome's tab group header, chevron up)",
+   "sf": "chevron.up",
+   "family": "disclosure",
+   "alias": false
   },
   {
    "name": "extension",
@@ -991,6 +1290,12 @@
    "meaning": "Split up / drop zone top",
    "sf": "rectangle.tophalf.inset.filled",
    "family": "pane.split"
+  },
+  {
+   "name": "panel.right",
+   "meaning": "Show or hide the chat's right-side panel (the summary, the Inspector)",
+   "sf": "questionmark.square.dashed",
+   "family": "panel"
   },
   {
    "name": "permission.consent",

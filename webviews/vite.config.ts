@@ -1,3 +1,4 @@
+import { artifactRuntimeVite } from "./scripts/agent-pane/artifactRuntimePlugin.mjs";
 import { reactWithCompiler } from "./reactCompiler.mjs";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite-plus";
@@ -22,17 +23,21 @@ export default defineConfig({
   // reformatting them would change the bundle for no behavior change.
   // The handoff schema is a published wire fixture; schema.test.ts verifies its exact bytes.
   ...cmuxCheckConfig({
+    effectCleanupPlugin: fileURLToPath(new URL("./scripts/lint/effect-cleanup.mjs", import.meta.url)),
     fmtIgnorePatterns: [
       "src/diff/generated/**",
       // A markdown test document: its exact syntax (*** rules, odd spacing) is what it tests.
       "src/gallery/fixtures/markdown-showcase.md",
       // scripts/pane-protocol-codegen.ts --check owns these bytes.
       "src/protocol/generated/**",
+      // scripts/acpmux-protocol-codegen.ts --check owns these bytes.
+      "src/agent-session/acpmux/protocol/generated/**",
       // Byte-identical copy of the Rust lane's emitted IR.
       "src/protocol/ir/**",
       "**/*.css",
       "src/agent-session/acpmux/handoff/schema/acpmux-schema.json",
       "src/agent-session/acpmux/icons/cmuxIcons.json",
+      "src/agent-session/acpmux/icons/cmuxIconsCustom.json",
       // scripts/agent-icons/generate.py --check owns these bytes.
       "src/agent-session/shared/agentBrands.generated.ts",
       // scripts/icon-picker/gen-emoji-data.mjs --check owns these bytes.
@@ -48,6 +53,7 @@ export default defineConfig({
   // `bun run dev`: every surface on one port (dev-server/plugins.ts). Build ignores it.
   server: { host: "127.0.0.1", port: DEV_SERVER_PORT, strictPort: true },
   plugins: [
+    artifactRuntimeVite(),
     // Serve-only dev hosts (diff sidecar, markdown shell, agent pane pages); never in the build.
     ...cmuxDevServer(),
     // React Compiler: Babel by default, Oxc with CMUX_REACT_COMPILER=oxc (reactCompiler.mjs).
@@ -174,10 +180,23 @@ export default defineConfig({
             // agent session does not load the diff renderer at startup.
             // `markdown-vendor` (Milkdown, ProseMirror, remark) is shared by the agent pane's
             // composer and the markdown editor page.
-            // The viewer pages' shared modules (appearance, page client, strings, terminal syntax theme,
-            // the empty states): one chunk named as before, so the code editor importing a new
-            // combination of them does not split the chunk the diff and markdown pages load.
-            { name: "pickerModel", test: (id: string) => VIEWER_SHARED.test(id), priority: 0 },
+            // The viewer pages' shared modules, in two fixed chunks so the code editor importing a new
+            // combination of them does not split the chunks the diff and markdown pages load:
+            // `pageShared` (appearance, page client, i18n, terminal syntax theme, the host ops, `cx`) is on
+            // every page's first load; `pickerModel` (the empty states, the path picker model and
+            // their ~60 KB string table) loads only where a page imports it. The markdown page
+            // imports its empty state lazily, so this chunk stays out of its first load.
+            { name: "pageShared", test: (id: string) => VIEWER_SHARED.test(id), priority: 0 },
+            { name: "pickerModel", test: (id: string) => VIEWER_EMPTY.test(id), priority: 0 },
+            // Tiny text utilities that both shiki's hast serializer and the markdown page's
+            // mdast serializer use. Inside `shiki-core` they made the markdown page load all of
+            // shiki eagerly (~220 KB); the page loads shiki only once a code block needs colors.
+            {
+              name: "text-utils",
+              test: (id: string) => /\/node_modules\/(ccount|zwitch)\//.test(id),
+              priority: 5,
+              includeDependenciesRecursively: false,
+            },
             ...["shiki-core", "vendor", "diff-vendor", "markdown-vendor"].map((name, index) => ({
               name,
               test: (id: string) => sharedChunkName(id) === name,
@@ -197,9 +216,13 @@ export default defineConfig({
 const EDITOR_OWN_COPIES =
   /\/webviews\/src\/(pages\/shared\/(pageStreams\.ts|desktop\.ts|desktop\.css)|diff-languages\/(detect|pack)\.ts)$/;
 
-/** The modules of the viewer pages' shared `pickerModel` chunk (diff, markdown and editor pages). */
+/** The modules of the viewer pages' shared `pageShared` chunk (diff, markdown and editor pages). */
 const VIEWER_SHARED =
-  /\/webviews\/src\/(appearance\.ts|syntax-colors\.ts|pierre-options\.ts|pages\/shared\/(pageClient|i18n)\.ts|viewer-empty\/(ops\.ts|drop\.ts|icons\.tsx|strings\.ts|time\.ts|EmptyState\.tsx|pickerModel\.ts|generated\/strings\.json))$/;
+  /\/webviews\/src\/(appearance\.ts|syntax-colors\.ts|pierre-options\.ts|pages\/shared\/(pageClient|i18n)\.ts|viewer-empty\/ops\.ts|ui\/cx\.ts)$/;
+
+/** The viewer empty states' modules: the `pickerModel` chunk, lazy on the markdown page. */
+const VIEWER_EMPTY =
+  /\/webviews\/src\/viewer-empty\/(drop\.ts|icons\.tsx|strings\.ts|time\.ts|EmptyState\.tsx|pickerModel\.ts|generated\/strings\.json)$/;
 
 function lazyChunkName(id: string): string | null {
   const diffLocale = id.match(/\/pages\/diff\/generated\/locales\/([^/]+)\.json$/);

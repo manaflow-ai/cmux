@@ -1,11 +1,11 @@
 import AppKit
 import CmuxNextDesign
 
-/// "Retry" above the status banner once a terminal view stopped retrying its
-/// attach by itself (cx-wwtam): a re-attach now, with its retries back. A click or a key in
+/// "Retry" above the status banner once a terminal view's attach kept failing
+/// (cx-wwtam; it still retries by itself): a re-attach now. A click or a key in
 /// the terminal does the same; the button says so where it can be seen.
 /// Styled like ``TerminalRestartButton``.
-final class TerminalRetryButton: NSButton {
+final class TerminalRetryButton: ClickableButton {
     var onRetry: (@MainActor () -> Void)?
 
     init() {
@@ -44,13 +44,18 @@ final class TerminalRetryButton: NSButton {
         }
     }
 
-    /// Visible only while the view is disconnected and no longer retrying
+    /// Visible only while the view is disconnected and its attach kept failing
     /// (never for an administrator's block: it cannot reconnect).
     func show(_ status: TerminalConnectionStatus) {
+        isHidden = !Self.shows(status)
+    }
+
+    /// Whether `status` shows the button (the host builds it the first time one does).
+    static func shows(_ status: TerminalConnectionStatus) -> Bool {
         switch status {
-        case .disconnected(.turnedOffByOrganization, _): isHidden = true
-        case .disconnected(_, reconnecting: false): isHidden = false
-        case .connected, .restoring, .disconnected, .exited: isHidden = true
+        case .disconnected(.turnedOffByOrganization, _): false
+        case .disconnected(_, reconnecting: false): true
+        case .connected, .restoring, .disconnected, .exited: false
         }
     }
 

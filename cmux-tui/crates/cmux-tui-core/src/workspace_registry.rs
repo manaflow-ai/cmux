@@ -32,14 +32,20 @@ use crate::terminal_host_runtime::TerminalHostLiveness;
 pub use open_guard::RegistryQuarantined;
 use open_guard::preflight_unsupported_schema;
 
+pub(crate) mod agent_cli_intents;
+mod compact;
 mod detached_terminals;
 pub(crate) use detached_terminals::DETACHED_TERMINAL_WORKSPACE_KEY;
 use detached_terminals::require_live_workspace;
 mod effect_store;
 pub(crate) mod feed_local_store;
+pub use compact::{RegistryCompactError, RegistryCompaction, compact_registry};
+mod browser_profile_proxy;
+pub(crate) mod history_check;
 mod idle_policy_store;
 mod journal_extensions;
 mod mutation_ledger;
+pub(crate) mod mutation_ledger_retention;
 mod open_guard;
 pub(crate) mod personal_bookmarks;
 mod personal_browser_profiles;
@@ -52,6 +58,9 @@ mod public_fold;
 mod public_projection_store;
 mod receipt_env;
 pub(crate) mod registry_connection;
+mod root_identity;
+pub(crate) mod terminal_end_prefetch;
+pub(crate) mod wal_durability;
 pub(crate) use registry_connection::RegistryConnection;
 mod registry_intent;
 pub(crate) use registry_intent::{
@@ -60,6 +69,9 @@ pub(crate) use registry_intent::{
 mod terminal_commit_intent;
 pub(crate) use terminal_commit_intent::TerminalCommitIntent;
 mod workspace_commit_intent;
+mod workspace_rows_commit;
+use workspace_rows_commit::commit_workspace_registry_in_transaction;
+pub(crate) mod workspace_name_store;
 pub(crate) use workspace_commit_intent::{WorkspaceCommitIntent, WorkspaceCommitReceipt};
 pub(crate) mod relaunch_store;
 mod resource_effect_commit;
@@ -71,6 +83,7 @@ mod terminal_exit_store;
 mod terminal_keep_store;
 mod terminal_resource_close_store;
 pub(crate) mod terminal_respawn_store;
+pub(crate) mod terminal_resume_store;
 mod topology_close_store;
 
 pub use crate::state::kept_tab_store::KeptTabRecord;
@@ -159,6 +172,19 @@ pub(crate) use topology_close_store::TopologyCloseCommit;
 // Version 15 normalizes legacy terminal exits to the exact public receipt shape.
 pub(crate) const SCHEMA_VERSION: i64 = 15;
 pub(crate) const RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION: u32 = 2;
+/// Every commit flushes the device cache on macOS (F_FULLFSYNC), so a crash or
+/// power loss keeps each acknowledged commit. Unit tests open hundreds of
+/// throwaway registries in one process and never cut power: there, a plain
+/// fsync (synchronous=FULL stays) keeps every commit ordering and restart
+/// result they check, while F_FULLFSYNC serialized the device across all test
+/// threads (notification_reads_survive_restart_and_eviction_prunes_them:
+/// 19.3 s on a fleet Mac, 0.18 s on Linux). Daemon binaries, including every
+/// integration test's daemon, keep F_FULLFSYNC.
+#[cfg(not(test))]
+const REGISTRY_FULLFSYNC_PRAGMA: &str = "PRAGMA fullfsync=ON;";
+#[cfg(test)]
+const REGISTRY_FULLFSYNC_PRAGMA: &str = "PRAGMA fullfsync=OFF;";
+
 const RESOURCE_EFFECT_PEPPER_SCHEMA_VERSION: i64 = 7;
 const MAX_ID_LEN: usize = 128;
 const MAX_WORKSPACE_KEY_LEN: usize = 256;
@@ -321,6 +347,12 @@ pub struct RegistryWorkspace {
     pub public_id: WorkspacePublicId,
     pub key: String,
     pub name: String,
+    /// Who chose `name`; an older registry or intent without it is user-owned.
+    #[serde(default)]
+    pub name_source: crate::resource_name::NameSource,
+    /// Advances on every rename of this workspace (an automatic rename's fence).
+    #[serde(default)]
+    pub name_revision: u64,
     pub group_key: String,
 }
 
@@ -390,20 +422,30 @@ impl TerminalLifecycle {
 /// surface, leaving only the durable exit receipt. `Keep` retains the tabs
 /// and the live screen surface next to that receipt while the daemon runs;
 /// after a daemon restart the in-memory VT is gone, so a kept-exited
-/// terminal degrades to the normal detach during reconciliation.
+/// terminal degrades to the normal detach during reconciliation. `Shell`
+/// keeps the tabs like `Keep`, then drops them into a new shell under the
+/// same terminal id (the manual restart's worker, `terminal_respawn/manual.rs`);
+/// that shell's own exit closes them, as `Close` does.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum TerminalOnExit {
     #[default]
     Close,
     Keep,
+    Shell,
 }
+
+/// The `launch_spec_json` key that marks a `shell` policy. The `on_exit`
+/// column stores `keep` for it, which every older build accepts (its CHECK
+/// allows only close and keep), so such a build degrades it to keep.
+const SHELL_ON_EXIT_MARKER: &str = "on_exit";
 
 impl TerminalOnExit {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Close => "close",
             Self::Keep => "keep",
+            Self::Shell => "shell",
         }
     }
 
@@ -411,9 +453,35 @@ impl TerminalOnExit {
         match value {
             "close" => Ok(Self::Close),
             "keep" => Ok(Self::Keep),
+            "shell" => Ok(Self::Shell),
             other => anyhow::bail!("invalid terminal on-exit policy {other:?}"),
         }
     }
+
+    /// The `terminal_hosts.on_exit` column value.
+    pub(crate) fn column(self) -> &'static str {
+        match self {
+            Self::Shell => "keep",
+            policy => policy.as_str(),
+        }
+    }
+
+    /// Whether the tabs stay with the final screen after the process ends.
+    pub(crate) fn keeps_views(self) -> bool {
+        matches!(self, Self::Keep | Self::Shell)
+    }
+}
+
+/// The `launch_spec_json` stored for `terminal`: its launch spec, plus the
+/// `shell` policy marker.
+pub(crate) fn durable_launch_spec(terminal: &RegistryTerminal) -> Value {
+    let mut launch_spec = terminal.launch_spec.clone();
+    if terminal.on_exit == TerminalOnExit::Shell
+        && let Some(object) = launch_spec.as_object_mut()
+    {
+        object.insert(SHELL_ON_EXIT_MARKER.into(), Value::String("shell".into()));
+    }
+    launch_spec
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -730,6 +798,9 @@ pub struct WorkspaceRegistry {
     /// Behind its own lock; lock order rules: see `registry_connection`.
     pub(crate) connection: std::sync::Arc<RegistryConnection>,
     database_path: Option<PathBuf>,
+    /// How long each step of this registry's open took (the owner's
+    /// `startup-timings.jsonl`); taken once by the owner's start.
+    open_timings: crate::startup_timings::StartupTimings,
     registry_id: String,
     generation: String,
     session_name: String,
@@ -2328,7 +2399,7 @@ fn open_registry_database_with_flags(path: &Path, flags: OpenFlags) -> anyhow::R
 }
 
 pub(crate) fn open_registry_database(path: &Path) -> anyhow::Result<Connection> {
-    open_registry_database_with_flags(path, OpenFlags::default()).map(crate::debug_spans::traced)
+    open_registry_database_with_flags(path, OpenFlags::default()).map(registry_connection::hooked)
 }
 
 fn open_registry_database_read_only(path: &Path) -> anyhow::Result<Connection> {
@@ -2390,10 +2461,12 @@ impl WorkspaceRegistry {
             None,
             None,
             None,
+            crate::startup_timings::StartupTimings::start(),
         )
     }
 
     pub fn open(root: &Path, session_name: &str) -> anyhow::Result<Self> {
+        let mut timings = crate::startup_timings::StartupTimings::start();
         let root = platform::normalize_filesystem_path(root.to_path_buf());
         // Keep short roots in their existing spelling while giving all
         // root-level files the same long-path handling as their descendants.
@@ -2429,6 +2502,7 @@ impl WorkspaceRegistry {
             .with_context(|| format!("open workspace registry {}", db_path.display()))?;
         let connection = open_guard::quarantine_if_unreadable(&db_path, connection)?;
         platform::restrict_file(&db_path)?;
+        timings.lap("registry.lock_and_connect");
         Self::initialize(
             connection,
             session_name.to_string(),
@@ -2437,9 +2511,11 @@ impl WorkspaceRegistry {
             Some(session_guard),
             Some(lease),
             Some(db_path),
+            timings,
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn initialize(
         connection: Connection,
         session_name: String,
@@ -2448,8 +2524,11 @@ impl WorkspaceRegistry {
         session_guard: Option<SessionLease>,
         lease: Option<SessionLease>,
         database_path: Option<PathBuf>,
+        mut timings: crate::startup_timings::StartupTimings,
     ) -> anyhow::Result<Self> {
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
+        // Before the first write, so every commit of this connection uses it.
+        connection.execute_batch(REGISTRY_FULLFSYNC_PRAGMA)?;
         let fresh_database = connection.query_row(
             "SELECT COUNT(*) = 0 FROM sqlite_master WHERE type = 'table'",
             [],
@@ -2461,8 +2540,7 @@ impl WorkspaceRegistry {
         connection.execute_batch(
             "PRAGMA foreign_keys=ON;
              PRAGMA journal_mode=WAL;
-             PRAGMA synchronous=FULL;
-             PRAGMA fullfsync=ON;
+             PRAGMA synchronous=NORMAL;
              PRAGMA wal_autocheckpoint=1000;
              PRAGMA secure_delete=ON;
              CREATE TABLE IF NOT EXISTS meta (
@@ -2718,9 +2796,11 @@ impl WorkspaceRegistry {
             migrate_resource_tabs_to_multiview(&tx)?;
             tx.commit()?;
         }
+        timings.lap("registry.schema");
         {
             let tx = connection.unchecked_transaction()?;
             resource_store::migrate_tab_name_authority(&tx)?;
+            workspace_name_store::migrate_workspace_name_authority(&tx)?;
             tx.commit()?;
         }
         if terminal_hosts_has_workspace_foreign_key(&connection)? {
@@ -2746,23 +2826,7 @@ impl WorkspaceRegistry {
         }
         if migrate_existing_registry {
             connection.execute_batch("PRAGMA foreign_keys=ON;")?;
-            let violation = connection
-                .query_row(
-                    "SELECT \"table\", rowid, parent, fkid
-                     FROM pragma_foreign_key_check
-                     LIMIT 1",
-                    [],
-                    |row| {
-                        Ok((
-                            row.get::<_, String>(0)?,
-                            row.get::<_, Option<i64>>(1)?,
-                            row.get::<_, String>(2)?,
-                            row.get::<_, i64>(3)?,
-                        ))
-                    },
-                )
-                .optional()?;
-            if violation.is_some() {
+            if first_state_foreign_key_violation(&connection)?.is_some() {
                 anyhow::bail!(
                     "saved session data could not be loaded; start a new session or restore this session from a backup"
                 );
@@ -2826,20 +2890,20 @@ impl WorkspaceRegistry {
         if let Err(error) = crate::state::sidebar_doc_store::migrate_at_open(&connection) {
             eprintln!("cmux-tui: sidebar document migration skipped ({error:#})");
         }
-        let quick_check: String =
-            connection.query_row("PRAGMA quick_check", [], |row| row.get(0))?;
-        if quick_check != "ok" {
-            anyhow::bail!("workspace registry integrity check failed: {quick_check}");
-        }
+        timings.lap("registry.migrations");
+        check_registry_integrity(&connection)?;
+        timings.lap("registry.integrity_check");
         {
             let tx = connection.unchecked_transaction()?;
             initialize_compatibility_active_workspace(&tx)?;
             validate_resource_invariants(&tx)?;
             tx.commit()?;
         }
+        timings.lap("registry.resource_invariants");
         Ok(Self {
-            connection: RegistryConnection::new(connection),
+            connection: RegistryConnection::new(connection, database_path.as_deref()),
             database_path,
+            open_timings: timings,
             registry_id,
             generation: try_new_uuid_v4()?,
             session_name,
@@ -2857,6 +2921,11 @@ impl WorkspaceRegistry {
 
     pub(crate) fn session_journal_database_path(&self) -> Option<PathBuf> {
         self.database_path.clone()
+    }
+
+    /// This registry's open steps, once (later calls get none).
+    pub(crate) fn take_open_timings(&mut self) -> crate::startup_timings::StartupTimings {
+        std::mem::take(&mut self.open_timings)
     }
 
     pub(crate) fn resource_input_receipt_hmac(
@@ -2882,7 +2951,8 @@ impl WorkspaceRegistry {
             .ok_or_else(|| anyhow::anyhow!("workspace id space exhausted"))?;
         let db = self.connection.get();
         let mut statement = db.prepare(
-            "SELECT w.numeric_id, w.workspace_key, w.name, w.group_key, rw.public_id
+            "SELECT w.numeric_id, w.workspace_key, w.name, w.group_key, rw.public_id,
+                    w.name_source, w.name_revision
              FROM workspaces w
              JOIN resource_workspaces rw ON rw.workspace_key = w.workspace_key
              WHERE w.tombstoned = 0 AND rw.deleted_revision IS NULL
@@ -2891,16 +2961,27 @@ impl WorkspaceRegistry {
         let workspaces = statement
             .query_map([], |row| {
                 let id: i64 = row.get(0)?;
-                Ok((id, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
+                let provenance: (String, i64) = (row.get(5)?, row.get(6)?);
+                Ok((id, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, provenance))
             })?
             .map(|row| {
-                let (id, key, name, group_key, public_id): (i64, String, String, String, String) =
-                    row?;
+                let (id, key, name, group_key, public_id, (source, revision)): (
+                    i64,
+                    String,
+                    String,
+                    String,
+                    String,
+                    (String, i64),
+                ) = row?;
+                let (name_source, name_revision) =
+                    workspace_name_store::stored_name_provenance(&source, revision)?;
                 Ok::<RegistryWorkspace, anyhow::Error>(RegistryWorkspace {
                     id: u64::try_from(id).context("stored workspace id is negative")?,
                     public_id: WorkspacePublicId::parse(public_id)?,
                     key,
                     name,
+                    name_source,
+                    name_revision,
                     group_key,
                 })
             })
@@ -2936,7 +3017,8 @@ impl WorkspaceRegistry {
                     json_extract(
                       creation.intent_json,
                       '$.workspace_reservation.workspace_public_id'
-                    )
+                    ),
+                    w.name_source, w.name_revision
              FROM workspaces w
              JOIN resource_creation_receipts creation
                ON json_extract(
@@ -2960,10 +3042,13 @@ impl WorkspaceRegistry {
                     row.get::<_, String>(3)?,
                     row.get::<_, String>(4)?,
                     row.get::<_, Option<String>>(5)?,
+                    (row.get::<_, String>(6)?, row.get::<_, i64>(7)?),
                 ))
             })?
             .map(|row| {
-                let (position, id, key, name, group_key, public_id) = row?;
+                let (position, id, key, name, group_key, public_id, (source, revision)) = row?;
+                let (name_source, name_revision) =
+                    workspace_name_store::stored_name_provenance(&source, revision)?;
                 let public_id = public_id.with_context(|| {
                     format!("interrupted workspace {key} omitted its reserved public id")
                 })?;
@@ -2974,6 +3059,8 @@ impl WorkspaceRegistry {
                         public_id: WorkspacePublicId::parse(public_id)?,
                         key,
                         name,
+                        name_source,
+                        name_revision,
                         group_key,
                     },
                 ))
@@ -3714,6 +3801,158 @@ fn migrate_resource_api_frontend_projection_envelopes(
     Ok(())
 }
 
+/// Tables that hold journal history rather than registry state. They grow
+/// with every terminal output chunk (millions of rows, gigabytes on a
+/// long-lived machine) and are append-only or sealed archives whose records
+/// are validated when they are read, so the open-time check skips them.
+const JOURNAL_HISTORY_TABLES: [&str; 7] = [
+    "session_journal",
+    "journal_subject_index",
+    "journal_event_index",
+    "journal_segments",
+    "journal_checkpoints",
+    "journal_content_blobs",
+    "journal_segment_kinds",
+];
+
+/// Idempotency ledgers: one row per committed mutation, holding its result
+/// for a retry of the same `(origin, mutation_id)`. They are read only by
+/// that key and could reach 1 GB (a nightly's `projection_mutations`), so the
+/// open-time check skips them like journal history and touches their newest
+/// row and key instead; the maintenance worker bounds and scans them
+/// (`mutation_ledger_retention`).
+/// `resource_mutations` is not one of them: it is pruned on open and its
+/// terminal-defaults rows are restored state.
+const MUTATION_LEDGER_TABLES: [&str; 3] =
+    ["mutations", "projection_mutations", "terminal_mutations"];
+
+/// Journal receipt ledgers: one row per accepted ingress append, read only
+/// by its `(producer, origin, idempotency key)` for a retry. A long-lived
+/// machine holds hundreds of thousands (588k, about 5.5 s of a cold
+/// quick_check on a 41 GB nightly registry), so the open-time checks skip
+/// them like the mutation ledgers.
+const RECEIPT_LEDGER_TABLES: [&str; 1] = ["journal_ingress_receipts"];
+
+/// Tables the open-time checks leave alone: journal history, idempotency
+/// ledgers and quarantined ledgers grow with use and are validated when read.
+fn skipped_by_open_check(table: &str) -> bool {
+    JOURNAL_HISTORY_TABLES.contains(&table)
+        || MUTATION_LEDGER_TABLES.contains(&table)
+        || RECEIPT_LEDGER_TABLES.contains(&table)
+        || mutation_ledger_retention::is_quarantined_ledger(table)
+}
+
+/// One `PRAGMA foreign_key_check` row: `(table, rowid, parent, foreign key index)`.
+pub(crate) type ForeignKeyViolation = (String, i64, Option<String>, i64);
+
+/// The first row of a registry state table whose foreign key names a missing
+/// parent: `(table, rowid, parent, foreign key index)`. The open migrates
+/// state tables with foreign keys off and validates the resource topology, so
+/// both check them; an unscoped `PRAGMA foreign_key_check` also walked every
+/// receipt ledger (about 4 s cold on a 41 GB registry) while the daemon's
+/// socket waited.
+pub(crate) fn first_state_foreign_key_violation(
+    connection: &Connection,
+) -> anyhow::Result<Option<ForeignKeyViolation>> {
+    let tables = {
+        let mut statement = connection.prepare(
+            "SELECT DISTINCT m.name FROM sqlite_master AS m, pragma_foreign_key_list(m.name)
+             WHERE m.type = 'table' ORDER BY m.name",
+        )?;
+        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
+    };
+    for table in tables.iter().filter(|table| !skipped_by_open_check(table.as_str())) {
+        let query = format!(
+            "SELECT \"table\", rowid, parent, fkid FROM pragma_foreign_key_check('{}') LIMIT 1",
+            table.replace('\'', "''")
+        );
+        let violation = connection
+            .query_row(&query, [], |row| {
+                let rowid = row.get::<_, Option<i64>>(1)?.unwrap_or_default();
+                Ok((row.get(0)?, rowid, row.get(2)?, row.get(3)?))
+            })
+            .optional()?;
+        if violation.is_some() {
+            return Ok(violation);
+        }
+    }
+    Ok(None)
+}
+
+/// Structural check of the registry state on open. An unscoped quick_check
+/// reads every page of the file, so its cost tracked total journal history;
+/// checking each state table and its indexes keeps startup proportional to
+/// the registry, not to how much output its terminals ever printed.
+fn check_registry_integrity(connection: &Connection) -> anyhow::Result<()> {
+    let tables = {
+        let mut statement = connection.prepare(
+            "SELECT name FROM sqlite_master
+             WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
+             ORDER BY name",
+        )?;
+        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
+    };
+    // The tables that grow with use are checked in full by the maintenance
+    // worker after the daemon serves, unless it found one damaged
+    // (`history_check`).
+    let full = history_check::full_open_check_required(connection)?;
+    for table in tables.iter().filter(|table| {
+        !skipped_by_open_check(table.as_str())
+            && (full || !history_check::is_background_checked(table.as_str()))
+    }) {
+        let pragma = format!("PRAGMA quick_check('{}')", table.replace('\'', "''"));
+        let result: String = connection.query_row(&pragma, [], |row| row.get(0))?;
+        if result != "ok" {
+            anyhow::bail!("workspace registry integrity check failed: {result}");
+        }
+    }
+    if full {
+        connection.execute(
+            "DELETE FROM meta WHERE key = ?1",
+            [history_check::FULL_OPEN_CHECK_META_KEY],
+        )?;
+    } else {
+        history_check::touch_background_checked_tails(connection, &tables)?;
+    }
+    // History is validated incrementally when replayed. Touch only each
+    // table's newest indexed row during open so a corrupt tail page is caught
+    // without turning startup back into a full-journal scan.
+    for (table, order) in [
+        ("session_journal", "sequence"),
+        ("journal_subject_index", "sequence"),
+        ("journal_event_index", "sequence"),
+        ("journal_segments", "end_sequence"),
+        ("journal_checkpoints", "source_sequence"),
+        // created_at_ms has no index: ordering by it scanned and sorted every
+        // blob through its overflow pages (0.67 s cold on a 41.6 GB registry).
+        // Blobs are append-only, so the newest rowid is the newest blob.
+        ("journal_content_blobs", "rowid"),
+    ] {
+        let query = format!("SELECT 1 FROM {table} ORDER BY {order} DESC LIMIT 1");
+        let _: Option<i64> = connection.query_row(&query, [], |row| row.get(0)).optional()?;
+    }
+    for table in MUTATION_LEDGER_TABLES {
+        if !tables.iter().any(|name| name.as_str() == table) {
+            continue;
+        }
+        for order in ["rowid DESC", "origin DESC, mutation_id DESC"] {
+            let query = format!("SELECT 1 FROM {table} ORDER BY {order} LIMIT 1");
+            let _: Option<i64> = connection.query_row(&query, [], |row| row.get(0)).optional()?;
+        }
+    }
+    // The receipt ledgers likewise: their newest row and newest key.
+    for table in RECEIPT_LEDGER_TABLES {
+        if !tables.iter().any(|name| name.as_str() == table) {
+            continue;
+        }
+        for order in ["rowid DESC", "producer_id DESC, origin DESC, idempotency_key DESC"] {
+            let query = format!("SELECT 1 FROM {table} ORDER BY {order} LIMIT 1");
+            let _: Option<i64> = connection.query_row(&query, [], |row| row.get(0)).optional()?;
+        }
+    }
+    Ok(())
+}
+
 fn checkpoint_and_truncate_wal(connection: &Connection) -> anyhow::Result<()> {
     let (busy, _, _): (i64, i64, i64) =
         connection.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| {
@@ -3843,6 +4082,7 @@ fn create_terminal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     )?;
     idle_policy_store::create_terminal_idle_policy_schema(transaction)?;
     terminal_keep_store::create_terminal_keep_schema(transaction)?;
+    terminal_resume_store::create_terminal_resume_schema(transaction)?;
     relaunch_store::create_schema(transaction)?;
     Ok(())
 }
@@ -4160,6 +4400,10 @@ fn normalized_workspace_resource_deltas(
                     "index":u32::try_from(index)
                         .context("workspace index exceeds public uint32 range")?,
                     "focused":active_workspace == Some(workspace.public_id.as_str()),
+                    "extra":crate::resource_name::workspace_name_extra(
+                        workspace.name_source,
+                        workspace.name_revision,
+                    ),
                 },
             }))
         })
@@ -4424,157 +4668,6 @@ fn close_terminals_in_transaction(
     Ok(TerminalBatchClose { revision, closed })
 }
 
-#[allow(clippy::too_many_arguments)]
-fn commit_workspace_registry_in_transaction(
-    transaction: &Transaction<'_>,
-    mutation: &WorkspaceMutation,
-    fingerprint: &str,
-    expected_revision: Option<u64>,
-    event_kind: &str,
-    workspace_key: &str,
-    workspaces: &[RegistryWorkspace],
-    result_json: &str,
-) -> anyhow::Result<(u64, TerminalBatchClose)> {
-    validate_identifier("mutation id", &mutation.id)?;
-    validate_identifier("mutation origin", &mutation.origin)?;
-    validate_workspace_key(workspace_key)?;
-    validate_registry(workspaces)?;
-    let current = transaction_revision(transaction)?;
-    if let Some(expected) = expected_revision
-        && expected != current
-    {
-        anyhow::bail!("workspace revision conflict: expected {expected}, current {current}");
-    }
-    let revision =
-        current.checked_add(1).ok_or_else(|| anyhow::anyhow!("workspace revision exhausted"))?;
-    let sqlite_revision =
-        i64::try_from(revision).context("workspace revision exceeds SQLite integer range")?;
-
-    // Terminals are session-owned. Their workspace_key records their latest
-    // canonical placement but is intentionally allowed to outlive that
-    // workspace, so closing a workspace removes views without terminating the
-    // underlying terminal.
-    let terminal_batch =
-        TerminalBatchClose { revision: transaction_terminal_revision(transaction)?, closed: 0 };
-    // Only rows that change are written. Removed rows are tombstoned and
-    // moved rows first park at a unique negative slot, which releases the
-    // partial unique position index for the desired order below.
-    let desired = workspaces
-        .iter()
-        .enumerate()
-        .map(|(position, workspace)| (workspace.key.as_str(), (position, workspace)))
-        .collect::<HashMap<_, _>>();
-    let stored = {
-        let mut statement = transaction.prepare(
-            "SELECT workspace_key, numeric_id, name, group_key, position
-             FROM workspaces WHERE tombstoned = 0",
-        )?;
-        statement
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    (
-                        row.get::<_, i64>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, String>(3)?,
-                        row.get::<_, Option<i64>>(4)?,
-                    ),
-                ))
-            })?
-            .collect::<Result<HashMap<_, _>, _>>()?
-    };
-    // A key with a live row is not tombstoned: only the keys new to the
-    // live set need the check (one query each, not one per workspace).
-    for workspace in workspaces.iter().filter(|workspace| !stored.contains_key(&workspace.key)) {
-        let was_tombstoned = transaction
-            .query_row(
-                "SELECT tombstoned FROM workspaces WHERE workspace_key = ?1",
-                [&workspace.key],
-                |row| row.get::<_, i64>(0),
-            )
-            .optional()?;
-        anyhow::ensure!(
-            was_tombstoned != Some(1),
-            "tombstoned workspace key cannot be reused: {}",
-            workspace.key
-        );
-    }
-    for (workspace_key, (_, _, _, stored_position)) in &stored {
-        match desired.get(workspace_key.as_str()) {
-            None => {
-                transaction.execute(
-                    "UPDATE workspaces SET tombstoned = 1, position = NULL,
-                     updated_revision = ?1, deleted_revision = ?1
-                     WHERE workspace_key = ?2 AND tombstoned = 0",
-                    params![sqlite_revision, workspace_key],
-                )?;
-            }
-            Some((position, _)) if *stored_position != i64::try_from(*position).ok() => {
-                transaction.execute(
-                    "UPDATE workspaces SET position = -rowid
-                     WHERE workspace_key = ?1 AND tombstoned = 0",
-                    [workspace_key],
-                )?;
-            }
-            Some(_) => {}
-        }
-    }
-    for (position, workspace) in workspaces.iter().enumerate() {
-        let unchanged = stored.get(&workspace.key).is_some_and(
-            |(numeric_id, name, group_key, stored_position)| {
-                i64::try_from(workspace.id).ok() == Some(*numeric_id)
-                    && name == &workspace.name
-                    && group_key == &workspace.group_key
-                    && *stored_position == i64::try_from(position).ok()
-            },
-        );
-        if unchanged {
-            continue;
-        }
-        transaction.execute(
-            "INSERT INTO workspaces(
-               workspace_key, numeric_id, name, group_key, position, tombstoned,
-               created_revision, updated_revision, deleted_revision
-             ) VALUES(?1, ?2, ?3, ?4, ?5, 0, ?6, ?6, NULL)
-             ON CONFLICT(workspace_key) DO UPDATE SET
-               numeric_id=excluded.numeric_id,
-               name=excluded.name,
-               group_key=excluded.group_key,
-               position=excluded.position,
-               tombstoned=0,
-               updated_revision=excluded.updated_revision,
-               deleted_revision=NULL",
-            params![
-                workspace.key,
-                i64::try_from(workspace.id).context("workspace id exceeds SQLite range")?,
-                workspace.name,
-                workspace.group_key,
-                i64::try_from(position).context("workspace position exceeds SQLite range")?,
-                sqlite_revision
-            ],
-        )?;
-    }
-    transaction
-        .execute("UPDATE meta SET value = ?1 WHERE key = 'revision'", [revision.to_string()])?;
-    let ledger = mutation_ledger::KeyedLedger::Workspace;
-    let row = (fingerprint, result_json, sqlite_revision);
-    mutation_ledger::insert_keyed_mutation(transaction, ledger, mutation, row.0, row.1, row.2)?;
-    transaction.execute(
-        "INSERT INTO workspace_events(
-           revision, kind, workspace_key, origin, mutation_id, result_json
-         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
-        params![
-            sqlite_revision,
-            event_kind,
-            workspace_key,
-            mutation.origin,
-            mutation.id,
-            result_json
-        ],
-    )?;
-    Ok((revision, terminal_batch))
-}
-
 fn validate_registry(workspaces: &[RegistryWorkspace]) -> anyhow::Result<()> {
     let mut keys = HashSet::new();
     let mut public_ids = HashSet::new();
@@ -4690,14 +4783,23 @@ type StoredTerminal = (String, String, Option<String>, String, String, Option<St
 
 fn terminal_from_stored(stored: StoredTerminal) -> anyhow::Result<RegistryTerminal> {
     let (terminal_id, workspace_key, incarnation, lifecycle, launch_spec, exit, on_exit) = stored;
+    let mut launch_spec: Value = serde_json::from_str(&launch_spec)?;
+    let marked = launch_spec
+        .as_object_mut()
+        .and_then(|object| object.remove(SHELL_ON_EXIT_MARKER))
+        .is_some_and(|marker| marker == "shell");
+    let on_exit = match TerminalOnExit::parse(&on_exit)? {
+        TerminalOnExit::Keep if marked => TerminalOnExit::Shell,
+        policy => policy,
+    };
     Ok(RegistryTerminal {
         terminal_id,
         workspace_key,
         incarnation,
         lifecycle: TerminalLifecycle::parse(&lifecycle)?,
-        launch_spec: serde_json::from_str(&launch_spec)?,
+        launch_spec,
         exit: exit.map(|value| serde_json::from_str(&value)).transpose()?,
-        on_exit: TerminalOnExit::parse(&on_exit)?,
+        on_exit,
     })
 }
 
@@ -5155,29 +5257,15 @@ fn load_or_create_resource_effect_pepper(root: &Path) -> anyhow::Result<Resource
             platform::restrict_file(&path)?;
             let bytes = fs::read(&path)
                 .with_context(|| format!("read resource receipt pepper {}", path.display()))?;
-            ResourceEffectPepper::from_bytes(bytes, &path)
+            if bytes.len() < RESOURCE_EFFECT_PEPPER_BYTES {
+                root_identity::replace_cut_pepper(&root, &path, bytes)
+            } else {
+                ResourceEffectPepper::from_bytes(bytes, &path)
+            }
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             ensure_missing_pepper_can_migrate(&root, &path)?;
-            let pepper = ResourceEffectPepper::random()?;
-            let mut options = OpenOptions::new();
-            options.create_new(true).write(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                options.mode(0o600);
-            }
-            let mut file = options
-                .open(&path)
-                .with_context(|| format!("create resource receipt pepper {}", path.display()))?;
-            platform::restrict_file(&path)?;
-            file.write_all(pepper.0.as_ref())
-                .with_context(|| format!("write resource receipt pepper {}", path.display()))?;
-            file.sync_all()
-                .with_context(|| format!("sync resource receipt pepper {}", path.display()))?;
-            platform::sync_directory(&root)
-                .with_context(|| format!("sync state root {}", root.display()))?;
-            Ok(pepper)
+            root_identity::create_pepper(&root, &path, false)
         }
         Err(error) => {
             Err(error).with_context(|| format!("read resource receipt pepper {}", path.display()))
@@ -5188,6 +5276,11 @@ fn load_or_create_resource_effect_pepper(root: &Path) -> anyhow::Result<Resource
 }
 
 fn ensure_missing_pepper_can_migrate(root: &Path, pepper_path: &Path) -> anyhow::Result<()> {
+    ensure_no_registry_at(root, pepper_path, SCHEMA_VERSION)
+}
+
+/// Fails when a registry under `root` is at `schema` or later.
+fn ensure_no_registry_at(root: &Path, pepper_path: &Path, schema_floor: i64) -> anyhow::Result<()> {
     for entry in
         fs::read_dir(root).with_context(|| format!("read state root {}", root.display()))?
     {
@@ -5209,7 +5302,7 @@ fn ensure_missing_pepper_can_migrate(root: &Path, pepper_path: &Path) -> anyhow:
             .parse()
             .with_context(|| format!("registry schema is invalid: {}", database.display()))?;
         anyhow::ensure!(
-            schema < SCHEMA_VERSION,
+            schema < schema_floor,
             "resource receipt pepper is missing for an existing registry: {}",
             pepper_path.display()
         );
@@ -5235,30 +5328,17 @@ fn load_or_create_machine_id(root: &Path) -> anyhow::Result<MachinePublicId> {
 
     let path = platform::normalize_filesystem_path(root.join(MACHINE_ID_FILE));
     let result = match fs::read(&path) {
+        // Cut by a full disk in an earlier build's in-place write: never
+        // handed out (returned only after its fsync), so a new id replaces it.
+        Ok(bytes) if root_identity::is_cut_machine_id(&bytes) => {
+            root_identity::create_machine_id(&root, &path, true)
+        }
         Ok(bytes) => {
             platform::restrict_file(&path)?;
             parse_machine_id_file(&path, &bytes)
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            let id = MachinePublicId::random()?;
-            let mut options = OpenOptions::new();
-            options.create_new(true).write(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                options.mode(0o600);
-            }
-            let mut file = options
-                .open(&path)
-                .with_context(|| format!("create machine identity {}", path.display()))?;
-            platform::restrict_file(&path)?;
-            file.write_all(id.as_str().as_bytes())
-                .and_then(|()| file.write_all(b"\n"))
-                .with_context(|| format!("write machine identity {}", path.display()))?;
-            file.sync_all().with_context(|| format!("sync machine identity {}", path.display()))?;
-            platform::sync_directory(&root)
-                .with_context(|| format!("sync state root {}", root.display()))?;
-            Ok(id)
+            root_identity::create_machine_id(&root, &path, false)
         }
         Err(error) => {
             Err(error).with_context(|| format!("read machine identity {}", path.display()))
@@ -5843,7 +5923,13 @@ mod tests;
 mod receipt_env_tests;
 
 #[cfg(test)]
+mod open_cost_tests;
+
+#[cfg(test)]
 mod personal_tests;
 
 #[cfg(test)]
 mod actor_migration_tests;
+
+#[cfg(test)]
+mod workspace_name_tests;

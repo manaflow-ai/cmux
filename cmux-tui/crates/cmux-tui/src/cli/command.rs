@@ -12,6 +12,8 @@ use serde_json::{Map, Number, Value, json};
 use super::{GlobalArgs, UsageError};
 use flags::{BOOLEAN_FLAGS, usage, validate_one_of};
 
+mod agent_focus;
+mod agent_list;
 mod agent_message_cmd;
 mod browser;
 mod bulk_close;
@@ -21,15 +23,19 @@ mod conversation;
 mod flags;
 pub(super) mod git;
 mod history;
+mod machine;
+mod name_flags;
 pub(super) use history::DAEMON_VERBS as HISTORY_DAEMON_VERBS;
-mod plan;
+pub(super) mod plan;
 mod screen;
 mod server_ensure;
+mod settings;
 mod sidebar_doc;
 mod state;
 mod workspace;
-
-pub(super) use plan::{RequestPlan, Resolve, ResponseView, WireOperation, ZoomStep};
+pub(super) use plan::{
+    AgentRosterView, AgentSort, RequestPlan, Resolve, ResponseView, WireOperation, ZoomStep,
+};
 use screen::{parse_screen, parse_screen_strings};
 
 pub(super) enum ParsedCommand {
@@ -151,37 +157,40 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
         .first()
         .map(String::as_str)
         .ok_or_else(|| UsageError::new("missing resource scope"))?;
+    let words = tokens.words.get(1..).unwrap_or_default();
+    if tokens.argv.is_some() && !takes_argv(scope, &strs(words)) {
+        return Err(UsageError::new(format!(
+            "`{}` runs no command: drop the words after --",
+            tokens.words.join(" ")
+        )));
+    }
     let mut selectors = Selectors::default();
     let plan = match scope {
-        "server" => parse_server(&tokens.words[1..], &mut tokens.flags)?,
-        "machine" => parse_machine(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "session" => parse_session(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "client" => parse_client(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "workspace" => {
-            parse_workspace(&tokens.words[1..], &mut selectors, &mut tokens.flags, tokens.argv)?
-        }
-        "screen" => {
-            parse_screen(&tokens.words[1..], &mut selectors, &mut tokens.flags, tokens.argv)?
-        }
-        "pane" => parse_pane(&tokens.words[1..], &mut selectors, &mut tokens.flags, tokens.argv)?,
-        "tab" => parse_tab(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "terminal" => parse_terminal(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "browser" => parse_browser(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "notification" => parse_notification(&tokens.words[1..], &mut tokens.flags)?,
-        "room" => state::parse_room(&strs(&tokens.words[1..]), &mut tokens.flags)?,
-        "closed" => state::parse_closed(&strs(&tokens.words[1..]), &mut tokens.flags)?,
-        "git" => git::parse_git(&strs(&tokens.words[1..]), &mut tokens.flags)?,
-        "history" => history::parse_history(&strs(&tokens.words[1..]), &mut tokens.flags)?,
-        "conversation" => {
-            conversation::parse_conversation(&strs(&tokens.words[1..]), &mut tokens.flags)?
-        }
-        "notify" => parse_notify(&tokens.words[1..], &mut tokens.flags)?,
-        "agent" => parse_agent(&tokens.words[1..], &mut tokens.flags, tokens.argv)?,
-        "sidebar" => parse_sidebar(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "pairing" => parse_pairing(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "projection" => parse_projection(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "provider" => parse_provider(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "raw" => parse_raw(&tokens.words[1..], &mut tokens.flags)?,
+        "server" => parse_server(words, &mut tokens.flags)?,
+        "machine" => machine::parse(words, &mut selectors, &mut tokens.flags, surface)?,
+        "session" => parse_session(words, &mut selectors, &mut tokens.flags)?,
+        "client" => parse_client(words, &mut selectors, &mut tokens.flags)?,
+        "workspace" => parse_workspace(words, &mut selectors, &mut tokens.flags, tokens.argv)?,
+        "screen" => parse_screen(words, &mut selectors, &mut tokens.flags, tokens.argv)?,
+        "settings" | "config" => settings::parse(words, &mut tokens.flags, tokens.argv.as_deref())?,
+        "pane" => parse_pane(words, &mut selectors, &mut tokens.flags, tokens.argv)?,
+        "tab" => parse_tab(words, &mut selectors, &mut tokens.flags, tokens.argv)?,
+        "terminal" => parse_terminal(words, &mut selectors, &mut tokens.flags)?,
+        "browser" => parse_browser(words, &mut selectors, &mut tokens.flags)?,
+        "notification" => parse_notification(words, &mut tokens.flags)?,
+        "attention" => state::parse_attention(&strs(words), &mut selectors, &mut tokens.flags)?,
+        "room" => state::parse_room(&strs(words), &mut tokens.flags)?,
+        "closed" => state::parse_closed(&strs(words), &mut tokens.flags)?,
+        "git" => git::parse_git(&strs(words), &mut tokens.flags)?,
+        "history" => history::parse_history(&strs(words), &mut tokens.flags)?,
+        "conversation" => conversation::parse_conversation(&strs(words), &mut tokens.flags)?,
+        "notify" => parse_notify(words, &mut tokens.flags)?,
+        "agent" => parse_agent(words, &mut tokens.flags, tokens.argv)?,
+        "sidebar" => parse_sidebar(words, &mut selectors, &mut tokens.flags)?,
+        "pairing" => parse_pairing(words, &mut selectors, &mut tokens.flags)?,
+        "projection" => parse_projection(words, &mut selectors, &mut tokens.flags)?,
+        "provider" => parse_provider(words, &mut selectors, &mut tokens.flags)?,
+        "raw" => parse_raw(words, &mut tokens.flags)?,
         value => return Err(super::unknown_scope(value, surface)),
     };
     tokens.flags.reject_remaining()?;
@@ -193,11 +202,11 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
         ["status"] => super::lifecycle::ServerAction::Status,
         ["stats"] => super::lifecycle::ServerAction::Stats,
         ["ensure"] => server_ensure::parse(flags)?,
-        ["stop"] => super::lifecycle::ServerAction::Stop {
-            force: flags.boolean("force"),
-            end_terminals: flags.boolean("end-terminals"),
-        },
+        ["stop"] => stop_action(flags)?,
         ["reload-config"] => super::lifecycle::ServerAction::ReloadConfig,
+        ["compact-registry"] => super::lifecycle::ServerAction::CompactRegistry {
+            state_dir: flags.take("state-dir").map(PathBuf::from),
+        },
         ["start"] => {
             return Err(UsageError::new(
                 crate::localization::catalog().local_server.start_options_after_action,
@@ -209,7 +218,15 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
                 action,
                 super::suggestion(
                     action,
-                    &["stats", "start", "ensure", "status", "stop", "reload-config"],
+                    &[
+                        "stats",
+                        "start",
+                        "ensure",
+                        "status",
+                        "stop",
+                        "reload-config",
+                        "compact-registry",
+                    ],
                 ),
             )));
         }
@@ -220,6 +237,30 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
         }
     };
     Ok(CommandPlan::Server(super::lifecycle::ServerPlan { action, session: None }))
+}
+
+/// `server stop` and `session <name> stop`: `[--force] [--end-terminals]
+/// [--restore-wait-seconds <n>]`. The wait for an owner that still restores
+/// defaults to the bound `server ensure` gives a restore
+/// (`local_owner::RESTORE_DEADLINE`), and is at most an hour.
+fn stop_action(flags: &mut Flags) -> Result<super::lifecycle::ServerAction, UsageError> {
+    const MAX_RESTORE_WAIT_SECONDS: u64 = 3600;
+    let restore_wait = match flags.take("restore-wait-seconds") {
+        None => crate::local_owner::RESTORE_DEADLINE,
+        Some(value) => match value.parse::<u64>() {
+            Ok(seconds @ 1..=MAX_RESTORE_WAIT_SECONDS) => std::time::Duration::from_secs(seconds),
+            _ => {
+                return Err(UsageError::new(
+                    crate::localization::catalog().local_server.stop_restore_wait_invalid,
+                ));
+            }
+        },
+    };
+    Ok(super::lifecycle::ServerAction::Stop {
+        force: flags.boolean("force"),
+        end_terminals: flags.boolean("end-terminals"),
+        restore_wait,
+    })
 }
 
 fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
@@ -256,7 +297,7 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
             if flags.values.insert(name.to_string(), flag_value).is_some() {
                 return Err(UsageError::new(format!("duplicate flag --{name}")));
             }
-        } else if value.starts_with('-') && value != "-" {
+        } else if value.starts_with('-') && value != "-" && value.parse::<f64>().is_err() {
             // A lone `-` is a word: standard input, for commands that read it.
             return Err(UsageError::new(format!("unknown short flag {value:?}")));
         } else {
@@ -267,32 +308,69 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
     Ok(Tokens { words, flags, argv })
 }
 
-pub(super) fn is_boolean_flag(name: &str) -> bool {
-    BOOLEAN_FLAGS.contains(&name)
+/// Whether the command `scope words…` reads the words after `--`: workspace,
+/// screen, pane and terminal-tab create, workspace and pane run, pane split
+/// (also under a workspace, screen or pane path), the workspace
+/// status/progress/log and checklist commands (which check their own verbs),
+/// and agent messages. Every other command would drop
+/// them, so the caller is told instead.
+fn takes_argv(scope: &str, words: &[&str]) -> bool {
+    fn tab(words: &[&str]) -> bool {
+        matches!(words, ["create", "terminal"])
+    }
+    fn pane(words: &[&str]) -> bool {
+        matches!(words, ["create"] | [_, "split"] | [_, "run", ..])
+            || matches!(words, [_, "tab", tail @ ..] if tab(tail))
+    }
+    fn screen(words: &[&str]) -> bool {
+        matches!(words, ["create"]) || matches!(words, [_, "pane", tail @ ..] if pane(tail))
+    }
+    fn workspace(words: &[&str]) -> bool {
+        let area = |word: &&str| state::STATUS_AREAS.contains(word) || *word == "checklist";
+        match words {
+            ["create"] | [_, "run", ..] => true,
+            [first, ..] if area(first) => true,
+            [_, second, ..] if area(second) => true,
+            [_, "screen", tail @ ..] => screen(tail),
+            _ => false,
+        }
+    }
+    match scope {
+        "workspace" => workspace(words),
+        "screen" => screen(words),
+        "pane" => pane(words),
+        "tab" => tab(words),
+        "agent" => matches!(words, ["message", ..]),
+        "settings" | "config" => {
+            matches!(words, ["get", ..] | ["set", ..] | ["reset", ..] | ["unset", ..])
+        }
+        _ => false,
+    }
 }
 
-fn parse_machine(
-    words: &[String],
-    selectors: &mut Selectors,
+/// `argv` (the words after `--`) or `--shell SCRIPT` for a command that
+/// creates a terminal: the new terminal runs it instead of a plain shell.
+fn insert_creation_command(
+    params: &mut Map<String, Value>,
+    argv: Option<Vec<String>>,
     flags: &mut Flags,
-) -> Result<CommandPlan, UsageError> {
-    match strs(words).as_slice() {
-        ["list"] => request(ResourceOperation::MachineList, selectors, flags, Map::new()),
-        [selector, "show"] => {
-            selectors.insert("machine", "machine", selector)?;
-            request(ResourceOperation::MachineGet, selectors, flags, Map::new())
+) -> Result<(), UsageError> {
+    match (argv, flags.take("shell")) {
+        (None, None) => Ok(()),
+        (Some(argv), None) if argv.first().is_some_and(|program| !program.is_empty()) => {
+            params.insert("argv".into(), json!(argv));
+            Ok(())
         }
-        [machine, "session", "list"] => {
-            selectors.insert("machine", "machine", machine)?;
-            request(ResourceOperation::SessionList, selectors, flags, Map::new())
+        (None, Some(script)) if !script.is_empty() => {
+            params.insert("shell".into(), Value::String(script));
+            Ok(())
         }
-        [machine, "session", session, "open"] => {
-            selectors.insert("machine", "machine", machine)?;
-            selectors.insert("session", "session", session)?;
-            request(ResourceOperation::SessionOpen, selectors, flags, Map::new())
-        }
-        _ => usage("machine action"),
+        _ => Err(UsageError::new("give exact argv after -- or one --shell script")),
     }
+}
+
+pub(super) fn is_boolean_flag(name: &str) -> bool {
+    BOOLEAN_FLAGS.contains(&name)
 }
 
 fn parse_session(
@@ -454,10 +532,7 @@ fn parse_session(
                 }
             };
             Ok(CommandPlan::Server(super::lifecycle::ServerPlan {
-                action: super::lifecycle::ServerAction::Stop {
-                    force: flags.boolean("force"),
-                    end_terminals: flags.boolean("end-terminals"),
-                },
+                action: stop_action(flags)?,
                 session,
             }))
         }
@@ -595,6 +670,10 @@ fn parse_workspace(
     if let Some(plan) = state::parse_workspace_status(&refs, selectors, flags, argv.as_deref())? {
         return Ok(plan);
     }
+    if let Some(plan) = state::parse_workspace_checklist(&refs, selectors, flags, argv.as_deref())?
+    {
+        return Ok(plan);
+    }
     match refs.as_slice() {
         ["group", rest @ ..] => state::parse_workspace_group(rest, selectors, flags),
         ["placement", "list"] => {
@@ -685,11 +764,15 @@ fn parse_pane_strings(
     argv: Option<Vec<String>>,
 ) -> Result<CommandPlan, UsageError> {
     match words {
-        ["list"] => request(ResourceOperation::PaneList, selectors, flags, Map::new()),
+        ["list"] => {
+            add_optional_parent_selectors(selectors, flags, &["workspace", "screen"])?;
+            request(ResourceOperation::PaneList, selectors, flags, Map::new())
+        }
         ["create"] => {
             let mut params = Map::new();
             add_size(&mut params, flags)?;
             insert_optional_string(&mut params, flags, "cwd", "cwd");
+            insert_creation_command(&mut params, argv, flags)?;
             request(ResourceOperation::PaneCreate, selectors, flags, params)
         }
         [selector, "show"] => {
@@ -716,6 +799,13 @@ fn parse_pane_strings(
                 )?;
             }
             insert_optional_string(&mut params, flags, "cwd", "cwd");
+            // The new pane runs this instead of a shell, so no empty shell
+            // tab is left beside the command's (agent evals, mode 3).
+            insert_creation_command(&mut params, argv, flags)?;
+            // A script's split keeps the user's focus unless it asks.
+            if flags.boolean("focus") {
+                params.insert("focus".into(), Value::Bool(true));
+            }
             add_size(&mut params, flags)?;
             request(ResourceOperation::PaneSplit, selectors, flags, params)
         }
@@ -795,7 +885,7 @@ fn parse_pane_strings(
         }
         [selector, "tab", tail @ ..] => {
             selectors.insert("pane", "pane", selector)?;
-            parse_tab_strings(tail, selectors, flags)
+            parse_tab_strings(tail, selectors, flags, argv)
         }
         _ => usage("pane action"),
     }
@@ -805,19 +895,24 @@ fn parse_tab(
     words: &[String],
     selectors: &mut Selectors,
     flags: &mut Flags,
+    argv: Option<Vec<String>>,
 ) -> Result<CommandPlan, UsageError> {
     let refs = strs(words);
-    parse_tab_strings(&refs, selectors, flags)
+    parse_tab_strings(&refs, selectors, flags, argv)
 }
 
 fn parse_tab_strings(
     words: &[&str],
     selectors: &mut Selectors,
     flags: &mut Flags,
+    argv: Option<Vec<String>>,
 ) -> Result<CommandPlan, UsageError> {
     match words {
         ["group", rest @ ..] => state::parse_tab_group(rest, flags),
-        ["list"] => request(ResourceOperation::TabList, selectors, flags, Map::new()),
+        ["list"] => {
+            add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
+            request(ResourceOperation::TabList, selectors, flags, Map::new())
+        }
         ["create"] => Err(UsageError::new("tab create needs terminal or browser")),
         [selector, "show"] => {
             selectors.insert("tab", "tab", selector)?;
@@ -827,6 +922,7 @@ fn parse_tab_strings(
             let mut params = Map::new();
             insert_optional_string(&mut params, flags, "cwd", "cwd");
             insert_optional_string(&mut params, flags, "name", "name");
+            insert_creation_command(&mut params, argv, flags)?;
             add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
             add_size(&mut params, flags)?;
             request(ResourceOperation::TabCreateTerminal, selectors, flags, params)
@@ -839,6 +935,7 @@ fn parse_tab_strings(
             }
             params.insert("url".into(), Value::String(url));
             insert_optional_string(&mut params, flags, "name", "name");
+            browser::insert_engine(&mut params, flags)?;
             add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
             add_pixel_size(&mut params, flags)?;
             request(ResourceOperation::TabCreateBrowser, selectors, flags, params)
@@ -864,6 +961,8 @@ fn parse_tab_strings(
             let mut params = Map::new();
             insert_optional_string(&mut params, flags, "device", "device");
             insert_optional_string(&mut params, flags, "orientation", "orientation");
+            // --fit 16:9 | 1280: a desktop layout scaled to the tab's width, full height.
+            insert_optional_string(&mut params, flags, "fit", "fit");
             if let Some(custom) = flags.take("custom-json") {
                 let custom = serde_json::from_str(&custom).map_err(|error| {
                     UsageError::new(format!("invalid --custom-json JSON: {error}"))
@@ -872,7 +971,7 @@ fn parse_tab_strings(
             }
             if params.is_empty() {
                 return Err(UsageError::new(
-                    "tab emulate needs --device, --custom-json or --orientation; `cmux browser devices list` lists the devices",
+                    "tab emulate needs --device, --custom-json, --orientation or --fit 16:9|1280|off; `cmux browser devices list` lists the devices",
                 ));
             }
             request(ResourceOperation::BrowserTabEmulate, selectors, flags, params)
@@ -906,7 +1005,14 @@ fn parse_terminal(
     flags: &mut Flags,
 ) -> Result<CommandPlan, UsageError> {
     match strs(words).as_slice() {
-        ["list"] => request(ResourceOperation::TerminalList, selectors, flags, Map::new()),
+        ["list"] => {
+            add_optional_parent_selectors(
+                selectors,
+                flags,
+                &["workspace", "screen", "pane", "tab"],
+            )?;
+            request(ResourceOperation::TerminalList, selectors, flags, Map::new())
+        }
         [selector, verb @ ("show" | "status")] => {
             selectors.insert("terminal", "term", selector)?;
             let plan = request(ResourceOperation::TerminalGet, selectors, flags, Map::new());
@@ -1155,6 +1261,27 @@ fn parse_terminal(
 
 use browser::parse_browser;
 
+/// `--terminal <term_id>` or `--workspace <ws_id>` of `notification create|clear`.
+fn notification_scope(
+    params: &mut Map<String, Value>,
+    flags: &mut Flags,
+) -> Result<(), UsageError> {
+    let terminal = flags.take("terminal");
+    let workspace = flags.take("workspace");
+    if terminal.is_some() && workspace.is_some() {
+        return Err(UsageError::new("give --terminal or --workspace, not both"));
+    }
+    if let Some(terminal) = terminal {
+        validate_prefixed_id("terminal", "term", &terminal)?;
+        params.insert("terminal_id".into(), Value::String(terminal));
+    }
+    if let Some(workspace) = workspace {
+        validate_prefixed_id("workspace", "ws", &workspace)?;
+        params.insert("workspace_id".into(), Value::String(workspace));
+    }
+    Ok(())
+}
+
 fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let selectors = Selectors::default();
     match strs(words).as_slice() {
@@ -1180,18 +1307,12 @@ fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan
                 validate_one_of("--level", &level, &["info", "warning", "error"])?;
                 params.insert("level".into(), Value::String(level));
             }
-            if let Some(terminal) = flags.take("terminal") {
-                validate_prefixed_id("terminal", "term", &terminal)?;
-                params.insert("terminal_id".into(), Value::String(terminal));
-            }
+            notification_scope(&mut params, flags)?;
             request(ResourceOperation::NotificationCreate, &selectors, flags, params)
         }
         ["clear"] => {
             let mut params = Map::new();
-            if let Some(terminal) = flags.take("terminal") {
-                validate_prefixed_id("terminal", "term", &terminal)?;
-                params.insert("terminal_id".into(), Value::String(terminal));
-            }
+            notification_scope(&mut params, flags)?;
             request(ResourceOperation::NotificationClear, &selectors, flags, params)
         }
         ["ack", ids @ ..] => {
@@ -1231,7 +1352,8 @@ fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan
 /// agent hook written for a local terminal works unchanged inside a machine.
 /// The target is the caller's own terminal (`CMUX_TUI_TERMINAL_ID`, injected
 /// into every daemon PTY) unless `--surface` names another terminal of this
-/// session or `--workspace` asks for a session-level row; a machine cannot
+/// session or `--workspace` names a workspace (`current`: a session-level
+/// row); a machine cannot
 /// address anything outside its own session. `--reply` asks the app for a
 /// banner that takes a typed reply for the target terminal (only it).
 /// `--window` and `--id-format` are accepted for signature
@@ -1270,7 +1392,18 @@ fn parse_notify(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
     if let Some(surface) = &surface {
         validate_prefixed_id("terminal", "term", surface)?;
     }
+    // `--workspace ws_…` scopes the row (and a clear) to that workspace;
+    // `current` keeps its session-level meaning.
+    let workspace_id = workspace.as_ref().filter(|workspace| *workspace != "current").cloned();
+    if workspace_id.is_some() && surface.is_some() {
+        return Err(UsageError::new(
+            "--workspace <ws_id> and --surface are one scope or the other: a terminal's notification already belongs to its workspace",
+        ));
+    }
     let mut params = Map::new();
+    if let Some(workspace_id) = workspace_id {
+        params.insert("workspace_id".into(), Value::String(workspace_id));
+    }
     if flags.boolean("clear") {
         if flags.take("title").is_some()
             || flags.take("subtitle").is_some()
@@ -1355,22 +1488,7 @@ fn parse_agent(
                 providers: providers.iter().map(|provider| (*provider).to_string()).collect(),
             }))
         }
-        ["list"] => {
-            let mut params = Map::new();
-            if let Some(terminal) = flags.take("terminal") {
-                validate_prefixed_id("terminal", "term", &terminal)?;
-                params.insert("terminal_id".into(), Value::String(terminal));
-            }
-            if let Some(state) = flags.take("state") {
-                validate_one_of(
-                    "--state",
-                    &state,
-                    &["working", "blocked", "idle", "done", "unknown"],
-                )?;
-                params.insert("state".into(), Value::String(state));
-            }
-            request(ResourceOperation::AgentList, &selectors, flags, params)
-        }
+        ["list"] => agent_list::parse(flags),
         ["hook", "emit"] => {
             const MAX_NATIVE_PAYLOAD_BYTES: u64 = 1024 * 1024;
             let source = flags.required("source")?;
@@ -1406,8 +1524,8 @@ fn parse_agent(
             let terminal =
                 flags.take("terminal").or_else(|| std::env::var("CMUX_TUI_TERMINAL_ID").ok());
             terminal.iter().try_for_each(|id| validate_prefixed_id("terminal", "term", id))?;
-            // Read before the journal event redacts it; it travels beside the event (memory only).
-            let live_prompt = cmux_tui_core::agent_hook_live_prompt(&native_event, &native);
+            // Read before the journal event redacts them; they travel beside it (memory only).
+            let live = cmux_tui_core::agent_hook_live_fields(&source, &native_event, &native);
             let mut ingress = cmux_tui_core::agent_hook_journal_ingress(
                 &source,
                 &native_event,
@@ -1431,9 +1549,7 @@ fn parse_agent(
                     UsageError::new(format!("encode agent hook request: {error}"))
                 })?,
             );
-            if let Some(prompt) = live_prompt {
-                fields.insert("live_prompt".into(), Value::String(prompt));
-            }
+            fields.extend(live);
             request(ResourceOperation::SessionJournalAppend, &selectors, flags, fields)
         }
         ["report"] => {
@@ -1454,7 +1570,7 @@ fn parse_agent(
             insert_optional_string(&mut params, flags, "source-session", "source_session");
             request(ResourceOperation::AgentReport, &selectors, flags, params)
         }
-        _ => usage("agent action"),
+        other => agent_focus::parse(other, flags),
     }
 }
 
@@ -1843,9 +1959,7 @@ fn request(
     flags: &mut Flags,
     mut params: Map<String, Value>,
 ) -> Result<CommandPlan, UsageError> {
-    for (key, value) in selectors.params() {
-        params.insert(key, value);
-    }
+    params.extend(selectors.params());
     add_routing_defaults(operation, &mut params);
     if correlated_creation(operation)
         && let Some(correlation_key) = flags.take("correlation-key")
@@ -1860,6 +1974,7 @@ fn request(
         params.insert("expected_revision".into(), Value::String(revision));
     }
     finalize_request(WireOperation::Typed(operation), Value::Object(params), flags)
+        .map(|plan| plan::with_caller_lookup(plan, &selectors.values))
 }
 
 const fn correlated_creation(operation: ResourceOperation) -> bool {
@@ -2218,19 +2333,7 @@ fn request_with_required_name(
     selectors: &Selectors,
     flags: &mut Flags,
 ) -> Result<CommandPlan, UsageError> {
-    let mut params = Map::new();
-    params.insert("name".into(), Value::String(flags.required("name")?));
-    if operation == ResourceOperation::TabRename {
-        if let Some(source) = flags.take("source") {
-            validate_one_of("--source", &source, &["user", "auto"])?;
-            params.insert("source".into(), Value::String(source));
-        }
-        insert_optional_string(&mut params, flags, "expected-generation", "expected_generation");
-        if let Some(revision) = flags.take("expected-name-revision") {
-            validate_decimal("--expected-name-revision", &revision)?;
-            params.insert("expected_name_revision".into(), Value::String(revision));
-        }
-    }
+    let params = name_flags::rename_params(operation, flags)?;
     request(operation, selectors, flags, params)
 }
 
@@ -2264,14 +2367,11 @@ fn run_params(
     }
     if let Some(policy) = flags.take("on-exit") {
         match policy.as_str() {
-            "close" | "keep" => {
+            "close" | "keep" | "shell" => {
                 params.insert("on_exit".into(), Value::String(policy));
             }
-            "shell" => {
-                return Err(UsageError::new("--on-exit shell is not supported yet"));
-            }
             _ => {
-                return Err(UsageError::new("--on-exit must be close or keep"));
+                return Err(UsageError::new("--on-exit must be close, keep or shell"));
             }
         }
     }
@@ -3111,6 +3211,39 @@ mod tests {
     }
 
     #[test]
+    fn browser_open_and_tab_create_browser_take_an_engine() {
+        let chromium = protocol(&["browser", "open", "https://a.test", "--engine", "chromium"]);
+        assert_eq!(chromium.params["engine"], "cef");
+        let chrome = protocol(&[
+            "tab",
+            "create",
+            "browser",
+            "--url",
+            "https://a.test",
+            "--engine",
+            "Chrome",
+        ]);
+        assert_eq!(chrome.params["engine"], "cef");
+        let webkit = protocol(&["browser", "open", "https://a.test", "--engine", "webkit"]);
+        assert_eq!(webkit.params["engine"], "webkit");
+        // No flag: no field, so `browser.defaultEngine` decides.
+        assert!(protocol(&["browser", "open", "https://a.test"]).params.get("engine").is_none());
+        let profile = protocol(&[
+            "browser",
+            "profile",
+            "open",
+            "https://a.test",
+            "--profile",
+            "p",
+            "--engine",
+            "chromium",
+        ]);
+        assert_eq!(profile.params["engine"], "cef");
+        let unknown = strings(&["browser", "open", "https://a.test", "--engine", "gecko"]);
+        assert!(parse(&unknown, super::super::Surface::CmuxTui).is_err());
+    }
+
+    #[test]
     fn terminal_keep_maps_to_the_private_set_terminal_keep_command() {
         const TERMINAL: &str = "term_0123456789abcdef0123456789abcdef";
         let on = raw_request(&["terminal", TERMINAL, "keep", "on"]);
@@ -3183,6 +3316,44 @@ mod tests {
             CommandPlan::Protocol(plan) => *plan,
             _ => panic!("expected protocol plan"),
         }
+    }
+
+    #[test]
+    fn settings_crud_routes_to_daemon_operations() {
+        let get = protocol(&["settings", "get", "appearance.theme"]);
+        assert_eq!(operation(&get), "settings.get");
+        assert_eq!(
+            get.params,
+            serde_json::json!({"key": "appearance.theme", "machine": "current", "session": "current"})
+        );
+
+        let set = protocol(&["settings", "set", "appearance.theme", "dark"]);
+        assert_eq!(operation(&set), "settings.set");
+        assert_eq!(
+            set.params,
+            serde_json::json!({"key": "appearance.theme", "value": "dark", "machine": "current", "session": "current"})
+        );
+
+        let reset = protocol(&["settings", "reset", "appearance.theme"]);
+        assert_eq!(operation(&reset), "settings.reset");
+        assert_eq!(
+            reset.params,
+            serde_json::json!({"key": "appearance.theme", "machine": "current", "session": "current"})
+        );
+
+        let unset = protocol(&["settings", "unset", "appearance.theme"]);
+        assert_eq!(operation(&unset), "settings.reset");
+        assert_eq!(
+            unset.params,
+            serde_json::json!({"key": "appearance.theme", "machine": "current", "session": "current"})
+        );
+
+        let negative = protocol(&["settings", "set", "custom.counter", "-1"]);
+        assert_eq!(negative.params["value"], -1);
+
+        let literal = protocol(&["settings", "set", "--", "custom.label", "--literal"]);
+        assert_eq!(literal.params["key"], "custom.label");
+        assert_eq!(literal.params["value"], "--literal");
     }
 
     #[test]
@@ -3363,6 +3534,16 @@ mod tests {
         assert_eq!(empty.params["initial_content"], "empty");
     }
 
+    /// Agents pass `--no-focus` out of habit (`cmux open`, other CLIs).
+    /// Creating a workspace never moves focus, so the flag is accepted and
+    /// changes nothing.
+    #[test]
+    fn workspace_create_accepts_no_focus_as_a_no_op() {
+        let plain = protocol(&["workspace", "create", "--name", "w"]);
+        let quiet = protocol(&["workspace", "create", "--no-focus", "--name", "w"]);
+        assert_eq!(quiet.params, plain.params);
+    }
+
     #[test]
     fn creation_correlation_is_bounded_and_scoped() {
         let correlated =
@@ -3491,6 +3672,38 @@ mod tests {
             assert!(
                 parse(&strings(&args), super::super::Surface::CmuxTui).is_err(),
                 "accepted invalid source {invalid:?}"
+            );
+        }
+    }
+
+    /// `notify --workspace ws_…` and `notification create|clear --workspace`
+    /// scope the row to that workspace (`workspace_id`), never the session.
+    #[test]
+    fn notify_workspace_sends_the_workspace_scope() {
+        const WS: &str = "ws_00000000000000000000000000000042";
+        const TERMINAL: &str = "term_00000000000000000000000000000041";
+        let create = protocol(&["notify", "--workspace", WS, "--title", "x"]);
+        assert_eq!(create.operation.name().unwrap(), "notification.create");
+        assert_eq!(create.params["workspace_id"], WS);
+        assert!(create.params.get("terminal_id").is_none());
+        let clear = protocol(&["notify", "--clear", "--workspace", WS]);
+        assert_eq!(clear.operation.name().unwrap(), "notification.clear");
+        assert_eq!(clear.params["workspace_id"], WS);
+        // `current` keeps its session-level meaning.
+        let session = protocol(&["notify", "--clear", "--workspace", "current"]);
+        assert!(session.params.get("workspace_id").is_none());
+        let resource =
+            protocol(&["notification", "create", "--title", "t", "--body", "", "--workspace", WS]);
+        assert_eq!(resource.params["workspace_id"], WS);
+        let resource_clear = protocol(&["notification", "clear", "--workspace", WS]);
+        assert_eq!(resource_clear.params["workspace_id"], WS);
+        for both in [
+            &["notify", "--workspace", WS, "--surface", TERMINAL][..],
+            &["notification", "clear", "--workspace", WS, "--terminal", TERMINAL],
+        ] {
+            assert!(
+                parse(&strings(both), super::super::Surface::CmuxTui).is_err(),
+                "{both:?}: a workspace and a terminal scope together"
             );
         }
     }
@@ -3905,14 +4118,8 @@ mod tests {
             let default = protocol(&[scope[0], scope[1], "run", "--", "true"]);
             assert!(default.params.get("on_exit").is_none());
 
-            let shell_policy = parse(
-                &strings(&[scope[0], scope[1], "run", "--on-exit", "shell", "--", "true"]),
-                super::super::Surface::CmuxTui,
-            );
-            assert!(
-                shell_policy.is_err_and(|error| error.to_string().contains("not supported yet")),
-                "--on-exit shell must be a typed not-yet-supported usage error"
-            );
+            let shell = protocol(&[scope[0], scope[1], "run", "--on-exit", "shell", "--", "true"]);
+            assert_eq!(shell.params["on_exit"], "shell");
             assert!(
                 parse(
                     &strings(&[scope[0], scope[1], "run", "--on-exit", "sh", "--", "true"]),
@@ -4328,6 +4535,9 @@ mod tests {
         }
     }
 
+    mod argv_tail_tests;
+    mod name_source_tests;
+    mod split_focus_tests;
     mod transport_path_coverage_tests;
 
     fn record_covered_fields<'a>(

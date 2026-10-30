@@ -29,6 +29,11 @@ import sys
 import time
 from pathlib import Path
 
+import browser_resize
+import dark_load_flash
+import sidebar_content
+import split_resize
+
 EPS = 0.75  # points: a value this close to its start or end counts as there
 
 # Per scenario: `min_intermediate` frames strictly between the start and end values,
@@ -48,6 +53,12 @@ THRESHOLDS: dict[str, dict[str, float]] = {
     "reduce_new_tab": {"max_intermediate": 1, "min_frames": 20},
     "reduce_sidebar_collapse": {"max_intermediate": 1, "min_frames": 20},
     "reduce_sidebar_expand": {"max_intermediate": 1, "min_frames": 20},
+    # Reported only (browser_resize.py): frames a Chromium page trails its host in a live resize.
+    "browser_resize": {},
+    # Reported only (split_resize.py): a Chromium page beside a split divider a person drags.
+    "split_resize": {},
+    # Judged by dark_load_flash.py: no frame brighter than the window at rest while a page loads.
+    "dark_load_flash": {},
 }
 SCENARIOS = list(THRESHOLDS)
 
@@ -130,7 +141,7 @@ class Driver:
             if not ready:
                 self.log.append(f"{name}: no ready spare after 20 s; the opening is cold")
         before = len(self.call("debug.new_tab", {"action": "state"}).get("openings") or [])
-        trace = self.trace(["tabs"], lambda: self.key("t", ["command"]), 0.9)
+        trace = self.trace(["tabs", "strip"], lambda: self.key("t", ["command"]), 0.9)
         openings = self.call("debug.new_tab", {"action": "state"}).get("openings") or []
         trace["opening"] = openings[-1] if len(openings) > before else None
         if not cold:
@@ -143,39 +154,57 @@ class Driver:
             time.sleep(0.6)
 
     def sidebar(self, prefix: str) -> None:
+        """Each toggle with the sidebar width, the panes beside it, and the work the toggle cost.
+
+        The pane rows say what each pane's content is laid out at on every display frame, and
+        `debug.layout_counters` says how often that reached the costly parts: one PTY resize and
+        shell redraw per `terminal_grid_reports`. A sidebar slide should add one per terminal, at
+        the landing, not one per frame (`sidebar_content.py`).
+        """
         for name in ("collapse", "expand"):
-            trace = self.trace(["sidebar"], lambda: self.call("action.run", {"action": "toggleSidebar"}), 0.8)
+            before = self.call("debug.layout_counters", {})
+            trace = self.trace(["sidebar", "panes"], lambda: self.call("action.run", {"action": "toggleSidebar"}), 0.8)
+            trace["counters"] = {"before": before, "after": self.call("debug.layout_counters", {})}
             self.save(f"{prefix}sidebar_{name}", trace)
             time.sleep(0.3)
 
-    def window_resize(self) -> None:
+    def drag_corner(self, dx: float, dy: float, steps: int = 90) -> dict:
         """A live resize at the pace of a real drag: the bottom-right corner pressed once, then one
-        `debug.mouse` drag event per 120 Hz frame, out by 300 x 150 points and back. Vendored from
+        `debug.mouse` drag event per 120 Hz frame by (dx, dy) points. Vendored from
         op-next-toolbar's scripts/cmux-next/resize-frames-live.py (#20398, not landed yet)."""
-        steps, period = 90, 1 / 120
+        period = 1 / 120
+        layers = (self.call("debug.layers").get("windows") or [{}])[0]
+        frame = layers.get("frame") or [0, 0, 1100, 720]
+        x0, y0 = frame[2] - 1, frame[3] - 1
+        self.call("debug.mouse", {"action": "down", "x": x0, "y": y0})
+        started = time.monotonic()
+        for step in range(1, steps + 1):
+            x, y = x0 + dx * step / steps, y0 + dy * step / steps
+            self.call("debug.mouse", {"action": "drag", "x": x, "y": y, "to_x": x, "to_y": y, "steps": 1,
+                                      "press": False, "release": False})
+            wait = started + step * period - time.monotonic()
+            if wait > 0:
+                time.sleep(wait)
+        self.call("debug.mouse", {"action": "up", "x": x0 + dx, "y": y0 + dy})
+        return {"from": frame, "wall_s": round(time.monotonic() - started, 3)}
+
+    def window_resize(self) -> None:
+        """Out by 300 x 150 points and back (`drag_corner`), each drag traced."""
         drags = []
-
-        def drag(dx: float, dy: float) -> dict:
-            layers = (self.call("debug.layers").get("windows") or [{}])[0]
-            frame = layers.get("frame") or [0, 0, 1100, 720]
-            x0, y0 = frame[2] - 1, frame[3] - 1
-            self.call("debug.mouse", {"action": "down", "x": x0, "y": y0})
-            started = time.monotonic()
-            for step in range(1, steps + 1):
-                x, y = x0 + dx * step / steps, y0 + dy * step / steps
-                self.call("debug.mouse", {"action": "drag", "x": x, "y": y, "to_x": x, "to_y": y, "steps": 1,
-                                          "press": False, "release": False})
-                wait = started + step * period - time.monotonic()
-                if wait > 0:
-                    time.sleep(wait)
-            self.call("debug.mouse", {"action": "up", "x": x0 + dx, "y": y0 + dy})
-            return {"from": frame, "wall_s": round(time.monotonic() - started, 3)}
-
         for dx, dy in ((300, 150), (-300, -150)):
-            trace = self.trace(["window"], lambda dx=dx, dy=dy: drag(dx, dy), 0.4)
+            trace = self.trace(["window"], lambda dx=dx, dy=dy: self.drag_corner(dx, dy), 0.4)
             drags.append(trace)
             time.sleep(0.5)
         self.save("window_resize", {"drags": drags})
+
+    def browser_resize(self) -> None:
+        browser_resize.drive(self, self.out)
+
+    def split_resize(self) -> None:
+        split_resize.drive(self, self.out)
+
+    def dark_load_flash(self) -> None:
+        dark_load_flash.drive(self, self.out)
 
     def transcript(self) -> None:
         opened = self.call("action.run", {"action": "palette.newAgentChat"})
@@ -223,6 +252,10 @@ class Driver:
             ("window_resize", self.window_resize),
             ("transcript_follow", self.transcript),
             ("capture", self.capture),
+            ("browser_resize", self.browser_resize),
+            ("split_resize", self.split_resize),
+            # Last: it leaves the app in a dark theme of its own.
+            ("dark_load_flash", self.dark_load_flash),
         ]
         for name, step in steps:
             try:
@@ -368,6 +401,15 @@ def judge(out: Path) -> dict[str, dict]:
     verdicts: dict[str, dict] = {}
     for name in SCENARIOS:
         data = load(out, name)
+        if name == "browser_resize":
+            verdicts[name] = browser_resize.judge(data or {"error": "no result file"}, refresh)
+            continue
+        if name == "split_resize":
+            verdicts[name] = split_resize.judge(data or {"error": "no result file"}, refresh)
+            continue
+        if name == "dark_load_flash":
+            verdicts[name] = dark_load_flash.judge(data or {"error": "no result file"}, refresh)
+            continue
         if data is None or ("error" in data and "samples" not in data and "scroll_top" not in data and "drags" not in data):
             verdicts[name] = {"ok": False, "problems": [f"not measured: {(data or {}).get('error', 'no result file')}"]}
             continue
@@ -384,12 +426,21 @@ def judge(out: Path) -> dict[str, dict]:
                 verdict["problems"].append("a neighbor animated under Reduce Motion" if name.startswith("reduce_")
                                            else "a neighbor moved over frames instead of making room at once")
                 verdict["ok"] = False
+            # Each strip keeps its width through a Cmd-T: a bar that gives up or takes back width
+            # (the pane's "…") lays every tab out again at once, past any spring.
+            widths = [sample.get("strip") for sample in data.get("samples") or [] if sample.get("strip")]
+            moved = [index for index in range(len(widths[0]) if widths else 0)
+                     if any(len(row) != len(widths[0]) or abs(float(row[index]) - float(widths[0][index])) > EPS for row in widths)]
+            if moved:
+                verdict["problems"].append(f"{len(moved)} tab strip(s) changed width during the opening")
+                verdict["ok"] = False
             verdict["opening"] = data.get("opening")
             if data.get("spare_ready") is False:
                 verdict["problems"].append("not measured: no ready spare, so the opening was cold")
                 verdict["ok"] = False
         elif "sidebar" in name:
             verdict = judge_motion(name, sidebar_series(data), refresh)
+            verdict["content"] = sidebar_content.metrics(data)
         elif name == "transcript_follow":
             verdict = judge_transcript(data, refresh)
         else:
@@ -479,6 +530,15 @@ def markdown(out: Path, verdicts: dict[str, dict]) -> str:
              "| scenario | result | intermediate frames | largest step | frame p95 / max | notes |",
              "|---|---|---|---|---|---|"]
     for name, verdict in verdicts.items():
+        if name == "browser_resize":
+            lines.append(browser_resize.markdown_row(verdict))
+            continue
+        if name == "split_resize":
+            lines.append(split_resize.markdown_row(verdict))
+            continue
+        if name == "dark_load_flash":
+            lines.append(dark_load_flash.markdown_row(verdict))
+            continue
         limits = THRESHOLDS[name]
         bound = f"≥ {limits['min_intermediate']:g}" if "min_intermediate" in limits else f"≤ {limits['max_intermediate']:g}"
         step = f"{verdict['max_step']:.0%}" if "max_step" in verdict else ""
@@ -488,6 +548,8 @@ def markdown(out: Path, verdicts: dict[str, dict]) -> str:
             notes.append("spare" if verdict["opening"].get("spare") else "cold")
         if "lag_frames" in verdict:
             notes.append(f"content lagged the edge {verdict['lag_frames']} frame(s) at most (reported only)")
+        if "content" in verdict:
+            notes.append(sidebar_content.note(verdict["content"]))
         if verdict.get("neighbors"):
             notes.append("neighbors " + ", ".join(str(n["intermediate"]) for n in verdict["neighbors"]))
         lines.append(f"| {name} | {'ok' if verdict['ok'] else 'FAIL'} | {verdict.get('intermediate', '')} ({bound}) "

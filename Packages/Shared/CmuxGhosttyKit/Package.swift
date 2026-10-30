@@ -30,6 +30,65 @@ import PackageDescription
 // dark on a light theme (PR 35).
 // Since 4792f0307 it does the same at background-opacity 0, which cmux-next
 // gives its surfaces in a translucent window (PR 36).
+// Since 48d353b8c a macOS surface can be host-sized
+// (ghostty_surface_set_host_sized): its target follows set_size, not the
+// view's bounds, so a pane drag keeps the last frame (PR 38).
+// Since c5926d664 a host-locked mirror draws its own reflow at the view's
+// grid until the owner announces it (ghostty_surface_set_reflow_preview),
+// and reports the grid its last frame drew (ghostty_surface_drawn_grid;
+// PR 39).
+// Since e4831af81 cells keep the source of each color and a config color
+// change blends on the GPU with the surface's transition
+// (ghostty_surface_set_color_transition), and the renderer reports its
+// frame counters (ghostty_surface_render_counters; PR 40).
+// Since e6a27a1fb a config change of colors only rebuilds no cells, and the
+// render counters report full rebuilds by cause (PR 41).
+// Since a19c884fa a released drawable keeps its pixels while another owner
+// holds it (the layer's presented frame, an evicted terminal's last frame;
+// cmux marks those volatile while hidden; PR 42).
+// Since ced99dcde a new drawn terminal (a restore, the reflow preview) keeps
+// rows whose content is the same (PR 43) and the renderer's cell size
+// follows its font grid only (PR 44), so a font change rebuilds once.
+// Since e923d79f1 CSI ? 996 n and mode 2031 report the surface's runtime
+// color scheme, so a plain theme in dark mode answers dark (PR 37).
+// Since a04c57e81 a snapshot restore keeps a scrolled-back viewport on the
+// rows it showed, and a scroll no longer turns the next local-history
+// restore into a full resend.
+// Since 43ffe4171 narrowing a padded multi-line prompt (Powerlevel10k
+// "lean, 2 lines") lets zsh redraw it without a copy of line 1 (#21341).
+// Since 5555f4220 the zsh and fish integration marks ask for prompt redraw
+// (redraw=1), so daemon terminals (libghostty-vt, redraw off by default)
+// clear the prompt on resize too; the app already did. 493a8871b adds the
+// unused C API option GHOSTTY_TERMINAL_OPT_SHELL_REDRAWS_PROMPT.
+// Since 72578da21 the bash integration forks nothing per command on bash 5.3
+// and nothing at start when .bashrc sets PROMPT_COMMAND (PR 47).
+// Since 7d5fa1573 a mirror's pixel-only resize leaves its terminal alone
+// (mode 2026 survives a drag) and never waits for the terminal lock; a
+// local-history restore holds frames only when it must; a hidden surface's
+// output and a hidden or steady cursor's blink wake nothing (PR 46). Its
+// display-pass present of a resize frame never ran in cmux (the layer gets
+// no display pass for a size change).
+// Since 1f98b11be..b42d1690e (PRs 48-50): ghostty_surface_present_host_frame
+// lets the embedder present a new host size's frame before the commit (cmux
+// does not call it yet: in a light drag it cost main 4-9 ms p95 per frame and
+// more dropped frames, ghostty-integration-DESIGN.md G1); a scroll during a
+// restore holds frames; a hidden surface reads as hidden at once; an early
+// draw happens only after a quiet refresh interval (busy terminals no longer
+// draw twice per interval); a fresh frame publishes only while a present is
+// armed and in its own size generation; a reveal arms it.
+// Since f3de4f4..723c4ab (PRs 52, 53 and the kitty ports): a wheel scroll
+// never waits on the main thread for the terminal lock held by output
+// parsing (it goes to the termio thread, applied in the mode the terminal
+// has then); ghostty_surface_fit_grid gives the grid a size will fit without
+// resizing; the grid metrics say whether the alternate screen is active;
+// kitty graphics follow upstream #14811 and #14812.
+// Since 0cb7e1e04..9ce9b7d08: ghostty_surface_present_host_frame_ready
+// presents a drawn host-size frame without waiting, a content-only frame of a
+// host-sized surface reaches the screen without the main thread, the bash
+// 4.4-5.2 integration reads the history entry without a second fork, and an
+// iOS renderer has vsync: a CADisplayLink (80-120 Hz, 120 preferred) paces
+// draws to at most one per display refresh (it drew one per output batch,
+// 190-270 frames a second on a 120 Hz iPhone).
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -54,8 +113,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-4792f03070e6134ea764e3e9bec630631eb1bd47-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "fe416827c16b0abb2e31de16294dfc22265d503f4dedc84036b0fc5145fecfb6"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-9ce9b7d08472f6249d0bc8ce14b7087049613e73-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "4277faf01e59b9af97d2bb9a5ad4b866fc762f20144e21b5e3583b1bf31de58c"
         ),
     ]
 )

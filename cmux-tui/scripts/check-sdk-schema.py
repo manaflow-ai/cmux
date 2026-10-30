@@ -27,14 +27,18 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "DetachClientTarget": "DetachClientTarget",
     "TerminalDetachActor": "SizeDetachActor",
     "TerminalSizingPolicy": "SizePolicy",
+    "HostSizePolicyRequest": "HostSizePolicyRequest",
     "ClientIdentityWire": "SizingIdentity",
     "SplitRespawnRequest": "SplitRespawn",
     "crate::mux::CloseReason": "CloseReason",
+    "crate::resource_name::NameSource": "NameSource",
     "AgentSessionParams": "AgentSessionSource",
+    "ConversationTabSplitParams": "ConversationTabSplit",
     "crate::model::ColumnDock": "ColumnPin",
     "SnapshotHave": "SnapshotRequestHave",
     "RowMarkerPoint": "RowMarkerPoint",
     "RowHeight": "RowHeight",
+    "ExpectAgent": "SendExpectAgent",
 }
 
 # Request fields the server takes as raw JSON and then decodes element by

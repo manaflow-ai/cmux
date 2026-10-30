@@ -30,8 +30,8 @@ use sha2::{Digest, Sha256};
 use super::insert_resource_mutation;
 use super::session_journal::append_resource_journal_record;
 use super::{
-    TerminalLifecycle, WorkspaceMutation, WorkspaceRegistry, canonical_json, read_terminal,
-    transaction_resource_revision, transaction_terminal_revision,
+    TerminalLifecycle, TerminalOnExit, WorkspaceMutation, WorkspaceRegistry, canonical_json,
+    read_terminal, transaction_resource_revision, transaction_terminal_revision,
 };
 use crate::terminal_end::TerminalEnd;
 
@@ -85,12 +85,18 @@ impl WorkspaceRegistry {
         let fingerprint =
             canonical_json(&json!({"op": "terminal-respawning", "terminal_id": terminal_id}))?;
         let result_json = canonical_json(&result)?;
+        // The new incarnation runs a shell: an `on_exit` shell terminal's
+        // policy is spent, and that shell's exit closes its tabs.
+        let on_exit = match terminal.on_exit {
+            TerminalOnExit::Shell => TerminalOnExit::Close,
+            policy => policy,
+        };
         tx.execute(
             "UPDATE terminal_hosts
              SET lifecycle = 'launching', incarnation = NULL, exit_json = NULL,
-                 updated_revision = ?1
+                 on_exit = ?3, updated_revision = ?1
              WHERE terminal_id = ?2",
-            params![sqlite_revision, terminal_id],
+            params![sqlite_revision, terminal_id, on_exit.column()],
         )?;
         record_terminal_event(
             &tx,

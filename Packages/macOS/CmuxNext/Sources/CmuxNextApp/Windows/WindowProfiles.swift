@@ -1,4 +1,5 @@
 import CmuxNextDaemon
+import CmuxNextSidebar
 
 /// Which of a window's workspaces its current room shows
 /// (plans/cmux-next/data-model.md 3.2 and 4). Rooms are personal state of
@@ -33,8 +34,14 @@ enum WindowProfiles {
     }
 
     static func visible(_ members: [String], profile: ProfileID, machines: MachineRegistry) -> [String] {
-        guard let membership = membership(machines) else { return members } // no rooms: every member shows
+        // No rooms, or none pinning or following anything while `default` shows: every member shows, none is read.
+        guard let membership = membership(machines), profile != .defaultProfile || !membership.pins.isEmpty || membership.follows.values.contains(where: { !$0.isEmpty }) else { return members }
         return members.filter { shows($0, profile: profile, machines: machines, membership: membership) }
+    }
+
+    /// `visible` without the workspaces whose close is under way (`ClosingWorkspaces`), unless none would be left.
+    static func shown(_ members: [String], profile: ProfileID, machines: MachineRegistry) -> [String] {
+        ClosingWorkspaces.shared.survivors(visible(members, profile: profile, machines: machines))
     }
 
     /// The room a workspace is in for "select it and switch the window":
@@ -59,7 +66,8 @@ enum WindowProfiles {
 
     /// Workspaces of `daemon` in `room`, in daemon order.
     static func workspaces(of daemon: DaemonService, in room: ProfileID, machines: MachineRegistry) -> [WorkspaceModel] {
-        let membership = membership(machines)
+        // No rooms, or none pinning or following anything while `default` shows: no workspace's session or key is read.
+        guard let membership = membership(machines), room != .defaultProfile || !membership.pins.isEmpty || membership.follows.values.contains(where: { !$0.isEmpty }) else { return daemon.store.workspaces }
         return daemon.store.workspaces.filter { shows($0.id, profile: room, machines: machines, membership: membership) }
     }
 }

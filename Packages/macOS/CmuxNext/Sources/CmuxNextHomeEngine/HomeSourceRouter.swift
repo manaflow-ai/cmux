@@ -106,6 +106,10 @@ public nonisolated final class HomeSourceRouter: HomeSource {
         try await source(for: conversation).thread(of: conversation, root: root, after: afterSeq, limit: limit)
     }
 
+    public func resolveLink(conversation: ConversationID, message: MessageID) async throws -> HomeLinkTarget? {
+        try await source(for: conversation).resolveLink(conversation: conversation, message: message)
+    }
+
     /// Ops on a conversation go to its owner. Ops that create or invite name
     /// no conversation and only the cloud has them, except `createGroup` of
     /// local participants only (none, or the Chief and the local user): a
@@ -114,8 +118,9 @@ public nonisolated final class HomeSourceRouter: HomeSource {
     public func submit(_ intent: HomeIntent) async throws -> HomeOpResult {
         let toCloud: Bool
         switch intent.op {
-        case .createGroup(_, let ids):
-            toCloud = state.withLock { state in !ids.allSatisfy { state.localParticipants.contains($0) || $0.rawValue == DaemonHomeSource.chief.id } }
+        case .createGroup(_, let ids, let invites):
+            // Invites are the cloud's (`invite.create`); a local channel has none.
+            toCloud = !invites.isEmpty || state.withLock { state in !ids.allSatisfy { state.localParticipants.contains($0) || $0.rawValue == DaemonHomeSource.chief.id } }
         case .startConversation, .invite, .openDirect: toCloud = true
         case .createChief: toCloud = false
         default:
@@ -139,8 +144,15 @@ public nonisolated final class HomeSourceRouter: HomeSource {
     /// Attachments go to the owner of their conversation, like its ops. The
     /// protocol default refuses ("attachments unsupported"), so without
     /// these every photo sent to the local Chief failed "Not Delivered".
+    /// cmux Cloud stores no files: its refusal is named
+    /// (`cloud_attachments_unsupported`) so the composer says why.
     public func upload(_ file: AttachmentUpload) async throws -> AttachmentRef {
-        try await source(for: file.conversation).upload(file)
+        let owner = await owner(of: file.conversation)
+        do {
+            return try await (owner == .cloud ? cloud : local).upload(file)
+        } catch HomeRejection.invalid("attachments unsupported") where owner == .cloud {
+            throw HomeRejection.invalid("cloud_attachments_unsupported")
+        }
     }
 
     public func acceptsLinkPreviews(in conversation: ConversationID) async -> Bool {
@@ -149,6 +161,19 @@ public nonisolated final class HomeSourceRouter: HomeSource {
 
     public func fetch(_ ref: AttachmentRef, at location: AttachmentLocation, variant: AttachmentVariant) async throws -> URL {
         try await source(for: location.conversation).fetch(ref, at: location, variant: variant)
+    }
+
+    /// The live snapshot request goes to the conversation's owner.
+    public func agentRuns(of conversation: ConversationID, window: HomeAgentRunWindow) async -> [HomeAgentRun] {
+        await source(for: conversation).agentRuns(of: conversation, window: window)
+    }
+
+    public func requestLive(of conversation: ConversationID) async {
+        await source(for: conversation).requestLive(of: conversation)
+    }
+
+    public func liveRunRows(of conversation: ConversationID, run: String, author: ParticipantID) async -> [HomeLiveRunSnapshot.Step]? {
+        await source(for: conversation).liveRunRows(of: conversation, run: run, author: author)
     }
 
     /// A closed transcript goes to its owner; one no owner reported was

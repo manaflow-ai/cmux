@@ -68,7 +68,7 @@ describe("a machine-state conflict", () => {
     const { response, payload } = await answer("exec", cause);
     expect(response.status).toBe(409);
     expect(payload).toMatchObject({ error: "vm_state_conflict", retryable: true });
-    expect(String(payload.action)).toContain("cmux vm ls");
+    expect(String(payload.action)).toContain("cmux cloud list-machines");
     expect(isOperatorFaultVmError({ error: String(payload.error), status: response.status })).toBe(false);
   });
 
@@ -80,12 +80,15 @@ describe("a machine-state conflict", () => {
     expect(payload).toMatchObject({ error: "vm_state_conflict" });
   });
 
-  test("a machine that does not respond answers the restart action, not an outage", async () => {
+  test("a machine that does not respond preserves its state and offers support, not an unsupported recovery", async () => {
     const provider = providerWith({ exec: async () => { throw nonResponsive(); } });
     const cause = await failure(() => provider.exec("vm-1", "true", { timeoutMs: 1_000 }));
     const { response, payload } = await answer("exec", cause);
     expect(response.status).toBe(503);
-    expect(payload).toMatchObject({ error: "vm_guest_unresponsive" });
+    expect(payload).toMatchObject({ error: "vm_guest_unresponsive", retryable: false });
+    expect(String(payload.action)).toMatch(/contact support/i);
+    expect(String(payload.action)).toMatch(/trace ID/i);
+    expect(String(payload.action)).not.toMatch(/cmux vm (?:pause|resume|restart|rm)/);
   });
 });
 

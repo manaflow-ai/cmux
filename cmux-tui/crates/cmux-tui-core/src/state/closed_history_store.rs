@@ -24,6 +24,7 @@ use super::closed_history_query::public_item;
 use super::store::{state_delete, state_upsert};
 use crate::workspace_registry::resource_store::{ResourceChange, ResourcePatch};
 use crate::workspace_registry::{new_uuid_v4, unix_epoch_ms};
+use cmux_json::JsonSet as _;
 
 pub(crate) fn create_closed_history_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
@@ -45,7 +46,9 @@ pub(crate) fn create_closed_history_schema(transaction: &Transaction<'_>) -> any
            change_json TEXT NOT NULL
          );",
     )?;
-    migrate_v1(transaction)
+    migrate_v1(transaction)?;
+    // After the copy, so groups copied from v1 are scrubbed too.
+    privacy::scrub_closed_groups(transaction)
 }
 
 /// `closed-history-v1` rows are COPIED to one-member groups with the same
@@ -228,7 +231,7 @@ pub(crate) fn drain_pending_changes(
                     super::placement_shift::merge(&mut shift, marker);
                     continue;
                 }
-                change["sequence"] = json!(array.len());
+                change.set("sequence", json!(array.len()));
                 array.push(change);
             }
         }
@@ -286,9 +289,9 @@ fn tab_record(connection: &Connection, tab_id: &str) -> anyhow::Result<Option<Va
         // works after the terminal's row is gone.
         let relaunch =
             crate::workspace_registry::relaunch_store::closed_fields(connection, &content_id)?;
-        record["cwd"] = relaunch.as_ref().map_or(Value::Null, |fields| fields["cwd"].clone());
-        record["relaunch"] = relaunch.unwrap_or(Value::Null);
-        record["terminal_id"] = json!(content_id);
+        record.set("cwd", relaunch.as_ref().map_or(Value::Null, |fields| fields["cwd"].clone()));
+        record.set("relaunch", relaunch.unwrap_or(Value::Null));
+        record.set("terminal_id", json!(content_id));
     } else {
         let url = connection
             .query_row(
@@ -312,67 +315,122 @@ fn tab_record(connection: &Connection, tab_id: &str) -> anyhow::Result<Option<Va
             .optional()?;
         match frontend {
             Some((url, profile, engine)) => {
-                record["url"] = json!(privacy::strip_url(&url));
-                record["browser_profile_id"] = json!(profile);
-                record["engine"] = json!(engine);
+                record.set("url", json!(privacy::strip_url(&url)));
+                record.set("browser_profile_id", json!(profile));
+                record.set("engine", json!(engine));
                 // Back/forward entries and scroll come back on reopen
                 // (cx-d0d.11); `closed.list` never shows them.
-                record["browser_history"] = connection
-                    .query_row(
-                        "SELECT history FROM frontend_browser_history WHERE browser_id = ?1",
-                        [&content_id],
-                        |row| row.get::<_, String>(0),
-                    )
-                    .optional()?
-                    .map_or(Value::Null, |history| privacy::strip_history(&history));
+                record.set(
+                    "browser_history",
+                    connection
+                        .query_row(
+                            "SELECT history FROM frontend_browser_history WHERE browser_id = ?1",
+                            [&content_id],
+                            |row| row.get::<_, String>(0),
+                        )
+                        .optional()?
+                        .map_or(Value::Null, |history| privacy::strip_history(&history)),
+                );
             }
-            None => record["url"] = json!(url.map(|url| privacy::strip_url(&url))),
+            None => {
+                record.set("url", json!(url.map(|url| privacy::strip_url(&url))));
+            }
         }
         // A conversation tab reopens as one, from this record.
         if let Some(conversation) =
             super::conversation_tabs_store::tab_conversation_wire(connection, tab_id)?
         {
-            record["conversation"] = conversation;
+            record.set("conversation", conversation);
         }
         // A remote-terminal tab reopens as one (`remote-terminal-tabs-v1`).
         if let Some(remote) =
             super::remote_terminal_tabs_store::tab_remote_wire(connection, tab_id)?
         {
-            record["remote"] = remote;
+            record.set("remote", remote);
         }
     }
     Ok(Some(record))
 }
 
-fn screen_tabs(connection: &Connection, screen_id: &str) -> anyhow::Result<Vec<Value>> {
+/// The tab records of a screen, without `skip` (tabs a stash keeps), and
+/// the panes they sat in: each pane's tabs as indexes into the records, in
+/// strip order, and the index of its selected tab among them.
+fn screen_tabs(
+    connection: &Connection,
+    screen_id: &str,
+    skip: &HashSet<String>,
+) -> anyhow::Result<(Vec<Value>, serde_json::Map<String, Value>)> {
     let tabs = {
         let mut statement = connection.prepare(
-            "SELECT t.public_id FROM resource_tabs AS t
+            "SELECT t.public_id, p.public_id, p.active_tab_id FROM resource_tabs AS t
              JOIN resource_panes AS p ON p.public_id = t.pane_id
              WHERE p.screen_id = ?1 AND p.deleted_revision IS NULL AND t.deleted_revision IS NULL
              ORDER BY p.creation_ordinal ASC, t.position ASC",
         )?;
         statement
-            .query_map([screen_id], |row| row.get::<_, String>(0))?
+            .query_map([screen_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })?
             .collect::<Result<Vec<_>, _>>()?
     };
     let mut records = Vec::with_capacity(tabs.len());
-    for tab in tabs {
-        if let Some(record) = tab_record(connection, &tab)? {
-            records.push(record);
+    let mut panes = serde_json::Map::new();
+    for (tab, pane, active) in tabs.iter().filter(|(tab, _, _)| !skip.contains(tab)) {
+        let Some(record) = tab_record(connection, tab)? else { continue };
+        let entry = panes.entry(pane.clone()).or_insert_with(|| json!({"tabs": [], "active": 0}));
+        let strip = entry["tabs"].as_array().map_or(0, Vec::len);
+        if active.as_deref() == Some(tab.as_str()) {
+            entry["active"] = json!(strip);
         }
+        if let Some(strip) = entry["tabs"].as_array_mut() {
+            strip.push(json!(records.len()));
+        }
+        records.push(record);
     }
-    Ok(records)
+    Ok((records, panes))
 }
 
-fn screen_record(connection: &Connection, screen_id: &str) -> anyhow::Result<Value> {
-    let name = connection
-        .query_row("SELECT name FROM resource_screens WHERE public_id = ?1", [screen_id], |row| {
-            row.get::<_, Option<String>>(0)
-        })
-        .optional()?
-        .flatten();
-    Ok(json!({"name": name, "tabs": screen_tabs(connection, screen_id)?}))
+/// A closing screen: its name and tab records (`tabs`, the flat list older
+/// readers take), and its layout (`layout`, the split tree of pane ids;
+/// `panes`, each pane's tabs and selected tab; `active_pane`;
+/// `zoomed_pane`), so a reopen rebuilds the splits it had.
+fn screen_record(
+    connection: &Connection,
+    screen_id: &str,
+    skip: &HashSet<String>,
+) -> anyhow::Result<Value> {
+    let row = connection
+        .query_row(
+            "SELECT name, layout_json, active_pane_id, zoomed_pane_id
+             FROM resource_screens WHERE public_id = ?1",
+            [screen_id],
+            |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            },
+        )
+        .optional()?;
+    let (tabs, panes) = screen_tabs(connection, screen_id, skip)?;
+    let Some((name, layout, active_pane, zoomed_pane)) = row else {
+        return Ok(json!({"name": null, "tabs": tabs}));
+    };
+    let layout = serde_json::from_str::<Value>(&layout).unwrap_or(Value::Null);
+    Ok(json!({
+        "name": name,
+        "tabs": tabs,
+        "layout": layout,
+        "panes": panes,
+        "active_pane": active_pane,
+        "zoomed_pane": zoomed_pane,
+    }))
 }
 
 /// Store one group of `members` (top-most closed objects, in restore order)
@@ -382,11 +440,16 @@ fn insert_group(
     transaction: &Transaction<'_>,
     members: Vec<Value>,
     window: Option<String>,
+    tab_groups: Vec<Value>,
 ) -> anyhow::Result<()> {
-    let (closed_id, extra) = match take_pending_group(transaction)? {
+    let (closed_id, mut extra) = match take_pending_group(transaction)? {
         Some((closed_id, extra)) => (closed_id, Some(extra)),
         None => (new_closed_id(), None),
     };
+    if !tab_groups.is_empty() {
+        let fields = extra.get_or_insert_with(|| json!({}));
+        fields["tab_groups"] = Value::Array(tab_groups);
+    }
     insert_record(transaction, closed_id, members, window, extra)
 }
 
@@ -415,13 +478,16 @@ fn insert_record(
         // workspace-level group: reopening it restores the space. An
         // ungrouped tab or screen group stays a tab- or screen-level one.
         if record["members"].as_array().is_some_and(Vec::is_empty) {
-            record["kind"] = json!(if record.get("tab_group").is_some() {
-                "tab"
-            } else if record.get("screen_group").is_some() {
-                "screen"
-            } else {
-                "workspace"
-            });
+            record.set(
+                "kind",
+                json!(if record.get("tab_group").is_some() {
+                    "tab"
+                } else if record.get("screen_group").is_some() {
+                    "screen"
+                } else {
+                    "workspace"
+                }),
+            );
         }
     }
     let kind = record["kind"].as_str().unwrap_or("tab").to_string();
@@ -530,66 +596,25 @@ pub(crate) fn record_ungrouped_group(
     insert_record(transaction, new_closed_id(), Vec::new(), window, Some(extra))
 }
 
-/// Close of a whole tab group: `archive` (as [`record_ungrouped_group`]
-/// takes it, naming the closed tabs) rides on the group that recorded its
-/// tabs, so reopening them forms the group again. Nothing recorded them
-/// (an incognito workspace): nothing to attach.
-pub(crate) fn attach_closed_tab_group(
-    transaction: &Transaction<'_>,
-    archive: &Value,
-) -> anyhow::Result<()> {
-    let Some(first) = archive["tab_ids"].get(0).and_then(Value::as_str) else { return Ok(()) };
-    if !super::store::state_tables_ready(transaction)? {
-        return Ok(());
+/// The sequence of the newest stored closed group (0: none, or no closed
+/// history yet). With [`closed_ids_after`] a close finds the groups its own
+/// transaction stored (`closed_ids`, GPUI Undo of a bulk close).
+pub(crate) fn closed_seq(connection: &Connection) -> anyhow::Result<i64> {
+    if !super::store::state_tables_ready(connection)? {
+        return Ok(0);
     }
-    let found = transaction
-        .query_row(
-            "SELECT g.closed_id, g.record_json FROM closed_groups AS g
-             WHERE EXISTS (SELECT 1 FROM json_tree(g.record_json, '$.members') AS t
-                           WHERE t.key = 'tab_id' AND t.atom = ?1)
-             ORDER BY g.seq DESC LIMIT 1",
-            [first],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        )
-        .optional()?;
-    let Some((closed_id, record)) = found else { return Ok(()) };
-    let mut record: Value = serde_json::from_str(&record)?;
-    // Only the group this close recorded holds every one of its tabs, as
-    // tab members or inside the screen the close emptied.
-    let mut recorded = HashSet::new();
-    closed_tab_ids(&record["members"], &mut recorded);
-    if !archive["tab_ids"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .all(|tab| tab.as_str().is_some_and(|tab| recorded.contains(tab)))
-    {
-        return Ok(());
-    }
-    record["tab_group"] = archive.clone();
-    transaction.execute(
-        "UPDATE closed_groups SET record_json = ?2 WHERE closed_id = ?1",
-        params![closed_id, serde_json::to_string(&record)?],
-    )?;
-    queue_change(transaction, &state_upsert("closed", &closed_id, public_item(&record)))
+    Ok(connection
+        .query_row("SELECT COALESCE(MAX(seq), 0) FROM closed_groups", [], |row| row.get(0))?)
 }
 
-/// Every closed tab id in `value`, at any depth.
-fn closed_tab_ids<'a>(value: &'a Value, ids: &mut HashSet<&'a str>) {
-    match value {
-        Value::Array(items) => items.iter().for_each(|item| closed_tab_ids(item, ids)),
-        Value::Object(fields) => {
-            for (key, field) in fields {
-                match field.as_str() {
-                    Some(id) if key == "tab_id" => {
-                        ids.insert(id);
-                    }
-                    _ => closed_tab_ids(field, ids),
-                }
-            }
-        }
-        _ => {}
+/// The ids of the closed groups stored after sequence `seq`, oldest first.
+pub(crate) fn closed_ids_after(connection: &Connection, seq: i64) -> anyhow::Result<Vec<String>> {
+    if !super::store::state_tables_ready(connection)? {
+        return Ok(Vec::new());
     }
+    let mut statement =
+        connection.prepare("SELECT closed_id FROM closed_groups WHERE seq > ?1 ORDER BY seq")?;
+    Ok(statement.query_map([seq], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?)
 }
 
 /// A new closed group id.
@@ -628,7 +653,7 @@ pub(crate) fn flush_pending_group(transaction: &Transaction<'_>) -> anyhow::Resu
     let pending: bool =
         transaction
             .query_row("SELECT EXISTS(SELECT 1 FROM closed_group_pending)", [], |row| row.get(0))?;
-    if pending { insert_group(transaction, Vec::new(), None) } else { Ok(()) }
+    if pending { insert_group(transaction, Vec::new(), None, Vec::new()) } else { Ok(()) }
 }
 
 /// The highest level among the members: a group with a screen is a screen
@@ -681,16 +706,23 @@ fn workspace_of_screen(
         .optional()?)
 }
 
-/// The workspaces, screens and tabs `patch` tombstones, in patch order.
+/// The workspaces, screens, panes and tabs `patch` tombstones, in patch
+/// order.
 struct Closing {
     workspaces: Vec<String>,
     screens: Vec<String>,
+    panes: HashSet<String>,
     tabs: Vec<String>,
 }
 
 impl Closing {
     fn of(patch: &ResourcePatch) -> Self {
-        let mut closing = Self { workspaces: Vec::new(), screens: Vec::new(), tabs: Vec::new() };
+        let mut closing = Self {
+            workspaces: Vec::new(),
+            screens: Vec::new(),
+            panes: HashSet::new(),
+            tabs: Vec::new(),
+        };
         for change in &patch.changes {
             match change {
                 ResourceChange::TombstoneWorkspace { workspace_id } => {
@@ -698,6 +730,9 @@ impl Closing {
                 }
                 ResourceChange::TombstoneScreen { screen_id } => {
                     closing.screens.push(screen_id.as_str().to_string());
+                }
+                ResourceChange::TombstonePane { pane_id } => {
+                    closing.panes.insert(pane_id.as_str().to_string());
                 }
                 ResourceChange::TombstoneTab { tab_id, .. } => {
                     closing.tabs.push(tab_id.as_str().to_string());
@@ -736,24 +771,59 @@ pub(crate) fn capture_closed(
     patch: &ResourcePatch,
 ) -> anyhow::Result<()> {
     let closing = Closing::of(patch);
-    if closing.is_empty() || !super::store::state_tables_ready(transaction)? {
+    if !super::store::state_tables_ready(transaction)? {
+        return Ok(());
+    }
+    // A whole-workspace stash (`stash-workspaces-v1`) takes this close's
+    // capture instead of the closed history.
+    let whole_stash = super::stash_store::take_workspace_stash(transaction)?;
+    if closing.is_empty() {
+        anyhow::ensure!(whole_stash.is_none(), "bad request: no workspace to stash");
         return Ok(());
     }
     let closing_workspaces = closing.workspaces.iter().cloned().collect::<HashSet<_>>();
     let closing_screens = closing.screens.iter().cloned().collect::<HashSet<_>>();
+    // Tabs a stash (`stash-v1`) keeps: never in the closed group, but a
+    // workspace or screen the stash empties still is.
+    let stashed = super::stash_store::take_capture_mark(transaction)?;
+    // Before `capture_workspace` forgets which closing workspaces are
+    // ephemeral: their groups are never recorded.
+    let closing_tabs = closing.tabs.iter().cloned().collect::<HashSet<_>>();
+    let mut tab_groups = super::closed_tab_groups::closing_tab_groups(
+        transaction,
+        &closing_tabs,
+        &closing_screens,
+        &closing_workspaces,
+    )?;
+    // A stashed tab is not in this close, so no reopened group may claim it.
+    for archive in &mut tab_groups {
+        if let Some(tab_ids) = archive["tab_ids"].as_array_mut() {
+            tab_ids.retain(|tab| tab.as_str().is_none_or(|tab| !stashed.contains(tab)));
+        }
+    }
+    tab_groups.retain(|archive| archive["tab_ids"].as_array().is_some_and(|tabs| !tabs.is_empty()));
     let mut capture = Capture::default();
     for workspace_id in &closing.workspaces {
-        capture_workspace(transaction, workspace_id, &mut capture)?;
+        capture_workspace(transaction, workspace_id, &stashed, &mut capture)?;
         if super::workspace_status_store::forget_workspace(transaction, workspace_id)? {
             queue_change(transaction, &state_delete("workspace_status", workspace_id))?;
         }
+        if super::workspace_checklist_store::forget_workspace(transaction, workspace_id)? {
+            queue_change(transaction, &state_delete("workspace_checklist", workspace_id))?;
+        }
     }
     for screen_id in &closing.screens {
-        capture_screen(transaction, screen_id, &closing_workspaces, &mut capture)?;
+        capture_screen(transaction, screen_id, &closing_workspaces, &stashed, &mut capture)?;
     }
     let mut tabs = Vec::new();
-    for tab_id in &closing.tabs {
-        tabs.extend(tab_member(transaction, tab_id, &closing_workspaces, &closing_screens)?);
+    for tab_id in closing.tabs.iter().filter(|tab| !stashed.contains(*tab)) {
+        tabs.extend(tab_member(
+            transaction,
+            tab_id,
+            &closing_workspaces,
+            &closing_screens,
+            &closing.panes,
+        )?);
     }
     // Restore order: ascending position per pane, so each tab goes back to
     // its own index after the lower ones are in place.
@@ -767,16 +837,26 @@ pub(crate) fn capture_closed(
         }
         capture.members.push(tab);
     }
+    if let Some((stash_id, name)) = whole_stash {
+        return super::stash_store::store_workspace_stash(
+            transaction,
+            &stash_id,
+            name.as_deref(),
+            capture.members,
+            tab_groups,
+        );
+    }
     if capture.members.is_empty() {
         return Ok(());
     }
-    insert_group(transaction, capture.members, capture.window)
+    insert_group(transaction, capture.members, capture.window, tab_groups)
 }
 
 fn capture_screen(
     transaction: &Transaction<'_>,
     screen_id: &str,
     closing_workspaces: &HashSet<String>,
+    stashed: &HashSet<String>,
     capture: &mut Capture,
 ) -> anyhow::Result<()> {
     let Some((workspace_id, position)) = workspace_of_screen(transaction, screen_id)? else {
@@ -785,7 +865,7 @@ fn capture_screen(
     if closing_workspaces.contains(&workspace_id) || is_ephemeral(transaction, &workspace_id)? {
         return Ok(());
     }
-    let record = screen_record(transaction, screen_id)?;
+    let record = screen_record(transaction, screen_id, stashed)?;
     capture.note_window(transaction, &workspace_id)?;
     capture.members.push(json!({
         "kind": "screen",
@@ -799,12 +879,14 @@ fn capture_screen(
 }
 
 /// The member of one closing tab, unless its screen or workspace closes
-/// with it (they record it) or its workspace is ephemeral.
-fn tab_member(
-    transaction: &Transaction<'_>,
+/// with it (they record it) or its workspace is ephemeral. A tab whose
+/// pane closes with it keeps where that pane was split (`split`).
+pub(crate) fn tab_member(
+    transaction: &Connection,
     tab_id: &str,
     closing_workspaces: &HashSet<String>,
     closing_screens: &HashSet<String>,
+    closing_panes: &HashSet<String>,
 ) -> anyhow::Result<Option<Value>> {
     let placement = transaction
         .query_row(
@@ -826,7 +908,7 @@ fn tab_member(
         return Ok(None);
     }
     let Some(tab) = tab_record(transaction, tab_id)? else { return Ok(None) };
-    Ok(Some(json!({
+    let mut member = json!({
         "kind": "tab",
         // The closed tab's id: a closed tab group names its tabs by it.
         "tab_id": tab_id,
@@ -835,13 +917,21 @@ fn tab_member(
         "pane_id": pane_id,
         "index": position,
         "screens": [{"name": null, "tabs": [tab]}],
-    })))
+    });
+    if closing_panes.contains(&pane_id)
+        && let Some(split) =
+            super::closed_pane_split::pane_placement(transaction, &screen_id, &pane_id)?
+    {
+        member.set("split", split);
+    }
+    Ok(Some(member))
 }
 
 /// Record a closing workspace. An ephemeral workspace leaves no record.
 fn capture_workspace(
     transaction: &Transaction<'_>,
     workspace_id: &str,
+    stashed: &HashSet<String>,
     capture: &mut Capture,
 ) -> anyhow::Result<()> {
     if is_ephemeral(transaction, workspace_id)? {
@@ -874,13 +964,23 @@ fn capture_workspace(
             .query_map([workspace_id], |row| row.get::<_, String>(0))?
             .collect::<Result<Vec<_>, _>>()?
     };
+    let active_screen = transaction
+        .query_row(
+            "SELECT active_screen_id FROM resource_workspaces WHERE public_id = ?1",
+            [workspace_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .flatten()
+        .and_then(|active| screens.iter().position(|screen| *screen == active));
     let screens = screens
         .iter()
-        .map(|screen| screen_record(transaction, screen))
+        .map(|screen| screen_record(transaction, screen, stashed))
         .collect::<anyhow::Result<Vec<_>>>()?;
     capture.note_window(transaction, workspace_id)?;
     // `workspace_key`: reopen moves the closed workspace's personal row
-    // (group, place, theme) to the new workspace.
+    // (group, place, theme) to the new workspace. `presentation`: its
+    // shared color, icon, title and pin, which reopen sets again.
     capture.members.push(json!({
         "kind": "workspace",
         "name": name,
@@ -889,6 +989,28 @@ fn capture_workspace(
         "pane_id": null,
         "index": position.unwrap_or(0),
         "screens": screens,
+        "active_screen": active_screen,
+        "presentation": workspace_presentation(transaction, &workspace_key)?,
     }));
     Ok(())
+}
+
+/// The shared presentation (color, icon, custom title, pin) of the closing
+/// workspace `workspace_key`; null when it has none.
+fn workspace_presentation(connection: &Connection, workspace_key: &str) -> anyhow::Result<Value> {
+    Ok(connection
+        .query_row(
+            "SELECT color, icon, title, pinned FROM workspace_presentation WHERE workspace_key = ?1",
+            [workspace_key],
+            |row| {
+                Ok(json!({
+                    "color": row.get::<_, Option<String>>(0)?,
+                    "icon": row.get::<_, Option<String>>(1)?,
+                    "title": row.get::<_, Option<String>>(2)?,
+                    "pinned": row.get::<_, i64>(3)? != 0,
+                }))
+            },
+        )
+        .optional()?
+        .unwrap_or(Value::Null))
 }

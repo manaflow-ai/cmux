@@ -3,6 +3,7 @@ import AVFoundation
 import CoreImage
 import ImageIO
 import UniformTypeIdentifiers
+public import CmuxNextDesignTokens
 
 /// Backdrop images decoded, textured and cached once per process, shared by every window, and
 /// kept on disk for the next launch.
@@ -16,12 +17,15 @@ import UniformTypeIdentifiers
 @MainActor
 public final class BackdropImageStore {
     /// The app's store, with snapshots in the app's caches folder.
-    public static let shared = BackdropImageStore(snapshots: defaultSnapshots)
+    public static let shared = BackdropImageStore(snapshots: defaultSnapshots, desktop: .live())
 
     /// The longest side, in pixels, of a decoded backdrop: by default the largest screen's.
     public let maxPixelSize: Int
     /// Where snapshots of the decoded, textured images live; nil keeps none.
     public let snapshots: URL?
+    /// The desktop picture: the Desktop Wallpaper art reloads when it changes, and its color leans
+    /// the glass tint (``WallpaperTint``). Inert until started.
+    public let desktop: DesktopWallpaperWatch
     /// Texture passes run (tests).
     private(set) var renderCount = 0
 
@@ -30,6 +34,12 @@ public final class BackdropImageStore {
     private var images: [Key: NSImage] = [:]
     private var loads: [Key: Task<Decoded?, Never>] = [:]
     private var warming: [Task<Void, Never>] = []
+    /// The desktop's ``DesktopWallpaperWatch/generation`` the cached Desktop Wallpaper shows.
+    private var desktopGeneration = 0
+    /// Ends when every Desktop Wallpaper decode the desktop moved on from has ended. A decode
+    /// can't be stopped once it runs, so a new one waits for this: one desktop decode at a time,
+    /// however fast the desktop changes and however many windows ask.
+    private var retiredDesktopLoads: Task<Void, Never>?
 
     private struct Key: Hashable {
         let id: String
@@ -59,10 +69,14 @@ public final class BackdropImageStore {
     ///   - maxPixelSize: The longest side of a decoded backdrop; nil for the largest screen's.
     ///   - snapshots: Where to keep snapshots for the next launch; nil keeps none.
     ///   - downloads: Where art that does not ship in the app comes from.
-    public init(maxPixelSize: Int? = nil, snapshots: URL? = nil, downloads: BackdropArtDownloads = .shared) {
+    ///   - desktop: The desktop picture the Desktop Wallpaper art and the tint follow; by default
+    ///     one that keeps no color between launches and stays inert until started.
+    public init(maxPixelSize: Int? = nil, snapshots: URL? = nil, downloads: BackdropArtDownloads = .shared,
+                desktop: DesktopWallpaperWatch? = nil) {
         self.maxPixelSize = max(maxPixelSize ?? Self.screenPixelSize(), 64)
         self.snapshots = snapshots
         self.downloads = downloads
+        self.desktop = desktop ?? .live(defaults: nil)
     }
 
     /// The longest side of the largest screen, in pixels.
@@ -92,6 +106,24 @@ public final class BackdropImageStore {
         return selection.thumbnailURL
     }
 
+    /// Drops the decoded Desktop Wallpaper once the desktop has moved on to `generation`, so the
+    /// next window to ask decodes the new picture; every later call for the same generation keeps
+    /// what that first reload decoded.
+    func forgetDesktopPicture(olderThan generation: Int) {
+        guard generation > desktopGeneration else { return }
+        desktopGeneration = generation
+        images = images.filter { $0.key.id != BackdropSelection.desktopID }
+        let retired = loads.filter { $0.key.id == BackdropSelection.desktopID }.map(\.value)
+        loads = loads.filter { $0.key.id != BackdropSelection.desktopID }
+        guard !retired.isEmpty else { return }
+        let earlier = retiredDesktopLoads
+        // task-owner: the chain of retired desktop decodes; it ends when they do (never cancelled)
+        retiredDesktopLoads = Task.detached(priority: .utility) {
+            await earlier?.value
+            for load in retired { _ = await load.value }
+        }
+    }
+
     /// Starts loading `selection` so the first window that shows it finds it decoded.
     public func prewarm(_ selection: BackdropSelection?, texture: BackdropTexture = .default) {
         let dark = NSApp?.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
@@ -116,19 +148,34 @@ public final class BackdropImageStore {
             guard await downloads.file(for: art) != nil else { return nil }
             if let image = images[key] { return image }
         }
+        // Every caller waits on the newest chain until none is newer (the desktop can move on
+        // again while it waits); the first to resume starts the decode, the rest join it below.
+        while key.id == BackdropSelection.desktopID, loads[key] == nil, let retired = retiredDesktopLoads {
+            await retired.value
+            guard !Task.isCancelled else { return nil }
+            if let image = images[key] { return image }
+            if retiredDesktopLoads == retired { retiredDesktopLoads = nil }
+        }
         let load: Task<Decoded?, Never>
+        let generation = desktopGeneration
         if let running = loads[key] {
             load = running
         } else {
             let source = selection.resolvedImageURL(dark: dark), snapshot = snapshotURL(selection, texture: texture, dark: dark)
             let size = maxPixelSize
             load = Task.detached(priority: .userInitiated) {
-                Self.load(source, snapshot: snapshot, maxPixelSize: size, texture: texture)
+                Self.load(source, snapshot: snapshot, maxPixelSize: size, texture: texture, dark: dark)
             }
             loads[key] = load
         }
         let decoded = await load.value
-        loads[key] = nil
+        if loads[key] == load { loads[key] = nil }
+        // The desktop moved on while this decoded: its picture is stale, so load the new one,
+        // unless the caller gave up (a newer apply cancelled its art load).
+        if key.id == BackdropSelection.desktopID, generation != desktopGeneration {
+            guard !Task.isCancelled else { return nil }
+            return await image(selection, texture: texture, dark: dark)
+        }
         if let image = images[key] { return image }
         guard let decoded else { return nil }
         if decoded.rendered { renderCount += 1 }
@@ -150,11 +197,11 @@ public final class BackdropImageStore {
 
     /// The snapshot when there is one, else the source decoded, textured and snapshotted.
     private nonisolated static func load(_ source: URL?, snapshot: URL?, maxPixelSize: Int,
-                                         texture: BackdropTexture) -> Decoded? {
+                                         texture: BackdropTexture, dark: Bool) -> Decoded? {
         if let snapshot, let image = decode(snapshot, maxPixelSize: maxPixelSize) {
             return Decoded(image: image, rendered: false)
         }
-        guard let source, let image = decode(source, maxPixelSize: maxPixelSize) else { return nil }
+        guard let source, let image = decode(source, maxPixelSize: maxPixelSize, dark: dark) else { return nil }
         let textured = BackdropTextureRenderer(context: CIContext(options: [.cacheIntermediates: false]))
             .render(image, texture: texture)
         let result = textured ?? image
@@ -163,8 +210,8 @@ public final class BackdropImageStore {
     }
 
     /// The file decoded now (not when it first draws), its longest side at most `maxPixelSize`;
-    /// a video's first frame.
-    nonisolated static func decode(_ url: URL, maxPixelSize: Int) -> CGImage? {
+    /// a video's first frame, and a dynamic HEIC's frame for light or `dark` (``BackdropAppearance``).
+    nonisolated static func decode(_ url: URL, maxPixelSize: Int, dark: Bool = false) -> CGImage? {
         if AppleWallpapers.isVideo(url.path) { return poster(url, maxPixelSize: maxPixelSize) }
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         let options: [CFString: Any] = [
@@ -173,7 +220,8 @@ public final class BackdropImageStore {
             kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
             kCGImageSourceShouldCacheImmediately: true,
         ]
-        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+        let frame = (dark ? BackdropAppearance.dark : .light).frame(in: source)
+        return CGImageSourceCreateThumbnailAtIndex(source, frame, options as CFDictionary)
     }
 
     /// A video's first frame, upright, its longest side at most `maxPixelSize`: the poster a

@@ -27,9 +27,8 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
     var state: BookmarkStarState = .hidden {
         didSet {
             guard state != oldValue else { return }
-            image.image = NSImage.icon(state == .on ? .bookmarkActive : .bookmark, size: .iconRowSize(forLabelPointSize: OmnibarStyle.iconPointSize))
+            image.image = NSImage.icon(state == .on ? .browserOmniboxStarActive : .browserOmniboxStar, size: OmnibarStyle.trailingIconSize)
             let label = state == .on ? Strings.bookmarkEdit : Strings.bookmarkAdd
-            themedToolTip = label
             setAccessibilityLabel(label)
             needsDisplay = true
         }
@@ -59,6 +58,13 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    /// The badge takes the whole press (not its image or label) and the first
+    /// one in a browser window that is not key: one click acts, as Chrome's
+    /// omnibar buttons do (user, 2026-10-28, "click the star twice").
+    override func hitTest(_ point: NSPoint) -> NSView? { super.hitTest(point) == nil ? nil : self }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
     override func accessibilityPerformPress() -> Bool {
         onPress?(self)
         return true
@@ -66,6 +72,20 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
 
     override func mouseDown(with event: NSEvent) {
         onPress?(self)
+    }
+
+    /// The pointing hand over the star, as over every clickable control (`OmnibarPointer`); its
+    /// rect sits above the bar's arrow rects in the key window.
+    override func resetCursorRects() {
+        if let rect = ClickableButton.cursorRect(of: self) { addCursorRect(rect, cursor: .pointingHand) }
+    }
+
+    /// The rects `resetCursorRects` registered, while non-nil (tests).
+    var recordedCursorRects: [(rect: NSRect, cursor: NSCursor)]?
+
+    override func addCursorRect(_ rect: NSRect, cursor object: NSCursor) {
+        recordedCursorRects?.append((rect, object))
+        super.addCursorRect(rect, cursor: object)
     }
 
     override func viewDidHide() {
@@ -83,7 +103,7 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
         hover?.refresh()
     }
 
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
         // A redraw during a hover fade leaves the fade running.

@@ -24,6 +24,10 @@ pub const MAX_APPEND: usize = 64;
 pub const MAX_APPEND_BYTES: usize = 768 * 1024;
 /// A reply segment that keeps growing is sent at most this often.
 pub const TALK_EVERY: Duration = Duration::from_secs(1);
+/// Most characters of one live `step.delta` (the owner's limit).
+pub const MAX_DELTA_CHARS: usize = 4096;
+/// Most characters of a live "working on" line (the owner's limit).
+pub const MAX_ACTIVITY_CHARS: usize = 80;
 
 /// One append for the brain to send: the run's summary fields and the steps
 /// that changed since the last append.
@@ -36,6 +40,10 @@ pub struct RunUpdate {
     /// Pictures the steps' tool calls returned: the brain uploads each as an
     /// attachment of the conversation and names it in its step.
     pub images: Vec<RunImage>,
+    /// Live frames (`chief-live-v1`: `step.delta`, `run.activity`) without
+    /// their conversation and run, which the brain adds; sent before the
+    /// steps, so a step's last delta comes before its row.
+    pub live: Vec<Value>,
 }
 
 /// One picture a tool call returned (an ACP `image` content block).
@@ -71,6 +79,25 @@ pub struct RunSteps {
     /// Pictures not yet taken, and how many each step returned (each once).
     images: Vec<RunImage>,
     image_counts: BTreeMap<String, usize>,
+    /// What the live frames sent of each talk and thought step.
+    streamed: BTreeMap<String, Streamed>,
+    /// The "working on" line and when that work began (ms), and whether it
+    /// changed since the last live frames.
+    activity: Option<(String, u64)>,
+    /// The tool call the activity line names, if any: a call's later frames (its input
+    /// arrived) sharpen the line but keep its start, so the elapsed time stays the call's.
+    activity_tool: Option<String>,
+    activity_dirty: bool,
+}
+
+/// One talk or thought step's live stream (`step.delta`): the text sent so
+/// far and the next frame's `seq`. A step whose text stops extending what
+/// was sent (a cut to its tail) streams no more; its row has the text.
+#[derive(Debug, Default)]
+struct Streamed {
+    sent: String,
+    seq: u64,
+    ended: bool,
 }
 
 impl RunSteps {
@@ -94,6 +121,14 @@ impl RunSteps {
         let step = self.upsert(&format!("talk:{segment}"), "talk");
         set_text(&mut step.value, text);
         step.open = open;
+        if open
+            && self
+                .activity
+                .as_ref()
+                .is_none_or(|(line, _)| line != "Writing the reply")
+        {
+            self.set_activity("Writing the reply".to_owned());
+        }
     }
 
     /// A thought summary the harness streams (ACP `agent_thought_chunk`).
@@ -112,6 +147,109 @@ impl RunSteps {
         text.push_str(chunk);
         set_text(&mut step.value, &text);
         step.open = true;
+        if self
+            .activity
+            .as_ref()
+            .is_none_or(|(line, _)| line != "Thinking")
+        {
+            self.set_activity("Thinking".to_owned());
+        }
+    }
+
+    /// The run works on something new: the newest line wins.
+    fn set_activity(&mut self, line: String) {
+        self.activity = Some((line, epoch_ms()));
+        self.activity_tool = None;
+        self.activity_dirty = true;
+    }
+
+    /// The live frames since the last call (`chief-live-v1`): each talk or
+    /// thought step's new text, in at most [`MAX_DELTA_CHARS`] per frame,
+    /// the last one `final` when the step closed; then the "working on"
+    /// line when it changed. A step that closed before any of it streamed
+    /// sends nothing (its row follows at once).
+    pub fn take_live(&mut self) -> Vec<Value> {
+        let mut out = Vec::new();
+        for id in &self.order {
+            let Some(step) = self.steps.get(id) else {
+                continue;
+            };
+            let kind = match step.value.get("kind").and_then(Value::as_str) {
+                Some(kind @ ("talk" | "thought")) => kind,
+                _ => continue,
+            };
+            let text = step
+                .value
+                .get("text")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let fresh = !self.streamed.contains_key(id);
+            if fresh && !step.open {
+                continue;
+            }
+            let streamed = self.streamed.entry(id.clone()).or_default();
+            if streamed.ended {
+                continue;
+            }
+            if !text.starts_with(streamed.sent.as_str()) {
+                streamed.ended = true;
+                continue;
+            }
+            // An open step holds back its last character, so the frame that
+            // ends it (`final`) always has text, even when nothing new came.
+            let upto = if step.open {
+                text.char_indices().last().map_or(0, |(at, _)| at)
+            } else {
+                text.len()
+            };
+            if upto <= streamed.sent.len() {
+                continue;
+            }
+            let delta = &text[streamed.sent.len()..upto];
+            let chunks = split_chars(delta, MAX_DELTA_CHARS);
+            let count = chunks.len();
+            for (index, chunk) in chunks.into_iter().enumerate() {
+                let mut frame = json!({
+                    "type": "step.delta",
+                    "t": "step.delta",
+                    "step": id,
+                    "kind": kind,
+                    "seq": streamed.seq,
+                    "text": chunk,
+                });
+                if !step.open && index + 1 == count {
+                    frame["final"] = json!(true);
+                    streamed.ended = true;
+                }
+                streamed.seq += 1;
+                out.push(frame);
+            }
+            streamed.sent = text[..upto].to_owned();
+        }
+        if std::mem::take(&mut self.activity_dirty)
+            && let Some((line, since)) = &self.activity
+        {
+            let at = epoch_ms().max(*since);
+            out.push(json!({"type": "run.activity", "t": "run.activity", "line": line, "since": since, "at": at}));
+        }
+        out
+    }
+
+    /// The turn is over: every talk and thought step still open closes, so
+    /// its last live frame (`final`) goes before the run's end and the reply.
+    pub fn close_all(&mut self) {
+        let open: Vec<String> = self
+            .steps
+            .iter()
+            .filter(|(_, step)| step.open)
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in open {
+            if let Some(step) = self.steps.get_mut(&id) {
+                step.open = false;
+            }
+            self.dirty.insert(id);
+        }
     }
 
     /// The streaming thought ended (a tool call or a reply began): the next one is a new step.
@@ -128,6 +266,20 @@ impl RunSteps {
 
     /// A tool call started or its input arrived (ACP `tool_call`).
     pub fn tool_call(&mut self, id: &str, name: &str, update: &Value, at: Option<u64>) {
+        let doing = activity_line(name, update);
+        if self.activity.as_ref().is_none_or(|(old, _)| *old != doing) {
+            match (&mut self.activity, self.activity_tool.as_deref()) {
+                // The same call, its input known now: a sharper line, the same start.
+                (Some((line, _)), Some(tool)) if tool == id => {
+                    *line = doing;
+                    self.activity_dirty = true;
+                }
+                _ => {
+                    self.set_activity(doing);
+                    self.activity_tool = Some(id.to_owned());
+                }
+            }
+        }
         let step = self.upsert(&step_id("tool", id), "tool");
         step.value
             .entry("status")
@@ -255,6 +407,269 @@ impl RunSteps {
 
     pub fn has_pending(&self) -> bool {
         !self.dirty.is_empty()
+    }
+}
+
+/// The owner's view of each streamed step (`chief-live-v1`): the seq it took
+/// last and the text it holds. A frame the owner refused (a dropped socket, a
+/// refusal) would make every later frame of that step a `seq_gap`, so the
+/// step starts again at seq 0 with its whole text so far (the owner replaces
+/// the step and sends its `run.live`), and streams on from there.
+#[derive(Debug, Default)]
+pub struct LiveStreams {
+    steps: BTreeMap<(String, String), LiveStream>,
+}
+
+#[derive(Debug, Default)]
+struct LiveStream {
+    /// The step's text so far (its last 64 KiB).
+    text: String,
+    /// The next seq the owner takes.
+    next: u64,
+    /// The last frame did not reach the owner: start again at seq 0.
+    broken: bool,
+}
+
+/// Most bytes of a step's text kept for a restart (the owner's buffer keeps as much).
+const MAX_STREAM_BYTES: usize = 64 * 1024;
+
+impl LiveStreams {
+    /// Sends one live frame of `run` through `publish`, numbered as the owner
+    /// expects; a step whose last frame failed starts again at seq 0 with its
+    /// text so far. The first error is returned (the frame is not retried).
+    pub fn send<E>(
+        &mut self,
+        run: &str,
+        mut frame: Value,
+        mut publish: impl FnMut(Value) -> Result<(), E>,
+    ) -> Result<(), E> {
+        let Some(step) = frame
+            .get("step")
+            .and_then(Value::as_str)
+            .filter(|_| frame["type"] == "step.delta")
+            .map(str::to_owned)
+        else {
+            return publish(frame);
+        };
+        // One turn at a time: a frame of another run drops the old streams.
+        self.steps.retain(|(of, _), _| of == run);
+        let key = (run.to_owned(), step);
+        let stream = self.steps.entry(key.clone()).or_default();
+        let piece = frame["text"].as_str().unwrap_or_default().to_owned();
+        stream.text.push_str(&piece);
+        if stream.text.len() > MAX_STREAM_BYTES {
+            let mut cut = stream.text.len() - MAX_STREAM_BYTES;
+            while !stream.text.is_char_boundary(cut) {
+                cut += 1;
+            }
+            // Only a restart after a failure sends it again (the owner keeps its own tail).
+            stream.text.drain(..cut);
+        }
+        let last = frame.get("final").and_then(Value::as_bool) == Some(true);
+        let result = if stream.broken {
+            let chunks = split_chars(&stream.text, MAX_DELTA_CHARS);
+            let count = chunks.len();
+            let mut result = Ok(());
+            for (index, chunk) in chunks.into_iter().enumerate() {
+                let mut again = frame.clone();
+                again["seq"] = json!(index);
+                again["text"] = json!(chunk);
+                if let Some(object) = again.as_object_mut() {
+                    object.remove("final");
+                }
+                if last && index + 1 == count {
+                    again["final"] = json!(true);
+                }
+                if let Err(e) = publish(again) {
+                    result = Err(e);
+                    break;
+                }
+            }
+            if result.is_ok() {
+                stream.broken = false;
+                stream.next = count as u64;
+            }
+            result
+        } else {
+            frame["seq"] = json!(stream.next);
+            let result = publish(frame);
+            match result {
+                Ok(()) => stream.next += 1,
+                Err(_) => stream.broken = true,
+            }
+            result
+        };
+        if last && result.is_ok() {
+            self.steps.remove(&key);
+        }
+        result
+    }
+}
+
+/// `text` in pieces of at most `max` characters.
+fn split_chars(text: &str, max: usize) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut rest = text;
+    while !rest.is_empty() {
+        let end = rest
+            .char_indices()
+            .nth(max)
+            .map_or(rest.len(), |(at, _)| at);
+        out.push(&rest[..end]);
+        rest = &rest[end..];
+    }
+    out
+}
+
+/// The "working on" line of a tool call: present tense, one line, at most
+/// [`MAX_ACTIVITY_CHARS`] characters, e.g. `Running git log -1`,
+/// `Editing notes.md`, `Reading shot.png`.
+pub fn activity_line(name: &str, update: &Value) -> String {
+    let title = update
+        .get("title")
+        .and_then(Value::as_str)
+        .map(|t| t.replace('`', ""))
+        .unwrap_or_default();
+    let title = line(title.trim(), 200);
+    let kind = update
+        .get("kind")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let verb = match kind {
+        "read" => Some(("Reading", ["Read", "View"].as_slice())),
+        "edit" => Some(("Editing", ["Edit", "Write", "MultiEdit"].as_slice())),
+        "delete" => Some(("Deleting", ["Delete", "Remove"].as_slice())),
+        "move" => Some(("Moving", ["Move"].as_slice())),
+        "search" => Some(("Searching", ["Search", "Grep", "Glob", "Find"].as_slice())),
+        "execute" => Some(("Running", ["Run", "Bash", "Execute"].as_slice())),
+        "fetch" => Some(("Fetching", ["Fetch", "WebFetch"].as_slice())),
+        "think" => Some(("Thinking", [].as_slice())),
+        _ => None,
+    };
+    let input = update.get("rawInput");
+    let described = input
+        .and_then(|i| i.get("description"))
+        .and_then(Value::as_str)
+        .map(|d| line(d.trim(), 200))
+        .filter(|d| !d.is_empty());
+    let mcp = mcp_parts(name).or_else(|| mcp_parts(&title));
+    let text = match verb {
+        // A shell call that says what it does ("List cmux workspaces"): that, not the command.
+        Some(("Running", _)) if described.is_some() => described.unwrap_or_default(),
+        _ if mcp.is_some() => {
+            let (server, tool) = mcp.unwrap_or_default();
+            mcp_line(&server, &tool, input)
+        }
+        Some((verb, _)) if title.is_empty() => verb.to_owned(),
+        Some((verb, words)) => {
+            // "Edit notes.md" -> "Editing notes.md".
+            let rest = words
+                .iter()
+                .find_map(|word| {
+                    title
+                        .strip_prefix(word)
+                        .filter(|rest| rest.is_empty() || rest.starts_with(' '))
+                })
+                .unwrap_or(&title);
+            format!("{verb} {}", rest.trim()).trim().to_owned()
+        }
+        None if !title.is_empty() => title,
+        None => tool_name(name),
+    };
+    let text: String = text.chars().take(MAX_ACTIVITY_CHARS).collect();
+    let text = text.trim_end_matches('.').trim().to_owned();
+    if text.is_empty() {
+        "Working".to_owned()
+    } else {
+        text
+    }
+}
+
+/// `mcp__<server>__<tool>` (Claude Code's MCP tool names) as `(server, tool)`.
+fn mcp_parts(name: &str) -> Option<(String, String)> {
+    let rest = name.trim().strip_prefix("mcp__")?;
+    let (server, tool) = rest.split_once("__")?;
+    let tool = tool.trim();
+    (!server.is_empty() && !tool.is_empty()).then(|| (server.to_owned(), tool.to_owned()))
+}
+
+/// A short string field of a tool's input, one line.
+fn input_str(input: Option<&Value>, key: &str) -> Option<String> {
+    input
+        .and_then(|i| i.get(key))
+        .and_then(Value::as_str)
+        .map(|s| line(s.trim(), 60))
+        .filter(|s| !s.is_empty())
+}
+
+/// The "working on" line of an MCP tool call: the Chief's own tools by what they do
+/// ("Telling a31", "Starting 2 agents"), others as "Using <server>: <tool words>".
+fn mcp_line(server: &str, tool: &str, input: Option<&Value>) -> String {
+    if server == "optchat" {
+        let line = match tool {
+            "tell" => input_str(input, "id")
+                .map_or("Telling an agent".to_owned(), |id| format!("Telling {id}")),
+            "spawn" => match input
+                .and_then(|i| i.get("tasks"))
+                .and_then(Value::as_array)
+                .map(Vec::len)
+            {
+                Some(1) => "Starting an agent".to_owned(),
+                Some(n) if n > 1 => format!("Starting {n} agents"),
+                _ => "Starting agents".to_owned(),
+            },
+            "zoom" => "Reading the chat history".to_owned(),
+            "date" => "Checking a message's date".to_owned(),
+            "version" => "Checking the cmux and Chief versions".to_owned(),
+            "profile" => "Reading the Chief's profile".to_owned(),
+            "react" => "Reacting to a message".to_owned(),
+            "reply" => "Replying in a thread".to_owned(),
+            "send" => "Sending a message".to_owned(),
+            "transcript" => "Reading the chat as you see it".to_owned(),
+            "stop" => "Ending the turn".to_owned(),
+            "sleep" => "Setting a wake-up".to_owned(),
+            "watch" => "Watching for a change".to_owned(),
+            "remember" => "Saving a preference".to_owned(),
+            "cloud_workspace" => "Starting a Cloud workspace".to_owned(),
+            "control" => control_line(input),
+            "peers" => "Looking up the other machines".to_owned(),
+            "escalate_auth" => "Asking you to sign in".to_owned(),
+            _ => String::new(),
+        };
+        if !line.is_empty() {
+            return line;
+        }
+    }
+    let words = tool.replace(['_', '-'], " ");
+    let words = words.trim();
+    let server = server.replace(['_', '-'], " ");
+    match server.trim() {
+        "" => format!("Using {words}"),
+        server => format!("Using {server}: {words}"),
+    }
+}
+
+/// The "working on" line of the Chief's `control(action, id)` call: what it does to which subagent
+/// ("Checking on a31", "Answering a31's prompt"), not "Using optchat: control" (Leo 2026-10-20: that
+/// line sat over the typing dots for six minutes and said nothing).
+fn control_line(input: Option<&Value>) -> String {
+    let id = input_str(input, "id");
+    let who = id.as_deref();
+    let action = input_str(input, "action").unwrap_or_default();
+    match (action.as_str(), who) {
+        ("status", Some(id)) => format!("Checking on {id}"),
+        ("status", None) => "Checking on the agents".to_owned(),
+        ("interrupt", Some(id)) => format!("Steering {id}"),
+        ("answer", Some(id)) => format!("Answering {id}'s prompt"),
+        ("pause", Some(id)) => format!("Pausing {id}"),
+        ("resume", Some(id)) => format!("Resuming {id}"),
+        ("cancel", Some(id)) => format!("Cancelling {id}"),
+        ("restart", Some(id)) => format!("Restarting {id}"),
+        ("priority", Some(id)) => format!("Putting {id} first"),
+        ("cap", _) => "Setting how many agents work at once".to_owned(),
+        ("cloud", _) => "Choosing where new agents run".to_owned(),
+        (_, Some(id)) => format!("Managing {id}"),
+        _ => "Managing the agents".to_owned(),
     }
 }
 
@@ -607,4 +1022,73 @@ pub fn chunks(steps: Vec<Value>) -> Vec<Vec<Value>> {
         out.push(current);
     }
     out
+}
+
+/// A dedicated completed record for reports from one assignment. It never shares the original
+/// turn's id, so a late report cannot revive a pruned turn or finish an active one.
+pub fn report_run_id(assignment: &str) -> String {
+    step_id("reports", assignment)
+}
+
+/// A report as bounded note steps. The generation keeps follow-up replies distinct;
+/// re-reading the same report upserts the same ids, including after a host restart.
+pub fn report_notes(
+    agent: &str,
+    session: &str,
+    started: u64,
+    floor: u64,
+    text: &str,
+) -> Vec<Value> {
+    let prefix = format!("[{agent}] ");
+    let limit = MAX_TEXT.saturating_sub(prefix.len());
+    let mut remaining = text;
+    let mut notes = Vec::new();
+    loop {
+        let mut end = remaining.len().min(limit);
+        while !remaining.is_char_boundary(end) {
+            end -= 1;
+        }
+        let id = step_id(
+            "report",
+            &format!("{agent}:{session}:{started}:{floor}:{}", notes.len()),
+        );
+        notes.push(
+            json!({"id": id, "kind": "note", "text": format!("{prefix}{}", &remaining[..end])}),
+        );
+        remaining = &remaining[end..];
+        if remaining.is_empty() {
+            break;
+        }
+    }
+    notes
+}
+
+#[cfg(test)]
+mod report_tests {
+    use super::*;
+
+    #[test]
+    fn report_notes_preserve_multibyte_text_and_redelivery_identity() {
+        let text = "🦀 verified\n".repeat(4000);
+        let notes = report_notes("a1", "session", 100, 42, &text);
+        assert!(notes.len() > 1);
+        assert_eq!(notes, report_notes("a1", "session", 100, 42, &text));
+        let restored: String = notes
+            .iter()
+            .map(|note| {
+                let text = note["text"].as_str().unwrap();
+                assert!(text.len() <= MAX_TEXT);
+                text.strip_prefix("[a1] ").unwrap()
+            })
+            .collect();
+        assert_eq!(restored, text);
+        assert_ne!(
+            notes[0]["id"],
+            report_notes("a1", "session", 101, 42, "next")[0]["id"]
+        );
+        assert_ne!(
+            notes[0]["id"],
+            report_notes("a1", "new-session", 100, 42, "next")[0]["id"]
+        );
+    }
 }

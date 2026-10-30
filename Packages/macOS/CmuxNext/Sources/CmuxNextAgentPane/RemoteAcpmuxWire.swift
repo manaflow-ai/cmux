@@ -8,10 +8,12 @@ import os
 /// notifications, so the page's own connect, replay and reconnect logic runs unchanged.
 ///
 /// Only the chat's own session is served: `initialize`, `_acpmux/status`, `_acpmux/watch` (that
-/// one session), `_acpmux/attach`, `_acpmux/events`, `_acpmux/detach`, `session/prompt` (text
+/// one session and the chats it started there, `agent-session-children-v1`, read-only), `_acpmux/attach`, `_acpmux/events`, `_acpmux/detach`, `session/prompt` (text
 /// blocks only), `session/cancel`, `_acpmux/permission_respond` and the folder trust question
 /// (`acp.trust.get`/`acp.trust.set`, through the daemon's `agent-session-trust`, cx-1bhjj; the
-/// relay already holds a set that trusts to the person's fresh gesture). Every other method, and any
+/// relay already holds a set that trusts to the person's fresh gesture), and who is in the chat
+/// (`_acpmux/typing` and `_acpmux/view` out, `_acpmux/presence` back, `agent-session-presence-v1`;
+/// an observer never types). Every other method, and any
 /// frame that names another session, is answered `remote.unsupported`: nothing on the other
 /// machine changes a mode, reads a folder or spawns a process from here.
 ///
@@ -23,10 +25,11 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// JSON-RPC `code` and `data.code` of a refused method.
     public static let unsupportedCode = -32601
     public static let unsupported = "remote.unsupported"
+    public static let readOnly = "agent_session.read_only"
 
     /// Starts a new chat on the other machine in `cwd` with `harness` (the page's `session/new`
     /// values; nil leaves the host's own choice) and answers its attachment and session.
-    public typealias Start = @Sendable (_ cwd: String?, _ harness: String?) async throws
+    public typealias Start = @Sendable (_ cwd: String?, _ harness: String?, _ model: String?) async throws
         -> (client: any AgentSessionRemoteClient, session: String)
     /// The trust of `cwd` on the other machine (acpmux's `acp.trust.get` reply), or with `level`
     /// the person's answer recorded there (`acp.trust.set`).
@@ -51,18 +54,27 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.remote")
     private let start: Start?
     private let trust: Trust?
+    private let host: String?
+    /// The daemon's own store host (`registry:<id>`) when the tab's `host` names another (an
+    /// `install:` tab of that machine): its links are noted under both, so a lookup by either finds them.
+    private let linksAlias: String?
     private let state: Mutex<State>
 
     /// The wire of the chat `session` (its store record), through `client`.
-    public init(client: any AgentSessionRemoteClient, session: String, trust: Trust? = nil) {
+    public init(client: any AgentSessionRemoteClient, session: String, host: String? = nil, linksAlias: String? = nil,
+                trust: Trust? = nil) {
         start = nil
+        self.host = host
+        self.linksAlias = linksAlias
         self.trust = trust
         state = Mutex(State(client: client, session: session))
     }
 
     /// The wire of a new chat that has no session yet: the page's first `session/new` runs `start`.
-    public init(start: @escaping Start, trust: Trust? = nil) {
+    public init(start: @escaping Start, host: String? = nil, linksAlias: String? = nil, trust: Trust? = nil) {
         self.start = start
+        self.host = host
+        self.linksAlias = linksAlias
         self.trust = trust
         state = Mutex(State())
     }
@@ -109,9 +121,17 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                 }
             }
         case "session/cancel":
+            guard !isReadOnly else { return refuseReadOnly(id, method) }
             run(id) { client in try await client.cancel(); return Data("{}".utf8) }
         case "_acpmux/detach":
             run(id) { client in await client.detach(); return Data("{}".utf8) }
+        case "_acpmux/typing":
+            guard !isReadOnly else { return refuseReadOnly(id, method) }
+            guard names(params["sessionId"]), let on = params["on"] as? Bool else { return refuse(id, method) }
+            run(id) { client in try await client.typing(on); return Data("{}".utf8) }
+        case "_acpmux/view":
+            guard names(params["sessionId"]), let visible = params["visible"] as? Bool else { return refuse(id, method) }
+            run(id) { client in try await client.view(visible); return Data("{}".utf8) }
         case "_acpmux/watch" where state.withLock({ $0.client == nil }):
             // A new chat before its first send: no session on that machine yet.
             reply(id, ["sessions": [Any]()])
@@ -122,7 +142,20 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                 guard let self else { throw AgentSessionRemoteError(code: Self.unsupported, message: "closed") }
                 return try await self.page(method, page, client: client)
             }
+        case "link.inspect":
+            // Remote paths are classified by the host that owns the chat. Image paths are
+            // deliberately marked readable so ReplyImage starts `image.load`; the local app
+            // never probes or resolves the same spelling here. Ordinary path chips remain
+            // outside this machine's roots and are shown as elsewhere/locked by the page.
+            let paths = (params["paths"] as? [String] ?? []).reduce(into: [String: Any]()) { result, path in
+                if Self.remoteImagePath(path) != nil { result[path] = ["place": "root", "folder": false] }
+                else { result[path] = ["place": "outside", "folder": false] }
+            }
+            reply(id, ["paths": paths, "sites": [:], "policy": [
+                "outsideRoots": "text", "remoteImages": "always", "clickFreeImageHosts": [String](),
+            ]])
         case "session/prompt":
+            guard !isReadOnly else { return refuseReadOnly(id, method) }
             guard names(params["sessionId"]), let text = Self.text(params["prompt"]) else { return refuse(id, method) }
             let prompt = ((params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?["promptId"] as? String
                 ?? UUID().uuidString.lowercased()
@@ -135,14 +168,40 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                                                          "queued": object["queued"] ?? false])
                 return Self.json(["_meta": ["acpmux": ["promptId": prompt, "turnId": turn]]])
             }
+        case "image.load":
+            guard let src = params["src"] as? String, let path = Self.remoteImagePath(src) else {
+                return refuse(id, method)
+            }
+            // The bytes are read by the daemon attached to the chat's host. The local app never
+            // resolves this path, so a same-named file on this Mac cannot leak into the reply.
+            run(id) { client in
+                let data = try await client.media(path: path)
+                guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                      let encoded = object["data"] as? String,
+                      let bytes = Data(base64Encoded: encoded),
+                      case .success(let source) = await AgentPaneReplyImages.remote(bytes) else {
+                    throw AgentSessionRemoteError(code: Self.unsupported, message: "the remote image could not be decoded")
+                }
+                return Self.json(AgentPaneReply.success(["src": source]))
+            }
         case "_acpmux/permission_respond":
+            guard !isReadOnly else { return refuseReadOnly(id, method) }
             guard names(params["sessionId"]), let permission = params["permissionId"] as? String,
                   let option = params["optionId"] as? String else { return refuse(id, method) }
             // The decision proof the host added (never the page): acpmux on that machine decides.
             let decision = (params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
             let nonce = decision?["decisionNonce"] as? String, proof = decision?["personDecision"] as? String
+            // A question's answers and annotations go along unchanged: that machine's acpmux checks
+            // them and the proof over them (dropped, the answer was refused there, or counted
+            // without the preview the person chose).
+            let json = { (key: String) in
+                params[key].flatMap { $0 is NSNull ? nil : $0 }
+                    .flatMap { try? JSONSerialization.data(withJSONObject: $0, options: [.fragmentsAllowed]) }
+            }
+            let answers = json("answers"), annotations = json("annotations")
             run(id) { client in
-                try await client.permission(id: permission, option: option, decisionNonce: nonce, personDecision: proof)
+                try await client.permission(id: permission, option: option, answers: answers, annotations: annotations,
+                                            decisionNonce: nonce, personDecision: proof)
                 return Data("{}".utf8)
             }
         default:
@@ -154,6 +213,13 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         guard close(), let client = state.withLock({ $0.client }) else { return }
         // task-owner: ends the daemon attachment once; nothing waits on it
         Task { await client.close() }
+    }
+
+    public func loadRemoteImage(_ path: String) async throws -> Data {
+        guard let client = state.withLock({ $0.client }) else {
+            throw AgentSessionRemoteError(code: Self.unsupported, message: "the remote chat has no session")
+        }
+        return try await client.media(path: path)
     }
 
     // MARK: Start
@@ -171,10 +237,11 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         }) else { return refuse(id, "session/new") }
         let cwd = (params["cwd"] as? String).flatMap { $0.hasPrefix("/") ? $0 : nil }
         let harness = (acpmux?["harness"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let model = (acpmux?["model"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         // task-owner: the one start of this wire's chat; its reply ends it
         Task { [weak self] in
             do {
-                let (client, session) = try await start(cwd, harness)
+                let (client, session) = try await start(cwd, harness, model)
                 guard let self else { await client.close(); return }
                 let open = state.withLock { state -> Bool in
                     state.starting = false
@@ -199,8 +266,11 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
 
     // MARK: Pages
 
-    /// `_acpmux/watch` lists only this session (an attach of one record gives its summary);
-    /// `_acpmux/attach` subscribes (again: the daemon only pages); `_acpmux/events` pages.
+    /// `_acpmux/watch` lists this session (an attach of one record gives its summary) and the
+    /// chats it started on that machine (the daemon's `agent-session-children`, which only ever
+    /// names this session's descendants; none from an older daemon), so the chat's Subagents
+    /// summary shows them; `_acpmux/attach` subscribes (again: the daemon only pages);
+    /// `_acpmux/events` pages.
     private func page(_ method: String, _ page: AgentSessionPage, client: any AgentSessionRemoteClient) async throws -> Data {
         if method == "_acpmux/events" { return Self.withMore(try await client.events(page)) }
         let result = try await client.attach(page) { [weak self] event in self?.pushed(event) }
@@ -208,7 +278,39 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         let summary = object["session"] as? [String: Any]
         if let resolved = summary?["sessionId"] as? String { state.withLock { $0.resolved = resolved } }
         guard method == "_acpmux/watch" else { return result }
-        return Self.json(["sessions": summary.map { [$0] } ?? []])
+        let listed = (try? await client.children()).flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
+        let children = (listed?["sessions"] as? [[String: Any]] ?? []).filter { child in
+            (child["sessionId"] as? String).map { !names($0) } ?? false
+        }
+        noteLinks(children)
+        var reply: [String: Any] = ["sessions": (summary.map { [$0] } ?? []) + children]
+        // The session the tab is bound to on that machine now, by acpmux's id: the daemon attached
+        // only the session its store records for this tab. The page may hold another name for it (a
+        // tab that records a session name, or one rebound there since the page got its id), and
+        // opens this one rather than calling the tab's chat missing (direct.ts `tabSession`).
+        if let resolved = summary?["sessionId"] as? String, !resolved.isEmpty { reply["tabSessionId"] = resolved }
+        return Self.json(reply)
+    }
+
+    /// The parents of the children the daemon listed or changed, for the sidebar's session tree
+    /// and the Subagents rows' open (``RemoteAgentSessionLinks``). A wire with a host notes even an
+    /// empty list, so that daemon has a map of its own (none of its sessions has a parent); a hostless
+    /// wire notes into the hostless map, which only hostless lookups read. The tab's host and the
+    /// daemon's store host are noted as aliases of one daemon, so the sidebar finds a parent tab under either.
+    private func noteLinks(_ summaries: [[String: Any]]) {
+        guard host != nil || !summaries.isEmpty, JSONSerialization.isValidJSONObject(summaries),
+              let data = try? JSONSerialization.data(withJSONObject: summaries) else { return }
+        // task-owner: one main-actor note of what the daemon answered; nothing waits on it
+        let remoteHost = host, alias = linksAlias.flatMap { $0 != host ? $0 : nil }
+        Task { @MainActor in
+            let copy = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] ?? []
+            let links = RemoteAgentSessionLinks.shared
+            links.note(copy, host: remoteHost)
+            if let alias {
+                links.note(copy, host: alias)
+                if let remoteHost { links.noteAliases(remoteHost, alias) }
+            }
+        }
     }
 
     /// acpmux answers `hasMore`; the page's replay loop reads `more`, so both are set.
@@ -239,7 +341,18 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             notify("_acpmux/permission_pending", request)
         case .changed(let data):
             guard let change = try? JSONSerialization.jsonObject(with: data) else { return }
+            // A child's change (the daemon streams only this session's descendants): a new child
+            // joins the chat's Subagents summary and the sidebar's tree.
+            if let changed = change as? [String: Any], let session = changed["session"] as? [String: Any],
+               let id = changed["sessionId"] as? String, !names(id) {
+                noteLinks([session])
+            }
             notify("_acpmux/session_changed", change)
+        case .presence(let data):
+            // Only this chat's set (the daemon streams no other's).
+            guard let presence = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  names(presence["sessionId"]) else { return }
+            notify("_acpmux/presence", presence)
         case .closed(let reason):
             Self.logger.info("remote agent attachment ended reason=\(reason, privacy: .public)")
             // The page reconnects (a fresh wire and daemon connection) and replays from the
@@ -299,6 +412,26 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
 
     private func refuse(_ id: String?, _ method: String) {
         fail(id, code: Self.unsupported, message: "\(method) is not available for a chat on another machine")
+    }
+
+    /// The remote media reader takes a path, not a URL decoration. Keep the extension check at
+    /// this boundary because the page's `image.load` request is untrusted.
+    private static func remoteImagePath(_ text: String) -> String? {
+        guard AgentPaneReplyPaths.isImagePath(text) else { return nil }
+        if text.lowercased().hasPrefix("file://"), let url = URL(string: text), url.isFileURL {
+            let host = url.host(percentEncoded: false) ?? ""
+            guard host.isEmpty || host == "localhost" else { return nil }
+            return url.path(percentEncoded: false)
+        }
+        return text.split(maxSplits: 1, whereSeparator: { $0 == "?" || $0 == "#" }).first.map(String.init)
+    }
+
+    private func refuseReadOnly(_ id: String?, _ method: String) {
+        fail(id, code: Self.readOnly, message: "\(method) is not available on a read-only agent session")
+    }
+
+    private var isReadOnly: Bool {
+        state.withLock { $0.client?.isReadOnly ?? false }
     }
 
     private func fail(_ id: String?, code: String, message: String, data: [String: Any] = [:]) {

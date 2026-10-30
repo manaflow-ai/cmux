@@ -32,6 +32,7 @@
 //! every other legacy command away from page JS; page JS never sends the
 //! `subscribe` (the host does, in its relay handshake).
 
+use crate::panic_free::JsonFields;
 use cmux_link::app_caller::PeerToken;
 use cmux_local_auth::frontend_proof::{self, NONCE_LEN};
 use zeroize::Zeroizing;
@@ -106,7 +107,9 @@ fn scoped_raw_commands(page: &str) -> &'static [&'static str] {
             "conversation-link-resolve",
             "conversation-runs",
             "conversation-run",
+            "conversation-live",
             "conversation-inbox-op",
+            "home-inbox",
             "conversation-attachment-upload",
             "conversation-attachment-read",
             "conversation-attachment-link",
@@ -208,7 +211,7 @@ impl HelloGate {
                 let mut reply =
                     json!({"id": id, "ok": false, "error": message, "error_code": code});
                 if let Some(details) = details {
-                    reply["error_details"] = details;
+                    reply.insert("error_details", details);
                 }
                 reply
             }
@@ -267,9 +270,9 @@ impl HelloGate {
             "user_origin_allowed": user_origin_allowed(mux, client),
         });
         if let Some(page) = page.as_deref() {
-            data["page"] = json!(page);
-            data["page_operations"] = page_router_table::page_operations(page);
-            data["page_events"] = json!(page_router_table::page_events(page));
+            data.insert("page", json!(page));
+            data.insert("page_operations", page_router_table::page_operations(page));
+            data.insert("page_events", json!(page_router_table::page_events(page)));
         }
         // Uniform nonce rule: role main with an install id always gets one,
         // known id or not and signed build or not (no oracle).
@@ -279,7 +282,7 @@ impl HelloGate {
         let mut nonce = Zeroizing::new([0u8; NONCE_LEN]);
         // A connection whose nonce could not be made stays unverified.
         if getrandom::fill(nonce.as_mut_slice()).is_ok() {
-            data["nonce"] = Value::String(frontend_proof::hex(nonce.as_slice()));
+            data.insert("nonce", Value::String(frontend_proof::hex(nonce.as_slice())));
             self.window = Window::Challenged { install_id: install_id.to_string(), nonce };
         }
         Ok(data)
@@ -394,7 +397,7 @@ fn user_origin_allowed(mux: &Mux, client: u64) -> bool {
 
 #[cfg(all(test, unix))]
 #[path = "client_hello_tests.rs"]
-mod tests;
+pub(super) mod tests;
 
 #[cfg(all(test, unix))]
 #[path = "untrusted_mint_tests.rs"]

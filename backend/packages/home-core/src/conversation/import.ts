@@ -2,7 +2,7 @@ import { withTurn } from "./budget.ts"
 import { summary } from "./create.ts"
 import type { OutboxItem, ReduceContext, ReduceResult, RowWrite } from "./engine-types.ts"
 import { rowsOf } from "./engine-types.ts"
-import { searchIntent, type FanOut } from "./fanout.ts"
+import { rowKind, searchIntent, type FanOut } from "./fanout.ts"
 import { formatRfc3339Millis, importConversationId, parseRfc3339Millis, validToken } from "./ids.ts"
 import { fanOutItems, projectionItems } from "./outbox.ts"
 import { stampParticipant, type ParticipantPolicy } from "./policy.ts"
@@ -135,13 +135,45 @@ const searchItems = (before: ConversationHead | null, head: ConversationHead, me
   return projectionItems(before, { head, change: { kind: "conversation", conversation: summary(head, null) } }, fan, now, head.updated_at)
 }
 
+/**
+ * `conversation.import {id, fill: true, source, messages, read_cursors?}`: the first batch of a Mac
+ * Chief's history into its owner's hosted Chief's main conversation while it is still empty (the Home
+ * move to the Hosted Chief). The conversation goes `importing` until the commit, as a promote does;
+ * the same source replays `{last_seq, state}` so a client resumes after `last_seq`. Continuations and
+ * the commit are the promote's. Only the conversation's owner, only a chief conversation.
+ */
+const fillChief = (state: ConversationHead | null, source: ImportSource | null, params: Params, ctx: ReduceContext, actor: string, now: string): Result => {
+  if (!state) return refuse("unknown_conversation")
+  const me = findParticipant(state, actor)
+  if (!me) return refuse("unknown_conversation")
+  if (state.kind !== "chief" || me?.kind !== "human" || me.role !== "owner" || me.left_at !== undefined) return refuse("forbidden")
+  if (!source) return bad()
+  if (state.import) {
+    const same = state.import.by === actor && state.import.host === source.host && state.import.local_id === source.local_id
+    return same ? { ok: true, state, value: { last_seq: state.last_seq, state: state.state }, changed: false } : refuse("conversation_exists")
+  }
+  if (state.state !== "active" || state.last_seq !== 0) return refuse("conversation_exists")
+  const cursor = isObj(params.read_cursors) ? params.read_cursors[actor] : undefined
+  if (cursor !== undefined && (!Number.isInteger(cursor) || (cursor as number) < 0)) return bad()
+  const head: ConversationHead = {
+    ...state,
+    rev: state.rev + 1,
+    state: "importing",
+    import: { ...source, by: actor },
+    read_cursors: cursor === undefined ? state.read_cursors : { ...state.read_cursors, [actor]: cursor as number }
+  }
+  const batch = appendBatch(head, params.messages, ctx)
+  return { ok: true, state: batch.head, value: { last_seq: batch.head.last_seq }, writes: batch.writes, outbox: searchItems(state, batch.head, batch.messages, now) }
+}
+
 export const reduceImport = (state: ConversationHead | null, op: string, params: Params, ctx: ReduceContext, actor: string, policy: ParticipantPolicy): Result => {
   // Only the promoting user, from their own session or app install.
   if (!actor.startsWith("user_") || (ctx.principal.kind !== "session" && ctx.principal.kind !== "install") || ctx.principal.agent) return refuse("forbidden")
   const now = formatRfc3339Millis(ctx.now)
   try {
     if (op === "conversation.import.commit") {
-      if (!state || state.import?.by !== actor) return refuse(state ? "forbidden" : "unknown_conversation")
+      // A caller who never belonged gets the answer of an id that does not exist (tenant-isolation-DESIGN.md 5.1).
+      if (!state || state.import?.by !== actor) return refuse(state && findParticipant(state, actor) ? "forbidden" : "unknown_conversation")
       if (state.state !== "importing") return { ok: true, state, value: { conversation: summary(state, null) }, changed: false }
       if (params.last_seq !== state.last_seq) return refuse("import_out_of_order")
       const cursors = Object.fromEntries(Object.entries(state.read_cursors).map(([p, seq]) => [p, Math.min(seq, state.last_seq)]))
@@ -154,7 +186,7 @@ export const reduceImport = (state: ConversationHead | null, op: string, params:
             user: p.id,
             conversation: head.id,
             rev: head.rev,
-            kind: head.kind ?? "group",
+            kind: rowKind(head, p.id),
             title: head.title,
             last_seq: head.last_seq,
             last_at: last?.created_at ?? head.created_at,
@@ -170,6 +202,7 @@ export const reduceImport = (state: ConversationHead | null, op: string, params:
       return { ok: true, state: head, value: { conversation: summary(head, last) }, outbox }
     }
     const source = parseSource(params.source)
+    if (params.fill === true) return fillChief(state, source, params, ctx, actor, now)
     if (state && params.after_seq === undefined) {
       // A repeated create: same source is a no-op, anything else is a different conversation.
       const same = source && state.import && state.import.by === actor && state.import.host === source.host && state.import.local_id === source.local_id

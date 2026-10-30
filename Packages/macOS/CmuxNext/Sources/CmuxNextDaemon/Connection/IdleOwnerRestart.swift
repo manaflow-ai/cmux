@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 
 /// A restart of a conversation owner that may run only while the owner is idle
@@ -6,6 +7,9 @@ import Foundation
 /// tries again on each owner event that can end the business: a client left or
 /// changed its kind (an open `cmux chief` chat ends, another app or a page
 /// disconnects) or a typing set changed (a Chief turn ends). It restarts at most once.
+/// A `cmux` CLI or MCP call in flight (a local client without a kind) ends with a
+/// `client-detached`; a standing connection without a kind sends no event when it stops
+/// counting as a call, so the probe's `callInFlight` schedules one more attempt for then.
 public actor IdleOwnerRestart {
     public enum Outcome: Equatable, Sendable {
         /// No restart yet: the owner was busy.
@@ -19,35 +23,58 @@ public actor IdleOwnerRestart {
     public private(set) var outcome: Outcome = .waiting
     private let probe: OwnerIdleProbe
     private let restart: @Sendable () async -> Bool
-    /// A probe runs now; an attempt meanwhile asks it to probe once more.
+    /// A probe runs now. One attempt that came meanwhile waits here and probes next (its event
+    /// may have come after the running probe read the owner); later ones are covered by it.
     private var probing = false
-    private var again = false
+    private var queued: [CheckedContinuation<Void, Never>] = []
+    /// One attempt when the youngest client without a kind stops counting as a call. One-shot;
+    /// cancelled once the outcome is decided, and with this actor (`DemandTimer.deinit`).
+    private let callEnds = DemandTimer(owner: "idle-owner-restart.call")
 
     public init(probe: OwnerIdleProbe, restart: @escaping @Sendable () async -> Bool) {
         self.probe = probe
         self.restart = restart
     }
 
-    /// Restarts the owner if it is idle now; the outcome. An attempt during a running
-    /// probe makes that probe run once more when it finds the owner busy (the event that
-    /// asked for it may have come after the probe read the owner).
+    /// Restarts the owner if it is idle now; the outcome. Each call runs at most one probe: one
+    /// that comes during a running probe runs its own probe right after it (the event that asked
+    /// may have come after the running probe read the owner); a call when one already waits
+    /// returns at once, because that waiting probe reads the owner after this event too.
     @discardableResult
     public func attempt() async -> Outcome {
         guard outcome == .waiting else { return outcome }
-        guard !probing else {
-            again = true
-            return outcome
-        }
-        probing = true
-        defer { probing = false }
-        repeat {
-            again = false
-            if await probe.isIdle() {
-                outcome = await restart() ? .started : .refused
+        if probing {
+            guard queued.isEmpty else { return outcome }
+            // The running probe hands over to this one when it ends (`probing` stays true).
+            await withCheckedContinuation { queued.append($0) }
+            guard outcome == .waiting else {
+                finishProbe()
                 return outcome
             }
-        } while again
+        } else {
+            probing = true
+        }
+        switch await probe.reading() {
+        case .idle:
+            outcome = await restart() ? .started : .refused
+            callEnds.cancel()
+        case .callInFlight(let seconds):
+            // Whole seconds on the wire: one more makes sure the client counts as standing by then.
+            callEnds.scheduleIfIdle(after: .seconds(seconds + 1)) { [weak self] in _ = await self?.attempt() }
+        case .busy:
+            break
+        }
+        finishProbe()
         return outcome
+    }
+
+    /// Ends this probe: hands over to the waiting attempt, if any.
+    private func finishProbe() {
+        if queued.isEmpty {
+            probing = false
+        } else {
+            queued.removeFirst().resume()
+        }
     }
 
     /// An event of the owner's connection: tries again when it can end the owner's
