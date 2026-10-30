@@ -34,6 +34,7 @@ enum DebugPointerHover {
         }
         let coords = params["point"]?.arrayValue?.compactMap(\.doubleValue)
         let point = coords.flatMap { $0.count == 2 ? CGPoint(x: $0[0], y: $0[1]) : nil } ?? railPoint(params, in: window, services: services)
+            ?? usageWarningPoint(params, in: window, services: services)
         let key = window.windowNumber
         let before = inside[key] ?? [:]
         var now: [ObjectIdentifier: NSTrackingArea] = [:]
