@@ -746,11 +746,28 @@ fn parse_command(
 }
 
 fn unknown_scope(scope: &str, surface: Surface) -> UsageError {
-    UsageError::new(
-        crate::localization::catalog()
-            .local_server
-            .unknown_scope(scope, suggestion(scope, surface.scopes())),
-    )
+    let suggestion = classic_command(scope).or_else(|| suggestion(scope, surface.scopes()));
+    UsageError::new(crate::localization::catalog().local_server.unknown_scope(scope, suggestion))
+}
+
+/// The resource command for a classic cmux verb that agents still run from older
+/// skills (tests/tool-evals r3h: GPT 6 Astra tried `rename-workspace`,
+/// `workspace-action --action rename` and `list-workspaces` before the MCP tools).
+fn classic_command(scope: &str) -> Option<&'static str> {
+    Some(match scope {
+        "list-workspaces" => "cmux workspace list",
+        "new-workspace" => "cmux workspace create --name <name>",
+        "rename-workspace" | "workspace-action" => "cmux workspace current rename <name>",
+        "select-workspace" => "cmux workspace <workspace> focus",
+        "close-workspace" => "cmux workspace <workspace> close",
+        "list-surfaces" | "list-pane-surfaces" => "cmux tab list",
+        "new-surface" | "new-pane" => "cmux tab create",
+        "rename-tab" | "rename-surface" | "tab-action" => "cmux tab <tab> rename <name>",
+        "close-surface" => "cmux tab <tab> close",
+        "send" | "send-text" => "cmux terminal <terminal> write --text <text>",
+        "read-screen" | "capture-pane" => "cmux terminal <terminal> screen read",
+        _ => return None,
+    })
 }
 
 /// A `cmux-tui` scope named through `cmux`, which refuses it by name
