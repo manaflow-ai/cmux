@@ -17,6 +17,14 @@ use std::time::Duration;
 pub async fn connect_running() -> Result<Arc<Client>> {
     let path = socket_path();
     let lock = home().join("daemon.lock");
+    // This home's daemon serves another socket: no wait makes it serve this one.
+    #[cfg(unix)]
+    if Client::connect(&path).await.is_err()
+        && lock_has_live_holder(&lock)
+        && let Some(other) = super::holder_elsewhere(&path).await
+    {
+        return Err(super::serves_elsewhere(&path, &other));
+    }
     connect_running_with(
         &path,
         || lock_has_live_holder(&lock),
