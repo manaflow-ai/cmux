@@ -35,13 +35,13 @@ final class HomeFirstRunView: NSView {
     let intro = HomeFirstRunIntro()
     /// The intro's text, nil while no intro shows.
     private(set) var introText: String?
-    private lazy var introHeight = intro.heightAnchor.constraint(equalToConstant: 0)
-    private lazy var introWidth = intro.widthAnchor.constraint(equalToConstant: Self.maxWidth)
+    lazy var introHeight = intro.heightAnchor.constraint(equalToConstant: 0)
+    lazy var introWidth = intro.widthAnchor.constraint(equalToConstant: Self.maxWidth)
     let starters = HomeStarterChips()
-    private lazy var startersHeight = starters.heightAnchor.constraint(equalToConstant: 0)
-    private lazy var startersWidth = starters.widthAnchor.constraint(equalToConstant: Self.maxWidth)
-    private lazy var heroHeight = hero.heightAnchor.constraint(equalToConstant: 0)
-    private lazy var heroWidth = hero.widthAnchor.constraint(equalToConstant: Self.maxWidth)
+    lazy var startersHeight = starters.heightAnchor.constraint(equalToConstant: 0)
+    lazy var startersWidth = starters.widthAnchor.constraint(equalToConstant: Self.maxWidth)
+    lazy var heroHeight = hero.heightAnchor.constraint(equalToConstant: 0)
+    lazy var heroWidth = hero.widthAnchor.constraint(equalToConstant: Self.maxWidth)
     /// `HomeTunables.firstRunHero`: false keeps the rows-only panel.
     var showsHero = true { didSet { if showsHero != oldValue { needsLayout = true } } }
     /// "Your agents", over the agent rows; out of the stack with no agents.
@@ -51,12 +51,20 @@ final class HomeFirstRunView: NSView {
     private(set) var agents: [HomeAgentGlance] = []
     /// The core switching keys; out of the layout while hidden.
     let switchCard = HomeFirstRunSwitchCard()
-    private lazy var cardHeight = switchCard.heightAnchor.constraint(equalToConstant: 0)
-    private lazy var cardWidth = switchCard.widthAnchor.constraint(equalToConstant: Self.maxWidth)
-    private let stack = NSStackView()
-    private var scale: CGFloat = 1
-    private var colors: Colors?
-    private lazy var headerWidth = agentsHeader.widthAnchor.constraint(equalToConstant: Self.maxWidth)
+    lazy var cardHeight = switchCard.heightAnchor.constraint(equalToConstant: 0)
+    lazy var cardWidth = switchCard.widthAnchor.constraint(equalToConstant: Self.maxWidth)
+    let stack = NSStackView()
+    var scale: CGFloat = 1
+    var colors: Colors?
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// DEBUG: a design variation of this panel (`debug.home.sidebar_fixture` `first_run_variant`); nil is the shipping panel.
+    var variant: HomeFirstRunVariant? { didSet { variantDidChange() } }
+    /// DEBUG: the variant's horizontal tile row and its backdrop card.
+    let variantTiles = NSStackView()
+    let variantFrame = NSView()
+    let variantHeading = ChromeLabel(labelWithString: "")
+    #endif
+    lazy var headerWidth = agentsHeader.widthAnchor.constraint(equalToConstant: Self.maxWidth)
     /// Called when the user picks open a terminal or start an agent.
     var onAction: (HomeFirstRunAction) -> Void = { _ in }
     /// Called with an agent's tab id when the user picks its row.
@@ -69,7 +77,7 @@ final class HomeFirstRunView: NSView {
     var actionRows: [HomeFirstRunRow] { memoryOffer == nil ? [agent, terminal, pet] : [agent, terminal, memory, pet] }
 
     /// The theme's colours, kept for agent rows made after the last theme pass.
-    private struct Colors {
+    struct Colors {
         var primary, secondary, tertiary, fill, hover, border, attention, danger, done: NSColor
     }
 
@@ -140,7 +148,10 @@ final class HomeFirstRunView: NSView {
     }
 
     /// The stack's views in order, with the gaps between groups.
-    private func arrange() {
+    func arrange() {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if let variant { arrangeVariant(variant); return }
+        #endif
         for view in stack.arrangedSubviews { stack.removeArrangedSubview(view); view.removeFromSuperview() }
         let listed: [NSView] = agentRows.isEmpty ? [] : [agentsHeader] + agentRows
         var views: [NSView] = introText == nil ? [] : [intro]
@@ -199,7 +210,7 @@ final class HomeFirstRunView: NSView {
         }
     }
 
-    private func applySpacing() {
+    func applySpacing() {
         stack.spacing = 6 * scale
         stack.setCustomSpacing(14 * scale, after: pet)
         stack.setCustomSpacing(14 * scale, after: starters)
@@ -282,8 +293,11 @@ final class HomeFirstRunView: NSView {
         applyStoredColors()
     }
 
-    private func applyStoredColors() {
+    func applyStoredColors() {
         guard let colors else { return }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        defer { applyVariantColors() }
+        #endif
         switchCard.applyColors(primary: colors.primary, tertiary: colors.tertiary, fill: colors.fill, border: colors.border)
         agentsHeader.textColor = colors.tertiary
         hero.applyColors(primary: colors.primary, secondary: colors.secondary)
@@ -305,6 +319,9 @@ final class HomeFirstRunView: NSView {
 
     override func layout() {
         super.layout()
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if let variant { layoutVariant(variant); return }
+        #endif
         let width = max(0, min(Self.maxWidth * scale, bounds.width - 48 * scale))
         for row in rows { row.width = width }
         if headerWidth.constant != width { headerWidth.constant = width }
@@ -358,6 +375,12 @@ final class HomeFirstRunRow: NSView {
 
     static let height: CGFloat = 28
     static let cornerRadius: CGFloat = 8
+    /// DEBUG variants: a taller row, the icon over the label (a tile), another corner radius, no surface.
+    var heightOverride: CGFloat? { didSet { invalidateIntrinsicContentSize(); needsLayout = true } }
+    var tileLayout = false { didSet { needsLayout = true } }
+    var cornerOverride: CGFloat? { didSet { surface.layer?.cornerRadius = cornerOverride ?? Self.cornerRadius * scale } }
+    var plainSurface = false { didSet { paint() } }
+    var textAlignmentCenter = false
     private var scale: CGFloat = 1
     private var fill = NSColor.clear
     private var hoverFill = NSColor.clear
@@ -389,7 +412,7 @@ final class HomeFirstRunRow: NSView {
 
     nonisolated override var isFlipped: Bool { true }
 
-    override var intrinsicContentSize: NSSize { NSSize(width: width, height: Self.height * scale) }
+    override var intrinsicContentSize: NSSize { NSSize(width: width, height: (heightOverride ?? Self.height) * scale) }
 
     /// Applies the live interface scale to the row's type, icon and geometry.
     func applyScale(_ scale: CGFloat) {
@@ -415,14 +438,27 @@ final class HomeFirstRunRow: NSView {
     }
 
     private func paint() {
-        surface.layer?.backgroundColor = (isHovered ? hoverFill : fill).cgColor
+        surface.layer?.backgroundColor = plainSurface && !isHovered ? NSColor.clear.cgColor : (isHovered ? hoverFill : fill).cgColor
+        surface.layer?.borderWidth = plainSurface ? 0 : 1
     }
 
     override func layout() {
         super.layout()
         surface.frame = bounds
+        if let r = cornerOverride { surface.layer?.cornerRadius = min(r, bounds.height / 2) }
         let inset: CGFloat = 12 * scale
         let side = CGFloat.iconRowSize(forLabelPointSize: 13 * scale)
+        if tileLayout {
+            let big = side * 1.6
+            glyph.frame = CGRect(x: (bounds.width - big) / 2, y: bounds.height * 0.22, width: big, height: big)
+            let textHeight = ceil(label.intrinsicContentSize.height)
+            label.alignment = .center
+            label.frame = CGRect(x: 6, y: glyph.frame.maxY + 6 * scale, width: bounds.width - 12, height: textHeight)
+            let sh = ceil(shortcutLabel.intrinsicContentSize.height)
+            shortcutLabel.alignment = .center
+            shortcutLabel.frame = CGRect(x: 6, y: label.frame.maxY + 2, width: bounds.width - 12, height: sh)
+            return
+        }
         glyph.frame = CGRect(x: inset, y: (bounds.height - side) / 2, width: side, height: side)
         let shortcutWidth = shortcutLabel.isHidden ? 0 : ceil(shortcutLabel.attributedStringValue.size().width) + 4
         let shortcutHeight = ceil(shortcutLabel.intrinsicContentSize.height)

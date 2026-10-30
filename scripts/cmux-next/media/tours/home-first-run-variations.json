@@ -1,0 +1,886 @@
+{
+ "title": "Home first-run variations V0 (shipping) to V16, light and dark",
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Go to Home",
+   "cmux": [
+    "action",
+    "run",
+    "home.show"
+   ],
+   "wait": 4,
+   "shot": false,
+   "optional": "Home needs its page in this build"
+  },
+  {
+   "title": "Empty list",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "count": 0,
+     "team": 0
+    }
+   },
+   "wait": 1,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "Light",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "light"
+    }
+   },
+   "wait": 2,
+   "shot": false,
+   "optional": "DEBUG only"
+  },
+  {
+   "title": "V0 light sidebar",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "width": 260,
+     "team": 0
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V00 light",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 0
+    }
+   },
+   "wait": 1.5,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V1 light sidebar",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "width": 320,
+     "team": 0
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V01 light",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 1
+    }
+   },
+   "wait": 1.5,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V2 light sidebar",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "width": 260,
+     "team": 0
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V02 light",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 2
+    }
+   },
+   "wait": 1.5,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V3 light sidebar",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "width": 260,
+     "team": 0
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V03 light",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 3
+    }
+   },
+   "wait": 1.5,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V4 light sidebar",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "width": 260,
+     "team": 0
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V04 light",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 4
+    }
+   },
+   "wait": 1.5,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V5 light sidebar",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "width": 260,
+     "team": 0
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V05 light",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 5
+    }
+   },
+   "wait": 1.5,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V6 light sidebar",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "width": 260,
+     "team": 0
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V06 light",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 6
+    }
+   },
+   "wait": 1.5,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V7 light sidebar",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "width": 260,
+     "team": 0
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V07 light",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 7
+    }
+   },
+   "wait": 1.5,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V8 light sidebar",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "width": 260,
+     "team": 0
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V08 light",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 8
+    }
+   },
+   "wait": 1.5,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V9 light sidebar",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "width": 200,
+     "team": 0
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V09 light",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 9
+    }
+   },
+   "wait": 1.5,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V10 light sidebar",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "width": 260,
+     "team": 0
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V10 light",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 10
+    }
+   },
+   "wait": 1.5,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V11 light sidebar",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "width": 260,
+     "team": 0
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V11 light",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 11
+    }
+   },
+   "wait": 1.5,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V12 light sidebar",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "width": 260,
+     "team": 0
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V12 light",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 12
+    }
+   },
+   "wait": 1.5,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V13 light sidebar",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "width": 260,
+     "team": 0
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V13 light",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 13
+    }
+   },
+   "wait": 1.5,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V14 light sidebar",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "width": 260,
+     "team": 5
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V14 light",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 14
+    }
+   },
+   "wait": 1.5,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V15 light sidebar",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "width": 76,
+     "team": 0
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V15 light",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 15
+    }
+   },
+   "wait": 1.5,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V16 light sidebar",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "width": 260,
+     "team": 0
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V16 light",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 16
+    }
+   },
+   "wait": 1.5,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "Dark",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "dark"
+    }
+   },
+   "wait": 2,
+   "shot": false,
+   "optional": "DEBUG only"
+  },
+  {
+   "title": "V0 dark sidebar",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "width": 260,
+     "team": 0
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V00 dark",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 0
+    }
+   },
+   "wait": 1.5,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V1 dark sidebar",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "width": 320,
+     "team": 0
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V01 dark",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 1
+    }
+   },
+   "wait": 1.5,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V2 dark sidebar",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "width": 260,
+     "team": 0
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V02 dark",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 2
+    }
+   },
+   "wait": 1.5,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V3 dark sidebar",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "width": 260,
+     "team": 0
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V03 dark",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 3
+    }
+   },
+   "wait": 1.5,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V4 dark sidebar",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "width": 260,
+     "team": 0
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V04 dark",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 4
+    }
+   },
+   "wait": 1.5,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V5 dark sidebar",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "width": 260,
+     "team": 0
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V05 dark",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 5
+    }
+   },
+   "wait": 1.5,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V6 dark sidebar",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "width": 260,
+     "team": 0
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V06 dark",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 6
+    }
+   },
+   "wait": 1.5,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V7 dark sidebar",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "width": 260,
+     "team": 0
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V07 dark",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 7
+    }
+   },
+   "wait": 1.5,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V8 dark sidebar",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "width": 260,
+     "team": 0
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V08 dark",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 8
+    }
+   },
+   "wait": 1.5,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V9 dark sidebar",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "width": 200,
+     "team": 0
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V09 dark",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 9
+    }
+   },
+   "wait": 1.5,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V10 dark sidebar",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "width": 260,
+     "team": 0
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V10 dark",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 10
+    }
+   },
+   "wait": 1.5,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V11 dark sidebar",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "width": 260,
+     "team": 0
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V11 dark",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 11
+    }
+   },
+   "wait": 1.5,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V12 dark sidebar",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "width": 260,
+     "team": 0
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V12 dark",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 12
+    }
+   },
+   "wait": 1.5,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V13 dark sidebar",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "width": 260,
+     "team": 0
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V13 dark",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 13
+    }
+   },
+   "wait": 1.5,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V14 dark sidebar",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "width": 260,
+     "team": 5
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V14 dark",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 14
+    }
+   },
+   "wait": 1.5,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V15 dark sidebar",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "width": 76,
+     "team": 0
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V15 dark",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 15
+    }
+   },
+   "wait": 1.5,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V16 dark sidebar",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "width": 260,
+     "team": 0
+    }
+   },
+   "wait": 0.5,
+   "shot": false,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "V16 dark",
+   "rpc": {
+    "method": "debug.home.sidebar_fixture",
+    "params": {
+     "first_run_variant": 16
+    }
+   },
+   "wait": 1.5,
+   "optional": "DEBUG fixture"
+  },
+  {
+   "title": "Back to system",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "system"
+    }
+   },
+   "wait": 1,
+   "shot": false,
+   "optional": "DEBUG only"
+  }
+ ]
+}

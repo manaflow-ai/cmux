@@ -27,6 +27,14 @@ enum DebugHomeSidebarFixture {
         guard let page = HomeDockTab.view(services)?.messages ?? services.windows.active?.topPages.views[.home] as? TopHomePageView else {
             return .object(["error": .string("no Home page in the active window")])
         }
+        // Home variations gallery: `first_run_variant` N (0: the shipping panel) on the default Chief's empty conversation.
+        if let number = params["first_run_variant"]?.intValue {
+            if let chief = TopHomePageView.chief(services.home) { page.show(ConversationID(chief)) }
+            let caption = page.host?.transcript.debugSetFirstRunVariant(number)
+            return .object(["variant": .number(Double(number)), "caption": caption.map { .string($0) } ?? .null,
+                            "host": .bool(page.host != nil),
+                            "first_run_shown": .bool(page.host?.transcript.debugFirstRunShown ?? false)])
+        }
         if let raw = params["intro"]?.stringValue, let kind = ChiefIntroKind(rawValue: raw) { page.host?.transcript.showFirstRunIntro(kind) }
         if let size = params["new_message"]?.intValue {
             if !page.isComposingNewMessage { page.presentNewMessage() }

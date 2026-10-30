@@ -15,6 +15,10 @@ final class HomeFirstRunHero: NSView {
     let title = ChromeLabel(labelWithString: HomeStrings.firstRunHeroTitle)
     let body = ChromeLabel(wrappingLabelWithString: HomeStrings.firstRunHeroBody)
     private var scale: CGFloat = 1
+    /// DEBUG variants: another face size (0 hides the face) and a leading-aligned hero.
+    var faceOverride: CGFloat? { didSet { needsLayout = true } }
+    var leading = false { didSet { title.alignment = leading ? .left : .center; body.alignment = leading ? .left : .center; needsLayout = true } }
+    private var faceSide: CGFloat { (faceOverride ?? Self.pictureSide) * scale }
 
     static let pictureSide: CGFloat = 72
     static let glyphSize: CGFloat = 56
@@ -75,23 +79,29 @@ final class HomeFirstRunHero: NSView {
 
     /// The hero's height in a column `width` wide: the face, the title and the wrapped body.
     func height(for width: CGFloat) -> CGFloat {
-        let side = Self.pictureSide * scale
+        let side = faceSide
         let titleHeight = ceil(title.size(forWidth: width).height)
         let bodyHeight = ceil(body.size(forWidth: width).height)
-        return side + Self.titleGap * scale + titleHeight + Self.bodyGap * scale + bodyHeight
+        let titleGap = side == 0 ? 0 : Self.titleGap * scale
+        if body.isHidden { return side + titleGap + titleHeight }
+        return side + titleGap + titleHeight + Self.bodyGap * scale + bodyHeight
     }
 
     override func layout() {
         super.layout()
         let width = bounds.width
-        let side = Self.pictureSide * scale
-        let face = CGRect(x: (width - side) / 2, y: 0, width: side, height: side)
+        let side = faceSide
+        let face = CGRect(x: leading ? 0 : (width - side) / 2, y: 0, width: side, height: side)
+        glyph.font = .systemFont(ofSize: max(1, side * Self.glyphSize / Self.pictureSide))
+        glyph.isHidden = side == 0 || glyph.stringValue.isEmpty
+        glyph.alignment = leading ? .left : .center
         picture.frame = face
         picture.layer?.cornerRadius = side / 2
         let glyphHeight = ceil(glyph.intrinsicContentSize.height)
-        glyph.frame = CGRect(x: 0, y: face.midY - glyphHeight / 2, width: width, height: glyphHeight)
+        glyph.frame = CGRect(x: leading ? -side : 0, y: face.midY - glyphHeight / 2, width: leading ? side * 3 : width, height: glyphHeight)
+        if leading { glyph.alignment = .center }
         let titleHeight = ceil(title.size(forWidth: width).height)
-        title.frame = CGRect(x: 0, y: face.maxY + Self.titleGap * scale, width: width, height: titleHeight)
+        title.frame = CGRect(x: 0, y: face.maxY + (side == 0 ? 0 : Self.titleGap * scale), width: width, height: titleHeight)
         let bodyHeight = ceil(body.size(forWidth: width).height)
         body.frame = CGRect(x: 0, y: title.frame.maxY + Self.bodyGap * scale, width: width, height: bodyHeight)
     }
