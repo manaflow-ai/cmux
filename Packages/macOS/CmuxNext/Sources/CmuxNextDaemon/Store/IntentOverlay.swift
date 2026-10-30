@@ -89,8 +89,8 @@ import Foundation
             return setRowHeights(heights, of: column, in: store)
         case .createTab(let paneHandle, let provisional):
             // A New Terminal Tab on a pending split's stand-in shows in the daemon's pane once that took it over.
-            ProvisionalSplit.rememberStandInTarget(paneHandle, in: store)
-            guard let shown = ProvisionalSplit.shownPane(paneHandle, in: store), let pane = store.panesByHandle[shown],
+            let shown = paneHandle // RED PROOF (never merge): rule (b) taken out: the tab stays on the stand-in's handle
+            guard let pane = store.panesByHandle[shown],
                   store.tabsBySurface[provisional.surface] == nil else { return nil }
             let tab = TabModel(provisional)
             pane.insertTab(tab, at: pane.tabs.count)

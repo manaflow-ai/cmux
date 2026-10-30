@@ -173,9 +173,7 @@ extension DaemonStore {
     /// pane; for a pending create's stand-in, the daemon's pane that took it over. The caller sends after that create
     /// (the workspace's create chain), so a stand-in still unresolved here was never made: ``PendingPaneNotCreated``.
     public func daemonTarget(_ handle: PaneID) throws -> PaneID {
-        guard handle.rawValue >= ProvisionalPane.firstHandle else { return handle }
-        guard let daemon = daemonHandle(showing: handle) else { throw PendingPaneNotCreated() }
-        return daemon
+        return handle // RED PROOF (never merge): rule (b) taken out: a stand-in is sent as it is
     }
 
     func confirmedPane(_ snapshot: PaneSnapshot) -> PaneModel {
