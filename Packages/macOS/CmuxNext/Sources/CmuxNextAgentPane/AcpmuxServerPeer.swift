@@ -85,14 +85,23 @@ nonisolated enum AcpmuxServerPeer {
     /// peer passed ``check(descriptor:executable:)``. Nothing is written before the check.
     /// Throws ``Refusal`` or the daemon's ``AcpmuxRPCError``.
     /// `allowForeign`: another install's daemon may answer (rules 1 to 3); never for an enroll.
+    /// `deadline` nil: waits for the answer, the daemon's close of the connection (it exited) or
+    /// the caller's cancel, and no thread is held while it waits (``AcpmuxSocketWait``).
     @concurrent static func call(socketPath: String, method: String, params: [String: any Sendable],
                                  executable: URL, allowForeign: Bool = false,
-                                 deadline: Duration) async throws -> [String: Any] {
-        let seconds = Double(deadline.components.seconds) + Double(deadline.components.attoseconds) / 1e18
-        let box = try exchange(socketPath: socketPath, method: method, params: params, executable: executable,
-                               allowForeign: allowForeign && method != "_acpmux/person_enroll",
-                               until: Date().addingTimeInterval(seconds))
-        return box.value
+                                 deadline: Duration?) async throws -> [String: Any] {
+        let allowForeign = allowForeign && method != "_acpmux/person_enroll"
+        let exchange: @Sendable () async throws -> ResultBox = {
+            try await Self.exchange(socketPath: socketPath, method: method, params: params, executable: executable,
+                                    allowForeign: allowForeign)
+        }
+        guard let deadline else { return try await exchange().value }
+        // The caller's own bound: past it the exchange is cancelled, which ends its socket wait.
+        do {
+            return try await withAgentPaneDeadline(deadline, label: "acpmux \(method)", exchange).value
+        } catch is AgentPaneDeadlineExceeded {
+            throw Refusal.timedOut
+        }
     }
 
     // No probe-then-connect helper (cx-aocz review P1): a check on one connection says nothing
@@ -336,11 +345,13 @@ nonisolated enum AcpmuxServerPeer {
         return descriptor
     }
 
-    private static func exchange(socketPath: String, method: String, params: [String: any Sendable],
-                                 executable: URL, allowForeign: Bool, until: Date) throws -> ResultBox {
+    @concurrent private static func exchange(socketPath: String, method: String, params: [String: any Sendable],
+                                             executable: URL, allowForeign: Bool) async throws -> ResultBox {
         let descriptor = try connect(socketPath)
         defer { Darwin.close(descriptor) }
         let match = try checked(descriptor, socketPath: socketPath, executable: executable, allowForeign: allowForeign)
+        // Every read and write waits for readiness without a thread (``AcpmuxSocketWait``).
+        _ = fcntl(descriptor, F_SETFL, fcntl(descriptor, F_GETFL) | O_NONBLOCK)
         let initialize: [String: Any] = [
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
             "params": ["protocolVersion": 1, "clientInfo": ["name": "cmux-next-person", "version": "1"], "clientCapabilities": [:]],
@@ -351,9 +362,9 @@ nonisolated enum AcpmuxServerPeer {
             payload += try JSONSerialization.data(withJSONObject: object)
             payload.append(0x0A)
         }
-        try write(payload, to: descriptor, until: until)
+        try await send(payload, to: descriptor)
         var buffer = Data()
-        while true {  // wakeup-allow: each pass waits in poll(2) for socket data; EOF, error or the deadline ends it
+        while true {  // wakeup-allow: each pass waits for socket data (a dispatch source); EOF, an error or the caller's cancel ends it
             while let newline = buffer.firstIndex(of: 0x0A) {
                 let line = Data(buffer[buffer.startIndex..<newline])
                 buffer.removeSubrange(buffer.startIndex...newline)
@@ -376,7 +387,35 @@ nonisolated enum AcpmuxServerPeer {
                 }
             }
             guard buffer.count < 1 << 20 else { throw Refusal.closed }
-            buffer += try read(from: descriptor, until: until)
+            buffer += try await receive(from: descriptor)
+        }
+    }
+
+    /// Writes all of `data` to the non-blocking `descriptor`, waiting for room without a thread.
+    @concurrent private static func send(_ data: Data, to descriptor: Int32) async throws {
+        var offset = 0
+        while offset < data.count {  // wakeup-allow: each pass waits for room (a dispatch source); a write error or the cancel ends it
+            try await AcpmuxSocketWait.ready(descriptor, forWrite: true)
+            let sent = data.withUnsafeBytes { bytes -> Int in
+                guard let base = bytes.baseAddress else { return -1 }
+                return Darwin.send(descriptor, base + offset, data.count - offset, 0)
+            }
+            if sent < 0, errno == EAGAIN || errno == EINTR { continue }
+            guard sent > 0 else { throw Refusal.closed }
+            offset += sent
+        }
+    }
+
+    /// The next bytes from the non-blocking `descriptor`, waiting for them without a thread.
+    /// The daemon's close (it exited) is `closed`.
+    @concurrent private static func receive(from descriptor: Int32) async throws -> Data {
+        var chunk = [UInt8](repeating: 0, count: 64 * 1024)
+        while true {  // wakeup-allow: each pass waits for data (a dispatch source); data, EOF, an error or the cancel ends it
+            try await AcpmuxSocketWait.ready(descriptor, forWrite: false)
+            let count = Darwin.recv(descriptor, &chunk, chunk.count, 0)
+            if count < 0, errno == EAGAIN || errno == EINTR { continue }
+            guard count > 0 else { throw Refusal.closed }
+            return Data(chunk[0..<count])
         }
     }
 

@@ -24,8 +24,9 @@ nonisolated enum AcpmuxStatusClient {
     }
 
     /// The running daemon's `_acpmux/status`. Throws `.unreachable` when
-    /// nothing answers there.
-    @concurrent static func status(socketPath: String, deadline: Duration = .seconds(2)) async throws -> AcpmuxStatus {
+    /// nothing answers there. `deadline` nil: waits for the answer, the daemon's close (it
+    /// exited) or the caller's cancel, as a slow daemon is not a dead one.
+    @concurrent static func status(socketPath: String, deadline: Duration? = .seconds(2)) async throws -> AcpmuxStatus {
         let result = try await call(socketPath: socketPath, method: "_acpmux/status", deadline: deadline)
         return AcpmuxStatus(result)
     }
@@ -217,16 +218,23 @@ nonisolated enum AcpmuxStatusClient {
     /// `initialize`, then `method`, on a fresh connection to `socketPath`. `detailed` replies
     /// with ``AcpmuxRPCError`` (the JSON-RPC code and data) instead of `.rpc(message)`.
     /// With `requiredFeature`, no operation is sent before that connection advertises it.
+    /// `deadline` nil: the call ends at the answer, at the daemon's close of the connection (a
+    /// daemon that exited) or at the caller's cancel; no timer decides it.
     static func call(socketPath: String, method: String, params: [String: any Sendable] = [:],
-                     deadline: Duration, detailed: Bool = false, limit: Int = 1 << 20,
+                     deadline: Duration?, detailed: Bool = false, limit: Int = 1 << 20,
                      requiredFeature: String? = nil, requiredCapability: String? = nil) async throws -> [String: Any] {
         let connection = NWConnection(to: .unix(path: socketPath), using: .tcp)
         defer { connection.cancel() }
-        let box = try await withAgentPaneDeadline(deadline, label: "acpmux \(method)", onTimeout: { connection.cancel() }) {
+        let operation: @Sendable () async throws -> ResultBox = {
             ResultBox(try await exchange(method, params: params, transport: AcpmuxSocketTransport(connection: connection),
                                          detailed: detailed, limit: limit, requiredFeature: requiredFeature,
                                          requiredCapability: requiredCapability))
         }
+        guard let deadline else {
+            // A cancelled connection fails its pending start, send and receive.
+            return try await withTaskCancellationHandler(operation: operation, onCancel: { connection.cancel() }).value
+        }
+        let box = try await withAgentPaneDeadline(deadline, label: "acpmux \(method)", onTimeout: { connection.cancel() }, operation)
         return box.value
     }
 

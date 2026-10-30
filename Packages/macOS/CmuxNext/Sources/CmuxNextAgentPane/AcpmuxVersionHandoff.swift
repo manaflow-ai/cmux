@@ -187,7 +187,7 @@ public nonisolated struct AgentPaneProcessExit: Sendable {
     /// `armed` runs once the exit watch is resumed and before the check for an exit that came
     /// first, so a signal sent there cannot end the process unseen. The watch's registration with
     /// the kernel may still be in flight then: a caller that must signal only the process it
-    /// found registers its own watch first (``AcpmuxUnresponsiveWatch/signal(_:_:process:)``).
+    /// found registers its own kernel exit watch (kqueue `EVFILT_PROC`) before it checks that process.
     /// It returns the answer when there is nothing to wait for (nil: wait).
     public func event(within timeout: Duration?, armed: () -> Bool? = { nil }) async -> Bool {
         let pid = self.pid
