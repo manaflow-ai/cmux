@@ -41,6 +41,9 @@ public final class HomeChiefSettingsView: NSView {
     let nameField = ThemedTextField(string: "")
     /// The title the field last showed or sent, so leaving it unchanged renames nothing.
     var shownName = ""
+    /// The kept name a refused rename put back in the field while it was being edited; leaving the
+    /// field with it unchanged is no rename (``commitName()``).
+    var restoredName: String?
     /// Where the brain runs, under the name: this Mac or the paired server.
     let place = ThemedLabel(labelWithString: "")
     /// "Switch to …": the same Chief on its other host (Lawrence 2026-10-19 replaced the floating
@@ -278,7 +281,10 @@ public final class HomeChiefSettingsView: NSView {
     /// The conversation's title, shown in the name field.
     public func setName(_ name: String) {
         shownName = name
-        if nameField.currentEditor() == nil { nameField.stringValue = name }
+        if nameField.currentEditor() == nil {
+            nameField.stringValue = name
+            restoredName = nil
+        }
     }
 
     /// The avatar the header shows: its picture, else its text (one or two characters).
@@ -304,6 +310,15 @@ public final class HomeChiefSettingsView: NSView {
     @discardableResult
     func commitName() -> Task<Void, Never>? {
         let name = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        // The name a refusal put back in the field is the card's, not the person's: leaving the
+        // field with it renames nothing, even after the record's echo named the Chief since
+        // (issue 27915: that sent the old name and undid a rename the owner had saved).
+        let restored = restoredName
+        restoredName = nil
+        if let restored, name == restored {
+            nameField.stringValue = shownName
+            return nil
+        }
         // A blank name renames nothing, so the field shows the name the Chief keeps; a kept
         // name shows as it is saved, without the spaces around it.
         nameField.stringValue = name.isEmpty ? shownName : name
@@ -322,7 +337,10 @@ public final class HomeChiefSettingsView: NSView {
             }
             shownName = kept
             // Still in the field after Return: it shows the kept name too, unless the person typed on.
-            if nameField.currentEditor() == nil || nameField.stringValue == name { nameField.stringValue = kept }
+            if nameField.currentEditor() == nil || nameField.stringValue == name {
+                nameField.stringValue = kept
+                if nameField.currentEditor() != nil { restoredName = kept }
+            }
             note(HomeEngineStrings.renameFailed(failure), kept: true)
         }
     }

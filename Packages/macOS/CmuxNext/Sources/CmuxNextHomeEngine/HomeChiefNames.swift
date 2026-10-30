@@ -130,13 +130,21 @@ public nonisolated struct HomeLocalChiefRename: Hashable, Sendable {
     }
 
     /// Saves the rename through `request`, which sends the op with the idempotency key it is given.
+    /// An answer lost on the way (issue 27915: the owner saved the name, the card said it could not)
+    /// is asked for once more with the same key: the owner answers the save it made, or makes it.
     public func send(_ request: @Sendable (String) async throws -> Void) async -> HomeChiefRenameFailure? {
-        do {
-            try await request(idempotencyKey(UUID().uuidString.lowercased()))
-            return nil
-        } catch {
-            return Self.failure(error)
+        let key = idempotencyKey(UUID().uuidString.lowercased())
+        var failure: HomeChiefRenameFailure?
+        for _ in 0..<2 {
+            do {
+                try await request(key)
+                return nil
+            } catch {
+                failure = Self.failure(error)
+                guard failure == .noConnection else { return failure }
+            }
         }
+        return failure
     }
 
     /// The card's reason for an error of the owner call.

@@ -180,7 +180,7 @@ final class HomeDirectory {
                                        "idempotency_key": "chief-rename-\(record.id)-\(record.rev)-\(UUID().uuidString.lowercased())",
                                        "params": ["chief": record.id, "expected_rev": record.rev, "display_name": name]]
             do {
-                let value = try Self.value(try await call("v1/ops", body))
+                let value = try Self.value(try await callOnceMore("v1/ops", body))
                 var renamed = HomeChiefRecord.parse(value) ?? record
                 if HomeChiefRecord.parse(value) == nil {
                     renamed.name = name
@@ -195,6 +195,16 @@ final class HomeDirectory {
             }
         }
         return .changedElsewhere
+    }
+
+    /// `call`, asked once more with the same body (its idempotency key) when no answer could be
+    /// read: UserDO may have saved it (issue 27915), and answers that save again. A refusal is final.
+    private func callOnceMore(_ path: String, _ body: [String: Any]) async throws -> [String: Any] {
+        do {
+            return try await call(path, body)
+        } catch let error where Self.renameFailure(error) == .noConnection {
+            return try await call(path, body)
+        }
     }
 
     /// The card's reason for an error of `call` or of the owner.
