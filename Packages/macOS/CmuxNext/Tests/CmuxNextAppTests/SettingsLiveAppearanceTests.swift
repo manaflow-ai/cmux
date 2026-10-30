@@ -121,7 +121,7 @@ import Testing
             panel.starters.setPrompts(["Start a task"])
             let button = try #require(panel.starters.buttons.first)
             let originalButton = try #require(button.font).pointSize
-            let labels = [panel.hero.title, panel.hero.body, panel.switchCard.header, panel.switchCard.note]
+            let labels = [panel.hero.title, panel.hero.body, panel.switchCard.header, panel.switchCard.note, panel.intro.label]
             let originals = try labels.map { try #require($0.font).pointSize }
             try await call(page, "set", "appearance.metrics.chromeFontSize", .number(16))
             // The transcript passes the live interface scale to its first-run panel.
