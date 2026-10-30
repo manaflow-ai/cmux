@@ -10,9 +10,9 @@ import { createHash } from "node:crypto";
  * URL, attribution) is a different request with its own key.
  */
 
-// A Checkout Session stays reusable only for one attempt: after this window a
-// buyer who comes back (say after cancelling a finished subscription) gets a
-// fresh session instead of the replayed, already-completed one.
+// A Checkout Session key covers one attempt. A replay inside the window is
+// still checked against the session's current status (see isIdempotentReplay);
+// the window only bounds how long one key is reused.
 const CHECKOUT_ATTEMPT_WINDOW_MS = 10 * 60 * 1000;
 
 // Stripe accepts keys up to 255 characters; Stack ids are UUIDs, and the
@@ -31,6 +31,27 @@ export function checkoutSessionIdempotencyKey(
 ): string {
   const attempt = Math.floor(now / CHECKOUT_ATTEMPT_WINDOW_MS);
   return idempotencyKey(`checkout-session/${principal.scope}`, principal.id, [attempt, params]);
+}
+
+/** The key for the attempt after `staleSessionId`, a replayed session that is no longer open. */
+export function checkoutSessionRetryIdempotencyKey(key: string, staleSessionId: string): string {
+  return idempotencyKey("checkout-session/after", staleSessionId, key);
+}
+
+/**
+ * Whether Stripe answered with the stored response of an earlier request
+ * under the same key. A replay is that first response as it was then, so a
+ * replayed Checkout Session can read as open after it completed or expired.
+ * stripe-node's Node client exposes plain lowercase headers, its fetch client
+ * a Headers object.
+ */
+export function isIdempotentReplay(response: unknown): boolean {
+  const headers = (response as { lastResponse?: { headers?: unknown } } | null)?.lastResponse?.headers;
+  if (!headers || typeof headers !== "object") return false;
+  const value = headers instanceof Headers
+    ? headers.get("idempotent-replayed")
+    : (headers as Record<string, unknown>)["idempotent-replayed"];
+  return value === "true";
 }
 
 /**

@@ -1,4 +1,5 @@
 import type { StackServerApp } from "@hexclave/next";
+import type Stripe from "stripe";
 import { after, NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 
@@ -69,7 +70,10 @@ import {
 import { teamPortalSession } from "../../../../services/billing/teamPortal";
 import {
   checkoutSessionIdempotencyKey,
+  checkoutSessionRetryIdempotencyKey,
+  isIdempotentReplay,
   teamCustomerIdempotencyKey,
+  type CheckoutPrincipal,
 } from "../../../../services/billing/stripeIdempotency";
 
 
@@ -415,9 +419,7 @@ async function stripePersonalCheckout(
       success_url: successUrl,
       cancel_url: cancelUrl.toString(),
     };
-    const session = await stripe().checkout.sessions.create(sessionParams, {
-      idempotencyKey: checkoutSessionIdempotencyKey({ scope: "user", id: stackUserId }, sessionParams),
-    });
+    const session = await createCheckoutSession({ scope: "user", id: stackUserId }, sessionParams);
     if (!usableCheckoutSession(session)) {
       throw new Error("Stripe Checkout Session did not include an id and URL");
     }
@@ -554,9 +556,7 @@ async function stripeTeamCheckout(
       success_url: successUrl,
       cancel_url: cancelUrl.toString(),
     };
-    const session = await stripe().checkout.sessions.create(sessionParams, {
-      idempotencyKey: checkoutSessionIdempotencyKey({ scope: "team", id: resolvedTeamId }, sessionParams),
-    });
+    const session = await createCheckoutSession({ scope: "team", id: resolvedTeamId }, sessionParams);
     if (!usableCheckoutSession(session)) {
       throw new Error("Stripe Checkout Session did not include an id and URL");
     }
@@ -581,6 +581,26 @@ async function stripeTeamCheckout(
     });
     return NextResponse.redirect(new URL("/pricing?billing=error", requestOrigin(request)));
   }
+}
+
+/**
+ * Creates a Checkout Session under an idempotency key, so a double click or a
+ * retried request gets the first session back. A replayed session is reused
+ * only while Stripe still reports it open; one that has since completed or
+ * expired is followed by a new session keyed after it.
+ */
+async function createCheckoutSession(
+  principal: CheckoutPrincipal,
+  params: Stripe.Checkout.SessionCreateParams,
+): Promise<Stripe.Checkout.Session> {
+  const idempotencyKey = checkoutSessionIdempotencyKey(principal, params);
+  const session = await stripe().checkout.sessions.create(params, { idempotencyKey });
+  if (!isIdempotentReplay(session)) return session;
+  const current = await stripe().checkout.sessions.retrieve(session.id);
+  if (current.status === "open") return current;
+  return stripe().checkout.sessions.create(params, {
+    idempotencyKey: checkoutSessionRetryIdempotencyKey(idempotencyKey, session.id),
+  });
 }
 
 /** Preserve only a first-party checkout return; JSON fetches resume as navigation. */
