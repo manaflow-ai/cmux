@@ -1357,7 +1357,7 @@ verify_key_command() {
 # fb384d011b85's, had no such job. Every skipped commit and its reason is
 # listed on a miss.
 resolve_newest_published_tree() {
-  local limit max_age temp_dir rev rev_time tip_time behind_hours key commit vrc tip tip_key behind=0 checked=0 distinct=0
+  local limit max_age temp_dir rev rev_time tip_time behind_hours key legacy_key commit vrc tip tip_key behind=0 checked=0 distinct=0
   local bad_keys=" " good_keys=" " skips=""
   local i same_path skewed skipped_skew=0 same_paths=() tip_blobs=()
   if [[ -n "${CMUX_TUI_TREE_REQUIRE_RELEASE_GREEN:-}" ]]; then
@@ -1418,27 +1418,21 @@ resolve_newest_published_tree() {
       skipped_skew=$((skipped_skew + 1)); behind=$((behind + 1)); continue
     fi
     key="$(tree_key "$rev" 2>/dev/null)" || { skips+="  ${rev:0:12}: no tree key"$'\n'; behind=$((behind + 1)); continue; }
-    if [[ "$bad_keys" == *" $key "* ]]; then
-      skips+="  ${rev:0:12}: tree ${key:0:12} not published or unverifiable"$'\n'; behind=$((behind + 1)); continue
-    fi
-    # A verified tree is checked once.
-    commit="$(tr ' ' '\n' <<<"$good_keys" | awk -F= -v k="$key" '$1 == k { print $2; exit }')"
+    legacy_key="$(legacy_tree_key "$rev" 2>/dev/null)"
+    commit=""
+    for candidate_key in "$key" "$legacy_key"; do
+      [[ -n "$candidate_key" ]] || continue
+      [[ "$bad_keys" == *" $candidate_key "* ]] && continue
+      commit="$(tr ' ' '\n' <<<"$good_keys" | awk -F= -v k="$candidate_key" '$1 == k { print $2; exit }')"
+      [[ -n "$commit" ]] && { key="$candidate_key"; break; }
+      distinct=$((distinct + 1)); vrc=0
+      verify_published_key "$candidate_key" "$temp_dir" || vrc=$?
+      if (( vrc == 1 )); then bad_keys+="$candidate_key "; continue; fi
+      if (( vrc != 0 )); then bad_keys+="$candidate_key "; continue; fi
+      commit="$verified_commit"; good_keys+="$candidate_key=$commit "; key="$candidate_key"; break
+    done
     if [[ -z "$commit" ]]; then
-      distinct=$((distinct + 1))
-      vrc=0
-      verify_published_key "$key" "$temp_dir" || vrc=$?
-      if (( vrc == 1 )); then
-        echo "tree $key (${rev:0:12}): not published" >&2
-        skips+="  ${rev:0:12}: tree ${key:0:12} not published"$'\n'
-        bad_keys+="$key "; behind=$((behind + 1)); continue
-      fi
-      if (( vrc != 0 )); then
-        echo "warning: tree $key (${rev:0:12}) is published, but the manifest of its commit ${verified_commit:0:12} does not carry its sha256 ${verified_sha:0:12} (manifest: ${verified_manifest_sha:-none}); skipping" >&2
-        skips+="  ${rev:0:12}: tree ${key:0:12} unverifiable (manifest sha256 mismatch)"$'\n'
-        bad_keys+="$key "; behind=$((behind + 1)); continue
-      fi
-      commit="$verified_commit"
-      good_keys+="$key=$commit "
+      skips+="  ${rev:0:12}: v2 and v2-legacy trees not published or unverifiable"$'\n'; behind=$((behind + 1)); continue
     fi
     echo "resolved cmux-tui tree $key from ${rev:0:12} ($behind commits and $behind_hours h behind the tip ${tip:0:12}, tip tree ${tip_key:-unknown}); published by $commit" >&2
     printf 'commit=%s\nkey=%s\nsource_commit=%s\ntip_key=%s\nbehind=%s\nbehind_hours=%s\n' "$commit" "$key" "$rev" "$tip_key" "$behind" "$behind_hours"
