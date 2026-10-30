@@ -55,7 +55,7 @@ impl Hub {
     /// Whether the folder-trust gate lets `session`'s agent work: always when
     /// the gate is off; else only for a Trust answer (an unreadable record is none).
     /// `web`: for a Web client, where an auto-trust rule is no answer.
-    async fn folder_trusted(&self, session: &Arc<Session>, web: bool) -> bool {
+    pub(super) async fn folder_trusted(&self, session: &Arc<Session>, web: bool) -> bool {
         let Some(paths) = self.trust_gate() else { return true };
         let meta = session.meta();
         let cwd = meta.cwd.to_string_lossy().into_owned();

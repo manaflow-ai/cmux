@@ -45,6 +45,8 @@ extension WindowManager {
             makeController(for: window)
         }
         repairSelections(previous: previous, preferred: preferred)
+        // A window Home that moved into a window with a Home closes (cmux#27880).
+        services.windowHomes.closeSurplus(previous: previous)
         let closing = controllers.filter { $0.state.id != launchWindowID && value.window($0.state.id)?.isOpen != true }
         let closedKey = closing.contains { $0.window?.isKeyWindow == true }
         for controller in closing { closeProgrammatically(controller) }
@@ -139,6 +141,24 @@ extension WindowManager {
         }
         claim(workspaceID: workspaceID, in: state)
         controller(for: state.id)?.showWorkspace(requested: state.workspaceID)
+    }
+
+    /// Shows `workspaceID` in window `windowID` (taking it there), as a pick in that window's own
+    /// sidebar does; nothing for a window this app does not have.
+    func show(workspaceID: String, inWindow windowID: String) {
+        guard let state = states[windowID] else { return }
+        show(workspaceID: workspaceID, in: state, from: .thisWindow)
+    }
+
+    /// Each registered window's workspaces, by window id.
+    var membersByWindow: [String: [String]] {
+        Dictionary(registry.value.windows.map { ($0.id, $0.workspaceIDs) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// The open window that lists `workspaceID`, if any.
+    func openOwner(of workspaceID: String) -> String? {
+        guard let owner = registry.value.owner(of: workspaceID), registry.value.window(owner)?.isOpen == true else { return nil }
+        return owner
     }
 
     /// Shows `workspaceID` where it lives: its window when open, else the
@@ -411,6 +431,12 @@ extension WindowManager {
             return daemon.store.isLoaded
         }
         return services.machines.local.store.isLoaded && cloudSettled
+    }
+
+    /// Where a previous launch last saw each saved workspace (`WindowStateDocument.workspaceMachines`),
+    /// for those this launch has not seen: a workspace on a paused or connecting Cloud machine keeps its window.
+    func rememberMachines(of document: WindowStateDocument) {
+        seenMachine.merge(document.workspaceMachines) { seen, _ in seen }
     }
 
     /// Every Cloud machine that could still report workspaces has loaded.

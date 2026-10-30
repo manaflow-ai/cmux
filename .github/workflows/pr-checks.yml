@@ -1,14 +1,15 @@
 name: PR checks
 
-# Three advisory feat-cmux-next pull request checks, folded into one workflow so
-# a push starts one run instead of three: the review link, the size advisory and
-# the split-plan advisory. Their jobs, names, permissions and steps are the ones
-# their own workflows had (gallery-link.yml, pr-size-advisory.yml,
-# cmux-next-split-guard.yml). None of them can fail a pull request, so a skipped
-# one hides no verdict; pr-capture-check, which can, keeps its own workflow.
+# Three feat-cmux-next pull request checks, folded into one workflow so a push
+# starts one run instead of three: the review link, the PR size check and the
+# split-plan advisory. Their jobs, permissions and steps are the ones their own
+# workflows had (gallery-link.yml, pr-size-advisory.yml, cmux-next-split-guard.yml).
+# None of them fails a pull request. PR size warns on one over 800 lines with
+# no `Size:` line and runs on every push, a base-only one included.
+# pr-capture-check keeps its own workflow.
 #
 # Base-only updates: a push that only merged feat-cmux-next into the branch
-# skips all three, and their answers stay the previous head's. On 2026-10-26,
+# skips the link and split-plan, whose answers stay the previous head's. On 2026-10-26,
 # 19:30-19:55Z, 33 such updates started 523 runs, 214 of them advisory, and every
 # run spends from the one GITHUB_TOKEN budget.
 on:
@@ -18,7 +19,7 @@ on:
 
 # The base-only job reads the previous head's run by this title, which names the pull
 # request (two pull requests can share a head commit): an `edited` run
-# (the size advisory alone), a held one (CI_QUOTA_HOLD) or a draft's does not
+# (the PR size check alone), a held one (CI_QUOTA_HOLD) or a draft's does not
 # answer for that head's other checks.
 run-name: "#${{ github.event.pull_request.number }} ${{ github.event.action }}${{ vars.CI_QUOTA_HOLD == '1' && ' (held)' || '' }}${{ github.event.pull_request.draft && ' (draft)' || '' }}: ${{ github.event.pull_request.title }}"
 
@@ -26,7 +27,7 @@ permissions: {}
 
 # A push supersedes the previous push's run, which then reads as cancelled, so
 # a base-only push after it runs every check rather than keep answers that never
-# finished. A description edit (the size advisory alone) has its own group and
+# finished. A description edit (the PR size check alone) has its own group and
 # never cancels a push's run.
 concurrency:
   group: pr-checks-${{ github.event.pull_request.number }}-${{ github.event.action == 'edited' && 'edited' || 'push' }}
@@ -187,30 +188,40 @@ jobs:
           python3 scripts/ci/pr_status.py set --repo "$REPOSITORY" --pr "$PR" --section review \
             --body-file "$RUNNER_TEMP/review.md" --legacy "<!-- cmux-gallery-link -->"
 
-  # Warns when a feat-cmux-next pull request changes more than about 800 lines
+  # Warns on a feat-cmux-next pull request that changes more than about 800 lines
   # (added + deleted), not counting the generated, lockfile, localization and
-  # fixture paths in scripts/ci/pr_size_exclusions.json. The warning carries a
-  # hint on how to split; a body line starting `Size:` with a reason overrides it
-  # and the check prints the reason. It never fails for a size and is not a
-  # required check: do not add it to branch protection or a ruleset.
+  # fixture paths in scripts/ci/pr_size_exclusions.json, unless its body has a
+  # line starting `Size:` with the reason (the check then prints the reason). The
+  # warning carries a hint on how to split and asks a pull request over about 800
+  # lines to say in its body why it isn't split. It never fails: Leo, 2026-10-28,
+  # "as long as you're mindful about it, I feel like it's reasonable, but you
+  # don't need to make it, like, a hard gate". It is not a ruleset required check.
   #
   # Cheap by design: one paginated pulls/N/files call with the read-only
   # GITHUB_TOKEN, the body from the event payload, and the script from the base
-  # commit (sparse, no pull request code). Drafts skip until marked ready, and
-  # CI_QUOTA_HOLD=1 pauses it while the token budget is reserved for the nightly
-  # (tests/test_ci_quota_hold_gate.py).
+  # commit (sparse, no pull request code). Editing the body to add a `Size:` line
+  # runs it again. Drafts skip until marked ready, and CI_QUOTA_HOLD=1 pauses it
+  # while the token budget is reserved for the nightly
+  # (tests/test_ci_quota_hold_gate.py). An API error or a script crash warns and
+  # passes, and so does a measured size over the limit.
   size:
-    name: PR size (advisory)
-    # A body edit only matters when it can add or drop a `Size:` line.
-    needs: base-only
-    if: ${{ !cancelled() && needs.base-only.outputs.base_only != 'true' && contains(fromJSON('["opened","synchronize","reopened","edited","ready_for_review"]'), github.event.action) && vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft && (github.event.action != 'edited' || github.event.changes.body != null) }}
+    name: PR size
+    # Every edit runs it, a title-only one too: edits share one cancelling group, so a
+    # title edit can cancel a body edit's run, and its own run must answer. It runs on a
+    # base-only update too: it costs one API call, and a previous head's green run
+    # from before it could fail (or that a later Size: edit changed) must not
+    # answer for it.
+    if: ${{ !cancelled() && contains(fromJSON('["opened","synchronize","reopened","edited","ready_for_review"]'), github.event.action) && vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       contents: read
       pull-requests: read
     steps:
+      # A failed checkout measures nothing: the next step finds no script and passes.
       - name: Check out the size script from the base
+        id: checkout
+        continue-on-error: true
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.base.sha }}
@@ -226,22 +237,39 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
+          CHECKOUT: ${{ steps.checkout.outcome }}
         run: |
           set -euo pipefail
+          if [ "$CHECKOUT" != success ]; then
+            echo "::warning title=PR size::could not check out the size script; size not measured"
+            exit 0
+          fi
           if [ ! -f scripts/ci/pr_size.py ]; then
             echo "::notice title=PR size::the base predates the size check; skipped"
             exit 0
           fi
-          # Advisory: an API error (rate limit, outage) warns and passes, never fails.
+          # An API error (rate limit, outage) warns and passes, as an oversized pull request does.
           if ! gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" \
             --jq '.[] | {filename, additions, deletions} | @json' > "$RUNNER_TEMP/files.jsonl"; then
             echo "::warning title=PR size::could not read the pull request's files; size not measured"
             exit 0
           fi
-          python3 scripts/ci/pr_size.py --files "$RUNNER_TEMP/files.jsonl" --event "$GITHUB_EVENT_PATH" || {
-            echo "::warning title=PR size::the size script failed; size not measured"
-            exit 0
-          }
+          # The body as it is now, not the event's copy: a re-run of an older run must not
+          # answer with a `Size:` line the body no longer has. A failed read keeps the event's.
+          event="$GITHUB_EVENT_PATH"
+          if gh api "repos/$REPOSITORY/pulls/$PR" --jq '{pull_request: {body, changed_files}}' \
+            > "$RUNNER_TEMP/live-event.json" 2>/dev/null && [ -s "$RUNNER_TEMP/live-event.json" ]; then
+            event="$RUNNER_TEMP/live-event.json"
+          else
+            echo "::notice title=PR size::could not read the current body; using the event's"
+          fi
+          status=0
+          python3 scripts/ci/pr_size.py --files "$RUNNER_TEMP/files.jsonl" --event "$event" || status=$?
+          case "$status" in
+            0) ;;
+            3) ;;  # over the limit with no `Size:` line: the script printed the warning; never a gate
+            *) echo "::warning title=PR size::the size script failed (exit $status); size not measured" ;;
+          esac
 
   # Every push-group event runs it (ready_for_review too, which the old workflow did not):
   # that event can cancel a push run, and its own run must answer for all three checks.

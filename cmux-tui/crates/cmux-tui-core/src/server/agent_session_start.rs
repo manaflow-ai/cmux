@@ -5,7 +5,7 @@
 //! through `agent-session-attach-v1` (the parent module); no acpmux port is
 //! opened.
 //!
-//! `agent-session-start {surface, harness?, cwd?}` answers
+//! `agent-session-start {surface, harness?, model?, cwd?}` answers
 //! `{surface, session, conversation}` once acpmux made the session and the
 //! store recorded it on the tab (`bind-conversation-tab-session` with
 //! expected null, this daemon being the writer).
@@ -14,7 +14,7 @@
 //! session yet, whose record names this store as its host
 //! (`registry:<identify.session_id>`), so a tab recorded for another
 //! machine never starts here. The client names only an agent kind
-//! (`harness`, resolved by acpmux from its own config) and a folder (`cwd`,
+//! (`harness`, resolved by acpmux from its own config), an optional model (`model`), and a folder (`cwd`,
 //! absolute; acpmux checks it). No command, env, policy, mode, peer, preset,
 //! workspace or MCP server param exists (unknown fields are a bad request).
 //! The daemon itself names the tab's workspace to acpmux on `session/new`
@@ -63,6 +63,8 @@ pub const AGENT_SESSION_START_KEYED_REASON_CAPABILITY: &str = "agent-session-sta
 /// knows this machine is a Cloud VM it does not own: refused on any host, as
 /// a guest's root can remove every sign of a Cloud VM here.
 pub const AGENT_SESSION_START_VM_KIND_CAPABILITY: &str = "agent-session-start-vm-kind-v1";
+/// `model` on `agent-session-start` is relayed to acpmux's first `session/new`.
+pub const AGENT_SESSION_START_MODEL_CAPABILITY: &str = "agent-session-start-model-v1";
 
 /// Starts the binary's acpmux daemon (blocking; acpmux bounds its own start).
 pub type AcpmuxStarter = Arc<dyn Fn() -> Result<(), String> + Send + Sync>;
@@ -77,12 +79,11 @@ pub enum AgentStartHost {
     /// A Mac or an SSH host (not a Cloud VM).
     Allowed,
     /// A Cloud VM whose own record says `owner`. The guest's root writes that
-    /// record (agents keep sudo there), so it never allows a start by itself:
-    /// a start needs the caller's `vm_kind: "owner"`. A chat move in and
-    /// folder trust still take it.
+    /// record (agents keep sudo there), so it never allows anything by
+    /// itself: a start, a chat move in and folder trust each need the
+    /// caller's `vm_kind: "owner"`.
     OwnerCloud,
-    /// A Cloud VM whose kind the daemon cannot tell: a start needs the
-    /// caller's `vm_kind: "owner"`; a chat move in and folder trust refuse.
+    /// A Cloud VM whose kind the daemon cannot tell: as [`Self::OwnerCloud`].
     UnknownCloud,
     /// A team VM: shared by a team, so no remote start (hq-84 rule until the
     /// team policy for local-control sessions exists).
@@ -121,18 +122,18 @@ impl AgentSessionStarts {
 
     /// Ok on an allowed host; the refusal otherwise (also when unset). The
     /// kind is read again for every call, so a bind or team enroll that
-    /// lands after the daemon started counts at once. `caller_owns_vm`:
-    /// `Some` for a start (its `vm_kind` is exactly `owner`), which on a Cloud
-    /// VM goes on only on the caller's word; `None` for a chat move in and
-    /// folder trust, which still take the machine's `owner` record. Team
-    /// evidence refuses either way.
-    fn host_gate(&self, caller_owns_vm: Option<bool>) -> Result<(), Refusal> {
+    /// lands after the daemon started counts at once. `caller_owns_vm`: the
+    /// call's `vm_kind` is exactly `owner` (the Cloud API's answer for the
+    /// caller on its link). A Cloud VM goes on only on that word, never on
+    /// its own record, and team evidence refuses even with it.
+    fn host_gate(&self, caller_owns_vm: bool) -> Result<(), Refusal> {
         let source = self.host.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        match (source.map(|read| read()), caller_owns_vm) {
-            (Some(AgentStartHost::Allowed), _) => Ok(()),
-            (Some(AgentStartHost::TeamVm), _) => Err(Refusal::TeamVmBlocked),
-            (Some(AgentStartHost::OwnerCloud | AgentStartHost::UnknownCloud), Some(true))
-            | (Some(AgentStartHost::OwnerCloud), None) => Ok(()),
+        match source.map(|read| read()) {
+            Some(AgentStartHost::Allowed) => Ok(()),
+            Some(AgentStartHost::TeamVm) => Err(Refusal::TeamVmBlocked),
+            Some(AgentStartHost::OwnerCloud | AgentStartHost::UnknownCloud) if caller_owns_vm => {
+                Ok(())
+            }
             _ => Err(Refusal::HostUnverified),
         }
     }
@@ -170,6 +171,8 @@ pub(super) struct StartParams {
     surface: SurfaceId,
     #[serde(default)]
     harness: Option<String>,
+    #[serde(default)]
+    model: Option<String>,
     cwd: String,
     /// The person chose the home folder as the chat's folder (`agent-session-trust`'s rule).
     #[serde(default)]
@@ -205,7 +208,13 @@ impl StartParams {
             (1..=128).contains(&instance.len())
                 && instance.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.:-".contains(&b))
         });
-        harness_ok && cwd_ok && instance_ok
+        let model_ok = self.model.as_deref().is_none_or(|model| {
+            (1..=200).contains(&model.len())
+                && !model.starts_with('-')
+                && !model.chars().any(|c| c.is_whitespace() || c.is_control())
+                && !model.contains(['{', '}', '$', '"', '\\', '\''])
+        });
+        harness_ok && cwd_ok && instance_ok && model_ok
     }
 }
 
@@ -227,13 +236,8 @@ pub(super) fn start(
     if !params.valid() {
         return refuse(writer, id, Refusal::BadRequest);
     }
-    let caller_owns_vm = matches!(params.vm_kind.as_ref(), Some(Some(kind)) if kind == "owner");
-    if let Err(refusal) = mux.control_clients.agent_sessions.starts.host_gate(Some(caller_owns_vm))
-    {
+    if let Err(refusal) = mux.agent_host_gate(vm_word(&params.vm_kind)) {
         return refuse(writer, id, refusal);
-    }
-    if params.vm_kind.is_some() && !caller_owns_vm {
-        return refuse(writer, id, Refusal::HostUnverified);
     }
     if let Err(refusal) = startable(mux, params.surface) {
         return refuse(writer, id, refusal);
@@ -441,6 +445,9 @@ fn start_and_bind(
     if let Some(harness) = &params.harness {
         meta.insert("harness", json!(harness));
     }
+    if let Some(model) = &params.model {
+        meta.insert("model", json!(model));
+    }
     // The workspace of the tab, read here and never taken from the client:
     // acpmux gives the session that workspace's display (none without it).
     if let Some(workspace) = mux.surface_workspace_key(params.surface) {
@@ -573,13 +580,24 @@ fn settle_asking_mode(link: &AcpmuxLink, session: &str) -> Result<String, Refusa
     }
 }
 
+/// A call's `vm_kind` (decoded with `present_nullable`) as the gate reads it:
+/// absent is no word, and an explicit `null` is a word that is not `owner`.
+pub(crate) fn vm_word(vm_kind: &Option<Option<String>>) -> Option<&str> {
+    vm_kind.as_ref().map(|kind| kind.as_deref().unwrap_or_default())
+}
+
 impl Mux {
-    /// The machine kind gate of a guarded chat move in (`agent_transfer.rs`)
-    /// and of folder trust (team VM, Cloud VM of unknown kind, or never
-    /// told), read again at each call. Unlike a start, it still takes a Cloud
-    /// VM's own `owner` record.
-    pub(crate) fn agent_host_gate(&self) -> Result<(), Refusal> {
-        self.control_clients.agent_sessions.starts.host_gate(None)
+    /// The machine kind gate of a start, a guarded chat move in
+    /// (`agent_transfer.rs`) and folder trust, read again at each call:
+    /// `vm_kind` is the call's own (only the exact `owner` counts). Any other
+    /// word says the caller knows this machine is a Cloud VM it does not own:
+    /// refused on any host, as a guest's root can remove every Cloud sign here.
+    pub(crate) fn agent_host_gate(&self, vm_kind: Option<&str>) -> Result<(), Refusal> {
+        self.control_clients.agent_sessions.starts.host_gate(vm_kind == Some("owner"))?;
+        match vm_kind {
+            Some(kind) if kind != "owner" => Err(Refusal::HostUnverified),
+            _ => Ok(()),
+        }
     }
 }
 
@@ -587,31 +605,26 @@ impl Mux {
 mod tests {
     use super::*;
 
-    /// A start on a Cloud VM runs only on the caller's `vm_kind: "owner"`;
-    /// the VM's own `owner` record never allows it, and team evidence refuses
-    /// even then. A chat move in and folder trust (`None`) keep the record.
+    /// A call on a Cloud VM (a start, a chat move in, folder trust) runs only
+    /// on the caller's `vm_kind: "owner"`; the VM's own `owner` record never
+    /// allows it, and team evidence refuses even then.
     #[test]
-    fn a_start_on_a_cloud_vm_needs_the_callers_owner_word() {
+    fn a_call_on_a_cloud_vm_needs_the_callers_owner_word() {
         use AgentStartHost::{Allowed, OwnerCloud, TeamVm, UnknownCloud};
         let starts = AgentSessionStarts::default();
-        assert_eq!(starts.host_gate(Some(true)), Err(Refusal::HostUnverified));
+        assert_eq!(starts.host_gate(true), Err(Refusal::HostUnverified));
         let unverified = Err(Refusal::HostUnverified);
+        let team = Err(Refusal::TeamVmBlocked);
         let cases = [
-            (Allowed, Ok(()), Ok(()), Ok(())),
-            (OwnerCloud, Ok(()), unverified, Ok(())),
-            (UnknownCloud, Ok(()), unverified, unverified),
-            (
-                TeamVm,
-                Err(Refusal::TeamVmBlocked),
-                Err(Refusal::TeamVmBlocked),
-                Err(Refusal::TeamVmBlocked),
-            ),
+            (Allowed, Ok(()), Ok(())),
+            (OwnerCloud, Ok(()), unverified),
+            (UnknownCloud, Ok(()), unverified),
+            (TeamVm, team, team),
         ];
-        for (host, owner_word, no_word, record) in cases {
+        for (host, owner_word, no_word) in cases {
             starts.set_host(Arc::new(move || host));
-            assert_eq!(starts.host_gate(Some(true)), owner_word, "{host:?}");
-            assert_eq!(starts.host_gate(Some(false)), no_word, "{host:?}");
-            assert_eq!(starts.host_gate(None), record, "{host:?}");
+            assert_eq!(starts.host_gate(true), owner_word, "{host:?}");
+            assert_eq!(starts.host_gate(false), no_word, "{host:?}");
         }
     }
 }
