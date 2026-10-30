@@ -66,6 +66,29 @@ struct AgentPaneStateLossTests {
         #expect(launch.lastQuitCutOffPairedPhones(), "the paired check missed the record the notice read first")
     }
 
+    /// The record's names as they are on disk (no reader object, which would change it).
+    static func onDisk(_ directory: URL) -> [String] {
+        (try? Data(contentsOf: directory.appending(path: AgentPaneStateLoss.fileName)))
+            .flatMap { try? JSONDecoder().decode([String].self, from: $0) } ?? []
+    }
+
+    /// The record may be the only copy of a cut-off paired save: after the launch reads it, it keeps
+    /// naming the paired list (and only it: a lost draft is told once), a quit deadline in that run keeps
+    /// the name beside its own, and only the paired list's settling removes it.
+    @Test func theRecordKeepsNamingACutOffPairedListUntilItIsSettled() async throws {
+        let directory = try AgentPaneStateFileTests.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let drafts = AgentUnsentDrafts.fileName, paired = AgentPaneStateLoss.pairedPhonesFileName
+        AgentPaneStateLoss(directory: directory).deadlineEnd(files: AgentPaneStateFiles(), alsoCutOff: { [drafts, paired] }, end: {})()
+        let launch = AgentPaneStateLoss(directory: directory)
+        #expect(await launch.take() == [drafts, paired])
+        #expect(Self.onDisk(directory) == [paired], "after the launch read it, the record names \(Self.onDisk(directory))")
+        launch.deadlineEnd(files: AgentPaneStateFiles(), alsoCutOff: { [drafts] }, end: {})()
+        #expect(Self.onDisk(directory) == [drafts, paired], "a quit deadline in that run dropped the paired name: \(Self.onDisk(directory))")
+        launch.pairedCutOffSettled()
+        #expect(Self.onDisk(directory) == [drafts], "settling left the record as \(Self.onDisk(directory))")
+    }
+
     @Test func aLostScrollPlaceShowsNoNotice() {
         #expect(AgentPaneStateLoss.notices(for: [AgentPaneScrollAnchors.fileName], pairedSealCleared: false).isEmpty)
     }

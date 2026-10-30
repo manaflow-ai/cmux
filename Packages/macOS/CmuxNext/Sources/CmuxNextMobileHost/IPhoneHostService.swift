@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextAgentPane
+public import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextKeepAwake
 public import CmuxNextMobile
@@ -128,16 +128,19 @@ public final class IPhoneHostService {
         didSet {
             guard let directory = dependencies?.stateDirectory,
                   pairedFile?.file.deletingLastPathComponent().standardizedFileURL.path != directory.standardizedFileURL.path else { return }
+            let record = pairedQuitRecord
             pairedFile = MobileHostPairedDevicesFile(directory: directory, seal: MobileHostKeychainPairingSeal(
-                bundleID: directory.deletingLastPathComponent().lastPathComponent), lastQuitCutOff: pairedLastQuitCutOff)
+                bundleID: directory.deletingLastPathComponent().lastPathComponent),
+                lastQuitCutOff: { record?.lastQuitCutOffPairedPhones() ?? false }, cutOffSettled: { record?.pairedCutOffSettled() })
             pairedQuitWatch.watch(pairedFile)
         }
     }
     /// The paired list's one file for the state directory: its queue keeps this host's reads and saves in order.
     @ObservationIgnored private(set) var pairedFile: MobileHostPairedDevicesFile?
-    /// Whether the last quit's record names the paired file as cut off (set by the app before `wire`;
-    /// asked off the main thread, on the file's queue).
-    @ObservationIgnored public var pairedLastQuitCutOff: @Sendable () -> Bool = { false }
+    /// The app's record of the state files the last quit cut off (set by the app before `wire`): asked,
+    /// off the main thread on the paired file's queue, whether it names the paired file, and told when
+    /// that fact is safe without it.
+    @ObservationIgnored public var pairedQuitRecord: AgentPaneStateLoss?
     /// That file for a quit deadline's end, on its own thread: a save it cuts off is marked.
     @ObservationIgnored public let pairedQuitWatch = MobileHostPairedQuitWatch()
     @ObservationIgnored private var listing: Task<Void, Never>?

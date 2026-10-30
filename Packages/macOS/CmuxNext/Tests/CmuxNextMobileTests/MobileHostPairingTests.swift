@@ -265,9 +265,22 @@ import Testing
         await withCheckedContinuation { done in file.saveInBackground(devices) { done.resume(returning: $0) } }
     }
 
+    /// Returns, holding no thread of the caller, once `semaphore` is signaled.
+    static func signaled(_ semaphore: DispatchSemaphore) async {
+        await withCheckedContinuation { (resume: CheckedContinuation<Void, Never>) in
+            DispatchQueue.global().async {
+                // concurrency-allow: test only; a global queue waits for the save's own signal
+                semaphore.wait()
+                resume.resume()
+            }
+        }
+    }
+
     /// Review 29: a removal (a revoked or unpaired phone, a sign-out) runs after the saves queued
-    /// before it, takes the old digest away and records the new list.
-    @Test func aRemovalTakesTheOldDigestAwayAfterTheSavesBeforeIt() async throws {
+    /// before it, takes the old digest away and records the new list. No clock decides it: the save
+    /// before it holds the queue until the removal is queued behind it.
+    @Test(.timeLimit(.minutes(1)))
+    func aRemovalTakesTheOldDigestAwayAfterTheSavesBeforeIt() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let seal = HeldSeal()
@@ -275,18 +288,28 @@ import Testing
         let old = try Data(contentsOf: file.file)
         var devices = saved
         devices.remove(Self.request.phoneDeviceID)
-        // A save queued before it holds the file's queue for a moment.
         seal.holdNextClear()
         file.saveInBackground(saved)
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) { seal.gate.signal() }
-        #expect(await Self.removing(devices, in: file))
+        #expect(seal.heldClearStarted(), "the save before the removal never started")
+        let done = SavedBox()
+        let finished = DispatchSemaphore(value: 0)
+        file.saveInBackground(devices) { saved in
+            done.saved = saved
+            finished.signal()
+        }
+        seal.gate.signal()
+        await Self.signaled(finished)
+        #expect(done.saved == true)
         #expect(seal.digest() != MobileHostPairingSeal.digest(old), "the old list still counts after the removal")
         #expect(await file.loadInBackground(userID: "u") == devices)
     }
 
     /// Review 38: a removal never waits on the caller's thread (the main actor: the repo's threading
-    /// model), even while the save queue is held by a save queued before it.
-    @Test func aRemovalNeverWaitsOnTheCallersThread() async throws {
+    /// model), even while the save queue is held by a save queued before it. No clock decides it: the
+    /// hold ends only after `saveInBackground` returned, so a removal that waited on the caller's
+    /// thread would never return, and the time limit fails the test.
+    @Test(.timeLimit(.minutes(1)))
+    func aRemovalNeverWaitsOnTheCallersThread() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let seal = HeldSeal()
@@ -295,23 +318,15 @@ import Testing
         devices.remove(Self.request.phoneDeviceID)
         seal.holdNextClear()
         file.saveInBackground(saved)
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.6) { seal.gate.signal() }
-        let clock = ContinuousClock()
-        let started = clock.now
+        #expect(seal.heldClearStarted(), "the save before the removal never started")
         let done = SavedBox()
         let finished = DispatchSemaphore(value: 0)
         file.saveInBackground(devices) { saved in
             done.saved = saved
             finished.signal()
         }
-        let waited = clock.now - started
-        #expect(waited < .milliseconds(300), "the removal waited \(waited) on the caller's thread")
-        await withCheckedContinuation { (resume: CheckedContinuation<Void, Never>) in
-            DispatchQueue.global().async {
-                finished.wait()
-                resume.resume()
-            }
-        }
+        seal.gate.signal()
+        await Self.signaled(finished)
         #expect(done.saved == true)
         #expect(await file.loadInBackground(userID: "u") == devices)
     }
@@ -445,6 +460,30 @@ import Testing
         #expect(started, "the record-only launch never began its seal clear")
         #expect(deadlineDuringTheClear == .marked, "a quit deadline during the launch's seal clear found \(deadlineDuringTheClear)")
         #expect(list.devices.isEmpty, "the cut-off list counts again after a launch whose clear hung: \(list.devices.map(\.id))")
+    }
+
+    /// R9 review of #28275: a launch told only by the quit's record, whose marker the disk refuses and
+    /// whose seal clear the Keychain refuses, never tells the record the fact is safe, so the launch
+    /// after it is told again and still trusts no phone. No clock decides it.
+    @Test func aRecordOnlyLaunchWithNoMarkerAndARefusedClearKeepsTheRecord() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        struct DiskFull: Error {}
+        let seal = MobileHostMemoryPairingSeal()
+        let (saved, _) = try Self.saved(directory, seal: seal)
+        await saved.drained()
+        seal.refuseClears()
+        // The quit's record, as the app's AgentPaneStateLoss keeps it: it names the file until settled.
+        let recorded = OSAllocatedUnfairLock(initialState: true)
+        let launch = MobileHostPairedDevicesFile(directory: directory, seal: seal, lastQuitCutOff: { recorded.withLock { $0 } },
+                                                 cutOffSettled: { recorded.withLock { $0 = false } }, writeMarker: { _ in throw DiskFull() })
+        let first = await launch.loadInBackground(userID: "u")
+        let stillRecorded = recorded.withLock { $0 }
+        let next = MobileHostPairedDevicesFile(directory: directory, seal: seal, lastQuitCutOff: { recorded.withLock { $0 } })
+        let list = await next.loadInBackground(userID: "u")
+        #expect(first.devices.isEmpty, "the record-only launch trusted the cut-off list: \(first.devices.map(\.id))")
+        #expect(stillRecorded, "the launch told the record the fact was safe with no marker and no cleared seal")
+        #expect(list.devices.isEmpty, "the launch after it trusted the cut-off list: \(list.devices.map(\.id))")
     }
 
     /// Review 90 (2): a new hostd gets the newest paired list the app set, at once: a restart that

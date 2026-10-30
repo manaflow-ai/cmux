@@ -9,13 +9,15 @@ import os
 /// when that deadline ends the process first, its end (``deadlineEnd(files:end:)``) logs a fault naming
 /// the files still queued (names only, never content) and records them in `<state>/agent-state-lost.json`.
 /// The next launch reads the record once (``lastQuitNames()``): the paired phones' list checks it before
-/// its first read, and a new chat's lost unsent text earns a notice.
+/// its first read, and a new chat's lost unsent text earns a notice. The record keeps naming the paired
+/// list until that list says the fact is safe (``pairedCutOffSettled()``): the record may be its only copy.
 public nonisolated final class AgentPaneStateLoss: Sendable {
     public static let fileName = "agent-state-lost.json"
     /// The record; nil keeps none (a test host).
     public let record: URL?
-    /// The last quit's names, read once from the record (which is then removed); nil until read.
-    private let lastQuit = Mutex<[String]?>(nil)
+    /// The last quit's names, read once from the record; nil until read. `pending`: the paired list's
+    /// names the record keeps until ``pairedCutOffSettled()``.
+    private let state = Mutex<(lastQuit: [String]?, pending: [String])>((nil, []))
 
     /// - Parameter directory: The tag's state directory (beside the launch snapshot).
     public init(directory: URL?) {
@@ -34,24 +36,58 @@ public nonisolated final class AgentPaneStateLoss: Sendable {
         }
     }
 
-    /// Logs and records `names`; nothing when it is empty.
+    /// Logs and records `names`, with the paired list's names the record still keeps; nothing when
+    /// `names` is empty (the record on disk then still names those).
     func keep(_ names: [String]) {
         guard !names.isEmpty else { return }
         Self.logger.fault("quit ended with state files still saving: \(names.joined(separator: ", "), privacy: .public)")
-        guard let record, let data = try? JSONEncoder().encode(names) else { return }
-        try? data.blockingWrite(to: record, options: .atomic)
+        state.withLock { state in
+            write(names + state.pending.filter { !names.contains($0) })
+        }
     }
 
     /// The names the last quit recorded; empty when none. The first call (from any thread but the main
-    /// one: it reads the disk) reads the record and removes it, and every later call gets the same names.
+    /// one: it reads the disk) reads the record, and every later call gets the same names. The record is
+    /// removed then, except when it names a cut-off paired list: it keeps naming only that list until
+    /// ``pairedCutOffSettled()`` (a crash before the list's own launch step loses nothing).
     public func lastQuitNames() -> [String] {
-        lastQuit.withLock { cached in
-            if let cached { return cached }
+        state.withLock { state in
+            if let cached = state.lastQuit { return cached }
             let names = record.flatMap { try? Data(blockingContentsOf: $0) }.flatMap { try? JSONDecoder().decode([String].self, from: $0) } ?? []
-            if !names.isEmpty, let record { try? FileManager.checked.removeItem(at: record) }
-            cached = names
+            let paired = names.filter(Self.isPaired)
+            state.lastQuit = names
+            state.pending = paired
+            if names != paired { write(paired) }
             return names
         }
+    }
+
+    /// The paired list made the cut-off fact safe (its marker is on disk, or its seal is cleared): the
+    /// record stops naming it, and is removed when it names nothing else.
+    public func pairedCutOffSettled() {
+        state.withLock { state in
+            guard !state.pending.isEmpty else { return }
+            let pending = state.pending
+            state.pending = []
+            let onDisk = record.flatMap { try? Data(blockingContentsOf: $0) }.flatMap { try? JSONDecoder().decode([String].self, from: $0) } ?? []
+            write(onDisk.filter { !pending.contains($0) && !Self.isPaired($0) })
+        }
+    }
+
+    /// Writes `names` as the record, or removes it when `names` is empty.
+    private func write(_ names: [String]) {
+        guard let record else { return }
+        guard !names.isEmpty else {
+            try? FileManager.checked.removeItem(at: record)
+            return
+        }
+        guard let data = try? JSONEncoder().encode(names) else { return }
+        try? data.blockingWrite(to: record, options: .atomic)
+    }
+
+    /// Whether a record name is the paired phones' list's (its name, or its note).
+    private static func isPaired(_ name: String) -> Bool {
+        name.hasPrefix("paired-devices.")
     }
 
     /// ``lastQuitNames()`` off the calling thread.
