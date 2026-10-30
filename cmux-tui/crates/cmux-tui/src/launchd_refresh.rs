@@ -18,8 +18,9 @@
 //!   rebuild). The serve exits non-zero and launchd starts the new binary.
 //! - [`Outcome::Removed`]: nothing is at the program path and no app bundle
 //!   around it (or around its symlink's target) is left: the app was deleted.
-//!   The agent boots its job out, waiting for launchd, then removes its plist
-//!   when the plist still names this program.
+//!   The agent removes its plist when the plist still names this program,
+//!   then boots its job out, waiting for launchd (which ends this process).
+//!   A plist a later install rewrote is left with its job.
 //!
 //! A moved, touched or re-signed binary keeps its file (see
 //! `acpmux`'s `daemon/app_orphan.rs` for why only the link count is read). A
@@ -214,15 +215,29 @@ impl Agent {
         outcome
     }
 
-    /// Boots the job out, then removes its plist (when it still runs this
-    /// program). The bootout is waited for before anything returns: with
-    /// `KeepAlive`, an exit launchd saw first would start the job again from
-    /// the gone path. launchd ends this process during the bootout; if it
-    /// does not, the caller exits.
+    /// Removes the plist, then boots the job out, waiting for launchd.
+    ///
+    /// The plist goes first: launchd ends this process during the bootout
+    /// (SIGTERM, which `link serve` answers by returning), so nothing may be
+    /// left to do after it. With the plist gone, the bootout unloads the job
+    /// for good, and `KeepAlive` cannot start it again from the gone path.
+    /// When the plist now runs another program, a later install owns the
+    /// label (its own bootout already stopped this process, or will): this
+    /// agent touches neither the plist nor the job. A plist already gone
+    /// still has its loaded job booted out.
     fn remove(&self) {
+        match plist_program(&self.plist) {
+            Some(program) if !self.program.is(&program) => {
+                eprintln!("cmux: {} belongs to another install now; left as it is", self.label);
+                return;
+            }
+            Some(_) => {
+                let _ = std::fs::remove_file(&self.plist);
+            }
+            None => {}
+        }
         // SAFETY: getuid has no preconditions.
         let job = format!("gui/{}/{}", unsafe { libc::getuid() }, self.label);
-        let ours = plist_program(&self.plist).is_some_and(|program| self.program.is(&program));
         let booted = cmux_process::Command::new("/bin/launchctl")
             .args(["bootout", job.as_str()])
             .stdin(cmux_process::Stdio::null())
@@ -231,9 +246,6 @@ impl Agent {
             .status();
         if let Err(error) = booted {
             eprintln!("cmux: {} could not boot itself out: {error}", self.label);
-        }
-        if ours {
-            let _ = std::fs::remove_file(&self.plist);
         }
     }
 }
