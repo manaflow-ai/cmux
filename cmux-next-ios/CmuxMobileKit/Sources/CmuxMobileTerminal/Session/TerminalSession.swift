@@ -39,6 +39,8 @@ public enum TerminalConnectionState: Sendable, Equatable {
     /// keeps its last frame and says so, and attaches again by itself when
     /// the Mac is back.
     case offline(mac: String?)
+    /// Attachment failed; diagnostic output is not a successful connection.
+    case failed(message: String)
     /// Attached: the screen mirrors the Mac's terminal.
     case attached
 
@@ -75,6 +77,8 @@ public enum TerminalConnectionState: Sendable, Equatable {
         case .offline(let mac):
             guard let mac, !mac.isEmpty else { return "Your Mac is offline" }
             return "\(mac) is offline"
+        case .failed(let message):
+            return message
         case .attached:
             return nil
         }
@@ -85,7 +89,7 @@ public enum TerminalConnectionState: Sendable, Equatable {
     /// what is going on.
     public var keepsWarmFrame: Bool {
         switch self {
-        case .reattaching, .offline: true
+        case .reattaching, .offline, .failed: true
         case .connecting, .attached: false
         }
     }
@@ -94,6 +98,7 @@ public enum TerminalConnectionState: Sendable, Equatable {
     /// which nothing on the phone is waiting on.
     public var showsProgress: Bool {
         if case .offline = self { return false }
+        if case .failed = self { return false }
         return true
     }
 
@@ -105,6 +110,7 @@ public enum TerminalConnectionState: Sendable, Equatable {
         switch self {
         case .attached: return nil
         case .offline(let mac): return "Not sent: \(named(mac)) is offline. Send again when it's back."
+        case .failed(let message): return message
         // A first attach usually lands within a few hundred ms: the send
         // goes to the session, which holds it that long and says so if the
         // terminal never came (r13 review: a quick Send on a new tab was refused).
