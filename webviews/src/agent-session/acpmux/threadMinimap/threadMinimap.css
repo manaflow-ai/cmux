@@ -28,6 +28,11 @@
 .acpmux-minimap__rail {
   position: absolute;
   margin: 0;
+  /* Keep rail hover transforms and highlight opacity in their own compositing surface. The
+     transcript scroller has an edge mask; without a stable boundary Chromium can re-raster the
+     masked transcript whenever the rail's lit ticks or glass card changes (#25766). */
+  isolation: isolate;
+  will-change: transform;
   animation: acpmux-minimap-in var(--cmux-motion-micro) cubic-bezier(0.23, 1, 0.32, 1);
 }
 .acpmux-minimap__strip {
