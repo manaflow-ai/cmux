@@ -59,7 +59,13 @@ final class StreamWireDaemon: Sendable {
         var open: Set<UInt16> = []
         /// Attach request ids whose refusal waits for their stream's `cancel-stream`.
         var heldRefusals: [UInt16: Int] = [:]
+        /// The stream each surface was last attached on.
+        var streams: [Int: UInt16] = [:]
     }
+
+    /// `test-emit-output {surface, bytes}`: the daemon writes `bytes` of tagged `output` for the surface's stream,
+    /// then the reply, in wire order (one served connection is one thread, as one daemon client FIFO).
+    static let emitOutputCommand = "test-emit-output"
 
     init(_ script: Script = Script()) throws {
         path = "/tmp/cnd-strm-\(UUID().uuidString.prefix(8).lowercased()).sock"
@@ -156,6 +162,20 @@ final class StreamWireDaemon: Sendable {
         case AttachSurfaceRequest.command:
             return attach(id: id, stream: stream, surface: request["surface"] as? Int ?? 0, to: client, script: script,
                           served: &served)
+        case emitOutputCommand:
+            let surface = request["surface"] as? Int ?? 0
+            let total = request["bytes"] as? Int ?? 0
+            let byte = UInt8(ascii: "a") + UInt8(surface % 26)
+            var sent = 0
+            while sent < total {
+                let size = min(chunkBytes, total - sent)
+                var line: [String: Any] = ["event": "output", "surface": surface,
+                                           "data": Data(repeating: byte, count: size).base64EncodedString()]
+                if let stream = served.streams[surface] { line["stream"] = Int(stream) }
+                guard send(line, to: client) else { return false }
+                sent += size
+            }
+            return reply(id, data: [String: Any](), to: client)
         case CancelStreamRequest.command:
             let target = request["stream"] as? Int ?? 0
             let key = UInt16(exactly: target) ?? 0
@@ -191,7 +211,10 @@ final class StreamWireDaemon: Sendable {
             guard let stream else { return fields }
             return fields.merging(["stream": Int(stream)]) { $1 }
         }
-        if let stream { served.open.insert(stream) }
+        if let stream {
+            served.open.insert(stream)
+            served.streams[surface] = stream
+        }
         let history = script.historyBytes[UInt64(surface)]
         let ready: [String: Any] = history == nil
             ? ["event": "vt-state", "surface": surface, "cols": 80, "rows": 24, "data": ""]

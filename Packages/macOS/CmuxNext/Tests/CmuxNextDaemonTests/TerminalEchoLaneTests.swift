@@ -351,6 +351,92 @@ import Testing
         #expect(lane.chunks.isEmpty)
     }
 
+    // MARK: A stream on the shared connection (the P0 "no new terminals" stall, 2026-10-30)
+
+    /// A stream queue on the machine's shared connection, whose reader every other view and every control reply
+    /// shares. Its resync request is never answered here.
+    private static func sharedStreamQueue(onReaderBlocked: (@Sendable () -> Void)? = nil) -> TerminalEventQueue {
+        TerminalEventQueue(backpressure: .dropAndResync({ _ in }), recorder: nil, onReaderBlocked: onReaderBlocked)
+    }
+
+    /// Whether `reader` returns within `limit`. A reader still parked then is let go (`release`), so its thread exits.
+    private static func returns(_ reader: Reader, within limit: Duration,
+                                release: @escaping @Sendable () -> Void) async -> Bool {
+        let returned = await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                await reader.waitUntilReturned()
+                return !Task.isCancelled
+            }
+            group.addTask {
+                try? await Task.sleep(for: limit)
+                return false
+            }
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
+        }
+        if !returned { release() }
+        return returned
+    }
+
+    /// Lawrence's Ctrl-` stall (cmux20, v2.2.9-opt): the shared connection's reader sat in `parkReader()` for the
+    /// whole 3 s because one view's lane was full, so `new-tab`'s reply waited unread. On a shared stream a full
+    /// lane never parks the reader: the output after it goes onto the stream's bounded queue (which drops and
+    /// resyncs when that is full too), and the lane gets live output again only behind a marker, once it drained.
+    @Test func aFullLaneNeverParksTheSharedConnectionsReader() async throws {
+        let blocked = Atomic<Int>(0)
+        let queue = Self.sharedStreamQueue(onReaderBlocked: { blocked.add(1, ordering: .relaxed) })
+        let lane = FakeLane()
+        let router = try await Self.openRoute(queue, to: lane)
+        lane.holdNext() // the lane reports full at the first chunk and is never drained before the reader is done
+        let reader = Reader {
+            for text in ["a", "b", "c"] { router.receive(Self.output(text)) { _, _ in } }
+        }
+        let returned = await Self.returns(reader, within: .seconds(2)) { router.close() }
+        #expect(returned, "a full lane parked the shared connection's reader")
+        try #require(returned)
+        #expect(blocked.load(ordering: .relaxed) == 0)
+        #expect(lane.chunks == [Data("a".utf8)], "output went onto a lane that is above its capacity")
+        // Each chunk on the stream is a record with a marker behind it (at most one marker out at a time).
+        #expect(await queue.next() == .output(Data("b".utf8), colors: nil))
+        guard case .outputResume(let first)? = await queue.next() else { throw EchoLaneTestError.noMarker }
+        #expect(await queue.next() == .output(Data("c".utf8), colors: nil))
+        first.resume()
+        guard case .outputResume(let second)? = await queue.next() else { throw EchoLaneTestError.noMarker }
+        second.resume()
+        #expect(!router.routesToLane, "the route opened while the lane was still full")
+        lane.drain()
+        #expect(router.routesToLane, "the drained lane did not take live output again")
+        router.receive(Self.output("d")) { _, _ in }
+        #expect(lane.chunks == ["a", "d"].map { Data($0.utf8) })
+    }
+
+    /// Output held behind a marker past the hold limit never parks the shared reader either: it goes onto the
+    /// stream behind the marker, in order, and the route opens again one marker later.
+    @Test func heldOutputPastTheHoldLimitNeverParksTheSharedConnectionsReader() async throws {
+        let blocked = Atomic<Int>(0)
+        let queue = Self.sharedStreamQueue(onReaderBlocked: { blocked.add(1, ordering: .relaxed) })
+        let lane = FakeLane()
+        let router = try await Self.openRoute(queue, to: lane, holdLimit: 4)
+        let reader = Reader {
+            router.receive(Self.control(1)) { _, _ in }
+            for text in ["abc", "def", "g"] { router.receive(Self.output(text)) { _, _ in } }
+        }
+        let returned = await Self.returns(reader, within: .seconds(2)) { router.close() }
+        #expect(returned, "held output past the hold limit parked the shared connection's reader")
+        try #require(returned)
+        #expect(blocked.load(ordering: .relaxed) == 0)
+        #expect(lane.chunks.isEmpty, "output went to the lane before the record ahead of it was applied")
+        #expect(await queue.next() == .scrollChanged(offset: 1, atBottom: true))
+        guard case .outputResume(let first)? = await queue.next() else { throw EchoLaneTestError.noMarker }
+        #expect(await queue.next() == .output(Data("abcdefg".utf8), colors: nil))
+        first.resume()
+        guard case .outputResume(let second)? = await queue.next() else { throw EchoLaneTestError.noMarker }
+        #expect(!router.routesToLane)
+        second.resume()
+        #expect(router.routesToLane)
+    }
+
     /// With no lane named, output and the echo of its press stay on the stream, the echo right behind its chunk.
     @Test func withNoLaneAnEchoRidesBehindItsChunk() async throws {
         let queue = TerminalEventQueue(recorder: nil)
