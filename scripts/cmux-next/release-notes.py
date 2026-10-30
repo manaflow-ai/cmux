@@ -341,6 +341,10 @@ def public_pr_media_url(url):
         and not query
         and not fragment
         and decoded_path.startswith("/manaflow-ai/cmux/pr-media/")
+        # A remaining percent sign could be decoded again downstream. Reject it,
+        # and backslashes that URL loaders can interpret as path separators.
+        and "%" not in decoded_path
+        and "\\" not in decoded_path
         and not any(segment in (".", "..") for segment in decoded_path.split("/"))
     )
 

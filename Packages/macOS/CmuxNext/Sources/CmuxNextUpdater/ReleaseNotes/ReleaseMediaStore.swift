@@ -29,7 +29,7 @@ nonisolated public struct ReleaseMediaStore: Sendable {
     /// Kept for callers that named the old picture-only limit.
     static let maxImageBytes = maxMediaBytes
 
-    public init(cache: URL, bundledDirectories: [URL], fetcher: any AppcastFetching = URLSessionAppcastFetcher(deadline: 5),
+    public init(cache: URL, bundledDirectories: [URL], fetcher: any AppcastFetching = URLSessionAppcastFetcher(deadline: 5, followsRedirects: false),
                 siteBase: URL? = URL(string: "https://cmux.com/whats-new/"),
                 reelBase: URL? = URL(string: "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/nightly-next/")) {
         self.cache = cache
@@ -194,8 +194,10 @@ nonisolated public struct ReleaseMediaStore: Sendable {
               url.password == nil,
               url.query == nil,
               url.fragment == nil,
-              let decodedPath = url.path.removingPercentEncoding,
-              decodedPath.hasPrefix("/manaflow-ai/cmux/pr-media/") else { return false }
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let decodedPath = components.percentEncodedPath.removingPercentEncoding,
+              decodedPath.hasPrefix("/manaflow-ai/cmux/pr-media/"),
+              !decodedPath.contains("%"), !decodedPath.contains("\\") else { return false }
         return !decodedPath.split(separator: "/", omittingEmptySubsequences: false)
             .contains { $0 == "." || $0 == ".." }
     }
