@@ -80,7 +80,8 @@ struct ChiefSubagentChatOpensWhereItRunsTests {
         #expect(await host.runsSession(untagged) == true)
         daemon.stop()
         #expect(await host.runsSession(untagged) == true)
-        #expect(await host.runsSession(appOwn) == nil)
+        // No daemon and nothing on disk: not its own.
+        #expect(await host.runsSession(appOwn) == false)
 
         // A daemon too old for the exact resolve cannot say: never "not here", which would refuse
         // or misroute a chat it runs.
@@ -110,6 +111,8 @@ struct ChiefSubagentChatOpensWhereItRunsTests {
         tabs.chiefHost = "chief:0a1b2c3d"
         tabs.chiefPaneHost = SessionProbe(runs: chiefRuns)
         tabs.sessionProbe = SessionProbe(runs: appRuns)
+        // Only the two daemons above: never this Mac's real Chief homes.
+        tabs.chiefHomes = nil
         tabs.holdsTabs = { _ in true }
         tabs.reachable = { _ in true }
         tabs.create = { _, _, record, _, _, _ in

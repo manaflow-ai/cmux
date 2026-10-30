@@ -72,8 +72,8 @@ enum AgentSessionTab {
             } else {
                 do {
                     let running = try await services.agentTabs.hostRunning(session)
-                    // Another run may have shown it, or the pane closed, while the daemons answered.
-                    if let shown = services.agentTabs.tab(showing: session, host: running) {
+                    // Another run may have shown it in a Chief home, or the pane closed, while the daemons answered.
+                    if let running, let shown = services.agentTabs.tab(showing: session, host: running) {
                         if shows { _ = services.revealTab(shown) }
                         return .success(["session": .string(session), "tab": .string(daemon.store.tab(id: shown)?.resourceID?.rawValue ?? shown)])
                     }

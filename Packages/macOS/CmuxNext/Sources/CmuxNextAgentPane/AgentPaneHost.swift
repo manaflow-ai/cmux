@@ -284,12 +284,14 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     }
 
     /// The daemon on this host's socket resolves `sessionId` exactly; a session it keeps on disk
-    /// (`<ACPMUX_HOME>/sessions/<id>`) is still its own, whatever the daemon answers.
+    /// (`<ACPMUX_HOME>/sessions/<id>`) is still its own, whatever the daemon answers. With no socket
+    /// and nothing on disk it does not run it; a socket that does not answer cannot say.
     public func runsSession(_ sessionId: String) async -> Bool? {
         if environment == nil { environment = resolveEnvironment() }
         guard let environment else { return nil }
         // `try?` flattens: no answer and "cannot say" both fall through to the disk.
-        var answer: Bool?
+        // No daemon at all (no socket): only what its home keeps on disk is its own.
+        var answer: Bool? = false
         if FileManager.checked.fileExists(atPath: environment.socketPath) {
             answer = try? await AcpmuxStatusClient.runsSession(socketPath: environment.socketPath, sessionId: sessionId)
         }

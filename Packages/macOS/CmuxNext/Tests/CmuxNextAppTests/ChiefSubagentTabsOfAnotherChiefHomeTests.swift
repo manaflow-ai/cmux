@@ -84,8 +84,8 @@ import CmuxNextWakeups
     }
 
     /// #27934: `agent.openSessionTab` with no host finds a session only another Chief home of this
-    /// Mac runs (its acpmux keeps it), and records that home; a session no home can speak for is
-    /// left to the pane's router, never refused.
+    /// Mac runs (its acpmux keeps it), and records that home; a session no home runs is refused,
+    /// and one a home cannot speak for is left to the pane's router.
     @Test func anOpenWithNoHostRecordsTheOtherChiefHomeThatRunsTheSession() async throws {
         let (base, current, old) = try homes()
         defer { try? FileManager.default.removeItem(at: base.deletingLastPathComponent()) }
@@ -100,13 +100,14 @@ import CmuxNextWakeups
                               daemonArguments: [], childEnvironment: [:])
         })
         #expect(try await tabs.hostRunning(kept) == ChiefHomeAcpmux.host(muxHome: old))
-        #expect(try await tabs.hostRunning("01a1610c-24e0-75a3-8440-e4bcf537a4ba") == nil)
+        // No home's acpmux runs or keeps it (none has a daemon): refused, no dead tab.
+        await #expect(throws: AgentTabRefusal.self) { try await tabs.hostRunning("01a1610c-24e0-75a3-8440-e4bcf537a4ba") }
 
-        // Every Chief home's acpmux answers that it does not run the chat: refused, no dead tab.
+        // A home's acpmux that cannot say (no answer) leaves it to the pane's router.
         tabs.chiefHomes = ChiefHomeDirectory(parents: [base], work: BackgroundWork(), environment: { _ in nil }) { _, _ in
-            SessionProbe(runs: false)
+            SessionProbe(runs: nil)
         }
-        await #expect(throws: AgentTabRefusal.self) { try await tabs.hostRunning(kept) }
+        #expect(try await tabs.hostRunning(kept) == nil)
     }
 
     /// A Chief home made after the first lookup is found too.

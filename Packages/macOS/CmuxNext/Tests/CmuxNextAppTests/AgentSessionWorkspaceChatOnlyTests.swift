@@ -91,6 +91,7 @@ struct AgentSessionWorkspaceChatOnlyTests {
         tabs.sessionProbe = SessionProbe(runs: false)
         tabs.chiefHost = "chief:0a1b2c3d"
         tabs.chiefPaneHost = SessionProbe(runs: false)
+        tabs.chiefHomes = nil // never this Mac's real Chief homes
         let connectBy = ContinuousClock.now + .seconds(60)
         while services.daemon.connection == nil || services.daemon.identity == nil, ContinuousClock.now < connectBy {
             try await Task.sleep(for: .milliseconds(100))
