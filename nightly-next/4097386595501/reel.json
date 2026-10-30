@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "build": "4097386595501",
+  "notes": "notes/4097386595501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27561,
+      "title": "fix(sidebar): every trailing mark and control on one column and one slot pitch",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27454,
+      "title": "ci: a CmuxNext suite lane never waits for an active cmux-tui artifacts run",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25952,
+      "title": "ci(cmux-tui): publish nightly tree before full artifact pass",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27076,
+      "title": "ci(cmux-tui): fleet Rust steps keep cmux-tailnet's Go caches removable",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26715,
+      "title": "Cloud create: Retry sends the creation's own key, to its first send's team",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27538,
+      "title": "cmux NEXT No-SwiftUI check: a finding the base already had warns, not fails",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24438,
+      "title": "webviews: bun run check runs every piece and fails at the end",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27421,
+      "title": "test(cmux-next): run SidebarDocStore-owning live-daemon suites one at a time",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27621,
+      "title": "test(next): Ghostty config tests load their file without setenv",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27347,
+      "title": "mobile host: enforce identical trust checks for canonical forks",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
