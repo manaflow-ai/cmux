@@ -90,17 +90,39 @@ import Testing
         #expect(layout.row(for: .group(GroupID("g-coord"))) != nil)
     }
 
-    /// A collapsed group of one same-named member still draws that member's row (its spinner and unread stay seen).
-    @Test func aCollapsedSameNameGroupDrawsTheMember() throws {
+    /// A collapsed group of one same-named member draws as on base: its header alone, unless the member is kept shown
+    /// in it (the active workspace), and then that member's one row.
+    @Test func aCollapsedSameNameGroupFoldsAsBefore() throws {
         let group = SidebarGroup(id: GroupID("g-coord"), name: "release-coord", isCollapsed: true, workspaces: [ws("w-coord", "release-coord")])
-        let layout = layout([.group(group)])
-        #expect(layout.row(for: .group(GroupID("g-coord"))) == nil)
-        let row = try #require(layout.row(for: .workspace(WorkspaceID("w-coord"))))
+        #expect(layout([.group(group)]).rows.map(\.key) == [.group(GroupID("g-coord"))], "folded: the header alone")
+        var options = SidebarLayoutOptions()
+        options.activeWorkspaceID = WorkspaceID("w-coord")
+        let kept = layout([.group(group)], options: options)
+        #expect(kept.row(for: .group(GroupID("g-coord"))) == nil)
+        let row = try #require(kept.row(for: .workspace(WorkspaceID("w-coord"))))
         #expect(row.standsForGroup)
     }
 
-    /// A drag's gap in the group opens around the one row: the header does not come back mid-drag.
-    @Test func aDropGapInTheGroupKeepsOneRow() throws {
+    /// Astra review: with Done folding on, a same-named member marked Done goes into the group's "Done (1)" row, exactly
+    /// as on base (header, then the fold); opened, the fold lists it under the fold row.
+    @Test func aDoneSoleMemberStaysInTheDoneFold() throws {
+        var member = ws("w-coord", "release-coord")
+        member.taskStatus = .done
+        let group = SidebarGroup(id: GroupID("g-coord"), name: "release-coord", workspaces: [member])
+        let fold = SidebarDoneFoldID(section: .machine(machine.id), group: group.id)
+        var options = SidebarLayoutOptions()
+        options.foldsDone = true
+        let folded = layout([.group(group)], options: options)
+        #expect(folded.rows.map(\.key) == [.group(group.id), .doneFold(fold)])
+        #expect(try #require(folded.row(for: .doneFold(fold))).childCount == 1, "Done (1)")
+        options.openDoneFolds = [fold]
+        let opened = layout([.group(group)], options: options)
+        #expect(opened.rows.map(\.key) == [.group(group.id), .doneFold(fold), .workspace(member.id)])
+        #expect(opened.rows.allSatisfy { !$0.standsForGroup })
+    }
+
+    /// A drag's gap in the group opens under the one row, as it opened under the header: the row keeps the header's slot.
+    @Test func aDropGapInTheGroupOpensUnderTheRow() throws {
         let group = SidebarGroup(id: GroupID("g-coord"), name: "release-coord", workspaces: [ws("w-coord", "release-coord")])
         var options = SidebarLayoutOptions()
         options.gap = DropPosition(section: .machine(machine.id), group: group.id, index: 0)
@@ -109,7 +131,25 @@ import Testing
         #expect(layout.row(for: .group(GroupID("g-coord"))) == nil)
         let row = try #require(layout.row(for: .workspace(WorkspaceID("w-coord"))))
         let gapY = try #require(layout.gapY)
-        #expect(gapY < row.y, "the gap opens above the row")
+        #expect(row.y == metrics.topPadding, "the row stays in the header's slot")
+        #expect(gapY >= row.maxY, "the gap opens under the row")
+    }
+
+    /// Astra review: the one row sits in the header's slot, so a drop resolves as on the header: its upper edge before the
+    /// group, its body into the group at its start.
+    @Test func aDropOnTheOneRowResolvesAsOnTheHeader() throws {
+        let group = SidebarGroup(id: GroupID("g-coord"), name: "release-coord", workspaces: [ws("w-coord", "release-coord")])
+        let sections = [SidebarSection(kind: .machine(machine), nodes: [.workspace(ws("w-loose", "loose")), .group(group)])]
+        let layout = SidebarLayout.make(sections: sections, metrics: metrics)
+        let row = try #require(layout.row(for: .workspace(WorkspaceID("w-coord"))))
+        let section = SectionID.machine(machine.id)
+        func target(_ fraction: CGFloat) -> DropTarget? {
+            DropResolver.resolve(y: row.y + row.height * fraction, payload: .workspaces([WorkspaceID("w-loose")]), base: layout,
+                                 sections: sections, onto: (0, 0))
+        }
+        #expect(target(0.1) == .position(DropPosition(section: section, group: nil, index: 1)), "upper edge: before the group")
+        #expect(target(0.6) == .position(DropPosition(section: section, group: group.id, index: 0)), "body: into the group")
+        #expect(target(0.95) == .position(DropPosition(section: section, group: group.id, index: 0)), "lower half: into the group")
     }
 
     /// The group's line runs along the one row, at the header bar's left edge, in the group's color.
