@@ -1,7 +1,13 @@
 {
   "title": "Workspace insertion without a cascade (cmux#28205)",
-  "frameInterval": 0.016666666666666666,
-  "settings": {"ui.animations.newWorkspace": true},
+  "frameInterval": 0.25,
+  "settings": {
+    "ui": {
+      "animations": {
+        "newWorkspace": true
+      }
+    }
+  },
   "steps": [
     {
       "title": "Launch",
@@ -144,5 +150,6 @@
       "title": "Settled",
       "wait": 2
     }
-  ]
+  ],
+  "displayScale": 2
 }
