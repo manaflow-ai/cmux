@@ -189,9 +189,15 @@ struct PlacementDocumentWriteOrderTests {
                     committed: try #require(reloaded.rows(SidebarViewRequest(live: Self.live))).compactMap(\.ref?.workspaceID),
                     expected: Self.expected, original: Self.original, operations: remote.calls.map(\.ops))
             }
+            // Regression: the document can go inactive while the bridge still has its last
+            // document drag cached. Resync must leave normal personal-order drop targeting active;
+            // using `model.docDrag == nil` here misses the disconnect and keeps document mode.
+            controller.sidebar.model.docDrag = SidebarDocDrag(
+                item: { _ in nil }, section: { _ in nil }, begin: { _ in [:] }, drop: { _, _ in })
             SidebarDocStore.current = nil
             controller.sidebar.resync()
-            #expect(controller.sidebar.model.ungroupedFirst, "inactive document resync must restore legacy ungrouped-first targeting")
+            #expect(controller.sidebar.model.ungroupedFirst,
+                    "inactive document resync must restore legacy ungrouped-first targeting even with cached docDrag")
             await connection.close()
         } catch {
             await connection.close()
