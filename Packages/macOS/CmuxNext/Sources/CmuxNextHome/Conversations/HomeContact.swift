@@ -83,8 +83,6 @@ public enum HomeComposeOutcome: Hashable, Sendable {
     case notReachable(String)
     /// Too many conversations started in the last hour.
     case rateLimited
-    /// People and email addresses in one group: invite the addresses first.
-    case mixedRecipients
     /// The text is not an email address.
     case invalidAddress(String)
     /// The owner is offline: nothing was sent.
