@@ -598,10 +598,6 @@ impl SynchronizedTcpStream {
         self.stream.set_read_timeout(timeout)
     }
 
-    pub(super) fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
-        self.stream.set_write_timeout(timeout)
-    }
-
     pub(super) fn write_websocket_text(&mut self, text: &str) -> std::io::Result<()> {
         if text.len() > RENDER_ATTACH_MAX_BYTES {
             return Err(std::io::Error::new(

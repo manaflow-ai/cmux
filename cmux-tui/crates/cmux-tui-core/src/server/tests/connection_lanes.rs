@@ -143,7 +143,7 @@ fn the_connection_budget_follows_the_open_file_limit() {
         println!("\nconnection-budget={}", ConnectionBudget::of_process().total());
         return;
     }
-    let hard = limit.rlim_max as u64;
+    let hard = limit.rlim_max;
     let (low, high) = (512, 4096.min(hard));
     assert!(high > low, "hard open-file limit {hard} is too low for this test");
     let (small, large) = (budget_with_soft_limit(low), budget_with_soft_limit(high));
@@ -167,7 +167,7 @@ fn the_connection_budget_follows_the_open_file_limit() {
 /// (`EAGAIN`) when a write deadline is set on the socket; with none it keeps
 /// waiting.
 struct StalledSocket {
-    state: std::sync::Mutex<StalledState>,
+    state: Mutex<StalledState>,
     changed: std::sync::Condvar,
     capacity: usize,
 }
@@ -175,9 +175,9 @@ struct StalledSocket {
 #[derive(Default)]
 struct StalledState {
     /// Request bytes the client wrote, for the daemon's reader.
-    inbound: std::collections::VecDeque<u8>,
+    inbound: VecDeque<u8>,
     /// Reply bytes the daemon wrote, for the client.
-    outbound: std::collections::VecDeque<u8>,
+    outbound: VecDeque<u8>,
     write_timeout: Option<Duration>,
     /// A daemon write waits for room in `outbound`.
     writer_waiting: bool,
@@ -193,7 +193,7 @@ struct StalledState {
 impl StalledSocket {
     fn new(capacity: usize) -> Arc<Self> {
         Arc::new(Self {
-            state: std::sync::Mutex::new(StalledState::default()),
+            state: Mutex::new(StalledState::default()),
             changed: std::sync::Condvar::new(),
             capacity,
         })
@@ -346,9 +346,8 @@ fn a_client_that_stops_reading_for_a_while_keeps_its_connection() {
     let mux = test_mux();
     // Smaller than the replies below: the daemon's writer waits on the client.
     let socket = StalledSocket::new(8 * 1024);
-    let server_mux = mux.clone();
     let server = StalledEnd(socket.clone());
-    let handler = std::thread::spawn(move || handle_connection(server_mux, Box::new(server)));
+    let handler = std::thread::spawn(move || handle_connection(mux, Box::new(server)));
 
     const REQUESTS: u64 = 64;
     for id in 1..=REQUESTS {

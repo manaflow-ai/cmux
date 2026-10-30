@@ -236,7 +236,7 @@ fn soft_open_file_limit() -> u64 {
         // The documented POSIX minimum: a budget that still admits clients.
         return 256;
     }
-    limit.rlim_cur as u64
+    limit.rlim_cur
 }
 
 #[cfg(not(unix))]

@@ -144,6 +144,7 @@ impl RestoringServer {
         self.slot.attach(ServedSession {
             mux: mux.clone(),
             render_service: Arc::new(RenderService::new()),
+            app_render_service: Arc::new(RenderService::new()),
         });
         self.attached = true;
         PendingServer::from_parts(std::mem::take(&mut self.path), mux, self.shutdown.clone())

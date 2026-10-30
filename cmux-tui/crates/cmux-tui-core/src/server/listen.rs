@@ -446,7 +446,12 @@ pub fn app_lane_socket_path(session_socket: &Path) -> PathBuf {
 #[derive(Clone)]
 pub(super) struct ServedSession {
     pub(super) mux: Arc<Mux>,
+    /// The outbound byte budgets of the session socket's connections.
     pub(super) render_service: Arc<RenderService>,
+    /// The app socket's own budgets: a session-socket client that stops
+    /// reading holds its queued bytes until its queue overflows, and those
+    /// bytes must never be the ones the app's replies need (#27698).
+    pub(super) app_render_service: Arc<RenderService>,
 }
 
 impl ServedSession {
@@ -464,7 +469,10 @@ impl ServedSession {
             return;
         };
         let mux = self.mux.clone();
-        let render_service = self.render_service.clone();
+        let render_service = match lane {
+            ConnectionLane::App => self.app_render_service.clone(),
+            ConnectionLane::Shared => self.render_service.clone(),
+        };
         let _ = std::thread::Builder::new().name("mux-conn".into()).spawn(move || {
             handle_connection_with_permit(mux, stream, render_service, Some(permit));
         });

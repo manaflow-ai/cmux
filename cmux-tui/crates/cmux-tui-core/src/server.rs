@@ -2866,9 +2866,13 @@ fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
 
 /// Remove the session socket file and the app's socket next to it
 /// (`app_lane_socket_path`; call on clean shutdown).
+///
+/// The app's socket goes first: a daemon that binds the session socket right
+/// after the first removal (under the start lock) then binds a fresh `.app`
+/// that this call no longer touches.
 pub fn cleanup(path: &Path) {
-    let _ = std::fs::remove_file(path);
     let _ = std::fs::remove_file(app_lane_socket_path(path));
+    let _ = std::fs::remove_file(path);
 }
 
 #[cfg(test)]
