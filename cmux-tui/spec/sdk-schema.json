@@ -21247,6 +21247,7 @@
    "priority": "control",
    "durability": "memory",
    "clients": [
+    "macos",
     "sdk"
    ]
   },
@@ -21925,6 +21926,7 @@
    "priority": "control",
    "durability": "memory",
    "clients": [
+    "macos",
     "sdk"
    ]
   },
@@ -21950,6 +21952,7 @@
    "priority": "control",
    "durability": "memory",
    "clients": [
+    "macos",
     "sdk"
    ]
   },
@@ -21975,6 +21978,7 @@
    "priority": "control",
    "durability": "read_only",
    "clients": [
+    "macos",
     "sdk"
    ]
   },
