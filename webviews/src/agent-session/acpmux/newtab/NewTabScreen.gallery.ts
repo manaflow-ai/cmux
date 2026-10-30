@@ -1273,14 +1273,20 @@ export default agentPaneEntry({
         const popover = ctx.document.querySelector<HTMLElement>(".nt-popover");
         const rows = ctx.document.querySelector<HTMLElement>(".nt-rows");
         if (!popover || !rows) throw new Error("the suggestions popover did not render");
+        // Measured narrow, then put back: the state's capture shows the popover at its anchored width.
+        const width = popover.style.width;
         popover.style.width = "260px";
-        const viewport = rows.getBoundingClientRect();
-        if (rows.scrollWidth > rows.clientWidth + 1)
-          throw new Error(`the create strip scrolls sideways (${rows.scrollWidth} > ${rows.clientWidth})`);
-        for (const item of rows.querySelectorAll<HTMLElement>(".nt-create-strip-item")) {
-          const rect = item.getBoundingClientRect();
-          if (rect.left < viewport.left - 1 || rect.right > viewport.right + 1)
-            throw new Error(`create action leaves the narrow popover (${rect.left}..${rect.right})`);
+        try {
+          const viewport = rows.getBoundingClientRect();
+          if (rows.scrollWidth > rows.clientWidth + 1)
+            throw new Error(`the create strip scrolls sideways (${rows.scrollWidth} > ${rows.clientWidth})`);
+          for (const item of rows.querySelectorAll<HTMLElement>(".nt-create-strip-item")) {
+            const rect = item.getBoundingClientRect();
+            if (rect.left < viewport.left - 1 || rect.right > viewport.right + 1)
+              throw new Error(`create action leaves the narrow popover (${rect.left}..${rect.right})`);
+          }
+        } finally {
+          popover.style.width = width;
         }
       },
     },
