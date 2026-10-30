@@ -137,7 +137,8 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
         "description": format!(
             "Run JavaScript that calls cmux tools and return its result. This chat runs in \
              cmux: a terminal, tab or workspace the person asks for is a cmux one, made here, \
-             not in your own shell.{computer_use} An async \
+             not in your own shell, and \"this workspace\" is the cmux workspace this chat is \
+             in (workspace: \"current\"), never the folder.{computer_use} An async \
              function \
              body, `await cmux.<tool>({{...}})` per call, `return` a JSON value. Do related \
              steps in one script: look up, act and check together. No file system, network or \
