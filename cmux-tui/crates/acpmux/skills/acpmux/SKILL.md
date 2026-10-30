@@ -127,6 +127,9 @@ acpmux ls [--all] [--wide]                         # live named lanes + STUCK re
 acpmux ls [--status running|ready|waiting|idle|closed] [--pending] [--tag k=v] [--live] [--host HOST]   # a filter hides nothing
 acpmux --json ls --live --fields name,status,peer  # scripts; bare `ls --json` is every record, thousands on a busy host
 acpmux session info NAME                           # model, mode, policy, pending permissions, usage
+acpmux session info NAME --fields status,turn.activity   # just those fields (one field: its bare value), no `--json | python3`
+acpmux ls 'review-*' --fields name,status          # name globs (`host/glob` for one peer); --fields takes dotted paths
+acpmux send --tag area=X [--dry-run] "…"           # a --no-wait message to every live session with the tag, one line each
 acpmux session set NAME model=… | effort=… | mode=… | policy=…
 acpmux session fork NAME [--name NEW]              # new session sharing the history so far
 acpmux session cancel NAME                         # stop the running turn; the session stays
@@ -221,8 +224,10 @@ resolve): your policy answers those, and `ask` sends them to a person.
 ## 6. Other machines
 
 A session on a peer is named `HOST/NAME` (`big-red/review-42`), and every command takes that
-form. Say and pass that name: never ask the person for a session id, and never use a bare id
-from another machine (an id names a session only on the machine that runs it).
+form. A bare name (`review-42`) or an id prefix also works when exactly one live session on this
+host or its peers has it; when several do, the command refuses and prints the exact
+`HOST/NAME` command for each, so pick one and run it. Say and pass `HOST/NAME`: never ask the
+person for a session id.
 
 ```bash
 acpmux host status                               # each host: reachable, round trip, disk, load, build

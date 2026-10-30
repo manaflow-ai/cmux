@@ -5,10 +5,11 @@ extension AgentPaneModel {
     /// Device card: a computer on the tailnet or in ~/.ssh/config, enrolled with its daemon kept
     /// current, or a new Cloud VM), and a started chat's Move to Cloud and Bring Back Local (the tab
     /// menu's same actions, on this tab). webviews environments.ts CONNECT_ACTIONS names the same
-    /// seven.
+    /// seven. Also the machine header's Reconnect (`machine.reconnect`), which the host runs on
+    /// this tab's own machine only (the strip's red machine, picked).
     static let connectActions: Set<String> = [
         "remote.connect", "newCloudMachine", "palette.openCloudPane", "palette.mobileConnect", "device.add", "cloudMove",
-        "cloudBringBack",
+        "cloudBringBack", "machine.reconnect",
     ]
     /// The arguments a connect action runs with.
     static let connectArguments: [String: [String: String]] = ["palette.openCloudPane": ["route": "/get"]]
@@ -22,10 +23,14 @@ extension AgentPaneModel {
     /// sign-in and its continuation. An action the app did not run (turned off, or not for this tab)
     /// is an `unavailable` failure, so the page can say so; one that ran and
     /// then stopped reports itself in the app (its refusal or toast).
-    func runAction(_ id: String) -> [String: Any] {
+    func runAction(_ id: String, session: String? = nil) -> [String: Any] {
         guard id == "newTab.page" || id == "agentPane.searchChats" || Self.connectActions.contains(id),
               let onRunAction else {
             return Self.unsupported("action.run")
+        }
+        // Bound to the chat whose menu offered it: a tab that shows another chat by now runs nothing.
+        if let session, header?.showsChat(session) != true {
+            return AgentPaneReply.failure(code: "unavailable", message: "This chat is no longer shown.")
         }
         if Self.connectActions.contains(id), !transport.gestures.consume() { return Self.transportFailure(.gestureRequired) }
         if onRunAction(id, Self.connectArguments[id] ?? [:]) { return AgentPaneReply.success() }
