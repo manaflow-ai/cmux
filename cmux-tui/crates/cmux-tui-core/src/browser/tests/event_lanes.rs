@@ -151,3 +151,68 @@ fn closing_a_route_serves_its_close_and_ends_the_lane() {
     // The handler (and what it holds) is gone with the lane.
     assert!(rx.recv_timeout(Duration::from_millis(50)).is_err());
 }
+
+#[test]
+fn registry_waits_do_not_block_other_event_lanes() {
+    let mux = Mux::new("browser-event-lanes-registry", SurfaceOptions::default());
+    let surfaces = (0..EVENT_POOL_THREADS)
+        .map(|_| mux.new_browser_tab("https://example.test".into(), None, Some((10, 5))).unwrap())
+        .collect::<Vec<_>>();
+    let routes = surfaces
+        .iter()
+        .map(|surface| {
+            let route = Arc::new(SurfaceRoute::new());
+            start_surface_thread(
+                surface.clone(),
+                route.clone(),
+                Arc::downgrade(&mux),
+                Weak::new(),
+                "session-test".into(),
+            )
+            .unwrap();
+            route
+        })
+        .collect::<Vec<_>>();
+
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let registry_mux = mux.clone();
+    let holder = thread::spawn(move || {
+        registry_mux
+            .read_registry_state(|_| {
+                entered_tx.send(()).unwrap();
+                let _ = release_rx.recv();
+                Ok(())
+            })
+            .unwrap();
+    });
+    entered_rx.recv_timeout(BROWSER_TEST_SAFETY_BOUND).unwrap();
+
+    // Both navigation handlers precede the probe in the pool's FIFO. If
+    // either performs registry I/O here, two tabs consume the whole pool.
+    for route in &routes {
+        assert!(!route.deliver(cmux_tui_cdp::CdpEvent::TargetInfoChanged(
+            cmux_tui_cdp::TargetInfo {
+                session_id: Some("session-test".into()),
+                target_id: "target-test".into(),
+                title: "Next page".into(),
+                url: "https://example.test/next".into(),
+            },
+        )));
+    }
+    let probe = Arc::new(SurfaceRoute::new());
+    let rx = reporting_lane(&probe);
+    assert!(!probe.deliver(navigated(7)));
+    let served = rx.recv_timeout(BROWSER_TEST_SAFETY_BOUND);
+
+    // Release before asserting so a failing run cannot strand the shared
+    // pool or a registry holder for the rest of this test binary.
+    drop(release_tx);
+    holder.join().unwrap();
+    for route in routes {
+        route.close("test complete".into());
+    }
+    probe.close("test complete".into());
+    mux.shutdown();
+    assert_eq!(served.unwrap(), Some(7), "registry work held every event worker");
+}
