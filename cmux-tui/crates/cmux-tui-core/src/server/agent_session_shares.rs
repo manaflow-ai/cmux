@@ -568,6 +568,23 @@ impl LinkShares {
         );
     }
 
+    /// The room refused `share_id`'s host for good (401/403, close code 4003): a share still
+    /// open here is revoked, since no guest could reach its host; its kicks are moot, and the
+    /// room `DELETE` is queued (retried until the share's expiry, when the room ends it itself).
+    pub(super) fn refused_by_room(&self, directory: Option<&Path>, share_id: &str) {
+        self.end_where(
+            directory,
+            |s| s.share_id == share_id,
+            |share| {
+                share.state = ShareState::Revoked;
+                share.pending_room_ops.retain(|o| op_of(o) != Some("kick"));
+                if share.room.is_some() && !share.delete_queued() {
+                    share.pending_room_ops.push(json!({"op": "delete"}));
+                }
+            },
+        );
+    }
+
     /// Ends every open share `which` picks with `end`. The end stands even when it cannot be
     /// written: no guest reaches the share from now on, and the write is retried.
     fn end_where(
