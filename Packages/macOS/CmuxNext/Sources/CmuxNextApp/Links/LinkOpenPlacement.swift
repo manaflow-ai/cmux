@@ -62,7 +62,10 @@ struct LinkOpenPlacement<Pane: Equatable> {
     /// the existing pane `target` opens in or below, then every pane of the source's right column
     /// (`column`), never the source. Review of #28044 at bd2b918d: with links A (upper) and B
     /// (lower) open, A again targets the lower pane, so looking only there opened a second A.
+    /// An open that lands in the source itself (Same Pane, or a source too narrow to split) reuses
+    /// nothing on the right: review of #28044 at c15e0d89, a Same Pane link focused its tab there.
     static func reusePanes(target: Target, column: [Pane], source: Pane) -> [Pane] {
+        if case .pane(let pane) = target, pane == source { return [] }
         var panes: [Pane] = []
         switch target {
         case .pane(let pane), .splitBelow(of: let pane): panes.append(pane)

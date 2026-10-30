@@ -87,6 +87,12 @@ struct LinkOpenPlacementTests {
         #expect(open("A") == "selected in upper", "A was opened a second time in the lower pane")
         #expect(Rule.reusePanes(target: .pane("lower"), column: ["upper", "lower"], source: "chat") == ["lower", "upper"])
         #expect(Rule.reusePanes(target: .splitRight(of: "chat"), column: [], source: "chat").isEmpty)
+        // Review of #28044 at c15e0d89: Same Pane opens in the source, so nothing on the right is reused.
+        #expect(Rule.reusePanes(target: .pane("chat"), column: ["upper", "lower"], source: "chat").isEmpty)
+        let samePane = Rule(setting: .samePane).target(source: "chat", takesTabs: true, right: "upper", column: ["upper", "lower"],
+                                                       sourceWidth: 1400, width: wide)
+        #expect(Rule.reusePanes(target: samePane, column: ["upper", "lower"], source: "chat").isEmpty,
+                "a Same Pane link selected its page's tab on the right instead of opening in the source")
     }
 
     @Test func aNarrowRightColumnTakesTheTabInsteadOfSplitting() {

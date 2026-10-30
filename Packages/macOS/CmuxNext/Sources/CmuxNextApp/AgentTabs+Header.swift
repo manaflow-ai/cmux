@@ -89,7 +89,13 @@ extension AgentTabStore {
         if rightIsEmpty, let placed = openInMainPane(resolve(provisional), origin == .user, open, created, finished) { return placed }
         switch decision {
         case .splitRight: return openBeside(provisional, origin: origin, open: open, created: created, finished: finished)
-        case .splitBelow(let pane): return openBeside(provisional, in: pane, direction: "down", origin: origin, open: open, created: created, finished: finished)
+        case .splitBelow(let pane):
+            // Until the split lands the column reads as two panes (RightColumn.reserveBelow), so a link or chat opened meanwhile is a tab.
+            let release = RightColumn.reserveBelow(LayoutPaneID(pane))
+            let opened = openBeside(provisional, in: pane, direction: "down", origin: origin, open: open, created: created,
+                                    finished: { moved in release(); finished?(moved) })
+            if !opened { release() }
+            return opened
         case .tab(let pane): return openBeside(provisional, in: pane, split: false, origin: origin, open: open, created: created, finished: finished)
         }
     }

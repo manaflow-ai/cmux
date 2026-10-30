@@ -111,6 +111,7 @@ final class LinkOpener {
         guard let source = source ?? services?.windows.active?.focusedPane else { return false }
         switch target(from: source, mainPane: mainPane) {
         case .pane(let id):
+            let id = RightColumn.realPane(id)
             return make(id == source.layoutPaneID ? source : source.workspace?.panes[id] ?? source, nil)
         case .splitRight:
             let outbound = OutboundTab.begin(in: source)
@@ -120,12 +121,15 @@ final class LinkOpener {
             })
         case .splitBelow(let id):
             // Made unselected in the pane on the right, which keeps showing what it shows, then moved below it.
+            // Until its move lands the column reads as two panes (RightColumn.reserveBelow): a link opened meanwhile is a tab.
             guard let right = source.workspace?.panes[id] else { return make(source, nil) }
-            let outbound = OutboundTab.begin(in: right)
-            return outbound.started(make(right) { [weak self, weak right] surface in
-                guard let self, let right else { return outbound.finish(moved: false) }
-                self.move(surface, from: right, to: .split(.bottom), focus: !background, outbound: outbound)
+            let outbound = OutboundTab.begin(in: right), release = RightColumn.reserveBelow(id)
+            let started = outbound.started(make(right) { [weak self, weak right] surface in
+                guard let self, let right else { release(); return outbound.finish(moved: false) }
+                self.move(surface, from: right, to: .split(.bottom), focus: !background, outbound: outbound, then: release)
             })
+            if !started { release() }
+            return started
         case .newColumn:
             let outbound = OutboundTab.begin(in: source)
             return outbound.started(make(source) { [weak self, weak source] surface in
@@ -327,12 +331,14 @@ final class LinkOpener {
     /// Moves the new tab on `surface` out of `source` to `destination` (a new split, column or dock)
     /// once the store lists it, then focuses it unless not `focus`. Until then `source`'s strip leaves it
     /// out when `outbound` is supplied. A failed move selects it where it is, so it never stays hidden.
+    /// `then` runs once the move has landed or failed.
     private func move(_ surface: SurfaceID, from source: PaneController, to destination: Destination, focus: Bool,
-                      target: FocusState.Target = .content, outbound: OutboundTab? = nil) {
+                      target: FocusState.Target = .content, outbound: OutboundTab? = nil, then: (@MainActor () -> Void)? = nil) {
         outbound?.made(surface)
         let services = source.services, store = source.daemon.store
         let intent = focus ? source.workspace?.beginFocusIntent() : nil
         services.registry.track(Task { @MainActor [weak source] () -> ActionWorkFailure? in
+            defer { then?() }
             let listed = Task { @MainActor () -> TabModel? in
                 if let tab = store.tab(surface: surface) { return tab }
                 // `tabListRevision`: the tracked read hears the tab appear (AppServices.locateTab).
