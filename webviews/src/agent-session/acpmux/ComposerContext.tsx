@@ -224,10 +224,11 @@ export function ComposerContext({
   // A Cloud machine picked while it was paused or not yet linked (pickCloudMachine below), until
   // acpmux lists it ready, another machine is picked, or the chat changes. A change drops it for
   // good, so a chat that comes back to the same key (an empty New Tab id) never inherits it; a
-  // machine the account no longer lists ends it, and one that failed to start stops it moving.
+  // machine the account stops listing ends it for good too (it does not come back with the
+  // machine), and one that failed to start stops it moving.
   const [waitingPick, setWaiting] = useState<{ key: string; id: string; name: string } | undefined>(undefined);
-  if (waitingPick && waitingPick.key !== pickKey) setWaiting(undefined);
   const waitMachine = waitingPick?.key === pickKey ? shownMachines.find((m) => m.id === waitingPick.id) : undefined;
+  if (waitingPick && !waitMachine) setWaiting(undefined);
   const waiting = waitMachine ? waitingPick : undefined;
   const waitFailed = waitMachine?.stage === "failed";
   const folders = useMemo(() => {

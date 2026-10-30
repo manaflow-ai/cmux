@@ -352,6 +352,13 @@ test("a chat change drops the wait for good, even when the chat comes back to th
   expect(computerButton()?.getAttribute("aria-label")).not.toContain(t("composer.envStarting"));
 });
 
+test("a machine the account stops listing ends the wait for good, even when it is listed again", async () => {
+  const { picks, render, ready } = await waitOnBuildBox();
+  await render({ cloudMachines: account.slice(1) });
+  await render({ ...ready, cloudMachines: account });
+  expect(picks).toEqual([["cloud", "vm-paused"]]);
+});
+
 test("a refused resume shows the machine as Couldn't start, not Starting… for ever", async () => {
   const { runCloudMachine, setCloudMachinesForTest } = await import("../src/agent-session/acpmux/cloudMachines");
   setCloudMachinesForTest(account);
