@@ -22,6 +22,7 @@ enum AgentChatMenuHandlers {
             ("agentPane.addProjectFiles", { $0.addProjectFiles() }),
             ("agentPane.moveToFloatingChat", { $0.moveToFloatingChat() }),
             ("agentPane.toggleMinimap", { $0.toggleThreadMinimap() }),
+            ("agentPane.continueAfterError", { $0.continueAfterError() }),
         ]
         for (id, command) in commands {
             registry.bind(id, run: { invocation in

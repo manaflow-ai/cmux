@@ -14,6 +14,7 @@ mod cell_pixels;
 mod column_update;
 mod diagnostics;
 mod dock_columns;
+mod exit_snapshot_cost;
 mod history_agent_fold;
 mod journal_roster;
 mod kitty_budget;

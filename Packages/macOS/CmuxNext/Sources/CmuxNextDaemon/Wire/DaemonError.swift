@@ -65,4 +65,11 @@ extension DaemonError {
         default: false
         }
     }
+
+    /// cmux-tui refused the connection at its connection limit (`server.busy`): it is
+    /// alive and frees a slot when one of its connections ends, so a retry soon can work.
+    public var isBusyRefusal: Bool {
+        if case .connectionClosed(let reason) = self { return reason == LineTransport.busyRefusal }
+        return false
+    }
 }
