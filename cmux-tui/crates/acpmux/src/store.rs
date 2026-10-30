@@ -19,6 +19,8 @@ mod compact;
 pub use compact::{CompactMode, Compaction, Staged};
 mod superseded;
 pub use superseded::{Superseded, starts_prompt};
+mod kind_index;
+pub use kind_index::INDEXED_KINDS;
 
 /// One line in the session event log.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1507,9 +1509,33 @@ impl Store for LocalStore {
             std::thread::sleep(std::time::Duration::from_millis(ms.min(1_000)));
         }
         let mut line = Vec::new();
-        for (_, path) in self.segments(id)? {
-            let mut reader =
-                BufReader::with_capacity(256 * 1024, crate::config::private_state_file(&path)?);
+        // A scan for the kinds a log load reads takes each sealed segment's copy of them
+        // (`store/kind_index.rs`), and makes the copy where it reads the whole segment.
+        let copied = kinds.iter().all(|k| kind_index::INDEXED_KINDS.contains(k));
+        let segments = self.segments(id)?;
+        let newest = segments.last().map(|(index, _)| *index);
+        let wanted = |line: &[u8], visit: &mut dyn FnMut(EventRecord) -> bool| {
+            if record_kind(line).is_some_and(|kind| !kinds.iter().any(|k| k.as_bytes() == kind)) {
+                return true;
+            }
+            let Ok(rec) = serde_json::from_slice::<EventRecord>(line) else { return true };
+            !kinds.contains(&rec.kind.as_str()) || visit(rec)
+        };
+        for (index, path) in segments {
+            let sealed = copied && Some(index) != newest;
+            if sealed && let Some(lines) = self.read_kind_index(id, index, &path) {
+                for line in lines.split(|b| *b == b'\n') {
+                    if !line.iter().all(u8::is_ascii_whitespace) && !wanted(line, visit) {
+                        return Ok(());
+                    }
+                }
+                continue;
+            }
+            let file = crate::config::private_state_file(&path)?;
+            // What the copy is of: the file this reads, however its path changes meanwhile.
+            let stamp = if sealed { Some(file.metadata()?) } else { None };
+            let mut copy = Vec::new();
+            let mut reader = BufReader::with_capacity(256 * 1024, file);
             loop {
                 line.clear();
                 if reader.read_until(b'\n', &mut line)? == 0 {
@@ -1518,15 +1544,20 @@ impl Store for LocalStore {
                 if line.iter().all(u8::is_ascii_whitespace) {
                     continue;
                 }
-                if record_kind(&line)
-                    .is_some_and(|kind| !kinds.iter().any(|k| k.as_bytes() == kind))
-                {
-                    continue;
+                if stamp.is_some() && kind_index::indexed(&line) {
+                    copy.extend_from_slice(&line);
+                    if !line.ends_with(b"\n") {
+                        copy.push(b'\n');
+                    }
                 }
-                let Ok(rec) = serde_json::from_slice::<EventRecord>(&line) else { continue };
-                if kinds.contains(&rec.kind.as_str()) && !visit(rec) {
+                if !wanted(&line, visit) {
                     return Ok(());
                 }
+            }
+            if let Some(stamp) = stamp
+                && let Err(e) = self.write_kind_index(id, index, &stamp, &copy)
+            {
+                tracing::warn!(session = %id, segment = index, "saving the log's kind index failed: {e}");
             }
         }
         Ok(())
