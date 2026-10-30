@@ -14,6 +14,17 @@ import Testing
 /// stand-in hub on a Unix socket checks the bytes and the token, and echoes the stream.
 @Suite(.serialized)
 struct CloudHubLoopbackTests {
+    /// The hub names its socket; a path that does not fit a Unix socket address (`sun_path`) is
+    /// refused as an unavailable tunnel, never handed to the Network framework, which traps on one
+    /// (issue #28492).
+    @Test func aHubSocketPathPastTheUnixLimitIsRefusedNotATrap() async throws {
+        let socket = "/" + String(repeating: "h", count: 200) + "/hub.sock"
+        let opener = try #require(HubLoopbackOpener(hub: { .init(socket: socket, token: FakeHub.token) }, address: "10.0.0.2"))
+        await #expect(throws: LoopbackTunnelFailure.self) {
+            _ = try await opener.openTunnel(host: "127.0.0.1", port: 8080)
+        }
+    }
+
     /// One connection's SOCKS5 server: greeting, the token `cmux-hub-token`, then CONNECT, answered
     /// `reply`; after a success it echoes. A wrong token is answered with an auth failure.
     /// Nonisolated: this target defaults to the main actor, and its accept loop runs on its own thread.
