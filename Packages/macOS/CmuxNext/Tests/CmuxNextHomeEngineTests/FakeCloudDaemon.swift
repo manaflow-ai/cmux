@@ -49,8 +49,21 @@ actor FakeCloudDaemon: CloudConversationCommands {
         CloudConversationHistory(messages: [], hasMore: false)
     }
 
+    /// `cloud-conversation-op` requests, in order, once ``answerOps(creating:)`` turned answering on.
+    private(set) var ops: [CloudConversationOpRequest] = []
+    /// The conversation `conversation.create` answers with; nil refuses every op (not connected).
+    private var created: String?
+
+    /// Answers each op: `conversation.create` with an empty group `id`, every other op with a bare result.
+    func answerOps(creating id: String) { created = id }
+
     func op(_ request: CloudConversationOpRequest) async throws -> CloudConversationOpResult {
-        throw DaemonError.notConnected
+        guard let created else { throw DaemonError.notConnected }
+        ops.append(request)
+        guard case .create(let title, let participants) = request.op else { return CloudConversationOpResult(rev: 1) }
+        let summary = CmuxNextDaemon.ConversationSummary(id: created, owner: "cloud", title: title ?? "", participants: participants, lastSeq: 0,
+                                                         rev: 1, createdAt: "2026-10-29T20:19:26Z", updatedAt: "2026-10-29T20:19:26Z", kind: "group")
+        return CloudConversationOpResult(rev: 1, conversation: summary)
     }
 
     func subscribeInbox() async throws -> CloudSubscription { CloudSubscription(state: "live") }

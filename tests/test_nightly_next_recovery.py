@@ -258,6 +258,7 @@ def run_select(**env: str) -> dict[str, str]:
 
 OWN = dict(
     OWN_RESULT="success",
+    OWN_TREE="ok",
     OWN_PENDING="",
     OWN_VERIFIED="success",
     OWN_DMG_VERIFIED="success",
@@ -336,11 +337,27 @@ class WorkflowTests(unittest.TestCase):
 
     def test_publish_runs_for_an_accepted_own_or_recovered_build(self):
         condition = workflow()["jobs"]["publish-nightly"]["if"]
-        self.assertTrue(condition.startswith("!cancelled() && needs.decide.result == 'success' && "), condition)
+        self.assertTrue(condition.startswith("always() && !cancelled() && needs.decide.result == 'success' && "), condition)
         self.assertIn(
-            "(((needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success' && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))",
+            "(((needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && (needs.signer-dmg.result == 'success' || needs.verify-signed-nightly.result == 'success') && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))",
             condition,
         )
+        # NIGHTLY_NEXT_TREE_AT_INSTALL: a build that started before its tree published (or a
+        # resumed one) is this run's source only after await-nightly-tree-marker passed
+        # (main's G5, moved into the run): the selection step reads it as OWN_TREE.
+        job = workflow()["jobs"]["publish-nightly"]
+        self.assertIn("await-nightly-tree-marker", job["needs"])
+        own_tree = step(job, "Select the build to publish")["env"]["OWN_TREE"]
+        self.assertIn("needs.await-nightly-tree-marker.result == 'success'", own_tree)
+        self.assertIn("inputs.nightly_next_unsigned_run == ''", own_tree)
+        build_outputs = workflow()["jobs"]["build-nightly-app"]["outputs"]
+        self.assertIn("steps.resume.outputs.cmux_tui_commit", build_outputs["cmux_tui_commit"])
+
+    def test_an_unmarked_own_build_is_never_the_source(self):
+        with self.assertRaises(AssertionError):
+            run_select(**dict(OWN, OWN_TREE="unmarked"))
+        both = dict(OWN, **RECOVERED, OWN_TREE="unmarked")
+        self.assertEqual(run_select(**both)["source"], "recovered")
 
     def test_select_prefers_this_run_s_accepted_build(self):
         self.assertEqual(run_select(**OWN)["source"], "own")
@@ -429,7 +446,7 @@ class FailureIssueTests(unittest.TestCase):
     OUTPUTS = {"decide": {"should_publish": "true", "track": "nightly-next"}, "publish-nightly": {"tag_status": "updated"}}
 
     def publication(self, source, **results):
-        jobs = ("decide", "build-nightly-ghostty-cli-helper", "build-nightly-app", "resolve-nightly-cmux-tui-client",
+        jobs = ("decide", "build-nightly-ghostty-cli-helper", "build-nightly-app", "build-nightly-remote-daemon", "resolve-nightly-cmux-tui-client",
                 "prepare-nightly-variant", "build-sign-notarize-nightly", "verify-signed-nightly", "verify-final-dmg-nightly",
                 "verify-recovered-nightly-next", "publish-nightly", "generate-nightly-deltas", "republish-nightly-deltas",
                 "sign-release-notes", "publish-release-notes")
