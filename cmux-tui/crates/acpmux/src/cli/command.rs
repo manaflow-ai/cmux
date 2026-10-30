@@ -190,7 +190,8 @@ pub enum Command {
         prompt: Vec<String>,
         /// Send to every session, on every host, that carries this tag (`key` or `key=value`)
         /// and is not closed, as `--no-wait` messages: one delivery each, one line each. The
-        /// sender's own session is skipped. Give the prompt without a SESSION.
+        /// sender's own session is skipped. Give the prompt without a SESSION. Exit 1 when any
+        /// send failed, 4 when no live session carries the tag.
         #[arg(long, value_name = "TAG", conflicts_with_all = ["status", "prompt_id", "timeout", "quiet"])]
         tag: Option<String>,
         /// With --tag: print the sessions it would go to and send nothing.
@@ -279,6 +280,9 @@ pub enum Command {
         /// peer's), or with this session id.
         #[arg(value_name = "PATTERN")]
         patterns: Vec<String>,
+        /// The same as a PATTERN (repeatable): `--name 'review-*'`.
+        #[arg(long = "name", value_name = "PATTERN")]
+        name_patterns: Vec<String>,
         /// Include tool inventories in JSON rows (otherwise read `session info SESSION`).
         #[arg(long)]
         with_tools: bool,

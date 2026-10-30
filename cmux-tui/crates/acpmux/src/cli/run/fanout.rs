@@ -7,7 +7,10 @@ use super::*;
 use crate::cli::select;
 
 /// The sessions a `send --tag` goes to: every one carrying `tag` that is not closed, except the
-/// sender's own session, newest first as the daemon lists them.
+/// sender's own session, newest first as the daemon lists them. Each is `(target, name)`: a
+/// session here by its id, a peer's by its `peer/id` (`qualifiedSessionId`), the key the outbox
+/// routes a peer's session by (`Hub::resolve_remote`); its bare id may name nothing here, or
+/// another session.
 pub(super) fn tag_targets(
     sessions: &[Value],
     tag: &str,
@@ -19,17 +22,23 @@ pub(super) fn tag_targets(
         .filter(|s| s.get("status").and_then(Value::as_str) != Some("closed"))
         .filter_map(|s| {
             let id = s.get("sessionId").and_then(Value::as_str)?;
-            (Some(id) != own).then(|| {
-                let name = s.get("name").and_then(Value::as_str).unwrap_or(id);
-                (id.to_owned(), name.to_owned())
-            })
+            if Some(id) == own {
+                return None;
+            }
+            let target = if s.get("peer").and_then(Value::as_str).is_some() {
+                s.get("qualifiedSessionId").and_then(Value::as_str)?
+            } else {
+                id
+            };
+            let name = s.get("name").and_then(Value::as_str).unwrap_or(id);
+            Some((target.to_owned(), name.to_owned()))
         })
         .collect()
 }
 
 /// Queue `text` for each session `tag` names. Each send is a `--no-wait` one with its own
-/// prompt id; one failure is reported on its line and the rest still go. Exit 1 when any failed
-/// or nothing carried the tag.
+/// prompt id; one failure is reported on its line and the rest still go. Exit 1 when any failed,
+/// 4 (no such session) when nothing carries the tag.
 pub(super) async fn send_to_tag(
     tag: &str,
     text: &str,
@@ -114,7 +123,8 @@ mod tests {
             json!({"sessionId": "a", "name": "ao-cli-ls", "status": "running", "tags": {"area": {"value": "acpmux"}}}),
             json!({"sessionId": "b", "name": "ao-old", "status": "closed", "tags": {"area": {"value": "acpmux"}}}),
             json!({"sessionId": "c", "name": "cloud-x", "status": "idle", "tags": {"area": {"value": "cloud"}}}),
-            json!({"sessionId": "d", "name": "huge-blue/ao-peer", "peer": "huge-blue", "status": "idle", "tags": {"area": "acpmux"}}),
+            json!({"sessionId": "d", "qualifiedSessionId": "huge-blue/d", "name": "huge-blue/ao-peer", "peer": "huge-blue", "status": "idle", "tags": {"area": "acpmux"}}),
+            json!({"sessionId": "e", "name": "huge-blue/no-receipt", "peer": "huge-blue", "status": "idle", "tags": {"area": "acpmux"}}),
             json!({"sessionId": "me", "name": "ao-cli-audit", "status": "running", "tags": {"area": {"value": "acpmux"}}}),
         ];
         let got = tag_targets(&sessions, "area=acpmux", Some("me"));
@@ -122,9 +132,11 @@ mod tests {
             got,
             vec![
                 ("a".to_owned(), "ao-cli-ls".to_owned()),
-                ("d".to_owned(), "huge-blue/ao-peer".to_owned())
+                ("huge-blue/d".to_owned(), "huge-blue/ao-peer".to_owned())
             ]
         );
+        // A peer's session goes by its peer/id; one without that key is skipped, never sent by its
+        // bare id (which may name nothing here, or another session).
         assert_eq!(tag_targets(&sessions, "area", None).len(), 4);
     }
 }

@@ -79,6 +79,12 @@ fn one_command_selection_and_send_to_a_tag() {
     let one = ok(&dir, &["--json", "ls", "review-2789?", "--fields", "name,turnCount"]);
     let one: Value = serde_json::from_str(&one).unwrap();
     assert_eq!(one["sessions"], json!([{"name": "review-27899", "turnCount": 1}]), "{one}");
+    let by_flag =
+        ok(&dir, &["ls", "--name", "cloud-*", "--name", "review-27899", "--fields", "name"]);
+    assert_eq!(by_flag.lines().count(), 3, "--name is the same as a PATTERN: {by_flag}");
+    // A dotted field in text mode, as in JSON.
+    let nested = ok(&dir, &["ls", "cloud-lane", "--fields", "name,tags.area"]);
+    assert_eq!(nested, "name\ttags.area\ncloud-lane\tcloud\n");
     let none = ok(&dir, &["--json", "ls", "nothing-*"]);
     assert_eq!(serde_json::from_str::<Value>(&none).unwrap()["sessions"], json!([]));
 
@@ -118,5 +124,5 @@ fn one_command_selection_and_send_to_a_tag() {
 
     // Nothing carries the tag: an error, not a silent no-op.
     let missing = cli(&dir, &["send", "--tag", "area=nobody", "hello"]);
-    assert!(!missing.status.success(), "{}", text(&missing));
+    assert_eq!(missing.status.code(), Some(4), "no such session: {}", text(&missing));
 }

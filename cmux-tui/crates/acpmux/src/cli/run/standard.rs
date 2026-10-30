@@ -236,7 +236,18 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             Ok(())
         }
-        Command::Ls { patterns, status, pending, tag, limit, fields, since, with_tools } => {
+        Command::Ls {
+            mut patterns,
+            name_patterns,
+            status,
+            pending,
+            tag,
+            limit,
+            fields,
+            since,
+            with_tools,
+        } => {
+            patterns.extend(name_patterns);
             let since_ms = since.as_deref().map(parse_duration_ms).transpose()?;
             let selected = limit.is_some() || fields.is_some() || since_ms.is_some();
             let fields = fields.as_deref().map(select::parse_fields).transpose()?;
@@ -318,7 +329,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         "{}",
                         fields
                             .iter()
-                            .map(|field| select::text_field(session.get(field)))
+                            .map(|field| select::text_field(select::field(&session, field)))
                             .collect::<Vec<_>>()
                             .join("\t")
                     );
