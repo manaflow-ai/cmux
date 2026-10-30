@@ -18,7 +18,14 @@
 //! read), and then no warning stands on it.
 
 use crate::config::UsageLimits;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
+
+/// `value`'s `key`, or null: reading a summary never panics (no indexing).
+fn at<'a>(value: &'a Value, key: &str) -> &'a Value {
+    static NULL: Value = Value::Null;
+    value.get(key).unwrap_or(&NULL)
+}
 
 /// `noAutocompactCap`: a Claude session launched with no autocompact cap.
 pub const NO_AUTOCOMPACT_CAP: &str = "noAutocompactCap";
@@ -59,27 +66,31 @@ fn actions(rule: &str, name: &str) -> Vec<Value> {
 
 /// One step as the tooltip says it: `Compact it (acpmux send lane-1 /compact)`.
 fn said(step: &Value) -> String {
-    let command = step["command"].as_str().unwrap_or_default();
-    let soon = step["pending"].as_str().map(|p| format!(", {p}")).unwrap_or_default();
-    format!("{} ({command}{soon})", step["label"].as_str().unwrap_or_default())
+    let command = at(&step, "command").as_str().unwrap_or_default();
+    let soon = at(&step, "pending").as_str().map(|p| format!(", {p}")).unwrap_or_default();
+    format!("{} ({command}{soon})", at(&step, "label").as_str().unwrap_or_default())
 }
 
 /// `warning` with its steps for session `name`, and the steps at the end of its text (`… or …`).
 /// `finding` keeps the text before the steps, so a new name can be given (`for_name`).
 fn with_action(mut warning: Value, name: &str) -> Value {
-    let finding =
-        warning.get("finding").unwrap_or(&warning["text"]).as_str().unwrap_or_default().to_owned();
-    let actions = actions(warning["rule"].as_str().unwrap_or_default(), name);
+    let finding = warning
+        .get("finding")
+        .unwrap_or(at(&warning, "text"))
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let actions = actions(at(&warning, "rule").as_str().unwrap_or_default(), name);
     let steps = actions.iter().map(said).collect::<Vec<_>>().join(" or ");
-    warning["text"] = json!(format!("{finding}. {steps}"));
-    warning["finding"] = json!(finding);
-    warning["actions"] = Value::Array(actions);
+    warning.set("text", json!(format!("{finding}. {steps}")));
+    warning.set("finding", json!(finding));
+    warning.set("actions", Value::Array(actions));
     warning
 }
 
 /// The warnings a session summary earns under `limits`, in the order above, each with its action.
 pub fn usage_warnings(summary: &Value, limits: &UsageLimits) -> Vec<Value> {
-    let name = summary["name"].as_str().unwrap_or_default().to_owned();
+    let name = at(&summary, "name").as_str().unwrap_or_default().to_owned();
     rules_broken(summary, limits).into_iter().map(|w| with_action(w, &name)).collect()
 }
 
@@ -87,7 +98,7 @@ pub fn usage_warnings(summary: &Value, limits: &UsageLimits) -> Vec<Value> {
 /// daemon that lists a peer's sessions renamed it `<peer>/<name>` (`peers.rs`), so a command
 /// copied from that row reaches the peer's session, not one of the same name here.
 pub fn for_name(summary: &mut Value) {
-    let name = summary["name"].as_str().unwrap_or_default().to_owned();
+    let name = at(&summary, "name").as_str().unwrap_or_default().to_owned();
     let Some(warnings) = summary.get_mut("usageWarnings").and_then(Value::as_array_mut) else {
         return;
     };
@@ -97,17 +108,17 @@ pub fn for_name(summary: &mut Value) {
 }
 
 fn rules_broken(summary: &Value, limits: &UsageLimits) -> Vec<Value> {
-    let stats = &summary["usageStats"];
-    if summary["status"] == "closed" || !stats.is_object() {
+    let stats = at(&summary, "usageStats");
+    if at(&summary, "status") == "closed" || !stats.is_object() {
         return Vec::new();
     }
-    let context = stats["contextTokens"].as_u64();
+    let context = at(stats, "contextTokens").as_u64();
     let mut out = Vec::new();
     // Only Claude Code takes an autocompact cap; another harness compacts on its own terms. Only a
     // cap known to be absent (`autocompact` "none") warns: "unknown" (an adopted or revived chat
     // whose launch acpmux never saw, an unreadable setting) never does.
-    let no_cap = stats["autocompact"] == "none";
-    if limits.autocompact_cap && summary["family"] == "claude" && no_cap {
+    let no_cap = at(stats, "autocompact") == "none";
+    if limits.autocompact_cap && at(&summary, "family") == "claude" && no_cap {
         let text = match context {
             Some(n) => format!(
                 "No autocompact cap: context is {} and only compacts at the model's limit",
@@ -126,7 +137,7 @@ fn rules_broken(summary: &Value, limits: &UsageLimits) -> Vec<Value> {
             format!("Context {} tokens, above the {} warning line", tokens(n), tokens(limit));
         out.push(json!({"rule": CONTEXT_TOKENS, "value": n, "limit": limit, "text": text}));
     }
-    if let (Some(limit), Some(n)) = (limits.subagents_per_hour, stats["subagents1h"].as_u64())
+    if let (Some(limit), Some(n)) = (limits.subagents_per_hour, at(stats, "subagents1h").as_u64())
         && n > limit
     {
         let text = format!("{n} subagents started in the last hour, above {limit}");
@@ -138,8 +149,8 @@ fn rules_broken(summary: &Value, limits: &UsageLimits) -> Vec<Value> {
 /// One short cell per warning for `acpmux ls`: `no-cap`, `ctx 955k`, `90 sub/h`; `?` for a number
 /// it does not have, never a made-up zero.
 pub fn short(warning: &Value) -> String {
-    let value = || warning["value"].as_u64().map_or_else(|| "?".to_owned(), tokens);
-    match warning["rule"].as_str() {
+    let value = || at(&warning, "value").as_u64().map_or_else(|| "?".to_owned(), tokens);
+    match at(&warning, "rule").as_str() {
         Some(NO_AUTOCOMPACT_CAP) => "no-cap".to_owned(),
         Some(CONTEXT_TOKENS) => format!("ctx {}", value()),
         Some(SUBAGENTS_PER_HOUR) => format!("{} sub/h", value()),
@@ -151,13 +162,13 @@ pub fn short(warning: &Value) -> String {
 /// `short` with the commands that answer it, for `acpmux ls --wide`:
 /// `ctx 412k: acpmux send lane-1 /compact | lane-place rotate lane-1 (leo-workspace#1617)`.
 pub fn with_command(warning: &Value) -> String {
-    let commands = warning["actions"]
+    let commands = at(&warning, "actions")
         .as_array()
         .into_iter()
         .flatten()
         .filter_map(|step| {
-            let command = step["command"].as_str()?;
-            Some(match step["pending"].as_str() {
+            let command = at(&step, "command").as_str()?;
+            Some(match at(&step, "pending").as_str() {
                 Some(pending) => format!("{command} ({pending})"),
                 None => command.to_owned(),
             })

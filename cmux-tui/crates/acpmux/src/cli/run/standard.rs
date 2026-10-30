@@ -1442,7 +1442,9 @@ fn text_field(value: Option<&Value>) -> String {
 /// (`ctx 955k: acpmux send lane-1 /compact; 90 sub/h: acpmux session cancel lane-1`). Empty when
 /// it breaks none.
 fn usage_warn_cell(session: &Value, wide: bool) -> String {
-    let Some(warnings) = session["usageWarnings"].as_array().filter(|w| !w.is_empty()) else {
+    let Some(warnings) =
+        session.get("usageWarnings").and_then(Value::as_array).filter(|w| !w.is_empty())
+    else {
         return String::new();
     };
     if !wide {
