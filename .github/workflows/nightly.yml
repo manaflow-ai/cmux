@@ -3230,7 +3230,7 @@ jobs:
         run: |
           set -euo pipefail
           git fetch --no-tags origin "$SOURCE_SHA"
-          echo "key=$(git rev-parse "$SOURCE_SHA:cmux-tui")" >> "$GITHUB_OUTPUT"
+          echo "key=$(python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$SOURCE_SHA")" >> "$GITHUB_OUTPUT"
 
       - name: Build the tip while its tree publishes
         id: pending
