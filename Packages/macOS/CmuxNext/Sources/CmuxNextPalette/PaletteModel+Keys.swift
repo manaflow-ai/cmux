@@ -117,6 +117,7 @@ extension PaletteModel {
         let placed = sections.flatMap { section in section.rows.map { (id: $0.id, section: section.section.id) } }
         guard performClose(command, rowID: item.id) else { return }
         if let next = Self.selection(afterRemoving: item.id, from: placed) { send(.select(next)) }
+        else { send(.clearSelection) }
         reload()
     }
 
