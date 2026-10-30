@@ -316,9 +316,6 @@ SECRET_RUNNER_EXCEPTIONS = {
     ("nightly.yml", "build-nightly-app"):
         "open: CI_CACHE_R2 and SENTRY_AUTH_TOKEN on the pinned trusted mini (CI_NIGHTLY_TRUSTED_RUNNER) "
         "by design; nightlies never use Blacksmith",
-    ("seed-derived-data.yml", "seed"):
-        "open: CI_CACHE_R2 on the pools seed_decide.py names, owned Macs included, by design "
-        "(it seeds their DerivedData)",
     ("test-ios.yml", "ios-simulator-build"):
         "open: CI_CACHE_R2 on ios_runner_pool.py's pick, an owned simulator Mac when CI_IOS_OWNED is 1",
     ("ios-screenshots.yml", "screenshots"):
