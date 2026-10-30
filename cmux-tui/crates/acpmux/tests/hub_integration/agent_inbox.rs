@@ -574,3 +574,26 @@ async fn only_the_first_message_to_a_new_chat_runs_as_its_prompt() {
     assert_eq!(all[0]["promptId"], "t-1", "{all:?}");
     let _ = std::fs::remove_file(gate);
 }
+
+/// Two messages that come at once to a chat that never ran a turn: only one is its first work
+/// and runs as its prompt; the other goes to the inbox (the first work's hold, `inbox.rs`).
+#[tokio::test]
+async fn of_two_first_messages_at_once_only_one_runs_as_the_prompt() {
+    let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "lane").await;
+    let a = from_agent(&id, "x-1", "coord", "do the thing", json!({}));
+    let b = from_agent(&id, "x-2", "lane-b", "and this", json!({"class": "fyi"}));
+    let sent = [c.send(method::SESSION_PROMPT, a).await, c.send(method::SESSION_PROMPT, b).await];
+    let mut inbox = BTreeMap::new();
+    while inbox.len() < 2 {
+        let p = c
+            .wait_for(method::MUX_PROMPT_ACCEPTED, |p| {
+                p["promptId"] == "x-1" || p["promptId"] == "x-2"
+            })
+            .await;
+        inbox.insert(p["promptId"].as_str().unwrap().to_owned(), p["inbox"] == true);
+    }
+    let taken = inbox.values().filter(|v| **v).count();
+    assert_eq!(taken, 1, "one first work, one inbox item: {inbox:?}");
+    answers(&mut c, &sent).await;
+}
