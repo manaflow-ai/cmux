@@ -57,14 +57,31 @@ function slowPeer() {
 }
 
 let latest: ReturnType<typeof useFolderTrustAsk> | undefined;
-function Chat(props: { trust: TrustSource; sessionId: string; blockSend?: boolean; cwd?: string }) {
+function Chat(props: {
+  trust: TrustSource;
+  sessionId: string;
+  blockSend?: boolean;
+  cwd?: string;
+  authority?: () => unknown;
+  visit?: () => unknown;
+  /// Runs after React commits this render and before its effects: the client moving on meanwhile.
+  onCommit?: () => void;
+}) {
   latest = useFolderTrustAsk(
     props.trust,
-    { sessionId: props.sessionId, cwd: props.cwd ?? peerFolder, prompts: 0 },
+    {
+      sessionId: props.sessionId,
+      cwd: props.cwd ?? peerFolder,
+      prompts: 0,
+      ...(props.authority ? { authority: props.authority } : {}),
+      ...(props.visit ? { visit: props.visit } : {}),
+    },
     true,
     false,
     props.blockSend,
   );
+  const { onCommit } = props;
+  React.useLayoutEffect(() => onCommit?.());
   return null;
 }
 const open = (trust: TrustSource, sessionId: string) =>
@@ -188,6 +205,45 @@ for (const change of ["chat", "folder"] as const) {
     await render(false, true);
     expect(resent).toBe(0);
     await render(false);
+    expect(resent).toBe(0);
+  });
+}
+
+// Astra review of #25287 (P2): the folder choice can release a held retry while the client has
+// already selected another chat (or connection) and React still shows the old one. The render's
+// own checks pass then; the release must recheck the live visit and authority before replaying.
+for (const moved of ["visit", "authority"] as const) {
+  test(`a released trust retry is not sent once the live ${moved} has moved to another chat`, async () => {
+    const { source } = slowPeer();
+    let liveVisit = "original";
+    let liveAuthority = "connection-1";
+    const visit = () => liveVisit;
+    const authority = () => liveAuthority;
+    const moveOn = () => {
+      if (moved === "visit") liveVisit = "other";
+      else liveAuthority = "connection-2";
+    };
+    const render = (blockSend: boolean, onCommit?: () => void) =>
+      act(async () =>
+        root.render(
+          <Chat
+            key={`live-${moved}`}
+            trust={source}
+            sessionId="original"
+            visit={visit}
+            authority={authority}
+            blockSend={blockSend}
+            onCommit={onCommit}
+          />,
+        ),
+      );
+    await render(true);
+    let resent = 0;
+    await act(async () => latest!.refused({ reason: "trust.pending", cwd: peerFolder }, () => resent++));
+    await act(async () => latest!.trust());
+    expect(resent).toBe(0);
+    // The folder choice completes in the same render the client moves to another chat.
+    await render(false, moveOn);
     expect(resent).toBe(0);
   });
 }
