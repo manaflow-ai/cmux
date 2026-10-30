@@ -1138,10 +1138,24 @@ impl Hub {
                         if s.route_switch.swap(false, Ordering::SeqCst) {
                             hub.detach_child(&s).await;
                         }
-                        // A Stop ended its agent (`cancel.rs`): for the same reason the next
-                        // prompt starts it again, on the same conversation.
-                        s.stop_respawn.store(false, Ordering::SeqCst);
+                        // A Stop ended its agent (`cancel.rs`): it starts again on the same
+                        // conversation, on its own task for the same reason as above.
+                        let respawn = s.stop_respawn.swap(0, Ordering::SeqCst);
                         drop(guard);
+                        if respawn != 0 && respawn == s.cancels.load(Ordering::SeqCst) + 1 {
+                            tokio::spawn(async move {
+                                if s.status() != SessionStatus::Closed
+                                    && hub.child_for(&s).await.is_ok()
+                                {
+                                    hub.append(
+                                        &s,
+                                        "mux",
+                                        "stop_restarted",
+                                        json!({"turnId": turn_id}),
+                                    );
+                                }
+                            });
+                        }
                     });
                 }
             }

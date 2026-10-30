@@ -130,21 +130,16 @@ impl Hub {
     /// through the grace and acpmux ends it), or, for an agent that keeps working, the cancel
     /// again and then its process restarted (module docs). `heard` is the agent's count of
     /// model signs when the cancel went out.
-    async fn escalate_stop(
-        self: Arc<Self>,
-        session: Arc<Session>,
-        child: Arc<ChildAgent>,
-        turn: TurnInfo,
-        heard: u64,
-    ) {
+    async fn escalate_stop(self: Arc<Self>, session: Arc<Session>, turn: TurnInfo, heard: u64) {
         tokio::time::sleep(CANCEL_GRACE).await;
         let open = || session.turn().filter(|t| t.turn_id == turn.turn_id);
         let Some(current) = open() else { return };
         let working = |since: u64| session.heard.load(Ordering::SeqCst) != since;
-        if !working(heard) || !self.runs_agent(&session, &child).await {
+        // The agent that runs the turn now: a failover may have replaced the one the Stop saw.
+        let Some(child) = session.child.lock().await.clone().filter(|_| working(heard)) else {
             Self::force_cancel(&session, &current);
             return;
-        }
+        };
         tracing::warn!(session = %session.id, turn_id = %turn.turn_id, "the agent works on after Stop: cancelling again");
         self.append(
             &session,
@@ -165,16 +160,11 @@ impl Hub {
         }
         tokio::time::sleep_until(deadline).await;
         let Some(current) = open() else { return };
-        if !working(heard) || !self.runs_agent(&session, &child).await {
+        let Some(child) = session.child.lock().await.clone().filter(|_| working(heard)) else {
             Self::force_cancel(&session, &current);
             return;
-        }
+        };
         self.restart_stopped_agent(&session, &child, &current).await;
-    }
-
-    /// Whether `child` is still the session's agent (a failover or a stop may have replaced it).
-    async fn runs_agent(&self, session: &Session, child: &ChildAgent) -> bool {
-        session.child.lock().await.as_ref().is_some_and(|c| c.generation == child.generation)
     }
 
     /// Ends the process of an agent that worked through both cancels, then its turn. Its prompt
@@ -195,10 +185,12 @@ impl Hub {
             }
             *session.stop_restart.lock().unwrap_or_else(|e| e.into_inner()) =
                 Some(turn.turn_id.clone());
-            session.stop_respawn.store(true, Ordering::SeqCst);
+            // With the Stop count now: a Stop after this one starts nothing (`turns.rs`).
+            let cancels = session.cancels.load(Ordering::SeqCst);
+            session.stop_respawn.store(cancels + 1, Ordering::SeqCst);
             if session.turn().is_none_or(|t| t.turn_id != turn.turn_id) {
                 // It ended by itself just now: nothing to stop, and nothing marked stays.
-                session.stop_respawn.store(false, Ordering::SeqCst);
+                session.stop_respawn.store(0, Ordering::SeqCst);
                 session.stop_restart.lock().unwrap_or_else(|e| e.into_inner()).take();
                 return;
             }
@@ -206,6 +198,8 @@ impl Hub {
             *session.cancel_forced_turn.lock().unwrap_or_else(|e| e.into_inner()) =
                 Some(turn.turn_id.clone());
             session.stopped_agent.store(child.generation, Ordering::SeqCst);
+            // Its tap and every older one no longer count signs of work (`tap.rs`).
+            session.muted_taps.store(session.taps.load(Ordering::SeqCst), Ordering::SeqCst);
             // Ended on purpose: no failover and no continuation starts it again for this turn.
             child.end_on_purpose();
             *slot = None;
@@ -340,7 +334,7 @@ impl Hub {
             } else if self.mark_stopping(session, &turn) {
                 // The model's signs from here on are work after the cancel (`escalate_stop`).
                 let heard = session.heard.load(Ordering::SeqCst);
-                tokio::spawn(self.clone().escalate_stop(session.clone(), child, turn, heard));
+                tokio::spawn(self.clone().escalate_stop(session.clone(), turn, heard));
             }
         }
         sent

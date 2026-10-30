@@ -878,8 +878,11 @@ impl Hub {
         self.schedule_auto_resume(session, &turn_id, cut);
         // The agent a Stop ended starts again on the same conversation now, while this turn's
         // lock is still held: the next queued turn finds it running (`cancel.rs`).
-        // A close (`kill`) since this prompt came starts nothing (`child_for_since`).
-        if session.stop_respawn.swap(false, Ordering::SeqCst)
+        // A close (`kill`) since this prompt came starts nothing (`child_for_since`), nor does
+        // another Stop since the restart was marked.
+        let respawn = session.stop_respawn.swap(0, Ordering::SeqCst);
+        if respawn != 0
+            && respawn == session.cancels.load(Ordering::SeqCst) + 1
             && session.status() != SessionStatus::Closed
         {
             match self.child_for_since(session, stops).await {

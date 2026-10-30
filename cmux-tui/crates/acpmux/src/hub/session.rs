@@ -158,7 +158,13 @@ pub struct Session {
     pub(super) stopped_agent: AtomicU64,
     /// Start the agent again, on the same conversation, as the turn a Stop ended that way ends
     /// (`turns.rs`), before the next turn can start.
-    pub(super) stop_respawn: AtomicBool,
+    /// The Stop count (`cancels`) plus one when it was set; 0: none.
+    pub(super) stop_respawn: AtomicU64,
+    /// How many taps `Hub::session_tap` made for it; each tap knows its number.
+    pub(super) taps: AtomicU64,
+    /// Taps numbered up to this one belong to an agent a Stop ended (`cancel.rs`): what they
+    /// still log is no sign of work (no `heard`, no unstick, no tool state).
+    pub(super) muted_taps: AtomicU64,
     /// A person's Stop holds other agents' queued messages until the person's next turn
     /// completes or the queue is resumed (`cancel.rs` `hold_agent_messages`).
     pub(super) stop_holds_agents: AtomicBool,

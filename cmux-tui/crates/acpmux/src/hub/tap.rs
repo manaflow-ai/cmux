@@ -112,10 +112,13 @@ impl Hub {
         let report_epoch = session.floor.report_epoch.load(Ordering::SeqCst);
         // A `message_start` was logged and its first delta was not yet.
         let awaiting_first_delta = AtomicBool::new(false);
+        // This tap's number: once a Stop ended its agent, nothing it logs is a sign of work.
+        let tap_number = session.taps.fetch_add(1, Ordering::SeqCst) + 1;
         Arc::new(move |dir: Direction, msg: &Message, host_seq: Option<u64>| -> bool {
+            let muted = tap_number <= tap_session.muted_taps.load(Ordering::SeqCst);
             // The sign of work is published before a tool call's end can bring the stalled
             // deadline nearer and wake the reaper (`stalled_turn.rs`).
-            if matches!(dir, Direction::In) && from_the_model(msg) {
+            if !muted && matches!(dir, Direction::In) && from_the_model(msg) {
                 tap_session.heard.fetch_add(1, Ordering::SeqCst);
                 tap_hub.heard_now(&tap_session);
                 tap_session.last_model_at.store(crate::store::now_ms(), Ordering::Relaxed);
@@ -125,7 +128,8 @@ impl Hub {
                     tap_hub.unstick_on_work(&tap_session);
                 }
             }
-            if matches!(dir, Direction::In)
+            if !muted
+                && matches!(dir, Direction::In)
                 && let Message::Notification { method, params: Some(p) } = msg
                 && method == crate::rpc::method::SESSION_UPDATE
             {
