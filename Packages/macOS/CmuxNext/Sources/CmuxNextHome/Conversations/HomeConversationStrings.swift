@@ -233,10 +233,6 @@ enum HomeConversationStrings {
         case .rateLimited:
             String(localized: "home.outcome.rateLimited",
                    defaultValue: "You started too many conversations in the last hour. Try again later.", bundle: .module)
-        case .mixedRecipients:
-            String(localized: "home.outcome.mixed",
-                   defaultValue: "A group can include people or email addresses, not both. Invite the email addresses first.",
-                   bundle: .module)
         case .invalidAddress(let text):
             String(format: String(localized: "home.outcome.invalidAddress", defaultValue: "“%@” is not an email address.",
                                   bundle: .module), text)
