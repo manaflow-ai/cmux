@@ -14,6 +14,7 @@ fn orphan_spec(dir: &Path, session: &str) -> SpawnSpec {
         idle_ms: WAIT.as_millis() as u64,
         servers: Vec::new(),
         path: String::new(),
+        cwd: std::path::PathBuf::new(),
     });
     spec
 }

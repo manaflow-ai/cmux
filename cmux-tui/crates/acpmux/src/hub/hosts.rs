@@ -385,6 +385,11 @@ impl Hub {
     /// End the host of a session that has no adopted child, when one runs
     /// (a host this build cannot adopt, or one whose link was lost).
     pub(super) async fn end_unadopted_host(&self, session: &Session) {
+        // A lost home's hosts folder may be another daemon's now: its records name that daemon's
+        // agents. This daemon's own hosts end with their folder (`agent_host`), so none is read.
+        if crate::config::home_lost() {
+            return;
+        }
         let dir = agent_host::hosts_dir();
         let Ok((good, bad)) = agent_host::load_records(&dir) else { return };
         let record = good.iter().find(|(_, r)| r.session_id == session.id).map(|(_, r)| r.clone());

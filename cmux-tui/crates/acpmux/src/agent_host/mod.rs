@@ -244,6 +244,9 @@ pub struct OrphanExit {
     /// The harness's `PATH`, for the servers its sessions name by command.
     #[serde(default)]
     pub path: String,
+    /// The harness's folder, for the servers its sessions name by a relative path.
+    #[serde(default)]
+    pub cwd: std::path::PathBuf,
 }
 
 /// How long a host waits with no controller before an idle agent ends ([`OrphanExit`]): longer

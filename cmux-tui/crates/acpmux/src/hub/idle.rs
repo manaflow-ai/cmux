@@ -115,6 +115,7 @@ impl Hub {
             idle_ms: u64::try_from(wait.as_millis()).unwrap_or(u64::MAX),
             servers: Vec::new(),
             path: String::new(),
+            cwd: std::path::PathBuf::new(),
         })
     }
 

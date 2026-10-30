@@ -25,7 +25,7 @@ public final class NativeNewTabModel {
     public var kind: AgentPaneTabKind
     /// The highlighted row's index in ``rows``; nil is the first row (Return's default).
     public var highlighted: Int?
-    @ObservationIgnored private let actions: NativeNewTabActions
+    @ObservationIgnored private var actions: NativeNewTabActions
     @ObservationIgnored private let ranker: NativeNewTabRanker
     /// Lists the palette's actions; run once, at the first keystroke or ``loadPaletteActions()``.
     @ObservationIgnored private var paletteActions: (@MainActor () -> [AgentPaneOmnibar.Action])?
@@ -62,6 +62,22 @@ public final class NativeNewTabModel {
         let count = rows.count
         guard count > 0 else { return nil }
         return min(highlighted ?? 0, count - 1)
+    }
+
+    /// Cmd-T adopted this prepared page (the New Tab spare): it takes the new tab's context and
+    /// requests, starts empty, and lists the palette's actions from `paletteActions` when asked.
+    /// - Parameters:
+    ///   - page: The new tab's context, built without the palette's actions.
+    ///   - actions: What the page asks its host to do, for the tab it now is.
+    ///   - paletteActions: The Commands palette's actions, listed once (``loadPaletteActions()``).
+    public func adopt(page: AgentPaneNewTab, actions: NativeNewTabActions,
+                      paletteActions: (@MainActor () -> [AgentPaneOmnibar.Action])?) {
+        self.page = page
+        self.actions = actions
+        self.paletteActions = paletteActions
+        kind = page.kind
+        text = ""
+        highlighted = nil
     }
 
     /// The open tabs and workspaces changed while the page shows; the typed text stays.
