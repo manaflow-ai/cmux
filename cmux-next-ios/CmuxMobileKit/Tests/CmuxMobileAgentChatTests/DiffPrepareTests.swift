@@ -225,6 +225,14 @@ import Testing
         #expect(memo.cached(missing) == .some(nil))
     }
 
+    @Test func thumbnailMemosRetryMissingFiles() async {
+        let memo = ArtifactMemo<String>(costLimit: 1 << 20)
+        let artifact = TerminalArtifact(reference: "new-later.png", kind: .image)
+        #expect(await memo.value(for: artifact, cacheNil: false) { _ in nil } == nil)
+        #expect(memo.cached(artifact) == nil)
+        #expect(await memo.value(for: artifact, cacheNil: false) { _ in "appeared" } == "appeared")
+    }
+
     /// A cancelled make that ends late never counts against the make that replaced it: two
     /// tiles wait on the new one, one scrolls away, and the other still gets its thumbnail.
     @Test func aLateCancelledMakeNeverStopsItsReplacement() async {

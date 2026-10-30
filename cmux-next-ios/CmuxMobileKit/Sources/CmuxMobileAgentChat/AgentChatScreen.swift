@@ -1041,6 +1041,10 @@ struct SentAttachments: View {
         Group {
             if let image = decoded[attachment.id] {
                 Image(uiImage: image).resizable().scaledToFill()
+            } else if let data = attachment.data, let image = UIImage(data: data) {
+                // Raster cards are rendered without SwiftUI tasks; draw inline bytes so a
+                // sent image is present in the still instead of an empty placeholder.
+                Image(uiImage: image).resizable().scaledToFill()
             } else {
                 Color.cmuxMobileFill.overlay { Image(systemName: "photo").font(.title3).foregroundStyle(.secondary) }
             }

@@ -248,7 +248,7 @@ extension ArtifactThumbnail {
 extension ArtifactMemo where Value == ArtifactThumbnail {
     /// `scale`: the display's (an HTML snapshot is rendered off screen, where no window tells it).
     func thumbnail(for artifact: TerminalArtifact, source: any ArtifactSource, scale: CGFloat) async -> ArtifactThumbnail? {
-        await value(for: artifact) { artifact in
+        await value(for: artifact, cacheNil: false) { artifact in
             guard let content = try? await source.load(artifact) else { return nil }
             return await ArtifactThumbnail.make(for: artifact, content: content, scale: scale)
         }

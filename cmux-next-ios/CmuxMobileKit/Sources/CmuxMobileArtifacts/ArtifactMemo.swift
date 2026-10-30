@@ -52,7 +52,7 @@ final class ArtifactMemo<Value: Sendable>: @unchecked Sendable {
         var left = false
     }
 
-    func value(for artifact: TerminalArtifact, make: @escaping @Sendable (TerminalArtifact) async -> Value?) async -> Value? {
+    func value(for artifact: TerminalArtifact, cacheNil: Bool = true, make: @escaping @Sendable (TerminalArtifact) async -> Value?) async -> Value? {
         if let cached = cached(artifact) { return cached }
         let key = Self.key(artifact) as String
         let (id, task): (Int, Task<Value?, Never>) = lock.withLock {
@@ -66,7 +66,7 @@ final class ArtifactMemo<Value: Sendable>: @unchecked Sendable {
             let id = nextID
             let task = Task<Value?, Never>(priority: .utility) { [weak self] in
                 let value = await make(artifact)
-                self?.finish(value, key: key, id: id, record: !Task.isCancelled)
+                self?.finish(value, key: key, id: id, record: !Task.isCancelled && (cacheNil || value != nil))
                 return value
             }
             running[key] = Make(id: id, task: task, waiters: 1)

@@ -10,6 +10,8 @@ import UIKit
 /// it is drawn. A card shows its snapshot only while every field matches.
 struct AgentCardRasterKey: Equatable {
     var turns: [AgentTurn]
+    /// Store-side artifacts (such as a completed background diff) can change without turns.
+    var contentVersion: Int = 0
     var colorScheme: ColorScheme
     /// The page size the card is laid out at (the kit scales it down).
     var page: CGSize
@@ -188,7 +190,7 @@ struct AgentTabCard: View {
     static let cardAspect: CGFloat = 249.3 / 177.0
 
     var body: some View {
-        let key = AgentCardRasterKey(turns: feed.turns, colorScheme: colorScheme, page: page,
+        let key = AgentCardRasterKey(turns: feed.turns, contentVersion: feed.store.diffs.version, colorScheme: colorScheme, page: page,
                                      visibleHeight: min(page.height, page.width * Self.cardAspect),
                                      topInset: topInset, bottomInset: bottomInset, scale: displayScale * cardScale)
         Group {

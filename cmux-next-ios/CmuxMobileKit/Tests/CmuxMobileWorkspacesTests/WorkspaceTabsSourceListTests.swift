@@ -119,6 +119,9 @@ import SwiftUI
         var loading = key
         loading.turns = [pending]
         #expect(!loading.isDrawable)
+        var changedDiff = key
+        changedDiff.contentVersion = 1
+        #expect(changedDiff != key, "background diff completion must invalidate the raster key")
     }
 
     /// The grid card resolution follows TabsKit's column card (177 of 402
