@@ -5,6 +5,9 @@ import { permissionFromMessage } from "../direct";
 import { PermissionCard } from "../PermissionCard";
 import { PermissionPanel } from "./Panel";
 
+// Long enough to pass the inline card's edit cap at the gallery's 640 px height.
+const LONG_LINES = 80;
+
 type Props = { grouped: boolean; long?: boolean; multiple?: boolean };
 
 // EditDiff loads Pierre's hunk renderer lazily. The gallery's generic "quiet DOM" readiness can
@@ -18,7 +21,7 @@ const renderedDiffs =
       ...(multiple ? [["attempt=0", "attempt=1"]] : []),
       [
         "exit 1",
-        ...(long ? Array.from({ length: 24 }, (_, index) => `echo step ${index + 1}`) : ["echo done"]),
+        ...(long ? Array.from({ length: LONG_LINES }, (_, index) => `echo step ${index + 1}`) : ["echo done"]),
         "exit 0",
       ],
     ];
@@ -39,7 +42,7 @@ function ApprovalEdits({ grouped, long, multiple }: Props) {
     {
       old_string: "exit 1\n",
       new_string: long
-        ? Array.from({ length: 24 }, (_, index) => `echo step ${index + 1}`).join("\n") + "\nexit 0\n"
+        ? Array.from({ length: LONG_LINES }, (_, index) => `echo step ${index + 1}`).join("\n") + "\nexit 0\n"
         : "echo done\nexit 0\n",
     },
   ];

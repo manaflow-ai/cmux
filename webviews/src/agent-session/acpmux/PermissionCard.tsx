@@ -395,7 +395,13 @@ export function PermissionCard({
           </div>
         )}
       </div>
-      <ProposedEdits permissionId={permission.permissionId} diffs={permission.diffs} />
+      {permission.diffs?.length ? (
+        // The edits scroll inside the card, as the panel's list does, so a long write never pushes
+        // the answer buttons out of the pane.
+        <div className="acpmux-permission-edits">
+          <ProposedEdits permissionId={permission.permissionId} diffs={permission.diffs} />
+        </div>
+      ) : null}
       {!writing && (
         <div className="acpmux-permission-buttons">
           {allowOnce && (

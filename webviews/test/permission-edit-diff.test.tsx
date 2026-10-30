@@ -187,6 +187,29 @@ for (const grouped of [false, true]) {
     }
   });
 
+  test(`${surface} shows the text of acpmux's Write diff, which carries no old text`, async () => {
+    // claude_stdio's `with_edit` puts a Write on the ask as a fragment diff with `oldText: null`.
+    await renderAsk(
+      {
+        kind: "edit",
+        rawInput: { file_path: path, content: "replacement\n" },
+        content: [
+          {
+            type: "diff",
+            path,
+            oldText: null,
+            newText: "replacement\n",
+            _meta: { acpmux: { fragment: true } },
+          },
+        ],
+      },
+      grouped,
+    );
+    expect(shownChanges().map((change) => change.name)).toEqual(["upload.sh"]);
+    await waitForLines(1);
+    expect(shownLines()).toEqual([["replacement"]]);
+  });
+
   test(`${surface} does not infer an edit from a different tool's input fields`, async () => {
     await renderAsk(
       {

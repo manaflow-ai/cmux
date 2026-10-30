@@ -776,8 +776,10 @@ export function inputDiffs(rawInput: any, result?: string, canonical?: string): 
   return diffs.length ? diffs : undefined;
 }
 
-/// The ask's proposed edits. Explicit ACP diffs win over input fragments. A Write without its
-/// old text is not a diff: before approval there is no result proving it creates a new file.
+/// The ask's proposed edits. Explicit ACP diffs win over input fragments, including acpmux's Write
+/// fragment with no old text, which shows the text the Write will put there (`toolFiles`). An edit
+/// tool's input is read only when no diff came: there a Write's content is left out, since before
+/// approval there is no result proving it creates a new file.
 export function permissionDiffs(
   tool: { kind?: unknown; content?: unknown; locations?: unknown; rawInput?: unknown } | undefined,
 ): AcpmuxFileDiff[] | undefined {
