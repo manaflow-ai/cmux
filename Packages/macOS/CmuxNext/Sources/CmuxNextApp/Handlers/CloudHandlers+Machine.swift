@@ -186,6 +186,14 @@ extension CloudHandlers {
                 try await cloud.resumeMachine(session.machineID)
             }
         }
+        // A live daemon proves Resume is redundant. Cached API status cannot: idle-pause
+        // and app-link resume can both change the server without refreshing that record.
+        // This only changes menu visibility; explicit commands remain idempotent.
+        ActionTargetVisibility.hide("cloudResumeMachine", in: registry) { invocation in
+            guard let session = try? machine(invocation, context), session.daemon.connection != nil else { return false }
+            if case .connected = session.daemon.store.connectionState { return true }
+            return false
+        }
         bind("cloudCopyMachineID", registry, reason: reason) { invocation in CloudPresenter.copy(try machine(invocation, context).machineID) }
         bind("cloudCopyPort", registry, reason: reason) { invocation in
             let session = try machine(invocation, context), port = try port(invocation)
