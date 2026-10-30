@@ -30,6 +30,8 @@ struct AgentSessionWorkspaceChatOnlyTests {
         let tabs = services.agentTabs
         tabs.localHost = AgentSessionRef.host(installID: "chat-only-test")
         tabs.holdsTabs = { _ in true }
+        // This Mac's acpmux runs the session (no real acpmux here).
+        tabs.sessionProbe = SessionProbe(runs: true)
         let connectBy = ContinuousClock.now + .seconds(60)
         while services.daemon.connection == nil || services.daemon.identity == nil, ContinuousClock.now < connectBy {
             try await Task.sleep(for: .milliseconds(100))
@@ -62,5 +64,55 @@ struct AgentSessionWorkspaceChatOnlyTests {
         #expect(made.filter { $0.kind == .pty }.count == 0, "the workspace got a terminal")
         #expect(made.count == 1)
         #expect(made.first?.kind == .conversation)
+    }
+
+    /// #27934: a session no acpmux of this Mac runs (neither the app's nor the Chief home's) makes
+    /// no workspace: the run fails with the reason, instead of a workspace whose only tab says
+    /// "This chat isn't available".
+    @Test func openSessionWorkspaceRefusesASessionNoAcpmuxRuns() async throws {
+        let binary = try #require(SameTreeDaemonBinary.url)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-chat-gone-\(UUID().uuidString.prefix(8))")
+        let session = "cn-chat-gone-\(UUID().uuidString.prefix(8).lowercased())"
+        let launcher = DaemonLauncher(
+            configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state")),
+            environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        AppActions.bind(services)
+        services.windows.ordersWindowsIn = false
+        services.daemon.start {
+            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
+        }
+        let store = services.daemon.store
+        defer { try? FileManager.default.removeItem(at: root) }
+        let tabs = services.agentTabs
+        tabs.localHost = AgentSessionRef.host(installID: "chat-gone-test")
+        tabs.holdsTabs = { _ in true }
+        tabs.sessionProbe = SessionProbe(runs: false)
+        tabs.chiefHost = "chief:0a1b2c3d"
+        tabs.chiefPaneHost = SessionProbe(runs: false)
+        let connectBy = ContinuousClock.now + .seconds(60)
+        while services.daemon.connection == nil || services.daemon.identity == nil, ContinuousClock.now < connectBy {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+
+        let key = WorkspaceKey.generate()
+        var failure: String?
+        if tabs.canHostChat, services.daemon.connection != nil {
+            let work = try AgentSessionWorkspace.open(session: "s-gone", name: "lane", key: key, cwd: "/tmp", services: services)
+            failure = await work.value?.message
+        }
+        let made = store.workspaces.contains { $0.key == key }
+
+        if let connection = services.daemon.connection, let identity = services.daemon.identity {
+            _ = try? await connection.request(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation, endTerminals: true),
+                                              timeout: .seconds(10))
+        }
+        services.daemon.shutdownConnection()
+        for controller in services.windows.controllers { controller.window?.close() }
+
+        try #require(tabs.canHostChat, "this build has no agent page")
+        #expect(failure == "agent.openSessionWorkspace: " + MiscHandlerStrings.noLocalSession("s-gone"))
+        #expect(!made, "a workspace was made for a chat no acpmux runs")
     }
 }

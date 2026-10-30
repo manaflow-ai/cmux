@@ -19,7 +19,8 @@ import Foundation
 /// Arguments: `session` (required, the acpmux session id), `name` (the
 /// workspace name), `key` (a caller-chosen workspace key, a lowercase UUID,
 /// so the caller can rename the workspace later), `cwd` (unused: the session keeps its own), `host`
-/// (`chief:<home id>`: the session runs in this app's Chief home's acpmux),
+/// (`chief:<home id>`: the session runs in this app's Chief home's acpmux; absent: whichever acpmux of
+/// this Mac runs it, ``AgentTabStore/hostRunning(_:)``, refused when none does: #27934),
 /// `group` (the name of the sidebar group it goes in: any group of that name
 /// that can hold the row, made only when none can; `acpmux new --group` sends
 /// it). A `key` that names a listed workspace opens nothing: a launcher run
@@ -87,6 +88,7 @@ enum AgentSessionWorkspace {
                                       then: join, windows: windows)
         return Task { @MainActor in
             do {
+                let host = try await resolvedHost(host, of: session, tabs: services.agentTabs)
                 // The session's chat is the workspace's first tab: a workspace store tab bound to
                 // the session (agent-session-tabs-v1), saved and restored with the workspace like any
                 // tab. No terminal first: one running `acpmux attach` landed as a bare "~" shell
@@ -126,6 +128,7 @@ enum AgentSessionWorkspace {
         let logger = daemon.logger
         return Task { @MainActor in
             do {
+                let host = try await resolvedHost(host, of: session, tabs: services.agentTabs)
                 guard let pane = await daemon.store.firstPane(mirroring: WorkspaceKey(rawValue: row.rawValue)) else {
                     return ActionWorkFailure("agent.openSessionWorkspace: the pane of workspace \(row.rawValue) did not appear")
                 }
@@ -145,6 +148,12 @@ enum AgentSessionWorkspace {
                 return ActionWorkFailure("agent.openSessionWorkspace: \(error)")
             }
         }
+    }
+
+    /// `host` as given, else the host of the acpmux of this Mac that runs `session` (#27934).
+    @MainActor private static func resolvedHost(_ host: String?, of session: String, tabs: AgentTabStore) async throws -> String? {
+        if let host { return host }
+        return try await tabs.hostRunning(session)
     }
 
     /// Moves workspace `id` into the sidebar group named `name` (`group(named:accepting:in:)`), or into a

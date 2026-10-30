@@ -3,8 +3,8 @@
 //! pane without moving the person's focus, reads a chat's state, stops its
 //! turn, and nudges it on.
 //!
-//! `new` creates the chat in the app's own acpmux (else the one `cmux acp` reaches, as
-//! `chat send|read` read), with the harness, model, effort, mode and
+//! `new` creates the chat in the app's own acpmux (`agent.acpmux`; it starts nothing when the
+//! app does not answer, #27934), with the harness, model, effort, mode and
 //! permission policy given, and `CMUX_WORKSPACE_ID` naming the workspace it
 //! belongs to (`_meta.acpmux.env`), so `chat send|read` reach it afterwards.
 //! The app then shows it as a chat tab (`agent.openSessionTab`, or
@@ -280,9 +280,12 @@ pub(in crate::cli) fn new(
 ) -> Result<Value, CallFailure> {
     // The app's own acpmux when the caller's is another one (a Chief turn): the chat is one
     // of the app's ordinary chats, as New Agent Chat makes, not a subagent of the caller's.
-    let app_socket = chat::app_acpmux(global);
-    let socket = app_socket.as_deref();
+    // An app that does not answer starts nothing: the caller's own daemon would run a chat
+    // its tab cannot attach (#27934).
     let place = place(global, chat)?;
+    let app_socket = chat::required_app_acpmux(global)
+        .map_err(|error| CallFailure { kind: FailureKind::NotRun, error, idempotency_key: None })?;
+    let socket = app_socket.as_deref();
     let cwd = match &chat.cwd {
         Some(cwd) => cwd.clone(),
         None => std::env::current_dir()

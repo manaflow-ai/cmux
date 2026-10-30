@@ -18888,6 +18888,137 @@
         }
       }
     },
+    "handlers.misc.failed.noLocalSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No acpmux on this Mac runs the chat %@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد acpmux على هذا الـ Mac يشغّل المحادثة %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nijedan acpmux na ovom Macu ne pokreće chat %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen acpmux på denne Mac kører chatten %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein acpmux auf diesem Mac führt den Chat %@ aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ningún acpmux de este Mac ejecuta el chat %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun acpmux de ce Mac n’exécute la discussion %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun acpmux su questo Mac esegue la chat %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac の acpmux はチャット %@ を実行していません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មាន acpmux នៅលើ Mac នេះដំណើរការការជជែក %@ ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac의 acpmux 중 채팅 %@을(를) 실행하는 것이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen acpmux på denne Macen kjører chatten %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Żaden acpmux na tym Macu nie uruchamia czatu %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum acpmux deste Mac executa o chat %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ни один acpmux на этом Mac не запускает чат %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มี acpmux บน Mac เครื่องนี้ที่เรียกใช้แชท %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac’teki hiçbir acpmux %@ sohbetini çalıştırmıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жоден acpmux на цьому Mac не запускає чат %@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có acpmux nào trên máy Mac này chạy cuộc trò chuyện %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 上没有 acpmux 运行聊天 %@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 上沒有 acpmux 執行聊天 %@。"
+          }
+        }
+      }
+    },
     "handlers.misc.failed.noPeerSession": {
       "extractionState": "manual",
       "localizations": {
