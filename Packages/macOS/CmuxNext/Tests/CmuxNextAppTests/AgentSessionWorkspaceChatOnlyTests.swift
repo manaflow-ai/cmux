@@ -104,7 +104,8 @@ struct AgentSessionWorkspaceChatOnlyTests {
             }
         }, within: .seconds(10))
         #expect(kill(pid, SIGSTOP) == 0)
-        try await Task.sleep(for: .seconds(3))
+        // The old ten-second keyed-tab budget must expire while the daemon is stopped.
+        try await Task.sleep(for: .seconds(12))
         #expect(kill(pid, SIGCONT) == 0)
         let failure = await work.value?.message
 
