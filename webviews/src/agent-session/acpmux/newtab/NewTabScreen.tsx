@@ -95,11 +95,14 @@ import { SlashMenu } from "../SlashMenu";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand } from "../slashCommands";
 import { useNewTabCommand, type NewTabCommandActions } from "./useNewTabCommand";
 import { useHarnessesListed } from "../catalog";
+import { openHarnessesPage } from "../harnesses/harnessesPage";
 import { NewTabExtras } from "./NewTabExtras";
 import type { SuggestionOrder } from "./suggestionOrder";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = NewTabCommandActions & {
+  /// Setup can start the pending chat with its newly available harness, keeping this draft.
+  onSetup?(continueWith: (harness: string) => void): void;
   /// Enter on a prompt: a chat with `harness` in `cwd` (the project picked on the page).
   /// `model`: the one the chip names, so the chat starts on what the page showed.
   /// `noProject`: Do not work in a project was picked, so the chat starts in no project.
@@ -171,7 +174,7 @@ export type NewTabScreenActions = NewTabCommandActions & {
 
 /// The agent's model, effort and speed chip (App's composer chips), for the agent and project a
 /// prompt would start in.
-export type NewTabChips = React.ComponentType<{ snapshot: AcpmuxSnapshot; cwd?: string }>;
+export type NewTabChips = React.ComponentType<{ snapshot: AcpmuxSnapshot; cwd?: string; onAddAgent?(): void }>;
 
 type Props = NewTabScreenActions & {
   snapshot: AcpmuxSnapshot;
@@ -431,6 +434,11 @@ export function NewTabScreen(props: Props) {
   }, []);
   const dropLandingTarget = useCallback(() => field.current?.parentElement ?? null, []);
   const submitNow = useRef(() => {});
+  const continueAfterSetup = useRef<(harness: string) => void>(() => {});
+  const openSetup = () => {
+    if (props.onSetup) props.onSetup((agent) => continueAfterSetup.current(agent));
+    else openHarnessesPage();
+  };
   const wholeSelection = useRef(false);
   const inlineCaret = useRef<number | undefined>(undefined);
   const composing = useRef(false);
@@ -861,11 +869,27 @@ export function NewTabScreen(props: Props) {
     // Staged attachments go with a chat: a row that opens a page or a tab would drop them.
     const keeps =
       !row || attachments.length === 0 || row.type === "ask" || (row.type === "create" && row.kind === "chat");
+    // With no harness, a default text suggestion would search before setup can open. A row
+    // explicitly selected with the keyboard, and navigation matches, keep their own actions.
+    if (!harness && prompt && !isAddress(prompt, home) && row?.type === "search" && selected === undefined) {
+      openSetup();
+      return;
+    }
     if (row && keeps) return activate(row);
     // Pasted or dropped attachments alone are a prompt, as in a chat's composer.
-    if (attachments.length === 0 && (!prompt || isAddress(prompt, home))) return;
-    // No agent to ask: the composer's chip says Add harness (ComposerPickers), so Return adds no note.
-    if (!harness) return;
+    if (attachments.length === 0 && (!prompt || isAddress(prompt, home))) {
+      // A fresh install has no harness to ask yet. Return on the empty composer should take the
+      // person to the same setup surface as the visible Add harness chip instead of silently doing
+      // nothing; addresses still follow their normal New Tab path above.
+      if (!prompt && !harness) openSetup();
+      return;
+    }
+    // No agent to ask: the composer's chip says Add harness (ComposerPickers). Keep the draft in
+    // place while the Harnesses page opens, so a successful setup can continue from this intent.
+    if (!harness) {
+      openSetup();
+      return;
+    }
     askChat(harness, prompt, project, chipModel);
   };
   submitNow.current = submit;
@@ -881,7 +905,12 @@ export function NewTabScreen(props: Props) {
   // behind: the chat starts empty).
   const startChat = () => {
     touch();
-    if (!harness) return;
+    // The empty New chat action is another first-run entry point. It must open setup when no
+    // harness is installed, rather than leaving the person on an inert page.
+    if (!harness) {
+      openSetup();
+      return;
+    }
     if (created.current) return;
     const prompt = shell ? "" : text.trim();
     if (command.intercept(prompt, harness, attachments.length)) return;
@@ -895,6 +924,41 @@ export function NewTabScreen(props: Props) {
     // A Sandboxed New chat that started nothing (no prompt, a refusal) leaves the page's creates open.
     if (asked === false) created.current = false;
   };
+  /// The harness a setup resume waits on while its sign-in check runs, with the check's target.
+  const resumeAfterAuth = useRef<{ agent: string; target: string } | undefined>(undefined);
+  const authTarget = JSON.stringify(authQuery ?? null);
+  continueAfterSetup.current = (agent) => {
+    // Setup may finish while an attachment is still loading. Resume the same draft only once
+    // its files are ready, reading the latest state rather than the setup-opening snapshot.
+    if (holdForAttachments(() => continueAfterSetup.current(agent)) || created.current) return;
+    // Setup just made the harness ready, so its sign-in check is usually still running, and askChat
+    // refuses while it does. Resume once that harness's check settles; a sign-in it then finds
+    // missing keeps the draft.
+    if (targetAuthPending && harness === agent) {
+      resumeAfterAuth.current = { agent, target: authTarget };
+      return;
+    }
+    created.current = true;
+    const prompt = shell ? "" : text.trim();
+    const asked = askChat(
+      agent,
+      prompt && !isAddress(prompt, home) && !pairingLinkRefused(prompt) ? prompt : "",
+      project,
+    );
+    if (asked === false) created.current = false;
+  };
+  useEffect(() => {
+    const waiting = resumeAfterAuth.current;
+    if (!waiting) return;
+    // The person picked another harness or machine meanwhile: send nothing; the draft stays.
+    if (waiting.target !== authTarget) {
+      resumeAfterAuth.current = undefined;
+      return;
+    }
+    if (targetAuthPending) return;
+    resumeAfterAuth.current = undefined;
+    continueAfterSetup.current(waiting.agent);
+  }, [targetAuthPending, authTarget]);
   const send = () => {
     touch();
     if (!shell) return submit();
@@ -1315,7 +1379,9 @@ export function NewTabScreen(props: Props) {
         {!split && attachmentPicker}
         {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
         switch is the one Enter reuses. */}
-        {!split && Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}
+        {!split && Chips && (
+          <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} onAddAgent={openSetup} />
+        )}
         <span className="acpmux-composer-actions">
           {props.accessory}
           {/* Send: a click does what Return does (a prompt, a row, or a shell command). Cards draws
@@ -1515,7 +1581,7 @@ export function NewTabScreen(props: Props) {
           <div className="nt-foot" onPointerDownCapture={touch}>
             <ComposerFoot ref={foot} plain={plainFooter}>
               {locationInFooter && folderStrip}
-              <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />
+              <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} onAddAgent={openSetup} />
             </ComposerFoot>
           </div>
         )}

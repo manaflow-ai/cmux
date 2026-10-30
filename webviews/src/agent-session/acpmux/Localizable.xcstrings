@@ -242313,6 +242313,138 @@
           }
         }
       }
+    },
+    "turn.nothingToContinue": {
+      "comment": "Agent pane: notice when Continue After Error (palette, CLI, MCP) runs but the chat's last turn did not fail",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا شيء للمتابعة: الدور الأخير لم يفشل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nema se šta nastaviti: posljednji potez nije pao."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Intet at fortsætte: den sidste tur fejlede ikke."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nichts fortzusetzen: Der letzte Durchgang ist nicht fehlgeschlagen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing to continue: the last turn didn’t fail."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No hay nada que continuar: el último turno no falló."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rien à poursuivre : le dernier tour n’a pas échoué."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Niente da continuare: l’ultimo turno non è fallito."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "続行するものはありません：最後のターンは失敗していません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានអ្វីត្រូវបន្តទេ៖ វេនចុងក្រោយមិនបានបរាជ័យទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "계속할 항목이 없습니다. 마지막 턴은 실패하지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingenting å fortsette: den siste runden feilet ikke."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie ma czego kontynuować: ostatnia tura nie zakończyła się błędem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nada para continuar: o último turno não falhou."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нечего продолжать: последний ход не завершился ошибкой."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีอะไรให้ดำเนินการต่อ: เทิร์นล่าสุดไม่ได้ล้มเหลว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Devam edilecek bir şey yok: son tur başarısız olmadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нічого продовжувати: останній хід не завершився помилкою."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có gì để tiếp tục: lượt cuối không bị lỗi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有可继续的内容：上一轮没有失败。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有可繼續的內容：上一輪沒有失敗。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
