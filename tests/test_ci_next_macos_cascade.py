@@ -113,6 +113,30 @@ class Counts(unittest.TestCase):
         self.assertEqual(cascade.queued({"generated_at": "2026-10-19T21:58:00Z", "pools": {}}, NOW),
                          {LARGE: 0, SMALL: 0})
 
+    def test_owned_health_full_then_overflows(self):
+        shot = snapshot(minutes_old=1)
+        shot["pools"][GUI] = {"listening": 0, "busy": 9,
+                               "held_offline": {"units": 9, "cpu": 0, "livelock": 0},
+                               "queued": 2, "oldest_queued_s": 240,
+                               "as_of": "2026-10-19T21:59:00Z"}
+        self.assertTrue(cascade.owned_label_full(shot, GUI, NOW))
+
+    def test_owned_health_stale_then_overflows(self):
+        shot = snapshot(minutes_old=6)
+        shot["pools"][GUI] = {"listening": 0, "busy": 9,
+                               "held_offline": {"units": 9}, "queued": 1,
+                               "oldest_queued_s": 240,
+                               "as_of": "2026-10-19T21:54:00Z"}
+        self.assertTrue(cascade.owned_label_full(shot, GUI, NOW))
+
+    def test_owned_health_with_a_listening_runner_waits(self):
+        shot = snapshot(minutes_old=1)
+        shot["pools"][GUI] = {"listening": 1, "busy": 1,
+                               "held_offline": {"units": 0, "cpu": 0, "livelock": 0},
+                               "queued": 1, "oldest_queued_s": 240,
+                               "as_of": "2026-10-19T21:59:00Z"}
+        self.assertFalse(cascade.owned_label_full(shot, GUI, NOW))
+
     def test_the_pools_other_labels_count_from_the_snapshot(self):
         shot = snapshot(large=1, small=2)
         shot["pools"][MACOS_15] = {"queued": 4, "running": 3}

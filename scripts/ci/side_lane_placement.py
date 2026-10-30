@@ -289,6 +289,15 @@ def healthy_role_label(live: str, runners: Sequence[Mapping[str, Any]] | None, s
     """`live` (a gui_route_label() or session_route_label() result) while role_room() holds, else ""."""
     if not live or runners is None:
         return live
+    # The janitor's glaeda health contract is the authoritative full-pool
+    # signal. A queued job whose label has no listening runner and is held
+    # offline for capacity, CPU, or claim livelock overflows immediately; the
+    # existing runner/queue comparison remains the fallback until those fields
+    # are present in the artifact.
+    if getattr(seen, "owned_full", {}).get(live, False):
+        return ""
+    if getattr(seen, "owned_full_known", {}).get(live, False):
+        return live
     return live if role_room(live, runners, seen, waiting) else ""
 
 

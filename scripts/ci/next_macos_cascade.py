@@ -173,6 +173,12 @@ RESCUE_ACTORS = frozenset({RESCUE_ACTOR, "cmux-bot[bot]"})
 # The step has two minutes, and the placement's own reads come first.
 READ_BUDGET_SECONDS = 45
 QUEUE_SNAPSHOT_MINUTES = 15
+# glaeda's per-label listener health is deliberately a tighter freshness
+# contract than the Blacksmith queue counts.  A missing or stale health record
+# must overflow a job that has already waited three minutes; it must never
+# turn that job into an unbounded wait on an owned label.
+OWNED_HEALTH_STALE_SECONDS = 5 * 60
+OWNED_HEALTH_QUEUE_SECONDS = 3 * 60
 SCALE_SET_GROUP = "Blacksmith scale sets - {label}"
 API = "https://api.github.com"
 # A refused read is logged with its detail and raised, never retried here: the reads share
@@ -280,6 +286,65 @@ class Seen:
     # Queue counts are a separate unit from oldest waits. GUI/session placement weighs them against
     # online runners; the side-route dead-end check above keeps reading wait durations.
     owned_queued: Mapping[str, int] = dataclasses.field(default_factory=dict)
+    # When the janitor carries glaeda's listener health fields, these maps say
+    # whether the contract was evaluated and whether the label is full.  Keeping
+    # the evaluation here lets callers swap the artifact reader in one place.
+    owned_full: Mapping[str, bool] = dataclasses.field(default_factory=dict)
+    owned_full_known: Mapping[str, bool] = dataclasses.field(default_factory=dict)
+
+
+def owned_label_full(snapshot: Mapping[str, Any] | None, label: str, now: dt.datetime,
+                     *, queued_wait_s: float | None = None,
+                     listening: int | None = None) -> bool | None:
+    """Evaluate glaeda's per-label full contract from one janitor snapshot.
+
+    New snapshots export ``listening``, ``busy``, ``held_offline`` (with
+    ``units``, ``cpu`` and ``livelock`` counts), ``queued``, ``oldest_queued_s``
+    and ``as_of``.  Until that export is present, the existing ``queued`` and
+    ``oldest_queued_minutes`` fields provide the conservative stale fallback.
+    ``None`` means there is no usable queue reading for this label.
+    """
+    if not isinstance(snapshot, Mapping) or not isinstance(snapshot.get("pools"), Mapping):
+        return None
+    entry = snapshot["pools"].get(label)
+    if not isinstance(entry, Mapping):
+        return (queued_wait_s is not None and queued_wait_s >= OWNED_HEALTH_QUEUE_SECONDS)
+    try:
+        queued = max(0, int(entry.get("queued", 0)))
+    except (TypeError, ValueError):
+        queued = 0
+    if not queued:
+        return False
+    stamp = entry.get("as_of") or snapshot.get("generated_at")
+    try:
+        as_of = dt.datetime.fromisoformat(str(stamp or "").replace("Z", "+00:00"))
+    except ValueError:
+        as_of = None
+    stale = as_of is None or as_of.tzinfo is None or (now - as_of).total_seconds() > OWNED_HEALTH_STALE_SECONDS
+    if queued_wait_s is None:
+        try:
+            queued_wait_s = float(entry.get("oldest_queued_s"))
+        except (TypeError, ValueError):
+            try:
+                queued_wait_s = float(entry.get("oldest_queued_minutes", 0)) * 60
+            except (TypeError, ValueError):
+                queued_wait_s = 0.0
+        if as_of is not None and as_of.tzinfo is not None:
+            queued_wait_s += max(0.0, (now - as_of).total_seconds())
+    if stale:
+        return queued_wait_s >= OWNED_HEALTH_QUEUE_SECONDS
+    held = entry.get("held_offline")
+    reasons = held if isinstance(held, Mapping) else {}
+    try:
+        held_count = sum(max(0, int(reasons.get(reason, 0) or 0))
+                         for reason in ("units", "cpu", "livelock"))
+    except (TypeError, ValueError):
+        held_count = 0
+    try:
+        listening_count = int(entry.get("listening"))
+    except (TypeError, ValueError):
+        listening_count = listening if listening is not None else 0
+    return listening_count == 0 and held_count > 0
 
 
 def _fresh(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> tuple[float, Mapping[str, Any]] | None:
@@ -331,8 +396,16 @@ def seen(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen | None:
              for label in pools if str(label).startswith("glaeda-") and _field(pools, str(label), "queued")}
     owned_queued = {str(label): _field(pools, str(label), "queued")
                     for label in pools if str(label).startswith("glaeda-") and _field(pools, str(label), "queued")}
+    labels = {str(label) for label in pools if str(label).startswith("glaeda-")}
+    full: dict[str, bool] = {}
+    known: dict[str, bool] = {}
+    for label in labels:
+        result = owned_label_full(snapshot, label, now)
+        if result is not None:
+            full[label] = result
+            known[label] = True
     return Seen(waits=waits, age=age, reserved={k: v for k, v in reserved.items() if v}, owned=owned,
-                owned_queued=owned_queued)
+                owned_queued=owned_queued, owned_full=full, owned_full_known=known)
 
 
 def stalled(live: Mapping[str, int], waiting: Mapping[str, int], waits: Mapping[str, float],

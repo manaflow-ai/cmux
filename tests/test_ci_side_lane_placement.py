@@ -221,6 +221,18 @@ class Decide(unittest.TestCase):
         self.assertEqual(placement.healthy_role_label("", busy, incident, None), "")
         self.assertEqual(placement.healthy_role_label(GUI, None, incident, None), GUI)
 
+    def test_glaeda_full_health_forces_gui_overflow(self):
+        busy = [runner(f"mini-{host}-glaeda-4", busy=True, labels=(STD, GUI)) for host in "abc"]
+        seen = placement.cascade.Seen(waits={}, owned_queued={GUI: 1},
+                                      owned_full={GUI: True}, owned_full_known={GUI: True})
+        self.assertEqual(placement.healthy_role_label(GUI, busy, seen, {placement.cascade.SMALL: 0}), "")
+
+    def test_glaeda_listening_health_keeps_gui_route(self):
+        busy = [runner(f"mini-{host}-glaeda-4", busy=True, labels=(STD, GUI)) for host in "abc"]
+        seen = placement.cascade.Seen(waits={}, owned_queued={GUI: 1},
+                                      owned_full={GUI: False}, owned_full_known={GUI: True})
+        self.assertEqual(placement.healthy_role_label(GUI, busy, seen, {placement.cascade.SMALL: 0}), GUI)
+
     def test_gui_room_uses_queue_counts_independently_of_oldest_waits(self):
         busy = [runner(f"mini-{host}-glaeda-4", busy=True, labels=(STD, GUI)) for host in "abc"]
         small = placement.cascade.SMALL
@@ -1163,7 +1175,7 @@ class CmuxNextWiring(unittest.TestCase):
                     self.assertEqual(evaluate(expression, free), FALLBACK)
                     # With no free slot it waits behind the fleet, never in a Blacksmith queue, as attempt 3 does.
                     full = self.context("2", runner=STD, triggering_actor=bot)
-                    self.assertEqual(evaluate(expression, full), SIDE if name == "fast-tier" else overflow(name))
+                    self.assertEqual(evaluate(expression, full), FALLBACK if name == "fast-tier" else overflow(name))
                     # A dispatch run's attempt 2 overflows the same way.
                     free["github"].update(event_name="workflow_dispatch", ref="refs/heads/topic")
                     self.assertEqual(evaluate(expression, free), FALLBACK)
@@ -1223,7 +1235,7 @@ class CmuxNextWiring(unittest.TestCase):
         # The marker comes after the placement and skips a run with every job on the fallback.
         self.assertLess(names.index(next(step["name"] for step in steps if step.get("id") == "place")),
                         names.index(mark["name"]))
-        self.assertIn("steps.place.outputs.watch != 'false'", mark["if"])
+        self.assertNotIn("steps.place.outputs.watch", mark["if"])
         upload = next(step for step in steps if step.get("uses", "").startswith("actions/upload-artifact"))
         # With no free overflow slot a bot re-run rejoins the same side label (retry_runner is
         # empty), so the sweeper on main watches it for refusals only and leaves a long queue

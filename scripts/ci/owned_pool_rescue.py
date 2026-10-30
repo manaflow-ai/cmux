@@ -822,11 +822,6 @@ class GitHub:
     def rerun_failed(self, run_id: int, next_attempt: int) -> None:
         self.request("POST", f"/actions/runs/{run_id}/rerun-failed-jobs")
 
-    def rerun_job(self, job_id: int) -> None:
-        """Re-dispatch one queued job without cancelling its workflow run."""
-        self.request("POST", f"/actions/jobs/{job_id}/rerun")
-
-
 @dataclasses.dataclass
 class Target:
     run_id: int
@@ -907,6 +902,17 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
         return "the run does not name exactly one pull request"
     return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), int(pulls[0]["number"]),
                   e2e=e2e, side=side, path=str(path), attempt_started_at=attempt_started)
+
+
+def recover_cmux_next_pull(client: GitHub, run: Mapping[str, Any], sleep: Callable[[float], None],
+                           log: Callable[[str], None]) -> Mapping[str, Any]:
+    """Restore omitted PR metadata on cmux-next run events before target parsing."""
+    if (run.get("path") == CMUX_NEXT_WORKFLOW_PATH and run.get("event") == "pull_request"
+            and len(run.get("pull_requests") or []) != 1):
+        pulls = read(lambda: client.pull_requests_for_commit(str(run.get("head_sha") or "")), sleep, log)
+        if pulls:
+            return {**run, "pull_requests": pulls}
+    return run
 
 
 def nightly_target(run: Mapping[str, Any], repository: str) -> Target | str:
@@ -1282,15 +1288,6 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             return finish(f"not watched: run id {run_id!r} is not a number")
         try:
             run = read(lambda: client.run(int(run_id)), sleep, log)
-            # The Actions API may return an empty pull_requests array for a
-            # cmux-next PR run after the PR closes. Recover it by commit so a
-            # queued owned-label job can still be handed to the ordinary
-            # head-checked rescue path.
-            if (run.get("path") == CMUX_NEXT_WORKFLOW_PATH and run.get("event") == "pull_request"
-                    and len(run.get("pull_requests") or []) != 1):
-                pulls = read(lambda: client.pull_requests_for_commit(str(run.get("head_sha") or "")), sleep, log)
-                if pulls:
-                    run = {**run, "pull_requests": pulls}
             event = {"workflow_run": run}
         except READ_ERRORS as error:
             finish(f"gave up: could not read run {run_id}: {error}")
@@ -1298,6 +1295,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     else:
         with open(env["GITHUB_EVENT_PATH"], encoding="utf-8") as handle:
             event = json.load(handle)
+    event = {**event, "workflow_run": recover_cmux_next_pull(client, event.get("workflow_run") or {}, sleep, log)}
     target = target_from_event(event, repository)
     if isinstance(target, str):
         return finish(f"not watched: {target}")
@@ -1368,21 +1366,6 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
             return (f"not rescued: attempt {target.attempt} also failed for a reason that is not a refusal "
                     f"({', '.join(sorted(other))})")
     log(f"{'rescue' if outcome == 'rescue' else 'refused'}: {reason}")
-    if outcome == "rescue" and target.path == CMUX_NEXT_WORKFLOW_PATH:
-        # A queued cmux-next job must be moved even when another job in the
-        # run has a real or base failure. Re-dispatch only the stuck job so the
-        # run's completed failures are untouched and the PR can make progress.
-        jobs = read(lambda: client.jobs(target.run_id, target.attempt), sleep, log)
-        queued = [job for job in jobs if job.get("id") and job_pool(job)
-                  and waiting_for_runner(job)]
-        if queued:
-            queued.sort(key=lambda job: parse_time(job.get("created_at")) or dt.datetime.max.replace(tzinfo=dt.timezone.utc))
-            stuck = queued[0]
-            moved = pull_moved(client, target, sleep, log)
-            if moved:
-                return f"not rescued: {moved}"
-            client.rerun_job(int(stuck["id"]))
-            return f"re-ran queued job {stuck.get('name') or stuck['id']} of run {target.run_id}"
     while True:
         # From attempt 2 on, keep what passed: only the owned jobs are moved.
         # An E2E run always keeps what passed (see the module docstring). A
@@ -1545,6 +1528,7 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
             attempt_started = parse_time(run.get("run_started_at") or run.get("created_at"))
             full_rerun = any(job.get("name") == picker and int(job.get("run_attempt") or 0) > 1
                              and not carried(job, attempt_started) for job in jobs)
+        run = recover_cmux_next_pull(client, run, wait, log)
         target = sweep_target(run, repository, late=late, full_rerun=full_rerun, since=since)
         if isinstance(target, str):
             log(f"[run {run_id}] not watched: {target}")
