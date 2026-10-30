@@ -707,51 +707,6 @@ impl Peer {
         self.github_revoked.notify_waiters();
     }
 
-    /// Whether the peer said at its last handshake that it serves subagent transcripts.
-    pub fn supports_subagent_transcript(&self) -> bool {
-        self.subagent_transcript.load(Ordering::SeqCst)
-    }
-
-    /// Whether the peer said at its last handshake that it pages a chat's native history.
-    pub fn supports_native_history(&self) -> bool {
-        self.native_history.load(Ordering::SeqCst)
-    }
-
-    /// Whether the peer said at its last handshake that it saves a message's attachments.
-    pub fn supports_send_attach(&self) -> bool {
-        self.send_attach.load(Ordering::SeqCst)
-    }
-
-    /// Whether the peer said at its last handshake that it reads uploaded files a message names.
-    pub fn supports_prompt_uploads(&self) -> bool {
-        self.prompt_uploads.load(Ordering::SeqCst)
-    }
-
-    /// Whether the peer said at its last handshake that it answers upload status and checks a
-    /// finish's `sha256` (`hub/file_uploads.rs`).
-    pub fn supports_upload_resume(&self) -> bool {
-        self.upload_resume.load(Ordering::SeqCst)
-    }
-
-    /// Whether the peer said at its last handshake that it answers `_acpmux/session/auth`.
-    pub fn supports_session_auth(&self) -> bool {
-        self.session_auth.load(Ordering::SeqCst)
-    }
-
-    /// Whether the peer said at its last handshake that its prompt acceptances name the message
-    /// they kept (`capabilities::SESSION_MESSAGES`).
-    pub fn supports_session_messages(&self) -> bool {
-        self.session_messages.load(Ordering::SeqCst)
-    }
-
-    /// Integration-test stand-in for a peer from before `session-messages-v1`: until the next
-    /// handshake, as though it had not listed it.
-    #[doc(hidden)]
-    pub fn forget_session_messages_for_tests(&self) {
-        self.session_messages.store(false, Ordering::SeqCst);
-    }
-
-
     /// The WebSocket is open and the handshake has not finished.
     pub fn handshaking(&self) -> bool {
         self.open.load(Ordering::SeqCst) && !self.connected.load(Ordering::SeqCst)
