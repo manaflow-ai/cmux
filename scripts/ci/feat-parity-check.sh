@@ -17,7 +17,10 @@
 #                        features, rustdoc -D warnings, and the two `cargo package` checks.
 #   sdk-msrv             cmux-tui-sdks.yml `rust-msrv`: the public Rust SDK crates and examples
 #                        on Rust 1.88 (installed with rustup into the step's RUSTUP_HOME).
-#   cef-shim-cpp         cmux-next-shim-cpp.yml: every scripts/cmux-next/test-*-cpp.sh.
+#   cef-shim-cpp         cmux-next-shim-cpp.yml: every scripts/cmux-next/test-*-cpp.sh, then the
+#                        Chromium Host's C++ tests where the commit has them
+#                        (scripts/cmux-next/tests/chromium-host-dispatch.test.sh and
+#                        remote-shim-abi.test.sh, on perf/chrome-parity).
 #   swift-portable PKG   swift-packages-linux.yml for one package its matrix lists:
 #                        `swift build --build-tests`, then `swift test --skip-build --parallel`
 #                        when it has Tests, with CMUX_SWIFTPM_TARGET_LINUX=1. Linux only (the
@@ -96,6 +99,14 @@ use_pinned_cargo() { # DIR
   export PATH
   echo "cargo: $cargo_bin"
 }
+# Puts the cargo rustup selects in ROOT first on PATH, for the rest of the step.
+use_root_cargo() { # ROOT
+  local cargo_bin
+  cargo_bin="$(cd "$root/$1" && rustup which cargo)" || { echo "error: rustup which cargo failed in $1" >&2; return 3; }
+  PATH="$(dirname "$cargo_bin"):$PATH"
+  export PATH
+  echo "cargo: $cargo_bin"
+}
 # As cmux-tui-rust-check.sh: a synced copy without the gitlink uses the files present;
 # otherwise the commit's gitlink, with init-submodule.sh's retries.
 ghostty_next() {
@@ -155,6 +166,11 @@ print(("1" if j.get("ghostty") else "0") + "\t" + (j.get("apt") or ""))
   else
     step "toolchain" bash -c 'cd "$1" && rustup toolchain install && rustup component add clippy && cargo --version' _ "$workspace"
   fi
+  # The toolchain's own cargo first on PATH (its bin dir holds cargo-clippy and cargo-fmt): the
+  # cargo on a fleet step's PATH is not always the rustup proxy, and then `cargo clippy` finds no
+  # cargo-clippy (2026-10-29, step dbb2c454 on cmux8s). rustup picks the root's pin, or
+  # RUSTUP_TOOLCHAIN for an unpinned root, from the root's folder.
+  step "toolchain cargo" use_root_cargo "$workspace"
   step "clippy and tests" python3 .github/scripts/rust-workspaces.py run "$workspace"
   finish
 fi
@@ -196,6 +212,16 @@ if [[ "$mode" == cef-shim-cpp ]]; then
   [[ "${#tests[@]}" -gt 0 ]] || { echo "error: no scripts/cmux-next/test-*-cpp.sh at this commit" >&2; exit 2; }
   for t in "${tests[@]}"; do
     step "$(basename "$t" .sh)" "$t"
+  done
+  # The Chromium Host's dispatcher and remote shim ABI (C++ and the generated wire cases, no
+  # AppKit), where this commit has them.
+  for t in chromium-host-dispatch remote-shim-abi; do
+    f="$root/scripts/cmux-next/tests/$t.test.sh"
+    if [[ -f "$f" ]]; then
+      step "$t.test" bash "$f"
+    else
+      echo "cef-shim-cpp: no scripts/cmux-next/tests/$t.test.sh at this commit"
+    fi
   done
   finish
 fi

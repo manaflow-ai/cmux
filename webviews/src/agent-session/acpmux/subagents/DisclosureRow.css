@@ -75,11 +75,23 @@
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
   opacity: 0;
-  transition: opacity 100ms ease;
 }
 .cv-disclosure__line:hover .cv-disclosure__open,
 .cv-disclosure__open:focus-visible {
   opacity: 1;
+}
+/* It fades as a message's hover row does (conversation.css --cv-actions-*, #23769): in after a beat
+   under the pointer, at once from the keyboard, out quickly. */
+@media (prefers-reduced-motion: no-preference) {
+  .cv-disclosure__open {
+    transition: opacity var(--cv-actions-out, 80ms) var(--cv-actions-ease, ease-out);
+  }
+  .cv-disclosure__line:hover .cv-disclosure__open {
+    transition: opacity var(--cv-actions-in, 120ms) var(--cv-actions-ease, ease-out) var(--cv-actions-in-delay, 100ms);
+  }
+  .cv-disclosure__open:focus-visible {
+    transition: opacity var(--cv-actions-in, 120ms) var(--cv-actions-ease, ease-out);
+  }
 }
 .cv-disclosure__open:hover,
 .cv-disclosure__open:focus-visible {
