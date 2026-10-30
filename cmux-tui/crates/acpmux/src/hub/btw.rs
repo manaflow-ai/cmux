@@ -507,6 +507,10 @@ impl Hub {
             Box::pin(self.btw_discard(&side)).await;
             return Err(e);
         }
+        // Its records up to the acceptance were appended on the spawned turn's task: the answer
+        // waits for them, and keeps its Ok, since a retry would ask twice (`request_writes.rs`).
+        super::request_writes::note_session(&side);
+        super::request_writes::note_kept();
         if inline {
             let mut run = run;
             let answer_result = with_inline_deadline(inline_deadline, &mut run).await;

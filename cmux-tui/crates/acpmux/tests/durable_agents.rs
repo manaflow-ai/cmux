@@ -1831,6 +1831,184 @@ async fn queue_ops_edits_survive_a_daemon_crash() {
     assert_eq!(order, ["q-2", "q-1"]);
 }
 
+/// The test pattern of the rule "an acpmux request answers only after what it wrote is on disk"
+/// (`hub/request_writes.rs`; trains 333 and 338 lost an answered queue edit). The daemon runs
+/// with `ACPMUX_TEST_LOG_WRITE_DELAY_MS` (debug builds only): every log write is held, so a
+/// daemon killed right after an answer loses the change unless the answer waited for its
+/// records. Two prompts wait behind a gated turn; `change` makes requests and must be kept
+/// after a SIGKILL right after its answers; returns the restarted daemon's attach.
+async fn answered_change_survives_a_crash(
+    tag: &str,
+    change: impl AsyncFnOnce(&mut Rpc, &str),
+) -> (Daemon, String, PathBuf, Value) {
+    let slow = [("ACPMUX_TEST_LOG_WRITE_DELAY_MS", "400")];
+    let mut daemon = Daemon::with_env(tag, "approve-all", &slow);
+    let (session, gate, mut client) = gated_turn_without_host(&daemon).await;
+    for (id, text) in [("q-1", "one"), ("q-2", "two")] {
+        client
+            .send(
+                "session/prompt",
+                json!({"sessionId": session, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": {"promptId": id}}}),
+            )
+            .await;
+        daemon.wait_event(&session, "queued record", |e| {
+            e["kind"] == "queued" && e["msg"]["promptId"] == id
+        });
+    }
+    let mut rpc = daemon.rpc().await;
+    change(&mut rpc, &session).await;
+    // At once after the answers: what they acknowledged must be on disk already.
+    daemon.sigkill();
+    drop((client, rpc));
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+    (daemon, session, gate, attached)
+}
+
+fn queued_ids(attached: &Value) -> Vec<String> {
+    let queue = attached["session"]["queue"].as_array().cloned().unwrap_or_default();
+    queue.iter().filter_map(|q| q["promptId"].as_str().map(str::to_owned)).collect()
+}
+
+#[tokio::test]
+async fn an_answered_queue_edit_survives_a_crash_right_after_its_answer() {
+    let (_daemon, _session, gate, attached) =
+        answered_change_survives_a_crash("qedit-slow", async |rpc, session| {
+            let edit = |op: &str, id: &str, extra: Value| {
+                let mut p = json!({"sessionId": session, "promptId": id, "op": op});
+                p.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+                p
+            };
+            rpc.call("_acpmux/queue_edit", edit("move", "q-2", json!({"index": 0}))).await;
+            rpc.call("_acpmux/queue_edit", edit("update", "q-1", json!({"text": "one edited"})))
+                .await;
+        })
+        .await;
+    assert_eq!(queued_ids(&attached), ["q-2", "q-1"], "an answered reorder was lost: {attached:#}");
+    let queue = attached["session"]["queue"].as_array().expect("queue");
+    assert_eq!(queue[1]["prompt"], "one edited", "an answered edit was lost: {attached:#}");
+    std::fs::write(&gate, b"go").unwrap();
+}
+
+#[tokio::test]
+async fn an_answered_queue_removal_survives_a_crash_right_after_its_answer() {
+    let (_daemon, _session, gate, attached) =
+        answered_change_survives_a_crash("qrm-slow", async |rpc, session| {
+            rpc.call("_acpmux/queue_remove", json!({"sessionId": session, "promptId": "q-1"}))
+                .await;
+        })
+        .await;
+    assert_eq!(queued_ids(&attached), ["q-2"], "an answered removal was lost: {attached:#}");
+    std::fs::write(&gate, b"go").unwrap();
+}
+
+/// The same rule for a permission answer: its `permission_decision` record is appended by the
+/// task that asked, after the answer wakes it, so the answer must wait for that task's record.
+/// Lost, the restarted daemon's log has the ask and no answer (the first red, fleet 0492f8bf:
+/// the agent host, adopted, had the answer and finished its turn, so the chat's card for the ask
+/// never shows it was answered); with no host it is asked again (`permission_reissued`).
+#[tokio::test]
+async fn an_answered_permission_survives_a_crash_right_after_its_answer() {
+    let slow = [("ACPMUX_TEST_LOG_WRITE_DELAY_MS", "400")];
+    let mut daemon = Daemon::with_env("perm-slow", "ask", &slow);
+    let session = new_session(&daemon).await;
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "ask: deploy"}]}),
+        )
+        .await;
+    let asked =
+        daemon.wait_event(&session, "permission_request", |e| e["kind"] == "permission_request");
+    let permission_id = asked["msg"]["permissionId"].clone();
+    let mut rpc = daemon.rpc().await;
+    rpc.call(
+        "_acpmux/permission_respond",
+        json!({"sessionId": session, "permissionId": permission_id, "optionId": "no"}),
+    )
+    .await;
+    // At once after the answer: the decision it acknowledged must be on disk already.
+    daemon.sigkill();
+    drop((client, rpc));
+    daemon.start();
+    let result = daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
+    assert_eq!(result["msg"]["status"], "completed", "{:#}", json!(daemon.events(&session)));
+    let events = daemon.events(&session);
+    let of_ask = |kind: &str| {
+        events
+            .iter()
+            .filter(|e| e["kind"] == kind && e["msg"]["permissionId"] == permission_id)
+            .count()
+    };
+    assert_eq!(
+        of_ask("permission_decision"),
+        1,
+        "an answered permission's decision was lost in the crash: {:#}",
+        json!(events)
+    );
+    assert_eq!(of_ask("permission_reissued"), 0, "the person was asked again: {:#}", json!(events));
+}
+
+/// The same for a group answer (`_acpmux/permission_group_respond`): every prompt it answers has
+/// its `permission_decision` appended by the task that asked, and the answer waits for each.
+#[tokio::test]
+async fn an_answered_permission_group_survives_a_crash_right_after_its_answer() {
+    let slow = [("ACPMUX_TEST_LOG_WRITE_DELAY_MS", "400")];
+    let mut daemon = Daemon::with_env("pgrp-slow", "ask", &slow);
+    let session = new_session(&daemon).await;
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "permission-batch: parallel"}]}),
+        )
+        .await;
+    let shown = daemon.wait_event(&session, "a pending permission group", |e| {
+        e["kind"] == "permission_group" && e["msg"]["group"]["state"] == "pending"
+    });
+    let group = &shown["msg"]["group"];
+    let mut rpc = daemon.rpc().await;
+    // A deny: this plain socket client is not the person (`hub/person.rs`).
+    rpc.call(
+        "_acpmux/permission_group_respond",
+        json!({"sessionId": session, "groupId": group["groupId"], "revision": group["revision"],
+               "decisionKey": "crash", "decision": "deny"}),
+    )
+    .await;
+    // At once after the answer: every decision it acknowledged must be on disk already.
+    daemon.sigkill();
+    drop((client, rpc));
+    daemon.start();
+    let result = daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
+    assert_eq!(result["msg"]["status"], "completed", "{:#}", json!(daemon.events(&session)));
+    let events = daemon.events(&session);
+    let asked: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["kind"] == "permission_request" && e["msg"]["groupId"] == group["groupId"])
+        .map(|e| &e["msg"]["permissionId"])
+        .collect();
+    assert_eq!(asked.len(), 3, "the batch asks three prompts: {:#}", json!(events));
+    for id in asked {
+        let of_ask = |kind: &str| {
+            events.iter().filter(|e| e["kind"] == kind && e["msg"]["permissionId"] == *id).count()
+        };
+        assert_eq!(
+            of_ask("permission_decision"),
+            1,
+            "a group answer's decision was lost in the crash: {:#}",
+            json!(events)
+        );
+        assert_eq!(
+            of_ask("permission_reissued"),
+            0,
+            "the person was asked again: {:#}",
+            json!(events)
+        );
+    }
+}
+
 /// An answered rename, tag, policy and rules come back after a crash that came before their
 /// session record (`session.json`) was written: the restart rebuilds them from the event log,
 /// the source of truth (`hub/meta_replay.rs`). `ACPMUX_TEST_META_WRITE_DELAY_MS` (debug builds

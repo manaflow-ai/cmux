@@ -723,6 +723,39 @@ class PrePushGateTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.remote_head(), self.git("rev-parse", "HEAD").stdout.strip())
 
+    def test_push_that_adds_a_swiftformat_violation_is_refused_and_named(self):
+        # The SwiftFormat lane printed only "Source input did not pass lint check." under --quiet, with no
+        # file:line, so no finding ever reached the gate (b7-branch2-reviewer-4, 2026-10-29).
+        before = self.remote_head()
+        self.kit("Spaced", NEW_CLEAN.replace("Fresh", "Spaced").replace("    let work", "\n\n    let work", 1))
+        self.commit("adds two blank lines in a row")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before, "the badly formatted commit must not reach origin")
+        self.assertIn("Spaced.swift", output)
+        self.assertIn("consecutiveBlankLines", output)
+
+    def test_a_push_next_to_old_swiftformat_debt_passes(self):
+        # Only what the push adds is new: a file that already breaks a format rule on the base passes when the
+        # push edits another line of it.
+        spaced = NEW_CLEAN.replace("Fresh", "Spaced").replace("    let work", "\n\n    let work", 1)
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        self.kit("Spaced", spaced)
+        self.commit("old format debt on the base")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        self.kit("Spaced", spaced.replace("Data(blockingContentsOf: url)", "Data(blockingContentsOf: url.standardizedFileURL)"))
+        self.commit("edits another line of the file")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertNotIn("consecutiveBlankLines", output, "old format debt must not be reported")
+
     def test_branch_checker_changes_are_not_executed_by_the_installed_hook(self):
         marker = self.root / "branch-checker-ran"
         self.write(
@@ -884,6 +917,44 @@ def fake_tool_zip(path: Path) -> str:
     with zipfile.ZipFile(path, "w") as zf:
         zf.writestr("ast-grep", FAKE_TOOL)
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+class SwiftFormatLaneTests(unittest.TestCase):
+    """The SwiftFormat lane's output, with the pinned binary (prepush-gate.py swiftformat())."""
+
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location("cmux_next_prepush_gate_swiftformat", SOURCE / GATE)
+        self.gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.gate)
+        lock = SOURCE / "scripts/cmux-next/lint-tools.lock"
+        try:
+            self.binary = self.gate.ensure_tool(lock, "swiftformat")
+        except SystemExit as refused:
+            self.skipTest(f"no pinned swiftformat here: {refused}")
+        self.config = SOURCE / "scripts/cmux-next/lint/swiftformat.conf"
+        temporary = tempfile.TemporaryDirectory(prefix="cmux-swiftformat-lane-")
+        self.addCleanup(temporary.cleanup)
+        self.tree = Path(temporary.name)
+        (self.tree / "Spaced.swift").write_text("struct S {\n    var a = 1\n\n\n    var b = 2\n}\n")
+        (self.tree / "Broken.swift").write_text("struct B { var x = }}\n")
+
+    def test_a_violation_names_its_file_line_and_rule(self):
+        out = self.gate.swiftformat(self.binary, self.config, self.tree, ["Spaced.swift"])
+        self.assertRegex(out, r"Spaced\.swift:\d+:\d+: .*\(consecutiveBlankLines\)")
+
+    def test_a_file_that_does_not_parse_is_a_finding_about_that_file(self):
+        out = self.gate.swiftformat(self.binary, self.config, self.tree, ["Broken.swift", "Spaced.swift"])
+        self.assertIn("Broken.swift", out)
+        self.assertIn("consecutiveBlankLines", out)
+        self.assertIsNone(self.gate.BROKEN.search(out), out)
+
+    def test_a_bad_config_reads_as_a_broken_lane_not_a_pass(self):
+        # An unknown rule names no source file; both trees fail alike and would cancel as a "finding".
+        bad = self.tree / "bad.conf"
+        bad.write_text("--rules nosuchrule\n")
+        out = self.gate.swiftformat(self.binary, bad, self.tree, ["Spaced.swift"])
+        self.assertIsNotNone(self.gate.BROKEN.search(out), out)
+        self.assertIn("nosuchrule", out)
 
 
 class PinnedToolTests(unittest.TestCase):

@@ -269,6 +269,9 @@ impl Hub {
             super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref()).is_some()
                 && !opts.send_now;
         let mut accept = |mut v: Value| {
+            // Committed: a request that runs this prompt on its task keeps its Ok even if the
+            // log then fails, since a retry would start a second turn (`request_writes.rs`).
+            super::request_writes::note_kept();
             if let Some(f) = on_accepted.take() {
                 if supersede.is_some() {
                     super::queue::supersede::mark(&mut v, replaced.get());

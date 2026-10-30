@@ -9,6 +9,7 @@ pub(crate) mod admission;
 mod adopted_fences;
 mod adoption;
 mod agent_pairs;
+pub(crate) mod request_writes;
 pub use agent_pairs::PairGuard;
 mod aside;
 pub(crate) mod auto_resume;
@@ -284,6 +285,10 @@ pub struct RemoteSession {
 pub(super) struct PendingPermission {
     pub(super) request: Value,
     pub(super) reply: oneshot::Sender<Value>,
+    /// The seq of the `permission_decision` record the asking task appends once `reply` wakes it
+    /// (None: that append failed): the answering request waits for it (`request_writes.rs`).
+    /// It closes with nothing sent when the asking task is gone, which then appends nothing.
+    pub(super) decision_seq: oneshot::Receiver<Option<u64>>,
     /// The nonce a relayed allow's decision proof covers (`person.rs`,
     /// cx-0q7o): new for each prompt, valid only while it is pending.
     pub(super) decision_nonce: String,
@@ -1366,10 +1371,16 @@ impl Hub {
         }
         self.touch(session);
         let stored = match self.store.append(&session.id, &record) {
-            Ok(()) => true,
+            Ok(()) => {
+                // A request answers only once this record is written (`request_writes.rs`).
+                request_writes::note_log(&session.id, seq);
+                true
+            }
             Err(e) => {
                 session.append_errors.fetch_add(1, Ordering::SeqCst);
                 tracing::warn!(session = %session.id, "append failed: {e}");
+                // Not saved: a request that appended it does not answer Ok (`request_writes.rs`).
+                request_writes::note_failed();
                 false
             }
         };

@@ -158,6 +158,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-owner-liveness"
+version = "0.1.0"
+dependencies = [
+ "cmux-threads",
+ "libc",
+]
+
+[[package]]
 name = "cmux-sdk"
 version = "1.0.0"
 dependencies = [
@@ -183,6 +191,13 @@ dependencies = [
  "serde_json",
  "sha2",
  "time",
+]
+
+[[package]]
+name = "cmux-threads"
+version = "0.1.0"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
@@ -781,6 +796,7 @@ dependencies = [
  "chrono",
  "cmux-chief",
  "cmux-conversation",
+ "cmux-owner-liveness",
  "cmux-sdk",
  "cmux-server-core",
  "image",

@@ -5,7 +5,8 @@
 
 use super::*;
 use crate::clock::ManualClock;
-use crate::daemon_lifecycle::{HubLiveness, IDLE_EXIT_GRACE, OwnerApp, wait_for_idle_exit};
+use crate::daemon_lifecycle::{HubLiveness, IDLE_EXIT_GRACE, wait_for_daemon_exit};
+use cmux_owner_liveness::OwnerLiveness;
 
 fn hub() -> Arc<Hub> {
     let mut cfg = crate::config::Config::default();
@@ -49,15 +50,9 @@ async fn exits_within_three_graces(hub: &Arc<Hub>) -> bool {
     let exit = {
         let (hub, clock) = (hub.clone(), clock.clone());
         tokio::spawn(async move {
-            let liveness = HubLiveness { hub: hub.clone(), owner: OwnerApp::default() };
-            wait_for_idle_exit(
-                &hub.clients,
-                clock,
-                &liveness,
-                IDLE_EXIT_GRACE,
-                std::future::pending(),
-            )
-            .await;
+            // No app named this daemon, and `leftoverDaemonIdleExit` is on.
+            let liveness = HubLiveness { hub: hub.clone(), owner: OwnerLiveness::new(None) };
+            wait_for_daemon_exit(&hub.clients, clock, &liveness, false).await;
         })
     };
     for _ in 0..3 {
@@ -113,6 +108,8 @@ async fn idle_exit_a_pending_permission_is_live() {
     let pending = PendingPermission {
         request: json!({"toolCall": {"title": "rm -rf build"}}),
         reply,
+        // No asking task: closed, nothing to wait for.
+        decision_seq: tokio::sync::oneshot::channel().1,
         decision_nonce: "n1".into(),
         ancestor_may_answer: false,
         prev_status: SessionStatus::Running,

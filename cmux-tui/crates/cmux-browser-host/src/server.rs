@@ -162,17 +162,31 @@ pub fn serve_providers(
     slot: crate::engines::ProviderSlot,
     agent_bundle: Arc<str>,
 ) -> io::Result<()> {
-    serve_providers_notifying(listener, secret, slot, agent_bundle, Arc::new(|| {}))
+    serve_providers_notifying(
+        listener,
+        secret,
+        slot,
+        agent_bundle,
+        Arc::new(|| {}),
+        Arc::new(|_| {}),
+    )
 }
 
+/// The provider's app once the host acked it, by the socket's peer pid read
+/// before the ack (`cmux_owner_liveness::peer_app`): the supervised host's
+/// owner.
+pub type OnProvider = Arc<dyn Fn(cmux_owner_liveness::OwnerApp) + Send + Sync>;
+
 /// [`serve_providers`], and `on_change` runs after a provider connected and
-/// after it left (the supervised host's idle stop).
+/// after it left (the supervised host's idle stop); `on_provider` runs with
+/// the provider's socket before `on_change` of its connect.
 pub fn serve_providers_notifying(
     listener: UnixListener,
     secret: crate::provider::ProviderSecret,
     slot: crate::engines::ProviderSlot,
     agent_bundle: Arc<str>,
     on_change: Arc<dyn Fn() + Send + Sync>,
+    on_provider: OnProvider,
 ) -> io::Result<()> {
     // SAFETY: getuid(2) has no failure modes.
     let uid = unsafe { libc::getuid() };
@@ -182,13 +196,14 @@ pub fn serve_providers_notifying(
             continue;
         }
         let (secret, slot, agent_bundle) = (secret.clone(), slot.clone(), agent_bundle.clone());
-        let on_change = on_change.clone();
+        let (on_change, on_provider) = (on_change.clone(), on_provider.clone());
         // supervise-allow: one provider handshake; a panic ends that connection only (its socket closes) and the app connects again.
         let _ = cmux_threads::spawn(
             "cmux-browser-host-provider-accept",
             cmux_threads::ThreadQos::UserInitiated,
             move || {
-                let _ = accept_provider(stream, &secret, &slot, &agent_bundle, on_change);
+                let _ =
+                    accept_provider(stream, &secret, &slot, &agent_bundle, on_change, &on_provider);
             },
         );
     }
@@ -204,6 +219,7 @@ fn accept_provider(
     slot: &crate::engines::ProviderSlot,
     agent_bundle: &str,
     on_change: Arc<dyn Fn() + Send + Sync>,
+    on_provider: &OnProvider,
 ) -> io::Result<()> {
     use crate::provider_link::{Opening, ProviderDriver, read_opening};
     let connected = || {
@@ -220,6 +236,8 @@ fn accept_provider(
     let Ok(opening) = read_opening(&mut reader, secret) else {
         return Ok(());
     };
+    // The peer's pid while it is surely connected (macOS answers it only then).
+    let app = cmux_owner_liveness::peer_app(&stream);
     stream.set_read_timeout(None)?;
     let info = match opening {
         Opening::Provider(info) => info,
@@ -273,6 +291,7 @@ fn accept_provider(
     }
     *current = Some(driver);
     drop(current);
+    on_provider(app);
     on_change();
     Ok(())
 }

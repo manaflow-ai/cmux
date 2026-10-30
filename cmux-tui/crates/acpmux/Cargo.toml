@@ -42,6 +42,8 @@ tokio-rustls = { version = "0.26", default-features = false, features = ["ring",
 # Named threads at a declared QoS (plans/cmux-next/chrome-parity/p02-threads.md).
 cmux-threads.workspace = true
 cmux-blocking.workspace = true
+# The owner app as a level and the helpers' one stop rule (crates/cmux-owner-liveness).
+cmux-owner-liveness.workspace = true
 # Memory pressure and the consumer registry (`src/memory.rs`); a leaf crate, no tokio.
 cmux-memory.workspace = true
 # The daemon's features and their sources, shared with the cmux-tui owner (the leftover

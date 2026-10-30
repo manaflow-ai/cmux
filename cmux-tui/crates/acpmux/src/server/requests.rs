@@ -2021,7 +2021,7 @@ async fn dispatch_request(
             // Only its sender takes a prompt back (`author.rs`), checked as it leaves.
             let author = crate::author::author(&params)?;
             let editor = crate::author::editor(author.as_ref());
-            let removed = hub.withdraw_queued(&s, prompt_id, editor).await?;
+            let removed = hub.withdraw_queued(&s, prompt_id, editor)?;
             Ok(json!({"sessionId": s.id, "promptId": prompt_id, "removed": removed}))
         }
         method::MUX_SEND_QUEUE | method::MUX_SEND_STATUS => {

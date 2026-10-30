@@ -1063,6 +1063,9 @@ pub fn spawn_link(
         .name("daemon-link".into())
         .spawn(move || {
             let mut delay = Duration::from_millis(500);
+            // Until the first connect, a failed one is reported as Down: the
+            // brain then knows nothing can be read (brain/owner_exit.rs).
+            let mut connected_once = false;
             loop {
                 let started = Instant::now();
                 match connect(&config) {
@@ -1072,6 +1075,7 @@ pub fn spawn_link(
                             conversation.id
                         ));
                         let closer = stream.closer();
+                        connected_once = true;
                         sink(DaemonEvent::Up {
                             port: Box::new(SdkConversations {
                                 client,
@@ -1114,7 +1118,12 @@ pub fn spawn_link(
                         sink(DaemonEvent::Fatal(why));
                         return;
                     }
-                    Err(ConnectError::Other(e)) => log(&format!("daemon: {e}")),
+                    Err(ConnectError::Other(e)) => {
+                        log(&format!("daemon: {e}"));
+                        if !connected_once {
+                            sink(DaemonEvent::Down);
+                        }
+                    }
                 }
                 if started.elapsed() > Duration::from_secs(30) {
                     delay = Duration::from_millis(500);
