@@ -667,3 +667,49 @@ async fn a_queued_web_prompt_is_dropped_when_the_policy_stops_asking_before_disp
     assert!(!events.contains("echo: queued-web"), "the harness got the prompt: {events}");
     let _ = std::fs::remove_dir_all(&d);
 }
+
+/// A guest's prompt the owner approves from the Web runs under the Web's rules, as a Web prompt
+/// would: approved while the policy asked, it is dropped at dispatch once the policy stopped
+/// asking (review of #26747: the approval left it the guest's Local control, so it ran).
+#[tokio::test]
+async fn a_held_prompt_approved_from_the_web_is_dropped_when_the_policy_stops_asking() {
+    let d = dir("approve-web");
+    let hub = hub(&d, None);
+    let mut busy = Client::new(&hub, Origin::Local);
+    let mut guest = Client::new(&hub, Origin::Local);
+    let mut local = Client::person(&hub, Origin::Local).await;
+    let mut web = Client::new(&hub, Origin::Web);
+    let s = no_mode_session(&mut local, &d).await;
+    let fifo = d.join("gate");
+    assert!(std::process::Command::new("mkfifo").arg(&fifo).status().unwrap().success());
+    let gate = format!("gate: {}", fifo.display());
+    let busy_id = busy
+        .send("session/prompt", json!({"sessionId": s, "prompt": [{"type": "text", "text": gate}]}))
+        .await;
+    wait_events(&mut local, &s, "before-gate").await;
+    let author = json!({"id": "guest:k3x9", "name": "Cy", "approval": "owner"});
+    let held = json!({"sessionId": s, "prompt": [{"type": "text", "text": "guest-words"}],
+                      "_meta": {"acpmux": {"promptId": "g-1", "author": author}}});
+    let guest_id = guest.send("session/prompt", held).await;
+    let events = wait_events(&mut local, &s, "guest-words").await;
+    let events: Value = serde_json::from_str(&events).unwrap();
+    let turn = events["result"]["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["kind"] == "queued" && e["msg"]["promptId"] == "g-1")
+        .map(|e| e["msg"]["turnId"].clone())
+        .expect("the held prompt's queued record");
+    let approve = json!({"sessionId": s, "promptId": "g-1", "turnId": turn, "revision": 0});
+    let r = web.call("_acpmux/queue_approve", approve).await;
+    assert!(r.get("error").is_none(), "the Web approves while the policy asks: {r}");
+    // The policy stops asking before the approved prompt's turn.
+    set_policy(&mut local, &s, "approve-all").await;
+    tokio::task::spawn_blocking(move || std::fs::write(fifo, "go")).await.unwrap().unwrap();
+    assert!(busy.reply(busy_id).await.get("error").is_none());
+    let r = guest.reply(guest_id).await;
+    assert_eq!(reason(&r), "remote.policy_not_asking", "{r}");
+    let events = wait_events(&mut local, &s, "prompt_refused").await;
+    assert!(!events.contains("echo: guest-words"), "the harness got the prompt: {events}");
+    let _ = std::fs::remove_dir_all(&d);
+}
