@@ -1,0 +1,63 @@
+name: Swift packages on Linux
+
+# The receipt behind scripts/ci/swift-linux-packages.txt: every listed package's
+# test targets, run on Linux through the same `package-test-lane.sh suite` a
+# fleet step sends there (the fleet controller routes only the listed packages'
+# suites to Linux; every other package keeps the Mac path). A package joins the
+# list only with a green run of this job, and the job runs on every change to a
+# package, the list or the script, so a listed package that stops building on
+# Linux turns it red. tests/test_swift_linux_packages.py keeps the list, the
+# manifests and this workflow in step.
+
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - Packages/**
+      - scripts/ci/swift-linux-packages.txt
+      - scripts/ci/package-test-lane.sh
+      - .github/workflows/swift-linux-packages.yml
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - Packages/**
+      - scripts/ci/swift-linux-packages.txt
+      - scripts/ci/package-test-lane.sh
+      - .github/workflows/swift-linux-packages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: swift-linux-packages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  swift-linux-packages:
+    name: Swift packages on Linux (listed)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    container: swift:6.2-noble
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Python for the lane's watchdog
+        run: command -v python3 >/dev/null || { apt-get update && apt-get install -y --no-install-recommends python3; }
+
+      - name: package-test-lane.sh suite, every listed package
+        run: |
+          set -euo pipefail
+          status=0
+          while read -r dir targets _; do
+            case "$dir" in ''|'#'*) continue ;; esac
+            echo "::group::$dir ($targets)"
+            bash scripts/ci/package-test-lane.sh suite "$dir" "$targets" || { echo "::error::$dir failed on Linux"; status=1; }
+            echo "::endgroup::"
+          done < scripts/ci/swift-linux-packages.txt
+          exit "$status"

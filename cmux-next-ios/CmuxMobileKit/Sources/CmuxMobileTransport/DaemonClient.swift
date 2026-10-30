@@ -5,10 +5,10 @@ import Foundation
 public actor DaemonClient {
     private let channel: any LinkChannel
     private var nextID = 1
-    private var pending: [String: CheckedContinuation<Data, any Error>] = [:]
+    private var pending: [String: CheckedContinuation<ReceivedLine, any Error>] = [:]
     /// Ids of a batch sent but not yet awaited, and replies that came first.
     private var expected: Set<String> = []
-    private var early: [String: Data] = [:]
+    private var early: [String: ReceivedLine] = [:]
     /// Set once the channel ended; later waits fail with it.
     private var ended: (any Error)?
     private var buffer = Data()
@@ -19,9 +19,28 @@ public actor DaemonClient {
     /// The `LinkError` code of a request whose deadline passed.
     public static let replyTimeout = "reply_timeout"
 
-    public init(channel: any LinkChannel) {
+    /// Wire order shared by replies and events, for snapshot/delta consumers.
+    public struct ReceivedLine: Sendable {
+        public let data: Data
+        public let sequence: UInt64
+    }
+    public nonisolated let orderedEvents: AsyncStream<ReceivedLine>
+    private let orderedContinuation: AsyncStream<ReceivedLine>.Continuation
+    private let usesOrderedEvents: Bool
+    private var sequence: UInt64 = 0
+
+    /// Last received line before a caller sends its next request. Unlike a
+    /// reply's position, this can establish what predates snapshot capture.
+    public var receivedPosition: UInt64 { sequence }
+
+    /// Choose one event stream; the unused stream is finished immediately so
+    /// clients that use only one do not retain a second copy of every event.
+    public init(channel: any LinkChannel, orderedEvents: Bool = false) {
         self.channel = channel
         (events, eventContinuation) = AsyncStream.makeStream()
+        (self.orderedEvents, orderedContinuation) = AsyncStream.makeStream()
+        usesOrderedEvents = orderedEvents
+        if orderedEvents { eventContinuation.finish() } else { orderedContinuation.finish() }
     }
 
     public func start() {
@@ -48,6 +67,13 @@ public actor DaemonClient {
     /// `LinkError` `reply_timeout` (a late reply is dropped).
     public func request(_ cmd: String, params: [String: Any] = [:], deadline: Duration? = nil,
                         clock: any Clock<Duration> = ContinuousClock()) async throws -> Data {
+        try await requestOrdered(cmd, params: params, deadline: deadline, clock: clock).data
+    }
+
+    /// Reply with its wire position. This is transport order, not a server
+    /// snapshot watermark: event generation can race with reply serialization.
+    public func requestOrdered(_ cmd: String, params: [String: Any] = [:], deadline: Duration? = nil,
+                               clock: any Clock<Duration> = ContinuousClock()) async throws -> ReceivedLine {
         start()
         let id = nextRequestID()
         let line = try line(id: id, cmd: cmd, params: params)
@@ -98,12 +124,13 @@ public actor DaemonClient {
         if let idempotencyKey { object["idempotency_key"] = idempotencyKey }
         var line = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes])
         line.append(0x0A)
-        return try await withCheckedThrowingContinuation { continuation in
+        let reply: ReceivedLine = try await withCheckedThrowingContinuation { continuation in
             pending[id] = continuation
             Task {
                 do { try await channel.send(line) } catch { self.fail(id: id, error: error) }
             }
         }
+        return reply.data
     }
 
     /// Sends every request in one write, in order, and returns their replies
@@ -111,6 +138,10 @@ public actor DaemonClient {
     /// daemon handles a connection's lines in order). A failed request is a
     /// `.failure` in its slot; a failed write fails them all.
     public func requests(_ batch: [(cmd: String, params: [String: Any])]) async -> [Result<Data, any Error>] {
+        await requestsOrdered(batch).map { $0.map(\.data) }
+    }
+
+    public func requestsOrdered(_ batch: [(cmd: String, params: [String: Any])]) async -> [Result<ReceivedLine, any Error>] {
         start()
         var ids: [String] = []
         var bytes = Data()
@@ -129,7 +160,7 @@ public actor DaemonClient {
             }
             return ids.map { _ in .failure(error) }
         }
-        var results: [Result<Data, any Error>] = []
+        var results: [Result<ReceivedLine, any Error>] = []
         for id in ids {
             do { results.append(.success(try await reply(id))) } catch { results.append(.failure(error)) }
         }
@@ -156,11 +187,11 @@ public actor DaemonClient {
 
     /// The reply to a ``submit(_:params:)``ed request, which may already have come.
     public func reply(to id: String) async throws -> Data {
-        try await reply(id)
+        try await reply(id).data
     }
 
     /// The reply to batch request `id`, which may already have come.
-    private func reply(_ id: String) async throws -> Data {
+    private func reply(_ id: String) async throws -> ReceivedLine {
         if let line = early.removeValue(forKey: id) { return line }
         if let ended {
             expected.remove(id)
@@ -194,18 +225,25 @@ public actor DaemonClient {
 
     private func route(_ line: Data) {
         guard !line.isEmpty else { return }
+        sequence += 1
+        let received = ReceivedLine(data: line, sequence: sequence)
         guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
               let id = object["id"] as? String else {
-            eventContinuation.yield(line)
+            yieldEvent(received)
             return
         }
         if let continuation = pending.removeValue(forKey: id) {
-            continuation.resume(returning: line)
+            continuation.resume(returning: received)
         } else if expected.remove(id) != nil {
-            early[id] = line
+            early[id] = received
         } else {
-            eventContinuation.yield(line)
+            yieldEvent(received)
         }
+    }
+
+    private func yieldEvent(_ received: ReceivedLine) {
+        if usesOrderedEvents { orderedContinuation.yield(received) }
+        else { eventContinuation.yield(received.data) }
     }
 
     private func finish(_ error: any Error) {
@@ -213,5 +251,6 @@ public actor DaemonClient {
         for (_, continuation) in pending { continuation.resume(throwing: error) }
         pending.removeAll()
         eventContinuation.finish()
+        orderedContinuation.finish()
     }
 }

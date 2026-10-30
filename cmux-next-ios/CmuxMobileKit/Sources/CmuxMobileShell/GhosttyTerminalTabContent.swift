@@ -2,6 +2,7 @@
 import CmuxMobileLive
 import CmuxMobileModel
 import CmuxMobileTerminal
+import CmuxMobileTransport
 import CmuxMobileWorkspaces
 import SwiftUI
 import UIKit
@@ -137,7 +138,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// Live mode: Files and Links previews from the Mac.
     var artifactSourceProvider: (@MainActor (WorkspaceTab, _ macID: String) -> (any ArtifactSource)?)?
     /// Live mode: uploads a terminal attachment to the Mac, returning its path there.
-    var uploaderProvider: (@MainActor (WorkspaceTab, _ macID: String) -> (@MainActor (Data, String) async throws -> String)?)?
+    var uploaderProvider: (@MainActor (WorkspaceTab, _ macID: String) -> (@MainActor (LinkUpload.Payload, String) async throws -> String)?)?
     /// DEBUG mock mode (Settings → Developer → Mock): tabs with no live
     /// session run the scripted mock. Ignored outside DEBUG builds.
     var mockDataEnabled = false

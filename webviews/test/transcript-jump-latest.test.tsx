@@ -4,6 +4,7 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { installJsdomScroller, scrollerEnd } from "./support/jsdomScroller";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -45,18 +46,8 @@ Object.assign(scope, replacements);
 // jsdom has no layout: a 600 px viewport (the transcript's first height) over a long conversation,
 // and a scroll offset the test moves as the reader would.
 const VIEWPORT = 600;
-Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => VIEWPORT });
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 760 });
-const offsets = new WeakMap<object, number>();
-Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
-  configurable: true,
-  get(this: object) {
-    return offsets.get(this) ?? 0;
-  },
-  set(this: object, value: number) {
-    offsets.set(this, value);
-  },
-});
+installJsdomScroller(dom.window as never, () => VIEWPORT);
 const jumps: number[] = [];
 dom.window.HTMLElement.prototype.scrollTo = function (this: HTMLElement, options?: ScrollToOptions | number) {
   const top = typeof options === "number" ? 0 : (options?.top ?? 0);
@@ -94,8 +85,7 @@ test("scrolled up, a static button above the composer jumps to the latest messag
   try {
     await act(async () => render(false));
     const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
-    const spacer = dom.window.document.querySelector<HTMLElement>(".acpmux-spacer")!;
-    const latest = parseFloat(spacer.style.height) - VIEWPORT;
+    const latest = scrollerEnd(scroller);
     expect(latest).toBeGreaterThan(VIEWPORT);
     const button = () => dom.window.document.querySelector<HTMLButtonElement>(".acpmux-jump-latest");
     // It opens at the latest message: no button to show.
@@ -150,6 +140,48 @@ test("scrolled up, a static button above the composer jumps to the latest messag
         />,
       ),
     );
+    expect(button()?.dataset.shown).toBeUndefined();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("once shown, the button stays shown back inside its distance and hides only at the latest message", async () => {
+  // Leo 2026-10-28: "I don't want to see that fucking, like, jump to bottom button be jumping around
+  // jittering and flickering like that." A gesture that turns back across the distance it shows at
+  // turned it off and on again; it now hides only once the view is back at the latest message.
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const rows = turnView(turns, new Set());
+  try {
+    await act(async () =>
+      root.render(<VirtualTranscript rows={rows} jumpButton onToggleActivity={() => {}} expanded={new Set()} />),
+    );
+    const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
+    const latest = scrollerEnd(scroller);
+    const button = () => dom.window.document.querySelector<HTMLButtonElement>(".acpmux-jump-latest");
+    const scrollTo = async (top: number) => {
+      scroller.scrollTop = top;
+      await act(async () => {
+        scroller.dispatchEvent(new dom.window.Event("scroll"));
+        await nextFrame();
+      });
+    };
+    // 40px up: not yet far enough to show.
+    await scrollTo(latest - 40);
+    expect(button()?.dataset.shown).toBeUndefined();
+    // 120px up: it shows.
+    await scrollTo(latest - 120);
+    expect(button()?.dataset.shown).toBe("");
+    // Back down to 40px and up to 120px, twice: it stays shown throughout.
+    for (const top of [latest - 40, latest - 120, latest - 40]) {
+      await scrollTo(top);
+      expect(button()?.dataset.shown).toBe("");
+    }
+    // At the latest message it hides.
+    await scrollTo(latest);
+    expect(button()?.dataset.shown).toBeUndefined();
+    // And shows again only past its distance.
+    await scrollTo(latest - 40);
     expect(button()?.dataset.shown).toBeUndefined();
   } finally {
     await act(async () => root.unmount());
