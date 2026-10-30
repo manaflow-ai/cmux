@@ -1541,13 +1541,19 @@ fn remember_stderr(tail: &mut std::collections::VecDeque<String>, raw: &str) {
         return remember_stderr(tail, &raw[end..]);
     }
     let mut line = short_text(raw, STDERR_LINE_CAP);
-    match (crate::stderr::open_string_control(raw), crate::stderr::open_string_control(&line)) {
-        // The cut dropped the opener of a control the raw line leaves open: reopen it.
-        (Some(crate::stderr::StringControl::Osc), None) => line.push_str("\x1b]"),
-        (Some(crate::stderr::StringControl::Other), None) => line.push_str("\x1bP"),
-        // The cut dropped the terminator of a control the raw line closes: close it.
-        (None, Some(_)) => line.push_str("\x1b\\"),
-        _ => {}
+    // The cut line ends in the state the raw line ends in: inside the same kind of control, or in
+    // none. Close what the cut leaves open, then reopen what the raw line leaves open.
+    let (raw_open, cut_open) =
+        (crate::stderr::open_string_control(raw), crate::stderr::open_string_control(&line));
+    if cut_open != raw_open {
+        if cut_open.is_some() {
+            line.push_str("\x1b\\");
+        }
+        match raw_open {
+            Some(crate::stderr::StringControl::Osc) => line.push_str("\x1b]"),
+            Some(crate::stderr::StringControl::Other) => line.push_str("\x1bP"),
+            None => {}
+        }
     }
     if crate::stderr::clean_stderr_line(&line).is_empty()
         && !crate::stderr::ends_inside_string_control(&line)
@@ -1601,6 +1607,23 @@ mod stderr_tests {
         super::remember_stderr(&mut tail, &format!("\x1b]8;;{}\x07link text", "x".repeat(5000)));
         super::remember_stderr(&mut tail, "error: request timed out");
         assert_eq!(cleaned(&tail), vec!["error: request timed out"]);
+    }
+
+    #[test]
+    fn a_cut_line_keeps_the_kind_of_control_it_ends_in() {
+        // A DCS closed past the cut, then an OSC opened: the stream ends inside the OSC, so a BEL
+        // on the next line ends it and the error after it is kept.
+        let mut tail = std::collections::VecDeque::new();
+        super::remember_stderr(&mut tail, &format!("\x1bP{}\x1b\\\x1b]title", "d".repeat(5000)));
+        super::remember_stderr(&mut tail, "\x07error: request timed out");
+        assert_eq!(cleaned(&tail), vec!["error: request timed out"]);
+        // The reverse: an OSC closed past the cut, then a DCS opened, which a BEL does not end.
+        let mut tail = std::collections::VecDeque::new();
+        super::remember_stderr(&mut tail, &format!("\x1b]{}\x07\x1bPsecret", "o".repeat(5000)));
+        super::remember_stderr(&mut tail, "\x07leaked");
+        super::remember_stderr(&mut tail, "\x1b\\error: request timed out");
+        assert!(cleaned(&tail).iter().all(|line| !line.contains("leaked")), "{tail:?}");
+        assert_eq!(cleaned(&tail).last().map(String::as_str), Some("error: request timed out"));
     }
 
     #[test]

@@ -999,7 +999,7 @@ async fn acp_steps(
         r.push("launch", StepStatus::Fail, "no stdio pipes", None);
         return;
     };
-    let stderr_tail = std::sync::Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
+    let stderr_tail = std::sync::Arc::new(std::sync::Mutex::new(StderrTail::default()));
     let tail = stderr_tail.clone();
     let mut drain = tokio::spawn(async move {
         let mut stderr = stderr;
@@ -1009,11 +1009,7 @@ async fn acp_steps(
                 break;
             }
             if let Ok(mut t) = tail.lock() {
-                t.extend_from_slice(&buf[..n]);
-                let len = t.len();
-                if len > 64 * 1024 {
-                    t.drain(..len - 64 * 1024);
-                }
+                t.push(&buf[..n]);
             }
         }
     });
@@ -1058,8 +1054,7 @@ async fn acp_steps(
     if tokio::time::timeout(Duration::from_secs(2), &mut drain).await.is_err() {
         drain.abort();
     }
-    let text =
-        stderr_tail.lock().map(|t| String::from_utf8_lossy(&t).into_owned()).unwrap_or_default();
+    let text = stderr_tail.lock().map(|t| t.text()).unwrap_or_default();
     let lines: Vec<String> =
         clean_stderr_lines(&text).into_iter().filter(|line| !line.is_empty()).collect();
     let last = lines[lines.len().saturating_sub(15)..].join("\n");
@@ -1232,3 +1227,70 @@ async fn handshake(
 #[cfg(all(test, unix))]
 #[path = "harness_tests.rs"]
 mod tests;
+
+/// The last 64 KiB of a harness's stderr, for the doctor's "last harness output". Dropping the
+/// front could cut off a string control's opener and leave its payload looking like text, so the
+/// state at the cut is kept and the opener is put back when the text is read.
+#[derive(Default)]
+struct StderrTail {
+    bytes: Vec<u8>,
+    /// The string control the kept bytes start inside, if the cut fell in one.
+    open_at_start: Option<crate::stderr::StringControl>,
+}
+
+impl StderrTail {
+    const CAP: usize = 64 * 1024;
+
+    fn push(&mut self, chunk: &[u8]) {
+        self.bytes.extend_from_slice(chunk);
+        let len = self.bytes.len();
+        if len <= Self::CAP {
+            return;
+        }
+        let dropped: Vec<u8> = self.bytes.drain(..len - Self::CAP).collect();
+        let prefix = Self::opener(self.open_at_start);
+        let before = format!("{prefix}{}", String::from_utf8_lossy(&dropped));
+        self.open_at_start = crate::stderr::open_string_control(&before);
+    }
+
+    fn text(&self) -> String {
+        format!("{}{}", Self::opener(self.open_at_start), String::from_utf8_lossy(&self.bytes))
+    }
+
+    fn opener(control: Option<crate::stderr::StringControl>) -> &'static str {
+        match control {
+            Some(crate::stderr::StringControl::Osc) => "\x1b]",
+            Some(crate::stderr::StringControl::Other) => "\x1bP",
+            None => "",
+        }
+    }
+}
+
+#[cfg(test)]
+mod stderr_tail_tests {
+    use super::StderrTail;
+
+    #[test]
+    fn a_payload_whose_opener_was_cut_off_stays_hidden() {
+        let mut tail = StderrTail::default();
+        tail.push(b"\x1bP");
+        for _ in 0..20 {
+            tail.push(&[b'A'; 4096]);
+        }
+        tail.push(b"secret\x1b\\error: request timed out\n");
+        let lines = crate::stderr::clean_stderr_lines(&tail.text());
+        let shown: Vec<&String> = lines.iter().filter(|line| !line.is_empty()).collect();
+        assert_eq!(shown, vec!["error: request timed out"]);
+    }
+
+    #[test]
+    fn plain_output_is_kept_as_is() {
+        let mut tail = StderrTail::default();
+        for _ in 0..20 {
+            tail.push(&[b'x'; 4096]);
+        }
+        tail.push(b"\nerror: boom\n");
+        assert!(tail.text().ends_with("error: boom\n"));
+        assert!(tail.text().len() <= StderrTail::CAP);
+    }
+}
