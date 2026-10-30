@@ -5275,7 +5275,7 @@ function AcpmuxPane() {
     client?.cancelTrustRefusals();
     trustCancelEpoch.current += 1;
     trustAsk.cancelResend();
-  }, [trustAsk.cancelResend]);
+  }, [trustAsk]);
   const routeClient = trustRenderedOwner.current?.client;
   trustRouteOwner.current = routeClient
     ? {

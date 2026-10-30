@@ -17,7 +17,9 @@ export function routeCurrentTrustRefusal<Client>(
   if (
     rendered?.client === current.client &&
     rendered.generation === current.generation &&
-    (rendered.cancelEpoch === undefined || current.cancelEpoch === undefined || rendered.cancelEpoch === current.cancelEpoch) &&
+    (rendered.cancelEpoch === undefined ||
+      current.cancelEpoch === undefined ||
+      rendered.cancelEpoch === current.cancelEpoch) &&
     rendered.sessionId === current.sessionId &&
     deliver()
   )
