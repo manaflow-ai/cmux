@@ -568,6 +568,11 @@ export type AcpmuxContextBreakdown = {
   maxTokens: number;
 };
 
+/// A Claude Code chat's plan usage limits as acpmux reports them (claude_stdio `usage_limits`):
+/// `id` is `session` (5 hours), `weekly`, `weekly_opus` or `weekly_sonnet`; `usedPercent` is 0-100;
+/// `resetsAt` is unix seconds, only when Claude Code said when the window resets.
+export type AcpmuxUsageLimits = { windows: { id: string; usedPercent: number; resetsAt?: number }[] };
+
 /// Optional Labs workflow payload. acpmux does not emit this field yet; keeping the wire shape
 /// here gives the future event a typed adapter seam without deriving workflow state from rows.
 export type AcpmuxWorkflowWire = {
@@ -647,7 +652,8 @@ export type AcpmuxSnapshot = {
     baseUrl?: string;
     route?: string;
     settingsSources?: unknown;
-    usageLimits?: string;
+    /// acpmux's structured limits, or a harness's own text for them.
+    usageLimits?: AcpmuxUsageLimits | string;
     /// The model the agent last reported, when the pane draws a pick (`model`) it has not
     /// confirmed yet (harnessSwitch.ts). Unset otherwise: `model` is what it reported.
     confirmedModel?: string;

@@ -41,6 +41,7 @@ import { resentAttachments, shownPrompt } from "./pastedText";
 import { peerConnectedFromStatus, peerKindsFromStatus, peerStatesFromStatus } from "./environments";
 import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
 import { hostKind, sessionEntry, summaryActivityAt, text, type AcpmuxSessionEntry } from "./sessionList";
+import { usageLimitsOf } from "./usageLimits";
 import { clampRunning, subsessionLimits } from "./subsessionLimits";
 import { agentName } from "./agents";
 import { FORK_OP, servesOperation } from "./operations";
@@ -4844,7 +4845,7 @@ export class AcpmuxDirectClient {
             baseUrl: text(summary.baseUrl),
             route: text(summary.route),
             settingsSources: summary.settingsSources,
-            usageLimits: text(summary.usageLimits),
+            usageLimits: usageLimitsOf(summary.usageLimits) ?? text(summary.usageLimits),
             // acpmux reports `model: null` for a harness with no model (one known only from its config).
             model: text(summary.model),
             effort: effort?.currentValue,
