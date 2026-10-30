@@ -30,6 +30,7 @@ pub(crate) mod login_session;
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod cloud_handoff;
 mod handover;
+mod dev_orphan;
 mod notify;
 mod persist_retry;
 #[cfg(windows)]
@@ -501,6 +502,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     };
     #[cfg(not(unix))]
     let ctrl_c = tokio::signal::ctrl_c();
+    // A DEV build's daemon whose app is gone (`daemon/dev_orphan.rs`); its
+    // bundle is read before the ready line.
+    let dev_orphan = dev_orphan::watch();
     if let Some(fd) = opts.ready_fd {
         write_ready(fd, &ready);
     }
@@ -584,11 +588,18 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 },
                 _ = next_signal(int.as_mut()) => {},
                 _ = hub.shutdown.notified() => {},
+                // No app is left to adopt its agents: they end with it.
+                _ = dev_orphan => {},
             }
         }
         #[cfg(not(unix))]
         {
-            tokio::select! { _ = ctrl_c => {}, _ = hub.shutdown.notified() => {} }
+            tokio::select! {
+                _ = ctrl_c => {},
+                _ = hub.shutdown.notified() => {},
+                // No app is left to adopt its agents: they end with it.
+                _ = dev_orphan => {},
+            }
         }
     };
     tokio::select! {
