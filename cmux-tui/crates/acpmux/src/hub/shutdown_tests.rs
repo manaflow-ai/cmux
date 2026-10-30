@@ -105,3 +105,73 @@ async fn a_turn_ending_after_a_shutdown_began_leaves_the_kept_agent_to_the_next_
     child.kill().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// What the old daemon writes once its shutdown is done can land after the next daemon read the
+/// log (it lets go of `daemon.lock` before its process exits; Sol review of #28503), so it
+/// writes nothing then: a turn whose answer came after is cut, and the next daemon continues it.
+#[tokio::test]
+async fn a_turn_answered_after_the_shutdown_writes_nothing_and_is_continued() {
+    let dir = std::env::temp_dir().join(format!("acpmux-handoff-{}", uuid::Uuid::now_v7()));
+    let hub = hub_in(&dir);
+    let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    let s = hub.new_session(req).await.unwrap();
+    let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+    let (release, release_rx) = tokio::sync::oneshot::channel();
+    *hub.finish_seam.lock().unwrap() = Some((arrived_tx, release_rx));
+    let opts = PromptOptions { prompt_id: Some("p-late".to_owned()), ..PromptOptions::default() };
+    let blocks = vec![json!({"type": "text", "text": "hi"})];
+    let turn = {
+        let (hub, s) = (hub.clone(), s.clone());
+        tokio::spawn(async move { hub.prompt_with(&s, blocks, "test", false, opts).await })
+    };
+    tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
+    hub.shutdown_all().await;
+    let _ = release.send(());
+    let answer = tokio::time::timeout(WAIT, turn).await.unwrap().unwrap();
+    assert!(answer.is_ok(), "{answer:?}");
+    let id = s.id.clone();
+    drop(s);
+    drop(hub);
+
+    let hub = hub_in(&dir);
+    let s = hub.resolve(&id).unwrap();
+    hub.session_log(&s).await;
+    let late = records(&hub, &s, "turn_result");
+    assert!(late.is_empty(), "the old daemon wrote after its shutdown: {late:?}");
+    let queued = records(&hub, &s, "queued");
+    assert!(
+        queued.iter().any(|m| m["promptId"] == "p-late~resume-1"),
+        "the cut turn's continuation was not queued: {queued:?}"
+    );
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Every path that ends an agent between turns (a route switch, an update's restart, an adopted
+/// agent's `restart_unproven`) goes through `detach_child`, which leaves the agent a shutdown
+/// handed to the next daemon alone, also when it was called before the shutdown began.
+#[tokio::test]
+async fn a_detach_after_a_handing_off_shutdown_leaves_the_kept_agent() {
+    let dir = std::env::temp_dir().join(format!("acpmux-handoff-{}", uuid::Uuid::now_v7()));
+    let hub = hub_in(&dir);
+    let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    let s = hub.new_session(req).await.unwrap();
+    let blocks = vec![json!({"type": "text", "text": "hi"})];
+    hub.prompt_with(&s, blocks, "test", false, PromptOptions::default()).await.unwrap();
+    let child = s.child.lock().await.clone().expect("the chat's agent");
+    let held = s.child.lock().await;
+    // A detach waits for the child lock, as one that began just before the shutdown would.
+    let detach = {
+        let (hub, s) = (hub.clone(), s.clone());
+        tokio::spawn(async move { hub.detach_child(&s).await })
+    };
+    // The shutdown cannot reach this child: it keeps it for the next daemon.
+    hub.shutdown_all().await;
+    drop(held);
+    tokio::time::timeout(WAIT, detach).await.unwrap().unwrap();
+    let kept = s.child.lock().await.clone();
+    assert!(kept.is_some_and(|c| Arc::ptr_eq(&c, &child)), "the detach took the kept agent");
+    assert!(child.is_alive().await, "the detach killed the agent the shutdown kept");
+    child.kill().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
