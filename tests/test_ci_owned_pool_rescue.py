@@ -1690,7 +1690,60 @@ class Nightly(unittest.TestCase):
         self.assertNotIn("rerun-failed", api.calls)
         self.assertIn("not rescued", summary)
 
+    def gate_run(self, gate_status="queued", *, app_status="completed"):
+        """A nightly-next run whose app build is done and whose visual gate asks for a session runner."""
+        def jobs(seconds):
+            app = job("build-nightly-app", labels=[TRUSTED], status=app_status, created=15,
+                      runner="cmux15-glaeda" if app_status != "queued" else "")
+            if app_status == "completed":
+                app.update(conclusion="success", started_at=stamp(16))
+            gate = (refused_job("visual-gate-nightly", labels=(SESSION,)) if gate_status == "refused" else
+                    job("visual-gate-nightly", labels=[SESSION], status=gate_status, created=20,
+                        runner="mini-2-session" if gate_status == "in_progress" else ""))
+            if gate_status == "in_progress":
+                gate["started_at"] = stamp(21)
+            return [job("decide", status="completed", labels=[BLACKSMITH]), app, gate,
+                    job("build-sign-notarize-nightly", labels=["macos-26"], status="in_progress", runner="gh")]
+        return jobs
 
+    def test_a_queued_visual_gate_never_cancels_the_run(self):
+        # Cancelling would kill build-sign-notarize-nightly's notarization: only the app build is judged.
+        clock = Clock()
+        api = NightlyAPI(clock, self.gate_run())
+        code, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"),
+                                 env_extra={"RESCUE_SECONDS": "30"})
+        self.assertEqual(code, 0)
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertNotIn("visual-gate-nightly", summary)
+
+    def test_a_refused_visual_gate_is_not_rerun(self):
+        clock = Clock()
+        api = NightlyAPI(clock, self.gate_run("refused"), finished=lambda s: s >= 200)
+        code, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertEqual(code, 0)
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertNotIn("refused", summary)
+
+    def test_a_running_visual_gate_does_not_hold_a_stuck_app_build(self):
+        clock = Clock()
+        api = NightlyAPI(clock, self.gate_run("in_progress", app_status="queued"))
+        code, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"),
+                                 env_extra={"RESCUE_SECONDS": "30"})
+        self.assertEqual(code, 0)
+        self.assertIn("cancel", api.calls)
+        self.assertIn(f"build-nightly-app queued on {TRUSTED}", summary)
+
+    def test_only_the_app_build_or_the_trusted_pool_is_judged(self):
+        self.assertTrue(rescue.nightly_watched({"name": "build-nightly-app", "labels": ["macos-26"]}))
+        self.assertTrue(rescue.nightly_watched({"name": "other", "labels": [TRUSTED]}))
+        self.assertFalse(rescue.nightly_watched({"name": "visual-gate-nightly", "labels": [SESSION]}))
+        self.assertFalse(rescue.nightly_watched({"name": "visual-gate-nightly",
+                                                 "labels": ["glaeda-gui-std-xcode-26.6"]}))
+
+
+SESSION = "glaeda-session-std-xcode-26.6"
 IOS_SIM = "glaeda-ios-sim"
 
 
@@ -2130,7 +2183,8 @@ class Workflow(unittest.TestCase):
              "cmux-next frame pacing", "cmux-next media", "cmux-next PR autofix", "cmux-next CEF shim C++ tests",
              "cmux-next", "cmux-tui artifacts", "cmux NEXT DEV daily",
              "cmux-next", "cmux-tui", "IROH v2", "Relay TLS system trust", "reload-build",
-             "SSH remote daemon", "Terminal hang diagnostics", "Feed reply provider verification"},
+             "SSH remote daemon", "Terminal hang diagnostics", "Feed reply provider verification",
+             "nightly-next launch smoke"},
         )
         paths = self.doc["env"]["SOURCE_WORKFLOW_PATHS"].split()
         self.assertEqual(

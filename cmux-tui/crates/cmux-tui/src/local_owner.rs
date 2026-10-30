@@ -299,10 +299,16 @@ enum Attempt {
     /// back: a stale or dying peer.
     Unanswered,
     /// A cmux-tui server answered but is not lifecycle-ready yet (its pid
-    /// when its identity carried one).
+    /// when its identity carried one). Also an owner that holds the identify
+    /// unanswered, as one restoring its session does.
     Starting(Option<u64>),
     /// The owner refused the connection at its connection limit.
     Busy,
+    /// The identify went unanswered and the process listening on the socket
+    /// is stopped (SIGSTOP, a debugger): it restores nothing until someone
+    /// continues it, so ensure reports it unavailable now instead of waiting
+    /// out `RESTORE_DEADLINE`, and the app offers "Restart cmux-tui".
+    Stopped,
     Ready(ReadyOwner),
 }
 
@@ -373,6 +379,7 @@ pub(crate) fn ensure_owner(
                 std::thread::sleep(BUSY_POLL_INTERVAL);
                 continue;
             }
+            Attempt::Stopped => return Err(EnsureError::NotReady),
             // The lock is released once the spawn is issued. A redundant
             // owner spawned by a racing ensure finds the socket live at its
             // bind, exits before it restores anything, and every caller
@@ -446,6 +453,7 @@ fn wait_while_starting(
                 progress.restoring(pid);
                 POLL_INTERVAL
             }
+            Attempt::Stopped => return Err(EnsureError::NotReady),
             Attempt::Busy if busy.refused() => return Err(EnsureError::Busy),
             Attempt::Busy => BUSY_POLL_INTERVAL,
         };
@@ -484,8 +492,10 @@ fn wait_until_ready(
                 seen_alive = true;
                 progress.restoring(pid);
             }
-            // Keep what is known about the owner, but only consecutive
-            // refusals count toward its connection-limit deadline.
+            Attempt::Stopped => return Err(EnsureError::NotReady),
+            // Accepted but unanswered: keep what is known about the owner,
+            // but only consecutive refusals count toward its connection-limit
+            // deadline.
             Attempt::Unanswered => busy.answered(),
             Attempt::Busy if busy.refused() => return Err(EnsureError::Busy),
             Attempt::Busy => {}
@@ -594,10 +604,15 @@ fn attempt(
             Ok(stream) => stream,
             Err(_) => return Ok(Attempt::Gone),
         };
+    let listener = stream.peer_process_key();
     let identity = match identify(stream, deadline) {
         Ok(identity) => identity,
-        // A timeout is a live but busy server; anything else on a fresh
-        // connection is a dying or stale peer.
+        // A timeout is a live but busy server (one restoring holds its
+        // connections unanswered), unless its process is stopped; anything
+        // else on a fresh connection is a dying or stale peer.
+        Err(IdentifyError::Timeout) if replace::listener_is_stopped(listener.as_deref()) => {
+            return Ok(Attempt::Stopped);
+        }
         Err(IdentifyError::Timeout) => return Ok(Attempt::Starting(None)),
         Err(IdentifyError::Refused) => return Ok(Attempt::Busy),
         Err(IdentifyError::Failed) => return Ok(Attempt::Unanswered),

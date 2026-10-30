@@ -73,7 +73,7 @@ final class SidebarPriorityPanelView: NSView {
         count.stringValue = panel.collapsed && attention > 0 ? String(attention) : ""
         empty.isHidden = panel.collapsed || !panel.entries.isEmpty
         fade.isHidden = panel.collapsed
-        placeRows(animated: window != nil && old.entries.map(\.id) != panel.entries.map(\.id))
+        placeRows(animated: window != nil && old.entries != panel.entries)
         updateTicker()
         if old.collapsed != panel.collapsed || old.entries.count != panel.entries.count
             || old.entries.map({ $0.preview != nil }) != panel.entries.map({ $0.preview != nil }) {
@@ -142,11 +142,16 @@ final class SidebarPriorityPanelView: NSView {
         closing += leaving.map(\.0)
         placement += 1
         let current = placement
-        // A new row opens on this move; one still opening from an earlier move keeps opening on it.
-        let opens = opening.map(\.0) + targets.map(\.0).filter { opensUntil[ObjectIdentifier($0)] != nil }
+        // A new row opens on this move; one still opening from an earlier move keeps opening on it. A
+        // settled row whose preview made it taller also clips until its slot has grown: layout places
+        // the full preview immediately while the row's frame is still on the spring.
+        let opens = opening.map(\.0) + targets.filter { row, frame in
+            opensUntil[ObjectIdentifier(row)] != nil || abs(row.frame.height - frame.height) > 0.5
+        }.map(\.0)
         for row in opens { opensUntil[ObjectIdentifier(row)] = current }
         Motion.withoutAnimation {
-            for (row, _) in opening + leaving { row.clipsToBounds = true }
+            for row in opens { row.clipsToBounds = true }
+            for (row, _) in leaving { row.clipsToBounds = true }
             for (row, _) in opening { row.alphaValue = 0 }
         }
         let gone = leaving.map(\.0)

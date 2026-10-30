@@ -15,6 +15,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, anyhow};
 use base64::Engine;
 use cmux_build_identity::BUILD_IDENTITY;
+use cmux_json::JsonSet as _;
 #[cfg(test)]
 use cmux_remote::admin::UnixPeerAuthError;
 use cmux_remote::admin::{AdminRequest, AdminResponse, call_admin, call_admin_with_peer_exit};
@@ -1227,7 +1228,41 @@ async fn next_rpc_input(
     }
 }
 
+/// `cmux rpc action.list '{}'`: the old cmux's app socket call, which agents still write
+/// (tests/tool-evals r4a: GPT 6 Astra ran it 54 times). Here `rpc` is a remote session's
+/// workspace RPC and would wait for a daemon, so such a call names the app commands instead.
+/// A route host (`box.local`) is not one: the method's last word is a verb, or JSON follows.
+fn app_method_call(args: &[String]) -> bool {
+    let Some(method) = args.first() else { return false };
+    let words: Vec<&str> = method.split('.').collect();
+    let shaped = words.len() >= 2
+        && words.iter().all(|word| {
+            !word.is_empty() && word.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
+        });
+    let verb = matches!(
+        words.last().copied(),
+        Some(
+            "list"
+                | "get"
+                | "run"
+                | "describe"
+                | "search"
+                | "request"
+                | "call"
+                | "ping"
+                | "identify"
+        )
+    );
+    shaped && (verb || args.get(1).is_some_and(|next| next.trim_start().starts_with('{')))
+}
+
 fn run_rpc(args: &[String]) -> anyhow::Result<()> {
+    if let Some(method) = args.first().filter(|_| app_method_call(args)) {
+        return Err(anyhow!(catalog().local_server.unknown_scope(
+            &format!("rpc {method}"),
+            Some("cmux action list` / `cmux action run <id>` (app actions), `cmux app identify"),
+        )));
+    }
     let mut flags = parse_connect_flags(args)?;
     let single = flags.rpc_request.take();
     let connected = start_connected(flags)?;
@@ -2100,8 +2135,11 @@ fn run_update_need(args: &[String]) -> anyhow::Result<()> {
         "need": need, "reason": reason, "remote": side(&remote), "local": side(&local),
     });
     if reason == cmux_remote::update_need::Reason::Incomparable {
-        answer["warning"] = serde_json::json!(
-            "each build serves a capability the other lacks; neither replaces the other"
+        answer.set(
+            "warning",
+            serde_json::json!(
+                "each build serves a capability the other lacks; neither replaces the other"
+            ),
         );
     }
     println!("{answer}");
@@ -2127,8 +2165,10 @@ fn run_probe(args: &[String]) -> anyhow::Result<()> {
     // 4096 bytes of this output, and the list alone is larger (cx-3r9mt).
     let mut value = value;
     if args.iter().any(|argument| argument == "--build-facts") {
-        value["daemon_capabilities"] =
-            serde_json::json!(cmux_tui_core::server::build_capabilities());
+        value.set(
+            "daemon_capabilities",
+            serde_json::json!(cmux_tui_core::server::build_capabilities()),
+        );
     }
     if args.iter().any(|argument| argument == "--json") {
         println!("{}", serde_json::to_string(&value)?);
