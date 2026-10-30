@@ -709,6 +709,10 @@ await requireBrowserLane("editor-page.test.ts", async () => {
         );
         await page.waitForSelector(".find-pill__replace");
         await page.fill(".find-pill__field", "x");
+        await page.waitForFunction(() =>
+          /^1 of \d+$/.test(document.querySelector(".find-pill__count")?.textContent ?? ""),
+        );
+        if (shots && name === "chromium") await page.screenshot({ path: path.join(shots, "editor-find-count.png") });
         await page.waitForFunction(() => document.querySelector(".find-pill__count")?.textContent === "1 of 1500");
         await page.fill(".find-pill__replace .find-pill__field", "y");
         await page.click(".find-pill__replace-all");
