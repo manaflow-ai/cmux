@@ -37,6 +37,9 @@ final class HostPressurePopover {
     }
 
     func close() { popup.hide() }
+
+    /// Closes the panel for good (its indicator left its window).
+    func closePanel() { popup.closePanel() }
 }
 
 /// The popover's content, rebuilt from each verdict (a few rows; it changes only on a level change or a stop).

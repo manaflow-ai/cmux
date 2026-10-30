@@ -219,10 +219,13 @@ final class SidebarFooterBand {
 
     /// Opens the profile menu over `anchor`. Returns false when the App gave
     /// no menu. Without an anchor (a hidden sidebar) the menu opens at the pointer.
+    /// It is drawn on the menu grid in the sidebar's theme, as the sidebar's other menus are: the
+    /// avatar on the icon column and every row's text on one column (Leo 2026-10-21: "left
+    /// alignment on the profile settings dropdown/pop i think is similar").
     @discardableResult
     func showProfileMenu(from anchor: NSView?) -> Bool {
-        guard let menu = host?.profileMenuProvider?() else { return false }
-        profileMenuPresenter(menu, anchor)
+        guard let host, let menu = host.profileMenuProvider?() else { return false }
+        profileMenuPresenter(menu.themeRows(in: host.themeScope.fullStrength), anchor)
         return true
     }
 

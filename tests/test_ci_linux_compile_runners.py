@@ -1,7 +1,7 @@
 """Linux jobs that compile run on the 32 or 16 vCPU Blacksmith size.
 
 Leo, 2026-10-21: "MOVE STUFF TO BLACKSMITH 16 OR 32. IF WE HAVE 256 OF 32,
-JUST USE 32." Every Linux job below compiles (cargo, cross builds, zig, Go,
+JUST USE 32." Every Linux job below compiles (cargo, Swift, cross builds, zig, Go,
 C++, Gradle) or runs a web build or test suite, so its manaflow-ai runner is
 `blacksmith-32vcpu-ubuntu-2404`, or `blacksmith-16vcpu-ubuntu-2404` for the
 small ones.
@@ -60,6 +60,7 @@ EXPECTED: tuple[tuple[str, str, str, str], ...] = (
     ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_BUILD_RUNNER", BIG),
     ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_DARWIN_RUNNER", BIG),
     ("cmux-tui-headless-debug.yml", "build", "runs-on", BIG),
+    ("cmux-tui-spec.yml", "acpmux-protocol-ir", "runs-on", BIG),
     ("cmux-tui-sdks.yml", "packages", "runs-on", BIG),
     ("cmux-tui-sdks.yml", "consumers", "runs-on", BIG),
     ("cmux-tui-sdks.yml", "conformance", "runs-on", BIG),
@@ -77,6 +78,10 @@ EXPECTED: tuple[tuple[str, str, str, str], ...] = (
     ("sdk-publish-java.yml", "bindings-e2e-java", "runs-on", BIG),
     ("sdk-publish-npm.yml", "bindings-e2e-typescript", "runs-on", BIG),
     ("sdk-publish-python.yml", "bindings-e2e-python", "runs-on", BIG),
+    # Swift on Linux: swift build and swift test of the portable packages in the swift.org
+    # container (ask-d3f5804560: "WE CAN COMPILE SWIFT ON LINUX").
+    ("swift-packages-linux.yml", "packages", "runs-on", BIG),
+    ("cmux-next-terminal.yml", "swift-terminal-linux", "runs-on", BIG),
     # Web: production builds, bundle builds, the backend build and suites.
     ("backend.yml", "test", "runs-on", BIG),
     ("ci-web.yml", "web-production-build", "runs-on", BIG),
@@ -147,6 +152,9 @@ PREFIX: dict[tuple[str, str, str], tuple[str, str]] = {
     # branch first (test_ci_fork_runner_routing.py).
     ("cmux-next-car-guards.yml", "linux", "runs-on"): (
         OWNER + FORK_PULL_REQUEST.format(label="blacksmith-16vcpu-ubuntu-2404"), ""),
+    # A fork pull request keeps the 16 vCPU literal it took before the move.
+    ("swift-packages-linux.yml", "packages", "runs-on"): (
+        OWNER + FORK_PULL_REQUEST.format(label="blacksmith-16vcpu-ubuntu-2404"), ""),
     ("cmux-tui-artifacts.yml", "macos-cross-shadow", "runs-on"): (OWNER + "vars.LINUX_RUNNER_DARWIN_CROSS || ", ""),
     ("macos-cross-parity.yml", "linux-build", "runs-on"): (OWNER + "vars.LINUX_RUNNER_DARWIN_CROSS || ", ""),
     ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_DARWIN_RUNNER"): (
@@ -155,6 +163,7 @@ PREFIX: dict[tuple[str, str, str], tuple[str, str]] = {
         OWNER + "(inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_BUILD_RUNNER || ", ")"),
     # Owner-gated jobs with no fork branch.
     ("cmux-next-terminal.yml", "rust-terminal-linux", "runs-on"): ("", ""),
+    ("cmux-next-terminal.yml", "swift-terminal-linux", "runs-on"): ("", ""),
     ("cmux-tui-headless-debug.yml", "build", "runs-on"): ("", ""),
     ("coderouter-release.yml", "build", "matrix:rust_target=x86_64-unknown-linux-gnu:runner"): ("", ""),
 }

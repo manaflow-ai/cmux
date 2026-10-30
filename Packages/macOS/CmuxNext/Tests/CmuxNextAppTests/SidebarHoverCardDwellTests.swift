@@ -6,7 +6,7 @@ import CmuxNextWakeupsTestSupport
 
 /// Leo 2026-10-13: the workspace hover card showed at once on every row, so
 /// moving the pointer down the sidebar popped a card on each row it passed.
-/// It now waits the hover card delay (250 ms, `HoverCardTiming.showDelay`): a
+/// It now waits the hover card delay (1300 ms, `HoverCardTiming.showDelay`): a
 /// sweep shows none. (The dwell, warm switch, cancel and off checks are the
 /// behavior check scripts/cmux-next/hovercard-delay-live.py, cx-23e1f.)
 ///

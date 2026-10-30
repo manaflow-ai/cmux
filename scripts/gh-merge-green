@@ -981,6 +981,36 @@ merged_head_checks() {
     fi
   fi
   if [ "$web_changed" -eq 1 ] && [ "$status" -eq 0 ]; then
+    # Share the fleet registry's host policy with the workspace pre-push hook.
+    # Agent-only and unknown hosts must never install dependencies or run vp.
+    # A policy skip is not merged-tree validation: retain the exact tree receipt
+    # and all GitHub/freeze/Swift checks, and state the missing coverage plainly.
+    local policy_path policy_status=4 policy_output
+    policy_path="${LEO_WORKSPACE:-$HOME/Projects/leo-workspace}/tools/host_policy.py"
+    if [ -z "${LEO_WORKSPACE:-}" ] && [ ! -f "$policy_path" ] && [ -f "$HOME/src/leo-workspace/tools/host_policy.py" ]; then
+      policy_path="$HOME/src/leo-workspace/tools/host_policy.py"
+    fi
+    policy_output="missing host policy helper: $policy_path"
+    if [ -f "$policy_path" ]; then
+      policy_status=0
+      policy_output=$(python3 "$policy_path" heavy-local-ok --json 2>&1) || policy_status=$?
+      # Every unavailable/failed answer is no-build, not a new merge gate.
+      # Only exit 0 with one well-formed heavy-ok response permits local work.
+      if [ "$policy_status" -eq 0 ] && ! jq -se \
+          'length == 1 and (.[0] | .policy == "heavy-ok" and (.host | type == "string") and (.reason | type == "string"))' \
+          <<<"$policy_output" >/dev/null 2>&1; then
+        policy_status=4
+        policy_output="invalid host policy response: $policy_output"
+      fi
+    fi
+    if [ "$policy_status" -ne 0 ]; then
+      printf 'warning: skipped merged-head web check (host policy exit %s): %s\n' "$policy_status" "$policy_output" >&2
+      printf 'warning: web tree %s (base %s, head %s) not checked; GitHub merge checks still apply\n' \
+        "$merged_tree" "$base_sha" "$head_sha" >&2
+      web_changed=0
+    fi
+  fi
+  if [ "$web_changed" -eq 1 ] && [ "$status" -eq 0 ]; then
     if ! bun=$(command -v bun); then
       status=2
       printf 'not merged: bun is not on PATH, so vp check cannot run on the merged head of %s\n' "$ref" >&2
