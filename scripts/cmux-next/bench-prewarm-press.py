@@ -119,7 +119,7 @@ def two_rows(app, make=True):
     rows = app.rows()
     for index in range(max(0, 2 - len(rows)) if make else 0):
         app.rpc("action.run", {"action": "newTab", "args": {"name": f"prewarm-press-{index}"}, "wait": True})
-    return wait(lambda: (lambda r: r if len(r) >= 2 else None)(app.rows()), 20)
+    return wait(lambda: (lambda r: r if len(r) >= 2 else None)(app.rows()), 60, step=0.25)
 
 
 def timed_press(app, point, before):
@@ -133,12 +133,17 @@ def timed_press(app, point, before):
 
 
 def measure(app, opts, arms, samples, starts):
+    """The warm and quick arms. A failed set-up records them as not run (the cold samples already taken and the
+    HEADLINE still print); it never exits."""
     rows = two_rows(app)
     if not rows:
-        sys.exit("fewer than two sidebar workspace rows")
+        print(f"warm and quick arms: not run (fewer than two sidebar workspace rows in 60 s: {len(app.rows())})", flush=True)
+        return
     points = [(x, y) for _, x, y in rows[:2]]
     if app.press_turns() is None:
-        sys.exit("debug.input has no prewarm.press_turn_ns: a build without the press timing")
+        print("warm and quick arms: not run (debug.input has no prewarm.press_turn_ns: a build without the press timing)",
+              flush=True)
+        return
     if "warm" in arms:
         app.rpc("debug.input", {"action": "reset"})
         count, samples["warm"] = 0, []
@@ -168,9 +173,15 @@ def cold(opts):
             app = App(bench.socket)
             rows = two_rows(app)
             value = None
-            if rows:
+            if not rows:
+                print(f"cold launch {index + 1}: fewer than two sidebar workspace rows in 60 s ({len(app.rows())})", flush=True)
+            else:
                 app.rpc("debug.input", {"action": "reset"})
                 value, _ = timed_press(app, (rows[0][1], rows[0][2]), 0)
+                if value is None:  # say why: what the press reached and what the prewarm section holds
+                    print(f"cold launch {index + 1}: no press turn; rows {[k for k, _, _ in rows[:2]]}, "
+                          f"prewarm {json.dumps(app.rpc('debug.input', {'action': 'read', 'sections': ['prewarm']}))[:300]}",
+                          flush=True)
                 starts.extend((app.press_turns() or ([], []))[1])
             print(f"cold launch {index + 1}: press turn {value} us", flush=True)
             out.append(value)
