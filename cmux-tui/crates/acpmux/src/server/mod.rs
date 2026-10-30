@@ -54,10 +54,18 @@ pub struct SubOpts {
 /// that heard them already hears them no more; the one that asked starts fresh too
 /// (`peer_forward.rs`).
 /// Each record by its own seq: a replay's older records may come after a newer live one.
+/// Bounded: past `MESSAGE_NOTICES_KEPT` seqs, the lowest is dropped and the low-water mark
+/// `floor` rises to it, every seq at or below it counting as heard. Only a record older than the
+/// last `MESSAGE_NOTICES_KEPT` this connection heard of the chat, coming after them and never
+/// heard, is then not sent; a reopen starts fresh (`MessageNoticeBook::reopen`).
 #[derive(Default)]
 pub(super) struct MessageNotices {
     heard: std::collections::BTreeSet<u64>,
+    floor: u64,
 }
+
+/// How many heard seqs one chat's `MessageNotices` keeps above its low-water mark.
+pub(super) const MESSAGE_NOTICES_KEPT: usize = 4096;
 
 impl MessageNotices {
     /// The replay's notice of record `seq`: sent unless the live stream sent it.
@@ -68,7 +76,23 @@ impl MessageNotices {
     /// The live notice of record `seq`: sent unless this connection heard it. A record of no
     /// known seq (0) is always sent.
     pub(super) fn live(&mut self, seq: u64) -> bool {
-        seq == 0 || self.heard.insert(seq)
+        if seq == 0 {
+            return true;
+        }
+        if seq <= self.floor || !self.heard.insert(seq) {
+            return false;
+        }
+        while self.heard.len() > MESSAGE_NOTICES_KEPT {
+            if let Some(lowest) = self.heard.pop_first() {
+                self.floor = self.floor.max(lowest);
+            }
+        }
+        true
+    }
+
+    #[cfg(test)]
+    fn kept(&self) -> usize {
+        self.heard.len()
     }
 }
 
@@ -2157,7 +2181,29 @@ pub mod tailnet_ingress;
 
 #[cfg(test)]
 mod message_notice_tests {
-    use super::{MessageNoticeBook, MessageNotices};
+    use super::{MESSAGE_NOTICES_KEPT, MessageNoticeBook, MessageNotices};
+
+    /// A long-lived connection keeps a bounded count of one chat's messages: past the bound the
+    /// oldest go under the low-water mark, still heard, and newer ones are still told apart.
+    #[test]
+    fn a_long_lived_chat_keeps_a_bounded_count() {
+        let mut n = MessageNotices::default();
+        let total = (MESSAGE_NOTICES_KEPT * 3) as u64;
+        // Message records are sparse among a chat's records: every third seq.
+        for i in 1..=total {
+            assert!(n.live(i * 3), "seq {} goes once", i * 3);
+            assert!(n.kept() <= MESSAGE_NOTICES_KEPT);
+        }
+        assert_eq!(n.kept(), MESSAGE_NOTICES_KEPT);
+        // Heard ones, under the mark or above it, are not sent again.
+        assert!(!n.live(3));
+        assert!(!n.live(total * 3));
+        // A newer record still goes, and a gap above the mark is still told apart.
+        assert!(n.live(total * 3 + 1));
+        assert!(n.live(total * 3 - 1));
+        assert!(!n.live(total * 3 - 1));
+        assert!(n.kept() <= MESSAGE_NOTICES_KEPT);
+    }
 
     /// A peer's chat that keeps the raw id of one here (an export and import keeps ids) counts its
     /// own seqs: neither chat's record silences the other's of the same seq.
