@@ -166,18 +166,60 @@ pub fn exe(_pid: u32) -> Option<std::path::PathBuf> {
     None
 }
 
+/// The folder `pid` runs in (`proc_pidinfo` `PROC_PIDVNODEPATHINFO`); `None` when it cannot be
+/// read.
+#[cfg(target_os = "macos")]
+pub fn cwd(pid: u32) -> Option<std::path::PathBuf> {
+    let pid = libc::c_int::try_from(pid).ok()?;
+    let mut info = std::mem::MaybeUninit::<libc::proc_vnodepathinfo>::zeroed();
+    let size = libc::c_int::try_from(std::mem::size_of::<libc::proc_vnodepathinfo>()).ok()?;
+    // SAFETY: the buffer is a zeroed `proc_vnodepathinfo` and `size` is its size.
+    let written = unsafe {
+        libc::proc_pidinfo(pid, libc::PROC_PIDVNODEPATHINFO, 0, info.as_mut_ptr().cast(), size)
+    };
+    if written != size {
+        return None;
+    }
+    // SAFETY: zeroed plain data, which `proc_pidinfo` filled whole.
+    let info = unsafe { info.assume_init() };
+    let path: Vec<u8> = info
+        .pvi_cdir
+        .vip_path
+        .iter()
+        .flatten()
+        .map(|c| c.to_ne_bytes()[0])
+        .take_while(|b| *b != 0)
+        .collect();
+    let path = String::from_utf8(path).ok().filter(|p| p.starts_with('/'))?;
+    Some(std::path::PathBuf::from(path))
+}
+
+/// The folder `pid` runs in (`/proc/<pid>/cwd`); `None` when it cannot be read.
+#[cfg(target_os = "linux")]
+pub fn cwd(pid: u32) -> Option<std::path::PathBuf> {
+    std::fs::read_link(format!("/proc/{pid}/cwd")).ok()
+}
+
+/// Other unix systems: no folder is read, so no relative script passes for a server.
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
+pub fn cwd(_pid: u32) -> Option<std::path::PathBuf> {
+    None
+}
+
 /// What the idle census knows of a process to tell whether it is an MCP server: the executable
-/// the kernel says it runs, and its exact argv.
+/// the kernel says it runs, its exact argv, and the folder it runs in (`None` when that cannot be
+/// read: then no relative word of its argv names a file).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Identity {
     pub exe: std::path::PathBuf,
     pub argv: Vec<String>,
+    pub cwd: Option<std::path::PathBuf>,
 }
 
-/// [`exe`] and [`argv`] of `pid`; `None` when either cannot be read.
+/// [`exe`], [`argv`] and [`cwd`] of `pid`; `None` when the executable or argv cannot be read.
 #[cfg(unix)]
 pub fn identity(pid: u32) -> Option<Identity> {
-    Some(Identity { exe: exe(pid)?, argv: argv(pid)? })
+    Some(Identity { exe: exe(pid)?, argv: argv(pid)?, cwd: cwd(pid) })
 }
 
 /// The argv in a `KERN_PROCARGS2` answer: `argc` (i32), the exec path, NUL padding, then `argc`
@@ -350,6 +392,22 @@ mod census_tests {
         let _ = child.wait();
         assert_eq!(argv.unwrap(), ["/opt/fake-server", "30"]);
         assert!(exe.is_some(), "exe not read as /bin/sleep");
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn cwd_is_the_folder_a_live_process_runs_in() {
+        let root = std::env::temp_dir().join(format!("tree-cwd-{} x", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let mut child =
+            std::process::Command::new("/bin/sleep").arg("30").current_dir(&root).spawn().unwrap();
+        let real = std::fs::canonicalize(&root).unwrap();
+        let same = |c: &std::path::PathBuf| std::fs::canonicalize(c).ok().as_ref() == Some(&real);
+        let got = settled(|| super::cwd(child.id()).filter(same));
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(got.is_some(), "cwd not read as {root:?}");
     }
 
     #[test]

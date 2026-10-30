@@ -51,6 +51,13 @@ pub(crate) struct Sidecar {
     interpreter: Option<String>,
 }
 
+/// A harness's MCP servers (`Hub::sidecars`), and the `PATH` it started with (`None` for a harness
+/// another daemon started): a launcher's interpreter given by name is the one it runs.
+pub(crate) struct Servers {
+    list: Vec<Sidecar>,
+    path: Option<String>,
+}
+
 /// The most the idle pass waits for the configs to be read, or for `ps`.
 const CENSUS_BUDGET: std::time::Duration = std::time::Duration::from_secs(3);
 
@@ -74,17 +81,14 @@ const REFUSAL_LOG_EVERY: std::time::Duration = std::time::Duration::from_secs(60
 impl Hub {
     /// Lists what runs under `pid`, the session's harness, against `sidecars`, within
     /// [`CENSUS_BUDGET`].
-    pub(super) async fn idle_census(
-        &self,
-        pid: Option<u32>,
-        sidecars: Option<Vec<Sidecar>>,
-    ) -> Census {
+    pub(super) async fn idle_census(&self, pid: Option<u32>, sidecars: Option<Servers>) -> Census {
         #[cfg(unix)]
         if let (Some(pid), Some(sidecars)) = (pid, sidecars) {
             // The listing, each candidate's argv and the match all run in the bounded task.
             let census = tokio::task::spawn_blocking(move || {
                 let found = crate::agent_host::tree::under(pid)?;
-                Some(classify(&found, pid, &sidecars, crate::agent_host::tree::identity))
+                let (list, path) = (&sidecars.list, sidecars.path.as_deref());
+                Some(classify(&found, pid, list, path, crate::agent_host::tree::identity))
             });
             return match tokio::time::timeout(CENSUS_BUDGET, census).await {
                 Ok(Ok(Some(census))) => census,
@@ -123,17 +127,17 @@ impl Hub {
     /// were not read in time: the harness stays up. For a
     /// harness another daemon started none are known, so it ends only when nothing at all runs
     /// under it.
-    pub(super) async fn sidecars(&self, child: &ChildAgent) -> Option<Vec<Sidecar>> {
+    pub(super) async fn sidecars(&self, child: &ChildAgent) -> Option<Servers> {
         let state = child.launch.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let (mut servers, path, cwd) = match state {
-            None => return Some(Vec::new()),
+            None => return Some(Servers { list: Vec::new(), path: None }),
             Some(LaunchServers::Known { servers, path, cwd }) => (servers, path, cwd),
             Some(LaunchServers::Unknown) => return None,
         };
         let given = child.given_servers.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let read = tokio::task::spawn_blocking(move || {
             servers.extend(resolved(from_json(given.as_ref()), &path, &cwd));
-            servers
+            Servers { list: servers, path: Some(path) }
         });
         tokio::time::timeout(CENSUS_BUDGET, read).await.ok()?.ok()
     }
@@ -368,12 +372,24 @@ fn runs(who: &crate::agent_host::tree::Identity, s: &Sidecar) -> bool {
                 .flatten()
                 .any(is_exe)
     };
+    // A script given by a relative path (`./server.js`) is that path in the folder the process
+    // runs in, which must be the server's file (`resolved`, in the harness's folder): one run from
+    // another folder is another script.
+    let script_is = |second: &str| {
+        Path::new(second).is_absolute()
+            || who
+                .cwd
+                .as_ref()
+                .zip(s.resolved.as_deref())
+                .is_some_and(|(cwd, server)| same_file(&cwd.join(second), Path::new(server)))
+    };
     // A script: the executable must be the interpreter its `#!` line runs, not any file named
     // like one.
     let runs_script = |first: &str, second: &str| {
         interpreter(first)
             && second.contains('/')
             && program(second)
+            && script_is(second)
             && s.interpreter.as_deref().is_some_and(is_exe)
     };
     let at = match who.argv.as_slice() {
@@ -391,9 +407,13 @@ fn runs(who: &crate::agent_host::tree::Identity, s: &Sidecar) -> bool {
 #[cfg(unix)]
 fn runs_file(who: &crate::agent_host::tree::Identity, w: &str) -> bool {
     let w = Path::new(w);
+    w == who.exe || (w.is_absolute() && same_file(w, &who.exe))
+}
+
+/// Whether `a` and `b` are one file once both are canonical; false when either is not there.
+fn same_file(a: &Path, b: &Path) -> bool {
     let canonical = |p: &Path| std::fs::canonicalize(p).ok();
-    w == who.exe
-        || (w.is_absolute() && canonical(w).is_some_and(|a| canonical(&who.exe) == Some(a)))
+    canonical(a).is_some_and(|a| canonical(b) == Some(a))
 }
 
 /// Whether `w` names one of [`INTERPRETERS`] (`python3.12` included).
@@ -409,19 +429,22 @@ fn is_interpreter(w: &str) -> bool {
 /// A launcher: an interpreter running a script by path (`node /home/u/.local/bin/codex -c x
 /// app-server`, npm's Codex launcher). Its script's file name and the args after the script.
 /// Argv is the leader's own to rewrite too, so the executable the kernel says it runs must be
-/// that interpreter: the file argv names, or for a bare name (`node`), an interpreter of that
-/// same name.
+/// that interpreter: the file argv names, or for a bare name (`node`, as `#!/usr/bin/env node`
+/// runs it), the one the harness's `path` runs for that name. With no `path` known, a bare name
+/// is no launcher.
 #[cfg(unix)]
-fn launcher(who: &crate::agent_host::tree::Identity) -> Option<(&str, &[String])> {
+fn launcher<'a>(
+    who: &'a crate::agent_host::tree::Identity,
+    path: Option<&str>,
+) -> Option<(&'a str, &'a [String])> {
     let [interp, script, args @ ..] = who.argv.as_slice() else { return None };
     if !is_interpreter(interp) || !script.starts_with('/') {
         return None;
     }
-    let name = |p: &Path| p.file_name().map(|n| n.to_owned());
     let runs_interp = if interp.contains('/') {
         runs_file(who, interp)
     } else {
-        name(&who.exe).as_deref() == Some(std::ffi::OsStr::new(interp))
+        path.and_then(|path| first_on_path(interp, path)).is_some_and(|i| runs_file(who, &i))
     };
     if !runs_interp {
         return None;
@@ -465,18 +488,20 @@ fn part_of(who: &crate::agent_host::tree::Identity, harness_programs: &[String])
 
 /// `Busy` with the first process that is neither a server (a child of the harness), under one, the
 /// harness's relayed program (`relays`) nor one of its helpers (`part_of`). Each is told by its
-/// identity (`identity_of`: exact argv and executable), the leader's own included (`launcher`), never by the
-/// line `ps` prints; one whose identity cannot be read is none of them.
+/// identity (`identity_of`: exact argv, executable and folder), the leader's own included
+/// (`launcher`, its interpreter looked up on `path`, the harness's `PATH`), never by the line `ps`
+/// prints; one whose identity cannot be read is none of them.
 #[cfg(unix)]
 fn classify(
     found: &[crate::agent_host::tree::Under],
     leader: u32,
     sidecars: &[Sidecar],
+    path: Option<&str>,
     identity_of: impl Fn(u32) -> Option<crate::agent_host::tree::Identity>,
 ) -> Census {
     use crate::agent_host::tree::Identity;
     let leader_identity = identity_of(leader);
-    let launched = leader_identity.as_ref().and_then(launcher);
+    let launched = leader_identity.as_ref().and_then(|who| launcher(who, path));
     let mut harness: Vec<u32> = vec![leader];
     let mut harness_programs: Vec<String> = Vec::new();
     let mut parts: Vec<u32> = Vec::new();
@@ -541,7 +566,7 @@ mod tests {
     fn identity(argv: Vec<String>) -> Identity {
         let first = argv.first().cloned().unwrap_or_default();
         let exe = if first.contains('/') { first } else { format!("/usr/local/bin/{first}") };
-        Identity { exe: exe.into(), argv }
+        Identity { exe: exe.into(), argv, cwd: None }
     }
 
     /// [`classify`] with harness 10 run as `claude`, each process's argv its `ps` line split on
@@ -550,14 +575,33 @@ mod tests {
         census_of(found, "claude", servers)
     }
 
-    /// [`census`] with harness 10 run as `leader`.
+    /// [`census`] with harness 10 run as `leader`; a leader's bare `node` is the one on its
+    /// `PATH`.
     fn census_of(found: &[Under], leader: &str, servers: &[Sidecar]) -> Census {
+        let (root, node) = node_on_path();
         let split = |pid| {
             let line =
                 if pid == 10 { leader } else { found.iter().find(|p| p.pid == pid)?.args.as_str() };
-            Some(identity(line.split(' ').map(str::to_owned).collect()))
+            let mut who = identity(line.split(' ').map(str::to_owned).collect());
+            if pid == 10 && who.argv.first().is_some_and(|w| w == "node") {
+                who.exe = node.clone().into();
+            }
+            Some(who)
         };
-        classify(found, 10, servers, split)
+        let census = classify(found, 10, servers, Some(&root.to_string_lossy()), split);
+        let _ = std::fs::remove_dir_all(root);
+        census
+    }
+
+    /// A new folder holding an executable `node`, and that `node`'s path.
+    fn node_on_path() -> (PathBuf, String) {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!("idle-census-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&root).unwrap();
+        let node = root.join("node");
+        std::fs::write(&node, "").unwrap();
+        std::fs::set_permissions(&node, std::fs::Permissions::from_mode(0o755)).unwrap();
+        (root, node.to_string_lossy().into_owned())
     }
 
     #[test]
@@ -672,9 +716,13 @@ mod tests {
 
     /// The relayed harness and its helpers are told by exact argv and the kernel's executable, as
     /// servers are: a child that names itself the native program or a helper (`exec -a`) is
-    /// neither, and a launcher whose path has a space in it still relays.
+    /// neither, a leader is a launcher only when it runs the interpreter its argv names (a bare
+    /// `node`: the one on the harness's `PATH`), and a launcher whose path has a space in it still
+    /// relays.
     #[test]
     fn a_relay_or_helper_is_its_executable_not_its_argv() {
+        let (root, node) = node_on_path();
+        let path = root.to_string_lossy().into_owned();
         let acpmux = "/Users/me/my apps/acpmux";
         let servers =
             from_json(Some(&json!({"forum": {"command": acpmux, "args": ["forum-mcp"]}})));
@@ -683,60 +731,53 @@ mod tests {
         let who = |exe: &str, argv: &[&str]| Identity {
             exe: exe.into(),
             argv: argv.iter().map(|w| w.to_string()).collect(),
+            cwd: None,
         };
-        let leader =
-            who("/usr/local/bin/node", &["node", "/Users/me/my apps/bin/codex", "app-server"]);
+        let launch = |exe: &str, interp: &str| {
+            who(exe, &[interp, "/Users/me/my apps/bin/codex", "app-server"])
+        };
         let relayed = who(&native, &[&native, "app-server"]);
         let server = who(acpmux, &[acpmux, "forum-mcp"]);
         let own_helper = who(&helper, &[&helper]);
         let found = [under(11, 10, "codex"), under(12, 11, "acpmux"), under(13, 11, "helper")];
-        let census = |relay: &Identity, helper: &Identity| {
-            classify(&found, 10, &servers, |pid| match pid {
-                10 => Some(leader.clone()),
-                11 => Some(relay.clone()),
-                12 => Some(server.clone()),
-                13 => Some(helper.clone()),
-                _ => None,
-            })
-        };
-        assert!(matches!(census(&relayed, &own_helper), Census::Clear));
+        let census =
+            |leader: &Identity, relay: &Identity, helper: &Identity, path: Option<&str>| {
+                classify(&found, 10, &servers, path, |pid| match pid {
+                    10 => Some(leader.clone()),
+                    11 => Some(relay.clone()),
+                    12 => Some(server.clone()),
+                    13 => Some(helper.clone()),
+                    _ => None,
+                })
+            };
+        let leader = launch(&node, "node");
+        let at = Some(path.as_str());
+        assert!(matches!(census(&leader, &relayed, &own_helper, at), Census::Clear));
         // `exec -a`: a dev server that names itself the native program, or a helper.
         let spoofed = who("/usr/bin/python3", &[&native, "app-server"]);
-        assert!(matches!(census(&spoofed, &own_helper), Census::Busy { pid: 11, .. }));
+        assert!(matches!(census(&leader, &spoofed, &own_helper, at), Census::Busy { pid: 11, .. }));
         let spoofed = who("/tmp/devserver", &[&helper]);
-        assert!(matches!(census(&relayed, &spoofed), Census::Busy { pid: 13, .. }));
+        assert!(matches!(census(&leader, &relayed, &spoofed, at), Census::Busy { pid: 13, .. }));
         // A name in the helper's folder is not enough: the executable must be that file.
         let elsewhere = who(&format!("{bin}/codex"), &[&format!("{bin}/codex-evil")]);
-        assert!(matches!(census(&relayed, &elsewhere), Census::Busy { pid: 13, .. }));
-        // A leader that names itself the launcher but runs another program relays nothing: its
+        assert!(matches!(census(&leader, &relayed, &elsewhere, at), Census::Busy { pid: 13, .. }));
+        // A leader that names itself the launcher but runs another program, a `node` not on the
+        // harness's `PATH`, or any bare name with no `PATH` known relays nothing: its
         // native-looking child is not the harness.
-        for exe in ["/usr/bin/python3", "/tmp/node-evil", "/opt/bin/codex"] {
-            let spoofed = who(exe, &["node", "/Users/me/my apps/bin/codex", "app-server"]);
-            let census = classify(&found, 10, &servers, |pid| match pid {
-                10 => Some(spoofed.clone()),
-                11 => Some(relayed.clone()),
-                12 => Some(server.clone()),
-                13 => Some(own_helper.clone()),
-                _ => None,
-            });
-            assert!(matches!(census, Census::Busy { pid: 11, .. }), "{exe}");
+        for (spoofed, path) in [
+            (launch("/usr/bin/python3", "node"), at),
+            (launch("/tmp/node-evil", "node"), at),
+            (launch("/tmp/elsewhere/node", "node"), at),
+            (launch(&node, "node"), None),
+            (launch("/usr/local/bin/node", "/usr/bin/python3"), at),
+        ] {
+            let census = census(&spoofed, &relayed, &own_helper, path);
+            assert!(matches!(census, Census::Busy { pid: 11, .. }), "{spoofed:?} {path:?}");
         }
-        // A leader run by the interpreter's full path relays only when that is its executable.
-        let full = |exe: &str| {
-            who(exe, &["/usr/local/bin/node", "/Users/me/my apps/bin/codex", "app-server"])
-        };
-        for (leader, relays) in
-            [(full("/usr/local/bin/node"), true), (full("/usr/bin/python3"), false)]
-        {
-            let census = classify(&found, 10, &servers, |pid| match pid {
-                10 => Some(leader.clone()),
-                11 => Some(relayed.clone()),
-                12 => Some(server.clone()),
-                13 => Some(own_helper.clone()),
-                _ => None,
-            });
-            assert_eq!(matches!(census, Census::Clear), relays, "{leader:?}");
-        }
+        // A leader run by the interpreter's full path relays when that is its executable.
+        let full = launch("/usr/local/bin/node", "/usr/local/bin/node");
+        assert!(matches!(census(&full, &relayed, &own_helper, None), Census::Clear));
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -826,15 +867,18 @@ mod tests {
         let lookup = |pid: u32| words(pid).map(identity);
         let line = |pid: u32| words(pid).map(|a| a.join(" ")).unwrap_or_default();
         let found: Vec<Under> = [11, 12, 13].into_iter().map(|p| under(p, 10, &line(p))).collect();
-        assert!(matches!(classify(&found, 10, &servers, lookup), Census::Clear));
+        assert!(matches!(classify(&found, 10, &servers, None, lookup), Census::Clear));
         for pid in [14, 15, 16] {
             let found = [under(pid, 10, &line(pid))];
-            let census = classify(&found, 10, &servers, lookup);
+            let census = classify(&found, 10, &servers, None, lookup);
             assert!(matches!(census, Census::Busy { pid: p, .. } if p == pid), "{pid}");
         }
         // A child whose argv cannot be read is never a server.
         let found = [under(11, 10, &line(11))];
-        assert!(matches!(classify(&found, 10, &servers, |_| None), Census::Busy { pid: 11, .. }));
+        assert!(matches!(
+            classify(&found, 10, &servers, None, |_| None),
+            Census::Busy { pid: 11, .. }
+        ));
     }
 
     /// Argv is the process's own to rewrite: the executable the kernel says it runs must be the
@@ -849,6 +893,7 @@ mod tests {
         let who = |exe: &str, argv: &[&str]| Identity {
             exe: exe.into(),
             argv: argv.iter().map(|w| w.to_string()).collect(),
+            cwd: None,
         };
         let cases = [
             (who("/opt/cmux/bin/cmux", &["/opt/cmux/bin/cmux", "mcp", "serve"]), true),
@@ -862,7 +907,7 @@ mod tests {
         ];
         for (identity, server) in cases {
             let found = [under(11, 10, &identity.argv.join(" "))];
-            let census = classify(&found, 10, &servers, |_| Some(identity.clone()));
+            let census = classify(&found, 10, &servers, None, |_| Some(identity.clone()));
             assert_eq!(matches!(census, Census::Clear), server, "{identity:?}");
         }
     }
@@ -925,21 +970,27 @@ mod tests {
             "script": {"command": "./server.js", "args": ["--port", "0"]},
         })));
         let servers = resolved(servers, &bin.to_string_lossy(), &work);
-        let who = |exe: &Path, argv: &[&str]| Identity {
+        let who = |exe: &Path, argv: &[&str], cwd: Option<&Path>| Identity {
             exe: exe.to_path_buf(),
             argv: argv.iter().map(|w| w.to_string()).collect(),
+            cwd: cwd.map(Path::to_path_buf),
         };
+        let script = ["node", "./server.js", "--port", "0"];
         let cases = [
-            (who(&server, &["./mcp-server", "--stdio"]), true),
-            (who(&node, &["node", "./server.js", "--port", "0"]), true),
+            (who(&server, &["./mcp-server", "--stdio"], Some(&other)), true),
+            (who(&node, &script, Some(&work)), true),
             // The same argv, but the file it runs is in another folder.
-            (who(&elsewhere, &["./mcp-server", "--stdio"]), false),
+            (who(&elsewhere, &["./mcp-server", "--stdio"], Some(&other)), false),
             // The script's argv, but not the interpreter its `#!` line runs.
-            (who(&server, &["node", "./server.js", "--port", "0"]), false),
+            (who(&server, &script, Some(&work)), false),
+            // The script's argv, run in another folder (`cd /tmp && node ./server.js`), or in a
+            // folder that cannot be read: another script.
+            (who(&node, &script, Some(&other)), false),
+            (who(&node, &script, None), false),
         ];
         for (identity, server) in cases {
             let found = [under(11, 10, &identity.argv.join(" "))];
-            let census = classify(&found, 10, &servers, |_| Some(identity.clone()));
+            let census = classify(&found, 10, &servers, None, |_| Some(identity.clone()));
             assert_eq!(matches!(census, Census::Clear), server, "{identity:?}");
         }
         let _ = std::fs::remove_dir_all(root);
