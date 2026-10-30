@@ -150,7 +150,12 @@ describe("attach-endpoint vmKind", () => {
   });
 
   test("a second member makes the same machine team on the next attach", async () => {
-    expect(await cmuxRemoteKind(teamVm, CREATOR, TEAM, directory({ members: [CREATOR, MEMBER] }).teamDirectory)).toBe("team");
+    const answer: { members: readonly string[] } = { members: [CREATOR] };
+    const { teamDirectory } = directory(answer);
+    expect(await cmuxRemoteKind(teamVm, CREATOR, TEAM, teamDirectory)).toBe("owner");
+    answer.members = [CREATOR, MEMBER];
+    expect(await cmuxRemoteKind(teamVm, CREATOR, TEAM, teamDirectory)).toBe("team");
+    expect(await websocketKind(teamVm, CREATOR, TEAM, teamDirectory)).toBe("team");
     expect(await websocketKind(teamVm, CREATOR, TEAM, directory({ members: [MEMBER, CREATOR] }).teamDirectory)).toBe("team");
   });
 
