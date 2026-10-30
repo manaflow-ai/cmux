@@ -89,6 +89,32 @@ import Testing
         #expect(!harness.defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
     }
 
+    /// A build the host refuses (cmux NEXT: a pulled build) is never downloaded, offered or
+    /// accepted: background mode does not accept it, the prompt flow does not show it, and a
+    /// prompt that waits when the host comes to refuse it is not downloaded.
+    @Test func aRefusedBuildIsNeitherDownloadedNorOffered() {
+        let background = Harness()
+        background.controller.installsUpdatesInBackground = true
+        background.controller.refusesUpdate = { $0 == "0.64.17" }
+        let dropped = ChoiceBox()
+        find(background, into: dropped)
+        #expect(dropped.choice == .dismiss, "refused build 0.64.17 was downloaded")
+        #expect(background.model.state.isIdle, "refused build 0.64.17 left \(background.model.state)")
+
+        let prompt = Harness()
+        prompt.controller.installsUpdatesInBackground = true
+        prompt.controller.downloadsUpdatesInBackground = false
+        let waiting = ChoiceBox()
+        find(prompt, into: waiting)
+        guard case .updateAvailable = prompt.model.state else {
+            Issue.record("expected the update to wait for a click, got \(prompt.model.state)")
+            return
+        }
+        prompt.controller.refusesUpdate = { $0 == "0.64.17" }
+        prompt.controller.acceptAvailableUpdate()
+        #expect(waiting.choice != .install, "refused build 0.64.17 was downloaded on accept")
+    }
+
     @Test func backgroundModeSkipsThePromptForAUserInitiatedCheckToo() {
         let harness = Harness()
         harness.controller.installsUpdatesInBackground = true
