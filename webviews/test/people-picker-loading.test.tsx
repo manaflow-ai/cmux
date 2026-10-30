@@ -75,6 +75,8 @@ test("a background directory read keeps populated results selectable", async () 
     ),
   );
   expect(host.querySelector(".lg-picker-loading-row")).toBeNull();
+  // Review at 5301a5e0 (P2): the rows may still change while the directory reads, so it says busy.
+  expect(host.querySelector("fieldset")?.getAttribute("aria-busy")).toBe("true");
   await act(async () => host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
   expect(picks).toEqual([["person-1"]]);
 });
