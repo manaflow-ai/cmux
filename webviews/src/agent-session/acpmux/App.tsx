@@ -17,6 +17,7 @@ import React, {
 import { AnsweredBy, AuthorChip } from "./multiplayer/Faces";
 import { LivePresenceStack, LiveTypingLine } from "./multiplayer/LivePresence";
 import { flushSync } from "react-dom";
+import { composerPlusSearchExtensions, PLUS_SEARCH_ACTIONS } from "./composerPlusRegistry";
 import { CONNECT_ACTIONS, savedEnvironmentHost, type ConnectKind, type OffloadKind } from "./environments";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { restoreForkSource } from "./handoff/restoreForkSource";
@@ -122,7 +123,6 @@ import {
 } from "./catalog";
 import { usePickerCatalog } from "./modelCatalogHost";
 import { isDefaultChoice } from "./defaultChoice";
-import { topModelsFor } from "./topModels";
 import { applySwitch, browserSwitchClock, HarnessSwitch, lastOfferedModel, type SwitchPort } from "./harnessSwitch";
 import { NewChatPrewarm, type PrewarmTarget } from "./newChatPrewarm";
 import { harnessProfiles } from "./harnessProfiles";
@@ -212,6 +212,7 @@ import { AgentsPill } from "./subagents/AgentsPill";
 import { SubagentTray } from "./subagents/SubagentTray";
 import { settleTrayExit } from "./subagents/trayMotion";
 import { SubagentDoneLine } from "./subagents/SubagentDoneLine";
+import { retryKey, runRetry, type RetryTarget } from "./subagents/retryState";
 import { configureWorkflowCardOpen, configureWorkflowCardSideTab, WorkflowCard } from "./summary/WorkflowCard";
 import {
   type DoneLineCache,
@@ -1730,12 +1731,28 @@ const RowFrame = React.memo(function RowFrame({
   const t = useT();
   const ref = useRef<HTMLElement>(null);
   const [entering] = useState(enter);
+  // Prompts and replies get the message-specific entrance. Tool/status rows keep the existing
+  // generic rise, while the row's reserved height and absolute placement stay unchanged.
+  // Hidden user rows render no content and keep the empty-row geometry. Notice rows are user-kind
+  // status lines whose `.cv-tools` strip row CSS targets as the article's direct child, so they keep
+  // the generic entrance too. Only real prompts and replies get the presentation wrapper.
+  const messageEntering =
+    entering &&
+    (row.kind === "assistant" ||
+      (row.kind === "user" && row.incoming?.kind !== "hidden" && row.incoming?.kind !== "notice"));
   const [olderFade] = useState(older);
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLElement>) => onRowKeyDown(index, event),
     [index, onRowKeyDown],
   );
   const rowTabStop = rovingTabStopProps(tabStop, handleKeyDown);
+  const content = (
+    <ReferenceScopeContext.Provider value={referenceScope ?? null}>
+      <PullRequestHostVisibility.Provider value={onPullRequestVisibility}>
+        <RowPullRequests.Provider value={pullRequests}>{children}</RowPullRequests.Provider>
+      </PullRequestHostVisibility.Provider>
+    </ReferenceScopeContext.Provider>
+  );
   useLayoutEffect(() => {
     if (entering) onEntered(row.id);
     // Only the first mount enters.
@@ -1787,7 +1804,7 @@ const RowFrame = React.memo(function RowFrame({
       id={rowDomId(row.id)}
       data-row-id={row.id}
       data-row-card={row.ended ? "true" : undefined}
-      className={`acpmux-row acpmux-${kind}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}`}
+      className={`acpmux-row acpmux-${kind}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}`}
       data-transcript-active={active ? "true" : undefined}
       data-transcript-selected={selected ? "true" : undefined}
       aria-current={active ? "true" : undefined}
@@ -1801,11 +1818,13 @@ const RowFrame = React.memo(function RowFrame({
       style={{ top: top + THREAD_TOP }}
       onFocus={() => onFocus(row.id)}
     >
-      <ReferenceScopeContext.Provider value={referenceScope ?? null}>
-        <PullRequestHostVisibility.Provider value={onPullRequestVisibility}>
-          <RowPullRequests.Provider value={pullRequests}>{children}</RowPullRequests.Provider>
-        </PullRequestHostVisibility.Provider>
-      </ReferenceScopeContext.Provider>
+      {messageEntering ? (
+        // The article is the virtualizer's measured box. Animate only this presentation wrapper:
+        // compositor scale/opacity cannot change drawnHeightOf(article) while the entrance runs.
+        <div className="acpmux-row__message-presentation">{content}</div>
+      ) : (
+        content
+      )}
       {/* The row's own trailing padding is the only row-local empty surface owned by transcript
           selection. Keeping it as a separate hit target means content controls (including native
           media) never need to be enumerated by the gap handler. */}
@@ -2466,6 +2485,9 @@ export function VirtualTranscript({
   // reset effect commits. The keyed values below make the first new-session paint fresh as well.
   const [selectionSessionKey, setSelectionSessionKey] = useState(sessionKey);
   const sessionChanged = selectionSessionKey !== sessionKey;
+  /// A row can be newly arrived but outside the mounted virtual range. Pending entrances are
+  /// page-scoped: hiding or switching chats must drop them before that row can mount later.
+  const enteringRows = useRef(new Set<string>());
   useEffect(() => {
     if (sessionChanged) {
       setSelectionSessionKey(sessionKey);
@@ -2475,6 +2497,7 @@ export function VirtualTranscript({
       gutterRelease.current?.();
       setHeldRows(undefined);
       pendingFocus.current = undefined;
+      enteringRows.current.clear();
       return;
     }
     const currentRange = transcriptRangeRef.current;
@@ -2485,6 +2508,13 @@ export function VirtualTranscript({
       return presence.anchor && presence.focus ? current : undefined;
     });
   }, [rows, sessionChanged, sessionKey]);
+  useEffect(() => {
+    const clearHiddenEntrances = () => {
+      if (document.visibilityState === "hidden") enteringRows.current.clear();
+    };
+    document.addEventListener("visibilitychange", clearHiddenEntrances);
+    return () => document.removeEventListener("visibilitychange", clearHiddenEntrances);
+  }, []);
   // Rows that arrive live (a reply, a tool call, a status line) enter once. The rows at the first
   // render, and many at once (a session switch, older history), are a load and do not.
   const knownRows = useRef<Set<string> | null>(null);
@@ -2496,7 +2526,6 @@ export function VirtualTranscript({
   /// Where this snapshot first differs from the last, found once below; the rail reads it instead
   /// of comparing the rows again (model.ts minimapTurns).
   const rowsChange = useRef<RowsChange | undefined>(undefined);
-  const enteringRows = useRef(new Set<string>());
   /// The minimap's hook for this commit's settled offset (ThreadMinimap `placed`).
   const minimapPlaced = useRef<(() => void) | undefined>(undefined);
   const olderRows = useRef<OlderRowFade | undefined>(undefined);
@@ -4262,7 +4291,9 @@ export function VirtualTranscript({
                       expanded={isExpanded}
                       observer={observer}
                       report={reportDrawn}
-                      enter={enteringRows.current.has(row.id)}
+                      // A session switch is a load, not a live arrival. The reset effect runs after
+                      // this render, so gate it here as well to avoid a reused row id animating once.
+                      enter={!sessionChanged && enteringRows.current.has(row.id)}
                       onEntered={onEntered}
                       older={olderRows.current!.has(row.id) ? olderRows.current : undefined}
                       onOlderShown={onOlderShown}
@@ -5928,19 +5959,28 @@ function AcpmuxPane() {
   const retryHarness = pickerCatalog.harnesses.find(
     (entry) => entry.acpmuxHarness === snapshot.summary?.harness || entry.id === snapshot.summary?.harness,
   );
+  const runningModel = snapshot.summary?.model;
+  const hasRunningModel = typeof runningModel === "string" && runningModel.length > 0;
   // Named as the composer's picker names them (its short name under its harness, "Opus 5.5").
   const retryModelsKey = (retryHarness?.models ?? [])
-    .filter((model) => !model.unavailable && !isDefaultChoice(model))
-    .map((model) => `${model.id}\t${model.shortName || model.name || model.id}\t${model.release ?? ""}`)
+    .filter(
+      (model) =>
+        (!model.unavailable || (hasRunningModel && (model.id === runningModel || model.release === runningModel))) &&
+        !isDefaultChoice(model),
+    )
+    .map(
+      (model) =>
+        `${model.id}\t${model.shortName || model.name || model.id}\t${model.release ?? ""}\t${model.family ?? ""}`,
+    )
     .join("\n");
   const retryHarnessName = retryHarness?.name;
-  const retryTop = retryHarness ? topModelsFor(retryHarness.kin ?? retryHarness.id) : undefined;
+  const retryTop = retryHarness?.topModels;
   const retryModels = useMemo(
     () =>
       retryModelsKey
         ? retryModelsKey.split("\n").map((line) => {
-            const [id = "", name = "", release = ""] = line.split("\t");
-            return { id, name: name || id, ...(release ? { release } : {}) };
+            const [id = "", name = "", release = "", family = ""] = line.split("\t");
+            return { id, name: name || id, ...(release ? { release } : {}), ...(family ? { family } : {}) };
           })
         : [],
     [retryModelsKey],
@@ -6041,6 +6081,17 @@ function AcpmuxPane() {
           if (!restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession)) return;
           const text = restartPrompt(agent, translate);
           if (text) void callNative("chat.send", { text }).catch(() => undefined);
+        })(restartChat),
+        // Retry asks acpmux, else the chat's agent, as Restart does (subagents/retryState.ts).
+        retryCapabilities: directClient.current?.capabilities,
+        // One it can't reach (a reconnect, a switch's hold) is refused with a note, never taken as sent.
+        retryAgent: ((owner: string) => (agent: RetryTarget) => {
+          const client = directClient.current;
+          const reaches = () => restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession);
+          if (!client) return Promise.resolve("retry.failed" as const);
+          const request = (method: string, params: Record<string, unknown>) => client.retry(method, params);
+          const send = (text: string) => callNative("chat.send", { text });
+          return runRetry(agent, owner, { request, send, capabilities: client.capabilities, reaches }, translate);
         })(restartChat),
       }),
       ...(connected &&
@@ -6312,6 +6363,19 @@ function AcpmuxPane() {
   // Show all chats opens the command palette's chats page (agentPane.searchChats, decision K1:
   // one palette). The host pushes the live bindings through applyShortcuts, so labels follow a rebind.
   const showAllChats = () => void callNative("action.run", { id: "agentPane.searchChats" }).catch(() => undefined);
+  // The + menu's Search chats and Search pages (Leo: "the chatgpt desktop app, let's do their +
+  // symbol's capabiliities for our composer"): the command palette's chats page and its History
+  // search page, both app actions the pane may run (AgentPaneModel.paletteActions). A refusal is
+  // said as the composer's notice, never dropped.
+  const plusSearchExtensions = useMemo(() => composerPlusSearchExtensions(t), [t]);
+  const runPlusSearch = (id: string) => {
+    const name = id === PLUS_SEARCH_ACTIONS.pages ? t("composer.plusSearchPages") : t("sidebar.search");
+    void callNative("action.run", { id }).catch(() =>
+      directClient.current?.notice(translate("composer.offloadNotRun", { action: name })),
+    );
+  };
+  // New Tab shows no transcript, so the page says a refusal itself (NewTabScreen plusRefused).
+  const runNewTabPlusSearch = (id: string) => callNative("action.run", { id });
   const [shortcuts, setShortcuts] = useState<ShortcutLabels>({});
   // SSH… opens Connect to Machine; New Cloud Machine opens the host's create flow (Lawrence 2026-10-06).
   const connectMachine = (kind: ConnectKind) =>
@@ -6456,7 +6520,15 @@ function AcpmuxPane() {
   // streams text redraws neither the pill nor a subagent row.
   const agentsKey = freshAgents
     .map((agent) =>
-      [agent.id, agent.name, agent.state, agent.action ?? "", agent.endedAt ?? "", agent.agentId ?? ""].join("\u0000"),
+      [
+        agent.id,
+        agent.name,
+        agent.state,
+        agent.action ?? "",
+        agent.endedAt ?? "",
+        agent.agentId ?? "",
+        retryKey(agent),
+      ].join("\u0000"),
     )
     .join("\u0001");
   // eslint-disable-next-line react-hooks/exhaustive-deps -- a new list only when an agent changes
@@ -6636,6 +6708,11 @@ function AcpmuxPane() {
   useLayoutEffect(() => {
     toggleSessionInfo.current = inspector.toggle;
   }, [inspector.toggle]);
+  // The native palette's page commands that apply now (paletteCommands below), by command name.
+  const paletteCommands = useRef<{ sessionId: string; commands: Record<string, () => void> }>({
+    sessionId: "",
+    commands: {},
+  });
   const revealInspector = inspector.reveal;
   useEffect(() => {
     const openCard = revealInspector
@@ -7337,6 +7414,17 @@ function AcpmuxPane() {
       command(name, sessionId) {
         if (name === "toggleSessionInfo") {
           toggleSessionInfo.current?.();
+          return;
+        }
+        if (name.startsWith("header:")) {
+          const separator = name.indexOf("|");
+          if (separator < 0) return;
+          const target = name.slice(separator + 1);
+          // Both the live client and rendered callbacks must still belong to the captured chat.
+          if ((directClient.current?.selectedSession ?? "") !== target) return;
+          const rendered = paletteCommands.current;
+          if (rendered.sessionId !== target) return;
+          rendered.commands[name.slice("header:".length, separator)]?.();
           return;
         }
         // Native palette rows carry the session id that was focused when the action was queued.
@@ -8813,7 +8901,7 @@ function AcpmuxPane() {
   // The header's state from the chat's tab (header/headerState.ts): read when a chat opens, then pushed
   // by the App on every change. Whether the panes beside the chat show ([+] New tab reads Hide tabs) also
   // follows the App's answer to the click.
-  const { sideTabs, pullRequest: headerPullRequest, moves } = useHeaderState();
+  const { sideTabs, pullRequest: headerPullRequest, moves, lit: litSplits } = useHeaderState();
   // The moves the chat's own right-click menu offers now: the composer's picker offers the same.
   const offloads = useMemo(
     () => (["move", "bringBack"] as const).filter((kind) => moves.includes(CONNECT_ACTIONS[kind])),
@@ -8920,6 +9008,26 @@ function AcpmuxPane() {
     runHeaderAction(id, cwd, mode);
     window.setTimeout(refreshTabState, 400);
   };
+  const togglePreview = (url: string | undefined) => {
+    ignoreFailure(callNative("pane.action", { id: HEADER_ACTIONS.preview, ...(url ? { url } : {}), mode: "toggle" }));
+    window.setTimeout(refreshTabState, 400);
+  };
+  // The header's toggles the native palette runs (AgentPaneView+Commands.swift), each only where the
+  // header offers it: Quick Chat's panel has no tabs beside it, a remote chat's folder is not on this
+  // Mac, and Preview needs the chat's page or the preview it opened. The App greys out the rest.
+  const commands: Record<string, () => void> = {};
+  if (!quick) commands.toggleSideTabs = toggleSideTabs;
+  if (!quick && localCwd) commands.toggleFiles = () => runSplitAction(HEADER_ACTIONS.files, localCwd, "toggle");
+  if (!quick && (previewUrl || litSplits.includes(HEADER_ACTIONS.preview)))
+    commands.togglePreview = () => togglePreview(previewUrl);
+  paletteCommands.current = { sessionId: snapshot.sessionId ?? "", commands };
+  const commandNames = Object.keys(commands).sort().join(" ");
+  // Again for every client: the host's handshake (a reconnect's too) forgets the list, and a new
+  // client follows its handshake (connectHost).
+  useEffect(() => {
+    const available = commandNames ? commandNames.split(" ") : [];
+    void callNative("pane.commandAvailability", { commands: available }).catch(() => undefined);
+  }, [commandNames, snapshot.sessionId, clientEpoch]);
   diffBeside.current = async (rowId, path) => {
     // A remote or cloud chat's folder is not on this Mac, and Quick Chat's panel has no tab beside it.
     if (quick || !localCwd) return false;
@@ -10293,6 +10401,8 @@ function AcpmuxPane() {
             onMode={(modeId) => callNative("chat.mode", { modeId })}
             // Without a folder there is nothing to search; the + menu leaves the item out.
             searchFiles={fileRoot ? searchFiles : undefined}
+            plusExtensions={plusSearchExtensions}
+            onPlusCommand={runPlusSearch}
             capture={captureScreen}
             upload={uploadFiles}
             // A chat on this Mac (as Sources' + below); the host refuses any other.
@@ -10656,6 +10766,7 @@ function AcpmuxPane() {
               }
               chips={registryChips ?? NewTabComposerChips}
               focusField={newTab.focusesField !== false}
+              onPlusCommand={runNewTabPlusSearch}
               {...withSubmitAfterHandshake(
                 newTabScreenActions({
                   callNative,
