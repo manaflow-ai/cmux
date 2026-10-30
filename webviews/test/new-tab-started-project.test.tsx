@@ -321,7 +321,7 @@ test("classic New Tab keeps Add project open while a native browse is pending", 
     ),
   );
   const pressOption = async (label: string) => {
-    const option = [...host.querySelectorAll<HTMLElement>('[role="option"]')].find(
+    const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
       (element) => element.textContent?.trim() === label,
     );
     expect(option, `missing option ${label}`).toBeTruthy();
@@ -343,9 +343,9 @@ test("classic New Tab keeps Add project open while a native browse is pending", 
 
   await openNativeBrowse();
   expect(resolveBrowse).toBeTypeOf("function");
-  await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Close"]')!.click());
+  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Close"]')!.click());
   await openNativeBrowse();
-  expect(host.querySelector(".acpmux-add-project-dialog")).not.toBeNull();
+  expect(document.querySelector(".acpmux-add-project-dialog")).not.toBeNull();
   await act(async () => resolveBrowse("/work/late"));
-  expect(host.querySelector(".acpmux-add-project-dialog")).not.toBeNull();
+  expect(document.querySelector(".acpmux-add-project-dialog")).not.toBeNull();
 });
