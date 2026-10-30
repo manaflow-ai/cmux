@@ -108,12 +108,18 @@ enum AgentSessionWorkspace {
                                       then: join, windows: windows)
         return Task { @MainActor in
             do {
+                // A Chief session may be starting on a busy host. Keep one generous deadline for
+                // workspace creation and its first chat tab; abandoning the tab after the short
+                // control deadline leaves the daemon's late about:blank commit as a bare row.
+                let giveUp = ContinuousClock.now + DaemonConnection.lateTerminalStartBudget
                 // The session's chat is the workspace's first tab: a workspace store tab bound to
                 // the session (agent-session-tabs-v1), saved and restored with the workspace like any
                 // tab. No terminal first: one running `acpmux attach` landed as a bare "~" shell
                 // whenever its start missed the deadline (Leo, 2026-10-21 and 2026-10-28).
-                let tab = try await WorkspaceCreation.createWithFirstTab(key, name: name, on: connection, repair: repair) { created in
-                    try await WorkspaceCreation.sessionTab(session, in: created, host: host, linked: true, on: daemon, tabs: services.agentTabs)
+                let tab = try await WorkspaceCreation.createWithFirstTab(key, name: name, on: connection, repair: repair,
+                                                                          giveUp: giveUp) { created in
+                    try await WorkspaceCreation.sessionTab(session, in: created, host: host, linked: true,
+                                                           until: giveUp, on: daemon, tabs: services.agentTabs)
                 }
                 // The workspace's first pane once the store mirrors it, found
                 // by the key chosen here (as CloudHandlers finds its anchor).
