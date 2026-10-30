@@ -82,6 +82,17 @@ final class CloudService {
     /// previous team's list stays in the store until the next refresh lands:
     /// it is not this team's answer.
     var hasLoadedCurrentMachines: Bool { hasLoadedMachines && loadedAccount == listAccount }
+    /// The sign-in and list state that decides whether a saved Cloud workspace is gone (`WindowManager.isDead`).
+    var listFacts: ListFacts {
+        ListFacts(isSignedIn: isSignedIn, isRestoring: auth.isRestoring, hasLoadedMachines: hasLoadedMachines,
+                  hasLoadedCurrentMachines: hasLoadedCurrentMachines)
+    }
+
+    /// ``listFacts``: `isRestoring` while the saved sign-in is restored (launch); `hasLoadedMachines` may be
+    /// the previous team's list after a team switch, `hasLoadedCurrentMachines` is this user's and team's.
+    struct ListFacts: Equatable {
+        var isSignedIn, isRestoring, hasLoadedMachines, hasLoadedCurrentMachines: Bool
+    }
     /// The Cloud app server's ops on the local daemon (contract 2.1).
     var appOps: CloudAppOp { CloudAppLinks.ops(local: machines.local) }
     /// The person's confirmation of a create (set by AppServices: a sheet in the active window, or the

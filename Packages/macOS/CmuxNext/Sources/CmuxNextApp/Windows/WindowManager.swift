@@ -68,6 +68,9 @@ final class WindowManager {
     /// Machine each workspace was last seen on, to tell "gone" from "its
     /// machine is still connecting".
     var seenMachine: [String: String] = [:]
+    /// What `isDead` reads of the Cloud's sign-in and machine list: `CloudService.listFacts`; a test
+    /// gives its own account state, which it cannot sign in to reach.
+    var cloudList: (CloudService) -> CloudService.ListFacts = \.listFacts
     /// Windows being closed by the registry (not by the user).
     var programmaticCloses: Set<String> = []
     private(set) var restored = false

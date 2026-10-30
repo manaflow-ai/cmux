@@ -450,8 +450,8 @@ extension WindowManager {
 
     /// The signed-in account's Cloud machine list has loaded: a machine it does not list left the account.
     private var accountMachineListLoaded: Bool {
-        let cloud = services.cloud
-        return cloud.isSignedIn && !cloud.auth.isRestoring && cloud.hasLoadedMachines
+        let list = cloudList(services.cloud)
+        return list.isSignedIn && !list.isRestoring && list.hasLoadedMachines
     }
 
     /// Where a previous launch last saw each saved workspace (`WindowStateDocument.workspaceMachines`),
@@ -462,8 +462,8 @@ extension WindowManager {
 
     /// Every Cloud machine that could still report workspaces has loaded.
     private var cloudSettled: Bool {
-        guard case let cloud = services.cloud, cloud.isSignedIn || cloud.auth.isRestoring else { return true }
-        guard cloud.hasLoadedMachines else { return false }
+        guard case let list = cloudList(services.cloud), list.isSignedIn || list.isRestoring else { return true }
+        guard list.hasLoadedMachines else { return false }
         return services.machines.cloud.allSatisfy { !$0.machine.status.isLive || $0.daemon.store.isLoaded }
     }
 
