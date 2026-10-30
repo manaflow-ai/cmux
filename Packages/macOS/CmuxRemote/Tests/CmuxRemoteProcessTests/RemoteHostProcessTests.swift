@@ -14,11 +14,21 @@ import Testing
         let child: ChildProcess
         let layout: RemoteHostLayout
         let secret: Data
+        /// The stand-in daemon socket this test process serves: the host admits a supervisor
+        /// only when it is the process listening there.
+        let daemonListener: Int32
     }
 
     @Test(.timeLimit(.minutes(2))) func supervisorHelloStatusAdoptionAndDrain() throws {
         let host = try Self.start()
-        defer { kill(host.child.pid, SIGKILL) }
+        defer {
+            kill(host.child.pid, SIGKILL)
+            close(host.daemonListener)
+        }
+
+        // Another process with the right secret is not the daemon: refused.
+        let impostor = try Self.helloFromAnotherProcess(host)
+        #expect(impostor.contains("refused"), "\(impostor)")
 
         // A wrong secret, then a protocol range the host does not speak, are refused.
         let wrong = try Self.connect(host.layout.supervisorSocket)
@@ -82,10 +92,13 @@ import Testing
         let directory = try temporaryDirectory()
         let layout = RemoteHostLayout(directory: directory + "/l")
         let secret = RemoteWire.makeSecret()
+        let daemonSocket = directory + "/d.sock"
+        let listener = try LocalSocket.listen(daemonSocket)
         var bootstrap: [Int32] = [-1, -1]
         #expect(pipe(&bootstrap) == 0)
         let line = RemoteWire.line(["supervisor_secret": RemoteWire.hex(secret), "daemon_build": "test",
-                                    "computer_use": false, "screen_sharing": false, "headless": true])
+                                    "computer_use": false, "screen_sharing": false, "headless": true,
+                                    "daemon_socket": daemonSocket])
         _ = LineChannel.writeAll(bootstrap[1], line)
         close(bootstrap[1])
         let child = try ChildProcess.spawn(executable: built,
@@ -96,7 +109,25 @@ import Testing
         close(child.stdin)
         let ready = LineChannel(read: child.stdout, write: child.stdout).readLine()
         #expect(ready == Data("ready".utf8))
-        return Host(child: child, layout: layout, secret: secret)
+        return Host(child: child, layout: layout, secret: secret, daemonListener: listener)
+    }
+
+    /// The hello with the right secret from a process that is not the daemon (nc -U); its output.
+    static func helloFromAnotherProcess(_ host: Host) throws -> String {
+        let hello = String(decoding: RemoteWire.line(["type": "hello", "secret": RemoteWire.hex(host.secret), "min": 1, "max": 1]), as: UTF8.self)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/nc")
+        process.arguments = ["-U", host.layout.supervisorSocket]
+        let input = Pipe(), output = Pipe()
+        process.standardInput = input
+        process.standardOutput = output
+        try process.run()
+        input.fileHandleForWriting.write(Data(hello.utf8))
+        let answer = output.fileHandleForReading.availableData
+        try? input.fileHandleForWriting.close()
+        process.terminate()
+        process.waitUntilExit()
+        return String(decoding: answer, as: UTF8.self)
     }
 
     static func connect(_ path: String) throws -> LineChannel {
