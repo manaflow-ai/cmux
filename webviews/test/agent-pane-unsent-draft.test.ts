@@ -44,26 +44,35 @@ await requireBrowserLane("agent-pane-unsent-draft.test.ts", async () => {
 
   /// A new chat whose host hands it `draft` (a relaunch's kept text), recording what the page
   /// hands back with `chat.unsentDraft`.
-  async function newChat(draft?: string): Promise<Page> {
+  type ChatOptions = { draft?: string; authState?: "signedOut" | "routeAuthNeeded"; started?: boolean };
+  async function newChat({ draft, authState = "signedOut", started = false }: ChatOptions = {}): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width: 900, height: 640 } });
     await page.addInitScript(
-      ({ draft }) => {
+      ({ draft, authState, started }) => {
         const unsent: string[] = [];
         const nativeCalls: { method: string; params: Record<string, unknown> }[] = [];
         Object.assign(window, {
           nativeCalls,
           cmuxAcpmuxMockNative: {
-            "harness.health": { health: { id: "claude", auth: "signedOut", login: "claude auth login" } },
+            "harness.health": {
+              health:
+                authState === "signedOut"
+                  ? { id: "claude", auth: "signedOut", login: "claude auth login" }
+                  : { id: "claude", auth: "unknown" },
+            },
           },
           cmuxAcpmuxMockSessionAuth: {
-            state: "signedOut",
+            state: authState,
             source: "authCheck",
             evidenceAt: Date.now(),
             harness: "claude",
             host: null,
             routeId: null,
             fromSessionId: null,
-            login: { kind: "terminal", command: "claude auth login" },
+            login:
+              authState === "signedOut"
+                ? { kind: "terminal", command: "claude auth login" }
+                : { kind: "route", routeId: "team-route" },
           },
           cmuxGalleryLog: [],
           unsentDrafts: unsent,
@@ -82,13 +91,13 @@ await requireBrowserLane("agent-pane-unsent-draft.test.ts", async () => {
             ready: async () => ({
               protocolVersion: 1,
               transport: "mock",
-              newSession: true,
+              newSession: !started,
               ...(draft ? { draft } : {}),
             }),
           },
         });
       },
-      { draft },
+      { draft, authState, started },
     );
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/`);
@@ -149,8 +158,26 @@ await requireBrowserLane("agent-pane-unsent-draft.test.ts", async () => {
       await page.close();
     });
 
+    test("a fresh route-auth target keeps one composer recovery line", async () => {
+      const page = await newChat({ authState: "routeAuthNeeded" });
+      expect(await page.locator('[data-harness-notice="signedOut"]').count()).toBe(0);
+      const line = page.locator(".acpmux-composer-trust-note");
+      await line.waitFor();
+      expect(await line.count()).toBe(1);
+      expect(await line.innerText()).toContain("Log In");
+      await page.close();
+    });
+
+    test("a started signed-out chat keeps the existing card and composer line", async () => {
+      const page = await newChat({ started: true });
+      await page.locator('[data-harness-notice="signedOut"]').waitFor();
+      expect(await page.locator('[data-harness-notice="signedOut"]').count()).toBe(1);
+      expect(await page.locator(".acpmux-composer-trust-note").count()).toBe(1);
+      await page.close();
+    });
+
     test("a relaunched new chat shows its kept draft and keeps what is typed after it", async () => {
-      const page = await newChat("compare the two");
+      const page = await newChat({ draft: "compare the two" });
       const prompt = page.locator(".acpmux-composer-prompt .ProseMirror");
       await page.getByText("compare the two").waitFor();
       await page.locator(".acpmux-composer-prompt").click();

@@ -5,12 +5,14 @@
       "title": "Open New Agent Chat on a fresh home without sending",
       "cmux": [
         "agent",
-        "new-chat"
+        "new-chat",
+        "--harness",
+        "unii"
       ],
       "wait": 5
     },
     {
-      "title": "Record the empty chat and displayed harness before sending",
+      "title": "Record the selected harness before sending",
       "rpc": {
         "method": "debug.agent_pane",
         "params": {

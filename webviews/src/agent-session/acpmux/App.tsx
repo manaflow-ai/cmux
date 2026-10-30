@@ -10341,7 +10341,7 @@ function AcpmuxPane() {
             // No prompt goes while a picked folder waits for the user's answer, or while the chat only
             // shows a session another app runs (WatchBanner).
             blocked={pendingFolder ? {} : trustAsk.blocked}
-            authBlock={snapshot.sessionId ? authBlock : undefined}
+            authBlock={snapshot.sessionId || !targetSignInHealth ? authBlock : undefined}
             authBlocked={Boolean(authBlock)}
             accessory={<DictationMic dictation={dictation} />}
             dictating={isWaitingForWords(dictation.state)}
