@@ -7878,6 +7878,7 @@ function AcpmuxPane() {
           newTab?: unknown;
           cwd?: string;
           draft?: string;
+          draftGeneration?: number;
           prompt?: string;
           promptTicket?: { promptId?: unknown; ticket?: unknown };
           harness?: string;

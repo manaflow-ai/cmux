@@ -356,6 +356,7 @@ for (const classic of [false, true]) {
     const Component = classic ? NewTabPage : NewTabScreen;
     const page = () => (
       <Component
+        onSubmit={() => {}}
         snapshot={noChat()}
         onAsk={() => {}}
         onOpen={() => {}}
