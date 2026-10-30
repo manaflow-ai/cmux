@@ -16,7 +16,7 @@ function fixture() {
     start: () => { events.push("start"); return pending.promise; },
     current: () => current,
     transfer: (id: string) => { events.push(`transfer:${id}`); return {
-      cancel: () => events.push("cancel"), commit: async () => { events.push("commit"); },
+      ready: Promise.resolve(), cancel: () => events.push("cancel"), commit: () => { events.push("commit"); },
     }; },
     select: async (id: string) => { events.push(`select:${id}`); return true; },
     clearFolder: () => { events.push("clear"); },
@@ -57,7 +57,7 @@ test("failed selection cancels the transfer and preserves the source", async () 
   const first = f.continuation.run({ ...f.actions, select: async () => false });
   f.pending.resolve("new");
   await first;
-  expect(f.events).toEqual(["start", "transfer:new", "select:new", "cancel"]);
+  expect(f.events).toEqual(["start", "transfer:new", "cancel"]);
 });
 
 test("navigation during selection cannot clear the newer folder", async () => {

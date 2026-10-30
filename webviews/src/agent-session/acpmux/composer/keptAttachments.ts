@@ -40,7 +40,7 @@ export function useKeptAttachments(
   setAttachments: (update: (current: ComposerAttachment[]) => ComposerAttachment[]) => void,
   store: KeptAttachments | undefined,
   carrying: () => boolean,
-  moving: () => { source?: string } | undefined = () => undefined,
+  moving: () => { source?: string; committed: boolean } | undefined = () => undefined,
 ): void {
   const [readFor, setReadFor] = useState<string>();
   /// The chips' ids the host holds for the chat as last written, and which of them it has contents for.
@@ -112,10 +112,14 @@ export function useKeptAttachments(
     // The last chat's chips reach the host before this chat's are read.
     const transfer = moving();
     if (transfer) {
-      if (pending.current) clearTimeout(pending.current.timer);
-      pending.current = undefined;
-      // Keep the source durable until the destination has read its chips. A navigation or failed
-      // attach can then cancel and restore the source without losing attachments.
+      if (transfer.committed) {
+        if (pending.current) clearTimeout(pending.current.timer);
+        pending.current = undefined;
+      }
+      // The destination is already durable. Keep the source until selection commits; an early
+      // commit also cancels its queued write so it cannot put transferred chips back there.
+      if (transfer.committed && transfer.source) write(transfer.source, [], [], false);
+      else flush();
     } else flush();
     const keepHeld = carry.current();
     let current = true;

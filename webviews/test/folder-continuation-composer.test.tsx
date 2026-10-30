@@ -82,8 +82,10 @@ async function fixture() {
 }
 test("text and attachment arrive once despite a delayed empty destination read", async () => {
   const f = await fixture();
-  act(() => { f.handle.current!.prepareDraftTransfer("destination"); });
+  const transfer = f.handle.current!.prepareDraftTransfer("destination");
+  await transfer.ready;
   await f.draw("destination");
+  await act(async () => transfer.commit());
   await f.finishRead();
   expect(f.handle.current!.draftState()).toEqual({ text: "held draft", attachments: [attachment] });
   expect(readPersistedDraft("source") ?? "").toBe("");
@@ -97,7 +99,7 @@ test("text and attachment arrive once despite a delayed empty destination read",
 });
 test("a cancelled transfer preserves the source without restore or duplication", async () => {
   const f = await fixture();
-  act(() => { const cancel = f.handle.current!.prepareDraftTransfer("destination"); cancel(); });
+  act(() => { const transfer = f.handle.current!.prepareDraftTransfer("destination"); transfer.cancel(); });
   expect(f.handle.current!.draftState()).toEqual({ text: "held draft", attachments: [attachment] });
   await f.draw("other");
   expect(f.handle.current!.draftState()).toEqual({ text: "", attachments: [] });
@@ -110,4 +112,17 @@ test("a different selected session never receives a pending transfer", async () 
   await f.draw("other");
   expect(f.handle.current!.draftState()).toEqual({ text: "", attachments: [] });
   expect(readPersistedDraft("source")).toBe("held draft");
+});
+
+test("failed selection after rendering preserves the source, while destination chips are durable", async () => {
+  const f = await fixture();
+  const transfer = f.handle.current!.prepareDraftTransfer("destination");
+  await transfer.ready;
+  await f.draw("destination");
+  await f.draw("other");
+  act(() => transfer.cancel());
+  expect(readPersistedDraft("source")).toBe("held draft");
+  expect(f.writes.some(w => w.id === "destination" && w.chips[0]?.id === attachment.id)).toBe(true);
+  expect(f.writes.some(w => w.id === "source" && w.chips.length === 0)).toBe(false);
+  expect(f.sent).toHaveLength(0);
 });

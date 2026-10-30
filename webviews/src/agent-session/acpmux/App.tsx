@@ -8434,8 +8434,9 @@ function AcpmuxPane() {
                 current: () => directClient.current === client && client.trustGeneration === generation &&
                   composerHandle.current === holder,
                 transfer: (id) => holder?.prepareDraftTransfer(id) ?? {
+                  ready: Promise.resolve(),
                   cancel: () => undefined,
-                  commit: async () => undefined,
+                  commit: () => undefined,
                 },
                 clearFolder: () => setProjectDraft(undefined),
                 select: async (id) => {
