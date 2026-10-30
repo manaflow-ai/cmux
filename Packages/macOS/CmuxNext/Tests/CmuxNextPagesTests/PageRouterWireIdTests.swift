@@ -20,9 +20,23 @@ struct PageRouterWireIdTests {
         #expect(unsubscribe == .null)
     }
 
-    @Test func aCallWithAHugeIdIsRefusedWithoutTrapping() async {
+    @Test(arguments: [1e30, 9_007_199_254_740_992.0, 1.5, 0, -1, Double.infinity, Double.nan])
+    func aCallOrSubWithAnInvalidIdIsRefusedAsABadMessageAndNeverRuns(value: Double) async {
         let page = router()
-        let reply = await page.handle(["t": "call", "id": .number(1e30), "op": "cmux.nothing.here", "params": [:]])
-        #expect(reply["t"]?.stringValue == "err")
+        for envelope: JSONValue in [
+            ["t": "call", "id": .number(value), "op": "cmux.nothing.here", "params": [:]],
+            ["t": "sub", "id": .number(value), "stream": "cmux.nothing.here"],
+        ] {
+            let reply = await page.handle(envelope)
+            #expect(reply["t"]?.stringValue == "err")
+            #expect(reply["code"]?.stringValue == "cmux.protocol.bad_message")
+        }
+    }
+
+    @Test func aWholeIdUpToTheJsonSafeLimitIsAnId() {
+        #expect(PageRouter.wireID(1) == 1)
+        #expect(PageRouter.wireID(9_007_199_254_740_991) == 9_007_199_254_740_991)
+        #expect(PageRouter.wireID(0) == nil)
+        #expect(PageRouter.wireID(2.5) == nil)
     }
 }
