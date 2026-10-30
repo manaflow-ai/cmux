@@ -179,7 +179,13 @@ async fn a_running_agent_keeps_it() {
             json!({"cwd": dir, "mcpServers": [], "_meta": {"acpmux": {"name": "kept"}}}),
         )
         .await;
-    assert!(session["sessionId"].is_string(), "{session}");
+    let id = session["sessionId"].as_str().expect("a session id").to_owned();
+    // A turn starts the agent; with no idle exit (`ACPMUX_IDLE_CHILD_SECS=0`) it stays up.
+    rpc.call(
+        "session/prompt",
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "hi"}]}),
+    )
+    .await;
     drop(rpc);
     let early = exit_within(&mut child, PAST_GRACE).await;
     let running = stop(&mut child).await;

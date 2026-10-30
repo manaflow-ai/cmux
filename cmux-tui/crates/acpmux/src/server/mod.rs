@@ -970,9 +970,8 @@ pub async fn serve_ws_until(
                 Ok(Ok(n)) => n,
                 _ => return,
             };
-            // The peek only routes the request. Each path checks the full
-            // head it parses: serve_http reads it, tungstenite parses the
-            // upgrade request for the callback.
+            // The peek only routes the request. Each path checks the full head it parses:
+            // serve_http reads it, tungstenite parses the upgrade request for the callback.
             let head_text = String::from_utf8_lossy(head.get(..n).unwrap_or(&head)).into_owned();
             if !head_text.to_ascii_lowercase().contains("upgrade: websocket") {
                 serve_http(stream, &policy, &token, peer).await;
@@ -1072,8 +1071,7 @@ pub async fn serve_ws_until(
             // The handshake above checked the listener token: every
             // connection past it is authenticated (`conn_auth.rs`).
             let mut proof = ConnAuth::ListenerToken;
-            // The first frame decides LocalApp; it reaches the protocol
-            // handler without the token.
+            // The first frame decides LocalApp; it reaches the protocol handler without the token.
             let mut origin = Origin::Web;
             let mut first = None;
             let presented =
@@ -1412,6 +1410,8 @@ async fn serve_connection_from(
         refuse_unauthenticated(&mut inbound, &out, origin).await;
         return;
     }
+    // Counted while it is served: a daemon with none stops once unused (`daemon/unused_exit.rs`).
+    let _client = crate::daemon::unused_exit::client();
     let raw_text = !peer_text::masks(origin);
     let conn = Arc::new(Conn {
         id: uuid::Uuid::now_v7().to_string(),

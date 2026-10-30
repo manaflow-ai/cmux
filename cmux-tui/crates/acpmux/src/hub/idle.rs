@@ -373,6 +373,60 @@ impl Hub {
             let _ = hub.child_for_since(&session, stops).await;
         });
     }
+
+    /// What keeps this daemon in use with no client (`daemon/unused_exit.rs`), or None: a
+    /// listener another machine reaches it by (the mesh relay, WireGuard, the tailnet, a
+    /// WebSocket listener off loopback), an undelivered message or a watch, a running agent, a
+    /// turn or anything one waits on, or a background task.
+    pub(crate) async fn in_use(&self) -> Option<&'static str> {
+        if self.mesh.get().is_some() {
+            return Some("the mesh relay");
+        }
+        if self.wireguard.is_some() {
+            return Some("WireGuard");
+        }
+        #[cfg(all(unix, feature = "tailnet"))]
+        if self.tailnet_controller.get().is_some_and(|c| c.node().is_some()) {
+            return Some("the tailnet listener");
+        }
+        let listen = self.config.read().await.websocket.as_ref().map(|w| w.listen.clone());
+        if listen.is_some_and(|l| !on_loopback(&l)) {
+            return Some("a WebSocket listener off loopback");
+        }
+        if self.outbox.unsettled() > 0 {
+            return Some("an undelivered message");
+        }
+        if !self.watches.is_empty() {
+            return Some("a watch");
+        }
+        for session in self.sessions() {
+            // A child being published or ended holds the lock: counted as running.
+            if session.child.try_lock().map(|c| c.is_some()).unwrap_or(true) {
+                return Some("a running agent");
+            }
+            if session.turn().is_some()
+                || session.harness_turn.load(Ordering::SeqCst)
+                || session.queued() > 0
+                || !session.pending_permissions().is_empty()
+                || session.asks_in_flight.load(Ordering::SeqCst) > 0
+                || session.agent_requests.load(Ordering::SeqCst) > 0
+                || self.continuation_pending(&session)
+            {
+                return Some("a turn");
+            }
+            if self.bg_running(&session) {
+                return Some("a background task");
+            }
+        }
+        None
+    }
+}
+
+/// Whether a listen address (`127.0.0.1:47811`, `[::1]:0`, `localhost:8080`) is loopback only;
+/// one that does not parse is not.
+fn on_loopback(listen: &str) -> bool {
+    listen.parse::<std::net::SocketAddr>().is_ok_and(|a| a.ip().is_loopback())
+        || listen.strip_prefix("localhost:").is_some_and(|port| port.parse::<u16>().is_ok())
 }
 
 #[cfg(test)]
