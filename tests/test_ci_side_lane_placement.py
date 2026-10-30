@@ -233,6 +233,17 @@ class Decide(unittest.TestCase):
                                       owned_full={GUI: False}, owned_full_known={GUI: True})
         self.assertEqual(placement.healthy_role_label(GUI, busy, seen, {placement.cascade.SMALL: 0}), GUI)
 
+    def test_known_empty_health_cannot_revive_an_unavailable_role_label(self):
+        for label in (GUI, SESSION):
+            seen = placement.cascade.Seen(waits={}, owned_queued={},
+                                          owned_full={label: False}, owned_full_known={label: True})
+            offline = runner("offline-mini", status="offline", labels=(STD, label))
+            online = runner("online-mini", labels=(STD, label))
+            for runners, expected in (([], ""), ([offline], ""), ([online], label)):
+                with self.subTest(label=label, online=bool(expected)):
+                    self.assertEqual(placement.healthy_role_label(label, runners, seen,
+                                                                  {placement.cascade.SMALL: 0}), expected)
+
     def test_gui_room_uses_queue_counts_independently_of_oldest_waits(self):
         busy = [runner(f"mini-{host}-glaeda-4", busy=True, labels=(STD, GUI)) for host in "abc"]
         small = placement.cascade.SMALL

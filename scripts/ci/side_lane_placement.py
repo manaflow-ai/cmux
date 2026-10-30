@@ -297,7 +297,9 @@ def healthy_role_label(live: str, runners: Sequence[Mapping[str, Any]] | None, s
     if getattr(seen, "owned_full", {}).get(live, False):
         return ""
     if getattr(seen, "owned_full_known", {}).get(live, False):
-        return live
+        # No backlog is not proof that a listener exists: an empty/offline
+        # session lane must not become a route merely because it is not full.
+        return live if _role_online(live, runners)[0] else ""
     return live if role_room(live, runners, seen, waiting) else ""
 
 
