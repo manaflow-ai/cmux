@@ -142,7 +142,7 @@ pub(crate) fn launcher_ok(argv: &[String]) -> std::result::Result<(), String> {
     let text =
         format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
     // Each pipe is its own stream: a control one leaves open does not hide the other's lines.
-    let cleaned = [&out.stdout, &out.stderr]
+    let mut cleaned = [&out.stdout, &out.stderr]
         .into_iter()
         .flat_map(|pipe| crate::stderr::clean_stderr_lines(&String::from_utf8_lossy(pipe)));
     // Warnings (a peer that could not be reached) are not failures.
