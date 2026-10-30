@@ -116,6 +116,13 @@ final class StagedUpdateRefresh {
     /// The feed answered (or its deadline passed): the first of the two decides the click.
     private func settleClick(answered: Bool, updater: UpdaterService) {
         guard let (staged, install) = pendingClick else { return }
+        // Never settle an install while the pulled list is still unknown. The feed deadline may
+        // win the race against a slow pulled.json read; leave the click pending so the refresh
+        // completion settles it, rather than installing a build that may already be revoked.
+        guard !updater.pulledWatch.isRefreshing else {
+            updater.log.append("install click: pulled list still refreshing; waiting before install")
+            return
+        }
         pendingClick = nil
         clickTimer.cancel()
         guard updater.stagedBuild() == staged else { return install() }
