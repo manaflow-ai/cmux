@@ -575,3 +575,45 @@ for (const running of ["claude-sr2", "claude"])
     await settle();
     expect(switched).toEqual(["claude-sr2"]);
   });
+
+// Two launch entries of one uncatalogued family: the second is a profile of the first, and still
+// lists its own catalog models (never the first's) and starts itself.
+test("a second launch entry of a family lists its own models and starts itself", async () => {
+  const catalog = [
+    { id: "claude", name: "Claude Code", family: "claude", models: [{ id: "opus", name: "Opus" }] },
+    {
+      id: "claude-sr2",
+      name: "Claude Code (sr2)",
+      family: "claude-sr2",
+      icon: "claude",
+      models: [{ id: "claude-opus-5-5", name: "Claude Opus 5.5" }],
+    },
+    {
+      id: "claude-sr2-alt",
+      name: "Claude Code (sr2 alt)",
+      family: "claude-sr2",
+      icon: "claude",
+      models: [{ id: "claude-haiku-5-5", name: "Claude Haiku 5.5" }],
+    },
+  ] as Snapshot["catalog"];
+  const { switched } = await mount(0, undefined, "claude", catalog);
+  await open();
+  const labels = railTabs().map((tab) => tab.getAttribute("aria-label") ?? "");
+  const alt = labels.filter((label) => label.includes("alt"));
+  expect(alt, labels.join(", ")).toHaveLength(1);
+  await showTab(alt[0]!);
+  expect(switched).toEqual([]);
+  const models = [...menu()!.querySelectorAll<HTMLElement>('.acpmux-quick-item[role="menuitemradio"]')];
+  const texts = models.map((item) => item.textContent ?? "");
+  expect(
+    texts.some((text) => text.includes("Haiku 5.5")),
+    texts.join(" | "),
+  ).toBe(true);
+  expect(
+    texts.some((text) => text.includes("Opus 5.5")),
+    texts.join(" | "),
+  ).toBe(false);
+  await act(async () => models.find((item) => (item.textContent ?? "").includes("Haiku 5.5"))!.click());
+  await settle();
+  expect(switched).toEqual(["claude-sr2-alt"]);
+});
