@@ -205,6 +205,19 @@ import CmuxNextDesignTokens
         }
     }
 
+    /// Visual review of #27638 (real-app capture at c45470c72c22): the light-mode focus ring read
+    /// 2.73:1 on the dialog card, under WCAG's 3:1 for a focus indicator, and on a gray Cancel it is
+    /// the only sign of focus. The ring is fit to 3:1 on both card surfaces, light and dark.
+    @Test(arguments: [false, true])
+    func theFocusRingReadsAtThreeToOneOnTheCard(isDark: Bool) throws {
+        let tokens = ThemeTokens.derive(from: isDark ? Self.dark : Self.light)
+        let look = CmuxDialogButtonLook(role: .cancel, tokens: tokens)
+        for surface in CmuxDialogButtonLook.cardSurfaces(tokens) {
+            let ring = look.focusRing.composited(over: surface)
+            #expect(ring.contrast(with: surface) >= 3, "ring \(ring.contrast(with: surface)):1 on the card")
+        }
+    }
+
     // MARK: Checks
 
     /// Every label is at least 4.5:1 on the resolved surface, and the surface is the scope's popup
