@@ -1,3 +1,4 @@
+import { WrittenArtifactButtons } from "./writtenArtifacts";
 // Consecutive calls of one kind under one line ("Ran 3 commands", "Read 4 files", "Edited
 // App.tsx +12 -3") over the calls on a tree guide: commands as command rows, edits as their
 // diffs, reads and searches as their own rows, and a thought between two calls in its place.
@@ -32,17 +33,42 @@ function groupIcon(kind: ToolGroupKind): ReactNode {
   }
 }
 
-/// How many of a group's latest calls show under its open line; the earlier ones wait behind
-/// "+K more", so a long run stays dense (one line per call) without hiding what just ran.
-export const GROUP_TAIL = 5;
+type EntryNode = { kind: ToolGroupKind; key: string | number; node: ReactNode };
+const entryCache = new WeakMap<AcpmuxActivity, EntryNode>();
 
-/// Where a group's shown tail starts: at its GROUP_TAIL-th call from the end, or 0 when it has no
-/// more calls than that.
-export function tailStart(items: readonly AcpmuxActivity[]): number {
-  let calls = 0;
-  for (let index = items.length - 1; index >= 0; index -= 1)
-    if (items[index]!.tool && ++calls === GROUP_TAIL) return groupCalls(items).length > GROUP_TAIL ? index : 0;
-  return 0;
+/// The group's item rows, one element per item, kept by item identity. direct.ts and childRows.ts
+/// replace only the item a chunk changed, so an unchanged item keeps its element and React skips
+/// its row: a streamed chunk renders only the changed call, never its siblings, and no sibling
+/// output or thought is parsed again. The pass is an identity check per item, with no element,
+/// render or parse for an unchanged one. It is the walk React makes over the children anyway,
+/// and it notices a delayed update to any earlier call, not only the tail. Items are immutable
+/// snapshots, so an entry lives exactly as long as its item (a WeakMap, no cleanup needed).
+function entryNodes(
+  items: readonly AcpmuxActivity[],
+  kind: ToolGroupKind,
+  thoughtId: (n: number) => string,
+): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  let thoughts = 0;
+  for (let at = 0; at < items.length; at += 1) {
+    const item = items[at]!;
+    // A thought's stable ordinal keeps its choice when more calls append to the group.
+    const key = item.tool ? item.tool.id || at : thoughtId(thoughts++);
+    let entry = entryCache.get(item);
+    if (entry?.kind !== kind || entry.key !== key) {
+      const node = !item.tool ? (
+        <ThoughtRow key={key} id={key as string} item={item} />
+      ) : kind === "commands" ? (
+        <CommandRow key={key} item={item} />
+      ) : (
+        <ToolRow key={key} item={item} />
+      );
+      entry = { kind, key, node };
+      entryCache.set(item, entry);
+    }
+    nodes.push(entry.node);
+  }
+  return nodes;
 }
 
 /// Commands, reads and searches open by default, one row per call, as the Codex and Claude Code
@@ -67,27 +93,10 @@ export function ToolGroupRow({
 }) {
   const t = useT();
   const [open, setOpen] = useTranscriptDisclosure(disclosureKey, kind !== "edits" && !folded);
-  const [all, setAll] = useTranscriptDisclosure(`${disclosureKey}:all`);
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
-  // The calls behind "+K more", and where the shown tail starts (a thought between two hidden
-  // calls hides with them).
-  const cut = kind === "edits" || all ? 0 : tailStart(items);
-  const hidden = cut ? groupCalls(items.slice(0, cut)).length : 0;
   useFindReveal(items, () => setOpen(true));
-  // A match in a call behind "+K more" shows the whole group.
-  useFindReveal(
-    useMemo(() => items.slice(0, cut), [items, cut]),
-    () => setAll(true),
-  );
-  // Each entry with its place in the whole group: a thought is named by how many thoughts come
-  // before it, which a call appended after it or "+K more" never moves, so its open state stays
-  // with it (ThoughtRow keeps it by `id`), even when one activity shows twice.
-  const shown = useMemo(() => {
-    let thoughts = 0;
-    return items.map((item, at) => ({ item, at, thought: item.tool ? -1 : thoughts++ })).slice(cut);
-  }, [items, cut]);
-  const entryRow = ({ item, thought }: (typeof shown)[number], call: (item: AcpmuxActivity) => ReactNode) =>
-    item.tool ? call(item) : <ThoughtRow key={thoughtId(thought)} id={thoughtId(thought)} item={item} />;
+  // Opening the group shows every call. Each call still owns its full body's disclosure.
+  const entryRows = entryNodes(items, kind, thoughtId);
   const detailsId = useId();
   const tools = useMemo(() => groupCalls(items).map((item) => item.tool!), [items]);
   const files = useMemo(() => (kind === "edits" ? toolFiles(tools) : []), [kind, tools]);
@@ -107,6 +116,7 @@ export function ToolGroupRow({
       <button
         type="button"
         className={`cv-tool is-toggle${running ? " is-live" : " is-strong"}`}
+        data-tool-group={disclosureKey}
         aria-expanded={open}
         aria-controls={open ? detailsId : undefined}
         ref={fold.headerRef}
@@ -118,7 +128,11 @@ export function ToolGroupRow({
             <WriteLabel tool={tools[0]!} write={write} t={t} />
           ) : (
             <>
+              {/* The group's line reads as words, "Ran 2 commands", its count never pushed out to the
+                  verb column its calls' rows share (Leo, 2026-10-29: "Why is there space between ran
+                  and two?"). */}
               <ToolLabel
+                whole
                 text={toolGroupLabel(
                   t,
                   kind,
@@ -148,25 +162,21 @@ export function ToolGroupRow({
           className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
         />
       </button>
+      <WrittenArtifactButtons tools={tools} />
       <ToolFailureCause failure={failure} />
       {fold.present && (
         <div {...fold.bodyProps}>
-          <div className={kind === "edits" ? "cv-tool-group" : "cv-tool-group is-flat"} id={detailsId}>
-            {hidden > 0 && (
-              <button type="button" className="cv-tool cv-tool-group__more" onClick={() => setAll(true)}>
-                <span className="cv-tool__text">{t("tools.more", { n: hidden })}</span>
-              </button>
-            )}
-            {kind === "commands"
-              ? shown.map((entry) =>
-                  entryRow(entry, (item) => <CommandRow key={item.tool!.id || entry.at} item={item} />),
-                )
+          <div
+            className={kind === "edits" ? "cv-tool-group" : "cv-tool-group is-flat"}
+            id={detailsId}
+            data-tool-group-items={disclosureKey}
+          >
+            {!files.length
+              ? entryRows
               : [
                   ...files.map((file) => <EditDiff key={file.path} file={file} />),
-                  // Reads and searches, and edits that carried no diff (a delete, a move), as rows.
-                  ...shown
-                    .filter(({ item }) => !files.length || !item.tool?.diffs?.length)
-                    .map((entry) => entryRow(entry, (item) => <ToolRow key={item.tool!.id || entry.at} item={item} />)),
+                  // Edits that carried no diff (a delete, a move), as rows.
+                  ...entryRows.filter((_, index) => !items[index]!.tool?.diffs?.length),
                 ]}
           </div>
         </div>

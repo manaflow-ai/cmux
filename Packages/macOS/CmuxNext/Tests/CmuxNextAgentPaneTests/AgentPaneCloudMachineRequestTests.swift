@@ -11,11 +11,12 @@ struct AgentPaneCloudMachineRequestTests {
         AgentPaneRequest(body: params.map { ["method": method, "params": $0] } ?? ["method": method])
     }
 
-    @Test func decodesTheThreeMethods() {
+    @Test func decodesTheFourMethods() {
         #expect(Self.request("cloudMachine.list", [:]) == .cloudMachine(.list))
         #expect(Self.request("cloudMachine.list") == .cloudMachine(.list))
         #expect(Self.request("cloudMachine.open", ["id": "vm-abc123"]) == .cloudMachine(.open(id: "vm-abc123")))
         #expect(Self.request("cloudMachine.resume", ["id": "machine_0123"]) == .cloudMachine(.resume(id: "machine_0123")))
+        #expect(Self.request("cloudMachine.pause", ["id": "vm_0123"]) == .cloudMachine(.pause(id: "vm_0123")))
         for method in AgentPaneCloudMachineRequest.methods { #expect(AgentPageOps.methods[method] == method) }
         #expect(String(describing: Self.request("cloudMachine.open", ["id": "vm-1"])) == "cloudMachine")
     }
@@ -28,6 +29,7 @@ struct AgentPaneCloudMachineRequestTests {
         for params in refused {
             #expect(Self.request("cloudMachine.open", params) == .unsupported("cloudMachine.open"))
             #expect(Self.request("cloudMachine.resume", params) == .unsupported("cloudMachine.resume"))
+            #expect(Self.request("cloudMachine.pause", params) == .unsupported("cloudMachine.pause"))
         }
     }
 
@@ -66,12 +68,13 @@ struct AgentPaneCloudMachineRequestTests {
         #expect((value["machines"] as? [Any])?.isEmpty == true)
     }
 
-    @Test func openAndResumeTakeOneGestureEach() async {
+    @Test func openResumeAndPauseTakeOneGestureEach() async {
         let machines = AgentPaneCloudMachines()
         let gestures = AgentPaneUserGestures()
         var ran: [String] = []
         machines.open = { ran.append("open " + $0); return true }
         machines.resume = { ran.append("resume " + $0); return true }
+        machines.pause = { ran.append("pause " + $0); return true }
         // No click: nothing runs.
         #expect(await AgentPaneCloudMachineRequest.resume(id: "vm-1").reply(machines, gestures: gestures)["ok"] as? Bool != true)
         #expect(ran.isEmpty)
@@ -81,7 +84,11 @@ struct AgentPaneCloudMachineRequestTests {
         #expect(await AgentPaneCloudMachineRequest.open(id: "vm-2").reply(machines, gestures: gestures)["ok"] as? Bool != true)
         gestures.record(click: true)
         #expect(await AgentPaneCloudMachineRequest.open(id: "vm-2").reply(machines, gestures: gestures)["ok"] as? Bool == true)
-        #expect(ran == ["resume vm-1", "open vm-2"])
+        // Pause changes the machine too: no click, nothing runs; a click runs it once.
+        #expect(await AgentPaneCloudMachineRequest.pause(id: "vm-3").reply(machines, gestures: gestures)["ok"] as? Bool != true)
+        gestures.record(click: true)
+        #expect(await AgentPaneCloudMachineRequest.pause(id: "vm-3").reply(machines, gestures: gestures)["ok"] as? Bool == true)
+        #expect(ran == ["resume vm-1", "open vm-2", "pause vm-3"])
     }
 
     @Test func aMachineTheAppRefusesIsAVisibleFailure() async {

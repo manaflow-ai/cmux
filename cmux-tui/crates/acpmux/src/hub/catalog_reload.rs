@@ -124,7 +124,13 @@ mod tests {
         *hub.probe_only.lock().unwrap() = Some(Default::default());
 
         for expected in [
-            SessionResourceConfig { memory_mb: Some(6144), swap_mb: Some(2048) },
+            SessionResourceConfig {
+                memory_mb: Some(6144),
+                swap_mb: Some(2048),
+                tasks_max: Some(8192),
+                sessions_tasks_max: Some(131_072),
+                cpu_class: Some(crate::cpu_class::CpuClass::Normal),
+            },
             SessionResourceConfig::default(),
         ] {
             let mut changed = Config::load_from_with(&path, &ProfileSources::none()).unwrap();

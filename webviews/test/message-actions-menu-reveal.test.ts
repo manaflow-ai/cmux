@@ -13,6 +13,51 @@ await requireBrowserLane("message-actions-menu-reveal.test.ts", async () => {
     "utf8",
   );
   for (const [engine, launcher] of Object.entries({ chromium, webkit })) {
+    test(`${engine}: received menu stays revealed and lit for either open marker`, async () => {
+      const browser = await launcher.launch({ headless: true });
+      try {
+        const page = await browser.newPage({ reducedMotion: "reduce" });
+        await page.setContent(`<!doctype html><style>${css}</style>
+          <div class="cv-received" style="--cv-text:rgb(40,40,40);--cv-fg:rgb(40,40,40)">
+            <span class="cv-received-actions">
+              <button id="menu" aria-haspopup="menu" aria-expanded="false">Actions</button>
+              <button id="other" aria-haspopup="listbox">Choose</button>
+            </span>
+          </div>
+          <button id="outside" style="position:fixed;top:300px;left:600px">Outside</button>`);
+        const state = () =>
+          page.locator("#menu").evaluate((node) => ({
+            opacity: getComputedStyle(node.parentElement!).opacity,
+            color: getComputedStyle(node).color,
+            background: getComputedStyle(node).backgroundColor,
+          }));
+        await page.locator("#outside").focus();
+        await page.mouse.move(700, 400);
+        const closed = await state();
+        expect(closed.opacity).toBe("0");
+        let expanded: Awaited<ReturnType<typeof state>> | undefined;
+        for (const marker of ["aria-expanded", "data-popup-open"]) {
+          await page.locator("#menu").hover();
+          await page.locator("#menu").evaluate((node, attr) => node.setAttribute(attr, "true"), marker);
+          await page.locator("#outside").focus();
+          await page.mouse.move(700, 400);
+          const open = await state();
+          expect(open.opacity).toBe("1");
+          expect(open.color).not.toBe(closed.color);
+          expect(open.background).not.toBe(closed.background);
+          if (expanded) expect(open).toEqual(expanded);
+          else expanded = open;
+          await page.locator("#menu").evaluate((node, attr) => node.removeAttribute(attr), marker);
+          expect(await state()).toEqual(closed);
+          // An unrelated popup cannot reveal or light the menu trigger.
+          await page.locator("#other").evaluate((node, attr) => node.setAttribute(attr, "true"), marker);
+          expect(await state()).toEqual(closed);
+          await page.locator("#other").evaluate((node, attr) => node.removeAttribute(attr), marker);
+        }
+      } finally {
+        await browser.close();
+      }
+    }, 60_000);
     for (const kind of ["user", "received"]) {
       test(`${engine}: ${kind} actions follow only their own open menu`, async () => {
         const browser = await launcher.launch({ headless: true });
