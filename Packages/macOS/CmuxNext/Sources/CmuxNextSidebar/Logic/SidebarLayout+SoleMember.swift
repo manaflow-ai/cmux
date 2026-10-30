@@ -14,12 +14,24 @@ nonisolated extension SidebarLayout {
         return !name.isEmpty && ws.title.trimmingCharacters(in: .whitespacesAndNewlines) == name ? ws : nil
     }
 
+    /// The session-tree depth `ws` draws at when it is `group`'s one live row, or nil when the group keeps its header
+    /// because the member would not draw as a live row of its own: folded behind the group's "Done (N)" row
+    /// (`foldingDone`), or hidden in a collapsed group (only a kept member, `shown(inCollapsed:)`, draws there).
+    static func liveDepth(of ws: SidebarWorkspace, _ members: [SidebarGroupMember], in group: SidebarGroup, collapsed: Bool,
+                          fold: SidebarDoneFoldID, options o: SidebarLayoutOptions) -> Int? {
+        if collapsed { return o.shown(inCollapsed: group.id).contains(ws.id) ? 0 : nil }
+        let drawn = foldingDone(treeOrder(workspaceIDs(members), parents: o.sessionTree?.parents), workspace: { _ in ws }, fold: fold, options: o)
+        guard drawn.count == 1, drawn[0].index == 0 else { return nil }
+        return drawn[0].depth
+    }
+
     /// Appends `ws`'s row (and its inline tabs) at `y` as `group`'s one row and returns the y after it.
-    static func appendSoleMember(_ ws: SidebarWorkspace, of group: SidebarGroup, section: SectionID, parent: Int, machine: String?,
-                                 options o: SidebarLayoutOptions, metrics m: SidebarLayoutMetrics,
+    static func appendSoleMember(_ ws: SidebarWorkspace, of group: SidebarGroup, treeDepth: Int, section: SectionID, parent: Int,
+                                 machine: String?, options o: SidebarLayoutOptions, metrics m: SidebarLayoutMetrics,
                                  to rows: inout [SidebarRow], y: CGFloat) -> CGFloat {
         var y = y
-        let content = o.rowContent(ws, machine: machine)
+        var content = o.rowContent(ws, machine: machine)
+        content.treeDepth = treeDepth
         let h = m.height(for: content)
         var row = SidebarRow(
             key: .workspace(ws.id), y: y, height: h, section: section,

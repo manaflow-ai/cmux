@@ -109,7 +109,11 @@ nonisolated struct RustRowKey: Codable {
 nonisolated struct RustRow: Codable {
     /// The rows the drop resolver reads: Group by Folder's headers, "Done (N)"
     /// and "Show N more" rows are labels only (no drop target), so they stay out.
-    static func resolvable(_ rows: [SidebarRow]) -> [RustRow] {
+    ///
+    /// `soleRowsAsHeaders`: a group's one row (`SidebarRow.standsForGroup`) sits in its header's slot, so a workspace or
+    /// group drag reads it as the group's open header: its upper edge drops before the group, its body into the group.
+    /// A tab drop keeps it a workspace row, so a tab still drops into that workspace.
+    static func resolvable(_ rows: [SidebarRow], soleRowsAsHeaders: Bool = true) -> [RustRow] {
         rows.compactMap { row in
             if case .folder = row.key { return nil }
             if case .status = row.key { return nil }
@@ -119,6 +123,7 @@ nonisolated struct RustRow: Codable {
             // An empty group's row: the pointer over it falls on the open header's lower part, a drop into the group.
             if case .emptyGroup = row.key { return nil }
             if case .custom = row.section { return nil } // the older resolver knows Pinned and machines only
+            if soleRowsAsHeaders, row.standsForGroup, let group = row.group { return RustRow(header: group, standingIn: row) }
             return RustRow(row)
         }
     }
@@ -142,6 +147,14 @@ nonisolated struct RustRow: Codable {
         case isLastInGroup = "is_last_in_group"
         case isCollapsed = "is_collapsed"
         case childCount = "child_count"
+    }
+
+    /// `group`'s open header in the place of its one row `row`.
+    init(header group: GroupID, standingIn row: SidebarRow) {
+        var header = row
+        (header.key, header.siblingIndex, header.parentIndex) = (.group(group), row.parentIndex ?? row.siblingIndex, nil)
+        (header.workspace, header.isLastInGroup, header.isCollapsed, header.childCount) = (nil, false, false, 1)
+        self.init(header)
     }
 
     init(_ row: SidebarRow) {
