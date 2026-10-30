@@ -519,7 +519,7 @@ fn registry_identity_does_not_wait_on_the_registry_lock() {
     let (tx, rx) = std::sync::mpsc::channel();
     let reader = mux.clone();
     std::thread::spawn(move || tx.send(reader.registry_identity()).unwrap());
-    let read = rx.recv_timeout(std::time::Duration::from_secs(5));
+    let read = rx.recv_timeout(Duration::from_secs(5));
     drop(held);
     assert_eq!(read.ok(), Some(expected), "the identity waited on the held registry lock");
 }
