@@ -74,18 +74,20 @@ fn grace() -> Option<Duration> {
 /// Resolves, with why, once this daemon is unused (see the module doc); never for the shared
 /// home, a daemon its service unit runs, a Cloud machine, or a grace of 0.
 pub(super) async fn unused(hub: Weak<crate::hub::Hub>) -> String {
-    // A Cloud machine's hand-off reports wait in this daemon's memory (`cloud_handoff.rs`).
-    #[cfg(unix)]
-    let cloud = super::cloud_handoff::reports_here();
-    #[cfg(not(unix))]
-    let cloud = false;
-    let own_home = !super::uses_shared_home() && !super::managed_by_acpmux_unit() && !cloud;
+    let own_home = !super::uses_shared_home() && !super::managed_by_acpmux_unit();
     let Some(grace) = grace().filter(|_| own_home) else {
         return std::future::pending().await;
     };
     let in_use = move || {
         let hub = hub.upgrade();
         async move {
+            // A Cloud machine's hand-off reports wait in this daemon's memory
+            // (`cloud_handoff.rs`). Read at each census: the Cloud agent may make its socket
+            // after the daemon started.
+            #[cfg(unix)]
+            if super::cloud_handoff::reports_here() {
+                return Some("a Cloud machine's hand-off reports");
+            }
             match hub {
                 Some(hub) => hub.in_use().await,
                 // The hub is gone: the daemon is stopping anyway.

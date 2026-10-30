@@ -754,9 +754,23 @@ fn agent_socket() -> PathBuf {
 }
 
 /// Whether this machine has a Cloud agent to report to: its reports wait in memory, so a daemon
-/// here never stops for being unused (`unused_exit.rs`).
+/// here never stops for being unused (`unused_exit.rs`, which asks at each census).
 pub(super) fn reports_here() -> bool {
-    cfg!(target_os = "linux") && agent_socket().exists()
+    reports_to(&agent_socket())
+}
+
+fn reports_to(socket: &std::path::Path) -> bool {
+    cfg!(target_os = "linux") && socket.exists()
+}
+
+#[cfg(test)]
+#[test]
+fn a_cloud_agent_socket_made_after_the_start_is_seen() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("agent.sock");
+    assert!(!reports_to(&socket), "no socket yet");
+    std::fs::write(&socket, "").unwrap();
+    assert_eq!(reports_to(&socket), cfg!(target_os = "linux"), "the socket made later");
 }
 
 pub(super) async fn handoff_loop(hub: Arc<Hub>) {
