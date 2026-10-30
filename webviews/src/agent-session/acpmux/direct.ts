@@ -3240,7 +3240,8 @@ export class AcpmuxDirectClient {
 
   /// The attach asked with the list is not the open's: another chat opens, or this one attaches
   /// again as a chat on another machine does. A chat no longer shown is detached. One still shown
-  /// keeps its live records held (acpmux streams them from that attach on) until its next attach
+  /// is not: acpmux keeps one subscription per chat and connection (server/view.rs `attach`), which
+  /// the next attach takes over, so it streams once. Its live records stay held until that attach
   /// takes them (`attachWatched`), so none applies before the rows the open draws first (a kept
   /// tail, the Mac's copy); its reads start over with that attach. `final`: the open ended, so
   /// nothing takes them.
@@ -3347,9 +3348,7 @@ export class AcpmuxDirectClient {
     const listedNow = rowNow?.createdAt;
     const replyOf = result?.session?.createdAt;
     const recreated =
-      (typeof listedNow === "number" && listedNow !== askedGen && typeof replyOf === "number" && replyOf !== listedNow) ||
-      // Asked before the list was read: a reply of another session than the one it names.
-      (early !== undefined && typeof askedGen === "number" && typeof replyOf === "number" && replyOf !== askedGen);
+      typeof listedNow === "number" && listedNow !== askedGen && typeof replyOf === "number" && replyOf !== listedNow;
     // The row named another session or machine than the one asked of at some point since the ask
     // (A then B, or A, B, A again), or than the reply's: live records of that one may be among
     // those drawn or held, so nothing drawn is kept, and the session listed now is attached.
@@ -3362,11 +3361,19 @@ export class AcpmuxDirectClient {
       return this.attach(sessionId, generation, 0, tries + 1);
     };
     if (strayed()) return again();
+    // An attach asked before the list was read, whose reply is of another session than the list
+    // names, or whose row moved machines since: the records it streamed before the open took it
+    // (applied above, `takeEarly`) may be that other session's, so none of them stays.
+    if (
+      early &&
+      ((typeof askedGen === "number" && typeof replyOf === "number" && replyOf !== askedGen) ||
+        recreated ||
+        rowNow?.peer !== askedOf)
+    )
+      return again();
     if (recreated || rowNow?.peer !== askedOf) {
       // l10n-allow: an attach's internal retry bound; the pane says its own open failure.
       if (tries >= ATTACH_TRIES) throw new Error("the session changed while it was opened");
-      // Its reads start over with the attach asked now.
-      if (early) this.dropEarly(early);
       return this.attach(sessionId, generation, keptThrough, tries + 1);
     }
     this.presence.attached(sessionId, result);
@@ -3462,11 +3469,8 @@ export class AcpmuxDirectClient {
     this.limitsVersion += 1;
     this.goalSeq = typeof result?.lastSeq === "number" ? result.lastSeq : 0;
     this.queue = [];
-    // The reads the chat draws with, at once rather than one after another: each is a round trip,
-    // as slow as the attach on a busy daemon, and the chat shows only once they are in (its asks,
-    // the turn's opener and a handoff come with its rows, so nothing lands under them a moment
-    // later). Leo 2026-10-21, a 690-turn chat after a restart: "I LOAD IN AND IT'S A BLACK SCREEN".
-    // Asked with the attach (`sendAttach`), or now for a chat on another machine.
+    // The reads the chat draws with (`startAttachReads`): asked with the attach, or now for a chat
+    // on another machine. The chat shows only once they are in, with the turn's opener.
     const reads = sent.reads ?? this.startAttachReads(sessionId);
     const rows = mergeEventRecords(page, this.events);
     // acpmux names the turn's opener with its page; only an older one leaves it to a read of its own.
