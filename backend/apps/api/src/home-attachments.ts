@@ -431,7 +431,14 @@ export const handleAttachmentMultipartPart = async (request: Request, env: Env, 
     }
   }
   try {
-    const upload = env.HOME_ATTACHMENTS!.resumeMultipartUpload(slot.object_key, slot.multipart_upload_id)
+    let upload: R2MultipartUpload
+    try {
+      upload = env.HOME_ATTACHMENTS!.resumeMultipartUpload(slot.object_key, slot.multipart_upload_id)
+    } catch (e) {
+      // A self-hosted bucket throws at once for an upload already closed (a completion or expiry raced this PUT).
+      if (completionFailure(e) === "closed") return invalid
+      return failure({ status: 503, code: "attachment.part_unavailable", message: `part ${part} could not be stored right now; send it again`, extra: { retryable: true } })
+    }
     const uploaded = await streamPartInto(upload, part, request, length, sha, renew)
     if (uploaded === "unavailable" && !lost) return failure({ status: 503, code: "attachment.part_unavailable", message: `part ${part} could not be stored right now; send it again`, extra: { retryable: true } })
     // The client sends the part again: a later request may have stored it (then the retry answers the stored part) or not.

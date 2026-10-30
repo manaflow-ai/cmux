@@ -727,7 +727,7 @@ describe("Home attachments: a stale part write that lands after a newer one neve
     expect((await urlFor(alice, id, sha(body))).json.ok).toBe(false)
   })
 
-  it("the same stale write of the same bytes (a client's retry of its own part) changes nothing: the etag matches and the file completes", async () => {
+  it("the same stale write of the same bytes (a client's retry of its own part) is refused at completion as well: the slot ends and nothing is committed", async () => {
     const alice = await signIn("att-stale-write-same")
     const { id } = await group(alice)
     const { PART_CLAIM_MS } = await import("../src/home-attachment-store.ts")
@@ -771,9 +771,11 @@ describe("Home attachments: a stale part write that lands after a newer one neve
     expect((await stale).status).toBe(409)
     vi.useRealTimers()
     expect((await m.putPart(2)).status).toBe(200)
+    // R2 gives each part write its own etag, so even the same bytes no longer match the recorded one:
+    // only after the owner was unreachable past a claim's lifetime, and the client starts the file again.
     const done = await m.complete()
-    expect([done.status, done.json.value?.state]).toEqual([200, "stored"])
-    expect(sha(await downloaded(alice, id, sha(body)))).toBe(sha(body))
+    expect([done.status, done.json.error?.code]).toEqual([400, "attachment.size_mismatch"])
+    expect((await urlFor(alice, id, sha(body))).json.ok).toBe(false)
   })
 
   it("a part PUT whose upload a self-hosted bucket already closed (resuming throws NoSuchUpload at once) answers slot_invalid, not a 500", async () => {
