@@ -72,7 +72,7 @@ export function ScrollMap({
   viewportHeight: number;
   scrolls: boolean;
   /// The compact rail's pane-edge placement (useRailPlacement), measured against the actual text.
-  placement: { left: number; width: number; overlapsText: boolean; gutter: number };
+  placement: { left: number; width: number; overlapsText: boolean; gutter: number; reserve: number };
   marks: PromptMarks;
   /// The compact rail's jump to a prompt (ThreadMinimap), so a click lands and flashes the same.
   jump: (turn: number, how: "click" | "scrub") => number | undefined;
@@ -259,7 +259,7 @@ export function ScrollMap({
           className="acpmux-minimap__rail acpmux-scrollmap"
           aria-label={t("minimap.label")}
           data-side={side}
-          style={{ ...railEdge(side, placement.left), top: MAP_MARGIN, width: ROW_WIDTH, height }}
+          style={{ ...railEdge(side, placement.reserve + placement.left), top: MAP_MARGIN, width: ROW_WIDTH, height }}
           data-hovering={pointerY !== undefined || undefined}
           data-scrubbing={scrubbing || undefined}
           data-reduce={reduce || undefined}
@@ -344,7 +344,7 @@ export function ScrollMap({
           ref={card}
           id={cardId}
           side={side}
-          x={placement.left + ROW_WIDTH}
+          x={placement.reserve + placement.left + ROW_WIDTH}
           railLeft={placement.left}
           y={cardOffset(MAP_MARGIN + cardAt.y, cardHeight, viewportHeight)}
           // Out of the scroller: its edge mask would keep the card's blur from the rows (PreviewCard.tsx).

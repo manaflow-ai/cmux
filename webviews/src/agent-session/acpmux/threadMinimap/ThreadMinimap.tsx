@@ -304,10 +304,12 @@ export function ThreadMinimap({
   );
   // The compact rail is pinned to the pane's left edge. It never follows the centered transcript or
   // Session Info's chat shift; only its own pane-width inset changes.
-  const placement = useRailPlacement(scroller, width, columnWidth);
   // Its edge (railSide.ts): on the right it is the same rail mirrored, `placement.left` in from the
-  // pane's right edge, with its hover strip and card on that side.
+  // pane's right edge (past the VS Code minimap's `reserve` when that is on), with its hover strip and
+  // card on that side.
   const { side, menu } = useRailSide();
+  const placement = useRailPlacement(scroller, width, columnWidth, side);
+  const edge = placement.reserve + placement.left;
   const [cardFocus, setCardFocus] = useState(false);
   const railVisible = !placement.overlapsText || railRevealed || domFocus !== undefined || cardFocus || scrubbing;
   const railWidth = placement.overlapsText && railVisible ? ROW_WIDTH : placement.width;
@@ -842,7 +844,12 @@ export function ThreadMinimap({
           className="acpmux-minimap__strip"
           aria-hidden="true"
           data-side={side}
-          style={{ top: railTop, width: railVisible ? placement.left : stripWidth, height }}
+          style={{
+            ...railEdge(side, placement.reserve),
+            top: railTop,
+            width: railVisible ? placement.left : stripWidth,
+            height,
+          }}
           onPointerEnter={() => {
             overStrip.current = true;
             revealRail();
@@ -860,7 +867,7 @@ export function ThreadMinimap({
           data-side={side}
           style={
             {
-              ...railEdge(side, placement.left),
+              ...railEdge(side, edge),
               top: railTop,
               width: railWidth,
               height,
@@ -1010,7 +1017,7 @@ export function ThreadMinimap({
           side={side}
           // From the rail's edge of the pane to its far side: card.left == rail.right on the left,
           // card.right == rail.left on the right.
-          x={placement.left + railWidth}
+          x={edge + railWidth}
           railLeft={placement.left}
           y={cardTop}
           // Out of the scroller: its edge mask would keep the card's blur from the rows (PreviewCard.tsx).
