@@ -613,3 +613,7 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 ## Disclosure rows join the keyboard walk (2026-10-30)
 
 - [89e3362105d](https://github.com/manaflow-ai/cmux/commit/89e3362105d) and [cefa3bccc16](https://github.com/manaflow-ai/cmux/commit/cefa3bccc16) (PR [#27961](https://github.com/manaflow-ai/cmux/pull/27961)): the Done (N) and Show N more fold rows become keyboard stops (Up/Down, Tab/Shift-Tab; Return and Space toggle; Left/Right close or open). Behavior change; the only drawing is the sidebar's existing keyboard focus ring on a fold row the keyboard reached, as group headers already draw. Row look, height and layout unchanged. Both commits came from a lane that ended before adding a `Sidebar-Look:` trailer; reviewed and logged here. Tests: `SidebarFoldKeyboardTests`, `SidebarFoldAccessibilityTests`.
+
+## Squash merges of logged PRs (2026-10-30)
+
+- Base's squash commits of three PRs whose branch commits are logged above, so the CI sweep from `342462ca6ee` names them by their squash sha: [4367c16e12c](https://github.com/manaflow-ai/cmux/commit/4367c16e12c) is PR #24073 (logged as `f19e4c28604`, the top mask under the traffic lights), [6c1a5ab8bf3](https://github.com/manaflow-ai/cmux/commit/6c1a5ab8bf3) is PR #24295 (logged as `350b65e877c`, the profile menu on the menu grid) and [eb8105b0747](https://github.com/manaflow-ai/cmux/commit/eb8105b0747) is PR #27561 (logged as `4bf0793659a`, `a780175e437`, `2920608979b`, `7f3ff5f0d6a`, the trailing slots). Same diffs as those entries; no look change beyond them.
