@@ -537,6 +537,81 @@ import Testing
         #expect(store.message(id: "m25")?.replyCount == 2)
     }
 
+    /// A message that first arrives live while recovery fetches, then is
+    /// edited or reacted to live, keeps that live state: a page fetched
+    /// before those events carries an older copy of it.
+    @Test(arguments: [false, true])
+    func aRowThatArrivesLiveDuringRecoveryKeepsItsLiveState(reacted: Bool) async throws {
+        let backend = ScriptedBackend(total: 30)
+        let store = ConversationStore(backend: backend, pageSize: 20)
+        defer { store.stop() }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+
+        // Message 31 was sent while disconnected; the held page carries it as sent.
+        backend.total = 31
+        let history = PreparationGate()
+        defer { history.open() }
+        backend.nextHistoryGate = history
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { backend.historyCount == 2 }
+
+        // After the page was read, it arrives live and then changes live.
+        store.apply(.message(backend.makeMessage(seq: 31, sender: "lc"), eventSeq: 1))
+        var changed = backend.makeMessage(seq: 31, sender: "lc")
+        if reacted {
+            changed.reactions = [ConversationReactionMark(participantID: "aw", reaction: .haha)]
+        } else {
+            changed.text = "Edited live"
+            changed.editedAt = Date()
+            changed.editCount = 1
+        }
+        store.apply(.message(changed, eventSeq: 2))
+        var merged = false
+        store.addObserver { change in
+            if case .live = change { merged = true }
+        }
+        history.open()
+        try await waitUntil { merged && backend.historyCount >= 2 }
+        try await Task.sleep(for: .milliseconds(50))
+        let result = try #require(store.message(id: "m31"))
+        #expect(result.text == changed.text)
+        #expect(result.editCount == changed.editCount)
+        #expect(result.reactions == changed.reactions)
+    }
+
+    /// My reaction pending during recovery keeps only my own mark: reactions
+    /// others added while I was disconnected come from the recovered copy.
+    @Test func aPendingReactionKeepsOthersRecoveredReactions() async throws {
+        let backend = ScriptedBackend(total: 30)
+        let store = ConversationStore(backend: backend, pageSize: 20)
+        defer { store.stop() }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+
+        var changed = backend.makeMessage(seq: 25, sender: "lc")
+        changed.reactions = [ConversationReactionMark(participantID: "aw", reaction: .haha)]
+        backend.setHistoryMessage(changed)
+        backend.total = 31
+        let history = PreparationGate()
+        defer { history.open() }
+        backend.nextHistoryGate = history
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { backend.historyCount == 2 }
+
+        let action = PreparationGate()
+        defer { action.open() }
+        backend.localActionGate = action
+        store.react(messageID: "m25", reaction: .heart)
+        history.open()
+        try await waitUntil { store.message(id: "m31") != nil }
+        let reactions = try #require(store.message(id: "m25")?.reactions)
+        #expect(Set(reactions) == [
+            ConversationReactionMark(participantID: "aw", reaction: .haha),
+            ConversationReactionMark(participantID: "me", reaction: .heart),
+        ])
+    }
+
     /// A delivery receipt is not a newer revision of the message: a live
     /// receipt during recovery keeps its delivery, and the recovered edit or
     /// unsend still applies.
