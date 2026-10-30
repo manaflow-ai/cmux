@@ -137,7 +137,7 @@ import Testing
     }
 
     /// A staged build known pulled that no installer this app holds can cancel: no card or footer
-    /// pill offers it, and a quit with install on quit on cancels it instead of installing it.
+    /// pill offers it, and a quit does not claim to have cancelled an installer it could not cancel.
     @Test func aPulledStagedBuildNoOneCanCancelIsNotOffered() async throws {
         let (h, installs) = Click.make(newer: false, pulled: ["300"])
         h.updater.stagedRefresh.cancellable = { false }
@@ -152,7 +152,24 @@ import Testing
         h.updater.debugIndicatorPhase = .ready(version: "3.0.0")
         #expect(h.updater.readyCard == nil, "a check the person asked for offers pulled build 300")
         h.updater.preferences.installOnQuit = true
+        #expect(h.updater.prepareForQuit() == .proceed, "a quit reports an installer it could not cancel as cancelled")
+        #expect(installs.count == 0)
+    }
+
+    /// A staged build known pulled whose installer this app holds: a quit with install on quit on
+    /// cancels it instead of installing it.
+    @Test func aQuitCancelsAPulledStagedBuildItsInstallerHolds() async throws {
+        let (h, installs) = Click.make(newer: false, pulled: ["300"])
+        // Held while Sparkle's silent cycle resumed; by the quit this app holds the installer.
+        h.updater.cancelStaged = { false }
+        await h.updater.pulledWatch.refresh().value
+        try #require(h.updater.pulledWatch.isPulled("300"))
+        h.updater.debugIndicatorPhase = .ready(version: "3.0.0")
+        var cancels = 0
+        h.updater.cancelStaged = { cancels += 1; return true }
+        h.updater.preferences.installOnQuit = true
         #expect(h.updater.prepareForQuit() == .cancelPendingInstall, "a quit installs pulled build 300")
+        #expect(cancels == 1, "the quit did not cancel pulled build 300's installer")
         #expect(installs.count == 0)
     }
 
