@@ -144,6 +144,14 @@ pub(crate) fn watch() -> impl std::future::Future<Output = bool> + Send + 'stati
 /// any more: the bundle was deleted, or a rebuild wrote a new binary over its name. Never when
 /// the app is moved or renamed (the file keeps its name elsewhere), touched or re-signed in
 /// place (the same file).
+///
+/// Only the link count is read, never the device, inode, size or mtime recorded at start, and
+/// that is deliberate. A rebuild never rewrites a binary in place: overwriting a signed Mach-O
+/// keeps the kernel's cached code signature for that inode and kills what runs from it, so every
+/// build path removes the old file before it copies the new one in
+/// (`scripts/install-cmux-tui-client.sh`, `scripts/cmux-next/bundle-cmux-tui.sh`), which leaves
+/// this file with no name. A write in place is therefore not a new build, and a size or mtime
+/// check would stop a live app's daemon, and end its agents, after a touch or a re-sign.
 pub(crate) struct Executable(Option<std::fs::File>);
 
 impl Executable {
@@ -151,8 +159,9 @@ impl Executable {
         Self(std::fs::File::open(path).ok())
     }
 
-    /// Whether no name links to the file any more. One that could not be opened at the
-    /// start is never gone.
+    /// Whether no name links to the file any more (deleted, or replaced by a new file at its
+    /// name). A write in place keeps it (see the type's doc). One that could not be opened at
+    /// the start is never gone.
     pub(crate) fn gone(&self) -> bool {
         #[cfg(unix)]
         {
