@@ -774,7 +774,8 @@ impl Hub {
         // session whose last turn was one: a family prompt never runs, or
         // lets the receiver run, below the floor (`remote_floor.rs`).
         let web = Self::web_turn(from) || Self::web_turn(to);
-        let stop = self.interrupt_once_queued(to, interrupt);
+        // A family message waits behind a review box's review, never stops it (`inbox.rs`).
+        let stop = self.interrupt_once_queued(to, interrupt && !super::inbox::review_box(to));
         let on_accepted: Option<Box<dyn FnOnce(Value) + Send>> = Some(Box::new(move |v| {
             stop(&v);
             if let Some(accepted) = accepted {
