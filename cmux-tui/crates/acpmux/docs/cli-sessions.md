@@ -24,7 +24,7 @@ Running the same `new --worktree ... --prompt-file ...` again reuses the session
 | Send a message and return at once | `acpmux send --no-wait coord "PR 27310 is green"` |
 | Send and stream the reply until the turn ends | `acpmux send review-27310 "Is the diff safe to land?"` |
 | Send and print only the reply | `acpmux send review-27310 -q "Is the diff safe to land?"` |
-| Say what the message asks of the receiver | `acpmux send coord --class block "Base is red; I cannot push"` |
+| From an agent session, say what the message asks of the receiver | `acpmux send coord --class block "Base is red; I cannot push"` |
 | Send a file with it | `acpmux send fix-27310 --attach ~/notes/before.png "The caret jumps after paste"` |
 | Check a `--no-wait` delivery | `acpmux send --status DELIVERY_ID` |
 | Retry a failed last turn | `acpmux retry review-27310` |
@@ -69,7 +69,7 @@ boundary); `--no-steer` queues it instead.
 | Export it as a bundle; import the folder it prints elsewhere | `acpmux session export coord --dest ~/bundles` |
 
 An allow, and an answer to an agent's question, are accepted only from the cmux app; from the CLI,
-`session allow` takes a deny option and `session answer` prints the questions. A session's limits
-are changed by the cmux app or by a session above it in its family.
+`session deny` rejects a request and `session answer` prints the questions. A session's limits are
+changed by the cmux app or by a session above it in its family.
 See also [hosts](cli-hosts.md), [harnesses](cli-harnesses.md), [the daemon](cli-daemon.md) and
 [tasks and other work](cli-work.md).
