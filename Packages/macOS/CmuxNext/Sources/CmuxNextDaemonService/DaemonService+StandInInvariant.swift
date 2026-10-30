@@ -11,6 +11,7 @@ extension DaemonService {
         switch intent {
         case .createTab(_, let provisional): provisional.kind == .pty
         case .splitPane(_, _, _, let provisional): provisional.tab == nil
+        case .createWorkspace(let provisional, _): provisional.tab.kind == .pty
         default: false
         }
     }
@@ -30,10 +31,16 @@ extension DaemonService {
 
     /// DEBUG builds stop at a rollback that breaks the invariant (the journeys check the same end to end).
     nonisolated static func checkStandInRollback(_ intent: Intent, error: any Error, label: String) {
+        if showsTerminalStandIn(intent) { checkTerminalRollback(error: error, label: label) }
+    }
+
+    /// A new terminal shown without an intent (Cmd-N's workspace with its terminal) is being taken back for `error`:
+    /// DEBUG builds stop when that is a client deadline.
+    public nonisolated static func checkTerminalRollback(error: any Error, label: String) {
         #if DEBUG
         // crash-allow: DEBUG-only invariant check (R3); a release build keeps the rollback and logs it
-        if takesTerminalStandInBackOnClock(intent, error: error) {
-            assertionFailure("R3: \(label) took a terminal stand-in back on a client deadline; the daemon may still make it: \(error)")
+        if isClientDeadline(error) {
+            assertionFailure("R3: \(label) took a new terminal back on a client deadline; the daemon may still make it: \(error)")
         }
         #endif
     }
