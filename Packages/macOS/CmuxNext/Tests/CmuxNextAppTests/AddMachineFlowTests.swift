@@ -375,7 +375,7 @@ import Testing
         // Start finished() before Cancel drops the model's task. Its wait then observes the
         // canceled task settling, rather than returning early because the task is already nil.
         var waiter: Task<String?, Never>?
-        await withCheckedContinuation { started in
+        await withCheckedContinuation { (started: CheckedContinuation<Void, Never>) in
             waiter = Task {
                 started.resume()
                 return await model.finished()
