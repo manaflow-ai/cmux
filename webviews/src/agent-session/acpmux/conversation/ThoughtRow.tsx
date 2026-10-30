@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AcpmuxActivity } from "../model";
 import { useT } from "../i18n";
 import { useFindReveal } from "./chatFind";
@@ -64,7 +64,7 @@ export function thoughtPreview(text: string): string {
 
 /// A thought's text as drawn: its headings as muted titles (thoughtParts), one wrapper so the live
 /// viewport's column keeps the parts in order.
-function ThoughtText({ text }: { text: string }) {
+const ThoughtText = memo(function ThoughtText({ text }: { text: string }) {
   return (
     <span className="cv-thought__parts">
       {thoughtParts(text).map((part, index) =>
@@ -80,7 +80,7 @@ function ThoughtText({ text }: { text: string }) {
       )}
     </span>
   );
-}
+});
 
 /// A thought (the agent's reasoning) on its row. Once done it folds to one quiet line that opens to
 /// its text, "Thought for 12s" with none of the text inline (an undated thought, or one under a
@@ -95,7 +95,7 @@ function ThoughtText({ text }: { text: string }) {
 /// `foldLongThoughts` off folds none, and the choice `thoughtHeader` "preview" reads "Thought" and
 /// its first line. The reader's toggle always wins over the fold (`choice ?? !folds`). The fold
 /// snaps; the reader's toggle plays the transcript's fold (fold.ts), except under Reduce Motion.
-export function ThoughtRow({
+export const ThoughtRow = memo(function ThoughtRow({
   item,
   id,
   streaming = false,
@@ -207,4 +207,4 @@ export function ThoughtRow({
       )}
     </>
   );
-}
+});

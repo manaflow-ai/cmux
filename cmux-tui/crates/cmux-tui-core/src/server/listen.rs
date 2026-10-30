@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 #[cfg(unix)]
 use super::start_apps_when_ready;
 use super::{
-    ACCEPT_RETRY_INITIAL, ACCEPT_RETRY_MAX, RenderService, claim_connection, cleanup,
+    ACCEPT_RETRY_INITIAL, ACCEPT_RETRY_MAX, RenderService, claim_watched_connection, cleanup,
     handle_connection_with_permit, try_default_socket_path,
 };
 use crate::mux::Mux;
@@ -407,7 +407,7 @@ impl ServedSession {
     /// Serve one accepted connection on its own thread (bounded by the
     /// session's connection permits).
     pub(super) fn serve(&self, stream: Box<dyn transport::Stream>) {
-        let Some(permit) = claim_connection(self.mux.connection_stats()) else {
+        let Some(permit) = claim_watched_connection(self.mux.connection_stats(), &*stream) else {
             refuse_busy(stream);
             return;
         };
