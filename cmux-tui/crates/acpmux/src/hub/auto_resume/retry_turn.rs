@@ -196,6 +196,8 @@ impl Hub {
             ..PromptOptions::default()
         };
         let (hub, s) = (self.clone(), session.clone());
+        let settle_hub = hub.clone();
+        let manual_turn = cut_turn.clone();
         // The turn runs on: only its acceptance is awaited here.
         let turn = tokio::spawn(async move {
             let result = hub.prompt_with(&s, blocks, "acpmux", false, opts).await;
@@ -214,6 +216,15 @@ impl Hub {
             Err(_) => match turn.await {
                 Ok(Ok(v)) => v,
                 Ok(Err(e)) => {
+                    // The marker was durable before dispatch. If dispatch refuses the
+                    // replacement before `queued`/`user_message`, fence it durably so a restart
+                    // does not replay the same refused retry forever.
+                    settle_hub.append_quiet(
+                        session,
+                        "mux",
+                        "auto_resume_settled",
+                        json!({"turnId": manual_turn, "why": "manual_refused"}),
+                    );
                     let reason = e.data.as_ref().and_then(|d| d.get("reason"));
                     return Err(match reason.and_then(Value::as_str) {
                         // Something else took the chat between the claim and the turn lock.
