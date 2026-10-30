@@ -264,9 +264,13 @@ export class AppsStore {
         connection: "connected",
         error: undefined,
       });
+      if (generation !== this.generation) return;
       if (this.snapshot.selection) await this.loadDetail(this.snapshot.selection);
+      if (generation !== this.generation) return;
       if (this.snapshot.grantsShown) await this.loadGrants(this.snapshot.grantsShown);
+      if (generation !== this.generation) return;
       if (this.snapshot.logsShown) await this.loadLogs(this.snapshot.logsShown);
+      if (generation !== this.generation) return;
       this.showIcons();
       void this.loadIcons(generation);
     } catch (error) {
