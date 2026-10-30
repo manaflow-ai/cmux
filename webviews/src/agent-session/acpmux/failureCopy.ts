@@ -219,7 +219,10 @@ export function failureCopy(t: Translate, message: string | undefined, route?: F
     case "no-team-account":
       return t("turn.failure.noTeamAccount", { harness, command: (message && ADD_COMMAND.exec(message)?.[0]) ?? "" });
     case "needs-credits":
-      return t("turn.failure.needsCredits", { harness });
+      // On a plan but out of credits: neither the app nor a cmux.com page sells a top-up yet, so say so.
+      return shortOfCredits(message, code)
+        ? t("turn.failure.creditsRanOut", { harness })
+        : t("turn.failure.needsCredits", { harness });
     case "rate-limited":
       return t("turn.failure.rateLimited", { harness });
     case "unreachable":

@@ -26,11 +26,18 @@ test("the router's credit refusals read as needs-credits, not a key, quota or ge
   // The router's code alone, typed, with no words.
   expect(failureKind(undefined, router, "inference.plan_required")).toBe("needs-credits");
   expect(failureKind("agent process closed", router, "credits.insufficient")).toBe("needs-credits");
-  expect(failureCopy(t, undefined, router, "credits.insufficient")).toBe(
-    "cmux model router needs cmux credits or your own API key for this model.",
-  );
   expect(failureCopy(t, noCredits, router)).toBe(
     "cmux model router needs cmux credits or your own API key for this model.",
+  );
+  expect(failureCopy(t, undefined, router, "inference.plan_required")).toBe(
+    "cmux model router needs cmux credits or your own API key for this model.",
+  );
+  // On a plan but out of credits: no web page or app action sells a top-up yet, so the line says so.
+  expect(failureCopy(t, undefined, router, "credits.insufficient")).toBe(
+    "cmux model router ran out of cmux credits. Top-ups aren't available in the app yet: use your own API key or switch model.",
+  );
+  expect(failureCopy(t, lowCredits, router)).toBe(
+    "cmux model router ran out of cmux credits. Top-ups aren't available in the app yet: use your own API key or switch model.",
   );
   // After credits land, the same prompt goes again.
   expect(failureRecovery("needs-credits")).toBe("retry");
