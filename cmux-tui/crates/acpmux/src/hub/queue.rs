@@ -24,6 +24,17 @@ pub(super) mod supersede;
 /// A session's prompt ids and their outcomes (`Session::prompts`, `prompt_ledger.rs`).
 pub(super) type PromptLedger = std::collections::VecDeque<(String, PromptOutcome)>;
 
+/// What `_acpmux/queue_remove` did with one prompt (`Hub::withdraw_queued`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Withdrawn {
+    Removed,
+    /// Not in the queue: it started, ended or was already removed.
+    NotWaiting,
+    /// Kept: asked for another agent's message only, and it is not one (the person's own, or
+    /// an agent's message the person edited, which makes it theirs).
+    NotFromAgent,
+}
+
 /// A prompt waiting for the running turn to end.
 #[derive(Debug, Clone)]
 pub struct QueuedPrompt {
@@ -698,17 +709,20 @@ impl Hub {
     }
 
     /// `_acpmux/queue_remove`: `remove_queued`, refused while the chat is being moved.
-    /// Only `editor`'s own prompt (`author.rs`), checked as it leaves.
+    /// Only `editor`'s own prompt (`author.rs`), checked as it leaves; with `from_agents_only`
+    /// (`acpmux session queue clear --from-agents`), only while it is still another agent's
+    /// message, checked under the same lock: an edit that made it the person's keeps it queued.
     pub fn withdraw_queued(
         &self,
         session: &Arc<Session>,
         prompt_id: &str,
         editor: crate::author::Editor<'_>,
-    ) -> Result<bool, RpcError> {
+        from_agents_only: bool,
+    ) -> Result<Withdrawn, RpcError> {
         if session.moving().is_some() {
             return Err(moving_error());
         }
-        self.remove_queued_by(session, prompt_id, None, editor)
+        self.remove_queued_by(session, prompt_id, None, editor, from_agents_only)
     }
 
     /// Takes a waiting prompt out of the queue before its turn starts; its `session/prompt` then
@@ -725,24 +739,31 @@ impl Hub {
         prompt_id: &str,
         reason: Option<&str>,
     ) -> bool {
-        self.remove_queued_by(session, prompt_id, reason, None).unwrap_or(false)
+        self.remove_queued_by(session, prompt_id, reason, None, false)
+            .is_ok_and(|w| w == Withdrawn::Removed)
     }
 
-    /// `remove_queued_because`, only when `editor` sent it (`author.rs`; `None`: the hub's own).
+    /// `remove_queued_because`, only when `editor` sent it (`author.rs`; `None`: the hub's own)
+    /// and, with `from_agents_only`, only another agent's message.
     fn remove_queued_by(
         &self,
         session: &Arc<Session>,
         prompt_id: &str,
         reason: Option<&str>,
         editor: crate::author::Editor<'_>,
-    ) -> Result<bool, RpcError> {
+        from_agents_only: bool,
+    ) -> Result<Withdrawn, RpcError> {
         let (removed, mut ledger) = {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let Some(i) = queue.iter().position(|q| q.prompt_id == prompt_id) else {
-                return Ok(false);
+                return Ok(Withdrawn::NotWaiting);
             };
-            let Some(item) = queue.get(i) else { return Ok(false) };
+            let Some(item) = queue.get(i) else { return Ok(Withdrawn::NotWaiting) };
+            // Who may change it first: a filtered removal tells no one else whose prompt it is.
             crate::author::may_change(editor, item.sender())?;
+            if from_agents_only && item.run.agent.is_none() {
+                return Ok(Withdrawn::NotFromAgent);
+            }
             // Pin the identity before it leaves the queue: its runner may settle it meanwhile.
             let ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
             session.queued.fetch_sub(1, Ordering::SeqCst);
@@ -750,7 +771,7 @@ impl Hub {
         };
         let why = reason.map_or_else(|| json!({}), |reason| json!({"reason": reason}));
         self.settle_removed(session, removed, &mut ledger, why);
-        Ok(true)
+        Ok(Withdrawn::Removed)
     }
 
     /// A prompt taken out of the queue (`remove_queued_because`, `supersede.rs`): its
