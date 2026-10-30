@@ -9,6 +9,7 @@ import {
 } from "../attachments";
 import { inlinePrompt, normalizePromptContentPart, restoreInline, stripFileDisplay } from "../inlinePrompt";
 import { queuedAttachments } from "../conversation/queuedMessages";
+import { mergeQueue } from "../direct";
 import { attachSources } from "./attachmentSources";
 
 const chrome = { name: "Google Chrome", bundleId: "com.google.Chrome", site: "github.com" };
@@ -126,6 +127,63 @@ test("Edit message on a queued prompt keeps each image's source", async () => {
   ]);
   expect(kept?.source).toEqual(chrome);
   expect(plain).not.toHaveProperty("source");
+});
+
+test("a strip-mode document and audio file carry their sources", () => {
+  const pdf: ComposerAttachment = {
+    id: "1",
+    kind: "document",
+    name: "brief.pdf",
+    mimeType: "application/pdf",
+    size: 5,
+    data: "JVBERi0=",
+    source: chrome,
+  };
+  const voice: ComposerAttachment = {
+    id: "2",
+    kind: "audio",
+    name: "memo.m4a",
+    mimeType: "audio/mp4",
+    size: 1,
+    data: "AQ==",
+  };
+  const blocks = [pdf, voice].flatMap(attachmentBlocks);
+  expect(stripFileDisplay(blocks, [pdf, voice])).toEqual([{ kind: "document", blockIndex: 0, source: chrome }]);
+});
+
+test("acpmux's queue list keeps each image's source from its queued record, by occurrence", () => {
+  const finder = { name: "Finder", bundleId: "com.apple.finder" };
+  const had = mergeQueue(
+    [],
+    [
+      {
+        promptId: "p",
+        prompt: "see",
+        images: [
+          { id: "x", mimeType: "image/png" },
+          { id: "x", mimeType: "image/png" },
+        ],
+      },
+    ],
+  );
+  const known = had.map((entry) => ({
+    ...entry,
+    images: [
+      { id: "x", mimeType: "image/png" },
+      { id: "x", mimeType: "image/png", source: finder },
+    ],
+  }));
+  const listed = mergeQueue(known, [
+    {
+      promptId: "p",
+      prompt: "see",
+      images: [
+        { id: "x", mimeType: "image/png" },
+        { id: "x", mimeType: "image/png" },
+      ],
+    },
+  ]);
+  expect(listed[0]?.images?.map((image) => image.source)).toEqual([undefined, finder]);
 });
 
 test("Edit and Retry put a sent attachment back with its source", async () => {

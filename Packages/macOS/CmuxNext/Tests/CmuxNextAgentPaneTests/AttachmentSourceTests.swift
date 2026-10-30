@@ -95,6 +95,19 @@ struct AttachmentSourceTests {
         #expect(record.source(.drop, names: ["image.png"]) == nil)
     }
 
+    @Test func onlyAnAppThisMacNamedAsASourceHasAnIcon() throws {
+        let suite = "attachment-source-icons-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let icons = AttachmentSourceIcons(defaults: defaults, ownBundleId: Self.own)
+        // Finder is installed on every Mac, but no source named it: no icon, so a page can't ask.
+        #expect(icons.dataURL("com.apple.finder") == nil)
+        icons.noteAnswered("com.apple.finder")
+        #expect(icons.dataURL("com.apple.finder")?.hasPrefix("data:image/png;base64,") == true)
+        // Kept for the next launch.
+        #expect(AttachmentSourceIcons(defaults: defaults, ownBundleId: Self.own).dataURL("com.apple.finder") != nil)
+    }
+
     @Test func withNoDropOrPasteTheAskAnswersNoSources() async {
         let model = AgentPaneModel(host: NoHost())
         let answer = await model.attachSource(.paste, names: ["image.png", "notes.txt"], apps: Self.apps)

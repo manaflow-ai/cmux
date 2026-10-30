@@ -582,7 +582,7 @@
   margin: 0;
   padding: 0;
   border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
 }
 .acpmux-quick-efforts > [role="group"] {
   display: flex;
@@ -608,7 +608,7 @@
 .acpmux-quick-effort-segment:has([data-selected]) {
   color: var(--agent-text);
   background: var(--acpmux-menu-hover);
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
 }
 [data-effort-look="spaced"] .acpmux-quick-efforts {
   border: 0;

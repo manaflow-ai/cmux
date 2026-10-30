@@ -12,8 +12,8 @@ within --max-seconds (60) after the build. A swift or cargo entry whose filter
 runs no test fails.
 
 --kind KIND (repeatable) runs only the entries of those kinds, so one registry
-feeds two CI jobs: cmux-next.yml's Linux `fast-tier-cargo` job runs
-`--kind cargo` and the Mac `fast-tier` job runs `--kind swift --kind script`.
+feeds two CI jobs: cmux-next.yml's `fast-tier-cargo` job runs
+`--kind cargo --kind script` and the Mac `fast-tier` job runs `--kind swift`.
 A --kind that selects no entry is a bad registry (exit 2), never an empty pass.
 
 Flake policy: a failed entry runs once more only to classify it. Fail then pass
