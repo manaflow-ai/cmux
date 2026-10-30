@@ -10,7 +10,8 @@
 //!   agent's own resume file (a Claude project `<sid>.jsonl`, a Codex
 //!   rollout) as appended byte ranges cut at a line end. Only complete
 //!   lines are sent: acpmux or the agent may be writing the last one.
-//! - [`Mirror::prime`] reads this machine's copy and, read only, the copy
+//! - [`Mirror::prime_own`] reads this machine's copy and
+//!   [`Mirror::prime_parent`], read only and retried on its own, the copy
 //!   of the machine it was restored from (`from: "parent"`); every chat of
 //!   the source that this machine has neither on disk nor in its own copy
 //!   waits for [`Mirror::restore`], which writes it as an
@@ -272,6 +273,13 @@ impl Mirror {
     /// Reads this machine's copy (every session's track starts from it) and
     /// the restore source's (the chats to import). Answers how many wait.
     pub fn prime(&mut self, api: &mut dyn Api) -> Result<usize, Pass> {
+        self.prime_own(api)?;
+        self.prime_parent(api)
+    }
+
+    /// Reads this machine's copy: every session's track starts from it, so
+    /// [`Mirror::sync`] may run once this succeeds.
+    pub fn prime_own(&mut self, api: &mut dyn Api) -> Result<(), Pass> {
         for remote in list(api, &json!({}))? {
             self.tracks.insert(
                 remote.session.clone(),
@@ -288,8 +296,16 @@ impl Mirror {
                 },
             );
         }
+        Ok(())
+    }
+
+    /// Reads, read only, the restore source's copy: the chats to import.
+    /// Answers how many wait. Independent of syncing this machine's own chats,
+    /// so a failure here is retried without holding [`Mirror::sync`] back.
+    pub fn prime_parent(&mut self, api: &mut dyn Api) -> Result<usize, Pass> {
+        let remotes = list(api, &json!({ "from": "parent" }))?;
         self.pending.clear();
-        for remote in list(api, &json!({ "from": "parent" }))? {
+        for remote in remotes {
             // Here already (the snapshot's disk, or imported before and maybe deleted since): never again.
             if remote.last_seq == 0
                 || self.tracks.contains_key(&remote.session)

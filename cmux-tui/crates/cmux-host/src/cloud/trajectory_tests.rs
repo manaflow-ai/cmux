@@ -516,6 +516,30 @@ fn legacy_500_session_reply_without_cursor_fails_closed() {
 }
 
 #[test]
+fn a_failing_restore_source_list_does_not_stop_this_machines_own_chats() {
+    struct ParentListFails(FakeServer);
+    impl Api for ParentListFails {
+        fn call(&mut self, action: &str, body: &Value) -> Answer {
+            if action == "list" && body["from"] == "parent" {
+                return refuse(503, "cloud.unavailable", Value::Null);
+            }
+            self.0.call(action, body)
+        }
+    }
+    let m = Machine::new();
+    m.write_meta("chat-a", 2, CREATED);
+    m.append("chat-a", 1, &lines(1, 2));
+    let mut api = ParentListFails(FakeServer::at("m1"));
+    let mut mirror = m.mirror();
+    assert!(mirror.prime(&mut api).is_err());
+    // The thread primes its own copy on its own and keeps syncing while the source list is retried.
+    mirror.prime_own(&mut api).unwrap();
+    assert!(mirror.prime_parent(&mut api).is_err());
+    assert_eq!(mirror.sync(&mut api, 0), Pass::Idle);
+    assert_eq!(kept_lines(&api.0, "chat-a"), (1..=2).map(line).collect::<Vec<_>>());
+}
+
+#[test]
 fn a_replacement_machine_restores_the_chat_and_the_chat_continues() {
     let mut server = FakeServer::at("m1");
     let _first = first_machine(&mut server);
