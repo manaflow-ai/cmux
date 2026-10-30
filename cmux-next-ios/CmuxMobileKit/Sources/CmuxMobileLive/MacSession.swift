@@ -42,6 +42,7 @@ final class MacSession {
     var offlineTask: Task<Void, Never>?
     /// Why the chat (acpmux) channel failed on the current link, shown in the status line.
     var chatsError: String?
+    var daemonError: String?
     var workspacesTimeout: Task<Void, Never>?
     /// The link fed this Mac's data and connection state (cleared when it closes).
     var fedData = false
