@@ -5,7 +5,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { createTipController, pageOverlayOpen, type ShownTip, type TipAnchor, type TipController } from "./controller";
-import { firstSentence, highlightTip } from "./catalog";
+import { firstSentence, generatedTips, GENERATED, highlightTip } from "../../../scripts/pages/gen-feature-tips.mjs";
 import { TIP_IDLE_MS, TIP_SETTLE_MS, type FeatureTipEntry } from "./policy";
 import { memoryTipHost, TIP_INTERVAL_DAYS, type TipHost } from "./store";
 
@@ -357,12 +357,13 @@ describe("tips from What's New highlights", () => {
     expect(firstSentence("Use cmux.app now. Then more.")).toBe("Use cmux.app now.");
   });
 
-  test("tips.generated.json is the highlights' tips, and each names a control of the chat", async () => {
-    const { generatedTips, GENERATED } = await import("../../../scripts/gen-feature-tips");
+  test("tips.generated.json is made from this tree's highlights, and each tip names a control of the chat", async () => {
     const { readFileSync } = await import("node:fs");
+    // test/preload.ts wrote it, as install and every build do (it is build output, ignored by git).
     expect(readFileSync(GENERATED, "utf8")).toBe(generatedTips());
+    const tips = JSON.parse(generatedTips()) as FeatureTipEntry[];
+    expect(tips.map((tip) => tip.id)).toContain("agents-drive-visible-browser-tabs");
     const { PANE_TIP_ANCHORS } = await import("../../agent-session/acpmux/featureTips");
-    for (const tip of JSON.parse(generatedTips()) as FeatureTipEntry[])
-      expect(Object.keys(PANE_TIP_ANCHORS)).toContain(tip.anchor);
+    for (const tip of tips) expect(Object.keys(PANE_TIP_ANCHORS)).toContain(tip.anchor);
   });
 });

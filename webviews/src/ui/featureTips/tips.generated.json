@@ -1,8 +1,0 @@
-[
-  {
-    "id": "agents-drive-visible-browser-tabs",
-    "anchor": "agent.browser",
-    "title": "Agents drive the browser tabs you can see",
-    "body": "Agents that use the browser now open and drive real Chromium or WebKit tabs in your window."
-  }
-]
