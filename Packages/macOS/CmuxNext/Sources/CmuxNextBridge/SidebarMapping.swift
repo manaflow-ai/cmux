@@ -130,12 +130,15 @@ public struct SidebarMapping {
         // The workspace's folder (Group by Folder's bucket): a tab row repeats it nowhere.
         let rowFolder = focused?.cwd ?? tabs.lazy.compactMap(\.cwd).first
         let folder = folderTab(tabs, label: front)
-        let work = front?.kind == .browser ? workTab(workspace, selectedTab: selectedTab) : nil
-        let page = front.flatMap { pageFace(workspace, $0, work) }
+        // The row's face (name, icon, kind) is one tab's: the label tab, or the work a page beside
+        // it was opened from (an agent's PR in its right column), wherever focus is. The page's
+        // favicon stays on the page's own tab (Leo, 2026-10-21: a chat row showed GitHub's mark).
+        let face = faceTab(workspace, selectedTab: selectedTab, newTabPages: newTabPages)
+        let page = face.flatMap { pageFace(workspace, $0, nil) }
         // Each browser tab's face once: its favicon in the tab list, its sound on the row.
         var browserFaces: [String: PageFace] = [:]
         for tab in tabs where tab.kind == .browser {
-            browserFaces[tab.id] = tab.id == front?.id ? page : pageFace(workspace, tab, nil)
+            browserFaces[tab.id] = tab.id == face?.id ? page : pageFace(workspace, tab, nil)
         }
         let entries = workspace.status?.entries ?? []
         // Another computer's folders shorten against that computer's home, never this Mac's (cx-gaq9).
@@ -161,9 +164,9 @@ public struct SidebarMapping {
             // A page in a split beside a chat or terminal leaves the row's icon to that work, as it
             // leaves its name (#22250; Leo 2026-10-21: "why did this turn into the githb favicon?").
             icon: Self.icon(color: workspace.color, icon: workspace.icon, asset: iconAsset)
-                ?? (work == nil ? page?.favicon.map(WorkspaceIcon.favicon) : nil),
-            color: color(workspace.color), kind: kind(front),
-            kindBrand: front?.agentBrand,
+                ?? page?.favicon.map(WorkspaceIcon.favicon),
+            color: color(workspace.color), kind: kind(face),
+            kindBrand: face?.agentBrand,
             // A tab marked unread by hand (Mark Tab Unread) shows as the workspace's manual dot.
             unread: unread > 0 ? .count(unread)
                 : (showsUnread && (workspace.markedUnread || tabs.contains(where: \.markedUnread)) ? .dot : .none),
@@ -249,6 +252,17 @@ public struct SidebarMapping {
             }
         }
         return work?.tab
+    }
+
+    /// The one tab a workspace's row and window titlebar both read their name and icon from: the
+    /// label tab (`labelTab`), or for a browser one the work it yields to (`workTab`), so focus
+    /// moving to a page beside a chat leaves both the chat's.
+    public func faceTab(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?,
+                        newTabPages: Set<String> = []) -> TabModel? {
+        let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
+        let front = labelTab(frontTab(workspace, selectedTab: selectedTab), tabs, newTabPages: newTabPages)
+        guard front?.kind == .browser else { return front }
+        return workTab(workspace, selectedTab: selectedTab) ?? front
     }
 
     /// The tab `pane` shows: the window's selection, else the daemon's default tab.

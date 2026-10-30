@@ -133,9 +133,11 @@ extension WorkspaceRowView {
         // covers (the `trailing` badge style), so a mark fading back never draws beside a control fading out (Leo
         // 2026-10-28: "just don't show the spinner" while hovering).
         let controlFades = fades && columnMark == nil && !badge.state.isUnread
-        // The chevron shows on hover and on the selected row only (cx-fo2t); its slot stays.
+        // The chevron shows on hover and on the selected row only (cx-fo2t); its slot stays. A row with nothing to
+        // disclose (`.empty`) never shows it and keeps no slot, so its hover menu takes the next slot, not a gap
+        // (Lawrence 2026-10-20: "no empty slots").
         setHoverShown(disclosureButton, !(disclosure == nil || disclosure == .empty || isShowingPlaceholder || !(isHovered || isSelected)), fades: fades)
-        if disclosure != nil {
+        if disclosure != nil, disclosure != .empty {
             disclosureButton.frame = NSRect(x: trailing - control, y: cy - control / 2, width: control, height: control)
             trailing -= control + Metrics.space1
         }
