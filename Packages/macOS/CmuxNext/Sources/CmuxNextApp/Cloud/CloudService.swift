@@ -439,6 +439,7 @@ final class CloudService {
         listGeneration += 1
         let generation = listGeneration
         let read = beginRecordRead()
+        defer { finishRecordRead(read) }
         let account = listAccount
         do {
             let list: [CloudMachine]
@@ -451,10 +452,7 @@ final class CloudService {
                 list = listed.machines
                 limits = listed.limits
             }
-            guard listGeneration == generation, auth.isSignedIn, listAccount == account else {
-                finishRecordRead(read)
-                return false
-            }
+            guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return false }
             machines.cloudLimits = limits
             if let limits { planObserved(limits.planId) }
             lastError = nil
@@ -465,11 +463,7 @@ final class CloudService {
             await startHubForSSHRoutes()
             return true
         } catch {
-            guard listGeneration == generation, auth.isSignedIn, listAccount == account else {
-                finishRecordRead(read)
-                return false
-            }
-            finishRecordRead(read)
+            guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return false }
             lastError = CloudStrings.errorText(error)
             logger.error("machine list failed: \(String(describing: error), privacy: .public)")
             return false
@@ -501,11 +495,12 @@ final class CloudService {
     /// Takes a read ticket before sending. A one-record request names its machine; a list does not.
     func beginRecordRead(machineID: String? = nil) -> Int {
         recordReads += 1
-        recordReadsOutstanding[recordReads] = machineID
+        // Lists need ordering only; they must never acquire an outstanding status entry.
+        if let machineID { recordReadsOutstanding[recordReads] = machineID }
         return recordReads
     }
 
-    /// Retires a read whose request failed or was superseded before it produced a record.
+    /// Retires a completed or superseded status read; an ordering-only list ticket is a no-op.
     func finishRecordRead(_ read: Int) {
         guard recordReadsOutstanding.removeValue(forKey: read) != nil else { return }
         processDeferredRecordRemovals()
