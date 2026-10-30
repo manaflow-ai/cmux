@@ -452,6 +452,31 @@ struct CloudIdlePauseTests {
         f.session.disconnect()
     }
 
+    @Test func listTicketsNeverAccumulateOrRetireAnotherMachinesStatusRead() {
+        let cases: [(list: [CloudMachine], disabled: Bool)] = [
+            ([], false),
+            ([CloudMachine(id: "new-machine", status: .paused)], false),
+            ([CloudMachine(id: "destroyed-machine", status: .destroyed)], false),
+            ([], true),
+        ]
+        for item in cases {
+            let services = MachineIconTests.services()
+            let cloud = services.cloud
+            cloud.applyPolicy(disabled: item.disabled)
+            let status = cloud.beginRecordRead(machineID: "status-machine")
+            for _ in 0..<10 {
+                let list = cloud.beginRecordRead()
+                #expect(cloud.recordReadsOutstanding == [status: "status-machine"], "lists only need an ordering ticket")
+                cloud.reconcile(item.list, read: list)
+                cloud.finishRecordRead(list)
+                #expect(cloud.recordReadsOutstanding == [status: "status-machine"], "every list path preserves only the pending status read")
+            }
+            cloud.finishRecordRead(status)
+            #expect(cloud.recordReadsOutstanding.isEmpty)
+            for session in services.machines.cloud { session.disconnect() }
+        }
+    }
+
     /// A newer list that first shows a machine (and creates its session) holds that machine's
     /// ticket: an older list landing after it without the machine does not remove it, and an
     /// older Machine Status record does not overwrite it.

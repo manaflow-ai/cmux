@@ -420,7 +420,7 @@ final class CloudService {
     /// Per machine, the read whose record it holds: an older read's answer that lands later changes nothing.
     @ObservationIgnored private var recordReadApplied: [String: Int] = [:]
     /// Only one-record reads protect their own machine from an older list's removal.
-    @ObservationIgnored private var recordReadsOutstanding: [Int: String] = [:]
+    @ObservationIgnored private(set) var recordReadsOutstanding: [Int: String] = [:]
     /// Omitted machines awaiting a newer status read; retired as soon as that read finishes.
     @ObservationIgnored private var deferredRecordRemovals: [String: Int] = [:]
 
