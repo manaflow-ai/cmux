@@ -143,3 +143,54 @@ async fn a_closed_session_with_a_live_agent_reopens_for_a_request() {
     let later = kinds_after(&hub, &session, seq);
     assert!(later.iter().any(|k| k == "reopened"), "{later:?}");
 }
+
+/// Launch cleanup drains an in-flight start, but a newer explicit close must keep its status.
+#[tokio::test]
+async fn warm_stop_drains_a_start_without_reopening_a_newer_close() {
+    let (hub, session) = chat().await;
+    hub.detach_child(&session).await;
+    let asked = session.stops.load(Ordering::SeqCst);
+    let held = session.spawn_lock.lock().await;
+    let start = {
+        let (hub, session) = (hub.clone(), session.clone());
+        tokio::spawn(async move { hub.child_for_since(&session, asked).await })
+    };
+    let stop = {
+        let (hub, id) = (hub.clone(), session.id.clone());
+        tokio::spawn(async move { hub.warm_stop(&id, None).await })
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while session.stops.load(Ordering::SeqCst) == asked {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("warm stop never began");
+    hub.kill(&session, false).await.unwrap();
+    drop(held);
+    assert!(start.await.unwrap().is_err());
+    assert_eq!(stop.await.unwrap()["status"], "closed");
+    assert_eq!(session.status(), SessionStatus::Closed);
+    assert!(session.closing.load(Ordering::SeqCst));
+    assert!(!has_live_child(&session).await);
+}
+
+/// An idle pass owns the harness until its hibernation mark is stored. End Sessions waits for
+/// that pass, then clears the mark so a later click/typing does not undo the stop.
+#[tokio::test]
+async fn warm_stop_waits_for_hibernation_and_clears_its_wake_state() {
+    let (hub, session) = chat().await;
+    let before = session.stops.load(Ordering::SeqCst);
+    let idle_pass = session.harness_use.write().await;
+    let mut stopping = Box::pin(hub.warm_stop(&session.id, None));
+    assert!(futures::poll!(stopping.as_mut()).is_pending());
+    assert_eq!(session.stops.load(Ordering::SeqCst), before, "stop ran during the idle pass");
+    session.hibernated_at.store(1, Ordering::SeqCst);
+    session.meta.lock().unwrap().hibernated_ms = 1;
+    drop(idle_pass);
+    assert_eq!(stopping.await["status"], "idle");
+    assert!(!hub.waking(&session), "a click would wake the stopped chat");
+    assert_eq!(session.meta().hibernated_ms, 0, "a restart would restore the stale wake state");
+    assert!(!has_live_child(&session).await);
+    hub.shutdown_all().await;
+}

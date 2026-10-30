@@ -177,6 +177,7 @@ extension AgentTabStore {
         tabs.chiefHomes = ChiefHomeDirectory(parents: ChiefHomeDirectory.homeParents(of: home), work: services.work,
                                              environment: { ChiefHomeAcpmux.environment(home: $0) })
         tabs.localSessionHost = chief.localRouter(tabs.host)
+        tabs.legacyChiefWarmHost = chief.legacyPaneHost
         // This Mac's stable install id (the Cloud device id): only this host attaches to its acpmux.
         tabs.blankChatHandler = { [weak services] key in
             guard let services, let (tab, pane) = services.locateTabOnAnyMachine(key), let controller = services.paneController(for: pane) else { return nil }
@@ -205,6 +206,10 @@ extension AgentTabStore {
             return (page, handler)
         }
         tabs.onFirstPageToken = { [weak services] token in services?.keyRouter.newTabInputCoordinator.attachIncoming(token) }
+        tabs.loadLocalHostForLaunch = { [weak services] in
+            guard let services else { throw CancellationError() }
+            return AgentSessionRef.host(installID: try await services.cloud.installID())
+        }
         tabs.resolveLocalHost = { [weak services] in
             guard let services else { return nil }
             guard let id = try? services.cloud.localDeviceID() else { services.daemon.logger.error("agent tabs: no install id, new agent tabs are refused"); return nil }
@@ -428,6 +433,7 @@ extension AgentTabStore {
             return AgentPaneModel.rememberLocalMachineName(AgentTabStore.displayName(name) ?? name)
         }
         services.madeAgentTabs = tabs
+        tabs.resumeChatsWhenLoaded(services.daemon.store)
         return tabs
     }
 

@@ -558,6 +558,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/warm_stop",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/keep",
       "params": true,
       "result": true

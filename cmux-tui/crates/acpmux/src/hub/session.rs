@@ -31,6 +31,8 @@ pub struct Session {
     /// Held shared by a request that reaches the harness outside a turn (a start, a mode
     /// change); the idle pass takes it exclusively while it lists and ends the harness.
     pub(super) harness_use: tokio::sync::RwLock<()>,
+    /// Which app launches may still warm this chat (`warm.rs` `LaunchWarmFence`).
+    pub(super) launch_warm: StdMutex<super::warm::LaunchWarmFence>,
     /// The hub clock's time of the last log of why the idle harness stays up (`idle_census.rs`).
     pub(super) idle_refusal_logged: AtomicU64,
     pub(super) seq: AtomicU64,

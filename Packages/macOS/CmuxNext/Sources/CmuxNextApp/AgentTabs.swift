@@ -89,16 +89,8 @@ final class AgentTabStore {
     }
     /// Reads this Mac's `install:<id>` (AppServices: the Cloud device id), on need.
     var resolveLocalHost: @MainActor () -> String? = { nil }
-    private var resolvedLocalHost: String?
-    /// `install:<id>` of this Mac. Only that host attaches a tab to its acpmux; nil refuses new
-    /// tabs. Read again while it is nil (the id file could not be read yet).
-    var localHost: String? {
-        get {
-            if resolvedLocalHost == nil { resolvedLocalHost = resolveLocalHost() }
-            return resolvedLocalHost
-        }
-        set { resolvedLocalHost = newValue }
-    }
+    /// Identity retained after the first successful synchronous or asynchronous read.
+    var resolvedLocalHost: String?
     var views: [String: AgentPaneView] = [:]
     /// The machine link each pane's composer strip shows, and the reconnect a chat's use of a down machine runs.
     let machineLink = AgentPaneMachineLink()
@@ -215,8 +207,11 @@ final class AgentTabStore {
     var wakeStates: [String: AgentPaneWakeState] = [:]
     /// What the chat pages held at the last quit, for each tab's first page at launch (``AgentPaneRelaunchWake``).
     var relaunchWake = AgentPaneRelaunchWake(file: nil)
-    /// What every chat holds for the next launch (the quit's window step).
-    func relaunchWakeStates() async -> [String: AgentPaneWakeState] { await relaunchWake.collect(held: wakeStates, pages: views.map { (resolve($0.key), $0.value) }, live: isAgentTab) }
+    /// Async install-id loader used only by launch; tests can supply an isolated identity.
+    var loadLocalHostForLaunch: (@MainActor () async throws -> String)?
+    var launchResumeTask: Task<Void, Never>?
+    var legacyChiefWarmHost: (any AgentPaneHostProviding)?
+    nonisolated deinit { launchResumeTask?.cancel() }
     /// The git link of tab `key`: the session host of the tab's own machine (AgentPaneGitReads.swift),
     /// so a Cloud or SSH chat reads its folder there; nil answers the page `native.not_connected`. Move to Floating Chat puts a session in Start Agent's panel.
     /// The upload for a chat tab's dropped or pasted files, nil when it takes none (``CloudUploads``).

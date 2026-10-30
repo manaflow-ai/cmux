@@ -493,6 +493,7 @@ async fn warm_starts_no_agent_in_a_folder_without_trust() {
     let s = local.new_session(&work, "fcodex").await;
     let r = app.call("_acpmux/warm", json!({"sessionIds": [s]})).await;
     assert_eq!(r["result"]["warmed"], json!([]), "{r}");
+    assert_eq!(r["result"]["failed"], json!([]), "trust skips are not launch failures: {r}");
     app.trust(&work, "trusted").await;
     let r = app.call("_acpmux/warm", json!({"sessionIds": [s]})).await;
     assert_eq!(r["result"]["warmed"][0]["sessionId"], json!(s), "{r}");

@@ -1138,7 +1138,7 @@ impl Hub {
         }
         // Quit Everything already recorded this turn as cancelled. It ends the lane's parent too and
         // no agent starts after it, so the lane reports nothing (`lane_reports.rs`).
-        if self.settled_by_shutdown.lock().unwrap().contains(turn_id) {
+        if self.settled_by_shutdown.lock().unwrap_or_else(|e| e.into_inner()).remove(turn_id) {
             return result;
         }
         // acpmux ended a turn whose model said nothing for `stalledTurnEndMs`: it failed.
@@ -1387,6 +1387,11 @@ impl Hub {
         e: &RpcError,
         joined: &super::digest::DigestTurn,
     ) {
+        // End Sessions may have already emitted the canonical cancelled result while this
+        // accepted prompt was still starting. The stop owns settlement in that case.
+        if self.settled_by_shutdown.lock().unwrap_or_else(|e| e.into_inner()).remove(turn_id) {
+            return;
+        }
         let turn = session.meta().turn_count;
         *session.turn.lock().unwrap() = None;
         // It no longer reads `stopping`: a Stop that came while its agent started (`cancel.rs`)
@@ -1838,25 +1843,7 @@ impl Hub {
                 self.remove_queued_because(session, &queued.prompt_id, Some("stopped"));
             }
         }
-        if let Some(child) = session.child.lock().await.take() {
-            if let Some(sid) = session.meta().agent_session_id {
-                let _ = tokio::time::timeout(
-                    std::time::Duration::from_millis(500),
-                    child.notify(method::SESSION_CANCEL, json!({"sessionId": sid})),
-                )
-                .await;
-            }
-            let link_lost = child.host_record().is_some() && !child.is_alive().await;
-            child.kill().await;
-            // A host whose link was lost cannot take a Terminate frame.
-            if link_lost {
-                self.end_unadopted_host(session).await;
-            }
-        } else {
-            // A host this daemon could not adopt keeps running until the user
-            // ends the session: end it without its protocol (frozen path).
-            self.end_unadopted_host(session).await;
-        }
+        self.stop_session_child(session, None).await;
         *session.turn.lock().unwrap() = None;
         // Before the close's event, which sends the cards it owes (`tasks.rs`).
         self.orphan_tasks_of(session, purge);
@@ -1910,6 +1897,35 @@ impl Hub {
             }
         }
         Ok(())
+    }
+
+    /// End the linked child, or its surviving host when the link was lost.
+    pub(super) async fn stop_session_child(&self, session: &Arc<Session>, stops: Option<u64>) {
+        let mut slot = session.child.lock().await;
+        // A resumable stop may have waited behind a newer stop and restart. Their child is
+        // theirs; the ordinary close (None) still ends whichever child it finds.
+        if stops.is_some_and(|stops| session.stops.load(Ordering::SeqCst) != stops) {
+            return;
+        }
+        if let Some(child) = slot.take() {
+            if let Some(sid) = session.meta().agent_session_id {
+                let _ = tokio::time::timeout(
+                    std::time::Duration::from_millis(500),
+                    child.notify(method::SESSION_CANCEL, json!({"sessionId": sid})),
+                )
+                .await;
+            }
+            let link_lost = child.host_record().is_some() && !child.is_alive().await;
+            child.kill().await;
+            // A host whose link was lost cannot take a Terminate frame.
+            if link_lost {
+                self.end_unadopted_host(session).await;
+            }
+        } else {
+            // A host this daemon could not adopt keeps running until the user
+            // ends the session: end it without its protocol (frozen path).
+            self.end_unadopted_host(session).await;
+        }
     }
 
     /// Stop the child but keep the session resumable.

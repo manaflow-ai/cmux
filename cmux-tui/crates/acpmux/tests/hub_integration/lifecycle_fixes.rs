@@ -526,3 +526,93 @@ async fn an_agent_that_never_answers_its_start_fails_with_a_deadline() {
     assert!(answered["stopReason"].is_string(), "{answered}");
     let _ = std::fs::remove_file(&gate);
 }
+
+/// A launch warmer must distinguish a failed harness load from an intentional trust skip.
+#[tokio::test]
+async fn launch_warm_reports_a_failed_agent_start() {
+    let (hub, mut client) = setup(PermissionPolicy::ApproveAll).await;
+    let made =
+        client.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = made["sessionId"].as_str().unwrap().to_owned();
+    let session = hub.resolve(&id).unwrap();
+    hub.detach_child(&session).await;
+    hub.config.write().await.harnesses.get_mut("fake").unwrap().argv =
+        vec!["/nonexistent-cmux-warm-fixture".into()];
+    let result = client.request(method::MUX_WARM, json!({"sessionIds": [id]})).await.unwrap();
+    assert_eq!(result["warmed"], json!([]), "{result}");
+    assert_eq!(result["failed"][0]["sessionId"], made["sessionId"], "{result}");
+    assert!(result["failed"][0]["error"].is_object(), "{result}");
+    hub.shutdown_all().await;
+}
+
+#[tokio::test]
+async fn launch_warm_reports_success_without_failures() {
+    let (hub, mut client) = setup(PermissionPolicy::ApproveAll).await;
+    let made =
+        client.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let result =
+        client.request(method::MUX_WARM, json!({"sessionIds": [made["sessionId"]]})).await.unwrap();
+    assert_eq!(result["warmed"][0]["sessionId"], made["sessionId"], "{result}");
+    assert_eq!(result["failed"], json!([]), "{result}");
+    hub.shutdown_all().await;
+}
+
+/// A Stop racing launch must remain stopped and report the unsuccessful start.
+#[tokio::test]
+async fn launch_warm_reports_an_explicit_stop_during_start() {
+    let gate = std::env::temp_dir().join(format!("acpmux-warm-stop-{}", uuid::Uuid::now_v7()));
+    let env = BTreeMap::from([("FAKE_LOAD_GATE".to_owned(), gate.to_string_lossy().into_owned())]);
+    let (hub, mut client) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let made =
+        client.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = made["sessionId"].as_str().unwrap().to_owned();
+    let session = hub.resolve(&id).unwrap();
+    hub.detach_child(&session).await;
+    let warmer = {
+        let hub = hub.clone();
+        let id = id.clone();
+        tokio::spawn(async move { hub.warm_sessions_report(&[id], 1, false, true, None).await })
+    };
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    while !hub
+        .events(&id, 0, 10_000)
+        .unwrap()
+        .iter()
+        .any(|e| e.dir == "out" && e.kind == method::SESSION_LOAD)
+    {
+        assert!(std::time::Instant::now() < deadline, "warm load never started");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    // No idle pass holds the harness lease in this fixture. Poll the stop through that
+    // uncontended read and its generation increment before opening the load gate.
+    let mut stopping = Box::pin(hub.kill(&session, false));
+    let stopped = futures::poll!(stopping.as_mut());
+    std::fs::write(&gate, "ready").unwrap();
+    match stopped {
+        std::task::Poll::Ready(result) => result.unwrap(),
+        std::task::Poll::Pending => stopping.await.unwrap(),
+    }
+    let (warmed, failed) = warmer.await.unwrap();
+    assert!(warmed.is_empty());
+    assert_eq!(failed.len(), 1);
+    assert_eq!(hub.session_summary(&session)["status"], "closed");
+    let _ = std::fs::remove_file(gate);
+    hub.shutdown_all().await;
+}
+
+/// A session queued behind another launch RPC must stay stopped when its first RPC arrives.
+#[tokio::test]
+async fn launch_warm_skips_a_session_stopped_before_its_first_rpc() {
+    let (hub, mut client) = setup(PermissionPolicy::ApproveAll).await;
+    let made =
+        client.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = made["sessionId"].as_str().unwrap().to_owned();
+    let session = hub.resolve(&id).unwrap();
+    hub.kill(&session, false).await.unwrap();
+    let result = client.request(method::MUX_WARM, json!({"sessionIds": [id]})).await.unwrap();
+    assert_eq!(result["warmed"], json!([]));
+    assert_eq!(result["failed"], json!([]));
+    assert_eq!(hub.session_summary(&session)["status"], "closed");
+    assert_eq!(hub.status().await["liveAgents"], 0);
+    hub.shutdown_all().await;
+}

@@ -77,6 +77,15 @@ struct AcpmuxInventoryClientTests {
         #expect(try Self.requests(await stream.writes()).map { $0["method"] as? String } == ["initialize"])
     }
 
+    @Test func aLegacyDaemonReceivesNoAutomaticWarm() async throws {
+        let stream = Stream(chunks: [(1, Self.line(["id": 1, "result": ["_meta": ["acpmux": ["features": ["trustGate"]]]]]))])
+        await #expect(throws: AcpmuxStatusClient.Failure.unsupportedFeature("launchWarm")) {
+            _ = try await AcpmuxStatusClient.exchange("_acpmux/warm", params: ["sessionIds": ["stopped"]],
+                                                       transport: stream, requiredFeature: "launchWarm")
+        }
+        #expect(try Self.requests(await stream.writes()).map { $0["method"] as? String } == ["initialize"])
+    }
+
     @Test func existingCallsKeepTheirPipelinedBehavior() async throws {
         let stream = Stream(chunks: [(1, Self.line(["id": 2, "result": ["ready": true]]))])
         let result = try await AcpmuxStatusClient.exchange("_acpmux/status", params: [:], transport: stream)

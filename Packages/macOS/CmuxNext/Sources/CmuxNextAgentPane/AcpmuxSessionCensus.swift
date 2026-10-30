@@ -118,7 +118,8 @@ public nonisolated struct AcpmuxQuit {
     public enum EndResult: Equatable, Sendable {
         /// No acpmux was running.
         case noDaemon
-        /// The daemon ended its agents (except the Chief's) and exited.
+        /// The requested agents ended. A whole-daemon shutdown also proves its process exited;
+        /// a launch-only cleanup leaves the shared daemon running.
         case ended
         /// It did not answer or did not exit in time; the reason says why.
         case failed(String)

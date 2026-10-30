@@ -40,6 +40,7 @@ public actor ChiefHomeDirectory {
     /// per-build home, a tagged build that quit) has no owner: its daemon starts again for the tab,
     /// as NIGHTLY's own acpmux does after its move to the app's.
     private let ownHost: @Sendable (_ environment: AcpmuxEnvironment?, _ startsDaemons: Bool) -> any AgentPaneHostProviding
+    private var launchHomes: Set<String> = []
     /// A Chief home found on disk and the Chief home whose acpmux runs its sessions.
     nonisolated struct Found: Sendable, Equatable {
         let root: URL
@@ -80,6 +81,51 @@ public actor ChiefHomeDirectory {
         let tag = "optchat-chief:" + host.dropFirst(ChiefHome.tabHostPrefix.count)
         return AcpmuxChiefSessionRouter(local: fallback, chief: owned ? own.attaching : own.starting, chiefEnvironment: own.environment,
                                         sessionsHome: own.sessionsHome, parentTag: tag)
+    }
+
+    /// Warms an older home's chats, recording only homes whose daemon this app may start.
+    func warm(host: String, sessionIds: [String], fallback: any AgentPaneHostProviding) async throws {
+        guard let own = await ownAcpmux(of: host) else { return try await fallback.warm(sessionIds: sessionIds) }
+        let home = own.home, owner = own.owner
+        let owned = try await work.run(.userVisible, mayBlock: .files) { Self.owned(home: home, owner: owner) }
+        try Task.checkCancellation()
+        let tag = "optchat-chief:" + host.dropFirst(ChiefHome.tabHostPrefix.count)
+        let router = AcpmuxChiefSessionRouter(local: fallback, chief: owned ? own.attaching : own.starting,
+                                              chiefEnvironment: own.environment, sessionsHome: own.sessionsHome, parentTag: tag)
+        do {
+            try await router.warm(sessionIds: sessionIds)
+        } catch {
+            if await own.starting.hasWarmedSessions { launchHomes.insert(host) }
+            throw error
+        }
+        if await own.starting.hasWarmedSessions { launchHomes.insert(host) }
+    }
+
+    /// Ends this launch’s restored sessions in older homes without shutting down shared daemons.
+    /// Called after launch cancellation/drain. Failed ends stay recorded so Quit's Retry can try again.
+    public func endLaunchSessions(waitForShutdown: Bool, excludingAttachedHome: URL? = nil,
+                                  end: (@Sendable (AcpmuxEnvironment?, Bool) async -> AcpmuxQuit.EndResult)? = nil) async -> [AcpmuxQuit.EndResult] {
+        var results: [AcpmuxQuit.EndResult] = []
+        for host in launchHomes.sorted() {
+            guard let own = await ownAcpmux(of: host) else { continue }
+            let sessionsHome = own.sessionsHome
+            if let attached = excludingAttachedHome,
+               attached.standardizedFileURL.resolvingSymlinksInPath() == sessionsHome.standardizedFileURL.resolvingSymlinksInPath() { continue }
+            // End only the sessions this launch attempted through the host that could start the
+            // home's daemon. Named Chief brains may share that daemon; the host-level cleanup
+            // targets only this launch's restored session ids and never shuts down the daemon.
+            let result = if let end {
+                await end(own.environment, waitForShutdown)
+            } else {
+                await own.starting.endLaunchSessions(waitForShutdown: waitForShutdown)
+            }
+            results.append(result)
+            switch result {
+            case .noDaemon, .ended: launchHomes.remove(host)
+            default: break
+            }
+        }
+        return results
     }
 
     private func ownAcpmux(of host: String) async -> OwnAcpmux? {

@@ -175,6 +175,8 @@ final class QuitCoordinator {
                 }
             },
             prepareWindows: {
+                // A launch warm cannot restart an agent after End Sessions has stopped the local daemon.
+                await services.agentTabs.cancelLaunchResume()
                 // Remote-terminal tabs keep their last screen for the
                 // placeholder after relaunch (data-model.md 1.4).
                 await services.remoteTerminals.saveSnapshots()
@@ -195,10 +197,14 @@ final class QuitCoordinator {
             endLocalSessions: { await services.daemon.endSessionsAndStop($0) },
             confirmFailures: { [weak self] failures in await self?.confirm(failures) ?? .quitAnyway },
             endLocalAgents: { [attempts = QuitAttempts()] in
+                let retry = attempts.isRetry()
+                let acpmux = QuitAgents.environment(services)
+                let olderHomes = await services.agentTabs.chiefHomes?.endLaunchSessions(
+                    waitForShutdown: retry, excludingAttachedHome: acpmux?.isAttached == true ? acpmux?.home : nil
+                ) ?? []
                 // The Chief home's host ends with the sessions (home-state-ownership.md section 3),
                 // and Home does not start it again.
                 await services.home.brain.stop()
-                let acpmux = QuitAgents.environment(services)
                 // A Chief home whose acpmux is the attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) ends nothing there.
                 if !QuitAgents.isAttached(acpmux, to: services.home.chief.home.acpmuxHome) {
                     await ChiefHostStop.endChiefSessions(home: services.home.chief.home,
@@ -206,7 +212,13 @@ final class QuitCoordinator {
                 }
                 await services.home.chief.shutdownForEndSessions()
                 let keep = ChiefHostStop.appAcpmuxEndKeep(chiefUsesAppAcpmux: services.home.chief.home.usesAppAcpmux)
-                return await QuitAgents.end(acpmux, keep: keep, waitForShutdown: attempts.isRetry())
+                var failures = olderHomes.flatMap(QuitAgents.failures)
+                if await services.agentTabs.legacyChiefWarmHost?.hasWarmedSessions == true,
+                   !QuitAgents.isAttached(acpmux, to: services.home.chief.home.acpmuxHome),
+                   let result = await services.agentTabs.legacyChiefWarmHost?.endLaunchSessions(waitForShutdown: retry) {
+                    failures += QuitAgents.failures(for: result)
+                }
+                return failures + (await QuitAgents.end(acpmux, keep: keep, waitForShutdown: retry))
             },
             stopBrowserEngines: { [weak self, deadline = self.deadline] in
                 // Drafts typed after the save step (while "Some sessions did not end" waited) reach disk

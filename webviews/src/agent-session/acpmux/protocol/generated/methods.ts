@@ -82,6 +82,7 @@ export interface AcpmuxRequests {
   "_acpmux/worktree/restore": { params: unknown; result: unknown };
   "_acpmux/retention": { params: unknown; result: unknown };
   "_acpmux/kill": { params: unknown; result: unknown };
+  "_acpmux/warm_stop": { params: unknown; result: unknown };
   "_acpmux/keep": { params: unknown; result: unknown };
   "_acpmux/watch_take_over": { params: unknown; result: unknown };
   "_acpmux/archive": { params: unknown; result: unknown };
@@ -362,6 +363,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/retention", kind: "request", acp: false, typed: false },
   { name: "_acpmux/process_update", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/kill", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/warm_stop", kind: "request", acp: false, typed: false },
   { name: "_acpmux/keep", kind: "request", acp: false, typed: false },
   { name: "_acpmux/watch_take_over", kind: "request", acp: false, typed: false },
   { name: "_acpmux/archive", kind: "request", acp: false, typed: false },

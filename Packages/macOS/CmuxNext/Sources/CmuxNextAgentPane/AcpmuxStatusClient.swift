@@ -222,10 +222,14 @@ nonisolated enum AcpmuxStatusClient {
                      requiredFeature: String? = nil, requiredCapability: String? = nil) async throws -> [String: Any] {
         let connection = NWConnection(to: .unix(path: socketPath), using: .tcp)
         defer { connection.cancel() }
-        let box = try await withAgentPaneDeadline(deadline, label: "acpmux \(method)", onTimeout: { connection.cancel() }) {
-            ResultBox(try await exchange(method, params: params, transport: AcpmuxSocketTransport(connection: connection),
-                                         detailed: detailed, limit: limit, requiredFeature: requiredFeature,
-                                         requiredCapability: requiredCapability))
+        let box = try await withTaskCancellationHandler {
+            try await withAgentPaneDeadline(deadline, label: "acpmux \(method)", onTimeout: { connection.cancel() }) {
+                ResultBox(try await exchange(method, params: params, transport: AcpmuxSocketTransport(connection: connection),
+                                             detailed: detailed, limit: limit, requiredFeature: requiredFeature,
+                                             requiredCapability: requiredCapability))
+            }
+        } onCancel: {
+            connection.cancel()
         }
         return box.value
     }

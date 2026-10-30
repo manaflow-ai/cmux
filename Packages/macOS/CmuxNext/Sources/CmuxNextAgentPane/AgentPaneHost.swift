@@ -3,69 +3,6 @@ public import Foundation
 import CmuxNextCompat
 import os
 
-/// Produces the handshake for a pane. The App picks the live acpmux host or
-/// the mock; the pane never knows which.
-public nonisolated protocol AgentPaneHostProviding: Sendable {
-    func handshake(sessionId: String?) async throws -> AgentPaneHandshake
-    /// Starts the daemon before a page is visible. Callers may treat this as
-    /// best effort because the normal page handshake still reports failures.
-    func prewarm() async throws
-    /// The peers listed by the same daemon the composer Environment picker reads.
-    func chatPeers() async throws -> [AgentChatPeer]
-    /// The handshake for a page that lost its daemon. Starts one only after a
-    /// crash, so a daemon the user stopped stays stopped.
-    func reconnectHandshake(sessionId: String?) async throws -> AgentPaneHandshake
-    /// The folder of the daemon's session `sessionId`, nil when it has none.
-    /// Never starts a daemon.
-    func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder?
-    /// Saves a file the person dropped into session `sessionId` on the machine that runs it (an
-    /// ssh peer's chat: on that peer) and answers its path there. Throws
-    /// ``AgentPaneFilePutFailure``. Never starts a daemon.
-    func putFile(sessionId: String, name: String, data: Data) async throws -> String
-    func putFile(sessionId: String, name: String, file: URL) async throws -> String
-    /// A person asked to restart acpmux from this app's own binary after a refusal named another
-    /// binary on the socket (``AgentPaneHostError/daemonRefused(holder:socketPath:reason:executable:owner:)``
-    /// with an owner): stops that daemon, keeping its sessions, so the next handshake starts this
-    /// app's. Only while `owner`, the binary the refusal named, still holds the socket. True when
-    /// it stopped.
-    func restartAcpmux(owner: AcpmuxSocketOwner) async -> Bool
-    /// The acpmux whose socket is `socket`, for an answer the host gives itself on the person's
-    /// behalf (``AgentPaneAskAnswer``): nil when this host's daemon listens elsewhere, or it has none.
-    func answerEnvironment(socket: String) async -> AcpmuxEnvironment?
-}
-
-extension AgentPaneHostProviding {
-    /// Hosts without a daemon answer a reconnect like a first handshake.
-    public func reconnectHandshake(sessionId: String?) async throws -> AgentPaneHandshake {
-        try await handshake(sessionId: sessionId)
-    }
-
-    public func prewarm() async throws {}
-
-    public func chatPeers() async throws -> [AgentChatPeer] { [] }
-
-    /// Hosts without a daemon know no session folders.
-    public func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder? { nil }
-
-    /// Hosts without a daemon have none to restart.
-    public func restartAcpmux(owner: AcpmuxSocketOwner) async -> Bool { false }
-
-    /// Hosts without a daemon answer nothing themselves.
-    public func answerEnvironment(socket: String) async -> AcpmuxEnvironment? { nil }
-
-    /// Hosts without a daemon take no files.
-    public func putFile(sessionId: String, name: String, data: Data) async throws -> String {
-        throw AgentPaneFilePutFailure.unsupported
-    }
-
-    public func putFile(sessionId: String, name: String, file: URL) async throws -> String {
-        let data = try await Task.detached(priority: .utility) {
-            try Data(contentsOf: file)
-        }.value
-        return try await putFile(sessionId: sessionId, name: name, data: data)
-    }
-}
-
 /// A host's own refusal of a handshake, already in the user's language (a chat on another
 /// machine that its machine refused to start); the pane says it as it is.
 public nonisolated protocol AgentPaneHostRefusal: Error {
@@ -261,6 +198,33 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     public func prewarm() async throws {
         _ = try await endpoint(startsDaemon: true)
     }
+
+    /// One `_acpmux/warm` per session: the daemon warms one session per folder in a call, so
+    /// two chats in one folder would leave the second stopped.
+    public func warm(sessionIds: [String]) async throws {
+        try Task.checkCancellation()
+        guard !sessionIds.isEmpty else { return }
+        if environment == nil { environment = resolveEnvironment() }
+        guard var environment else { throw AgentPaneHostError.acpmuxNotFound }
+        environment.computerUse = computerUse()
+        environment.offersSessionTools = offersSessionTools()
+        environment.agentPairGuard = agentPairGuard()
+        (environment.agentPairCap, environment.agentPairWindowSeconds) = agentPairCap()
+        self.environment = environment
+        // Automatic restore never hands off or enrolls an existing daemon, including another
+        // Chief's shared one. A missing daemon starts under acpmux's own process lock.
+        try await AcpmuxLaunchConnection(environment: environment, mayStart: startsDaemons && !environment.isAttached).prepare()
+        try await launchWarm.warm(sessionIds, socket: environment.socketPath)
+    }
+
+    private let launchWarm = AcpmuxLaunchWarm()
+    /// Whether this host has accepted or attempted automatic restoration requests.
+    public var hasWarmedSessions: Bool { get async { await launchWarm.hasRequests } }
+
+    /// Ends only sessions this host attempted to restore; shared daemon processes remain running.
+    public func endLaunchSessions(waitForShutdown: Bool) async -> AcpmuxQuit.EndResult {
+        guard startsDaemons, let environment, !environment.isAttached else { return .noDaemon }
+        return await launchWarm.end(environment: environment, waitForShutdown: waitForShutdown)
 
     public func chatPeers() async throws -> [AgentChatPeer] {
         // Validate the app's daemon/home just as a composer handshake does. Listing never
@@ -557,6 +521,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             throw failure(environment, .other, detail: String(describing: error))
         }
         do {
+            try Task.checkCancellation()
             let launched = try await AcpmuxDaemonLauncher.launchReporting(environment)
             // A signed daemon ignores the spawn key: it takes the key by this app's signature.
             if let status = await Self.startedStatus(environment), status.serves(home: environment.home) {

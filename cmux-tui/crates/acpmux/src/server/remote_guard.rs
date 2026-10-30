@@ -852,6 +852,7 @@ async fn web_starts_asking(
         method::MUX_SET_RULES
             | method::MUX_SET_POLICY
             | method::MUX_KILL
+            | method::MUX_WARM_STOP
             | method::SESSION_DELETE
             | method::SESSION_CLOSE
             | method::SESSION_SET_MODEL

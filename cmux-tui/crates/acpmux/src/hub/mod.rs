@@ -1101,6 +1101,7 @@ impl Hub {
             child: Mutex::new(None),
             spawn_lock: Mutex::new(()),
             harness_use: RwLock::new(()),
+            launch_warm: StdMutex::new(Default::default()),
             idle_refusal_logged: AtomicU64::new(0),
             append_lock: StdMutex::new(()),
             message_ids: StdMutex::new(None),

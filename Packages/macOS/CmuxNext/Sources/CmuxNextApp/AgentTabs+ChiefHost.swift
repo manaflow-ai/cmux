@@ -62,6 +62,8 @@ struct ChiefHomeAcpmux {
     nonisolated static let hostPrefix = ChiefHome.tabHostPrefix
     let host: String
     let paneHost: any AgentPaneHostProviding
+    /// The current home's legacy daemon when the Chief now uses the app's acpmux.
+    let legacyPaneHost: (any AgentPaneHostProviding)?
     /// This Mac's tabs' host: a session the Chief host runs (an older subagent tab recorded
     /// with this Mac's host) attaches to the Chief home's acpmux, any other to `local`.
     let localRouter: @Sendable (any AgentPaneHostProviding) -> any AgentPaneHostProviding
@@ -92,6 +94,7 @@ struct ChiefHomeAcpmux {
         // chat and would say "This chat isn't available" (Lawrence 2026-10-21).
         if home.usesAppAcpmux {
             let own = ownHost(environment)
+            legacyPaneHost = own
             let sessionsHome = home.acpmuxHome
             let router: @Sendable (any AgentPaneHostProviding) -> any AgentPaneHostProviding = { local in
                 AcpmuxChiefSessionRouter(local: local, chief: own, chiefEnvironment: environment, sessionsHome: sessionsHome, parentTag: tag)
@@ -103,6 +106,7 @@ struct ChiefHomeAcpmux {
         // The Chief host owns this daemon (it starts it, with the Chief's env): a
         // tab only attaches, never starts one (cx-ebm.54). A daemon that runs a
         // replaced bundle is healed through its owner (ChiefAcpmuxHeal), while the app runs.
+        legacyPaneHost = nil
         var healReplaced: (@Sendable () async -> Bool)?
         if let environment {
             let heal = ChiefAcpmuxHeal(home: home, environment: environment, ensureHost: ensureHost)

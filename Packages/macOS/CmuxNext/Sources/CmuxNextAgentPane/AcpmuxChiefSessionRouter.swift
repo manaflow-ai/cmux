@@ -9,12 +9,20 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
     private let local: any AgentPaneHostProviding
     private let chief: any AgentPaneHostProviding
     private let chiefOwns: @Sendable (String) async -> Bool
+    private let chiefBatchOwns: (@Sendable ([String]) async -> Set<String>)?
 
     public init(local: any AgentPaneHostProviding, chief: any AgentPaneHostProviding,
                 chiefOwns: @escaping @Sendable (String) async -> Bool) {
+        self.init(local: local, chief: chief, chiefOwns: chiefOwns, chiefBatchOwns: nil)
+    }
+
+    private init(local: any AgentPaneHostProviding, chief: any AgentPaneHostProviding,
+                 chiefOwns: @escaping @Sendable (String) async -> Bool,
+                 chiefBatchOwns: (@Sendable ([String]) async -> Set<String>)?) {
         self.local = local
         self.chief = chief
         self.chiefOwns = chiefOwns
+        self.chiefBatchOwns = chiefBatchOwns
     }
 
     /// Asks the Chief home's acpmux (`environment`) whether it runs `session` for `parentTag`.
@@ -28,13 +36,16 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
                 chiefEnvironment environment: AcpmuxEnvironment?, sessionsHome: URL? = nil, parentTag: String) {
         let socket = environment?.socketPath
         let kept = sessionsHome ?? environment?.home
-        self.init(local: local, chief: chief) { session in
-            if let socket, FileManager.default.fileExists(atPath: socket),
-               let listing = try? await AcpmuxStatusClient.sessions(socketPath: socket, deadline: .seconds(2)) {
-                return Self.owns(listing.value, session: session, parentTag: parentTag)
+        self.init(local: local, chief: chief, chiefOwns: { session in
+            await ChiefSessionOwnershipCache(socket: socket, home: kept, parentTag: parentTag).owns(session)
+        }, chiefBatchOwns: { sessions in
+            let cache = ChiefSessionOwnershipCache(socket: socket, home: kept, parentTag: parentTag)
+            var owned = Set<String>()
+            for session in sessions {
+                if await cache.owns(session) { owned.insert(session) }
             }
-            return Self.keeps(session: session, home: kept)
-        }
+            return owned
+        })
     }
 
     /// Whether acpmux home `home` keeps session `session` on disk (`sessions/<id>`).
@@ -88,6 +99,38 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
 
     public func prewarm() async throws {
         try await local.prewarm()
+    }
+
+    /// Each session warms in the acpmux that owns it (the chief's or this Mac's).
+    public func warm(sessionIds: [String]) async throws {
+        var localSessions: [String] = []
+        var chiefSessions: [String] = []
+        try Task.checkCancellation()
+        let owned: Set<String>
+        if let chiefBatchOwns { owned = await chiefBatchOwns(sessionIds) } else {
+            var result = Set<String>()
+            for session in sessionIds {
+                if await chiefOwns(session) { result.insert(session) }
+            }
+            owned = result
+        }
+        for session in sessionIds {
+            if owned.contains(session) { chiefSessions.append(session) } else { localSessions.append(session) }
+        }
+        try Task.checkCancellation()
+        var failed: [String] = []
+        if !localSessions.isEmpty {
+            do { try await local.warm(sessionIds: localSessions) }
+            catch let error as AgentPaneWarmFailure { failed += error.sessionIds }
+            catch { failed += localSessions }
+        }
+        try Task.checkCancellation()
+        if !chiefSessions.isEmpty {
+            do { try await chief.warm(sessionIds: chiefSessions) }
+            catch let error as AgentPaneWarmFailure { failed += error.sessionIds }
+            catch { failed += chiefSessions }
+        }
+        if !failed.isEmpty { throw AgentPaneWarmFailure(sessionIds: failed) }
     }
 
     /// The folder of `sessionId` from the host that owns it (the chief's or
