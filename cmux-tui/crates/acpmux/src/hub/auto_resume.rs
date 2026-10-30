@@ -75,6 +75,26 @@ use tokio::sync::Notify;
 
 use crate::protocol::session::{RetryReason, RetrySummary};
 
+#[cfg(test)]
+thread_local! {
+    static AFTER_FINISH_REPLACED_CHECK: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const {
+        std::cell::RefCell::new(None)
+    };
+}
+
+#[cfg(test)]
+fn after_finish_replaced_check() {
+    let hook = AFTER_FINISH_REPLACED_CHECK.with(|slot| slot.borrow_mut().take());
+    if let Some(hook) = hook {
+        hook();
+    }
+}
+
+#[cfg(test)]
+pub(super) fn set_after_finish_replaced_check(hook: Box<dyn FnOnce()>) {
+    AFTER_FINISH_REPLACED_CHECK.with(|slot| *slot.borrow_mut() = Some(hook));
+}
+
 /// `_acpmux/retry`: a failed turn retried on demand.
 pub(crate) mod retry_turn;
 
@@ -382,9 +402,10 @@ impl TurnInfo {
 impl Hub {
     /// Mark an outgoing session before its durable store is staged. The admission lock order is
     /// `auto_resume -> append_lock -> turn` for completion and replacement; attestation takes
-    /// `append_lock -> turn` and never `auto_resume`. Keeping this fence on `append_lock` means
-    /// replacement cannot flip `replaced` between attestation's final check and its signature.
+    /// `append_lock -> turn` and never `auto_resume`. The replacement fence takes both locks in
+    /// that order, so it cannot pass a `replaced` check and then race a terminal retry append.
     pub(super) fn seal_retry_replacement(&self, session: &Session) {
+        let _retry = session.auto_resume.lock();
         let _append = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
         session.replaced.store(true, std::sync::atomic::Ordering::SeqCst);
     }
@@ -846,6 +867,8 @@ impl Hub {
         if session.replaced.load(std::sync::atomic::Ordering::SeqCst) {
             return;
         }
+        #[cfg(test)]
+        after_finish_replaced_check();
         let (root, cut_turn) = (cut.prompt_id, cut.turn_id);
         let skipped = |why: &str| json!({"promptId": root, "attempt": attempt, "turnId": cut_turn, "skipped": why});
         if let Err(why) = self.fire_pending(session, cut_turn) {

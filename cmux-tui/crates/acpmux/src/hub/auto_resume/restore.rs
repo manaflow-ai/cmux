@@ -737,6 +737,50 @@ mod tests {
         assert!(session.turn().is_none());
     }
 
+    #[test]
+    fn finish_auto_resume_and_replacement_share_the_lock_order() {
+        let (hub, session) = idle_chat();
+        let (finish_done_tx, finish_done_rx) = std::sync::mpsc::channel();
+        let (seal_handle_tx, seal_handle_rx) = std::sync::mpsc::channel();
+        let finish_hub = hub.clone();
+        let finish_session = session.clone();
+        let finish = std::thread::spawn(move || {
+            let seal_hub = finish_hub.clone();
+            let seal_session = finish_session.clone();
+            super::set_after_finish_replaced_check(Box::new(move || {
+                let seal = std::thread::spawn(move || {
+                    seal_hub.seal_retry_replacement(&seal_session);
+                });
+                seal_handle_tx.send(seal).unwrap();
+                // Let the replacement contend for the locks before the terminal append.
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }));
+            finish_hub.finish_auto_resume(
+                &finish_session,
+                &CutTurn {
+                    from: None,
+                    prompt_id: "finish-prompt",
+                    turn_id: "finish-turn",
+                    control: Control::Local,
+                    trust_gate: false,
+                    error: "stream disconnected",
+                },
+                1,
+                &[],
+                Err(RpcError::invalid_params("folder disappeared")),
+                false,
+            );
+            finish_done_tx.send(()).unwrap();
+        });
+        let seal = seal_handle_rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        finish_done_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("replacement must not block terminal retry admission");
+        finish.join().unwrap();
+        seal.join().unwrap();
+        assert!(session.replaced.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
     #[tokio::test]
     async fn retry_restore_does_not_apply_an_earlier_idle_cancel_to_a_later_failed_turn() {
         let (hub, session) = idle_chat();
