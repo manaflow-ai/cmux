@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "build": "4104292869901",
+  "notes": "notes/4104292869901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 28187,
+      "title": "carry of #26682: fix(setup): report actionable harness authentication checks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27877,
+      "title": "ios: New Message to one agent sends its images",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28144,
+      "title": "ci(next): same-tree cmux-tui waits out a GitHub rate limit instead of failing",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27991,
+      "title": "Avoid duplicate peer snapshot size serialization (takeover of #27010)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
