@@ -410,54 +410,65 @@ else
             await page.evaluate(toggleHasRule, { n: -1, off: false });
           }
 
-          // Candidate rewrites of a rule, each measured in place of it: the rule is taken out
-          // and the candidate's CSS added in a sheet of its own.
+          // Candidate rewrites, each measured alone over the pane with every costly :has() rule
+          // taken out (their costs overlap, so one is only seen without the others).
           if (process.env.PANE_HAS_CANDIDATES === "1") {
             const rules = (await page.evaluate(listHasRules)) as { selector: string; sheet: string }[];
-            const find = (start: string) => rules.findIndex((rule) => rule.selector.startsWith(start));
-            const candidates: [string, string, string][] = [
-              [":where(button", "removed", ""],
+            const costly = [
+              ":where(button",
+              "[inert]",
+              ".cv-codeblock__header:has(",
+              ".acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) > .acpmux-composer-field-menu > *",
+              ".acpmux-turnSummary:not([data-turn-revealed])",
+            ]
+              .map((start) => rules.findIndex((rule) => rule.selector.startsWith(start)))
+              .filter((n) => n >= 0);
+            for (const n of costly) await page.evaluate(toggleHasRule, { n, off: true });
+            const floor = await insertion(page, "button", 3);
+            report(name, "candidate-floor", { off: costly.length, ...floor });
+            const CHECK = 'input[type="checkbox"], input[type="radio"]';
+            const CLICK = 'a[href], button, input, select, textarea, summary, [role="button"]';
+            const DISABLED =
+              'label:not([for]):has(:is(input, select, textarea):disabled):not(:has(:is(input:not([type="hidden"]), select, textarea):enabled))';
+            const candidates: [string, string][] = [
+              ["label-orig", `:where(label:has(${CHECK})) * { cursor: inherit; }`],
               [
-                ":where(button",
-                "scope",
-                '@scope (label:has(input[type="checkbox"], input[type="radio"])) { :where(:scope *) { cursor: inherit; } }',
+                "label-child-arg",
+                `:where(label:has(> input[type="checkbox"], > input[type="radio"])) * { cursor: inherit; }`,
+              ],
+              ["label-scope", `@scope (label:has(${CHECK})) { :where(:scope *) { cursor: inherit; } }`],
+              ["label-not-for", `:where(label:not([for])) * { cursor: inherit; }`],
+              ["label-class-right", `:where(label:has(${CHECK})) .x { cursor: inherit; }`],
+              ["label-child-star", `:where(label:has(${CHECK})) > * { cursor: inherit; }`],
+              ["label-subject", `:where(label:has(${CHECK})) { cursor: pointer; }`],
+              ["disabled-orig", `${DISABLED} :not(:is(${CLICK}), :is(${CLICK}) *) { cursor: default !important; }`],
+              ["disabled-subject", `${DISABLED} { cursor: default !important; }`],
+              [
+                "disabled-scope",
+                `@scope (${DISABLED}) { :scope :not(:is(${CLICK}), :is(${CLICK}) *) { cursor: default !important; } }`,
               ],
               [
-                ":where(button",
-                "child-arg",
-                ':where(label:has(> input[type="checkbox"], > input[type="radio"])) * { cursor: inherit; }',
+                "pr-not",
+                `.acpmux-assistant:not(:hover) .cv-reply-actions:has(> .acpmux-pr-dock) > :not(.acpmux-pr-dock) { opacity: 0; }`,
               ],
               [
-                ":where(button",
-                "is-ancestor",
-                ':where(*):is(label:has(input[type="checkbox"], input[type="radio"]) *) { cursor: inherit; }',
-              ],
-              ["[inert]", "removed", ""],
-              [
-                "[inert]",
-                "subject-only",
-                'label:not([for]):has(:is(input, select, textarea):disabled):not(:has(:is(input:not([type="hidden"]), select, textarea):enabled)) { cursor: default !important; }',
-              ],
-              [".cv-codeblock__header:has(", "removed", ""],
-              [
-                ".cv-codeblock__header:has(",
-                "class-rightmost",
-                ".cv-codeblock__header:has(.acpmux-pr-dock) > .cv-codeblock__label { min-width: 0; }",
+                "pr-attr",
+                `.acpmux-assistant:not(:hover) .cv-reply-actions[data-pr-dock] > :not(.acpmux-pr-dock) { opacity: 0; }`,
               ],
               [
-                ".acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) > .acpmux-composer-field-menu > *",
-                "class-rightmost",
-                ".acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) > .acpmux-composer-field-menu > .acpmux-md-field { grid-column: 2; }",
+                "composer-star",
+                `.acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) > .acpmux-composer-field-menu > * { grid-column: 2; }`,
+              ],
+              [
+                "composer-attr",
+                `.acpmux-composer-box[data-composer-grid] > .acpmux-composer-field-menu > * { grid-column: 2; }`,
+              ],
+              [
+                "codeblock-span",
+                `.cv-codeblock__header:has(.acpmux-pr-dock) > span:not(.cv-codeblock__actions) { min-width: 0; }`,
               ],
             ];
-            const before = await insertion(page, "button", 3);
-            for (const [start, label, css] of candidates) {
-              const n = find(start);
-              if (n < 0) {
-                report(name, "candidate", { start, label, missing: true });
-                continue;
-              }
-              await page.evaluate(toggleHasRule, { n, off: true });
+            for (const [label, css] of candidates) {
               await page.evaluate((css) => {
                 const style = document.createElement("style");
                 style.id = "pane-has-candidate";
@@ -466,14 +477,9 @@ else
               }, css);
               const after = await insertion(page, "button", 3);
               await page.evaluate(() => document.getElementById("pane-has-candidate")?.remove());
-              await page.evaluate(toggleHasRule, { n, off: false });
-              report(name, "candidate", {
-                start: start.slice(0, 40),
-                label,
-                before: before.elements,
-                after: after.elements,
-              });
+              report(name, "candidate", { label, floor: floor.elements, after: after.elements, ms: after.ms });
             }
+            await page.evaluate(toggleHasRule, { n: -1, off: false });
           }
           expect(true).toBe(true);
         } finally {
