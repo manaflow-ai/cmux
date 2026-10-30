@@ -26,7 +26,7 @@ extension TabsKitTheme {
 
 /// A workspace: its tabs in the Safari-style TabsKit chrome, opened on the
 /// last tab used on this device. Pushed full screen from the Workspaces
-/// list with the root tab bar and navigation bar hidden (SPEC 3.1: full
+/// list with the navigation bar hidden and, by the shell, the root tab bar (SPEC 3.1: full
 /// screen surfaces own the bottom edge). Ways back to the list: the
 /// toolbar's back chevron (a tab without page history), the system edge
 /// swipe, the grid's leading back circle, and "All Workspaces" in the page menu.
@@ -40,16 +40,20 @@ public struct WorkspaceScreen: View {
     @State private var renameText = ""
     @State private var renameID: String?
     @State private var renamePlaceholder = "Name"
-    @State private var groupName = ""
     @Environment(\.dismiss) private var dismiss
     #if DEBUG
     private let director = WorkspaceDemoDirector.shared
     #endif
 
+    /// Shows another workspace in this one's place (the Chats list's Open in New Workspace).
+    private let openWorkspace: (@MainActor (Workspace) -> Void)?
+
     public init(store: AppStore, workspaceID: String, terminal: any TerminalTabContent = PlaceholderTerminalTabContent(),
-                creator: WorkspaceCreator? = nil, startsInGrid: Bool = false) {
+                creator: WorkspaceCreator? = nil, startsInGrid: Bool = false,
+                openWorkspace: (@MainActor (Workspace) -> Void)? = nil) {
         makeSource = { WorkspaceTabsSource(store: store, workspaceID: workspaceID, terminal: terminal, creator: creator) }
         _showsGrid = State(initialValue: startsInGrid)
+        self.openWorkspace = openWorkspace
     }
 
     private var source: WorkspaceTabsSource { holder.source(makeSource) }
@@ -75,10 +79,12 @@ public struct WorkspaceScreen: View {
             }
             .background(theme.colors.bg.color.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
-            .toolbar(.hidden, for: .tabBar)
             .background(InteractivePopEnabler())
+            // Search Agent Chats, Screens, Panes and a tab group's pages, and Fork Conversation…'s destinations.
+            .modifier(WorkspacePages(source: source))
             .onAppear {
                 source.exit = { dismiss() }
+                source.openWorkspace = openWorkspace
                 source.opened()
                 #if DEBUG
                 if CommandLine.arguments.contains("-cmux-mobile-toast-demo") { source.showDemoToast() }
@@ -116,10 +122,11 @@ public struct WorkspaceScreen: View {
                     if let id = renameID { Task { await source.rename(id, to: renameText) } }
                 }
             }
-            .modifier(TabMoveAndGroupSheets(source: source, groupName: $groupName))
+            .modifier(TabMoveAndGroupSheets(source: source))
             // Closing a tab with a running program asks first (Codex QA F9).
+            // While a page is pushed (Screens, Panes, a tab group), its own copy of this question shows (this screen is under it).
             .alert(source.pendingClose?.title ?? "", isPresented: Binding(
-                get: { source.pendingClose != nil },
+                get: { source.pendingClose != nil && source.route == nil },
                 set: { shown in if !shown { source.resolvePendingClose(false) } }
             )) {
                 // The Mac's close question's button ("Close").

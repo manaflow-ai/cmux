@@ -35,6 +35,7 @@ async fn client(origin: Origin) -> (mpsc::Sender<String>, mpsc::Receiver<String>
     cfg.peers.insert(
         "p".into(),
         PeerConfig {
+            wireguard: None,
             url: format!("ws://127.0.0.1:1/?token={PEER_TOKEN}"),
             token: None,
             // A peer token kept for a ws:// peer never leaves either.
@@ -46,6 +47,7 @@ async fn client(origin: Origin) -> (mpsc::Sender<String>, mpsc::Receiver<String>
     cfg.peers.insert(
         "q".into(),
         PeerConfig {
+            wireguard: None,
             url: format!("ws://user:{PEER_TOKEN}@127.0.0.1:2/"),
             token: None,
             peer_token: None,

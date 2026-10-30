@@ -4,7 +4,7 @@ import CmuxNextDesign
 import CmuxNextIcons
 
 /// Borderless icon button with gray hover and press fills (no accent color).
-final class ChromeIconButton: NSButton {
+final class ChromeIconButton: ClickableButton {
     private let density = DensityBinding()
     /// The pack icon the button draws (`BrowserToolbarReport.icons`).
     private(set) var iconName = IconName.placeholder
@@ -249,7 +249,7 @@ final class ChromeIconButton: NSButton {
 
 /// Text button for prompts and error pages. `prominent` uses a stronger
 /// gray fill instead of the system accent.
-class ChromeTextButton: NSButton {
+class ChromeTextButton: ClickableButton {
     private let density = DensityBinding()
     private let prominent: Bool
     private var hover: PointerHover?

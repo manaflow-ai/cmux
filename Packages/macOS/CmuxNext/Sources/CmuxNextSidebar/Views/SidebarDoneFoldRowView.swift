@@ -8,6 +8,7 @@ import CmuxNextIcons
 final class SidebarDoneFoldRowView: SidebarRowView {
     private let chevron = DecorativeImageView()
     private let name = SidebarRowView.label(font: SidebarStyle.headerFont)
+    var onToggle: (() -> Bool)?
 
     required init(key: SidebarRowKey) {
         super.init(key: key)
@@ -29,6 +30,16 @@ final class SidebarDoneFoldRowView: SidebarRowView {
         setAccessibilityLabel(name.stringValue)
         setAccessibilityExpanded(!row.isCollapsed)
         needsLayout = true
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        guard !isHiddenOrHasHiddenAncestor else { return false }
+        return onToggle?() ?? false
+    }
+
+    override func prepareForReuse(key: SidebarRowKey) {
+        super.prepareForReuse(key: key)
+        onToggle = nil
     }
 
     override func layout() {

@@ -16,6 +16,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 
 pub use super::gateway::ModelRoute;
+use cmux_json::JsonSet as _;
 
 pub const HARNESSES: &[&str] = &["claude", "codex", "opencode"];
 /// Text is sent once this much has gathered, or at the next non-text event.
@@ -179,16 +180,16 @@ impl Agents {
                     ));
                 }
                 let id = super::gateway::prepare(&client, api, r).await?;
-                meta["route"] = json!(id);
+                meta.set("route", json!(id));
                 Some(id)
             }
             None => None,
         };
         if let Some(m) = model {
-            meta["model"] = json!(m);
+            meta.set("model", json!(m));
         }
         if let Some(e) = effort {
-            meta["effort"] = json!(e);
+            meta.set("effort", json!(e));
         }
         let created = client
             .request(
@@ -376,7 +377,7 @@ impl Agents {
             let base = json!({ "sessionId": session, "permissionId": permission });
             let mut params = base.clone();
             if let Some(option) = chosen {
-                params["optionId"] = json!(option);
+                params.set("optionId", json!(option));
             }
             if client.request(method::MUX_PERMISSION_RESPOND, params).await.is_err() {
                 let _ = client.request(method::MUX_PERMISSION_RESPOND, base).await;
