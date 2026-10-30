@@ -227,8 +227,10 @@ nonisolated enum CloudActionDescriptions {
         "cloudDeliverSecrets": """
             Sends the values of the secret names the machine's .cmux/machine.toml declares (--target \
             machine:<id>, --repo OWNER/NAME for repo-scoped ones) from this Mac's Keychain to the machine \
-            over its daemon link, never the Cloud API. Returns status (delivered, unchanged or pending), \
-            delivered and missing names. Values are stored with cmux cloud secret set NAME.
+            over its daemon link, never the Cloud API. An own machine (an SSH machine or an acpmux peer, \
+            --target machine:<name>) gets exactly --names A,B over ssh, in ~/.config/cmux/machine-secrets.env; \
+            its shells read them through the returned source_line. Returns status (delivered, unchanged or \
+            pending), delivered and missing names. Values are stored with cmux cloud secret set NAME.
             """,
         "cloudResizeMachine": """
             Resizes the machine (--target machine:<id> --size small, medium, large or xlarge: 2 vCPU and \

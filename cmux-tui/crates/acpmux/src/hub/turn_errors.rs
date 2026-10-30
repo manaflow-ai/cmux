@@ -9,10 +9,10 @@
 //! goes on where it is (subsession-card, 2026-10-26).
 
 /// Whether `code` (three digits) is in `m` as a number of its own: "HTTP 503", not "2503s".
-fn has_status(m: &str, code: &str) -> bool {
+pub(crate) fn has_status(m: &str, code: &str) -> bool {
     let bytes = m.as_bytes();
     m.match_indices(code).any(|(at, _)| {
-        let before = at.checked_sub(1).map(|i| bytes[i]);
+        let before = at.checked_sub(1).and_then(|i| bytes.get(i).copied());
         let after = bytes.get(at + code.len()).copied();
         !before.is_some_and(|b| b.is_ascii_alphanumeric())
             && !after.is_some_and(|b| b.is_ascii_alphanumeric())

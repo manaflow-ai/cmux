@@ -146,9 +146,10 @@ export const gatewayMessages = async (env: Env, who: Who, request: Request, ctx?
   if (creditsRequired(env, name)) {
     const r = await run(env, Credits.use((c) => c.reserve({ team, request: request_id, chief: who.chief, conversation: who.conversation ?? null, maxCostUsd: maxCost })).pipe(
       Effect.map((res) => ({ ok: true as const, res })),
-      Effect.catch((e: { _tag?: string; available_usd?: number; needed_usd?: number }) => Effect.succeed({ ok: false as const, e }))
+      Effect.catch((e: { _tag?: string; available_usd?: number; needed_usd?: number; text?: string }) => Effect.succeed({ ok: false as const, e }))
     ))
     if (!r.ok) await unhold(0)
+    if (!r.ok && r.e._tag === "CreditsRateLimited") return err(429, "rate_limit_error", String(r.e.text))
     if (!r.ok) return r.e._tag === "CreditsExhausted" ? err(402, "invalid_request_error", `out of Cloud credits (available ${r.e.available_usd} USD, this call needs up to ${r.e.needed_usd} USD)`) : err(503, "overloaded_error", "credits could not be checked; retry")
     held = r.res
   }

@@ -28,6 +28,7 @@
 use super::{DEFAULT_DELAYS_MS, SUFFIX, configured_attempts, split_attempt};
 use crate::hub::{Hub, Session};
 use crate::store::EventRecord;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
@@ -169,7 +170,7 @@ impl Hub {
             "trustGate": control == "web" || gate.unwrap_or(false),
         });
         if !images.is_empty() {
-            queued["images"] = Value::Array(images);
+            queued.set("images", Value::Array(images));
         }
         let queued = crate::prompt_provenance::marked(queued, Some(&provenance));
         self.append(session, "mux", "queued", queued);

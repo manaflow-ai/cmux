@@ -1,0 +1,94 @@
+diff --git a/tailscale.go b/tailscale.go
+index ab294ee..301be17 100644
+--- a/tailscale.go
++++ b/tailscale.go
+@@ -343,47 +343,56 @@ func TsnetAccept(listenerFd C.int, connOut *C.int) C.int {
+ 	// MSG_WAITALL. The FIFO never serves a later record's bytes first,
+ 	// so each accept consumes exactly one record, even concurrently or
+ 	// after EINTR.
++	//
++	// The fd arrives with whichever read returns the bytes it was sent
++	// with, and a read can come back short (a signal, or a sender that
++	// split the record), so every read's control message is parsed. Any
++	// fd received is closed if the accept fails, so none leaks.
+ 	data := make([]byte, listenAddrLen)
+ 	cbuf := make([]byte, unix.CmsgLen(int(unsafe.Sizeof((C.int)(0)))))
+-	var n, oobn int
+-	for n < len(data) {
+-		buf := data[n:]
+-		if n > 0 {
+-			// the cmsg rode with the record's first byte; only the tail remains
+-			cbuf = nil
+-		}
+-		nn, on, _, _, err := syscall.Recvmsg(int(listenerFd), buf, cbuf, syscall.MSG_WAITALL|recvmsgCloexec)
+-		n += nn
+-		if nn > 0 {
+-			oobn = on
++	var fds []int
++	accepted := false
++	defer func() {
++		if !accepted {
++			for _, fd := range fds {
++				syscall.Close(fd)
++			}
+ 		}
++	}()
++	var n int
++	for n < len(data) {
++		nn, oobn, _, _, err := syscall.Recvmsg(int(listenerFd), data[n:], cbuf, syscall.MSG_WAITALL|recvmsgCloexec)
+ 		if err == syscall.EINTR {
+-			continue // partial bytes stay record-aligned, keep draining
++			continue // nothing was read (nn is -1), keep draining
+ 		}
+ 		if err != nil {
+ 			return ln.s.recErr(err)
+ 		}
++		if oobn > 0 {
++			scms, err := syscall.ParseSocketControlMessage(cbuf[:oobn])
++			if err != nil {
++				return ln.s.recErr(err)
++			}
++			for i := range scms {
++				rights, err := syscall.ParseUnixRights(&scms[i])
++				if err != nil {
++					return ln.s.recErr(err)
++				}
++				for _, fd := range rights {
++					closeOnExecReceived(fd)
++				}
++				fds = append(fds, rights...)
++			}
++		}
+ 		if nn == 0 {
+ 			// EOF mid-record: the listener was closed on the C side.
+ 			return ln.s.recErr(fmt.Errorf("libtailscale: listener closed mid-record: got %d of %d bytes", n, len(data)))
+ 		}
+-	}
+-
+-	scms, err := syscall.ParseSocketControlMessage(cbuf[:oobn])
+-	if err != nil {
+-		return ln.s.recErr(err)
+-	}
+-	if len(scms) != 1 {
+-		return ln.s.recErr(fmt.Errorf("libtailscale: got %d control messages, want 1", len(scms)))
+-	}
+-	fds, err := syscall.ParseUnixRights(&scms[0])
+-	if err != nil {
+-		return ln.s.recErr(err)
++		n += nn
+ 	}
+ 	if len(fds) != 1 {
+ 		return ln.s.recErr(fmt.Errorf("libtailscale: got %d FDs, want 1", len(fds)))
+ 	}
+-	closeOnExecReceived(fds[0])
+ 	fd := C.int(fds[0])
+ 
+ 	// the entry must exist before C can learn this fd number
+@@ -395,6 +404,7 @@ func TsnetAccept(listenerFd C.int, connOut *C.int) C.int {
+ 	ln.m[fd] = string(data[:addrLen])
+ 	ln.mu.Unlock()
+ 
++	accepted = true
+ 	*connOut = fd
+ 
+ 	return 0
