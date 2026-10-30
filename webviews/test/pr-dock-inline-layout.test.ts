@@ -91,15 +91,17 @@ await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
                 (shift) =>
                   shift.sources.length > 0 &&
                   shift.sources.every((source) => {
+                    // The form and the dock that holds it grow upward by the same amount; the
+                    // fallback and the "N PRs" row over the composer (PullRequestStack.tsx) ride up
+                    // on it, their own size unchanged.
                     const match =
-                      /^(form\.acpmux-composer|div\.acpmux-transcript-after-latest) \[(-?[\d.]+) (-?[\d.]+) (-?[\d.]+) (-?[\d.]+)\]$/.exec(
+                      /^(form\.acpmux-composer|div\.acpmux-dock|div\.acpmux-transcript-after-latest|section\.acpmux-pr-stack) \[(-?[\d.]+) (-?[\d.]+) (-?[\d.]+) (-?[\d.]+)\]$/.exec(
                         source,
                       );
                     if (!match) return false;
                     const [x, y, width, height] = match.slice(2).map(Number);
-                    return (
-                      x === 0 && width === 0 && y! <= 0 && height === (match[1] === "form.acpmux-composer" ? -y! : 0)
-                    );
+                    const grows = match[1] === "form.acpmux-composer" || match[1] === "div.acpmux-dock";
+                    return x === 0 && width === 0 && y! <= 0 && height === (grows ? -y! : 0);
                   }),
               );
             if (expected) step.problems = step.problems.filter((problem) => !problem.startsWith("layout shift "));

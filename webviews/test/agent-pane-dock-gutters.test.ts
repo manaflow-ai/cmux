@@ -288,7 +288,13 @@ await requireBrowserLane("agent-pane-dock-gutters.test.ts", async () => {
             .filter((part) => part.getBoundingClientRect().height > 0)
             .map((part) => part.classList[0]),
         );
-        expect(shown).toEqual(["acpmux-permission", "acpmux-host-error", "acpmux-running-tray", "acpmux-composer"]);
+        expect(shown).toEqual([
+          "acpmux-permission",
+          "acpmux-host-error",
+          "acpmux-pr-stack",
+          "acpmux-running-tray",
+          "acpmux-composer",
+        ]);
 
         await expectGutter(page, "question", ".acpmux-asks-stack", ".acpmux-asks-stack > *");
         await expectGutter(
@@ -309,6 +315,8 @@ await requireBrowserLane("agent-pane-dock-gutters.test.ts", async () => {
         // The tray of running work is its own box, inset by its margin: beside it is the stack's own
         // gutter, which passes through as the composer's does, and the tray takes the pointer.
         await expectInsetBox(page, "tray", ".acpmux-running-tray");
+        // The chat's "N PRs" row (summary/PullRequestStack.tsx) is inset the same way.
+        await expectInsetBox(page, "pull requests", ".acpmux-pr-stack");
 
         // The error card's own buttons still take a click.
         await page.locator(".acpmux-instructions-notice button[data-notice-action=dismiss]").click();

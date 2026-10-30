@@ -116,7 +116,7 @@ export default agentPaneEntry({
   area: "Agent pane",
   height: 620,
   widths: { narrow: 420, normal: 760, wide: 1100 },
-  covers: ["agent-session/acpmux/bottomStack.css", "agent-session/acpmux/summary/PullRequestStack.tsx"],
+  covers: ["agent-session/acpmux/summary/PullRequestStack.tsx"],
   variants: {
     collapsed: variant(
       "Selected (one glass stack): the turn ended, the tray folded to its Running in background header; the N PRs row, the tray and the composer share one rim and two edges, with no gap and no notch.",
