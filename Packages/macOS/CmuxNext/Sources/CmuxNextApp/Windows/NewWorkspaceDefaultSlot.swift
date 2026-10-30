@@ -97,7 +97,10 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
         } == true
     }
 
-    private static func position(of id: String, in section: SectionID, sections: [SidebarRowSection]) -> DropPosition? {
+    /// The current projection's position for `id`, when its row has arrived.
+    /// A pending create must stay pending while this is nil: the daemon can
+    /// report the workspace before the sidebar projection includes its row.
+    static func position(of id: String, in section: SectionID, sections: [SidebarRowSection]) -> DropPosition? {
         guard let listed = sections.first(where: { $0.id == section }) else { return nil }
         for (index, node) in listed.nodes.enumerated() {
             switch node {

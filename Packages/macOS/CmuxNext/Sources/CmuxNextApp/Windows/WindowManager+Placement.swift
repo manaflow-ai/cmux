@@ -27,16 +27,21 @@ extension WindowManager {
     func applyPendingPlacements(live: Set<String>) {
         // A stand-in Cmd-N shows waits: a placement moves a workspace the daemon has.
         for (id, pending) in pendingPlacements where live.contains(id) && services.machines.workspace(id: id)?.0.isProvisional != true {
-            pendingPlacements[id] = nil
             guard let window = pending.window ?? registry.value.owner(of: id), let bridge = controller(for: window)?.sidebar,
                   let daemon = services.machines.daemon(forWorkspace: id) else { continue }
             let sections = SidebarRowSection.withoutPlaceholders(bridge.model.sections)
             let section = SectionID.machine(MachineID(daemon.machineID))
             let home = NewWorkspacePlacements.home(services.machines)
+            // The daemon can report a created workspace before this window's
+            // projection has materialized its row. Retain the pending rule so
+            // the next reconcile can resolve the slot instead of silently
+            // losing Bottom/legacy Top placement.
+            guard NewWorkspaceDefaultSlot.position(of: id, in: section, sections: sections) != nil else { continue }
             // This Mac's daemon placed the workspace by the setting in its create: no second write for that
             // slot. Another machine's create writes no row in this Mac's order, so the app places it.
             let slot = pending.slot ?? (daemon.isLocal ? pending.byDefault?.move(for: id, section: section, in: sections, home: home)
                 : pending.byDefault?.slot(for: id, section: section, in: sections, home: home))
+            pendingPlacements[id] = nil
             if let position = slot?.position(moving: [id], section: section, in: sections) {
                 bridge.place([SidebarWorkspaceID(id)], at: position, in: sections)
             }

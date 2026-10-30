@@ -100,6 +100,12 @@ fn is_backdrop_selection(row: &Row) -> bool {
 }
 
 fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
+    // `workspaces.newPlacement=top` is a retired value. It remains readable
+    // for existing configs and is exported in the row's accepted samples, but
+    // it is intentionally absent from the visible Settings choices.
+    if row.path == ["workspaces", "newPlacement"] && value.as_str() == Some("top") {
+        return true;
+    }
     match row.validation {
         super::Validation::Domain(DomainKind::ChatRoots) => {
             let home = std::env::var("HOME").unwrap_or_default();
