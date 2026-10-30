@@ -16,8 +16,14 @@ import Foundation
     public private(set) var writes: [String: Task<Void, Never>] = [:]
     /// A turn-on confirm is up: a second one asks nothing and is refused.
     private var confirming = false
+    private var claimedGestures: Set<TimeInterval> = []
 
     public nonisolated init() {}
+
+    /// Claims one person-backed page gesture process-wide, so two Settings windows cannot reuse it.
+    public func claimGesture(_ event: TimeInterval) -> Bool {
+        claimedGestures.insert(event).inserted
+    }
 
     @MainActor public final class WritePermit {
         private(set) var valid = true

@@ -88,10 +88,9 @@ final class SettingsPageProvider: PageProvider {
     var setMachineVmHost: (@MainActor (String, Bool) async -> String?)?
     /// Touch ID or the password, which every turn-on of Full access or Dedicated agent machine needs; nil, never.
     var ownerConfirm: (any DeviceOwnerAuthenticating)?
-    let wideningGate = PageWideningGate()
-    /// The gesture (``PageCallContext/gestureEvent``) that last turned a device's Full access on:
-    /// one click or key turns on one setting.
-    private var spentFullAccessGesture: TimeInterval?
+    let wideningGate: PageWideningGate
+    /// The gesture consumed by the joined-screen/control consent switch.
+    private var spentJoinConsentGesture: TimeInterval?
     /// Results of recent writes by idempotency key (a retried key replays its first answer).
     private var replies: [(key: String, value: JSONValue)] = []
     private static let replayLimit = 64
@@ -99,10 +98,11 @@ final class SettingsPageProvider: PageProvider {
     private static let overrideRounds = 4
 
     init(settings: SettingsController, domains: @escaping @MainActor () -> [String: [String]] = { [:] },
-         hostLists: (@MainActor () -> JSONValue)? = nil) {
+         hostLists: (@MainActor () -> JSONValue)? = nil, wideningGate: PageWideningGate = PageWideningGate()) {
         self.settings = settings
         self.domains = domains
         self.hostLists = hostLists
+        self.wideningGate = wideningGate
     }
 
     /// A theme's colors as the page reads them (`GhosttyTheme` in webviews/src/theme/ghosttyTheme.ts).
@@ -127,8 +127,7 @@ final class SettingsPageProvider: PageProvider {
         let refusal = PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
         if on {
             guard context.page == PageDescriptor.settings.id, context.userGesture, let event = context.gestureEvent,
-                  event != spentFullAccessGesture, personBacksGesture?(event) == true else { throw refusal }
-            spentFullAccessGesture = event
+                  personBacksGesture?(event) == true, wideningGate.claimGesture(event) else { throw refusal }
         }
         let confirm: (@MainActor () async -> Bool)?
         if let owner = ownerConfirm {
@@ -196,10 +195,10 @@ final class SettingsPageProvider: PageProvider {
             // Off only narrows, so it needs no gesture and takes any input.
             if on {
                 guard context.page == PageDescriptor.settings.id, context.userGesture, let event = context.gestureEvent,
-                      event != spentFullAccessGesture, personBacksGesture?(event) == true else {
+                      event != spentJoinConsentGesture, personBacksGesture?(event) == true else {
                     throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
                 }
-                spentFullAccessGesture = event
+                spentJoinConsentGesture = event
             }
             return try await Self.host(setJoinConsent, "devices")(surface, on).map { ["error": .string($0)] } ?? .object([:])
         case "cmux.settings.machines.vm_host":
