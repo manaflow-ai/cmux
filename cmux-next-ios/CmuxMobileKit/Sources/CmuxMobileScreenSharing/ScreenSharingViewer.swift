@@ -209,13 +209,13 @@ public final class ScreenSharingViewer: Identifiable {
             _ = session.phase
         } onChange: { [weak self, weak session] in
             // task-owner: hops the observation change to the main actor; re-arms on the next change
-            Task { @MainActor in
-                guard let self, let session, screen === session else { return }
+            Task { @MainActor [weak self, weak session] in
+                guard let self, let session, self.screen === session else { return }
                 switch session.phase {
                 case .failed, .ended:
-                    streamDropped(sessionID)
+                    self.streamDropped(sessionID)
                 case .connecting, .connected:
-                    watch(session, sessionID: sessionID)
+                    self.watch(session, sessionID: sessionID)
                 }
             }
         }
