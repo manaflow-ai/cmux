@@ -704,6 +704,39 @@ class PrePushGateTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.remote_head(), self.git("rev-parse", "HEAD").stdout.strip())
 
+    def test_push_that_adds_a_swiftformat_violation_is_refused_and_named(self):
+        # The SwiftFormat lane printed only "Source input did not pass lint check." under --quiet, with no
+        # file:line, so no finding ever reached the gate (b7-branch2-reviewer-4, 2026-10-29).
+        before = self.remote_head()
+        self.kit("Spaced", NEW_CLEAN.replace("Fresh", "Spaced").replace("    let work", "\n\n    let work", 1))
+        self.commit("adds two blank lines in a row")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before, "the badly formatted commit must not reach origin")
+        self.assertIn("Spaced.swift", output)
+        self.assertIn("consecutiveBlankLines", output)
+
+    def test_a_push_next_to_old_swiftformat_debt_passes(self):
+        # Only what the push adds is new: a file that already breaks a format rule on the base passes when the
+        # push edits another line of it.
+        spaced = NEW_CLEAN.replace("Fresh", "Spaced").replace("    let work", "\n\n    let work", 1)
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        self.kit("Spaced", spaced)
+        self.commit("old format debt on the base")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        self.kit("Spaced", spaced.replace("Data(blockingContentsOf: url)", "Data(blockingContentsOf: url.standardizedFileURL)"))
+        self.commit("edits another line of the file")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertNotIn("consecutiveBlankLines", output, "old format debt must not be reported")
+
     def test_branch_checker_changes_are_not_executed_by_the_installed_hook(self):
         marker = self.root / "branch-checker-ran"
         self.write(

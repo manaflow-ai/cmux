@@ -675,8 +675,14 @@ def swiftformat(binary: Path, config: Path, tree: Path, swift: list[str]) -> str
     if not present:
         return ""
     cache = tools_dir() / "swiftformat.cache"
-    _, out = run([str(binary), "--lint", "--config", str(config), "--cache", str(cache), "--quiet", *present], tree)
-    return "\n".join(l for l in out.splitlines() if LOCATION.search(l))
+    # No --quiet: with it SwiftFormat 0.64 prints only "Source input did not pass lint check." and no
+    # file:line, so the LOCATION filter dropped every finding and this layer never refused a push.
+    code, out = run([str(binary), "--lint", "--config", str(config), "--cache", str(cache), *present], tree)
+    found = [l for l in out.splitlines() if LOCATION.search(l)]
+    if code != 0 and not found:
+        # A failure with no located finding (a parse error, a bad config) is a broken check, not a pass.
+        return "swiftformat --lint failed with no finding: " + (out.strip().splitlines() or ["no output"])[-1]
+    return "\n".join(found)
 
 
 def swiftlint(binary: Path, config: Path, tree: Path, swift: list[str]) -> str:
