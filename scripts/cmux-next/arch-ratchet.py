@@ -542,6 +542,23 @@ def escape_audit(record: dict | None, sites: list, today: str) -> list[str]:
     return out
 
 
+def exception_audit(record: dict | None, today: str) -> list[str]:
+    """Report lines (never a gate) on RECORD's hand-written exceptions: each one past its `expiry`, and each one with
+    no independent review (review_problems), applied or pending. A generated `raised_by` entry is not judged."""
+    out = []
+    for entry in exceptions_of(record):
+        if not isinstance(entry, dict) or generated(entry):
+            continue
+        where = (f"{entry.get('date', '?')} {entry.get('row', '?')} +{entry.get('allow', '?')} "
+                 f"(owner {entry.get('owner') or '?'})")
+        lacks = review_problems(entry)
+        if lacks:
+            out.append(f"exception with no independent review: {where}: lacks {', '.join(lacks)}")
+        elif str(entry.get("expiry")) < today:
+            out.append(f"exception expired {entry.get('expiry')}: {where}")
+    return out
+
+
 def stale_rows(changes: Changes, dropped: dict[str, int]) -> list[str]:
     """The DROPPED rows (row: drop over CHANGES' range) whose recorded total the push leaves stale.
 
@@ -929,7 +946,8 @@ def audit(repo: Path, rev: str = "HEAD") -> dict:
     sha, now, _ = counts.full_count(repo, rev)
     record = parse_record(counts.Git(repo).read([(sha, counts.RATCHET_JSON)])[(sha, counts.RATCHET_JSON)])
     result = {"sha": sha, "recorded_sha": None, "over": {}, "note": None,
-              "escapes": escape_audit(record, now.sites[ESCAPE_ROW], datetime.date.today().isoformat())}
+              "escapes": escape_audit(record, now.sites[ESCAPE_ROW], datetime.date.today().isoformat()),
+              "exceptions": exception_audit(record, datetime.date.today().isoformat())}
     if record is None:
         result["note"] = f"no {counts.RATCHET_JSON} at {sha[:11]}"
         return result
@@ -951,6 +969,7 @@ def audit(repo: Path, rev: str = "HEAD") -> dict:
 
 def audit_lines(result: dict) -> list[str]:
     escapes = [f"arch-ratchet audit at {result['sha'][:11]}: {ESCAPE_ROW} {line}" for line in result.get("escapes", [])]
+    escapes += [f"arch-ratchet audit at {result['sha'][:11]}: {line}" for line in result.get("exceptions", [])]
     if result["note"]:
         return [f"arch-ratchet audit at {result['sha'][:11]}: {result['note']}"] + escapes
     if not result["over"]:

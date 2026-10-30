@@ -1223,6 +1223,21 @@ class RatchetTests(Repo):
         refusals, _ = self.check(base=base)
         self.assertEqual(self.rows(refusals), [ratchet.RECORD_ROW])
 
+    def test_the_audit_lists_expired_and_unreviewed_exceptions(self):
+        old = {"date": "2026-10-23", "row": "stateful_singletons", "allow": 1, "why": "fixture", **REVIEW,
+               "expiry": "2000-01-01"}
+        self.write(counts.RATCHET_JSON, json.dumps({"exceptions": [
+            dict(old, date="1999-12-31"),
+            {"date": "2026-10-23", "row": "observer_sites", "allow": 2, "why": "no review fields"},
+            {"date": "2026-10-23", "row": "layer_hard", "allow": 1, "why": "fixture", **REVIEW, "expiry": "2999-01-01"},
+            {"date": "2026-10-23", "row": "app_lines", "allow": 1, "why": "generated", "raised_by": ["a" * 40]}]}))
+        self.commit("exceptions: one expired, one unreviewed, one current, one generated")
+        lines = "\n".join(ratchet.audit_lines(ratchet.audit(self.repo)))
+        self.assertIn("exception expired 2000-01-01: 1999-12-31 stateful_singletons +1 (owner PL-arch)", lines)
+        self.assertIn("exception with no independent review: 2026-10-23 observer_sites +2", lines)
+        self.assertNotIn("layer_hard", lines)
+        self.assertNotIn("app_lines +1", lines)
+
     def test_the_audit_lists_escapes_with_no_review_and_expired_ones(self):
         path = f"{SRC}/CmuxNextDomain/Reader.swift"
         self.write(path, "final class Reader {\n    func read() {\n        // blocking-allow: one byte\n"
