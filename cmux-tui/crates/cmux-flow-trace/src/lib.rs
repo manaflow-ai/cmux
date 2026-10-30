@@ -92,7 +92,7 @@ impl Ring {
     fn push(&self, record: Record) -> bool {
         let mut position = self.tail.load(Ordering::Relaxed);
         loop {
-            let slot = &self.slots[position & (RING_SLOTS - 1)];
+            let Some(slot) = self.slots.get(position & (RING_SLOTS - 1)) else { return false };
             let sequence = slot.sequence.load(Ordering::Acquire);
             let difference = sequence as isize - position as isize;
             if difference == 0 {
@@ -121,7 +121,7 @@ impl Ring {
     /// Pops the oldest published record (the writer thread only).
     fn pop(&self) -> Option<Record> {
         let position = self.head.load(Ordering::Relaxed);
-        let slot = &self.slots[position & (RING_SLOTS - 1)];
+        let slot = self.slots.get(position & (RING_SLOTS - 1))?;
         if slot.sequence.load(Ordering::Acquire) != position + 1 {
             return None;
         }
@@ -194,7 +194,8 @@ fn write_records(file: std::fs::File, sink: &Shared) {
     loop {
         let mut count = 0;
         while let Some(record) = sink.ring.pop() {
-            let terminal = &record.terminal[..usize::from(record.terminal_len)];
+            let terminal =
+                record.terminal.get(..usize::from(record.terminal_len)).unwrap_or_default();
             let _ = writeln!(
                 out,
                 "{{\"hop\":\"{}\",\"flow\":{},\"terminal\":\"{}\",\"pid\":{},\"tid\":{},\"t_ns\":{}}}",
@@ -252,7 +253,9 @@ pub fn hop(name: &'static str, flow: u64, terminal: &str) {
         tid: thread_id(),
         t_ns: now_ns(),
     };
-    record.terminal[..len].copy_from_slice(&bytes[..len]);
+    if let (Some(into), Some(from)) = (record.terminal.get_mut(..len), bytes.get(..len)) {
+        into.copy_from_slice(from);
+    }
     push(sink, record);
 }
 
@@ -268,14 +271,21 @@ pub fn hop_id(name: &'static str, flow: u64, terminal: &[u8; 16]) {
         tid: thread_id(),
         t_ns: now_ns(),
     };
-    for (index, byte) in terminal.iter().enumerate() {
-        record.terminal[2 * index] = HEX[usize::from(byte >> 4)];
-        record.terminal[2 * index + 1] = HEX[usize::from(byte & 0x0f)];
+    for (pair, byte) in record.terminal.chunks_exact_mut(2).zip(terminal) {
+        if let [high, low] = pair {
+            *high = hex_digit(byte >> 4);
+            *low = hex_digit(byte & 0x0f);
+        }
     }
     push(sink, record);
 }
 
 const HEX: &[u8; 16] = b"0123456789abcdef";
+
+/// The lowercase hex digit of the low four bits of `nibble`.
+fn hex_digit(nibble: u8) -> u8 {
+    HEX.get(usize::from(nibble & 0x0f)).copied().unwrap_or(b'0')
+}
 
 fn push(sink: &Sink, record: Record) {
     let shared = &sink.shared;
@@ -314,8 +324,8 @@ pub fn flush() -> bool {
 pub fn hex(id: &[u8]) -> String {
     let mut out = String::with_capacity(id.len() * 2);
     for byte in id {
-        out.push(char::from(HEX[usize::from(byte >> 4)]));
-        out.push(char::from(HEX[usize::from(byte & 0x0f)]));
+        out.push(char::from(hex_digit(byte >> 4)));
+        out.push(char::from(hex_digit(byte & 0x0f)));
     }
     out
 }

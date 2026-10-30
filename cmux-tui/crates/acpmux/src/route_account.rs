@@ -25,6 +25,19 @@ pub fn home_var(family: &str) -> Option<&'static str> {
     }
 }
 
+/// `VAR=<home> <command>` when the CLI runs in an account home of its own.
+pub(crate) fn login_command(
+    command: Option<String>,
+    home: Option<(&str, &Path)>,
+) -> Option<String> {
+    let command = command?;
+    let Some((var, home)) = home else { return Some(command) };
+    let home = home.display().to_string();
+    let safe = home.chars().all(|c| c.is_ascii_alphanumeric() || "/._-~".contains(c));
+    let home = if safe { home } else { format!("'{}'", home.replace('\'', r"'\''")) };
+    Some(format!("{var}={home} {command}"))
+}
+
 /// `accountHome` of a route/add request: absent or null is none; anything
 /// else must be a path ([`validate`]), never an empty or non-string value
 /// that would quietly mean the default login.
@@ -127,6 +140,22 @@ pub fn record(meta: &mut SessionMeta, home: Option<&Path>) -> bool {
         }
         _ => false,
     }
+}
+
+/// `meta`'s env as its spawn builds it from `harness_env` (`Hub::harness_env`: profile, preset
+/// and chat store): each value expanded (`~/work`, `${home}/work`), then the chat's own env
+/// over it, unexpanded (`hub/spawn.rs`). Before its route.
+pub fn spawn_env(
+    meta: &SessionMeta,
+    mut harness_env: BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
+    let home = dirs::home_dir().unwrap_or_default();
+    let model = meta.model_request.clone().unwrap_or_default();
+    for value in harness_env.values_mut() {
+        *value = crate::hub::expand_env_value(value, &meta.cwd, &home, &model);
+    }
+    harness_env.extend(meta.session_env.clone());
+    harness_env
 }
 
 /// The folder `meta`'s conversation is kept in when it is not the CLI's

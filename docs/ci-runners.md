@@ -33,6 +33,20 @@ the exact head, treats ordinary pending and base-red findings as non-blocking,
 and still holds a required compile, risk, fast-gates or freeze verdict. Do not
 use `gh-merge-green` as a second gate for a feat-cmux-next PR.
 
+When the helper's merged-tree web check runs, local dependency installation and
+`vp check` require an explicit allow verdict from the shared fleet host policy,
+`leo-workspace/tools/host_policy.py heavy-local-ok --json`. The helper finds the
+workspace at `$HOME/Projects/leo-workspace`, then `$HOME/src/leo-workspace`;
+`LEO_WORKSPACE` selects a different workspace root. The policy reads the fleet
+registry; the merge helper carries no host list. A no-build or unknown host
+(including a missing policy helper) skips only this heavy local web check and
+prints the exact merged tree, base and head as **not checked**. Run any needed
+web validation through `cmux-ci test` on a supported remote worker. Only exit 0
+with a well-formed allow response permits heavy local work. Every other result,
+including a crash, usage error or malformed response, skips the heavy local
+check with a named warning rather than adding a merge gate. GitHub checks, freezes, merge
+conflict detection and the scoped Swift check retain their existing behavior.
+
 `ci-status` is an aggregate verdict, not a useful build step. On the feature
 line it waits on 11 legacy jobs even though its own verdict job took 3 seconds
 and the sampled run took 52 seconds from creation to completion (run
@@ -967,18 +981,27 @@ Blacksmith is overflow, so when it stops starting jobs the fix is to stop
 sending overflow there, not to reroute a lane. `ci-cloud-overflow-probe.yml`
 does that automatically (`scripts/ci/cloud_overflow_switch.py`). Every 10
 minutes its `probe` job asks for one Blacksmith label and prints a line, and
-its `watch` job, on GitHub-hosted Linux, waits for the probe:
+its `watch` job, on another Blacksmith pool, waits for the probe:
 
 - **The probe waits `CI_CLOUD_PROBE_MINUTES` (default 5, 2 to 20) with no
   runner.** Overflow goes off. The switch first writes the
   `CI_CLOUD_OVERFLOW_SAVED` record (each variable's value before, its
   failover, when and which run), then points the variables at their
-  failovers: `LINUX_RUNNER` and `CI_TRUSTED_RUNNER` to `ubuntu-24.04`, `MACOS_RUNNER_15`, `_26`,
+  failovers: `LINUX_RUNNER` to `blacksmith-16vcpu-ubuntu-2404` (32 vCPU when it
+  already names 16) and `CI_TRUSTED_RUNNER` to `blacksmith-2vcpu-ubuntu-2404`
+  (4 when it names 2), never GitHub-hosted Ubuntu, `MACOS_RUNNER_15`,
   `_26_LARGE`, `_PR` and `_DUAL_XCODE` to the std owned pool of the lane's
   Xcode pin (`glaeda-std-xcode-<version>` from `CMUX_CI_XCODE_APP_PR`),
   `MACOS_RUNNER_DISPLAY` to its gui label, `MACOS_RUNNER_IOS` to
   `glaeda-ios-sim`, and `CI_PAID_MACOS_OVERFLOW` to `1` so the gated ones are
-  read. That is the lever pulled by hand on 2026-09-29. Only a variable that
+  read. That is the lever pulled by hand on 2026-09-29. `MACOS_RUNNER_26` and
+  `LINUX_RUNNER` are the variables signing jobs read
+  (`scripts/ci/signing_runner_variables.py`), so the switch never writes a
+  label other than `blacksmith-*` or `ubuntu-*` to them: `MACOS_RUNNER_26`
+  has no owned failover, an override naming a reused machine for either is
+  refused, and a stalled probe never re-applies an older record's owned value
+  to one (on 2026-10-28 that turned `signing-runner-variables` red on every
+  pull request). Only a variable that
   is unset or names a `blacksmith-*` label changes; one someone pointed
   elsewhere is left alone. Then up to 25 runs holding a job queued 5 minutes
   or more on a `blacksmith-*` label are force-cancelled (a plain cancel did
@@ -993,17 +1016,26 @@ its `watch` job, on GitHub-hosted Linux, waits for the probe:
 - **The probe starts.** If the record exists, each variable it changed is put
   back (a variable changed by hand since is left alone and named) and the
   record is deleted. While the record exists the probe asks for the label it
-  names, not `LINUX_RUNNER`, which is GitHub-hosted then.
+  names, not `LINUX_RUNNER`, which names the failover size then.
 
-The Linux compile jobs on the 16 and 32 vCPU sizes follow `LINUX_RUNNER` only
-while it is off Blacksmith. Their trusted fallback is
-`!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || '<size>'`:
-while `LINUX_RUNNER` is unset or names a `blacksmith-*` label (the steady
-4 vCPU value) they take their own size, and once the switch points it at
-`ubuntu-24.04` they run there too, so the switch's rerun does not queue them
-on the stalled pool again. When the switch puts `LINUX_RUNNER` back, they
-return to their size. `tests/test_ci_linux_compile_runners.py` pins each
+The Linux compile jobs on the 16 and 32 vCPU sizes keep their own size. Their
+trusted fallback is
+`!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && '<other size>' || '<size>'`:
+a non-Blacksmith `LINUX_RUNNER` an operator sets wins; while the switch's
+record exists they take the other size (16 and 32 swap), so the switch's rerun
+does not queue them on the stalled pool again; otherwise their own size. `tests/test_ci_linux_compile_runners.py` pins each
 selector.
+
+A runs-on that names a Blacksmith Linux label literally and reads neither
+variable puts `vars.CI_CLOUD_OVERFLOW_SAVED && '<another Blacksmith size>' ||`
+before that final label, so it moves to another Blacksmith Linux size while
+the record exists, the switch's own pairing (16 and 32 vCPU swap, 2 goes to 4,
+4 and 8 go to 16), never GitHub-hosted Ubuntu; an unset record is falsy and
+the job keeps its own label. On
+2026-10-27 those jobs got no runner for the whole outage.
+`tests/test_ci_blacksmith_linux_failover.py` fails on a new one. Nightly,
+notarization, dev-daily and release or publish workflows are not covered
+yet.
 
 The lane switches (`CI_PR_POOL_OWNED`, `CI_E2E_OWNED_UI`, `CI_IOS_OWNED` and
 the other `CI_OWNED_*`) are never touched: minis first does not change, only

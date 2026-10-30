@@ -23,6 +23,8 @@
 //! on stdout (a pull's conflict adds `"conflicts":[paths]` under
 //! `sync_conflict`), exit 1; bad usage exits 64. Unix only, like the link.
 
+use cmux_json::JsonSet as _;
+
 mod base;
 mod git_back;
 mod local;
@@ -107,7 +109,7 @@ pub(super) fn run(args: &[String]) -> i32 {
     match push(&socket, &local, &remote) {
         Ok(summary) => {
             let mut line = summary.json();
-            line["ok"] = json!(true);
+            line.set("ok", json!(true));
             println!("{line}");
             0
         }

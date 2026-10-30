@@ -41,7 +41,12 @@
 # Exit 0 when a commit was requested or
 # none is ready yet, 2 on bad usage, 1 on an API failure.
 # Env: CMUX_NIGHTLY_NEXT_RUN_WINDOW (default 99) recent first-parent commits searched;
-# CMUX_NIGHTLY_NEXT_MAX_REFUSED (default 5) unpromotable candidates passed over.
+# CMUX_NIGHTLY_NEXT_MAX_REFUSED (default 5) unpromotable candidates passed over;
+# NIGHTLY_NEXT_PROMOTE=1 dispatches the promotion. Only main's 30-minute
+# nightly-next-tick.yml sets it: every promotion starts a full nightly build, and
+# when each landing promoted, six ran at once (2026-10-28). Without it the script
+# runs every check and reports the commit it would promote, and the tick
+# promotes it within 30 minutes.
 set -euo pipefail
 
 sha="" repo="" mode=""
@@ -156,9 +161,15 @@ request() { # <sha>
     return 1
   fi
   # Main's promote guard requires the tree-commit marker (the same check), so
-  # a commit without one is not requested: the backfill marks it.
+  # a commit without one is not requested: the backfill marks it. A tip whose
+  # tree is still building (request_tree_pending) is the exception main's
+  # guard makes too: its nightly waits for the marker before it publishes.
   local marker_rc=0
-  bash "$script_dir/tree-commit-marker.sh" check "$1" >/dev/null || marker_rc=$?
+  if [[ "${tree_pending_request:-}" == "$1" ]]; then
+    echo "${1:0:12}: its tree is still building; its nightly.yml waits for it at install (NIGHTLY_NEXT_TREE_AT_INSTALL)"
+  else
+    bash "$script_dir/tree-commit-marker.sh" check "$1" >/dev/null || marker_rc=$?
+  fi
   if (( marker_rc == 1 )); then
     echo "not promoting ${1:0:12}: its tree is ready but it has no tree-commit marker yet"
     backfill "${1:0:12} has a ready tree and no tree-commit marker"
@@ -167,11 +178,53 @@ request() { # <sha>
     echo "not promoting ${1:0:12}: read failure on its tree-commit marker (above); no backfill on a read failure"
     return 1
   fi
+  if [[ "${NIGHTLY_NEXT_PROMOTE:-}" != 1 ]]; then
+    echo "promotable ${1:0:12}: not requested here; the 30-minute nightly-next tick (nightly-next-tick.yml) promotes it"
+    return 0
+  fi
   if ! gh workflow run nightly.yml --repo "$repo" --ref main -f promote_nightly_next_sha="$1"; then
     echo "error: could not request the nightly-next promotion of $1" >&2
     return 2
   fi
-  echo "requested nightly-next promotion of $1 (published, daemon-tested cmux-tui tree; its nightly compiles it)"
+  if [[ "${tree_pending_request:-}" == "$1" ]]; then
+    echo "requested nightly-next promotion of $1 (its cmux-tui tree is building; its nightly compiles the app now and installs the tree's client)"
+  else
+    echo "requested nightly-next promotion of $1 (published, verified cmux-tui tree; its nightly compiles it)"
+  fi
+}
+
+# NIGHTLY_NEXT_TREE_AT_INSTALL: the feat-cmux-next tip whose tree is a
+# confirmed 404 (never a read failure), whose own nightly.yml carries the line
+# main's promote guard reads, and whose tree a cmux-tui-artifacts run is
+# building now (the run of the tip or of a first-parent ancestor with the same
+# key) is requested at once: its nightly compiles the app while the tree builds.
+# Returns request()'s codes, or 1 when it does not apply.
+request_tree_pending() {
+  local tip_line tip_key verify=0 commit runs active=""
+  tip_line="$(git ls-remote origin refs/heads/feat-cmux-next 2>/dev/null)" || return 1
+  [[ "${tip_line%%[[:space:]]*}" == "$sha" ]] || return 1
+  # The whole file first: `git show | grep -q` fails under pipefail on an early match.
+  local workflow
+  workflow="$(git show "$sha:.github/workflows/nightly.yml" 2>/dev/null)" || return 1
+  grep -qxE '[[:space:]]*NIGHTLY_NEXT_TREE_AT_INSTALL: v1[[:space:]]*' <<<"$workflow" || return 1
+  tip_key="$(python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "$sha" 2>/dev/null)" || return 1
+  bash "$script_dir/pin-cmux-tui.sh" verify-key "$tip_key" >/dev/null 2>&1 || verify=$?
+  (( verify == 1 )) || return 1
+  while read -r commit; do
+    [[ "$(python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "$commit" 2>/dev/null)" == "$tip_key" ]] || break
+    runs="$(gh run list --repo "$repo" --workflow cmux-tui-artifacts.yml --commit "$commit" --limit 5 --json status \
+      --jq '[.[] | select(.status != "completed")] | length' 2>/dev/null)" || continue
+    if [[ "$runs" =~ ^[1-9][0-9]*$ ]]; then active="$commit"; break; fi
+  done < <(git rev-list --first-parent -n 40 "$sha" 2>/dev/null)
+  if [[ -z "$active" ]]; then
+    echo "not requesting ${sha:0:12} before its tree: no active cmux-tui-artifacts run builds tree $tip_key"
+    return 1
+  fi
+  echo "${sha:0:12}: tree $tip_key is building in the cmux-tui-artifacts run of ${active:0:12}"
+  tree_pending_request="$sha"
+  local rc=0
+  request "$sha" || rc=$?
+  return "$rc"
 }
 
 # backfill <reason>: one cmux-tui-artifacts dispatch on feat-cmux-next, which
@@ -219,6 +272,12 @@ backfill() { # <reason>
 if ! resolved="$(env -u GITHUB_OUTPUT -u GITHUB_STEP_SUMMARY CMUX_TUI_TREE_DISPATCH=0 \
     CMUX_TUI_TREE_SEARCH_COMMITS=1 bash "$script_dir/pin-cmux-tui.sh" resolve-newest-published 2>&1)"; then
   printf '%s\n' "$resolved"
+  pending_rc=0
+  request_tree_pending || pending_rc=$?
+  case "$pending_rc" in
+    0) exit 0 ;;
+    2) exit 1 ;;
+  esac
   echo "not promoting ${sha:0:12}: the nightly cannot resolve a published cmux-tui tree for it yet"
   # The feat-cmux-next tip with no cmux-tui-artifacts run at all (a push that
   # started none, such as a GITHUB_TOKEN push) gets one. A tip whose run failed
@@ -240,17 +299,10 @@ fi
 key="$(sed -n 's/^key=//p' <<<"$resolved" | head -1)"
 [[ "$key" =~ ^[0-9a-f]{40}$ ]] || { printf '%s\n' "$resolved" >&2; echo "error: the resolver printed no tree key" >&2; exit 1; }
 
-# 1b. The daemon tests passed for this tree (tree-commit-marker.sh daemon-tested,
-# the check the marker writer uses). A read of source.json or daemon-tests.json
-# that is neither 200 nor 404 is a read failure: nothing is promoted (it used to
-# skip the daemon-tests check when source.json did not read).
-tested_rc=0
-bash "$script_dir/tree-commit-marker.sh" daemon-tested "$key" || tested_rc=$?
-case "$tested_rc" in
-  0) ;;
-  1) echo "not promoting ${sha:0:12}: tree $key is not daemon-tested yet; the artifacts run requests it when the tests pass"; exit 0 ;;
-  *) echo "not promoting ${sha:0:12}: read failure on tree $key's metadata (above); the next tick asks again"; exit 0 ;;
-esac
+# The tree's daemon tests are not awaited (2026-10-28, tree-commit-marker.sh's
+# header): they run after the publish and report on their own, and a failed
+# download in them held the feed for hours. Leo, 2026-10-23: "we want no smoke
+# tests".
 
 # 2. Both modes: the newest feat-cmux-next commit, by first-parent history,
 # that descends from nightly-next and has this tree key, whatever its Release
