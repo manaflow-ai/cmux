@@ -258,6 +258,7 @@ test("freshness releases its hidden timer and showing the page does not refresh"
     expect(calls).toEqual([]);
     jest.advanceTimersByTime(1);
     await Promise.resolve();
+    await Promise.resolve();
     expect(calls).toEqual(["link.inspect", "pr.inspect"]);
     stop();
     expect(pageClocks(doc).running).toBe(0);
