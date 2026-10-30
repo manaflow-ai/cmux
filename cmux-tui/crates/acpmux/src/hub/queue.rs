@@ -559,6 +559,42 @@ impl Hub {
         let joined = Arc::new(StdMutex::new(None));
         let declined = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let awaiting_owner = crate::author::awaits_owner(p.provenance);
+        // `prompt`, `control`, `trustGate`, the provenance and the sending agent let a new daemon
+        // run it (`restore_queues`). Made, and its images kept, before the queue's lock: a large
+        // image is written without holding up the queue.
+        let mut queued = json!({"text": p.text, "client": p.client, "position": position, "promptId": p.prompt_id, "turnId": turn_id, "prompt": p.blocks, "control": p.control.as_str(), "trustGate": p.trust_gate});
+        if let Some(agent) = p.agent {
+            queued.set("fromAgent", json!(agent));
+        }
+        if let Some(class) = p.class {
+            queued.set("class", json!(class));
+        }
+        if let Some(key) = p.supersede {
+            queued.set("supersede", json!(key));
+        }
+        // It waits for the owner (`queue_approve.rs`); a restart keeps it waiting.
+        if awaiting_owner {
+            queued["awaitingOwner"] = json!(true);
+            queued["revision"] = json!(0);
+        }
+        // Its images are kept now and named, so its row shows them before it runs
+        // (`prompt_images.rs`).
+        let images = super::prompt_images::keep(p.blocks);
+        if !images.is_empty() {
+            queued.set("images", Value::Array(images));
+        }
+        let inline_parts = super::prompt_images::inline_parts(
+            p.blocks,
+            queued.get("images").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default(),
+            p.display_parts,
+        );
+        if !inline_parts.is_empty() {
+            queued.set("inlineParts", Value::Array(inline_parts));
+        }
+        if let Some(display_parts) = p.display_parts {
+            queued.set("displayParts", display_parts.clone());
+        }
+        super::session::mark_pasted(&mut queued, p.blocks);
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         // Check and insert under one lock: simultaneous prompts cannot all reserve the last
         // held slot. Rejection precedes superseding and logging, so it has no queue side effects.
@@ -629,46 +665,10 @@ impl Hub {
         );
         let order: Vec<String> = queue.iter().map(|q| q.prompt_id.clone()).collect();
         let ahead = at + 1 < queue.len();
-        drop(queue);
         if let Some((gone, mut ledger)) = superseded {
             let ids = self.settle_superseded(session, gone, &mut ledger, p.prompt_id);
             let _ = p.replaced.set(ids);
         }
-        // `prompt`, `control`, `trustGate`, the provenance and the sending agent let a new daemon
-        // run it (`restore_queues`).
-        let mut queued = json!({"text": p.text, "client": p.client, "position": position, "promptId": p.prompt_id, "turnId": turn_id, "prompt": p.blocks, "control": p.control.as_str(), "trustGate": p.trust_gate});
-        if let Some(agent) = p.agent {
-            queued.set("fromAgent", json!(agent));
-        }
-        if let Some(class) = p.class {
-            queued.set("class", json!(class));
-        }
-        if let Some(key) = p.supersede {
-            queued.set("supersede", json!(key));
-        }
-        // It waits for the owner (`queue_approve.rs`); a restart keeps it waiting.
-        if awaiting_owner {
-            queued["awaitingOwner"] = json!(true);
-            queued["revision"] = json!(0);
-        }
-        // Its images are kept now and named, so its row shows them before it runs
-        // (`prompt_images.rs`).
-        let images = super::prompt_images::keep(p.blocks);
-        if !images.is_empty() {
-            queued.set("images", Value::Array(images));
-        }
-        let inline_parts = super::prompt_images::inline_parts(
-            p.blocks,
-            queued.get("images").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default(),
-            p.display_parts,
-        );
-        if !inline_parts.is_empty() {
-            queued.set("inlineParts", Value::Array(inline_parts));
-        }
-        if let Some(display_parts) = p.display_parts {
-            queued.set("displayParts", display_parts.clone());
-        }
-        super::session::mark_pasted(&mut queued, p.blocks);
         #[cfg(test)]
         {
             let seam = self.queued_log_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
@@ -698,6 +698,10 @@ impl Hub {
                 json!({"held": [p.prompt_id], "reason": "stop"}),
             );
         }
+        // Logged under the lock that put it in, as approvals, declines and edits are
+        // (`queue_approve.rs`, `queue_edit.rs`): none of them can be logged before its `queued`
+        // record, which a restart would read as a prompt no answer reached (review of #26747).
+        drop(queue);
         Ok((withdraw, joined, declined))
     }
 
