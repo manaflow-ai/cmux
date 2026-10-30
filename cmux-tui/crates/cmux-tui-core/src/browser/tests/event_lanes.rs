@@ -175,7 +175,7 @@ fn registry_waits_do_not_block_other_event_lanes() {
         .collect::<Vec<_>>();
 
     let (entered_tx, entered_rx) = mpsc::channel();
-    let (release_tx, release_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel::<()>();
     let registry_mux = mux.clone();
     let holder = thread::spawn(move || {
         registry_mux
