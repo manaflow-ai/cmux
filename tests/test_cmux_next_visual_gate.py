@@ -5,6 +5,7 @@ state files load; and nightly.yml wires the gate in front of publish-nightly."""
 
 from __future__ import annotations
 
+import datetime as dt
 import importlib.util
 import json
 import os
@@ -800,6 +801,44 @@ class AwaitGateTests(unittest.TestCase):
         self.assertEqual((verdict, blocks), ("unavailable", False))
         self.assertEqual(looks, [hold - 10, hold])
 
+    def test_the_budget_runs_from_the_signed_dmg_check_by_githubs_clock(self):
+        # The verdict job queued 8 min for its own Linux runner after the DMG check finished: the
+        # 10 min run out 2 min after it starts, and a hold counts only if the gate finished in time.
+        queue, hold, dmg_done = 5 * 60, 10 * 60, 1_000_000.0
+        stamp = lambda s: dt.datetime.fromtimestamp(s, dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        dmg = {"id": 2, "name": "Verify final nightly DMG (arm64)", "status": "completed",
+               "conclusion": "success", "completed_at": stamp(dmg_done)}
+
+        def run(gate_for, wall_start=dmg_done + 8 * 60):
+            now, looks = [0.0], []
+
+            def fetch():
+                looks.append(now[0])
+                return self.OTHERS + [dmg] + gate_for(wall_start + now[0])
+            result = self.mode.await_gate(fetch, "visual-gate-nightly", queue, hold, since="Verify final nightly DMG",
+                                          clock=lambda: now[0], wall=lambda: wall_start + now[0],
+                                          sleep=lambda s: now.__setitem__(0, now[0] + s))
+            return result, looks
+
+        running = [gate_job("in_progress", runner="mac")]
+        (verdict, blocks, _), looks = run(lambda wall: running)
+        self.assertEqual((verdict, blocks), ("unavailable", False))
+        self.assertEqual(looks[-1], 2 * 60)
+        # Finished with a hold 9 min after the DMG check, before this job could even start: it counts.
+        early = dict(gate_job("completed", "failure", "mac", marker="success"), completed_at=stamp(dmg_done + 540))
+        (verdict, blocks, _), looks = run(lambda wall: [early], wall_start=dmg_done + 30 * 60)
+        self.assertEqual((verdict, blocks), ("fail", True))
+        self.assertEqual(looks, [0.0])
+        # Finished with a hold 11 min after it: too late to hold anything.
+        late = dict(early, completed_at=stamp(dmg_done + 660))
+        (verdict, blocks, why), _ = run(lambda wall: [late], wall_start=dmg_done + 12 * 60)
+        self.assertEqual((verdict, blocks), ("unavailable", False))
+        self.assertIn("after the 10 min budget", why)
+        # The DMG check still running (a re-run's view) or absent: the budget runs from now.
+        (verdict, blocks, _), looks = run(lambda wall: [], wall_start=dmg_done)
+        self.assertEqual(self.mode.all_finished_at([dict(dmg, status="in_progress")], "Verify final"), None)
+        self.assertEqual(self.mode.all_finished_at([], "Verify final"), None)
+
     def test_an_unreadable_api_blocks_nothing_and_a_blip_is_retried(self):
         (verdict, blocks, why), looks = self.poll(lambda now: RuntimeError("HTTP 502"))
         self.assertEqual((verdict, blocks), ("unavailable", False))
@@ -1150,7 +1189,7 @@ class WiringTests(unittest.TestCase):
         self.assertNotIn("secrets.", verdict)
         # Bounded: on attempt 1 at most 10 min past the signed build (5 for a gate still queued); a
         # re-run, which starts the gate beside this job, the queue budget plus the gate's own timeout.
-        self.assertIn("budget=(--queue-budget-minutes 5 --hold-minutes 10)", verdict)
+        self.assertIn('budget=(--queue-budget-minutes 5 --hold-minutes 10 --since-job "Verify final nightly DMG")', verdict)
         self.assertIn("budget=(--queue-budget-minutes 15 --gate-timeout-minutes 75)", verdict)
         self.assertIn("GATE_MODE: ${{ needs.route-visual-gate-nightly.outputs.mode }}", verdict)
         self.assertIn("timeout-minutes: 75", gate)
@@ -1168,7 +1207,8 @@ class WiringTests(unittest.TestCase):
     def test_the_wait_is_short_on_attempt_1_and_whole_on_a_re_run(self):
         body = self.step_body("visual-gate-nightly-verdict",
                               "Wait for the visual gate, at most 10 min past the signed build")
-        for attempt, expected in (("1", ["--queue-budget-minutes", "5", "--hold-minutes", "10"]),
+        for attempt, expected in (("1", ["--queue-budget-minutes", "5", "--hold-minutes", "10", "--since-job",
+                                         "Verify", "final", "nightly", "DMG"]),
                                   ("2", ["--queue-budget-minutes", "15", "--gate-timeout-minutes", "75"])):
             with tempfile.TemporaryDirectory() as tmp, self.subTest(attempt=attempt):
                 tmp = Path(tmp)
@@ -1183,7 +1223,7 @@ class WiringTests(unittest.TestCase):
                 self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
                 args = out.read_text().split("args=", 1)[1].split()
                 self.assertEqual(args[args.index("--mode"):args.index("--mode") + 2], ["--mode", "enforce"])
-                self.assertEqual(args[-4:], expected)
+                self.assertEqual(args[-len(expected):], expected)
 
     def test_the_gate_marks_the_build_it_holds_in_a_step_the_verdict_job_reads(self):
         gate = self.job("visual-gate-nightly")

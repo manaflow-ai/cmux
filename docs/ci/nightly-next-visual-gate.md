@@ -136,7 +136,10 @@ publication doesn't wait for the gate at all.
    (`nightly_next_canary_mode.py await-gate`) once a minute. On a run's
    first attempt it starts only once the signed build is ready (it needs
    `verify-final-dmg-nightly`), so the gate has had the whole build to get a
-   runner and finish:
+   runner and finish. Its budgets run from when that check finished, by
+   GitHub's timestamps, so time this job spends waiting for its own Linux
+   runner counts against them, and a hold counts only when the gate itself
+   finished within them:
    - Outside enforce mode it waits for nothing: no verdict can hold the
      build, so the job ends at once with the verdict `report`.
    - Still waiting for a runner 5 minutes after the signed build was ready
