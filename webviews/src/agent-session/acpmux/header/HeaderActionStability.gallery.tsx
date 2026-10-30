@@ -20,9 +20,7 @@ const pullRequest = {
 
 function HeaderActionStability({ busy = false }: { busy?: boolean }) {
   const [merging, setMerging] = useState<Merging>({ step: busy ? "merging" : "confirm" });
-  const [applying, setApplying] = useState<Applying>(
-    busy ? { step: "applying", key: "gallery" } : { step: "idle" },
-  );
+  const [applying, setApplying] = useState<Applying>(busy ? { step: "applying", key: "gallery" } : { step: "idle" });
   const [removing, setRemoving] = useState<Removing>(
     busy ? { step: "removing", key: "gallery", discard: false } : { step: "idle" },
   );
