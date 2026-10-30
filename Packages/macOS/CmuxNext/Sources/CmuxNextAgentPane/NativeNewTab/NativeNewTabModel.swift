@@ -14,24 +14,44 @@ public final class NativeNewTabModel {
     /// The page's context: its omnibar lists (open tabs, workspaces, pages, palette actions).
     public private(set) var page: AgentPaneNewTab
     /// The field's text.
-    public var text: String = "" { didSet { if text != oldValue { highlighted = nil } } }
+    public var text: String = "" {
+        didSet {
+            guard text != oldValue else { return }
+            highlighted = nil
+            if !text.isEmpty { loadPaletteActions() }
+        }
+    }
     /// The Terminal | Browser | Agent switch.
     public var kind: AgentPaneTabKind
     /// The highlighted row's index in ``rows``; nil is the first row (Return's default).
     public var highlighted: Int?
     @ObservationIgnored private let actions: NativeNewTabActions
     @ObservationIgnored private let ranker: NativeNewTabRanker
+    /// Lists the palette's actions; run once, at the first keystroke or ``loadPaletteActions()``.
+    @ObservationIgnored private var paletteActions: (@MainActor () -> [AgentPaneOmnibar.Action])?
 
     /// Creates the model.
     /// - Parameters:
     ///   - page: The page's context, as the web page gets it.
     ///   - actions: What the page asks its host to do.
     ///   - ranker: Picks the dropdown's rows.
-    public init(page: AgentPaneNewTab, actions: NativeNewTabActions, ranker: NativeNewTabRanker = NativeNewTabRanker()) {
+    ///   - paletteActions: The Commands palette's actions, when `page` was built without them so the
+    ///     page shows first; nil when `page.omnibar.actions` already holds them.
+    public init(page: AgentPaneNewTab, actions: NativeNewTabActions, ranker: NativeNewTabRanker = NativeNewTabRanker(),
+                paletteActions: (@MainActor () -> [AgentPaneOmnibar.Action])? = nil) {
         self.page = page
         self.kind = page.kind
         self.actions = actions
         self.ranker = ranker
+        self.paletteActions = paletteActions
+    }
+
+    /// Fills the dropdown's palette actions if they are not there yet (the host calls it on the frame
+    /// after the page shows; the first keystroke calls it when that frame has not come).
+    public func loadPaletteActions() {
+        guard let list = paletteActions else { return }
+        paletteActions = nil
+        page.omnibar.actions = list()
     }
 
     /// The dropdown's rows for the current text and kind.

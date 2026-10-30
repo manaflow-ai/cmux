@@ -29,6 +29,21 @@ struct NativeNewTabModelTests {
         #expect(ranker.rows(for: "hacker", kind: .browser, omnibar: omnibar).map(\.id) == ["open", "page:https://news.ycombinator.com/"])
     }
 
+    @Test func thePalettesActionsLoadOnceAtTheFirstKeystroke() {
+        var empty = Self.page()
+        empty.omnibar.actions = []
+        var loads = 0
+        let model = NativeNewTabModel(page: empty, actions: NativeNewTabActions(submit: { _, _, _ in }, jump: { _, _ in }, action: { _ in }),
+                                      paletteActions: { loads += 1; return Self.page().omnibar.actions })
+        #expect(loads == 0, "the page shows before the palette's actions are listed")
+        model.text = "toggle side"
+        #expect(loads == 1)
+        #expect(model.rows.contains { $0.id == "action:toggleSidebar" })
+        model.text = "toggle"
+        model.loadPaletteActions()
+        #expect(loads == 1, "listed once per page")
+    }
+
     @Test func everyPaletteActionIsReachable() {
         let omnibar = Self.page().omnibar
         #expect(omnibar.actions.count == 301, "the 40-entry cap no longer drops palette actions")

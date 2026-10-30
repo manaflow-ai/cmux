@@ -229,12 +229,18 @@ extension NewTabPage {
         return opened
     }
 
-    /// Tab `key`'s native page in `pane`: the web page's context (``page(_:selected:window:pane:)``), no web view.
+    /// Tab `key`'s native page in `pane`: the web page's context (``page(_:selected:window:pane:paletteActions:)``), no web view.
+    /// The palette's actions (the slow part of that context) load on the frame after the page shows, or at
+    /// the first keystroke if that comes first, so Cmd-T shows the page without waiting for them.
     private static func nativeView(_ key: String, in pane: PaneController) -> NSView {
+        let services = pane.services
         let page = BenchSpans.measure("newTab.nativeContext") {
-            Self.page(pane.services, selected: pane.selectedTab, window: pane.view.window, pane: pane)
+            Self.page(services, selected: pane.selectedTab, window: pane.view.window, pane: pane, paletteActions: false)
         }
-        return NativeNewTabView.hosted(NativeNewTabModel(page: page, actions: nativeActions(key, cwd: page.cwd, pane: pane)))
+        let model = NativeNewTabModel(page: page, actions: nativeActions(key, cwd: page.cwd, pane: pane),
+                                      paletteActions: { [weak services] in services.map(Self.paletteActions) ?? [] })
+        closeFrame.scheduleFrame { [weak model] in model?.loadPaletteActions() }
+        return NativeNewTabView.hosted(model)
     }
 
     /// The native page's requests, over the web page's paths: `newTab.submit`'s table for typed text,
