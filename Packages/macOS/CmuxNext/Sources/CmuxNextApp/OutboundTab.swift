@@ -112,7 +112,12 @@ final class OutboundTab {
     /// The tab `pane` shows or waits to select: never the open's (made unselected).
     private func shownByPane(_ tab: TabModel) -> Bool {
         guard let pane else { return false }
-        if holdSelectionUntilLanded && !landed { return false }
+        if holdSelectionUntilLanded {
+            // Home's creator selects its new tab before the move callback. Keep that tab hidden
+            // even after the move reports success; the source snapshot is the authority that it
+            // has left the dock. Other tabs selected by the person are still released normally.
+            if !landed || tab.surface == surface { return false }
+        }
         return tab.surface == pane.pendingSelectSurface || tab.id == pane.pendingSelectTab || tab.id == pane.stripModel.selectedID?.rawValue
     }
 

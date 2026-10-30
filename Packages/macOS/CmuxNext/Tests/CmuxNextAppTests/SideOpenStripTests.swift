@@ -139,6 +139,65 @@ import Testing
         _ = services
     }
 
+    @Test func outboundHoldStateMachineKeepsHomeTabsHiddenAcrossEveryOrdering() async throws {
+        enum Event {
+            case sourceListsTab
+            case namesTab
+            case moveReportsSuccess
+            case sourceDropsTab
+            case fails
+            case cancels
+            case pageRejected
+            case timeout
+        }
+        let scenarios: [(String, [Event])] = [
+            ("snapshot before move response", [.sourceListsTab, .namesTab, .sourceDropsTab, .moveReportsSuccess]),
+            ("move response before snapshot", [.sourceListsTab, .namesTab, .moveReportsSuccess, .sourceDropsTab]),
+            ("open failure", [.sourceListsTab, .namesTab, .fails]),
+            ("open cancellation", [.sourceListsTab, .namesTab, .cancels]),
+            ("page creation rejected", [.sourceListsTab, .namesTab, .pageRejected]),
+            ("timeout", [.sourceListsTab, .timeout])
+        ]
+        for (name, events) in scenarios {
+            let (services, pane, state) = try Self.pane(Self.homeDock([Self.home]))
+            defer { withExtendedLifetime(state) { pane.teardown() } }
+            let outbound = OutboundTab.begin(in: pane, holdSelectionUntilLanded: true)
+            for event in events {
+                switch event {
+                case .sourceListsTab:
+                    services.daemon.store.apply(snapshot: Self.homeDock([Self.home, Self.link]))
+                case .namesTab:
+                    outbound.made(Self.link)
+                case .moveReportsSuccess:
+                    outbound.finish(moved: true)
+                case .sourceDropsTab:
+                    services.daemon.store.apply(snapshot: Self.homeDock([Self.home]))
+                case .fails, .cancels, .pageRejected:
+                    outbound.finish(moved: false)
+                case .timeout:
+                    _ = outbound.started(false)
+                }
+                #expect(Self.listed(pane).allSatisfy { $0 == Self.home }, "\(name): outbound tab appeared before the move completed")
+            }
+            if events.contains(where: { if case .sourceDropsTab = $0 { true } else { false } }) {
+                #expect(OutboundTab.count(in: pane) == 0, "\(name): source drop did not release the hold")
+            } else {
+                #expect(OutboundTab.count(in: pane) == 0, "\(name): failure or timeout left a hold behind")
+            }
+        }
+
+        let (services, pane, state) = try Self.pane(Self.homeDock([Self.home]))
+        defer { withExtendedLifetime(state) { pane.teardown() } }
+        let first = OutboundTab.begin(in: pane, holdSelectionUntilLanded: true)
+        let second = OutboundTab.begin(in: pane, holdSelectionUntilLanded: true)
+        services.daemon.store.apply(snapshot: Self.homeDock([Self.home, Self.link]))
+        first.made(Self.link)
+        first.finish(moved: false)
+        #expect(Self.listed(pane) == [Self.home], "concurrent opens exposed the failed tab while the other hold was active")
+        second.finish(moved: false)
+        #expect(OutboundTab.count(in: pane) == 0, "concurrent opens left a hold behind")
+    }
+
     /// A lone chat's link (Leo: "it plays the opening animation on the main window and then opens the
     /// tab on the right split"): the tab stays in the chat's pane, which becomes the column right of
     /// the chat's new dock. While the chat is still there the strip leaves the tab out; once the chat
