@@ -1,5 +1,7 @@
 public import Testing
 import AppKit
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 import CmuxNextTestGUIHost
 import CmuxNextWakeups
 import Foundation
@@ -75,7 +77,7 @@ final class ActivationWatch {
     private let test: String
     private var becameObserver: NSObjectProtocol?
     private var resignObserver: NSObjectProtocol?
-    private var waiting: CheckedContinuation<Bool, Never>?
+    private var waiting: OnceContinuation<Bool, any Error>?
     private var wasActive = false
     private var resigned: [String] = []
 
@@ -98,29 +100,27 @@ final class ActivationWatch {
             log("already active")
             return true
         }
-        // A cancelled wait (the caller's Deadline passed) resumes with false, so no continuation is left behind.
-        let became: Bool = await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                waiting = continuation
-                becameObserver = center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.finish(true) }
-                }
-                NSApp.activate(ignoringOtherApps: true)
-                if NSApp.isActive || Task.isCancelled { finish(NSApp.isActive) }
+        // A cancellable once-continuation: the caller's Deadline cancels the wait, which then throws and answers
+        // false, with no continuation left behind and no main-actor object sent across isolation.
+        let became = (try? await withOnceThrowingContinuation(cancellation: .cancellable) {
+            (continuation: OnceContinuation<Bool, any Error>) in
+            waiting = continuation
+            becameObserver = center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.finish(true) }
             }
-        } onCancel: { [weak self] in
-            Task { @MainActor in self?.finish(false) }
-        }
+            NSApp.activate(ignoringOtherApps: true)
+            if NSApp.isActive { finish(true) }
+        }) ?? false
         if became { log("became active") }
         return became
     }
 
     private func finish(_ value: Bool) {
-        guard let waiting else { return }
-        self.waiting = nil
         if let becameObserver { NotificationCenter.default.removeObserver(becameObserver) }
         becameObserver = nil
-        waiting.resume(returning: value)
+        guard let waiting else { return }
+        self.waiting = nil
+        _ = waiting.resume(returning: value)
     }
 
     private func noteResign() {

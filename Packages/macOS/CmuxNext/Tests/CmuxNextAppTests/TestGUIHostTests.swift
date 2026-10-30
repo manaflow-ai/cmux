@@ -2,6 +2,8 @@ import AppKit
 import CmuxNextTestGUI
 import CmuxNextTestGUIHost
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 import Foundation
 import Testing
 
@@ -50,7 +52,7 @@ struct GUIAppTraitTests {
 private final class KeyWait {
     private let window: NSWindow
     private var token: NSObjectProtocol?
-    private var waiting: CheckedContinuation<Bool, Never>?
+    private var waiting: OnceContinuation<Bool, any Error>?
 
     init(_ window: NSWindow) {
         self.window = window
@@ -60,21 +62,18 @@ private final class KeyWait {
         }
     }
 
+    /// A cancellable once-continuation: the caller's Deadline cancels the wait, which then answers false.
     func value() async -> Bool {
-        await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                waiting = continuation
-                if window.isKeyWindow || Task.isCancelled { finish(window.isKeyWindow) }
-            }
-        } onCancel: { [weak self] in
-            Task { @MainActor in self?.finish(false) }
-        }
+        (try? await withOnceThrowingContinuation(cancellation: .cancellable) { (continuation: OnceContinuation<Bool, any Error>) in
+            waiting = continuation
+            if window.isKeyWindow { finish(true) }
+        }) ?? false
     }
 
     private func finish(_ value: Bool) {
         guard let waiting else { return }
         self.waiting = nil
-        waiting.resume(returning: value)
+        _ = waiting.resume(returning: value)
     }
 
     func stop() {

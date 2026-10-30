@@ -2310,7 +2310,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // notice) or skips it with the reason when the run asks for no GUI (GUIAppTrait.swift).
         .target(
             name: "CmuxNextTestGUI",
-            dependencies: ["CmuxNextTestGUIHost", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextTestGUIHost", "CmuxNextWakeups", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             path: "Tests/CmuxNextTestGUI",
             swiftSettings: daemonSwiftSettings
         ),
