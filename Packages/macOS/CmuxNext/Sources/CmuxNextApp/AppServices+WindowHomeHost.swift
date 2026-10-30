@@ -1,11 +1,13 @@
 import CmuxNextDaemon
 import CmuxNextHomeEngine
+import CmuxNextWakeups
 
 // Each window's own Home (cmux#27880, `WindowHomes`): one-line forwards to the App's owners.
 extension AppServices: WindowHomeHost {
     var windowHomeStoreHome: WorkspaceModel? { home.homeWorkspace }
     var windowHomeConnection: DaemonConnection? { daemon.connection }
     var windowHomeStore: DaemonStore { daemon.store }
+    var windowHomeMainWork: MainWorkScheduler { mainWork }
     func windowHomeApplied(_ connection: DaemonConnection) async { _ = await daemon.appliedThroughReply(on: connection, after: "create window home") }
     func windowHomeMembers(_ window: String) -> [String] { windows.registry.members(of: window) }
     func windowHomeOpenOwner(of workspace: String) -> String? { windows.openOwner(of: workspace) }

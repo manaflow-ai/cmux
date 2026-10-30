@@ -1,6 +1,6 @@
 public import CmuxNextDaemon
 import CmuxNextWakeups
-import Foundation
+public import Foundation
 import os
 
 /// The local daemon's launch snapshot (`launch-snapshot-v1`, plans/cmux-next/cmux-tui-contract.md) for one service:

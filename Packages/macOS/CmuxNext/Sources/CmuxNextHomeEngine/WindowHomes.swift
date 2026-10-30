@@ -1,4 +1,5 @@
 public import CmuxNextDaemon
+public import CmuxNextWakeups
 import Foundation
 import os
 
@@ -10,6 +11,8 @@ public protocol WindowHomeHost: AnyObject {
     /// The local daemon's connection and store.
     var windowHomeConnection: DaemonConnection? { get }
     var windowHomeStore: DaemonStore { get }
+    /// The app's main-thread scheduler (``HomeDock/ensure(_:store:home:work:dock:)`` posts its dock steps there).
+    var windowHomeMainWork: MainWorkScheduler { get }
     /// Returns once the local store applied every event before `connection`'s last reply.
     func windowHomeApplied(_ connection: DaemonConnection) async
     /// The workspaces window `window` lists, and the open window that lists `workspace`.
@@ -135,7 +138,8 @@ public final class WindowHomes {
         // task-owner: one dock run per window Home after the one before it (each bounded by its daemon replies)
         let run = Task { @MainActor in
             await earlier?.value
-            let step = await HomeDock().ensure(connection, store: host.windowHomeStore, home: resource, dock: { host.windowHomeDock($0, $1, $2, $3, $4) })
+            let step = await HomeDock().ensure(connection, store: host.windowHomeStore, home: resource, work: host.windowHomeMainWork,
+                                             dock: { host.windowHomeDock($0, $1, $2, $3, $4) })
             logger.info("window home \(id, privacy: .public): \(step, privacy: .public)")
         }
         docks[id] = run
