@@ -1656,9 +1656,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             linkerSettings: [.linkedFramework("CoreFoundation")]
         ),
         // Helpers test targets share, linked into no product: FrameBudgetCalibration, which
-        // scales a main-thread frame budget to the runner a suite runs on.
+        // scales a main-thread frame budget to the runner a suite runs on. CmuxNextTestExitTrace
+        // holds the window census `.closesItsWindows` reads, so every target that has the trait links it.
         .target(
             name: "CmuxNextTestSupport",
+            dependencies: ["CmuxNextTestExitTrace"],
             path: "Tests/CmuxNextTestSupport",
             swiftSettings: uiSwiftSettings
         ),

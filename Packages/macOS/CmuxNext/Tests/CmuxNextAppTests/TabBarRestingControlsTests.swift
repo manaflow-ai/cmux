@@ -45,7 +45,7 @@ import Testing
         DesignSettings.shared.plusButton = .hover
         defer { DesignSettings.shared.plusButton = .hover }
         let (strip, window) = Self.strip()
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         strip.showsNewTabMenuButton = true
         let chooser = strip.newTabMenuButton
         #expect(!chooser.isHidden)
