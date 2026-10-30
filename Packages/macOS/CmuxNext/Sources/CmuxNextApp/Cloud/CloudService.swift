@@ -490,15 +490,13 @@ final class CloudService {
         // A list that arrives after Cloud was turned off connects nothing.
         guard !policyDisabled else { return }
         let visible = list.filter { $0.status != .destroyed }
-        for listedMachine in visible {
-            var machine = listedMachine
-            if let pending = changes.pendingStatus(for: machine) {
-                machine.pendingChange = pending
-            }
+        for machine in visible {
             if let session = machines.session(machine.id) {
-                session.applyRecord(machine)
+                applyRecord(machine, to: session)
             } else {
-                addSession(machine)
+                var shown = machine
+                shown.pendingChange = changes.pendingStatus(for: machine)
+                addSession(shown)
             }
         }
         let ids = Set(visible.map(\.id))
@@ -519,6 +517,16 @@ final class CloudService {
             creations.machineRemoved(session.machineID)
             machines.remove(session.machineID)?.disconnect()
         }
+    }
+
+    /// List and palette status reads share the mutation overlay and transport reconciliation.
+    /// A response for a removed session or disabled account must not restart its connection.
+    func applyRecord(_ record: CloudMachine, to session: CloudMachineSession) {
+        guard !policyDisabled, record.id == session.machineID,
+              machines.session(record.id) === session else { return }
+        var shown = record
+        shown.pendingChange = changes.pendingStatus(for: record)
+        session.applyRecord(shown)
     }
 
     @discardableResult
