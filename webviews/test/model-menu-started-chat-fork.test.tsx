@@ -254,12 +254,14 @@ test("launch configurations are named rail entries and never a Profile submenu",
   expect(labels).toContain("Claude Code");
   expect(labels).toContain("Claude (work)");
   expect(labels).toContain("Codex (work)");
-  const launch = railTabs().find((tab) => tab.getAttribute("aria-label") === "Claude (work)");
-  expect(launch).toBeDefined();
-  await act(async () => launch!.click());
+  await showTab("Claude (work)");
+  await act(async () =>
+    itemsOf(menu()!)
+      .find((item) => labelOf(item) === "Fork to Claude (work)")!
+      .click(),
+  );
   await settle();
-  expect(forked).toHaveLength(1);
-  expect(forked[0]).toMatch(/^claude-/);
+  expect(forked).toEqual(["claude-work"]);
 });
 
 for (const [id, name, family] of [
@@ -314,16 +316,31 @@ test("while the chat can't fork (a turn running), Fork to is disabled and does n
   expect(forked).toEqual([]);
 });
 
-test("a new chat launches a named harness entry from the rail", async () => {
+test("a new chat starts a named harness entry from one of its own models", async () => {
   const { switched } = await mount(0);
   await open();
   expect(itemsOf(menu()!).map(labelOf)).not.toContain("Profile");
+  await showTab("Claude (work)");
+  expect(switched).toEqual([]);
+  const pick = menu()!.querySelector<HTMLElement>('.acpmux-quick-item[role="menuitemradio"]');
+  expect(pick).not.toBeNull();
+  await act(async () => pick!.click());
+  await settle();
+  expect(switched).toEqual(["claude-work"]);
+});
+
+test("a new chat still launches a named harness entry that lists no models from its tab", async () => {
+  const catalog = [
+    { id: "claude", name: "Claude Code", family: "claude", models: [{ id: "opus", name: "Opus" }] },
+    { id: "claude-work", name: "Claude (work)", family: "claude-work", icon: "claude", models: [] },
+  ] as Snapshot["catalog"];
+  const { switched } = await mount(0, undefined, "claude", catalog);
+  await open();
   const launch = railTabs().find((tab) => tab.getAttribute("aria-label") === "Claude (work)");
   expect(launch).toBeDefined();
   await act(async () => launch!.click());
   await settle();
-  expect(switched).toHaveLength(1);
-  expect(switched[0]).toBe("claude-work");
+  expect(switched).toEqual(["claude-work"]);
 });
 
 test("the chat composer forks through Continue In…'s chat.handoff.prepare", async () => {
@@ -519,40 +536,42 @@ test("canContinueIn is Continue In…'s whole check", async () => {
 
 // Regression (cmux NEXT nightly, 2026-10-29): #26969 folded every harness drawing the Claude or
 // Codex mark into one tab, so a custom harness such as claude-sr2 (its own profile, `icon =
-// "claude"`) lost its rail tab and its model list. Each harness keeps its own tab and models.
-test("a custom Claude-marked harness keeps its own rail tab and lists its models", async () => {
-  const catalog = [
-    {
-      id: "claude",
-      name: "Claude Code",
-      family: "claude",
-      models: [{ id: "claude-opus-5-5", name: "Claude Opus 5.5" }],
-    },
-    {
-      id: "claude-sr2",
-      name: "Claude Code (sr2 internal)",
-      family: "claude-sr2",
-      icon: "claude",
-      models: [
-        { id: "claude-opus-5-5", name: "Claude Opus 5.5" },
-        { id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5" },
-      ],
-    },
-    { id: "codex", name: "Codex", family: "codex", icon: "openai", models: [{ id: "gpt-6", name: "GPT-6" }] },
-    { id: "codex-work", name: "Codex (work)", family: "codex-work", icon: "openai", models: [] },
-  ] as Snapshot["catalog"];
-  await mount(0, undefined, "claude-sr2", catalog);
-  await open();
-  const labels = railTabs().map((tab) => tab.getAttribute("aria-label") ?? "");
-  expect(labels).toContain("Claude Code");
-  const sr2 = labels.find((label) => label.includes("sr2"));
-  expect(sr2, labels.join(", ")).toBeDefined();
-  expect(labels).toContain("Codex");
-  expect(labels).toContain("Codex (work)");
-  expect(menu()!.querySelector(".acpmux-quick-variant")).toBeNull();
-  await showTab(sr2!);
-  const models = [...menu()!.querySelectorAll<HTMLElement>('.acpmux-quick-item[role="menuitemradio"]')].map(
-    (item) => item.textContent ?? "",
-  );
-  expect(models.some((text) => text.includes("Sonnet 5.5")), models.join(" | ")).toBe(true);
-});
+// "claude"`) lost its rail tab and its model list. Each harness keeps its own tab and models,
+// whichever harness the chat runs.
+const sr2Catalog = [
+  { id: "claude", name: "Claude Code", family: "claude", models: [{ id: "claude-opus-5-5", name: "Claude Opus 5.5" }] },
+  {
+    id: "claude-sr2",
+    name: "Claude Code (sr2 internal)",
+    family: "claude-sr2",
+    icon: "claude",
+    models: [
+      { id: "claude-opus-5-5", name: "Claude Opus 5.5" },
+      { id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5" },
+    ],
+  },
+  { id: "codex", name: "Codex", family: "codex", icon: "openai", models: [{ id: "gpt-6", name: "GPT-6" }] },
+  { id: "codex-work", name: "Codex (work)", family: "codex-work", icon: "openai", models: [] },
+] as Snapshot["catalog"];
+
+for (const running of ["claude-sr2", "claude"])
+  test(`a custom Claude-marked harness keeps its own rail tab and lists its models (running ${running})`, async () => {
+    const { switched } = await mount(0, undefined, running, sr2Catalog);
+    await open();
+    const labels = railTabs().map((tab) => tab.getAttribute("aria-label") ?? "");
+    expect(labels).toContain("Claude Code");
+    const sr2 = labels.find((label) => label.includes("sr2"));
+    expect(sr2, labels.join(", ")).toBeDefined();
+    expect(labels).toContain("Codex");
+    expect(labels).toContain("Codex (work)");
+    expect(menu()!.querySelector(".acpmux-quick-variant")).toBeNull();
+    await showTab(sr2!);
+    expect(switched).toEqual([]);
+    const models = [...menu()!.querySelectorAll<HTMLElement>('.acpmux-quick-item[role="menuitemradio"]')];
+    const sonnet = models.find((item) => (item.textContent ?? "").includes("Sonnet 5.5"));
+    expect(sonnet, models.map((item) => item.textContent ?? "").join(" | ")).toBeDefined();
+    if (running === "claude-sr2") return;
+    await act(async () => sonnet!.click());
+    await settle();
+    expect(switched).toEqual(["claude-sr2"]);
+  });
