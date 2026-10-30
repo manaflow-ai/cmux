@@ -5,7 +5,9 @@
 // change is a record every client hears (`queue_order`, `queue_updated`, `dequeued`).
 //
 // - ↑ on the empty prompt reaches the last queued prompt; ⌥↑ moves it up, and it keeps focus.
-// - Return edits a queued prompt in its row; it keeps its place.
+// - Return edits a queued prompt in its row; it keeps its place. So does the ⋯ menu's Edit message.
+// - The X on a steer the agent has not read takes it back into the composer; what is sent then is
+//   the edited text.
 // - ⌘Return on a queued prompt does nothing (it means "not now"); Delete removes one.
 // - A queue a failed turn paused says so, and Resume runs it again.
 //
@@ -32,6 +34,13 @@ await requireBrowserLane("agent-pane-queue.test.ts", async () => {
   const turn = { turnId: "turn-1", promptId: "p-turn", startedAt: Date.now(), prompt: "Refactor the parser" };
   let queue: { promptId: string; prompt: string }[] = [];
   let paused = false;
+  /// A Claude Code chat (acpmux's `backgroundsWork`) takes a waiting steer back (`withdraw`).
+  let claude = false;
+  /// The steer the agent has not read yet, which `withdraw` takes back.
+  let waitingSteer: string | undefined;
+  /// The prompts the page sent (`session/prompt`), as text, and who waits for the next.
+  const sent: string[] = [];
+  let onSent: (() => void) | undefined;
   const summary = () => ({
     sessionId: SESSION,
     cwd: "/home/dev/api",
@@ -40,12 +49,13 @@ await requireBrowserLane("agent-pane-queue.test.ts", async () => {
     status: "running",
     steering: true,
     queuePaused: paused,
+    ...(claude ? { backgroundsWork: true } : {}),
     queued: queue.length,
     queue,
     turn,
     updatedAt: Date.now(),
   });
-  const opening = [
+  const opening: { sessionId: string; seq: number; at: number; dir: string; kind: string; msg: object }[] = [
     {
       sessionId: SESSION,
       seq: 1,
@@ -85,9 +95,25 @@ await requireBrowserLane("agent-pane-queue.test.ts", async () => {
         event(ws, "queue_removed", { promptId: params.promptId });
         return { removed: true };
       }
+      case "session/prompt": {
+        sent.push(
+          (params.prompt as { type: string; text?: string }[])
+            .filter((block) => block.type === "text")
+            .map((block) => block.text)
+            .join(""),
+        );
+        onSent?.();
+        return { stopReason: "end_turn" };
+      }
       case "_acpmux/queue_edit": {
         edits.push({ ...params });
         delete edits.at(-1)!.sessionId;
+        if (params.op === "withdraw") {
+          const took = params.promptId === waitingSteer;
+          if (took) event(ws, "steer_withdrawn", { promptId: waitingSteer, turnId: "turn-1" });
+          waitingSteer = undefined;
+          return { ok: took };
+        }
         const entry = queue.find((q) => q.promptId === params.promptId);
         if (!entry) return { ok: false };
         if (params.op === "move") {
@@ -152,8 +178,21 @@ await requireBrowserLane("agent-pane-queue.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  async function openChat(first = "first", pausedQueue = false): Promise<Page> {
+  async function openChat(first = "first", pausedQueue = false, steer?: string): Promise<Page> {
     paused = pausedQueue;
+    claude = steer !== undefined;
+    waitingSteer = steer === undefined ? undefined : "p-steer";
+    sent.length = 0;
+    opening.length = 1;
+    if (steer !== undefined)
+      opening.push({
+        sessionId: SESSION,
+        seq: ++seq,
+        at: Date.now(),
+        dir: "mux",
+        kind: "user_message",
+        msg: { text: steer, promptId: "p-steer", turnId: "turn-1", steer: true },
+      });
     queue = [
       { promptId: "q-1", prompt: first },
       { promptId: "q-2", prompt: "second" },
@@ -218,6 +257,50 @@ await requireBrowserLane("agent-pane-queue.test.ts", async () => {
         edits: [{ op: "update", promptId: "q-1", text: "first, edited" }],
         rows: ["first, edited", "second", "third"],
       });
+      await page.close();
+    });
+
+    // Leo, 2026-10-29: "Plus this fucking edit message thing. It doesn't even fucking work." The ⋯
+    // menu's Edit message opens the prompt in its row, and what is saved is what acpmux sends.
+    test("the ⋯ menu's Edit message edits a queued prompt in its row, and saving changes what is sent", async () => {
+      const page = await openChat();
+      const row = page.locator('.acpmux-queued[data-prompt-id="q-1"]');
+      await row.hover();
+      await row.locator('[data-menu="queued-more"]').click();
+      await page.getByRole("menuitem", { name: /^Edit message/ }).click();
+      const input = page.getByRole("textbox", { name: "Edit queued prompt" });
+      await input.waitFor();
+      // The menu closing leaves the edit open and focused: typing goes into it.
+      expect(await input.evaluate((field) => field === document.activeElement)).toBe(true);
+      await input.fill("first, edited");
+      await page.keyboard.press("Enter");
+      await page.locator(".acpmux-queued-text", { hasText: "first, edited" }).waitFor();
+      expect({ edits, rows: await rows(page) }).toEqual({
+        edits: [{ op: "update", promptId: "q-1", text: "first, edited" }],
+        rows: ["first, edited", "second", "third"],
+      });
+      await page.close();
+    });
+
+    // The X (its tooltip Edit message) on a steer the agent has not read: acpmux takes it back, its
+    // text comes back into the composer, and the edited text is what is sent.
+    test("the X on a waiting steer puts its text in the composer, and the edited text is what is sent", async () => {
+      const page = await openChat("first", false, "Use the cache dir");
+      const bubble = page.locator(".cv-user__bubble", { hasText: "Use the cache dir" });
+      await bubble.waitFor();
+      await bubble.hover();
+      await page.getByRole("button", { name: "Edit message" }).click();
+      await bubble.waitFor({ state: "detached" });
+      const prompt = page.locator(".acpmux-composer-prompt");
+      await prompt.filter({ hasText: "Use the cache dir" }).waitFor();
+      expect(edits).toEqual([{ op: "withdraw", promptId: "p-steer" }]);
+      await prompt.click();
+      await page.keyboard.press("End");
+      await page.keyboard.type(" for the next run");
+      const delivered = new Promise<void>((resolve) => (onSent = resolve));
+      await page.keyboard.press("Enter");
+      await delivered;
+      expect(sent).toEqual(["Use the cache dir for the next run"]);
       await page.close();
     });
 
