@@ -137,7 +137,8 @@ Each `{ ... }` model entry stays on one line (TOML inline tables).
 
 ## Icons
 
-Every harness has an icon in the model picker, New Tab, Home, subagent rows and Settings.
+Every harness has an icon in the model picker, New Tab, Home, subagent rows, Settings, its chats'
+tabs and its workspaces' sidebar rows.
 Set your own from the CLI or from Settings > Agents (**Icon…** on your profile's row: type a value,
 choose or drop a PNG or SVG, or **Automatic**):
 
@@ -158,8 +159,9 @@ Without an `icon` line cmux picks one: the mark of the agent the harness runs, r
 by its id, so it never changes between launches or devices. A missing or broken icon file is a
 doctor error, never a blank icon. An SVG may not hold scripts or event handlers. Clients draw the
 daemon's one answer, `iconSpec` on each `_acpmux/harnesses` entry: `{kind: brand|glyph|emoji|symbol|
-image|monogram, ..., source: profile|id|command|family|default}`. Pages that cannot draw SF
-Symbols show the symbol's monogram (`text`, `hue`).
+image|monogram, ..., source: profile|id|command|family|default}`. The app draws an SF Symbol for its pages (`harness.symbol` on the agent page,
+`agents.run {action: "symbol"}` in Settings) and natively in the tab strip and sidebar; a name the
+Mac cannot draw shows the symbol's monogram (`text`, `hue`).
 
 ## Secrets
 

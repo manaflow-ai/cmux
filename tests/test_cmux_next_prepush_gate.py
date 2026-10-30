@@ -572,6 +572,25 @@ class PrePushGateTests(unittest.TestCase):
         self.assertIn("Sidebar look owner", output)
         self.assertIn("no `Sidebar-Look:` trailer", output)
 
+    def test_a_sidebar_change_outside_views_also_needs_the_trailer(self):
+        # a702 (2026-10-25) turned the pinned section's tiles into rows in Sections/, outside Views/.
+        self.write(f"{PKG}/Sources/CmuxNextSidebar/Sections/SectionFlow.swift", "struct SectionFlow {\n    let rows = true\n}\n")
+        self.commit("sidebar: pinned section draws rows")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("no `Sidebar-Look:` trailer", output)
+
+    def test_sidebar_strings_need_no_trailer(self):
+        self.write(f"{PKG}/Sources/CmuxNextSidebar/Strings.swift", "let hello = \"Hello\"\n")
+        self.commit("sidebar: copy")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_a_visual_sidebar_change_must_update_the_owner_note(self):
         self.write(self.SIDEBAR_VIEW, "struct RowView {\n    let inset = 22\n}\n")
         self.commit("sidebar: move the title\n\nSidebar-Look: Lawrence 11405 text as left as possible")

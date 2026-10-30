@@ -116,11 +116,20 @@ public struct PushActions: Sendable {
         button.opensApp || (requireFaceID && (button == .deny || button == .reply || button == .terminalReply))
     }
 
-    /// The buttons the content extension sets: the payload's own, except with
-    /// Show previews off, when the static buttons stay (their titles never name
-    /// an option on the lock screen; PR #24156 review L1).
-    public func extensionActions(for payload: PushPayload) -> [UNNotificationAction] {
-        payload.previews ? actions(for: payload) : []
+    /// The buttons the content extension sets: the payload's own, or nil to
+    /// keep the static buttons, as with Show previews off (their titles never
+    /// name an option on the lock screen; PR #24156 review L1). With
+    /// `replyField` the long look shows the system's reply field at its
+    /// bottom (the category's Reply), so no "Reply" button stands beside it
+    /// (the button opened a second field, and read as unexplained).
+    public func extensionActions(for payload: PushPayload, replyField: Bool = false) -> [UNNotificationAction]? {
+        guard payload.previews else { return nil }
+        let plan = plan(for: payload).filter { !(replyField && $0.action == .reply) }
+        return plan.map { button in
+            // Without the composer the system field is the way to reply: say to whom.
+            let title = button.action == .reply ? payload.agent.map { String(localized: "Reply to \($0)") } ?? button.title : button.title
+            return action(button.action, title: title)
+        }
     }
 
     /// Every category, with the buttons a notification gets without the
@@ -244,10 +253,9 @@ public struct PushSharedPreference {
     }
 }
 
-/// Which stores a Require Face ID call writes. `AppLockController.init` runs in
-/// `RootView.body`, so the same value arrives on every body pass: a write then
-/// (a `UserDefaults.standard` write wakes `@AppStorage` readers, which run the
-/// body again) loops the first frame forever. Only a change writes.
+/// Which stores a Require Face ID call writes. AppLock sends the setting on
+/// appear, which may equal the stored value, and a needless
+/// `UserDefaults.standard` write wakes `@AppStorage` readers. Only a change writes.
 public struct PushFaceIDSync: Sendable, Equatable {
     /// The app's own defaults' value.
     public private(set) var local: Bool

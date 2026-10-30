@@ -166,6 +166,12 @@ nonisolated enum CatalogArgument {
         ActionArgument(name: "size", title: String(localized: "argument.size", defaultValue: "Size", bundle: .module), kind: .enumeration([choice("small"), choice("medium"), choice("large"), choice("xlarge")]))
     }
 
+    /// `cloud enroll-machine --ssh-key FILE`: this Mac's ssh public key (default `~/.ssh/id_ed25519.pub`).
+    static var sshKeyString: ActionArgument {
+        ActionArgument(name: "sshKey", title: String(localized: "argument.sshKey", defaultValue: "SSH Public Key", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
     /// `cloud new-machine --size small|medium|large|xlarge`: plain text, not a choice, so New Cloud
     /// Machine stays one menu item and one palette row (a choice argument becomes a submenu).
     static var newMachineSizeString: ActionArgument {
@@ -185,9 +191,34 @@ nonisolated enum CatalogArgument {
                        kind: .string, isRequired: false)
     }
 
+    /// `--machine-config FILE`: a `.cmux/machine.toml` on this Mac (CloudMachineConfig).
+    static var machineConfigString: ActionArgument {
+        ActionArgument(name: "machineConfig", title: String(localized: "argument.machineConfig", defaultValue: "Machine Config", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
+    /// `cloud new-machine --repo OWNER/NAME[@REF]`: the GitHub repository the machine clones.
+    static var repoString: ActionArgument {
+        ActionArgument(name: "repo", title: String(localized: "argument.repo", defaultValue: "Repository", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
     /// The bootstrap script file on this Mac (the CLI makes a relative path absolute).
     static var bootstrapScriptString: ActionArgument {
         ActionArgument(name: "bootstrapScript", title: String(localized: "argument.bootstrapScript", defaultValue: "Bootstrap Script", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
+    /// `cloud deliver-secrets --repo OWNER/NAME`: whose repo-scoped secrets the machine gets.
+    static var secretRepoString: ActionArgument {
+        ActionArgument(name: "repo", title: String(localized: "argument.secretRepo", defaultValue: "Repository", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
+    /// `cloud deliver-secrets --names A,B`: the secret names an own machine (SSH or an acpmux peer) gets;
+    /// a Cloud machine's come from its machine config.
+    static var secretNamesString: ActionArgument {
+        ActionArgument(name: "names", title: String(localized: "argument.secretNames", defaultValue: "Secret Names", bundle: .module),
                        kind: .string, isRequired: false)
     }
 
@@ -222,6 +253,12 @@ nonisolated enum CatalogArgument {
 
     static var keepBool: ActionArgument {
         ActionArgument(name: "keep", title: String(localized: "argument.keep", defaultValue: "Keep After Close", bundle: .module), kind: .bool)
+    }
+
+    /// Pin/Unpin's state: true pins, false unpins; left out, the action toggles.
+    static var pinnedBool: ActionArgument {
+        ActionArgument(name: "pinned", title: String(localized: "argument.pinned", defaultValue: "Pinned", bundle: .module), kind: .bool,
+                       isRequired: false)
     }
 
     static var onBool: ActionArgument {
@@ -344,6 +381,21 @@ nonisolated enum CatalogArgument {
             + [ActionEnumCase(value: "off", title: String(localized: "argument.value.fitOff", defaultValue: "Turn Off", bundle: .module))]
         return ActionArgument(name: "fit", title: String(localized: "argument.fit", defaultValue: "Aspect Ratio or Width", bundle: .module), kind: .string,
                               suggestions: ActionSuggestions(source: "browserFit", pinned: pinned))
+    }
+
+    /// How Open Desktop shows a Cloud machine's screen (`cloudOpenDesktop`): `web`, its noVNC
+    /// page in a Chromium tab (the default); `native`, the remote view pane straight to the
+    /// machine's VNC server over the app's Cloud tunnel; or `rd`, the pane showing the machine's
+    /// `cmux-rd` host (H.264) over its daemon link.
+    static var desktopViewerChoice: ActionArgument {
+        var cases = [ActionEnumCase(value: "web", title: String(localized: "argument.value.viewerWeb", defaultValue: "Browser", bundle: .module))]
+        #if DEBUG
+        // The remote view pane is development-only (RemoteViewAvailability).
+        cases.append(ActionEnumCase(value: "native", title: String(localized: "argument.value.viewerNative", defaultValue: "Native", bundle: .module)))
+        cases.append(ActionEnumCase(value: "rd", title: String(localized: "argument.value.viewerRd", defaultValue: "Video Stream", bundle: .module)))
+        #endif
+        return ActionArgument(name: "viewer", title: String(localized: "argument.viewer", defaultValue: "Viewer", bundle: .module),
+                              kind: .enumeration(cases), isRequired: false)
     }
 
     /// A device title from the daemon's list, or none (`browserDevice`).

@@ -16,6 +16,7 @@
   font-size: var(--text-title);
   line-height: var(--text-title--line-height);
   font-weight: 600;
+  letter-spacing: var(--text-title--letter-spacing);
 }
 
 .pairing-subtitle,
@@ -63,6 +64,7 @@
   border-radius: 50%;
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .pairing-step.is-current .pairing-step-mark {
@@ -125,6 +127,7 @@
   margin: 0 0 4px;
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .pairing-actions {
@@ -142,6 +145,7 @@
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);
   cursor: default;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 
 .pairing-button.is-primary {

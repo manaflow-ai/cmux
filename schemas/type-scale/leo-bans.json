@@ -1,0 +1,13 @@
+{
+  "about": "Leo's pinned UI font and tracking. scripts/cmux-next/check-leo-bans.py fails when type-scale.json, the generated CSS and Swift, the bundled font or a webviews stylesheet leave them, and when this file changes in a range with no `Leo-order: <Leo's words>` commit trailer. Change it only when Leo orders it, quoting him in that trailer.",
+  "orders": [
+    {
+      "date": "2026-10-21",
+      "ask": "ask-52da478628",
+      "words": "WE ALREADY HAD THE FONTS. WE SAID INTER, WITH SOME AMOUNT [of tracking], AND WE BUNDLED SOME STUFF IN. / HOW DID YOU LOSE THE EM INTER FONTS THAT WE CALCULATED."
+    }
+  ],
+  "uiFont": { "family": "Inter", "fileFamily": "Inter Variable" },
+  "tracking": { "a": -0.0223, "b": 0.185, "c": -0.1745 },
+  "trackingTable": { "caption": 0.0048, "detail": 0.0005, "body": -0.0032, "field": -0.0062, "title": -0.0088, "heading": -0.0167 }
+}

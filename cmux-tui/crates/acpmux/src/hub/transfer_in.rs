@@ -24,6 +24,7 @@ use super::transfer_out::{
 use super::*;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use cmux_json::JsonSet as _;
 
 /// Held by a receive, a finish and a forget, so a forget either sees the move landed or drops its
 /// receive before the finish reads it, and no receive of it starts after.
@@ -380,7 +381,7 @@ impl Hub {
         made.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
         let mut answer = json!({"receiveId": receive_id, "sessionId": id});
         if guard.is_some() {
-            answer["guarded"] = json!(true);
+            answer.set("guarded", json!(true));
         }
         Ok(answer)
     }
@@ -489,7 +490,7 @@ impl Hub {
             let path = bundle.join("session.json");
             let edited = std::fs::read(&path).map_err(anyhow::Error::from).and_then(|raw| {
                 let mut meta: Value = serde_json::from_slice(&raw)?;
-                meta["cwd"] = json!(cwd);
+                meta.set("cwd", json!(cwd));
                 Ok(std::fs::write(&path, serde_json::to_vec_pretty(&meta)?)?)
             });
             edited.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;

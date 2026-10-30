@@ -22,6 +22,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gh_pages  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[2]
 TIERS = ("native", "macos", "scheme", "generated", "swift", "daemon", "full")
 FAST_REASON = "(no Mac tier)"
@@ -103,9 +106,12 @@ def recent_prs(repo: str, limit: int) -> list[tuple[int, list[str]]]:
     merged = [p["number"] for p in pulls if p.get("merged_at")][:limit]
     out = []
     for number in merged:
-        files = json.loads(subprocess.run(
-            ["gh", "api", "--paginate", f"repos/{repo}/pulls/{number}/files?per_page=100", "--jq", "[.[].filename]"],
-            check=True, capture_output=True, text=True).stdout.replace("][", ","))
+        # One bounded page per call (scripts/ci/gh_pages.py): the gh quota wrapper refuses an
+        # unbounded paginating call. A list at GitHub's 3000-file cap may be incomplete: skip it.
+        try:
+            files = [entry["filename"] for entry in gh_pages.items(gh_pages.gh_json, f"repos/{repo}/pulls/{number}/files")]
+        except gh_pages.PageCapError:
+            continue
         if files and len(files) < 3000:
             out.append((number, files))
     return out

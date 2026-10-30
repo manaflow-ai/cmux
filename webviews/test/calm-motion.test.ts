@@ -61,11 +61,20 @@ await requireBrowserLane("calm-motion.test.ts", async () => {
     expect(fades).toEqual(["cv-enter-fade 0.12s", "cv-enter-fade 0.12s", "cv-enter-fade 0.12s", "cv-enter-fade 0.12s"]);
   });
 
-  test("the Jump to Latest pill rises in without growing", async () => {
-    const p = await page(conversation, `<button class="acpmux-jump-latest">v</button>`, "no-preference");
-    const hidden = await p.$eval(".acpmux-jump-latest", (pill) => getComputedStyle(pill).transform);
+  // It fades in place: its 6px rise read as the button jumping the moment the reader scrolled up
+  // (Leo 2026-10-28), so hidden and shown it sits on the same pixels.
+  test("the Jump to Latest pill fades in place, without growing or rising", async () => {
+    const p = await page(
+      conversation,
+      `<button class="acpmux-jump-latest">v</button><button class="acpmux-jump-latest" data-shown>v</button>`,
+      "no-preference",
+    );
+    const [hidden, shown] = await p.$$eval(".acpmux-jump-latest", (pills) =>
+      pills.map((pill) => getComputedStyle(pill).transform),
+    );
     await p.close();
-    expect(scaleOf(hidden)).toBe(1);
+    expect(scaleOf(hidden!)).toBe(1);
+    expect(hidden).toBe(shown);
   });
 
   test("the settings Reset button, notes and badges fade in without growing", async () => {

@@ -322,7 +322,8 @@ MAC_TOOLCHAIN = {
 # The env flags each Mac job passes; '' is a value (an empty swift filter runs every selected target).
 MAC_FLAGS = {
     "swift-test": {"swift_targets": "CmuxNextAppTests", "swift_filter": "", "mini": "true",
-                   "xcode_app": "/Applications/Xcode_26.6.app", "web_bundles": "0123abcd", "layout_reducer": "false"},
+                   "xcode_app": "/Applications/Xcode_26.6.app", "web_bundles": "0123abcd", "layout_reducer": "false",
+                   "generated_base": ""},
     "generated-files": {"mini": "true", "xcode_app": "/Applications/Xcode_26.6.app", "web_bundles": "0123abcd"},
     "release-compile": {"mini": "true", "xcode_app": "/Applications/Xcode_26.6.app"},
 }
@@ -338,19 +339,21 @@ COMMON_INPUTS = (
     "docs/read-by-tests.json", "fixtures/read-dir/case.json", "Packages/macOS/CmuxNext/ci-target-graph.json",
 )
 JOB_INPUTS = {
-    "swift-test": ("webviews/src/app.ts", "cmux-tui/Cargo.lock", "cmux-tui/crates/cmux-layout-reducer/src/lib.rs"),
+    "swift-test": ("webviews/src/app.ts", "cmux-tui/Cargo.lock", "cmux-tui/crates/cmux-layout-reducer/src/lib.rs",
+                   "scripts/ci/defaults_guard.py", "docs/mdm/index.md"),
     "generated-files": ("webviews/src/app.ts", "scripts/ci/defaults_guard.py", "docs/mdm/index.md"),
     "release-compile": ("LICENSE", "scripts/verify-app-bundle-licenses.sh",
                         "cmux-tui/build-support/notices", "cmux-tui/rust-toolchain.toml",
                         "cmux-tui/crates/ghostty-vt-sys/build.rs"),
 }
-# Files no Mac job reads: a base move that touches only these keeps every key.
+# Files no Mac job's input list names. The Mac jobs key the whole tree (version 4), so a change to
+# any of these still changes every key: an input list that missed one would reuse an unbuilt change.
 OUTSIDE = ("docs/readme.md", "web/app/page.tsx", "cmux-tui/crates/cmux-daemon/src/lib.rs", "plans/other/notes.md",
            "scripts/ci/unrelated_tool.py", "iosapp/Notes.txt", "ws/crates/other/src/lib.rs")
 
 
 class MacJobInputs(unittest.TestCase):
-    """swift test, the Release compile and generated files key their own inputs, not the whole tree."""
+    """swift test, the Release compile and generated files key the whole tree; their input lists stay listed."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -388,13 +391,22 @@ class MacJobInputs(unittest.TestCase):
         self.repo.write(name, (path.read_text() if path.exists() else "") + ("\n" if name.endswith(".json") else "// changed\n"))
         self.repo.commit()
 
-    def test_a_base_move_outside_the_inputs_keeps_the_key(self):
+    def test_a_change_outside_the_input_list_still_changes_the_key(self):
+        # No false pass: a base move the input list does not name is still a new tree.
         for job in MAC_JOBS:
             for name in OUTSIDE + ("notes/new-file.txt",):
                 with self.subTest(job=job, name=name):
                     before = self.key(job)
                     self.edit(name)
-                    self.assertEqual(before, self.key(job), f"{name} is not a {job} input")
+                    self.assertNotEqual(before, self.key(job), f"{name} changed the tree, so the {job} key must change")
+
+    def test_the_key_names_the_tree(self):
+        tree = git(self.repo.root, "rev-parse", "HEAD^{tree}").strip()
+        for job in MAC_JOBS:
+            with self.subTest(job=job):
+                key, stderr = self.run_job(job)
+                self.assertTrue(key, stderr[-2000:])
+                self.assertIn(f"tree {tree}", stderr)
 
     def test_a_change_to_any_listed_input_changes_the_key(self):
         for job in MAC_JOBS:
@@ -425,7 +437,8 @@ class MacJobInputs(unittest.TestCase):
         changed = {"xcode": "Xcode 26.6 Build version 17F56", "macos": "26.0.2", "macos_build": "25A363",
                    "arch": "x86_64", "pool": "blacksmith", "image": "macos26-20261012.1", "mini": "false",
                    "xcode_app": "/Applications/Xcode_26.7.app", "web_bundles": "4567cdef",
-                   "swift_targets": "all", "swift_filter": "^(CmuxNextAppTests)\\\\.", "layout_reducer": "true"}
+                   "swift_targets": "all", "swift_filter": "^(CmuxNextAppTests)\\\\.", "layout_reducer": "true",
+                   "generated_base": "a" * 40}
         for job in MAC_JOBS:
             base = self.key(job)
             for name, value in changed.items():
