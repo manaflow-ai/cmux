@@ -219,7 +219,7 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[
             ("List the current forum rules", "acpmux forum rules"),
             (
-                "Post a rule every session reads",
+                "From an agent session, post a rule every session reads",
                 "acpmux forum announce --key builds \"Build on CI\"",
             ),
         ],
@@ -228,14 +228,20 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         "forum announce",
         &[
             (
-                "Post a rule every session reads",
+                "From an agent session, post a rule every session reads",
                 "acpmux forum announce --key builds \"No local builds; use cmux-ci test\"",
             ),
-            ("End the rule on a key", "acpmux forum announce --key base --retire"),
+            (
+                "From an agent session, end the rule on a key",
+                "acpmux forum announce --key base --retire",
+            ),
         ],
     ),
     ("forum rules", &[("List the current rules, newest per key", "acpmux forum rules")]),
-    ("forum ack", &[("Mark a rule as read", "acpmux forum ack post-3f9a")]),
+    (
+        "forum ack",
+        &[("From the agent session that read it, mark a rule read", "acpmux forum ack post-3f9a")],
+    ),
     (
         "chats",
         &[

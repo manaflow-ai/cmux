@@ -114,21 +114,21 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     (
         "host consent",
         &[(
-            "Turn screen consent off (the daemon takes it only from the cmux app)",
+            "Ask to turn screen consent off; a shell is refused, the cmux app changes it",
             "acpmux host consent revoke --screen",
         )],
     ),
     (
         "host consent grant",
         &[(
-            "Turn control consent on (the daemon takes it only from the cmux app)",
+            "Ask to turn control consent on; a shell is refused, the cmux app changes it",
             "acpmux host consent grant --control",
         )],
     ),
     (
         "host consent revoke",
         &[(
-            "Turn screen consent off (the daemon takes it only from the cmux app)",
+            "Ask to turn screen consent off; a shell is refused, the cmux app changes it",
             "acpmux host consent revoke --screen",
         )],
     ),

@@ -206,8 +206,14 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         "session limits",
         &[
             ("Show how many sub-sessions coord runs and queues", "acpmux session limits coord"),
-            ("Let coord run 4 sub-sessions at once", "acpmux session limits coord --max 4"),
-            ("Fall back to the workspace or default limit", "acpmux session limits coord --clear"),
+            (
+                "From a parent session, let its child run 4 sub-sessions at once",
+                "acpmux session limits coord-helper --max 4",
+            ),
+            (
+                "From a parent session, give its child the default limit again",
+                "acpmux session limits coord-helper --clear",
+            ),
         ],
     ),
     (
