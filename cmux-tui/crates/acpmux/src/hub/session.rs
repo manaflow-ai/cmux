@@ -74,6 +74,9 @@ pub struct Session {
     /// Being moved to another daemon (`transfer_out.rs`): the transfer id. It takes no prompt
     /// and starts nothing queued until the move commits (it closes) or aborts.
     pub(super) moving: StdMutex<Option<String>>,
+    /// Latest durable transfer event (sequence, blocked), rebuilt once from the log.
+    /// None until a restored log has been read successfully.
+    pub(super) transfer_authority: StdMutex<Option<(u64, bool)>>,
     /// Prompts `restore_queues` rebuilt, `(promptId, turnId)`, until their run asks for its turn.
     pub(super) restored: StdMutex<Vec<(String, String)>>,
     /// Inbox digests waiting for their turn, by prompt id: the messages each took, which its turn
@@ -245,6 +248,8 @@ pub struct Session {
     pub(super) silent_turn: StdMutex<Option<String>>,
     /// The turn cap's timer for the running turn (`turn_cap.rs`); the next turn aborts it.
     pub(super) turn_cap_timer: StdMutex<Option<tokio::task::AbortHandle>>,
+    /// Other agents' messages to this chat, in threads (`inbox.rs`).
+    pub(super) inbox: StdMutex<super::inbox::Inbox>,
     /// The hub clock's time (`Hub::clock_now`) of the last record or
     /// attach change; the idle harness exit counts from it (`idle.rs`).
     pub(super) last_active: AtomicU64,

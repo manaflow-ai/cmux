@@ -122,6 +122,7 @@ final class ShellModel {
         self.auth = auth
         self.settings = settings
         self.sidebar = sidebar
+        terminalTabs.accountUserIDProvider = { [weak auth] in auth?.user?.id }
         // Mock content only in DEBUG mock mode (mock auth); a live account
         // never falls back to it.
         let mockMode = TerminalSessionChoice.mockCompiledIn && auth.isMock
@@ -456,19 +457,21 @@ final class ShellModel {
         #if DEBUG
         // Layout captures only: `-cmux-mobile-banner-demo pairing|pairing-reset|reconnecting`.
         switch UserDefaults.standard.string(forKey: "cmux-mobile-banner-demo") {
+        case "connected"?: return .connected
+        case "reconnecting"?: return .reconnecting(to: "Mac Studio")
+        case "offline"?: return .connectionFailed
         case "pairing"?: return .waitingForPairing(on: "Mac Studio")
         case "pairing-reset"?: return .waitingForPairingAfterNewKeys(on: "Mac Studio")
-        case "reconnecting"?: return .reconnecting(to: "Mac")
         default: break
         }
         #endif
         if store.isOffline { return .offline }
         // Pairing (verify/phone-approvals.md): the Mac asks the user the first time.
         switch live?.pairingState {
-        case .waiting(let mac)?: return .waitingForPairing(on: mac)
-        case .waitingAfterNewKeys(let mac)?: return .waitingForPairingAfterNewKeys(on: mac)
-        case .denied(let mac)?: return .failed("\(mac) did not allow this iPhone")
-        case .failed(let reason)?: return .failed("Pairing failed: \(reason)")
+        case .waiting(let mac)?: return .waitingForPairing(on: mac, identity: live?.focusedMacID)
+        case .waitingAfterNewKeys(let mac)?: return .waitingForPairingAfterNewKeys(on: mac, identity: live?.focusedMacID)
+        case .denied(let mac)?: return .failed("\(mac) did not allow this iPhone", identity: live?.focusedMacID)
+        case .failed(let reason)?: return .failed("Pairing failed: \(reason)", identity: live?.focusedMacID)
         default: return live?.banner
         }
     }
