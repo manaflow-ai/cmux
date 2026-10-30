@@ -6,9 +6,9 @@ import Testing
 struct PointerMenuTrimTests {
     private static let tabTrimmed: Set<ActionID> = [
         "terminal.keep", "terminal.setTheme", "terminal.clearTheme", "palette.toggleTabUnread",
-        "palette.toggleFullWidthTab", "tab.muteOtherAudio", "agentChat.toggleNotificationMute", "tab.showResources",
+        "palette.toggleFullWidthTab", "tab.muteOtherAudio", "agentChat.toggleNotificationMute",
         "hibernateTab", "wakeTab", "neverHibernateSite", "cloudMove", "cloudBringBack",
-        "palette.copyIdentifiers", "browser.resetPinnedTab", "tab.screenshot",
+        "browser.resetPinnedTab", "tab.screenshot",
     ]
 
     private static let paneTrimmed: Set<ActionID> = [
@@ -44,7 +44,7 @@ struct PointerMenuTrimTests {
         let catalog = ContextMenuCatalog.shared
         let shown = Set(catalog.referencedIDs(catalog.entries(for: .pane)))
         let retained: Set<ActionID> = [
-            "splitRight", "splitDown", "splitLeft", "splitUp", "toggleSplitZoom", "renamePane", "closePane",
+            "splitRight", "splitDown", "splitLeft", "splitUp", "toggleSplitZoom", "renamePane", "closePane", "newColumnLeft",
             "newColumn", "newRow", "splitBrowserRight", "splitBrowserDown", "pane.moveToNewWorkspace", "pane.moveToNewWindow",
             "swapPaneLeft", "swapPaneRight", "swapPaneUp", "swapPaneDown", "pane.closeOthers", "pane.setBackground",
             "pane.setTint", "pane.clearBackground", "reconnectPane", "palette.copyPaneID", "palette.copyPaneLink",
