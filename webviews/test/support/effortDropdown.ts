@@ -7,7 +7,12 @@ import { act } from "react";
 export async function openEffort(doc: Document, model?: string): Promise<HTMLElement[]> {
   const triggers = [...doc.querySelectorAll<HTMLElement>(".acpmux-quick-effort-trigger")];
   const trigger = model
-    ? triggers.find((item) => item.textContent?.includes(`${model} · `))
+    ? triggers.find((item) => {
+        // Its accessible name ends "<model> · Effort"; match the whole model name, so "Fable 5.1"
+        // never opens "Fable 5.1 · 1M context".
+        const name = item.querySelector(".sr-only")?.textContent ?? "";
+        return name.slice(0, name.lastIndexOf(" · ")) === model;
+      })
     : (triggers.find((item) => item.closest("[data-running]")) ?? triggers[0]);
   if (!trigger) return [];
   if (!trigger.hasAttribute("data-popup-open")) {

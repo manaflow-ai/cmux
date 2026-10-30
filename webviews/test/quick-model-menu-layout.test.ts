@@ -304,7 +304,7 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
         await lastTrigger.isVisible(),
         await lastTrigger.evaluate((node) => {
           const rect = node.getBoundingClientRect();
-          const hidden = [];
+          const hidden: string[] = [];
           for (let at: Element | null = node; at; at = at.parentElement) {
             const style = getComputedStyle(at);
             if (style.visibility !== "visible" || style.display === "none")
@@ -319,7 +319,7 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
       const box = (await dropdown.boundingBox())!;
       expect(box.y + box.height).toBeLessThanOrEqual(page.viewportSize()!.height);
       // The first row's model takes the pointer and closes the dropdown it does not own.
-      await rows.first().locator(":scope > .acpmux-quick-item").hover();
+      await rows.first().locator(":scope > .acpmux-quick-item:first-child").hover();
       await dropdown.waitFor({ state: "detached" });
     } finally {
       await page.close();
