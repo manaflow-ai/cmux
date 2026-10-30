@@ -167,7 +167,8 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
         worked: await worked.getAttribute("aria-expanded"),
         thoughts: (await thought.count()) > 0,
         commands: (await commands.count()) > 0,
-        open: await openCommands.count(),
+        // Only what opens on its own in every view (a failed call's output); Verbose opens the rest.
+        someClosed: (await openCommands.count()) < (await commands.count()),
       };
 
       await pick(page, "Verbose");
@@ -178,8 +179,7 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
       const before = await commands.count();
       await worked.click();
       await page.waitForFunction(
-        (shown) =>
-          document.querySelectorAll(".cv-tools .cv-tool.is-toggle:not(.cv-thought)").length < shown,
+        (shown) => document.querySelectorAll(".cv-tools .cv-tool.is-toggle:not(.cv-thought)").length < shown,
         before,
       );
       const closedByHand = {
@@ -197,7 +197,7 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
 
       expect({ normal, thinking, verbose, closedByHand, backToNormal }).toEqual({
         normal: { worked: "false", thoughts: 0, commands: 0 },
-        thinking: { worked: "true", thoughts: true, commands: true, open: 0 },
+        thinking: { worked: "true", thoughts: true, commands: true, someClosed: true },
         verbose: { open: true },
         closedByHand: { worked: "false", fewer: true, otherTurn: "true" },
         backToNormal: { worked: "false", thoughts: 0, commands: 0 },
