@@ -198,6 +198,8 @@ export function findHoverRevealViolations(source: string, file = ""): HoverRevea
     const declarations = revealDeclarations(rule.body);
     if (declarations.size === 0) continue;
     for (const selector of splitSelectorList(rule.selector)) {
+      // A reveal is a :hover with a descendant or sibling somewhere after it. The search is not
+      // anchored, so a nested :is(:hover, :focus-within) .actions counts too (its test covers it).
       const hoverIndex = selector.indexOf(":hover");
       if (hoverIndex < 0 || !/\s+(?:[>+~]\s*)?\S/.test(selector.slice(hoverIndex + ":hover".length))) continue;
       const normalizedSelector = normalized(selector);
