@@ -74,7 +74,13 @@ test("a daemon still starting shows nothing, then one muted line once it lasts",
   const container = installDom();
   jest.useFakeTimers();
   root = createRoot(container);
-  await act(async () => root!.render(<DaemonGate source={starting} strings={strings}>{() => null}</DaemonGate>));
+  await act(async () =>
+    root!.render(
+      <DaemonGate source={starting} strings={strings}>
+        {() => null}
+      </DaemonGate>,
+    ),
+  );
   await act(async () => void jest.advanceTimersByTime(LASTING_MS - 1));
   expect(container.textContent).toBe("");
   expect(container.querySelector("h1")).toBeNull();
@@ -94,6 +100,12 @@ test("a final refusal is said at once, as before", async () => {
     kind: "host",
     load: () => Promise.reject(Object.assign(new Error("too old"), { retryable: false })),
   };
-  await act(async () => root!.render(<DaemonGate source={blocked} strings={strings}>{() => null}</DaemonGate>));
+  await act(async () =>
+    root!.render(
+      <DaemonGate source={blocked} strings={strings}>
+        {() => null}
+      </DaemonGate>,
+    ),
+  );
   expect(container.querySelector(".hc-gate-error")?.textContent).toBe("Could not connect: too old");
 });
