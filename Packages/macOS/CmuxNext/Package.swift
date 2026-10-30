@@ -270,6 +270,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextActions",
                 "CmuxNextDaemon",
                 "CmuxNextDesign",
+                "CmuxNextDesignTokens",
                 "CmuxNextIcons",
                 "CmuxNextTerminal",
                 "CmuxNextTerminalGeometry",
@@ -359,7 +360,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextFloatingTests",
-            dependencies: ["CmuxNextFloating", "CmuxNextTestSupport"],
+            dependencies: ["CmuxNextDesign", "CmuxNextFloating", "CmuxNextTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         // Archive and Unarchive of sidebar items (plans/cmux-next/archiving-DESIGN.md): the actions
@@ -401,7 +402,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextAgentPaneTests",
-            dependencies: ["CmuxNextAgentPane", "CmuxNextDaemon", "CmuxNextActions", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextDictation", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextRemoteFetch", "CmuxNextSettings", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextTestSupport"],
+            dependencies: ["CmuxNextAgentPane", "CmuxNextDaemon", "CmuxNextActions", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextDictation", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextRemoteFetch", "CmuxNextSettings", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         // Dictation (the composer's mic): the on-device speech engines and
@@ -698,7 +699,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextPagesTests",
-            dependencies: ["CmuxNextCompat", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextSettings", "CmuxNextDesign", "CmuxNextTestSupport"],
+            dependencies: ["CmuxNextCompat", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextSettings", "CmuxNextDesign"],
             swiftSettings: uiSwiftSettings
         ),
         // Settings > Agents > Agent integrations: the coding-agent hooks the bundled CLI
@@ -901,7 +902,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextPopupsTests",
-            dependencies: ["CmuxNextBrowser", "CmuxNextDesign", "CmuxNextPopups", "CmuxNextTestSupport"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextDesign", "CmuxNextPopups"],
             swiftSettings: uiSwiftSettings
         ),
         // The one owner of what happens to a workspace with no pane: a last-tab
@@ -942,7 +943,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // The Screenshots pane (cmux://screenshots): macOS and screenshot-tool folders, live.
         .target(
             name: "CmuxNextScreenshots",
-            dependencies: ["CmuxNextFileGrid", "CmuxNextFiles"],
+            // Wakeups: ScreenshotMask waits out a window's frames on a DemandTimer.
+            dependencies: ["CmuxNextFileGrid", "CmuxNextFiles", "CmuxNextWakeups"],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
             ],
@@ -950,7 +952,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextScreenshotsTests",
-            dependencies: ["CmuxNextFileGrid", "CmuxNextFiles", "CmuxNextScreenshots", "CmuxNextTestSupport"],
+            dependencies: ["CmuxNextFileGrid", "CmuxNextFiles", "CmuxNextScreenshots"],
             swiftSettings: uiSwiftSettings
         ),
         // The built-in Memory Inspector (plans/cmux-next/memory-inspector-native-DESIGN.md):
@@ -1635,7 +1637,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextControlTests",
-            dependencies: ["CmuxNextActions", "CmuxNextCompat", "CmuxNextControl", "CmuxNextDaemon", "CmuxNextSettings", "CmuxNextTestSupport", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
+            dependencies: ["CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextCompat", "CmuxNextControl", "CmuxNextActions", "CmuxNextSettings", "CmuxNextDaemon"],
             swiftSettings: daemonSwiftSettings
         ),
         // Settings and palette agent CLI updates (moved out of CmuxNextApp/AgentHarnesses):
@@ -1782,7 +1784,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextMobileHostTests",
-            dependencies: ["CmuxNextMobileHost", "CmuxNextAgentPane", "CmuxNextPages", "CmuxNextSettings", "CmuxNextTestSupport"],
+            dependencies: ["CmuxNextMobileHost", "CmuxNextAgentPane", "CmuxNextPages", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(

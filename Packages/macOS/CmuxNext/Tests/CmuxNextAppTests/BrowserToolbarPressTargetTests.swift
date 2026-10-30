@@ -31,7 +31,7 @@ import Testing
         let services = AppServices(environment: AppEnvironment.current([:]))
         let context = AppActionContext(services: services)
         let (entry, window) = onScreen("toolbar-press-a", in: services)
-        defer { window.close() }
+        defer { window.close(); services.cache.release("toolbar-press-a") }
         #expect(services.windows.active?.focusedPane == nil, "no workspace pane has focus")
         let target = ActionTargetRef(kind: .tab, id: "toolbar-press-a")
         let page = try context.page(ActionInvocation(target: target))
@@ -43,7 +43,10 @@ import Testing
         let context = AppActionContext(services: services)
         let (first, firstWindow) = onScreen("toolbar-press-b", in: services)
         let (second, secondWindow) = onScreen("toolbar-press-c", in: services)
-        defer { firstWindow.close(); secondWindow.close() }
+        defer {
+            firstWindow.close(); secondWindow.close()
+            services.cache.release("toolbar-press-b"); services.cache.release("toolbar-press-c")
+        }
         #expect(try context.page(ActionInvocation(target: ActionTargetRef(kind: .tab, id: "toolbar-press-b"))) === first)
         #expect(try context.page(ActionInvocation(target: ActionTargetRef(kind: .tab, id: "toolbar-press-c"))) === second)
     }
@@ -52,6 +55,7 @@ import Testing
         let services = AppServices(environment: AppEnvironment.current([:]))
         let context = AppActionContext(services: services)
         _ = services.cache.browser(for: "toolbar-press-d", url: URL(string: "https://example.com/d"))
+        defer { services.cache.release("toolbar-press-d") }
         #expect(throws: (any Error).self) {
             try context.page(ActionInvocation(target: ActionTargetRef(kind: .tab, id: "toolbar-press-d")))
         }

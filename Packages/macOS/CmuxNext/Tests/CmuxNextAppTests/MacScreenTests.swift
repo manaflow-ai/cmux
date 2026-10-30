@@ -237,7 +237,7 @@ struct MacScreenPageTabTests {
         let tab = try await show("odd", in: pages)
         #expect(tab.record == MacScreenRecord(macID: nil))
         #expect(tab.pane == nil)
-        #expect(pages.title(for: "odd") == "Mac Screen")
+        #expect(pages.title(for: "odd") == "Screen Sharing")
         pages.tabClosed("odd")
     }
 

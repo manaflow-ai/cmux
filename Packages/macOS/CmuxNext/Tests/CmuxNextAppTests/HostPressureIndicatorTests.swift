@@ -2,8 +2,8 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 import CmuxNextHostPressure
-import Testing
 import CmuxNextTestSupport
+import Testing
 
 /// The top-row host pressure indicator (cmuxterm-hq#2995): Debug Settings forces a level with
 /// sample numbers for captures, and the popover shows the load against its limit, then acpmux's
@@ -86,6 +86,7 @@ import CmuxNextTestSupport
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.borderless],
                               backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
+        defer { window.close() }
         window.contentView?.addSubview(indicator)
         #expect(indicator.isSampling)
         // Let the notification tasks start listening before anything is posted.
@@ -234,6 +235,7 @@ import CmuxNextTestSupport
                                                   }) {}
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
+        defer { window.close() }
         window.contentView?.addSubview(indicator)
         #expect(!indicator.sampling.samples) // the toggle is off
         _ = store.set(HostPressureTunables.enabled.key, true.tunableValue)
@@ -254,7 +256,7 @@ import CmuxNextTestSupport
 /// `hostPressure.enabled` and `hostPressure.banner` on, the level forced to critical (the sample
 /// numbers, no timer read), windows that count as seen, and a toast center whose host records the
 /// toast views so the test presses their close and Show Details buttons as a click does.
-@MainActor @Suite(.closesItsWindows, .serialized) struct HostPressureBannerToastTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct HostPressureBannerToastTests {
     /// Records each window's toast views (the center's overlay host, without an overlay).
     @MainActor private final class RecordingHost: CmuxToastHosting {
         private(set) var shown: [(view: CmuxToastView, window: NSWindow)] = []

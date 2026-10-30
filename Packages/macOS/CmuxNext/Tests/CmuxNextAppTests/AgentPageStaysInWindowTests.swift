@@ -55,6 +55,7 @@ import Testing
 
         // Cmd-T into a browser, then Cmd-W back to the page.
         let chrome = BrowserChromeView(tab: WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab())
+        defer { chrome.closePopupPanels() }
         pane.show(chrome)
         pane.layoutSubtreeIfNeeded()
         try await Task.sleep(for: .milliseconds(300)) // any paint hold on the browser ends
