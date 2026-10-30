@@ -65,8 +65,20 @@ fn read_msg(s: &mut UnixStream) -> Option<String> {
 
 fn connect(path: &Path) -> UnixStream {
     let s = UnixStream::connect(path).unwrap();
-    s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    // A client the bridge refused at once may be closed already; its reads end at once.
+    set_read_timeout_unless_closed(&s, Duration::from_secs(5));
     s
+}
+
+/// Sets `s`'s read timeout; false when the peer has closed `s`. macOS refuses socket
+/// options on a socket whose peer closed it (EINVAL: xnu's sosetopt fails once both
+/// directions are shut); Linux sets them. Any other error fails the test.
+fn set_read_timeout_unless_closed(s: &UnixStream, wait: Duration) -> bool {
+    match s.set_read_timeout(Some(wait)) {
+        Ok(()) => true,
+        Err(e) if e.raw_os_error() == Some(libc::EINVAL) => false,
+        Err(e) => panic!("set_read_timeout: {e}"),
+    }
 }
 
 /// True when the bridge closed `s` within 5 s (a read ends, or fails as the peer reset it).
@@ -76,14 +88,17 @@ fn closed_by_host(s: &mut UnixStream) -> bool {
 
 /// True when the bridge closed `s` within `wait`; a client still open then counts as served.
 fn closed_within(s: &mut UnixStream, wait: Duration) -> bool {
-    s.set_read_timeout(Some(wait)).unwrap();
+    if !set_read_timeout_unless_closed(s, wait) {
+        return true;
+    }
     let mut byte = [0u8; 1];
     let closed = match s.read(&mut byte) {
         Ok(0) => true,
         Ok(_) => false,
         Err(e) => !matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut),
     };
-    s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    // The bridge may close `s` right after the read: the next read sees that.
+    set_read_timeout_unless_closed(s, Duration::from_secs(5));
     closed
 }
 
@@ -129,8 +144,20 @@ fn a_live_cdp_socket_is_not_replaced_and_a_stale_one_is() {
     let err = bind_owner_only(&path).expect_err("a second server on a live socket");
     assert_eq!(err.kind(), io::ErrorKind::AddrInUse, "{err}");
     drop(first);
-    // The first server is gone (its file stays): a new one takes the path.
-    let _second = bind_owner_only(&path).expect("replace a stale socket");
+    // The first server is gone (its file stays): a new one takes the path. Another test's
+    // fork holds a copy of every fd of this process until its child execs (close-on-exec
+    // fds too), so the listener can outlive the drop for that long: retry while it does.
+    let t0 = Instant::now();
+    let _second = loop {
+        match bind_owner_only(&path) {
+            Ok(listener) => break listener,
+            Err(e) if e.kind() == io::ErrorKind::AddrInUse => {
+                assert!(t0.elapsed() < Duration::from_secs(5), "the stale socket stayed live: {e}");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Err(e) => panic!("replace a stale socket: {e}"),
+        }
+    };
     // A path that is not a socket is never replaced.
     let file = dir.0.join("not-a-socket");
     fs::write(&file, b"x").unwrap();

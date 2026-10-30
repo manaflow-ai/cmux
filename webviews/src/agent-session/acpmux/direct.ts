@@ -4833,6 +4833,7 @@ export class AcpmuxDirectClient {
       // selection and leave the client unselected, so a recovered New Tab cannot send into the
       // malformed target through ensureSession's selected-session fast path.
       this.leave();
+      // l10n-allow: a host protocol error for the attach's caller; never shown.
       throw new Error("chat attach did not return a matching session summary");
     }
     return selected;

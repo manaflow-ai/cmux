@@ -34,10 +34,6 @@ public final class CEFRuntimeSource {
     /// Host mode: drags onto a page reach it with DragTarget calls (feature `chromiumHostDragIn`, set by
     /// the App). Read when the runtime adopts the source; in process it changes nothing.
     public var takesHostDrags = false
-    /// Host mode: a hosted page's resize holds its window's commit on a Core Animation fence until the
-    /// page's frame at the new size joins it, one display frame at most (feature `chromiumHostResizeFence`,
-    /// set by the App; ``ChromiumHostResizeFence``). Read when the runtime adopts the source.
-    public var fencesHostResizes = false
     /// Host mode: a page's `<select>` popups show as cmux menus over the page and the host never shows its
     /// own (feature `chromiumHostPopupMenus`, set by the App; ``ChromiumHostPopupMenus``). Read when the
     /// runtime adopts the source; in process it changes nothing.

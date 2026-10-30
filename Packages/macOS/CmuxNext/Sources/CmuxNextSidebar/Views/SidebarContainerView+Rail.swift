@@ -42,7 +42,8 @@ extension SidebarContainerView {
         railCards.rail = railView
         railCards.coordinator = { [weak self] in self?.sidebarView.hoverCards }
         railCards.digit = { [weak self] id in
-            self?.model.itemOrder.number(for: .workspace(id), DesignSettings.shared.sidebarSections.navigation)
+            guard let self else { return nil }
+            return model.itemOrder.number(for: .workspace(id), sidebarView.design.sidebarSections.navigation)
         }
         syncRail()
     }

@@ -50,9 +50,10 @@ class ScanRule:
     private_identity_exceptions: frozenset[str] = frozenset()
 
 
-# Every high-level package is scanned.  Tests, examples, generated manifest
-# members, and directories literally named raw/internal are outside this
-# public-boundary pass and have their own conformance coverage.
+# Every high-level package is scanned.  Tests (test files, test fixtures and
+# inline `#[cfg(test)]` modules), examples, generated manifest members, and
+# directories literally named raw/internal are outside this public-boundary
+# pass and have their own conformance coverage.
 SCAN_RULES = (
     ScanRule(
         "public docs",
@@ -366,6 +367,10 @@ def _json_object(path: Path, diagnostics: list[Diagnostic]) -> Mapping[str, obje
     return value
 
 
+# A Rust char literal ('a', '\n', '\u{1F600}'); a lone quote is a lifetime.
+_RUST_CHAR_LITERAL_RE = re.compile(r"'(?:\\(?:u\{[0-9a-fA-F]+\}|x[0-9a-fA-F]{2}|.)|[^\\'\n])'")
+
+
 def _blank_rust_comments(text: str) -> str:
     """`text` with Rust `//` and (nested) `/* */` comments replaced by spaces,
     newlines kept, so offsets and lines still match `text`. String, raw string,
@@ -409,9 +414,8 @@ def _blank_rust_comments(text: str) -> str:
                 j += 2 if text[j] == "\\" else 1
             i = j + 1
         elif c == "'":
-            # A char literal ('a', '\n', '\u{1F600}'); otherwise a lifetime.
-            char = re.match(r"'(?:\\(?:u\{[0-9a-fA-F]+\}|x[0-9a-fA-F]{2}|.)|[^\\'\n])'", text[i : i + 16])
-            i += char.end() if char else 1
+            char = _RUST_CHAR_LITERAL_RE.match(text, i)
+            i = char.end() if char else i + 1
         else:
             i += 1
     return "".join(out)
@@ -3427,9 +3431,10 @@ def _is_test_or_example(path: Path) -> bool:
     parts = set(path.parts)
     name = path.name.lower()
     return (
-        bool(parts & {"test", "tests", "example", "examples", "e2e", "cmd"})
+        bool(parts & {"test", "tests", "fixtures", "example", "examples", "e2e", "cmd"})
         or name.endswith("_test.go")
         or "_test." in name
+        or name.endswith("_tests.rs")
         or name.startswith("test_")
         or name in {"test.rs", "tests.rs"}
         or name.endswith("test.zig")
@@ -3487,6 +3492,41 @@ def _rust_string_regions(text: str) -> Iterator[tuple[int, int]]:
             index = cursor
             continue
         index += 1
+
+
+# An inline test module: `#[cfg(test)]`, other attributes, then `mod name {`.
+_RUST_TEST_MODULE_RE = re.compile(
+    r"#\[cfg\(test\)\]\s*(?:#\[[^\]]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?mod\s+\w+\s*\{"
+)
+
+
+def _rust_test_module_spans(text: str) -> list[tuple[int, int]]:
+    """Spans of the inline `#[cfg(test)] mod name { ... }` blocks of a Rust
+    file. Braces in comments, string literals and char literals do not count."""
+    code = _blank_rust_comments(text)
+    string_ends = dict(_rust_string_regions(code))
+    spans: list[tuple[int, int]] = []
+    strings = list(string_ends.items())
+    for match in _RUST_TEST_MODULE_RE.finditer(code):
+        if any(start <= match.start() < end for start, end in [*spans, *strings]):
+            continue
+        depth = 1
+        index = match.end()
+        while index < len(code) and depth:
+            if index in string_ends:
+                index = string_ends[index] + 1
+                continue
+            char = _RUST_CHAR_LITERAL_RE.match(code, index)
+            if char is not None:
+                index = char.end()
+                continue
+            if code[index] == "{":
+                depth += 1
+            elif code[index] == "}":
+                depth -= 1
+            index += 1
+        spans.append((match.start(), index))
+    return spans
 
 
 def _identifier_parts(identifier: str) -> list[str]:
@@ -3609,7 +3649,12 @@ def scan_public_boundaries(tui: Path) -> tuple[list[Diagnostic], int]:
                 continue
             regions: Iterable[tuple[int, int]]
             if rule.cli_literals_only:
-                regions = _rust_string_regions(text)
+                tests = _rust_test_module_spans(text)
+                regions = [
+                    (start, end)
+                    for start, end in _rust_string_regions(text)
+                    if not any(test_start <= start < test_end for test_start, test_end in tests)
+                ]
             else:
                 regions = ((0, len(text)),)
             for start, end in regions:

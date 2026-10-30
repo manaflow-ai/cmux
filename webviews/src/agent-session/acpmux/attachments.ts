@@ -283,6 +283,7 @@ export function promptText(text: string, attachments: ComposerAttachment[]): str
     .filter((attachment) => attachment.kind === "link" && attachment.mimeType)
     .map(
       (attachment) =>
+        // l10n-allow: text for the agent, sent in the prompt, not UI.
         `Attached file: ${attachment.name} (${attachment.mimeType}, ${attachment.size} bytes). Read the linked file with your tools.`,
     );
   return [text, ...files, ...notes].filter(Boolean).join("\n\n");

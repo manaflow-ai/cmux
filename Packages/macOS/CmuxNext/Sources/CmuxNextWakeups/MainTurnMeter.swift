@@ -391,10 +391,13 @@ public final class MainTurnMeter {
             if signposts { Signposter.event(.stallMainTurn, arg0: turn.ringArg0, arg1: turn.ringArg1) }
         }
         guard turn.unattributedNanos > 0 else { return }
+        // An index loop, not `for index in 1..<count`: a Debug build runs a range's `IndexingIterator` unspecialized
+        // in libswiftCore, whose read coroutine heap-allocates its frame, once per step.
         var smallest = 0
-        for index in 1..<counters.topUnattributed.count
-        where counters.topUnattributed[index].unattributedNanos < counters.topUnattributed[smallest].unattributedNanos {
-            smallest = index
+        var index = 1
+        while index < counters.topUnattributed.count {
+            if counters.topUnattributed[index].unattributedNanos < counters.topUnattributed[smallest].unattributedNanos { smallest = index }
+            index += 1
         }
         if turn.unattributedNanos > counters.topUnattributed[smallest].unattributedNanos { counters.topUnattributed[smallest] = turn }
     }

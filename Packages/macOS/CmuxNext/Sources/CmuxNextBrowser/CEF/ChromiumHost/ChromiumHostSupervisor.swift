@@ -9,7 +9,7 @@ import Foundation
 /// one GPU process for every profile and tab (content/browser/gpu/gpu_process_host.cc). Built once in AppServices.
 ///
 /// - Start: ``attachment()`` starts a host when none runs. The spawn runs on BackgroundWork's `.system` lane, never
-///   on the main thread; the host's wire (the client end of its control channel, its resize fence's name) goes to
+///   on the main thread; the host's wire (the client end of its control channel) goes to
 ///   the caller, which owns the descriptors from then on (the remote shim).
 /// - Exit: each host's end is watched off the main thread (a kqueue `NOTE_EXIT` process source, then
 ///   `waitid(WNOWAIT)`, on `com.cmuxterm.chromium-host.supervisor`, utility). The pid stays a zombie until the
@@ -82,12 +82,10 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
     /// `mainWork` (class visible: its pages show the crash).
     ///
     /// - Parameters:
-    ///   - fencesResizes: Each host gets a resize fence inbox (feature `chromiumHostResizeFence`).
     ///   - restoresPages: A crash within the restart budget brings the host's pages back on a new host (feature
     ///     `chromiumHostRestoreTabs`).
-    public convenience init(work: BackgroundWork, mainWork: MainWorkScheduler, fencesResizes: Bool = false,
-                            restoresPages: Bool = false) {
-        self.init(spawner: ChromiumHostLaneSpawner(work: work, mainWork: mainWork, fencesResizes: fencesResizes) {
+    public convenience init(work: BackgroundWork, mainWork: MainWorkScheduler, restoresPages: Bool = false) {
+        self.init(spawner: ChromiumHostLaneSpawner(work: work, mainWork: mainWork) {
             ChromiumHostLaunchPlan.bundled()
         }, restoresPages: restoresPages)
     }

@@ -67,7 +67,6 @@ impl TestPty {
     }
 
     /// The shell's pid.
-    #[cfg(target_os = "macos")]
     pub(super) fn pid(&self) -> u32 {
         self.spawned.child.process_id().expect("a spawned pty child has a pid")
     }

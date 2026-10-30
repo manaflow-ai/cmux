@@ -15,15 +15,11 @@ checks with debug.layers that the fork really moved the page's pixels, `hosted.f
           CEFResizeSyncDeadline: 4 ms at 120 Hz)
   on0     the same hosting, syncDeadline 0: the page never holds the commit (it shows its last frame until Chromium
           draws the new size)
-  host    Chromium in the Chromium Host (features cefHelperHost and chromiumHostTabs, Debug builds): each page resize is an ordered op, no
-          fence (the page shows its last frame until the host's page draws the new size)
-  hostfence  host, plus feature chromiumHostResizeFence (p01-process-052): the window's commit waits on a Core
-          Animation fence until the host's page joins it, one display frame at most from the commit. Rows add
-          fence_resizes (fenced resizes), fence_joined, fence_late and fence_cut (`debug.cef` host_resize);
-          acceptance: commit p95 within one display frame and no more missed frames than `host`
-The host modes are not checked with cef-layer-verify.py (it checks in-process layer hosting). They start with the
-layer hosting and deadline tunables removed, and a bench of one counts as valid only when the app reported
-`debug.cef` host_resize at its end (null: Chromium ran in process), for `hostfence` with at least one fenced resize.
+  host    Chromium in the Chromium Host (features cefHelperHost and chromiumHostTabs, Debug builds): each page resize is an ordered op
+          (the page shows its last frame until the host's page draws the new size)
+The host mode is not checked with cef-layer-verify.py (it checks in-process layer hosting). It starts with the
+layer hosting and deadline tunables removed, and a bench of it counts as valid only when the app reported
+`debug.cef` host_resize at its end (null: Chromium ran in process).
 summary.json records the features, the tunables file reset and each bench's host_resize.
 
 The feature `cefLayerHosting` hosts a pane's page only where the app makes every Track A call (resize fence,
@@ -63,10 +59,9 @@ from sidebar_drag_bench_report import measured_build  # noqa: E402
 # The hosting tunables cef-layer-verify.py sets per mode (features' local overrides), removed at the end.
 HOSTING_KEYS = ("browserResize.layerHosting",)
 DEADLINE_KEY = "browserResize.syncDeadline"
-MODES = {"off": ("off", None), "on": ("on", None), "on0": ("on", 0.0), "host": ("host", None), "hostfence": ("host", None)}
+MODES = {"off": ("off", None), "on": ("on", None), "on0": ("on", 0.0), "host": ("host", None)}
 # The features each host mode starts the app with (pane-perf-terminal.py --enable-features).
-HOST_FEATURES = {"host": "cefHelperHost,chromiumHostTabs",
-                 "hostfence": "cefHelperHost,chromiumHostResizeFence,chromiumHostTabs"}
+HOST_FEATURES = {"host": "cefHelperHost,chromiumHostTabs"}
 
 
 def parse(argv=None):
@@ -161,7 +156,7 @@ def stress_session(log_path):
 
 
 KEYS = ("commit_p95_ms", "commit_max_ms", "missed", "frames_p95_ms", "frames_p99_ms", "frames_max_ms", "layout_p95_ms",
-        "refresh_ms", "fence_resizes", "fence_joined", "fence_late", "fence_cut")
+        "refresh_ms")
 
 
 def clear_tunables(path):
@@ -176,14 +171,11 @@ def clear_tunables(path):
         pass
 
 
-def host_validity(mode, report):
+def host_validity(report):
     """Why a host mode bench did not measure host mode, None when it did: the app reported `debug.cef` host_resize
-    at the end (null in process), and for `hostfence` at least one fenced resize."""
-    counters = report.get("host_resize")
-    if not isinstance(counters, dict):
+    at the end (null in process)."""
+    if not isinstance(report.get("host_resize"), dict):
         return "debug.cef host_resize is null: Chromium ran in process"
-    if mode == "hostfence" and not (counters.get("fenced") or 0) > 0:
-        return f"no fenced resize (host_resize {json.dumps(counters)})"
     return None
 
 
@@ -244,7 +236,7 @@ def main(argv=None):
                     for r in report.get("summary") or []]
             valid = True
             if mode in HOST_FEATURES:
-                invalid = host_validity(mode, report)
+                invalid = host_validity(report)
                 valid = invalid is None
                 summary["validity"][mode]["benches"][bench] = {"ok": valid, "host_resize": report.get("host_resize"),
                                                                **({"error": invalid} if invalid else {})}

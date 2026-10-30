@@ -4,12 +4,13 @@ import CmuxNextCompat
 import ObjectiveC
 import QuartzCore
 import Testing
+import CmuxNextTestSupport
 
 /// RenderStats: render work counted per owner class only while armed, for the
 /// counting benches (`debug.frames` with `render: true`, `debug.damage`), and RenderFrameLog, its
 /// per-frame view for `debug.frames`. One serialized suite: the hooks are process-wide.
 @MainActor
-@Suite(.serialized) struct RenderStatsTests {
+@Suite(.serialized, .renderHooks) struct RenderStatsTests {
     #if DEBUG || CMUX_BENCH_HOOKS
     // Not final, and called through an `NSView` reference: a call Swift could devirtualize would skip
     // the Objective-C dispatch that AppKit (and the hooks) use.
