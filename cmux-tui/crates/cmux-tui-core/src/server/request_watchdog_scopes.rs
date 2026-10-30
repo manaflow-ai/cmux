@@ -35,7 +35,9 @@ pub(crate) enum WatchKind {
     /// Debug builds only: the owner's hang log test (tests/owner_panic.rs).
     #[cfg(debug_assertions)]
     OwnerTest,
-    /// One item a connection's `mux-line-out` writer writes to its socket.
+    /// One batch of a connection's replies and events the mux-io loop
+    /// writes to its socket (the scope keeps the name of the writer thread
+    /// that once wrote it).
     LineOut,
     /// One input write of `mux-pty-input` to a local terminal.
     PtyInput,

@@ -110,6 +110,7 @@ fn connect(io: &MuxIo, sink: Arc<dyn InboundSink>) -> Connected {
         writer: writer.clone(),
         ipc: ipc.clone(),
         inbound: sink,
+        hangs: crate::server::RequestWatchdog::default().echo_watch(),
     };
     assert!(io.register(&handle, registration).is_ok());
     Connected { handle, outbound, writer, ipc, peer }
