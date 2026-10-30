@@ -701,14 +701,18 @@ fn an_agent_starts_a_chat_in_a_workspace_and_drives_it_without_the_app() {
     assert_eq!(code, Some(0), "{stopped}");
     assert_eq!(stopped["result"]["state"], "cancel_requested", "{stopped}");
 
-    // Its mode, as the chat's mode picker sets it; `state` reads it back.
-    let (code, set) = chat_json(as_caller(), &["set", &started, "--mode", "strict"]);
+    // Its mode, as the chat's mode picker sets it; `state` reads it back. A mode that does not
+    // ask before it acts stays the person's: acpmux refuses it to an agent.
+    let (code, refused) = chat_json(as_caller(), &["set", &started, "--mode", "strict"]);
+    assert_eq!(code, Some(3), "{refused}");
+    assert_eq!(error_of(&refused)["code"], "chat.set_refused", "{refused}");
+    let (code, set) = chat_json(as_caller(), &["set", &started, "--mode", "normal"]);
     assert_eq!(code, Some(0), "{set}");
     assert_eq!(set["action"], "chat.set", "{set}");
-    assert_eq!(set["result"]["mode"], "strict", "{set}");
+    assert_eq!(set["result"]["mode"], "normal", "{set}");
     let (code, state) = chat_json(as_caller(), &["state", &started]);
     assert_eq!(code, Some(0), "{state}");
-    assert_eq!(state["result"]["mode"], "strict", "{state}");
+    assert_eq!(state["result"]["mode"], "normal", "{state}");
     let (code, nothing) = chat_json(as_caller(), &["set", &started]);
     assert_eq!(code, Some(2), "a set that names nothing: {nothing}");
 

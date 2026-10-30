@@ -107,8 +107,12 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
     };
     let _ = stream.set_read_timeout(Some(SERVER_PREFLIGHT_TIMEOUT));
     let mut reader = BufReader::new(stream);
-    if reads_tabs(&plan) {
-        declare_tab_kinds(&mut reader);
+    if reads_tabs(&plan) && declare_tab_kinds(&mut reader).is_err() {
+        // Refused at the connection limit: the request never ran.
+        if tries.may_retry(retry::Failure::Dropped) {
+            return retry::AGAIN;
+        }
+        return transport_failure(global.output, "session.busy", hints::session_busy(), true);
     }
     if let Some(capability) = required_server_capability(&plan) {
         match require_server_capability(&mut reader, global, capability) {
@@ -314,31 +318,42 @@ pub(super) fn reads_tabs(plan: &RequestPlan) -> bool {
     matches!(
         &plan.operation,
         WireOperation::Typed(
-            ResourceOperation::TabList | ResourceOperation::TabGet | ResourceOperation::SessionSnapshot
+            ResourceOperation::TabList
+                | ResourceOperation::TabGet
+                | ResourceOperation::SessionSnapshot
         )
     )
 }
 
-/// Declares the conversation tab kinds on this connection (raw `set-client-info`), so the
-/// daemon shows an agent chat tab as `content_kind: conversation` with its
-/// `extra.conversation.agent_session` (host, session) instead of rewriting it to the plain
-/// `browser` at `about:blank` an older reader expects (#27934). Best effort: a daemon that
-/// does not answer leaves the rows as they were, and the request that follows reports any
-/// transport failure itself.
-pub(super) fn declare_tab_kinds(reader: &mut BufReader<Box<dyn transport::Stream>>) {
-    let Ok(request_id) = random_request_id() else { return };
-    let request = json!({"id": request_id, "cmd": "set-client-info",
-                         "capabilities": ["conversation-tabs-v1", "agent-session-tabs-v1", "page-tabs-v1"]});
-    let Ok(mut encoded) = serde_json::to_vec(&request) else { return };
+/// Declares the conversation tab kinds on this connection (`client.metadata.update
+/// {client: current, capabilities}`), so the daemon shows an agent chat tab as
+/// `content_kind: conversation` with its `extra.conversation.agent_session` (host, session)
+/// instead of rewriting it to the plain `browser` at `about:blank` an older reader expects
+/// (#27934). Best effort: its reply is a typed response the request after it skips by id, even
+/// when it comes late, and a daemon that refuses the declaration leaves the rows as they were.
+/// Err: the daemon refused the connection at its limit (`refused`), so no request ran.
+pub(super) fn declare_tab_kinds(
+    reader: &mut BufReader<Box<dyn transport::Stream>>,
+) -> Result<(), ()> {
+    let Ok(request_id) = random_request_id() else { return Ok(()) };
+    let request = json!({"protocol": PROTOCOL, "type": "request", "id": request_id,
+        "operation": "client.metadata.update",
+        "params": {"client": "current",
+                   "capabilities": ["conversation-tabs-v1", "agent-session-tabs-v1", "page-tabs-v1"]}});
+    let Ok(mut encoded) = serde_json::to_vec(&request) else { return Ok(()) };
     encoded.push(b'\n');
     if reader.get_mut().write_all(&encoded).and_then(|_| reader.get_mut().flush()).is_err() {
-        return;
+        // A refused connection is read and reported by the request after this one.
+        return Ok(());
     }
-    while let Ok(Some(response)) = read_envelope(reader, false) {
-        if response.get("id").and_then(Value::as_str) == Some(request_id.as_str()) {
-            return;
+    while let Ok(Some(envelope)) = read_envelope(reader, false) {
+        match envelope.get("type").and_then(Value::as_str) {
+            Some("refused") => return Err(()),
+            Some("response") if envelope["id"] == json!(request_id) => return Ok(()),
+            _ => {}
         }
     }
+    Ok(())
 }
 
 fn required_server_capability(plan: &RequestPlan) -> Option<&'static str> {

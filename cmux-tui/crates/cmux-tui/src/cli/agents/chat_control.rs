@@ -283,8 +283,11 @@ pub(in crate::cli) fn new(
     // An app that does not answer starts nothing: the caller's own daemon would run a chat
     // its tab cannot attach (#27934).
     let place = place(global, chat)?;
-    let app_socket = chat::required_app_acpmux(global)
-        .map_err(|error| CallFailure { kind: FailureKind::NotRun, error, idempotency_key: None })?;
+    let app_socket = chat::required_app_acpmux(global).map_err(|error| CallFailure {
+        kind: FailureKind::NotRun,
+        error,
+        idempotency_key: None,
+    })?;
     let socket = app_socket.as_deref();
     let cwd = match &chat.cwd {
         Some(cwd) => cwd.clone(),
@@ -397,7 +400,10 @@ pub(in crate::cli) fn new(
 }
 
 /// `chat set <chat> [--model M] [--mode M]` (the words after the chat).
-pub(in crate::cli) fn parse_set(target: String, words: &[&str]) -> Result<chat::ChatCommand, UsageError> {
+pub(in crate::cli) fn parse_set(
+    target: String,
+    words: &[&str],
+) -> Result<chat::ChatCommand, UsageError> {
     const USAGE: &str = "agents chat set <chat> [--model <m>] [--mode <m>]";
     let (mut model, mut mode) = (None, None);
     let mut index = 0;
@@ -431,7 +437,9 @@ pub(in crate::cli) fn parse_set(target: String, words: &[&str]) -> Result<chat::
         index += 1;
     }
     if model.is_none() && mode.is_none() {
-        return Err(UsageError::new(format!("agents chat set: name --model or --mode; usage: {USAGE}")));
+        return Err(UsageError::new(format!(
+            "agents chat set: name --model or --mode; usage: {USAGE}"
+        )));
     }
     Ok(chat::ChatCommand::Set { target, model, mode })
 }

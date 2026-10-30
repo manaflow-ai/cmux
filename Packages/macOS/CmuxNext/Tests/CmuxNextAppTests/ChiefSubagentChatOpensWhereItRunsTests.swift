@@ -77,6 +77,12 @@ struct ChiefSubagentChatOpensWhereItRunsTests {
                                                 withIntermediateDirectories: true)
         #expect(await host.runsSession(untagged) == true)
         #expect(await host.runsSession(appOwn) == nil)
+
+        // A daemon too old for the exact resolve cannot say: never "not here", which would refuse
+        // or misroute a chat it runs.
+        let old = try ListingDaemon(sessions: [["sessionId": appOwn]], exactResolve: false)
+        defer { old.stop() }
+        #expect(await AcpmuxHost(environment: old.environment, startsDaemons: false).runsSession(untagged) == nil)
     }
 
     private static func connected() throws -> DaemonIdentity {
@@ -165,7 +171,8 @@ nonisolated final class ListingDaemon: @unchecked Sendable {  // the fd is writt
     private let root: URL
     private let descriptor: Int32
 
-    init(sessions: [[String: any Sendable]]) throws {
+    /// - Parameter exactResolve: false: an older acpmux that rejects `exactSessionId` (-32602).
+    init(sessions: [[String: any Sendable]], exactResolve: Bool = true) throws {
         root = URL(fileURLWithPath: "/tmp/cnf-\(UUID().uuidString.prefix(8))", isDirectory: true)
         let bin = root.appendingPathComponent("bin", isDirectory: true), home = root.appendingPathComponent("home", isDirectory: true)
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
@@ -194,7 +201,7 @@ nonisolated final class ListingDaemon: @unchecked Sendable {  // the fd is writt
             while true {
                 let client = accept(listener, nil, nil)
                 guard client >= 0 else { return }
-                Thread.detachNewThread { Self.serve(client, rows: rows) }
+                Thread.detachNewThread { Self.serve(client, rows: rows, exactResolve: exactResolve) }
             }
         }
     }
@@ -209,7 +216,7 @@ nonisolated final class ListingDaemon: @unchecked Sendable {  // the fd is writt
         try? FileManager.default.removeItem(at: root)
     }
 
-    private static func serve(_ client: Int32, rows data: Data) {
+    private static func serve(_ client: Int32, rows data: Data, exactResolve: Bool) {
         defer { close(client) }
         let rows = (try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]) ?? []
         var buffer = Data()
@@ -227,6 +234,8 @@ nonisolated final class ListingDaemon: @unchecked Sendable {  // the fd is writt
                 switch object["method"] as? String {
                 case "_acpmux/sessions":
                     reply["result"] = ["sessions": rows]
+                case "_acpmux/resolve" where !exactResolve:
+                    reply["error"] = ["code": -32602, "message": "unknown field exactSessionId"]
                 case "_acpmux/resolve":
                     if let row = rows.first(where: { $0["sessionId"] as? String == params["sessionId"] as? String }) {
                         reply["result"] = ["session": row]

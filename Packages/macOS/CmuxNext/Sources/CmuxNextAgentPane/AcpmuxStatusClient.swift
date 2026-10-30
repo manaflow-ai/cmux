@@ -152,6 +152,22 @@ nonisolated enum AcpmuxStatusClient {
         return sessionSummary(sessionId, in: result)
     }
 
+    /// Whether the daemon runs `sessionId`, by its exact resolve (#27934): false only for its
+    /// not-found (-32002), nil from a daemon too old for the exact form (it cannot say).
+    @concurrent static func runsSession(socketPath: String, sessionId: String,
+                                        deadline: Duration = .seconds(2)) async throws -> Bool? {
+        do {
+            let result = try await call(socketPath: socketPath, method: "_acpmux/resolve",
+                                        params: ["exactSessionId": true, "sessionId": sessionId],
+                                        deadline: deadline, detailed: true)
+            return sessionSummary(sessionId, in: result) != nil
+        } catch let error as AcpmuxRPCError where error.code == -32002 {
+            return false
+        } catch let error as AcpmuxRPCError where shouldFallbackExactResolve(error) {
+            return nil
+        }
+    }
+
     static func shouldFallbackExactResolve(_ error: AcpmuxRPCError) -> Bool {
         error.code == -32601 || error.code == -32602
     }
