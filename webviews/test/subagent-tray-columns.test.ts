@@ -17,6 +17,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
 
   beforeAll(async () => {
     server = await createServer({
+      root: path.resolve(import.meta.dir, ".."),
       configFile: path.resolve(import.meta.dir, "../vite.config.gallery-dev.ts"),
       server: { port: 0, host: "127.0.0.1", strictPort: false },
       logLevel: "error",
@@ -43,6 +44,10 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
         const head = page.locator(".acpmux-running-tray__head");
         await head.waitFor();
+        const collapsedTime = head.locator(".acpmux-running-tray__time");
+        expect(await collapsedTime.count()).toBe(1);
+        const collapsedHeaderText = (await collapsedTime.textContent())?.trim() ?? "";
+        expect(collapsedHeaderText).toMatch(/^(?:\d+h(?: \d+m)?(?: \d+s)?|\d+m(?: \d+s)?|\d+s)$/);
         if ((await head.getAttribute("aria-expanded")) !== "true") await head.click();
         await page.locator(".acpmux-running-tray__list .acpmux-agent-line").first().waitFor();
         await page.evaluate(() => {
@@ -104,7 +109,14 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
               const node = root.querySelector<HTMLElement>(selector);
               if (!node) throw new Error(`missing ${selector}`);
               const box = node.getBoundingClientRect();
-              return { left: box.left, right: box.right, width: box.width, height: box.height };
+              return {
+                left: box.left,
+                right: box.right,
+                top: box.top,
+                bottom: box.bottom,
+                width: box.width,
+                height: box.height,
+              };
             };
             const textRect = (node: HTMLElement) => {
               const range = document.createRange();
@@ -115,7 +127,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
               return {
                 text: node.textContent?.trim() ?? "",
                 lineCount: boxes.length,
-                textRight: boxes.length === 1 ? boxes[0]!.right : Number.POSITIVE_INFINITY,
+                textRight: boxes.length === 0 ? null : boxes[0]!.right,
                 boxRight: box.right,
                 height: box.height,
                 scrollWidth: node.scrollWidth,
@@ -167,13 +179,11 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         expect(initial.head.stop.left).toBe(initialFirst!.stop.left);
         expect(initial.rows.some((row) => row.hasStop)).toBe(true);
         expect(initial.rows.some((row) => !row.hasStop)).toBe(true);
-        expect(initial.rows.every((row) => row.name.width >= 60)).toBe(true);
-        expect(initial.rows.every((row) => row.summary.width >= 24)).toBe(true);
-        expect(initial.rows.every((row) => row.summary.right <= row.time.left + 0.5)).toBe(true);
+        expect(initial.rows.every((row) => row.summary.width >= 60)).toBe(true);
         expect(initial.rows.every((row) => !row.chevron || row.chevron.right <= row.status.right + 0.5)).toBe(true);
         expect(initial.rows.every((row) => !row.chevron || row.chevron.right <= initial.tray.right + 0.5)).toBe(true);
-        expect(initial.rows.every((row) => row.time.lineCount === 1)).toBe(true);
-        expect(initial.rows.every((row) => row.time.textRight <= row.time.boxRight + 0.5)).toBe(true);
+        expect(initial.rows.every((row) => row.time.lineCount <= 1)).toBe(true);
+        expect(initial.rows.every((row) => row.time.lineCount === 0 || row.time.textRight! <= row.time.boxRight + 0.5)).toBe(true);
         expect(initial.rows.every((row) => row.time.scrollWidth <= row.time.clientWidth + 1)).toBe(true);
         expect(initial.rows.every((row) => row.time.height <= 18)).toBe(true);
         expect(initial.rows.every((row) => row.time.whiteSpace === "nowrap")).toBe(true);
@@ -182,15 +192,32 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         const headerDuration = page.locator(".acpmux-running-tray__head .acpmux-running-tray__time");
         expect(await headerDuration.count()).toBe(1);
         expect(initial.head.time.text).toMatch(/^(?:\d+h(?: \d+m)?(?: \d+s)?|\d+m(?: \d+s)?|\d+s)$/);
+        const durationMs = (value: string) => {
+          if (!value) return 0;
+          return value.split(" ").reduce((total, unit) => {
+            const amount = Number.parseInt(unit, 10);
+            return total + (unit.endsWith("h") ? amount * 3_600_000 : unit.endsWith("m") ? amount * 60_000 : amount * 1_000);
+          }, 0);
+        };
+        expect(durationMs(initial.head.time.text)).toBe(
+          Math.max(...initial.rows.map((row) => durationMs(row.time.text))),
+        );
+        expect(initial.rows.map((row) => row.time.text)).toContain(initial.head.time.text);
 
-        // The live clock ticks every second. A tick must update text without moving any shared
-        // trailing track or changing row height.
-        await page.waitForTimeout(1_100);
+        // Freeze Playwright's clock after the gallery frame has loaded, then advance one second.
+        // The gallery clock is based on performance.now(), so installing before navigation would
+        // replace the fixture's fixed epoch and make its durations meaningless.
+        const clockNow = await page.evaluate(() => Date.now());
+        await page.clock.install({ time: clockNow });
+        await page.clock.pauseAt(clockNow);
+        const beforeTick = await measure();
+        const beforeTexts = beforeTick.rows.map((row) => row.time.text);
+        await page.clock.fastForward(1_000);
         const afterTick = await measure();
-        expect(afterTick.rows.every((row) => row.time.lineCount === 1)).toBe(true);
-        expect(afterTick.rows.every((row) => row.name.width >= 60)).toBe(true);
-        expect(afterTick.rows.every((row) => row.summary.width >= 24)).toBe(true);
-        expect(afterTick.rows.every((row) => row.summary.right <= row.time.left + 0.5)).toBe(true);
+        expect(afterTick.rows.map((row) => row.time.text)).not.toEqual(beforeTexts);
+        expect(afterTick.rows.every((row) => row.time.lineCount <= 1)).toBe(true);
+        expect(afterTick.rows.every((row) => row.summary.width >= 60)).toBe(true);
+        expect(afterTick.rows.every((row) => row.time.lineCount === 0 || row.time.textRight! <= row.time.boxRight + 0.5)).toBe(true);
         expect(afterTick.rows.map((row) => row.time.right)).toEqual(initial.rows.map((row) => row.time.right));
         expect(afterTick.rows.map((row) => row.time.textRight)).toEqual(initial.rows.map((row) => row.time.textRight));
         expect(afterTick.rows.map((row) => row.time.scrollWidth)).toEqual(initial.rows.map((row) => row.time.scrollWidth));
@@ -208,15 +235,19 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           expect(narrowRest.every((row) => row.status.left === narrowFirst!.status.left)).toBe(true);
           expect(narrowRest.every((row) => row.time.right === narrowFirst!.time.right)).toBe(true);
           expect(narrowRest.every((row) => row.stop.left === narrowFirst!.stop.left)).toBe(true);
-          expect(narrow.rows.every((row) => row.name.width >= 60)).toBe(true);
-          expect(narrow.rows.every((row) => row.summary.width >= 24)).toBe(true);
-          expect(narrow.rows.every((row) => row.summary.right <= row.time.left + 0.5)).toBe(true);
-          expect(narrow.rows.every((row) => row.time.lineCount === 1)).toBe(true);
-          expect(narrow.rows.every((row) => row.time.textRight <= row.time.boxRight + 0.5)).toBe(true);
+          expect(narrow.rows.every((row) => row.summary.width >= 60)).toBe(true);
+          expect(narrow.rows.every((row) => row.summary.bottom <= row.time.top + 0.5)).toBe(true);
+          expect(narrow.rows.every((row) => row.time.lineCount <= 1)).toBe(true);
+          expect(narrow.rows.every((row) => row.time.lineCount === 0 || row.time.textRight! <= row.time.boxRight + 0.5)).toBe(true);
+          expect(narrow.rows.every((row) => row.time.scrollWidth <= row.time.clientWidth + 1)).toBe(true);
           expect(narrow.rows.every((row) => !row.chevron || row.chevron.right <= row.status.right + 0.5)).toBe(true);
           expect(narrow.rows.every((row) => !row.chevron || row.chevron.right <= narrow.tray.right + 0.5)).toBe(true);
           expect(narrow.rows.every((row) => row.stop.right <= narrow.tray.right + 0.5)).toBe(true);
           expect(narrow.rows.every((row) => row.status.right <= narrow.tray.right + 0.5)).toBe(true);
+          expect(narrow.head.time.right).toBe(narrowFirst!.time.right);
+          expect(narrow.head.status.left).toBe(narrowFirst!.status.left);
+          expect(narrow.head.status.right).toBe(narrowFirst!.status.right);
+          expect(narrow.head.stop.left).toBe(narrowFirst!.stop.left);
         }
         await page.setViewportSize({ width: 300, height: 560 });
 

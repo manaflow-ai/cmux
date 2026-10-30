@@ -428,6 +428,8 @@ button.cv-subagent > :last-child {
    pill inside the strip; Leo 2026-10-21). */
 .acpmux-running-tray {
   /* Longest rendered duration is `12h 59m 59s`; keep one stable track for every row. */
+  container-type: inline-size;
+  container-name: running-tray;
   --acpmux-tray-time-width: 80px;
   --acpmux-tray-status-width: 96px;
   --acpmux-tray-stop-width: 24px;
@@ -442,33 +444,6 @@ button.cv-subagent > :last-child {
   font-size: var(--text-control);
   line-height: 18px;
   letter-spacing: var(--text-control--letter-spacing);
-}
-/* Keep a readable title and the trailing controls inside compact agent panes. The duration track
-   stays wide enough for `12h 59m 59s`; the status copy gives up space first at narrow widths. */
-@media (max-width: 360px) {
-  .acpmux-running-tray {
-    --acpmux-tray-status-width: 56px;
-  }
-}
-@media (max-width: 240px) {
-  .acpmux-running-tray {
-    --acpmux-tray-time-width: 72px;
-    --acpmux-tray-status-width: 12px;
-    --acpmux-tray-stop-width: 16px;
-  }
-  .acpmux-running-tray .acpmux-summary-row {
-    gap: 4px;
-    padding-inline: 4px;
-  }
-  .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button {
-    padding-right: calc(4px + var(--acpmux-tray-stop-width) + 4px);
-  }
-  .acpmux-running-tray .acpmux-agent-line__stop-slot {
-    right: 4px;
-  }
-  .acpmux-running-tray .acpmux-agent-line__status {
-    gap: 2px;
-  }
 }
 /* A column that never scrolls itself (Leo 2026-10-25: the header "disappears for some reason at
    the top"): the header and View all are pinned, and only the list between them scrolls. In a
@@ -608,6 +583,54 @@ button.cv-subagent > :last-child {
 }
 .acpmux-agent-line > .acpmux-agent-line__stop-slot > .acpmux-chat-inspector-stop {
   margin: 0;
+}
+/* A narrow tray cannot fit the title, duration and controls on one line. Give every row the
+   same two-line layout: title above, intact duration and status beside Stop below. Query the
+   tray itself so split panes and gallery frames follow the same rule. */
+@container running-tray (max-width: 400px) {
+  .acpmux-running-tray__head,
+  .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button {
+    position: relative;
+    display: grid;
+    grid-template-columns: var(--acpmux-tray-time-width) minmax(0, 1fr) var(--acpmux-tray-stop-width);
+    grid-template-rows: 28px 28px;
+    column-gap: 4px;
+    row-gap: 0;
+    height: 56px;
+    padding: 0 8px;
+  }
+  .acpmux-running-tray__head > .acpmux-lineage__icon,
+  .acpmux-running-tray .acpmux-agent-line__button > .acpmux-lineage__icon {
+    position: absolute;
+    top: 7px;
+    left: 8px;
+  }
+  .acpmux-running-tray__head > .acpmux-summary-text,
+  .acpmux-running-tray .acpmux-agent-line__button > .acpmux-summary-text {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    margin-left: 22px;
+  }
+  .acpmux-running-tray__time,
+  .acpmux-running-tray .acpmux-agent-line__time {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .acpmux-running-tray__status,
+  .acpmux-running-tray .acpmux-agent-line__status {
+    grid-column: 2;
+    grid-row: 2;
+    min-width: 0;
+    gap: 4px;
+  }
+  .acpmux-running-tray__stop-slot {
+    grid-column: 3;
+    grid-row: 2;
+  }
+  .acpmux-running-tray .acpmux-agent-line__stop-slot {
+    top: 28px;
+    bottom: 0;
+  }
 }
 /* Quiet at rest. The line is the tray's main control, so its wash covers the whole line
    while that control is hovered; Stop has no box of its own. A disabled main button has
