@@ -19,6 +19,7 @@ import {
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { HeaderIcon } from "./HeaderIcon";
+import { menuLetter, type MenuTyping } from "./menuLetters";
 import { tooltipProps, useShortcut } from "../shortcuts";
 import { registerPicker } from "../pickerOpeners";
 import {
@@ -621,11 +622,13 @@ function ChatMenu({
   };
   const focused = only ? rows.find((row) => row !== "separator" && row.key === only) : undefined;
   const children = focused && focused !== "separator" ? focused.children : undefined;
-  // A row's letter picks it (Claude Code desktop's R, F, A); only in this menu, not in its submenus.
+  // A row's letter picks it (Claude Code desktop's R, F, A); only in this menu, not in its submenus,
+  // and never a key that is text (menuLetters.ts: a field, an editor, the typeahead).
+  const typing = useRef<MenuTyping>({ last: 0 });
   const pickByLetter = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (children || event.metaKey || event.ctrlKey || event.altKey || event.key.length !== 1) return;
-    if (!event.currentTarget.contains(event.target as Node)) return;
-    const letter = event.key.toUpperCase();
+    if (children || !event.currentTarget.contains(event.target as Node)) return;
+    const letter = menuLetter(event, typing.current);
+    if (!letter) return;
     const row = rows.find((each) => each !== "separator" && !each.disabled && each.mnemonic === letter);
     if (!row || row === "separator" || !row.onSelect) return;
     event.preventDefault();

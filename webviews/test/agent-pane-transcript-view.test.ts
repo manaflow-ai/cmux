@@ -127,6 +127,26 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
   }
 
   describe("transcript view", () => {
+    test("letters typed into the chat menu's typeahead neither rename, fork, archive nor change the view", async () => {
+      const page = await browser!.newPage({ viewport: { width: 900, height: 900 } });
+      await page.goto(pageUrl());
+      await page.getByText(ANSWER).waitFor();
+      const stored = () => page.evaluate(() => localStorage.getItem("cmux.acpmux.transcriptView"));
+      const before = await stored();
+      await page.getByRole("button", { name: "Chat actions" }).click();
+      await page.getByRole("menu").first().waitFor();
+      // "tr" (Transcript view), "ma" (Mark as Unread), "fo" (Fork…): each second key is typeahead.
+      for (const word of ["tr", "ma", "fo"]) {
+        await page.keyboard.type(word, { delay: 40 });
+        // fixed-wait: each word must start its own typeahead sequence (menuLetters.ts TYPEAHEAD_MS, 600 ms).
+        await page.waitForTimeout(700);
+      }
+      const menuOpen = (await page.getByRole("menu").count()) > 0;
+      const renaming = await page.locator('input[aria-label*="Rename" i], [data-renaming]').count();
+      expect({ menuOpen, renaming, view: await stored() }).toEqual({ menuOpen: true, renaming: 0, view: before });
+      await page.close();
+    });
+
     test("Thinking and Verbose from the chat menu open a finished turn's work; Normal folds it", async () => {
       const page = await browser!.newPage({ viewport: { width: 900, height: 900 } });
       await page.goto(pageUrl());
