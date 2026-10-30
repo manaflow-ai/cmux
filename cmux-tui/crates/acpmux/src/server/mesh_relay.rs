@@ -796,7 +796,7 @@ pub async fn deliver(
             prompt_id: Some(prompt_id.to_owned()),
             detail: Some(why),
         }),
-        Err((why, Next::Retry)) => {
+        Err((why, Next::Retry | Next::Unsent)) => {
             tracing::info!(
                 "mesh relay: {prompt_id} not delivered yet ({why}); its lease brings it back"
             );

@@ -14,6 +14,13 @@
 //! delivery at once, and a paused agent pair (`agent_pairs.rs`) leaves it `held` there: the
 //! person's resume runs it, so it is never sent again from here.
 //!
+//! The mesh relay is a transport under this outbox, never a way around it. While a peer's link is
+//! down and no attempt has left this daemon, an attempt that fails as not sent hands a text-only
+//! delivery to the team hub, addressed to that peer's host and the session id its last list
+//! named (`mesh_send.rs` `relay`). The hub's receipt settles the delivery as delivered there; a
+//! delivery the relay cannot carry (attachments, `--supersede`, a class) or a hub that does not
+//! take it stays here and is tried again as before.
+//!
 //! `send_status {deliveryId, waitMs?}` answers the delivery's state, after waiting up to
 //! `waitMs` (at most [`MAX_STATUS_WAIT_MS`]) for it to settle. A target no one here resolves goes
 //! to the mesh hub when the relay is on, and its status is the hub's receipt (`mesh_send.rs`).
@@ -29,6 +36,9 @@ use crate::hub::outbox::{Delivery, State};
 pub(super) enum Next {
     /// Tried again after the next delay.
     Retry,
+    /// Tried again too, and known never to have left this daemon (a peer that is down): the
+    /// mesh relay may carry it instead.
+    Unsent,
     /// A refusal: failed, with its error.
     Fail,
     /// The target holds it for a paused agent pair.
@@ -74,27 +84,22 @@ pub(super) async fn handle(
         return Err(RpcError::invalid_params("team messaging requires a configured mesh relay")
             .with_data(json!({"reason": "team_messaging_unavailable", "address": target})));
     }
-    // A peer-qualified session whose link is down fails over to the durable mesh relay even when
-    // its stale cache row is still present. Without the relay, the local outbox keeps its retry path.
-    if hub.peer_down_for(&target).is_some() {
+    // A session here, one a peer lists, or one on a peer that is down now: anything else is no
+    // session, said at once.
+    if hub.resolve(&target).is_err()
+        && hub.resolve_remote(&target).is_none()
+        && hub.peer_down_for(&target).is_none()
+    {
+        // With the mesh relay on, the team hub may know a name nothing here or on a peer matches
+        // (`mesh_send.rs`); a name several sessions here or on peers match stays this daemon's
+        // refusal (`Hub::mesh_may_route`).
         if let Some(mesh) = hub.mesh.get()
             && hub.mesh_may_route(&target)
         {
             return super::mesh_send::send(hub, conn, mesh, &request, &target).await;
         }
-    } else if hub.resolve(&target).is_err() && hub.resolve_remote(&target).is_none() {
-        // With the mesh relay on, the team hub may know a name nothing here or on a peer matches,
-        // or may carry a durable delivery for a peer whose direct link is down. A name several
-        // sessions here or on peers match stays this daemon's refusal.
-        if let Some(mesh) = hub.mesh.get()
-            && hub.mesh_may_route(&target)
-        {
-            return super::mesh_send::send(hub, conn, mesh, &request, &target).await;
-        }
-        if hub.peer_down_for(&target).is_none() {
-            return Err(RpcError::invalid_params(format!("no session: {target}"))
-                .with_data(json!({"reason": "no_session", "session": target})));
-        }
+        return Err(RpcError::invalid_params(format!("no session: {target}"))
+            .with_data(json!({"reason": "no_session", "session": target})));
     }
     // Over the caps it is refused now, never kept (`attach.rs`).
     crate::attach::check_wire(&request)?;
@@ -188,9 +193,27 @@ async fn status(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Valu
                 .with_data(json!({"reason": "outbox.unknown", "deliveryId": id}))
         })?;
         if delivery.settled() || tokio::time::Instant::now() >= deadline {
-            return Ok(delivery.status());
+            return Ok(relayed_status(hub, conn, &delivery).await);
         }
         let _ = tokio::time::timeout_at(deadline, changed).await;
+    }
+}
+
+/// The status of `delivery`, or, once the mesh relay took it, of the hub's message: the
+/// outbox's own answer when the hub does not answer.
+async fn relayed_status(hub: &Arc<Hub>, conn: &Arc<Conn>, delivery: &Delivery) -> Value {
+    let relayed = delivery.accepted.as_ref().and_then(|a| a.get("relayDeliveryId"));
+    let (Some(relay), Some(mesh)) = (relayed.and_then(Value::as_str), hub.mesh.get()) else {
+        return delivery.status();
+    };
+    match super::mesh_send::status(hub, conn, mesh, relay).await {
+        Ok(mut status) => {
+            status["deliveryId"] = json!(delivery.id);
+            status["relayDeliveryId"] = json!(relay);
+            status["target"] = json!(delivery.target);
+            status
+        }
+        Err(_) => delivery.status(),
     }
 }
 
@@ -239,8 +262,27 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 return;
             }
             Err((error, next)) => {
-                let delay = delays.next().filter(|_| next == Next::Retry);
+                // Nothing has reached the target: the mesh relay carries it when it can.
+                let error = if next == Next::Unsent && delivery.never_sent {
+                    match super::mesh_send::relay(hub, &delivery).await {
+                        Some(Ok(accepted)) => {
+                            hub.outbox.update(id, |d| {
+                                d.state = State::Delivered;
+                                d.error = None;
+                                d.accepted = Some(accepted);
+                                crate::attach::strip(&mut d.request);
+                            });
+                            return;
+                        }
+                        Some(Err(why)) => format!("{error}; {why}"),
+                        None => error,
+                    }
+                } else {
+                    error
+                };
+                let delay = delays.next().filter(|_| matches!(next, Next::Retry | Next::Unsent));
                 hub.outbox.update(id, |d| {
+                    d.never_sent &= next == Next::Unsent;
                     d.state = match (next, delay) {
                         (Next::Held, _) => State::Held,
                         (_, Some(_)) => State::Queued,
@@ -369,6 +411,10 @@ fn next(e: &RpcError) -> Next {
         return Next::Held;
     }
     let reason = data.and_then(|d| d.get("reason")).and_then(Value::as_str).unwrap_or_default();
+    // The peer's link took nothing (`peer_link::unreachable_error`): the request was not sent.
+    if reason == "peer_unreachable" {
+        return Next::Unsent;
+    }
     let flagged = data.and_then(|d| d.get("retryable")).and_then(Value::as_bool);
     match flagged {
         _ if reason.starts_with("agent_pair.") => Next::Fail,
