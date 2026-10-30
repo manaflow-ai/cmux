@@ -703,6 +703,9 @@ const railActions: LatencyAction[] = [
   },
   {
     name: "click jump",
+    // The rail jumps on the click (the row's onClick), so the window opens on that event, not on
+    // the press before it.
+    inputEvent: "click",
     async prepare(page) {
       await railRest(page);
       const point = await railJumpPoint(page);
