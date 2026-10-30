@@ -72,7 +72,7 @@ where
     F: FnMut(Value) -> Fut,
     Fut: Future<Output = Result<Value>>,
 {
-    let (mut size, mut widen, mut repeats) = (plan.size.max(1), 0u64, 0);
+    let (mut size, mut widen, mut repeats) = (plan.size.max(1), 0u64, 0u32);
     let (mut rows, mut seen) = (Vec::new(), HashSet::new());
     // The cursors followed, the one the read starts from too: a page that hands it back made no
     // way past it.
@@ -117,11 +117,11 @@ where
                 "this daemon is too old to page the session list (`--cursor`): update acpmux on it";
             return Err(AppError::new(Code::Runtime, "runtime", message).into());
         }
-        let (count, mut used) = (page.len(), 0);
+        let (count, mut used) = (page.len(), 0usize);
         // Where the next rows start when the read stops before the page's end.
         let mut after = None;
         for row in page {
-            used += 1;
+            used = used.saturating_add(1);
             if !seen.insert(row_key(&row)) {
                 continue;
             }
@@ -157,7 +157,7 @@ where
             }
             (widen, repeats) = (0, 0);
         } else {
-            repeats += 1;
+            repeats = repeats.saturating_add(1);
             if repeats > MAX_REPEATS {
                 anyhow::bail!("the daemon gave the session page cursor {next:?} again and again");
             }
