@@ -22,7 +22,12 @@ function deferred<T>() {
 
 /** Delays the host's subscribe reply, including events delivered before the reply. */
 class DelayedClient implements PageClient {
-  readonly subscriptions: Array<{ stream: string; emit: (data: unknown) => void; stops: number; stopped: Promise<void> }> = [];
+  readonly subscriptions: Array<{
+    stream: string;
+    emit: (data: unknown) => void;
+    stops: number;
+    stopped: Promise<void>;
+  }> = [];
   readonly calls: string[] = [];
   readonly gates: Array<{
     stream: string;
@@ -40,10 +45,14 @@ class DelayedClient implements PageClient {
   }
 
   async subscribe<E>(stream: string, onEvent: (data: E, seq: number) => void): Promise<() => void> {
-    if (this.unknownWatch && stream !== PAGE_CONNECTION)
-      throw pageError("cmux.protocol.unknown_op", stream);
+    if (this.unknownWatch && stream !== PAGE_CONNECTION) throw pageError("cmux.protocol.unknown_op", stream);
     const cleanup = deferred<void>();
-    const record = { stream, emit: (data: unknown) => onEvent(data as E, 1), stops: 0, stopped: cleanup.promise };
+    const record = {
+      stream,
+      emit: (data: unknown) => onEvent(data as E, 1),
+      stops: 0,
+      stopped: cleanup.promise,
+    };
     this.subscriptions.push(record);
     const index = this.gates.findIndex((gate) => gate.stream === stream);
     if (index !== -1) {
@@ -51,7 +60,10 @@ class DelayedClient implements PageClient {
       gate!.entered.resolve();
       await gate!.reply.promise;
     }
-    return () => { record.stops++; cleanup.resolve(); };
+    return () => {
+      record.stops++;
+      cleanup.resolve();
+    };
   }
 
   call<R>(op: string, params: unknown): Promise<R> {
@@ -59,13 +71,30 @@ class DelayedClient implements PageClient {
     return this.provider.call<R>(op, params);
   }
 
-  handle(): () => void { return () => undefined; }
+  handle(): () => void {
+    return () => undefined;
+  }
 }
 
 const cases = [
-  { name: "History", make: (client: PageClient) => new HistoryStore(client), provider: () => new MockHistoryProvider(), watch: HistoryOps.changed },
-  { name: "Apps", make: (client: PageClient) => new AppsStore(client), provider: () => new MockAppsProvider(), watch: AppsOps.watch },
-  { name: "CodeRouter", make: (client: PageClient) => new CodeRouterStore(client), provider: () => new MockCodeRouterProvider(), watch: undefined },
+  {
+    name: "History",
+    make: (client: PageClient) => new HistoryStore(client),
+    provider: () => new MockHistoryProvider(),
+    watch: HistoryOps.changed,
+  },
+  {
+    name: "Apps",
+    make: (client: PageClient) => new AppsStore(client),
+    provider: () => new MockAppsProvider(),
+    watch: AppsOps.watch,
+  },
+  {
+    name: "CodeRouter",
+    make: (client: PageClient) => new CodeRouterStore(client),
+    provider: () => new MockCodeRouterProvider(),
+    watch: undefined,
+  },
 ];
 
 for (const fixture of cases) {
