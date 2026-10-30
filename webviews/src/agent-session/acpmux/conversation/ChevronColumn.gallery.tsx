@@ -97,7 +97,6 @@ function ChevronColumnGallery() {
 }
 
 const checkInlineCaret: Play = async (ctx) => {
-  const token = 4;
   const rows = [...ctx.document.querySelectorAll<HTMLElement>("[data-chevron-column] .chevron-column-gallery__row")];
   await ctx.waitFor(() =>
     rows.every((row) => row.querySelector(".cv-tool__chevron, .cv-agentmsg__toggle .cv-tool__chevron")),
@@ -109,9 +108,22 @@ const checkInlineCaret: Play = async (ctx) => {
       ".cv-tool__text, .cv-command__text, .cv-thought__label, .cv-agentmsg__preview",
     );
     if (!label) throw new Error(`Missing disclosure label in ${row.dataset.label}`);
+    const button = caret.closest<HTMLElement>("button");
+    const token = Number.parseFloat(
+      ctx.document.defaultView?.getComputedStyle(button ?? caret).getPropertyValue("--cv-disclosure-gap") ?? "",
+    );
+    if (!Number.isFinite(token)) throw new Error(`Missing disclosure gap token in ${row.dataset.label}`);
     const gap = caret.getBoundingClientRect().left - label.getBoundingClientRect().right;
     if (gap < -0.5 || gap > token + 0.5)
       throw new Error(`${row.dataset.label} caret gap ${gap}px; expected <= ${token}px`);
+    const meta = row.querySelector<HTMLElement>(".cv-command__meta, .cv-tool__meta");
+    if (meta) {
+      const buttonBox = (button ?? row).getBoundingClientRect();
+      const caretBox = caret.getBoundingClientRect();
+      const metaBox = meta.getBoundingClientRect();
+      if (metaBox.left < caretBox.right - 0.5) throw new Error(`${row.dataset.label} status overlaps its caret`);
+      if (metaBox.right < buttonBox.right - 1) throw new Error(`${row.dataset.label} status is not trailing`);
+    }
   }
 };
 
