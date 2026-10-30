@@ -6,8 +6,9 @@
 //! host, comes last). Several live matches are refused
 //! with each one's `HOST/NAME`; nothing is picked silently, and a session here does not hide a
 //! peer's of the same name (as `locate.rs` already holds for control callers). Closed sessions
-//! count only when no live one matches. Keys this daemon already reads exactly (an id, a
-//! qualified id, `HOST/NAME`) are left as they are.
+//! count only when no live one matches. A sub-session's whole name (`parent/child`) is routed
+//! the same way. Keys this daemon already reads exactly (an id, a qualified id, `HOST/NAME` with
+//! a peer's or this machine's name) are left as they are.
 //!
 //! The request path (`server/requests.rs`, the unix socket only) asks [`Hub::key_route`] before
 //! anything else reads the key, and swaps a name for the route it found, so every session
@@ -38,13 +39,28 @@ impl Hub {
     /// already exact or matches nothing (the usual not-found answer follows), an error when
     /// several live sessions match.
     pub(crate) fn key_route(&self, key: &str) -> Result<Option<String>, RpcError> {
-        if key.is_empty() || key.contains('/') || self.sessions.lock().unwrap().contains_key(key) {
+        if key.is_empty() || self.sessions.lock().unwrap().contains_key(key) {
+            return Ok(None);
+        }
+        // `HOST/NAME` and a qualified id are read exactly (`own_host.rs`, `resolve_remote`).
+        let slash = key.split_once('/').map(|(host, _)| host);
+        if slash.is_some_and(|host| {
+            host == crate::session_identity::LOCAL_HOST_ID
+                || super::own_host::is_own_machine_name(host)
+                || self.peer(host).is_some()
+        }) {
             return Ok(None);
         }
         let own = crate::pairing::machine_name();
         let [named, prefixed, short] = self.key_candidates(key, &own);
-        let found = [named, prefixed, short].into_iter().find(|tier| !tier.is_empty());
-        pick(key, &found.unwrap_or_default()).map(|c| c.map(|c| c.route.clone()))
+        // Any other `/` is in a sub-session's whole name (`parent/child`): that name only, on
+        // every host, never a prefix or a short name.
+        let found = if slash.is_some() {
+            named.into_iter().filter(|c| c.name == key).collect()
+        } else {
+            [named, prefixed, short].into_iter().find(|tier| !tier.is_empty()).unwrap_or_default()
+        };
+        pick(key, &found).map(|c| c.map(|c| c.route.clone()))
     }
 
     /// The sessions here and on peers that `key` names as a whole name or by their id (a prefix
@@ -258,6 +274,21 @@ mod tests {
         assert_eq!(hub.key_route("ci-3").unwrap(), None);
         let whole = named(&hub, "lane-3x").await;
         assert_eq!(hub.key_route("lane-3").unwrap().as_deref(), Some(whole.id.as_str()));
+    }
+
+    /// Review of #28000: a sub-session's whole name has a `/`, and is routed like any name.
+    #[tokio::test]
+    async fn a_sub_sessions_whole_name_is_routed_across_hosts_too() {
+        let hub = test_hub();
+        list(&hub, "hb", "0199aaaa-1111", "coord/lane", "idle");
+        assert_eq!(hub.key_route("coord/lane").unwrap().as_deref(), Some("hb/0199aaaa-1111"));
+        // A prefix of it names nothing.
+        assert_eq!(hub.key_route("coord/la").unwrap(), None);
+        named(&hub, "coord/lane").await;
+        let e = hub.key_route("coord/lane").unwrap_err();
+        assert_eq!(e.data.unwrap()["choices"].as_array().unwrap().len(), 2);
+        // `local/ID` and this machine's own `HOST/NAME` stay exact.
+        assert_eq!(hub.key_route("local/0199aaaa").unwrap(), None);
     }
 
     #[tokio::test]
