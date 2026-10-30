@@ -119,9 +119,9 @@ import Testing
         let outbound = OutboundTab.begin(in: pane, holdSelectionUntilLanded: true)
         pane.selectWhenReported(surface: Self.link)
         services.daemon.store.apply(snapshot: Self.homeDock([Self.home, Self.link]))
-        #expect(OutboundTab.hidden(in: pane).contains(Self.link))
+        #expect(OutboundTab.hidden(in: pane).contains(Self.link.rawValue))
         outbound.finish(moved: true)
-        #expect(!OutboundTab.hidden(in: pane).contains(Self.link), "a landed tab is released once it is no longer in transit")
+        #expect(!OutboundTab.hidden(in: pane).contains(Self.link.rawValue), "a landed tab is released once it is no longer in transit")
     }
 
     /// A lone chat's link (Leo: "it plays the opening animation on the main window and then opens the
