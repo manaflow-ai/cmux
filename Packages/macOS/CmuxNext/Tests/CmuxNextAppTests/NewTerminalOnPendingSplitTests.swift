@@ -42,6 +42,12 @@ struct NewTerminalOnPendingSplitTests {
             try await PinnedPageTests.until({ (window.firstResponder as? NSView)?.isDescendant(of: pane.view) == true }, report: {
                 "the window's first responder is \(String(describing: window.firstResponder)), not in the split's pane"
             })
+            // A key typed while the window's creation hold still waits is replayed later through `NSApp.sendEvent`, which
+            // reaches only the key window, and a test window is never key (the journeys' `outwait_hold`): type once the
+            // hold of the split and the new tab ended.
+            let coordinator = services.keyRouter.creationInputCoordinator
+            try await PinnedPageTests.until({ !coordinator.isHolding(in: window) }, report: { "the window's creation hold never ended" })
+            let responder = String(describing: window.firstResponder.map { type(of: $0) })
             let nonce = String(UInt32.random(in: 100_000...999_999))
             for character in "echo p0t\(nonce)t$((6*7))\r" {
                 let text = String(character)
@@ -51,9 +57,17 @@ struct NewTerminalOnPendingSplitTests {
                                                           isARepeat: false, keyCode: text == "\r" ? 36 : 0))
                 if !services.keyRouter.interceptKeyDown(event, in: window) { window.sendEvent(event) }
             }
-            let screen = try await connection.request(WaitForTextRequest(surface: tab.surface, pattern: "p0t\(nonce)t42", timeoutMs: 20_000),
-                                                      timeout: .seconds(25))
-            #expect(screen.matched == true, "the line typed into the new tab did not run in it: \(screen.text.suffix(300))")
+            let screen = try? await connection.request(WaitForTextRequest(surface: tab.surface, pattern: "p0t\(nonce)t42", timeoutMs: 20_000),
+                                                       timeout: .seconds(25))
+            if screen?.matched != true {
+                // Where the typed line went instead: each terminal of the pane, and who had the keyboard.
+                var screens: [String] = []
+                for other in pane.pane.tabs where other.kind == .pty {
+                    let text = (try? await connection.request(ReadScreenRequest(surface: other.surface), timeout: .seconds(5)))?.text ?? "unreadable"
+                    screens.append("\(other.surface.rawValue)\(other === tab ? " (new)" : ""): \(text.suffix(200))")
+                }
+                Issue.record("the line typed into the new tab did not run in it; responder \(responder); holding \(coordinator.isHolding(in: window)); \(screens)")
+            }
         }
     }
 }
