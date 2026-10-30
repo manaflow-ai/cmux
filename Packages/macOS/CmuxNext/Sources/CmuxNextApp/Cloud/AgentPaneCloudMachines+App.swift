@@ -8,8 +8,8 @@ extension AgentPaneCloudMachines {
     static let listAge: Duration = .seconds(60)
 
     /// The App's answers to `cloudMachine.*`: the machines of the account signed in now
-    /// (``CloudService``, never another user's or team's list), and Open Machine and Resume
-    /// Machine on one of them, run as the person's own.
+    /// (``CloudService``, never another user's or team's list), and Open Machine, Resume Machine
+    /// and Pause Machine on one of them, run as the person's own.
     func wire(_ services: AppServices) {
         list = { [weak services] in
             guard let services, services.cloud.isSignedIn else { return Inventory(signedIn: false, loaded: false, machines: []) }
@@ -27,6 +27,9 @@ extension AgentPaneCloudMachines {
         }
         resume = { [weak services] id in
             services.map { Self.perform("cloudResumeMachine", on: id, services: $0) { $0.effectiveStatus == .paused } } ?? false
+        }
+        pause = { [weak services] id in
+            services.map { Self.perform("cloudPauseMachine", on: id, services: $0) { $0.effectiveStatus == .running } } ?? false
         }
     }
 

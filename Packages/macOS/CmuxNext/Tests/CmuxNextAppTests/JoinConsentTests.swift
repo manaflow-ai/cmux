@@ -1085,7 +1085,7 @@ import Testing
         let folder = root.appending(path: "machine-consent")
         let file = folder.appending(path: "consent.json")
         var made = false
-        let stream = MachineConsentChanges(folder: folder).events {
+        let stream = await MachineConsentChanges(folder: folder).events {
             made = (try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)) != nil
                 && (try? Data("{}".utf8).write(to: file)) != nil
         }
@@ -1125,7 +1125,7 @@ import Testing
         let folder = root.appending(path: "machine-consent")
         let changes = Recorder()
         let watching = Task {
-            for await _ in MachineConsentChanges(folder: folder).events() { changes.values.append("change") }
+            for await _ in await MachineConsentChanges(folder: folder).events() { changes.values.append("change") }
         }
         defer { watching.cancel() }
         /// Lets earlier events land, then does `change` and waits for an element after it.

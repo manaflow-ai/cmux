@@ -115,6 +115,14 @@ impl Snapshot {
     }
 
     /// Lazily serialize the same snapshot with tools for the ACP list and peer bootstrap.
+    /// This daemon's own sessions only, no peer's row, serialized as a list reply: what a
+    /// peer's link reads in its watch (`server/list_reply.rs` `watch`).
+    pub(crate) fn own_whole(hub: &Hub, with_tools: bool) -> String {
+        let mut rows = Rows::default();
+        hub.visit_own_session_summaries(with_tools, |row| rows.push(&row));
+        rows.finish().0
+    }
+
     pub(crate) fn full_whole(&self, hub: &Hub) -> Arc<String> {
         let mut full = self.full.lock().unwrap_or_else(|e| e.into_inner());
         full.get_or_insert_with(|| {

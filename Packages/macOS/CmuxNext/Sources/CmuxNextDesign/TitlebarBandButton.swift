@@ -2,7 +2,7 @@ public import AppKit
 
 /// An icon button of the toolbar band and the pane's tab bar controls: the chrome's hover and
 /// pressed look.
-public final class TitlebarBandButton: NSButton {
+public final class TitlebarBandButton: ClickableButton {
     public static var side: CGFloat { Metrics.sidebarRowHeight - Metrics.space1 }
     /// The SF Symbol it draws, or a custom glyph name ``customImage`` draws.
     public var symbol: String {
