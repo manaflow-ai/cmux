@@ -72,11 +72,14 @@ let app = NSApplication.shared
 app.setActivationPolicy(.regular)
 let logPath = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "/tmp/inputprobe.jsonl"
 let screen = NSScreen.main?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-let frame = NSRect(x: screen.minX + 40, y: screen.minY + 60, width: min(1200, screen.width - 80), height: min(700, screen.height - 160))
+// Centered, so the middle of the shared screen (where the live test taps) falls inside it.
+let size = NSSize(width: min(1200, screen.width - 80), height: min(760, screen.height - 160))
+let frame = NSRect(x: screen.midX - size.width / 2, y: screen.midY - size.height / 2, width: size.width, height: size.height)
 let window = NSWindow(contentRect: frame, styleMask: [.titled, .resizable, .closable], backing: .buffered, defer: false)
 window.title = "InputProbe"
 let view = ProbeView(frame: NSRect(origin: .zero, size: frame.size), logPath: logPath)
 window.contentView = view
+window.level = .floating
 window.makeKeyAndOrderFront(nil)
 window.makeFirstResponder(view)
 app.activate(ignoringOtherApps: true)

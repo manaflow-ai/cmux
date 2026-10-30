@@ -57,8 +57,12 @@ public final class ScreenSharingViewer: Identifiable {
     }
     /// Starts the stream (tests replace it: no WebRTC there).
     @ObservationIgnored var startStream: @MainActor (ScreenSession) -> Void = { $0.connect() }
+    /// Every session this viewer ended or left on the hub (the service ignores later tickets for them).
+    @ObservationIgnored var sessionLeft: @MainActor (String) -> Void = { _ in }
     @ObservationIgnored private var pendingSignaling: (any ScreenSignaling)?
     @ObservationIgnored private var requestTask: Task<Void, Never>?
+    /// A denial or end the hub pushed before the request's HTTP answer named its session.
+    @ObservationIgnored private var earlyOutcomes: [String: Phase] = [:]
 
     init(hostID: String, hostName: String, hub: DeviceHub, preferences: ScreenSharingPreferences) {
         self.hostID = hostID
@@ -98,17 +102,23 @@ public final class ScreenSharingViewer: Identifiable {
         stopStream()
         lastScope = scope
         phase = .requesting(scope)
-        let hub = hub, hostID = hostID, requestSession = requestSession
+        let hub = hub, hostID = hostID, requestSession = requestSession, endSession = endSession, sessionLeft = sessionLeft
         requestTask = Task { [weak self] in
+            // The call runs in its own task, which cancelling this one does not cancel: the hub may
+            // have made the session already, and only its answer says which one to end.
+            // task-owner: one POST /v1/sessions; its answer is always read below
+            let call = Task { @MainActor in try await requestSession(hub, hostID, scope) }
             let answer: Result<HubSession, DeviceHubError>
-            do { answer = .success(try await requestSession(hub, hostID, scope)) } catch {
+            do { answer = .success(try await call.value) } catch {
                 answer = .failure(error as? DeviceHubError ?? .transport("\(error)"))
             }
-            guard let self else { return }
-            if Task.isCancelled {
-                // Cancelled (closed, or asked again): end the session it made, unless a ticket already started it.
-                if case let .success(session) = answer, sessionID != session.id {
-                    end(session.id, reason: ScreenSharingEndReason.viewerDisconnected.rawValue)
+            guard let self, !Task.isCancelled else {
+                // Cancelled (closed, asked again) or the viewer is gone: the session this request
+                // made is nobody's, unless a ticket already started it here. End it, so the Mac
+                // drops its prompt and no unwatched session goes live.
+                if case let .success(session) = answer, self?.sessionID != session.id {
+                    sessionLeft(session.id)
+                    await endSession(hub, session.id, ScreenSharingEndReason.viewerDisconnected.rawValue)
                 }
                 return
             }
@@ -118,10 +128,20 @@ public final class ScreenSharingViewer: Identifiable {
 
     /// The hub's answer to `request(_:)` (tests call it directly).
     func requestAnswered(_ answer: Result<HubSession, DeviceHubError>, scope: SessionScope) {
-        // The ticket push may come before the HTTP answer: it already moved on.
-        guard case .requesting = phase else { return }
+        guard case .requesting = phase else {
+            // The ticket push came before the HTTP answer: it already moved on. Any other
+            // session the answer names is nobody's (a ticket for another session started first).
+            if case let .success(session) = answer, session.id != sessionID {
+                end(session.id, reason: ScreenSharingEndReason.viewerDisconnected.rawValue)
+            }
+            return
+        }
         switch answer {
         case let .success(session):
+            if let early = earlyOutcomes.removeValue(forKey: session.id) {
+                phase = early
+                return
+            }
             if let ticket = hub.tickets[session.id] {
                 accept(ticket)
                 return
@@ -144,6 +164,7 @@ public final class ScreenSharingViewer: Identifiable {
         phase = .ended(reason: reason.rawValue)
         if let id { end(id, reason: reason.rawValue) }
         stopStream()
+        earlyOutcomes = [:]
     }
 
     // MARK: Pushes
@@ -159,6 +180,8 @@ public final class ScreenSharingViewer: Identifiable {
 
     /// Approved: the ticket's signaling goes to a new stream.
     func accept(_ ticket: SessionTicket) {
+        // A repeated ticket for the stream already running changes nothing.
+        if case let .streaming(id, _) = phase, id == ticket.sessionId { return }
         do {
             pendingSignaling = try makeSignaling(ticket, hub)
         } catch {
@@ -171,8 +194,37 @@ public final class ScreenSharingViewer: Identifiable {
         let session = ScreenSession(title: hostName, preferences: preferences.screen(for: hostID),
                                     signaling: { [weak self] in self?.takeSignaling() })
         session.reconnectLimit = 0
+        stopStream()
         screen = session
+        watch(session, sessionID: ticket.sessionId)
         startStream(session)
+    }
+
+    /// A dropped stream (WebRTC failed or ended) cannot reconnect: its ticket admitted once.
+    /// End the hub session so the Mac stops sharing, and show the ended card, whose Connect
+    /// Again asks the Mac again.
+    private func watch(_ session: ScreenSession, sessionID: String) {
+        withObservationTracking {
+            _ = session.phase
+        } onChange: { [weak self, weak session] in
+            // task-owner: hops the observation change to the main actor; re-arms on the next change
+            Task { @MainActor in
+                guard let self, let session, screen === session else { return }
+                switch session.phase {
+                case .failed, .ended:
+                    streamDropped(sessionID)
+                case .connecting, .connected:
+                    watch(session, sessionID: sessionID)
+                }
+            }
+        }
+    }
+
+    func streamDropped(_ id: String) {
+        guard case .streaming(id, _) = phase else { return }
+        end(id, reason: ScreenSharingEndReason.failed.rawValue)
+        stopStream()
+        phase = .ended(reason: ScreenSharingEndReason.failed.rawValue)
     }
 
     /// `session.denied`.
@@ -183,6 +235,7 @@ public final class ScreenSharingViewer: Identifiable {
         default: scope = lastScope
         }
         cancelPending(endingSession: false)
+        stopStream()
         phase = .declined(scope)
     }
 
@@ -191,6 +244,13 @@ public final class ScreenSharingViewer: Identifiable {
         cancelPending(endingSession: false)
         stopStream()
         phase = .ended(reason: reason)
+    }
+
+    /// A denial or end for a session this viewer has no id for yet: while its request's
+    /// HTTP answer is out, keep it for that answer (session ids are unique).
+    func earlyPush(sessionID: String, denied: Bool, reason: String?) {
+        guard case let .requesting(scope) = phase else { return }
+        earlyOutcomes[sessionID] = denied ? .declined(scope) : .ended(reason: reason)
     }
 
     // MARK: Internals
@@ -217,6 +277,7 @@ public final class ScreenSharingViewer: Identifiable {
 
     @discardableResult
     private func end(_ id: String, reason: String) -> Task<Void, Never> {
+        sessionLeft(id)
         let end = endSession, hub = hub
         // task-owner: one /end call; the hub's push (or its absence) settles the state
         return Task { await end(hub, id, reason) }

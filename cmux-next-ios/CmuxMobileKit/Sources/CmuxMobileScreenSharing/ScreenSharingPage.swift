@@ -161,7 +161,9 @@ struct ScreenSharingViewerScreen: View {
     var body: some View {
         Group {
             if let screen = viewer.screen {
-                ScreenSessionView(session: screen, features: .all, close: close)
+                // No .resumeOnForeground: a ticket admits once, so a dropped stream cannot
+                // reconnect; the viewer ends it and its card asks the Mac again.
+                ScreenSessionView(session: screen, features: Self.features, close: close)
             } else {
                 card.background(theme.colors.bg.color.ignoresSafeArea())
             }
@@ -169,6 +171,8 @@ struct ScreenSharingViewerScreen: View {
         .onAppear { ScreenSharingOrientation.shared.begin() }
         .onDisappear { ScreenSharingOrientation.shared.end() }
     }
+
+    static let features = ScreenFeatures.all.subtracting(.resumeOnForeground)
 
     @ViewBuilder private var card: some View {
         switch viewer.phase {

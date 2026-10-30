@@ -76,6 +76,66 @@ import Testing
         #expect(ends.calls == [Ends.Call(session: "s6", reason: "viewer_disconnected")])
     }
 
+    @Test func aRequestCancelledBeforeItsAnswerEndsTheSessionItMadeEvenAfterTheViewerIsGone() async throws {
+        let (service, ends) = makeService()
+        weak var weakViewer = service.connect(to: mac(), scope: .full)
+        service.dismissViewer()
+        #expect(service.viewer == nil)
+        #expect(weakViewer == nil)
+        ends.answer(HubSession(id: "late", state: .pending, scope: .full))
+        await ends.wait(for: 1)
+        #expect(ends.calls == [Ends.Call(session: "late", reason: "viewer_disconnected")])
+    }
+
+    @Test func aTicketForASessionTheViewerLeftNeverStartsTheNextRequest() async throws {
+        let (service, ends) = makeService()
+        let first = try #require(service.connect(to: mac(), scope: .full))
+        first.requestAnswered(.success(HubSession(id: "old", state: .approved, scope: .full)), scope: .full)
+        service.dismissViewer()
+        await ends.wait(for: 1)
+        let second = try #require(service.connect(to: mac(), scope: .full))
+        // The old session's ticket arrives while the new request is out: ignored.
+        service.route(.sessionTicket(ticket("old", scope: .full)))
+        #expect(second.phase == .requesting(.full))
+        #expect(second.screen == nil)
+        second.requestAnswered(.success(HubSession(id: "new", state: .approved, scope: .full)), scope: .full)
+        service.route(.sessionTicket(ticket("new", scope: .full)))
+        #expect(second.phase == .streaming(sessionID: "new", scope: .full))
+    }
+
+    @Test func aDroppedStreamEndsTheHubSessionAndOffersToConnectAgain() async throws {
+        let (service, ends) = makeService()
+        let viewer = try #require(service.connect(to: mac(), scope: .full))
+        viewer.requestAnswered(.success(HubSession(id: "s7", state: .approved, scope: .full)), scope: .full)
+        service.route(.sessionTicket(ticket("s7", scope: .full)))
+        viewer.streamDropped("s7")
+        #expect(viewer.phase == .ended(reason: "failed"))
+        #expect(viewer.screen == nil)
+        await ends.wait(for: 1)
+        #expect(ends.calls == [Ends.Call(session: "s7", reason: "failed")])
+        // A late drop of an older stream changes nothing.
+        viewer.streamDropped("s0")
+        #expect(viewer.phase == .ended(reason: "failed"))
+    }
+
+    @Test func aDenialPushedBeforeTheAnswerIsKeptForIt() throws {
+        let (service, _) = makeService()
+        let viewer = try #require(service.connect(to: mac(), scope: .view))
+        service.route(.sessionDenied(sessionID: "s8"))
+        #expect(viewer.phase == .requesting(.view))
+        viewer.requestAnswered(.success(HubSession(id: "s8", state: .pending, scope: .view)), scope: .view)
+        #expect(viewer.phase == .declined(.view))
+    }
+
+    @Test func aRepeatedTicketKeepsTheRunningStream() throws {
+        let (service, _) = makeService()
+        let viewer = try #require(service.connect(to: mac(), scope: .full))
+        service.route(.sessionTicket(ticket("s9", scope: .full)))
+        let screen = try #require(viewer.screen)
+        service.route(.sessionTicket(ticket("s9", scope: .full)))
+        #expect(viewer.screen === screen)
+    }
+
     @Test func refusalsMapToTheirCards() throws {
         let (service, _) = makeService()
         let viewer = try #require(service.connect(to: mac(), scope: .full))
@@ -133,7 +193,8 @@ import Testing
             viewer.makeSignaling = { _, _ in FakeSignaling() }
             viewer.startStream = { _ in }
             viewer.endSession = { _, id, reason in ends.record(id, reason) }
-            // The HTTP answer never comes on its own: each test answers by hand.
+            // The HTTP answer never comes on its own: each test answers by hand
+            // (`requestAnswered`), or delivers it late through `ends.answer`.
             viewer.requestSession = { _, _, _ in
                 let (answers, continuation) = AsyncStream<HubSession>.makeStream()
                 ends.hold(continuation)
@@ -162,6 +223,14 @@ import Testing
     private var answers: [AsyncStream<HubSession>.Continuation] = []
 
     func hold(_ answer: AsyncStream<HubSession>.Continuation) { answers.append(answer) }
+
+    /// Delivers the HTTP answer to the oldest request still out, even one already cancelled.
+    func answer(_ session: HubSession) {
+        guard !answers.isEmpty else { return }
+        let next = answers.removeFirst()
+        next.yield(session)
+        next.finish()
+    }
 
     func record(_ session: String, _ reason: String) {
         calls.append(Call(session: session, reason: reason))

@@ -18,7 +18,10 @@ public final class ScreenSharingService {
         case failed(String)
     }
 
-    public private(set) var status: Status = .idle
+    /// The hub's state once it loaded (it follows the hub: a removed or replaced socket fails it).
+    public var status: Status { hub.map { Self.status(of: $0.status) } ?? loadStatus }
+    /// Before the hub loaded: starting, or why loading this phone's identity failed.
+    private var loadStatus: Status = .idle
     /// The hub, once this phone's identity loaded (nil before and after sign-out).
     public private(set) var hub: DeviceHub?
     /// The viewer on screen: one session at a time from this phone.
@@ -30,6 +33,10 @@ public final class ScreenSharingService {
     /// Runs on each new viewer before its first request (tests swap its hub calls).
     @ObservationIgnored var prepareViewer: (ScreenSharingViewer) -> Void = { _ in }
     @ObservationIgnored private var startTask: Task<Void, Never>?
+    /// Sessions this phone ended or left: a late ticket for one never starts a stream.
+    @ObservationIgnored private var abandoned: Set<String> = []
+    /// The sign-out hook already signed this phone out of the hub.
+    @ObservationIgnored private var signedOut = false
 
     /// Where the hub is and who this phone is to it.
     public struct Configuration: Sendable {
@@ -98,7 +105,12 @@ public final class ScreenSharingService {
         case .starting, .ready: return
         case .idle, .failed: break
         }
-        status = .starting
+        if let hub {
+            // task-owner: one restart of the loaded hub (registration, then its socket)
+            Task { await hub.start() }
+            return
+        }
+        loadStatus = .starting
         let configuration = configuration
         startTask = Task { [weak self] in
             let hub: DeviceHub
@@ -107,14 +119,12 @@ public final class ScreenSharingService {
                                                  deviceName: configuration.deviceName, platform: .ios, tokens: configuration.tokens)
             } catch {
                 guard !Task.isCancelled else { return }
-                self?.status = .failed(String(describing: error))
+                self?.loadStatus = .failed(String(describing: error))
                 return
             }
             guard let self, !Task.isCancelled else { return }
             attach(hub)
             await hub.start()
-            guard !Task.isCancelled else { return }
-            status = Self.status(of: hub.status)
         }
     }
 
@@ -126,21 +136,36 @@ public final class ScreenSharingService {
         viewer = nil
         if let hub {
             hub.onSessionPush = nil
+            let alreadySignedOut = signedOut
             // task-owner: one sign-out call (the hub lists this phone offline at once), then the socket closes
             Task {
-                try? await hub.signOutDevice()
+                if !alreadySignedOut { try? await hub.signOutDevice() }
                 hub.stop()
             }
         }
         hub = nil
-        status = .idle
+        loadStatus = .idle
+        abandoned = []
     }
+
+    /// Before the account session ends (the auth model's sign-out hook): end the session on
+    /// screen and sign this phone out of the hub while the account can still reach it.
+    public func signOutBeforeSessionEnds() async {
+        guard let hub, !signedOut else { return }
+        signedOut = true
+        if let viewer, let id = viewer.sessionID {
+            await viewer.endSession(hub, id, ScreenSharingEndReason.signedOut.rawValue)
+        }
+        try? await hub.signOutDevice()
+    }
+
+    /// The service the signed-in shell runs, for the auth model's sign-out hook.
+    public static weak var current: ScreenSharingService?
 
     /// Refetches everything (pull to refresh).
     public func refresh() async {
         guard let hub else { return start() }
         if case .failed = status { await hub.start() } else { await hub.refreshAll() }
-        status = Self.status(of: hub.status)
     }
 
     private func attach(_ hub: DeviceHub) {
@@ -169,6 +194,7 @@ public final class ScreenSharingService {
         } else {
             self.viewer?.close(reason: .viewerDisconnected)
             viewer = ScreenSharingViewer(hostID: mac.id, hostName: mac.name, hub: hub, preferences: preferences)
+            viewer.sessionLeft = { [weak self] id in self?.abandoned.insert(id) }
             prepareViewer(viewer)
             self.viewer = viewer
         }
@@ -186,10 +212,15 @@ public final class ScreenSharingService {
     func route(_ push: DeviceHubPush) {
         guard let viewer else { return }
         switch push {
-        case let .sessionTicket(ticket) where viewer.accepts(ticket): viewer.accept(ticket)
+        case let .sessionTicket(ticket) where !abandoned.contains(ticket.sessionId) && viewer.accepts(ticket):
+            viewer.accept(ticket)
         case let .sessionDenied(id) where viewer.sessionID == id: viewer.denied()
         case let .sessionRevoked(id, reason) where viewer.sessionID == id: viewer.ended(reason: reason)
         case let .sessionEnded(id, reason) where viewer.sessionID == id: viewer.ended(reason: reason)
+        case let .sessionDenied(id) where viewer.sessionID == nil: viewer.earlyPush(sessionID: id, denied: true, reason: nil)
+        case let .sessionRevoked(id, reason) where viewer.sessionID == nil,
+             let .sessionEnded(id, reason) where viewer.sessionID == nil:
+            viewer.earlyPush(sessionID: id, denied: false, reason: reason)
         default: break
         }
     }
