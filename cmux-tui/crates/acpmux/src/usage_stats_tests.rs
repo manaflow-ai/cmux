@@ -315,6 +315,8 @@ fn a_record_that_cannot_be_read_is_unknown_not_zero() {
     untimed.as_object_mut().unwrap().remove("timestamp");
     let mut countless = reply("2026-10-30T11:00:00Z");
     countless["message"]["usage"] = json!({"cache_read_input_tokens": 9});
+    let mut untimed_synthetic = untimed.clone();
+    untimed_synthetic["message"]["model"] = json!("<synthetic>");
     let mut old_countless = reply("2026-10-28T11:00:00Z");
     old_countless["message"]["usage"] = json!({});
     let cases: Vec<(&str, String, Option<u64>)> = vec![
@@ -323,6 +325,8 @@ fn a_record_that_cannot_be_read_is_unknown_not_zero() {
         ("no token counts", countless.to_string(), None),
         // Older than the day: it cannot be in the day's counts, so they are known.
         ("no counts, days old", old_countless.to_string(), Some(2)),
+        // Delta review of #28015: an untimed reply Claude Code made up carries no spend.
+        ("untimed <synthetic>", untimed_synthetic.to_string(), Some(2)),
     ];
     for (what, bad, want) in cases {
         let home = tempfile::tempdir().unwrap();
@@ -350,6 +354,14 @@ fn a_record_that_cannot_be_read_is_unknown_not_zero() {
     let rate = json!({"timestamp": "2026-10-30T11:00:00Z", "type": "event_msg",
         "payload": {"type": "token_count", "info": null, "rate_limits": {}}});
     append(&path, &[rate]);
+    assert_eq!(Tracker::default().refresh(&source, now, &models()).unwrap().tokens24h, Some(0));
+    // Delta review of #28015: one without a time, too, and a line naming spawn_agent that is
+    // no spawn (a tool list), carry nothing to count.
+    let untimed_rate = json!({"type": "event_msg",
+        "payload": {"type": "token_count", "info": null, "rate_limits": {}}});
+    let tools = json!({"type": "response_item", "payload": {"type": "additional_tools",
+        "tools": [{"name": "spawn_agent"}]}});
+    append(&path, &[untimed_rate, tools]);
     assert_eq!(Tracker::default().refresh(&source, now, &models()).unwrap().tokens24h, Some(0));
     let broken = json!({"timestamp": "2026-10-30T11:01:00Z", "type": "event_msg",
         "payload": {"type": "token_count", "info": {"total_token_usage": {"total_tokens": 5}}}});

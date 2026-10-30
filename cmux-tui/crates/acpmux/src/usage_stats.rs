@@ -326,8 +326,14 @@ impl Tracker {
             return tail.lose(quick_timestamp(line).unwrap_or(now));
         };
         let Some(at) = timestamp(&record) else {
-            let counts = record["type"] == "assistant" && record["message"]["usage"].is_object()
-                || main && record["subtype"] == "compact_boundary";
+            // Lost only if it would have counted: a reply of a real model with usage (an API
+            // error Claude Code makes up names `<synthetic>`), or a compaction.
+            let model = record["message"]["model"].as_str().unwrap_or_default();
+            let counts = record["type"] == "assistant"
+                && record["message"]["usage"].is_object()
+                && !model.is_empty()
+                && !model.starts_with('<')
+                || main && record["type"] == "system" && record["subtype"] == "compact_boundary";
             if counts {
                 tail.lose(now);
             }
@@ -403,7 +409,17 @@ impl Tracker {
         };
         let payload = &record["payload"];
         let Some(at) = timestamp(&record) else {
-            if record["type"] != "turn_context" {
+            // Lost only if it would have counted: a compaction, a spawn, or a token report with
+            // its info (a rate-limit update alone carries none).
+            let counts = match (record["type"].as_str(), payload["type"].as_str()) {
+                (Some("compacted"), _) => true,
+                (Some("response_item"), Some("function_call" | "custom_tool_call")) => {
+                    payload["name"] == "spawn_agent"
+                }
+                (Some("event_msg"), Some("token_count")) => !payload["info"].is_null(),
+                _ => false,
+            };
+            if counts {
                 tail.lose(now);
             }
             return;
