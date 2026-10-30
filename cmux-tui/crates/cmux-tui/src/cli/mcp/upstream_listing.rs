@@ -198,7 +198,7 @@ mod tests {
         store(&folder, &a, &before, &listing);
         assert_eq!(load(&folder, &a), None);
         store(&folder, &a, &key(&a).unwrap(), &listing);
-        assert_eq!(load(&folder, &a), Some(listing.clone()));
+        assert_eq!(load(&folder, &a), Some(listing));
         // An entry others may read, or a link, is not read.
         #[cfg(unix)]
         {

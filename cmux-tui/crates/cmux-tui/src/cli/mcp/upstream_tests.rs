@@ -532,9 +532,7 @@ fn a_stored_tool_the_server_dropped_is_not_sent() {
     server.upstreams = vec![upstream::Proxied::new(
         upstream_server("cmux-secrets").with_listings(Some(dir.path().into())),
     )];
-    let job = server
-        .proxied_tool("secrets_gone", &serde_json::Map::new())
-        .expect("the stored list has it");
+    let job = server.proxied_tool("secrets_gone", &Map::new()).expect("the stored list has it");
     let result = job.run(None);
     assert_eq!(result["isError"], true, "{result}");
     assert!(result.to_string().contains("no longer lists"), "{result}");
