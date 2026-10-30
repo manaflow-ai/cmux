@@ -88119,7 +88119,7 @@
       },
       "help" : {
         "key" : "settings.contextMenus.showCustomizeItem.help",
-        "text" : "Adds it to the end of every right-click menu."
+        "text" : "Adds Customize Menu… to the end of every right-click menu."
       },
       "kept_on_reset_all" : false,
       "key" : "contextMenus.showCustomizeItem",

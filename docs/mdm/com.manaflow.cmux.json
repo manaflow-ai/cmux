@@ -1778,7 +1778,7 @@
     },
     "contextMenus.showCustomizeItem" : {
       "default" : true,
-      "description" : "Adds it to the end of every right-click menu.",
+      "description" : "Adds Customize Menu… to the end of every right-click menu.",
       "title" : "Show Customize Menu…",
       "type" : "boolean"
     },
