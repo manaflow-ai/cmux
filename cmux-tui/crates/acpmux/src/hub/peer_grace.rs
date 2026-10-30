@@ -6,6 +6,11 @@ use tokio::time::{Duration, Instant};
 
 const DROP_GRACE: Duration = Duration::from_secs(10);
 
+/// One outage per peer instance: its row deadline while pending, `None` once its
+/// rows went unreachable. Failed retries never extend or re-arm it. A row, list,
+/// ready or restart notice ends it; removal/replacement invalidates its generation.
+pub(super) type Outages = HashMap<(String, u64), Option<Instant>>;
+
 impl Hub {
     pub(super) fn note_peer_drop(&self, peer: &str, generation: u64, reason: &str) {
         // Purge fencing and transcript persistence belong to the real link
@@ -26,16 +31,20 @@ impl Hub {
         self.peer_snapshots.flush(Some(peer));
     }
 
+    /// Outages of replaced or removed instances, ended ones included, go at the
+    /// next notice; an empty map (no peer down) costs nothing.
+    pub(super) fn prune_outages(&self, drops: &mut Outages) {
+        if !drops.is_empty() {
+            drops.retain(|(name, g), _| self.peer(name).is_some_and(|p| p.generation == *g));
+        }
+    }
+
     pub(super) async fn peer_notice_loop(self: Arc<Self>) {
         let Some(mut rx) = self.peer_notices_rx.lock().await.take() else { return };
         // A dedicated persistent signal: hub.shutdown's stored Notify permit
         // belongs to the main daemon, including before its waiter registers.
         let mut stop = self.peer_notices_stop.subscribe();
-        // One outage per peer instance: its row deadline while pending, `None` once
-        // its rows went unreachable. Failed retries never extend or re-arm it. A row,
-        // list, ready or restart notice ends it; removal/replacement invalidates its
-        // generation.
-        let mut drops: HashMap<(String, u64), Option<Instant>> = HashMap::new();
+        let mut drops = Outages::new();
         loop {
             if *stop.borrow() {
                 break;
@@ -64,6 +73,7 @@ impl Hub {
                 _ = stop.changed() => break,
             };
             let Some((peer, generation, notice)) = incoming else { break };
+            self.prune_outages(&mut drops);
             let Some(current) = self.peer(&peer).filter(|p| p.generation == generation) else {
                 continue;
             };
@@ -83,10 +93,6 @@ impl Hub {
                         // deadline. The daemon may stop inside the grace window, and
                         // a peer whose rows are all closed changes no row at the deadline.
                         self.save_peer_cache(&peer, generation, true);
-                        // Ended outages of replaced or removed instances go with it.
-                        drops.retain(|(name, g), _| {
-                            self.peer(name).is_some_and(|p| p.generation == *g)
-                        });
                     }
                 }
                 notice => {
