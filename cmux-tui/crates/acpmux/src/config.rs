@@ -93,14 +93,27 @@ pub(crate) fn mark_socket_lost() {
     );
 }
 
-/// Whether [`mark_home_lost`] was called.
+/// Installed only by the daemon after acquiring its lock. A synchronous identity check fences
+/// startup writes even before the asynchronous filesystem event has been delivered.
+static HOME_IDENTITY_LOST: std::sync::OnceLock<Box<dyn Fn() -> bool + Send + Sync>> =
+    std::sync::OnceLock::new();
+
+pub(crate) fn watch_home_identity(check: impl Fn() -> bool + Send + Sync + 'static) {
+    let _ = HOME_IDENTITY_LOST.set(Box::new(check));
+}
+
+/// Whether the home or socket is lost, including an identity change awaiting event delivery.
 pub(crate) fn home_lost() -> bool {
+    if HOME_IDENTITY_LOST.get().is_some_and(|check| check()) {
+        mark_home_lost();
+    }
     HOME_LOST.load(std::sync::atomic::Ordering::SeqCst) != 0
 }
 
 /// Whether the home or lock itself was lost. A socket-only loss leaves the
 /// host records owned by this daemon and may be cleaned during shutdown.
 pub(crate) fn home_path_lost() -> bool {
+    let _ = home_lost();
     HOME_LOST.load(std::sync::atomic::Ordering::SeqCst) == 1
 }
 
@@ -480,7 +493,7 @@ mod autostart_pair_tests {
     #[test]
     fn only_the_default_home_is_created_for_a_start() {
         let dir = tempfile::tempdir().unwrap();
-        let gone = dir.path().join("tmp7uxt3tq_/.acpmux");
+        let gone = dir.path().join("removed-test-home");
         let own = gone.join("acpmux.sock");
         let why = autostart_refusal(&gone, true, None, &own).expect("a missing home is refused");
         assert!(why.contains("does not exist"), "{why}");
@@ -498,7 +511,7 @@ mod autostart_pair_tests {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path();
         let own = home.join("acpmux.sock");
-        let chief = Path::new("/Users/me/.cmux/chief/default/acpmux/acpmux.sock");
+        let chief = Path::new("/unrelated-home/acpmux.sock");
         let why = autostart_refusal(home, false, Some(chief), &own).expect("unpaired");
         assert!(why.contains(&chief.display().to_string()), "{why}");
         assert!(why.contains(&own.display().to_string()), "{why}");
