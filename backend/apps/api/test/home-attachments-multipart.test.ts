@@ -318,3 +318,67 @@ describe("Home attachments: a part claim left by a vanished Worker lapses while 
     expect(sha(await downloaded(alice, id, sha(body)))).toBe(sha(body))
   })
 })
+
+describe("Home attachments: an R2 multipart upload is never left without a record that ends it", { timeout: 120_000 }, () => {
+  it("an intent whose slot could not record its new upload (the owner call failed or its answer was lost) aborts that upload", async () => {
+    const alice = await signIn("att-intent-orphan")
+    const { id } = await group(alice)
+    const { handleAttachmentIntent } = await import("../src/home-attachments.ts")
+    const created: Array<R2MultipartUpload> = []
+    const bucket = testEnv.HOME_ATTACHMENTS
+    const capturing = new Proxy(bucket, {
+      get(t, p) {
+        if (p !== "createMultipartUpload") return (Reflect.get(t, p) as Function).bind(t)
+        return async (key: string, options?: R2MultipartOptions) => {
+          const upload = await t.createMultipartUpload(key, options)
+          created.push(upload)
+          return upload
+        }
+      }
+    })
+    const env = { ...ownerWith({ setMultipartUpload: async () => { throw new Error("owner call lost") } }), HOME_ATTACHMENTS: capturing }
+    const body = JSON.stringify({ conversation: id, sha256: sha(new Uint8Array([1])), byte_count: 40_000_000, mime_type: "application/octet-stream", name: "a.bin", multipart: true })
+    const request = new Request("https://api.test/v1/home/attachments/intent", { method: "POST", headers: { authorization: `Bearer ${alice.token}`, "content-type": "application/json" }, body })
+    await expect(handleAttachmentIntent(request, env)).rejects.toThrow("owner call lost")
+    expect(created).toHaveLength(1)
+    await expect(bucket.resumeMultipartUpload(created[0]!.key, created[0]!.uploadId).uploadPart(1, new Uint8Array(1))).rejects.toThrow()
+  })
+
+  it("an expired slot whose upload abort fails transiently keeps that upload queued: a later wake aborts it", async () => {
+    const alice = await signIn("att-expire-abort-retry")
+    const g = await group(alice)
+    const stub = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(g.id))
+    const conv = stub as unknown as {
+      createUploadSlot(e: string, actor: string, quotaUser: string, meta: unknown, mode: string, id: string): Promise<{ id: string; object_key: string }>
+      setMultipartUpload(e: string, id: string, uploadId: string): Promise<boolean>
+    }
+    const slot = await conv.createUploadSlot(g.id, alice.user, alice.user, { hash: sha(new Uint8Array([2])), byte_count: 40_000_000, mime_type: "application/octet-stream" }, "multipart", crypto.randomUUID().replaceAll("-", ""))
+    const upload = await testEnv.HOME_ATTACHMENTS.createMultipartUpload(slot.object_key)
+    expect(await conv.setMultipartUpload(g.id, slot.id, upload.uploadId)).toBe(true)
+    await runInDurableObject(stub, async (_i, state) => void state.storage.sql.exec("UPDATE home_attachment_slots SET expires_at = ?", Date.now() - 2 * 3_600_000))
+    const gc = await import("../src/home-attachment-gc.ts")
+    const bucket = testEnv.HOME_ATTACHMENTS
+    // An abort that fails with no R2 code (a dropped connection): transient, unlike NoSuchUpload.
+    const failing = new Proxy(bucket, {
+      get(t, p) {
+        if (p !== "resumeMultipartUpload") return (Reflect.get(t, p) as Function).bind(t)
+        return (key: string, uploadId: string) => {
+          const u = t.resumeMultipartUpload(key, uploadId)
+          return new Proxy(u, { get: (x, q) => (q === "abort" ? async () => { throw new Error("connection reset") } : (Reflect.get(x, q) as Function).bind(x)) })
+        }
+      }
+    })
+    const wake = (env: TestEnv, now: number) =>
+      runInDurableObject(stub, async (inst: any) => {
+        const deps = { ...inst.gc, env }
+        await gc.runAttachmentWake(deps, undefined, now).catch(() => {})
+        return gc.attachmentWakeAt(deps.sql)
+      })
+    const next = await wake({ ...testEnv, HOME_ATTACHMENTS: failing }, Date.now())
+    // The upload still has a record that ends it, and the alarm comes back for it.
+    expect(next).not.toBeNull()
+    await upload.uploadPart(1, new Uint8Array(1))
+    await wake(testEnv, Date.now() + 2 * 3_600_000)
+    await expect(upload.uploadPart(1, new Uint8Array(1))).rejects.toThrow()
+  })
+})
