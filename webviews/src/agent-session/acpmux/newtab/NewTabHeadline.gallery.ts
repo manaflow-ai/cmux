@@ -31,7 +31,7 @@ const pick = async (ctx: PlayContext, name: string) => {
   await ctx.waitFor(() => ctx.document.querySelector(button) !== null);
   const stable = [
     ".nt-composer",
-    '.nt-foot .acpmux-location-picker[data-kind="computer"]',
+    '.nt-above .acpmux-location-picker[data-kind="computer"]',
     ".nt-foot .acpmux-access-trigger",
   ];
   const rects = () =>

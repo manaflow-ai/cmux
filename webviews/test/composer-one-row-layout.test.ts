@@ -1,6 +1,6 @@
 // cmux-web-test-timeout: 180
-// Leo: "the claw thing should be one single row". Location and mode lead Claude's New Tab
-// footer, while the model keeps the trailing edge; Codex retains its tray above the box.
+// Claude's New Tab (2026-10-30, a sketch with arrows): folder and computer head the box, top left;
+// the quiet row under it holds the mode on the left and the model on the trailing edge.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
@@ -28,7 +28,7 @@ await requireBrowserLane("composer-one-row-layout.test.ts", async () => {
     await vite?.close();
   });
 
-  test("Claude keeps location and mode before a trailing model at narrow and normal widths", async () => {
+  test("Claude puts the location above the box and the mode before a trailing model under it", async () => {
     for (const width of [420, 760]) {
       const page = await browser.newPage({ viewport: { width, height: 520 } });
       try {
@@ -46,21 +46,22 @@ await requireBrowserLane("composer-one-row-layout.test.ts", async () => {
             return { left: box.left, right: box.right, center: box.y + box.height / 2 };
           };
           return {
-            folder: rect(".nt-foot .acpmux-location-leading > .acpmux-location-picker:first-child"),
-            computer: rect('.nt-foot .acpmux-location-picker[data-kind="computer"]'),
+            folder: rect(".nt-above .acpmux-location-leading > .acpmux-location-picker:first-child"),
+            computer: rect('.nt-above .acpmux-location-picker[data-kind="computer"]'),
             access: rect(".nt-foot .acpmux-access"),
             model: rect(".nt-foot .acpmux-model"),
             foot: rect(".nt-foot .acpmux-composer-foot"),
-            hasTopStrip: Boolean(document.querySelector(".nt-above")),
+            footLocation: Boolean(document.querySelector(".nt-foot .acpmux-location-picker")),
           };
         });
-        expect(layout.hasTopStrip).toBe(false);
+        expect(layout.footLocation).toBe(false);
         expect(layout.folder.right).toBeLessThanOrEqual(layout.computer.left + 1);
-        expect(layout.computer.right).toBeLessThanOrEqual(layout.access.left + 1);
+        expect(Math.abs(layout.folder.center - layout.computer.center)).toBeLessThanOrEqual(1);
+        // The strip heads the box; the mode and model share the row under it.
+        expect(layout.computer.center).toBeLessThan(layout.foot.center);
         expect(layout.access.right).toBeLessThanOrEqual(layout.model.left + 1);
         expect(Math.abs(layout.model.right - layout.foot.right)).toBeLessThanOrEqual(1);
-        const centers = [layout.folder, layout.computer, layout.access, layout.model].map((box) => box.center);
-        expect(Math.max(...centers) - Math.min(...centers)).toBeLessThanOrEqual(1);
+        expect(Math.abs(layout.access.center - layout.model.center)).toBeLessThanOrEqual(1);
       } finally {
         await page.close();
       }

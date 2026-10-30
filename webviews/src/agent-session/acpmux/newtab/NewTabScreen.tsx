@@ -614,10 +614,10 @@ export function NewTabScreen(props: Props) {
   const foot = useRef<HTMLDivElement>(null);
   // The model picker uses one footer position in every New Tab template and composer look.
   const look = useComposerLook();
-  const split = props.chips !== undefined;
-  // Folder/computer keep their look-specific placement: Claude's one row, Codex's tray. The footer
-  // row exists only with the chips, so without them the strip stays above the box.
-  const locationInFooter = split && plainFooter && look === "claude" && template !== "default";
+  // The Prototype look puts the chips in the box's bottom row with +, the mic and Send, as its chat
+  // composer does: no quiet row under the box (Lucas 2026-10-29).
+  const prototype = look === "prototype";
+  const split = props.chips !== undefined && !prototype;
   // Footer look and template can change while this screen stays mounted.
   useRowFit(foot, `${split}:${plainFooter}:${look}`);
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
@@ -1156,7 +1156,7 @@ export function NewTabScreen(props: Props) {
   const chooser = useRef<HTMLInputElement>(null);
   /// The Cards template (u2851): the field is a pill of its own and the chips sit under it. The
   /// split draws the chat composer's box instead.
-  const pill = template === "cards" && !split;
+  const pill = template === "cards" && !split && !prototype;
 
   const attachmentPicker = (
     <>
@@ -1177,7 +1177,7 @@ export function NewTabScreen(props: Props) {
       <Picker
         label={t("composer.add")}
         tooltip={t("composer.addTooltip")}
-        className={`acpmux-composer-plus acpmux-newtab-plus${split ? " nt-split-plus" : ""}`}
+        className={`acpmux-composer-plus acpmux-newtab-plus${split || prototype ? " nt-split-plus" : ""}`}
         button={<PlusIcon />}
         align="start"
         returnFocus={false}
@@ -1279,8 +1279,13 @@ export function NewTabScreen(props: Props) {
   // this page draws no context ring.
   const pickers = (
     <ChromeArea className="acpmux-chrome-area" items={[chrome.dictation]}>
-      <div className="nt-pickers" data-footer-look={plainFooter ? "plain" : undefined} onPointerDownCapture={touch}>
-        {!split && attachmentPicker}
+      <div
+        ref={prototype ? foot : undefined}
+        className="nt-pickers"
+        data-footer-look={plainFooter ? "plain" : undefined}
+        onPointerDownCapture={touch}
+      >
+        {!split && !prototype && attachmentPicker}
         {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
         switch is the one Enter reuses. */}
         {!split && Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}
@@ -1370,7 +1375,7 @@ export function NewTabScreen(props: Props) {
           bar with the agent's model chip, the mic and Send. The location strip with the project the
           chat starts in heads it, as text over the card (ComposerContext, the composer's own; hq#1957
           composer location strip; newtab/screen.css). */}
-      <div ref={setComposer} className="nt-composer" data-composer-look={look === "codex" ? "codex" : undefined}>
+      <div ref={setComposer} className="nt-composer" data-composer-look={look === "claude" ? undefined : look}>
         {authBlocksSend(targetAuth) && (
           <p className="acpmux-composer-remote-note" role="alert">
             {targetAuthText}
@@ -1382,8 +1387,9 @@ export function NewTabScreen(props: Props) {
             <span role="alert">{t(sandboxFailureKey(sandboxRefusal) ?? "sandbox.error.failed")}</span>
           </output>
         )}
-        {/* Above the box: the project strip (Cards draws it under the field). */}
-        {!pill && !locationInFooter && <div className="nt-above">{folderStrip}</div>}
+        {/* Above the box: the project strip, top left in every look (Lucas 2026-10-30): Claude's and the
+            Prototype's strip, Codex's tray. Cards draws it under the field. */}
+        {!pill && <div className="nt-above">{folderStrip}</div>}
         <div ref={setBox} className="ui-glass ui-glass-floats nt-box">
           {commandsOpen && (
             <SlashMenu
@@ -1399,7 +1405,8 @@ export function NewTabScreen(props: Props) {
             Cursor rule (cx-d0d.80): the I-beam only over the text, the arrow elsewhere. */}
           {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the input inside is the control and takes the keyboard itself. */}
           <div className="nt-input" onMouseDown={focusFromRow}>
-            {split && attachmentPicker}
+            {/* The Prototype look's + also starts the field's row, before "Ask anything" (Lucas 2026-10-30). */}
+            {(split || prototype) && attachmentPicker}
             <div className="nt-field-slot">
               {(shell || sections.prompt) && (
                 <span
@@ -1472,12 +1479,11 @@ export function NewTabScreen(props: Props) {
           {command.input}
           {!pill && !split && pickers}
         </div>
-        {/* Claude Code's one quiet row: folder and computer lead the mode, model and effort;
-            the box keeps the prompt, the mic and Send (Leo: "one single row"). */}
+        {/* Claude Code's quiet row: the mode bottom left, the model and effort bottom right (Lucas
+            2026-10-30); the box keeps +, the prompt, the mic and Send on one line. */}
         {split && Chips && (
           <div className="nt-foot" onPointerDownCapture={touch}>
             <ComposerFoot ref={foot} plain={plainFooter}>
-              {locationInFooter && folderStrip}
               <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />
             </ComposerFoot>
           </div>
