@@ -938,8 +938,13 @@ const TURN_GAP = 16;
 /// images alone.
 const userMetaHeight = (row: AcpmuxRow) => {
   const chief = row.from === "chief" || chiefEnvelope(row.text) !== undefined;
+  const hasAttachment = Boolean(
+    row.images?.length ||
+      row.retryAttachments?.length ||
+      row.inlineParts?.some((part) => part.kind === "file" || part.kind === "image"),
+  );
   return (
-    (row.text && !row.failed && !row.queued && !chief ? META_GAP + META_ROW : 0) +
+    ((row.text || hasAttachment) && !row.failed && !row.queued && !chief ? META_GAP + META_ROW : 0) +
     (row.steer === "waiting" && !row.text?.trim() ? META_GAP + META_ROW : 0)
   );
 };
