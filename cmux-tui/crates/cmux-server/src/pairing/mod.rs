@@ -1,6 +1,9 @@
 //! General server enrollment through the existing human-approved Cloud flow.
 //! This records identity; it never installs, starts roles or grants execution.
 
+use cmux_json::JsonSet as _;
+
+mod confirmation;
 mod credentials;
 mod identity;
 pub(crate) mod info;
@@ -36,6 +39,16 @@ pub trait Transport {
     /// None means HTTP 404 only. Other refusals and operational failures stay distinct.
     fn native_post(&self, _origin: &str, _path: &str, _body: &Value) -> Result<Option<Value>> {
         Err(Error::unreachable("server.pair.network_unavailable"))
+    }
+    /// The selected backend only; bearer credentials never reach Native.
+    fn backend_post(
+        &self,
+        _api: &str,
+        _path: &str,
+        _body: &Value,
+        _bearer: Option<&str>,
+    ) -> Result<Value> {
+        Err(Error::unreachable("server.pair.backend_unavailable"))
     }
 }
 
@@ -187,7 +200,7 @@ pub fn enroll(
             let mut saved = json!({"code":begun.code.as_str(),"expires_at":begun.expires_at,
                 "thumbprint":begun.thumbprint,"collect_secret":begun.collect_secret()});
             if let Some(uri) = verification_uri(&response, &begun) {
-                saved["verification_uri"] = uri.into();
+                saved.set("verification_uri", uri.into());
             }
             identity.save_response(&saved)?;
             store.save(&identity)?;
@@ -198,7 +211,7 @@ pub fn enroll(
     if let Some(response) = identity.begin_response()?
         && let Some(uri) = verification_uri(&response, &begun)
     {
-        public_progress["verification_uri"] = uri.into();
+        public_progress.set("verification_uri", uri.into());
     }
     progress(&public_progress)?;
     match transport.wait(&api, &begun)? {

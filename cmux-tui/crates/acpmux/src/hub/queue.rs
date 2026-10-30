@@ -7,6 +7,7 @@
 
 use super::subsession_runs::{TurnGuard, WaitMark};
 use super::*;
+use cmux_json::JsonSet as _;
 use std::sync::atomic::Ordering;
 
 // A prompt dequeued for a turn that never started goes back at the head (`restore_queue`).
@@ -76,6 +77,9 @@ pub(super) struct PromptRun {
     /// Another agent's name when it is that agent's message, `None` when it is the person's
     /// (`digest.rs`); an edit makes it the person's.
     pub(super) agent: Option<String>,
+    /// Its class when it is another agent's message (`prompt_class.rs`), `None` when it is the
+    /// person's; an edit makes it the person's.
+    pub(super) class: Option<crate::prompt_class::PromptClass>,
     /// Its `_meta.acpmux.supersede` key (`supersede.rs`); an edit drops it.
     pub(super) supersede: Option<String>,
     /// The paired machine whose Full-access setting covered its sender (`PromptOptions`); an
@@ -101,6 +105,8 @@ pub(super) struct Slot<'a> {
     pub(super) provenance: Option<&'a Value>,
     /// Another agent's name when it is that agent's message (`digest.rs`).
     pub(super) agent: Option<&'a str>,
+    /// Its class when it is another agent's message (`prompt_class.rs`).
+    pub(super) class: Option<crate::prompt_class::PromptClass>,
     /// Its `_meta.acpmux.supersede` key (`supersede.rs`).
     pub(super) supersede: Option<&'a str>,
     /// `PromptOptions::full_access_device`.
@@ -179,6 +185,9 @@ impl Hub {
             None if session.meta().watching.is_some() => {
                 return Err(Err(super::watch::read_only()));
             }
+            // A lane's report to a parent whose close has begun: refused, never reopening it
+            // (`lane_reports.rs`). Nothing is awaited from this check to the commit below.
+            None if refuses_closing(&p) && closing(session) => return Err(Err(closing_error())),
             None => {
                 let turn_id = uuid::Uuid::now_v7().to_string();
                 // Another agent's message never overtakes the ones a failed turn held: they run
@@ -227,6 +236,10 @@ impl Hub {
                     session.turn_lock.lock().await
                 };
                 session.queued.fetch_sub(1, Ordering::SeqCst);
+                // Its close may have begun while it waited for the turn.
+                if refuses_closing(&p) && closing(session) {
+                    return Err(Err(closing_error()));
+                }
                 // A move began while it waited for the lock (`transfer_out.rs`): it runs nowhere.
                 if session.moving().is_some() {
                     return Err(Err(moving_error()));
@@ -240,6 +253,7 @@ impl Hub {
                             trust_gate: p.trust_gate,
                             provenance: p.provenance.cloned(),
                             agent: p.agent.map(str::to_owned),
+                            class: p.class,
                             supersede: p.supersede.map(str::to_owned),
                             full_access_device: p.full_access_device.map(str::to_owned),
                         };
@@ -271,7 +285,7 @@ impl Hub {
                 && let Some(running) = running
                 && p.interrupt_turn.is_none_or(|aimed| aimed == running)
             {
-                self.cancel_turn(session, &running).await;
+                self.cancel_turn_for_replacement(session, &running, p.prompt_id).await;
             }
         }
         // A queued prompt `remove_queued` withdraws answers at once, not when the turn ends.
@@ -303,6 +317,8 @@ impl Hub {
                 }
             }
         };
+        // A lane's report queued behind a turn its parent's close then ended is refused before
+        // its turn starts (`turns.rs`), so it never reopens the parent.
         let run = self.take_queued(session, p.prompt_id, &turn_id).map_err(Ok)?;
         Ok((turn_id, true, guard, run))
     }
@@ -325,8 +341,10 @@ impl Hub {
             interrupt: true,
             provenance,
             agent: run.agent.clone(),
+            class: run.class,
             display_parts: run.display_parts.clone(),
             full_access_device: run.full_access_device.clone(),
+            send_now: true,
             ..Default::default()
         };
         Box::pin(self.run_prompt(session, run.blocks.clone(), client, true, opts)).await
@@ -339,6 +357,20 @@ impl Hub {
             && let Err(e) = self.cancel(session).await
         {
             tracing::warn!(session = %session.id, "interrupt for a steer: {}", e.message);
+        }
+    }
+
+    /// Stops only the targeted turn and preserves the prompt that requested its replacement.
+    pub(super) async fn cancel_turn_for_replacement(
+        &self,
+        session: &Arc<Session>,
+        turn_id: &str,
+        prompt_id: &str,
+    ) {
+        if session.turn().is_some_and(|t| t.turn_id == turn_id)
+            && let Err(e) = self.cancel_preserving_queued(session, Some(prompt_id)).await
+        {
+            tracing::warn!(session = %session.id, "interrupt for a queued prompt: {}", e.message);
         }
     }
 
@@ -385,6 +417,7 @@ impl Hub {
                     trust_gate: p.trust_gate,
                     provenance: p.provenance.cloned(),
                     agent: p.agent.map(str::to_owned),
+                    class: p.class,
                     supersede: p.supersede.map(str::to_owned),
                     full_access_device: p.full_access_device.map(str::to_owned),
                 }),
@@ -409,16 +442,19 @@ impl Hub {
         // run it (`restore_queues`).
         let mut queued = json!({"text": p.text, "client": p.client, "position": position, "promptId": p.prompt_id, "turnId": turn_id, "prompt": p.blocks, "control": p.control.as_str(), "trustGate": p.trust_gate});
         if let Some(agent) = p.agent {
-            queued["fromAgent"] = json!(agent);
+            queued.set("fromAgent", json!(agent));
+        }
+        if let Some(class) = p.class {
+            queued["class"] = json!(class);
         }
         if let Some(key) = p.supersede {
-            queued["supersede"] = json!(key);
+            queued.set("supersede", json!(key));
         }
         // Its images are kept now and named, so its row shows them before it runs
         // (`prompt_images.rs`).
         let images = super::prompt_images::keep(p.blocks);
         if !images.is_empty() {
-            queued["images"] = Value::Array(images);
+            queued.set("images", Value::Array(images));
         }
         let inline_parts = super::prompt_images::inline_parts(
             p.blocks,
@@ -426,10 +462,10 @@ impl Hub {
             p.display_parts,
         );
         if !inline_parts.is_empty() {
-            queued["inlineParts"] = Value::Array(inline_parts);
+            queued.set("inlineParts", Value::Array(inline_parts));
         }
         if let Some(display_parts) = p.display_parts {
-            queued["displayParts"] = display_parts.clone();
+            queued.set("displayParts", display_parts.clone());
         }
         super::session::mark_pasted(&mut queued, p.blocks);
         self.append(
@@ -601,7 +637,8 @@ impl Hub {
             let Some(from) = queue.iter().position(|q| q.prompt_id == prompt_id) else {
                 return Ok(false);
             };
-            crate::author::may_change(editor, queue[from].sender())?;
+            let Some(item) = queue.get(from) else { return Ok(false) };
+            crate::author::may_change(editor, item.sender())?;
             // Only the last prompt sent now: one sent before it is a queued prompt again.
             queue.iter_mut().for_each(|q| q.sent_now = false);
             let mut q = queue.remove(from);
@@ -686,7 +723,8 @@ impl Hub {
             let Some(i) = queue.iter().position(|q| q.prompt_id == prompt_id) else {
                 return Ok(false);
             };
-            crate::author::may_change(editor, queue[i].sender())?;
+            let Some(item) = queue.get(i) else { return Ok(false) };
+            crate::author::may_change(editor, item.sender())?;
             // Pin the identity before it leaves the queue: its runner may settle it meanwhile.
             let ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
             session.queued.fetch_sub(1, Ordering::SeqCst);
@@ -726,16 +764,6 @@ impl Hub {
         removed.withdraw.notify_one();
     }
 
-    /// At load: puts back every prompt the log shows queued but never dequeued, started or
-    /// removed, in queue order, after any dequeued whose turn never started (`lost_start.rs`).
-    /// They run once `resume_queues` starts them; a client that resends one meanwhile waits for
-    /// that run (the ledger entry made here).
-    pub(super) fn restore_queues(&self) {
-        // Sessions restore apart (each reads only its own log), so they run on every core.
-        let sessions = self.sessions();
-        self.on_every_core(&sessions, |session| self.restore_queue(session));
-    }
-
     /// The record kinds `restore_queue` reads; the store parses no other line.
     const QUEUE_KINDS: &[&str] = &[
         // Restore the branch baseline in this same pass, never by rereading at attach.
@@ -763,7 +791,11 @@ impl Hub {
         "agent_pair_resumed",
     ];
 
-    /// One session's queue, from its log (also a chat moved here, `transfer_in.rs`).
+    /// One session's queue, from its log (at load, `log_load.rs`, and for a chat moved here,
+    /// `transfer_in.rs`): puts back every prompt the log shows queued but never dequeued, started
+    /// or removed, in queue order, after any dequeued whose turn never started (`lost_start.rs`).
+    /// They run once `resume_restored` starts them; a client that resends one meanwhile waits for
+    /// that run (the ledger entry made here).
     pub(super) fn restore_queue(&self, session: &Arc<Session>) {
         if session.meta().status == SessionStatus::Closed {
             return;
@@ -864,6 +896,7 @@ impl Hub {
                             // The person's now (`digest.rs`), and no sender's to replace.
                             if let Some(fields) = q.msg.as_object_mut() {
                                 fields.remove("fromAgent");
+                                fields.remove("class");
                                 fields.remove("supersede");
                             }
                         }
@@ -920,7 +953,12 @@ impl Hub {
         for e in waiting {
             let field = |k: &str| e.msg.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
             let (prompt_id, turn_id, text) = (field("promptId"), field("turnId"), field("text"));
-            if prompt_id.is_empty() || turn_id.is_empty() {
+            // Restored already: a second pass (a chat settled after adoption, `log_load.rs`)
+            // adds only what the first did not see.
+            if prompt_id.is_empty()
+                || turn_id.is_empty()
+                || queue.iter().any(|q| q.prompt_id == prompt_id)
+            {
                 continue;
             }
             // A record from before the prompt was logged has its text only.
@@ -934,6 +972,11 @@ impl Hub {
             // A record from before `fromAgent` names an agent by its provenance (`digest.rs`).
             let from_agent = e.msg.get("fromAgent").and_then(Value::as_str);
             let agent = super::digest::agent_sender(provenance.as_ref(), from_agent);
+            // A record from before classes: an agent's message is a result (`prompt_class.rs`).
+            let class = crate::prompt_class::of_message(
+                crate::prompt_class::recorded(&e.msg),
+                agent.is_some(),
+            );
             let supersede = crate::author::restored_supersede(&e.msg).map(str::to_owned);
             restored.push((prompt_id.clone(), turn_id.clone()));
             queue.push(QueuedPrompt {
@@ -950,6 +993,7 @@ impl Hub {
                     trust_gate,
                     provenance,
                     agent,
+                    class,
                     supersede,
                     // A restored prompt names no machine: it does not run a chat out of its
                     // policy's mode (`Hub::full_access_hold`).
@@ -970,14 +1014,27 @@ impl Hub {
         tracing::info!(session = %session.id, queued = queue.len(), "restored queued prompts");
     }
 
-    /// Runs the prompts `restore_queues` put back, each in its place in the queue (after any
-    /// turn recovered from an agent host). Called once at daemon start, after adoption.
+    /// Runs the prompts `restore_queue` put back, each in its place in the queue (after any
+    /// turn recovered from an agent host). Called at daemon start, after adoption, and after an
+    /// import. A chat whose log is read later resumes its own (`log_load.rs`).
     pub fn resume_queues(self: &Arc<Self>) {
+        self.queues_resumed.store(true, Ordering::SeqCst);
         // And what a resumed agent pair still held when the daemon stopped (`agent_pairs.rs`).
         self.resume_agent_pair_drains();
         for session in self.sessions() {
+            // Under its load lock: a log read now resumes its own queue (`log_load.rs`).
+            let loaded = session.log_load.lock().unwrap_or_else(|e| e.into_inner());
+            if *loaded {
+                self.resume_restored(std::slice::from_ref(&session));
+            }
+        }
+    }
+
+    /// Runs `sessions`' restored prompts not started yet (each once: its `resume` mark).
+    pub(super) fn resume_restored(self: &Arc<Self>, sessions: &[Arc<Session>]) {
+        for session in sessions {
             // Agent messages a failed turn held before the restart go in again by themselves.
-            self.retry_held_agent_messages(&session);
+            self.retry_held_agent_messages(session);
             let restored: Vec<QueuedPrompt> = session
                 .queue
                 .lock()
@@ -998,6 +1055,7 @@ impl Hub {
                         // Who sent it: a queued agent message stays that agent's after a restart.
                         provenance: q.run.provenance.clone(),
                         agent: q.run.agent.clone(),
+                        class: q.run.class,
                         display_parts: q.run.display_parts.clone(),
                         ..PromptOptions::default()
                     };
@@ -1024,4 +1082,30 @@ impl Hub {
             }
         }
     }
+}
+
+/// Whether the prompt is one a closing session refuses: a lane's report.
+fn refuses_closing(p: &Slot<'_>) -> bool {
+    is_lane_report(p.provenance)
+}
+
+fn is_lane_report(provenance: Option<&Value>) -> bool {
+    provenance.and_then(|v| v.get("kind")).and_then(Value::as_str)
+        == Some(super::lane_reports::KIND)
+}
+
+/// Whether a dequeued prompt with `provenance` is a lane's report to `session`, closing now.
+pub(super) fn refuses_closing_run(session: &Session, provenance: Option<&Value>) -> bool {
+    is_lane_report(provenance) && closing(session)
+}
+
+/// Whether `session`'s close has begun (`kill` marks it before anything else) or it is closed.
+fn closing(session: &Session) -> bool {
+    session.closing.load(Ordering::SeqCst) || session.status() == SessionStatus::Closed
+}
+
+/// The refusal of a lane's report to a session whose close has begun.
+pub(super) fn closing_error() -> RpcError {
+    RpcError::invalid_params("the session is closing or closed: it takes no prompt")
+        .with_data(json!({"reason": "session.closing", "closing": true}))
 }

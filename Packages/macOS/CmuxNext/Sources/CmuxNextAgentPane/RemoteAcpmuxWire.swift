@@ -29,7 +29,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
 
     /// Starts a new chat on the other machine in `cwd` with `harness` (the page's `session/new`
     /// values; nil leaves the host's own choice) and answers its attachment and session.
-    public typealias Start = @Sendable (_ cwd: String?, _ harness: String?) async throws
+    public typealias Start = @Sendable (_ cwd: String?, _ harness: String?, _ model: String?) async throws
         -> (client: any AgentSessionRemoteClient, session: String)
     /// The trust of `cwd` on the other machine (acpmux's `acp.trust.get` reply), or with `level`
     /// the person's answer recorded there (`acp.trust.set`).
@@ -182,8 +182,17 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             // The decision proof the host added (never the page): acpmux on that machine decides.
             let decision = (params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
             let nonce = decision?["decisionNonce"] as? String, proof = decision?["personDecision"] as? String
+            // A question's answers and annotations go along unchanged: that machine's acpmux checks
+            // them and the proof over them (dropped, the answer was refused there, or counted
+            // without the preview the person chose).
+            let json = { (key: String) in
+                params[key].flatMap { $0 is NSNull ? nil : $0 }
+                    .flatMap { try? JSONSerialization.data(withJSONObject: $0, options: [.fragmentsAllowed]) }
+            }
+            let answers = json("answers"), annotations = json("annotations")
             run(id) { client in
-                try await client.permission(id: permission, option: option, decisionNonce: nonce, personDecision: proof)
+                try await client.permission(id: permission, option: option, answers: answers, annotations: annotations,
+                                            decisionNonce: nonce, personDecision: proof)
                 return Data("{}".utf8)
             }
         default:
@@ -219,10 +228,11 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         }) else { return refuse(id, "session/new") }
         let cwd = (params["cwd"] as? String).flatMap { $0.hasPrefix("/") ? $0 : nil }
         let harness = (acpmux?["harness"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let model = (acpmux?["model"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         // task-owner: the one start of this wire's chat; its reply ends it
         Task { [weak self] in
             do {
-                let (client, session) = try await start(cwd, harness)
+                let (client, session) = try await start(cwd, harness, model)
                 guard let self else { await client.close(); return }
                 let open = state.withLock { state -> Bool in
                     state.starting = false

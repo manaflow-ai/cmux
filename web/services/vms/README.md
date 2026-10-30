@@ -44,12 +44,14 @@ There is no raw actor or provider protocol endpoint. The old `/api/rivet/*` gate
 GCP is an explicit, off-by-default Labs provider. Enable it with
 `CMUX_VM_GCP_LABS_ENABLED=1` and `CMUX_VM_GCP_ENABLED=1`, and configure a cmux
 Linux image with `CMUX_VM_GCP_IMAGE`. The local client sends a short-lived OAuth
-access token in `X-Cmux-Gcp-Access-Token` (and, when known, its Unix expiry in
-`X-Cmux-Gcp-Access-Token-Expires-At`); the backend uses it for the current
+access token in `X-Cmux-Gcp-Access-Token` and its Unix expiry in
+`X-Cmux-Gcp-Access-Token-Expires-At`; the backend uses it for the current
 Compute Engine request and wipes it before answering. It never writes the token
 or an SSH private key to `cloud_vms.provider_metadata`. Placement headers such
 as `X-Cmux-Gcp-Project` and `X-Cmux-Gcp-Zone` are non-secret and may select the
 user's project (the default development project is `manaflow-437420`).
+The first Labs VPC is project-scoped as `cmux-vms`; this is the user's own
+project boundary. Tailnet tunnel enrollment is not enabled yet.
 
 The first driver supports create, status, start, stop, delete, and a short-lived
 SSH attach handoff. The selected image must already contain acpmux, cmux-tui,
@@ -502,6 +504,23 @@ Each environment needs:
 
 Production migration runs staging migration first on the same commit, then waits on the protected production environment approval.
 
+### Cloud VM image production environment
+
+The production image bake and promote workflows use the protected GitHub environment
+`cmux-next-vm-image-prod`. Create it with a custom deployment branch policy allowing only
+`feat-cmux-next`, then add the production `FREESTYLE_API_KEY`. The production compat gate also
+needs the team-owned production Stack test profile, `CMUX_UITEST_STACK_EMAIL` and
+`CMUX_UITEST_STACK_PASSWORD`; these are separate from Leo's Freestyle key and must not be
+copied from the staging cloud-capture account.
+
+Every production run must resolve a trusted production snapshot from the repository's channel
+records to its recorded id. A missing production record fails closed: a key that cannot resolve
+the dev snapshot might belong to a third account, or to the dev account after that snapshot was
+deleted. There is no automatic trust-on-first-use bootstrap and no `FREESTYLE_PROD_ANCHOR`
+environment variable. Before the first copy, the team must independently verify a production
+snapshot and record its name and id in the production channel data through review. Until that
+prerequisite and the team-owned Stack test profile are available, production stays off.
+
 ## Local database development
 
 Use `CMUX_PORT` to run multiple isolated web and database environments on one machine:
@@ -562,6 +581,18 @@ client update. `openAttach`/`openSSH`/`revokeSSHIdentity` are optional interface
 the gateway maps an absent method to `VmOperationUnsupportedError` (an honest 501).
 `MockVMProvider` (`drivers/mock.ts`) is the interface's second implementer and the test
 double for provider-contract tests.
+
+## Auto-sizing: a handed-off task's machine
+
+`POST /api/vm` with `autosize: {taskKind: chat|build|test, repo?: {sizeMb, rootFiles}, gpu?}` and
+no `memoryMb` picks the machine for the task (`services/vms/autosize.ts`): the smallest shape on
+the ladder (`images/sizes.ts`) that the plan allows and that covers the task's memory, cores and
+disk, with the fleet's grants (`TASK_NEEDS`) until the repo has measured runs, then p95 of their
+peaks plus 20%. The answer carries `sizePick: {vcpus, memoryGb, pick, reason}`, the hand-off's
+size fields (`backend/apps/api/src/handoffs`), e.g. reason "8 vCPU · 16 GB, picked for a Swift
+build". `memoryMb` and `image` stay the override (an image boots at its own snapshot's size); a provider
+without `sizing` gets no pick; `gpu` is refused
+(`vm_gpu_unavailable`) until a provider has one.
 
 ## TLS edge: port previews and credential injection
 
@@ -664,14 +695,19 @@ a machine whose agent is mid-turn and quiet). The server pauses idle machines in
   carries and it never pauses; the cron logs a warning when a run hits the 500 cap or runs long.
 - A machine whose row has no private address (`networkIpv4`/`networkIpv6`) is not probed: the
   app's link into it would be invisible, so it is unknown.
-- A machine is idle only when there is no attached client, no live agent or acpmux session with
+- A machine is idle only when nobody typed through an attached client for the whole timeout (an
+  app that is only attached does not count: the Mac app stays attached for days), no live agent or acpmux session with
   a turn or a pending permission, no terminal running a command (anything but a shell at its
-  prompt is a command: a build, a hand-started server, vim, an agent CLI), no ssh session, no
+  prompt is a command: a build, a hand-started server, vim, an agent CLI, and a shell that is
+  itself running one, `bash -c ...` or `sh script.sh`; a login or interactive shell such as
+  `-bash`, `zsh -l` or `bash -i` is a prompt), no ssh session, no
   inbound connection on its private address, and CPU use since the previous probe below
   `VM_IDLE_CPU_BUSY_CORES` (0.05 cores; a `nohup make`, a container or a systemd unit doing work
   is over it). A CPU counter that went back (a reboot) restarts the idle stretch; a probe or a
-  stored observation without a CPU sample gives no CPU verdict. Anything the probe cannot read
-  is unknown, and unknown never pauses.
+  stored observation without a CPU sample gives no CPU verdict. A `/proc/<pid>/stat`, `cmdline`
+  or daemon `fd` entry that cannot be read or parsed makes terminals, ssh or inbound connections
+  unknown; only a process that exited mid-read is skipped. Anything the probe cannot read is
+  unknown, and unknown never pauses.
 - Work that is quiet on CPU, has no terminal and only talks outbound counts as idle and gets
   paused: a `nohup` bot holding a websocket open, a long `curl` download, or `claude -p` started
   through exec outside acpmux. Run such work in a terminal (a foreground command keeps the
@@ -688,7 +724,10 @@ a machine whose agent is mid-turn and quiet). The server pauses idle machines in
 - Every pause, resume or other status write drops the stored idle observation, so a resumed
   machine starts a new stretch and gets the whole timeout again.
 - The timeout is per machine (`PUT /api/vm/:id/idle-pause`; `idlePauseMinutes` in the list and
-  detail): 15, 30, 60 or 120 minutes, or 0 for Off. A machine that never chose one gets
+  detail): 15, 30, 60 or 120 minutes, or 0 for Off. A create may set it too (`POST /api/vm`
+  `idlePauseMinutes`, same values; `cmux cloud new-machine --persistent` sends `"off"`). It is
+  stored by the row's insert, before any provider call, so a same-key retry keeps the first
+  create's value; the answer carries it. A machine that never chose one gets
   `VM_IDLE_PAUSE_DEFAULT_MINUTES` (30; 0 turns the default off).
 - `pauseReason` is `"idle"` or `"user"` on a paused machine the control plane paused, else
   null. Opening a paused machine resumes it, as above.

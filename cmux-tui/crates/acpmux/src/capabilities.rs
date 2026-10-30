@@ -71,6 +71,23 @@ pub const CAPABILITIES: &[Capability] = &[
             method::MUX_SECRET_SUBMIT,
         ],
     },
+    // Server-side local/non-closed session-list filters used by native quit
+    // census callers. Older daemons keep serving the unfiltered list.
+    Capability { id: "session-list-filters-v1", wire: &[method::MUX_SESSIONS] },
+    Capability { id: "machine.join.stdin.v1", wire: &[] },
+    Capability {
+        id: "machine-consent-v1",
+        wire: &[method::MUX_MACHINE_CONSENT_SET, method::MUX_MACHINE_CONSENT_GET],
+    },
+    // Inline `/btw` answers: the pane may send `inline: true` and receive `{text}`;
+    // older daemons treat that field as legacy side-session input, so this id gates the shape.
+    Capability { id: "btw-inline-v1", wire: &[method::MUX_BTW] },
+    // Owner-VM Codex app-server bridge: access-only external tokens are read
+    // from the private broker file and never exposed through ACP frames.
+    Capability {
+        id: "codex-external-access-v1",
+        wire: &[method::SESSION_NEW, method::SESSION_PROMPT],
+    },
     // Metadata-only paths for a focused chat's config and state files. The
     // daemon serves this surface on its local Unix socket only.
     Capability { id: "session-files-v1", wire: &[method::MUX_SESSION_FILES] },
@@ -79,6 +96,8 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: "chat-presence-v1", wire: &[method::MUX_TYPING, method::MUX_PRESENCE] },
     // Edit or remove a queued prompt, and send a steer now (`hub/queue_edit.rs`).
     Capability { id: "queue-edit-v1", wire: &[method::MUX_QUEUE_EDIT, method::MUX_QUEUE_REMOVE] },
+    // One queued prompt's whole text, read on demand (`hub/queue_text.rs`).
+    Capability { id: "queue-text-v1", wire: &[method::MUX_QUEUE_TEXT] },
     // One answer for a group of permission asks, and revoking a chat's grants.
     Capability {
         id: "permission-groups-v1",
@@ -117,6 +136,8 @@ pub const CAPABILITIES: &[Capability] = &[
         id: "start-mode-v1",
         wire: &[method::MUX_START_MODE, method::MUX_START_MODE_CHANGED],
     },
+    // A peer link's state, pushed on each change (`protocol/peer_state.rs`).
+    Capability { id: "peer-state-events-v1", wire: &[method::MUX_PEER_STATE_CHANGED] },
     // Folder trust (`trust.rs`).
     Capability { id: "folder-trust-v1", wire: &[method::ACP_TRUST_GET, method::ACP_TRUST_SET] },
     // Resume agent message pairs the runaway guard paused (`hub/agent_pairs.rs`).
@@ -128,6 +149,9 @@ pub const CAPABILITIES: &[Capability] = &[
     // retry a subagent, so the pane shows a subagent's Retry button only
     // under it.
     Capability { id: "subagent-retry-v1", wire: &[method::MUX_RETRY] },
+    // A subagent's entry carries `retryInFlight` (`hub/subagent_retry.rs`): an attempt fired
+    // and the subagent not running again yet, so the pane shows it retrying, not a Retry.
+    Capability { id: "subagent-retry-v2", wire: &[method::MUX_RETRY, method::SESSION_UPDATE] },
     // Stop one of a chat's background subagents. acpmux takes the method for
     // every harness, but only the Claude stdio adapter acts on it
     // (`claude_stdio/outbound.rs`); others pass it on to the agent.
@@ -151,6 +175,20 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: "session-offers-v1", wire: &[method::MUX_OFFER_RESPOND] },
     // Reconnect a Claude Code chat's MCP server (`hub/tools.rs`).
     Capability { id: "mcp-reconnect-v1", wire: &[method::MUX_MCP_RECONNECT] },
+    // Labs team-scoped agent messaging over the mesh relay. The daemon keeps
+    // this capability visible even when the flag is off so clients can explain
+    // the opt-in instead of treating it as an unknown method.
+    Capability {
+        id: "team-messaging-v1",
+        wire: &[
+            method::MUX_TEAM_SEND,
+            method::MUX_TEAM_INBOX,
+            method::MUX_TEAM_READ,
+            method::MUX_TEAM_ACK,
+        ],
+    },
+    // A chat's sign-in before a send, by session or target (`hub/session_auth.rs`).
+    Capability { id: "session-auth-v1", wire: &[method::MUX_SESSION_AUTH] },
 ];
 
 /// The ids of [`CAPABILITIES`], in its order.
@@ -180,12 +218,16 @@ mod tests {
     fn every_id_is_stable_shaped_and_listed_once() {
         let mut seen = BTreeSet::new();
         for id in ids() {
-            let (name, version) = id.rsplit_once("-v").unwrap_or_else(|| panic!("{id} has no -vN"));
+            let (name, version) = id
+                .rsplit_once("-v")
+                .or_else(|| id.rsplit_once(".v"))
+                .unwrap_or_else(|| panic!("{id} has no version suffix"));
             assert!(
                 !name.is_empty()
-                    && name
-                        .bytes()
-                        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+                    && name.bytes().all(|b| b.is_ascii_lowercase()
+                        || b.is_ascii_digit()
+                        || b == b'-'
+                        || b == b'.')
                     && !version.is_empty()
                     && version.bytes().all(|b| b.is_ascii_digit()),
                 "{id} is not a lowercase-kebab id ending in -vN"
@@ -202,6 +244,11 @@ mod tests {
         let registry: BTreeSet<&str> =
             crate::protocol::registry().iter().map(|decl| decl.name).collect();
         for capability in CAPABILITIES {
+            // Machine onboarding is CLI-only and has no daemon wire method.
+            if capability.id == "machine.join.stdin.v1" {
+                assert!(capability.wire.is_empty());
+                continue;
+            }
             assert!(!capability.wire.is_empty(), "{} covers nothing", capability.id);
             for name in capability.wire {
                 assert!(

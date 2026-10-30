@@ -9,7 +9,8 @@ test("background activity has one secondary tone and lifts on hover", () => {
   expect(css).toContain("--cv-activity-text: color-mix(in srgb, var(--cv-fg) 58%, transparent);");
   expect(css).toContain(".cv-tool:hover,");
   expect(css).toContain(".cv-worked:hover,");
-  expect(css).toContain(".cv-received:hover .cv-received__body,");
+  expect(css).toContain(".cv-received:hover .cv-received__text,");
+  expect(css).toContain(".cv-received__text :is(.cv-md, .cv-h),");
   expect(css).toContain(".cv-message:hover .cv-agentmsg__card,");
   expect(css).toContain("color: var(--cv-text);");
 });

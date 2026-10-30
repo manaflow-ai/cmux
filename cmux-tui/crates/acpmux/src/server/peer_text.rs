@@ -66,6 +66,9 @@ fn mask_text(v: &mut Value) -> bool {
         Value::Array(items) => items.iter_mut().for_each(|item| changed |= mask_text(item)),
         Value::Object(map) => {
             if SUMMARY_KEYS.iter().all(|k| map.contains_key(*k)) {
+                // Peers may learn liveness and its class, never new diagnostic details.
+                changed |= map.remove("stuckError").is_some();
+                changed |= map.remove("stuckSince").is_some();
                 for key in ["title", "lastPrompt", "preview"] {
                     changed |= mask_field(map.get_mut(key));
                 }

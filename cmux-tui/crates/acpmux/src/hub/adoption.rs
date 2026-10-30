@@ -10,6 +10,7 @@
 
 use super::*;
 use crate::adopt::{AdoptRequest, IfLive};
+use cmux_json::JsonSet as _;
 use std::collections::BTreeMap;
 
 /// What adopting resolved to before a session is created.
@@ -143,7 +144,9 @@ impl Hub {
         // This acpmux's own Claude Code session runs the chat: it opens, as for an adopt of
         // the id it records (one chat, one session).
         if let Some(existing) = own
-            .and_then(|own| self.sessions.lock().unwrap().get(&own).cloned())
+            .and_then(|own| {
+                self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&own).cloned()
+            })
             .filter(|s| s.meta().family.as_deref() == Some("claude"))
         {
             return Ok(Adoption::Existing(existing));
@@ -534,13 +537,13 @@ impl Hub {
             for tool in &turn.tools {
                 let start = tool.started_at.or(tool.ended_at).or(started);
                 let mut call = tool.call.clone();
-                call["sessionUpdate"] = json!("tool_call");
-                call["toolCallId"] = json!(tool.id);
-                call["status"] = json!("in_progress");
+                call.set("sessionUpdate", json!("tool_call"));
+                call.set("toolCallId", json!(tool.id));
+                call.set("status", json!("in_progress"));
                 self.append_at(session, "in", "tool_call", update(call), None, start);
                 let mut done = tool.done.clone();
-                done["sessionUpdate"] = json!("tool_call_update");
-                done["toolCallId"] = json!(tool.id);
+                done.set("sessionUpdate", json!("tool_call_update"));
+                done.set("toolCallId", json!(tool.id));
                 self.append_at(
                     session,
                     "in",
