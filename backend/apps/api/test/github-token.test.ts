@@ -156,14 +156,14 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     })
   })
 
-  it("rejects string-valued repository cursor numbers and accepts the numeric cursor from a previous page", async () => {
+  it("rejects malformed repository cursors and accepts the cursor from a previous page", async () => {
     const a = await signedInWithInstall("gh-token-repo-cursor", "cli")
     const { gh } = await linkGitHub(a.session, a.team)
     await inDO(testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(a.team)), async (instance) => {
       const h: LedgerHost = { ...instance.ledgerHost(a.team), state: () => instance.boundEngine.currentState }
       const p: Principal = { identity: `user:${a.user}`, kind: "session", user: a.user, team: a.team }
       const cursor = (value: unknown) => btoa(JSON.stringify(value)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")
-      for (const value of [{ installation: "0", page: 1 }, { installation: 0, page: "1" }, { installation: 0, page: 0 }, { installation: -1, page: 1 }]) {
+      for (const value of [{ installation: 0, page: 1 }, { connection: 0, page: 1 }, { connection: "", page: 1 }, { connection: "con_x", page: "1" }, { connection: "con_x", page: 0 }]) {
         expect(await githubRepos(h, p, { cursor: cursor(value) })).toMatchObject({ ok: false, status: 400, code: "request.invalid" })
       }
       expect(gh.mints()).toHaveLength(0)
@@ -178,6 +178,15 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
       if (!first.ok || !first.value.cursor) throw new Error("first page must return a cursor")
       expect(await githubRepos(h, p, { cursor: first.value.cursor })).toEqual({ ok: true, value: { repos: [{ full_name: "acme/api", private: false }], cursor: null } })
       expect(gh.calls.filter((call) => call.url.includes("/installation/repositories?")).map((call) => new URL(call.url).searchParams.get("page"))).toEqual(["1", "2"])
+      // Between pages the paginated connection needs a relink and another becomes active: the cursor
+      // names its connection, so page 2 is refused instead of continuing in the other installation.
+      const state = instance.boundEngine.currentState as ConnectionsState
+      const original = Object.values(state.connections).find((c) => c.provider === "github")!
+      const other = { ...original, id: "con_zz_other", account: { ...original.account!, key: "github:installation:100" } }
+      const changed: LedgerHost = { ...h, state: () => ({ ...state, connections: { [original.id]: { ...original, status: "needs_reauth" }, [other.id]: other } }) }
+      const listingsBefore = gh.calls.filter((call) => call.url.includes("/installation/repositories?")).length
+      expect(await githubRepos(changed, p, { cursor: first.value.cursor })).toMatchObject({ ok: false, status: 400, code: "request.invalid" })
+      expect(gh.calls.filter((call) => call.url.includes("/installation/repositories?")).length).toBe(listingsBefore)
     })
   })
 
@@ -217,6 +226,12 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
       expect(gh.mints().length).toBe(mints + 2)
       // Recorded on the connection, so /status shows the relink.
       expect(needsReauth).toHaveBeenCalledWith(expect.objectContaining({ id: original.id }), expect.any(String))
+      // GitHub answers 404 for a removed installation's token: dropped, minted once more, then a relink.
+      gh.routes["https://api.github.com/installation/repositories"] = () => new Response(null, { status: 404 })
+      const gone = vi.fn()
+      expect(await githubRepos({ ...h, needsReauth: gone }, p, {})).toMatchObject({ ok: false, status: 409, code: "needs_reauth" })
+      expect(gh.mints().length).toBe(mints + 4)
+      expect(gone).toHaveBeenCalledTimes(1)
     })
   })
 
