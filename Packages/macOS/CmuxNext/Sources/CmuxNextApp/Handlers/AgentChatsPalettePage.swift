@@ -122,8 +122,8 @@ struct AgentChatsPaletteStrings {
     /// The row under the empty query's page when `more` chats are not shown. `bundle` and `locale`
     /// default to this module's catalog in the user's language; a test passes one language's table.
     static func moreChats(_ more: Int, bundle: Bundle = .module, locale: Locale = .current) -> String {
-        String(localized: "handlers.agentChats.moreChats", defaultValue: "\(more) more chats. Type to search.",
-               table: "MiscHandlers", bundle: bundle, locale: locale)
+        String(format: String(localized: "handlers.agentChats.moreChats", defaultValue: "%lld more chats. Type to search.",
+                              table: "MiscHandlers", bundle: bundle, locale: locale), Int64(more))
     }
 
     /// The row under a page that shows only the best `shown` of `total` matching chats.
