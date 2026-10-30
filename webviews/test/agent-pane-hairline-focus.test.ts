@@ -308,8 +308,18 @@ await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
     });
     expect(ring.focused).toBe(true);
     expect(ring.style).toBe("solid");
-    expect(ring.width).toBe(1.5);
+    expect(ring.width).toBe(1);
     expect(ring.offset).toBe(-1.5);
+    await page.emulateMedia({ contrast: "more" });
+    const contrastRing = await page.evaluate(() => {
+      const tick = document.getElementById("rail-tick")!;
+      const style = getComputedStyle(tick);
+      return { style: style.outlineStyle, width: parseFloat(style.outlineWidth),
+        offset: parseFloat(style.outlineOffset) };
+    });
+    expect(contrastRing.style).toBe("solid");
+    expect(contrastRing.width).toBe(2);
+    expect(contrastRing.offset).toBe(2);
     await page.close();
   });
 
