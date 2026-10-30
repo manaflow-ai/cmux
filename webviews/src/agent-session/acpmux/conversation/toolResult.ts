@@ -345,11 +345,39 @@ const DUNDER = /(?:^|[^\w])__\w+__(?=$|[^\w])/;
 /// Results longer than this stay plain text: Markdown is for a result someone reads.
 const MAX_MARKDOWN_CHARS = 20_000;
 
+/// A fence line: up to three spaces, then three or more backticks or tildes (CommonMark).
+const FENCE = /^ {0,3}(`{3,}|~{3,})/;
+
+/// `text` without the contents of its closed fenced code blocks, so a snippet a Markdown document
+/// quotes (a fenced `const` or `import`) is not read as the result being source. An unclosed fence
+/// keeps its lines: a file that merely starts with backticks is still checked as code.
+function outsideFences(text: string): string {
+  const lines = text.split("\n");
+  const kept: string[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const open = FENCE.exec(lines[index]!)?.[1];
+    if (!open) {
+      kept.push(lines[index]!);
+      continue;
+    }
+    const close = new RegExp(`^ {0,3}${open[0] === "`" ? "`" : "~"}{${open.length},}\\s*$`);
+    let end = index + 1;
+    while (end < lines.length && !close.test(lines[end]!)) end += 1;
+    if (end === lines.length) {
+      kept.push(lines[index]!);
+      continue;
+    }
+    index = end;
+  }
+  return kept.join("\n");
+}
+
 function isMarkdownText(text: string, web = false): boolean {
   if (text.length > MAX_MARKDOWN_CHARS) return false;
   const lines = text.split("\n").filter(Boolean);
   if (!lines.length || lines.every((line) => LOG_LINE.some((pattern) => pattern.test(line)))) return false;
-  if (CODE_DECLARATION.test(text) || CODE_ASSIGNMENT.test(text) || DUNDER.test(text)) return false;
+  const prose = outsideFences(text);
+  if (CODE_DECLARATION.test(prose) || CODE_ASSIGNMENT.test(prose) || DUNDER.test(prose)) return false;
   return web || MARKDOWN.test(text);
 }
 
