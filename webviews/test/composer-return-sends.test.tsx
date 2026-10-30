@@ -402,14 +402,25 @@ test("a terminal-only spelling waits for its pending image and sends as an attac
 
 test("Quick Chat Cmd-Return opens /import immediately despite an earlier pending image", async () => {
   let opened = 0;
-  const page = await composer(chat(), "/import", undefined, false, async () => {}, undefined, () => {
-    opened += 1;
-  });
+  const page = await composer(
+    chat(),
+    "/import",
+    undefined,
+    false,
+    async () => {},
+    undefined,
+    () => {
+      opened += 1;
+    },
+  );
   const file = new File([PNG], "pending.png", { type: "image/png" });
   const bytes = await file.arrayBuffer();
   let resolve!: (bytes: ArrayBuffer) => void;
   Object.defineProperty(file, "arrayBuffer", {
-    value: () => new Promise<ArrayBuffer>((done) => { resolve = done; }),
+    value: () =>
+      new Promise<ArrayBuffer>((done) => {
+        resolve = done;
+      }),
   });
   const paste = new window.Event("paste", { bubbles: true, cancelable: true });
   Object.defineProperty(paste, "clipboardData", {
