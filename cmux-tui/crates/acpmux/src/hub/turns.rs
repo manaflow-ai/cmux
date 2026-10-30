@@ -574,6 +574,8 @@ impl Hub {
         // The forum rules this session was not told yet (`hub/forum.rs`).
         let mut told = self.forum_context(session, pushed.clone(), &mut blocks).await;
         session.stderr_tail.lock().unwrap().clear();
+        // Under the turn lock: this turn ends a person's Stop's hold only if it began under it.
+        session.turn_hold.store(session.stop_hold.load(Ordering::SeqCst), Ordering::SeqCst);
         let turn_seq = self
             .append(
                 session,
@@ -1050,7 +1052,12 @@ impl Hub {
                 }
                 self.write_turn_result(session, msg, git);
                 // The chat works again: agent messages a failed turn held go in (`digest.rs`).
-                if status == "completed" {
+                // Not while a person's Stop that came after this turn began holds them
+                // (`cancel.rs`): only a turn begun under that hold, or a resume, ends it.
+                let hold = session.stop_hold.load(Ordering::SeqCst);
+                if status == "completed"
+                    && (hold == 0 || hold == session.turn_hold.load(Ordering::SeqCst))
+                {
                     self.release_held_agent_messages(session);
                 }
             }

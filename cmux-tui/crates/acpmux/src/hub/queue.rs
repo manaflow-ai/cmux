@@ -194,7 +194,7 @@ impl Hub {
                 // again and it waits behind them, to go in with them (`digest.rs`).
                 // While a person's Stop holds them (`cancel.rs`), it waits with them, held.
                 let stop_held =
-                    p.agent.is_some() && session.stop_holds_agents.load(Ordering::SeqCst);
+                    p.agent.is_some() && (session.stop_hold.load(Ordering::SeqCst) != 0);
                 if p.agent.is_some() && !stop_held {
                     self.release_held_agent_messages(session);
                 }
@@ -401,7 +401,7 @@ impl Hub {
         // the person's own and a prompt sent now.
         // Another agent's message while a person's Stop holds them waits held, behind them
         // (`cancel.rs` `hold_agent_messages`).
-        let stop_held = p.agent.is_some() && session.stop_holds_agents.load(Ordering::SeqCst);
+        let stop_held = p.agent.is_some() && (session.stop_hold.load(Ordering::SeqCst) != 0);
         let at = match p.agent {
             Some(_) if stop_held => None,
             Some(_) => queue.iter().position(|q| q.held),
@@ -605,7 +605,7 @@ impl Hub {
     /// Runs the prompts a failed turn held (`_acpmux/queue_edit` `resume`). False when none was.
     pub(super) fn resume_queue(&self, session: &Arc<Session>) -> bool {
         // A person's Stop's hold ends with it (`cancel.rs`).
-        session.stop_holds_agents.store(false, Ordering::SeqCst);
+        session.stop_hold.store(0, Ordering::SeqCst);
         let mut resumed = false;
         for q in session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter_mut()
         {
@@ -622,7 +622,7 @@ impl Hub {
     /// False when none of them was held.
     pub(super) fn resume_held(&self, session: &Arc<Session>, ids: &[String]) -> bool {
         // Held agent messages going in end a person's Stop's hold (`cancel.rs`).
-        session.stop_holds_agents.store(false, Ordering::SeqCst);
+        session.stop_hold.store(0, Ordering::SeqCst);
         let mut resumed = false;
         for q in session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter_mut()
         {

@@ -29,6 +29,7 @@
 //! own queued prompts run next as before.
 
 use super::*;
+use std::sync::atomic::AtomicU64;
 
 /// How long a cancelled turn waits for its agent's answer before acpmux ends it.
 const CANCEL_GRACE: std::time::Duration = std::time::Duration::from_secs(10);
@@ -92,7 +93,8 @@ impl Hub {
     /// (`digest.rs` `retry_held_agent_messages`). None is dropped: each stays queued, as
     /// `held`, and is logged so (`queue_paused` with `reason: "stop"`).
     pub(super) fn hold_agent_messages(&self, session: &Arc<Session>, turn_id: &str) {
-        session.stop_holds_agents.store(true, Ordering::SeqCst);
+        static HOLDS: AtomicU64 = AtomicU64::new(0);
+        session.stop_hold.store(HOLDS.fetch_add(1, Ordering::SeqCst) + 1, Ordering::SeqCst);
         let held: Vec<String> = session
             .queue
             .lock()
