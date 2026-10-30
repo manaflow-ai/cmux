@@ -18,7 +18,9 @@ extension UpdaterService {
         if let newestCard { return newestCard }
         guard let card = flow.card(downloadsAutomatically: true) else { return nil }
         if card == .installing, installCardDismissed { return nil }
-        if case .available(let version) = card, updateSnooze.hides(version: version, at: now()) { return nil }
+        if case .available(let version) = card {
+            if updateSnooze.hides(version: version, at: now()) || pulledWatch.isPulled(version) { return nil }
+        }
         return card
     }
 
@@ -29,7 +31,8 @@ extension UpdaterService {
     /// person closed or snoozed (``updateSnooze``), and while a check the person asked for shows
     /// it on the notice card (``card``).
     public var availableButton: UpdateAvailableButton? {
-        guard !flow.userAsked, case .available(let version) = flow.phase, !updateSnooze.hides(version: version, at: now()) else { return nil }
+        guard !flow.userAsked, case .available(let version) = flow.phase,
+              !updateSnooze.hides(version: version, at: now()), !pulledWatch.isPulled(version) else { return nil }
         return UpdateAvailableButton(version: version)
     }
 
@@ -46,7 +49,7 @@ extension UpdaterService {
     /// repeated or late press (the download already running, or staged) does nothing.
     public func downloadClicked() {
         syncFlowPhase()
-        guard case .available = flow.phase else {
+        guard case .available(let version) = flow.phase, !pulledWatch.isPulled(version) else {
             log.append("update-found answer ignored: nothing waits on that step (\(flow.phase))")
             return
         }

@@ -76,20 +76,23 @@ final class StagedUpdateRefresh {
     /// `install` runs. A second click while the feed is read joins the first.
     func beforeInstall(updater: UpdaterService, install: @escaping @MainActor () -> Void) {
         guard pendingClick == nil else { return }
-        guard updater.disabledReason == nil, isCancellable(updater), let staged = updater.stagedBuild(), !staged.isEmpty else {
+        guard updater.disabledReason == nil, let staged = updater.stagedBuild(), !staged.isEmpty else {
             return install()
         }
+        // A pulled staged build must never be installed, even when Sparkle does not expose a
+        // cancellable installer.  Other non-cancellable staged builds keep the old fast path.
+        let pulledAlready = updater.pulledWatch.isPulled(staged) || updater.droppedPulled.contains(staged)
+        guard isCancellable(updater) || pulledAlready else { return install() }
         updater.log.append("install click: looking for a build newer than staged build \(staged)")
         pendingClick = (staged, install)
         let probe = updater.probe()
-        let pulled = updater.pulledWatch.refresh()
+        _ = updater.pulledWatch.refresh()
         clickTimer.schedule(after: Self.clickProbeDeadline) { @MainActor [weak self, weak updater] in
             guard let self, let updater else { return }
             self.settleClick(answered: false, updater: updater)
         }
         Task { @MainActor [weak self, weak updater] in
             let failure = await probe.value
-            await pulled.value
             guard let self, let updater else { return }
             self.settleClick(answered: failure == nil, updater: updater)
         }

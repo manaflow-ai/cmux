@@ -48,6 +48,11 @@ extension UpdaterService {
     /// the newest good one, and a pulled running build updates to it.
     func followPulled() {
         guard disabledReason == nil, newestFetch == nil, !pulledWatch.pulledBuilds.isEmpty else { return }
+        if let offered = availableBuild(), pulledWatch.isPulled(offered) {
+            // Close a cached Sparkle found-update reply before it can be accepted or shown.
+            dismissAvailable()
+            return
+        }
         if case .ready = flow.phase, let staged = stagedBuild(), !staged.isEmpty, pulledWatch.isPulled(staged) {
             // An install click decides for itself (``StagedUpdateRefresh/beforeInstall(updater:install:)``).
             guard !flow.installRequested, !stagedRefresh.clickWaits, cancelStaged() else { return }
