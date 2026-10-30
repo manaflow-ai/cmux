@@ -1,4 +1,5 @@
 @testable import CmuxNextUpdater
+import Foundation
 import Testing
 
 /// The web update safe point (plans/cmux-next/web-ota.md, WebUpdates+SafePoint.swift): a ready
@@ -59,13 +60,25 @@ struct WebSwapGateTests {
     }
 }
 
-/// The quiet note after a swap names the update by its short commit.
-struct WebUpdateNoteTests {
-    @Test func theNoteNamesTheShortCommit() {
-        let pointer = WebUpdatePointer(channel: "every-merge", key: String(repeating: "d", count: 64),
-                                       archive: "web-bundles-x.tar.gz", sha256: "x", size: 1, outputs: "y", abi: 2,
-                                       commit: "1a2b3c4d5e6f7a8b9c0d", committedAt: 0, publishedAt: 60)
-        #expect(pointer.updatedNote.hasSuffix("1a2b3c4"))
-        #expect(!pointer.updatedNote.contains("1a2b3c4d"))
+/// Leo, 2026-10-30, on the "Updated to 46c97e9" toast a web update swap showed: "why do i see this
+/// shit every so often?? i dont think i need to see this". A web update that swaps in shows
+/// nothing; the served version stays in Settings' Web UI card. This scans CmuxNextWebUpdates for a
+/// toast; comments are ignored.
+struct WebUpdateSwapIsQuietTests {
+    @Test func aSwapShowsNoToast() throws {
+        let folder = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/CmuxNextWebUpdates")
+        let files = try FileManager.default.contentsOfDirectory(atPath: folder.path).filter { $0.hasSuffix(".swift") }
+        #expect(files.count >= 3, "found only \(files) under \(folder.path)")
+        var offenders: [String] = []
+        for file in files {
+            let text = try String(contentsOf: folder.appendingPathComponent(file), encoding: .utf8)
+            for (number, line) in text.components(separatedBy: "\n").enumerated() {
+                let code = line.components(separatedBy: "//").first ?? ""
+                if code.contains("CmuxToast") { offenders.append("\(file):\(number + 1)") }
+            }
+        }
+        #expect(offenders.isEmpty, "a web update shows a toast: \(offenders.joined(separator: ", "))")
     }
 }
