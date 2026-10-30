@@ -4,7 +4,7 @@ import type { Principal } from "@cmux/ownership"
 import type { Connection } from "@cmux/protocol"
 import { describe, expect, it, vi } from "vitest"
 import type { ConnectionsState } from "../src/domains/connections.ts"
-import { drainTokenRevocations, githubRepos, githubStatus, githubToken, type LedgerHost } from "../src/integrations/github-tokens.ts"
+import { drainTokenRevocations, githubRepos, githubStatus, githubToken, nextLedgerAt, type LedgerHost } from "../src/integrations/github-tokens.ts"
 import { bindFile, cloudStub, DAEMON, post, signedInWithInstall, SIZE, vmKey, WG_KEY, worker } from "./cloud-bind-support.ts"
 import { settlePolicy } from "./integration-policy-settle.ts"
 import { fireAlarm } from "./setup/alarm.ts"
@@ -88,12 +88,17 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
         expect(rows()).toMatchObject([{ expires_at: requestedExpiry, provider_expires_at: providerExpiry, revoking: 1, attempts: 1 }])
         expect(JSON.stringify(rows())).not.toContain("ghs_expiring")
 
+        // A failed DELETE's retry never outlasts GitHub's native expiry: the alarm wakes at that expiry.
+        expect(nextLedgerAt(h.sql)).toBe(Math.min(Number(rows()[0]!.retry_at), providerExpiry))
         // Requested TTL expiry does not erase a still-valid provider credential after DELETE fails.
         const retryAt = Number(rows()[0]!.retry_at)
         clock.mockReturnValue(retryAt)
         await drainTokenRevocations(h, retryAt)
         expect(gh.deletes()).toHaveLength(2)
         expect(rows()).toMatchObject([{ revoking: 1, attempts: 2 }])
+        // A retry backed off past the native expiry: the alarm is due at the expiry, and that pass drops the row.
+        h.sql.exec("UPDATE github_tokens SET retry_at = ?", providerExpiry + 600_000)
+        expect(nextLedgerAt(h.sql)).toBe(providerExpiry)
         clock.mockReturnValue(providerExpiry)
         await drainTokenRevocations(h, providerExpiry)
         expect(rows()).toEqual([])

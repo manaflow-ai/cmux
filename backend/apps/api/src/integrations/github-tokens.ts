@@ -308,7 +308,10 @@ export const revokeTokens = async (h: Pick<LedgerHost, "sql" | "env" | "http" | 
 /** The alarm's pass: revokes expired rows and retries provider DELETEs (backoff up to 10 minutes). */
 export const drainTokenRevocations = async (h: Pick<LedgerHost, "sql" | "env" | "http">, now: number) => {
   expireRows(h.sql, now)
-  const due = h.sql.exec<Row & { attempts: number }>(`SELECT * FROM github_tokens WHERE revoking = 1 AND retry_at <= ? LIMIT 100`, now).toArray()
+  // A row is due at its retry or at GitHub's native expiry, whichever comes first (then it is only dropped).
+  const due = h.sql.exec<Row & { attempts: number }>(
+    `SELECT * FROM github_tokens WHERE revoking = 1 AND (retry_at <= ? OR (provider_expires_at > 0 AND provider_expires_at <= ?)) LIMIT 100`, now, now
+  ).toArray()
   await Promise.all(
     due.map(async (r) => {
       // Once GitHub's native expiry has passed, the provider token is unusable even if DELETE
@@ -326,9 +329,11 @@ export const drainTokenRevocations = async (h: Pick<LedgerHost, "sql" | "env" | 
   )
 }
 
-/** When the alarm has ledger work: the next revoke retry or the next expiry. */
+/** When the alarm has ledger work: the next revoke retry (or GitHub's native expiry, if sooner) or the next expiry. */
 export const nextLedgerAt = (sql: SqlStorage): number | null => {
-  const r = sql.exec<{ at: number | null }>(`SELECT MIN(CASE WHEN revoking = 1 THEN retry_at ELSE expires_at END) AS at FROM github_tokens`).toArray()[0]
+  const r = sql.exec<{ at: number | null }>(
+    `SELECT MIN(CASE WHEN revoking = 1 THEN (CASE WHEN provider_expires_at > 0 AND provider_expires_at < retry_at THEN provider_expires_at ELSE retry_at END) ELSE expires_at END) AS at FROM github_tokens`
+  ).toArray()[0]
   return r?.at === null || r?.at === undefined ? null : Number(r.at)
 }
 
