@@ -14,7 +14,11 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
 
 use std::io::{BufRead, BufReader};
 #[cfg(target_os = "macos")]
-use std::os::unix::net::UnixListener;
+use std::os::unix::net::{UnixListener, UnixStream};
+#[cfg(target_os = "macos")]
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+#[cfg(target_os = "macos")]
+use std::sync::Arc;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
@@ -90,12 +94,58 @@ fn start_daemon(dir: &Path, bundle: &Path) -> Child {
     child
 }
 
-/// A stand-in app: a listener on the app's control socket. The daemon's
-/// connects wait in its backlog (128; one per recheck), never accepted.
-/// Dropping it closes the listener.
+/// A stand-in app: a listener on the app's control socket that accepts every
+/// connect and closes it, as the app does with a client that sends nothing.
+/// Accepting matters: connects left in the backlog would fill it (128, one
+/// per recheck) and start failing, so a daemon could stop on a refusing socket
+/// while the test means the app to be answering. Dropping it stops accepting
+/// and closes the listener; the socket file stays, as after a real quit.
 #[cfg(target_os = "macos")]
-fn start_app(dir: &Path) -> UnixListener {
-    UnixListener::bind(app_socket(dir)).unwrap()
+struct App {
+    stop: Arc<AtomicBool>,
+    accepted: Arc<AtomicUsize>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+#[cfg(target_os = "macos")]
+impl App {
+    /// Connects the app accepted so far.
+    fn accepted(&self) -> usize {
+        self.accepted.load(Ordering::SeqCst)
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for App {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn start_app(dir: &Path) -> App {
+    let listener = UnixListener::bind(app_socket(dir)).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let stop = Arc::new(AtomicBool::new(false));
+    let accepted = Arc::new(AtomicUsize::new(0));
+    let thread = {
+        let (stop, accepted) = (Arc::clone(&stop), Arc::clone(&accepted));
+        std::thread::spawn(move || {
+            while !stop.load(Ordering::SeqCst) {
+                match listener.accept() {
+                    Ok((stream, _)) => {
+                        drop(stream);
+                        accepted.fetch_add(1, Ordering::SeqCst);
+                    }
+                    Err(_) => std::thread::sleep(Duration::from_millis(5)),
+                }
+            }
+        })
+    };
+    App { stop, accepted, thread: Some(thread) }
 }
 
 /// Waits up to `limit` for `child` to exit; whether it did.
@@ -159,13 +209,21 @@ fn dev_orphan_exit_stops_a_dev_daemon_whose_binary_is_replaced() {
     let mut daemon = start_daemon(&dir, &bundle);
     let acpmux = bundle.join("Contents/Resources/bin/acpmux");
     let next = bundle.join("Contents/Resources/bin/acpmux.next");
-    // A new file at the same path: a fresh inode, as a rebuild writes it.
+    // A new file at the same path: a fresh inode, as a rebuild writes it
+    // (the build scripts remove a binary before they copy its successor in).
     std::fs::copy(&acpmux, &next).unwrap();
     std::fs::rename(&next, &acpmux).unwrap();
     let stopped = exits_within(&mut daemon, STOPS_WITHIN);
     stop(&mut daemon);
+    // The app answered all along: the daemon's tries were accepted, and the
+    // socket still takes a connect after the daemon stopped. A daemon that
+    // only watched the socket would have had no reason to stop.
+    let accepted = app.accepted();
+    let answers = UnixStream::connect(app_socket(&dir)).is_ok();
     drop(app);
     assert!(stopped, "the DEV daemon kept running {STOPS_WITHIN:?} after its binary was replaced");
+    assert!(accepted > 0, "the app never accepted the daemon's tries");
+    assert!(answers, "the app's socket stopped answering");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

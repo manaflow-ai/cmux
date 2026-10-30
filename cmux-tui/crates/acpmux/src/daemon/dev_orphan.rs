@@ -294,9 +294,11 @@ mod tests {
         std::fs::write(&exe, b"one").unwrap();
         let executable = Executable::open(&exe);
         assert!(!executable.gone());
-        // Touched or re-signed in place: the same file.
+        // Written in place (touched, re-signed, or its bytes rewritten): by design the same
+        // file, not a new build. No build writes a binary in place (see `Executable`); a
+        // size or mtime check would stop a live app's daemon on a touch or a re-sign.
         std::fs::write(&exe, b"one, signed").unwrap();
-        assert!(!executable.gone(), "touched in place");
+        assert!(!executable.gone(), "written in place");
         // The app moved: its file keeps a name elsewhere.
         let moved = dir.join("moved");
         std::fs::rename(&exe, &moved).unwrap();
