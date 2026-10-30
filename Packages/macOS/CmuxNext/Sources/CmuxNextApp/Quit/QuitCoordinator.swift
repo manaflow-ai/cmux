@@ -212,7 +212,6 @@ final class QuitCoordinator {
                 // Home's drafts, scroll places and unsent sends (its cache's last batch), and the
                 // agent panes' and paired phones' state files.
                 await services.home.flushCacheForQuit()
-                await services.stateFilesDrained()
             },
             endLocalSessions: { await services.daemon.endSessionsAndStop($0) },
             confirmFailures: { [weak self] failures in await self?.confirm(failures) ?? .quitAnyway },
@@ -235,7 +234,6 @@ final class QuitCoordinator {
                 // before the engines stop: nothing the user asked for comes after that (QuitSteps).
                 // Nothing is written when nothing changed. The same for the other state files.
                 await services.home.flushCacheForQuit()
-                await services.stateFilesDrained()
                 await self?.stopEngines()
             }
         )
