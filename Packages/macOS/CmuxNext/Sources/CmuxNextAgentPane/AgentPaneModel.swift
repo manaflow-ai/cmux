@@ -105,6 +105,14 @@ public final class AgentPaneModel {
     @ObservationIgnored public let tabRow = AgentPaneTabRow()
     /// Gets the composer's dictation requests (the pane's mic).
     @ObservationIgnored public var onDictation: ((AgentPaneDictationCommand) -> Void)?
+    /// Takes back a long recording the pane's dictation gave the page, for chat `session`
+    /// (``AgentPaneDictation/takeRecording(_:session:)``); nil for any other path.
+    @ObservationIgnored var onDictationRecording: ((_ path: String, _ session: String) -> AgentPaneIssuedRecording?)?
+    /// Gives back a long recording of chat `session` whose upload failed, so the page may try again
+    /// (``AgentPaneDictation/giveBackRecording(_:session:)``).
+    @ObservationIgnored var onDictationRecordingUnsent: ((_ recording: AgentPaneIssuedRecording, _ session: String) -> Void)?
+    /// The long recordings uploading now, and the ones whose chip's × stopped them.
+    @ObservationIgnored var dictationUploads = AgentPaneDictationUploads()
     /// Opens a changed file the page names; false when it could not.
     @ObservationIgnored public var onOpenFile: (@MainActor (URL, AgentPaneFileTarget) async -> Bool)?
     /// Opens a turn's local web page in a browser tab beside the agent;
@@ -258,6 +266,8 @@ public final class AgentPaneModel {
         }
     }
 
+    /// The app's one Read aloud voice (``AgentPaneReadAloud``); nil refuses the page's speaker.
+    @ObservationIgnored public var readAloud: AgentPaneReadAloud?
     /// Asks the user to confirm a config option that is not free (the view's native sheet).
     @ObservationIgnored public var onConfirmMode: (@MainActor (_ asked: AgentPaneModeConfirmation, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
 
@@ -349,6 +359,10 @@ public final class AgentPaneModel {
         case .rememberNewTab(let pick): guard let onRememberNewTab else { return Self.unsupported("newTab.remember") }; onRememberNewTab(pick); return AgentPaneReply.success()
         case .editNewTab(let edit): guard let onEditNewTab else { return Self.unsupported(edit.method) }; onEditNewTab(edit); return AgentPaneReply.success()
         case .nowPlaying(let command): return AgentPaneNowPlaying.shared.perform(command) ? AgentPaneReply.success() : Self.unsupported("nowPlaying.command")
+        case .readAloud(let command):
+            guard let readAloud else { return Self.unsupported("readAloud") }
+            if case .speak(let id, let text, let language) = command { readAloud.speak(text, id: id, language: language, owner: self) } else { readAloud.stop() }
+            return AgentPaneReply.success()
         case .runAction(let id): return runAction(id)
         case .jump(let target, let id): guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }; onJump(target, id); return AgentPaneReply.success()
         case .chooseFolder where remoteChat: return Self.unsupported("workspace.chooseFolder")
@@ -482,6 +496,8 @@ public final class AgentPaneModel {
             guard let onDictation else { return AgentPaneReply.failure(code: "unsupported", message: "Dictation is unavailable") }
             onDictation(command)
             return AgentPaneReply.success()
+        case .dictationRecordingUpload(let path): return await AgentPaneDictationUpload.respond(path, in: self)
+        case .dictationRecordingCancel(let path): return AgentPaneDictationUpload.cancel(path, in: self)
         case .openFile(let path, let target): return await openFile(path, target: target)
         case .quickDismiss, .quickSetOnTop, .quickSetCollapsed, .quickFloatingState, .quickContext, .quickOpenInWindow, .quickStartInBackground:
             return await quick?.respond(to: request, in: self) ?? Self.unsupported(String(describing: request))

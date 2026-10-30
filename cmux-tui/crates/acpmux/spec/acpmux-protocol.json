@@ -3904,6 +3904,9 @@
         "modes": {
           "description": "The agent's ACP session modes."
         },
+        "movedTo": {
+          "description": "Moved to another daemon (`acpmux session move`): where it runs now,\n`{host?, sessionId, cwd?, branch?, commit?}`. It never runs here again. Absent otherwise,\nand from a peer on an older acpmux."
+        },
         "moving": {
           "description": "Being moved to another daemon; it takes no prompt meanwhile.",
           "type": "boolean"
@@ -4425,6 +4428,9 @@
             "string",
             "null"
           ]
+        },
+        "movedTo": {
+          "description": "Moved to another daemon (`acpmux session move`): where it runs now,\n`{host?, sessionId, cwd?, branch?, commit?}`. It never runs here again. Absent otherwise,\nand from a peer on an older acpmux."
         },
         "moving": {
           "description": "Being moved to another daemon; it takes no prompt meanwhile.",
