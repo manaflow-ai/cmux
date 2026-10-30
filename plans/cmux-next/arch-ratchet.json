@@ -608,6 +608,8 @@
       "date": "2026-10-30",
       "row": "global_mutable_statics",
       "allow": 1,
+      "owner": "cmux-next Performance Lead (cmux-orchestrator-1), PR #28036",
+      "expires": "2026-11-13",
       "why": "MessagesLabHome PaletteScope's one lock (crash ratchet base red, 2026-10-30): it replaces the four unsynchronized statics of the 2026-10-28 exception above (mainThreadScoped, process, the box table and Fixture.baseGeneration; three nonisolated(unsafe) waivers and one counted hit) with one OSAllocatedUnfairLock that guards them, because render workers read the process palette and the base generation while the main thread writes them: a data race the nonisolated(unsafe) marks only hid. The count falls by three. The state stays process-wide for the same reason as that exception: the vendored MessagesLab renderer reads Fixture.* statics from every static drawing helper by design."
     }
   ],
