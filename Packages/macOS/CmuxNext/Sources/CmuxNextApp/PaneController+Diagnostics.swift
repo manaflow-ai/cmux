@@ -190,7 +190,7 @@ extension PaneController {
         let content = view.convert(view.bounds, to: nil)
         let rect = window.convertToScreen(content)
         let devTools = (currentContent.flatMap { if case .browser(let entry) = $0 { entry.tab } else { nil } }) as? any BrowserDevToolsHosting
-        return NSApp.windows.filter { other in
+        return (NSApp?.windows ?? []).filter { other in
             guard other !== window, other.isVisible, !(other is NSPanel), devTools?.devToolsContains(window: other) != true else { return false }
             let overlap = other.frame.intersection(rect)
             return !overlap.isNull && overlap.width * overlap.height > 0.5 * rect.width * rect.height

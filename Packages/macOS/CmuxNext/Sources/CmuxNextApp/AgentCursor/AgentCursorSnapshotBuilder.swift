@@ -49,7 +49,7 @@ struct AgentCursorSnapshotBuilder {
 
     /// Windows front to back (`NSApp.orderedWindows`); unordered ones last.
     private func orderedControllers(_ services: AppServices) -> [WindowController] {
-        let order = NSApp.orderedWindows
+        let order = NSApp?.orderedWindows ?? []  // never the unwrapped global: nil in a test process
         func rank(_ controller: WindowController) -> Int {
             order.firstIndex { $0 === controller.window } ?? Int.max
         }
