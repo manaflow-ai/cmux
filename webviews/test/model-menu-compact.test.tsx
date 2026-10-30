@@ -104,6 +104,8 @@ async function mount(
     effort?: string;
     folderProfile?: boolean;
     currentFolder?: boolean;
+    /** A custom harness whose only icon is acpmux's generic glyph (no brand mark behind it). */
+    glyphHarness?: boolean;
     update?: UpdateOffer;
   } = {},
 ) {
@@ -122,6 +124,16 @@ async function mount(
       family: harness.families[0],
       models: harness.models.map((model) => ({ id: model.id, name: model.name })),
     })),
+    ...(options.glyphHarness
+      ? [
+          {
+            id: "glyph-harness",
+            name: "Glyph harness",
+            iconSpec: { kind: "glyph", name: "terminal", source: "default" },
+            models: [{ id: "glyph-model", name: "Glyph model" }],
+          },
+        ]
+      : []),
     ...(options.folderProfile
       ? [
           {
@@ -522,6 +534,55 @@ test("the rail lists Starred, then each harness; a harness's tab lists its model
   expect(names.every((name) => !/opus|sonnet|haiku/i.test(name))).toBe(true);
   // Effort and Account are the chat's: another harness's tab shows neither.
   expect(itemsOf(menu()!).some((row) => row?.startsWith("Account") || row?.startsWith("Effort"))).toBe(false);
+});
+
+test("⌘D stars and unstars the highlighted model row, as its star does", async () => {
+  await mount({ routes: [] });
+  await open();
+  const row = modelRows(menu()!)[0]!;
+  const name = row.querySelector(".acpmux-menu-label")?.textContent ?? "";
+  await act(async () => row.focus());
+  await settle();
+  expect(row.hasAttribute("data-highlighted")).toBe(true);
+  const star = () => row.closest(".acpmux-quick-model-effort")!.querySelector<HTMLButtonElement>(".acpmux-quick-star")!;
+  // The star says which model it stars, and its key.
+  expect(star().getAttribute("aria-label")).toContain(name);
+  expect(star().getAttribute("aria-keyshortcuts")).toBe("Meta+D");
+  expect(star().title).toContain("⌘D");
+  expect(star().getAttribute("aria-pressed")).toBe("false");
+  const press = () =>
+    act(async () => {
+      row.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "d", metaKey: true, bubbles: true }));
+    });
+  await press();
+  await settle();
+  expect(star().getAttribute("aria-pressed")).toBe("true");
+  expect(menu(), "⌘D closed the menu").not.toBeNull();
+  await press();
+  await settle();
+  expect(star().getAttribute("aria-pressed")).toBe("false");
+});
+
+test("a harness whose only icon is a glyph shows its name on the symbols row", async () => {
+  // A glyph with no brand mark behind it draws nothing, so the tab must not be the symbol alone.
+  const { rememberHarnessIcons } = await import("../src/agent-session/shared/harnessIcons");
+  rememberHarnessIcons([{ id: "glyph-harness", iconSpec: { kind: "glyph", name: "terminal", source: "default" } }]);
+  await mount({ routes: [] }, { glyphHarness: true });
+  await open();
+  const tab = railTabs().find((item) => item.getAttribute("aria-label") === "Glyph harness");
+  expect(
+    tab,
+    railTabs()
+      .map((item) => item.getAttribute("aria-label"))
+      .join(", "),
+  ).toBeDefined();
+  const label = tab!.querySelector(".acpmux-quick-harness-name")!;
+  expect(label.textContent).toBe("Glyph harness");
+  expect(label.classList.contains("sr-only")).toBe(false);
+  // A harness with its own mark still draws the symbol alone.
+  const claude = railTabs().find((item) => item.getAttribute("aria-label") === "Claude Code")!;
+  expect(claude.querySelector(".agent-mark")).not.toBeNull();
+  expect(claude.querySelector(".acpmux-quick-harness-name")!.classList.contains("sr-only")).toBe(true);
 });
 
 test("without a starred model the rail starts at the harnesses", async () => {

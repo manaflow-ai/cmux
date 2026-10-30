@@ -1,6 +1,6 @@
 import { authText, canSessionLogin, type SessionAuth } from "./sessionAuth";
 import React, { Fragment, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { AgentMark, hasAgentMark } from "../shared/AgentMark";
+import { AgentMark, agentBrand, hasAgentMark } from "../shared/AgentMark";
 import type { ChatAccountList, ChatAccounts } from "./chatAccounts";
 import { isModelRouterKind } from "./routerKinds";
 import { SearchIcon, reasoningChoices, type Choice } from "./ComposerPickers";
@@ -97,7 +97,13 @@ export type EffortLook = "list" | "plain" | "slider";
 /// Whether a rail tab draws its harness's own symbol: a mark the AgentMark set has, never a
 /// monogram (a machine or session initial says nothing about the harness).
 function symbolOf(family: { mark?: string }): boolean {
-  return !!family.mark && hasAgentMark(family.mark) && harnessIcon(family.mark)?.kind !== "monogram";
+  const mark = family.mark;
+  if (!mark || !hasAgentMark(mark)) return false;
+  // As AgentMark picks: a harness's own icon wins over its brand, but a glyph draws the brand's
+  // mark, so a glyph with no brand behind it draws nothing and the tab needs its name.
+  const own = harnessIcon(mark);
+  if (own && (own.source === "profile" || !agentBrand(mark)) && own.kind !== "glyph") return own.kind !== "monogram";
+  return !!agentBrand(mark);
 }
 
 export type QuickSearchField = "always" | "typed" | "long";
@@ -438,7 +444,8 @@ export function QuickModelMenu({
     const choices = effortChoices(model);
     const stars = families?.stars;
     // A row's star, beside its effort column: a plain button, not a menu item, so it is no stop for
-    // Up and Down and a click on it never picks the model.
+    // Up and Down and a click on it never picks the model. From the keyboard, ⌘D stars the
+    // highlighted row (keyDown).
     const starred = stars?.has(model) ?? false;
     const star = stars ? (
       <button
@@ -446,8 +453,9 @@ export function QuickModelMenu({
         className="acpmux-quick-star"
         tabIndex={-1}
         aria-pressed={starred}
-        aria-label={t(starred ? "picker.unstar" : "picker.star")}
-        title={t(starred ? "picker.unstar" : "picker.star")}
+        aria-keyshortcuts="Meta+D"
+        aria-label={`${t(starred ? "picker.unstar" : "picker.star")}: ${model.name}`}
+        title={`${t(starred ? "picker.unstar" : "picker.star")}  ⌘D`}
         onPointerDown={(event) => event.stopPropagation()}
         onClick={(event) => {
           event.stopPropagation();
@@ -582,6 +590,18 @@ export function QuickModelMenu({
   const keyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     // ⌘1 to ⌘9 pick a row as 1 to 9 do, also while a search shows (where a bare digit is text).
     const commandDigit = event.metaKey && !event.ctrlKey && !event.altKey && /^[1-9]$/.test(event.key);
+    // ⌘D stars or unstars the highlighted model row, as its star button does.
+    if (event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === "d" && families?.stars) {
+      const highlighted = event.currentTarget.querySelector<HTMLElement>('[role^="menuitem"][data-highlighted]');
+      const star = highlighted
+        ?.closest(".acpmux-quick-model-effort")
+        ?.querySelector<HTMLButtonElement>(".acpmux-quick-star");
+      if (star) {
+        event.preventDefault();
+        star.click();
+      }
+      return;
+    }
     if (
       (event.metaKey && !commandDigit) ||
       event.ctrlKey ||
