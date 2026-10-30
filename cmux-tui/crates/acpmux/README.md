@@ -400,9 +400,12 @@ deleted with the chat (`_acpmux/kill` with purge) and once older than `uploadsMa
 `usageWarnings` (`{"contextTokens": 400000, "subagentsPerHour": 40, "autocompactCap": true}`,
 those are the defaults; 0 or false turns a rule off): a session whose usage breaks a rule gets
 `usageWarnings` on its summary, `[{rule, value, limit, text}]`, decided from its `usageStats`
-when the summary is read (`hub/usage_warnings.rs`). `noAutocompactCap`: a Claude session with no
-autocompact cap; `contextTokens`: its last call's context is above the limit; `subagentsPerHour`:
-it started more subagents than the limit in the last hour. `acpmux ls` marks such a row `warn`
+when the summary is read (`hub/usage_warnings.rs`). `noAutocompactCap`: a Claude session known to run
+with no autocompact cap (`usageStats.autocompact` `none`); `contextTokens`: its last call's
+context is above the limit; `subagentsPerHour`: it started more subagents than the limit in the
+last hour. A number acpmux could not read is null, never zero, and an unknown cap (`unknown`: a
+chat it adopted or revived without seeing its launch) or count neither raises nor clears a
+warning. `acpmux ls` marks such a row `warn`
 in a WARN column, shown only while some row has one; `acpmux ls --wide` names each rule with its
 number (`no-cap ctx 412k 90 sub/h`), and `--json` rows carry the whole list. The cmux NEXT
 sidebar draws a warning triangle on the row whose tooltip is each `text`.

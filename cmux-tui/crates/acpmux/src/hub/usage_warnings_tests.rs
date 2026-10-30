@@ -16,8 +16,10 @@ fn rules(warnings: &[Value]) -> Vec<&str> {
 
 #[test]
 fn a_runaway_claude_session_breaks_all_three_rules_with_its_numbers() {
-    let deputy =
-        row("claude", json!({"autocompactCap": null, "contextTokens": 412_000, "subagents1h": 90}));
+    let deputy = row(
+        "claude",
+        json!({"autocompact": "none", "autocompactCap": null, "contextTokens": 412_000, "subagents1h": 90}),
+    );
     let w = usage_warnings(&deputy, &UsageLimits::default());
     assert_eq!(rules(&w), ["noAutocompactCap", "contextTokens", "subagentsPerHour"]);
     assert_eq!(w[0]["value"], 412_000);
@@ -43,7 +45,7 @@ fn a_runaway_claude_session_breaks_all_three_rules_with_its_numbers() {
 fn an_ordinary_capped_lane_has_none() {
     let lane = row(
         "claude",
-        json!({"autocompactCap": 400_000, "contextTokens": 180_000, "subagents1h": 9}),
+        json!({"autocompact": "capped", "autocompactCap": 400_000, "contextTokens": 180_000, "subagents1h": 9}),
     );
     assert!(usage_warnings(&lane, &UsageLimits::default()).is_empty());
 }
@@ -52,16 +54,22 @@ fn an_ordinary_capped_lane_has_none() {
 fn the_limits_are_exclusive() {
     let at = row(
         "claude",
-        json!({"autocompactCap": 400_000, "contextTokens": 400_000, "subagents1h": 40}),
+        json!({"autocompact": "capped", "autocompactCap": 400_000, "contextTokens": 400_000, "subagents1h": 40}),
     );
     assert!(usage_warnings(&at, &UsageLimits::default()).is_empty());
 }
 
 #[test]
 fn only_claude_is_held_to_an_autocompact_cap() {
-    let codex = row("codex", json!({"autocompactCap": null, "contextTokens": 120_000}));
+    let codex = row(
+        "codex",
+        json!({"autocompact": "none", "autocompactCap": null, "contextTokens": 120_000}),
+    );
     assert!(usage_warnings(&codex, &UsageLimits::default()).is_empty());
-    let big = row("codex", json!({"autocompactCap": null, "contextTokens": 600_000}));
+    let big = row(
+        "codex",
+        json!({"autocompact": "none", "autocompactCap": null, "contextTokens": 600_000}),
+    );
     assert_eq!(rules(&usage_warnings(&big, &UsageLimits::default())), ["contextTokens"]);
 }
 
@@ -69,14 +77,18 @@ fn only_claude_is_held_to_an_autocompact_cap() {
 fn no_stats_yet_or_a_closed_session_warns_nothing() {
     let none = json!({"status": "idle", "family": "claude"});
     assert!(usage_warnings(&none, &UsageLimits::default()).is_empty());
-    let mut closed = row("claude", json!({"autocompactCap": null, "subagents1h": 90}));
+    let mut closed =
+        row("claude", json!({"autocompact": "none", "autocompactCap": null, "subagents1h": 90}));
     closed["status"] = json!("closed");
     assert!(usage_warnings(&closed, &UsageLimits::default()).is_empty());
 }
 
 #[test]
 fn no_cap_with_no_context_read_yet_still_warns() {
-    let fresh = row("claude", json!({"autocompactCap": null, "contextTokens": null}));
+    let fresh = row(
+        "claude",
+        json!({"autocompact": "none", "autocompactCap": null, "contextTokens": null}),
+    );
     let w = usage_warnings(&fresh, &UsageLimits::default());
     assert_eq!(rules(&w), ["noAutocompactCap"]);
     assert_eq!(w[0]["value"], Value::Null);
@@ -100,7 +112,7 @@ fn the_config_moves_or_turns_off_each_rule() {
     );
     let deputy = row(
         "claude",
-        json!({"autocompactCap": null, "contextTokens": 1_200_000, "subagents1h": 90}),
+        json!({"autocompact": "none", "autocompactCap": null, "contextTokens": 1_200_000, "subagents1h": 90}),
     );
     let w = usage_warnings(&deputy, &limits);
     assert_eq!(rules(&w), ["contextTokens"]);
@@ -108,4 +120,26 @@ fn the_config_moves_or_turns_off_each_rule() {
     // The defaults are written nowhere: a config without the section keeps an empty file.
     assert!(UsageWarningsConfig::default().is_default());
     assert_eq!(serde_json::to_value(UsageWarningsConfig::default()).unwrap(), json!({}));
+}
+
+/// Unknown stays unknown: a cap acpmux could not read, or a count it could not read (null), never
+/// warns; a cap known to be absent does.
+#[test]
+fn an_unknown_field_never_warns() {
+    for cap in [
+        json!({"autocompact": "unknown", "autocompactCap": null}),
+        json!({"autocompactCap": null}),
+        json!({}),
+    ] {
+        let mut stats = cap;
+        stats["contextTokens"] = Value::Null;
+        stats["subagents1h"] = Value::Null;
+        let unread = row("claude", stats);
+        assert!(usage_warnings(&unread, &UsageLimits::default()).is_empty(), "{unread}");
+    }
+    // A percentage cap of an unknown window: capped, with no number.
+    let capped = row("claude", json!({"autocompact": "capped", "autocompactCap": null}));
+    assert!(usage_warnings(&capped, &UsageLimits::default()).is_empty());
+    let none = row("claude", json!({"autocompact": "none", "autocompactCap": null}));
+    assert_eq!(rules(&usage_warnings(&none, &UsageLimits::default())), ["noAutocompactCap"]);
 }

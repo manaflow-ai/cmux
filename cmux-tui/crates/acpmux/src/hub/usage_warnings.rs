@@ -8,7 +8,8 @@
 //! `subagentsPerHour`; `value` the session's number (context tokens, or subagents started in the
 //! last hour), null when it has none; `limit` the threshold it passed, null for
 //! `noAutocompactCap`; `text` one line a tooltip shows. Empty for a closed session or one with no
-//! `usageStats` yet.
+//! `usageStats` yet. A number acpmux could not read is unknown (null or absent), never zero, and
+//! an unknown number neither raises nor clears a warning.
 
 use crate::config::UsageLimits;
 use serde_json::{Value, json};
@@ -28,9 +29,11 @@ pub fn usage_warnings(summary: &Value, limits: &UsageLimits) -> Vec<Value> {
     }
     let context = stats["contextTokens"].as_u64();
     let mut out = Vec::new();
-    // Only Claude Code takes an autocompact cap; another harness compacts on its own terms.
-    if limits.autocompact_cap && summary["family"] == "claude" && stats["autocompactCap"].is_null()
-    {
+    // Only Claude Code takes an autocompact cap; another harness compacts on its own terms. Only a
+    // cap known to be absent (`autocompact` "none") warns: "unknown" (an adopted or revived chat
+    // whose launch acpmux never saw, an unreadable setting) never does.
+    let no_cap = stats["autocompact"] == "none";
+    if limits.autocompact_cap && summary["family"] == "claude" && no_cap {
         let text = match context {
             Some(n) => format!(
                 "No autocompact cap: context is {} and only compacts at the model's limit",
