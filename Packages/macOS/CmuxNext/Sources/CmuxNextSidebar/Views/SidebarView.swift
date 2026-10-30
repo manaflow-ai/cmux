@@ -351,7 +351,7 @@ public final class SidebarView: NSView {
             updateBands()
         }
         // `sidebar.noFade` hides the footer row, so the list takes its height.
-        let footerHeight: CGFloat = noFade ? 0 : spacesPosition == .bottom && footerBand.dotsShareBandRow ? 0 : SidebarStyle.footerHeight
+        let footerHeight: CGFloat = noFade ? 0 : spacesPosition == .bottom && footerBand.dotsShareBandRow && !footerBand.needsDedicatedSearchRow ? 0 : SidebarStyle.footerHeight
         // The list makes room for a card (and takes it back) on a spring; the card sits at its place.
         let cardsHeight = attachFooterCards(), slotHeight = cardSlot.height
         let updateHeight = cardSlotMotion.height(toward: slotHeight, in: self)

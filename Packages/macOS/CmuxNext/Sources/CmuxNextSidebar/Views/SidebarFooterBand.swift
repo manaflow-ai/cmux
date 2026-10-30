@@ -70,6 +70,13 @@ final class SidebarFooterBand {
         return (frame, maxX)
     }
 
+    /// Whether an overfull pinned row needs the separate footer line reserved for Search.
+    var needsDedicatedSearchRow: Bool {
+        guard let host, let row = bandFirstRow else { return false }
+        let side = Self.searchButtonSide
+        return row.itemsMaxX + Metrics.space2 > host.bounds.maxX - side
+    }
+
     /// Puts the dots in their row at `top` (`height` > 0), after the footer
     /// band's items in its first row, or in the footer when the band is empty.
     func placeSpaces(top: CGFloat, height: CGFloat) {
