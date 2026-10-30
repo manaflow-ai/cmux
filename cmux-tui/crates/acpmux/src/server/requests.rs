@@ -2032,8 +2032,8 @@ async fn dispatch_request(
             let mut reply = json!({"sessionId": s.id, "promptId": prompt_id,
                 "removed": w == crate::hub::Withdrawn::Removed});
             if agents_only {
-                reply["fromAgentsOnly"] = json!(true);
-                reply["notFromAgent"] = json!(w == crate::hub::Withdrawn::NotFromAgent);
+                reply.set("fromAgentsOnly", json!(true));
+                reply.set("notFromAgent", json!(w == crate::hub::Withdrawn::NotFromAgent));
             }
             Ok(reply)
         }

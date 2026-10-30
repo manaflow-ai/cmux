@@ -1714,14 +1714,28 @@ jobs:
         with:
           node-version: "24.22.1"
 
-      # The same in-tree --force build as build-nightly-app's fallback, keyed by
-      # the source key of the untouched checkout.
+      # Reuse the source-key bundles feat-cmux-next pushes publish (nightly-steps/inputs-web-bundles.sh).
+      - name: Source key of the web bundles
+        id: web-bundle-key
+        run: scripts/ci/nightly-steps/inputs-web-bundles.sh key
+
+      - name: Restore the published web bundles
+        id: web-bundle-r2
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          CI_CACHE_R2_NAMESPACE: any
+        with:
+          backend: r2
+          path: web-bundles-out
+          key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+
       - name: Build the web bundles
-        run: |
-          set -euo pipefail
-          key="$(python3 scripts/cmux-next/web-bundle-key.py . --source)"
-          scripts/cmux-next/build-web-bundles.sh --force
-          python3 scripts/ci/nightly_inputs.py pack-web "$RUNNER_TEMP/nightly-inputs/web" --source-key "$key"
+        env:
+          SOURCE_KEY: ${{ steps.web-bundle-key.outputs.key }}
+          RESTORED: ${{ steps.web-bundle-r2.outputs.cache-hit }}
+        run: scripts/ci/nightly-steps/inputs-web-bundles.sh build "$SOURCE_KEY" "$RESTORED"
 
       - name: Upload the web bundles
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -1735,11 +1749,7 @@ jobs:
         env:
           CMUX_NOTICES_ALLOW_CARGO: "1"
           CMUX_NOTICES_CACHE: ${{ runner.temp }}/cmux-notices
-        run: |
-          set -euo pipefail
-          ./scripts/cmux-next/generate-third-party-notices.sh --tui-source tree \
-            --cargo-trees "$RUNNER_TEMP/cmux-notices-cargo-trees" --write-cargo-trees
-          python3 scripts/ci/nightly_inputs.py pack-notices "$RUNNER_TEMP/nightly-inputs/notices"
+        run: scripts/ci/nightly-steps/inputs-web-bundles.sh notices
 
       - name: Upload the third-party notices
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

@@ -187,7 +187,7 @@ impl Hub {
                 .provenance
                 .as_ref()
                 .filter(|p| super::subsession_guard::is_family(Some(p)))
-                .and_then(|p| p["from"].as_str())
+                .and_then(|p| p.get("from")?.as_str())
                 .map(str::to_owned);
             let sent = super::carried_turn::SteerSent {
                 client: client.to_owned(),
