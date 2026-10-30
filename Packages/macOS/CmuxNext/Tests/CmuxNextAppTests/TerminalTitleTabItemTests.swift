@@ -32,4 +32,12 @@ struct TerminalTitleTabItemTests {
         let tab = try #require(store(title: "⠐ Fix the login bug", name: "Release").tab(surface: 1))
         #expect(TabItemMapping.shared.item(tab, fallbackTitle: "Terminal").title == "Release")
     }
+
+    @Test func aBareShellTitleUsesTheReportedFolder() throws {
+        let tab = try #require(store(title: "~").tab(surface: 1))
+        tab.setObservedCwd("/tmp/cmux-demo")
+        let item = TabItemMapping.shared.item(tab, fallbackTitle: "Terminal")
+        #expect(item.title == "cmux-demo")
+        #expect(item.subtitle == "/tmp/cmux-demo")
+    }
 }
