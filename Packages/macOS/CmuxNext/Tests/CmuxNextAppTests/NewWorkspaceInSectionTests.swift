@@ -29,8 +29,6 @@ import Testing
         var sections = sections(home: home)
         let rule = NewWorkspaceDefaultSlot(placement: placement, current: nil)
         guard let slot = rule.slot(for: "n", section: .machine(.local), in: sections, home: home ? "home" : nil) else { return nil }
-        // The daemon's create already put it at the section's top: the app sends no second move for it.
-        #expect(rule.move(for: "n", section: .machine(.local), in: sections, home: home ? "home" : nil) == nil)
         let position = try #require(slot.position(moving: ["n"], section: .machine(.local), in: sections))
         #expect(SidebarEdits.apply(.reorder([WorkspaceID("n")], to: position), to: &sections))
         var loose: [String] = [], group: [String] = []
@@ -63,5 +61,17 @@ import Testing
     /// Cmd-N's shared fallback is next-to-current; section creation supplies its own explicit top slot.
     @Test func theSharedDefaultIsNextToCurrent() {
         #expect(CmuxConfigSnapshot.newWorkspacePlacementFallback == .afterCurrent)
+    }
+
+    @Test func topMoveIsNilWhenTheDaemonAlreadyPlacedTheRowAtTop() {
+        var sections = Self.sections(home: false)
+        sections[0].nodes = [
+            .workspace(Self.row("n")),
+            .workspace(Self.row("a")),
+            .group(SidebarGroup(id: Self.g1, name: "one", workspaces: [Self.row("c"), Self.row("d"), Self.row("e")])),
+            .workspace(Self.row("f")),
+        ]
+        let rule = NewWorkspaceDefaultSlot(placement: .top, current: nil)
+        #expect(rule.move(for: "n", section: .machine(.local), in: sections, home: nil) == nil)
     }
 }

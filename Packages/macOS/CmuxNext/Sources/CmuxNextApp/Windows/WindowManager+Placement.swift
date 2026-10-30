@@ -47,6 +47,13 @@ extension WindowManager {
 
     func applyPendingPlacements(live: Set<String>, refreshRows: Bool = true) {
         // A stand-in Cmd-N shows waits: a placement moves a workspace the daemon has.
+        let removed = pendingPlacements.compactMap { id, pending in
+            pending.hasReported && services.machines.workspace(id: id) == nil ? id : nil
+        }
+        for id in removed {
+            pendingPlacements[id] = nil
+            pendingPlacementOrder.removeAll { $0 == id }
+        }
         pendingPlacementOrder.removeAll { pendingPlacements[$0] == nil }
         let ready = pendingPlacementOrder.filter { live.contains($0) && services.machines.workspace(id: $0)?.0.isProvisional == false }
         var refreshed: Set<String> = []
@@ -77,6 +84,8 @@ extension WindowManager {
             // One store-backed rows pass per window; each following placement
             // reads the model with the preceding optimistic moves applied.
             let sections = Self.placementSections(in: bridge, refresh: refreshRows && refreshed.insert(window).inserted)
+            // A synchronous rows refresh may have retried and consumed this entry already.
+            guard pendingPlacements[id] != nil else { continue }
             let section = SectionID.machine(MachineID(daemon.machineID))
             let home = NewWorkspacePlacements.home(services.machines)
             // The daemon can report a created workspace before this window's
