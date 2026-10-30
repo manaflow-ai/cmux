@@ -12,7 +12,7 @@ export type InspectorGroupId = "about" | "made" | "running";
 
 /// Each block's sections in their default order: where it runs, what it made, what it runs.
 export const GROUP_SECTIONS: Readonly<Record<InspectorGroupId, readonly InspectorSectionId[]>> = {
-  about: ["environment", "context", "connectors"],
+  about: ["environment", "context", "usage", "connectors"],
   made: ["changes", "sources", "outputs"],
   running: ["subagents", "tasks"],
 };

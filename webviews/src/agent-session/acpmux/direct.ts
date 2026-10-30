@@ -41,6 +41,7 @@ import { resentAttachments, shownPrompt } from "./pastedText";
 import { peerConnectedFromStatus, peerKindsFromStatus, peerStatesFromStatus } from "./environments";
 import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
 import { hostKind, sessionEntry, summaryActivityAt, text, type AcpmuxSessionEntry } from "./sessionList";
+import { usageStatsOf } from "./usageStats";
 import { clampRunning, subsessionLimits } from "./subsessionLimits";
 import { agentName } from "./agents";
 import { FORK_OP, servesOperation } from "./operations";
@@ -1197,6 +1198,9 @@ export class AcpmuxDirectClient {
   private sessionRereadResyncsAsks = false;
   /// Sidebar entries by acpmux session object. A changed session arrives as a new object, so unchanged rows keep their entry and skip rendering.
   private sessionEntries = new WeakMap<Session, AcpmuxSessionEntry>();
+  /// The snapshot's `sessions` for the list it was cut from: the same array until the list
+  /// changes, so a snapshot per token gives the pane's session stores nothing new to read.
+  private entriesOf?: { sessions: readonly Session[]; entries: AcpmuxSessionEntry[] };
   private selectedSessionId?: string;
   /** The session a link named that the daemon does not have (`sessionMustExist`). */
   private missingSession?: string;
@@ -4773,6 +4777,21 @@ export class AcpmuxDirectClient {
     acpmuxPerf.timed("client.emit", () => this.emitNow(connection));
   }
 
+  /// Each listed session's entry, reusing the entry of a session that did not change.
+  private listedEntries(): AcpmuxSessionEntry[] {
+    if (this.entriesOf?.sessions === this.sessions) return this.entriesOf.entries;
+    const entries = this.sessions.map((session) => {
+      let entry = this.sessionEntries.get(session);
+      if (!entry) {
+        entry = sessionEntry(session);
+        this.sessionEntries.set(session, entry);
+      }
+      return entry;
+    });
+    this.entriesOf = { sessions: this.sessions, entries };
+    return entries;
+  }
+
   private emitNow(connection: string): void {
     if (this.closed && !this.replayMode) return;
     if (this.snapshotHold) {
@@ -4805,14 +4824,7 @@ export class AcpmuxDirectClient {
       protocolVersion: 1,
       rows: this.rows.sorted(),
       subagentViews: this.subagents.views(),
-      sessions: this.sessions.map((session) => {
-        let entry = this.sessionEntries.get(session);
-        if (!entry) {
-          entry = sessionEntry(session);
-          this.sessionEntries.set(session, entry);
-        }
-        return entry;
-      }),
+      sessions: this.listedEntries(),
       peers: this.peers,
       peerKinds: this.peerKinds,
       peerConnected: this.peerConnected,
@@ -4825,6 +4837,7 @@ export class AcpmuxDirectClient {
             turnCount: summary.turnCount,
             usage: this.usage,
             contextBreakdown: contextBreakdownOf(summary.contextBreakdown),
+            usageStats: usageStatsOf(summary.usageStats),
             host: text(summary.host),
             peer: text(summary.peer),
             hostKind: hostKind(summary.hostKind),
