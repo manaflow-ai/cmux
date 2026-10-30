@@ -359,14 +359,16 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
         .map(([key, p]) => ({ p, r: engine.rows.get<LedgerRow>(TABLE_LEDGER, key) }))
         .filter((x) => x.r !== undefined)
         // Builder and warm-up cleanup are independent: a backed-off delete must not starve its peer.
-        .filter((x) => x.r!.row.op !== "env_cleanup" || x.p.due_at <= (dueBy ?? Date.now() + this.skewMs))
+        .filter((x) => x.r!.row.op !== "env_cleanup" || x.p.due_at <= Date.now() + this.skewMs)
         .sort((a, b) => (a.r!.n ?? 0) - (b.r!.n ?? 0))[0]
       if (!oldest) return
       const due = oldest.r!
       const row = due.row
       // N4: a request runs a call at once only for its first attempt; after a failure it waits for
       // the backoff like the alarm, so fast same-key retries cannot spend the attempts.
-      const dueLimit = dueBy ?? (row.attempts === 0 ? Infinity : Date.now() + this.skewMs)
+      // A settled build creates cleanup during this pass, after the alarm's dueBy
+      // snapshot. Attempt that cleanup now while respecting its retry backoff.
+      const dueLimit = row.op === "env_cleanup" ? Date.now() + this.skewMs : dueBy ?? (row.attempts === 0 ? Infinity : Date.now() + this.skewMs)
       if (oldest.p.due_at > dueLimit) return
       // Cancelled-create finds restart at attempt 0: their keys must differ from the create's own.
       // Both cleanup rows are created in one revision; their results need distinct idempotency keys.
@@ -434,7 +436,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
         return
       }
       this.submitSystem("cloud.driver_result", result, commitKey)
-      if (!result.ok && row.op !== "env_cleanup") return
+      if (!result.ok && row.op !== "env_cleanup" && !(row.op === "env_build" && result.final)) return
       if (row.op === "start" && driver) await this.edge.started(driver, tag.team, row.machine, engine.rows.get<MachineRow>(TABLE_MACHINE, row.machine)?.row, Date.now() + this.skewMs)
     }
   }

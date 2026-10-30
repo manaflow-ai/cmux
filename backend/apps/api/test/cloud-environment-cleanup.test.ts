@@ -25,7 +25,9 @@ describe("environment cleanup survives build completion", () => {
               const target = kind === "both" || (kind === "warm" ? vm?.snapshot !== null : vm?.snapshot === null)
               if (target) {
                 deletes++
-                const remaining = failures.get(id) ?? ((kind === "repeated" || kind === "both") && vm?.snapshot === null ? 7 : 1)
+                // Fail both the build's best-effort delete and its first durable
+                // cleanup attempt in this same alarm; recovery happens after restart.
+                const remaining = failures.get(id) ?? ((kind === "repeated" || kind === "both") && vm?.snapshot === null ? 8 : 2)
                 failures.set(id, remaining - 1)
                 if (remaining > 0) throw new DriverError("cloud.provider.unavailable", "transient delete failure", false)
               }
@@ -56,6 +58,7 @@ describe("environment cleanup survives build completion", () => {
       // On base the build's last pending entry is dropped even though its VM is still running.
       expect(owner.pendingCleanup().length).toBeGreaterThan(0)
       const pending = owner.pendingCleanup()
+      expect(pending.every((r) => r.attempts === 1)).toBe(true)
       const survivor = (await owner.fakeControl({})).vms[0]!
       expect(survivor.idle).toBe(-1)
       expect(pending.some((r) => r.provider_name === survivor.name && r.transport === "direct")).toBe(true)
@@ -88,7 +91,7 @@ describe("environment cleanup survives build completion", () => {
       expect((await owner.fakeControl({})).vms).toEqual([])
       expect(owner.pendingCleanup()).toEqual([])
       expect(owner.pendingBuilds()).toBe(0)
-      if (kind === "missing") expect(deletes).toBe(1) // Missing VM is confirmed without another delete.
+      if (kind === "missing") expect(deletes).toBe(2) // Missing VM is confirmed without another delete.
       await state.storage.deleteAlarm()
     })
   })
