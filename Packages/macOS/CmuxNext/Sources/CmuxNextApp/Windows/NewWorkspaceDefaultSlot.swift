@@ -154,7 +154,7 @@ enum NewWorkspacePlacements {
     static func shownInBand(_ id: String, layout: SidebarLayoutDocument, room: String?, machines: MachineRegistry) -> Bool {
         if machines.workspace(id: id)?.0.pinned == true { return true }
         guard let ref = WorkspaceLayoutRefs(machines: machines).ref(forWorkspace: id) else { return false }
-        return layout.sections.contains { $0.items.contains { $0.ref == ref } }
+        return layout.sections.contains { $0.isVisible(inRoom: room) && $0.items.contains { $0.ref == ref } }
     }
 
     /// Places workspace `id` at `slot`, else by `byDefault`, in window
