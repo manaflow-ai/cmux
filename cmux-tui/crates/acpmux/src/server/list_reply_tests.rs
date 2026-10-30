@@ -42,8 +42,13 @@ async fn hub_with_a_mirrored_row() -> Arc<crate::hub::Hub> {
     hub
 }
 
-/// The `_acpmux/watch` reply's rows on a connection of `origin` named `client`.
-async fn watched(hub: &Arc<crate::hub::Hub>, origin: Origin, client: &str) -> Vec<Value> {
+/// The `_acpmux/watch` reply's rows on a connection of `origin` named `client`, `tools` or not.
+async fn watched(
+    hub: &Arc<crate::hub::Hub>,
+    origin: Origin,
+    client: &str,
+    tools: bool,
+) -> Vec<Value> {
     let (input, incoming) = mpsc::channel(64);
     let (output, mut outgoing) = mpsc::channel(64);
     tokio::spawn(serve_connection_with(hub.clone(), incoming, output, origin));
@@ -51,7 +56,7 @@ async fn watched(hub: &Arc<crate::hub::Hub>, origin: Origin, client: &str) -> Ve
         "clientInfo": {"name": client, "version": "0"}});
     for (id, m, params) in [
         (1, method::INITIALIZE, hello),
-        (2, method::MUX_WATCH, json!({"enabled": true, "withTools": true})),
+        (2, method::MUX_WATCH, json!({"enabled": true, "withTools": tools})),
     ] {
         input.send(Message::request(id, m, params).to_line()).await.unwrap();
         let reply = tokio::time::timeout(Duration::from_secs(5), async {
@@ -82,9 +87,11 @@ fn ids(rows: &[Value]) -> Vec<&str> {
 #[tokio::test]
 async fn a_peer_link_watch_lists_only_this_daemons_own_sessions() {
     let hub = hub_with_a_mirrored_row().await;
-    // A peer's link, served as Peer or (added with the dashboard token) as Web.
-    assert_eq!(ids(&watched(&hub, Origin::Peer, crate::peer::CLIENT_NAME).await), [OWN]);
-    assert_eq!(ids(&watched(&hub, Origin::Web, crate::peer::CLIENT_NAME).await), [OWN]);
-    // Any other client still reads every session, its peers' too.
-    assert_eq!(ids(&watched(&hub, Origin::Local, "cli").await), ["m1", OWN]);
+    // A link served as a peer (it proved the peer token), with or without tools.
+    assert_eq!(ids(&watched(&hub, Origin::Peer, crate::peer::CLIENT_NAME, true).await), [OWN]);
+    assert_eq!(ids(&watched(&hub, Origin::Peer, crate::peer::CLIENT_NAME, false).await), [OWN]);
+    // Any other client still reads every session, its peers' too, whatever name it gives:
+    // the peer client's name keeps a client out of presence, and filters no data.
+    assert_eq!(ids(&watched(&hub, Origin::Web, crate::peer::CLIENT_NAME, true).await), ["m1", OWN]);
+    assert_eq!(ids(&watched(&hub, Origin::Local, "cli", true).await), ["m1", OWN]);
 }
