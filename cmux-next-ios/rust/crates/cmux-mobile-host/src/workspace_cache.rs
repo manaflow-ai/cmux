@@ -166,6 +166,8 @@ struct Snapshots {
     pending: [Option<Instant>; 3],
     /// Deltas at/below this snapshot revision are already represented in it.
     tree_floor: Option<u64>,
+    /// A transient optional-layout failure is retried on the next successful idle probe.
+    retry_layout: bool,
 }
 
 impl Snapshots {
@@ -252,15 +254,31 @@ impl Snapshots {
         }
         if !valid {
             self.views[kind] = None;
-            // Layout is optional: any failed or malformed answer leaves only
-            // that view unavailable. Keep dirty false to avoid a tight retry;
-            // the next tree/personal/layout event requests it again. Required
-            // snapshots still restart through the worker's bounded backoff.
-            return if kind == LAYOUT { Ok(()) } else { Err(()) };
+            // Layout is optional: preserve the healthy required snapshots. A
+            // successful idle probe retries transient failures at the existing
+            // bounded interval, even without events; unsupported operations wait
+            // for an event. Neither failure starts an immediate retry loop.
+            if kind == LAYOUT {
+                self.retry_layout = !unsupported_layout(&reply);
+                return Ok(());
+            }
+            return Err(());
+        }
+        if kind == LAYOUT {
+            self.retry_layout = false;
         }
         self.views[kind] = Some(Arc::new(reply));
         Ok(())
     }
+}
+
+fn unsupported_layout(reply: &Value) -> bool {
+    let error = &reply["error"];
+    if error.get("code").and_then(Value::as_str) == Some("operation.unsupported") {
+        return true;
+    }
+    let message = error.as_str().or_else(|| error.get("message").and_then(Value::as_str));
+    message.is_some_and(|message| message.contains("unknown variant `sidebar_layout.get`"))
 }
 
 async fn session(path: &std::path::Path, published: &Published, generation: u64) -> Result<(), ()> {
@@ -368,6 +386,9 @@ async fn session_with_probe(
                     }
                     probe_deadline = None;
                     next_probe = Instant::now() + probe_interval;
+                    if state.retry_layout && state.pending[LAYOUT].is_none() {
+                        state.dirty[LAYOUT] = true;
+                    }
                 }
                 Some("cache-hello") => {}
                 _ => return Err(()),
