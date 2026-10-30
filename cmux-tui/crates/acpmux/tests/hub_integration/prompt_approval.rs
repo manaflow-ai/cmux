@@ -165,7 +165,7 @@ async fn the_guest_edits_or_removes_it_and_nothing_else() {
     c.cancel(&session).await;
 }
 
-fn durable(dir: &Path) -> Arc<Hub> {
+fn durable_config() -> Config {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "codex"}},
         "defaultHarness": "fake",
@@ -173,6 +173,11 @@ fn durable(dir: &Path) -> Arc<Hub> {
     }))
     .unwrap();
     cfg.store.mode = StoreMode::Local;
+    cfg
+}
+
+fn durable(dir: &Path) -> Arc<Hub> {
+    let cfg = durable_config();
     let store = acpmux::store::open(&cfg.store, dir).unwrap();
     Hub::new(cfg, store)
 }
@@ -319,6 +324,91 @@ async fn a_decline_before_the_restored_task_claims_it_stays_the_answer() {
     let answer = c.reply("session/prompt", resend).await;
     assert_eq!(reason(&answer), "queue.declined", "{answer}");
     assert!(!ran(&mut c, &session, "g-1").await, "a declined prompt ran");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn rewrite(session: &str, id: &str, text: &str) -> Value {
+    let mut params = edit(session, id, "update");
+    params["text"] = json!(text);
+    params
+}
+
+/// The guest's edits race each other: each is logged under the queue lock that gave it its
+/// revision, so the log's `queue_updated` records name their revisions in order (review of
+/// #26747: an edit logged after the lock let a slower, older edit land last).
+#[tokio::test]
+async fn racing_edits_are_logged_in_revision_order() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let mut other = Client::open(&hub);
+    let session = c.new_session(json!({"harness": "fake"})).await;
+    c.queue(held(&session, "g-1", "guest words")).await;
+    for i in 0..20 {
+        let a = c.send("_acpmux/queue_edit", rewrite(&session, "g-1", &format!("a{i}"))).await;
+        let b = other.send("_acpmux/queue_edit", rewrite(&session, "g-1", &format!("b{i}"))).await;
+        c.reply_to(a).await;
+        other.reply_to(b).await;
+    }
+    let page =
+        c.call("_acpmux/events", json!({"sessionId": session, "kinds": ["queue_updated"]})).await;
+    let mut logged: Vec<(u64, u64)> = page["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["msg"]["promptId"] == "g-1")
+        .map(|e| (e["seq"].as_u64().unwrap(), e["msg"]["revision"].as_u64().unwrap()))
+        .collect();
+    logged.sort();
+    let revisions: Vec<u64> = logged.iter().map(|l| l.1).collect();
+    assert_eq!(revisions, (1..=40).collect::<Vec<u64>>(), "{logged:?}");
+    c.cancel(&session).await;
+}
+
+/// A log from before edits were logged under the queue lock may hold an older edit after a newer
+/// one. A restart keeps the newer words and revision, so an approval of the newer revision never
+/// counts for another edit's words that reuse the older number (review of #26747).
+#[tokio::test]
+async fn a_restart_never_rolls_an_edit_back_to_an_older_revision() {
+    let dir = std::env::temp_dir().join(format!("acpmux-approval-{}", uuid::Uuid::now_v7()));
+    let hub = durable(&dir);
+    let mut c = Client::open(&hub);
+    let session = c.new_session(json!({"harness": "fake"})).await;
+    c.queue(held(&session, "g-1", "guest words")).await;
+    c.call("_acpmux/queue_edit", rewrite(&session, "g-1", "first rewrite")).await;
+    c.call("_acpmux/queue_edit", rewrite(&session, "g-1", "second rewrite")).await;
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+
+    // The first edit's record again, as a slower writer would have logged it after the second.
+    let store = acpmux::store::open(&durable_config().store, &dir).unwrap();
+    let records = store.events(&session, 0, usize::MAX).unwrap();
+    let first = records
+        .iter()
+        .find(|e| e.kind == "queue_updated" && e.msg["revision"] == 1)
+        .expect("the first edit's record")
+        .clone();
+    let last = records.last().map_or(0, |r| r.seq);
+    store.append(&session, &acpmux::store::EventRecord { seq: last + 1, ..first }).unwrap();
+    store.flush().unwrap();
+    drop(store);
+
+    let hub = durable(&dir);
+    let mut c = Client::open(&hub);
+    hub.resume_queues();
+    let listed = queue(&hub, &session);
+    assert_eq!(listed.len(), 1, "{listed:?}");
+    assert_eq!((&listed[0]["awaitingOwner"], &listed[0]["revision"]), (&json!(true), &json!(2)));
+    let stale = c.reply("_acpmux/queue_approve", answer(&hub, &session, "g-1", Some(1))).await;
+    assert_eq!(reason(&stale), "queue.stale", "{stale}");
+    c.call("_acpmux/queue_approve", answer(&hub, &session, "g-1", Some(2))).await;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while !ran(&mut c, &session, "g-1").await {
+        assert!(std::time::Instant::now() < deadline, "the approved prompt never ran");
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert_eq!(c.user_message(&session, "g-1").await["text"], "second rewrite");
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
