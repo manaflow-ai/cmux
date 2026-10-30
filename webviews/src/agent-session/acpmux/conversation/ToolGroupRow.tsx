@@ -33,169 +33,40 @@ function groupIcon(kind: ToolGroupKind): ReactNode {
   }
 }
 
-type ShownEntry = { item: AcpmuxActivity; at: number; thought: number };
-type EntryUpdate = {
-  items: readonly AcpmuxActivity[];
-  entries: ShownEntry[];
-  thoughtCount: number;
-  version: number;
-  changedIndex: number;
-};
+type EntryNode = { kind: ToolGroupKind; key: string | number; node: ReactNode };
+const entryCache = new WeakMap<AcpmuxActivity, EntryNode>();
 
-function makeEntry(item: AcpmuxActivity, at: number, thought: number): ShownEntry {
-  return { item, at, thought: item.tool ? -1 : thought };
-}
-
-/// Keep a stable index as direct.ts appends a call or replaces only the streaming tail. Structural
-/// changes rebuild the index for correctness; the normal streaming path updates one slot.
-function createEntryCache(): (items: readonly AcpmuxActivity[]) => EntryUpdate {
-  let current: EntryUpdate | undefined;
-  return (items) => {
-    if (!current) {
-      const entries: ShownEntry[] = [];
-      let thoughtCount = 0;
-      for (let at = 0; at < items.length; at += 1) {
-        entries.push(makeEntry(items[at]!, at, thoughtCount));
-        if (!items[at]!.tool) thoughtCount += 1;
-      }
-      current = { items, entries, thoughtCount, version: 0, changedIndex: -1 };
-      return current;
-    }
-    if (current.items === items) return current;
-    const previousItems = current.items;
-    const previousLength = previousItems.length;
-    current.changedIndex = -1;
-    if (
-      items.length === previousLength + 1 &&
-      (previousLength === 0 || items[previousLength - 1] === previousItems[previousLength - 1])
-    ) {
-      const item = items[previousLength]!;
-      current.entries.push(makeEntry(item, previousLength, current.thoughtCount));
-      if (!item.tool) current.thoughtCount += 1;
-      current.changedIndex = previousLength;
-    } else if (
-      items.length === previousLength &&
-      previousLength > 0 &&
-      items[previousLength - 1] !== previousItems[previousLength - 1]
-    ) {
-      const at = previousLength - 1;
-      const previous = current.entries[at]!;
-      const item = items[at]!;
-      if (previous.item.tool && !item.tool) {
-        previous.thought = current.thoughtCount;
-        current.thoughtCount += 1;
-      } else if (!previous.item.tool && item.tool) {
-        current.thoughtCount -= 1;
-      }
-      current.entries[at] = makeEntry(item, at, previous.thought);
-      current.changedIndex = at;
-    } else {
-      current.entries.length = 0;
-      current.thoughtCount = 0;
-      for (let at = 0; at < items.length; at += 1) {
-        current.entries.push(makeEntry(items[at]!, at, current.thoughtCount));
-        if (!items[at]!.tool) current.thoughtCount += 1;
-      }
-      current.changedIndex = 0;
-    }
-    current.items = items;
-    current.version += 1;
-    return current;
-  };
-}
-
-function createEntryNodeCache(): (
-  update: EntryUpdate,
-  kind: ToolGroupKind,
-  thoughtId: (n: number) => string,
-  present: boolean,
-) => ReactNode[] {
-  let current:
-    | {
-        version: number;
-        kind: ToolGroupKind;
-        thoughtId: (n: number) => string;
-        nodes: ReactNode[];
-        present: boolean;
-      }
-    | undefined;
-  return (update, kind, thoughtId, present) => {
-    if (!current || current.kind !== kind || current.thoughtId !== thoughtId) {
-      const nodes: ReactNode[] = [];
-      for (const entry of update.entries) {
-        nodes.push(
-          entry.item.tool ? (
-            kind === "commands" ? (
-              <CommandRow key={entry.item.tool.id || entry.at} item={entry.item} />
-            ) : (
-              <ToolRow key={entry.item.tool.id || entry.at} item={entry.item} />
-            )
-          ) : (
-            <ThoughtRow key={thoughtId(entry.thought)} id={thoughtId(entry.thought)} item={entry.item} />
-          ),
-        );
-      }
-      current = { version: update.version, kind, thoughtId, nodes, present };
-      return nodes;
-    }
-    if (present && !current.present) {
-      current.present = true;
-      return current.nodes.slice();
-    }
-    current.present = present;
-    if (current.version === update.version) return current.nodes;
-    if (update.changedIndex === update.entries.length - 1 && update.changedIndex >= 0) {
-      const entry = update.entries[update.changedIndex]!;
-      const node = entry.item.tool ? (
-        kind === "commands" ? (
-          <CommandRow key={entry.item.tool.id || entry.at} item={entry.item} />
-        ) : (
-          <ToolRow key={entry.item.tool.id || entry.at} item={entry.item} />
-        )
-      ) : (
-        <ThoughtRow key={thoughtId(entry.thought)} id={thoughtId(entry.thought)} item={entry.item} />
-      );
-      if (update.changedIndex === current.nodes.length) current.nodes.push(node);
-      else current.nodes[update.changedIndex] = node;
-    } else {
-      current.nodes.length = 0;
-      for (const entry of update.entries) {
-        current.nodes.push(
-          entry.item.tool ? (
-            kind === "commands" ? (
-              <CommandRow key={entry.item.tool.id || entry.at} item={entry.item} />
-            ) : (
-              <ToolRow key={entry.item.tool.id || entry.at} item={entry.item} />
-            )
-          ) : (
-            <ThoughtRow key={thoughtId(entry.thought)} id={thoughtId(entry.thought)} item={entry.item} />
-          ),
-        );
-      }
-    }
-    current.version = update.version;
-    return current.nodes;
-  };
-}
-
-function buildEntryNodes(
-  entries: readonly ShownEntry[],
+/// The group's item rows, one element per item, kept by item identity. direct.ts and childRows.ts
+/// replace only the item a chunk changed, so an unchanged item keeps its element and React skips
+/// its row: a streamed chunk renders only the changed call, never its siblings, and no sibling
+/// output or thought is parsed again. The pass is an identity check per item, with no element,
+/// render or parse for an unchanged one. It is the walk React makes over the children anyway,
+/// and it notices a delayed update to any earlier call, not only the tail. Items are immutable
+/// snapshots, so an entry lives exactly as long as its item (a WeakMap, no cleanup needed).
+function entryNodes(
+  items: readonly AcpmuxActivity[],
   kind: ToolGroupKind,
   thoughtId: (n: number) => string,
 ): ReactNode[] {
   const nodes: ReactNode[] = [];
-  for (const entry of entries) {
-    nodes.push(
-      entry.item.tool ? (
-        kind === "commands" ? (
-          <CommandRow key={entry.item.tool.id || entry.at} item={entry.item} />
-        ) : (
-          <ToolRow key={entry.item.tool.id || entry.at} item={entry.item} />
-        )
+  let thoughts = 0;
+  for (let at = 0; at < items.length; at += 1) {
+    const item = items[at]!;
+    // A thought's stable ordinal keeps its choice when more calls append to the group.
+    const key = item.tool ? item.tool.id || at : thoughtId(thoughts++);
+    let entry = entryCache.get(item);
+    if (entry?.kind !== kind || entry.key !== key) {
+      const node = !item.tool ? (
+        <ThoughtRow key={key} id={key as string} item={item} />
+      ) : kind === "commands" ? (
+        <CommandRow key={key} item={item} />
       ) : (
-        <ThoughtRow key={thoughtId(entry.thought)} id={thoughtId(entry.thought)} item={entry.item} />
-      ),
-    );
+        <ToolRow key={key} item={item} />
+      );
+      entry = { kind, key, node };
+      entryCache.set(item, entry);
+    }
+    nodes.push(entry.node);
   }
   return nodes;
 }
@@ -225,11 +96,7 @@ export function ToolGroupRow({
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   useFindReveal(items, () => setOpen(true));
   // Opening the group shows every call. Each call still owns its full body's disclosure.
-  // A thought's stable ordinal keeps its choice when more calls append to the group.
-  const shown = useMemo(() => createEntryCache(), []);
-  const entryNodes = useMemo(() => createEntryNodeCache(), []);
-  const shownUpdate = shown(items);
-  const entryRows = entryNodes(shownUpdate, kind, thoughtId, fold.present);
+  const entryRows = entryNodes(items, kind, thoughtId);
   const detailsId = useId();
   const tools = useMemo(() => groupCalls(items).map((item) => item.tool!), [items]);
   const files = useMemo(() => (kind === "edits" ? toolFiles(tools) : []), [kind, tools]);
@@ -300,14 +167,12 @@ export function ToolGroupRow({
             id={detailsId}
             data-tool-group-items={disclosureKey}
           >
-            {kind === "commands"
-              ? entryNodes
+            {!files.length
+              ? entryRows
               : [
                   ...files.map((file) => <EditDiff key={file.path} file={file} />),
-                  // Reads and searches, and edits that carried no diff (a delete, a move), as rows.
-                  ...entryRows.filter(
-                    (_, index) => !files.length || !shownUpdate.entries[index]!.item.tool?.diffs?.length,
-                  ),
+                  // Edits that carried no diff (a delete, a move), as rows.
+                  ...entryRows.filter((_, index) => !items[index]!.tool?.diffs?.length),
                 ]}
           </div>
         </div>

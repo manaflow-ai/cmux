@@ -95,7 +95,7 @@ const ThoughtText = memo(function ThoughtText({ text }: { text: string }) {
 /// `foldLongThoughts` off folds none, and the choice `thoughtHeader` "preview" reads "Thought" and
 /// its first line. The reader's toggle always wins over the fold (`choice ?? !folds`). The fold
 /// snaps; the reader's toggle plays the transcript's fold (fold.ts), except under Reduce Motion.
-export function ThoughtRow({
+export const ThoughtRow = memo(function ThoughtRow({
   item,
   id,
   streaming = false,
@@ -207,4 +207,4 @@ export function ThoughtRow({
       )}
     </>
   );
-}
+});
