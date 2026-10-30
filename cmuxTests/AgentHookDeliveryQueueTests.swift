@@ -905,6 +905,11 @@ struct AgentHookDeliveryQueueTests {
         )
         #expect(capabilityEnvironment["CMUX_SOCKET_CAPABILITY"] == capability)
         #expect(capabilityEvent.environment["CMUX_SOCKET_CAPABILITY"] == nil)
+        let relayCapabilityEnvironment = capabilityProcess.deliveryEnvironment(
+            event: event,
+            executableURL: URL(fileURLWithPath: "/bin/true")
+        )
+        #expect(relayCapabilityEnvironment["CMUX_SOCKET_CAPABILITY"] == nil)
         let relayStateDirectory = try #require(
             environment["CMUX_AGENT_HOOK_STATE_DIR"]
         )
@@ -939,6 +944,8 @@ struct AgentHookDeliveryQueueTests {
 
         var unsafeParams = params
         unsafeParams["environment"] = ["ANTHROPIC_API_KEY": "secret"]
+        #expect(AgentHookDeliveryEvent(params: unsafeParams) == nil)
+        unsafeParams["environment"] = ["CMUX_SOCKET_CAPABILITY": capability]
         #expect(AgentHookDeliveryEvent(params: unsafeParams) == nil)
         unsafeParams["environment"] = ["CMUX_AGENT_HOOK_RELAY_ORIGIN": "1"]
         #expect(AgentHookDeliveryEvent(params: unsafeParams) == nil)

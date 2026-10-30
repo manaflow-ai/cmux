@@ -48,7 +48,8 @@ public struct SocketClientAuthorization {
         peerProcessID: pid_t?,
         peerHasSameUID: Bool,
         capabilityAuthority: SocketClientCapabilityAuthority,
-        isDescendant: (pid_t) -> Bool
+        isDescendant: (pid_t) -> Bool,
+        now: Date = Date()
     ) -> String? {
         let envelope = SocketClientCapabilityCommand(command)
         if let peerProcessID, isDescendant(peerProcessID) {
@@ -56,7 +57,7 @@ public struct SocketClientAuthorization {
         }
         guard peerHasSameUID,
               let envelope,
-              capabilityAuthority.verifies(envelope.capability) else {
+              capabilityAuthority.verifies(envelope.capability, now: now) else {
             return nil
         }
         return envelope.command
@@ -74,7 +75,8 @@ public struct SocketClientAuthorization {
         peerProcessID: pid_t?,
         peerHasSameUID: Bool,
         capabilityAuthority: SocketClientCapabilityAuthority,
-        isDescendant: (pid_t) -> Bool
+        isDescendant: (pid_t) -> Bool,
+        now: Date = Date()
     ) -> String? {
         switch accessMode {
         case .off:
@@ -85,7 +87,8 @@ public struct SocketClientAuthorization {
                 peerProcessID: peerProcessID,
                 peerHasSameUID: peerHasSameUID,
                 capabilityAuthority: capabilityAuthority,
-                isDescendant: isDescendant
+                isDescendant: isDescendant,
+                now: now
             )
         case .automation, .password:
             guard peerHasSameUID else { return nil }

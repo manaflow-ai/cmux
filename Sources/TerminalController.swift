@@ -588,7 +588,9 @@ class TerminalController {
         self.socketClientPreauthorizationLimiter = socketClientPreauthorizationLimiter
         self.agentHookDeliveryQueue = agentHookDeliveryQueue ?? AgentHookDeliveryQueue(
             process: AgentHookDeliveryProcess(
-                socketCapabilityProvider: { socketCapabilityAuthority.issueCapability() }
+                socketCapabilityProvider: {
+                    socketCapabilityAuthority.issueDeliveryCapability()
+                }
             )
         )
         self.mobileTaskFilesystemJobQuota = mobileTaskFilesystemJobQuota
