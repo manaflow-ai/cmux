@@ -9,9 +9,9 @@ import CmuxNextDesign
 final class SidebarPriorityRowView: NSView {
     private(set) var entry: SidebarPriorityEntry
     var onAction: ((SidebarPriorityAction) -> Void)?
-    /// The row is dragged: how far the pointer moved down since the press (up is negative), and
-    /// whether it was released there.
-    var onDrag: ((SidebarPriorityRowView, _ offset: CGFloat, _ ended: Bool) -> Void)?
+    /// The row is dragged: where the press went down and where the pointer is now (window points),
+    /// and whether it was released there. The panel maps both into its scrolled document.
+    var onDrag: ((SidebarPriorityRowView, _ start: NSPoint, _ point: NSPoint, _ ended: Bool) -> Void)?
     /// Where the press went down (window points), and whether it has moved far enough to drag.
     private var pressStart: NSPoint?
     private var dragging = false
@@ -220,7 +220,7 @@ final class SidebarPriorityRowView: NSView {
         guard let start = pressStart else { return }
         let point = event.locationInWindow
         if !dragging { dragging = SidebarPress.movedPastThreshold(from: start, to: point) }
-        if dragging { onDrag?(self, start.y - point.y, false) }
+        if dragging { onDrag?(self, start, point, false) }
     }
 
     /// The App's menu for the row's chat (`SidebarContextTarget.priorityChat`): the same actions as
@@ -235,7 +235,7 @@ final class SidebarPriorityRowView: NSView {
         pressStart = nil
         dragging = false
         if dragged, let start {
-            onDrag?(self, start.y - event.locationInWindow.y, true)
+            onDrag?(self, start, event.locationInWindow, true)
             return
         }
         guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }

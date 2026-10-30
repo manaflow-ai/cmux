@@ -31,6 +31,22 @@ final class SidebarPriorityPanelView: NSView {
     private(set) var panel = SidebarPriorityPanel(entries: [])
     /// Redraws the working chips' elapsed time each minute while one shows; idle otherwise.
     private let ticker = DemandTimer(owner: "sidebar-priority-minute")
+    /// The row being dragged: where in its slot the pointer grabbed it (document points from the slot's
+    /// top) and the pointer's last window point, which an autoscroll frame replays.
+    private struct RowDrag {
+        let row: SidebarPriorityRowView
+        let start: NSPoint
+        let grab: CGFloat
+        var windowPoint: NSPoint
+    }
+    private var rowDrag: RowDrag?
+    /// Edge autoscroll while a row is dragged: frames from the window's FrameScheduler only while the
+    /// pointer is in the list's top or bottom edge zone (`SidebarStyle.autoscrollZone`, as the main list).
+    /// It stops when the pointer leaves the zone, the list reaches its end, the drag ends (drop) or the
+    /// dragged row leaves, and when the panel leaves its window.
+    private(set) lazy var autoscroll = FrameClient(owner: "SidebarPriority.autoscroll", view: self) { [weak self] tick in
+        self?.autoscrollFrame(elapsed: tick.elapsed) ?? false
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -102,6 +118,7 @@ final class SidebarPriorityPanelView: NSView {
             runTop = top
             row.onAction = nil
             row.onDrag = nil
+            if rowDrag?.row === row { endRowDrag() }
             opensUntil[ObjectIdentifier(row)] = nil
             leaving.append((row, NSRect(x: frame.minX, y: top, width: frame.width, height: 0)))
         }
@@ -117,7 +134,7 @@ final class SidebarPriorityPanelView: NSView {
             } else {
                 let row = SidebarPriorityRowView(entry: entry)
                 row.onAction = { [weak self] action in self?.onAction?(action) }
-                row.onDrag = { [weak self] row, offset, ended in self?.drag(row, offset: offset, ended: ended) }
+                row.onDrag = { [weak self] row, start, point, ended in self?.drag(row, start: start, point: point, ended: ended) }
                 document.addSubview(row)
                 rows[entry.id] = row
                 let top = runTop ?? y
@@ -182,24 +199,23 @@ final class SidebarPriorityPanelView: NSView {
 
     /// The row follows the pointer over the others; released, it takes the slot its middle is in
     /// (past the middle of a row it passed), the view shows that order at once and the App keeps it.
-    /// A drop back in its own slot changes nothing.
-    private func drag(_ row: SidebarPriorityRowView, offset: CGFloat, ended: Bool) {
-        guard let from = panel.entries.firstIndex(where: { $0.id == row.entry.id }) else { return }
-        let heights = panel.entries.map { SidebarPriorityRowView.height(hasPreview: $0.preview != nil) }
-        let top = heights[..<from].reduce(0, +)
-        let middle = top + heights[from] / 2 + offset
-        var slot = 0, y: CGFloat = 0
-        for (index, height) in heights.enumerated() {
-            if index != from, y + height / 2 < middle { slot += 1 }
-            y += height
+    /// A drop back in its own slot changes nothing. The pointer is read in the document's coordinates
+    /// (through the clip view's scrolled bounds), so a list scrolled during the drag drops where the
+    /// row shows; held at the list's top or bottom edge, the list scrolls (`autoscroll`).
+    private func drag(_ row: SidebarPriorityRowView, start: NSPoint, point: NSPoint, ended: Bool) {
+        guard let from = panel.entries.firstIndex(where: { $0.id == row.entry.id }) else { return endRowDrag() }
+        // A new press starts a new drag; its grab is read before anything scrolls.
+        if rowDrag?.row !== row || rowDrag?.start != start {
+            rowDrag = RowDrag(row: row, start: start, grab: document.convert(start, from: nil).y - slotTop(from), windowPoint: point)
         }
+        rowDrag?.windowPoint = point
         guard ended else {
-            Motion.withoutAnimation {
-                row.layer?.zPosition = 1
-                row.animator().frame.origin.y = min(max(0, top + offset), max(0, y - heights[from]))
-            }
+            moveDraggedRow(from: from)
+            if autoscrollVelocity(windowPoint: point) != 0 { autoscroll.activate() } else { autoscroll.deactivate() }
             return
         }
+        let slot = dropSlot(from: from)
+        endRowDrag()
         row.layer?.zPosition = 0
         var order = panel.entries
         let entry = order.remove(at: from)
@@ -208,6 +224,75 @@ final class SidebarPriorityPanelView: NSView {
         panel.entries = order
         placeRows(animated: window != nil)
         onAction?(.place(entry.id, order: order.map(\.id)))
+    }
+
+    private var rowHeights: [CGFloat] { panel.entries.map { SidebarPriorityRowView.height(hasPreview: $0.preview != nil) } }
+    private func slotTop(_ index: Int) -> CGFloat { rowHeights[..<index].reduce(0, +) }
+
+    /// Where the dragged row's top is now, in document points: the pointer less its grab.
+    private func draggedTop() -> CGFloat? {
+        guard let drag = rowDrag else { return nil }
+        return document.convert(drag.windowPoint, from: nil).y - drag.grab
+    }
+
+    /// The slot the dragged row's middle is in.
+    private func dropSlot(from: Int) -> Int {
+        let heights = rowHeights
+        guard let top = draggedTop() else { return from }
+        let middle = top + heights[from] / 2
+        var slot = 0, y: CGFloat = 0
+        for (index, height) in heights.enumerated() {
+            if index != from, y + height / 2 < middle { slot += 1 }
+            y += height
+        }
+        return slot
+    }
+
+    private func moveDraggedRow(from: Int) {
+        guard let drag = rowDrag, let top = draggedTop() else { return }
+        let heights = rowHeights
+        let total = heights.reduce(0, +)
+        Motion.withoutAnimation {
+            drag.row.layer?.zPosition = 1
+            drag.row.animator().frame.origin.y = min(max(0, top), max(0, total - heights[from]))
+        }
+    }
+
+    private func endRowDrag() {
+        rowDrag = nil
+        autoscroll.deactivate()
+    }
+
+    /// Scroll speed for the pointer at `windowPoint` (points per second, negative up): zero outside the
+    /// list's edge zones, up to ~25 rows a second at the edge (`SidebarAutoscroll`, as the main list).
+    private func autoscrollVelocity(windowPoint: NSPoint) -> CGFloat {
+        let clip = scroll.contentView
+        guard document.frame.height > clip.bounds.height else { return 0 }
+        let point = clip.convert(windowPoint, from: nil)
+        return SidebarAutoscroll.velocity(pointY: point.y, visibleMinY: clip.bounds.minY, visibleMaxY: clip.bounds.maxY,
+                                          zone: SidebarStyle.autoscrollZone, maxSpeed: Metrics.sidebarRowHeight * 25)
+    }
+
+    /// One autoscroll frame: scrolls by the edge speed over `elapsed` seconds and moves the dragged row
+    /// with the list. False (the client goes idle) with no drag, outside the edge zones or at the list's end.
+    func autoscrollFrame(elapsed: Double) -> Bool {
+        guard let drag = rowDrag, let from = panel.entries.firstIndex(where: { $0.id == drag.row.entry.id }) else {
+            return false
+        }
+        let velocity = autoscrollVelocity(windowPoint: drag.windowPoint)
+        guard velocity != 0 else { return false }
+        let clip = scroll.contentView, b = clip.bounds
+        let y = min(max(b.minY + velocity * elapsed, 0), max(0, document.frame.height - b.height))
+        guard y != b.minY else { return false }
+        clip.scroll(to: NSPoint(x: b.minX, y: y))
+        scroll.reflectScrolledClipView(clip)
+        moveDraggedRow(from: from)
+        return true
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil { autoscroll.deactivate() }
     }
 
     /// A chip says minutes: one redraw a minute while a row works, none otherwise.

@@ -11,16 +11,24 @@ struct SidebarPriorityDragTests {
 
     /// The panel in a window, its rows laid out at once (shown before the window, so nothing glides).
     final class Harness {
-        let panel = SidebarPriorityPanelView(frame: NSRect(x: 0, y: 0, width: 240, height: 400))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 400), styleMask: [.borderless],
-                              backing: .buffered, defer: false)
+        let panel: SidebarPriorityPanelView
+        let window: NSWindow
         var actions: [SidebarPriorityAction] = []
 
-        init() {
-            panel.show(SidebarPriorityPanel(entries: SidebarPriorityDragTests.entries))
+        init(entries: [SidebarPriorityEntry] = SidebarPriorityDragTests.entries, height: CGFloat = 400) {
+            panel = SidebarPriorityPanelView(frame: NSRect(x: 0, y: 0, width: 240, height: height))
+            window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: height), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+            panel.show(SidebarPriorityPanel(entries: entries))
             window.contentView = panel
             panel.layoutSubtreeIfNeeded()
             panel.onAction = { [unowned self] in actions.append($0) }
+        }
+
+        func event(_ type: NSEvent.EventType, at location: NSPoint) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: 0,
+                                            windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                                            clickCount: 1, pressure: 1))
         }
 
         /// Presses `id`'s row at its middle, moves the pointer by each of `moves` (points, down is
@@ -28,15 +36,11 @@ struct SidebarPriorityDragTests {
         func press(_ id: String, moves: [CGFloat]) throws {
             let row = try #require(panel.rows[id])
             let start = row.convert(NSPoint(x: 10, y: row.bounds.midY), to: nil)
-            func event(_ type: NSEvent.EventType, _ dy: CGFloat) throws -> NSEvent {
-                // Window points grow up; the panel's rows lay out top down.
-                try #require(NSEvent.mouseEvent(with: type, location: NSPoint(x: start.x, y: start.y - dy), modifierFlags: [],
-                                                timestamp: 0, windowNumber: window.windowNumber, context: nil,
-                                                eventNumber: 0, clickCount: 1, pressure: 1))
-            }
-            row.mouseDown(with: try event(.leftMouseDown, 0))
-            for dy in moves { row.mouseDragged(with: try event(.leftMouseDragged, dy)) }
-            row.mouseUp(with: try event(.leftMouseUp, moves.last ?? 0))
+            // Window points grow up; the panel's rows lay out top down.
+            func at(_ dy: CGFloat) -> NSPoint { NSPoint(x: start.x, y: start.y - dy) }
+            row.mouseDown(with: try event(.leftMouseDown, at: at(0)))
+            for dy in moves { row.mouseDragged(with: try event(.leftMouseDragged, at: at(dy))) }
+            row.mouseUp(with: try event(.leftMouseUp, at: at(moves.last ?? 0)))
         }
     }
 
@@ -77,5 +81,42 @@ struct SidebarPriorityDragTests {
         let height = try #require(harness.panel.rows["b"]).frame.height
         try harness.press("b", moves: [-height * 0.3, 0])
         #expect(harness.actions.isEmpty)
+    }
+
+    /// An overflowing list: a row held at the bottom edge scrolls the list (edge autoscroll), and the
+    /// drop reads the pointer through the scrolled clip view, so the row lands past rows that were
+    /// off-screen when the drag began. The drop stops the autoscroll.
+    @Test func aRowHeldAtTheBottomEdgeScrollsTheListAndDropsPastHiddenRows() throws {
+        let entries = (0..<30).map { SidebarPriorityEntry(id: "r\($0)", title: "r\($0)", state: .idle) }
+        let harness = Harness(entries: entries, height: 200)
+        let panel = harness.panel
+        let row = try #require(panel.rows["r0"])
+        let clip = try #require(row.enclosingScrollView?.contentView)
+        let shownAtStart = clip.bounds
+        try #require(shownAtStart.height > 0 && panel.rows.count == 30)
+        let framesAtStart = panel.rows.mapValues(\.frame)
+        try #require(framesAtStart.values.contains { $0.minY >= shownAtStart.maxY }, "the list does not overflow")
+
+        let start = row.convert(NSPoint(x: 10, y: row.bounds.midY), to: nil)
+        let edge = clip.convert(NSPoint(x: 10, y: shownAtStart.maxY - 2), to: nil)
+        row.mouseDown(with: try harness.event(.leftMouseDown, at: start))
+        row.mouseDragged(with: try harness.event(.leftMouseDragged, at: NSPoint(x: start.x, y: start.y - 12)))
+        row.mouseDragged(with: try harness.event(.leftMouseDragged, at: edge))
+        #expect(panel.autoscroll.isActive, "holding the row at the bottom edge started no autoscroll")
+        for _ in 0..<10 { _ = panel.autoscrollFrame(elapsed: 1.0 / 30) }
+        #expect(clip.bounds.minY > shownAtStart.minY, "the list did not scroll")
+
+        row.mouseUp(with: try harness.event(.leftMouseUp, at: edge))
+        #expect(!panel.autoscroll.isActive, "autoscroll kept running after the drop")
+        guard case .place("r0", let order)? = harness.actions.last else {
+            Issue.record("the drop asked for no place: \(harness.actions)")
+            return
+        }
+        let slot = try #require(order.firstIndex(of: "r0"))
+        try #require(slot > 0)
+        // The row the dropped one now follows was below the visible rows when the drag began.
+        let passed = try #require(framesAtStart[order[slot - 1]])
+        #expect(passed.minY >= shownAtStart.maxY, "dropped at slot \(slot), within the rows shown at the start")
+        #expect(!panel.autoscrollFrame(elapsed: 1.0 / 30), "an autoscroll frame ran with no drag")
     }
 }
