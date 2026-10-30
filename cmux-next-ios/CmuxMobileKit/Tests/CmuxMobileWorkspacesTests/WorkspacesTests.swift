@@ -63,7 +63,7 @@ import SwiftUI
     }
 
     private func waitForPendingCloseMessage(_ source: WorkspaceTabsSource, _ message: String) async {
-        await withCheckedContinuation { continuation in
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             @MainActor func observe() {
                 if source.pendingClose?.message == message {
                     continuation.resume()
