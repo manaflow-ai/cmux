@@ -40,7 +40,7 @@ enum SidebarContextMenus {
             let entries = highlighted ? all : ContextMenuCatalog.removing(["notifications.dismissHighlight"], from: all)
             let target = ActionTargetRef(kind: .workspace, id: first.rawValue)
             let menu = registry.makeContextMenu(for: .workspaceRow, target: target, entries: entries)
-            if let owner { registry.scopeMenuTargets(menu, toMachine: owner.machineID) }
+            if let owner { registry.scopeMenuAction(menu, action: "notifications.dismissHighlight", toMachine: owner.machineID) }
             // The name field renames the clicked row only, so a multi-row selection gets just the swatches.
             // A pinned workspace's tile has no row in the list model; its name comes from the workspace.
             let title = model.workspace(first)?.title ?? owner?.store.workspace(id: first.rawValue)?.displayName ?? ""

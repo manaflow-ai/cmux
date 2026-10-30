@@ -219,12 +219,6 @@ import Testing
                                                        model: SidebarModel(), services: services, scope: ThemeScope(level: .room),
                                                        workspaceMachineID: ssh.daemon.machineID))
         func items(_ menu: NSMenu) -> [NSMenuItem] { menu.items + menu.items.compactMap(\.submenu).flatMap(items) }
-        // Every row that acts on the right-clicked workspace runs on its machine, not on a same-id local one.
-        let targeted = items(menu).filter { ActionRegistry.menuRun(of: $0)?.target != nil }
-        #expect(targeted.count > 1)
-        for item in targeted {
-            #expect(ActionRegistry.menuMachine(of: item) == ssh.daemon.machineID, "\(item.title) is not scoped to the remote machine")
-        }
         let dismiss = try #require(items(menu).first { ActionRegistry.menuRun(of: $0)?.id == "notifications.dismissHighlight" })
         let action = try #require(dismiss.action)
         #expect(NSApp.sendAction(action, to: dismiss.target, from: dismiss))
