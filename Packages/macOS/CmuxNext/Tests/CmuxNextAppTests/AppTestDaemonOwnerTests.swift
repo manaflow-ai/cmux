@@ -43,7 +43,7 @@ struct AppTestDaemonOwnerTests {
 
     @Test func anUnverifiedLiveProcessIsLeftAloneAndCleanupRemainsIncomplete() async throws {
         try await withChild { endpoint, identity in
-            let exited = await AppTestDaemonOwner.reap(endpoint, process: nil) { throw HandshakeFailed() }
+            let exited = await AppTestDaemonOwner.reap(endpoint, process: nil) { true }
             #expect(!exited)
             #expect(AcpmuxUnresponsiveWatch.kernelProcess(pid: identity.pid) == identity)
         }
