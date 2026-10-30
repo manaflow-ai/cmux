@@ -282,7 +282,11 @@ describe("Home attachments: an R2 multipart upload is never left without a recor
     const slot = await conv.createUploadSlot(g.id, alice.user, alice.user, { hash: sha(new Uint8Array([2])), byte_count: 40_000_000, mime_type: "application/octet-stream" }, "multipart", crypto.randomUUID().replaceAll("-", ""))
     const upload = await testEnv.HOME_ATTACHMENTS.createMultipartUpload(slot.object_key)
     expect(await conv.setMultipartUpload(g.id, slot.id, upload.uploadId, slot.object_key)).toBe(true)
-    await runInDurableObject(stub, async (_i, state) => void state.storage.sql.exec("UPDATE home_attachment_slots SET expires_at = ?", Date.now() - 2 * 3_600_000))
+    // The test drives the wake: the object's own alarm (an outbox retry) would run it first with the real bucket.
+    await runInDurableObject(stub, async (_i, state) => {
+      state.storage.sql.exec("UPDATE home_attachment_slots SET expires_at = ?", Date.now() - 2 * 3_600_000)
+      await state.storage.deleteAlarm()
+    })
     const gc = await import("../src/home-attachment-gc.ts")
     const bucket = testEnv.HOME_ATTACHMENTS
     // An abort that fails with no R2 code (a dropped connection): transient, unlike NoSuchUpload.
@@ -515,7 +519,11 @@ describe("Home attachments: the slot itself ends an upload its owner never recor
     expect(uploads).toHaveLength(1)
     await uploads[0]!.uploadPart(1, new Uint8Array(1))
     const stub = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(id))
-    await runInDurableObject(stub, async (_i, state) => void state.storage.sql.exec("UPDATE home_attachment_slots SET expires_at = ?", Date.now() - 2 * 3_600_000))
+    // The test drives the wake: the object's own alarm (an outbox retry) would run it first with the real bucket.
+    await runInDurableObject(stub, async (_i, state) => {
+      state.storage.sql.exec("UPDATE home_attachment_slots SET expires_at = ?", Date.now() - 2 * 3_600_000)
+      await state.storage.deleteAlarm()
+    })
     await runInDurableObject(stub, async (inst: any) => gc.runAttachmentWake({ ...inst.gc, env: { ...testEnv, HOME_ATTACHMENTS: bucket } }, undefined, Date.now()))
     expect(calls).toEqual([uploads[0]!.key])
     await expect(uploads[0]!.uploadPart(1, new Uint8Array(1))).rejects.toThrow()
