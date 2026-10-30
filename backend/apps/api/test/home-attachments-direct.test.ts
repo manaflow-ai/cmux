@@ -208,19 +208,22 @@ describe("Home attachments: a direct completion recovers from lost answers and t
     expect([done.status, done.json.value?.state]).toEqual([200, "stored"])
   })
 
-  it("a part whose presigned PUT finished after the slot's expiry: no new part URL, but completing within the upload grace stores the file", async () => {
+  it("a part whose presigned PUT finished after the slot's expiry: within the upload grace the next part's URL is granted and completing stores the file", async () => {
     const alice = await signIn("att-direct-past-expiry")
     const { id } = await group(alice)
     const body = new Uint8Array(32 * MiB + 19).map((_, i) => (i * 17) % 223)
     const r = await ask(alice, id, body)
     const parts = await sendParts(id, r.json.value, body)
-    // The last part's URL was signed before the expiry and R2 took its PUT after it: the slot is past its time, inside the grace.
+    // A part's URL was signed before the expiry and R2 took its slow PUT after it: the slot is past its time, inside the grace.
     const stub = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(id))
     await runInDurableObject(stub, async (_i, state) => void state.storage.sql.exec("UPDATE home_attachment_slots SET expires_at = ? WHERE id = ?", Date.now() - 60_000, r.json.value.slot))
     const { handleAttachmentDirectPart } = await import("../src/home-attachments.ts")
     const token = new URL(r.json.value.upload_url).pathname.split("/").pop()!
-    const late = await handleAttachmentDirectPart(new Request(r.json.value.upload_url, { method: "POST", headers: { "x-cmux-part-number": "1" } }), small, id, token)
-    expect(late.status).toBe(403)
+    // The next part (a slow non-final part, then this one) still gets its URL, and that renews the lease.
+    const late = await handleAttachmentDirectPart(new Request(r.json.value.upload_url, { method: "POST", headers: { "x-cmux-part-number": "2" } }), small, id, token)
+    const lateJson = (await late.json()) as any
+    expect([late.status, lateJson.error?.code]).toEqual([200, undefined])
+    expect(lateJson.value.expires_at).toBeGreaterThan(Date.now())
     const done = await run(alice, id, r.json.value.slot, parts)
     expect([done.status, done.json.value?.state, done.json.error?.code]).toEqual([200, "stored", undefined])
     const downloaded = new Uint8Array(await (await worker.fetch((await urlFor(alice, id, sha(body))).json.value.url)).arrayBuffer())
