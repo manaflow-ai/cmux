@@ -291,7 +291,7 @@ class Excusing(unittest.TestCase):
                            "app": {"slug": "github-actions"},
                            "details_url": f"https://github.com/{REPO}/actions/runs/10/job/3"}])
         lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[name])
-        self.assertIn("release-notary", "\n".join(lines))
+        self.assertIn("Check routed guard jobs", "\n".join(lines))
 
 
 def crashed(job, signal, unfinished, frames, *extra):

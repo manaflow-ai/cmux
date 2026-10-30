@@ -46,6 +46,7 @@ _spec.loader.exec_module(test_reds)
 SETUP_STEPS = frozenset({"Set up job", "Set up runner"})
 # Jobs that only report the run's other jobs: judged by those jobs, never by themselves.
 AGGREGATES = frozenset({"ci-status"})
+GUARD_STATUS_SUFFIX = " / Guard status"
 HOOK_REFUSAL = "glaeda-cmux-runner-hook: refused"
 VERDICTS = frozenset({"success", "failure"})
 # How far back the base lookup reads. A feat-cmux-next push skips swift-test, so its base verdict comes
@@ -96,6 +97,15 @@ COMPILE_PASS_CHECKS = ("cmux-next Release compile (Xcode 26)",)
 COMPILE_PASS_STATUS = "cmux-next/compile"
 # The Mac Release compile's steps that compile (or reuse a pass for the same inputs).
 COMPILE_STEPS = frozenset({"Release compile", "Reuse that pass"})
+
+
+def is_aggregate(name: str) -> bool:
+    """Whether a check reports routed jobs rather than running work itself."""
+    return name in AGGREGATES or name == "Guard status" or name.endswith(GUARD_STATUS_SUFFIX)
+
+
+def is_guard_status(name: str) -> bool:
+    return name == "Guard status" or name.endswith(GUARD_STATUS_SUFFIX)
 
 
 def mask_shas(text: str) -> str:
@@ -183,15 +193,28 @@ def refused_at_setup(job: dict, log: str | None = None) -> bool:
 
 def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github) -> list[dict]:
     jobs: dict[int, dict] = {}
+    aggregates: list[dict] = []
     for run in runs:
         for page in github.json(f"repos/{repo}/actions/runs/{run}/jobs?filter=latest&per_page=100", paginate=True):
             for job in page.get("jobs") or []:
-                if job.get("name") in AGGREGATES:
+                if is_aggregate(job.get("name", "")):
+                    aggregates.append(job)
                     continue
                 if job.get("status") == "completed" and job.get("conclusion") not in ("success", "skipped", "neutral"):
                     if job.get("head_sha") not in (None, sha):
                         raise Refused(f"{job.get('name')}: job is not for the exact SHA {sha}")
                     jobs[job["id"]] = job
+    # Reusable workflows expose their caller's aggregate job but not the called
+    # workflow's failed jobs in that run. Guard status still reports its routed
+    # step, so compare that aggregate directly when no child job is visible.
+    if not jobs:
+        for aggregate in aggregates:
+            if (is_guard_status(aggregate.get("name", ""))
+                    and aggregate.get("status") == "completed"
+                    and aggregate.get("conclusion") not in ("success", "skipped", "neutral")
+                    and any(step.get("conclusion") not in (None, "success", "skipped")
+                            for step in aggregate.get("steps") or [])):
+                jobs[aggregate["id"]] = aggregate
     if checks:
         latest = latest_checks(repo, sha, github)
         aggregate_runs = []
@@ -199,7 +222,7 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github) -
             if name not in latest:
                 raise Refused(f"{name}: has not run on exact head {sha}")
             job = job_for(repo, latest[name], sha, github)
-            if name in AGGREGATES:
+            if is_aggregate(name):
                 aggregate_runs.append(job["run_id"])
             else:
                 jobs[job["id"]] = job
@@ -207,7 +230,12 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github) -
             found = head_jobs(repo, sha, [run], [], github)
             if not found:
                 raise Refused(f"run {run}: its aggregate check failed with no failed job to compare with the base")
-            jobs.update((job["id"], job) for job in found)
+            # A called workflow may expose only failed steps for its routed jobs;
+            # those steps are the aggregate's report and can be compared with
+            # the matching base job even when the child printed no test names.
+            for child in found:
+                child["_aggregate_routed"] = True
+                jobs[child["id"]] = child
     return list(jobs.values())
 
 
@@ -270,7 +298,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                           "fix it on this head")
         head_steps, head_tests, head_errors = signature(job, head_log)
         head_crash = crash_signals(head_log)
-        if not head_tests and not head_errors and not head_crash:
+        if (not head_tests and not head_errors and not head_crash
+                and not ((is_guard_status(name) or job.get("_aggregate_routed")) and head_steps)):
             raise Refused(f"'{name}': no failing test or error line to match; nothing to compare with the base")
         base_log = github.log(repo, base_job)
         base_steps, base_tests, base_errors = signature(base_job, base_log)
@@ -287,7 +316,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         for kind, head, seen in compared:
             if missing := sorted(head - seen):
                 raise Refused(f"'{name}': {kind} not on {base} run {base_run['id']}: {'; '.join(missing)[:600]}")
-        what = "; ".join(sorted(head_tests)) or "; ".join(sorted(head_errors))
+        what = "; ".join(sorted(head_tests)) or "; ".join(sorted(head_errors)) or "; ".join(sorted(head_steps))
         url = base_run.get("html_url") or f"https://github.com/{repo}/actions/runs/{base_run['id']}"
         audit.append(f"excused '{name}': {base} run {base_run['id']} fails the same way ({url}): {what[:400]}")
     return audit

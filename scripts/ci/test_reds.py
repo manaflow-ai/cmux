@@ -110,6 +110,10 @@ NO_RESULT = re.compile(r"^(?:##\[error\]|::error[^:]*::)\s*.*\brequired tests di
 BUN_STARTED = re.compile(r"^START (\S+\.[cm]?[jt]sx?) \(hard limit")
 BUN_RESULT = re.compile(r"^(PASS|FAIL|TIMEOUT) (\S+\.[cm]?[jt]sx?)(?: |$)")
 BUN_PANIC = re.compile(r"^(?:panic\((?:main thread|thread \d+)\)|oh no: Bun has crashed)")
+# The shell self-test keeps a Swift crash report and its `signal 5` fixture in
+# source lines. GitHub can echo those lines when the shell test reports a
+# failure; they are data for the fixture, not a crash of this test job.
+SWIFT_TEST_SUMMARY_FIXTURE = re.compile(r"swift-test-summary\.test\.sh:\d+:")
 RUN_STARTED = re.compile(r"^◇ Test run started\.")
 RUN_ENDED = re.compile(r"^[✔✘━] Test run with \d+ tests?")
 RUN_COUNT = re.compile(r"^[✔✘━] Test run with (\d{1,9}) tests?")
@@ -279,6 +283,8 @@ def read(log: str | None) -> Result:
     named: list[str] = []
     crashed = False
     for text in lines:
+        if SWIFT_TEST_SUMMARY_FIXTURE.search(text):
+            continue
         if RAN.search(text) or UNITTEST_LINE.match(text) or BUN_STARTED.match(text) or BUN_RESULT.match(text):
             result.ran = True
         if (match := BUN_RESULT.match(text)) and match.group(1) == "TIMEOUT":
