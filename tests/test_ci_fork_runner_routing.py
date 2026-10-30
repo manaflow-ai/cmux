@@ -1374,10 +1374,17 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         self.assertEqual(build["outputs"]["daemon_build"], "${{ steps.remote_daemon.outputs.build }}")
         self.assertEqual(build["outputs"]["daemon_version"], "${{ steps.remote_daemon.outputs.version }}")
         # The `if:` each removed step had, and the step the pack now follows (the old step's place).
+        # A cache pack also needs a save that can write: the R2 keys reach only main's own runs
+        # (ci-cache-writer, manaflow-ai); the GitHub store writes from any branch, as before.
+        can_write = ("((inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') "
+                     "!= 'r2' || github.ref == 'refs/heads/main' && github.repository_owner == 'manaflow-ai')")
         handoffs = {
             "compilation-cache": ("steps.compilation-cache-restore.outputs.cache-hit != 'true' && "
-                                  "steps.compilation-cache-bound.outputs.save == 'true'", "compilation-cache-bound"),
-            "swift-packages": ("steps.swift-packages-restore.outputs.cache-hit != 'true'", "compilation-cache-handoff"),
+                                  "steps.compilation-cache-bound.outputs.save == 'true' && " + can_write,
+                                  "compilation-cache-bound"),
+            "swift-packages": ("steps.swift-packages-restore.outputs.cache-hit != 'true' && " + can_write,
+                               "compilation-cache-handoff"),
+            # The Sentry upload keeps its old reach: every run that is not build_only.
             "sentry-difs": ("needs.decide.outputs.build_only != 'true'", None),
         }
         for name, (condition, after) in handoffs.items():
@@ -1408,6 +1415,25 @@ class ForkRunnerRoutingTests(unittest.TestCase):
             self.assertEqual(job["permissions"], {"contents": "read"})
         self.assertEqual(save["environment"], "${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}")
         self.assertIn("!cancelled()", save["if"])
+        self.assertIn(can_write, save["if"])
+        self.assertNotIn("github.ref", sentry["if"])
+        # Before any download or save: the values the reused Mac sent are checked, and a mismatch
+        # fails the job (no continue-on-error), so the save steps after it never run.
+        check = save["steps"][1]
+        self.assertEqual(save["steps"][0]["uses"].split("@")[0], "actions/checkout")
+        self.assertEqual(check["name"], "Check the values the build sent")
+        self.assertNotIn("if", check)
+        self.assertNotIn("continue-on-error", check)
+        self.assertEqual(check["env"], {
+            "PLATFORM": "${{ needs.build-nightly-app.outputs.cache_platform }}",
+            "HEAD_SHA": "${{ needs.decide.outputs.head_sha }}",
+            "COMPILATION_CACHE": "${{ needs.build-nightly-app.outputs.compilation_cache }}",
+            "COMPILATION_KEY": "${{ needs.build-nightly-app.outputs.compilation_cache_key }}",
+            "SWIFT_PACKAGES": "${{ needs.build-nightly-app.outputs.swift_packages }}",
+            "SPM_KEY": saves[1]["with"]["key"],
+        })
+        self.assertIn("scripts/ci/check-nightly-cache-handoff.py", check["run"])
+        self.assertIn("scripts/ci/check-nightly-cache-handoff.py", save["steps"][0]["with"]["sparse-checkout"])
         saves = [step for step in save["steps"] if step.get("uses") == "./.github/actions/cache-save"]
         self.assertEqual([step["name"] for step in saves], ["Save Xcode compilation cache", "Save Swift packages"])
         self.assertEqual(saves[0]["with"]["key"], "${{ needs.build-nightly-app.outputs.compilation_cache_key }}")
@@ -1433,6 +1459,53 @@ class ForkRunnerRoutingTests(unittest.TestCase):
             if name not in ("save-nightly-app-caches", "upload-nightly-dsyms"):
                 self.assertNotIn("SENTRY_AUTH_TOKEN", json.dumps(job), name)
                 self.assertNotIn("CI_CACHE_R2_PLATFORM", json.dumps(job), name)
+
+    def test_the_cache_save_refuses_values_the_build_did_not_compute(self) -> None:
+        # The build runs on a reused mini; save-nightly-app-caches holds the R2 write keys. A cache
+        # platform, key or Swift package key of any other shape than the build computes is refused.
+        import subprocess
+        document = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))
+        restore = next(step for step in document["jobs"]["build-nightly-app"]["steps"]
+                       if step.get("id") == "compilation-cache-restore")["with"]["key"]
+        head, toolchain = "9aa4b131383ffa9b7d7612b073533f337be59cf0", "df936b76b05b4cd3625ec9183527c4153d2703fa69bb97204ead73a4621240ad"
+        spm = "spm-45eabf25741d44dac279c261dd958773dd9e73ef9edd3e2aa2246b259cfefd19"
+
+        def key(os_name: str, arch: str, chain: str = toolchain, sha: str = head) -> str:
+            return (restore.replace("${{ runner.os }}", os_name).replace("${{ runner.arch }}", arch)
+                    .replace("${{ steps.compilation-cache-key.outputs.toolchain }}", chain)
+                    .replace("${{ needs.decide.outputs.head_sha }}", sha))
+
+        self.assertNotIn("${{", key("macOS", "ARM64"))
+
+        def check(platform: str, compilation: str, spm_key: str = spm, sha: str = head,
+                  compiled: str = "success", packages: str = "success") -> int:
+            env = {"PATH": "/usr/bin:/bin", "PLATFORM": platform, "HEAD_SHA": sha, "COMPILATION_CACHE": compiled,
+                   "COMPILATION_KEY": compilation, "SWIFT_PACKAGES": packages, "SPM_KEY": spm_key}
+            return subprocess.run(["python3", str(ROOT / "scripts/ci/check-nightly-cache-handoff.py")], env=env,
+                                  capture_output=True, text=True, check=False).returncode
+
+        for os_name, arch in (("macOS", "ARM64"), ("macOS", "X64")):
+            self.assertEqual(check(f"{os_name}-{arch}", key(os_name, arch)), 0, arch)
+        refused = {
+            "a Linux platform": check("Linux-X64", key("Linux", "X64")),
+            "a path in the platform": check("macOS-ARM64/../x", key("macOS", "ARM64")),
+            "a key for the other platform": check("macOS-ARM64", key("macOS", "X64")),
+            "a key for another commit": check("macOS-ARM64", key("macOS", "ARM64", sha="0" * 40)),
+            "a short toolchain hash": check("macOS-ARM64", key("macOS", "ARM64", chain="abc")),
+            "an upper-case toolchain hash": check("macOS-ARM64", key("macOS", "ARM64", chain=toolchain.upper())),
+            "another key family": check("macOS-ARM64", "spm-" + toolchain),
+            "a suffix after the key": check("macOS-ARM64", key("macOS", "ARM64") + "-x"),
+            "a head sha that is not 40 hex": check("macOS-ARM64", key("macOS", "ARM64", sha="main"), sha="main"),
+            "an empty lockfile hash": check("macOS-ARM64", key("macOS", "ARM64"), spm_key="spm-"),
+            "a Swift package key of another shape": check("macOS-ARM64", key("macOS", "ARM64"), spm_key="spm-x"),
+            "an empty key with a compilation save": check("macOS-ARM64", ""),
+        }
+        for why, code in refused.items():
+            self.assertEqual(code, 1, why)
+        # A key that will not be saved is not read: only the platform and head are checked then.
+        self.assertEqual(check("macOS-ARM64", "", compiled="skipped"), 0)
+        self.assertEqual(check("macOS-ARM64", key("macOS", "ARM64"), spm_key="", packages="skipped"), 0)
+        self.assertEqual(check("Linux-X64", "", compiled="skipped", packages="skipped"), 1)
 
     def test_the_secret_detector_and_matrix_check(self) -> None:
         for held in ("${{ secrets.R2_KEY }}", "${{ SECRETS.Vercel_Token }}", "${{ secrets['X'] }}",

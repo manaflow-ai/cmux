@@ -820,6 +820,7 @@ if ! awk '
   job == "app" && step == "save" && /run: scripts\/ci\/handoff-archive\.sh pack build-universal\/CompilationCache\.noindex / { save_action[job]=1 }
   job == "appsave" && step == "save" && /^        if: needs\.build-nightly-app\.outputs\.compilation_cache == '\''success'\''$/ { save_gate[job]=1 }
   step == "save" && /^        if: steps\.compilation-cache-restore\.outputs\.cache-hit != '\''true'\'' && steps\.compilation-cache-bound\.outputs\.save == '\''true'\''$/ { save_gate[job]=1 }
+  job == "app" && step == "save" && /^        if: steps\.compilation-cache-restore\.outputs\.cache-hit != '\''true'\'' && steps\.compilation-cache-bound\.outputs\.save == '\''true'\'' && \(\(/ { save_gate[job]=1 }
   step == "save" && /hashFiles/ { rescan[job]=1 }
   END {
     n = split("refresh app", jobs, " ")
