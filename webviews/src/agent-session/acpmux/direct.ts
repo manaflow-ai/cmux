@@ -1554,6 +1554,15 @@ export class AcpmuxDirectClient {
     this.rememberCurrentTail(false);
   };
 
+  /// This prewarmed New Tab page now stands for a tab bound to chat `sessionId` (the host's
+  /// `acpmux-session-adopt`, AgentPaneView+SessionAdopt.swift): from here it is that tab's page as if
+  /// its handshake had named the session, so a session the daemon lacks, or one that goes away, says
+  /// so instead of falling back to another chat, and a reconnect reopens it. The switch itself is
+  /// `chat.select`'s.
+  bindToSession(sessionId: string): void {
+    this.host = { ...this.host, sessionId, newSession: false, sessionMustExist: true };
+  }
+
   /// Hands the chat on screen to the host now, for a tab about to open it (`chat.openTab`). The
   /// page keeps it selected, so nothing else would hand it over and the new tab would open cold —
   /// the flow this cache exists for.

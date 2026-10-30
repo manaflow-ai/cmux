@@ -85,7 +85,9 @@ import {
   useEarlyNewTabContext,
   useNewTabAdoption,
   useNewTabPlaces,
+  useSessionAdoption,
   useNewTabWeather,
+  type SessionAdoption,
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
@@ -7092,6 +7094,9 @@ function AcpmuxPane() {
   // may never come although the first one drew (cx-zjtn.6; PagePaintProbe in CmuxNextPages waits
   // the same way).
   const paintReported = useRef(false);
+  // A tab opening an existing chat adopted this prewarmed New Tab page (useSessionAdoption, below):
+  // the chat it switches to, until that chat is drawn. Until then the page has not drawn what it is.
+  const [adoptingSession, setAdoptingSession] = useState<string>();
   // A New Tab page is what it is from its first render: its frame draws before the handshake
   // (cx-0rpl.10), and the host shows no loading mark over it. A chat the handshake named is what it
   // is once acpmux attached it: before, the page drew an empty transcript with stand-in chips, and
@@ -7102,16 +7107,52 @@ function AcpmuxPane() {
     clientSnapshot.connection.startsWith("connecting:") ||
     clientSnapshot.connection === "disconnected" ||
     clientSnapshot.connection === "failed";
-  const chatDrawn = !awaitsChat || clientSnapshot.chatRead === true || openFailed;
+  const adoptionDrawn =
+    adoptingSession === undefined ||
+    openFailed ||
+    (clientSnapshot.sessionId === adoptingSession && clientSnapshot.chatRead === true);
+  const chatDrawn = (!awaitsChat || clientSnapshot.chatRead === true || openFailed) && adoptionDrawn;
   const showsWhatItIs = (handshaken && chatDrawn) || hostError !== undefined || newTab !== undefined;
   // No chat screen before the page knows it is no New Tab page (`contextKnown`).
   const knowsWhatItIs = contextKnown || newTab !== undefined || handshaken || hostError !== undefined;
   useEffect(() => {
     if (!handshaken || chatDrawn) return;
     // A slow attach: the client draws what it has after the open's hold (direct.ts OPEN_HOLD_MS).
-    const timer = window.setTimeout(() => setAwaitsChat(false), CHAT_DRAW_HOLD_MS);
+    const timer = window.setTimeout(() => {
+      setAwaitsChat(false);
+      setAdoptingSession(undefined);
+    }, CHAT_DRAW_HOLD_MS);
     return () => window.clearTimeout(timer);
   }, [handshaken, chatDrawn]);
+  useEffect(() => {
+    if (adoptingSession !== undefined && adoptionDrawn) setAdoptingSession(undefined);
+  }, [adoptingSession, adoptionDrawn]);
+  // The host's spare page, adopted by a tab opening an existing chat (AgentPaneView+SessionAdopt.swift):
+  // it is connected already, so it switches to the chat in place, as a sidebar pick does (`chat.select`,
+  // drawing the host's kept tail when there is one). The New Tab screen goes in the event's own render,
+  // and the chat's first drawn frame is reported as this page's first paint again: the host keeps
+  // the page out of sight until then.
+  const adoptSession = useCallback(({ sessionId, revealTurn }: SessionAdoption) => {
+    const client = directClient.current;
+    const select = window.cmuxAcpmuxActions?.["chat.select"];
+    if (!client || !select) return;
+    client.bindToSession(sessionId);
+    paintReported.current = false;
+    setAdoptingSession(sessionId);
+    setAwaitsChat(true);
+    setNewTab(undefined);
+    setNewSession(false);
+    setPastTurns(undefined);
+    setProjectDraft(undefined);
+    void select({ sessionId }).then(
+      () => {
+        if (revealTurn) revealRef.current(revealTurn);
+      },
+      // A chat that could not be read says so in the chat view (a missing chat, a failed open).
+      () => setAdoptingSession((current) => (current === sessionId ? undefined : current)),
+    );
+  }, []);
+  useSessionAdoption(adoptSession);
   // What this frame drew, not only that it drew: a chat taken from a kept tail is on screen in the
   // frame the open landed on, so the host shows the page instead of fading it in (tailCache.ts,
   // AgentPaneView+Loading.swift). A kept tail is drawn before the frame that shows what the pane
