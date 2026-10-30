@@ -214,15 +214,21 @@ pub enum PeerCmd {
 
 #[derive(Subcommand)]
 pub enum ConsentCmd {
+    /// Ask the app to grant screen or control consent (exactly one of --screen, --control).
     Grant {
-        #[arg(long)]
+        /// Screen recording.
+        #[arg(long, conflicts_with = "control", required_unless_present = "control")]
         screen: bool,
+        /// Keyboard and mouse control.
         #[arg(long)]
         control: bool,
     },
+    /// Ask the app to revoke screen or control consent (exactly one of --screen, --control).
     Revoke {
-        #[arg(long)]
+        /// Screen recording.
+        #[arg(long, conflicts_with = "control", required_unless_present = "control")]
         screen: bool,
+        /// Keyboard and mouse control.
         #[arg(long)]
         control: bool,
     },
