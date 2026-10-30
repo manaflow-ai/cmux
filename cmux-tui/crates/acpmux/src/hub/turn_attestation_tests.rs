@@ -1,5 +1,7 @@
 use super::*;
+use base64::Engine as _;
 use cmux_server::pairing::{self, Transport};
+use cmux_server_core::install_key::{InstallKey, SystemRandom};
 use cmux_server_core::pairing::enrollment::{Begun, Paired, Waited};
 use serde_json::json;
 
@@ -105,6 +107,43 @@ fn turn_attestation_signs_enrolled_identity_and_existing_journal_sequence_only()
     hub.append(&session, "mux", "turn_result", json!({"turnId":"turn-test","turnSeq":seq}));
     assert!(hub.issue_turn_attestation(&session.id, &enrolled, 60_000).is_err());
     assert!(hub.issue_turn_attestation("another-session", &enrolled, 60_000).is_err());
+}
+
+#[test]
+fn shared_turn_attestation_vector_matches_platform_preimage() {
+    let attestation = TurnAttestation {
+        session_id: "vector-session".into(),
+        turn_seq: 7,
+        team_install: "inst_vector".into(),
+        team: "team_vector".into(),
+        user: "user_vector".into(),
+        issued_at: 1_700_000_000_000,
+        expiry: 1_700_000_060_000,
+        nonce: "vector-nonce".into(),
+        signature:
+            "fmZ2JgEiGrBe1KTUFBQEGA-5j0xfdBwkkk6zCt3rp1NFr8_f79i4f4iGI_YCb-HcbSADTdRQOK4MeU-uh-47eg"
+                .into(),
+    };
+    let bytes = attestation.signing_bytes().unwrap();
+    assert_eq!(
+        base64::engine::general_purpose::STANDARD.encode(&bytes),
+        "WyJjbXV4LWFjcG11eC10dXJuLWF0dGVzdGF0aW9uLXYxIiwidmVjdG9yLXNlc3Npb24iLDcsImluc3RfdmVjdG9yIiwidGVhbV92ZWN0b3IiLCJ1c2VyX3ZlY3RvciIsMTcwMDAwMDAwMDAwMCwxNzAwMDAwMDYwMDAwLCJ2ZWN0b3Itbm9uY2UiXQ=="
+    );
+    let key = InstallKey::from_pkcs8_base64url(
+        "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgQ_TnLhFXosdlChKo2LZw_HkVaWT4xNqGv-JOteU7MPyhRANCAAQWrvJjw4seSMCT_0NqTZf8SZ11uSHA9JQF9zPhWGqIqr_H69jrCgS38IPyK6ygg7NBc2W3zpnY68Ow6NUzMzqf",
+        &SystemRandom::new(),
+    )
+    .unwrap();
+    assert!(cmux_server_core::install_key::verify(
+        &key.public_jwk(),
+        &bytes,
+        &attestation.signature
+    ));
+    assert!(cmux_server_core::install_key::verify(
+        &key.public_jwk(),
+        &bytes,
+        &key.sign(&bytes, &SystemRandom::new()).unwrap()
+    ));
 }
 
 #[test]
