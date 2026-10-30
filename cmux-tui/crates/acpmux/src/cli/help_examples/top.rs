@@ -192,6 +192,9 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     (
         "send",
         &[
+            ("Send to the one live `review`, here or on a peer", "acpmux send review \"ship it\""),
+            ("Send to `review` on peer hb", "acpmux send hb/review \"ship it\""),
+            ("Send to a session by its id prefix", "acpmux send 0199aaaa \"ship it\""),
             (
                 "Send coord a message and return at once",
                 "acpmux send --no-wait coord \"PR 27310 merged\"",

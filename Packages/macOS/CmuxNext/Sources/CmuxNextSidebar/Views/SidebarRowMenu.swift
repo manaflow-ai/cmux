@@ -13,6 +13,10 @@ struct SidebarRowMenu {
     func show(for id: WorkspaceID) {
         guard let provider = list.contextMenuProvider, let view = list.rowViews[.workspace(id)] as? WorkspaceRowView,
               let menu = provider(target(for: id)) else { return }
+        // popUp tracks the menu modally and returns when it closes: the row's controls and its lit more button hold
+        // for exactly that long, though the pointer leaves the row for the menu (Leo 2026-10-26).
+        view.showsMenu = true
+        defer { view.showsMenu = false }
         list.menuPresenter(menu, PopupAnchor(rect: view.moreButton.frame, edge: .trailing), view)
     }
 
