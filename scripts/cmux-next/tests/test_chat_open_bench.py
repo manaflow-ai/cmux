@@ -93,11 +93,29 @@ class OpenTests(unittest.TestCase):
     def setUp(self):
         self.bench = load_bench()
 
-    def test_open_shows_the_new_workspace(self):
+    def test_open_shows_the_workspace_it_created(self):
+        # By its ref: selectLast read the sidebar's order, which can lag the open on a loaded host,
+        # and showed the previous workspace (fleet, aws-m4pro-9: every open after the first).
         app = FakeApp({"agent.openSessionWorkspace": {"created": ["ws_1"]}})
         reply = self.bench.open_workspace(types.SimpleNamespace(app=app), "s1")
+        self.assertEqual([(c[0], c[1], c[2]) for c in app.calls],
+                         [("agent.openSessionWorkspace", True, {"session": "s1"}),
+                          ("goToWorkspace", True, {"workspace": "ws_1"})])
+        self.assertEqual(reply["created"], ["ws_1"])
+        self.assertEqual(reply["shown"], {"via": "goToWorkspace", "reply": {}})
+
+    def test_open_with_no_created_ref_falls_back_to_the_last_workspace(self):
+        app = FakeApp({"agent.openSessionWorkspace": {}, "workspace.selectLast": {}})
+        reply = self.bench.open_workspace(types.SimpleNamespace(app=app), "s1")
         self.assertEqual([c[0] for c in app.calls], ["agent.openSessionWorkspace", "workspace.selectLast"])
-        self.assertEqual(reply, {"created": ["ws_1"]})
+        self.assertEqual(reply["shown"]["via"], "workspace.selectLast")
+
+    def test_a_refused_switch_falls_back_and_says_so(self):
+        app = FakeApp({"agent.openSessionWorkspace": {"created": ["ws_1"]},
+                       "goToWorkspace": {"error": "No workspace ws_1."}})
+        reply = self.bench.open_workspace(types.SimpleNamespace(app=app), "s1")
+        self.assertEqual([c[0] for c in app.calls], ["agent.openSessionWorkspace", "goToWorkspace", "workspace.selectLast"])
+        self.assertEqual(reply["shown"]["refused"], {"error": "No workspace ws_1."})
 
     def test_a_refused_open_shows_nothing(self):
         app = FakeApp({"agent.openSessionWorkspace": {"error": "daemon offline"}})
