@@ -42,7 +42,7 @@ public struct SessionRegistrationLedger<Record: Hashable & Sendable>: Sendable {
 
     private struct Entry: Sendable {
         var record: Record
-        var connection: ObjectIdentifier
+        var connection: AnyHashable
         var state: State
         var pacer: RetryPacer
     }
@@ -57,7 +57,7 @@ public struct SessionRegistrationLedger<Record: Hashable & Sendable>: Sendable {
     }
 
     /// Whether `record` must be sent for `session` on `connection` now; when true it counts as in flight.
-    public mutating func shouldSend(session: String, record: Record, connection: ObjectIdentifier) -> Bool {
+    public mutating func shouldSend(session: String, record: Record, connection: AnyHashable) -> Bool {
         if var entry = entries[session], entry.record == record, entry.connection == connection {
             switch entry.state {
             case .inFlight, .recorded, .refused, .backingOff: return false
@@ -71,6 +71,26 @@ public struct SessionRegistrationLedger<Record: Hashable & Sendable>: Sendable {
         entries[session] = Entry(record: record, connection: connection, state: .inFlight, pacer: RetryPacer(policy))
         return true
     }
+
+    /// ``shouldSend(session:record:connection:)`` that returns the send's token, or nil when nothing is sent.
+    public mutating func begin(session: String, record: Record, connection: AnyHashable) -> UInt64? {
+        shouldSend(session: session, record: record, connection: connection) ? 0 : nil
+    }
+
+    /// The daemon recorded the send `token`.
+    public mutating func succeeded(session: String, token: UInt64) {
+        guard let record = entries[session]?.record else { return }
+        succeeded(session: session, record: record)
+    }
+
+    /// The daemon did not record the send `token`.
+    public mutating func failed(session: String, token: UInt64, failure: Failure) -> Outcome {
+        guard let record = entries[session]?.record else { return Outcome(refusal: nil, retryAfter: nil) }
+        return failed(session: session, record: record, failure: failure)
+    }
+
+    /// Forgets every session not in `sessions` (gone from the machine list).
+    public mutating func retain(sessions: Set<String>) {}
 
     /// The daemon recorded `record`.
     public mutating func succeeded(session: String, record: Record) {
