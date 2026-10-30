@@ -142,6 +142,23 @@ describe("backgroundGroups", () => {
     expect(only!.running.map((task) => task.stop)).toEqual([undefined]);
   });
 
+  test("a paused workflow reads stopped: no spinner, no clock, no stop, and Clear finished clears it", () => {
+    const workflow = agent("wf", {
+      kind: "workflow",
+      runId: "wf_run",
+      paused: true,
+      workflowAgents: new Map([
+        [1, { index: 1, label: "critic", agentId: "crit", state: "running", startedAt: 1_400 }],
+      ]),
+    });
+    const groups = backgroundGroups(input([group([workflow])], {}, { sessionId: "chat" }));
+    expect(groups[0]).toMatchObject({ state: "stopped", running: [] });
+    expect(groups[0]!.stop).toBeUndefined();
+    expect(groups[0]!.finished.map((task) => task.state)).toEqual(["stopped"]);
+    expect(anyRunning(groups)).toBe(false);
+    expect(finishedGroupIds(groups)).toEqual([clearKey(groups[0]!)]);
+  });
+
   test("an agent that ended while a nested agent still runs stays live: ordered with the running, never cleared", () => {
     const rows = [
       group([
