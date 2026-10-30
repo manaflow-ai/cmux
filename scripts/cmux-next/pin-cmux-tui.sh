@@ -116,6 +116,9 @@
 #          CMUX_TUI_TREE_TIP_WAIT_SECONDS (3000), for the tip's active publisher; CMUX_TUI_TREE_SAME_PATHS, space-separated
 #          paths, skips a commit whose copy of any of them differs from the tip's;
 #          no Mac Release compile is required: the nightly compiles the app itself)
+#        | runs-state <commit> (its cmux-tui artifacts runs: active, none, unknown, or "ended <conclusions>")
+#        | active-publisher <key> (the head commit of an active cmux-tui artifacts run whose
+#          commit has tree <key>; nothing when none; "unknown" when the runs cannot all be read)
 #        | verify-key <key> (commit=<publishing commit> when tree <key> is published and its
 #          manifest sha256 verifies; exit 1 not published (a 404), 3 a read failure or unverifiable)
 #        | wait (wait for the tree; superseded=true output for a superseded commit)
@@ -323,21 +326,105 @@ refuse_dirty_source() {
   exit 1
 }
 
+# GitHub API rate limits wait instead of failing. The installation's REST
+# budget is shared by every workflow; when it hit 0 (2026-10-30, 06:48Z to
+# 07:25Z), every feat-cmux-next push's path routing read the artifacts runs as
+# unreadable and failed its same-tree cmux-tui job, run 41018375309. A refused
+# read now waits for the reset GitHub names (Retry-After, else
+# x-ratelimit-reset) and reads again, within CMUX_TUI_TREE_RATE_LIMIT_WAIT_SECONDS
+# (default 60) for this whole invocation. A reset further off than that is
+# reported as rate-limited, never as "no run" (the probe defers on it).
+rate_limit_budget="${CMUX_TUI_TREE_RATE_LIMIT_WAIT_SECONDS:-60}"
+[[ "$rate_limit_budget" =~ ^(0|[1-9][0-9]*)$ ]] || rate_limit_budget=60
+rate_limit_deadline=$(( $(date +%s) + rate_limit_budget ))
+
+# rate_limit_wait <status> <headers file>: with the response body on stdin,
+# prints the seconds until GitHub accepts the call again when the response is a
+# rate-limit refusal: HTTP 429, or 403 with x-ratelimit-remaining: 0, a
+# Retry-After, or a body naming a rate limit (the secondary limit sends no
+# reset; 60 s then). Exit 1 for any other response (a permission 403 included).
+rate_limit_wait() {
+  python3 -c '
+import re, sys
+status, path, now = sys.argv[1], sys.argv[2], int(sys.argv[3])
+body = sys.stdin.read()
+headers = {}
+for line in open(path, encoding="latin-1"):
+    if line.upper().startswith("HTTP/"):
+        headers = {}  # a redirect: only the last response counts
+        continue
+    name, sep, value = line.partition(":")
+    if sep:
+        headers[name.strip().lower()] = value.strip()
+retry = headers.get("retry-after", "")
+remaining = headers.get("x-ratelimit-remaining", "")
+reset = headers.get("x-ratelimit-reset", "")
+named = re.search(r"rate limit|abuse detection|too many requests", body, re.IGNORECASE)
+if status != "429" and not (status == "403" and (remaining == "0" or retry.isdigit() or named)):
+    sys.exit(1)
+if retry.isdigit():
+    wait = int(retry)
+elif remaining == "0" and reset.isdigit():
+    wait = int(reset) - now + 1
+else:
+    wait = 60
+print(max(1, wait))
+' "$1" "$2" "$(date +%s)"
+}
+
+# github_get <url>: one GitHub REST GET (with GH_TOKEN when set), the body on
+# stdout. Exit 0 read; 1 any other failure, as a plain `curl -f` read; 4 still
+# refused for the rate limit because its reset is past rate_limit_deadline.
+github_get() {
+  local url="$1" headers body rc status wait auth=()
+  [[ -n "${GH_TOKEN:-}" ]] && auth=(-H "Authorization: Bearer $GH_TOKEN")
+  headers="$(mktemp "${TMPDIR:-/tmp}/cmux-tui-api.XXXXXX")" || return 1
+  while :; do
+    : > "$headers"
+    rc=0
+    body="$(curl -sSL --connect-timeout 10 --max-time 30 -D "$headers" ${auth[@]+"${auth[@]}"} \
+      -H "Accept: application/vnd.github+json" \
+      -H "X-GitHub-Api-Version: 2022-11-28" "$url" 2>/dev/null)" || rc=$?
+    status="$(awk '{ sub(/\r$/, "") } toupper($1) ~ /^HTTP\// { code = $2 } END { print code }' "$headers" 2>/dev/null)"
+    # No status line: a non-HTTP URL (the tests' file://) read by curl itself.
+    if (( rc == 0 )) && [[ -z "$status" || "$status" == 2?? ]]; then
+      rm -f "$headers"; printf '%s\n' "$body"; return 0
+    fi
+    if (( rc != 0 )) || ! wait="$(rate_limit_wait "$status" "$headers" <<<"$body")"; then
+      rm -f "$headers"; return 1
+    fi
+    if (( $(date +%s) + wait > rate_limit_deadline )); then
+      echo "note: GitHub API rate limit (HTTP $status) on ${url%%\?*}: it resets in ${wait}s, past this check's rate-limit wait (CMUX_TUI_TREE_RATE_LIMIT_WAIT_SECONDS=$rate_limit_budget)" >&2
+      rm -f "$headers"; return 4
+    fi
+    echo "note: GitHub API rate limit (HTTP $status) on ${url%%\?*}; waiting ${wait}s for the reset, then reading again" >&2
+    sleep "$wait"
+  done
+}
+
 # Prints the state of the cmux-tui artifacts runs for commit <sha>, one line:
 #   active               a run is queued, waiting or in progress
 #   ended <runs>         every run completed; <runs> lists conclusion: url
 #   none                 no run exists for the commit
-#   unknown              the API could not be read (the caller keeps waiting)
+#   unknown              the API could not be read (the caller keeps waiting),
+#                        a rate limit past this invocation's wait included
 artifacts_runs_state() {
-  local sha="$1" url body
+  local state
+  state="$(artifacts_runs_state_or_limited "$1")"
+  [[ "$state" != rate-limited ]] || state=unknown
+  echo "$state"
+}
+
+# artifacts_runs_state, except that a rate limit whose reset is past this
+# invocation's wait prints rate-limited instead of unknown (the probe defers on it).
+artifacts_runs_state_or_limited() {
+  local sha="$1" url body rc=0
   url="${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY:-manaflow-ai/cmux}/actions/workflows/cmux-tui-artifacts.yml/runs?head_sha=$sha&per_page=20"
   # manaflow-ai/cmux is public: without GH_TOKEN (a fleet host) the read is unauthenticated,
   # 60 an hour per address, and the wait checks at most every CMUX_TUI_TREE_RUN_CHECK_SECONDS.
-  local auth=()
-  [[ -n "${GH_TOKEN:-}" ]] && auth=(-H "Authorization: Bearer $GH_TOKEN")
-  body="$(curl -fsSL --connect-timeout 10 --max-time 30 ${auth[@]+"${auth[@]}"} \
-    -H "Accept: application/vnd.github+json" \
-    -H "X-GitHub-Api-Version: 2022-11-28" "$url" 2>/dev/null)" || { echo unknown; return 0; }
+  body="$(github_get "$url")" || rc=$?
+  if (( rc == 4 )); then echo rate-limited; return 0; fi
+  (( rc == 0 )) || { echo unknown; return 0; }
   python3 -c '
 import json, sys
 try:
@@ -369,10 +456,7 @@ sys.exit(0 if parts and all(re.match(r"(cancelled|success): ", p) for p in parts
 ' "$state" || return 0
   [[ "${GITHUB_REF:-}" == refs/heads/* ]] || return 0
   branch="${GITHUB_REF#refs/heads/}"
-  head="$(curl -fsSL --connect-timeout 10 --max-time 30 \
-    -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
-    -H "X-GitHub-Api-Version: 2022-11-28" \
-    "${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY:-manaflow-ai/cmux}/git/ref/heads/$branch" 2>/dev/null \
+  head="$(github_get "${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY:-manaflow-ai/cmux}/git/ref/heads/$branch" \
     | python3 -c 'import json,sys; print(json.load(sys.stdin)["object"]["sha"])' 2>/dev/null)" || return 0
   [[ "$head" =~ ^[0-9a-f]{40}$ && "$head" != "$sha" ]] && echo "$head"
   return 0
@@ -382,17 +466,6 @@ sys.exit(0 if parts and all(re.match(r"(cancelled|success): ", p) for p in parts
 github_token() {
   if [[ -n "${GH_TOKEN:-}" ]]; then printf '%s\n' "$GH_TOKEN"; return 0; fi
   command -v gh >/dev/null 2>&1 && gh auth token 2>/dev/null
-}
-
-# github_api <method> <repository path> [json body]: one REST call with GH_TOKEN.
-github_api() {
-  local method="$1" path="$2" body="${3:-}" auth=()
-  # A GET works without a token (public repository); a write needs GH_TOKEN.
-  [[ -n "${GH_TOKEN:-}" ]] && auth=(-H "Authorization: Bearer $GH_TOKEN")
-  curl -fsSL --connect-timeout 10 --max-time 30 -X "$method" ${auth[@]+"${auth[@]}"} \
-    -H "Accept: application/vnd.github+json" \
-    -H "X-GitHub-Api-Version: 2022-11-28" ${body:+-d "$body"} \
-    "${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY:-manaflow-ai/cmux}/$path"
 }
 
 # Prints the head_sha of an active (not completed) cmux-tui artifacts run whose
@@ -415,7 +488,7 @@ active_publisher_for_key() {
   local budget="${CMUX_TUI_TREE_RUN_FETCH_SECONDS:-60}" public
   [[ "$budget" =~ ^(0|[1-9][0-9]*)$ ]] || budget=60
   public="${CMUX_TUI_PUBLIC_GIT_URL:-https://github.com/${GITHUB_REPOSITORY:-manaflow-ai/cmux}.git}"
-  body="$(github_api GET "actions/workflows/cmux-tui-artifacts.yml/runs?per_page=50" 2>/dev/null)" || {
+  body="$(github_get "${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY:-manaflow-ai/cmux}/actions/workflows/cmux-tui-artifacts.yml/runs?per_page=50")" || {
     echo "note: could not list cmux-tui artifacts runs (rate limit or network): a same-tree run is unknown" >&2; echo unknown; return 0; }
   python3 -c '
 import json, sys
@@ -1109,7 +1182,10 @@ tree_published() {
 # A missing or
 # unreadable run list is re-checked once
 # after CMUX_TUI_TREE_RECHECK_SECONDS (default 20): a push's runs can appear a
-# moment after the push. Exit 0 for every state.
+# moment after the push. A GitHub API rate limit is waited out within
+# CMUX_TUI_TREE_RATE_LIMIT_WAIT_SECONDS (github_get); one that resets later
+# defers (the publisher's end starts or fails the tree jobs), never fails.
+# Exit 0 for every state.
 probe_checkout_tree() {
   local key legacy publisher="${CMUX_TUI_TREE_PUBLISHER_SHA:-}"
   local base_key="" source="" state="" reason="" recheck="${CMUX_TUI_TREE_RECHECK_SECONDS:-20}" superseded=""
@@ -1129,7 +1205,7 @@ probe_checkout_tree() {
   probe_state() {
     if tree_published "$key" "$legacy"; then echo ready; return; fi
     case "$source" in
-      commit:*) artifacts_runs_state "${source#commit:}" ;;
+      commit:*) artifacts_runs_state_or_limited "${source#commit:}" ;;
       *) echo none ;;
     esac
   }
@@ -1196,6 +1272,13 @@ probe_checkout_tree() {
         reason="no cmux-tui artifacts run exists for ${source#*:}, so nothing publishes tree $key. $(pin_push_hint)"
         state=failed
       fi ;;
+    rate-limited)
+      # Fails open, never red: the API refused the read for its rate limit and
+      # resets after this check's wait (github_get above). The publisher's
+      # artifacts run, when it ends, starts the tree jobs through the wait
+      # marker (published) or reports the miss (cmux_next_tree_notify.py).
+      state=deferred
+      reason="the GitHub API rate limit refused reading the cmux-tui artifacts runs for ${source#*:} and resets after this check's wait, so this run does not wait for tree $key: its publisher's artifacts run starts the tree jobs when it publishes, or reports the miss when it ends without publishing" ;;
     *) state=failed
       reason="could not read the cmux-tui artifacts runs for ${source#*:} (GitHub API), so no publisher of tree $key is known; re-run this check" ;;
   esac
@@ -1714,6 +1797,14 @@ PY
     ;;
   verify-key)
     verify_key_command "${1:-}"
+    ;;
+  runs-state)
+    [[ "${1:-}" =~ ^[0-9a-f]{40}$ ]] || { echo "error: runs-state takes a 40-hex commit" >&2; exit 2; }
+    artifacts_runs_state "$1"
+    ;;
+  active-publisher)
+    [[ "${1:-}" =~ ^[0-9a-f]{40}$ ]] || { echo "error: active-publisher takes a 40-hex tree key" >&2; exit 2; }
+    active_publisher_for_key "$1"
     ;;
   resolve-exact)
     resolve_exact_tree

@@ -245,8 +245,17 @@ extension NewTabPage {
         }
         let opened = services.pages.open(.nativeNewTab, in: pane.pane.id, of: pane.daemon.store, after: pane.stripModel.selectedID?.rawValue,
                                          window: services.windowController(showing: pane))
+        // The prepared page, if one is parked (NewTabSparePool.warmNative); the pane's view for `opened` adopts it.
+        let spare = services.newTabSpares.takeNative(for: opened)
         pane.apply(pane.snapshot())
         services.pages.reveal(opened, in: pane)
+        // Shown in this turn, as the web page's spare is, not on the next presentation frame.
+        _ = services.presentation.showNow(pane)
+        if spare != nil {
+            // Its field exists already: the keys held since Cmd-T go there now.
+            input.didShow(in: pane.view.window)
+            input.flush(in: pane.view.window)
+        }
         return opened
     }
 
@@ -258,8 +267,15 @@ extension NewTabPage {
         let page = BenchSpans.measure("newTab.nativeContext") {
             Self.page(services, selected: pane.selectedTab, window: pane.view.window, pane: pane, paletteActions: false)
         }
-        let model = NativeNewTabModel(page: page, actions: nativeActions(key, cwd: page.cwd, pane: pane),
-                                      paletteActions: { [weak services] in services.map(Self.paletteActions) ?? [] })
+        let actions = nativeActions(key, cwd: page.cwd, pane: pane)
+        let list: @MainActor () -> [AgentPaneOmnibar.Action] = { [weak services] in services.map(Self.paletteActions) ?? [] }
+        // Cmd-T took the prepared page: it takes this tab's context, already laid out.
+        if let spare = services.newTabSpares.claimNative(key), let model = spare.model {
+            model.adopt(page: page, actions: actions, paletteActions: list)
+            closeFrame.scheduleFrame { closeFrame.scheduleFrameFromMain { [weak model] in model?.loadPaletteActions() } }
+            return spare
+        }
+        let model = NativeNewTabModel(page: page, actions: actions, paletteActions: list)
         closeFrame.scheduleFrame { closeFrame.scheduleFrameFromMain { [weak model] in model?.loadPaletteActions() } }
         let host = NativeNewTabView.hosted(model)
         // The page counts as shown (leaving it ends the hold) only once its field exists: until then

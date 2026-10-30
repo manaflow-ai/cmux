@@ -12,6 +12,7 @@ mod agent_pairs;
 mod message_events;
 pub use agent_pairs::PairGuard;
 mod aside;
+mod atomic_json;
 pub(crate) mod auto_resume;
 mod bg_tasks;
 mod bounded;
@@ -26,7 +27,7 @@ pub(crate) mod turn_errors;
 pub(crate) use btw::SIDE_TAG;
 pub(crate) use policy_mode::SetRequest;
 mod bookmarks;
-mod cancel;
+pub(crate) mod cancel;
 mod catalog_reload;
 mod complete;
 pub mod composers;
@@ -114,6 +115,7 @@ pub(super) use session::{newest_first, prompt_text, short_text};
 mod shell_readonly;
 mod shutdown;
 pub use shutdown::SHUTTING_DOWN;
+pub(crate) mod inbox;
 mod spawn;
 mod start_defaults;
 pub(crate) mod start_mode;
@@ -123,6 +125,7 @@ mod steer_end;
 mod store_load;
 mod stream;
 mod tags;
+mod tailnet_controller;
 mod tap;
 mod titles;
 mod tool_paths;
@@ -135,6 +138,7 @@ pub use new_request::{
 pub use paging::{EventFilter, EventPage, MAX_PAGE_BYTES, page_bytes};
 pub use spawn::expand_env_value;
 pub mod approvers;
+pub(crate) mod key_route;
 pub mod mac_approvers;
 mod own_host;
 mod peer_cache;
@@ -178,8 +182,11 @@ pub use subsession_send::Delivery;
 mod drafts;
 pub(crate) mod outbox;
 pub mod rules;
+#[cfg(test)]
+mod stop_settles_tests;
 mod transcript;
 mod transfer;
+mod transfer_authority;
 mod transfer_guard;
 mod transfer_in;
 mod transfer_out;
@@ -210,6 +217,7 @@ use crate::rpc::{Id, Message, RpcError, method};
 use crate::session_identity::{LOCAL_HOST_ID, SessionReceipt};
 use crate::store::{EventRecord, META_SCHEMA, SessionMeta, SessionStatus, Store, now_ms};
 use anyhow::Result;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 /// True when a permission request is an agent's question (`questions.rs`): what tells the
@@ -385,6 +393,13 @@ pub struct PromptOptions {
     /// A queued prompt sent now (`queue.rs` `steer_queued`): it steers in even past the running
     /// turn's cap (`turn_cap.rs`).
     pub send_now: bool,
+    /// The thread another agent's message goes in (`inbox.rs` `explicit_thread`): `pr:N` or
+    /// `topic:T`; `None` derives it.
+    pub thread: Option<String>,
+    /// A plain send from another agent on this host (`session/prompt`, `inbox::plain_send`): the
+    /// chat's inbox takes it. Every other path that prompts (reports, task cards, a paused pair's
+    /// release, a peer's or the mesh relay's forward) keeps the queue.
+    pub inbox: bool,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -876,18 +891,6 @@ impl Hub {
         &self.mailbox
     }
 
-    #[cfg(all(unix, feature = "tailnet"))]
-    pub(crate) fn tailnet_controller(&self) -> Arc<crate::tailnet::embedded::Controller> {
-        self.tailnet_controller
-            .get_or_init(|| {
-                crate::tailnet::embedded::Controller::new(
-                    crate::tailnet::embedded::state_dir(&crate::config::home()),
-                    crate::hand::pair::hostname(),
-                )
-            })
-            .clone()
-    }
-
     pub(super) fn load_from_store(self: &Arc<Self>, deferred: bool) {
         // A bounded debug seam for slow-filesystem startup tests; absent in release builds.
         #[cfg(debug_assertions)]
@@ -969,6 +972,7 @@ impl Hub {
         }
         let session = self.make_session(meta);
         session.caught_up.store(false, Ordering::SeqCst);
+        *session.transfer_authority.lock().unwrap_or_else(|e| e.into_inner()) = None;
         // Its log is read after the ready line (`log_load.rs`).
         *session.log_load.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = false;
         session.log_loaded.store(false, Ordering::SeqCst);
@@ -1090,6 +1094,7 @@ impl Hub {
             team_information: Default::default(),
             queue_moved: Notify::new(),
             moving: StdMutex::new(moving),
+            transfer_authority: StdMutex::new(Some((0, false))),
             restored: StdMutex::new(Vec::new()),
             inbox_digests: StdMutex::new(HashMap::new()),
             stream: StdMutex::new(StreamState::default()),
@@ -1148,6 +1153,7 @@ impl Hub {
             last_model_at: AtomicU64::new(0),
             silent_turn: StdMutex::new(None),
             turn_cap_timer: StdMutex::new(None),
+            inbox: StdMutex::new(inbox::Inbox::default()),
             last_active: AtomicU64::new(self.clock_now()),
             hibernated_at: AtomicU64::new(hibernated_at),
             wake_cause: StdMutex::new(None),
@@ -1173,7 +1179,17 @@ impl Hub {
         newest_first(v)
     }
 
-    fn resolve_here(&self, key: &str) -> Result<Arc<Session>, RpcError> {
+    /// This daemon's own session `key` names: its id, its whole name, then a unique prefix of
+    /// either. Only when none of those finds a session here and no peer lists one `key` names
+    /// (by id, id prefix, whole name or `PEER/NAME`, `Hub::remote_strict_matches`), a bare key
+    /// (no `/`) that is a sub-session's last name segment (`mac-ci-3` for `claude-sr2/mac-ci-3`,
+    /// `session_name::ends_with_segments`) names it: so no key that found a session before
+    /// short names, or was refused, finds another now. A short name only a peer's session has
+    /// is the peer route's (`Hub::resolve_remote`); one several sessions share, here or on
+    /// peers, is refused with their names. A miss is the plain `no session matches`
+    /// (`Hub::unknown_session` adds the close names where a caller is told). A key with a `/`
+    /// never matches by short name here: `HOST/NAME` stays a host's (`own_host.rs`).
+    pub(super) fn resolve_here(&self, key: &str) -> Result<Arc<Session>, RpcError> {
         let sessions = self.sessions.lock().unwrap();
         // A qualified id is authoritative for new routing. The old bare id,
         // name and prefix forms below remain compatible.
@@ -1188,25 +1204,147 @@ impl Hub {
         }
         // Names are read under each session's meta lock, never cloned: a
         // clone of every meta took ~45 ms with 2,500 sessions, on each Stop
-        // (`acpmux session cancel NAME`) and every other call by name.
-        let named = |s: &Session, pick: &dyn Fn(&str) -> bool| {
-            pick(&s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner).name)
-        };
-        let mut by_name: Vec<_> =
-            sessions.values().filter(|s| named(s, &|n| n == key)).cloned().collect();
+        // (`acpmux session cancel NAME`) and every other call by name. One
+        // pass sorts them into the tiers below.
+        let bare = !key.contains('/');
+        let (mut by_name, mut by_segment, mut by_prefix) = (Vec::new(), Vec::new(), Vec::new());
+        for s in sessions.values() {
+            let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if meta.name == key {
+                by_name.push(s.clone());
+            }
+            if bare && crate::session_name::ends_with_segments(&meta.name, key) {
+                by_segment.push((s.clone(), meta.status == SessionStatus::Closed));
+            }
+            if s.id.starts_with(key) || meta.name.starts_with(key) {
+                by_prefix.push(s.clone());
+            }
+        }
+        drop(sessions);
         if by_name.len() == 1 {
             return Ok(by_name.remove(0));
         }
-        let by_prefix: Vec<_> = sessions
-            .values()
-            .filter(|s| s.id.starts_with(key) || named(s, &|n| n.starts_with(key)))
-            .cloned()
-            .collect();
-        match by_prefix.len() {
-            1 => Ok(by_prefix.into_iter().next().unwrap()),
-            0 => Err(RpcError::not_found(format!("no session matches {key:?}"))),
-            n => Err(RpcError::invalid_params(format!("{key:?} matches {n} sessions; use the id"))),
+        let named = |matched: &[Arc<Session>]| -> Vec<String> {
+            matched
+                .iter()
+                .map(|s| {
+                    format!("{} ({})", s.meta.lock().unwrap_or_else(|e| e.into_inner()).name, s.id)
+                })
+                .collect()
+        };
+        let tied = |mut names: Vec<String>| {
+            names.sort();
+            names.dedup();
+            crate::session_name::ambiguous(key, &names)
+        };
+        // A short name here, only where the rules above find nothing here and no peer lists a
+        // session `key` names: then this answers as it did before short names matched. The
+        // peers' rows are read only with a local candidate in hand (a plain miss, as for every
+        // request a peer's session serves, reads none), with this daemon's sessions unlocked.
+        // A short name only a peer's session has is `resolve_remote`'s.
+        if by_name.is_empty()
+            && by_prefix.is_empty()
+            && !by_segment.is_empty()
+            && self.remote_strict_matches(key) == 0
+        {
+            // Closed ones count only when no live one, here or on a peer, has the short name
+            // (`hub/key_route.rs`), so this agrees with the route the unix socket takes.
+            let remote = self.remote_segment_names(key);
+            let live = by_segment.iter().any(|(_, closed)| !closed)
+                || remote.iter().any(|(_, closed)| !closed);
+            let here: Vec<Arc<Session>> = by_segment
+                .into_iter()
+                .filter(|(_, closed)| !live || !closed)
+                .map(|(s, _)| s)
+                .collect();
+            let there: Vec<String> =
+                remote.into_iter().filter(|(_, closed)| !live || !closed).map(|(n, _)| n).collect();
+            match (here.as_slice(), there.len()) {
+                ([one], 0) => return Ok(one.clone()),
+                // The one a peer has is `resolve_remote`'s.
+                ([], 1) => return Err(crate::session_name::not_found(key, &[])),
+                // Several, here or on peers: a tie, refused with every name.
+                _ => {
+                    let mut names = named(&here);
+                    names.extend(there);
+                    return Err(tied(names));
+                }
+            }
         }
+        match by_prefix.len() {
+            1 => Ok(by_prefix.remove(0)),
+            0 => Err(crate::session_name::not_found(key, &[])),
+            _ => Err(tied(named(&by_prefix))),
+        }
+    }
+
+    /// This daemon's own sessions `key` names: [by id, name or a prefix of either; by short name
+    /// and live; by short name and closed]. A peer's short name gives way to the first two, and
+    /// to the third only when it is closed too (`Hub::resolve_remote`).
+    pub(super) fn local_match_counts(&self, key: &str) -> [usize; 3] {
+        let bare = !key.contains('/');
+        let sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut counts = [0; 3];
+        for s in sessions.values() {
+            let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if s.id.starts_with(key) || meta.name.starts_with(key) {
+                counts[0] += 1;
+            } else if bare && crate::session_name::ends_with_segments(&meta.name, key) {
+                let slot = if meta.status == SessionStatus::Closed { 2 } else { 1 };
+                if let Some(count) = counts.get_mut(slot) {
+                    *count += 1;
+                }
+            }
+        }
+        counts
+    }
+
+    /// The one session here whose last name segment is the bare `key` (`HOST/SHORT` with this
+    /// machine as `HOST`, `own_host.rs`): None when none is; refused when several are. Closed
+    /// sessions count only when none is live, as in `key_route` and `resolve_here`.
+    pub(super) fn resolve_short_here(&self, key: &str) -> Option<Result<Arc<Session>, RpcError>> {
+        if key.contains('/') {
+            return None;
+        }
+        let sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (live, closed): (Vec<_>, Vec<_>) = sessions
+            .values()
+            .filter_map(|s| {
+                let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                crate::session_name::ends_with_segments(&meta.name, key)
+                    .then(|| (s.clone(), meta.name.clone(), meta.status == SessionStatus::Closed))
+            })
+            .partition(|(_, _, closed)| !closed);
+        drop(sessions);
+        let found = if live.is_empty() { closed } else { live };
+        match found.as_slice() {
+            [] => None,
+            [(s, _, _)] => Some(Ok(s.clone())),
+            many => Some(Err(crate::session_name::ambiguous(
+                key,
+                &many.iter().map(|(s, n, _)| format!("{n} ({})", s.id)).collect::<Vec<_>>(),
+            ))),
+        }
+    }
+
+    /// The refusal for a key no session here or on a peer names, with the names it nearly
+    /// matched (`session_name::candidates`), so the caller can pick one instead of running
+    /// `acpmux ls`. Reads every name: only where the refusal goes back to a caller.
+    pub fn unknown_session(&self, key: &str) -> RpcError {
+        let lower = key.to_ascii_lowercase();
+        let mut names: Vec<String> = self
+            .sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .values()
+            .filter_map(|s| {
+                let name = s.meta.lock().unwrap_or_else(|e| e.into_inner()).name.clone();
+                name.to_ascii_lowercase().contains(&lower).then_some(name)
+            })
+            .collect();
+        names.extend(self.remote_names_containing(&lower));
+        let close = crate::session_name::candidates(names.iter().map(String::as_str), key);
+        crate::session_name::not_found(key, &close)
     }
 
     // ------------------------------------------------------------ logging
@@ -1266,9 +1404,9 @@ impl Hub {
             "messageId": message_id,
         });
         if let Some(target) = target_scope {
-            msg["_acpmuxTarget"] = json!(target);
+            msg.set("_acpmuxTarget", json!(target));
             if let Some(peer) = target_peer {
-                msg["_acpmuxTargetPeer"] = json!(peer);
+                msg.set("_acpmuxTargetPeer", json!(peer));
             }
         }
         tool_paths::add_canonical_paths(session, "_acpmux/message", &mut msg);
@@ -1445,6 +1583,9 @@ impl Hub {
                 false
             }
         };
+        if stored {
+            session.note_transfer_event(&record);
+        }
         // A closed session's log is not held open: its last records (`status`,
         // then the agent's `stopped`) each close it again (`store.rs` Writers).
         if session.status() == SessionStatus::Closed {

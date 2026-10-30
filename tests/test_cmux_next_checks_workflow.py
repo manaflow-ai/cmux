@@ -1381,7 +1381,8 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         self.assertIn("vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404'", runs_on)
         self.assertNotIn("vars.", OVERFLOW_FAILOVER.sub("", runs_on), "an ephemeral Linux VM, never a reused mini")
         # The same gate, except that the Mac half also follows the route (MacFastTierFollowsTheRoute).
-        self.assertEqual(cargo["if"], mac["if"].replace(" && needs.path_route.outputs.macos != 'false'", ""))
+        self.assertEqual(cargo["if"], mac["if"].replace(
+            " && needs.path_route.outputs.macos != 'false' && needs.path_route.outputs.fast_tier != 'false'", ""))
         self.assertNotEqual(cargo["if"], mac["if"])
         self.assertEqual(cargo["needs"], ["push-head-preflight"])
         self.assertEqual(cargo["concurrency"]["group"], mac["concurrency"]["group"].replace("-fast-tier'", "-fast-tier-cargo'"))
@@ -1467,7 +1468,7 @@ class MacFastTierFollowsTheRoute(unittest.TestCase):
         self.evaluate = evaluate
         self.jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
 
-    def runs(self, job: str, event: str, macos: str | None) -> bool:
+    def runs(self, job: str, event: str, macos: str | None, fast_tier: str | None = None) -> bool:
         expression = self.jobs[job]["if"].replace("!cancelled()", "true")
         pull = event == "pull_request"
         context = {
@@ -1481,7 +1482,8 @@ class MacFastTierFollowsTheRoute(unittest.TestCase):
             "vars": {"CI_PR_POOL_OWNED": "1"},
             "needs": {
                 "push-head-preflight": {"outputs": {"current": "true"}},
-                "path_route": {"outputs": {} if macos is None else {"macos": macos}},
+                "path_route": {"outputs": {key: value for key, value in (("macos", macos), ("fast_tier", fast_tier))
+                                           if value is not None}},
             },
         }
         return bool(self.evaluate(expression, context))
@@ -1514,6 +1516,36 @@ class MacFastTierFollowsTheRoute(unittest.TestCase):
 
     def test_the_mac_fast_tier_waits_for_the_route(self):
         self.assertIn("path_route", self.jobs["fast-tier"]["needs"])
+
+    def route_outputs(self, changed: list[str]) -> dict[str, str]:
+        import cmux_next_route
+        return cmux_next_route.outputs(cmux_next_route.route(ROOT, "pull_request", changed, set()))
+
+    def test_a_daemon_only_pull_request_starts_no_mac_fast_tier(self):
+        """A cmux-tui Rust change keeps its daemon tier, but the Mac fast tier builds only the CmuxNext
+        package and runs its Swift suites, none of which read cmux-tui: its result is the base's. In the
+        12:43Z queue on 2026-10-30, 13 such pull requests each waited on a Mac fast tier."""
+        for changed in (["cmux-tui/crates/acpmux/src/cli/help_examples/session.rs"],
+                        ["Native/OptChat/optchat-chief/tests/harness.rs"]):
+            with self.subTest(changed=changed):
+                out = self.route_outputs(changed)
+                self.assertEqual(out["macos"], "true")
+                self.assertEqual(out["fast_tier"], "false")
+                self.assertFalse(self.runs("fast-tier", "pull_request", out["macos"], out["fast_tier"]))
+                self.assertTrue(self.runs("fast-tier-cargo", "pull_request", out["macos"], out["fast_tier"]))
+        placement = self.jobs["macos-placement"]["steps"]
+        cascade = next(step["env"]["CASCADE_RUNS"] for step in placement if "CASCADE_RUNS" in step.get("env", {}))
+        self.assertIn("needs.path_route.outputs.fast_tier != 'false'", cascade)
+
+    def test_a_package_change_runs_the_mac_fast_tier(self):
+        for changed in (["Packages/macOS/CmuxNext/Sources/CmuxNextApp/WindowRootView.swift"],
+                        ["scripts/cmux-next/fast-tier.json"],
+                        ["Packages/Shared/CmuxTheme/Sources/CmuxTheme/Theme.swift"]):
+            with self.subTest(changed=changed):
+                out = self.route_outputs(changed)
+                self.assertEqual(out["fast_tier"], "true")
+                self.assertTrue(self.runs("fast-tier", "pull_request", out["macos"], out["fast_tier"]))
+        self.assertTrue(self.runs("fast-tier", "push", "true", "false"), "a feat-cmux-next push runs it whatever the route")
 
 
 SEED_WORKFLOW = WORKFLOW.parent / "cmux-next-fast-tier-seed.yml"
