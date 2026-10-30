@@ -139,22 +139,23 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             let v = client
                 .request(method::MUX_INBOX_DIGEST, json!({"sessionId": id, "dryRun": dry_run}))
                 .await?;
+            let field = |key: &str| v.get(key).unwrap_or(&Value::Null);
+            let digested = field("digested").as_u64().unwrap_or(0);
             if json_out {
                 print_json(&v);
-            } else if v["digested"].as_u64().unwrap_or(0) == 0 {
+            } else if digested == 0 {
                 println!("no agent message waits in its queue");
             } else if dry_run {
-                println!("{}", v["text"].as_str().unwrap_or_default());
+                println!("{}", field("text").as_str().unwrap_or_default());
                 println!("\n(dry run: nothing changed; --digest sends it)");
             } else {
-                let how = match v["delivery"].as_str() {
+                let how = match field("delivery").as_str() {
                     Some("steer") => "steered into its running turn".to_owned(),
-                    _ => format!("queued at position {}", v["position"]),
+                    _ => format!("queued at position {}", field("position")),
                 };
                 println!(
-                    "{} messages went into digest {}, {how}",
-                    v["digested"],
-                    v["promptId"].as_str().unwrap_or_default()
+                    "{digested} messages went into digest {}, {how}",
+                    field("promptId").as_str().unwrap_or_default()
                 );
             }
             Ok(())
