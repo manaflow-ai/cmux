@@ -126,14 +126,17 @@ test("a late theme save cannot end a newer preview after the picker reopens", as
   page = await renderPage({ path: "/settings/theme" });
   let resolveSave!: () => void;
   page.store.set = (() => new Promise<void>((resolve) => (resolveSave = resolve))) as typeof page.store.set;
-  const button = theme(page).querySelector('[data-theme-row="theme"] [data-theme-picker]')!;
+  const button = theme(page).querySelector('[data-theme-row="app"] [data-theme-picker]')!;
   await click(button);
   const search = document.querySelector<HTMLElement>(".theme-search")!;
+  await fire(search, "keydown", { key: "ArrowDown" });
   await fire(search, "keydown", { key: "ArrowDown" });
   await fire(search, "keydown", { key: "Enter" });
   await click(button);
   const reopened = document.querySelector<HTMLElement>(".theme-search")!;
   await fire(reopened, "keydown", { key: "ArrowDown" });
+  await fire(reopened, "keydown", { key: "ArrowDown" });
+  expect(ops(page.provider, "cmux.settings.preview").length).toBe(2);
   const endsBeforeSave = ops(page.provider, "cmux.settings.preview.end").length;
   resolveSave();
   await settle();

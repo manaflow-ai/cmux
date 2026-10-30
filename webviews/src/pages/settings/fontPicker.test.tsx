@@ -75,6 +75,8 @@ describe("FontPicker", () => {
     const search = await open();
     let resolveSave!: () => void;
     page!.store.set = (() => new Promise<void>((resolve) => (resolveSave = resolve))) as typeof page.store.set;
+    // The first row is the default, which is already in effect; the second is a family to save.
+    await fire(search, "keydown", { key: "ArrowDown" });
     await fire(search, "keydown", { key: "ArrowDown" });
     await fire(search, "keydown", { key: "Enter" });
     const button = rowElement(page!.container, "terminal.fontFamily").querySelector<HTMLElement>("[data-font-picker]")!;
@@ -88,6 +90,8 @@ describe("FontPicker", () => {
     }
     const reopened = document.querySelector<HTMLElement>(".font-search")!;
     await fire(reopened, "keydown", { key: "ArrowDown" });
+    await fire(reopened, "keydown", { key: "ArrowDown" });
+    expect(ops(page!.provider, "cmux.settings.preview").length).toBe(2);
     const endsBeforeSave = ops(page!.provider, "cmux.settings.preview.end").length;
     resolveSave();
     await settle();
