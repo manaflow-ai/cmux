@@ -18,8 +18,10 @@ const PRODUCTION: &str = "https://cmux-platform-production.debussy.workers.dev";
 
 /// The room of this daemon's build.
 pub(crate) fn url() -> Option<String> {
+    // Set, even empty, it is the room: an empty one reaches the bridge as `Some("")`, which
+    // refuses link creation (`Bridge::configure`), rather than falling back to no room.
     if let Ok(url) = std::env::var(ENV) {
-        return Some(url).filter(|url| !url.trim().is_empty());
+        return Some(url.trim().to_owned());
     }
     let exe = std::env::current_exe().ok();
     let identity =
