@@ -11,6 +11,9 @@ public import Observation
 /// the mock runs standalone.
 @Observable @MainActor
 public final class SidebarModel {
+    /// Effective New Workspace keycaps supplied by the app action registry; nil when unbound.
+    public var newWorkspaceShortcut: String?
+
     /// Pinned area first (optional), then one section per machine. A set is
     /// a structural change (`sectionsRevision` moves, the list reloads); a row
     /// content change goes through `patchWorkspaces` and reloads nothing.

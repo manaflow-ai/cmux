@@ -93,6 +93,34 @@ async fn three_503s_are_stuck_in_the_summary_and_session_list_then_success_clear
     assert!(recovered["stuckError"].is_null(), "{recovered}");
 }
 
+/// A stuck chat whose agent works again is not stuck: its first tool call clears the mark,
+/// before its turn ends (2026-10-29: a coordinator read `stuck` while it made tool call after
+/// tool call).
+#[tokio::test]
+async fn a_stuck_session_whose_agent_works_again_is_unstuck_at_its_first_tool_call() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![20, 20, 60_000]);
+    let id = new_session(&mut c).await;
+    let failed = c
+        .request(
+            method::SESSION_PROMPT,
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": "cap-fail-three: x"}]}),
+        )
+        .await;
+    assert!(failed.is_err());
+    let stuck = wait_for_stuck(&hub, &id).await;
+    assert_eq!(stuck["state"], "stuck", "{stuck}");
+    c.send(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "works-through-cancel"}]}),
+    )
+    .await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["sessionUpdate"] == "tool_call").await;
+    let working = row(&hub, &id);
+    assert_eq!(working["state"], "running", "{working}");
+    assert!(working["stuckReason"].is_null(), "{working}");
+}
+
 #[tokio::test]
 async fn a_fork_of_a_stuck_session_starts_unstuck() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;

@@ -94,9 +94,10 @@ final class PaneController: SurfacePresenter, PresentablePane {
         stripModel.intentHandler = { [weak self] intent in self?.handle(intent) }
         view.stripView.previewProvider = services.previews
         view.stripView.resourceSource = services.resources
-        // The + is a plain button (Lawrence 2026-10-27: no dropdown caret): a press makes the default
-        // tab; a hold or a right-click opens the type menu (`TabStripView.showNewTabMenu`).
+        // The + stays a plain default-tab action, with hold/right-click for the type menu.
+        // Its adjacent chevron exposes that same menu without changing what a plus click does.
         view.stripView.opensNewTabMenuOnPress = false
+        view.stripView.showsNewTabMenuButton = true
         view.stripView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
         view.stripView.hoverCards = services.hoverCards
         view.stripView.onHoverTab = { [weak self] id in self?.noteHover(id) }
@@ -439,7 +440,12 @@ final class PaneController: SurfacePresenter, PresentablePane {
         DebugTabSwitch.mark(self, "view")
         // Terminals come in on their first frame (`LaunchSettle`), or at once with their frame from the last
         // quit (`TerminalLaunchFrames`); other content (a page, an agent) is ready once shown.
-        if case .terminal(let terminal) = content, let key { if terminal.session.showLaunchFrame(key, beside: services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), in: view.contentHost) { DebugTimings.markLaunch("terminal.launch_frame_shown") } } else if content != nil { LaunchReveal.shared.markReady(.pane) }
+        if case .terminal(let terminal) = content, let key { if terminal.session.showLaunchFrame(key, beside: services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), in: view.contentHost) { DebugTimings.markLaunch("terminal.launch_frame_shown") } } else if content != nil {
+            LaunchReveal.shared.markReady(.pane)
+            // The page may have attached while the pane was alpha-held for launch. AppKit's
+            // alpha transition does not reach Chromium's separate child window.
+            view.refreshChromiumVisibility()
+        }
         // The content view exists now: the coordinator re-applies focus if
         // this pane has it (content is shown a frame after selection).
         if workspace?.isParked == false { BenchSpans.measure("switch.focus") { workspace?.focus.send(.contentPresented(pane: paneKey)) } }
@@ -519,6 +525,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         guard let key = stripModel.selectedID?.rawValue else { return true }
         return (key == currentTabKey && view.hostsContent) || services.cache.hasContent(for: key)
             || services.agentTabs.existingView(key) != nil || services.pages.existingView(key) != nil
+            || services.newTabSpares.hasNativeAdoption(key)
     }
 
     /// The layout reported this pane on screen, in the keep-alive band, or away.

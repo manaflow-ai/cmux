@@ -372,6 +372,15 @@ public final class AgentChatStore {
     public func setConfig(_ id: String, value: String) { source.send(.setConfigOption(id: id, value: value)) }
     public func removeQueued(_ id: String) { source.send(.removeQueued(promptId: id)) }
 
+    /// The user bubble's Edit and Resend: returns the text the composer gets to edit. It
+    /// sends nothing; the message goes when the person sends it from the composer. Only an
+    /// empty composer (whitespace counts as empty) takes it: a draft there is never replaced,
+    /// so this returns nil (the bubble then asks before replacing it).
+    public func editAndResend(_ turn: AgentTurn, draft: String) -> String? {
+        guard draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return turn.prompt
+    }
+
     /// The queued row's X: takes the prompt back into the composer, returning the text the
     /// composer gets. Only an empty composer (whitespace counts as empty) takes it: a draft
     /// there is never replaced, so the prompt stays queued and this returns nil (the row then

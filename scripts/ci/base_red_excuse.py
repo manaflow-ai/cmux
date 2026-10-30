@@ -38,7 +38,17 @@ from pathlib import Path
 _spec = importlib.util.spec_from_file_location("main_fix_evidence", Path(__file__).with_name("main_fix_evidence.py"))
 _evidence = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_evidence)
-GitHub, Refused, job_for, latest_checks = _evidence.GitHub, _evidence.Refused, _evidence.job_for, _evidence.latest_checks
+Refused, job_for, latest_checks = _evidence.Refused, _evidence.job_for, _evidence.latest_checks
+
+
+class GitHub(_evidence.GitHub):
+    """GitHub client for red attribution, including logs of finished jobs in live runs."""
+
+    def log(self, repo: str, job: dict) -> str:
+        # `gh run view --log` waits for every job in the run. The Actions job
+        # endpoint serves a finished job while sibling jobs remain queued.
+        # gh refuses to print a log holding escape sequences (ANSI colours) unless asked.
+        return self.run(["api", "--allow-escape-sequences", f"repos/{repo}/actions/jobs/{job['id']}/logs"])
 _spec = importlib.util.spec_from_file_location("test_reds", Path(__file__).with_name("test_reds.py"))
 test_reds = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(test_reds)
@@ -86,7 +96,7 @@ SHA = re.compile(r"\b[0-9a-f]{40}\b|\b((?:commit|sha|tree|revision) `?)[0-9a-f]{
 # Fail closed: of compile-status's own lines, only "(fail)" is a real compile red; every other state (no result,
 # unavailable, mismatch, unreadable, pending, "last: ...", a pass it could not post) and a status it could not
 # post at all are no verdict.
-NO_VERDICT = re.compile(r"^##\[error\](?:cmux-next/compile is not a pass for \S+ \((?!fail\))|"
+NO_VERDICT = re.compile(r"^##\[error\]\s*(?:cmux-next/compile is not a pass for \S+ \((?!fail\))|"
                         r"could not post the pending status|bad head sha |No build-fleet verdict for `)")
 # The jobs that can end without a verdict: an unreadable log of one is never comparable either.
 NO_VERDICT_JOBS = frozenset({"cmux-next fleet Release compile", "cmux-next app compile (build fleet)"})
@@ -107,7 +117,10 @@ def lines_of(log: str) -> list[str]:
     found = []
     for line in log.splitlines():
         parts = line.split("\t", 2)
-        found.append(STAMP.sub("", parts[-1]).strip())
+        # `gh run view --log` prefixes each line with job and step columns.
+        # The job-log API does not; preserve tabs in raw command output.
+        text = parts[2] if len(parts) == 3 and STAMP.match(parts[2]) else line
+        found.append(STAMP.sub("", text).strip())
     return found
 
 
