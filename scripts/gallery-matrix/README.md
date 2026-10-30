@@ -105,6 +105,13 @@ a fifth is printed with the lower value. Rows only go down: download a run's `ga
 artifacts and run `bun ready-budgets.ts --from <dir>` to lower every row the run beat. It never
 raises a row; `--add` writes rows for slow states that have none, a raise the diff shows.
 
+On a pull request, a red shard renders its red entries again on the base it merged with, using this
+folder's checker, budgets and allowlist, and `scripts/ci/test_reds.py gallery` compares the two
+`health.json` files state by state. A state red the same way on the base (any budget miss counts as
+one kind; a broken state's reason is its kind) is a warning and the shard passes. Any other red
+state, a crashed render, a missing or cut-short `health.json`, a base render with no whole result,
+and any red on a push still fail.
+
 ## Geometry audit
 
 `geometry-audit.ts` captures the declared fixtures from `geometry-baseline.json`, freezes active

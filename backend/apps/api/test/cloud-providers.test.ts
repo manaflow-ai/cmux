@@ -40,7 +40,7 @@ const counted = (p: CloudProvider, override: Partial<CloudProvider> = {}) => {
 const scenario = async (raw: CloudProvider, seen: Observe) => {
   const { provider, box } = counted(raw)
   const d = new GuardedCloudDriver(provider, PREFIX)
-  expect(Object.keys(d.capabilities).sort()).toEqual(["edgeTls", "guestExec", "resize", "sizing", "snapshot"])
+  expect(Object.keys(d.capabilities).sort()).toEqual(["clientSession", "edgeTls", "guestExec", "resize", "sizing", "snapshot"])
 
   // The guard refuses another environment's name before any provider call.
   await expect(d.ensure(`cmuxnp-dev-cld-vm-${"a".repeat(20)}`, TAG, { idleSeconds: 0 })).rejects.toMatchObject({ code: "cloud.provider.refused", final: true })

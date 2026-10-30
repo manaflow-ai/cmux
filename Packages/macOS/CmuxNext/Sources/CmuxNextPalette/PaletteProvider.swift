@@ -13,12 +13,15 @@ public protocol PaletteProvider: AnyObject {
     /// Items available synchronously, used on open so the first frame is
     /// never empty. Nil means "call `items()`".
     var immediateItems: [PaletteItem]? { get }
+    /// Cached rows draw immediately while this provider refreshes their state.
+    var refreshesOnOpen: Bool { get }
     func items() async -> [PaletteItem]
 }
 
 extension PaletteProvider {
     public var showsItemsForEmptyQuery: Bool { true }
     public var immediateItems: [PaletteItem]? { nil }
+    public var refreshesOnOpen: Bool { false }
 }
 
 /// A provider over a fixed item list (extensions, tests, custom actions).
@@ -46,11 +49,15 @@ public final class StaticPaletteProvider: PaletteProvider {
 public final class AsyncPaletteProvider: PaletteProvider {
     public let id: String
     public let showsItemsForEmptyQuery: Bool
+    public let immediateItems: [PaletteItem]?
+    public var refreshesOnOpen: Bool { immediateItems != nil }
     private let load: @MainActor () async -> [PaletteItem]
 
-    public init(id: String, showsItemsForEmptyQuery: Bool = true, load: @escaping @MainActor () async -> [PaletteItem]) {
+    public init(id: String, showsItemsForEmptyQuery: Bool = true, immediateItems: [PaletteItem]? = nil,
+                load: @escaping @MainActor () async -> [PaletteItem]) {
         self.id = id
         self.showsItemsForEmptyQuery = showsItemsForEmptyQuery
+        self.immediateItems = immediateItems
         self.load = load
     }
 

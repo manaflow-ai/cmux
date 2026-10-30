@@ -18,6 +18,8 @@ import { setTabRow } from "./header/tabRow";
 import { setFloatingState } from "./floatingState";
 import { configureNativeSidebarPreviewVariant } from "./sidebarPreview";
 import { setSessionStatus } from "./sessionStatus";
+import { receivePromptUploadState } from "./promptUploadState";
+import { setComputerUsePreview } from "./computerUse/computerUsePreview";
 
 export const HOST_EVENTS = "cmux.agent.host.events";
 /// NewTabPage's FOCUS_LOCATION_EVENT, kept here so the transport does not load the new tab page.
@@ -81,6 +83,8 @@ export function applyHostEvent(event: HostEvent): void {
   const bridge = window.cmuxAcpmuxBridge;
   const value = event.value as never;
   switch (event.kind) {
+    case "uploads.state":
+      return receivePromptUploadState(event.value);
     case "theme": {
       const theme = event.value as { web?: unknown; agent?: Record<string, unknown> };
       (window as { cmuxTheme?: { apply(payload: unknown): void } }).cmuxTheme?.apply(theme.web);
@@ -122,6 +126,9 @@ export function applyHostEvent(event: HostEvent): void {
     case "toolCards":
       // Direct, like deviceChats: a push before the chat mounts is kept.
       return setToolCards(event.value);
+    case "computerUsePreview":
+      // Direct, like toolCards: a push before the chat mounts is kept.
+      return setComputerUsePreview(event.value);
     case "customization":
       return bridge?.applyCustomization(value);
     case "headerState":
@@ -150,11 +157,22 @@ export function applyHostEvent(event: HostEvent): void {
   }
 }
 
-const subscribed = new WeakSet<PageClient>();
+const subscribed = new WeakMap<PageClient, Promise<void>>();
 
 /// Subscribes to host events once per client, after the page installed `cmuxAcpmuxBridge`.
 export async function startHostEvents(page: PageClient): Promise<void> {
-  if (subscribed.has(page)) return;
-  subscribed.add(page);
-  await page.subscribe<HostEvent>(HOST_EVENTS, (event) => applyHostEvent(event));
+  let ready = subscribed.get(page);
+  if (!ready) {
+    ready = page
+      .subscribe<HostEvent>(HOST_EVENTS, (event) => applyHostEvent(event))
+      .then(
+        () => undefined,
+        (error) => {
+          subscribed.delete(page);
+          throw error;
+        },
+      );
+    subscribed.set(page, ready);
+  }
+  await ready;
 }

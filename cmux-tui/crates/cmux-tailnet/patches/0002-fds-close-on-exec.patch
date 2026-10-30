@@ -1,0 +1,108 @@
+diff --git a/cloexec_linux.go b/cloexec_linux.go
+new file mode 100644
+index 0000000..26e99ea
+--- /dev/null
++++ b/cloexec_linux.go
+@@ -0,0 +1,24 @@
++// Copyright (c) Tailscale Inc & AUTHORS
++// SPDX-License-Identifier: BSD-3-Clause
++
++//go:build linux
++
++package main
++
++import "syscall"
++
++// socketpair returns a connected AF_LOCAL stream pair. Both fds are
++// close-on-exec from creation, so a process the host program spawns does not
++// inherit them. An inherited copy of a listener's or connection's fd keeps
++// that socket open for the child's lifetime: closing it in the host program
++// then sends no EOF, and the listener or connection is never torn down.
++func socketpair() ([2]int, error) {
++	return syscall.Socketpair(syscall.AF_LOCAL, syscall.SOCK_STREAM|syscall.SOCK_CLOEXEC, 0)
++}
++
++// recvmsgCloexec makes the kernel install fds received over SCM_RIGHTS with
++// close-on-exec already set.
++const recvmsgCloexec = syscall.MSG_CMSG_CLOEXEC
++
++// closeOnExecReceived is a no-op: MSG_CMSG_CLOEXEC already set the flag.
++func closeOnExecReceived(fd int) {}
+diff --git a/cloexec_other.go b/cloexec_other.go
+new file mode 100644
+index 0000000..64d8394
+--- /dev/null
++++ b/cloexec_other.go
+@@ -0,0 +1,33 @@
++// Copyright (c) Tailscale Inc & AUTHORS
++// SPDX-License-Identifier: BSD-3-Clause
++
++//go:build !linux
++
++package main
++
++import "syscall"
++
++// socketpair returns a connected AF_LOCAL stream pair with both fds
++// close-on-exec (see cloexec_linux.go for why). This platform may lack
++// SOCK_CLOEXEC, so the flag is set right after creation. ForkLock keeps Go's
++// own fork+exec out of that window, as package net does; a fork by the host
++// program can still land in it.
++func socketpair() ([2]int, error) {
++	syscall.ForkLock.RLock()
++	defer syscall.ForkLock.RUnlock()
++	fds, err := syscall.Socketpair(syscall.AF_LOCAL, syscall.SOCK_STREAM, 0)
++	if err != nil {
++		return fds, err
++	}
++	syscall.CloseOnExec(fds[0])
++	syscall.CloseOnExec(fds[1])
++	return fds, nil
++}
++
++// recvmsgCloexec is zero: this platform may lack MSG_CMSG_CLOEXEC.
++const recvmsgCloexec = 0
++
++// closeOnExecReceived sets close-on-exec on an fd received over SCM_RIGHTS.
++func closeOnExecReceived(fd int) {
++	syscall.CloseOnExec(fd)
++}
+diff --git a/tailscale.go b/tailscale.go
+index 2ee0f71..ab294ee 100644
+--- a/tailscale.go
++++ b/tailscale.go
+@@ -240,7 +240,7 @@ func TsnetListen(sd C.int, network, addr *C.char, listenerOut *C.int) C.int {
+ 	// feed an fd for the connection through the listener. This lets C use
+ 	// epoll on the tailscale_listener to know if it should call
+ 	// tailscale_accept, which avoids a blocking call on the far side.
+-	fds, err := syscall.Socketpair(syscall.AF_LOCAL, syscall.SOCK_STREAM, 0)
++	fds, err := socketpair()
+ 	if err != nil {
+ 		return s.recErr(err)
+ 	}
+@@ -352,7 +352,7 @@ func TsnetAccept(listenerFd C.int, connOut *C.int) C.int {
+ 			// the cmsg rode with the record's first byte; only the tail remains
+ 			cbuf = nil
+ 		}
+-		nn, on, _, _, err := syscall.Recvmsg(int(listenerFd), buf, cbuf, syscall.MSG_WAITALL)
++		nn, on, _, _, err := syscall.Recvmsg(int(listenerFd), buf, cbuf, syscall.MSG_WAITALL|recvmsgCloexec)
+ 		n += nn
+ 		if nn > 0 {
+ 			oobn = on
+@@ -383,6 +383,7 @@ func TsnetAccept(listenerFd C.int, connOut *C.int) C.int {
+ 	if len(fds) != 1 {
+ 		return ln.s.recErr(fmt.Errorf("libtailscale: got %d FDs, want 1", len(fds)))
+ 	}
++	closeOnExecReceived(fds[0])
+ 	fd := C.int(fds[0])
+ 
+ 	// the entry must exist before C can learn this fd number
+@@ -400,7 +401,7 @@ func TsnetAccept(listenerFd C.int, connOut *C.int) C.int {
+ }
+ 
+ func newConn(s *server, netConn net.Conn, connOut *C.int) error {
+-	fds, err := syscall.Socketpair(syscall.AF_LOCAL, syscall.SOCK_STREAM, 0)
++	fds, err := socketpair()
+ 	if err != nil {
+ 		return err
+ 	}

@@ -33,6 +33,8 @@ enum RemoteHandlers {
     }
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
+        // A joined machine's menu rows (Labs `labs.machineJoin`): Check, Rotate Credential, Revoke….
+        MachineSectionHostView.bindJoinedActions(into: registry, context: context)
         let ssh = context.services.ssh
         let available: @MainActor () -> String? = { ssh.unavailableReason }
         let hasMachine: @MainActor () -> String? = { ssh.unavailableReason ?? (ssh.sessions.isEmpty ? RemoteStrings.noMachine : nil) }

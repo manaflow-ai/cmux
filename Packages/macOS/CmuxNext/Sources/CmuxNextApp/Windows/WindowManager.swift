@@ -74,6 +74,11 @@ final class WindowManager {
     var closedDuringRestore: Set<String> = []
     /// True while `restore` runs.
     private(set) var restoring = false
+    /// The saved window records are not installed (yet, or the launch's read failed: `SavedWindowsRead`):
+    /// they may hold windows this launch does not show, so nothing writes them (#26681). True until
+    /// the launch's records are installed, so neither a window opened while it waits nor a quit before the
+    /// restore started (its flush would write no windows) can replace them.
+    private(set) var savedWindowsUnread = true
     /// The launch window the person closed before `restore` finished: the restore registers the
     /// workspaces it would have shown under this id, which is in `closedDuringRestore`, so they
     /// stay in a closed window. Nil once it finished.
@@ -203,8 +208,7 @@ final class WindowManager {
     }
 
     private func restore() async {
-        guard !restored else { return }
-        restored = true
+        guard !restored, !restoring else { return }
         restoring = true
         defer {
             restoring = false
@@ -213,10 +217,7 @@ final class WindowManager {
         }
         registry.provisional = [:]
         DebugTimings.markLaunch("daemon_snapshot_loaded")
-        var document = WindowStateDocument()
-        if let windowState = services.daemon.windowState {
-            document = (try? await windowState.load()) ?? WindowStateDocument()
-        }
+        guard let document = await readSavedWindows(), !Task.isCancelled, !isTerminating else { return }
         // Incognito workspaces a crashed run left on a daemon without state
         // resources: the app's ledger owns them, so they close, never shown.
         // A daemon with state resources owns its ephemeral workspaces (it closes them at its
@@ -232,6 +233,8 @@ final class WindowManager {
         }
         await EphemeralWorkspaces.awaitFlags(self)
         let firstWorkspace = await FirstWorkspaceLaunch(manager: self).create(leftover: leftover)
+        guard !Task.isCancelled, !isTerminating else { return }
+        restored = true
         let restoredRegistry = WindowRegistry(records: document.windows)
         if !restoredRegistry.windows.isEmpty {
             previousLaunch = PreviousLaunch(windowIDs: restoredRegistry.recency.filter { restoredRegistry.window($0)?.isOpen == true },
@@ -271,8 +274,10 @@ final class WindowManager {
             states[launch] = nil
             closeProgrammatically(controller)
         }
-        // The adopted window is the frontmost saved one; keep it in front.
-        if let adopted, controllers.count > 1 { present(adopted) }
+        // The adopted window is the frontmost saved one; keep it in front. It was presented at
+        // launch already: raise it, never present it again, which under no-activate orders a
+        // window behind the others and would save it last in the window order.
+        if let adopted, controllers.count > 1, ordersWindowsIn, let window = adopted.window { WindowActivation.show(window, .raise) }
         observeMembership()
         sessionRegistrar.start()
         registry.isLaunching = false
@@ -285,6 +290,28 @@ final class WindowManager {
         // registry never overwrites where its workspaces land.
         let onboarding = AppOnboardingServices(owner: services.onboarding)
         Task { await onboarding.migrateClassicAtLaunch(firstWorkspace: firstWorkspace) }
+        savedWindowsUnread = false
+        recordSaver.scheduleSave()
+    }
+
+    /// The saved window records, kept pending through timeouts and reconnects. A cancelled or
+    /// permanent failure returns nil, never an empty saved session. Saves stay blocked until
+    /// restore installs the returned records. Each attempt uses the current connection's store.
+    func readSavedWindows(_ read: SavedWindowsRead = SavedWindowsRead(),
+                          load: ((Duration) async throws -> WindowStateDocument)? = nil) async -> WindowStateDocument? {
+        savedWindowsUnread = true
+        let daemon = services.daemon
+        let load = load ?? { deadline in
+            guard let windowState = daemon.windowState else { throw DaemonError.notConnected }
+            return try await windowState.load(timeout: deadline)
+        }
+        switch await read.run(waitUntilReady: { try await daemon.waitForReadySnapshot() }, load) {
+        case .loaded(let saved):
+            return saved
+        case .unread(let error):
+            daemon.logger.error("saved windows unread, kept unwritten: \(String(describing: error), privacy: .public)")
+            return nil
+        }
     }
 
     /// The launch window takes the frontmost saved window's identity and
@@ -445,6 +472,7 @@ final class WindowManager {
 
     /// Flushes state and stops saving (quit).
     func prepareForTermination() async {
+        loadObservation?.cancel()
         recordSaver.geometryTimer.cancel()
         await closeIncognitoWindowsForTermination()
         await recordSaver.flushSaves()
