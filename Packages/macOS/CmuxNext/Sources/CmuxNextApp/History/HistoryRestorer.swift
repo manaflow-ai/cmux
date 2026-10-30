@@ -75,7 +75,7 @@ struct HistoryRestorer {
         guard services.machines.daemons.contains(where: { $0.machineID == session.machine }) else {
             return services.registry.refuse(HistoryAppStrings.machineOffline)
         }
-        let old = session.tab.flatMap { services.locateTab($0) }.flatMap { services.paneController(for: $0.1) }
+        let old = session.tab.flatMap { services.locateTabOnAnyMachine($0) }.flatMap { services.paneController(for: $0.1) }
         let focused = services.windows.active?.focusedPane.flatMap { pane in
             services.daemon(for: pane.pane).machineID == session.machine ? pane : nil
         }

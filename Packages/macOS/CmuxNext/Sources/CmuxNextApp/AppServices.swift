@@ -713,6 +713,16 @@ final class AppServices {
         return found
     }
 
+    /// Compatibility for callers whose state is still keyed by a bare tab id: the
+    /// pre-#5338 first match across machines. Do not add callers; migrate these
+    /// to machine-scoped state instead (the source guard ratchets the existing set).
+    func locateTabOnAnyMachine(_ id: String) -> (TabModel, PaneModel)? {
+        for daemon in machines.daemons {
+            if let tab = daemon.store.tab(idOrResource: id), let pane = daemon.store.pane(holding: tab) { return (tab, pane) }
+        }
+        return nil
+    }
+
     /// Resolves only in the named machine; a missing machine never falls back locally.
     func locateTab(_ id: String, onMachine machineID: String) -> (TabModel, PaneModel)? {
         guard let daemon = machines.daemon(machine: machineID),

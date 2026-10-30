@@ -48,6 +48,22 @@ struct TabLookupTests {
                 "An unscoped tab ID must refuse ambiguity rather than select this Mac's tab")
     }
 
+    /// AgentTabs still tracks keys without their machines. Its explicit compatibility lookup
+    /// keeps the existing first-match ordering until those keys include machine identity.
+    @Test(arguments: [true, false])
+    func explicitAnyMachineLookupPreservesFirstMatchCompatibility(resourceIDs: Bool) throws {
+        let fixture = try Fixture(resourceIDs: resourceIDs)
+        let local = try #require(fixture.services.locateTabOnAnyMachine(fixture.localTab.id))
+        #expect(local.0 === fixture.localTab && local.1 === fixture.localPane)
+        #expect(fixture.services.locateTab(fixture.localTab.id) == nil,
+                "The compatibility lookup must not weaken ambiguity refusal in the default lookup")
+
+        fixture.services.daemon.store.apply(snapshot: DaemonTree())
+        let remote = try #require(fixture.services.locateTabOnAnyMachine(fixture.remoteTab.id))
+        #expect(remote.0 === fixture.remoteTab && remote.1 === fixture.remotePane)
+        #expect(fixture.services.locateTabOnAnyMachine("missing-tab") == nil)
+    }
+
     @Test(arguments: [true, false])
     func aMachineScopeSelectsOnlyItsOwnTabAndPane(resourceIDs: Bool) throws {
         let fixture = try Fixture(resourceIDs: resourceIDs)

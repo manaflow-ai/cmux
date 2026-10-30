@@ -152,7 +152,7 @@ extension AgentTabStore {
         tabs.localSessionHost = chief.localRouter(tabs.host)
         // This Mac's stable install id (the Cloud device id): only this host attaches to its acpmux.
         tabs.blankChatHandler = { [weak services] key in
-            guard let services, let (tab, pane) = services.locateTab(key), let controller = services.paneController(for: pane) else { return nil }
+            guard let services, let (tab, pane) = services.locateTabOnAnyMachine(key), let controller = services.paneController(for: pane) else { return nil }
             // A chat tab has no daemon folder: its own exact folder (a shell block's Open in Terminal, cx-zld).
             let cwd = tab.cwd ?? NewTerminalStart.folder(of: tab, services: services)
             return NewTabPage.handler(services, cwd: cwd) { [weak controller, weak tabs] key, request in
@@ -164,14 +164,14 @@ extension AgentTabStore {
             guard let services else { return nil }
             // A page beside a chat of another machine shows that machine's folders (cx-k21v).
             // (A chat of this Mac keeps the plain page, as before.)
-            let tab = beside.flatMap { services.locateTab($0)?.0 }.flatMap { services.machines.daemon(forTab: $0).isLocal ? nil : $0 }
+            let tab = beside.flatMap { services.locateTabOnAnyMachine($0)?.0 }.flatMap { services.machines.daemon(forTab: $0).isLocal ? nil : $0 }
             var page = NewTabPage.page(services, selected: tab)
             page.cwd = cwd ?? page.cwd
             // Keys typed since Cmd-N wait for this page's field (NewTabInputCoordinator, cx-kql5h);
             // the token comes per workspace (``firstPage(cwd:token:)``).
             let input = services.keyRouter.newTabInputCoordinator
             var handler = NewTabPage.handler(services, cwd: cwd) { [weak services] key, request in
-                guard let services, let (tab, pane) = services.locateTab(key), let controller = services.paneController(for: pane) else { return }
+                guard let services, let (tab, pane) = services.locateTabOnAnyMachine(key), let controller = services.paneController(for: pane) else { return }
                 NewTabPage.replace(key, with: request, cwd: request.cwd ?? tab.cwd, in: controller)
             }
             handler.inputReady = { [weak input] key, token in input?.pageReady(token, key: key) }
@@ -198,7 +198,7 @@ extension AgentTabStore {
         // side pane (AgentSidePanes) reuses only a pane it made, so it would make a third split.
         // A pane of another machine holds no chat of this Mac's acpmux: nothing opens there.
         tabs.openRight = { [weak services, weak tabs] chat, session in
-            guard let services, let tabs, let (_, pane) = services.locateTab(chat), let source = services.paneController(for: pane) else { return false }
+            guard let services, let tabs, let (_, pane) = services.locateTabOnAnyMachine(chat), let source = services.paneController(for: pane) else { return false }
             return services.linkOpener.open(from: source) { target, placed in
                 guard target.daemon.isLocal else { return false }
                 return tabs.openTab(in: target, session: session, select: placed == nil) { [weak services, weak tabs] key in
@@ -206,7 +206,7 @@ extension AgentTabStore {
                     Task { [weak services, weak tabs] in
                         guard let tabs else { return }
                         await TabMirror.performWhenReached(key, in: tabs.locate) {
-                            if let placed { if let surface = services?.locateTab(key)?.0.surface { placed(surface) }; return }
+                            if let placed { if let surface = services?.locateTabOnAnyMachine(key)?.0.surface { placed(surface) }; return }
                             _ = tabs.actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key), origin: .user))
                         }
                     }
@@ -214,24 +214,24 @@ extension AgentTabStore {
             }
         }
         tabs.lookup = { [weak services] key in
-            guard let services, let (tab, _) = services.locateTab(key), let record = tab.agentSession else { return nil }
+            guard let services, let (tab, _) = services.locateTabOnAnyMachine(key), let record = tab.agentSession else { return nil }
             return (record: record, store: services.machines.daemon(forTab: tab).store)
         }
         tabs.locate = { [weak services] key in
-            guard let services, let (tab, pane) = services.locateTab(key) else { return nil }
+            guard let services, let (tab, pane) = services.locateTabOnAnyMachine(key) else { return nil }
             return (pane: pane.handle, daemon: services.machines.daemon(forTab: tab))
         }
         tabs.paneWidth = { [weak services] key in
-            guard let services, let (_, pane) = services.locateTab(key) else { return nil }
+            guard let services, let (_, pane) = services.locateTabOnAnyMachine(key) else { return nil }
             return services.paneController(for: pane)?.view.bounds.width
         }
         tabs.selectInPane = { [weak services] key in
-            guard let services, let (tab, pane) = services.locateTab(key) else { return }
+            guard let services, let (tab, pane) = services.locateTabOnAnyMachine(key) else { return }
             // Shown, and no keyboard focus moved: the chat keeps it (an unfocused subagent's tab, AgentBesidePlacement).
             services.paneController(for: pane)?.selectWhenReportedKeepingFocus(surface: tab.surface)
         }
         tabs.openInMainPane = { [weak services] chat, focus, open, created, finished in
-            guard let services, let (_, pane) = services.locateTab(chat), let controller = services.paneController(for: pane),
+            guard let services, let (_, pane) = services.locateTabOnAnyMachine(chat), let controller = services.paneController(for: pane),
                   let side = MainPaneLayout.side(from: controller, services: services) else { return nil }
             return MainPaneLayout.openAgentTab(from: controller, side: side, focus: focus, services: services, open: open,
                                          created: created, finished: finished)
@@ -243,7 +243,7 @@ extension AgentTabStore {
         // reference (RemoteTerminalService.openTerminal does the same).
         tabs.runAttach = { [weak services] key, request in
             let vm = request.providerVMID, tabsCapability = DaemonCapability.remoteTerminalTabs.rawValue
-            guard let services, let (_, pane) = services.locateTab(key) else { throw DaemonError.notConnected }
+            guard let services, let (_, pane) = services.locateTabOnAnyMachine(key) else { throw DaemonError.notConnected }
             let home = services.machines.daemon(forPane: pane)
             guard let homeConnection = home.connection, services.machines.session(vm) != nil, let worker = services.machines.daemon(machine: vm), !worker.isLocal,
                   worker.connection != nil, let identity = worker.identity, let sessionID = identity.sessionID, identity.session == request.session else { throw DaemonError.notConnected }
@@ -256,7 +256,7 @@ extension AgentTabStore {
         // (AgentPaneHostKind): a Cloud or SSH machine's session reads its folder there (cx-d0tq).
         tabs.gitLink = { [weak services, weak tabs] key in
             guard let services else { return nil }
-            guard let tabs, let (tab, _) = services.locateTab(key), let record = tab.agentSession,
+            guard let tabs, let (tab, _) = services.locateTabOnAnyMachine(key), let record = tab.agentSession,
                   AgentPaneHostKind(record, localHost: tabs.localHost, chiefHost: tabs.chiefHost,
                                     listedHere: services.machines.daemon(forTab: tab).isLocal) == .remote else { return services.agentGit.local }
             // A tab naming another machine than the one listing it reads nothing (never this Mac's folder).
@@ -269,15 +269,15 @@ extension AgentTabStore {
         // A new chat on another machine with no folder in its seed starts in a folder of its
         // workspace there (a terminal's), never a folder of this Mac.
         tabs.remoteFolder = { [weak services] key in
-            guard let services, let (_, pane) = services.locateTab(key) else { return nil }
+            guard let services, let (_, pane) = services.locateTabOnAnyMachine(key) else { return nil }
             return services.machines.daemon(forPane: pane).store.workspace(containing: pane.handle)?.firstTabFolder
         }
         tabs.remoteFolders = { [weak services] key in
-            guard let services, let (tab, _) = services.locateTab(key) else { return [] }
+            guard let services, let (tab, _) = services.locateTabOnAnyMachine(key) else { return [] }
             return services.machines.daemon(forTab: tab).store.tabFolders
         }
         tabs.remoteHost = { [weak services, weak tabs] key in
-            guard let services, let tabs, let (tab, _) = services.locateTab(key), let record = tab.agentSession else { return nil }
+            guard let services, let tabs, let (tab, _) = services.locateTabOnAnyMachine(key), let record = tab.agentSession else { return nil }
             let started = record.host.hasPrefix(AgentTabRemoteStart.registryPrefix)
             let daemon: DaemonService
             do {
@@ -364,7 +364,7 @@ extension AgentTabStore {
             return (created, await connection.eventSequence())
         }
         tabs.daemonForTab = { [weak services] key in
-            guard let services, let (tab, _) = services.locateTab(key) else { return nil }
+            guard let services, let (tab, _) = services.locateTabOnAnyMachine(key) else { return nil }
             return services.machines.daemon(forTab: tab)
         }
         tabs.daemonListing = { [weak services] tab in services?.machines.daemon(forTab: tab) }
@@ -377,7 +377,7 @@ extension AgentTabStore {
             }
         }
         tabs.bind = { [weak services] key, surface, expected, session, harness in
-            guard let services, let (tab, _) = services.locateTab(key), let connection = services.machines.daemon(forTab: tab).connection else { return (.failed, nil) }
+            guard let services, let (tab, _) = services.locateTabOnAnyMachine(key), let connection = services.machines.daemon(forTab: tab).connection else { return (.failed, nil) }
             let request = BindConversationTabSessionRequest(surface: surface, session: session, expectedSession: expected, harness: harness)
             let outcome: AgentSessionBindOutcome, sequence: UInt64? // one return: swiftlang/swift#92698 (cx-21wc5)
             do {
