@@ -1244,6 +1244,8 @@ async fn dispatch_request(
             });
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
             let provenance = crate::hub::Hub::prompt_provenance(&params, conn.origin)?;
+            // The caller's own provenance: a `cmux agent message`, never an inbox item.
+            let given_provenance = provenance.is_some();
             // A person's prompt (`author.rs`): the hub stamps who sent it, also for a peer's.
             let author = crate::author::of_prompt(&params)?;
             let provenance = provenance.or_else(|| author.as_ref().map(|a| a.provenance()));
@@ -1404,6 +1406,7 @@ async fn dispatch_request(
                         flag("teamMessage") == Some(true),
                         supersede_set,
                         flag("steerOnly") == Some(true),
+                        given_provenance,
                     ),
             };
             let agent_message = opts.provenance.is_some() && !person_message;

@@ -11,8 +11,8 @@
 //! sub-session family message and a Web one are no inbox items: each still runs as before. So
 //! far only a plain send from this host is ([`plain_send`]): a peer's or the mesh relay's forward,
 //! a team message, a correction under a supersede key, a steer-only send, a `cmux agent message`
-//! (the cmux daemon delivers and tracks it, [`plain_kind`]) and the prompts acpmux makes itself
-//! (lane reports, task cards, a paused pair's release) still queue.
+//! (the cmux daemon delivers and tracks it) and the prompts acpmux makes itself (lane reports,
+//! task cards, a paused pair's release) still queue.
 //!
 //! The agent hears of its inbox as ONE notice (provenance `inbox_notice`), one line per thread
 //! with new messages (how many, from whom, the newest one's first line), blockers first, the way
@@ -161,27 +161,29 @@ pub(super) enum Unsend {
 /// a supersede key and a steer-only send keep the queue for now, as do the prompts acpmux makes
 /// itself (lane reports, task cards, a paused pair's release), which never set
 /// `PromptOptions::inbox`.
-pub(crate) fn plain_send(from_peer: bool, team: bool, supersede: bool, steer_only: bool) -> bool {
-    !from_peer && !team && !supersede && !steer_only
+///
+/// Nor a prompt whose caller gave its own provenance (`prompt_provenance::of`): a `cmux agent
+/// message` the cmux daemon's pump delivers (`agents_chat_send`, the app's reply in place). The
+/// cmux daemon keeps that message, its delivery receipt and its Stop hold, and the chat must show
+/// it as that agent message: the app's reply in place answers its `user_message`
+/// (`app_reply_fits`). In the inbox it became a notice, so a reply in place was refused, a send to
+/// a chat that cannot run said delivered, and a send to an idle chat ran no turn.
+pub(crate) fn plain_send(
+    from_peer: bool,
+    team: bool,
+    supersede: bool,
+    steer_only: bool,
+    given_provenance: bool,
+) -> bool {
+    !from_peer && !team && !supersede && !steer_only && !given_provenance
 }
 
-/// Whether a provenance is a plain message from another agent: none (a connection that proved
-/// its session), `session_message`, or the `agent_message` acpmux stamps on a sender that named
-/// itself (`prompt_provenance::named_sender`, which has no `msgId`).
-///
-/// A `cmux agent message` is not one: its provenance (`prompt_provenance::of`, which only the cmux
-/// daemon's delivery pump sends) always names its `msgId`. The cmux daemon keeps that message,
-/// its delivery receipt and its Stop hold, and its chat shows it as the agent message the app's
-/// reply in place answers (`app_reply.rs` finds its `user_message`). In this inbox it became a
-/// notice, so a reply in place was refused, a send to a chat that cannot run said delivered, and
-/// a send to an idle chat ran no turn.
+/// Whether a provenance is a plain message from another agent: none (a sender that named
+/// itself, or a connection that proved its session), `agent_message` or `session_message`.
 fn plain_kind(provenance: Option<&Value>) -> bool {
-    let Some(provenance) = provenance else { return true };
-    match provenance.get("kind").and_then(Value::as_str) {
-        None => provenance.get("kind").is_none(),
-        Some("session_message") => true,
-        Some("agent_message") => provenance.get("msgId").is_none(),
-        Some(_) => false,
+    match provenance.and_then(|p| p.get("kind")) {
+        None => true,
+        Some(kind) => matches!(kind.as_str(), Some("agent_message" | "session_message")),
     }
 }
 

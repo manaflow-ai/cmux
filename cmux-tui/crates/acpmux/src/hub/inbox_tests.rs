@@ -75,18 +75,15 @@ fn the_inbox_takes_another_agents_text_only() {
 
 #[test]
 fn only_a_plain_send_from_this_host_goes_to_the_inbox() {
-    assert!(plain_send(false, false, false, false));
-    assert!(!plain_send(true, false, false, false), "a peer's or the relay's forward");
-    assert!(!plain_send(false, true, false, false), "a team message");
-    assert!(!plain_send(false, false, true, false), "a correction under a supersede key");
-    assert!(!plain_send(false, false, false, true), "a steer-only send");
+    assert!(plain_send(false, false, false, false, false));
+    assert!(!plain_send(true, false, false, false, false), "a peer's or the relay's forward");
+    assert!(!plain_send(false, true, false, false, false), "a team message");
+    assert!(!plain_send(false, false, true, false, false), "a correction under a supersede key");
+    assert!(!plain_send(false, false, false, true, false), "a steer-only send");
+    assert!(!plain_send(false, false, false, false, true), "a cmux agent message");
     assert!(plain_kind(None));
     assert!(plain_kind(Some(&json!({"kind": "session_message"}))));
-    let named = crate::prompt_provenance::named_sender("lane-a", "s2");
-    assert!(plain_kind(Some(&named)), "acpmux send --from: {named}");
-    let pumped = json!({"kind": "agent_message", "from": "acp:s1", "to": "acp:s2",
-                        "msgId": "m", "threadId": "t"});
-    assert!(!plain_kind(Some(&pumped)), "a cmux agent message stays the cmux daemon's");
+    assert!(plain_kind(Some(&json!({"kind": "agent_message"}))));
     for kind in ["lane_report", "task_result", "offer_result", "agent_digest"] {
         assert!(!plain_kind(Some(&json!({"kind": kind}))), "{kind}");
     }
