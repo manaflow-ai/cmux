@@ -382,7 +382,10 @@ public final class ConversationStore {
             }
         }
         if let index = indexByID[incoming.id] {
-            changingMessages(from: index) { messages[index] = merged(existing: messages[index], incoming: incoming) }
+            changingMessages(from: index) {
+                messages[index] = merged(existing: messages[index], incoming: incoming)
+                relayerPendingEdit(at: index)
+            }
             return false
         }
         if let clientID = incoming.clientMessageID,
@@ -645,36 +648,52 @@ public final class ConversationStore {
                     // Current state changed after this fetch began: it wins
                     // over the snapshot, including a send acknowledged live.
                     var incoming = message
-                    if let live = self.message(id: message.id) {
+                    if let live = self.message(id: message.id), let kept = retained[message.id] {
+                        // Local state is layered over the server's copy, not
+                        // a newer revision of it: a URL card loaded here, a
+                        // receipt (delivery only moves forward), and whatever
+                        // a local action changed (a reaction, a poll vote or
+                        // choice, an edit, an unsend), in flight or refused.
+                        // Each holds back only its own fields; the page
+                        // brings the rest. Anything else that changed since
+                        // reconnect came live and is newer than the page.
                         var current = live
-                        // Loading a URL card is local enrichment, not a newer
-                        // message revision. Let history refresh its text/unsend;
-                        // merged(existing:incoming:) preserves a useful card.
-                        current.linkPreview = retained[message.id]?.linkPreview
-                        // A receipt is not a newer revision either: delivery
-                        // only moves forward, and merged(existing:incoming:)
-                        // keeps the furthest of the live and history values.
-                        current.delivery = retained[message.id]?.delivery
-                        // A reaction made since (an optimistic one here, which
-                        // may yet fail, or a live one) is newer than this page
-                        // for reactions only: it keeps them, and the page still
-                        // brings its text, edit or unsend (an unsend clears them).
-                        if let kept = retained[message.id], current.reactions != kept.reactions {
+                        current.linkPreview = kept.linkPreview
+                        current.delivery = kept.delivery
+                        if current.reactions != kept.reactions {
                             current.reactions = kept.reactions
                             if !incoming.isUnsent { incoming.reactions = live.reactions }
                         }
-                        // So is a poll vote or added choice (mine, still
-                        // unconfirmed, or a live one): the page brings the
-                        // rest, upsert layers my intent back over its poll,
-                        // and a live server poll beats the page's.
-                        if let kept = retained[message.id], current.poll != kept.poll {
+                        // upsert layers my unconfirmed votes and choices over
+                        // the page's poll; a server poll that changed live
+                        // since reconnect beats the page's.
+                        if current.poll != kept.poll {
                             current.poll = kept.poll
                             if !incoming.isUnsent, let livePoll = polls.server[message.id],
                                livePoll != recoveryPollBaseline?[message.id] {
                                 incoming.poll = livePoll
                             }
                         }
-                        if current != retained[message.id] { continue }
+                        // upsert layers a pending edit back over the page's
+                        // revision, and a refusal rolls back to that revision.
+                        if pendingEdits[message.id] != nil {
+                            current.text = kept.text
+                            current.textRuns = kept.textRuns
+                            current.mentions = kept.mentions
+                            current.editedAt = kept.editedAt
+                            current.editCount = kept.editCount
+                        }
+                        // An unsend here is final (merged keeps it); the page
+                        // becomes the original Try Again acts on.
+                        if unsendOriginals[message.id] != nil, live.isUnsent, !kept.isUnsent {
+                            current.unsentAt = kept.unsentAt
+                            current.text = kept.text
+                            current.attachments = kept.attachments
+                            current.reactions = kept.reactions
+                            current.unsendFailed = kept.unsendFailed
+                            if !incoming.isUnsent { unsendOriginals[message.id] = incoming }
+                        }
+                        if current != kept { continue }
                     }
                     if upsert(incoming) { inserted.append(incoming.rowID) }
                 }
@@ -1034,6 +1053,7 @@ public final class ConversationStore {
             if let clientID = message.clientMessageID { deletedClientIDs.insert(clientID) }
             failedAnchorSeq[message.id] = nil
             unsendOriginals[message.id] = nil
+            pendingEdits[message.id] = nil
         }
         messages.removeAll { rowIDs.contains($0.rowID) }
         sortAndReindex()
@@ -1269,23 +1289,37 @@ public final class ConversationStore {
         guard !trimmed.isEmpty, let index = indexByID[messageID],
               messages[index].text != trimmed || messages[index].textRuns != runs,
               canEdit(messages[index]) else { return }
-        let original = messages[index]
-        changingMessages(from: index) {
-            messages[index].text = trimmed
-            messages[index].textRuns = runs
-            messages[index].mentions = ConversationMentionEditing.surviving(original.mentions, oldText: original.text, newText: trimmed)
-            messages[index].editedAt = Date()
-            messages[index].editCount += 1
-        }
+        nextEditToken += 1
+        let token = nextEditToken
+        // A second edit before the first is confirmed keeps the server copy
+        // as its base, not the first edit's optimistic text.
+        pendingEdits[messageID] = PendingEdit(
+            token: token, text: trimmed, textRuns: runs, editedAt: Date(),
+            base: pendingEdits[messageID]?.base ?? messages[index]
+        )
+        changingMessages(from: index) { layerPendingEdit(at: index) }
         notify(.live(insertedRowIDs: [], sentByMe: false))
         Task { [weak self] in
             guard let self else { return }
             do {
                 let updated = try await self.backend.edit(messageID: messageID, text: trimmed, textRuns: runs)
+                if self.pendingEdits[messageID]?.token == token { self.pendingEdits[messageID] = nil }
                 self.upsert(updated)
             } catch {
+                // A later edit owns the row now; its own reply settles it.
+                guard let pending = self.pendingEdits[messageID], pending.token == token else { return }
+                self.pendingEdits[messageID] = nil
                 guard let index = self.indexByID[messageID] else { return }
-                self.messages[index] = original
+                // Back to the server's latest copy of the edited fields, which
+                // a reconnect may have refreshed since the edit began.
+                let base = pending.base
+                self.changingMessages(from: index) {
+                    self.messages[index].text = base.text
+                    self.messages[index].textRuns = base.textRuns
+                    self.messages[index].mentions = base.mentions
+                    self.messages[index].editedAt = base.editedAt
+                    self.messages[index].editCount = base.editCount
+                }
             }
             self.notify(.live(insertedRowIDs: [], sentByMe: true))
         }
@@ -1297,6 +1331,42 @@ public final class ConversationStore {
     public func canUnsend(_ message: ConversationMessage, now: Date = Date()) -> Bool {
         message.senderID == meID && message.seq != nil && !message.isNotice
             && now.timeIntervalSince(message.sentAt) < Self.undoSendWindow
+    }
+
+    /// My edits the backend has not confirmed: the intent, and the server's
+    /// copy under it (updated as server copies land), which a refusal restores.
+    private struct PendingEdit {
+        var token: Int
+        var text: String
+        var textRuns: [ConversationTextRun]
+        var editedAt: Date
+        var base: ConversationMessage
+    }
+    private var pendingEdits: [String: PendingEdit] = [:]
+    private var nextEditToken = 0
+
+    /// A server copy just merged at `index`: it is the new base under my
+    /// pending edit, which goes back on top unless that copy already carries
+    /// the edit (its echo beat the reply).
+    private func relayerPendingEdit(at index: Int) {
+        let server = messages[index]
+        guard let pending = pendingEdits[server.id] else { return }
+        pendingEdits[server.id]?.base = server
+        guard server.text != pending.text || server.textRuns != pending.textRuns else { return }
+        layerPendingEdit(at: index)
+    }
+
+    /// Puts my pending edit over the row, counted from the server copy under
+    /// it. Never over an unsent message.
+    private func layerPendingEdit(at index: Int) {
+        guard let pending = pendingEdits[messages[index].id] else { return }
+        let base = pending.base
+        guard !base.isUnsent else { return }
+        messages[index].text = pending.text
+        messages[index].textRuns = pending.textRuns
+        messages[index].mentions = ConversationMentionEditing.surviving(base.mentions, oldText: base.text, newText: pending.text)
+        messages[index].editedAt = pending.editedAt
+        messages[index].editCount = base.editCount + 1
     }
 
     /// The pre-unsend message, kept until the backend confirms (and after a
