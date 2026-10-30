@@ -59,6 +59,14 @@ public final class AgentSessionDirectory {
         generation += 1
     }
 
+    /// Sign-out: no account's chats stay in memory (notification previews save `loadedStores`, and a
+    /// later sign-in must not meet a store bound to the old account's link).
+    public func removeAll() {
+        guard !stores.isEmpty else { return }
+        stores.removeAll()
+        generation += 1
+    }
+
     public func store(workspace: Workspace, tab: WorkspaceTab, macName: String) -> AgentChatStore {
         store(for: AgentSessionSummary(
             id: tab.id, name: tab.subtitle ?? tab.title, harness: tab.harness ?? "claude", agentName: tab.title,
