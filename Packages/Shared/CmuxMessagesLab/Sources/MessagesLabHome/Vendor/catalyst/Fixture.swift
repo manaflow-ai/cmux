@@ -56,12 +56,23 @@ enum Fixture {
     /// Light system appearance (the host sets it from its effective appearance).
     /// Link cards follow it: Messages' light card is the light incoming grey
     /// (#E9E9EB) with dark text. A change bumps `paletteGeneration`.
-    static var lightAppearance = false { didSet { if lightAppearance != oldValue { paletteGeneration += 1 } } }
+    static var lightAppearance = false { didSet { if lightAppearance != oldValue { PaletteScope.bumpBaseGeneration() } } }
     /// Bumped by an appearance or a colour space change: cached bitmaps are stale (not by a window's key state).
-    static fileprivate(set) var paletteGeneration = 0
+    // cmux: written on the main thread and read by off-main renders (their cache keys, `generationIsLive`), so it
+    // sits behind PaletteScope's lock.
+    static var baseGeneration: Int { PaletteScope.baseGeneration }
+    /// cmux: the palette generation of the drawing that runs now: the base generation and the palette's id (the
+    /// scope's, a window view's own Chat Colors, else the process palette, PaletteScope). Every palette-dependent
+    /// cache is keyed by it, so two chats with different colours keep separate bitmaps and tiles.
+    static var paletteGeneration: Int { generation(of: PaletteScope.current) }
+    /// cmux: the generation drawing in a scope of `box` has now (nil: the process palette's).
+    static func generation(of box: PaletteBox?) -> Int { PaletteScope.generation(of: box) }
+    /// cmux: `generation` was made since the last appearance or colour space change (its palette may be another
+    /// view's): a result drawn for it is still good under its own key.
+    static func generationIsLive(_ generation: Int) -> Bool { generation / 1_000_003 == baseGeneration }
     /// The bitmaps' colour space changed (a window moved to a display of another colour space): every cache keyed
     /// on the palette generation draws again (MessagesWindowView.displayColorSpaceChanged).
-    static func colorSpaceChanged() { paletteGeneration += 1 }
+    static func colorSpaceChanged() { PaletteScope.bumpBaseGeneration() }
 
     /// Palette, measured with `screencapture -l` on macOS 27 Messages
     /// (cmux-lawrence-2, 2026-10-05): key and non-key windows are identical
@@ -75,10 +86,15 @@ enum Fixture {
         UIColor(displayP3Red: r / 255, green: g / 255, blue: b / 255, alpha: 1)
     }
     /// cmux: the app theme's colours (the cmux-next Ghostty theme and the
-    /// user's accent), set by the Home host; a change bumps
+    /// user's accent, and a chat's Chat Colors), set by the Home host: the
+    /// scope's window view's palette, else the process palette (PaletteScope);
+    /// setting it sets the process palette. Another palette has another
     /// `paletteGeneration`. nil keeps the measured Messages palette below
     /// (fixtures, the differential harness), light or dark (`lightAppearance`).
-    static var theme: FixtureTheme? { didSet { if theme != oldValue { paletteGeneration += 1 } } }
+    static var theme: FixtureTheme? {
+        get { PaletteScope.effective?.theme }
+        set { PaletteScope.setProcess(newValue) }
+    }
     private static func themed(_ pick: (FixtureTheme.Colors) -> UIColor) -> UIColor? {
         theme.map { pick($0.active) }
     }
@@ -208,6 +224,11 @@ enum Fixture {
         if !themedAccent, !lightAppearance { return UIColor(srgbRed: 60 / 255, green: 124 / 255, blue: 212 / 255, alpha: 1) }
         return mix(outgoing, into: background, 0.85)
     }
+    /// cmux: the outline of a group's quote of another person's message, drawn at `ThreadPreview.cmuxGroupOpacity`
+    /// (macOS Messages, dark, the user's 2x group reference of 2026-10-29: sRGB 80 on the 30 background, the incoming
+    /// text half way into the background at half opacity). Light mode and themes follow the same mix: UNVERIFIED against
+    /// a light Messages reference.
+    static var groupQuoteOutline: UIColor { mix(incomingText, into: background, 0.5) }
     /// `c` at `amount` over `base`, in sRGB.
     private static func mix(_ c: UIColor, into base: UIColor, _ amount: CGFloat) -> UIColor {
         guard let a = c.usingColorSpace(.sRGB), let b = base.usingColorSpace(.sRGB) else { return c }

@@ -373,18 +373,19 @@ pub(crate) fn rank(
             if !shown_while_typing(entry, gated, raw) {
                 continue;
             }
-            let handle = names_handle(&prepared.handles[index], &handle_query);
-            let found = entry_tier(
-                entry,
-                prepared.ids[index].as_deref(),
-                &query,
-                &prepared.fields[index],
-                allows_typo,
-            );
+            let Some(fields) = prepared.fields.get(index) else { continue };
+            let handle = prepared
+                .handles
+                .get(index)
+                .is_some_and(|handles| names_handle(handles, &handle_query));
+            let found =
+                entry_tier(entry, prepared.ids[index].as_deref(), &query, fields, allows_typo);
             let (found, highlights) = match found {
                 Some(found) => {
-                    let highlights =
-                        highlights_for(found.query.get(), &prepared.fields[index][0].text);
+                    let highlights = fields
+                        .first()
+                        .map(|field| highlights_for(found.query.get(), &field.text))
+                        .unwrap_or_default();
                     (found, highlights)
                 }
                 None if handle => (
@@ -410,7 +411,7 @@ pub(crate) fn rank(
             {
                 MAXIMUM_QUALITY
             } else {
-                match_quality(found.query.get(), &prepared.fields[index])
+                match_quality(found.query.get(), fields)
             };
             if found.tier >= match_tier::SUBSTRING {
                 strong += 1;
