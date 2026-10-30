@@ -27,8 +27,8 @@ ask whether the job needed macOS. This module asks.
 * a `macos_jobs` entry names a job that no longer exists or no longer routes
   to macOS (the table stays true).
 
-`linux_followup` and `placement_followup` exist only so the table can
-describe today's tree: an existing job that should move but has not yet. A new
+`linux_followup`, `placement_followup` and `picker_followup` exist only so the
+table can describe today's tree: an existing job that should move but has not yet. A new
 job never gets one. An entry whose followup no longer applies fails too, so
 the list only shrinks.
 
@@ -81,6 +81,18 @@ def bypasses_placement(runs_on: str) -> bool:
     return bool(OWNED_LABEL_VARIABLE.search(runs_on)) and not PLACEMENT_OUTPUT.search(runs_on)
 
 
+# What a picker gives a runs-on: a picker or placement job's output, or a label the caller of a reusable
+# workflow (or a dispatcher) chose. The capability map (`fromJSON(needs.runners.outputs.map).<key>`) is
+# not one: it names one fixed label per key, whatever that label's queue holds.
+PICKER_OUTPUT = re.compile(r"needs\.[\w-]+\.outputs\.(?!map\b)[\w-]+|inputs\.[\w-]+")
+
+
+def pinned(route: str) -> bool:
+    """The job's runs-on (with its matrix, when it reads one) reads no picker output, so it always waits on
+    the same label: a literal, a repository variable or a capability-map key."""
+    return not PICKER_OUTPUT.search(route)
+
+
 class RoutingTableError(RuntimeError):
     """The routing table is malformed."""
 
@@ -90,6 +102,8 @@ class Job:
     workflow: str
     job_id: str
     runs_on: str
+    # runs-on, plus the strategy when runs-on reads the matrix: where the label comes from.
+    route: str = ""
 
     @property
     def key(self) -> str:
@@ -148,7 +162,9 @@ def iter_jobs(workflows: Path = WORKFLOWS) -> Iterable[tuple[Job, bool]]:
             # visits in the callee's own file.
             if not isinstance(job, dict) or "uses" in job:
                 continue
-            yield Job(path.name, str(job_id), json.dumps(job.get("runs-on", ""))), routes_to_macos(job)
+            runs_on = json.dumps(job.get("runs-on", ""))
+            route = runs_on + (json.dumps(job.get("strategy", {})) if "matrix" in runs_on else "")
+            yield Job(path.name, str(job_id), runs_on, route), routes_to_macos(job)
 
 
 def check(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) -> list[str]:
@@ -180,6 +196,18 @@ def check(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) -> list[str]:
             )
         elif entry.get("placement_followup") and not bypass:
             problems.append(f"{job.key} no longer bypasses placement; remove its placement_followup")
+        # A bypass is already one pin, recorded by its placement_followup.
+        pin = not bypass and pinned(job.route or job.runs_on)
+        if pin and not entry.get("picker_followup"):
+            problems.append(
+                f"{job.key} runs on macOS from a fixed label (its runs-on reads no picker output), so "
+                f"it waits on that one label however long it starts nothing. Take runs-on from a picker "
+                f"job's output (scripts/ci/ios_runner_pool.py, simple_pool_picker.py or "
+                f"side_lane_placement.py): an idle owned Mac first, Blacksmith macOS last, with "
+                f"stall-aware failover."
+            )
+        elif entry.get("picker_followup") and not pin:
+            problems.append(f"{job.key} no longer runs on a fixed label; remove its picker_followup")
         if spec["needs"] == "linux" and not entry.get("linux_followup"):
             problems.append(
                 f"{job.key} is class {entry['class']!r}, which runs on Linux runners: "
@@ -214,14 +242,18 @@ def main(argv: list[str]) -> int:
     _, table = load_table()
     pending = sorted(k for k, v in table.items() if v.get("linux_followup"))
     bypass = sorted(k for k, v in table.items() if v.get("placement_followup"))
+    fixed = sorted(k for k, v in table.items() if v.get("picker_followup"))
     print(
         f"runner routing table: {len(table)} macOS jobs classified; "
-        f"{len(pending)} still to move to Linux; {len(bypass)} still bypass placement"
+        f"{len(pending)} still to move to Linux; {len(bypass)} still bypass placement; "
+        f"{len(fixed)} still on a fixed label"
     )
     for key in pending:
         print(f"  linux: {key}: {table[key]['linux_followup']}")
     for key in bypass:
         print(f"  placement: {key}")
+    for key in fixed:
+        print(f"  picker: {key}: {table[key]['picker_followup']}")
     return 0
 
 

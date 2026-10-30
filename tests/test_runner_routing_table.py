@@ -3,7 +3,9 @@
 
 The live check runs scripts/ci/runner_routing_table.py against this tree. The
 fixture tests pin what that check refuses: a new macOS job with no class, a
-macOS job whose class runs on Linux, and an entry for a job that is gone.
+macOS job whose class runs on Linux, an entry for a job that is gone, and a
+macOS job pinned to one fixed label with no picker (the shape
+cmux-next-ios-kit.yml's kit-tests had: `... || 'blacksmith-6vcpu-macos-26'`).
 """
 
 from __future__ import annotations
@@ -49,8 +51,13 @@ class Fixture:
 MAC_JOB = """
     on: push
     jobs:
+      runner:
+        runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+        steps:
+          - run: python3 scripts/ci/simple_pool_picker.py
       build:
-        runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+        needs: runner
+        runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(needs.runner.outputs.runs_on) }}
         steps:
           - run: xcodebuild build
       lint:
@@ -203,6 +210,59 @@ class RoutingTableTests(unittest.TestCase):
         entry = {"class": "apple-app-build", "linux_followup": "stale"}
         problems = self.run_fixture({"w.yml": MAC_JOB}, {"w.yml#build": entry})
         self.assertIn("remove its linux_followup", problems[0])
+
+    # cmux-next-ios-kit.yml's kit-tests runs-on before it took a picker (feat-cmux-next, 2026-10-30).
+    KIT_PIN = (
+        "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && "
+        "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || "
+        "vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}"
+    )
+
+    def pinned_job(self, runs_on: str, strategy: str = "") -> str:
+        return (
+            "on: push\njobs:\n  test:\n" + strategy
+            + "    runs-on: " + json.dumps(runs_on) + "\n    steps:\n      - run: xcodebuild test\n"
+        )
+
+    def test_a_macos_job_on_a_fixed_label_fails(self) -> None:
+        for runs_on in (
+            self.KIT_PIN,
+            "blacksmith-6vcpu-macos-26",
+            "${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}",
+            "${{ fromJSON(needs.runners.outputs.map).macos_26_ios }}",
+        ):
+            problems = self.run_fixture({"w.yml": self.pinned_job(runs_on)}, {"w.yml#test": "apple-app-build"})
+            self.assertEqual(len(problems), 1, runs_on)
+            self.assertIn("w.yml#test runs on macOS from a fixed label", problems[0])
+
+    def test_a_matrix_of_fixed_labels_fails_and_a_picked_matrix_passes(self) -> None:
+        literal = "    strategy:\n      matrix:\n        runner: [blacksmith-6vcpu-macos-15, blacksmith-6vcpu-macos-26]\n"
+        picked = "    strategy:\n      matrix:\n        runner: ${{ fromJSON(needs.pick.outputs.runners) }}\n"
+        problems = self.run_fixture({"w.yml": self.pinned_job("${{ matrix.runner }}", literal)},
+                                    {"w.yml#test": "apple-app-build"})
+        self.assertIn("from a fixed label", problems[0])
+        self.assertEqual(self.run_fixture({"w.yml": self.pinned_job("${{ matrix.runner }}", picked)},
+                                          {"w.yml#test": "apple-app-build"}), [])
+
+    def test_a_picked_label_or_a_callers_input_passes(self) -> None:
+        for runs_on in (
+            "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+            "fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}",
+            "${{ inputs.runner || 'blacksmith-6vcpu-macos-26' }}",
+        ):
+            self.assertEqual(self.run_fixture({"w.yml": self.pinned_job(runs_on)}, {"w.yml#test": "apple-app-build"}),
+                             [], runs_on)
+
+    def test_an_existing_pin_passes_until_it_takes_a_picker(self) -> None:
+        entry = {"class": "apple-app-build", "picker_followup": "take the label from a picker"}
+        self.assertEqual(self.run_fixture({"w.yml": self.pinned_job(self.KIT_PIN)}, {"w.yml#test": entry}), [])
+        problems = self.run_fixture({"w.yml": MAC_JOB}, {"w.yml#build": entry})
+        self.assertEqual(len(problems), 1)
+        self.assertIn("no longer runs on a fixed label; remove its picker_followup", problems[0])
+
+    def test_a_placement_bypass_is_one_pin_not_two(self) -> None:
+        entry = {"class": "apple-app-build", "placement_followup": "route through placement"}
+        self.assertEqual(self.run_fixture({"w.yml": self.SIDE_JOB}, {"w.yml#test": entry}), [])
 
     def test_linux_size_capabilities_resolve_on_every_fleet(self) -> None:
         document = json.loads((ROOT / ".github" / "runners.json").read_text(encoding="utf-8"))
