@@ -32,6 +32,8 @@ public final class AgentPaneScrollAnchors {
     let file: URL?
     /// Writes the places off the main thread; nil keeps nothing on disk.
     private let writer: StateFileWriter?
+    /// Reads through the shared file seam, including any saves made by its legacy queue.
+    private let store: AgentPaneStateFile?
     /// Oldest first; read from the file on first use.
     private var entries: [Entry]?
 
@@ -42,6 +44,7 @@ public final class AgentPaneScrollAnchors {
     public init(directory: URL?, work: BackgroundWork, write: @escaping StateFileWriter.Write = StateFileWriter.disk) {
         file = directory?.appending(path: Self.fileName)
         writer = file.map { StateFileWriter(file: $0, work: work, write: write) }
+        store = file.map(AgentPaneStateFile.at)
     }
 
     public func anchor(for sessionId: String) -> AgentPaneScrollAnchor? {
@@ -60,8 +63,7 @@ public final class AgentPaneScrollAnchors {
 
     private func loaded() -> [Entry] {
         if let entries { return entries }
-        // concurrency-allow: one read of a small local state file, at the first chat's attach
-        let data = file.flatMap { try? Data(contentsOf: $0) }
+        let data = store?.read()
         let read = data.flatMap { try? JSONDecoder().decode([Entry].self, from: $0) } ?? []
         entries = read
         return read

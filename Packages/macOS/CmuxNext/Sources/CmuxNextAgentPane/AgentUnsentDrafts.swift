@@ -12,6 +12,8 @@ public final class AgentUnsentDrafts {
     let file: URL?
     /// Writes the drafts off the main thread; nil keeps nothing on disk.
     private let writer: StateFileWriter?
+    /// Reads through the shared file seam, including any saves made by its legacy queue.
+    private let store: AgentPaneStateFile?
     private var drafts: [String: String]
 
     /// - Parameters:
@@ -21,8 +23,8 @@ public final class AgentUnsentDrafts {
     public init(file: URL?, work: BackgroundWork?, write: @escaping StateFileWriter.Write = StateFileWriter.disk) {
         self.file = file
         writer = file.flatMap { file in work.map { StateFileWriter(file: file, work: $0, write: write) } }
-        // concurrency-allow: one read of a small local state file when the tab store is made
-        let data = file.flatMap { try? Data(contentsOf: $0) }
+        store = file.map(AgentPaneStateFile.at)
+        let data = store?.read()
         drafts = data.flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
     }
 
