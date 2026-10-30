@@ -478,6 +478,8 @@ final class CloudService {
             if let session = machines.session(machine.id) {
                 apply(machine, to: session, read: read)
             } else {
+                // The machine's record now comes from this list: older reads land behind it.
+                recordReadApplied[machine.id] = read
                 addSession(machine)
             }
         }
