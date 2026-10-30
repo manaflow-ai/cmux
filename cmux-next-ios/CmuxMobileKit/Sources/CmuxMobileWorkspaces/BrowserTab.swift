@@ -130,6 +130,8 @@ public final class BrowserTabModel: BrowserTabState {
         if problem != nil {
             problem = nil
             url = webView.url
+            // The tab opens here again at this page, not the address that failed.
+            if let page = webView.url { urlChanged?(page) }
             return
         }
         personNavigated?()
