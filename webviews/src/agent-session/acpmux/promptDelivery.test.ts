@@ -108,6 +108,7 @@ test("a slow acknowledgement stays pending past the former failure deadline and 
     void client.send("anyone there").catch(() => undefined);
     await settle(() => mine()?.delivery?.slow === true);
     expect(mine()?.delivery?.state).toBe("sending");
+    // fixed-wait: proving the row does not fail means outwaiting the remote deadline (failMs) once.
     await new Promise((resolve) => setTimeout(resolve, deliveryTiming.failMs + 20));
     expect(mine()?.failed).toBeFalsy();
     expect(mine()?.delivery?.state).toBe("sending");
@@ -201,6 +202,7 @@ test("a local send nobody answers stays sending past the remote deadline, then f
   const mine = () => rows.find((row) => row.kind === "user" && row.text === "too big to journal");
   try {
     void client.send("too big to journal").catch(() => undefined);
+    // fixed-wait: proving the row does not fail at the remote deadline means outwaiting it once.
     await new Promise((resolve) => setTimeout(resolve, deliveryTiming.failMs + 20));
     expect(mine()?.failed).toBeFalsy();
     expect(mine()?.delivery?.state).toBe("sending");
@@ -247,6 +249,7 @@ test("a busy session keeps an unacknowledged eight-image prompt queued with prev
     await settle(() => snapshot.isWorking === true);
     void client.send("keep all screenshots", attachments, "slow-busy").catch(() => undefined);
     await settle(() => snapshot.queue?.some((entry) => entry.id === "slow-busy") === true);
+    // fixed-wait: proving the row does not fail means outwaiting the remote deadline (failMs) once.
     await new Promise((resolve) => setTimeout(resolve, deliveryTiming.failMs + 40));
     expect(snapshot.rows.some((row) => row.failed)).toBe(false);
     expect(snapshot.queue?.find((entry) => entry.id === "slow-busy")?.images).toHaveLength(8);
