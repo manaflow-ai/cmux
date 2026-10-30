@@ -51,7 +51,7 @@ final class LinkOpener {
     /// showing that tab, else the active window's focused pane.
     func source(tab key: String?) -> PaneController? {
         guard let services else { return nil }
-        if let key, let (_, pane) = services.locateTab(key), let controller = services.paneController(for: pane) { return controller }
+        if let key, let (_, pane) = services.locateTabOnAnyMachine(key), let controller = services.paneController(for: pane) { return controller }
         if let key, let controller = services.paneController(showingTab: key) { return controller }
         return services.windows.active?.focusedPane
     }
