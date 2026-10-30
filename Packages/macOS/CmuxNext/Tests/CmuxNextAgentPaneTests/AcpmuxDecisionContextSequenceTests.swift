@@ -57,6 +57,22 @@ struct AcpmuxDecisionContextSequenceTests {
         #expect(contexts.questions(session: "s")["p1"]?.nonce == Self.newNonce)
     }
 
+    @Test func ClaudeAskUserQuestionWithoutNormalizedEnvelopeGetsANativeQuestionContext() {
+        let contexts = AcpmuxDecisionContexts()
+        let request: [String: Any] = [
+            "options": [["optionId": "yes", "kind": "allow_once"]],
+            "toolCall": [
+                "_meta": ["claude": ["tool": "AskUserQuestion"]],
+                "rawInput": ["questions": [["question": "Which one?", "options": [["label": "A"]]]]],
+            ],
+        ]
+        let params: [String: Any] = ["sessionId": "s", "permissionId": "claude-question",
+                                     "decisionNonce": Self.newNonce, "personInstance": Self.instance,
+                                     "request": request]
+        contexts.observe(["method": "_acpmux/permission_pending", "params": params], replyTo: nil)
+        #expect(contexts.questions(session: "s")["claude-question"]?.isQuestion == true)
+    }
+
     @Test func historyCannotReplaceAnUnsequencedPendingUntilItsExactEchoAnchorsIt() {
         let contexts = AcpmuxDecisionContexts()
         Self.pending(contexts)

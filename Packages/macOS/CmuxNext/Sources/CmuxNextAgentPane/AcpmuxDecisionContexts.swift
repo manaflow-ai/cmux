@@ -192,7 +192,9 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
         let key = session + "\u{0}" + permission
         var context = Context(nonce: nonce, instance: instance)
         let request = params["request"] as? [String: Any]
-        context.isQuestion = request.flatMap(AcpmuxPermissionPrompt.question) != nil
+        // Keep this predicate in lockstep with the card model: Claude's AskUserQuestion uses
+        // `_meta.claude.tool` and has no normalized `_meta.acpmux.question` envelope.
+        context.isQuestion = request.map(AcpmuxPermissionPrompt.isQuestion) ?? false
         context.toolCall = (request?["toolCall"] as? [String: Any])?["toolCallId"] as? String ?? ""
         let options = request?["options"] as? [[String: Any]] ?? []
         let ids = options.compactMap { $0["optionId"] as? String }
