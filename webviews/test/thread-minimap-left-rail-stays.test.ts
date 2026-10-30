@@ -136,7 +136,7 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
           expect({
             closed: where(closed),
             open: where(open),
-            moved: "left" in open && "left" in closed ? open.left - closed.left : 0,
+            moved: open.shown && closed.shown ? open.left - closed.left : 0,
             pushed: where(pushed),
           }).toEqual({
             closed: expected,
