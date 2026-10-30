@@ -62,6 +62,24 @@ public import CmuxNextCompat
         return try await queued(key, on: false, after: offs[key, default: 0], refusal: refusal, write)
     }
 
+    /// Queues a write whose host performs its own authentication (Join consent). The same cancellation-
+    /// safe permit and per-key ordering as ``set`` apply, without asking a second confirmation here.
+    public func setWithoutConfirmation(
+        _ key: String, on: Bool, refusal: PageError,
+        write: @escaping @MainActor (Bool) async -> String?
+    ) async throws -> String? {
+        let after: Int
+        if on {
+            after = offs[key, default: 0]
+        } else {
+            offs[key, default: 0] += 1
+            after = offs[key, default: 0]
+        }
+        return try await queued(key, on: on, after: after, refusal: refusal) { value, _ in
+            await write(value)
+        }
+    }
+
     /// Runs one write for `key` after the ones asked before it. An on runs only if no off came in after
     /// it was asked (`after` is the off count it was asked under); otherwise it is refused.
     private func queued(_ key: String, on: Bool, after offsAsked: Int, refusal: PageError,

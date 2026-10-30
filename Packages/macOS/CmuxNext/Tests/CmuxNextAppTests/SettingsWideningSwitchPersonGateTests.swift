@@ -333,6 +333,52 @@ import Testing
         #expect(h.recorder.sets == ["device true"])
     }
 
+    /// Join consent uses the same cancellation-safe permit as the widening switches: a request canceled
+    /// while an earlier write is in flight never reaches the host after that earlier write lands.
+    @Test(.timeLimit(.minutes(1))) func aCancelledJoinConsentNeverReachesTheHost() async throws {
+        let h = try await make(owner: nil)
+        defer { h.cleanUp() }
+        let landing = Landing()
+        defer { landing.release() }
+        var calls = 0
+        h.page.setJoinConsent = { surface, on in
+            calls += 1
+            if calls == 1 { return await landing.write("join \(surface)", on, h.recorder) }
+            h.recorder.sets.append("join \(surface) \(on)")
+            return nil
+        }
+        let firstEvent = try h.click(0)
+        h.ledger.record(firstEvent)
+        let first = Task {
+            try await h.page.call("cmux.settings.devices.join_consent",
+                                  params: ["surface": "screen", "on": true],
+                                  context: PageCallContext(page: PageDescriptor.settings.id, userGesture: true,
+                                                            gestureEvent: firstEvent.timestamp))
+        }
+        try #require(await landing.arrived(first))
+
+        let secondEvent = try h.click(0)
+        h.ledger.record(secondEvent)
+        let second = Task {
+            try await h.page.call("cmux.settings.devices.join_consent",
+                                  params: ["surface": "screen", "on": true],
+                                  context: PageCallContext(page: PageDescriptor.settings.id, userGesture: true,
+                                                            gestureEvent: secondEvent.timestamp))
+        }
+        second.cancel()
+        landing.land()
+        _ = try await first.value
+        do {
+            _ = try await second.value
+            Issue.record("a canceled join-consent write reached the host")
+        } catch is CancellationError {
+            // Expected: the request was canceled before its queued permit could be claimed.
+        } catch let error as PageError {
+            #expect(error.code == PageNativeOp.userOnlyCode)
+        }
+        #expect(h.recorder.sets == ["join screen true"])
+    }
+
     /// One confirm at a time: while one is up, a second click is refused without a second prompt (an agent
     /// cannot stack prompts behind the person's), and the first still turns on only its switch.
     @Test(.timeLimit(.minutes(1))) func aSecondAskWhileOneIsUpIsRefused() async throws {

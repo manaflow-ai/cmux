@@ -196,7 +196,11 @@ final class SettingsPageProvider: PageProvider {
                     throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
                 }
             }
-            return try await Self.host(setJoinConsent, "devices")(surface, on).map { ["error": .string($0)] } ?? .object([:])
+            let write = try Self.host(setJoinConsent, "devices")
+            return try await wideningGate.setWithoutConfirmation(
+                "joinConsent \(surface)", on: on,
+                refusal: PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
+            ) { value in await write(surface, value) }.map { ["error": .string($0)] } ?? .object([:])
         case "cmux.settings.machines.vm_host":
             guard let id = params["id"]?.stringValue, let on = params["on"]?.boolValue else {
                 throw PageError.invalidParams("id and on are required")
