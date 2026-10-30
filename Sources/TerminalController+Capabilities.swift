@@ -347,7 +347,7 @@ extension TerminalController {
             "surface.input_state",
             "surface.wait_text_change",
             "surface.read_selection",
-            "surface.clear_history",
+            "surface.clear_history", "surface.textbox.toggle", "surface.textbox.show", "surface.textbox.hide", "surface.textbox.state",
             "surface.trigger_flash",
             "pane.list",
             "pane.focus",

@@ -72,7 +72,7 @@ extension ControlCommandCoordinator {
         case "debug.terminals":
             return debugTerminals(request.params)
         default:
-            return nil
+            return ControlSurfaceTextBoxAction(method: request.method).map { surfaceTextBox($0, request.params) }
         }
     }
 

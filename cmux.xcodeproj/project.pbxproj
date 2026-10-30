@@ -1461,6 +1461,7 @@
 		A1329C0B0000000000000101 /* CMUXCLI+SurfaceSizing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1329C0B0000000000000001 /* CMUXCLI+SurfaceSizing.swift */; };
 		B6E774493F579BDC8C8BD8C1 /* CMUXCLI+TaskHelp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 330D98B52CC6A159D363DA42 /* CMUXCLI+TaskHelp.swift */; };
 		C2538001A1B2C3D4E5F60719 /* CMUXCLI+TerminalCreation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2538002A1B2C3D4E5F60719 /* CMUXCLI+TerminalCreation.swift */; };
+		F8A674922419059BADD66B8B /* CMUXCLI+TextBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36AA69897A5C6C1E542135D /* CMUXCLI+TextBox.swift */; };
 		B900002EA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B900002CA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift */; };
 		B900002FA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B900002DA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift */; };
 		B9000048A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000049A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift */; };
@@ -4002,6 +4003,7 @@
 		C0DE00000000000000000C86 /* TerminalController+ControlSurfaceDock.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C85 /* TerminalController+ControlSurfaceDock.swift */; };
 		8126BEEF0000000000000001 /* TerminalController+ControlSurfaceGitContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8126BEEF0000000000000002 /* TerminalController+ControlSurfaceGitContext.swift */; };
 		C51A73000000000000000301 /* TerminalController+ControlSurfacePanelType.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A73000000000000000302 /* TerminalController+ControlSurfacePanelType.swift */; };
+		824763E2216E511DB11F1D5F /* TerminalController+ControlSurfaceTextBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B4320028F0A50D13316D242 /* TerminalController+ControlSurfaceTextBox.swift */; };
 		C0DE00000000000000000C7A /* TerminalController+ControlSystemContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C79 /* TerminalController+ControlSystemContext.swift */; };
 		C0DE00000000000000000C7C /* TerminalController+ControlSystemContext2.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C7B /* TerminalController+ControlSystemContext2.swift */; };
 		93300003A1B2C3D4E5F60718 /* TerminalController+ControlTerminalBinding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93300004A1B2C3D4E5F60718 /* TerminalController+ControlTerminalBinding.swift */; };
@@ -4177,9 +4179,11 @@
 		791101010000000000000001 /* TerminalPanel+SessionScrollbackReplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 791101020000000000000001 /* TerminalPanel+SessionScrollbackReplay.swift */; };
 		5C0E5FB290CC1E5CE63F98DB /* TerminalPanel+ShellReadiness.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4983F8022A862E60F27778D /* TerminalPanel+ShellReadiness.swift */; };
 		ABB87B1A532D01C50C10F903 /* TerminalPanel+SurfaceSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAD8854A2CD1387725EEC0A /* TerminalPanel+SurfaceSelection.swift */; };
+		DF7A68909670E1438A2A9E7F /* TerminalPanel+TextBoxControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32A93FBCCFCEC13980391992 /* TerminalPanel+TextBoxControl.swift */; };
 		A5001401 /* TerminalPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001411 /* TerminalPanel.swift */; };
 		E8B3D5F71A2C49608B7D5E31 /* TerminalPanelCreationOutcome.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A6C8E40D5B17293C8F6A42 /* TerminalPanelCreationOutcome.swift */; };
 		C0DE5A410000000000000001 /* TerminalPanelShellActivityModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE5A410000000000000002 /* TerminalPanelShellActivityModel.swift */; };
+		3217EFDB99DEED62DDEE38C6 /* TerminalPanelTextBoxControlTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0407972482800BBDD98ECE8 /* TerminalPanelTextBoxControlTests.swift */; };
 		C0DE6B420000000000000001 /* TerminalPanelTextBoxState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE6B420000000000000002 /* TerminalPanelTextBoxState.swift */; };
 		6819AF60AEA6455DB57CC7FE /* TerminalPanelUnavailableView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 811B03E4004A4D1FB6650158 /* TerminalPanelUnavailableView.swift */; };
 		A5001403 /* TerminalPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001413 /* TerminalPanelView.swift */; };
@@ -4278,6 +4282,7 @@
 		958C4DF4A2F6BBA04B788F27 /* TestProcessDefaults.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7195972CC9EBB2353ACFF8AB /* TestProcessDefaults.swift */; };
 		C0DE7B330000000000000001 /* TextBoxAgentDetection.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B330000000000000002 /* TextBoxAgentDetection.swift */; };
 		B8835100000000000000000D /* TextBoxAttachment+PreparedPaste.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8835100000000000000000E /* TextBoxAttachment+PreparedPaste.swift */; };
+		DA39ADA1837ACDACCF0725C3 /* TextBoxCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0191C90C064F1013A977E63 /* TextBoxCommand.swift */; };
 		970400000000000000000001 /* TextBoxEscapePassthroughTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 970400000000000000000002 /* TextBoxEscapePassthroughTests.swift */; };
 		7898A0020000000000000001 /* TextBoxGitIgnoreProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7898A0020000000000000002 /* TextBoxGitIgnoreProbe.swift */; };
 		C0DE86250000000000000001 /* TextBoxIMECompositionLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE86250000000000000002 /* TextBoxIMECompositionLayoutTests.swift */; };
@@ -6280,6 +6285,7 @@
 		A1329C0B0000000000000001 /* CMUXCLI+SurfaceSizing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SurfaceSizing.swift"; sourceTree = "<group>"; };
 		330D98B52CC6A159D363DA42 /* CMUXCLI+TaskHelp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TaskHelp.swift"; sourceTree = "<group>"; };
 		C2538002A1B2C3D4E5F60719 /* CMUXCLI+TerminalCreation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TerminalCreation.swift"; sourceTree = "<group>"; };
+		D36AA69897A5C6C1E542135D /* CMUXCLI+TextBox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TextBox.swift"; sourceTree = "<group>"; };
 		B900002CA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Themes.swift"; sourceTree = "<group>"; };
 		B900002DA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+ThemeSupport.swift"; sourceTree = "<group>"; };
 		B9000049A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TmuxCompatHUDSupport.swift"; sourceTree = "<group>"; };
@@ -8667,6 +8673,7 @@
 		C0DE00000000000000000C85 /* TerminalController+ControlSurfaceDock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSurfaceDock.swift"; sourceTree = "<group>"; };
 		8126BEEF0000000000000002 /* TerminalController+ControlSurfaceGitContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSurfaceGitContext.swift"; sourceTree = "<group>"; };
 		C51A73000000000000000302 /* TerminalController+ControlSurfacePanelType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSurfacePanelType.swift"; sourceTree = "<group>"; };
+		9B4320028F0A50D13316D242 /* TerminalController+ControlSurfaceTextBox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSurfaceTextBox.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C79 /* TerminalController+ControlSystemContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSystemContext.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C7B /* TerminalController+ControlSystemContext2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSystemContext2.swift"; sourceTree = "<group>"; };
 		93300004A1B2C3D4E5F60718 /* TerminalController+ControlTerminalBinding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlTerminalBinding.swift"; sourceTree = "<group>"; };
@@ -8842,9 +8849,11 @@
 		791101020000000000000001 /* TerminalPanel+SessionScrollbackReplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/TerminalPanel+SessionScrollbackReplay.swift"; sourceTree = "<group>"; };
 		D4983F8022A862E60F27778D /* TerminalPanel+ShellReadiness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/TerminalPanel+ShellReadiness.swift"; sourceTree = "<group>"; };
 		AAAD8854A2CD1387725EEC0A /* TerminalPanel+SurfaceSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/TerminalPanel+SurfaceSelection.swift"; sourceTree = "<group>"; };
+		32A93FBCCFCEC13980391992 /* TerminalPanel+TextBoxControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/TerminalPanel+TextBoxControl.swift"; sourceTree = "<group>"; };
 		A5001411 /* TerminalPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanel.swift; sourceTree = "<group>"; };
 		F2A6C8E40D5B17293C8F6A42 /* TerminalPanelCreationOutcome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPanelCreationOutcome.swift; sourceTree = "<group>"; };
 		C0DE5A410000000000000002 /* TerminalPanelShellActivityModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanelShellActivityModel.swift; sourceTree = "<group>"; };
+		C0407972482800BBDD98ECE8 /* TerminalPanelTextBoxControlTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalPanelTextBoxControlTests.swift"; sourceTree = "<group>"; };
 		C0DE6B420000000000000002 /* TerminalPanelTextBoxState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanelTextBoxState.swift; sourceTree = "<group>"; };
 		811B03E4004A4D1FB6650158 /* TerminalPanelUnavailableView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanelUnavailableView.swift; sourceTree = "<group>"; };
 		A5001413 /* TerminalPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanelView.swift; sourceTree = "<group>"; };
@@ -8943,6 +8952,7 @@
 		7195972CC9EBB2353ACFF8AB /* TestProcessDefaults.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestProcessDefaults.swift; sourceTree = "<group>"; };
 		C0DE7B330000000000000002 /* TextBoxAgentDetection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxAgentDetection.swift; sourceTree = "<group>"; };
 		B8835100000000000000000E /* TextBoxAttachment+PreparedPaste.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TextBoxAttachment+PreparedPaste.swift"; sourceTree = "<group>"; };
+		F0191C90C064F1013A977E63 /* TextBoxCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxCommand.swift; sourceTree = "<group>"; };
 		970400000000000000000002 /* TextBoxEscapePassthroughTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxEscapePassthroughTests.swift; sourceTree = "<group>"; };
 		7898A0020000000000000002 /* TextBoxGitIgnoreProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxGitIgnoreProbe.swift; sourceTree = "<group>"; };
 		C0DE86250000000000000002 /* TextBoxIMECompositionLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxIMECompositionLayoutTests.swift; sourceTree = "<group>"; };
@@ -12666,6 +12676,8 @@
 				F1C6800D38EC5F238A2994FC /* DockSplitStore+ChiefPane.swift */,
 				7947118FF892144AE54C82D2 /* ChiefPaneDragPayload.swift */,
 				0D10F73113F55349CE0E475D /* ChiefHomeConversationRows.swift */,
+				32A93FBCCFCEC13980391992 /* TerminalPanel+TextBoxControl.swift */,
+				9B4320028F0A50D13316D242 /* TerminalController+ControlSurfaceTextBox.swift */,
 				C2452EDA6ED2355F908EE912 /* AppDelegate+KiroAgentMessages.swift */,
 				D4D9700C7689786CCDB82CAE /* TerminalController+AgentMessageClaim.swift */,
 			);
@@ -12954,6 +12966,7 @@
 				0A373D54DD824A79BFEB0840 /* CMUXCLI+ChiefDispatch.swift */,
 				2C636D86CB494560BBF6953B /* ChiefDispatchPlan.swift */,
 				C0023A973E2D4196E338ED78 /* CMUXCLI+ClaudeHookPaneDirectory.swift */,
+				D36AA69897A5C6C1E542135D /* CMUXCLI+TextBox.swift */,
 				30B89EAA37F8925928F65DBC /* CMUXCLI+KiroGlobalHooks.swift */,
 				FC2F17506A4B7E143A4D2E0A /* CMUXCLI+KiroProcess.swift */,
 				11A675FF7535DC3EFEF6C352 /* CMUXCLI+AgentHookEnvironment.swift */,
@@ -12982,6 +12995,7 @@
 				D10A00000000000000000001 /* WorkspaceCommands.swift */,
 				C1A900000000000000000002 /* CmuxCommand.swift */,
 				C1A900000000000000000003 /* GlobalOptions.swift */,
+				F0191C90C064F1013A977E63 /* TextBoxCommand.swift */,
 			);
 			path = Commands;
 			sourceTree = "<group>";
@@ -14312,6 +14326,7 @@
 				FBFA082D961AFAB3FFBFF6CC /* RawOSCMachinePayloadTests.swift */,
 				E5E915CF2237052FDE02EE05 /* WorkspaceTitleRecoveryTests.swift */,
 				AD2084D340B702301EBB1356 /* SurfaceSocketCommandTests+NewDisplay.swift */,
+				C0407972482800BBDD98ECE8 /* TerminalPanelTextBoxControlTests.swift */,
 				C978CC3C2D3FCCE66696C72C /* CLIKiroGlobalHooksTests.swift */,
 				B88325A2907EB7D69739349B /* ClaudeBackgroundWorkDrainTests.swift */,
 			);
@@ -17376,6 +17391,7 @@
 				C0DE00000000000000000C86 /* TerminalController+ControlSurfaceDock.swift in Sources */,
 				8126BEEF0000000000000001 /* TerminalController+ControlSurfaceGitContext.swift in Sources */,
 				C51A73000000000000000301 /* TerminalController+ControlSurfacePanelType.swift in Sources */,
+				824763E2216E511DB11F1D5F /* TerminalController+ControlSurfaceTextBox.swift in Sources */,
 				C0DE00000000000000000C7A /* TerminalController+ControlSystemContext.swift in Sources */,
 				C0DE00000000000000000C7C /* TerminalController+ControlSystemContext2.swift in Sources */,
 				93300003A1B2C3D4E5F60718 /* TerminalController+ControlTerminalBinding.swift in Sources */,
@@ -17525,6 +17541,7 @@
 				791101010000000000000001 /* TerminalPanel+SessionScrollbackReplay.swift in Sources */,
 				5C0E5FB290CC1E5CE63F98DB /* TerminalPanel+ShellReadiness.swift in Sources */,
 				ABB87B1A532D01C50C10F903 /* TerminalPanel+SurfaceSelection.swift in Sources */,
+				DF7A68909670E1438A2A9E7F /* TerminalPanel+TextBoxControl.swift in Sources */,
 				A5001401 /* TerminalPanel.swift in Sources */,
 				E8B3D5F71A2C49608B7D5E31 /* TerminalPanelCreationOutcome.swift in Sources */,
 				C0DE5A410000000000000001 /* TerminalPanelShellActivityModel.swift in Sources */,
@@ -18136,6 +18153,7 @@
 				A1329C0B0000000000000101 /* CMUXCLI+SurfaceSizing.swift in Sources */,
 				B6E774493F579BDC8C8BD8C1 /* CMUXCLI+TaskHelp.swift in Sources */,
 				C2538001A1B2C3D4E5F60719 /* CMUXCLI+TerminalCreation.swift in Sources */,
+				F8A674922419059BADD66B8B /* CMUXCLI+TextBox.swift in Sources */,
 				B900002EA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift in Sources */,
 				B900002FA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift in Sources */,
 				B9000048A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift in Sources */,
@@ -18229,6 +18247,7 @@
 				E7A900000000000000000002 /* SurfaceCommands.swift in Sources */,
 				E15B00000000000000000002 /* SystemCommands.swift in Sources */,
 				D0F101000000000000000003 /* TerminalRawMode.swift in Sources */,
+				DA39ADA1837ACDACCF0725C3 /* TextBoxCommand.swift in Sources */,
 				C1A90000000000000000001D /* TmuxCompatCommands.swift in Sources */,
 				9009A0029009A0029009A001 /* TmuxCompatLaunchContextError.swift in Sources */,
 					575000010000000000000002 /* TmuxWaitForSignal.swift in Sources */,
@@ -19538,6 +19557,7 @@
 				11189010A1B2C3D4E5F60718 /* TerminalNotificationSocketAttributionTests.swift in Sources */,
 				596100000000000000000007 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift in Sources */,
 				DC6551E55271455111C0A3DF /* TerminalOutputTeeContextTests.swift in Sources */,
+				3217EFDB99DEED62DDEE38C6 /* TerminalPanelTextBoxControlTests.swift in Sources */,
 				4E96608F6F558E792BE96C3B /* TerminalPasteFailureNoticeTests.swift in Sources */,
 				B12715000000000000000001 /* TerminalPastePreparationReapingTests.swift in Sources */,
 				C12758000000000000000010 /* TerminalPasteWorkerStartupBenchmark.swift in Sources */,

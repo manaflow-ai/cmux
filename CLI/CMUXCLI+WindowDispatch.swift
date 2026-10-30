@@ -26,6 +26,11 @@ extension CMUXCLI {
             // not activate a window as a side effect of global --window parsing.
             return false
         }
+        // `textbox` passes the window to `surface.textbox.*`, which owns the
+        // focus decision (`--focus`); `state` and `hide` never change focus.
+        if normalizedCommand == "textbox" {
+            return false
+        }
         if normalizedCommand == "read-screen" || normalizedCommand == "read-selection" || normalizedCommand == "current" {
             return false
         }

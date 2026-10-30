@@ -184,6 +184,7 @@ Environment:
 | `surface-health` | Print terminal surface health information. |
 | `debug-terminals` | Print debug terminal state. |
 | `trigger-flash` | Trigger a visual flash on a workspace or surface. |
+| `textbox` | Show, hide, or toggle a terminal's TextBox Input, or read whether it is shown: `toggle`, `show`, `hide`, `state` (`surface.textbox.<verb>`). Targets `--surface` (alias `--panel`), else `$CMUX_SURFACE_ID`, else the focused terminal; with `--workspace` or `--window` and no `--surface`, it ignores `$CMUX_SURFACE_ID` and uses that workspace's focused terminal. The TextBox appears without taking keyboard focus unless `--focus` is passed with `toggle` or `show`; `hide` keeps the draft and, when the TextBox had keyboard focus, returns it to that terminal. Text output prints `visible`; `--json` returns both `visible` and `changed`. |
 | `list-panels` | List panels. Compatibility alias over pane/surface data. |
 | `focus-panel` | Focus a panel. Compatibility alias over surface focus. |
 | `close-workspace` | Close a workspace. |
@@ -1169,6 +1170,7 @@ the expected text without connecting to a cmux socket.
 - `cmux surface-health --help` -> `Usage: cmux surface-health`
 - `cmux debug-terminals --help` -> `Usage: cmux debug-terminals`
 - `cmux trigger-flash --help` -> `Usage: cmux trigger-flash`
+- `cmux textbox --help` -> `Usage: cmux textbox <toggle|show|hide|state>`
 - `cmux list-panels --help` -> `Usage: cmux list-panels`
 - `cmux focus-panel --help` -> `Usage: cmux focus-panel`
 - `cmux close-workspace --help` -> `Usage: cmux close-workspace`

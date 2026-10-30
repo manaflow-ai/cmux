@@ -3819,6 +3819,7 @@
       "sendKeyDesc": "Send a key press. Keys: enter, tab, escape, backspace, delete, up, down, left, right.",
       "sendSurfaceDesc": "Send text to a specific surface.",
       "sendKeySurfaceDesc": "Send a key press to a specific surface.",
+      "textboxDesc": "Show, hide, or toggle a terminal's TextBox Input. Use state to read whether it is shown. --focus moves keyboard focus into the TextBox.",
       "notificationCommands": "Notification commands",
       "notifyDesc": "Send a notification.",
       "listNotificationsDesc": "List all notifications.",

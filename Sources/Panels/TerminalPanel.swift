@@ -418,7 +418,7 @@ final class TerminalPanel: Panel, ObservableObject {
         shouldHideTextBoxOnNextEscape = false
     }
 
-    private func hideTextBoxInput() {
+    func hideTextBoxInput(focusTerminal: Bool = true) {
         shouldHideTextBoxOnNextEscape = false
         shouldFocusTextBoxWhenAvailable = false
         shouldOpenTextBoxFilePickerWhenAvailable = false
@@ -426,7 +426,7 @@ final class TerminalPanel: Panel, ObservableObject {
         preserveTextBoxContentFromView()
         isTextBoxActive = false
         textBoxInputView = nil
-        focusTerminalSurface(respectForeignFirstResponder: false)
+        if focusTerminal { focusTerminalSurface(respectForeignFirstResponder: false) }
     }
 
     private func preserveTextBoxContentFromView() {
@@ -554,7 +554,7 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     @discardableResult
-    private func focusTextBoxInput() -> Bool {
+    func focusTextBoxInput() -> Bool {
         textBoxInputFocusIntent = .textBox
         isTextBoxActive = true
         shouldFocusTextBoxWhenAvailable = true
@@ -937,7 +937,7 @@ final class TerminalPanel: Panel, ObservableObject {
         return hostedView.yieldPanelFocusIntent(target, in: window)
     }
 
-    private func textBoxOwnsResponder(_ responder: NSResponder?) -> Bool {
+    func textBoxOwnsResponder(_ responder: NSResponder?) -> Bool {
         guard let responder,
               let textBoxInputView else { return false }
         if responder === textBoxInputView {

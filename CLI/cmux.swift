@@ -9044,6 +9044,9 @@ struct CMUXCLI {
                 print(formatDebugTerminalsPayload(payload, idFormat: idFormat))
             }
 
+        case "textbox":
+            try runTextBox(commandArgs: commandArgs, client: client, windowOverride: windowId, jsonOutput: jsonOutput, idFormat: idFormat)
+
         case "trigger-flash":
             let tfWsFlag = optionValue(commandArgs, name: "--workspace")
             let explicitWorkspaceArg = tfWsFlag
@@ -22750,6 +22753,8 @@ struct CMUXCLI {
             Print live Ghostty terminal runtime metadata across all windows and workspaces.
             Intended for debugging stray or detached terminal views.
             """
+        case "textbox":
+            return Self.textBoxHelp
         case "trigger-flash":
             return """
             Usage: cmux trigger-flash [--workspace <id|ref|index>] [--surface <id|ref|index>] [--panel <id|ref|index>] [--window <id|ref|index>]

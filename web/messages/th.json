@@ -2544,6 +2544,7 @@
       "sendKeyDesc": "ส่งการกดปุ่ม คีย์: enter, tab, escape, backspace, delete, up, down, left, right",
       "sendSurfaceDesc": "ส่งข้อความไปยัง surface ที่ระบุ",
       "sendKeySurfaceDesc": "ส่งการกดปุ่มไปยัง surface ที่ระบุ",
+      "textboxDesc": "แสดง ซ่อน หรือสลับช่องป้อน TextBox ของเทอร์มินัล ใช้ state เพื่อดูว่ากำลังแสดงอยู่หรือไม่ --focus ย้ายโฟกัสแป้นพิมพ์ไปที่ TextBox",
       "notificationCommands": "คำสั่งแจ้งเตือน",
       "notifyDesc": "ส่งการแจ้งเตือน",
       "listNotificationsDesc": "แสดงรายการแจ้งเตือนทั้งหมด",

@@ -3741,6 +3741,7 @@
       "sendKeyDesc": "キー入力を送信。キー：enter、tab、escape、backspace、delete、up、down、left、right。",
       "sendSurfaceDesc": "特定のサーフェスにテキストを送信。",
       "sendKeySurfaceDesc": "特定のサーフェスにキー入力を送信。",
+      "textboxDesc": "ターミナルの TextBox 入力を表示、非表示、または切り替えます。state で表示中かどうかを確認できます。--focus でキーボードフォーカスを TextBox に移します。",
       "notificationCommands": "通知コマンド",
       "notifyDesc": "通知を送信。",
       "listNotificationsDesc": "すべての通知を一覧表示。",

@@ -52,6 +52,7 @@ SURFACE_COMMANDS = [
     (["focus-panel"], "--panel", "surface.focus"),
     (["clear-history"], "--surface", "surface.clear_history"),
     (["respawn-pane"], "--surface", "surface.respawn"),
+    (["textbox", "toggle"], "--surface", "surface.textbox.toggle"),
 ]
 # The ones that act on the caller's own pane when no surface is named.
 OWN_PANE_COMMANDS = SURFACE_COMMANDS[:4]

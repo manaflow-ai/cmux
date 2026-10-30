@@ -2541,6 +2541,7 @@
       "sendKeyDesc": "Bir tuş vuruşu gönder. Tuşlar: enter, tab, escape, backspace, delete, up, down, left, right.",
       "sendSurfaceDesc": "Belirli bir yüzeye metin gönder.",
       "sendKeySurfaceDesc": "Belirli bir yüzeye tuş vuruşu gönder.",
+      "textboxDesc": "Bir terminalin TextBox girişini göster, gizle veya aç/kapat. Görünüp görünmediğini öğrenmek için state kullan. --focus klavye odağını TextBox'a taşır.",
       "notificationCommands": "Bildirim komutları",
       "notifyDesc": "Bir bildirim gönder.",
       "listNotificationsDesc": "Tüm bildirimleri listele.",

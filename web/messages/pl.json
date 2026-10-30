@@ -2542,6 +2542,7 @@
       "sendKeyDesc": "Wyślij naciśnięcie klawisza. Klawisze: enter, tab, escape, backspace, delete, up, down, left, right.",
       "sendSurfaceDesc": "Wyślij tekst do konkretnego surface'a.",
       "sendKeySurfaceDesc": "Wyślij naciśnięcie klawisza do konkretnego surface'a.",
+      "textboxDesc": "Pokaż, ukryj lub przełącz pole TextBox terminala. Użyj state, aby sprawdzić, czy jest widoczne. --focus przenosi fokus klawiatury do TextBox.",
       "notificationCommands": "Polecenia powiadomień",
       "notifyDesc": "Wyślij powiadomienie.",
       "listNotificationsDesc": "Wyświetl wszystkie powiadomienia.",

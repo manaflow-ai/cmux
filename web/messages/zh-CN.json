@@ -2542,6 +2542,7 @@
       "sendKeyDesc": "发送按键。可用按键：enter、tab、escape、backspace、delete、up、down、left、right。",
       "sendSurfaceDesc": "向指定 surface 发送文本。",
       "sendKeySurfaceDesc": "向指定 surface 发送按键。",
+      "textboxDesc": "显示、隐藏或切换终端的 TextBox 输入框。使用 state 查看它是否显示。--focus 将键盘焦点移到 TextBox。",
       "notificationCommands": "通知命令",
       "notifyDesc": "发送通知。",
       "listNotificationsDesc": "列出所有通知。",

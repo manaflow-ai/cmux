@@ -671653,6 +671653,124 @@
         }
       }
     },
+    "cli.help.textbox": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux textbox <toggle|show|hide|state> [flags]\n\nShow, hide, or toggle a terminal's TextBox Input, like the Toggle TextBox Input command. The TextBox appears without taking keyboard focus; hide keeps its draft. state reports it without changing it. Prints OK <surface> <workspace> visible=<true|false>; --json adds changed.\n\nFlags:\n  --surface <id|ref|index>     Target terminal (default: $CMUX_SURFACE_ID, then the focused terminal)\n  --panel <id|ref|index>       Alias for --surface\n  --workspace <id|ref|index>   Workspace context (default: $CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      Window context for workspace/surface refs and indexes\n  --focus                      Focus the TextBox after showing it (toggle and show only)\n  --json                       Print JSON"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux textbox <toggle|show|hide|state> [flags]\n\nيُظهر مربع إدخال TextBox في الطرفية أو يخفيه أو يبدّله، مثل أمر تبديل إدخال TextBox. يظهر TextBox دون أخذ تركيز لوحة المفاتيح، ويحتفظ hide بالمسودة. يُبلغ state بالحالة دون تغييرها. يطبع OK <surface> <workspace> visible=<true|false>، ويضيف --json الحقل changed.\n\nالخيارات:\n  --surface <id|ref|index>     الطرفية المستهدفة (الافتراضي: $CMUX_SURFACE_ID، ثم الطرفية المركّز عليها)\n  --panel <id|ref|index>       اسم بديل لـ --surface\n  --workspace <id|ref|index>   سياق مساحة العمل (الافتراضي: $CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      سياق النافذة لمراجع وفهارس مساحة العمل/السطح\n  --focus                      التركيز على TextBox بعد إظهاره (toggle و show فقط)\n  --json                       طباعة JSON"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux textbox <toggle|show|hide|state> [flags]\n\nBlendet die TextBox-Eingabe eines Terminals ein oder aus oder schaltet sie um, wie der Befehl „TextBox-Eingabe umschalten“. Die TextBox erscheint, ohne den Tastaturfokus zu übernehmen; hide behält ihren Entwurf. state meldet den Zustand, ohne ihn zu ändern. Gibt OK <surface> <workspace> visible=<true|false> aus; --json ergänzt changed.\n\nOptionen:\n  --surface <id|ref|index>     Zielterminal (Standard: $CMUX_SURFACE_ID, dann das fokussierte Terminal)\n  --panel <id|ref|index>       Alias für --surface\n  --workspace <id|ref|index>   Workspace-Kontext (Standard: $CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      Fensterkontext für Workspace-/Surface-Refs und Indizes\n  --focus                      TextBox nach dem Einblenden fokussieren (nur toggle und show)\n  --json                       JSON ausgeben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux textbox <toggle|show|hide|state> [flags]\n\nMuestra, oculta o alterna la entrada TextBox de un terminal, como el comando Alternar entrada TextBox. La TextBox aparece sin tomar el foco del teclado; hide conserva su borrador. state informa de su estado sin cambiarlo. Imprime OK <surface> <workspace> visible=<true|false>; --json añade changed.\n\nOpciones:\n  --surface <id|ref|index>     Terminal de destino (por defecto: $CMUX_SURFACE_ID y luego el terminal enfocado)\n  --panel <id|ref|index>       Alias de --surface\n  --workspace <id|ref|index>   Contexto del espacio de trabajo (por defecto: $CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      Contexto de ventana para refs e índices de espacio de trabajo/superficie\n  --focus                      Enfocar la TextBox tras mostrarla (solo toggle y show)\n  --json                       Imprimir JSON"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation: cmux textbox <toggle|show|hide|state> [flags]\n\nAffiche, masque ou bascule la saisie TextBox d'un terminal, comme la commande « Basculer la saisie TextBox ». La TextBox apparaît sans prendre le focus clavier ; hide conserve son brouillon. state indique son état sans le modifier. Affiche OK <surface> <workspace> visible=<true|false> ; --json ajoute changed.\n\nOptions:\n  --surface <id|ref|index>     Terminal cible (par défaut : $CMUX_SURFACE_ID, puis le terminal actif)\n  --panel <id|ref|index>       Alias de --surface\n  --workspace <id|ref|index>   Contexte d'espace de travail (par défaut : $CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      Contexte de fenêtre pour les refs et index d'espace de travail/surface\n  --focus                      Donner le focus à la TextBox après l'avoir affichée (toggle et show uniquement)\n  --json                       Afficher le JSON"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使い方: cmux textbox <toggle|show|hide|state> [flags]\n\nターミナルの TextBox 入力を表示、非表示、または切り替えます（「TextBox 入力を切り替え」コマンドと同じです）。TextBox はキーボードフォーカスを奪わずに表示され、hide は下書きを保持します。state は状態を変えずに報告します。OK <surface> <workspace> visible=<true|false> を出力し、--json では changed も含みます。\n\nフラグ:\n  --surface <id|ref|index>     対象のターミナル（既定: $CMUX_SURFACE_ID、次にフォーカス中のターミナル）\n  --panel <id|ref|index>       --surface のエイリアス\n  --workspace <id|ref|index>   ワークスペースのコンテキスト（既定: $CMUX_WORKSPACE_ID）\n  --window <id|ref|index>      ワークスペース/サーフェスの ref とインデックスに使うウィンドウのコンテキスト\n  --focus                      表示後に TextBox にフォーカス（toggle と show のみ）\n  --json                       JSON を出力"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux textbox <toggle|show|hide|state> [flags]\n\n터미널의 TextBox 입력을 표시하거나 숨기거나 전환합니다. TextBox 입력 전환 명령과 같습니다. TextBox는 키보드 포커스를 가져가지 않고 나타나며, hide는 초안을 유지합니다. state는 상태를 바꾸지 않고 알려 줍니다. OK <surface> <workspace> visible=<true|false>를 출력하며, --json은 changed를 추가합니다.\n\n플래그:\n  --surface <id|ref|index>     대상 터미널 (기본값: $CMUX_SURFACE_ID, 다음은 포커스된 터미널)\n  --panel <id|ref|index>       --surface의 별칭\n  --workspace <id|ref|index>   워크스페이스 컨텍스트 (기본값: $CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      워크스페이스/서피스 ref와 인덱스의 윈도우 컨텍스트\n  --focus                      표시한 뒤 TextBox에 포커스 (toggle과 show만)\n  --json                       JSON 출력"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法: cmux textbox <toggle|show|hide|state> [flags]\n\n显示、隐藏或切换终端的 TextBox 输入框，与“切换 TextBox 输入”命令相同。TextBox 出现时不会获取键盘焦点；hide 会保留草稿。state 只报告状态而不更改。输出 OK <surface> <workspace> visible=<true|false>；--json 另含 changed。\n\n标志:\n  --surface <id|ref|index>     目标终端（默认：$CMUX_SURFACE_ID，其次为聚焦的终端）\n  --panel <id|ref|index>       --surface 的别名\n  --workspace <id|ref|index>   工作区上下文（默认：$CMUX_WORKSPACE_ID）\n  --window <id|ref|index>      工作区/界面 ref 和索引的窗口上下文\n  --focus                      显示后聚焦 TextBox（仅限 toggle 和 show）\n  --json                       输出 JSON"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法: cmux textbox <toggle|show|hide|state> [flags]\n\n顯示、隱藏或切換終端機的 TextBox 輸入框，與「切換 TextBox 輸入」指令相同。TextBox 出現時不會取得鍵盤焦點；hide 會保留草稿。state 只回報狀態而不變更。輸出 OK <surface> <workspace> visible=<true|false>；--json 另含 changed。\n\n旗標:\n  --surface <id|ref|index>     目標終端機（預設：$CMUX_SURFACE_ID，其次為聚焦中的終端機）\n  --panel <id|ref|index>       --surface 的別名\n  --workspace <id|ref|index>   工作區上下文（預設：$CMUX_WORKSPACE_ID）\n  --window <id|ref|index>      工作區/介面 ref 與索引的視窗上下文\n  --focus                      顯示後聚焦 TextBox（僅限 toggle 與 show）\n  --json                       列印 JSON"
+          }
+        }
+      }
+    },
+    "cli.textbox.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux textbox <toggle|show|hide|state> [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus] [--json]"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux textbox <toggle|show|hide|state> [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus] [--json]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux textbox <toggle|show|hide|state> [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus] [--json]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux textbox <toggle|show|hide|state> [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus] [--json]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation: cmux textbox <toggle|show|hide|state> [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus] [--json]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使い方: cmux textbox <toggle|show|hide|state> [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus] [--json]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux textbox <toggle|show|hide|state> [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus] [--json]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法: cmux textbox <toggle|show|hide|state> [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus] [--json]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法: cmux textbox <toggle|show|hide|state> [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus] [--json]"
+          }
+        }
+      }
+    },
     "cli.hooks.error.globalRequiresKiro": {
       "extractionState": "manual",
       "localizations": {

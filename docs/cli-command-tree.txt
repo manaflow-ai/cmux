@@ -1426,6 +1426,12 @@ command  tab-action  aliases=-
   arg  --window  kind=option  completion=custom
   arg  --workspace  kind=option  completion=custom
   arg  arguments  kind=argument  completion=-
+command  textbox  aliases=-
+  arg  --focus  kind=flag  completion=-
+  arg  --surface  kind=option  completion=custom
+  arg  --window  kind=option  completion=custom
+  arg  --workspace  kind=option  completion=custom
+  arg  arguments  kind=argument  completion=list(hide,show,state,toggle)
 command  themes  aliases=-
 command  themes clear  aliases=-
   arg  arguments  kind=argument  completion=-

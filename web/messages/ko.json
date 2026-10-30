@@ -2541,6 +2541,7 @@
       "sendKeyDesc": "키 입력을 전송합니다. 키: enter, tab, escape, backspace, delete, up, down, left, right.",
       "sendSurfaceDesc": "특정 서피스에 텍스트를 전송합니다.",
       "sendKeySurfaceDesc": "특정 서피스에 키 입력을 전송합니다.",
+      "textboxDesc": "터미널의 TextBox 입력을 표시, 숨기기 또는 전환합니다. state로 표시 여부를 확인합니다. --focus는 키보드 포커스를 TextBox로 옮깁니다.",
       "notificationCommands": "알림 명령",
       "notifyDesc": "알림을 전송합니다.",
       "listNotificationsDesc": "모든 알림을 나열합니다.",

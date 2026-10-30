@@ -2543,6 +2543,7 @@
       "sendKeyDesc": "Envoyer une touche. Touches : enter, tab, escape, backspace, delete, up, down, left, right.",
       "sendSurfaceDesc": "Envoyer du texte à une surface spécifique.",
       "sendKeySurfaceDesc": "Envoyer une touche à une surface spécifique.",
+      "textboxDesc": "Afficher, masquer ou basculer la saisie TextBox d'un terminal. Utilisez state pour savoir si elle est affichée. --focus place le focus clavier dans la TextBox.",
       "notificationCommands": "Commandes de notification",
       "notifyDesc": "Envoyer une notification.",
       "listNotificationsDesc": "Lister toutes les notifications.",
