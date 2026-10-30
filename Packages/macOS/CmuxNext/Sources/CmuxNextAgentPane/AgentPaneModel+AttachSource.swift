@@ -5,14 +5,15 @@ extension AgentPaneModel {
     /// ``AttachmentSource``): `{sources: [source | null]}` in the order of `names`.
     ///
     /// It answers only from what the person's own native drop or paste recorded as it reached the
-    /// page (``AgentPaneDroppedPaths/stashSource(_:claimed:kind:)``), once and within its lifetime.
+    /// page (``AgentPaneDroppedPaths/stashSource(_:items:claimed:kind:)``), once, within its lifetime, and
+    /// only for that gesture's own files (``AgentPaneDroppedPaths/source(_:names:)``).
     /// Page script can make neither, so it can't ask about a pasteboard the person did not paste. A
     /// file the record names by URL answers its own metadata's source (AttachmentSourceFiles.swift),
     /// read off the main actor. Any other (a pasted picture, an image dragged from a page) answers the
     /// app the pasteboard said wrote it (`org.nspasteboard.source`), else none. A chat on another
     /// machine gets only that claim: this Mac's files are never read for it (cx-k21v).
     func attachSource(_ kind: AgentPaneDroppedPaths.Kind, names: [String], apps: AttachmentSourceApps = .live) async -> [String: Any] {
-        guard let record = droppedPaths.source(kind) else {
+        guard let record = droppedPaths.source(kind, names: names) else {
             return AgentPaneReply.success(["sources": names.map { _ in NSNull() as Any }])
         }
         let claimed = record.claimed.flatMap { AttachmentSource.source(bundleId: $0, apps: apps) }

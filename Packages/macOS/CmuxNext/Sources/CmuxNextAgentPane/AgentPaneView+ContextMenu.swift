@@ -121,7 +121,9 @@ extension AgentPaneView {
             guard let self, AgentPanePersonInput.currentIsPerson else { return }
             AgentPanePersonInput.record(model.transport.gestures)
             model.droppedPaths.stash(urls, kind: .drop)
-            model.droppedPaths.stashSource(urls, claimed: AttachmentSource.claimed(on: NSPasteboard(name: .drag)), kind: .drop)
+            let drag = NSPasteboard(name: .drag)
+            model.droppedPaths.stashSource(
+                urls, items: drag.pasteboardItems?.count ?? 0, claimed: AttachmentSource.claimed(on: drag), kind: .drop)
         }
         // Read as the paste goes to WebKit: the pasteboard WebKit hands the page. As for a drop, only
         // the person's paste (a posted Cmd-V records nothing).
@@ -129,7 +131,9 @@ extension AgentPaneView {
             guard let self, AgentPanePersonInput.currentIsPerson else { return }
             let urls = AgentPaneDroppedPaths.fileURLs(on: .general)
             model.droppedPaths.stash(urls, kind: .paste)
-            model.droppedPaths.stashSource(urls, claimed: AttachmentSource.claimed(on: .general), kind: .paste)
+            model.droppedPaths.stashSource(
+                urls, items: NSPasteboard.general.pasteboardItems?.count ?? 0,
+                claimed: AttachmentSource.claimed(on: .general), kind: .paste)
         }
         let edit: @MainActor (NSMenu) -> Void = { [weak self] menu in self?.editContextMenu(menu) }
         if let page {

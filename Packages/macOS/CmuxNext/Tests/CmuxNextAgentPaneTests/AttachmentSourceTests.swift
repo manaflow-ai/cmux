@@ -72,17 +72,27 @@ struct AttachmentSourceTests {
         final class Uptime { var now: TimeInterval = 100 }
         let clock = Uptime()
         let record = AgentPaneDroppedPaths(now: { clock.now })
-        #expect(record.source(.paste) == nil)
-        record.stashSource([URL(fileURLWithPath: "/tmp/a.png")], claimed: "com.apple.finder", kind: .paste)
+        #expect(record.source(.paste, names: ["a.png"]) == nil)
+        record.stashSource([URL(fileURLWithPath: "/tmp/a.png")], items: 1, claimed: "com.apple.finder", kind: .paste)
         // A drop's record never answers for a paste.
-        #expect(record.source(.drop) == nil)
-        let taken = record.source(.paste)
+        #expect(record.source(.drop, names: ["a.png"]) == nil)
+        // An ask for files the paste did not bring answers nothing, and leaves the record.
+        #expect(record.source(.paste, names: ["b.png"]) == nil)
+        #expect(record.source(.paste, names: ["a.png", "a.png"]) == nil)
+        let taken = record.source(.paste, names: ["a.png"])
         #expect(taken?.urls == [URL(fileURLWithPath: "/tmp/a.png")] && taken?.claimed == "com.apple.finder")
         // Once only.
-        #expect(record.source(.paste) == nil)
-        record.stashSource([], claimed: nil, kind: .drop)
+        #expect(record.source(.paste, names: ["a.png"]) == nil)
+        // A pasted picture (no file): only as many files as the pasteboard held items.
+        record.stashSource([], items: 1, claimed: "com.google.Chrome", kind: .paste)
+        #expect(record.source(.paste, names: ["image.png", "other.png"]) == nil)
+        #expect(record.source(.paste, names: ["image.png"])?.claimed == "com.google.Chrome")
+        // No files and no claim: nothing to answer.
+        record.stashSource([], items: 3, claimed: nil, kind: .drop)
+        #expect(record.source(.drop, names: ["image.png"]) == nil)
+        record.stashSource([], items: 1, claimed: "com.apple.finder", kind: .drop)
         clock.now += AgentPaneDroppedPaths.lifetime + 1
-        #expect(record.source(.drop) == nil)
+        #expect(record.source(.drop, names: ["image.png"]) == nil)
     }
 
     @Test func withNoDropOrPasteTheAskAnswersNoSources() async {

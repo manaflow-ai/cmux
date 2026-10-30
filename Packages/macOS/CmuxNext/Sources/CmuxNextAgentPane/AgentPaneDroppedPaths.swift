@@ -24,9 +24,10 @@ public final class AgentPaneDroppedPaths {
 
     private var held: [Kind: (urls: [URL], at: TimeInterval)] = [:]
     /// What the last drop's or paste's pasteboard said about where its contents came from, for the
-    /// page's `chat.attach.source` (``AgentPaneModel/attachSource(_:names:apps:)``): its file URLs
-    /// and the app it says wrote it. Kept apart from ``held``, since each record answers one ask.
-    private var sourced: [Kind: (urls: [URL], claimed: String?, at: TimeInterval)] = [:]
+    /// page's `chat.attach.source` (``AgentPaneModel/attachSource(_:names:apps:)``): its file URLs,
+    /// how many items it held, and the app it says wrote it. Kept apart from ``held``, since each
+    /// record answers one ask.
+    private var sourced: [Kind: (urls: [URL], items: Int, claimed: String?, at: TimeInterval)] = [:]
     private let now: @MainActor () -> TimeInterval
 
     public init(now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
@@ -41,17 +42,41 @@ public final class AgentPaneDroppedPaths {
         held[kind] = paths.isEmpty ? nil : (paths, now())
     }
 
-    /// Records what a drop's or paste's pasteboard said, with its file URLs: where its contents came
-    /// from, as only the person's own drop or paste can say (``source(_:)``).
-    public func stashSource(_ urls: [URL], claimed: String?, kind: Kind) {
+    /// Records what a drop's or paste's pasteboard said, with its file URLs and its item count:
+    /// where its contents came from, as only the person's own drop or paste can say
+    /// (``source(_:names:)``). One with no files and no claim says nothing, and clears the record.
+    public func stashSource(_ urls: [URL], items: Int, claimed: String?, kind: Kind) {
         let paths = urls.map { url in (url as NSURL).isFileReferenceURL() ? (url as NSURL).filePathURL ?? url : url }
-        sourced[kind] = (paths, claimed, now())
+        sourced[kind] = paths.isEmpty && claimed == nil ? nil : (paths, max(items, paths.count), claimed, now())
     }
 
-    /// What the last drop or paste of `kind` said, once, within ``lifetime``; nil after that.
-    func source(_ kind: Kind) -> (urls: [URL], claimed: String?)? {
-        guard let record = sourced.removeValue(forKey: kind), now() - record.at <= Self.lifetime else { return nil }
-        return (record.urls, record.claimed)
+    /// What the last drop or paste of `kind` said, for the files `names` names, within ``lifetime``:
+    /// its file URLs in the order of `names`, and its claim. Only an ask for that gesture's own
+    /// files answers, and uses the record up: with file URLs, exactly those files' names; without,
+    /// no more files than the pasteboard held items. Any other ask answers nothing and leaves the
+    /// record for the page's own ask.
+    func source(_ kind: Kind, names: [String]) -> (urls: [URL], claimed: String?)? {
+        guard let record = sourced[kind] else { return nil }
+        guard now() - record.at <= Self.lifetime else {
+            sourced[kind] = nil
+            return nil
+        }
+        let urls: [URL]
+        if record.urls.isEmpty {
+            guard !names.isEmpty, names.count <= record.items else { return nil }
+            urls = []
+        } else {
+            guard names.count == record.urls.count else { return nil }
+            var left = record.urls
+            var picked: [URL] = []
+            for name in names {
+                guard let index = left.firstIndex(where: { Self.named($0, name) }) else { return nil }
+                picked.append(left.remove(at: index))
+            }
+            urls = picked
+        }
+        sourced[kind] = nil
+        return (urls, record.claimed)
     }
 
     /// The recorded URLs of `kind` for the files `names` names (WebKit's `File.name`, the URL's last
