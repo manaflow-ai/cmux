@@ -2,8 +2,9 @@
 //! deadline (injected by tests through the `_within` variants) and fails
 //! with [`HostTimeout`]. A host's start has none: it ends on the host's
 //! answer or its exit (`link::spawn`, P-AUSTIN B10). A host's death is
-//! watched by at most one blocking thread per incarnation ([`wait_dead_within`]): repeated bounded waits on a host
-//! that does not die share that thread instead of leaving one each.
+//! watched by at most one blocking thread per incarnation
+//! ([`wait_dead_within`]): repeated bounded waits on a host that does not
+//! die share that thread instead of leaving one each.
 
 use super::*;
 use crate::no_panic::LockExt;

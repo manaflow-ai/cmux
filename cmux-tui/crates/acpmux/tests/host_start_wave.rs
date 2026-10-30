@@ -81,8 +81,8 @@ async fn host_start_of_a_wave_of_slow_but_alive_hosts_all_succeed() {
     assert!(failed.is_empty(), "{} of 25 slow-but-alive hosts failed: {failed:?}", failed.len());
 }
 
-/// A host that exits before it answers fails its start at once, with what
-/// happened, not with a timeout.
+/// A host that exits before it answers fails its start on that exit, never
+/// on a timer, and the error says how it exited.
 #[tokio::test(start_paused = true)]
 async fn host_start_fails_at_once_when_the_host_dies() {
     let dir = scratch("die");
@@ -92,6 +92,8 @@ async fn host_start_fails_at_once_when_the_host_dies() {
     assert!(err.downcast_ref::<HostTimeout>().is_none(), "a death decided by a clock: {err:#}");
     let text = format!("{err:#}");
     assert!(text.contains("exited before it was ready"), "{text}");
+    // It says how the host ended (`fake_slow_host.py die 3`).
+    assert!(text.contains("exit status: 3"), "{text}");
 }
 
 /// A caller that gives up on a start (its chat closed, its own deadline)
