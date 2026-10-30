@@ -38,7 +38,17 @@ from pathlib import Path
 _spec = importlib.util.spec_from_file_location("main_fix_evidence", Path(__file__).with_name("main_fix_evidence.py"))
 _evidence = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_evidence)
-GitHub, Refused, job_for, latest_checks = _evidence.GitHub, _evidence.Refused, _evidence.job_for, _evidence.latest_checks
+Refused, job_for, latest_checks = _evidence.Refused, _evidence.job_for, _evidence.latest_checks
+
+
+class GitHub(_evidence.GitHub):
+    """GitHub client for red attribution, including logs of finished jobs in live runs."""
+
+    def log(self, repo: str, job: dict) -> str:
+        # `gh run view --log` waits for every job in the run. The Actions job
+        # endpoint serves a finished job while sibling jobs remain queued.
+        # gh refuses to print a log holding escape sequences (ANSI colours) unless asked.
+        return self.run(["api", "--allow-escape-sequences", f"repos/{repo}/actions/jobs/{job['id']}/logs"])
 _spec = importlib.util.spec_from_file_location("test_reds", Path(__file__).with_name("test_reds.py"))
 test_reds = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(test_reds)
@@ -57,6 +67,20 @@ VERDICTS = frozenset({"success", "failure"})
 # for the job stays bounded.
 BASE_RUNS_PAGE = 100
 BASE_JOB_READS = 40
+# A job no feat-cmux-next push runs gets its base verdict from a dispatch: main's tip suite dispatcher
+# (cmux-next-tip-swift-suite-dispatch.yml, a run named `<title><tested sha>`) or a hand dispatch. Base
+# pushes land every minute or two, so the window above can miss them (2026-10-30: no daemon-test verdict
+# on the base for hours, #27692). When it does, the base's newest completed dispatches are read too,
+# newest first, and the first with a verdict for the job decides, a green one included: an older red never
+# stands over a newer green. DEV daily runs and the other job's tip suite never run the job, so they are
+# skipped unread. At most TIP_SUITE_JOB_READS job lists; none of them with a verdict refuses as before.
+TIP_SUITES = {
+    "cmux-next swift test": "cmux-next tip Swift suite · ",
+    "cmux-next daemon tests": "cmux-next tip daemon suite · ",
+}
+TIP_SUITE_JOB_READS = 6
+# cmux-next.yml dispatches that route neither swift-test nor daemon-test (path routing's dev_daily branch).
+DISPATCHES_WITHOUT_TESTS = ("cmux NEXT DEV daily",)
 TESTS = (
     re.compile(r"✘ Test (.+?\)) (?:recorded an issue|failed)"),  # Swift Testing
     re.compile(r"Test Case '-\[(\S+ \S+)\]' failed"),  # XCTest
@@ -86,7 +110,7 @@ SHA = re.compile(r"\b[0-9a-f]{40}\b|\b((?:commit|sha|tree|revision) `?)[0-9a-f]{
 # Fail closed: of compile-status's own lines, only "(fail)" is a real compile red; every other state (no result,
 # unavailable, mismatch, unreadable, pending, "last: ...", a pass it could not post) and a status it could not
 # post at all are no verdict.
-NO_VERDICT = re.compile(r"^##\[error\](?:cmux-next/compile is not a pass for \S+ \((?!fail\))|"
+NO_VERDICT = re.compile(r"^##\[error\]\s*(?:cmux-next/compile is not a pass for \S+ \((?!fail\))|"
                         r"could not post the pending status|bad head sha |No build-fleet verdict for `)")
 # The jobs that can end without a verdict: an unreadable log of one is never comparable either.
 NO_VERDICT_JOBS = frozenset({"cmux-next fleet Release compile", "cmux-next app compile (build fleet)"})
@@ -107,7 +131,10 @@ def lines_of(log: str) -> list[str]:
     found = []
     for line in log.splitlines():
         parts = line.split("\t", 2)
-        found.append(STAMP.sub("", parts[-1]).strip())
+        # `gh run view --log` prefixes each line with job and step columns.
+        # The job-log API does not; preserve tabs in raw command output.
+        text = parts[2] if len(parts) == 3 and STAMP.match(parts[2]) else line
+        found.append(STAMP.sub("", text).strip())
     return found
 
 
@@ -211,6 +238,26 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github) -
     return list(jobs.values())
 
 
+def tip_suite_verdict(repo: str, base: str, workflow, name: str, github,
+                      base_jobs: dict[int, list[dict]]) -> tuple[dict | None, dict | None]:
+    """The newest completed tip suite run of BASE with a verdict for job NAME, and that job."""
+    others = tuple(title for job, title in TIP_SUITES.items() if job != name) + DISPATCHES_WITHOUT_TESTS
+    listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}&event=workflow_dispatch"
+                         f"&status=completed&per_page={BASE_RUNS_PAGE}")
+    candidates = [run for run in listed.get("workflow_runs") or []
+                  if run.get("conclusion") != "skipped"
+                  and not (run.get("display_title") or "").startswith(others)]
+    for run in candidates[:TIP_SUITE_JOB_READS]:
+        if run["id"] not in base_jobs:
+            base_jobs[run["id"]] = [found for page in github.json(
+                f"repos/{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100", paginate=True)
+                for found in page.get("jobs") or []]
+        found = next((found for found in base_jobs[run["id"]] if found.get("name") == name), None)
+        if found is not None and found.get("conclusion") in VERDICTS and not refused_at_setup(found):
+            return run, found
+    return None, None
+
+
 def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: list[str] = ()) -> list[str]:
     """Audit lines for every excused failure; raises Refused on the first that is not."""
     audit: list[str] = []
@@ -262,9 +309,12 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             if found is not None and found.get("conclusion") in VERDICTS and not refused_at_setup(found):
                 base_run, base_job = candidate_run, found
                 break
+        if base_run is None and name in TIP_SUITES:
+            base_run, base_job = tip_suite_verdict(repo, base, workflow, name, github, base_jobs)
         if base_run is None:
             raise Refused(f"'{name}': no completed {base} run of its workflow has a verdict for it to compare with "
-                          f"(read the {BASE_RUNS_PAGE} newest, up to {BASE_JOB_READS} job lists)")
+                          f"(read the {BASE_RUNS_PAGE} newest, up to {BASE_JOB_READS} job lists, "
+                          f"and its tip suite runs)")
         if base_job.get("conclusion") != "failure":
             raise Refused(f"'{name}' is not red on {base} run {base_run['id']} ({base_job.get('conclusion')}); "
                           "fix it on this head")
