@@ -460,6 +460,62 @@ enum BrowserResize { static let `default` = true }
                         self.receipt(f"Review (subagent): SHIP at {head}", kind="Bot")):
             self.assertEqual(self.check(head, comments=[receipt]).returncode, 1, receipt)
 
+    def private_member_check(self, head, roles, body=None, extra_comments=()):
+        """A receipt from a member whose org membership is private: the workflow's token sees
+        CONTRIBUTOR (cmux#26153). `roles` is what a fake `gh` answers for the permission lookup."""
+        bin_dir = self.repo.root.parent / f"{self.repo.root.name}-bin"
+        bin_dir.mkdir(exist_ok=True)
+        calls = bin_dir / "calls"
+        fake = bin_dir / "gh"
+        fake.write_text("#!/usr/bin/env python3\n"
+                        "import json, sys\n"
+                        f"roles = json.loads({json.dumps(json.dumps(roles))})\n"
+                        f"open({str(calls)!r}, 'a').write(' '.join(sys.argv[1:]) + '\\n')\n"
+                        "login = sys.argv[2].split('/')[-2]\n"
+                        "if login not in roles:\n"
+                        "    sys.stderr.write('HTTP 404: Not Found\\n'); sys.exit(1)\n"
+                        "print(roles[login])\n", encoding="utf-8")
+        fake.chmod(0o755)
+        body = body or f"Review (Claude Opus 5.5 subagent, correctness): SHIP at {head}\n\nFollow-up review"
+        nodes = [{"databaseId": 6483350726, "body": body, "createdAt": "2026-10-28T23:25:01Z",
+                  "authorAssociation": "CONTRIBUTOR", "author": {"login": "austinywang", "__typename": "User"}}]
+        nodes += list(extra_comments)
+        pull = {"author": {"login": AUTHOR}, "headRefOid": head, "merged": False,
+                "reviews": {"nodes": []}, "comments": {"nodes": nodes}}
+        path = self.repo.root.parent / f"{self.repo.root.name}-private-pull.json"
+        path.write_text(json.dumps(pull), encoding="utf-8")
+        result = self.repo.guard("check", "--base", self.base, "--head", head, "--pull-json", str(path),
+                                 "--repo", "manaflow-ai/cmux",
+                                 env={"PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"})
+        result.calls = calls.read_text(encoding="utf-8").splitlines() if calls.exists() else []
+        return result
+
+    def test_a_private_org_member_with_write_access_ships_the_head(self):
+        head = self.changed_head()
+        result = self.private_member_check(head, {"austinywang": "admin"})
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(result.calls, ["api repos/manaflow-ai/cmux/collaborators/austinywang/permission --jq .role_name"])
+
+    def test_a_contributor_without_write_access_still_does_not_pass(self):
+        head = self.changed_head()
+        for roles in ({}, {"austinywang": "read"}, {"austinywang": "triage"}):
+            result = self.private_member_check(head, roles)
+            self.assertEqual(result.returncode, 1, (roles, result.stdout))
+
+    def test_a_private_member_is_looked_up_only_for_a_receipt_on_the_head(self):
+        head = self.changed_head()
+        result = self.private_member_check(head, {"austinywang": "admin"}, body=f"Review (subagent): SHIP at {self.base}")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertEqual(result.calls, [])
+
+    def test_a_later_block_from_a_private_member_still_beats_a_ship(self):
+        head = self.changed_head()
+        ship = {"databaseId": 1, "body": f"Review (subagent): SHIP at {head}", "createdAt": "2026-10-28T20:00:00Z",
+                "authorAssociation": "MEMBER", "author": {"login": AUTHOR, "__typename": "User"}}
+        result = self.private_member_check(head, {"austinywang": "write"},
+                                           body=f"Review (subagent): BLOCK at {head}", extra_comments=[ship])
+        self.assertEqual(result.returncode, 1, result.stdout)
+
     def test_a_receipt_below_the_first_line_does_not_pass(self):
         head = self.changed_head()
         result = self.check(head, comments=[self.receipt(f"Thanks!\nReview (subagent): SHIP at {head}")])
@@ -572,6 +628,21 @@ class SettingsSourceStampTests(unittest.TestCase):
 
     def test_check_stamp_is_gone(self):
         self.assertEqual(self.repo.guard("check-stamp").returncode, 2)
+
+
+class WorkflowTests(unittest.TestCase):
+    def test_the_trusted_guard_is_the_base_tip_not_the_pull_requests_last_push_base(self):
+        """pull_request.base.sha only moves when the pull request's head is pushed, so a guard fix
+        never reached an open pull request: #26153 ran a guard 620 commits old on a re-run and on a
+        new ready-for-review event. github.sha under pull_request_target is the base branch's tip."""
+        text = (ROOT / ".github/workflows/cmux-next-defaults-guard.yml").read_text(encoding="utf-8")
+        step = text.split("- name: Check out the trusted guard (base)", 1)[1].split("- name:", 1)[0]
+        ref = next(line.split("ref:", 1)[1].strip() for line in step.splitlines() if line.strip().startswith("ref:"))
+        # An open pull request reads the base tip; the merge receipt (closed) never reads github.sha,
+        # which is then the merge commit, the pull request's own code.
+        self.assertEqual(ref, "${{ github.event.action == 'closed' && github.event.pull_request.base.sha || github.sha }}")
+        self.assertIn("pull_request_target:", text)
+        self.assertNotIn("\n  push:", text.split("jobs:", 1)[0])
 
 
 if __name__ == "__main__":

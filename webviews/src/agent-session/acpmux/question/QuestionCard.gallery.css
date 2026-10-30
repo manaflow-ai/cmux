@@ -17,3 +17,17 @@
 .acpmux-question-visual-gallery[data-question-look="quiet"] .acpmux-question-actions {
   box-shadow: none;
 }
+
+/* Gallery-only looks of the answered card beside the shipped stacked one (styles.css
+   .acpmux-question-answered): inline puts each answer after its question on one line; check marks
+   each answer with a check glyph. */
+.acpmux-question-visual-gallery[data-answered-look="inline"] .acpmux-question-answered-item {
+  display: block;
+}
+.acpmux-question-visual-gallery[data-answered-look="inline"] .acpmux-question-answered-answer::before {
+  content: " \2014  ";
+}
+.acpmux-question-visual-gallery[data-answered-look="check"] .acpmux-question-answered-answer::before {
+  content: "\2713  ";
+  color: var(--agent-soft, var(--agent-text));
+}

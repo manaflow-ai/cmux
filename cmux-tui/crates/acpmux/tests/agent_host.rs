@@ -4,6 +4,8 @@
 //! it logged without losing or repeating one.
 #![cfg(unix)]
 
+#[path = "agent_host/carried_hold.rs"]
+mod carried_hold;
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 // This process runs stand-in agents (the fake agents under tests/).
@@ -49,6 +51,7 @@ fn spec(dir: &Path, session: &str) -> SpawnSpec {
         buffer_cap: agent_host::DEFAULT_BUFFER_CAP,
         router_owner_fifo: None,
         cwd_pin: None,
+        cpu_class: Default::default(),
     }
 }
 

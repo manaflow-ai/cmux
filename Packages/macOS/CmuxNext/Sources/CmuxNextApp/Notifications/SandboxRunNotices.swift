@@ -111,6 +111,8 @@ final class SandboxRunNotices {
         case .failed: String(localized: "runs.notification.failed", defaultValue: "Run failed", table: "Runs", bundle: .module)
         case .timedOut: String(localized: "runs.notification.timedOut", defaultValue: "Run timed out", table: "Runs", bundle: .module)
         case .cancelled: String(localized: "runs.notification.cancelled", defaultValue: "Run cancelled", table: "Runs", bundle: .module)
+        // A Run never stops for the person (only a hand-off does, HandoffNotices).
+        case .needsYou: String(localized: "runs.notification.failed", defaultValue: "Run failed", table: "Runs", bundle: .module)
         }
         return (title, body)
     }
