@@ -33,9 +33,7 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
         module.setTabRow({ height: 40, trailingInset: 12 });
       });
       const shell = page.locator("section.acpmux-shell").first();
-      await page.waitForFunction(() =>
-        document.querySelector("section.acpmux-shell")?.hasAttribute("data-tab-row"),
-      );
+      await page.waitForFunction(() => document.querySelector("section.acpmux-shell")?.hasAttribute("data-tab-row"));
       const rendered = await shell.evaluate((node) => ({
         tabRow: node.hasAttribute("data-tab-row"),
         height: getComputedStyle(node).getPropertyValue("--acpmux-tab-row-height"),
@@ -65,14 +63,13 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
     const page = await browser.newPage({ viewport: { width: 240, height: 100 } });
     // This is the stylesheet that build-agent-pane-web.sh inlines into the shipped agent pane.
     // webviews/src/styles.css belongs to the page host and is deliberately not part of this fixture.
-    const shellCss = [
-      read("agent-session/acpmux/styles.css"),
-      read("agent-session/acpmux/header/header.css"),
-    ].join("\n");
+    const shellCss = [read("agent-session/acpmux/styles.css"), read("agent-session/acpmux/header/header.css")].join(
+      "\n",
+    );
     await page.setContent(`<!doctype html><html><head><style>
       /* This models WebTheme's document-start bootstrap. The shipped tab-row rule must override
          the normal page surface while leaving the body itself transparent for the native underlay. */
-      html { width: 100%; height: 100%; background: rgb(10, 20, 30); }
+      html { width: 100%; height: 100%; background: rgb(10, 20, 30) !important; }
       body { width: 100%; height: 100%; margin: 0; background: transparent; }
       ${shellCss}
     </style></head><body>
@@ -90,16 +87,14 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
     // Every pixel in the offered row, including its bottom edge, is the native strip beneath it.
     expect(pixel(20, 8)).toEqual([10, 20, 30, 255]);
     expect(pixel(20, 39)).toEqual([10, 20, 30, 255]);
-    expect(
-      await page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor),
-    ).toBe("rgba(0, 0, 0, 0)");
+    expect(await page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor)).toBe(
+      "rgba(0, 0, 0, 0)",
+    );
     // The page fill starts immediately after the offered row.
     expect(pixel(20, 50)).toEqual([200, 10, 20, 255]);
-    expect(
-      await page
-        .locator(".acpmux-header")
-        .evaluate((node) => getComputedStyle(node, "::after").content),
-    ).toBe("none");
+    expect(await page.locator(".acpmux-header").evaluate((node) => getComputedStyle(node, "::after").content)).toBe(
+      "none",
+    );
     await page.close();
   });
 
@@ -149,14 +144,12 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
           }
           // Hovering an open panel's toggle keeps its fill.
           if (state === "pressed-hover") await button.hover();
-          if (state === "popup-open")
-            await button.evaluate((node) => node.setAttribute("data-popup-open", ""));
+          if (state === "popup-open") await button.evaluate((node) => node.setAttribute("data-popup-open", ""));
           if (state === "focus-visible") {
             await page.keyboard.press("Tab");
             expect(await button.evaluate((node) => node.matches(":focus-visible"))).toBe(true);
           }
-          if (state === "disabled")
-            await button.evaluate((node) => ((node as HTMLButtonElement).disabled = true));
+          if (state === "disabled") await button.evaluate((node) => ((node as HTMLButtonElement).disabled = true));
           const computed = await button.evaluate((node) => {
             const style = getComputedStyle(node);
             return {
@@ -172,17 +165,12 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
           const color =
             state === "disabled"
               ? "rgb(100, 110, 120)"
-              : state === "hover" ||
-                  state === "pressed" ||
-                  state === "pressed-hover" ||
-                  state === "popup-open"
+              : state === "hover" || state === "pressed" || state === "pressed-hover" || state === "popup-open"
                 ? "rgb(240, 240, 240)"
                 : "rgb(150, 160, 170)";
           expect(computed).toMatchObject({
             background:
-              state === "pressed" || state === "pressed-hover"
-                ? "rgba(255, 255, 255, 0.12)"
-                : "rgba(0, 0, 0, 0)",
+              state === "pressed" || state === "pressed-hover" ? "rgba(255, 255, 255, 0.12)" : "rgba(0, 0, 0, 0)",
             image: "none",
             color,
             outline: state === "focus-visible" ? "solid" : "none",

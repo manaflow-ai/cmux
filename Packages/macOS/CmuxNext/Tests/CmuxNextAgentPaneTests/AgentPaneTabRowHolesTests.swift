@@ -69,12 +69,12 @@ struct AgentPaneTabRowHolesTests {
         AgentPaneTabRow.offer(points: 36, trailingInset: 60, to: view)
 
         // The reported width is 120 points at the test page's 1x zoom. The native row has 740
-        // points of room after its trailing toolbar, so the tools own the explicit 680...740
+        // points of room after its trailing toolbar, so the tools own the explicit 620...740
         // slice between the two native holes. Keep this expected geometry independent of the
         // production `nativeHoles` calculation: a future change must not make the test tautological.
-        let toolsSlice = CGRect(x: 680, y: 0, width: 120, height: 36)
+        let toolsSlice = CGRect(x: 620, y: 0, width: 120, height: 36)
         #expect(holes(page, in: view) == [
-            CGRect(x: 0, y: 0, width: 680, height: 36),
+            CGRect(x: 0, y: 0, width: 620, height: 36),
             CGRect(x: 740, y: 0, width: 60, height: 36),
         ])
         #expect(holes(page, in: view).allSatisfy { !$0.intersects(toolsSlice) })
