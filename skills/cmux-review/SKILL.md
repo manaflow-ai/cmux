@@ -45,9 +45,11 @@ before it: `Review (<reviewer>): SHIP at <full 40-character head sha>` (or `BLOC
 names. A receipt that carries an older head's SHIP to a new head across a base
 merge is not a review. Mark it in the reviewer label:
 `Review (<reviewer>; carried): SHIP at <new head sha>`. next-autoland and
-`review_receipt.py` treat a first line as carried when the label says carried, or
+`scripts/ci/review_receipt.py` (on main) treat a first line as carried when the label says carried, or
 when the line says "carried from" or "carried over". A carried SHIP counts only
-behind an independent SHIP. Do not use those words in a real review's first line.
+while the newest independent verdict on the PR is a SHIP. Do not use "carry",
+"carries", "carried" or "carrying" in a real review's label, or "carried from" /
+"carried over" on its first line.
 
 ## Adversarial review
 
