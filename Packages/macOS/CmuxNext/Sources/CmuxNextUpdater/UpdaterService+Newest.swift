@@ -62,7 +62,8 @@ extension UpdaterService {
             guard cancelStaged() else {
                 // No installer this app holds: the build stays staged, and nothing offers it (``stagedPulledHeld``).
                 log.append("staged build \(staged) was pulled, but no installer was held to cancel; not offering it")
-                return
+                // A pulled running build still updates past it (from #28074).
+                return followRunningPulled(pulledStagedKept: true)
             }
             if droppedPulled.insert(staged).inserted {
                 log.append("staged build \(staged) was pulled: dropping it and getting the newest build")
@@ -73,11 +74,20 @@ extension UpdaterService {
             }
             return
         }
+        followRunningPulled(pulledStagedKept: false)
+    }
+
+    /// A pulled running build fetches the newest good build, once per launch (``runningPulledHandled``).
+    private func followRunningPulled(pulledStagedKept: Bool) {
         guard pulledWatch.isPulled(identity.build), !runningPulledHandled else { return }
         switch flow.phase {
         case .hidden, .note:
             runningPulledHandled = true
             log.append("running build \(identity.build) was pulled: getting the newest build")
+            startNewestCheck(.runningPulled)
+        case .ready where pulledStagedKept:
+            runningPulledHandled = true
+            log.append("running build \(identity.build) and staged build \(stagedBuild() ?? "") were pulled, and no installer was held to cancel: getting the newest build")
             startNewestCheck(.runningPulled)
         case .available:
             runningPulledHandled = true
