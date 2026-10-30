@@ -24,8 +24,8 @@ extension SidebarContainerView {
             handle.lineMinY = 0
             return
         }
-        guard let host = handle.superview else { return }
-        handle.lineMinY = handle.convert(CGPoint(x: 0, y: rootY), from: host).y
+        guard let root = superview else { return }
+        handle.lineMinY = handle.convert(CGPoint(x: 0, y: rootY), from: root).y
     }
 
     /// Expands the clip into the pane gutter while the panel is shown. When the panel collapses,

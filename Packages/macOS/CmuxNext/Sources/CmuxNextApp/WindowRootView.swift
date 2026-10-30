@@ -271,6 +271,24 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         host.setOccluder(id: "sidebar", rect: shows ? sidebarRect : nil)
     }
 
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if !sidebar.isHidden, sidebar.visualPaneReach > 0 {
+            let sidebarFrame = sidebar.convert(sidebar.bounds, to: self)
+            var expanded = sidebarFrame
+            if sidebarSide == .left {
+                expanded.size.width += sidebar.visualPaneReach
+            } else {
+                expanded.origin.x -= sidebar.visualPaneReach
+                expanded.size.width += sidebar.visualPaneReach
+            }
+            if expanded.contains(point), !sidebarFrame.contains(point) {
+                let sidebarPoint = sidebar.convert(point, from: self)
+                if let hit = sidebar.hitTest(sidebarPoint) { return hit }
+            }
+        }
+        return super.hitTest(point)
+    }
+
     override func layout() {
         defer { onHintGeometryChange?() }
         // Before the pass solves the constraints: the traffic lights' frame does not depend on it,

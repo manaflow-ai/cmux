@@ -36,7 +36,7 @@ import Testing
         #expect(root.contentHost.frame.minX - rowEnd == SidebarStyle.rowToPaneGap)
         #expect(sidebar.paneReach > 0)
         let reachPoint = NSPoint(x: sidebar.bounds.maxX + sidebar.paneReach / 2, y: root.contentHost.frame.midY)
-        #expect(sidebar.point(inside: reachPoint, with: nil))
+        #expect(sidebar.hitTest(reachPoint) != nil)
         let line = sidebar.handle.convert(sidebar.handleFrameForTesting(), to: root)
         #expect(line.minY >= root.contentHost.frame.maxY - 0.01)
     }
