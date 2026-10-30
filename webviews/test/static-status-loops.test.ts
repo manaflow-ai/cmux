@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { readWebThemeBootstrap } from "../dev-server/galleryHost";
+import type { PageLoops } from "../src/ui/pageLoops";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("static-status-loops.test.ts", async () => {
@@ -41,6 +42,12 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
   const diff = css("styles.css");
   // The script the app installs at document start in every cmux web view (WebTheme.swift).
   const bootstrap = readWebThemeBootstrap();
+  const diagnosticBundle = await Bun.build({
+    entrypoints: [path.join(import.meta.dir, "support/installPageLoops.entry.ts")],
+    target: "browser",
+  });
+  if (!diagnosticBundle.success) throw new Error(diagnosticBundle.logs.join("\n"));
+  const diagnosticScript = await diagnosticBundle.outputs[0].text();
 
   // A running transcript row's working mark (Spinner, WORKING-LOOK) with its words.
   const working =
@@ -128,10 +135,25 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
   test("a hidden page has no running infinite CSS loops", async () => {
     const p = await page(`${desktop}${pane}${home}${diff}`, paneLoops + diffLoops, "no-preference");
     try {
-      expect((await loops(p)).length).toBeGreaterThanOrEqual(6);
-      await p.evaluate(() => document.documentElement.setAttribute("data-cmux-page-hidden", ""));
+      await p.addScriptTag({ content: diagnosticScript });
+      const report = () =>
+        p.evaluate(() => (window as unknown as { cmuxDebug: { loops(): PageLoops } }).cmuxDebug.loops());
+      const visible = await report();
+      expect(visible.loops).toBeGreaterThanOrEqual(6);
+      expect(visible.hidden_loops).toBe(0);
+      await p.evaluate(() => {
+        Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
       await p.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       expect(await loops(p)).toEqual([]);
+      expect(await report()).toMatchObject({ visibilityState: "hidden", loops: 0, hidden_loops: 0 });
+      await p.evaluate(() => {
+        Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await p.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      expect((await report()).loops).toBe(visible.loops);
     } finally {
       await p.close();
     }

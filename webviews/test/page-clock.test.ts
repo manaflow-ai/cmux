@@ -1,7 +1,8 @@
 import { afterEach, expect, jest, test } from "bun:test";
 import { pageClocks, visibleInterval } from "../src/ui/pageClock";
+import { pageLoops } from "../src/ui/pageLoops";
 
-type FakeDocument = Document & { visibilityState: DocumentVisibilityState };
+type FakeDocument = Document & { show(state: DocumentVisibilityState): void };
 const original = Object.getOwnPropertyDescriptor(globalThis, "document");
 
 function installDocument(state: DocumentVisibilityState): FakeDocument {
@@ -37,8 +38,10 @@ test("visibleInterval owns one timer and releases it while hidden", () => {
   let ticks = 0;
   const stop = visibleInterval("test", () => ticks++, 1000);
   expect(pageClocks(doc)).toMatchObject({ running: 1, subscribers: 1 });
+  expect(pageLoops(doc)).toMatchObject({ loops: 1, hidden_loops: 0 });
   doc.show("hidden");
   expect(pageClocks(doc)).toMatchObject({ running: 0, subscribers: 1 });
+  expect(pageLoops(doc)).toMatchObject({ loops: 0, hidden_loops: 0 });
   jest.advanceTimersByTime(2000);
   expect(ticks).toBe(0);
   doc.show("visible");

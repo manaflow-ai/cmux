@@ -12,7 +12,7 @@ export function pageClocks(doc: Document | undefined = pageDocument()) {
     .map((clock) => ({ name: clock.name, running: clock.running, subscribers: clock.subscribers() }));
   return {
     running: items.filter((clock) => clock.running).length,
-    subscribers: items.reduce((total, clock) => total + clock.subscribers(), 0),
+    subscribers: items.reduce((total, clock) => total + clock.subscribers, 0),
     items,
   };
 }
