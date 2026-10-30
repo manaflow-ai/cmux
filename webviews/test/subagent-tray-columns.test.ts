@@ -42,7 +42,9 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           reducedMotion: "reduce",
         });
         try {
-          await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant: "short-dock", interfaceScale, theme })}`);
+          await page.goto(
+            `http://127.0.0.1:${port}${galleryFrame(entry, { variant: "short-dock", interfaceScale, theme })}`,
+          );
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
           await page.waitForFunction(() => document.querySelector(".acpmux-running-tray[data-narrow]"));
           const pinned = await page.evaluate(() => {
@@ -68,13 +70,20 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
             expect(row.bottom).toBeLessThanOrEqual(pinned.trayBottom + 0.5);
             expect(row.hit).toBe(true);
           }
-          const duration = await page.locator(".acpmux-running-tray__head .acpmux-running-tray__time").evaluate((node) => {
-            const range = document.createRange();
-            range.selectNodeContents(node);
-            const lines = [...range.getClientRects()];
-            const box = node.getBoundingClientRect();
-            return { lines: lines.length, textRight: lines[0]!.right, right: box.right, overflow: node.scrollWidth - node.clientWidth };
-          });
+          const duration = await page
+            .locator(".acpmux-running-tray__head .acpmux-running-tray__time")
+            .evaluate((node) => {
+              const range = document.createRange();
+              range.selectNodeContents(node);
+              const lines = [...range.getClientRects()];
+              const box = node.getBoundingClientRect();
+              return {
+                lines: lines.length,
+                textRight: lines[0]!.right,
+                right: box.right,
+                overflow: node.scrollWidth - node.clientWidth,
+              };
+            });
           expect(duration.lines).toBe(1);
           expect(duration.textRight).toBeLessThanOrEqual(duration.right + 0.5);
           expect(duration.overflow).toBeLessThanOrEqual(1);
