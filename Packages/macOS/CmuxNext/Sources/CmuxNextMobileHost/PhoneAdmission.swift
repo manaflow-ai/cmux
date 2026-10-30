@@ -48,8 +48,8 @@ final class PhoneAdmission {
     private var questions: [String: Question] = [:]
     private var denied: [String: ContinuousClock.Instant] = [:]
     private var generation: UInt64
-    /// Invalidates one endpoint's pending answer without invalidating the account.
-    private var admissionGeneration: UInt64 = 0
+    /// Invalidates one endpoint's pending answer without invalidating other phones.
+    private var admissionGenerations: [String: UInt64] = [:]
     var ask: (MobileHostPairRequest, String) async -> PromptResult = PhoneAdmission.askOnThisMac
     var dismissAsk: @MainActor (MobileHostPairRequest, String) -> Void = PhoneAdmission.dismissOnThisMac
     var accountName: @MainActor () -> String = { "" }
@@ -66,7 +66,7 @@ final class PhoneAdmission {
                 guard let self else { return }
                 if generation != self.phones.generation {
                     generation = self.phones.generation
-                    admissionGeneration &+= 1
+                    admissionGenerations = [:]
                     for question in questions.values {
                         question.cancel()
                         question.task.cancel()
@@ -89,7 +89,7 @@ final class PhoneAdmission {
     func decide(_ phone: MobileHostPairRequest) async -> Bool {
         guard phone.transport == .iroh, let user = phones.current?.userID else { return false }
         let selectedAccountGeneration = phones.generation
-        let selectedAdmissionGeneration = admissionGeneration
+        let selectedAdmissionGeneration = admissionGenerations[phone.phoneDeviceID] ?? 0
         if phones.trusts(phone) { return true }
         if let at = denied[phone.phoneDeviceID], at.duration(to: now()) < .seconds(600), generation == selectedAccountGeneration { return false }
         let question: Question
@@ -106,7 +106,7 @@ final class PhoneAdmission {
             let id = UUID()
             let task = Task { [self, waiter] in
                 let answer = await waiter.wait { await ask(phone, account) }
-                guard !Task.isCancelled, generation == selectedAdmissionGeneration,
+                guard !Task.isCancelled, admissionGenerations[phone.phoneDeviceID] == selectedAdmissionGeneration,
                       phones.generation == selectedAccountGeneration, phones.current?.userID == user else { return false }
                 switch answer {
                 case .unavailable: return false
@@ -115,7 +115,8 @@ final class PhoneAdmission {
                 }
                 do {
                     try await phones.change(for: user, generation: selectedAccountGeneration) { $0.approve(phone, at: Date()) }
-                    return generation == selectedAdmissionGeneration && phones.generation == selectedAccountGeneration && phones.trusts(phone)
+                    return admissionGenerations[phone.phoneDeviceID] == selectedAdmissionGeneration &&
+                        phones.generation == selectedAccountGeneration && phones.trusts(phone)
                 } catch { return false }
             }
             question = Question(id: id, accountGeneration: selectedAccountGeneration,
@@ -131,14 +132,14 @@ final class PhoneAdmission {
             questions[phone.phoneDeviceID] = nil
             if questions.isEmpty { quiet() }
         }
-        return allowed && generation == selectedAdmissionGeneration &&
+        return allowed && admissionGenerations[phone.phoneDeviceID] == selectedAdmissionGeneration &&
             phones.generation == selectedAccountGeneration && phones.trusts(phone)
     }
 
     /// Removes a phone's pending question before the store forget is queued. The
     /// waiter resolves as unavailable, and a late Allow cannot pass the new token.
     func remove(phoneDeviceID: String) {
-        admissionGeneration &+= 1
+        admissionGenerations[phoneDeviceID, default: 0] &+= 1
         denied[phoneDeviceID] = nil
         guard let question = questions.removeValue(forKey: phoneDeviceID) else { return }
         question.cancel()
