@@ -421,8 +421,16 @@ export function ThreadMinimap({
     const node = scroller.current;
     const turn = live.current.turns[index];
     if (!node || !turn) return undefined;
-    const target = () =>
-      Math.min(turnScrollTop(turn, live.current.tops), Math.max(0, live.current.total - node.clientHeight));
+    const targetRef: TickRef = { key: turn.key, id: turn.id };
+    // History prepended mid-ride moves the turn's index; read its top by key so the landing tracks it.
+    const target = () => {
+      const currentIndex = tickIndex(live.current.ticks, targetRef);
+      const currentTurn = (currentIndex >= 0 ? live.current.turns[currentIndex] : undefined) ?? turn;
+      return Math.min(
+        turnScrollTop(currentTurn, live.current.tops),
+        Math.max(0, live.current.total - node.clientHeight),
+      );
+    };
     let row = mountedRow(node, turn.id);
     // Keep the mounted target through the settle. Virtualization may replace it, so a stale
     // element is looked up again; ordinary frames never scan all mounted transcript rows.

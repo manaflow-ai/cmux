@@ -51,13 +51,22 @@ export function animateScroll(
   cancelled?: () => void,
 ): void {
   stopScroll(node);
-  const from = node.scrollTop;
+  let from = node.scrollTop;
+  let last = from;
   runScroll(
     node,
     duration,
     curve,
     (progress) => {
-      node.scrollTop = from + (target() - from) * progress;
+      // Transcript placement can adjust the viewport while this motion is running (an older page
+      // prepends above it). Rebase the origin by that external delta before writing the next
+      // frame, so the jump follows the shared row-id anchor instead of restoring its stale
+      // numeric starting offset.
+      const externalDelta = node.scrollTop - last;
+      if (Math.abs(externalDelta) > 0.5) from += externalDelta;
+      const next = from + (target() - from) * progress;
+      node.scrollTop = next;
+      last = next;
     },
     then,
     cancelled,
