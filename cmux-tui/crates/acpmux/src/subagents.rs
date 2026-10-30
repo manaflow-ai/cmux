@@ -1071,4 +1071,22 @@ mod background_tests {
         tree.end_background();
         assert_eq!(tree.background_running(), 0, "its harness exited");
     }
+
+    /// A legacy activity echo of the native root that arrives before the root is known counts as
+    /// running background work; recognizing the root afterwards must stop counting it.
+    #[test]
+    fn a_late_root_seed_stops_counting_its_echo_as_background_work() {
+        let mut tree = SubagentTree::default();
+        tree.set_own(Some("s1"));
+        annotate(
+            &mut tree,
+            json!({"sessionUpdate": "tool_call_update", "toolCallId": "echo-root",
+                   "_meta": {"codex": {"subagent": {"threadId": "root-native",
+                     "path": "/root", "activity": "working"}}}}),
+            true,
+        );
+        assert_eq!(tree.background_running(), 1, "the echo was counted before the root was known");
+        tree.set_root("root-native");
+        assert_eq!(tree.background_running(), 0, "the native root is not background work");
+    }
 }
