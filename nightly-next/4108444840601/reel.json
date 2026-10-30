@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "build": "4108444840601",
+  "notes": "notes/4108444840601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 28353,
+      "title": "acpmux: a daemon nobody uses stops after an hour",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27031,
+      "title": "fix(cloud): resume paused machines from unavailable chats",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28043,
+      "title": "Join consent sheet: a real click on Allow grants (HQ#5121)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28279,
+      "title": "carry of #27994: guard Cloud Ports actions while pending",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27295,
+      "title": "iOS: simplify connection status and Settings copy",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28227,
+      "title": "carry of #27870: fix cloud environment cleanup retries",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27867,
+      "title": "Fix Settings Clear Browsing Data refusal status",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
