@@ -323,9 +323,10 @@ def names(literal: str, name: str) -> bool:
 
 
 def unread_doc(root: Path, graph: dict, path: str, tree_inputs: list[str]) -> bool:
-    """A doc (web_fast, a DOC_SUFFIXES file) that test targets read only through a directory read
-    whose sources never name it: no Mac tier reads it."""
-    if not path.endswith(DOC_SUFFIXES) or not web_fast(path):
+    """A doc (web_fast, a DOC_SUFFIXES file outside Packages/) that test targets read only through a
+    directory read whose sources never name it: no Mac tier reads it. A doc no directory read covers
+    routes as before."""
+    if not path.endswith(DOC_SUFFIXES) or not web_fast(path) or path.startswith("Packages/"):
         return False
     if path in FULL_INPUTS or path in DAEMON_PATHS or path in VENDORED_PINS:
         return False
@@ -333,12 +334,14 @@ def unread_doc(root: Path, graph: dict, path: str, tree_inputs: list[str]) -> bo
         return False
     if any(matches(path, p) for p in GENERATED_INPUTS if not p.endswith("/")) or generated_output(root, path):
         return False
+    covered = False
     for target in graph["targets"].values():
         for read in target.get("reads", []):
             if read == path:
                 return False
             if not (read.endswith("/") and under(path, read)):
                 continue
+            covered = True
             literals = source_literals(root / target["path"]) if target.get("path") else None
             if literals is None:
                 return False
@@ -346,7 +349,7 @@ def unread_doc(root: Path, graph: dict, path: str, tree_inputs: list[str]) -> bo
             relative, base = path[len(read):], path.rsplit("/", 1)[-1]
             if any(names(lit, relative) or names(lit, base) or names(lit.rstrip("/"), directory) for lit in literals):
                 return False
-    return True
+    return covered
 
 
 def consumed(path: str, tree_inputs: list[str], read) -> bool:

@@ -627,6 +627,12 @@ class UnreadDocs(unittest.TestCase):
                 with mock.patch.object(self.route, "generated_output", return_value=False):
                     self.assertEqual(self.route.unread_doc(root, graph, "plans/x/note.md", []), unread)
 
+    def test_a_doc_no_directory_read_covers_routes_as_before(self):
+        root, graph = self._fixture({"A.swift": "let a = 1\n"})
+        with mock.patch.object(self.route, "generated_output", return_value=False):
+            self.assertFalse(self.route.unread_doc(root, graph, "plans/y/note.md", []))
+            self.assertFalse(self.route.unread_doc(root, graph, "Packages/iOS/Kit/README.md", []))
+
     def test_unreadable_sources_or_outputs_keep_the_read(self):
         root, graph = self._fixture({})
         self.assertFalse(self.route.unread_doc(root, graph, "plans/x/note.md", []))
