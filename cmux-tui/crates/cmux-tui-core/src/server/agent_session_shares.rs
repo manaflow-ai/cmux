@@ -501,8 +501,8 @@ impl LinkShares {
                 {
                     share.pending_room_ops.push(json!({"op": "delete"}));
                 }
-                schedule_delete = !was_live
-                    && share.pending_room_ops.iter().any(|o| o["op"] == "delete");
+                schedule_delete =
+                    !was_live && share.pending_room_ops.iter().any(|o| o["op"] == "delete");
                 return Ok((json!({"share_id": share.share_id, "state": share.state}), changed));
             };
             let guest =
