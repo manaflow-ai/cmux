@@ -6555,15 +6555,18 @@ function AcpmuxPane() {
   );
   const backgroundHint = !quick && canBackground && snapshot.isWorking ? runInBackground : undefined;
   /// Native placement owns subagent identity and tab reuse, including nested row clicks.
-  const showSubagent = useCallback((id: string, intent: boolean | SubagentClick = true) => {
-    const focus = typeof intent === "boolean" ? intent : !intent.metaKey;
-    void openSubagentPane(callNative, id, focus).then((result) => {
-      if (result === "refused" && focus) {
-        hideAllSubagents();
-        setSubagentView(id);
-      }
-    });
-  }, [hideAllSubagents]);
+  const showSubagent = useCallback(
+    (id: string, intent: boolean | SubagentClick = true) => {
+      const focus = typeof intent === "boolean" ? intent : !intent.metaKey;
+      void openSubagentPane(callNative, id, focus).then((result) => {
+        if (result === "refused" && focus) {
+          hideAllSubagents();
+          setSubagentView(id);
+        }
+      });
+    },
+    [hideAllSubagents],
+  );
   const showWorkflowAgent = useCallback(
     (agent: WorkflowAgent) => {
       const workflow = workflows.find((entry) => entry.agents.some((candidate) => candidate.id === agent.id));

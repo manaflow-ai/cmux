@@ -154,10 +154,24 @@ test("View all lists them in place when no tab opens", async () => {
     depth: 0,
     agent: { ...agent, id: String(i), state: "completed", endedAt: Date.now() },
   }));
-  for (const reply of [async () => ({ opened: false }), async () => { throw new NativeError({ code: "native.not_connected" }); }]) {
+  for (const reply of [
+    async () => ({ opened: false }),
+    async () => {
+      throw new NativeError({ code: "native.not_connected" });
+    },
+  ]) {
     function Refused() {
       const list = useSubagentList(reply);
-      return <SubagentTray items={[]} finished={finished} working={false} waiting={waiting} onOpen={() => {}} onShowAll={list.show} />;
+      return (
+        <SubagentTray
+          items={[]}
+          finished={finished}
+          working={false}
+          waiting={waiting}
+          onOpen={() => {}}
+          onShowAll={list.show}
+        />
+      );
     }
     await act(async () => root.render(<Refused />));
     const collapsed = host.querySelectorAll("li[data-finished]").length;
@@ -229,14 +243,26 @@ test("View all requests the full list in the companion pane", async () => {
 test("native subagent placement distinguishes refusal from transport failure", async () => {
   await expect(openSubagentPane(async () => ({ opened: false }), "child-1", true)).resolves.toBe("refused");
   await expect(openSubagentPane(async () => ({ opened: true }), "child-1", true)).resolves.toBe("opened");
-  await expect(openSubagentPane(async () => {
-    throw new Error("disconnected");
-  }, "child-1", true)).resolves.toBe("error");
+  await expect(
+    openSubagentPane(
+      async () => {
+        throw new Error("disconnected");
+      },
+      "child-1",
+      true,
+    ),
+  ).resolves.toBe("error");
   // No app behind the page, or a pane with no subagent panes: shown in place, as before.
   for (const code of ["native.not_connected", "native.unsupported", "unsupported"])
-    await expect(openSubagentPane(async () => {
-      throw new NativeError({ code });
-    }, "child-1", true)).resolves.toBe("refused");
+    await expect(
+      openSubagentPane(
+        async () => {
+          throw new NativeError({ code });
+        },
+        "child-1",
+        true,
+      ),
+    ).resolves.toBe("refused");
 });
 
 test("subagent list hide callback stays stable across renders", async () => {

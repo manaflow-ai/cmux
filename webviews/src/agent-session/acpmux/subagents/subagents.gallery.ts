@@ -532,8 +532,8 @@ export default agentPaneEntry({
         await openSummary(ctx);
         await ctx.click({ selector: '.acpmux-summary-agent[title="Test coverage"]' });
         const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: PaneCall[] }).cmuxGalleryLog;
-        await ctx.waitFor(
-          () => log.some((call) => call.method === "chat.subagentPane" && call.params?.subagent === COVERAGE),
+        await ctx.waitFor(() =>
+          log.some((call) => call.method === "chat.subagentPane" && call.params?.subagent === COVERAGE),
         );
         const call = log.find((entry) => entry.method === "chat.subagentPane");
         if (call?.params?.focus !== true) throw new Error("a card click must focus the subagent's pane");
