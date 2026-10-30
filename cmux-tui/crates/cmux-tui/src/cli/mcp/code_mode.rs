@@ -87,7 +87,9 @@ const BOILERPLATE: [&str; 4] = [
      focus.",
 ];
 
-pub(super) const INSTRUCTIONS: &str = "cmux tools run through cmux_exec scripts; its \
+pub(super) const INSTRUCTIONS: &str = "This chat runs in cmux: a terminal, tab or workspace \
+    the person asks for (\"on my right\", \"a new workspace\") is a cmux one, made and run with \
+    these tools, not your own shell. cmux tools run through cmux_exec scripts; its \
     description lists the common ones. Selectors take a public id (ws_…, pane_…, tab_…, \
     term_…), a unique prefix, <session>:<id> or an exact name; workspace, screen, pane and tab \
     also take `current` (this chat's own) or `focused` (the one the person looks at). Tools of the chat's \
@@ -133,7 +135,9 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
         "name": EXEC,
         "title": "Run a cmux script",
         "description": format!(
-            "Run JavaScript that calls cmux tools and return its result.{computer_use} An async \
+            "Run JavaScript that calls cmux tools and return its result. This chat runs in \
+             cmux: a terminal, tab or workspace the person asks for is a cmux one, made here, \
+             not in your own shell.{computer_use} An async \
              function \
              body, `await cmux.<tool>({{...}})` per call, `return` a JSON value. Do related \
              steps in one script: look up, act and check together. No file system, network or \
