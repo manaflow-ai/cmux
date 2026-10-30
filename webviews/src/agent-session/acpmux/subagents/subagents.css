@@ -450,6 +450,23 @@ button.cv-subagent > :last-child {
     --acpmux-tray-status-width: 56px;
   }
 }
+@media (max-width: 240px) {
+  .acpmux-running-tray {
+    --acpmux-tray-time-width: 72px;
+    --acpmux-tray-status-width: 32px;
+    --acpmux-tray-stop-width: 20px;
+  }
+  .acpmux-running-tray .acpmux-summary-row {
+    gap: 4px;
+    padding-inline: 4px;
+  }
+  .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button {
+    padding-right: calc(4px + var(--acpmux-tray-stop-width) + 4px);
+  }
+  .acpmux-running-tray .acpmux-agent-line__stop-slot {
+    right: 4px;
+  }
+}
 /* A column that never scrolls itself (Leo 2026-10-25: the header "disappears for some reason at
    the top"): the header and View all are pinned, and only the list between them scrolls. In a
    short pane the list gives up its height first, down to nothing; the header never does. */

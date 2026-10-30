@@ -134,6 +134,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
                 if (!time) throw new Error("missing row time");
                 return {
                   name: rect(".acpmux-summary-agent__name", row),
+                  summary: rect(".acpmux-summary-text", row),
                   time: { ...rect(".acpmux-agent-line__time", row), ...textRect(time) },
                   status: rect(".acpmux-agent-line__status", row),
                   chevron: row.querySelector<HTMLElement>(".acpmux-agent-line__chevron")
@@ -167,6 +168,10 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         expect(initial.rows.some((row) => row.hasStop)).toBe(true);
         expect(initial.rows.some((row) => !row.hasStop)).toBe(true);
         expect(initial.rows.every((row) => row.name.width >= 60)).toBe(true);
+        expect(initial.rows.every((row) => row.summary.width >= 24)).toBe(true);
+        expect(initial.rows.every((row) => row.summary.right <= row.time.left + 0.5)).toBe(true);
+        expect(initial.rows.every((row) => !row.chevron || row.chevron.right <= row.status.right + 0.5)).toBe(true);
+        expect(initial.rows.every((row) => !row.chevron || row.chevron.right <= initial.tray.right + 0.5)).toBe(true);
         expect(initial.rows.every((row) => row.time.lineCount === 1)).toBe(true);
         expect(initial.rows.every((row) => row.time.textRight <= row.time.boxRight + 0.5)).toBe(true);
         expect(initial.rows.every((row) => row.time.scrollWidth <= row.time.clientWidth + 1)).toBe(true);
@@ -184,20 +189,32 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         const afterTick = await measure();
         expect(afterTick.rows.every((row) => row.time.lineCount === 1)).toBe(true);
         expect(afterTick.rows.every((row) => row.name.width >= 60)).toBe(true);
+        expect(afterTick.rows.every((row) => row.summary.width >= 24)).toBe(true);
+        expect(afterTick.rows.every((row) => row.summary.right <= row.time.left + 0.5)).toBe(true);
         expect(afterTick.rows.map((row) => row.time.right)).toEqual(initial.rows.map((row) => row.time.right));
+        expect(afterTick.rows.map((row) => row.time.textRight)).toEqual(initial.rows.map((row) => row.time.textRight));
+        expect(afterTick.rows.map((row) => row.time.scrollWidth)).toEqual(initial.rows.map((row) => row.time.scrollWidth));
+        expect(afterTick.rows.map((row) => row.time.clientWidth)).toEqual(initial.rows.map((row) => row.time.clientWidth));
         expect(afterTick.rows.map((row) => row.status.left)).toEqual(initial.rows.map((row) => row.status.left));
         expect(afterTick.rows.map((row) => row.stop.left)).toEqual(initial.rows.map((row) => row.stop.left));
         expect(afterTick.rows.map((row) => row.time.height)).toEqual(initial.rows.map((row) => row.time.height));
 
-        // The tray also has to remain usable in the narrow pane used by the compact layout:
+        // The tray also has to remain usable in narrow panes used by the compact layout:
         // titles keep room, and every trailing control stays inside the tray.
+        for (const width of [300, 240, 200]) {
+          await page.setViewportSize({ width, height: 560 });
+          const narrow = await measure();
+          expect(narrow.rows.every((row) => row.name.width >= 60)).toBe(true);
+          expect(narrow.rows.every((row) => row.summary.width >= 24)).toBe(true);
+          expect(narrow.rows.every((row) => row.summary.right <= row.time.left + 0.5)).toBe(true);
+          expect(narrow.rows.every((row) => row.time.lineCount === 1)).toBe(true);
+          expect(narrow.rows.every((row) => row.time.textRight <= row.time.boxRight + 0.5)).toBe(true);
+          expect(narrow.rows.every((row) => !row.chevron || row.chevron.right <= row.status.right + 0.5)).toBe(true);
+          expect(narrow.rows.every((row) => !row.chevron || row.chevron.right <= narrow.tray.right + 0.5)).toBe(true);
+          expect(narrow.rows.every((row) => row.stop.right <= narrow.tray.right + 0.5)).toBe(true);
+          expect(narrow.rows.every((row) => row.status.right <= narrow.tray.right + 0.5)).toBe(true);
+        }
         await page.setViewportSize({ width: 300, height: 560 });
-        const narrow = await measure();
-        expect(narrow.rows.every((row) => row.name.width >= 60)).toBe(true);
-        expect(narrow.rows.every((row) => row.time.lineCount === 1)).toBe(true);
-        expect(narrow.rows.every((row) => row.time.textRight <= row.time.boxRight + 0.5)).toBe(true);
-        expect(narrow.rows.every((row) => row.stop.right <= narrow.tray.right + 0.5)).toBe(true);
-        expect(narrow.rows.every((row) => row.status.right <= narrow.tray.right + 0.5)).toBe(true);
 
         const clickTargets = await page.evaluate(() => {
           const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
