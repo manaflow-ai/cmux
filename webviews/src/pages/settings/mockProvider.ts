@@ -8,6 +8,7 @@
 // pair, so the page's calls cross the real envelope (call/ok/err/sub/ev).
 import { createMockPair } from "../../protocol/adapters/mock";
 import { updatable } from "./harnesses";
+import { MockTeams } from "./mockTeams";
 import { recentAfterPick } from "./fontPickerModel";
 import { ProtocolError, ProtocolErrorCode } from "../../protocol/errors";
 import { Session, type EventSourceContext } from "../../protocol/session";
@@ -223,7 +224,7 @@ export class MockSettingsProvider {
       "cmux.settings.preview.end": () => ({}),
       "cmux.settings.sound.play": () => ({}),
       "cmux.settings.host.lists": () => this.host,
-      "cmux.settings.accounts.state": () => this.accounts,
+      "cmux.settings.accounts.state": () => this.accountsState(),
       "cmux.settings.server.restart": () => ({}),
       "cmux.settings.server.pair": () => ({}),
       "cmux.settings.mobile.allow_again": () => {
@@ -1074,6 +1075,14 @@ export class MockSettingsProvider {
   };
   /** Accounts gestures the page sent (secrets included, so tests can check they were sent once). */
   readonly accountRuns: AccountsRun[] = [];
+  /** The Teams part (roles, details, create, rename, delete); tests edit its teams and flags. */
+  readonly teams = new MockTeams();
+
+  /** The Accounts part with the Teams part while signed in, unless a test set `teamList` itself. */
+  private accountsState(): AccountsState {
+    if (this.accounts.teamList !== undefined || !this.accounts.teams) return this.accounts;
+    return { ...this.accounts, teamList: this.teams.state() };
+  }
 
   /** What the app's AccountsModel does to the state (enough for the page's tests). */
   private runAccounts(run: AccountsRun): { error?: string } {
@@ -1108,6 +1117,20 @@ export class MockSettingsProvider {
         ...this.accounts,
         teams: { ...teams, options: teams.options.map((team) => ({ ...team, active: team.id === run.team })) },
       };
+      if (run.team) this.teams.active = run.team;
+    } else if (run.action.startsWith("team.")) {
+      error = this.teams.run(run) ?? undefined;
+      // The Active Team menu lists the same teams and follows a create or delete.
+      if (this.accounts.teams) {
+        const active = this.teams.active;
+        this.accounts = {
+          ...this.accounts,
+          teams: {
+            ...this.accounts.teams,
+            options: this.teams.teams.map((team) => ({ id: team.id, name: team.name, active: team.id === active })),
+          },
+        };
+      }
     } else if (run.action === "remove") {
       this.accounts = rows((row) => ({ ...row, linked: row.linked.filter((account) => account.id !== run.account) }));
     } else if (run.action === "cmux.signOut" || run.action === "cmux.cancelSignIn") {
@@ -1115,7 +1138,7 @@ export class MockSettingsProvider {
     } else if (run.action === "cmux.signIn") {
       this.accounts = { ...this.accounts, cmux: mockCmuxAccount.signingIn };
     }
-    for (const ctx of this.accountsChanged) ctx.emit(this.accounts);
+    for (const ctx of this.accountsChanged) ctx.emit(this.accountsState());
     return error ? { error } : {};
   }
 
