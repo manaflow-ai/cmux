@@ -822,6 +822,10 @@ class GitHub:
     def rerun_failed(self, run_id: int, next_attempt: int) -> None:
         self.request("POST", f"/actions/runs/{run_id}/rerun-failed-jobs")
 
+    def rerun_job(self, job_id: int) -> None:
+        """Re-dispatch one queued job without cancelling its workflow run."""
+        self.request("POST", f"/actions/jobs/{job_id}/rerun")
+
 
 @dataclasses.dataclass
 class Target:
@@ -1364,6 +1368,21 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
             return (f"not rescued: attempt {target.attempt} also failed for a reason that is not a refusal "
                     f"({', '.join(sorted(other))})")
     log(f"{'rescue' if outcome == 'rescue' else 'refused'}: {reason}")
+    if outcome == "rescue" and target.path == CMUX_NEXT_WORKFLOW_PATH:
+        # A queued cmux-next job must be moved even when another job in the
+        # run has a real or base failure. Re-dispatch only the stuck job so the
+        # run's completed failures are untouched and the PR can make progress.
+        jobs = read(lambda: client.jobs(target.run_id, target.attempt), sleep, log)
+        queued = [job for job in jobs if job.get("id") and job_pool(job)
+                  and waiting_for_runner(job)]
+        if queued:
+            queued.sort(key=lambda job: parse_time(job.get("created_at")) or dt.datetime.max.replace(tzinfo=dt.timezone.utc))
+            stuck = queued[0]
+            moved = pull_moved(client, target, sleep, log)
+            if moved:
+                return f"not rescued: {moved}"
+            client.rerun_job(int(stuck["id"]))
+            return f"re-ran queued job {stuck.get('name') or stuck['id']} of run {target.run_id}"
     while True:
         # From attempt 2 on, keep what passed: only the owned jobs are moved.
         # An E2E run always keeps what passed (see the module docstring). A

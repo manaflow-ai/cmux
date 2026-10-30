@@ -133,6 +133,9 @@ class FakeAPI:
         self.attempt += 1
         self.cancelled_at, self.rerun_at = None, self.clock.seconds
 
+    def rerun_job(self, job_id):
+        self.calls.append(f"rerun-job:{job_id}")
+
 
 def event(**overrides):
     run = {"id": RUN_ID, "path": ".github/workflows/ci.yml", "event": "pull_request", "run_attempt": 1,
@@ -1339,6 +1342,26 @@ class SideLanes(unittest.TestCase):
         self.assertNotIn("cancel", api.calls)
         self.assertIn("the run finished", summary)
         self.assertNotIn("the fleet accepted", summary)
+
+    def test_a_cmux_next_queued_job_moves_even_when_a_sibling_failed(self):
+        # A base-red sibling must not strand the fast tier. Re-dispatch only
+        # the queued owned job, leaving the failed sibling untouched.
+        def jobs(seconds):
+            failed = job("cmux-next checks (god files, concurrency, crash safety, l10n)",
+                         status="completed", labels=["blacksmith-4vcpu-ubuntu-2404"])
+            failed.update(conclusion="failure", completed_at=stamp(30))
+            queued = job("cmux-next fast tier", labels=[SIDE], created=0)
+            queued["id"] = 987
+            return [failed, queued]
+
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True)
+        code, summary = run_main(api, clock, env_extra={"RESCUE_SECONDS": "30"},
+                                 payload=side_event(path=rescue.CMUX_NEXT_WORKFLOW_PATH))
+        self.assertEqual(code, 0)
+        self.assertIn("rerun-job:987", api.calls)
+        self.assertNotIn("cancel", api.calls)
+        self.assertIn("re-ran queued job cmux-next fast tier", summary)
 
     def test_side_lane_budget_is_the_five_minute_queue_alarm(self):
         self.assertEqual(rescue.SIDE_DEFAULT_BUDGET_SECONDS, 300)
