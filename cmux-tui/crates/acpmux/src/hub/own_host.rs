@@ -274,6 +274,18 @@ mod segment_tests {
         hub.set_status(&live, SessionStatus::Closed);
         assert!(err(hub.resolve("lane")).message.contains("matches 2 sessions"), "both closed");
 
+        // `OWN/SHORT` keeps the same rule (review of #27791's base merge).
+        let own = crate::pairing::machine_name();
+        if own != "host" {
+            let hub = hub_with(&[("m1", "a/lane"), ("m2", "b/lane")]);
+            let closed = hub.sessions.lock().unwrap().get("m2").cloned().unwrap();
+            hub.set_status(&closed, SessionStatus::Closed);
+            assert_eq!(id(hub.resolve(&format!("{own}/lane"))), "m1", "the live one here");
+            let live = hub.sessions.lock().unwrap().get("m1").cloned().unwrap();
+            hub.set_status(&live, SessionStatus::Closed);
+            assert!(err(hub.resolve(&format!("{own}/lane"))).message.contains("matches 2"));
+        }
+
         // A closed peer session with the short name gives way to a live one here, and a live
         // peer one is the peer route's while every one here is closed.
         let hub = hub_with(&[("m1", "a/lane")]);
