@@ -13,7 +13,16 @@
 // prompt sent show above its bubble, each opening the image viewer (Leo, 2026-10-13: they vanished
 // once sent). A long prompt opens collapsed on its first ten lines with Show more, and a pasted
 // block is a chip that opens in place (PromptText.tsx); Copy still copies the whole prompt.
-import { memo, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  memo,
+  useCallback,
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import type { AcpmuxRow, PromptContentPart, PromptImage } from "../model";
 import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
@@ -62,7 +71,9 @@ export function UserBubble({
   // The ordered bubble below skips them by the same rule.
   const originals = imageOriginals(row);
   const recorded = row.inlineParts?.flatMap((part): FileAttachmentInfo[] =>
-    part.kind === "file" && !isImageOriginal(part, originals) && !part.mimeType?.startsWith("video/")
+    part.kind === "file" &&
+    !isImageOriginal(part, originals) &&
+    !part.mimeType?.startsWith("video/")
       ? [{ ...part, path: attachmentPath(part.uri) }]
       : [],
   );
@@ -76,7 +87,10 @@ export function UserBubble({
   // Every recorded non-text part is an attachment, including documents, audio and pasted blocks
   // that do not become legacy file chips.
   const hasAttachment = Boolean(
-    row.images?.length || files?.length || row.inlineParts?.some((part) => part.kind !== "text"),
+    row.images?.length ||
+    row.retryAttachments?.length ||
+    files?.length ||
+    row.inlineParts?.some((part) => part.kind !== "text"),
   );
   // A prompt that went out with an image as `data:` text (before the composer stopped making them)
   // reads each one as its name: a bubble never draws base64 (inlineImages.ts, Leo 2026-10-20).
@@ -93,7 +107,8 @@ export function UserBubble({
   // The old shape (its text, then its pastes, then its attachments), and a prompt with nothing
   // to read beside its attachments, keep the legacy bands above the bubble.
   const firstMedia = orderedParts?.findIndex((part) => part.kind !== "text") ?? -1;
-  const placed = orderedParts?.some((part) => part.kind !== "text" && part.placed === true) ?? false;
+  const placed =
+    orderedParts?.some((part) => part.kind !== "text" && part.placed === true) ?? false;
   const hasInterleaved =
     firstMedia >= 0 &&
     (placed
@@ -106,7 +121,10 @@ export function UserBubble({
   const stripMedia = orderedParts?.filter(isStripMedia).filter(banded) ?? [];
   const shownParts = orderedParts?.filter((part) => !banded(part));
   const renderImage = useCallback((image: PromptImage) => <SentImage image={image} />, []);
-  const editable = useMemo(() => (editing ? liftInlineImages(row.text ?? text).text : ""), [editing, row.text, text]);
+  const editable = useMemo(
+    () => (editing ? liftInlineImages(row.text ?? text).text : ""),
+    [editing, row.text, text],
+  );
   // An open editor stays while the chat changes under it (a reconnect, a turn starting), so the
   // draft is kept; Send waits until the prompt can be forked before again. A resend that fails
   // (the fork refused, the reader opened another chat) leaves the draft open too.
@@ -152,7 +170,12 @@ export function UserBubble({
         {(strip ? shownParts!.some(readsAsText) : hasInterleaved || text.trim()) ? (
           <div className="ui-glass cv-user__bubble selectable">
             {hasInterleaved ? (
-              <InlinePromptContent rowId={row.id} parts={shownParts!} show={show} renderImage={renderImage} />
+              <InlinePromptContent
+                rowId={row.id}
+                parts={shownParts!}
+                show={show}
+                renderImage={renderImage}
+              />
             ) : (
               <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
             )}
@@ -188,7 +211,9 @@ export function UserBubble({
                       total: branch.sessions.length,
                     })}
                   >
-                    {branches.running?.has(branch.sessions[branch.index] ?? "") && <Spinner size={12} loading />}
+                    {branches.running?.has(branch.sessions[branch.index] ?? "") && (
+                      <Spinner size={12} loading />
+                    )}
                     {branch.index + 1}/{branch.sessions.length}
                   </span>
                   <button
@@ -238,13 +263,18 @@ export function UserBubble({
 /// original file after it).
 function imageOriginals(row: AcpmuxRow): ReadonlySet<string> {
   return new Set(
-    row.retryAttachments?.flatMap((file) => (file.kind === "image" && file.originalPath ? [file.originalPath] : [])),
+    row.retryAttachments?.flatMap((file) =>
+      file.kind === "image" && file.originalPath ? [file.originalPath] : [],
+    ),
   );
 }
 
 /// A file part that is an image's retained original: drawn as the image, never again as a file.
 function isImageOriginal(part: PromptContentPart, originals: ReadonlySet<string>): boolean {
-  return part.kind === "file" && (part.companionOf !== undefined || originals.has(attachmentPath(part.uri) ?? ""));
+  return (
+    part.kind === "file" &&
+    (part.companionOf !== undefined || originals.has(attachmentPath(part.uri) ?? ""))
+  );
 }
 
 function UserFooter({
@@ -301,7 +331,10 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
   const { promptImage } = useContext(TurnActionsContext);
   const openImage = useContext(ImageViewerContext);
   // Bytes the row holds (this pane's own send) draw at once; acpmux cannot read a composer id.
-  const shown = useStableImage(image.src ? { src: image.src } : { id: image.id, read: promptImage }, image);
+  const shown = useStableImage(
+    image.src ? { src: image.src } : { id: image.id, read: promptImage },
+    image,
+  );
   const [failed, setFailed] = useState<string>();
   if (shown.status === "missing") return null;
   const width = sentImageWidth(shown);
@@ -317,7 +350,13 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
   // sent-image band appears after the transcript row has already been placed and pushes the
   // prompt and everything below it down by a frame.
   if (shown.src === undefined)
-    return <span className="cv-user__image-placeholder" aria-hidden="true" style={{ width, flexBasis: width }} />;
+    return (
+      <span
+        className="cv-user__image-placeholder"
+        aria-hidden="true"
+        style={{ width, flexBasis: width }}
+      />
+    );
   const src = shown.src;
   // A pasted image's name is WebKit's "image.png": name it by its size instead (imageLabel.ts).
   const label = imageLabel(t, { name: image.name, width: shown.width, height: shown.height });

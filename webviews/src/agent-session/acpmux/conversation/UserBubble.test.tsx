@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../model";
+import type { ComposerAttachment } from "../attachments";
 import { translate } from "../i18n";
 import { TurnActionsContext, type TurnActions } from "./turnActions";
 import { UserBubble } from "./UserBubble";
@@ -138,3 +139,29 @@ test("an image-only prompt still hides retry while its send is pending", async (
   expect(container.querySelector(".cv-user__delivery")).not.toBeNull();
   expect(container.querySelector(`button[aria-label="${translate("turn.retry")}"]`)).toBeNull();
 });
+
+for (const kind of ["image", "document", "audio", "text", "pasted", "link"] as const) {
+  test(`a ${kind} attachment retained for retry keeps its footer and retries the source row`, async () => {
+    const attachment: ComposerAttachment = {
+      id: "attachment",
+      kind,
+      name: "attachment",
+      mimeType: "text/plain",
+      size: 1,
+    };
+    const row: AcpmuxRow = { ...baseRow(), images: undefined, retryAttachments: [attachment] };
+    const retried: string[] = [];
+    const container = await render(row, {
+      retry: (id) => {
+        retried.push(id);
+      },
+    });
+    expect(container.querySelector(".cv-user__actions")).not.toBeNull();
+    const retry = container.querySelector<HTMLButtonElement>(
+      `button[aria-label="${translate("turn.retry")}"]`,
+    );
+    expect(retry).not.toBeNull();
+    await act(async () => retry!.click());
+    expect(retried).toEqual([row.id]);
+  });
+}
