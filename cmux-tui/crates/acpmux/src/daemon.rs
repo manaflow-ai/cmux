@@ -29,8 +29,8 @@ pub(crate) mod login_session;
 #[cfg(unix)]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod cloud_handoff;
-mod handover;
 mod dev_orphan;
+mod handover;
 mod notify;
 mod persist_retry;
 #[cfg(windows)]
