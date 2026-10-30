@@ -44,8 +44,9 @@ How it is enforced:
   statement is an async wait and is not refused. Escape: `// blocking-allow: <why>` (to be counted by the arch
   ratchet's `blocking_allow_escapes` row: to come, PL-arch).
 - **The count (slice (c)'s progress).** `scripts/cmux-next/guardrails.py --sites main-blocking` judges the whole tree
-  (base debt included) and prints every main-blocking site and their count: 79 at 101e904807a, 75 after #25852's first
-  slice (a new chat's unsent drafts and chats' scroll places save off main through StateFileWriter). Any rule id works.
+  (base debt included) and prints every main-blocking site and their count: 79 at cec0a36b8ac (feat-cmux-next), 75
+  after #25852's first slice (a new chat's unsent drafts and chats' scroll places save off main through
+  StateFileWriter). Any rule id works.
 
 ## Threads and queues
 
