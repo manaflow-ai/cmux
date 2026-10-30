@@ -60646,6 +60646,138 @@
         }
       }
     },
+    "settingsWindow.computerUse.upstreamFallback": {
+      "comment": "Settings > Computer Use status line, before the helper status: driver Upstream was chosen, but this build has no upstream helper, so the legacy helper runs.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upstream helper isn't in this build; using Legacy."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مساعد Upstream غير موجود في هذا الإصدار؛ يُستخدم Legacy."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Upstream pomoćnik nije u ovoj verziji; koristi se Legacy."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Upstream-hjælpeprogrammet er ikke i denne build; bruger Legacy."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Upstream-Helfer ist nicht in diesem Build; Legacy wird verwendet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El asistente Upstream no está en esta compilación; se usa Legacy."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’assistant Upstream n’est pas dans cette version ; Legacy est utilisé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’helper Upstream non è in questa build; viene usato Legacy."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このビルドには Upstream ヘルパーがないため、Legacy を使っています。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីជំនួយ Upstream មិនមាននៅក្នុងកំណែនេះទេ; កំពុងប្រើ Legacy។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 빌드에는 Upstream 도우미가 없어 Legacy를 사용합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Upstream-hjelperen finnes ikke i denne versjonen; bruker Legacy."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pomocnika Upstream nie ma w tej wersji; używany jest Legacy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O auxiliar Upstream não está nesta versão; usando Legacy."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Помощника Upstream нет в этой сборке; используется Legacy."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บิลด์นี้ไม่มีตัวช่วย Upstream กำลังใช้ Legacy"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Upstream yardımcısı bu derlemede yok; Legacy kullanılıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Помічника Upstream немає в цій збірці; використовується Legacy."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản dựng này không có trình trợ giúp Upstream; đang dùng Legacy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此版本没有 Upstream 辅助程序；正在使用 Legacy。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此版本沒有 Upstream 輔助程式；正在使用 Legacy。"
+          }
+        }
+      }
+    },
     "settingsWindow.computerUse.hostUnverified": {
       "comment": "Settings > Computer Use status line: the legacy helper refused this app because the build is not signed by cmux's team.",
       "extractionState": "manual",
