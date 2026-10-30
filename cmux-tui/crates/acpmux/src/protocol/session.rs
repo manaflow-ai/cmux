@@ -17,6 +17,12 @@ use super::require_all;
 pub struct SessionSummary {
     pub session_id: String,
     pub name: String,
+    /// Someone gave `name` (at the start, a fork's or a rename), not the daemon's `HARNESS-N`
+    /// default. Absent otherwise, from a session named before it was kept, and from a peer on an
+    /// older acpmux.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(default)]
+    pub name_given: bool,
     pub harness: String,
     pub family: Option<String>,
     /// Lossy when the path is not UTF-8.

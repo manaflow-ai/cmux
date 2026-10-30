@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextPages
 import CmuxNextWakeups
 
 /// A page moved into another view (a parked New Tab spare adopted, cx-21zkz): WebKit shows nothing
@@ -9,6 +10,7 @@ extension AgentPaneView {
     /// A page whose frame is never reported (a hung web process) shows after `limit` all the same.
     public func hideMovedPage(limit: Duration = .seconds(3), until drawn: @escaping () -> Void) {
         pageContent.alphaValue = 0
+        PageWebView.syncChromiumVisibility(in: pageContent)
         let deadline = DemandTimer(owner: "newTab.moveCover.deadline")
         deadline.schedule(after: limit) { @MainActor [weak self] in
             withExtendedLifetime(deadline) {}
@@ -28,5 +30,6 @@ extension AgentPaneView {
     public func revealMovedPage() {
         guard model.hasPainted else { return }
         pageContent.alphaValue = 1
+        PageWebView.syncChromiumVisibility(in: pageContent)
     }
 }
