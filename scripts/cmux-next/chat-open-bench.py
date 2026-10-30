@@ -6,8 +6,9 @@ fast too :(" / "but i also wonder how much of this is simply putting the desktop
 Four opens, each timed by the app's own chat-open trace (`debug.chat_open_trace`: from the action
 to the first frame the pane shows the chat's content, with every surface the pane showed between):
 
-  sidebar    a chat never opened in this app's life, opened in a new workspace
-             (`agent.openSessionWorkspace`, focused, as a sidebar click opens one)
+  sidebar    a chat never opened in this app's life, opened in a new workspace and shown
+             (`agent.openSessionWorkspace`, then `workspace.selectLast`: the action alone makes the
+             workspace and never shows it, so a sidebar click's open is the two)
   reopen     a chat this app showed before, opened again in a new workspace
   subagent   a click on a subagent's line in its chat's transcript (`debug.agent_pane click`),
              which opens the subagent's pane (`chat.subagentPane`)
@@ -76,7 +77,7 @@ parser.add_argument("--sessions", type=int, default=1500)
 parser.add_argument("--conditions", default="idle,load,load_utility,load_nice")
 parser.add_argument("--cases", default="sidebar,reopen,subagent,big,bloated,restore")
 parser.add_argument("--settle", type=float, default=6, help="seconds a load runs before the first open under it")
-parser.add_argument("--config", default="{}", help="cmux.json for the app (JSON)")
+parser.add_argument("--config", default="{}", help="cmux.json for the app (JSON), over the bench's own")
 parser.add_argument("--json")
 parser.add_argument("--md")
 opts = parser.parse_args()
@@ -84,6 +85,9 @@ APP = os.path.realpath(opts.app.rstrip("/"))
 CONDITIONS = [c.strip() for c in opts.conditions.split(",") if c.strip()]
 CASES = [c.strip() for c in opts.cases.split(",") if c.strip()]
 SUBAGENTS = opts.subagents or opts.runs + 1
+# A new workspace goes last, so `workspace.selectLast` shows the one an open just made (the default
+# placement is the top of the list).
+CONFIG = bm.merged({"workspaces": {"newPlacement": "bottom"}}, json.loads(opts.config))
 AGENT = os.path.join(HERE, "chat_open_agent.py")
 NCPU = os.cpu_count() or 8
 
@@ -225,15 +229,16 @@ class Run:
 
     def launch(self, trace_launch=False):
         env = dict(self.env)
-        if trace_launch:
-            env["CMUX_CHAT_OPEN_TRACE_LAUNCH"] = "1"
         if self.scratch is None:
-            self.pid, self.sock, self.scratch = bm.launch(APP, json.loads(opts.config), env)
+            self.pid, self.sock, self.scratch = bm.launch(APP, CONFIG, env)
             self.env["HOME"] = os.path.join(self.scratch, "home")
             self.env["TMPDIR"] = os.path.join(self.scratch, "tmp") + "/"
             self.env["CMUX_NEXT_CONFIG_FILE"] = os.path.join(self.scratch, "cmux.json")
         else:
-            self.pid, self.sock = relaunch(self.scratch, env)
+            # The argument, not CMUX_CHAT_OPEN_TRACE_LAUNCH: the app unsets every inherited CMUX*
+            # variable but the CMUX_NEXT_* knobs at launch (LaunchIdentity.inheritedKeys), before
+            # the trace reads it, so a launch trace armed by the variable never ran.
+            self.pid, self.sock = relaunch(self.scratch, env, ["--chat-open-trace-launch"] if trace_launch else [])
         self.app = bm.App(APP, self.sock)
         deadline = time.monotonic() + 60
         while not self.app.ping() and time.monotonic() < deadline:
@@ -269,7 +274,7 @@ class Run:
             shutil.rmtree(self.scratch, ignore_errors=True)
 
 
-def relaunch(scratch, env):
+def relaunch(scratch, env, args=()):
     """bench_memory.launch's direct launch, on an existing scratch state."""
     import plistlib
     with open(os.path.join(APP, "Contents", "Info.plist"), "rb") as handle:
@@ -279,7 +284,7 @@ def relaunch(scratch, env):
             "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1400,900"}
     full.update(env)
     with open(os.path.join(scratch, "app.log"), "a") as log:
-        subprocess.Popen([binary], env=full, stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True)
+        subprocess.Popen([binary, *args], env=full, stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True)
     home = full["HOME"]
     deadline = time.monotonic() + 90
     while time.monotonic() < deadline:
@@ -327,7 +332,14 @@ def traced(run, open_fn):
 
 
 def open_workspace(run, session):
-    return run.app.action("agent.openSessionWorkspace", focus=True, session=session)
+    """Opens `session` in a new workspace and shows it, as a sidebar click does. The action makes the
+    workspace and selects its tab but never switches to it (it is the Chief's background spawn), so
+    alone it left every open off screen: no agent pane was made and no trace bound."""
+    opened = run.app.action("agent.openSessionWorkspace", focus=True, session=session)
+    if opened.get("error"):
+        return opened
+    shown = run.app.action("workspace.selectLast", focus=True)
+    return {**opened, "shown": shown} if shown.get("error") else opened
 
 
 def settle_open(run, session):
@@ -355,11 +367,12 @@ def why(record):
         parts.append(f"open_reply={json.dumps(reply, default=str)[:200]}")
         # Frames are [ms, surface] pairs (flashes, first_of).
         surfaces = sorted({str(f[1]) for f in record.get("frames") or [] if isinstance(f, (list, tuple)) and len(f) > 1})
-        parts.append(f"surfaces={surfaces} marks={sorted((record.get('marks_ms') or {}).keys())}")
+        # `order` lists the marks that ran; `marks_ms` names every mark, null for one that did not.
+        parts.append(f"surfaces={surfaces} frame_count={record.get('frame_count')} marks={record.get('order')}")
         ready = record.get("readiness") or {}
         if isinstance(ready, dict):
-            parts.append("readiness=" + json.dumps({k: ready.get(k) for k in ("session_id", "body_text_length",
-                                                                                "rows", "transcript_rows")},
+            parts.append("readiness=" + json.dumps({k: ready.get(k) for k in ("error", "pane", "body_text_length",
+                                                                                "transcript_rows")},
                                                    default=str)[:200])
     return (" " + " ".join(parts)) if parts else ""
 
