@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "build": "4100827479001",
+  "notes": "notes/4100827479001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27587,
+      "title": "acpmux: agent work yields CPU and disk to the app (one QoS policy)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27820,
+      "title": "New Tab (classic): no hairline past the box's corners; All sessions on the page's left line",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27773,
+      "title": "fix(settings): Chief Look draws the bubble colors under Bubble Style",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26872,
+      "title": "agent pane: Pause and Resume a Cloud chat's machine from the chat menu",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27842,
+      "title": "Computer Use: driver Upstream in a build without its helper runs Legacy, and says so",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27626,
+      "title": "App Store: render metadata as quiet text",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26951,
+      "title": "fix(next palette): the focus overlay goes on the window the palette opens over",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27772,
+      "title": "fix(webviews): clear five react-apps-check base reds (cursor, motion, Session Info, glyphs, Settings)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24366,
+      "title": "risk tier: a delete inside a Rust #[cfg(test)] module is test code",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25983,
+      "title": "fix(coderouter): resolve Codex keyring credentials on connect",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27676,
+      "title": "ci(nightly-next): wait at most a minute for a busy dedicated builder, then take an idle owned Mac",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27726,
+      "title": "ci(nightly-next verdict): a failed old-feed promotion fails the run",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27727,
+      "title": "fix(metering): page ClickHouse open intervals",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27705,
+      "title": "ci(cmux-tui): publish chain on 16/32 vCPU runners, uploads and reads side by side",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27672,
+      "title": "Agent chat: flush running card, steady Send now, and an Edit message that never does nothing",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27757,
+      "title": "fix(agent-pane): Install uses the vendor's installer where npm is missing",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27848,
+      "title": "cmux NEXT sidebar: an expanded unpinned row draws no pin on hover",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
