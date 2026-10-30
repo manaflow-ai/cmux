@@ -79,9 +79,20 @@ fn a_progress_report_reads_only_its_own_terminals_tabs() {
         "the progress report published a revision (the terminal is live and running)"
     );
 
+    // The commit itself (any resource patch, even an empty one) looks up
+    // rows of screens, panes and workspaces; only a whole-topology load
+    // reads the side tables of every screen. Those mark the full read.
     let read = read.lock().unwrap().clone();
-    for table in ["resource_screens", "resource_panes", "resource_workspaces"] {
-        assert!(!read.contains(table), "a progress report read {table}: {read:?}");
+    for table in [
+        "resource_screen_rows",
+        "resource_column_docks",
+        "resource_lone_docks",
+        "resource_parked_splits",
+    ] {
+        assert!(
+            !read.contains(table),
+            "a progress report loaded the whole topology ({table}): {read:?}"
+        );
     }
 }
 
