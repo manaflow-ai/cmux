@@ -111,6 +111,16 @@ public final class MacScreenPages {
         approval.hub = { [weak self] in self?.hub }
     }
 
+    /// cmux Remote serves this Mac (docs/cmux-remote.md): its Screen Sharing worker shows the
+    /// approval banner and serves host sessions, also with this app quit; this app is a viewer.
+    public var remoteHosted = false {
+        didSet {
+            guard remoteHosted != oldValue else { return }
+            if remoteHosted { hubHost.closeAll() }
+            approval.follow(remoteHosted ? nil : hub)
+        }
+    }
+
     // MARK: Device hub
 
     private func hubChanged(from old: DeviceHub?) {
@@ -121,7 +131,7 @@ public final class MacScreenPages {
             for tab in tabs.values { tab.pane?.model.hub?.hubGone() }
         }
         hub?.onSessionPush = { [weak self] push in self?.handle(push) }
-        approval.follow(hub)
+        approval.follow(remoteHosted ? nil : hub)
         watchDeviceNames()
     }
 
@@ -132,7 +142,7 @@ public final class MacScreenPages {
             break // The approval prompt follows the hub's pending requests.
         case let .sessionTicket(ticket):
             switch ticket.role {
-            case .host: hubHost.serve(ticket)
+            case .host: if !remoteHosted { hubHost.serve(ticket) }
             case .viewer:
                 // The tab whose session (or, before the request's answer, whose host) it names.
                 let viewers = hubViewers

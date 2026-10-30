@@ -53,6 +53,8 @@ final class ScreenWorkerSupervisor: Sendable {
     let onChange: @Sendable () -> Void
 
     private let state = OSAllocatedUnfairLock(initialState: State())
+    /// Signalled by the running worker's first `status` (its socket listens by then).
+    private let readyCondition = NSCondition()
 
     private struct State: @unchecked Sendable { // crash-allow: every field is read and written under the lock
         var wanted = false
@@ -133,6 +135,19 @@ final class ScreenWorkerSupervisor: Sendable {
         }.value
     }
 
+    /// Waits (on the caller's thread, never the main thread) until a running worker has
+    /// reported its first status, so its socket listens; false when none runs by `deadline`.
+    func waitReady(until deadline: Date) -> Bool {
+        readyCondition.lock()
+        defer { readyCondition.unlock() }
+        while state.withLockUnchecked({ $0.status == nil }) {
+            guard state.withLock({ $0.wanted }), readyCondition.wait(until: deadline) else {
+                return state.withLockUnchecked { $0.status != nil }
+            }
+        }
+        return true
+    }
+
     private func start() {
         let child: ChildProcess
         do {
@@ -173,6 +188,9 @@ final class ScreenWorkerSupervisor: Sendable {
         }
         guard object["type"] as? String == "event" else { return }
         if object["event"] as? String == "status", let status = object["status"] as? [String: Any] {
+            readyCondition.lock()
+            readyCondition.broadcast()
+            readyCondition.unlock()
             let restartNow = state.withLockUnchecked { state -> Bool in
                 state.status = status
                 guard state.restartWhenIdle, status["session"] == nil else { return false }

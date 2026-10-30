@@ -20,18 +20,14 @@ public final class ScreenSharingWorker: NSObject, NSApplicationDelegate {
     let agent: DeviceAgent
     private let control = LineChannel(read: STDIN_FILENO, write: STDOUT_FILENO)
     private var statusQueued = false
-    /// The app's subscriptions, by channel; `perform` asks go to the newest.
+    /// The app's hub subscriptions, by channel.
     private var subscribers: [ObjectIdentifier: LineChannel] = [:]
-    private var subscriberOrder: [ObjectIdentifier] = []
-    private var performs: [Int: CheckedContinuation<AppAnswer?, Never>] = [:]
-    private var nextPerform = 1
 
     public init(layout: RemoteHostLayout, stateDirectory: String, keychainScope: String, headless: Bool) {
         self.layout = layout
         agent = DeviceAgent(keychainScope: keychainScope, statePath: stateDirectory + "/screen-sharing.json", headless: headless)
         super.init()
         agent.changed = { [weak self] in self?.queueStatus() }
-        agent.delegateToApp = { [weak self] action, params in await self?.perform(action, params) }
     }
 
     /// Never returns.
@@ -90,8 +86,10 @@ public final class ScreenSharingWorker: NSObject, NSApplicationDelegate {
         case "status":
             return RemoteWire.answer(id: id, result: agent.status)
         case "share":
-            guard let on = params["on"] as? Bool else { return RemoteWire.failure(id: id, code: "bad_request", message: "on must be true or false") }
-            switch await agent.share(on) {
+            guard params["on"] as? Bool == false else {
+                return RemoteWire.failure(id: id, code: "needs_app", message: "Share This Mac on is confirmed in cmux (palette: Share This Mac)")
+            }
+            switch await agent.shareOff() {
             case let .success(shared): return RemoteWire.answer(id: id, result: ["sharing": shared])
             case let .failure(error): return RemoteWire.failure(id: id, code: error.code?.rawValue ?? "failed", message: error.description)
             }
@@ -178,11 +176,6 @@ public final class ScreenSharingWorker: NSObject, NSApplicationDelegate {
         case "hub.subscribe":
             subscribe(channel)
             return RemoteWire.answer(id: id, result: agent.status)
-        case "perform.done":
-            if let ask = params["id"] as? Int, let waiting = performs.removeValue(forKey: ask) {
-                waiting.resume(returning: AppAnswer(ok: params["ok"] as? Bool == true, message: params["message"] as? String))
-            }
-            return nil
         case "status":
             return RemoteWire.answer(id: id, result: agent.status)
         default:
@@ -193,38 +186,16 @@ public final class ScreenSharingWorker: NSObject, NSApplicationDelegate {
     private func subscribe(_ channel: LineChannel) {
         let key = ObjectIdentifier(channel)
         subscribers[key] = channel
-        subscriberOrder.append(key)
         agent.relay.add(key) { channel.write($0) }
     }
 
     private func unsubscribe(_ channel: LineChannel) {
         let key = ObjectIdentifier(channel)
         subscribers[key] = nil
-        subscriberOrder.removeAll { $0 == key }
         agent.relay.remove(key)
         if subscribers.isEmpty, !agent.headless {
             // `remote.headless` off: sharing ends with the app.
             agent.sessions.stop()
-        }
-    }
-
-    /// Asks the newest subscribed app to run `action` (it holds the full session); nil when none is subscribed.
-    private func perform(_ action: String, _ params: [String: Any]) async -> [String: Any]? {
-        guard let answer = await ask(action, params) else { return nil }
-        var fields: [String: Any] = ["ok": answer.ok]
-        if let message = answer.message { fields["message"] = message }
-        return fields
-    }
-
-    private func ask(_ action: String, _ params: [String: Any]) async -> AppAnswer? {
-        guard let key = subscriberOrder.last, let channel = subscribers[key] else { return nil }
-        let ask = nextPerform
-        nextPerform += 1
-        return await withCheckedContinuation { (continuation: CheckedContinuation<AppAnswer?, Never>) in
-            performs[ask] = continuation
-            if !channel.write(RemoteWire.event("perform", ["id": ask, "action": action, "params": params as Any])) {
-                performs.removeValue(forKey: ask)?.resume(returning: nil)
-            }
         }
     }
 }
@@ -240,10 +211,4 @@ struct WorkerRequest: @unchecked Sendable { // crash-allow: built by the reader 
         method = object["method"] as? String ?? ""
         params = object["params"] as? [String: Any] ?? [:]
     }
-}
-
-/// A subscribed app's answer to a `perform` ask.
-struct AppAnswer: Sendable {
-    var ok: Bool
-    var message: String?
 }

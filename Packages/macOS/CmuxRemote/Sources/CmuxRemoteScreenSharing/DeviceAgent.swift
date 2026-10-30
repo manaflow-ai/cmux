@@ -57,8 +57,6 @@ final class DeviceAgent {
     let relay = PushRelay()
     /// Called when anything in `status` changes.
     var changed: () -> Void = {}
-    /// Runs an action that needs the signed-in app (`share on`), through a subscribed app.
-    var delegateToApp: (String, [String: Any]) async -> [String: Any]? = { _, _ in nil }
     private var loading: Task<DeviceIdentity?, Never>?
 
     init(keychainScope: String, statePath: String, headless: Bool) {
@@ -190,16 +188,9 @@ final class DeviceAgent {
 
     // MARK: Controls
 
-    /// Share This Mac on or off. Off works on this device's own session;
-    /// on needs the signed-in app (a full session), which runs it.
-    func share(_ on: Bool) async -> Result<Bool, DeviceHubError> {
+    /// Share This Mac off (a host session may; on needs the signed-in app, which asks the person).
+    func shareOff() async -> Result<Bool, DeviceHubError> {
         guard let hub else { return .failure(.notSignedIn) }
-        if on {
-            guard let answer = await delegateToApp("share", ["on": true]) else {
-                return .failure(.transport("open cmux to turn on Share This Mac"))
-            }
-            return answer["ok"] as? Bool == true ? .success(true) : .failure(.transport((answer["message"] as? String) ?? "the app refused"))
-        }
         do {
             try await hub.setMacScreenShared(false)
             sessions.stop()
@@ -209,15 +200,11 @@ final class DeviceAgent {
         }
     }
 
-    /// A viewer's access on this Mac. None and lowering work here; raising needs the app.
+    /// A viewer's access on this Mac. A host session may lower it; raising needs the app.
     func setAccess(viewer: String, scope: DeviceScope) async -> Result<DeviceScope, DeviceHubError> {
         guard let hub else { return .failure(.notSignedIn) }
         do {
             try await hub.setPermission(host: hub.identity.id, viewer: viewer, scope: scope)
-            return .success(scope)
-        } catch let error as DeviceHubError where Self.isForbidden(error) {
-            guard let answer = await delegateToApp("access", ["device": viewer, "scope": scope.rawValue]),
-                  answer["ok"] as? Bool == true else { return .failure(error) }
             return .success(scope)
         } catch {
             return .failure(error as? DeviceHubError ?? .transport("\(error)"))
@@ -250,11 +237,6 @@ final class DeviceAgent {
 
     static func describe(_ value: some Any) -> String { String(describing: value) }
 
-    /// A host-scoped session's refusal: the signed-in app may do it.
-    static func isForbidden(_ error: DeviceHubError) -> Bool {
-        if case .server(403, _, _) = error { return true }
-        return false
-    }
 }
 
 /// The User DO socket's frames, fanned out to the app's subscriptions: the

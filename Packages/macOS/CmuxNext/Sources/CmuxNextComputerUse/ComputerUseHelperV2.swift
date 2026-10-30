@@ -59,7 +59,13 @@ public final class ComputerUseHelperV2 {
     public var machineConsent: @Sendable () async -> Data? = { nil }
     /// Records a call the helper refused for consent ("screen" or "control").
     public var consentRefused: @Sendable (String) async -> Void = { _ in }
-    private let spawner: any ComputerUseHelperV2Spawning
+    private let localSpawner: any ComputerUseHelperV2Spawning
+    /// The running child's spawner: the local one, or a remote worker's (cmux Remote).
+    private var spawner: any ComputerUseHelperV2Spawning
+    /// cmux Remote (docs/cmux-remote.md): when the App sets it, Computer Use runs as cmux
+    /// Remote's worker (the one process that holds the grants) instead of a helper this app
+    /// starts; the control lines, consent link, endpoint and acpmux admission are the same.
+    public var remote: (any ComputerUseRemoteSpawning)?
     private let clock: any Clock<Duration>
     private let readyTimeout: Duration
     private let exitGrace: Duration
@@ -129,6 +135,7 @@ public final class ComputerUseHelperV2 {
         self.acpmux = acpmux
         self.staging = staging
         self.spawner = spawner
+        self.localSpawner = spawner
         self.clock = clock
         self.readyTimeout = readyTimeout
         self.exitGrace = exitGrace
@@ -198,6 +205,8 @@ public final class ComputerUseHelperV2 {
         let current = generation
         guard enabled else { return await stop() }
         if case .running = state { return }
+        if let remote { return await applyRemote(remote, generation: current) }
+        spawner = localSpawner
         guard let embedded = helperApp() else { return unavailable("the cmux Computer Use (dev) helper is not in this build") }
         let runningCheck = await staging.runningCheck(for: embedded)
         guard current == generation else { return }
@@ -230,6 +239,33 @@ public final class ComputerUseHelperV2 {
             spawner.terminate(spawned.pid)
             return unavailable("the running helper pid \(spawned.pid) failed its signature check")
         }
+        await configureStarted(spawned, executable: executable, generation: current)
+    }
+
+    /// The worker through cmux Remote: the host checked its signature at start and runs it as
+    /// its own child, so this app checks the host's pid on the consent link.
+    private func applyRemote(_ remote: any ComputerUseRemoteSpawning, generation current: Int) async {
+        guard ComputerUseHelperDaemon.makePrivateDirectory((directory as NSString).deletingLastPathComponent),
+              ComputerUseHelperDaemon.makePrivateDirectory(directory) else {
+            return unavailable("\(directory) is not a private directory of this user")
+        }
+        unlink(endpointPath)
+        let channel: ComputerUseRemoteChannel
+        do { channel = try await remote.openComputerUse() } catch {
+            guard current == generation else { return }
+            return unavailable("cmux Remote did not start Computer Use: \(error)")
+        }
+        let worker = RemoteWorkerChild(channel)
+        guard current == generation else {
+            worker.child.closeInput()
+            return
+        }
+        spawner = RemoteWorkerSpawner(exited: worker.exited)
+        await configureStarted(worker.child, executable: channel.executable, generation: current)
+    }
+
+    /// Configures a started helper or worker and serves it until it exits.
+    private func configureStarted(_ spawned: ComputerUseHelperV2Child, executable: URL, generation current: Int) async {
         let secret = Self.makeSecret()
         // The host link's own secret: sent only on the helper's stdin, never written to disk.
         let hostSecret = Self.makeSecret()

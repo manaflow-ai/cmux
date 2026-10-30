@@ -349,7 +349,9 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
             }
             host.computerUse.open(for: channel, id: id, environment: ["CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS": allowed ?? ""])
         case RemoteWorkerKind.screenSharing.rawValue:
-            guard let worker = try? LocalSocket.connect(host.layout.screenSharingSocket) else {
+            // A worker that is starting answers within seconds; this connection's own thread waits for it.
+            guard host.screen.waitReady(until: Date().addingTimeInterval(10)),
+                  let worker = try? LocalSocket.connect(host.layout.screenSharingSocket) else {
                 channel.write(RemoteWire.failure(id: id, code: "worker_unavailable", message: "the Screen Sharing worker is not running"))
                 return channel.close()
             }
