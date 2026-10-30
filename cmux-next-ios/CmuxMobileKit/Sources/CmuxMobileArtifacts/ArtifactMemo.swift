@@ -35,53 +35,81 @@ final class ArtifactMemo<Value: Sendable>: @unchecked Sendable {
         cache.object(forKey: Self.key(artifact)).map(\.value)
     }
 
+    /// One make in progress: its generation (a make started after a cancelled one is a new
+    /// one), its task and the callers waiting on it.
+    private struct Make {
+        let id: Int
+        let task: Task<Value?, Never>
+        var waiters: Int
+    }
+
     /// Makes in progress, by key: a second ask joins the first.
-    private var running: [String: Task<Value?, Never>] = [:]
-    /// Callers waiting on each running make.
-    private var waiters: [String: Int] = [:]
+    private var running: [String: Make] = [:]
+    private var nextID = 0
+
+    /// A caller's place in a make, left exactly once (its make ended, or it was cancelled).
+    private final class Seat: @unchecked Sendable {
+        var left = false
+    }
 
     func value(for artifact: TerminalArtifact, make: @escaping @Sendable (TerminalArtifact) async -> Value?) async -> Value? {
         if let cached = cached(artifact) { return cached }
         let key = Self.key(artifact) as String
-        let task: Task<Value?, Never> = lock.withLock {
-            waiters[key, default: 0] += 1
-            if let running = running[key] { return running }
+        let (id, task): (Int, Task<Value?, Never>) = lock.withLock {
+            if var joined = running[key] {
+                joined.waiters += 1
+                running[key] = joined
+                return (joined.id, joined.task)
+            }
             makes += 1
+            nextID += 1
+            let id = nextID
             let task = Task<Value?, Never>(priority: .utility) { [weak self] in
                 let value = await make(artifact)
-                self?.finish(value, key: key, record: !Task.isCancelled)
+                self?.finish(value, key: key, id: id, record: !Task.isCancelled)
                 return value
             }
-            running[key] = task
-            return task
+            running[key] = Make(id: id, task: task, waiters: 1)
+            return (id, task)
         }
+        let seat = Seat()
         return await withTaskCancellationHandler {
             let value = await task.value
-            lock.withLock { waiters[key, default: 1] -= 1 }
+            leave(key, id: id, seat: seat, cancelling: false)
             return value
         } onCancel: {
-            // The last tile waiting scrolled away: nobody shows the result, so stop the make.
-            let last = lock.withLock { () -> Task<Value?, Never>? in
-                waiters[key, default: 1] -= 1
-                guard waiters[key] ?? 0 <= 0, let task = running[key] else { return nil }
-                // Out of the table at once: a tile asking from now on starts a new make.
-                running[key] = nil
-                waiters[key] = nil
-                return task
-            }
-            last?.cancel()
+            leave(key, id: id, seat: seat, cancelling: true)
         }
     }
 
-    private func finish(_ value: Value?, key: String, record: Bool) {
+    /// A caller leaves its make (once). The last caller of a make that is cancelled stops it:
+    /// nobody shows the result (its tile scrolled away). A make that already ended, or a newer
+    /// make of the same key, is never touched.
+    private func leave(_ key: String, id: Int, seat: Seat, cancelling: Bool) {
+        let stop = lock.withLock { () -> Task<Value?, Never>? in
+            guard !seat.left else { return nil }
+            seat.left = true
+            guard var make = running[key], make.id == id else { return nil }
+            make.waiters -= 1
+            guard make.waiters <= 0 else {
+                running[key] = make
+                return nil
+            }
+            // Out of the table at once: a tile asking from now on starts a new make.
+            running[key] = nil
+            return cancelling ? make.task : nil
+        }
+        stop?.cancel()
+    }
+
+    private func finish(_ value: Value?, key: String, id: Int, record: Bool) {
         guard record else { return }
         cache.setObject(Entry(value), forKey: key as NSString, cost: cost(value))
         lock.withLock {
-            running[key] = nil
-            waiters[key] = nil
+            if running[key]?.id == id { running[key] = nil }
         }
     }
 
     /// Callers waiting on the make for `artifact` (tests).
-    func waiting(for artifact: TerminalArtifact) -> Int { lock.withLock { waiters[Self.key(artifact) as String] ?? 0 } }
+    func waiting(for artifact: TerminalArtifact) -> Int { lock.withLock { running[Self.key(artifact) as String]?.waiters ?? 0 } }
 }

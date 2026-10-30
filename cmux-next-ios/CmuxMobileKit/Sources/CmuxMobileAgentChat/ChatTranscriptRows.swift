@@ -235,9 +235,12 @@ enum ChatNativeEligibility {
     /// Drawn natively: a native kind in its resting state at a standard text size. At
     /// accessibility sizes every row is SwiftUI (its views stack and wrap there); an open tool
     /// row, group or thought shows its SwiftUI view. `isOpen` reads a disclosure by key.
-    static func drawsNatively(_ row: ChatRow, accessibilitySize: Bool, isOpen: (String) -> Bool?) -> Bool {
+    static func drawsNatively(_ row: ChatRow, accessibilitySize: Bool, wrapCode: Bool = false, isOpen: (String) -> Bool?) -> Bool {
         guard !accessibilitySize, isCandidate(row.kind) else { return false }
         switch row.kind {
+        // The native snippet draws its lines unwrapped; with "Wrap code and diff lines" on, the
+        // SwiftUI snippet wraps them.
+        case .edit: return !wrapCode
         case .tool(let call): return isOpen("tool-\(call.id)") != true
         case .toolGroup(let calls, _): return isOpen("group-\(calls.first?.id ?? "")") != true
         case .thought: return isOpen("thought-\(row.id)") == nil

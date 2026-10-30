@@ -110,6 +110,9 @@ final class HTMLSnapshotter: NSObject, WKNavigationDelegate {
     private static var paused = false
 
     private var finished: CheckedContinuation<Bool, Never>?
+    /// Ends a load that never finishes (a stalled external resource), so its slot comes back.
+    private var timeout: Task<Void, Never>?
+    static let loadTimeout: Duration = .seconds(5)
 
     static func snapshot(html: String, scale: CGFloat) async -> UIImage? {
         await acquire()
@@ -153,10 +156,26 @@ final class HTMLSnapshotter: NSObject, WKNavigationDelegate {
         configuration.defaultWebpagePreferences.allowsContentJavaScript = false
         let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 390), configuration: configuration)
         web.navigationDelegate = self
-        let loaded = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-            finished = continuation
-            web.loadHTMLString(html, baseURL: nil)
+        let loaded = await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                finished = continuation
+                web.loadHTMLString(html, baseURL: nil)
+                timeout = Task { @MainActor [weak self, weak web] in
+                    try? await Task.sleep(for: Self.loadTimeout)
+                    guard !Task.isCancelled else { return }
+                    web?.stopLoading()
+                    self?.resume(false)
+                }
+            }
+        } onCancel: {
+            // The tile scrolled away: stop loading and give the slot back now.
+            Task { @MainActor [weak self, weak web] in
+                web?.stopLoading()
+                self?.resume(false)
+            }
         }
+        timeout?.cancel()
+        timeout = nil
         guard loaded, !Task.isCancelled else { return nil }
         let options = WKSnapshotConfiguration()
         options.rect = web.bounds

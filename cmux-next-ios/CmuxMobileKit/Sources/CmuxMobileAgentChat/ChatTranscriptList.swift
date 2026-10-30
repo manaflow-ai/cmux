@@ -823,7 +823,8 @@ final class ChatRowLookup {
     /// shows its SwiftUI view).
     func eligible(_ row: ChatRow) -> Bool {
         let disclosures = context.surface.disclosures
-        return ChatNativeEligibility.drawsNatively(row, accessibilitySize: layouts.environment?.category.isAccessibilityCategory ?? false) {
+        return ChatNativeEligibility.drawsNatively(row, accessibilitySize: layouts.environment?.category.isAccessibilityCategory ?? false,
+                                                   wrapCode: layouts.environment?.wrapCode ?? false) {
             disclosures.isOpen($0)
         }
     }

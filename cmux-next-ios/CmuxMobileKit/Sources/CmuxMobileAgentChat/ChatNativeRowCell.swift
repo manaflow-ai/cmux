@@ -13,8 +13,9 @@ struct ChatNativeActions {
     var showAll: () -> Void = {}
     /// A tap region's action (disclosures, diffs, the action row).
     var hit: (ChatNativeLayout.Hit) -> Void = { _ in }
-    /// The row's long-press menu (nil: none), and the action row's "More" menu.
-    var menu: (() -> UIMenu?)?
+    /// The row's long-press menu (nil: none), given the file id of the edit card pressed (a
+    /// multi-file snippet), and the action row's "More" menu.
+    var menu: ((_ pressedFile: String?) -> UIMenu?)?
     var moreMenu: (() -> UIMenu)?
     /// The files the edited-files card shows as viewed (by index).
     var viewed: Set<Int> = []
@@ -149,7 +150,7 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
                 button.menu = UIMenu(children: [UIDeferredMenuElement.uncached { completion in completion([more()]) }])
                 button.isHidden = false
             }
-            accessibilityElements = accessibilityTree(usedLabels: usedLabels)
+            accessibilityElements = accessibilityTree(usedLabels: usedLabels, usedScrollers: usedScrollers)
         case .code(let code):
             let card = codeCard ?? {
                 let card = ChatCodeCardView()
@@ -170,7 +171,8 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
             }()
             // Bleeds to the screen edges; the content keeps 8 pt at each end.
             view.frame = CGRect(x: 0, y: 0, width: contentView.bounds.width, height: layout.contentSize.height)
-            view.apply(layout, inset: margin - 8)
+            let openLink = actions.openLink
+            view.apply(layout, inset: margin - 8, openLink: openLink)
             view.isHidden = false
             accessibilityElements = [view]
         }
@@ -253,6 +255,10 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
             perform(match.hit)
             return
         }
+        if let table, !table.isHidden, let url = table.link(at: tap.location(in: table)) {
+            actions.openLink(url)
+            return
+        }
         for label in labels where !label.isHidden {
             let point = tap.location(in: label)
             guard label.bounds.contains(point), let url = NativeMarkdownView.link(in: label, at: point) else { continue }
@@ -279,13 +285,25 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
         actions.hit(hit)
     }
 
+    /// The file of the edit card at `location`: the last card header at or above it (each
+    /// file's card starts with its Open Diff header).
+    private func pressedFile(at location: CGPoint) -> String? {
+        var file: String?
+        for area in hits where area.frame.minY <= location.y {
+            if case .openDiff(let id) = area.hit { file = id }
+        }
+        return file
+    }
+
     // MARK: Accessibility
 
     /// What assistive technologies reach in a drawn row, in reading order: each text run not
     /// covered by a tap region (with its links as custom actions), each tap region as a button
     /// with its label, and the More menu.
-    private func accessibilityTree(usedLabels: Int) -> [Any] {
+    private func accessibilityTree(usedLabels: Int, usedScrollers: Int) -> [Any] {
         var items: [(frame: CGRect, element: Any)] = []
+        // An edit card's diff lines, read with "Added" and "Removed" for their markers.
+        for scroller in scrollers.prefix(usedScrollers) { items.append((scroller.frame, scroller)) }
         for label in labels.prefix(usedLabels) {
             // A list's marker ("•", "3.") is not read on its own; its item is.
             let marker = label.attributedText.map { Self.isListMarker($0.string) } ?? false
@@ -316,13 +334,18 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
 
     /// "Open <link text>" for each link in the label's text.
     private func linkActions(_ label: UILabel) -> [UIAccessibilityCustomAction]? {
+        Self.linkActions(label) { [weak self] url in self?.actions.openLink(url) }
+    }
+
+    /// "Open <link text>" for each link in the label's text (a row's text runs, a table's cells).
+    static func linkActions(_ label: UILabel, open: @escaping (URL) -> Void) -> [UIAccessibilityCustomAction]? {
         guard let text = label.attributedText, text.length > 0 else { return nil }
         var actions: [UIAccessibilityCustomAction] = []
         text.enumerateAttribute(NativeMarkdownLayout.linkKey, in: NSRange(location: 0, length: text.length)) { value, range, _ in
             guard let url = value as? URL else { return }
             let name = (text.string as NSString).substring(with: range).trimmingCharacters(in: .whitespaces)
-            actions.append(UIAccessibilityCustomAction(name: "Open \(name)") { [weak self] _ in
-                self?.actions.openLink(url)
+            actions.append(UIAccessibilityCustomAction(name: "Open \(name)") { _ in
+                open(url)
                 return true
             })
         }
@@ -378,7 +401,7 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
             items = [UIAction(title: "Copy Table", image: UIImage(systemName: "doc.on.doc")) { _ in UIPasteboard.general.string = table.plainText }]
         case .drawn:
             if let menu = actions.menu {
-                guard let built = menu() else { return nil }
+                guard let built = menu(pressedFile(at: location)) else { return nil }
                 return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in built }
             }
             guard let message = actions.message else { return nil }
@@ -551,7 +574,16 @@ final class ChatTableView: UIScrollView, UIScrollViewDelegate {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    func apply(_ table: ChatNativeLayout.Table, inset: CGFloat) {
+    /// The link under `point` (in the table's coordinates), if any cell draws one there.
+    func link(at point: CGPoint) -> URL? {
+        for label in labels where !label.isHidden {
+            let inLabel = convert(point, to: label)
+            if label.bounds.contains(inLabel), let url = NativeMarkdownView.link(in: label, at: inLabel) { return url }
+        }
+        return nil
+    }
+
+    func apply(_ table: ChatNativeLayout.Table, inset: CGFloat, openLink: @escaping (URL) -> Void) {
         for (index, cell) in table.cells.enumerated() {
             let label: UILabel
             if index < labels.count {
@@ -565,7 +597,8 @@ final class ChatTableView: UIScrollView, UIScrollViewDelegate {
             }
             label.attributedText = cell.text
             label.accessibilityLabel = cell.text.string
-            label.accessibilityTraits = .staticText
+            label.accessibilityCustomActions = ChatNativeRowCell.linkActions(label, open: openLink)
+            label.accessibilityTraits = label.accessibilityCustomActions == nil ? .staticText : [.staticText, .link]
             label.frame = cell.frame.offsetBy(dx: inset, dy: 0)
             label.isHidden = false
         }
@@ -629,10 +662,28 @@ final class ChatLineScroller: UIScrollView, UIScrollViewDelegate {
         fade.startPoint = CGPoint(x: 0, y: 0.5)
         fade.endPoint = CGPoint(x: 1, y: 0.5)
         layer.mask = fade
+        isAccessibilityElement = true
+        accessibilityTraits = .staticText
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// The diff lines as VoiceOver reads them: each line with "Added" or "Removed" for its
+    /// marker (built when read, not per configure).
+    override var accessibilityLabel: String? {
+        get { label.attributedText.map { Self.spoken($0.string) } }
+        set {}
+    }
+
+    static func spoken(_ lines: String) -> String {
+        lines.split(separator: "\n", omittingEmptySubsequences: false).map { line -> String in
+            if line.hasPrefix("+\t") { return "Added: " + line.dropFirst(2) }
+            if line.hasPrefix("−\t") { return "Removed: " + line.dropFirst(2) }
+            if line.hasPrefix(" \t") { return String(line.dropFirst(2)) }
+            return String(line)
+        }.joined(separator: "\n")
+    }
 
     func apply(_ scroller: ChatNativeLayout.Scroller) {
         label.attributedText = scroller.text.text

@@ -219,4 +219,39 @@ import Testing
         _ = await memo.value(for: missing) { _ in nil }
         #expect(memo.cached(missing) == .some(nil))
     }
+
+    /// A cancelled make that ends late never counts against the make that replaced it: two
+    /// tiles wait on the new one, one scrolls away, and the other still gets its thumbnail.
+    @Test func aLateCancelledMakeNeverStopsItsReplacement() async {
+        let memo = ArtifactMemo<String>(costLimit: 1 << 20)
+        let artifact = TerminalArtifact(reference: "build/late.png", kind: .image, order: 1)
+        func until(_ condition: () -> Bool) async { for _ in 0..<10_000 where !condition() { await Task.yield() } }
+        // The first make ignores its cancellation until its gate opens (a decode that never checks).
+        let oldGate = AsyncStream<Void>.makeStream()
+        let first = Task { await memo.value(for: artifact) { _ in
+            await Task.detached { for await _ in oldGate.stream { break } }.value
+            return nil
+        } }
+        await until { memo.waiting(for: artifact) == 1 }
+        first.cancel()
+        await until { memo.waiting(for: artifact) == 0 }
+        let newGate = AsyncStream<Void>.makeStream()
+        let make: @Sendable (TerminalArtifact) async -> String? = { _ in
+            for await _ in newGate.stream { break }
+            return Task.isCancelled ? nil : "new"
+        }
+        let second = Task { await memo.value(for: artifact, make: make) }
+        await until { memo.waiting(for: artifact) == 1 }
+        let third = Task { await memo.value(for: artifact, make: make) }
+        await until { memo.waiting(for: artifact) == 2 }
+        // The old make ends now, and its tile leaves for the second time.
+        oldGate.continuation.yield()
+        _ = await first.value
+        #expect(memo.waiting(for: artifact) == 2)
+        second.cancel()
+        await until { memo.waiting(for: artifact) == 1 }
+        newGate.continuation.yield()
+        #expect(await third.value == "new")
+        #expect(memo.makesStarted == 2)
+    }
 }

@@ -13,7 +13,7 @@ enum ChatNativeRowActions {
         let disclosures = surface.disclosures
         switch row.kind {
         case .prompt(let text, _, let at, let isLast):
-            actions.menu = {
+            actions.menu = { _ in
                 var items: [UIMenuElement] = [
                     UIAction(title: "Copy", image: UIImage(systemName: "doc.on.doc")) { _ in UIPasteboard.general.string = text },
                     UIAction(title: "Select Text", image: UIImage(systemName: "selection.pin.in.out")) { _ in ChatSelectText.present(text) },
@@ -26,7 +26,7 @@ enum ChatNativeRowActions {
             }
         case .tool(let call):
             let openFile = context.openFile
-            actions.menu = {
+            actions.menu = { _ in
                 var items: [UIMenuElement] = []
                 if openFile.isAvailable {
                     for location in call.locations.prefix(5) {
@@ -51,8 +51,9 @@ enum ChatNativeRowActions {
                 default: break
                 }
             }
-            actions.menu = {
-                guard let file = files?.first?.file else { return nil }
+            actions.menu = { pressed in
+                // The card pressed (a snippet shows one card per file it edited).
+                guard let file = files?.first(where: { $0.file.id == pressed })?.file ?? files?.first?.file else { return nil }
                 var items: [UIMenuElement] = [
                     UIAction(title: "Open Diff", image: UIImage(systemName: "arrow.up.right.square")) { _ in
                         Task { @MainActor in openDiff(await context.changeSet(turnID: turnID, fallbackID: call.id), file: file.id) }
@@ -68,13 +69,13 @@ enum ChatNativeRowActions {
         case .editedFiles(let changes):
             let openDiff = context.openDiff
             actions.viewed = viewed(changes)
-            actions.menu = { nil }
+            actions.menu = { _ in nil }
             actions.hit = { hit in
                 if case .openDiff(let file) = hit { openDiff(changes, file: file) }
             }
             return
         case .actions(let turn, _):
-            actions.menu = { nil }
+            actions.menu = { _ in nil }
             actions.moreMenu = {
                 var items: [UIMenuElement] = [
                     UIAction(title: "Copy as Markdown", image: UIImage(systemName: "text.document")) { _ in UIPasteboard.general.string = turn.answerMarkdown },
@@ -101,7 +102,7 @@ enum ChatNativeRowActions {
             }
             return
         case .thought, .toolGroup:
-            actions.menu = { nil }
+            actions.menu = { _ in nil }
         default:
             break
         }
