@@ -98,10 +98,10 @@ extension CloudAppLinks {
     /// The Cloud page's ops on the classic link (``CloudClassicPageOps``) as a ``CloudAppOp``: origin
     /// `user` is the person; a refusal is a ``CloudAppOpFailure`` with its code.
     static func ops(classic: CloudClassicPageOps) -> CloudAppOp {
-        { op, args, key, origin in
+        { op, args, _, origin in
             let parsed = (try? recode(args, as: CloudClassicPageOps.Args.self)) ?? .init()
             do {
-                let answer = try await classic.run(op, args: parsed, key: key, byPerson: origin == .user)
+                let answer = try await classic.run(op, args: parsed, byPerson: origin == .user)
                 return try recode(answer, as: JSONValue.self)
             } catch let refusal as CloudClassicPageOps.Refusal {
                 throw CloudAppOpFailure(code: refusal.code, message: refusal.message)
@@ -127,6 +127,10 @@ extension CloudClassicPageOps.Backend {
         Self(
             signedIn: { [weak cloud] in cloud?.isSignedIn ?? false },
             team: { [weak cloud] in cloud?.auth.teamID },
+            unavailable: { [weak cloud] in
+                guard let cloud else { return CloudStrings.signInFirst }
+                return cloud.unavailableReason
+            },
             machines: { [weak registry] in registry?.cloud.map(\.machine) ?? [] },
             limits: { [weak registry] in registry?.cloudLimits },
             memoryOptions: CloudHandlers.createSizes.values.map(\.1),
@@ -137,18 +141,7 @@ extension CloudClassicPageOps.Backend {
             pause: { [weak cloud] id in try await cloud?.pauseMachine(id) },
             rename: { [weak cloud] id, name in try await cloud?.renameMachine(id, to: name) },
             delete: { [weak cloud] id in try await cloud?.deleteMachine(id) },
-            create: { [weak cloud] name, memory, key in
-                guard let cloud else { throw CloudClassicPageOps.Refusal(code: "cmux.cloud.failed", message: CloudStrings.signInFirst) }
-                var request = CloudMachineRequest(name: name, memoryMb: memory)
-                if let key { request.idempotencyKey = key }
-                return try await cloud.createMachine(name: name, startedByPerson: true, request: request).machine
-            },
-            refusal: { error in
-                if let failure = error as? CloudMachineCreateFlow.Failure, case .upgradeRequired = failure {
-                    return .init(code: "cmux.cloud.plan_required", message: CloudStrings.upgradeRequired)
-                }
-                return .init(code: "cmux.cloud.failed", message: CloudStrings.errorText(error))
-            },
+            refusal: { .init(code: "cmux.cloud.failed", message: CloudStrings.errorText($0)) },
             signInFirst: CloudStrings.signInFirst
         )
     }

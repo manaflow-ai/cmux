@@ -20,6 +20,7 @@ struct CloudClassicPageTests {
         var list: [CloudMachine] = []
         var limits: CloudMachineLimits?
         var signedIn = true
+        var unavailable: String?
         @ObservationIgnored var ran: [String] = []
     }
 
@@ -34,6 +35,7 @@ struct CloudClassicPageTests {
         CloudClassicPageOps.Backend(
             signedIn: { machines.signedIn },
             team: { "team-1" },
+            unavailable: { machines.unavailable },
             machines: { machines.list },
             limits: { machines.limits },
             memoryOptions: [8192, 4096],
@@ -52,12 +54,6 @@ struct CloudClassicPageTests {
             delete: { id in
                 machines.ran.append("delete \(id)")
                 machines.list.removeAll { $0.id == id }
-            },
-            create: { name, memory, key in
-                machines.ran.append("create \(name ?? "") \(memory ?? 0) \(key ?? "")")
-                let machine = CloudMachine(id: "vm-new", status: .provisioning, displayName: name)
-                machines.list.append(machine)
-                return machine
             },
             refusal: { .init(code: "cmux.cloud.failed", message: String(describing: $0)) },
             signInFirst: "sign in")
@@ -172,28 +168,62 @@ struct CloudClassicPageTests {
         }
     }
 
-    @Test func createAndDeleteRunOnlyAsThePerson() async throws {
+    @Test func deleteRunsOnlyAsThePersonAndCreateIsNotServed() async throws {
         let machines = Machines()
         machines.list = [CloudMachine(id: "vm-1", status: .running)]
         let (provider, _) = Self.provider(machines)
-        for op in ["cmux.cloud.machine.delete", "cmux.cloud.machine.create"] {
+        do {
+            _ = try await provider.call("cmux.cloud.machine.delete", params: ["machine": .string("vm-1")], context: Self.page)
+            Issue.record("delete ran as a script")
+        } catch let error as PageError {
+            #expect(error.code == "cmux.cloud.forbidden")
+        }
+        // The page's create is not a confirmed op of the Cloud page, so it never reaches the
+        // provider; were it sent, the classic ops serve none.
+        for context in [Self.page, Self.confirmed] {
             do {
-                _ = try await provider.call(op, params: ["machine": .string("vm-1"), "size": ["memory_mb": .number(8192)]], context: Self.page)
-                Issue.record("\(op) ran as a script")
+                _ = try await provider.call("cmux.cloud.machine.create", params: ["size": ["memory_mb": .number(8192)]], context: context)
+                Issue.record("create ran on the classic link")
             } catch let error as PageError {
-                #expect(error.code == "cmux.cloud.forbidden")
+                #expect(error.code == "cmux.cloud.unsupported")
             }
         }
         #expect(machines.ran.isEmpty)
-        let created = try await provider.call("cmux.cloud.machine.create",
-                                              params: ["name": .string("box"), "size": ["memory_mb": .number(8192)], "idempotency_key": .string("k3")],
-                                              context: Self.confirmed)
-        #expect(created["machine"]?["id"]?.stringValue == "vm-new")
-        #expect(created["machine"]?["status"]?.stringValue == "provisioning")
         let deleted = try await provider.call("cmux.cloud.machine.delete", params: ["machine": .string("vm-1"), "idempotency_key": .string("k4")],
                                               context: Self.confirmed)
         #expect(deleted["deleted"]?.boolValue == true)
-        #expect(machines.ran == ["create box 8192 k3", "delete vm-1"])
+        #expect(machines.ran == ["delete vm-1"])
+    }
+
+    /// Turned off by the organization (or no managed team, a local-only backend): the page reads
+    /// the reason, no classic call goes out, and a watching page drops the machines live.
+    @Test func unavailableCloudRefusesEveryCallAndListsNoMachine() async throws {
+        let machines = Machines()
+        machines.list = [CloudMachine(id: "vm-1", status: .running)]
+        let (provider, ops) = Self.provider(machines)
+        let seen = Seen()
+        let watching = try await provider.subscribe(CloudPageProvider.watchStream, filter: .object([:]), context: Self.page) {
+            seen.items.append($0)
+        }
+        _ = try await provider.call("cmux.cloud.machine.list", params: .object([:]), context: Self.page)
+        machines.unavailable = "Turned off"
+        await Self.settle { !seen.items.isEmpty }
+        #expect(seen.items.contains { $0["type"]?.stringValue == "removed" && $0["id"]?.stringValue == "vm-1" })
+        let auth = try await provider.call("cmux.cloud.auth.status", params: [:], context: Self.page)
+        #expect(auth["signedIn"]?.boolValue == true)
+        for (op, context) in [("cmux.cloud.machine.list", Self.page), ("cmux.cloud.machine.pause", Self.page),
+                              ("cmux.cloud.machine.rename", Self.page), ("cmux.cloud.machine.delete", Self.confirmed)] {
+            do {
+                _ = try await provider.call(op, params: ["machine": .string("vm-1"), "name": .string("x")], context: context)
+                Issue.record("\(op) ran while Cloud is unavailable")
+            } catch let error as PageError {
+                #expect(error.code == "cmux.cloud.unavailable")
+                #expect(error.message == "Turned off")
+            }
+        }
+        #expect(machines.ran.isEmpty)
+        watching.cancel()
+        #expect(ops.listenerCount == 0)
     }
 
     @Test func thePlanIsTheListsCapAndOtherOpsAreUnsupported() async throws {

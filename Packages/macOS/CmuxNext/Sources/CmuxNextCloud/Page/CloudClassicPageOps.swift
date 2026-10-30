@@ -13,9 +13,14 @@ import Observation
 ///
 /// - Reads: `cloud.auth.status`, `cloud.machine.list`, `cloud.machine.watch`, and `cloud.plan.get`
 ///   when the list carried the plan's machine cap.
-/// - Mutations run the app's classic calls: start (resume), pause, rename; create and delete only
-///   for the person (`byPerson`: origin `user`, after the native sheet), as the app server allows.
-/// - Any other op is refused `cmux.cloud.unsupported`: the page shows it as not available.
+/// - Mutations run the app's classic calls: start (resume), pause, rename; delete only for the
+///   person (`byPerson`: origin `user`, after the native sheet), as the app server allows.
+/// - While Cloud is unavailable (``Backend/unavailable``: turned off by the organization, no
+///   managed team, a local-only backend) every op but `cloud.auth.status` is refused
+///   `cmux.cloud.unavailable` with the reason, and the feed lists no machine: the same gate the
+///   app's own calls pass.
+/// - Any other op, create included (the page's create is not one of its confirmed ops, so it never
+///   reaches here), is refused `cmux.cloud.unsupported`: the page shows it as not available.
 /// - Live state: while a feed listens, an observation of the backend's machines (no timer) turns
 ///   each change, from a refresh, the CLI or the sidebar, into `upsert` and `removed` events at a
 ///   new revision. It ends with the last listener.
@@ -25,6 +30,8 @@ public final class CloudClassicPageOps {
     public struct Backend {
         public var signedIn: @MainActor () -> Bool
         public var team: @MainActor () -> String?
+        /// Why Cloud cannot run now, as a person reads it, or nil (observable: the feed watches it).
+        public var unavailable: @MainActor () -> String?
         /// The listed machines in sidebar order (observable: the feed watches it).
         public var machines: @MainActor () -> [CloudMachine]
         public var limits: @MainActor () -> CloudMachineLimits?
@@ -39,23 +46,22 @@ public final class CloudClassicPageOps {
         public var pause: @MainActor (String) async throws -> Void
         public var rename: @MainActor (String, String) async throws -> Void
         public var delete: @MainActor (String) async throws -> Void
-        /// Name, memory (MiB), idempotency key: the created machine.
-        public var create: @MainActor (String?, Int?, String?) async throws -> CloudMachine
         /// A classic call's error as the page's refusal.
         public var refusal: @MainActor (any Error) -> Refusal
         /// What a signed-out op answers, as a person reads it.
         public var signInFirst: String
 
         public init(signedIn: @escaping @MainActor () -> Bool, team: @escaping @MainActor () -> String?,
+                    unavailable: @escaping @MainActor () -> String?,
                     machines: @escaping @MainActor () -> [CloudMachine], limits: @escaping @MainActor () -> CloudMachineLimits?,
                     memoryOptions: [Int], hasList: @escaping @MainActor () -> Bool, lastError: @escaping @MainActor () -> String?,
                     refresh: @escaping @MainActor () async -> Void, resume: @escaping @MainActor (String) async throws -> Void,
                     pause: @escaping @MainActor (String) async throws -> Void, rename: @escaping @MainActor (String, String) async throws -> Void,
                     delete: @escaping @MainActor (String) async throws -> Void,
-                    create: @escaping @MainActor (String?, Int?, String?) async throws -> CloudMachine,
                     refusal: @escaping @MainActor (any Error) -> Refusal, signInFirst: String) {
             self.signedIn = signedIn
             self.team = team
+            self.unavailable = unavailable
             self.machines = machines
             self.limits = limits
             self.memoryOptions = memoryOptions
@@ -66,7 +72,6 @@ public final class CloudClassicPageOps {
             self.pause = pause
             self.rename = rename
             self.delete = delete
-            self.create = create
             self.refusal = refusal
             self.signInFirst = signInFirst
         }
@@ -85,18 +90,12 @@ public final class CloudClassicPageOps {
 
     /// The op params the ops read (the page's snake_case).
     public nonisolated struct Args: Decodable, Sendable {
-        public struct Size: Decodable, Sendable {
-            public var memory_mb: Int?
-        }
-
         public var machine: String?
         public var name: String?
-        public var size: Size?
 
-        public init(machine: String? = nil, name: String? = nil, memoryMb: Int? = nil) {
+        public init(machine: String? = nil, name: String? = nil) {
             self.machine = machine
             self.name = name
-            size = memoryMb.map { Size(memory_mb: $0) }
         }
     }
 
@@ -225,12 +224,13 @@ public final class CloudClassicPageOps {
     }
 
     /// Runs the page op `op` (`cloud.<…>`, the server's name).
-    public func run(_ op: String, args: Args, key: String?, byPerson: Bool) async throws -> Answer {
+    public func run(_ op: String, args: Args, byPerson: Bool) async throws -> Answer {
         if op == "cloud.auth.status" {
             let signedIn = backend.signedIn()
             return .auth(signedIn: signedIn, team: signedIn ? backend.team() : nil)
         }
         guard backend.signedIn() else { throw Refusal(code: "cmux.cloud.auth_required", message: backend.signInFirst) }
+        if let reason = backend.unavailable() { throw Refusal(code: "cmux.cloud.unavailable", message: reason) }
         switch op {
         case "cloud.machine.list":
             if !backend.hasList() { await backend.refresh() }
@@ -255,13 +255,6 @@ public final class CloudClassicPageOps {
             try await mapped { try await self.backend.delete(id) }
             sync()
             return .deleted
-        case "cloud.machine.create":
-            guard byPerson else { throw Refusal(code: "cmux.cloud.forbidden", message: op) }
-            let name = args.name.flatMap { $0.isEmpty ? nil : $0 }
-            let machine = try await mapped { try await self.backend.create(name, args.size?.memory_mb, key) }
-            sync()
-            let entry = known[machine.id] ?? (machine, revision)
-            return .machine(Record(entry.machine, revision: entry.revision), revision: revision)
         default:
             throw Refusal(code: "cmux.cloud.unsupported", message: op)
         }
@@ -294,9 +287,10 @@ public final class CloudClassicPageOps {
     }
 
     /// Brings ``known`` up to the backend: each new or changed machine is an `upsert`, each gone one
-    /// a `removed`, all at one new revision, sent to every listener.
+    /// a `removed`, all at one new revision, sent to every listener. While Cloud is unavailable the
+    /// page sees no machine.
     private func sync() {
-        let machines = backend.machines().filter { $0.status != .destroyed }
+        let machines = backend.unavailable() == nil ? backend.machines().filter { $0.status != .destroyed } : []
         let next = revision + 1
         var events: [Event] = []
         for machine in machines where known[machine.id]?.machine != machine {
@@ -316,7 +310,7 @@ public final class CloudClassicPageOps {
         }
     }
 
-    /// Re-arms one observation of the backend's machines while a listener is left; each change
+    /// Re-arms one observation of the backend's machines and availability while a listener is left; each change
     /// syncs once it applied (the hop runs after the mutation).
     private func observe() {
         guard !listeners.isEmpty else {
@@ -326,6 +320,7 @@ public final class CloudClassicPageOps {
         observing = true
         withObservationTracking {
             _ = backend.machines()
+            _ = backend.unavailable()
         } onChange: { [weak self] in
             // task-owner: one hop per observed change, re-arms itself; ends with the last listener
             Task { @MainActor in
