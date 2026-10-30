@@ -74,22 +74,33 @@ async function startServer(): Promise<{ base: string; server: ChildProcess }> {
     command = ["preview", "--config", "vite.config.latency.ts", "--port", String(port), "--strictPort"];
   }
   const server = spawn(vp, command, { cwd: webviews, env, stdio: ["ignore", "pipe", "pipe"] });
-  await new Promise<void>((resolve, reject) => {
-    // The server's banner may color the port (FORCE_COLOR, a TTY): "127.0.0.1:" ESC[1m port ESC[22m.
-    // Match on the text with its SGR escapes dropped, or the harness waits forever for its server.
-    const onData = (chunk: Buffer) =>
-      String(chunk)
-        .replace(/\x1b\[[0-9;]*m/g, "")
-        .includes(`127.0.0.1:${port}`)
-        ? resolve()
-        : undefined;
-    server.stdout!.on("data", onData);
-    server.stderr!.on("data", onData);
-    server.on("exit", (code) => reject(new Error(`server exited ${code}`)));
-    // A server that never prints its address fails the run instead of hanging it (its timer stops
-    // with the promise either way: an unref'd timer never keeps the process up).
-    setTimeout(() => reject(new Error(`latency: the ${dev ? "dev" : "preview"} server printed no 127.0.0.1:${port} in 60 s`)), 60_000).unref();
-  });
+  // The server's banner may color the port (FORCE_COLOR, a TTY): "127.0.0.1:" ESC[1m port ESC[22m,
+  // and may arrive split across chunks. Match on all the output so far with its SGR escapes dropped,
+  // or the harness waits forever for its server. A server that never prints its address fails the
+  // run in 60 s, and is killed: the timer is cleared once the promise settles either way.
+  let banner = "";
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const onData = (chunk: Buffer) => {
+        // The last 4 KB is enough to hold a split banner line, and bounds what a chatty server keeps.
+        banner = (banner + String(chunk)).slice(-4096);
+        if (banner.replace(/\x1b\[[0-9;]*m/g, "").includes(`127.0.0.1:${port}`)) resolve();
+      };
+      server.stdout!.on("data", onData);
+      server.stderr!.on("data", onData);
+      server.on("exit", (code) => reject(new Error(`server exited ${code}`)));
+      timer = setTimeout(
+        () => reject(new Error(`latency: the ${dev ? "dev" : "preview"} server printed no 127.0.0.1:${port} in 60 s`)),
+        60_000,
+      );
+    });
+  } catch (error) {
+    server.kill();
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
   return { base: `http://127.0.0.1:${port}`, server };
 }
 
