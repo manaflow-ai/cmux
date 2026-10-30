@@ -2492,7 +2492,8 @@ pre.cv-math-source {
   .cv-sent-actions {
     transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
   }
-  .cv-message:hover .cv-sent-actions {
+  .cv-message:hover .cv-sent-actions,
+  .cv-sent:hover .cv-sent-actions {
     transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
   }
   .cv-sent-actions:focus-within {
@@ -2500,6 +2501,7 @@ pre.cv-math-source {
   }
 }
 .cv-message:hover .cv-sent-actions,
+.cv-sent:hover .cv-sent-actions,
 .cv-sent-actions:focus-within {
   opacity: 1;
 }
@@ -2729,7 +2731,10 @@ a.cv-sha:focus-visible {
   letter-spacing: var(--text-detail--letter-spacing);
 }
 :is(.cv-tool-output, .cv-tool-output__markdown)[data-output-viewport] {
-  max-height: calc(8 * 18px + 16px);
+  /* Eight output lines (18px at the 14px default) plus padding, scaled with the transcript text size:
+     160px at the default, as before; a fixed 160px held fewer than eight lines at larger sizes. Not
+     `8lh`: the Markdown viewport sets no line-height of its own, so its `lh` is the inherited normal. */
+  max-height: calc(var(--cv-font-size, 14px) * 8 * 18 / 14 + 16px);
   overscroll-behavior: auto;
 }
 :is(.cv-tool-output, .cv-tool-output__markdown)[data-output-viewport][data-preview="all"] {
@@ -4334,8 +4339,8 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 .cv-user__take-back:hover:not(:disabled) {
   color: var(--cv-text);
 }
-/* What an X acpmux refused leaves in its place (PendingSteer.tsx): quiet text, spaced from Send now
-   and Copy as the X's glyph sat in its slot. */
+/* What an X acpmux refused adds after it (PendingSteer.tsx): quiet text, spaced from the X and Copy
+   as a glyph sits in its slot. */
 .cv-user__kept {
   padding-inline: calc((var(--cv-footer-control-slot) - var(--cv-glyph-slot)) / 2);
 }
