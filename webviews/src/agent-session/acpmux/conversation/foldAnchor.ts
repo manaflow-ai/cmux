@@ -81,11 +81,23 @@ export function foldRoomFor(scrollTop: number, clientHeight: number, kept = 0): 
 }
 
 /// The kept end after a scroll or a placement pass: as it is while a fold holds its line; else no
-/// further down than the view's end (`viewEnd`, the reader scrolled up), and 0 once the rows' own end
-/// (`rowsEnd`) reaches it, when nothing of it is room any more.
-export function trimmedFoldRoom(kept: number, viewEnd: number, rowsEnd: number, holding: boolean): number {
+/// further down than the view's end (`viewEnd`, the reader scrolled up), and 0 once the content
+/// would be that tall anyway: the rows' own end (`rowsEnd`) or the view's height (`viewHeight`, a
+/// scroller is never shorter than its view) reaches it, when nothing of it is room any more.
+export function trimmedFoldRoom(
+  kept: number,
+  viewEnd: number,
+  rowsEnd: number,
+  holding: boolean,
+  viewHeight = 0,
+): number {
   if (kept <= 0) return 0;
   if (holding) return kept;
   const next = Math.min(kept, Math.ceil(viewEnd));
-  return next <= rowsEnd + 0.5 ? 0 : next;
+  return next <= Math.max(rowsEnd, viewHeight) + 0.5 ? 0 : next;
+}
+
+/// Whether `anchor` still holds its line (its time is not up and the line is still drawn).
+export function foldHolding(anchor: FoldAnchor | undefined, now = performance.now()): boolean {
+  return anchor !== undefined && now <= anchor.until && anchor.toggle.isConnected;
 }

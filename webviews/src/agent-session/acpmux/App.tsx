@@ -280,6 +280,7 @@ import { heightFoldInFlight } from "./conversation/fold";
 import {
   ANCHORED_COLLAPSE_EVENT,
   foldHoldTarget,
+  foldHolding,
   foldRoomFor,
   foldToggleAt,
   holdFold,
@@ -2906,7 +2907,13 @@ export function VirtualTranscript({
   const trimFoldRoom = useCallback((node: HTMLElement) => {
     const kept = foldRoomRef.current;
     if (!kept) return;
-    const next = trimmedFoldRoom(kept, node.scrollTop + node.clientHeight, rowsEndRef.current, !!foldAnchor.current);
+    const next = trimmedFoldRoom(
+      kept,
+      node.scrollTop + node.clientHeight,
+      rowsEndRef.current,
+      foldHolding(foldAnchor.current),
+      node.clientHeight,
+    );
     if (next === kept) return;
     foldRoomRef.current = next;
     setFoldRoom(next);

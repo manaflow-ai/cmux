@@ -108,13 +108,16 @@ await requireBrowserLane("agent-pane-fold-keeps-place.test.ts", async () => {
     await page.locator(".cv-received__text table").waitFor({ state: "detached" });
     await settled(page);
     expect(Math.abs((await topOf(page)) - before)).toBeLessThanOrEqual(1);
-    // Scrolling up gives the kept room up: the content's end is the rows' own again.
+    // Scrolling up gives the kept room up: the content ends where the rows (or the view) do again.
     const after = await scroller.evaluate(async (node) => {
       const tall = node.scrollHeight;
       node.scrollTop = 0;
+      node.dispatchEvent(new Event("scroll"));
       await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
-      return { tall, now: node.scrollHeight };
+      return { tall, now: node.scrollHeight, view: node.clientHeight };
     });
+    // The kept room made the content taller than the view; released, it is shorter than that again.
+    expect(after.tall).toBeGreaterThan(after.view);
     expect(after.now).toBeLessThan(after.tall);
     await page.close();
   });

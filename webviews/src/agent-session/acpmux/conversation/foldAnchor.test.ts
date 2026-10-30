@@ -3,7 +3,7 @@
 // "WHEN I EXPAND THEM IT JUMPS ME DOWN AND WHEN I COLLAPSE IT JUMPS ME UP").
 import { describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { foldHoldTarget, foldRoomFor, foldToggleAt, trimmedFoldRoom } from "./foldAnchor";
+import { foldHoldTarget, foldHolding, foldRoomFor, foldToggleAt, trimmedFoldRoom } from "./foldAnchor";
 
 describe("foldRoomFor", () => {
   test("keeps the view's end, whole pixels up", () => {
@@ -27,6 +27,9 @@ describe("trimmedFoldRoom", () => {
   test("goes once the rows reach it", () => {
     expect(trimmedFoldRoom(1800, 1800, 1800, false)).toBe(0);
     expect(trimmedFoldRoom(1800, 1500, 1600, false)).toBe(0);
+  });
+  test("goes once the view's own height covers it (rows shorter than the view)", () => {
+    expect(trimmedFoldRoom(800, 640, 500, false, 640)).toBe(0);
   });
   test("nothing kept stays nothing", () => {
     expect(trimmedFoldRoom(0, 1500, 1200, false)).toBe(0);
@@ -74,5 +77,19 @@ describe("foldHoldTarget", () => {
   test("a control under its body holds its row's top, so the body grows down and shrinks up from there", () => {
     const { at } = row('<div>text</div><button class="cv-message__more" aria-expanded="false">Show more</button>');
     expect(foldHoldTarget(at("button")!).classList.contains("acpmux-row")).toBe(true);
+  });
+});
+
+describe("foldHolding", () => {
+  const toggle = { isConnected: true } as HTMLElement;
+  test("holds until its time is up", () => {
+    expect(foldHolding({ toggle, top: 0, until: 100 }, 50)).toBe(true);
+    expect(foldHolding({ toggle, top: 0, until: 100 }, 101)).toBe(false);
+  });
+  test("lets go of a line that left the transcript", () => {
+    expect(foldHolding({ toggle: { isConnected: false } as HTMLElement, top: 0, until: 100 }, 50)).toBe(false);
+  });
+  test("nothing held", () => {
+    expect(foldHolding(undefined)).toBe(false);
   });
 });
