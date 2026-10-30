@@ -39,7 +39,13 @@ impl Hub {
     /// already exact or matches nothing (the usual not-found answer follows), an error when
     /// several live sessions match.
     pub(crate) fn key_route(&self, key: &str) -> Result<Option<String>, RpcError> {
-        if key.is_empty() || self.sessions.lock().unwrap().contains_key(key) {
+        if key.is_empty()
+            || self
+                .sessions
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .contains_key(key)
+        {
             return Ok(None);
         }
         // `HOST/NAME` and a qualified id are read exactly (`own_host.rs`, `resolve_remote`).
@@ -73,7 +79,7 @@ impl Hub {
     /// (`resolve_here`).
     fn key_candidates(&self, key: &str, own: &str) -> [Vec<Candidate>; 3] {
         let (mut named, mut prefixed, mut short) = (Vec::new(), Vec::new(), Vec::new());
-        for s in self.sessions.lock().unwrap().values() {
+        for s in self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).values() {
             let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let tier = if meta.name == key || s.id.starts_with(key) {
                 &mut named
@@ -91,7 +97,9 @@ impl Hub {
                 closed: meta.status == SessionStatus::Closed,
             });
         }
-        for (route, r) in self.remote_sessions.lock().unwrap().iter() {
+        for (route, r) in
+            self.remote_sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter()
+        {
             let name = r.summary["name"].as_str().unwrap_or_default();
             let bare = name.strip_prefix(&format!("{}/", r.peer)).unwrap_or(name);
             let tier = if bare == key || r.receipt.mux_session_id.starts_with(key) {
