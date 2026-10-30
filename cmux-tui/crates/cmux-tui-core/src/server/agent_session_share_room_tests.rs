@@ -1226,6 +1226,28 @@ fn a_host_socket_lost_without_a_close_is_opened_again() {
     assert_eq!(room.frame(again)["t"], "guests");
 }
 
+/// A kick that races the share's end sends nothing after it: an ended share's socket sends only
+/// `end`.
+#[test]
+fn an_ended_share_reconciles_nothing() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, mux, surface, mut owner) = bridged("room-ended-kick", &room);
+    let share = create(&mut owner, surface)["data"].clone();
+    let id = share["share_id"].as_str().unwrap().to_owned();
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    let guest = owner.request(json!({"cmd":"agent-session-share-redeem",
+        "share_id":id, "secret":share["secret"], "name":"Theo",
+        "attempt_id":"attempt-1"}))["data"]["guest_id"]
+        .clone();
+    let kick = json!({"cmd":"agent-session-share-kick", "share_id":id, "guest_id":guest});
+    assert_eq!(owner.request(kick)["ok"], true);
+    assert!(!reconcile(&mux, &id).is_empty(), "an active share sends its kicks");
+    let revoke = json!({"cmd":"agent-session-share-revoke", "share_id":id});
+    assert_eq!(owner.request(revoke)["ok"], true);
+    assert_eq!(reconcile(&mux, &id), Vec::<Value>::new(), "an ended share sends no kick");
+}
+
 #[test]
 fn the_host_socket_answers_a_ping() {
     let room = FakeRoom::start(&[]);

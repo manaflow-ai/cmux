@@ -626,7 +626,10 @@ pub(super) fn ended(shares: &LinkShares, ended: &[(String, Option<String>)]) {
     let Some(mux) = shares.mux.lock().unwrap_or_else(|e| e.into_inner()).upgrade() else { return };
     for (share_id, guest) in ended {
         if guest.is_some() {
-            shares.bridge.command(share_id, Cmd::Reconcile);
+            // An ended share's own entry sends `end`; its kicks are moot.
+            if view(&mux, share_id).is_some_and(|v| v.state == ShareState::Active) {
+                shares.bridge.command(share_id, Cmd::Reconcile);
+            }
             continue;
         }
         let Some(v) = view(&mux, share_id) else { continue };
@@ -836,9 +839,13 @@ async fn session(
     }
 }
 
-/// `guests {active}` (the daemon's own list), then every kick the room has not acknowledged.
+/// `guests {active}` (the daemon's own list), then every kick the room has not acknowledged;
+/// nothing once the share ended (a kick that raced its revoke, expiry or closure): an ended
+/// share's socket sends only `end`.
 fn reconcile(mux: &Mux, share_id: &str) -> Vec<Value> {
-    let Some(v) = view(mux, share_id) else { return Vec::new() };
+    let Some(v) = view(mux, share_id).filter(|v| v.state == ShareState::Active) else {
+        return Vec::new();
+    };
     let mut out = vec![json!({"v": 1, "t": "guests", "active": v.active})];
     out.extend(v.kicks.into_iter().map(|guest| json!({"v": 1, "t": "kick", "guest_id": guest})));
     out
