@@ -1904,9 +1904,7 @@ export class AcpmuxDirectClient {
           const hostTail = readHostTail(sessionId).catch(() => undefined);
           // An attach that answered already is newer than any tail the host holds: the chat draws
           // from it rather than waiting out the host's read (at most `HOST_TAIL_READ_MS`).
-          await (adopted
-            ? Promise.race([hostTail, adopted.sent.attaching.then(ignore, ignore)])
-            : hostTail);
+          await (adopted ? Promise.race([hostTail, adopted.sent.attaching.then(ignore, ignore)]) : hostTail);
           // A switch that landed while the host answered chose another chat: its own select draws
           // that one, and these rows belong to the chat this open was for.
           if (generation === this.selectionGeneration && this.selectedSessionId === sessionId) {

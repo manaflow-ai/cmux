@@ -84,7 +84,7 @@ async function openCountingWaves(
     },
   );
   // The host's tail read (none outside the app) and the socket's open settle with no reply out.
-  for (let idle = 0; !painted && wave < 12; ) {
+  for (let idle = 0; !painted && wave < 12;) {
     for (let i = 0; i < 20; i += 1) await turns();
     if (painted) break;
     if (held.length === 0) {
