@@ -180,6 +180,11 @@ raw.
 
 ## CLI
 
+Every command's `--help` ends with examples. One page per command group gives the common tasks and
+the command for each: [sessions](docs/cli-sessions.md) (new, send, ls, last, wait, retry, session),
+[hosts](docs/cli-hosts.md), [harnesses, presets and defaults](docs/cli-harnesses.md),
+[the daemon](docs/cli-daemon.md), and [tasks, processes, worktrees and messages](docs/cli-work.md).
+
 ### Remote ergonomics
 
 `acpmux host add` saves the peer and returns while connectivity is probed in
