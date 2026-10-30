@@ -5068,7 +5068,10 @@ export class AcpmuxDirectClient {
     // fails only after the longer `localFailMs`: the journal may not have kept it (too large,
     // evicted, no journal), and the page cannot tell, so it never stays sending forever. Other
     // connections have no relay journal and fail after `failMs`. Both fail with Retry under the
-    // same promptId and keep the slow marker; an explicit RPC refusal below fails at once.
+    // same promptId and keep the slow marker; an explicit RPC refusal below fails at once. A sender
+    // that still holds the prompt (`accepted`: a new chat's, the Quick Composer's or a View Only
+    // chat's composer; a started chat's composer lets go at once) keeps it in its composer at either
+    // deadline, as before: there is no failed row then, so no second copy to send.
     timers.push(
       setTimeout(() => {
         if (this.deliveries.get(promptId)?.delivery.state === "sending" && this.setDelivery(promptId, { slow: true }))
