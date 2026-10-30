@@ -15,6 +15,9 @@ import sys
 import tempfile
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gh_pages  # noqa: E402
+
 RELEASE = "cmux-next Release compile (Xcode 26)"
 DEBUG = "cmux app scheme compile (Debug)"
 SWIFT = "cmux-next swift test"
@@ -23,6 +26,7 @@ TEST_STEPS = {
     "Regenerate action surface export",
     "Run package tests (excluding control deadline and WebKit driver tests)",
     "Run package tests (excluding control deadline, WebKit driver and attach stress tests)",
+    "Run package tests (selected targets; control deadline, WebKit driver and attach stress tests run below)",
     "Run control package tests", "Run WebKit driver package tests", "Run attach driver stress tests",
 }
 ISSUE = re.compile(r"✘ Test (.+?) recorded an issue at ([^:]+\.swift):\d+:\d+: (.+)")
@@ -59,10 +63,13 @@ class GitHub:
             return output.read().decode(errors="replace")
 
     def json(self, route: str, *, paginate: bool = False):
-        args = ["api", route]
-        if paginate:
-            args.extend(["--paginate", "--slurp"])
-        return json.loads(self.run(args))
+        if not paginate:
+            return json.loads(self.run(["api", route]))
+        # The raw pages, as `--slurp` gave them, one bounded call each (scripts/ci/gh_pages.py).
+        try:
+            return gh_pages.pages(lambda url: json.loads(self.run(["api", url])), route)
+        except gh_pages.PageCapError as error:
+            raise Refused(str(error)) from None
 
     def log(self, repo: str, job: dict) -> str:
         return self.run(["run", "view", str(job["run_id"]), "--repo", repo,
@@ -182,6 +189,11 @@ def validate(repo: str, number: int, github: GitHub) -> str:
     for name, build in BUILDS.items():
         if name not in checks:
             raise Refused(f"{name}: has not run on exact head {head}")
+        # Tier routing skips the app scheme compile for a change that stays in
+        # the CmuxNext package; the Release compile still builds all of it.
+        if name == DEBUG and checks[name].get("status") == "completed" and checks[name].get("conclusion") == "skipped":
+            audit.append(f"- {build}: skipped by tier routing (docs/ci/cmux-next-tiers.md).")
+            continue
         job = jobs[name] = job_for(repo, checks[name], head, github)
         require_build(job, build)
         if name != SWIFT and not completed_success(job):

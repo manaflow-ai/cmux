@@ -2,19 +2,25 @@
 set -euo pipefail
 
 VERIFY_ONLY=0
+PRINT_RELEASE=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --verify-only)
       VERIFY_ONLY=1
       ;;
+    --print-release)
+      PRINT_RELEASE=1
+      ;;
     -h|--help)
       cat <<'EOF'
-Usage: download-prebuilt-ghosttykit.sh [--verify-only]
+Usage: download-prebuilt-ghosttykit.sh [--verify-only | --print-release]
 
 Download, verify, and extract the pre-built GhosttyKit.xcframework. The
 --verify-only mode performs the same release URL, checksum, and archive checks
 without extracting the framework; CI uses it to validate release provenance
-independently of build caches.
+independently of build caches. --print-release prints the release tag and
+archive name for GHOSTTY_SHA (or the submodule) and exits, without reading the
+checksums (scripts/cmux-next/ghosttykit-checksum.sh pins them from it).
 
 GHOSTTYKIT_ARCHIVE_CACHE_DIR, when set, keeps each verified archive there under
 its pinned sha256 and reuses it instead of downloading again. --verify-only
@@ -50,6 +56,10 @@ ARCHIVE_NAME="${GHOSTTYKIT_ARCHIVE_NAME:-GhosttyKit.xcframework.tar.gz}"
 OUTPUT_DIR="${GHOSTTYKIT_OUTPUT_DIR:-GhosttyKit.xcframework}"
 CHECKSUMS_FILE="${GHOSTTYKIT_CHECKSUMS_FILE:-$SCRIPT_DIR/ghosttykit-checksums.txt}"
 DOWNLOAD_URL="${GHOSTTYKIT_URL:-https://github.com/manaflow-ai/ghostty/releases/download/$TAG/$ARCHIVE_NAME}"
+if [ "$PRINT_RELEASE" = 1 ]; then
+  echo "$TAG $ARCHIVE_NAME"
+  exit 0
+fi
 DOWNLOAD_RETRIES="${GHOSTTYKIT_DOWNLOAD_RETRIES:-30}"
 DOWNLOAD_RETRY_DELAY="${GHOSTTYKIT_DOWNLOAD_RETRY_DELAY:-20}"
 DOWNLOAD_CONNECT_TIMEOUT="${GHOSTTYKIT_DOWNLOAD_CONNECT_TIMEOUT:-10}"

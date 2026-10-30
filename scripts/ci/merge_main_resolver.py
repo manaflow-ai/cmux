@@ -47,6 +47,9 @@ MIN_GIT = (2, 46)
 # those files unmerged for the trusted merges below; a clone configured by
 # scripts/install-git-hooks.sh would otherwise run the driver from the tree
 # being merged, which on a fork head is untrusted code.
+# The generated web bundle driver is pinned the same way: it keeps one side
+# without reporting a conflict, and this resolver's unmerged list must stay
+# the authority on what still needs resolving.
 GIT = [
     "git",
     "-c", "core.hooksPath=/dev/null",
@@ -55,10 +58,33 @@ GIT = [
     "-c", "merge.xcstrings-v2.driver=false",
     "-c", "merge.pbxproj.driver=false",
     "-c", "merge.pbxproj-v1.driver=false",
+    "-c", "merge.cmux-generated-v1.driver=false",
     "-c", "rerere.enabled=false",
     "-c", "maintenance.auto=false",
     "-c", "gc.auto=0",
 ]
+
+# The cmux-next web bundles are build output since cx-vn5
+# (scripts/cmux-next/build-web-bundles.sh; gitignored, each resource directory
+# keeps a GENERATED.md placeholder). A branch whose tree has the placeholder
+# never tracks them, so a merge of a side that still commits them (main's
+# webviews app, a branch from before cx-vn5) keeps them deleted: their
+# modify/delete conflicts and anything that side added there leave the index.
+BUILD_OUTPUT_MARKER = "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/GENERATED.md"
+BUILD_OUTPUTS = (
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js",
+    "Resources/markdown-viewer/webviews-app",
+)
+
+
+def build_output(path: str) -> bool:
+    """A former web bundle file, not one of the placeholders that stay committed."""
+    if path.endswith("/GENERATED.md"):
+        return False
+    return any(path == top or path.startswith(top + "/") for top in BUILD_OUTPUTS)
 
 
 class MergeResolverError(Exception):
@@ -625,8 +651,11 @@ def merge_and_resolve(repo_path: Path, base_ref: str, tools_root: Path, note: st
 def finish(repo: Repo, result: Result, resolver: Resolver, unmerged: dict[str, set[int]],
            base_ref: str, note: str, title: str = "") -> Result:
     """Resolve, then commit or abort. The caller aborts the merge on any exception."""
+    untracked_outputs = repo.blob_id("HEAD", BUILD_OUTPUT_MARKER) is not None
     for path in sorted(unmerged):
         stages = unmerged[path]
+        if untracked_outputs and build_output(path):
+            continue  # removed from the index below
         if stages != {1, 2, 3}:
             side = "added on both sides" if 1 not in stages else "deleted on one side and changed on the other"
             resolver.block(path, f"{side}; needs a person")
@@ -648,6 +677,16 @@ def finish(repo: Repo, result: Result, resolver: Resolver, unmerged: dict[str, s
         resolver.block(SCHEMA_SWIFT, "generated from the conflicted schema source")
     elif swift_conflicted or schema_needs_regeneration(repo, unmerged):
         resolver.schema(conflicted=swift_conflicted)
+
+    if untracked_outputs:
+        tracked = sorted(path for path in repo.index_modes(*BUILD_OUTPUTS) if build_output(path))
+        if tracked:
+            repo.run("rm", "-q", "--cached", "--pathspec-from-file=-", input_bytes="\n".join(tracked).encode() + b"\n")
+            for top in BUILD_OUTPUTS:
+                count = sum(1 for path in tracked if path == top or path.startswith(top + "/"))
+                if count:
+                    # Not resolver.done(), which stages the path again.
+                    resolver.resolved.append({"path": top, "method": f"web bundle build output since cx-vn5: {count} file(s) kept out of the index"})
 
     result.resolved = resolver.resolved
     result.blocking = resolver.blocking

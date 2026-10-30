@@ -86,54 +86,6 @@
       "environment_class": "isolated-build"
     },
     {
-      "id": "cmux.macos.app-host-test-shard",
-      "generation": 1,
-      "entrypoint": "scripts/ci/workloads/macos-app-host-test-shard.sh",
-      "semantic_scope": "Execute one physical CMUX app-host unit-test shard as two deterministic logical batches against an exact compile-admission xctestrun product.",
-      "platform": {
-        "os": "macos",
-        "architectures": [
-          "arm64"
-        ],
-        "requirements": [
-          "console-session",
-          "xcode:.xcode-version",
-          "macos-sdk-major:26"
-        ]
-      },
-      "expected_result_class": "cmux.app-host-test-shard-result/v1",
-      "semantic_validator": "cmux.app-host-test-shard/v1",
-      "timeout": {
-        "class": "macos-long",
-        "seconds": 4500
-      },
-      "resource_class": "cmux-macos-app-host-test",
-      "network_class": "repository-test",
-      "benchmark_state_classes": [
-        "exact-product-reuse",
-        "resident-hot"
-      ],
-      "parameters": {
-        "shard": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 6,
-          "required": true
-        }
-      },
-      "runtime_inputs": [
-        {
-          "name": "app_host_xctestrun",
-          "env": "CMUX_APP_HOST_XCTESTRUN",
-          "class": "cmux.app-host-product-tree/v1",
-          "identity": "parent-tree-sha256",
-          "required": true
-        }
-      ],
-      "artifacts": [],
-      "environment_class": "isolated-console-test"
-    },
-    {
       "id": "cmux.ci.guard",
       "generation": 1,
       "entrypoint": "scripts/ci/workloads/ci-guard.sh",

@@ -151,16 +151,25 @@ def download_ranges(url_factory, target, size, *, connections=CONNECTIONS,
 
     url_factory() returns a signed URL; it is called again after an HTTP 403 so
     an expired signature re-resolves instead of failing the transfer.
+    The deadline prevents new requests and retries; it does not interrupt an
+    in-flight URL resolver or fetch.
     """
     size = _positive(size, "size")
     if size > MAX_BYTES:
         raise TransportError("artifact exceeds size limit")
     deadline = time.monotonic() + deadline_seconds
     lock = threading.Lock()
+
+    def check_deadline():
+        if time.monotonic() >= deadline:
+            raise TransportError("parallel download deadline exceeded")
+
+    check_deadline()
     state = {"url": url_factory()}
 
     def current_url(stale=None):
         with lock:
+            check_deadline()
             if stale is not None and state["url"] == stale:
                 state["url"] = url_factory()
             return state["url"]
@@ -175,20 +184,23 @@ def download_ranges(url_factory, target, size, *, connections=CONNECTIONS,
             for attempt in range(ATTEMPTS):
                 url = current_url()
                 try:
+                    check_deadline()
                     fetch(url, span[0], span[1], fd, deadline)
                     return
                 except urllib.error.HTTPError as error:
                     error.close()
                     last_error = error
                     if error.code == 403:
-                        current_url(stale=url)
+                        if attempt + 1 < ATTEMPTS:
+                            current_url(stale=url)
                     elif error.code < 500 and error.code != 429:
                         break
                 except (OSError, TransportError) as error:
                     last_error = error
-                if time.monotonic() > deadline:
+                remaining = deadline - time.monotonic()
+                if attempt + 1 == ATTEMPTS or remaining <= 0:
                     break
-                time.sleep(min(2 ** attempt, 8))
+                time.sleep(min(2 ** attempt, 8, remaining))
             raise TransportError(f"range {span[0]}-{span[1]} failed: {last_error}")
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, connections)) as pool:
@@ -261,8 +273,6 @@ def restore_aggregate(repository, artifact_id, run_id, expected_digest, destinat
             or not isinstance(size, int) or not 0 < size <= MAX_BYTES
             or not isinstance(producer, dict) or producer.get("id") != run_id):
         raise TransportError("artifact does not match this run's pinned product")
-    if destination.exists():
-        destination.rmdir()  # Only an empty placeholder; never merge into stale products.
     destination.parent.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="cmux-parallel-artifact-", dir=destination.parent) as work:
@@ -274,6 +284,8 @@ def restore_aggregate(repository, artifact_id, run_id, expected_digest, destinat
             raise TransportError("provider ZIP digest mismatch")
         unpack_single_member(zip_path, staging / "products", allowed={member})
         zip_path.unlink()
+        if destination.exists():
+            destination.rmdir()  # Only an empty placeholder; never merge into stale products.
         (staging / "products").rename(destination)
     elapsed = time.monotonic() - started
     return {

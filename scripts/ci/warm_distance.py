@@ -243,13 +243,20 @@ def have_tree(workspace: Path, sha: str) -> bool:
     return have_commit(workspace, sha) and git(workspace, "cat-file", "-e", f"{sha}^{{tree}}") is not None
 
 
+def is_shallow(workspace: Path) -> bool:
+    """Whether the checkout is shallow. Only a shallow checkout may fetch with --depth: in a full clone
+    --depth writes .git/shallow and truncates history for every worktree sharing it."""
+    return (git(workspace, "rev-parse", "--is-shallow-repository") or "").strip() == "true"
+
+
 def ensure_commit(workspace: Path, sha: str) -> bool:
     """SHA's commit and trees in the checkout, fetched shallow (public, no credentials) when missing."""
     if not re.fullmatch(r"[0-9a-f]{40}", sha or ""):
         return False
     if have_commit(workspace, sha):
         return True
-    git(workspace, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--depth=1", "origin", sha,
+    depth = ["--depth=1"] if is_shallow(workspace) else []
+    git(workspace, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", *depth, "origin", sha,
         timeout=FETCH_TIMEOUT_SECONDS)
     return have_commit(workspace, sha)
 
@@ -501,11 +508,22 @@ def compile_factor(mini: str, others_busy: int) -> float:
 
 
 def job_key(name: str) -> str:
-    """A GitHub job display name as glaeda's job telemetry keys it: `macOS / app-host unit tests (3)` ->
-    `app-host-unit-tests`."""
+    """A GitHub job display name as glaeda's job telemetry keys it: `macOS / Shell regressions (3)` ->
+    `shell-regressions`."""
     name = name.rsplit(" / ", 1)[-1]
     name = re.sub(r"\s*\([^)]*\)\s*$", "", name)
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+
+
+# Job keys whose display name changed: the model may still hold the old key's lengths until a
+# refit sees enough runs under the new name.
+JOB_KEY_ALIASES = {"shell-regressions": "cli-product-tests"}
+
+
+def job_lengths(model: Mapping[str, Any], key: str) -> Mapping[str, Any]:
+    """The model's job_seconds cell for KEY, falling back to the key it had before a rename."""
+    table = model.get("job_seconds") or {}
+    return table.get(key) or table.get(JOB_KEY_ALIASES.get(key, "")) or {}
 
 
 def remaining_seconds(entry: Mapping[str, Any] | None, model: Mapping[str, Any], now: dt.datetime) -> float | None:
@@ -514,7 +532,7 @@ def remaining_seconds(entry: Mapping[str, Any] | None, model: Mapping[str, Any],
     length for, or one past its p90 (it may hang)."""
     if not isinstance(entry, Mapping):
         return None
-    lengths = (model.get("job_seconds") or {}).get(job_key(str(entry.get("job") or ""))) or {}
+    lengths = job_lengths(model, job_key(str(entry.get("job") or "")))
     p50, p90 = lengths.get("p50"), lengths.get("p90")
     try:
         started = dt.datetime.fromisoformat(str(entry.get("started_at")).replace("Z", "+00:00"))
@@ -756,6 +774,9 @@ def fetch_bases(workspace: Path, shas: Iterable[str]) -> dict[str, Any]:
     report: dict[str, Any] = {"missing": len(missing), "attempts": 0}
     started = time.monotonic()
     env = {**os.environ, "GIT_NO_LAZY_FETCH": "1", "GIT_TERMINAL_PROMPT": "0"}
+    # A full clone takes a plain fetch: --depth there writes .git/shallow for every worktree sharing it,
+    # and --refetch without a depth would download the whole history again.
+    bounded = ["--refetch", "--depth=1"] if missing and is_shallow(workspace) else []
     for attempt in range(2):
         if not missing:
             break
@@ -767,7 +788,7 @@ def fetch_bases(workspace: Path, shas: Iterable[str]) -> dict[str, Any]:
         report["attempts"] += 1
         try:
             result = subprocess.run(["git", "-C", str(workspace), "fetch", "--quiet", "--no-tags",
-                                     "--no-write-fetch-head", "--refetch", "--depth=1", "--filter=blob:none",
+                                     "--no-write-fetch-head", *bounded, "--filter=blob:none",
                                      "origin", *missing],
                                     capture_output=True, text=True, timeout=timeout, env=env)
             if result.returncode != 0:

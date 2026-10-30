@@ -123,6 +123,9 @@ def pool_order_reason(order: str) -> str | None:
     policy, so the order cannot smuggle in a label the guard refuses.
     """
     for label in (entry.strip() for entry in order.split(",")):
+        if label.lower().startswith(AWS_SIDE_PREFIX):
+            # The glaeda-aws pools have no runners; minis first, Blacksmith overflow.
+            return f"`{label}` is a {AWS_SIDE_PREFIX}* pool, which has no runners"
         if not label or _owned_pattern().fullmatch(label):
             continue
         if _owned_pattern().fullmatch(label.lower()):
@@ -152,11 +155,103 @@ def side_lane_reason(label: str) -> str | None:
     runners a pool keeps beside its root runners. Anything else is held to the
     workflow policy like every other runner variable.
     """
-    if label.startswith(SIDE_LANE_PREFIX) and _owned_pattern().fullmatch(
-        "glaeda-" + label[len(SIDE_LANE_PREFIX):]
-    ):
-        return None
+    if label.startswith(SIDE_LANE_PREFIX):
+        candidate = "glaeda-" + label[len(SIDE_LANE_PREFIX):]
+        if _owned_pattern().fullmatch(candidate):
+            return None
     return forbidden_reason(label)
+
+
+NIGHTLY_NEXT_BUILD_VARIABLE = "CI_NIGHTLY_NEXT_BUILD_RUNNER"
+
+
+def nightly_next_build_reason(label: str) -> str | None:
+    """Why CI_NIGHTLY_NEXT_BUILD_RUNNER is not allowed, or None when it is fine.
+
+    nightly.yml's nightly-next app build reads it first, for every event and
+    attempt. It may name an owned side or dev label (glaeda-side-<class>-... or
+    glaeda-dev-<class>-...), the same trust as CI_SIDE_LANE_RUNNER, which that
+    build already takes, or glaeda's nightly slot (glaeda-nightly-<class>-...,
+    glaeda#1684): one runner per owned mini whose hook admits only nightly jobs.
+    Anything else is held to the workflow policy. Empty is fine (off).
+    """
+    for prefix in (SIDE_LANE_PREFIX, "glaeda-dev-", "glaeda-nightly-"):
+        if label.startswith(prefix) and _owned_pattern().fullmatch("glaeda-" + label[len(prefix):]):
+            return None
+    return forbidden_reason(label)
+
+
+FAST_LANE_VARIABLE = "CI_FAST_LANE_RUNNER"
+FAST_LANE_PREFIX = "glaeda-fast-"
+
+
+def fast_lane_reason(label: str) -> str | None:
+    """Why CI_FAST_LANE_RUNNER is not allowed, or None when it is fine.
+
+    cmux-next.yml's fast tier reads it after its fork clause, for its own
+    reserved runner on each owned mini, glaeda-fast-<class>-xcode-<version>.
+    Anything else is held to the workflow policy. Empty is fine (off).
+    """
+    if label.startswith(FAST_LANE_PREFIX):
+        candidate = "glaeda-" + label[len(FAST_LANE_PREFIX):]
+        if _owned_pattern().fullmatch(candidate):
+            return None
+    return forbidden_reason(label)
+
+
+SESSION_LANE_VARIABLE = "CI_SESSION_LANE_RUNNER"
+SESSION_LANE_PREFIX = "glaeda-session-"
+
+
+def session_lane_reason(label: str) -> str | None:
+    """Why CI_SESSION_LANE_RUNNER is not allowed, or None when it is fine.
+
+    cmux-next.yml's generated-files job reads it after its fork clause, for the
+    owned minis' session runners, glaeda-session-<class>-xcode-<version>.
+    Anything else is held to the workflow policy. Empty is fine (off).
+    """
+    if label.startswith(SESSION_LANE_PREFIX):
+        candidate = "glaeda-" + label[len(SESSION_LANE_PREFIX):]
+        if _owned_pattern().fullmatch(candidate):
+            return None
+    return forbidden_reason(label)
+
+
+DEV_COMPILE_VARIABLE = "CI_DEV_COMPILE_RUNNER"
+DEV_COMPILE_PREFIX = "glaeda-dev-"
+
+
+def dev_compile_reason(label: str) -> str | None:
+    """Why CI_DEV_COMPILE_RUNNER is not allowed, or None when it is fine.
+
+    cmux-next.yml's macos-placement reads it as the freshness slot's label
+    (FRESH_LABEL, default glaeda-dev-std-xcode-26.6): one dev instance on the
+    owned minis, glaeda-dev-<class>-xcode-<version>, whose hook admits only
+    trusted pushes and dispatches. Anything else is held to the workflow
+    policy. Empty is fine (the default label).
+    """
+    if label.startswith(DEV_COMPILE_PREFIX):
+        candidate = "glaeda-" + label[len(DEV_COMPILE_PREFIX):]
+        if _owned_pattern().fullmatch(candidate):
+            return None
+    return forbidden_reason(label)
+
+
+AWS_SIDE_VARIABLE = "CI_AWS_SIDE_RUNNER"
+AWS_SIDE_PREFIX = "glaeda-aws-"
+
+
+def aws_side_reason(label: str) -> str | None:
+    """Why CI_AWS_SIDE_RUNNER is not allowed, or None when it is fine.
+
+    It named the glaeda-aws pools, which no longer have runners (their Macs
+    serve cmux-next only), and no workflow reads it any more: attempt 1 of
+    those jobs takes CI_SIDE_LANE_RUNNER. Only empty is fine, so a leftover
+    value shows as drift until it is deleted.
+    """
+    if not label:
+        return None
+    return f"is retired (the {AWS_SIDE_PREFIX}* pools have no runners); delete the variable"
 
 
 TRUSTED_POOL_VARIABLE = "CI_SEED_TRUSTED_POOL"
@@ -231,6 +326,18 @@ def forbidden_reason(label: str) -> str | None:
     return None
 
 
+# Runner variables the nightly, promote and DEV paths read
+# (tests/test_ci_nightly_no_hosted_mac.py keeps this complete). They never hold
+# a GitHub-hosted Mac. Leo, 2026-10-27: "THE GITHUB HOSTED MACS / ARE THE
+# SLOWEST THINGS / THEY PREVIOUSLY WREN'T EVEN UNDER CONSIDERATINO".
+NO_HOSTED_MAC_VARIABLES = frozenset({
+    "CI_IOS_INTERNAL_RUNNER", "CI_NIGHTLY_NEXT_BUILD_RUNNER", "CI_SIDE_LANE_RUNNER",
+    "LINUX_RUNNER",
+    "MACOS_RUNNER_15", "MACOS_RUNNER_26", "NIGHTLY_NEXT_TRAIN_RUNNER",
+})
+HOSTED_MAC_LABEL = re.compile(r"macos-(?:latest|\d+)(?:-[a-z0-9]+)*")
+
+
 def drifted_runner_variables(
     variables: dict[str, str],
 ) -> list[tuple[str, str, str]]:
@@ -243,13 +350,26 @@ def drifted_runner_variables(
     for name, value in variables.items():
         if not isinstance(value, str):
             continue
+        if name in NO_HOSTED_MAC_VARIABLES and HOSTED_MAC_LABEL.fullmatch(value.strip().lower()):
+            drifted.append((name, value.strip(), "names a GitHub-hosted Mac; the nightly path takes the fleet, then Blacksmith"))
+            continue
         if name == POOL_ORDER_VARIABLE:
             reason = pool_order_reason(value.strip())
         elif name in SIDE_LANE_VARIABLES:
             reason = side_lane_reason(value.strip())
-        elif name == TRUSTED_POOL_VARIABLE:
+        elif name == NIGHTLY_NEXT_BUILD_VARIABLE:
+            reason = nightly_next_build_reason(value.strip())
+        elif name == FAST_LANE_VARIABLE:
+            reason = fast_lane_reason(value.strip())
+        elif name == SESSION_LANE_VARIABLE:
+            reason = session_lane_reason(value.strip())
+        elif name == DEV_COMPILE_VARIABLE:
+            reason = dev_compile_reason(value.strip())
+        elif name == AWS_SIDE_VARIABLE:
+            reason = aws_side_reason(value.strip())
+        elif name in (TRUSTED_POOL_VARIABLE, "CI_NIGHTLY_NEXT_TRUSTED_POOL"):
             reason = trusted_pool_reason(value.strip())
-        elif name == NIGHTLY_RUNNER_VARIABLE:
+        elif name in (NIGHTLY_RUNNER_VARIABLE, "CI_NIGHTLY_NEXT_TRUSTED_RUNNER", "CI_IOS_INTERNAL_RUNNER"):
             reason = nightly_runner_reason(value.strip())
         elif "RUNNER" not in name:
             continue

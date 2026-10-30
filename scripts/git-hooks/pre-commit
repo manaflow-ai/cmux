@@ -26,35 +26,382 @@ cd "$REPO_ROOT"
 
 # Register new Python tests that a workflow already runs, so adding a test and
 # its ci-guards.yml step is all a commit needs. Best effort: CI still validates.
+# Only this commit's tests: the ones it adds, and the ones its workflow changes
+# name. Registering every unregistered test the base carries wrote the same
+# entries into every pull request, which then conflicted (#21946).
 REGISTRY="tests/test-execution.toml"
 if git diff --cached --name-only --diff-filter=ACMRT | grep -Eq '^(tests/test_[^/]+\.py|\.github/workflows/.+)$' \
     && git diff --quiet -- "$REGISTRY"; then
-    "$PYTHON3_BIN" -I "$REGISTRY_VALIDATOR" --repo-root "$REPO_ROOT" --write >/dev/null 2>&1 || true
+    OWN_TESTS=()
+    while IFS= read -r test_path; do
+        [[ -n "$test_path" ]] && OWN_TESTS+=(--only "$test_path")
+    done < <(
+        {
+            git diff --cached --name-only --diff-filter=A -- 'tests/test_*.py'
+            git diff --cached -U0 -- .github/workflows | grep -E '^\+' | grep -oE 'tests/test_[A-Za-z0-9_]+\.py' || true
+        } | sort -u
+    )
+    if (( ${#OWN_TESTS[@]} > 0 )); then
+        "$PYTHON3_BIN" -I "$REGISTRY_VALIDATOR" --repo-root "$REPO_ROOT" --write "${OWN_TESTS[@]}" >/dev/null 2>&1 || true
+    fi
     if ! git diff --quiet -- "$REGISTRY"; then
         git add "$REGISTRY"
         echo "pre-commit: registered new tests in $REGISTRY"
     fi
 fi
 
-# Only normalize when the pbxproj is part of this commit.
-if ! git diff --cached --name-only --diff-filter=ACMRT | grep -Fxq "$PBXPROJ"; then
+# A merge commit combines base-owned files with the staged result. Do not
+# reformat that result while Git is resolving the merge; formatters run on the
+# authored files in the follow-up commit instead.
+MERGE_HEAD_PATH="$(git rev-parse --git-path MERGE_HEAD)"
+if [[ -f "$MERGE_HEAD_PATH" ]]; then
+    echo "pre-commit: merge in progress; skipping formatters"
     exit 0
 fi
 
-# Refuse to normalize when the working-tree pbxproj has unstaged changes.
-# Otherwise the `git add` at the end would silently stage hunks the
-# user deliberately left out of this commit.
-if ! git diff --quiet -- "$PBXPROJ"; then
-    echo "pre-commit: $PBXPROJ has unstaged changes; cannot safely normalize." >&2
-    echo "Either stage the whole file (git add $PBXPROJ) or stash the unstaged hunks before committing." >&2
-    exit 1
+# Emergency switch: commit without formatting (CI still checks the format).
+SKIP_FORMATTERS=0
+if [[ "${CMUX_SKIP_FORMAT_HOOKS:-0}" == 1 ]]; then
+    SKIP_FORMATTERS=1
+    echo "pre-commit: CMUX_SKIP_FORMAT_HOOKS=1; skipping formatters (CI will check them)" >&2
 fi
 
-"$PYTHON3_BIN" -I "$PBX_NORMALIZER" "$PBXPROJ"
+# Only normalize when the pbxproj is part of this commit.
+if git diff --cached --name-only --diff-filter=ACMRT | grep -Fxq "$PBXPROJ"; then
+    # Refuse to normalize when the working-tree pbxproj has unstaged changes.
+    # Otherwise the `git add` at the end would silently stage hunks the
+    # user deliberately left out of this commit.
+    if ! git diff --quiet -- "$PBXPROJ"; then
+        echo "pre-commit: $PBXPROJ has unstaged changes; cannot safely normalize." >&2
+        echo "Either stage the whole file (git add $PBXPROJ) or stash the unstaged hunks before committing." >&2
+        exit 1
+    fi
 
-# If the normalizer rewrote the file, restage so the commit captures
-# the normalized form. (Working tree had no unstaged changes per the
-# guard above, so anything that changed is purely from normalization.)
-if ! git diff --quiet -- "$PBXPROJ"; then
-    git add "$PBXPROJ"
+    "$PYTHON3_BIN" -I "$PBX_NORMALIZER" "$PBXPROJ"
+
+    # If the normalizer rewrote the file, restage so the commit captures
+    # the normalized form. (Working tree had no unstaged changes per the
+    # guard above, so anything that changed is purely from normalization.)
+    if ! git diff --quiet -- "$PBXPROJ"; then
+        git add "$PBXPROJ"
+    fi
+fi
+
+# A missing formatter is a hard failure for agents and CI, never a silent skip
+# (lanes committed unformatted Rust and web code for days because rustfmt and
+# vp were missing on the agent host). People get a warning instead. Codex
+# shells set CODEX_CI and CODEX_THREAD_ID; Claude Code shells set CLAUDECODE.
+REQUIRE_FORMATTERS=0
+for var in CMUX_AGENT CMUX_REQUIRE_FORMATTERS CI CLAUDECODE CODEX_CI CODEX_THREAD_ID CODEX_SANDBOX; do
+    if [[ -n "${!var:-}" && "${!var}" != 0 ]]; then
+        REQUIRE_FORMATTERS=1
+    fi
+done
+formatter_missing() { # message
+    if (( REQUIRE_FORMATTERS )); then
+        echo "pre-commit: $1" >&2
+        echo "pre-commit: refusing to commit unformatted files (an agent or CI environment requires formatters; do not pass --no-verify)." >&2
+        exit 1
+    fi
+    echo "pre-commit: $1; skipping (CI will check it)." >&2
+}
+
+# Keep the formatters on the fast path: only invoke them for files that are in
+# this commit, and never build or inspect the rest of the checkout. A formatter
+# rewrites its input in place, so refuse a file with unstaged edits rather than
+# accidentally adding those edits to this commit.
+# Each vite-plus package formats with its own vp and config, like its CI check.
+WEB_PACKAGES=(webviews cmux-tui/frontends/web)
+STAGED_WEB_PATHS=()
+STAGED_RUST_PATHS=()
+STAGED_SWIFT_PATHS=()
+while IFS= read -r -d '' path; do
+    if (( ! SKIP_FORMATTERS )) && ! git diff --quiet -- "$path"; then
+        case "$path" in
+            webviews/*|cmux-tui/frontends/web/*|*.rs|*.swift)
+                echo "pre-commit: $path has unstaged changes; stage or stash them before formatting." >&2
+                exit 1
+                ;;
+        esac
+    fi
+
+    case "$path" in
+        webviews/*|cmux-tui/frontends/web/*)
+            case "$path" in
+                */node_modules/*) ;;
+                *.js|*.jsx|*.ts|*.tsx|*.mjs|*.cjs|*.mts|*.cts|*.css|*.scss|*.html|*.json|*.md|*.mdx)
+                    STAGED_WEB_PATHS+=("$path")
+                    ;;
+            esac
+            ;;
+        *.rs)
+            STAGED_RUST_PATHS+=("$path")
+            ;;
+        *.swift)
+            STAGED_SWIFT_PATHS+=("$path")
+            ;;
+    esac
+done < <(git diff --cached --name-only --diff-filter=ACMRT -z)
+
+# The version a lockfile pins for a package, or nothing.
+locked_version() { # package-dir name
+    if [[ -f "$1/bun.lock" ]]; then
+        sed -nE "s/^ *\"$2\": \[\"$2@([^\"]+)\".*/\1/p" "$1/bun.lock" | head -n 1
+    elif [[ -f "$1/package-lock.json" ]]; then
+        "$PYTHON3_BIN" -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["packages"].get("node_modules/"+sys.argv[2], {}).get("version", ""))' \
+            "$1/package-lock.json" "$2" 2>/dev/null || true
+    fi
+}
+# Temporary files and a held install lock go away however the hook ends.
+RUSTFMT_DEFAULTS=""
+HELD_LOCK=""
+cleanup() {
+    rm -f "${RUSTFMT_DEFAULTS:-}"
+    release_install_lock
+}
+# Removes the lock only while it is still ours: a hook that ran past the
+# takeover age must not remove the lock its successor took.
+# An empty PID file is ours too: the hook was stopped between mkdir and
+# writing its PID.
+release_install_lock() {
+    if [[ -n "$HELD_LOCK" ]]; then
+        local holder
+        holder="$(cat "$HELD_LOCK/pid" 2>/dev/null || true)"
+        if [[ "$holder" == "$$" || -z "$holder" ]]; then
+            rm -rf "$HELD_LOCK"
+        fi
+    fi
+    HELD_LOCK=""
+}
+trap cleanup EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
+
+# Takes a per-worktree install lock (a directory holding the holder's PID).
+# A lock whose holder is gone, or one older than ten minutes, was left by a
+# killed hook and is taken over.
+# The stale lock is moved aside before mkdir: rename is atomic, so of two hooks
+# that both found it stale only one moves it, and a lock that turns out to be
+# live once moved (another hook took it meanwhile) is put back.
+lock_is_stale() { # lock-dir
+    local holder
+    holder="$(cat "$1/pid" 2>/dev/null || true)"
+    { [[ -n "$holder" ]] && ! kill -0 "$holder" 2>/dev/null; } \
+        || [[ -n "$(find "$1" -maxdepth 0 -mmin +10 2>/dev/null || true)" ]]
+}
+take_install_lock() { # lock-dir
+    if ! mkdir "$1" 2>/dev/null; then
+        lock_is_stale "$1" || return 1
+        mv "$1" "$1.stale.$$" 2>/dev/null || return 1
+        if ! lock_is_stale "$1.stale.$$"; then
+            [[ -e "$1" ]] || mv "$1.stale.$$" "$1" 2>/dev/null || true
+            rm -rf "$1.stale.$$"
+            return 1
+        fi
+        rm -rf "$1.stale.$$"
+        mkdir "$1" 2>/dev/null || return 1
+    fi
+    HELD_LOCK="$1"
+    printf '%s\n' "$$" >"$1/pid"
+}
+
+# vp is missing, or vite-plus or oxfmt differ from the lockfile CI installs.
+web_packages_stale() { # package-dir
+    local name want have
+    [[ -x "$1/node_modules/.bin/vp" ]] || return 0
+    for name in vite-plus oxfmt; do
+        want="$(locked_version "$1" "$name")"
+        [[ -n "$want" ]] || continue
+        have="$("$PYTHON3_BIN" -I -c 'import json,sys; print(json.load(open(sys.argv[1])).get("version", ""))' \
+            "$1/node_modules/$name/package.json" 2>/dev/null || true)"
+        [[ "$want" == "$have" ]] || return 0
+    done
+    return 1
+}
+
+if (( ${#STAGED_WEB_PATHS[@]} > 0 && ! SKIP_FORMATTERS )); then
+    for package in "${WEB_PACKAGES[@]}"; do
+        PACKAGE_PATHS=()
+        for path in "${STAGED_WEB_PATHS[@]}"; do
+            [[ "$path" == "$package/"* ]] && PACKAGE_PATHS+=("${path#"$package"/}")
+        done
+        (( ${#PACKAGE_PATHS[@]} > 0 )) || continue
+        PACKAGE_DIR="$REPO_ROOT/$package"
+        # The checkout's own vp (vp fmt reads the package's vite.config.ts, which
+        # needs its packages), at the version its lockfile pins. Missing or stale
+        # packages are installed first: bun's cache makes that about a second,
+        # and lifecycle scripts never run.
+        if web_packages_stale "$PACKAGE_DIR"; then
+            # One install at a time into this worktree's node_modules: npm ci
+            # deletes node_modules first. A held lock means someone else is
+            # installing; format with what is there, or, with no vp yet, wait
+            # (up to two minutes) for that install.
+            INSTALL_LOCK="$(git rev-parse --absolute-git-dir)/cmux-format-install-${package//\//-}.lock"
+            if ! take_install_lock "$INSTALL_LOCK"; then
+                echo "pre-commit: another agent is installing $package packages; using the current ones (waiting for them if vp is missing)" >&2
+                for ((wait_seconds = 0; wait_seconds < 120; wait_seconds++)); do
+                    [[ ! -x "$PACKAGE_DIR/node_modules/.bin/vp" && -d "$INSTALL_LOCK" ]] || break
+                    sleep 1
+                done
+            elif [[ -f "$PACKAGE_DIR/bun.lock" ]] && command -v bun >/dev/null 2>&1; then
+                echo "pre-commit: installing $package packages for vp (bun install --frozen-lockfile --ignore-scripts)" >&2
+                (cd "$PACKAGE_DIR" && bun install --frozen-lockfile --ignore-scripts >/dev/null 2>&1) || true
+                if [[ "$package" == webviews ]]; then
+                    # --ignore-scripts skips the postinstall that writes the pages' strings tables (build
+                    # output since #21946); write them so a later typecheck in this checkout finds them.
+                    (cd "$PACKAGE_DIR" && bun scripts/pages/gen-strings.mjs --best-effort >/dev/null 2>&1) || true
+                fi
+            elif [[ -f "$PACKAGE_DIR/package-lock.json" ]] && command -v npm >/dev/null 2>&1; then
+                echo "pre-commit: installing $package packages for vp (npm ci --ignore-scripts)" >&2
+                (cd "$PACKAGE_DIR" && npm ci --ignore-scripts --no-audit --no-fund >/dev/null 2>&1) || true
+            fi
+            [[ "$HELD_LOCK" != "$INSTALL_LOCK" ]] || release_install_lock
+        fi
+        VP_BIN="$PACKAGE_DIR/node_modules/.bin/vp"
+        if [[ ! -x "$VP_BIN" ]]; then
+            formatter_missing "vp is unavailable for $package (install its packages)"
+            continue
+        fi
+        (
+            cd "$PACKAGE_DIR"
+            # A commit of only fmt-ignored files (webviews CSS) matches nothing.
+            "$VP_BIN" fmt --no-error-on-unmatched-pattern "${PACKAGE_PATHS[@]}"
+        )
+        git add -- "${PACKAGE_PATHS[@]/#/$package/}"
+    done
+fi
+
+# Rust: every staged .rs file is formatted as `cargo fmt` would, with its Cargo
+# package's edition and the nearest rustfmt.toml above it inside the checkout.
+# With none, an empty config pins rustfmt's defaults, so a stray rustfmt.toml
+# above the checkout (rustfmt keeps searching up to /) never decides the
+# format. Bash 3.2 compatible (macOS): no associative arrays.
+rust_package_root() { # repository-relative path -> nearest directory with a [package] Cargo.toml
+    local dir="${1%/*}"
+    [[ "$dir" == "$1" ]] && dir=""
+    while :; do
+        if [[ -f "$REPO_ROOT/${dir:+$dir/}Cargo.toml" ]] && grep -q '^\[package\]' "$REPO_ROOT/${dir:+$dir/}Cargo.toml"; then
+            echo "$dir"
+            return 0
+        fi
+        [[ -z "$dir" ]] && return 1
+        if [[ "$dir" == */* ]]; then dir="${dir%/*}"; else dir=""; fi
+    done
+}
+rust_edition() { # package root -> its edition, following edition.workspace = true
+    local manifest="$REPO_ROOT/${1:+$1/}Cargo.toml" dir="$1" edition
+    edition="$(sed -nE 's/^edition[[:space:]]*=[[:space:]]*"([0-9]{4})".*/\1/p' "$manifest" | head -n 1)"
+    if [[ -z "$edition" ]] && grep -qE '^edition([[:space:]]*\.[[:space:]]*workspace[[:space:]]*=[[:space:]]*true|[[:space:]]*=[[:space:]]*\{[[:space:]]*workspace[[:space:]]*=[[:space:]]*true)' "$manifest"; then
+        while [[ -n "$dir" ]]; do
+            if [[ "$dir" == */* ]]; then dir="${dir%/*}"; else dir=""; fi
+            manifest="$REPO_ROOT/${dir:+$dir/}Cargo.toml"
+            if [[ -f "$manifest" ]] && grep -q '^\[workspace\.package\]' "$manifest"; then
+                edition="$(awk '/^\[/{section=$0} section=="[workspace.package]" && /^edition[[:space:]]*=/{gsub(/[^0-9]/,"",$0); print; exit}' "$manifest")"
+                break
+            fi
+        done
+    fi
+    echo "${edition:-2015}"
+}
+rust_toolchain() { # package root -> the channel the nearest rust-toolchain(.toml) pins, or nothing
+    local dir="$1"
+    while :; do
+        if [[ -f "$REPO_ROOT/${dir:+$dir/}rust-toolchain.toml" ]]; then
+            sed -nE 's/^[[:space:]]*channel[[:space:]]*=[[:space:]]*"([A-Za-z0-9][A-Za-z0-9._-]*)".*/\1/p' "$REPO_ROOT/${dir:+$dir/}rust-toolchain.toml" | head -n 1
+            return 0
+        fi
+        if [[ -f "$REPO_ROOT/${dir:+$dir/}rust-toolchain" ]]; then
+            local channel=""
+            IFS= read -r channel < "$REPO_ROOT/${dir:+$dir/}rust-toolchain" || true
+            channel="${channel//[[:space:]]/}"
+            # A toolchain name, never a path rustup would run a binary from.
+            [[ "$channel" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] && echo "$channel"
+            return 0
+        fi
+        [[ -z "$dir" ]] && return 0
+        if [[ "$dir" == */* ]]; then dir="${dir%/*}"; else dir=""; fi
+    done
+}
+rust_config() { # package root -> nearest rustfmt.toml or .rustfmt.toml at or above it in the checkout, or nothing
+    local dir="$1"
+    while :; do
+        for name in rustfmt.toml .rustfmt.toml; do
+            if [[ -f "$REPO_ROOT/${dir:+$dir/}$name" ]]; then
+                echo "$REPO_ROOT/${dir:+$dir/}$name"
+                return 0
+            fi
+        done
+        [[ -z "$dir" ]] && return 0
+        if [[ "$dir" == */* ]]; then dir="${dir%/*}"; else dir=""; fi
+    done
+}
+
+if (( ${#STAGED_RUST_PATHS[@]} > 0 && ! SKIP_FORMATTERS )); then
+    # One "root<TAB>path" line per staged file inside a Cargo package; a .rs
+    # file outside every package (a build script fixture, say) is left alone.
+    RUST_ENTRIES=""
+    for path in "${STAGED_RUST_PATHS[@]}"; do
+        if package_root="$(rust_package_root "$path")"; then
+            RUST_ENTRIES+="$package_root"$'\t'"$path"$'\n'
+        fi
+    done
+    RUST_ROOTS="$(printf '%s' "$RUST_ENTRIES" | cut -f1 | sort -u)"
+    # rustfmt can follow `mod` declarations from a staged module and rewrite
+    # its children. Refuse that case within the affected Cargo package rather
+    # than touching an unstaged Rust file in the worktree.
+    while IFS= read -r package_root; do
+        [[ -n "$RUST_ENTRIES" ]] || break
+        if {
+            git diff --name-only --diff-filter=ACMRT -- "${package_root:-.}"
+            git ls-files --others --exclude-standard -- "${package_root:-.}"
+        } | grep -Eq '\.rs$'; then
+            echo "pre-commit: ${package_root:-.} has unstaged Rust edits; stage or stash them before formatting." >&2
+            exit 1
+        fi
+    done <<<"$RUST_ROOTS"
+    if [[ -n "$RUST_ENTRIES" ]]; then
+        RUSTFMT_BIN="$(command -v rustfmt || true)"
+        if [[ -z "$RUSTFMT_BIN" ]]; then
+            formatter_missing "rustfmt is unavailable (rustup component add rustfmt, and put it on PATH)"
+        else
+            RUSTFMT_DEFAULTS="$(mktemp "${TMPDIR:-/tmp}/cmux-rustfmt-defaults.XXXXXX")"
+            while IFS= read -r package_root; do
+                config="$(rust_config "$package_root")"
+                RUSTFMT_ARGS=(--edition "$(rust_edition "$package_root")" --config-path "${config:-$RUSTFMT_DEFAULTS}")
+                PACKAGE_PATHS=()
+                while IFS=$'\t' read -r root path; do
+                    [[ "$root" == "$package_root" ]] && PACKAGE_PATHS+=("$REPO_ROOT/$path")
+                done <<<"$RUST_ENTRIES"
+                # The rustfmt of the toolchain CI's cargo fmt uses for this
+                # package. rustfmt keeps a stable style across versions, so
+                # without that toolchain the PATH rustfmt still formats.
+                PACKAGE_RUSTFMT="$RUSTFMT_BIN"
+                toolchain="$(rust_toolchain "$package_root")"
+                if [[ -n "$toolchain" ]]; then
+                    pinned="$(rustup which --toolchain "$toolchain" rustfmt 2>/dev/null || true)"
+                    if [[ -n "$pinned" && -x "$pinned" ]]; then
+                        PACKAGE_RUSTFMT="$pinned"
+                    else
+                        echo "pre-commit: ${package_root:-.} pins Rust $toolchain; using $RUSTFMT_BIN (rustup toolchain install $toolchain --component rustfmt)" >&2
+                    fi
+                fi
+                "$PACKAGE_RUSTFMT" "${RUSTFMT_ARGS[@]}" "${PACKAGE_PATHS[@]}"
+                git add -- "${PACKAGE_PATHS[@]}"
+            done <<<"$RUST_ROOTS"
+        fi
+    fi
+fi
+
+# cmux currently has no Swift-format configuration. Keep this branch ready for
+# the day one is added without making a formatter a setup prerequisite today.
+if (( ${#STAGED_SWIFT_PATHS[@]} > 0 && ! SKIP_FORMATTERS )) && [[ -f "$REPO_ROOT/.swift-format" ]]; then
+    SWIFT_FORMAT_BIN="$(command -v swift-format || true)"
+    if [[ -z "$SWIFT_FORMAT_BIN" ]]; then
+        formatter_missing "swift-format is unavailable"
+    else
+        for path in "${STAGED_SWIFT_PATHS[@]}"; do
+            "$SWIFT_FORMAT_BIN" format --in-place --configuration "$REPO_ROOT/.swift-format" "$path"
+            git add -- "$path"
+        done
+    fi
 fi

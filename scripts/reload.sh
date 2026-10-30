@@ -7,10 +7,21 @@ RELOAD_ORIGINAL_ARGS=("$@")
 source "$SCRIPT_DIR/lib/mobile-attach.sh"
 # shellcheck source=scripts/lib/dev-secrets.sh
 source "$SCRIPT_DIR/lib/dev-secrets.sh"
+# shellcheck source=scripts/lib/stop-app-instances.sh
+source "$SCRIPT_DIR/lib/stop-app-instances.sh"
+# shellcheck source=lib/cmux-dev-shim-install
+source "$SCRIPT_DIR/lib/cmux-dev-shim-install"
+# shellcheck source=scripts/lib/dev-sign-identity.sh
+source "$SCRIPT_DIR/lib/dev-sign-identity.sh"
 
 APP_NAME="cmux DEV"
 BUNDLE_ID="com.cmuxterm.app.debug"
 BASE_APP_NAME="cmux DEV"
+# The configuration xcodebuild builds and the app it produces (Release: cmux.app).
+BUILD_CONFIGURATION="Debug"
+# --config bench: Release optimization with the debug control surface compiled in (BENCH_HOOKS=1).
+BENCH_HOOKS=0
+PRODUCT_APP_NAME="$BASE_APP_NAME"
 DERIVED_DATA=""
 NAME_SET=0
 BUNDLE_SET=0
@@ -34,7 +45,6 @@ PROD_AUTH=0
 AUTH_CREDENTIALS_FILE=""
 AUTH_PROFILE=""
 AUTH_EXPECTED_ACCOUNT=""
-CMUX_TUI_CLIENT_MANIFEST_URL_VALUE=""
 CLI_PATH=""
 NO_GLOBAL_CLI_LINKS="${CMUX_RELOAD_NO_GLOBAL_CLI_LINKS:-0}"
 # Matches CmuxStateDirectory (non-TCC ~/.local/state/cmux) where the app/CLI now
@@ -54,56 +64,6 @@ XCODEBUILD_OUTPUT_VALID=0
 XCODEBUILD_CLEANED_OUTPUTS=0
 CAN_PUBLISH_RELOAD_STATE=1
 RELOAD_PUBLICATION_SKIP_REASON=""
-
-reload_socket_is_live() {
-  local socket_path="$1"
-  [[ -S "$socket_path" ]] || return 1
-  if command -v perl >/dev/null 2>&1; then
-    # A listener with a saturated Unix-socket backlog can leave a blocking
-    # connect() parked forever. Make the probe non-blocking and give the
-    # kernel at most two seconds to complete it. A timeout (or an
-    # indeterminate probe error) is treated as live so stale cleanup never
-    # races a listener that is merely unable to accept right now.
-    perl -MFcntl=:DEFAULT -MSocket -MIO::Select -MErrno=EAGAIN,EWOULDBLOCK,EINPROGRESS,EALREADY,EISCONN,ECONNREFUSED,ENOENT -e '
-      my $path = shift;
-      exit 1 unless -S $path;
-      socket(my $socket, PF_UNIX, SOCK_STREAM, 0) or exit 0;
-      my $flags = fcntl($socket, F_GETFL, 0);
-      defined($flags) && fcntl($socket, F_SETFL, $flags | O_NONBLOCK) or exit 0;
-      if (connect($socket, sockaddr_un($path))) {
-        close($socket);
-        exit 0;
-      }
-      my $connect_error = 0 + $!;
-      unless ($connect_error == EINPROGRESS || $connect_error == EALREADY
-          || $connect_error == EAGAIN || $connect_error == EWOULDBLOCK) {
-        close($socket);
-        exit(($connect_error == ECONNREFUSED || $connect_error == ENOENT) ? 1 : 0);
-      }
-      my $selector = IO::Select->new($socket);
-      my @ready = $selector->can_write(2);
-      unless (@ready) {
-        close($socket);
-        exit 0;
-      }
-      my $error_bytes = getsockopt($socket, SOL_SOCKET, SO_ERROR);
-      unless (defined($error_bytes)) {
-        close($socket);
-        exit 0;
-      }
-      my $socket_error = unpack("i", $error_bytes);
-      close($socket);
-      exit 0 if $socket_error == 0 || $socket_error == EISCONN;
-      exit 1 if $socket_error == ECONNREFUSED || $socket_error == ENOENT;
-      exit 0;
-    ' "$socket_path" >/dev/null 2>&1
-    return $?
-  fi
-  if command -v nc >/dev/null 2>&1 && nc -z -U -w 2 "$socket_path" </dev/null >/dev/null 2>&1; then
-    return 0
-  fi
-  return 1
-}
 
 reload_cleanup_tag_state_with_lock() {
   local socket_path="$1"
@@ -570,152 +530,6 @@ should_skip_ghostty_cli_helper_zig_build() {
   [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]
 }
 
-write_dev_cli_shim() {
-  local target="$1"
-  local fallback_bin="$2"
-  local cli_path_file="${3:-/tmp/cmux-last-cli-path}"
-  local cli_path_file_literal=""
-  local fallback_bin_literal=""
-  local socket_probe_function=""
-  printf -v cli_path_file_literal '%q' "$cli_path_file"
-  printf -v fallback_bin_literal '%q' "$fallback_bin"
-  socket_probe_function="$(declare -f reload_socket_is_live)"
-  socket_probe_function="${socket_probe_function/reload_socket_is_live/socket_is_live}"
-  mkdir -p "$(dirname "$target")"
-  cat > "$target" <<EOF
-#!/usr/bin/env bash
-# cmux dev shim (managed by scripts/reload.sh)
-set -euo pipefail
-
-CLI_PATH_FILE=${cli_path_file_literal}
-SOCKET_ARG=""
-EXPECT_SOCKET_VALUE=0
-HAS_EXPLICIT_SOCKET=0
-for arg in "\$@"; do
-  if [[ "\$EXPECT_SOCKET_VALUE" == "1" ]]; then
-    SOCKET_ARG="\$arg"
-    EXPECT_SOCKET_VALUE=0
-    HAS_EXPLICIT_SOCKET=1
-    continue
-  fi
-  case "\$arg" in
-    --socket)
-      EXPECT_SOCKET_VALUE=1
-      HAS_EXPLICIT_SOCKET=1
-      ;;
-    --socket=*)
-      SOCKET_ARG="\${arg#--socket=}"
-      HAS_EXPLICIT_SOCKET=1
-      ;;
-  esac
-done
-
-${socket_probe_function}
-
-cli_bundle_for_path() {
-  local cli_path="\$1"
-  local bundle_path=""
-  bundle_path="\$(cd "\$(dirname "\$cli_path")/../../.." 2>/dev/null && pwd -P)" || return 1
-  [[ "\$bundle_path" == *.app && -f "\$bundle_path/Contents/Info.plist" ]] || return 1
-  printf '%s\\n' "\$bundle_path"
-}
-
-bundle_socket_path() {
-  local bundle_path="\$1"
-  local socket_path=""
-  if [[ -x /usr/libexec/PlistBuddy ]]; then
-    socket_path="\$(/usr/libexec/PlistBuddy -c 'Print :LSEnvironment:CMUX_SOCKET_PATH' "\$bundle_path/Contents/Info.plist" 2>/dev/null || true)"
-  fi
-  if [[ -n "\$socket_path" ]]; then
-    printf '%s\\n' "\$socket_path"
-    return 0
-  fi
-
-  local app_name="\${bundle_path##*/}"
-  app_name="\${app_name%.app}"
-  if [[ "\$app_name" == "cmux DEV "* ]]; then
-    local tag="\${app_name#cmux DEV }"
-    [[ "\$tag" =~ ^[A-Za-z0-9_-]+\$ ]] || return 1
-    printf '/tmp/cmux-debug-%s.sock\\n' "\$tag"
-    return 0
-  fi
-  return 1
-}
-
-live_cli_bundle() {
-  local cli_path="\$1"
-  [[ -f "\$cli_path" && -x "\$cli_path" && "\$cli_path" != "\$0" ]] || return 1
-  local bundle_path=""
-  bundle_path="\$(cli_bundle_for_path "\$cli_path")" || return 1
-  local socket_path=""
-  socket_path="\$(bundle_socket_path "\$bundle_path")" || return 1
-  socket_is_live "\$socket_path" || return 1
-  printf '%s\\n' "\$bundle_path"
-}
-
-if [[ -n "\${CMUX_SOCKET_PATH:-}" || -n "\${CMUX_SOCKET:-}" ]]; then
-  HAS_EXPLICIT_SOCKET=1
-fi
-if [[ -n "\$SOCKET_ARG" ]]; then
-  SOCKET_NAME="\$(basename "\$SOCKET_ARG")"
-  if [[ "\$SOCKET_NAME" == cmux-debug-*.sock ]]; then
-    TAG="\${SOCKET_NAME#cmux-debug-}"
-    TAG="\${TAG%.sock}"
-    if [[ "\$TAG" =~ ^[A-Za-z0-9_-]+$ ]]; then
-      # reload.sh links /tmp/cmux-<tag> to the DerivedData it built the tag into,
-      # which is not the per-tag default when tags share one.
-      TAG_CLI_SUFFIX="Build/Products/Debug/cmux DEV \$TAG.app/Contents/Resources/bin/cmux"
-      for TAG_CLI in "/tmp/cmux-\$TAG/\$TAG_CLI_SUFFIX" "\$HOME/Library/Developer/Xcode/DerivedData/cmux-\$TAG/\$TAG_CLI_SUFFIX"; do
-        # /tmp is shared, so only trust a CLI this user owns.
-        [[ -O "\$TAG_CLI" ]] || continue
-        if live_cli_bundle "\$TAG_CLI" >/dev/null; then
-          if [[ "\$HAS_EXPLICIT_SOCKET" == "0" ]] || socket_is_live "\$SOCKET_ARG"; then
-            exec "\$TAG_CLI" "\$@"
-          fi
-        fi
-      done
-    fi
-  fi
-fi
-if [[ -n "\${CMUX_BUNDLED_CLI_PATH:-}" ]] && [[ -f "\$CMUX_BUNDLED_CLI_PATH" ]] && [[ -x "\$CMUX_BUNDLED_CLI_PATH" ]] && [[ "\$CMUX_BUNDLED_CLI_PATH" != "\$0" ]]; then
-  # Inherited terminal identity is authoritative when the caller explicitly
-  # supplied a socket. For ambient calls, validate liveness only when the
-  # bundle carries reload-managed socket metadata; ordinary installed bundles
-  # delegate directly to their own CLI.
-  BUNDLED_APP_PATH=""
-  BUNDLED_SOCKET_PATH=""
-  if [[ "\$HAS_EXPLICIT_SOCKET" == "1" ]]; then
-    exec "\$CMUX_BUNDLED_CLI_PATH" "\$@"
-  elif BUNDLED_APP_PATH="\$(cli_bundle_for_path "\$CMUX_BUNDLED_CLI_PATH" 2>/dev/null)" &&
-       BUNDLED_SOCKET_PATH="\$(bundle_socket_path "\$BUNDLED_APP_PATH" 2>/dev/null)"; then
-    if socket_is_live "\$BUNDLED_SOCKET_PATH"; then
-      exec "\$CMUX_BUNDLED_CLI_PATH" "\$@"
-    fi
-  else
-    # Stable, nightly, staging, and other installed bundles need not carry the
-    # reload-managed socket metadata. Preserve their inherited CLI identity.
-    exec "\$CMUX_BUNDLED_CLI_PATH" "\$@"
-  fi
-fi
-
-CLI_PATH_OWNER="\$(stat -f '%u' "\$CLI_PATH_FILE" 2>/dev/null || stat -c '%u' "\$CLI_PATH_FILE" 2>/dev/null || echo -1)"
-if [[ "\$HAS_EXPLICIT_SOCKET" == "0" && -r "\$CLI_PATH_FILE" ]] && [[ ! -L "\$CLI_PATH_FILE" ]] && [[ "\$CLI_PATH_OWNER" == "\$(id -u)" ]]; then
-  CLI_PATH="\$(cat "\$CLI_PATH_FILE" 2>/dev/null || true)"
-  if live_cli_bundle "\$CLI_PATH" >/dev/null; then
-    exec "\$CLI_PATH" "\$@"
-  fi
-fi
-
-if [[ -x ${fallback_bin_literal} ]]; then
-  exec ${fallback_bin_literal} "\$@"
-fi
-
-echo "error: no reload-selected dev cmux CLI found. Run ./scripts/reload.sh --tag <name> first." >&2
-exit 1
-EOF
-  chmod +x "$target"
-}
-
 select_cmux_shim_target() {
   local app_cli_dir="/Applications/cmux.app/Contents/Resources/bin"
   local marker="cmux dev shim (managed by scripts/reload.sh)"
@@ -798,6 +612,12 @@ publish_reload_cli_path() {
     return 0
   fi
 
+  # Legacy pointer (plans/cmux-next/version-skew.md step 7). The app writes
+  # ~/Library/Application Support/cmux/last-app-cli at launch, and the dev
+  # shim and cleanup-dev-builds.sh read that first. This writer stays for one
+  # release only because readers outside this repo still read /tmp: the
+  # cmuxterm-hq Tag Opener, local-build-guards and keep-devs.sh, plus app
+  # builds older than the app pointer. Remove it once those read last-app-cli.
   reload_write_cli_pointer "/tmp/cmux-last-cli-path" "$cli_path" || return 1
   publish_reload_cli_links "$cli_path"
 }
@@ -875,7 +695,7 @@ reload_write_discovery_file() {
   [[ ! -L "$target" ]] || return 1
   if [[ -e "$target" ]]; then
     local owner=""
-    owner="$(stat -f '%u' "$target" 2>/dev/null || stat -c '%u' "$target" 2>/dev/null || echo -1)"
+    owner="$(stat -c '%u' "$target" 2>/dev/null || stat -f '%u' "$target" 2>/dev/null || echo -1)"
     [[ "$owner" == "$(id -u)" ]] || return 1
   fi
   mkdir -p "$directory" || return 1
@@ -904,11 +724,25 @@ Options:
   --build-only           Build and validate a tagged app without replacing or
                          stopping the running tagged app, daemon, or tag state.
                          Cannot be combined with --launch.
+  --direct-backend       Use the tag's shared GCP dev web stack (scripts/dev-backend.sh,
+                         direct Tailscale transport). cmux-next builds default to local
+                         backend mode without it, and Cloud is then unavailable.
   --prod-auth            Point this tagged Debug build at production Stack auth,
                          cmux APIs, and the production Iroh broker.
                          Without it, tagged builds use the shared dev backend, which
                          needs a cmuxterm-hq checkout. Outside one, set
                          CMUX_DEV_BACKEND_MODE=local to use http://localhost:<port>.
+  --release              Build the Release configuration (optimized, no DEBUG) of
+                         this tagged app, for dogfooding real performance. The
+                         debug.* socket commands are compiled out.
+  --config <debug|release|bench>
+                         debug (default) and release as above. bench: the Release
+                         configuration (-O, whole module, the shipped flags) plus
+                         -DCMUX_BENCH_HOOKS -DCMUX_BLOCKING_CHECKS (no DEBUG), so the debug.* socket commands
+                         the benches and the STRESS builder drive exist in an
+                         optimized app. Never for a shipped product:
+                         scripts/cmux-next/check-no-bench-hooks.sh refuses such an
+                         app in the release and nightly pipelines.
   --credentials-file <path>
                          Bake only the path to a current-user-owned 0600 auth file.
                          The credential values never enter argv, Info.plist, or
@@ -920,8 +754,6 @@ Options:
   --expected-account <email>
                          Fail before building unless the selected profile/file
                          resolves to this normalized account.
-  --cmux-tui-manifest-url <url>
-                         Install the cmux-tui client from this immutable manifest.
   --name <app name>      Override app display/bundle name.
   --bundle-id <id>       Override bundle identifier.
   --derived-data <path>  Override derived data path.
@@ -1014,33 +846,32 @@ set_plist_url_scheme() {
     || true
 }
 
+# Prints the selected Xcode's version ("26.3"), or nothing when xcodebuild cannot say.
+selected_xcode_version() {
+  xcodebuild -version 2>/dev/null | awk 'NR == 1 && $1 == "Xcode" { print $2 }' || true
+}
+
+# Whether this reload skips the app's separate Swift module emission, given the
+# selected Xcode's version. CMUX_RELOAD_APP_EMIT_MODULE decides when it is set: 1
+# emits the module, 0 skips it. Unset, the module is skipped except on Xcode 26.2
+# and 26.3, where the build without it stops at the module merge with "type
+# mismatch of function ... but used in a swift module as ..." on SwiftUI views
+# whose body goes through an opaque return type.
+reload_skips_app_module_emission() {
+  local xcode_version="${1:-}"
+  case "${CMUX_RELOAD_APP_EMIT_MODULE:-}" in
+    1) return 1 ;;
+    0) return 0 ;;
+  esac
+  case "$xcode_version" in
+    26.2|26.2.*|26.3|26.3.*) return 1 ;;
+  esac
+  return 0
+}
+
 tagged_derived_data_path() {
   local slug="$1"
   echo "$HOME/Library/Developer/Xcode/DerivedData/cmux-${slug}"
-}
-
-# Print the cmux-tui commit whose published client the bundle will carry. A branch
-# that changes cmux-tui has no published client for its own commits, so explain
-# the existing overrides next to the resolver's error.
-resolve_cmux_tui_client_commit() {
-  local commit
-  local -a resolver_args=()
-  if [[ -n "${CMUX_TUI_CLIENT_MAX_FALLBACK:-}" ]]; then
-    resolver_args+=(--max-fallback "$CMUX_TUI_CLIENT_MAX_FALLBACK")
-  fi
-  if ! commit="$("$PWD/scripts/ci/resolve-cmux-tui-client-commit.sh" ${resolver_args[@]+"${resolver_args[@]}"})"; then
-    cat >&2 <<'EOF'
-error: no published cmux-tui client for this checkout, so the app bundle cannot get one.
-       A branch that changes cmux-tui has no published client for its own commits
-       until they land on main. Point reload at a cmux-tui binary built off this Mac
-       (Blacksmith Testbox, or this branch's CI artifact):
-         CMUX_TUI_CLIENT_LOCAL=/path/to/cmux-tui ./scripts/reload.sh --tag <tag>
-       or install a published manifest with --cmux-tui-manifest-url <url>
-       (or CMUX_TUI_CLIENT_MANIFEST_URL=<url>).
-EOF
-    return 1
-  fi
-  printf '%s\n' "$commit"
 }
 
 # A tag only changes the bundle id, names, socket and state files. None of those
@@ -1120,6 +951,27 @@ validate_app_bundle() {
     echo "error: app executable not found after xcodebuild: $executable_path" >&2
     return 1
   fi
+  # Every BUNDLED first-party app package (and its native server binary)
+  # must be where the daemon loads it (cx-t2rz, cx-0uo1).
+  if [[ -x "$SCRIPT_DIR/cmux-next/check-app-bundle.sh" ]]; then
+    "$SCRIPT_DIR/cmux-next/check-app-bundle.sh" "$app_path" || return 1
+  fi
+  # A bench build must carry the bench marker (the flags reached the app's modules); any other build
+  # must not (scripts/cmux-next/check-no-bench-hooks.sh, also run by the release and nightly pipelines).
+  if [[ -x "$SCRIPT_DIR/cmux-next/check-no-bench-hooks.sh" ]]; then
+    if [[ "$BENCH_HOOKS" -eq 1 ]]; then
+      "$SCRIPT_DIR/cmux-next/check-no-bench-hooks.sh" --expect "$app_path" || return 1
+    else
+      "$SCRIPT_DIR/cmux-next/check-no-bench-hooks.sh" "$app_path" || return 1
+    fi
+  fi
+  # Every version surface (app, bundled CLIs) says the cmux-next version. A dev
+  # build warns only: a branch may bundle its base tree's cmux-tui (tree
+  # fallback) until its own tree publishes. nightly.yml fails on it.
+  if [[ -x "$SCRIPT_DIR/cmux-next/check-version-surfaces.sh" ]]; then
+    "$SCRIPT_DIR/cmux-next/check-version-surfaces.sh" "$app_path" \
+      || echo "warning: the built app's version surfaces disagree (see above)" >&2
+  fi
 }
 
 # Prints the rm -rf targets that hold a tag's build, each escaped for a shell. A DerivedData
@@ -1132,7 +984,7 @@ tag_build_cleanup_paths() {
     derived="$(readlink "$link" 2>/dev/null || true)"
   fi
   if [[ -n "$derived" && "$derived" != "$own" && "$derived" != "$link" ]]; then
-    printf '%q ' "${derived%/}/Build/Products/Debug/cmux DEV ${tag}.app"
+    printf '%q ' "${derived%/}/Build/Products/Debug/cmux DEV ${tag}.app" "${derived%/}/Build/Products/Release/cmux DEV ${tag}.app"
     [[ -d "$own" ]] || return 0
   fi
   printf '%q ' "$own"
@@ -1143,7 +995,30 @@ tag_build_cleanup_paths() {
 # argument is escaped with %q instead of being wrapped in quotes.
 print_tag_cleanup_commands() {
   local tag="$1" derived="${2:-}"
-  printf '  pkill -f %q\n' "cmux DEV ${tag}.app/Contents/MacOS/cmux DEV"
+  local own="" link="/tmp/cmux-${tag}" root="" config="" bin=""
+  # Quit the app through its own quit path (scripts/lib/stop-app-instances.sh): exact
+  # PIDs from LaunchServices and the tag's executable, SIGTERM as a requested quit, never a
+  # pattern kill (no pkill or killall, coordinator rule c).
+  printf '  bash -c %q _ %q %q %q\n' 'source "$1" && cmux_stop_app_instances "$2" "$3"' \
+    "$SCRIPT_DIR/lib/stop-app-instances.sh" "com.cmuxterm.app.debug.$(sanitize_bundle "$tag")" \
+    "cmux DEV ${tag}.app/Contents/MacOS/cmux DEV"
+  # The app's detached cmux-tui owner (session cmux-app-<tag>) outlives the app and would
+  # keep running from the deleted bundle: stop the owner through the bundle's own binary
+  # before the rm. Never --end-terminals here: a pasted command cannot check that no
+  # terminal runs a job, so the terminal hosts keep running.
+  own="$(tagged_derived_data_path "$tag")"
+  if [[ -z "$derived" && -L "$link" ]]; then
+    derived="$(readlink "$link" 2>/dev/null || true)"
+  fi
+  local -a roots=()
+  [[ -z "$derived" || "$derived" == "$link" || "${derived%/}" == "$own" ]] || roots+=("${derived%/}")
+  roots+=("$own")
+  for root in "${roots[@]}"; do
+    for config in Debug Release; do
+      bin="${root}/Build/Products/${config}/cmux DEV ${tag}.app/Contents/Resources/bin/cmux-tui"
+      printf '  [ -x %q ] && %q --session %q server stop\n' "$bin" "$bin" "cmux-app-${tag}"
+    done
+  done
   printf '  rm -rf %s%q %q\n' "$(tag_build_cleanup_paths "$tag" "$derived")" "/tmp/cmux-${tag}" "/tmp/cmux-debug-${tag}.sock"
   printf '  rm -f %q\n' "/tmp/cmux-debug-${tag}.log"
   printf '  rm -f %q\n' "$HOME/Library/Application Support/cmux/cmuxd-dev-${tag}.sock"
@@ -1173,7 +1048,7 @@ print_tag_cleanup_reminder() {
       continue
     fi
     # Only surface stale debug tag builds.
-    if [[ ! -d "$path/Build/Products/Debug" ]]; then
+    if [[ ! -d "$path/Build/Products/Debug" && ! -d "$path/Build/Products/Release" ]]; then
       continue
     fi
     if [[ "$seen" == *" $tag "* ]]; then
@@ -1252,6 +1127,31 @@ while [[ $# -gt 0 ]]; do
       PROD_AUTH=1
       shift
       ;;
+    --direct-backend)
+      # Cloud dogfood: bake the tag's shared GCP dev web stack (direct
+      # Tailscale transport) into the app. cmux-next builds otherwise
+      # default to local backend mode, where Cloud actions report that the
+      # build has no Cloud backend.
+      if [[ "${CMUX_DEV_BACKEND_MODE:-remote}" == "local" ]]; then
+        echo "error: --direct-backend cannot be combined with CMUX_DEV_BACKEND_MODE=local" >&2
+        exit 1
+      fi
+      export CMUX_DEV_BACKEND_MODE=remote
+      shift
+      ;;
+    --release)
+      BUILD_CONFIGURATION="Release"
+      shift
+      ;;
+    --config|--config=*)
+      if [[ "$1" == --config=* ]]; then config_name="${1#--config=}"; shift; else config_name="${2:-}"; shift 2 || true; fi
+      case "$config_name" in
+        debug) BUILD_CONFIGURATION="Debug" BENCH_HOOKS=0 ;;
+        release) BUILD_CONFIGURATION="Release" BENCH_HOOKS=0 ;;
+        bench) BUILD_CONFIGURATION="Release" BENCH_HOOKS=1 ;;
+        *) echo "error: --config takes debug, release or bench (got '${config_name}')" >&2; exit 1 ;;
+      esac
+      ;;
     --credentials-file)
       AUTH_CREDENTIALS_FILE="${2:-}"
       if [[ -z "$AUTH_CREDENTIALS_FILE" ]]; then
@@ -1271,12 +1171,8 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --cmux-tui-manifest-url)
-      CMUX_TUI_CLIENT_MANIFEST_URL_VALUE="${2:-}"
-      [[ -n "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE" ]] \
-        || { echo "error: --cmux-tui-manifest-url requires a URL" >&2; exit 1; }
-      [[ "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE" == https://* ]] \
-        || { echo "error: --cmux-tui-manifest-url requires HTTPS" >&2; exit 1; }
-      shift 2
+      echo "error: --cmux-tui-manifest-url was removed with the legacy app; the cmux scheme bundles the cmux-tui built from this checkout's cmux-tui tree (scripts/cmux-next/pin-cmux-tui.sh --help; CMUX_NEXT_TUI_BIN=<path> bundles a local build)" >&2
+      exit 1
       ;;
     --derived-data)
       DERIVED_DATA="${2:-}"
@@ -1326,12 +1222,39 @@ if [[ -z "$TAG" ]]; then
   exit 1
 fi
 
+# Per-build isolation (cx-is1kf.4): a shipped build owns these names (its
+# daemon session cmux-app-<name>, its control socket and state). A DEV build
+# with such a tag gets names of its build key instead (CmuxNextCompat
+# BuildIdentity+AppNames.swift), so the socket and markers this script writes
+# for the tag would name no app. Refuse the tag before anything is cleaned or built.
+owned_tag_names=("$TAG")
+if [[ "$BUNDLE_SET" -eq 1 && "$BUNDLE_ID" == com.cmuxterm.app.debug.* ]]; then
+  owned_tag_names+=("${BUNDLE_ID#com.cmuxterm.app.debug.}")
+fi
+for owned_tag_name in "${owned_tag_names[@]}"; do
+  case "$(cmux_attach__slug_raw "$owned_tag_name")" in
+    nightly | rc | staging | cmux-next)
+      echo "error: --tag or --bundle-id '$owned_tag_name' is the name of a shipped cmux build (nightly, rc, staging, cmux-next); pick another tag" >&2
+      exit 1
+      ;;
+  esac
+done
+
+# Release's product is cmux.app, which the tag step stages as the tagged app. It
+# bundles the pinned cmux-tui by default; dogfood the checkout's own instead. Its
+# entitlements need a signing team, and the tagged app is signed ad hoc (or with
+# CMUX_DEV_SIGN_IDENTITY, still without entitlements).
+if [[ "$BUILD_CONFIGURATION" == Release ]]; then
+  PRODUCT_APP_NAME="cmux"
+  export CMUX_NEXT_TUI_MODE=tree
+fi
+
 # Tagged builds normally compile the base product name and stage a distinct
 # tag-named bundle. An explicit base-name override removes that staging
 # boundary, so build-only would overwrite the bundle a running tagged process
 # can be executing from. Refuse that shape before any cleanup or build starts.
-if [[ "$BUILD_ONLY" -eq 1 && "$NAME_SET" -eq 1 && "$APP_NAME" == "$BASE_APP_NAME" ]]; then
-  echo "error: --build-only cannot use --name '$BASE_APP_NAME'; omit --name or choose a distinct tagged app name" >&2
+if [[ "$BUILD_ONLY" -eq 1 && "$NAME_SET" -eq 1 && "$APP_NAME" == "$PRODUCT_APP_NAME" ]]; then
+  echo "error: --build-only cannot use --name '$PRODUCT_APP_NAME'; omit --name or choose a distinct tagged app name" >&2
   exit 1
 fi
 
@@ -1403,29 +1326,137 @@ if [[ -n "$TAG" ]]; then
   fi
 fi
 
-# Resolve the published cmux-tui client before the dev backend, GhosttyKit and
-# xcodebuild, so a checkout without one fails in seconds rather than after a full
-# build. The install step after the build reuses this commit. The same overrides
-# skip it: --cmux-tui-manifest-url, CMUX_TUI_CLIENT_MANIFEST_URL, and
-# CMUX_TUI_CLIENT_LOCAL. CMUX_SKIP_CMUX_TUI_CLIENT=1 defers to the install step,
-# which keeps an existing bundled copy and resolves only when there is none. The
-# resolver's progress lines go to the reload log; they print here only on failure.
-CMUX_TUI_CLIENT_COMMIT=""
-CMUX_TUI_CLIENT_RESOLVE_LOG=""
-if [[ "${CMUX_SKIP_CMUX_TUI_CLIENT:-}" != "1" \
-      && -z "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE" \
-      && -z "${CMUX_TUI_CLIENT_MANIFEST_URL:-}" \
-      && -z "${CMUX_TUI_CLIENT_LOCAL:-}" ]]; then
-  cmux_tui_resolve_stderr="$(mktemp "${TMPDIR:-/tmp}/cmux-reload-tui-resolve.XXXXXX")"
-  cmux_tui_resolve_rc=0
-  CMUX_TUI_CLIENT_COMMIT="$(resolve_cmux_tui_client_commit 2>"$cmux_tui_resolve_stderr")" \
-    || cmux_tui_resolve_rc=$?
-  CMUX_TUI_CLIENT_RESOLVE_LOG="$(cat "$cmux_tui_resolve_stderr")"
-  rm -f "$cmux_tui_resolve_stderr"
-  if [[ "$cmux_tui_resolve_rc" -ne 0 ]]; then
-    printf '%s\n' "$CMUX_TUI_CLIENT_RESOLVE_LOG" >&2
+# feat-cmux-next: the cmux scheme builds cmux-next.app, whose "Bundle cmux-tui"
+# phase (scripts/cmux-next/bundle-cmux-tui.sh) bundles the hosted cmux-tui
+# built from this checkout's own cmux-tui tree (pin-cmux-tui.sh --help). It
+# is fetched (public URL, sha256-verified, no GitHub credentials) before the
+# build, waiting while the artifacts workflow publishes a new tree, and the
+# bundle phase fails when it does not serve a capability the app relies on.
+# CMUX_NEXT_TUI_BIN=<path> bundles a local build instead.
+# cmux-next reads no web API origin, so a local reload provisions no shared
+# GCP backend stack. An explicit mode or CMUX_DEV_BACKEND_URL (the fleet's
+# cmux-ci passes one) still wins.
+if [[ -z "${CMUX_DEV_BACKEND_MODE:-}" && -z "${CMUX_DEV_BACKEND_URL:-}" ]]; then
+  export CMUX_DEV_BACKEND_MODE=local
+fi
+# The cmuxterm-hq local build guard refuses xcodebuild/cargo below 500 GiB
+# free on the home volume unless CMUX_ALLOW_LOW_SPACE_BUILD=1. That floor is
+# sized for the legacy app and many agents at once. A cold cmux-next tagged
+# build (2026-09-29, tag nxpipe) left 5.8 GiB of DerivedData and lowered
+# free space by at most 10.6 GiB while it ran, so cmux-next reloads use their
+# own floor, CMUX_NEXT_MIN_FREE_GIB, and lift the guard's floor only for this
+# build. Its default (40 GiB, about 4x that peak) is the one number in
+# cmux-next/tour-requirements.json, so the runners that take tours read the
+# same floor instead of copying it.
+cmux_next_requirements="$SCRIPT_DIR/cmux-next/tour-requirements.json"
+cmux_next_default_min_free_gib="$(python3 -c '
+import json, sys
+value = json.load(open(sys.argv[1]))["min_free_gib"]
+if type(value) is not int or value <= 0:
+    raise SystemExit(1)
+print(value)' "$cmux_next_requirements" 2>/dev/null)" \
+  || { echo "error: $cmux_next_requirements must hold a positive whole number of GiB as min_free_gib" >&2; exit 1; }
+cmux_next_min_free_gib="${CMUX_NEXT_MIN_FREE_GIB:-$cmux_next_default_min_free_gib}"
+[[ "$cmux_next_min_free_gib" =~ ^[0-9]+$ ]] \
+  || { echo "error: CMUX_NEXT_MIN_FREE_GIB must be a whole number of GiB" >&2; exit 1; }
+cmux_next_free_gib="$(df -Pk "$HOME" | awk 'NR==2{print int($4/1048576)}')"
+if (( cmux_next_free_gib < cmux_next_min_free_gib )); then
+  echo "error: cmux-next build needs ${cmux_next_min_free_gib} GiB free on the home volume; ${cmux_next_free_gib} GiB free." >&2
+  echo "       Free space (skills/build-release/cleanup-dev-builds in cmuxterm-hq) or build on the fleet with cmux-ci." >&2
+  exit 1
+fi
+if [[ "${CMUX_ALLOW_LOW_SPACE_BUILD:-}" != "1" ]]; then
+  echo "==> cmux-next floor: ${cmux_next_free_gib} GiB free >= ${cmux_next_min_free_gib} GiB; lifting the local build guard's 500 GiB floor for this build"
+  export CMUX_ALLOW_LOW_SPACE_BUILD=1
+fi
+if [[ -n "${CMUX_NEXT_TUI_BIN:-}" ]]; then
+  echo "==> cmux-next: bundling cmux-tui from CMUX_NEXT_TUI_BIN=$CMUX_NEXT_TUI_BIN"
+else
+  # An nx-remote build of a tree no artifacts run published (a newer push
+  # replaces a pending run on a busy branch, and uncommitted edits are never
+  # published) builds the client set here instead of waiting up to 45 min; the
+  # bundle then takes it as CMUX_TUI_CLIENT_LOCAL. Fleet builds already pass it.
+  if [[ -n "${NX_JOB_ID:-}" && -z "${CMUX_TUI_CLIENT_LOCAL:-}" && -x "$PWD/scripts/cmux-next/build-cmux-tui-client.sh" ]] &&
+    ! "$PWD/scripts/cmux-next/pin-cmux-tui.sh" probe 2>/dev/null | grep -q ': ready ('; then
+    CMUX_TUI_CLIENT_LOCAL="$("$PWD/scripts/cmux-next/build-cmux-tui-client.sh" --print-path)" || exit 1
+    export CMUX_TUI_CLIENT_LOCAL
+    echo "==> cmux-next: bundling the cmux-tui client set built on this host, $CMUX_TUI_CLIENT_LOCAL"
+  fi
+  "$PWD/scripts/cmux-next/pin-cmux-tui.sh" fetch || exit 1
+fi
+
+# Release reloads build the helper binaries universal: Release is universal
+# (ONLY_ACTIVE_ARCH = NO), and Bundle acpmux and Bundle optchat-chief need every
+# app architecture in their binaries, while both build scripts default to the
+# host. A fleet --release build failed on "acpmux has architectures arm64, but
+# the app needs arm64 x86_64" (job f03724be4852). An explicit choice wins.
+if [[ "$BUILD_CONFIGURATION" == "Release" ]]; then
+  export CMUX_NEXT_ACPMUX_ARCHS="${CMUX_NEXT_ACPMUX_ARCHS:-arm64 x86_64}"
+  export CMUX_NEXT_OPTCHAT_CHIEF_ARCHS="${CMUX_NEXT_OPTCHAT_CHIEF_ARCHS:-arm64 x86_64}"
+fi
+
+# cmux-next's agent pane starts the acpmux daemon from Resources/bin. A miss
+# builds it on a build host (CI, fleet, nx-remote: build-acpmux.sh
+# --check-build-allowed decides); a developer machine reuses the
+# commit-addressed cache but never runs Cargo.
+if [[ -n "${CMUX_NEXT_ACPMUX_BIN:-}" ]]; then
+  echo "==> cmux-next: bundling acpmux from CMUX_NEXT_ACPMUX_BIN=$CMUX_NEXT_ACPMUX_BIN"
+elif [[ -x "$PWD/scripts/cmux-next/build-acpmux.sh" ]]; then
+  if acpmux_cached="$("$PWD/scripts/cmux-next/build-acpmux.sh" --cached-only --print-path 2>/dev/null)"; then
+    export CMUX_NEXT_ACPMUX_BIN="$acpmux_cached"
+    echo "==> cmux-next: bundling cached acpmux from $CMUX_NEXT_ACPMUX_BIN"
+  elif "$PWD/scripts/cmux-next/build-acpmux.sh" --check-build-allowed; then
+    "$PWD/scripts/cmux-next/build-acpmux.sh" || exit 1
+    export CMUX_NEXT_ACPMUX_BIN="$("$PWD/scripts/cmux-next/build-acpmux.sh" --cached-only --print-path)"
+    echo "==> cmux-next: bundling acpmux built on this host from $CMUX_NEXT_ACPMUX_BIN"
+  else
+    echo "error: no cached acpmux for this checkout, and this machine never runs Cargo; build through nx-remote or the fleet, or set CMUX_NEXT_ACPMUX_BIN" >&2
     exit 1
   fi
+fi
+
+# The Home Chief's brain host (Native/OptChat/optchat-chief, see
+# HomeBrainHost.swift). Fleet and CI builds compile it and require it in the
+# bundle; a local reload bundles a cached build when one exists and otherwise
+# builds an app whose Chief does not answer (never Cargo on the developer Mac).
+if [[ -z "${CMUX_NEXT_OPTCHAT_CHIEF_BIN:-}" && -x "$PWD/scripts/cmux-next/build-optchat-chief.sh" ]]; then
+  if optchat_cached="$("$PWD/scripts/cmux-next/build-optchat-chief.sh" --cached-only --print-path 2>/dev/null)"; then
+    export CMUX_NEXT_OPTCHAT_CHIEF_BIN="$optchat_cached"
+  elif "$PWD/scripts/cmux-next/build-optchat-chief.sh" --check-build-allowed; then
+    "$PWD/scripts/cmux-next/build-optchat-chief.sh" || exit 1
+    export CMUX_NEXT_OPTCHAT_CHIEF_BIN="$("$PWD/scripts/cmux-next/build-optchat-chief.sh" --cached-only --print-path)"
+    export CMUX_NEXT_REQUIRE_OPTCHAT_CHIEF=1
+  fi
+fi
+[[ -n "${CMUX_NEXT_OPTCHAT_CHIEF_BIN:-}" ]] && echo "==> cmux-next: bundling optchat-chief from $CMUX_NEXT_OPTCHAT_CHIEF_BIN"
+
+# The cmux mobile iPhone host (cmux-next-ios/rust/crates/cmux-mobile-host), which Settings >
+# Mobile runs. Same rule as optchat-chief: fleet and CI builds
+# compile it on a miss and require it; a local reload bundles a cached build
+# when one exists and otherwise builds an app whose iPhone section says it is
+# unavailable (never Cargo on the developer Mac).
+if [[ "$BUILD_CONFIGURATION" == "Release" ]]; then
+  export CMUX_NEXT_MOBILE_HOST_ARCHS="${CMUX_NEXT_MOBILE_HOST_ARCHS:-arm64 x86_64}"
+fi
+if [[ -z "${CMUX_NEXT_MOBILE_HOST_BIN:-}" && -x "$PWD/scripts/cmux-next/build-mobile-host.sh" ]]; then
+  if cmux_mobile_host_cached="$("$PWD/scripts/cmux-next/build-mobile-host.sh" --cached-only --print-path 2>/dev/null)"; then
+    export CMUX_NEXT_MOBILE_HOST_BIN="$cmux_mobile_host_cached"
+  elif "$PWD/scripts/cmux-next/build-mobile-host.sh" --check-build-allowed; then
+    "$PWD/scripts/cmux-next/build-mobile-host.sh" || exit 1
+    export CMUX_NEXT_MOBILE_HOST_BIN="$("$PWD/scripts/cmux-next/build-mobile-host.sh" --cached-only --print-path)"
+    export CMUX_NEXT_REQUIRE_MOBILE_HOST=1
+  fi
+fi
+[[ -n "${CMUX_NEXT_MOBILE_HOST_BIN:-}" ]] && echo "==> cmux-next: bundling cmux-mobile-host from $CMUX_NEXT_MOBILE_HOST_BIN"
+
+# The web bundles (agent pane, pages, Agent Activity, palette ranker, webviews
+# app) are build output, not committed: they are built from the sources before
+# the compile, so the app never ships a stale or missing copy (cx-vn5). A warm
+# tree skips the build in about a second. The Xcode "Verify web bundles" phase
+# refuses an app build that skipped this.
+if [[ -x "$PWD/scripts/cmux-next/build-web-bundles.sh" ]]; then
+  echo "==> cmux-next: web bundles"
+  "$PWD/scripts/cmux-next/build-web-bundles.sh" || exit 1
 fi
 
 CMUX_DEV_PORT="$(choose_cmux_dev_port)"
@@ -1476,9 +1507,9 @@ XCODEBUILD_TAG_APP_PATH=""
 TAG_APP_FINAL_PATH=""
 TAG_APP_STAGING_PATH=""
 if [[ -n "$DERIVED_DATA" ]]; then
-  BUILD_PRODUCTS_DEBUG_DIR="${DERIVED_DATA}/Build/Products/Debug"
+  BUILD_PRODUCTS_DEBUG_DIR="${DERIVED_DATA}/Build/Products/${BUILD_CONFIGURATION}"
   if [[ -n "$TAG" ]]; then
-    XCODEBUILD_SOURCE_APP_NAME="$BASE_APP_NAME"
+    XCODEBUILD_SOURCE_APP_NAME="$PRODUCT_APP_NAME"
   fi
   XCODEBUILD_SOURCE_APP_PATH="${BUILD_PRODUCTS_DEBUG_DIR}/${XCODEBUILD_SOURCE_APP_NAME}.app"
   if [[ -n "$TAG" && "$APP_NAME" != "$XCODEBUILD_SOURCE_APP_NAME" ]]; then
@@ -1490,9 +1521,6 @@ fi
 # summary after the body redirect, then redirect bulk output into the log.
 exec 3>&1 4>&2
 exec >>"$RELOAD_LOG" 2>&1
-if [[ -n "$CMUX_TUI_CLIENT_RESOLVE_LOG" ]]; then
-  printf '%s\n' "$CMUX_TUI_CLIENT_RESOLVE_LOG"
-fi
 
 reload_finalize() {
   local rc=$?
@@ -1616,7 +1644,7 @@ fi
 XCODEBUILD_ARGS=(
   -project cmux.xcodeproj
   -scheme cmux
-  -configuration Debug
+  -configuration "$BUILD_CONFIGURATION"
   -destination 'platform=macOS'
 )
 if [[ -n "$DERIVED_DATA" ]]; then
@@ -1636,6 +1664,23 @@ if [[ -z "$TAG" ]]; then
   )
 fi
 XCODEBUILD_ARGS+=(PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID")
+# A dev bundle id never claims http/https at Default rank, Release mode included
+# (Resources/Info.plist; tests/test_web_url_handler_rank.py).
+web_url_handler_rank=Default
+case "$BUNDLE_ID" in com.cmuxterm.app.debug|com.cmuxterm.app.debug.*|com.cmuxterm.app.staging|com.cmuxterm.app.staging.*) web_url_handler_rank=Alternate ;; esac
+XCODEBUILD_ARGS+=(CMUX_WEB_URL_HANDLER_RANK="$web_url_handler_rank")
+# The cmux-next version (cmux-tui/Cargo.toml [workspace.package]) is the app's
+# CFBundleShortVersionString too, so the About window, crash reports and the
+# bundled `cmux --version` agree (check-version-surfaces.sh below). The
+# project's MARKETING_VERSION is classic's, merged from main.
+CMUX_NEXT_VERSION="$(python3 "$SCRIPT_DIR/ci/nightly_version.py" next-base --root "$SCRIPT_DIR/..")" || {
+  echo "error: cannot read the cmux-next version from cmux-tui/Cargo.toml" >&2
+  exit 1
+}
+XCODEBUILD_ARGS+=(MARKETING_VERSION="$CMUX_NEXT_VERSION")
+if [[ "$BUILD_CONFIGURATION" == Release ]]; then
+  XCODEBUILD_ARGS+=(CODE_SIGN_ENTITLEMENTS=)
+fi
 # The helper is assembled before Xcode emits the host's processed Info.plist.
 # Pass the final tagged display name explicitly so its TCC entry matches the
 # app the user is dogfooding instead of falling back to the untagged product.
@@ -1654,6 +1699,18 @@ if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
   XCODEBUILD_ARGS+=(CMUX_SKIP_ZIG_BUILD=1)
 fi
 SWIFT_OTHER_FLAGS='$(inherited)'
+if [[ "$BENCH_HOOKS" -eq 1 ]]; then
+  # Optimized as shipped, without DEBUG. CMUX_BENCH_HOOKS compiles in only the debug.* control surface
+  # and the counters it reads (`#if DEBUG || CMUX_BENCH_HOOKS`); every other DEBUG-only block (logging,
+  # fixtures, debug-only features) stays out. It also marks the binary so it can never ship
+  # (check-no-bench-hooks.sh).
+  # CMUX_BLOCKING_CHECKS: the main-thread blocking detector records (never traps) so a bench sees the
+  # blocking it hits (`debug.blocking`, plans/cmux-next/threading-model.md), as a Nightly would.
+  # shellcheck source=cmux-next/lib/bench-swift-defines.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/cmux-next/lib/bench-swift-defines.sh"
+  SWIFT_OTHER_FLAGS+=" $CMUX_BENCH_SWIFT_DEFINES"
+  echo "==> bench configuration: Release optimization with $CMUX_BENCH_SWIFT_DEFINES (no DEBUG)"
+fi
 if [[ "$SWIFT_FRONTEND_WORKAROUND" -eq 1 || "${CMUX_SWIFT_FRONTEND_WORKAROUND:-}" == "1" || "${CMUX_SWIFT_DISABLE_GLOBAL_ISEL:-}" == "1" ]]; then
   SWIFT_FRONTEND_WORKAROUND_EFFECTIVE=1
   echo "==> Swift frontend workaround enabled for this reload"
@@ -1674,7 +1731,7 @@ if [[ "${CMUX_SWIFT_INCREMENTAL_DIAGNOSTICS:-0}" == "1" ]]; then
 else
   SWIFT_INCREMENTAL_DIAGNOSTICS_EFFECTIVE=0
 fi
-if [[ "${CMUX_RELOAD_APP_EMIT_MODULE:-0}" != "1" ]]; then
+if reload_skips_app_module_emission "$(selected_xcode_version)"; then
   # A dev build runs the app; nothing imports its Swift module (only cmuxTests,
   # which reload never builds) and no Objective-C includes its generated header.
   # Xcode's integrated driver still emits the module in a separate job that
@@ -1683,7 +1740,8 @@ if [[ "${CMUX_RELOAD_APP_EMIT_MODULE:-0}" != "1" ]]; then
   # cmuxTests; the app's Debug configuration generates no Objective-C header.
   # Settings are per target, so packages and the CLI are unchanged. App edits
   # rebuild ~13 s faster on a 12-core runner. lldb's po/expr in app frames need
-  # the module: set CMUX_RELOAD_APP_EMIT_MODULE=1 to emit it again.
+  # the module: set CMUX_RELOAD_APP_EMIT_MODULE=1 to emit it again. Xcode 26.2
+  # and 26.3 emit it without being asked; see reload_skips_app_module_emission.
   # shellcheck disable=SC2016 # Xcode expands $(TARGET_NAME), not the shell
   XCODEBUILD_ARGS+=(
     'SWIFT_USE_INTEGRATED_DRIVER=$(CMUX_RELOAD_INTEGRATED_DRIVER_$(TARGET_NAME):default=YES)'
@@ -1706,7 +1764,18 @@ if [[ -n "$BUILD_PRODUCTS_DEBUG_DIR" ]]; then
   XCODEBUILD_CLEANED_OUTPUTS=0
 fi
 
-XCODEBUILD_LOCK_DIR="${TMPDIR:-/tmp}/cmux-xcodebuild-$(id -u).locks"
+# One lock dir per user whatever the caller's environment: an ssh session has no
+# TMPDIR and would fall back to /tmp, beside a separate set of slots under the
+# GUI session's TMPDIR. macOS's per-user temp dir is that GUI TMPDIR; the
+# local build guards (cmuxterm-hq) root their two-build gate there too.
+xcodebuild_lock_dir() {
+  local user_temp
+  user_temp="$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null || true)"
+  user_temp="${user_temp:-/tmp/}"
+  printf '%s/cmux-xcodebuild-%s.locks\n' "${user_temp%/}" "$(id -u)"
+}
+
+XCODEBUILD_LOCK_DIR="$(xcodebuild_lock_dir)"
 XCODEBUILD_LOCK_CONCURRENCY="${CMUX_XCODEBUILD_LOCK_CONCURRENCY:-5}"
 if ! is_positive_integer "$XCODEBUILD_LOCK_CONCURRENCY"; then
   echo "error: xcodebuild lock concurrency must be a positive integer" >&2
@@ -1866,22 +1935,22 @@ if LC_ALL=C grep -q 'BUILD INTERRUPTED' "$RELOAD_LOG"; then
   exit 65
 fi
 
-FALLBACK_APP_NAME="$BASE_APP_NAME"
+FALLBACK_APP_NAME="$PRODUCT_APP_NAME"
 SEARCH_APP_NAME="$APP_NAME"
 APP_EXECUTABLE_NAME="$SEARCH_APP_NAME"
 if [[ -n "$TAG" ]]; then
-  SEARCH_APP_NAME="$BASE_APP_NAME"
-  APP_EXECUTABLE_NAME="$BASE_APP_NAME"
+  SEARCH_APP_NAME="$PRODUCT_APP_NAME"
+  APP_EXECUTABLE_NAME="$PRODUCT_APP_NAME"
 fi
 if [[ -n "$DERIVED_DATA" ]]; then
-  APP_PATH="${DERIVED_DATA}/Build/Products/Debug/${SEARCH_APP_NAME}.app"
+  APP_PATH="${DERIVED_DATA}/Build/Products/${BUILD_CONFIGURATION}/${SEARCH_APP_NAME}.app"
   if [[ ! -d "${APP_PATH}" && "$SEARCH_APP_NAME" != "$FALLBACK_APP_NAME" ]]; then
-    APP_PATH="${DERIVED_DATA}/Build/Products/Debug/${FALLBACK_APP_NAME}.app"
+    APP_PATH="${DERIVED_DATA}/Build/Products/${BUILD_CONFIGURATION}/${FALLBACK_APP_NAME}.app"
     APP_EXECUTABLE_NAME="$FALLBACK_APP_NAME"
   fi
 else
   APP_BINARY="$(
-    find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Debug/${SEARCH_APP_NAME}.app/Contents/MacOS/${SEARCH_APP_NAME}" -print0 \
+    find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/${BUILD_CONFIGURATION}/${SEARCH_APP_NAME}.app/Contents/MacOS/${SEARCH_APP_NAME}" -print0 \
     | xargs -0 /usr/bin/stat -f "%m %N" 2>/dev/null \
     | sort -nr \
     | head -n 1 \
@@ -1892,7 +1961,7 @@ else
   fi
   if [[ -z "${APP_PATH}" && "$SEARCH_APP_NAME" != "$FALLBACK_APP_NAME" ]]; then
     APP_BINARY="$(
-      find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Debug/${FALLBACK_APP_NAME}.app/Contents/MacOS/${FALLBACK_APP_NAME}" -print0 \
+      find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/${BUILD_CONFIGURATION}/${FALLBACK_APP_NAME}.app/Contents/MacOS/${FALLBACK_APP_NAME}" -print0 \
       | xargs -0 /usr/bin/stat -f "%m %N" 2>/dev/null \
       | sort -nr \
       | head -n 1 \
@@ -2019,11 +2088,7 @@ fi
 
 CLI_PATH="$(dirname "$APP_PATH")/cmux"
 
-# Build cmuxd and ensure helper binaries are present (needed for both launch and no-launch).
-CMUXD_SRC="$PWD/cmuxd/zig-out/bin/cmuxd"
-if [[ -d "$PWD/cmuxd" ]]; then
-  (cd "$PWD/cmuxd" && zig build -Doptimize=ReleaseFast)
-fi
+# Ensure helper binaries are present (needed for both launch and no-launch).
 if [[ -d "$PWD/ghostty" ]]; then
   BIN_DIR="$APP_PATH/Contents/Resources/bin"
   GHOSTTY_HELPER_DEST="$BIN_DIR/ghostty"
@@ -2036,70 +2101,48 @@ if [[ -d "$PWD/ghostty" ]]; then
     "$PWD/scripts/build-ghostty-cli-helper.sh" --output "$GHOSTTY_HELPER_DEST"
   fi
 fi
-BIN_DIR="$APP_PATH/Contents/Resources/bin"
-CMUX_CUA_DEST="$BIN_DIR/cmux-cua"
-if [[ -x "$CMUX_CUA_DEST" ]]; then
-  echo "Preserving Xcode-built cmux Computer Use client at $CMUX_CUA_DEST"
+CMUX_CUA_HELPER_APP="$APP_PATH/Contents/Library/cmux Computer Use.app"
+if [[ -x "$CMUX_CUA_HELPER_APP/Contents/MacOS/cmux-cua" ]]; then
+  echo "Preserving Xcode-built cmux Computer Use helper at $CMUX_CUA_HELPER_APP"
 else
-  mkdir -p "$BIN_DIR"
-  "$PWD/scripts/build-cmux-cua.sh" --output "$CMUX_CUA_DEST"
+  "$PWD/scripts/build-cmux-cua.sh" --output "$PWD/build/cmux-cua/cmux-cua" \
+    --helper-app "$CMUX_CUA_HELPER_APP"
 fi
-if [[ -x "$CMUXD_SRC" ]]; then
-  BIN_DIR="$APP_PATH/Contents/Resources/bin"
-  mkdir -p "$BIN_DIR"
-  cp "$CMUXD_SRC" "$BIN_DIR/cmuxd"
-  chmod +x "$BIN_DIR/cmuxd"
-fi
-# The cmux-tui client the Machines panel uses for cloud sessions ships inside the
-# bundle like the Ghostty helper. Resolve its published inputs from this source
-# history unless CMUX_TUI_CLIENT_MANIFEST_URL / CMUX_TUI_CLIENT_LOCAL overrides it.
-# CMUX_SKIP_CMUX_TUI_CLIENT=1 preserves an existing copy for offline reloads.
-if [[ "${CMUX_SKIP_CMUX_TUI_CLIENT:-}" == "1" && -x "$APP_PATH/Contents/Resources/bin/cmux-tui" ]]; then
-  echo "Preserving bundled cmux-tui client (CMUX_SKIP_CMUX_TUI_CLIENT=1)"
-else
-  # Local Debug builds run on this Mac; fetch only its client slice. The
-  # installer's universal default remains available to distribution workflows.
-  cmux_tui_install_args=(
-    "$APP_PATH"
-    --arch native
-    --require-capability wireguard-hub
-    --require-capability browser-proxy
-  )
-  if [[ -n "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE" ]]; then
-    cmux_tui_install_args+=(
-      --manifest-url "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE"
-    )
-  elif [[ -z "${CMUX_TUI_CLIENT_MANIFEST_URL:-}" && -z "${CMUX_TUI_CLIENT_LOCAL:-}" ]]; then
-    # Resolved before the build unless CMUX_SKIP_CMUX_TUI_CLIENT=1 deferred it.
-    if [[ -z "$CMUX_TUI_CLIENT_COMMIT" ]]; then
-      CMUX_TUI_CLIENT_COMMIT="$(resolve_cmux_tui_client_commit)" || exit 1
-    fi
-    cmux_tui_manifest_base="${CMUX_TUI_CLIENT_MANIFEST_BASE:-https://files.cmux.com/cmux-tui}"
-    cmux_tui_install_args+=(
-      --manifest-url "${cmux_tui_manifest_base%/}/$CMUX_TUI_CLIENT_COMMIT/manifest.json"
-      --expected-commit "$CMUX_TUI_CLIENT_COMMIT"
-    )
-  fi
-  # The installer verifies the published manifest's build-provenance attestation
-  # through gh. A dev Mac without an authenticated gh is the one explicit
-  # exception; the installer prints the unattested warning in that case.
-  if ! command -v gh >/dev/null 2>&1 || ! gh auth token >/dev/null 2>&1; then
-    cmux_tui_install_args+=(--allow-unattested)
-  fi
-  "$PWD/scripts/install-cmux-tui-client.sh" "${cmux_tui_install_args[@]}"
-fi
+# A dev build uses a Developer ID helper from an installed release, NIGHTLY or
+# RC, or none. Drop an ad-hoc helper an older build left in this app.
+"$PWD/scripts/cmux-cua-helper-trust.sh" drop-unsigned "$APP_PATH"
+# The Bundle cmux-tui phase already placed the same-tree cmux-tui (or the pin
+# with CMUX_NEXT_TUI_MODE=pin, or CMUX_NEXT_TUI_BIN); refuse anything else.
+cmux_next_tui_version="$APP_PATH/Contents/Resources/bin/cmux-tui.version"
+cmux_next_tui_source="$(awk -F= '$1=="source"{print $2}' "$cmux_next_tui_version" 2>/dev/null || true)"
+case "$cmux_next_tui_source" in
+  tree-hosted|tree-local-build|pinned-hosted|override)
+    echo "Bundled cmux-tui: $(tr '\n' ' ' < "$cmux_next_tui_version")"
+    ;;
+  *)
+    echo "error: cmux-next bundle carries cmux-tui source '${cmux_next_tui_source:-none}', not the same-tree hosted build; see $cmux_next_tui_version" >&2
+    exit 1
+    ;;
+esac
 "$PWD/scripts/install-coderouter-client.sh" "$APP_PATH"
 if command -v xattr >/dev/null 2>&1; then
   xattr -cr "$APP_PATH" || true
 fi
-if ! /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-der "$APP_PATH" >/dev/null 2>&1; then
-  if [[ "${CMUX_ALLOW_UNSIGNED_DEV_APP:-}" == "1" ]]; then
+# Ad hoc unless CMUX_DEV_SIGN_IDENTITY names an identity (scripts/lib/dev-sign-identity.sh).
+# A set identity this host lacks, or one codesign fails with, fails here; it never falls
+# back to ad hoc or unsigned. No --deep: nested helpers keep their own signatures.
+cmux_dev_sign_identity_ready || exit 1
+if ! /usr/bin/codesign --force --sign "${CMUX_DEV_SIGN_IDENTITY:--}" --timestamp=none --generate-entitlement-der "$APP_PATH" >/dev/null 2>&1; then
+  if [[ "${CMUX_ALLOW_UNSIGNED_DEV_APP:-}" == "1" && "${CMUX_DEV_SIGN_IDENTITY:--}" == "-" ]]; then
     echo "warning: codesign failed for $APP_PATH; continuing because CMUX_ALLOW_UNSIGNED_DEV_APP=1" >&2
   else
-    echo "error: codesign failed for $APP_PATH" >&2
+    echo "error: codesign failed for $APP_PATH${CMUX_DEV_SIGN_IDENTITY:+ with CMUX_DEV_SIGN_IDENTITY '$CMUX_DEV_SIGN_IDENTITY'}" >&2
     exit 1
   fi
 fi
+# The browser host the bundle phase placed beside bin/cmux (the daemon runs its
+# sibling): present, signed like the daemon, and `version` runs.
+"$PWD/scripts/cmux-next/check-bundled-browser-host.sh" "$APP_PATH" || exit 1
 
 TAG_LAUNCHD_LABEL=""
 TAG_LAUNCHD_DOMAIN=""
@@ -2113,20 +2156,14 @@ fi
 # that path first can make Bundle.module trap during startup while the old
 # process is still initializing.
 if [[ -n "$TAG" && "$BUILD_ONLY" -ne 1 ]]; then
-  /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
-  sleep 0.3
-  TAG_PROCESS_PATTERN="${APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}"
-  pkill -f "$TAG_PROCESS_PATTERN" || true
-  for _ in {1..20}; do
-    if ! pgrep -f "$TAG_PROCESS_PATTERN" >/dev/null 2>&1; then
-      break
-    fi
-    sleep 0.1
-  done
-  # A startup process may not service its quit event yet. Do not replace the
-  # resource-bearing bundle while it is still mapped; force only this tagged
-  # executable after the bounded graceful window.
-  pkill -KILL -f "$TAG_PROCESS_PATTERN" >/dev/null 2>&1 || true
+  TAG_PROCESS_PATTERN="${APP_NAME}.app/Contents/MacOS/${PRODUCT_APP_NAME}"
+  # A startup process may not service its quit request yet. Do not replace the
+  # resource-bearing bundle while it is still mapped: the helper waits for the
+  # clean quit (it saves sessions and agent wake states), sends a second
+  # SIGTERM (the app's force exit) after a bounded window, never SIGKILLs, and
+  # fails (stopping this script under set -e) when the app is still running.
+  cmux_stop_app_instances "$BUNDLE_ID" "$TAG_PROCESS_PATTERN" \
+    "${XCODEBUILD_SOURCE_APP_PATH:+$XCODEBUILD_SOURCE_APP_PATH/Contents/MacOS/${PRODUCT_APP_NAME}}"
   # Tagged --launch runs are handed off to launchd so they survive the terminal
   # or automation process that invoked reload.sh. Remove a still-registered
   # prior job before publishing the replacement bundle.
@@ -2141,6 +2178,13 @@ if [[ "$BUILD_ONLY" -eq 1 && -n "${TAG_APP_STAGING_PATH:-}" ]]; then
 elif [[ -n "${TAG_APP_FINAL_PATH:-}" && -n "${TAG_APP_STAGING_PATH:-}" ]]; then
   rm -rf "$TAG_APP_FINAL_PATH"
   mv "$TAG_APP_STAGING_PATH" "$TAG_APP_FINAL_PATH"
+  # xcodebuild registered its raw product under the tag's bundle id. Leave the
+  # tagged bundle as the only one, so a launch by bundle id (notification
+  # click, URL, Dock) never starts the raw copy without the tagged environment.
+  if [[ -n "${XCODEBUILD_SOURCE_APP_PATH:-}" && -d "$XCODEBUILD_SOURCE_APP_PATH" ]]; then
+    /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+      -u "$XCODEBUILD_SOURCE_APP_PATH" >/dev/null 2>&1 || true
+  fi
   APP_PATH="$TAG_APP_FINAL_PATH"
 fi
 CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
@@ -2185,10 +2229,7 @@ fi
 if [[ "$LAUNCH" -eq 1 ]]; then
   if [[ -z "$TAG" ]]; then
     # Non-tag mode: kill any running instance (across any DerivedData path) to avoid socket conflicts.
-    /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
-    sleep 0.3
-    pkill -f "/${BASE_APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
-    sleep 0.3
+    cmux_stop_app_instances "$BUNDLE_ID" "/${BASE_APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}"
   fi
 
   # Avoid inheriting cmux/ghostty environment variables from the terminal that
@@ -2205,6 +2246,13 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     -u CMUX_PANEL_ID
     -u CMUXD_UNIX_PATH
     -u CMUX_TAG
+    # A launch from an acpmux agent inherits its daemon's home and socket: the
+    # build would share that daemon and hand it off as its own outdated one.
+    -u ACPMUX_HOME
+    -u ACPMUX_SOCKET
+    -u ACPMUX_ENV
+    -u ACPMUX_SESSION_ID
+    -u ACPMUX_SESSION_NAME
     -u CMUX_DEBUG_LOG
     -u CMUX_BUNDLE_ID
     -u CMUX_BUNDLED_CLI_PATH
@@ -2271,6 +2319,15 @@ if [[ "$LAUNCH" -eq 1 ]]; then
   if [[ "$PROD_AUTH" -eq 1 ]]; then
     TAG_LAUNCH_ENV+=(CMUX_AUTH_ENVIRONMENT=production)
   fi
+  # cmux-next Debug builds load the agent pane from this loopback Vite dev
+  # server instead of the bundled page (webviews/src/agent-session/acpmux/README.md).
+  if [[ -n "${CMUX_NEXT_AGENT_PANE_DEV_URL:-}" ]]; then
+    TAG_LAUNCH_ENV+=(CMUX_NEXT_AGENT_PANE_DEV_URL="$CMUX_NEXT_AGENT_PANE_DEV_URL")
+  fi
+  # ... and every other page from the `bun run dev:pages` server (PageDevServer).
+  if [[ -n "${CMUX_NEXT_PAGES_DEV_URL:-}" ]]; then
+    TAG_LAUNCH_ENV+=(CMUX_NEXT_PAGES_DEV_URL="$CMUX_NEXT_PAGES_DEV_URL")
+  fi
   if [[ -n "$AUTH_CREDENTIALS_FILE" ]]; then
     TAG_LAUNCH_ENV+=(CMUX_AUTH_CREDENTIALS_FILE="$AUTH_CREDENTIALS_FILE")
   fi
@@ -2280,6 +2337,15 @@ if [[ "$LAUNCH" -eq 1 ]]; then
       CMUX_DEV_AUTH_REPLACE_SESSION=1
     )
   fi
+  # nx-remote GUI jobs (cmuxterm-hq build-host/README.md): the tagged launch below
+  # runs through `env -i`, so pass on the job's markers when the caller has them.
+  # NX_REMOTE=1: the app asks for no notification permission (DesktopNotifier);
+  # ACPMUX_AGENT_LAUNCH=deny: the app's acpmux starts no agent.
+  for NX_PASS_VAR in NX_REMOTE ACPMUX_AGENT_LAUNCH; do
+    if [[ -n "${!NX_PASS_VAR:-}" ]]; then
+      TAG_LAUNCH_ENV+=("$NX_PASS_VAR=${!NX_PASS_VAR}")
+    fi
+  done
 
   LAUNCH_CMD=()
   LAUNCH_RETRY_CMD=()
@@ -2289,7 +2355,7 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     # the user chooses Quit. A loaded plist with KeepAlive=false still survives
     # the invoking terminal/automation process, while a normal exit stays exited.
     # It also avoids LaunchServices reusing stale LSEnvironment values.
-    APP_EXECUTABLE="$APP_PATH/Contents/MacOS/${BASE_APP_NAME}"
+    APP_EXECUTABLE="$APP_PATH/Contents/MacOS/${PRODUCT_APP_NAME}"
     if [[ ! -x "$APP_EXECUTABLE" ]]; then
       echo "error: tagged app executable not found: $APP_EXECUTABLE" >&2
       exit 1

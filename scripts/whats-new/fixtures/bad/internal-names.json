@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1, "version": "1.0.0-nightly.7", "channel": "nightly", "date": "2026-10-07",
+  "headline": {"en": "Landed from feat-cmux-next"},
+  "entries": [
+    {"id": "leak", "category": "improved", "title": {"en": "Fixes cx-ncc.45 in the hq-5c lane"},
+     "summary": {"en": "Merged in #14959 at 1960804a7c4e per TOP-SECTION-ITEMS-ARE-PAGES."},
+     "tryIt": {"action": "home.show"}, "platforms": ["macos"], "audience": "all"}
+  ]
+}

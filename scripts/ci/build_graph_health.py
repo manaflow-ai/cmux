@@ -34,8 +34,6 @@ def classify_path(path: str) -> tuple[str, str]:
         rest = path[len("Sources/"):]
         directory = rest.split("/", 1)[0] if "/" in rest else "<root>"
         return ("app", directory)
-    if path.startswith("CLI/"):
-        return ("cli", "CLI")
     parts = path.split("/")
     if len(parts) >= 4 and parts[0] == "Packages" and parts[1] in {"macOS", "iOS", "Shared"}:
         return ("package", f"{parts[1]}/{parts[2]}")

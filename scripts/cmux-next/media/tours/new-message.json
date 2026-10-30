@@ -1,0 +1,14 @@
+{
+  "title": "Home New Message: the Chiefs under To:",
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "Go to Home", "cmux": ["action", "run", "home.show"], "wait": 4, "shot": false,
+     "optional": "the Chief's daemon may not start on this runner"},
+    {"title": "New Message: the Chiefs listed under To: before anything is typed", "cmux": ["action", "run", "home.newMessage"], "wait": 3,
+     "optional": "New Message needs the Home page in this build"},
+    {"title": "Dark", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 2,
+     "optional": "debug.appearance is DEBUG only"},
+    {"title": "Back to the system appearance", "rpc": {"method": "debug.appearance", "params": {"mode": "system"}}, "wait": 1, "shot": false,
+     "optional": "debug.appearance is DEBUG only"}
+  ]
+}

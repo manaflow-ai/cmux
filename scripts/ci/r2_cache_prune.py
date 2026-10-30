@@ -27,6 +27,12 @@ Retention, by the first matching key prefix:
                            days, about 35 GiB a day.
   git-seed-                1 day. One main checkout's objects per seeded
                            commit; restores read only the newest pointer.
+  git-mirror-cmux-         1 day. git-mirror-bundle.yml's full-repository bundle,
+                           at most one every 12 hours; glaeda-git-mirror seeds
+                           from the newest by its pointer only.
+  cmux-next-fast-          1 day. The cmux-next fast tier's build seeds in
+                           cmux-ci-cache-next, one every 30 minutes at most;
+                           pull requests restore the newest by prefix.
   everything else          30 days. Keyed by content (a Package.resolved or
                            toolchain hash), so an old key stays exact for a
                            pull request whose base still has that input.
@@ -54,6 +60,8 @@ RETENTION_DAYS = (
     ("admission-derived-data-", 1),
     ("xcode-compilation-", 1),
     ("git-seed-", 1),
+    ("cmux-next-fast-", 1),
+    ("git-mirror-cmux-", 1),
     ("", 30),
 )
 ARCHIVE = re.compile(r"^(v1/[^/]+)/objects/(?P<name>[A-Za-z0-9._-]+)\.(?:tar\.zst|tar\.gz)$")

@@ -1,0 +1,20 @@
+# Paths the base autofix never writes (shell globs, repository-relative; a
+# "!" line exempts a path from every freeze): the
+# permanent freezes and the settings slot. A regenerated file under one is
+# reported and left to its owner's pull request (Package.swift: the app FFI pin
+# goes through app-ffi-release.yml's app-ffi-repin pull request).
+cmux.xcodeproj/project.pbxproj
+Packages/macOS/CmuxNext/Package.swift
+schemas/settings/*
+Packages/macOS/CmuxNext/Sources/CmuxNextSettings/*
+webviews/src/pages/settings/*
+docs/mdm/*
+# Pure generator output of the settings export tests (regenerate-settings-exports.sh on a
+# Mac; SettingsSchemaExportTests compares them with a fresh export): the bot
+# copies them in (hq-11, 2026-10-16). The settings sources stay frozen.
+!schemas/settings/settings-schema.json
+!docs/mdm/com.manaflow.cmux*
+!docs/mdm/cmux-example.mobileconfig
+!docs/mdm/managed-preferences.md
+# The bot pushes with GITHUB_TOKEN, which cannot push workflow files.
+.github/workflows/*

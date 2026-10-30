@@ -1,0 +1,77 @@
+# Files whose contents determine the cmux-next cmux-tui tree key.
+#
+# The first column is the git object type at the revision.
+#
+# `gitlink ghostty` counts only for the v1 key (cmux_tui_tree_key.py
+# V1_ONLY_INPUTS); the v2 key leaves the classic submodule out.
+#
+# MACOS-CROSS-COMPILE-ON-LINUX: scripts/ci/cmux-tui-darwin-builder (mac or
+# linux) selects where the macOS targets build, and the Linux build reads the
+# cross scripts and framework stubs below. The two builders give byte-different
+# binaries, so both the switch and the Linux recipe are key inputs: a switch
+# back to mac never reuses a Linux-built tree, nor the reverse.
+tree cmux-tui
+gitlink ghostty
+gitlink ghostty-next
+blob scripts/cmux-next/build-layout-reducer-ffi.sh
+blob scripts/ci/cargo-groups.sh
+blob scripts/ci/cmux-tui-darwin-builder
+blob scripts/ci/macos-cross.sh
+blob scripts/ci/macos_stubs.py
+blob scripts/ci/macho_weaken.py
+tree scripts/ci/macos-stubs
+# cmux-cloud, a tree companion (cmux-tui-cloud-server-*), builds from its own
+# crate outside cmux-tui/ (macos-cross.sh, cmux-tui-build-package.yml). Its
+# cmux-tui path dependencies are covered by `tree cmux-tui`.
+tree first-party-apps/cloud/server
+# Files cmux-tui crates compile in with include_str!/include_bytes! (cx-t3e5,
+# 2026-10-08). scripts/ci/check_cmux_tui_tree_inputs.py fails when a crate
+# embeds a file this list does not cover and prints the line to add. A blob a
+# revision lacks is left out of its key.
+blob Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Resources/browser-sources.json
+blob Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json
+blob backend/catalog/cloud-operations.json
+blob backend/packages/home-core/conformance/conversation-cases.json
+blob backend/packages/home-core/conformance/conversation-import-cases.json
+blob backend/packages/home-core/conformance/conversation-search-cases.json
+blob docs/remote-agents-and-cloud.md
+blob mux/packages/brain/conformance/chief-cases.json
+blob plans/cmux-next/action-surfaces.json
+# Not plans/cmux-next/spec-proposals/visuals/design-tokens.json: cmux-theme-tokens
+# embeds it and cmux-motion's build.rs reads it, but no published binary links
+# either crate (scripts/ci/check_cmux_tui_tree_inputs.py checks the closure).
+blob schemas/chief-home/vectors.json
+blob schemas/agent-url-policy/vectors.json
+blob schemas/chief-cmux-target/vectors.json
+blob schemas/automation-input/vectors.json
+blob schemas/automation-lease/vectors.json
+blob schemas/deeplinks/agent-link.json
+blob schemas/chief-home/vectors.json
+blob schemas/ghostty-shell-features/vectors.json
+blob schemas/link-token/keyset-vectors.json
+blob schemas/remote-tab/client.json
+blob schemas/remote-tab/cookie-sync.json
+blob schemas/remote-tab/input-mapping.json
+blob schemas/remote-tab/menu-token.json
+blob schemas/remote-tab/messages.json
+blob schemas/remote-tab/scroll-writer.json
+blob schemas/remote-tab/session.json
+blob schemas/terminal-sizing/fixtures.json
+blob schemas/settings/retired-keys.json
+blob schemas/settings/source/subsessions.json
+blob schemas/settings/source/trust.json
+blob schemas/settings/settings-schema.json
+blob schemas/settings/source/subsessions.json
+blob scripts/cmux-next/cmux-tui.pin
+blob skills/cmux-browser/SKILL.md
+blob skills/cmux-browser/references/authentication.md
+blob skills/cmux-browser/references/commands.md
+blob skills/cmux-browser/references/proxy-support.md
+blob skills/cmux-browser/references/session-management.md
+blob skills/cmux-browser/references/snapshot-refs.md
+blob skills/cmux-browser/references/surface-discovery.md
+blob skills/cmux-browser/references/video-recording.md
+blob skills/cmux-browser/templates/authenticated-session.sh
+blob skills/cmux-browser/templates/capture-workflow.sh
+blob skills/cmux-browser/templates/form-automation.sh
+blob skills/cmux-cua/SKILL.md

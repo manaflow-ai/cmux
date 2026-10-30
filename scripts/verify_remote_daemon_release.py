@@ -23,9 +23,28 @@ TARGETS = {("darwin", "arm64"), ("darwin", "amd64"),
            ("linux", "arm64"), ("linux", "amd64")}
 
 
+# Credentials the bundled CLI must never inherit (see
+# scripts/ci/lib/signing-runtime-guard.sh, which the shell checks use).
+SECRET_ENV = re.compile(
+    r"^(APPLE_CERTIFICATE_|ASC_API_|IOS_|APPLE_.*PROVISIONING_PROFILE|CMUX_RELEASE_APP_|CONTENT_SIGNING_|CF_R2_"
+    r"|ACTIONS_ID_TOKEN_REQUEST_|ACTIONS_RUNTIME_TOKEN$"
+    r"|(NIGHTLY_|SHARED_)?SPARKLE_(NEXT_)?PRIVATE_KEY$|AWS_SECRET_ACCESS_KEY$|AWS_ACCESS_KEY_ID$"
+    r"|SENTRY_AUTH_TOKEN$|GH_TOKEN$|GITHUB_TOKEN$)"
+)
+
+
 def require(condition, message):
     if not condition:
         raise ValueError(message)
+
+
+def refuse_with_signing_keychain():
+    """--verify-cli runs the bundled CLI, so the CI signing keychain must be gone."""
+    state_dir = os.environ.get("CMUX_SIGNING_KEYCHAIN_STATE_DIR") or (
+        os.path.join(os.environ["RUNNER_TEMP"], "cmux-signing-keychain") if os.environ.get("RUNNER_TEMP") else "")
+    present = sorted(path.stem for path in Path(state_dir).glob("*.password")) if state_dir else []
+    require(not present, "a CI signing keychain is still present (" + " ".join(present)
+            + "); run scripts/ci/signing-keychain.sh delete before --verify-cli runs the bundled CLI")
 
 
 def asset_path(directory, name):
@@ -34,6 +53,16 @@ def asset_path(directory, name):
     path = directory / name
     require(path.is_file() and path.stat().st_size > 0, f"missing or empty asset: {name}")
     return path
+
+
+def suffixed_channel(release_tag):
+    """The version channel of a release whose daemon assets carry a build suffix.
+
+    nightly and rc builds publish `<version>-<channel>.<build>`; the cmux-next
+    track publishes to release `nightly-next` with a `-nightly.<build>` version.
+    Other releases (stable tags) have unsuffixed assets and return None.
+    """
+    return {"nightly": "nightly", "nightly-next": "nightly", "rc": "rc"}.get(release_tag)
 
 
 def verify_assets(manifest_path, directory):
@@ -51,8 +80,8 @@ def verify_assets(manifest_path, directory):
             and {(e["goOS"], e["goArch"]) for e in entries} == TARGETS,
             "daemon manifest must contain each supported platform exactly once")
     suffix = ""
-    if manifest["releaseTag"] in ("nightly", "rc"):
-        channel = manifest["releaseTag"]
+    channel = suffixed_channel(manifest["releaseTag"])
+    if channel is not None:
         version_parts = manifest["appVersion"].rsplit(f"-{channel}.", 1)
         require(len(version_parts) == 2 and version_parts[1].isdigit(), f"invalid {channel} daemon version")
         suffix = "-" + version_parts[1]
@@ -112,8 +141,10 @@ def verify_bundle(app, manifest, embed=False, verify_cli=False,
     if not verify_cli:
         return
     cli = app / "Contents/Resources/bin/cmux"
+    refuse_with_signing_keychain()
     # A release check must never be rescued by the developer's local-build override.
-    environment = {key: value for key, value in os.environ.items() if not key.startswith("CMUX_")}
+    environment = {key: value for key, value in os.environ.items()
+                   if not key.startswith("CMUX_") and not SECRET_ENV.match(key)}
     for entry in manifest["entries"]:
         result = subprocess.run(
             [str(cli), "--json", "remote-daemon-status", "--os", entry["goOS"], "--arch", entry["goArch"]],
