@@ -235,7 +235,6 @@ impl Mux {
             let receipt = registry
                 .commit_registry_intent_with(
                     crate::workspace_registry::RegistryIntent::Workspace(intent),
-                    || {},
                     Some(settle),
                 )?
                 .into_workspace()?;
