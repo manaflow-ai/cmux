@@ -382,6 +382,8 @@ async fn forward_inner(
                 && params.get("afterSeq").is_none_or(Value::is_null)
             {
                 peer.note_hidden_attach_page(&id, &result);
+            } else if let Some(after) = params.get("afterSeq").and_then(Value::as_u64) {
+                peer.note_attached_page_after(&id, after, &result);
             } else {
                 // Advance only after permission-history filtering.
                 peer.note_attached_page(&id, &result);

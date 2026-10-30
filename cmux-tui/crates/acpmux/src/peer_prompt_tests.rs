@@ -134,6 +134,15 @@ fn failed_first_attach_can_establish_a_new_baseline() {
     assert!(peer.mark_attached("s"));
 }
 
+#[test]
+fn first_attach_preserves_an_explicit_after_cursor_when_empty() {
+    let (notices, _) = mpsc::channel(16);
+    let peer = Peer::new("box", "ws://127.0.0.1:9", None, None, notices);
+    assert!(peer.mark_attached("s"));
+    peer.note_attached_page_after("s", 42, &json!({"events": []}));
+    assert_eq!(peer.attached.lock_or_recover()["s"], 42);
+}
+
 #[tokio::test]
 async fn reconnect_replays_before_admitting_a_concurrent_attach() {
     replay_during_handshake(false, false).await;

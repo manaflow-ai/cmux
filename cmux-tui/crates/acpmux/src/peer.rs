@@ -753,6 +753,30 @@ impl Peer {
             .or_insert(seq);
     }
 
+    /// Record an explicit `afterSeq` baseline together with the delivered page.
+    /// An empty page still means the caller has already consumed everything
+    /// through that sequence.
+    pub fn note_attached_page_after(&self, session_id: &str, after: u64, page: &Value) {
+        let replay = self.replay_highwater.lock_or_recover();
+        if replay.contains_key(session_id) {
+            return;
+        }
+        let seq = page
+            .get("events")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|e| e.get("seq").and_then(Value::as_u64))
+            .max()
+            .unwrap_or(after)
+            .max(after);
+        self.attached
+            .lock_or_recover()
+            .entry(session_id.to_owned())
+            .and_modify(|cursor| *cursor = (*cursor).max(seq))
+            .or_insert(seq);
+    }
+
     /// A first hidden attach deliberately reads no history. Its snapshot is the
     /// stream baseline even when the page has no events. Keep a newer live cursor
     /// if notifications raced the response; never move beyond the peer's snapshot.
