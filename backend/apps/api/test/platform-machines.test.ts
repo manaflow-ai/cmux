@@ -265,7 +265,7 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
   it("refuses an image larger than the offer and durably removes its VM", async () => {
     const c = caller()
     const stub = cloudStub(c.team)
-    await stub.fakeControl({ image_size: { cpu: 8, memory: 16384, storage: 65536 } })
+    await stub.fakeControl({ image_size: { cpu: 8, memory: 16384, storage: 65536 } } as never)
     const name = nameOf()
     const target = { vcpu: 2, memGiB: 4, diskGiB: 16 }
     expect(await rpc.create(c, name, target)).toMatchObject({ ok: false, code: "cloud.platform.provision_failed", retryable: false })
@@ -322,7 +322,7 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
   it("retries temporary snapshot retirement in the alarm after the caller disappears", async () => {
     const c = caller()
     const { machine, stub } = await bootAndBind(c)
-    await stub.fakeControl({ snapshot_delete_refuse: 1 })
+    await stub.fakeControl({ snapshot_delete_refuse: 1 } as never)
     const forked = await rpc.fork(c, machine, nameOf())
     expect(forked).toMatchObject({ ok: true, value: { state: "starting", targetShape: { vcpu: 2, memGiB: 4, diskGiB: 16 } } })
     expect(((await stub.fakeControl({})) as any).snapshots).toHaveLength(1)
