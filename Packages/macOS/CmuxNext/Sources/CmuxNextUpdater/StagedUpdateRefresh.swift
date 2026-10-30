@@ -49,8 +49,10 @@ final class StagedUpdateRefresh {
     private var installing = false
     let timer: DemandTimer
     /// The install click waiting for the feed (``beforeInstall(updater:install:)``): the staged
-    /// build it read against and the install to run if that build stays.
-    private var pendingClick: (staged: String, install: @MainActor () -> Void)?
+    /// build it read against, the install to run if that build stays, which click it is, and
+    /// whether the appcast answered (a slow pulled list never hides the appcast's answer).
+    private var pendingClick: (staged: String, install: @MainActor () -> Void, click: Int, feedAnswered: Bool)?
+    private var clicks = 0
     /// The install click's deadline: the feed has ``clickProbeDeadline`` to answer.
     let clickTimer: DemandTimer
     /// How long the install click waits for the feed before it installs the staged build.
@@ -76,33 +78,48 @@ final class StagedUpdateRefresh {
     /// `install` runs. A second click while the feed is read joins the first.
     func beforeInstall(updater: UpdaterService, install: @escaping @MainActor () -> Void) {
         guard pendingClick == nil else { return }
-        guard updater.disabledReason == nil, isCancellable(updater), let staged = updater.stagedBuild(), !staged.isEmpty else {
-            return install()
+        guard updater.disabledReason == nil, let staged = updater.stagedBuild(), !staged.isEmpty else { return install() }
+        guard isCancellable(updater) else {
+            // Nothing to cancel, so nothing to swap: a staged build known pulled is still never installed.
+            guard Self.knownPulled(staged, updater: updater) else { return install() }
+            updater.log.append("install click: staged build \(staged) was pulled, and no installer is held to cancel; not installing it")
+            updater.presentUpdateUI?()
+            return
         }
         updater.log.append("install click: looking for a build newer than staged build \(staged)")
-        pendingClick = (staged, install)
+        clicks += 1
+        let click = clicks
+        pendingClick = (staged, install, click, false)
         let probe = updater.probe()
         let pulled = updater.pulledWatch.refresh()
         clickTimer.schedule(after: Self.clickProbeDeadline) { @MainActor [weak self, weak updater] in
             guard let self, let updater else { return }
-            self.settleClick(answered: false, updater: updater)
+            self.settleClick(answered: self.pendingClick?.feedAnswered ?? false, updater: updater)
         }
         Task { @MainActor [weak self, weak updater] in
             let failure = await probe.value
+            guard let self else { return }
+            if failure == nil, self.pendingClick?.click == click { self.pendingClick?.feedAnswered = true }
             await pulled.value
-            guard let self, let updater else { return }
+            guard let updater, self.pendingClick?.click == click else { return }
             self.settleClick(answered: failure == nil, updater: updater)
         }
     }
 
-    /// The feed answered (or its deadline passed): the first of the two decides the click.
+    /// A build on the pulled list, or one dropped as pulled before: it stays pulled, whatever the
+    /// latest read of the list said.
+    static func knownPulled(_ build: String, updater: UpdaterService) -> Bool {
+        updater.pulledWatch.isPulled(build) || updater.droppedPulled.contains(build)
+    }
+
+    /// The feed and the pulled list answered (or the deadline passed, with whatever the appcast
+    /// answered by then): the first of the two decides the click.
     private func settleClick(answered: Bool, updater: UpdaterService) {
-        guard let (staged, install) = pendingClick else { return }
+        guard let (staged, install, _, _) = pendingClick else { return }
         pendingClick = nil
         clickTimer.cancel()
         guard updater.stagedBuild() == staged else { return install() }
-        // A build dropped as pulled before stays pulled, whatever the latest read of the list said.
-        let pulled = updater.pulledWatch.isPulled(staged) || updater.droppedPulled.contains(staged)
+        let pulled = Self.knownPulled(staged, updater: updater)
         var newer: String?
         if answered, case .updateAvailable(let item)? = updater.lastProbe?.outcome, AppcastSelector.isOlder(staged, than: item.version) {
             newer = item.version

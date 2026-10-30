@@ -47,7 +47,7 @@ extension UpdaterService {
     /// The pulled list was read, or a build was staged or found: a pulled staged build gives way to
     /// the newest good one, and a pulled running build updates to it.
     func followPulled() {
-        guard disabledReason == nil, newestFetch == nil, !pulledWatch.pulledBuilds.isEmpty else { return }
+        guard disabledReason == nil, !dropPulledAvailable(), newestFetch == nil, !pulledWatch.pulledBuilds.isEmpty else { return }
         if case .ready = flow.phase, let staged = stagedBuild(), !staged.isEmpty, pulledWatch.isPulled(staged) {
             // An install click decides for itself (``StagedUpdateRefresh/beforeInstall(updater:install:)``).
             guard !flow.installRequested, !stagedRefresh.clickWaits, cancelStaged() else { return }
@@ -76,6 +76,17 @@ extension UpdaterService {
         }
     }
 
+    /// A found build waiting on its ask that is known pulled (a cached appcast) ends its prompt: it
+    /// never shows as "Update Available" and never downloads. True when it did.
+    func dropPulledAvailable() -> Bool {
+        guard case .available = flow.phase, let found = availableBuild(), StagedUpdateRefresh.knownPulled(found, updater: self) else {
+            return false
+        }
+        log.append("found build \(found) was pulled: not offering it")
+        dismissAvailable()
+        return true
+    }
+
     /// Follows the phase while the newest build downloads: a found build downloads (the person
     /// already chose to update), and the fetch ends once it is staged, or the check ends without one.
     func followNewestFetch(_ phase: UpdateIndicatorPhase, previous: UpdateIndicatorPhase) {
@@ -83,7 +94,7 @@ extension UpdaterService {
         switch phase {
         case .available:
             // The click's own request downloads it (``UpdateFlow``); a pulled build's replacement downloads here.
-            if fetch != .click { acceptAvailable() }
+            if fetch != .click, !dropPulledAvailable() { acceptAvailable() }
         case .checking, .downloading:
             break
         case .hidden:

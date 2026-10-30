@@ -117,6 +117,8 @@ extension UpdaterService {
             // The newest build of the ring, not a stale staged one (one click, one relaunch).
             stagedRefresh.beforeInstall(updater: self) { [weak self] in self?.installStagedNow() }
         case .download:
+            // A known-pulled found build never downloads, whoever asked (``dropPulledAvailable()``).
+            guard !dropPulledAvailable() else { return }
             log.append("gate: downloading the available update")
             acceptAvailable()
         case .quit:
