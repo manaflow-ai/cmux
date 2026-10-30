@@ -1062,12 +1062,12 @@ pub async fn serve_ws_until(
                 pairing::Admitted::Ticket(secret) => {
                     let close = tokio::select! {
                         biased;
-                        () = shutdown.normal() => Some(false),
-                        restarting = shutdown.closing_as_restart() => Some(restarting),
-                        () = pairing::serve_redeem(hub, &mut ws, secret) => None,
+                        () = shutdown.normal() => true,
+                        () = shutdown.closing() => true,
+                        () = pairing::serve_redeem(hub, &mut ws, secret) => false,
                     };
-                    if let Some(restarting) = close {
-                        ws_shutdown::close(&mut ws, restarting).await;
+                    if close {
+                        ws_shutdown::close(&mut ws, shutdown.close_code_restart()).await;
                     }
                     return;
                 }
