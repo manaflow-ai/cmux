@@ -117,6 +117,7 @@ public struct ScreenSessionView: View {
                 close()
             }
             .labelStyle(.iconOnly)
+            .accessibilityIdentifier("screen.close")
             VStack(alignment: .leading, spacing: 1) {
                 Text(session.title).font(.subheadline.weight(.semibold)).lineLimit(1)
                 if features.contains(.stats), session.preferences.showStats, case .connected = session.phase { stats }
@@ -191,6 +192,7 @@ public struct ScreenSessionView: View {
             .font(.caption2.monospacedDigit())
             .foregroundStyle(.secondary)
             .lineLimit(1)
+            .accessibilityIdentifier("screen.stats")
     }
 
     @ViewBuilder private var stateCard: some View {
