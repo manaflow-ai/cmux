@@ -51,7 +51,7 @@ struct AgentChatsPalettePage {
         }
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let spec = AcpmuxChatWindows.Spec(window: window, limit: pageLimit, topLevel: true, query: text.isEmpty ? nil : text,
-                                          untitled: AgentChatsPaletteStrings.untitled, history: text.isEmpty ? nil : history,
+                                          untitled: AgentChatsPaletteStrings.untitled, history: nil,
                                           count: true)
         // The follower lives as long as this query's stream: ending it releases the token.
         let token = FollowToken()
