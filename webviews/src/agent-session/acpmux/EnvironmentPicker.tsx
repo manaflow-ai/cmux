@@ -161,9 +161,9 @@ export function EnvironmentPicker({
   useLocationOpener(menu, () => setOpen(true));
   useEffect(() => {
     if (!closeOnTrustAsk || !open) return;
-    setOpen(false);
+    setPopoverOpen(false);
     setQuery("");
-  }, [closeOnTrustAsk, open]);
+  }, [closeOnTrustAsk, open, setPopoverOpen]);
   // Sandboxed is the pick: no machine row is checked, and a machine pick goes back to Persistent.
   const sandboxed = runMode?.mode === "sandboxed";
   const checkedRow = sandboxed ? undefined : currentRow;

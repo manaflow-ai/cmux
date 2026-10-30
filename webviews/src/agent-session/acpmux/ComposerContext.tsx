@@ -839,9 +839,9 @@ function LocationPicker({
   useLocationOpener(disabled ? undefined : menu, () => setOpen(true));
   useEffect(() => {
     if (!closeOnTrustAsk || !open) return;
-    setOpen(false);
+    setPopoverOpen(false);
     setQuery("");
-  }, [closeOnTrustAsk, open]);
+  }, [closeOnTrustAsk, open, setPopoverOpen]);
   useMachineRefresh(open && !disabled, onOpen);
   // A folder list names duplicates apart by a short suffix, its path only on hover (projectSuffix.ts).
   const suffixes = useMemo(

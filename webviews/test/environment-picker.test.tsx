@@ -257,7 +257,9 @@ test("previews off: the row keeps its plain Computer menu", async () => {
 for (const environments of [false, true]) {
   // Base UI retains a closed popup during its exit transition; only an open popup can cover the ask.
   const menu = () =>
-    doc().querySelector(environments ? ".acpmux-env-popover:not([data-closed])" : ".acpmux-location-menu:not([data-closed])");
+    doc().querySelector(
+      environments ? ".acpmux-env-popover:not([data-closed])" : ".acpmux-location-menu:not([data-closed])",
+    );
   test(`trust question closes an open destination picker (previews ${environments})`, async () => {
     await mount(environments);
     await openPicker();
@@ -290,11 +292,14 @@ for (const environments of [false, true]) {
           // Assert before the outer act flush; mutation records also catch anything flushSync flushed.
           expect(Boolean(doc().querySelector(selector))).toBe(false);
           expect(refreshes).toBe(0);
-          const insertedPopup = observer.takeRecords().some((record) =>
-            [...record.addedNodes].some(
-              (node) => node instanceof dom.window.Element && (node.matches(selector) || node.querySelector(selector)),
-            ),
-          );
+          const insertedPopup = observer
+            .takeRecords()
+            .some((record) =>
+              [...record.addedNodes].some(
+                (node) =>
+                  node instanceof dom.window.Element && (node.matches(selector) || node.querySelector(selector)),
+              ),
+            );
           expect(insertedPopup).toBe(false);
         });
         expect(Boolean(doc().querySelector(selector))).toBe(false);
