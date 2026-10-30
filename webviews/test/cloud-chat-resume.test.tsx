@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, expect, jest, setSystemTime, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
-import type { Root } from "react-dom/client";
+import { flushSync, type Root } from "react-dom/client";
 
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
 const scope = globalThis as Record<string, unknown>;
@@ -309,10 +309,7 @@ test.serial("a recheck that never resolves still ends recovery at the deadline",
       </div>
     );
   }
-  await act(async () => {
-    root.render(<Recovery />);
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
-  });
+  flushSync(() => root.render(<Recovery />));
   const wake = mount.querySelector<HTMLButtonElement>('[data-action="deadline-wake"]');
   expect(wake).not.toBeNull();
   await act(async () => wake!.click());
