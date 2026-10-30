@@ -14,6 +14,8 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
   virtualConsole: new VirtualConsole(),
 });
 const scope = globalThis as Record<string, unknown>;
+// Reduce Motion is on unless a test turns it off: the occluded rail's leave grace is skipped under it.
+let reduceMotion = true;
 const replacements: Record<string, unknown> = {
   window: dom.window,
   document: dom.window.document,
@@ -25,7 +27,7 @@ const replacements: Record<string, unknown> = {
   MutationObserver: dom.window.MutationObserver,
   getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
   // Reduce Motion: scrolls land at once, so a test reads where they land.
-  matchMedia: (query: string) => ({ matches: query.includes("reduce"), media: query }),
+  matchMedia: (query: string) => ({ matches: reduceMotion && query.includes("reduce"), media: query }),
   IntersectionObserver: class {
     observe() {}
     unobserve() {}
@@ -92,6 +94,7 @@ afterAll(() => {
 });
 afterEach(() => {
   paneWidth = 1040;
+  reduceMotion = true;
 });
 
 const document = dom.window.document;
@@ -216,6 +219,8 @@ test("keyboard focus on the close rail shows the full wave too", async () => {
 
 test("when text would overlap the rail, its edge strip reveals it and then hides it again", async () => {
   paneWidth = 760;
+  // The leave grace (HOVER_INTENT.cardGrace) runs only with motion on; Reduce Motion hides at once (below).
+  reduceMotion = false;
   const view = await mount(12);
   jest.useFakeTimers();
   try {
@@ -235,6 +240,24 @@ test("when text would overlap the rail, its edge strip reveals it and then hides
     await advance(HOVER_INTENT.cardGrace - 1);
     expect(railBox()!.rail.hasAttribute("data-occluded")).toBe(false);
     await advance(1);
+    expect(railBox()!.rail.hasAttribute("data-occluded")).toBe(true);
+  } finally {
+    jest.useRealTimers();
+    await view.unmount();
+  }
+});
+
+test("under Reduce Motion the strip's revealed rail hides as soon as the pointer leaves", async () => {
+  paneWidth = 760;
+  const view = await mount(12);
+  jest.useFakeTimers();
+  try {
+    const strip = document.querySelector<HTMLElement>(".acpmux-minimap__strip")!;
+    expect(railBox()!.rail.hasAttribute("data-occluded")).toBe(true);
+    await pointer("pointerover", strip, { relatedTarget: document.body });
+    expect(railBox()!.rail.hasAttribute("data-occluded")).toBe(false);
+    await pointer("pointerout", strip, { relatedTarget: document.body });
+    await advance(0);
     expect(railBox()!.rail.hasAttribute("data-occluded")).toBe(true);
   } finally {
     jest.useRealTimers();
