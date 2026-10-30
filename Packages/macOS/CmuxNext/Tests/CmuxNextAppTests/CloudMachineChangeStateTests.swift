@@ -230,7 +230,7 @@ struct CloudMachineChangeStateTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func aFailedKillCannotRecoverThePausesInterruptedConnection() async {
+    func aFailedKillCannotRecoverThePausesInterruptedConnection() async throws {
         let services = MachineIconTests.services()
         let resolver = ResumeLinkResolver()
         let session = CloudMachineSession(machine: CloudMachine(id: "overlapping-power", status: .running),
@@ -240,24 +240,30 @@ struct CloudMachineChangeStateTests {
         defer { changes.stop(); session.disconnect() }
         session.connect()
         await resolver.waitForOpen()
-        await #expect(throws: ActionFailure.self) {
+        do {
             try await changes.run(.pausing, machineID: session.machineID, of: { session },
                                   onRollback: { session.mutationFailed($0) }) {
                 let pauseID = session.machine.pendingMutationID
                 await resolver.release()
                 for await phase in ObservationStream({ session.linkPhase }) where phase == .idle { break }
-                await #expect(throws: ActionFailure.self) {
+                do {
                     try await changes.run(.deleting, machineID: session.machineID, of: { session },
                                           onRollback: { session.mutationFailed($0) }) {
                         #expect(session.machine.pendingMutationID != pauseID)
                         throw ActionFailure(message: "kill rejected")
                     }
+                    Issue.record("Expected the kill request to fail")
+                } catch is ActionFailure {
+                    // The rejected kill must leave the older pause in charge.
                 }
                 #expect(session.machine.pendingMutationID == pauseID)
                 #expect(session.machine.shownStatus == .pausing)
                 #expect(await resolver.attempts == 1)
                 throw ActionFailure(message: "pause rejected")
             }
+            Issue.record("Expected the pause request to fail")
+        } catch is ActionFailure {
+            // Only this rollback may recover the interrupted connection.
         }
         await resolver.waitForAttempts(2)
         #expect(await resolver.attempts == 2)
