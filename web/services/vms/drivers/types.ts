@@ -92,8 +92,20 @@ export type VMHandle = {
   providerMetadata?: Record<string, unknown>;
 };
 
+/**
+ * The cmux account a machine belongs to, for providers that record a customer
+ * per machine (Freestyle uses it to tell its customers' accounts apart). Only
+ * the stable account id: never a secret, a token, or contact details.
+ */
+export type ProviderCustomer = {
+  /** The owning user's Stack Auth id, the same value as the row's `userId`. */
+  readonly customerId: string;
+};
+
 export type CreateOptions = {
   image: string; // provider-specific template/snapshot identifier
+  /** Who the machine belongs to; providers without customer records ignore it. */
+  customer?: ProviderCustomer;
   /** The image is a live machine snapshot (fork or checkpoint restore); create waits for this machine's own daemon. */
   forked?: boolean;
   /** Provider-enforced lifetime runtime allowance for this allocation. */
@@ -193,10 +205,12 @@ export type VmEdgeRule = {
 };
 
 /** Create-time inputs a restore-from-snapshot shares with a fresh create. */
-export type RestoreOptions = Pick<CreateOptions, "edgeRules" | "providerMetadata" | "networkRules"> & {
+export type RestoreOptions = Pick<CreateOptions, "customer" | "edgeRules" | "providerMetadata" | "networkRules"> & {
   /** The owner's private network; see {@link CreateOptions.network}. */
   network?: ProviderNetworkRef;
 };
+
+export type ResumeOptions = Pick<CreateOptions, "customer">;
 
 /** Private guest SSH, with the host key read through the authenticated provider API.
  * The client keeps its private key; only its public key reaches the control plane. */
@@ -620,7 +634,12 @@ export interface VMProvider {
   applyNetworkPolicy?(vmId: string, plan: NetworkRulePlan): Promise<void>;
 
   pause(vmId: string): Promise<void>;
-  resume(vmId: string): Promise<VMHandle>;
+  /**
+   * Wake the machine. With `customer`, a provider that records one also tags a
+   * machine that does not carry it yet (machines created before the tag), best
+   * effort: the wake never fails over the tag.
+   */
+  resume(vmId: string, options?: ResumeOptions): Promise<VMHandle>;
   setRuntimeBudget?(vmId: string, remainingSeconds: number | null): Promise<void>;
 
   exec(vmId: string, command: string, opts?: ExecOptions): Promise<ExecResult>;

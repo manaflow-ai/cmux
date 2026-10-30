@@ -19,6 +19,7 @@ import { freestyleHealthInventory } from "./freestyleHealthInventory";
 import { announceFreestyleNetwork } from "./freestyleNetworkAnnouncement";
 import type { FreestyleClientFactory } from "./freestyleGuestCli";
 import { ProviderCreateCleanupError } from "./providerCreateCleanup";
+import { freestyleCreateCustomer, tagFreestyleCustomerOnWake } from "./freestyleCustomer";
 import { reportError } from "../../observability/report";
 import { freestyleRequestFetch } from "./freestyleRequestTiming";
 import { isProviderMachineGone } from "../providerErrors";
@@ -51,6 +52,7 @@ import {
   ProviderTunnelNetworkOverlapError,
   type ProviderTunnelCreateResult,
   type RestoreOptions,
+  type ResumeOptions,
   type SnapshotRef,
   type VmEdgeRule,
   type VMHandle,
@@ -1249,6 +1251,7 @@ export class FreestyleProvider implements VMProvider {
               ? { maxRunTotalSeconds: Math.max(0, Math.floor(options.runtimeBudgetSeconds)) }
               : {}),
             metadata: { cmux: "cloud" },
+            ...freestyleCreateCustomer(options.customer),
             firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId, memberIngressNetworkId: options.network?.memberIngress ? networkId : undefined, networkRules: options.networkRules }) },
             ...(networkId ? { vpcs: [{ vpcId: networkId, ipv4: true, ipv6: true }] } : {}),
             ...(tlsRules ? { tls: { rules: tlsRules } } : {}),
@@ -1444,7 +1447,7 @@ export class FreestyleProvider implements VMProvider {
     await vm.update({ maxRunTotalSeconds: Math.floor(used + remainingSeconds), automaticRestart: false });
   }
 
-  async resume(vmId: string): Promise<VMHandle> {
+  async resume(vmId: string, options?: ResumeOptions): Promise<VMHandle> {
     return withVmSpan(
       "cmux.vm.provider.resume",
       "provider",
@@ -1479,8 +1482,11 @@ export class FreestyleProvider implements VMProvider {
               recordSpanError(span, policyError);
             }
           }
+          // Machines created before customer tagging carry no customer until
+          // the backfill reaches them; tag each one the first time it wakes.
+          const customerTagged = await tagFreestyleCustomerOnWake(vm, data, options?.customer, (error) => recordSpanError(span, error));
           const status = mapFreestyleState(data.state);
-          setSpanAttributes(span, { "cmux.vm.provider_state": data.state, "cmux.vm.status": status });
+          setSpanAttributes(span, { "cmux.vm.provider_state": data.state, "cmux.vm.status": status, "cmux.vm.customer_tagged": customerTagged });
           // A memory-preserving pause keeps the daemon; a cold boot (the VM had
           // stopped) relies on the baked systemd unit. Resume does no guest
           // work (see NO-WORK INVARIANT at the top of this file). The client's
@@ -1735,6 +1741,7 @@ export class FreestyleProvider implements VMProvider {
             automaticRestart: true,
             idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
             metadata: { cmux: "cloud" },
+            ...freestyleCreateCustomer(options?.customer),
             firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId, memberIngressNetworkId: options?.network?.memberIngress ? networkId : undefined, networkRules: options?.networkRules }) },
             ...(networkId ? { vpcs: [{ vpcId: networkId, ipv4: true, ipv6: true }] } : {}),
             ...(tlsRules ? { tls: { rules: tlsRules } } : {}),

@@ -17,7 +17,7 @@ import * as Option from "effect/Option";
 import { eq } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { cloudVms } from "../../db/schema";
-import { hasProviderTlsRuleLimitCause, ProviderGuestUnresponsiveError, ProviderStateConflictError, type CreateOptions } from "./drivers/types";
+import { hasProviderTlsRuleLimitCause, ProviderGuestUnresponsiveError, ProviderStateConflictError, type CreateOptions, type ProviderCustomer } from "./drivers/types";
 import { isVmProviderHang, withVmAnswerDeadline, withVmRouteDeadline, type VmRouteDeadline } from "./routeDeadline";
 import * as Layer from "effect/Layer";
 import type {
@@ -1428,6 +1428,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
       "provider_create",
       providers.create(input.provider, {
         image: input.image,
+        customer: vmProviderCustomer(create.vm),
         forked: resumesLiveMachine(input.origin),
         // The display label is reserved with the row before provider work starts.
         // Passing it here makes the first guest prompt correct and removes the
@@ -1948,6 +1949,7 @@ function finishBaseCreate(
       "provider_create",
       providers.create(input.provider, {
         image: input.image,
+        customer: vmProviderCustomer(create.vm),
         imageSize: input.imageSize,
         runtimeBudgetSeconds: input.runtimeBudgetSeconds,
         displayName: create.vm.slug ?? undefined,
@@ -3910,6 +3912,11 @@ function pauseWokenMachine(
   });
 }
 
+/** The provider customer a machine is tagged with: its owner's account id. */
+function vmProviderCustomer(vm: Pick<CloudVmRow, "userId">): ProviderCustomer {
+  return { customerId: vm.userId };
+}
+
 function resumeAfterLostRace(
   providers: VmProviderGatewayShape,
   vm: CloudVmRow,
@@ -3920,7 +3927,7 @@ function resumeAfterLostRace(
   return Effect.gen(function* () {
     // The re-pause zeroed a Go machine's runtime budget; give it back first.
     if (vm.billingPlanId === "go" && !(yield* restoreGoRuntimeBudget(providers, vm, providerVmId))) return;
-    yield* resume(vm.provider, providerVmId).pipe(
+    yield* resume(vm.provider, providerVmId, { customer: vmProviderCustomer(vm) }).pipe(
       Effect.timeout(PAUSE_OPERATION_TIMEOUT_MS),
       Effect.tapError((cause) => Effect.logWarning("Could not resume a machine a re-pause raced", {
         event: "cloud_vm.repause_race.resume_failed",
@@ -4077,7 +4084,7 @@ function resumeAndWaitRunning(
   return Effect.gen(function* () {
     const resume = providers.resume;
     if (!resume) return;
-    const handle = yield* resume(vm.provider, providerVmId).pipe(Effect.tapError(() => bestEffortPause(providers, vm, providerVmId)));
+    const handle = yield* resume(vm.provider, providerVmId, { customer: vmProviderCustomer(vm) }).pipe(Effect.tapError(() => bestEffortPause(providers, vm, providerVmId)));
     if (handle.status === "running") return;
     const settled = yield* waitForRunningStatus(providers, vm, providerVmId);
     if (settled) return;
