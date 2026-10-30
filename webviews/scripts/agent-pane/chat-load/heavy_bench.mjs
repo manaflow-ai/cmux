@@ -202,6 +202,34 @@ if (has("profile")) {
     const marker = near.find((line) => /^\/\/ src\//.test(line.trim()));
     return `${(lines.get(file)[at] ?? "").trim().slice(0, 100)}${marker ? `   [${marker.trim()}]` : ""}`;
   };
+  // The hottest bundle lines by sample (each node's positionTicks), with their code: what a hot
+  // function spends its own time on.
+  const lineTicks = new Map();
+  for (const node of profile.nodes) {
+    const file = node.callFrame.url.split("/").pop();
+    if (!file) continue;
+    for (const tick of node.positionTicks ?? []) {
+      const key = `${file}:${tick.line}`;
+      lineTicks.set(key, (lineTicks.get(key) ?? 0) + tick.ticks);
+    }
+  }
+  const interval = profile.samples.length ? total / profile.samples.length : 0;
+  console.log("== hottest bundle lines (self samples)");
+  results.hot_lines = [];
+  for (const [key, ticks] of [...lineTicks.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15)) {
+    const [file, line] = key.split(":");
+    const code = source(`x ${file}:${line}`);
+    results.hot_lines.push([key, Math.round(ticks * interval), code]);
+    console.log(`${(ticks * interval).toFixed(1).padStart(9)} ms  ${key}  ${code}`);
+    // The function the line is in: the nearest line above it that declares one.
+    const text = lines.get(path.join(paneDir, file)) ?? [];
+    for (let at = Number(line) - 1; at >= Math.max(0, Number(line) - 400); at -= 1) {
+      if (/^\s*(?:async )?function \w+|^\s*const \w+ = (?:\(0, import_react\d*\.use\w+\)|use\w+)|^\s*\(0, import_react\d*\.useLayoutEffect\)|^\s*function \w+/.test(text[at] ?? "")) {
+        console.log(`             in ${file}:${at + 1}  ${(text[at] ?? "").trim().slice(0, 100)}`);
+        break;
+      }
+    }
+  }
   console.log("== native frames by JS caller");
   for (const [key, value] of [...callers.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12))
     console.log(`${value.toFixed(1).padStart(9)} ms  ${key}`);

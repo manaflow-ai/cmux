@@ -21,10 +21,12 @@ import WebKit
 /// authors, answered-by, header faces and typing line), `fling` (`seconds`,
 /// default 3; `nominal_ms`; `wait` returns the stats when the fling ends),
 /// `fling_stats`, `perf_stats` (`raw` adds every frame), `load_seed` (`turns`, default 5000:
-/// a mock session of heavy turns opened through the real client; needs `--showcase`'s mock
+/// a mock session of heavy turns opened through the real client, with `subsessions` working
+/// sub-sessions of `child_turns` turns each; needs `--showcase`'s mock
 /// daemon), `load_run` (`seconds`, `chunk_chars`, `chunk_ms`, `tool_every`, `scroll_speed`,
-/// `scroll_depth`: a full-speed stream into it while the transcript scrolls, with every frame's
-/// work; webviews loadDebug.ts), `typing_stats`,
+/// `scroll_depth`, `peer_messages`, `peer_every_ms`, `child_touch_ms`: a full-speed stream into it
+/// while the transcript scrolls, other agents' messages queue and sub-sessions change, with every
+/// frame's work; webviews loadDebug.ts), `typing_stats`,
 /// `reset_typing`, `close_menus`, `open_menu` (`label`: opens that composer menu, such as
 /// `Model` or `Mode`, through the same path as a click, for automation and
 /// captures), `acp_log` (the page's acpmux wire log and its stats; `limit`
@@ -311,11 +313,18 @@ enum DebugAgentPane {
             }
             return [options]
         case "load_seed":
-            return [params["turns"]?.intValue ?? 5000]
+            var options: [String: Any] = [:]
+            for key in ["subsessions", "child_turns"] {
+                if let value = params[key]?.intValue { options[key] = value }
+            }
+            return [params["turns"]?.intValue ?? 5000, options]
         case "load_run", "layout_watch":
             // The chat under load (loadDebug.ts), or what moved after the page's first paint (layoutWatch.ts).
             var options: [String: Any] = [:]
-            for key in ["seconds", "chunk_chars", "chunk_ms", "tool_every", "scroll_speed", "scroll_depth", "ms", "tolerance"] {
+            for key in [
+                "seconds", "chunk_chars", "chunk_ms", "tool_every", "scroll_speed", "scroll_depth", "ms", "tolerance",
+                "peer_messages", "peer_every_ms", "child_touch_ms",
+            ] {
                 if let value = params[key]?.doubleValue { options[key] = value }
             }
             return [options]
