@@ -44,7 +44,9 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
       expect(await page.locator(".acpmux-running-tray__list").count()).toBe(0);
       const edge = await page.evaluate(() => {
         const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!.getBoundingClientRect();
-        const chevron = document.querySelector<HTMLElement>(".acpmux-running-tray__status svg")!.getBoundingClientRect();
+        const chevron = document
+          .querySelector<HTMLElement>(".acpmux-running-tray__status svg")!
+          .getBoundingClientRect();
         return tray.right - chevron.right;
       });
       expect(edge).toBeCloseTo(8, 1);

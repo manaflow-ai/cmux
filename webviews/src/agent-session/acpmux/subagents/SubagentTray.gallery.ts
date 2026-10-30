@@ -307,7 +307,7 @@ export default agentPaneEntry({
       snapshot: panel(3),
     },
     "panel-two-at-rest": {
-      note: 'The same panel as it first shows (#27908): folded to its header, however few lines it has, its chevron at the tray\'s right edge, where a line\'s and View all\'s chevrons end.',
+      note: "The same panel as it first shows (#27908): folded to its header, however few lines it has, its chevron at the tray's right edge, where a line's and View all's chevrons end.",
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
         if (ctx.find({ selector: ".acpmux-running-tray__head" }).getAttribute("aria-expanded") !== "false")
@@ -503,6 +503,7 @@ export default agentPaneEntry({
     "codex-lineage": {
       note: 'A Codex chat\'s subagents as its records say (Leo 2026-10-22: "why is it like... staggered? were they created by another subagent?"): the chat itself started both, so they sit side by side. A child that reports its parent thread never makes the chat a subagent of its own, nested under that child.',
       play: async (ctx) => {
+        await openTray(ctx);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray .acpmux-agent-line"));
         const names = [...ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-summary-agent__name")];
         if (names.some((name) => /^[0-9a-f]{8}-/.test(name.textContent ?? "")))
