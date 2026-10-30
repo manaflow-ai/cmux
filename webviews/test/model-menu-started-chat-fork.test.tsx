@@ -628,7 +628,9 @@ test("a new chat still launches a named harness entry whose probe failed from it
       name: "Claude (work)",
       family: "claude-work",
       icon: "claude",
+      // A failed probe keeps the harness in the rail (ComposerPickers keeps `probeFailed` entries).
       unavailable: "probe failed",
+      probeFailed: true,
       models: [{ id: "opus-stale", name: "Opus Stale" }],
     },
   ] as Snapshot["catalog"];
