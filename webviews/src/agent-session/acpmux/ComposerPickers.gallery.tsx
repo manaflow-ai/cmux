@@ -316,18 +316,20 @@ const modelPressDragRelease: Play = async (ctx) => {
   );
 };
 
-// The current model's effort is the inline control in its own row (#26521): the menu has no
-// Effort submenu while that row carries the levels.
-const CHECKED_EFFORT = '.acpmux-quick-menu .acpmux-quick-effort-segment[aria-checked="true"]';
+// The current model's effort is a side dropdown beside its row (#27948): its effort item opens the
+// model's levels in a submenu of their own.
+const RUNNING_EFFORT = ".acpmux-quick-model-effort[data-running] .acpmux-quick-effort-trigger";
 
-/// Opens the model menu; resolves with the current model's inline effort control.
+/// Opens the model menu, then the running model's effort dropdown; resolves with the dropdown.
 async function openEffortMenu(ctx: Parameters<Play>[0]): Promise<HTMLElement> {
   await ctx.click(MODEL);
+  await ctx.waitFor(() => ctx.document.querySelector(RUNNING_EFFORT) !== null);
+  // A submenu trigger opens on hover or from the keyboard: focus it and press ArrowRight.
+  await ctx.focus({ selector: RUNNING_EFFORT });
+  await ctx.press("ArrowRight");
   let levels: HTMLElement | undefined;
   await ctx.waitFor(() => {
-    levels =
-      ctx.document.querySelector<HTMLElement>(CHECKED_EFFORT)?.closest<HTMLElement>(".acpmux-quick-efforts") ??
-      undefined;
+    levels = ctx.document.querySelector<HTMLElement>(".acpmux-quick-effort-menu") ?? undefined;
     return levels;
   });
   return levels!;
