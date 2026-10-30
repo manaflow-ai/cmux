@@ -417,7 +417,7 @@ impl<C: ControlPlane> Server<C> {
         outcome
     }
 
-    fn update_auth_identity(&mut self, signed_in: bool, team: Option<String>) {
+    pub(crate) fn update_auth_identity(&mut self, signed_in: bool, team: Option<String>) {
         let identity = (signed_in, team);
         if self.auth_identity.as_ref() != Some(&identity) {
             self.auth_identity = Some(identity);

@@ -7,7 +7,7 @@ use super::channel::{Carrier, CarrierEvent};
 use super::dial::DialCode;
 use super::supervisor::{LinkFailure, LinkState};
 use crate::api::models::MachineStatus;
-use crate::api::{CloudError, ControlPlane, Origin, Request, args, codes, event_line};
+use crate::api::{CloudError, ControlPlane, Origin, RelayError, Request, args, codes, event_line};
 use crate::ops::Server;
 use crate::rescue::{MISSING_ROUTE, RESCUE_KIND};
 use cmux_terminal_iface::{BackendError, Grid, OpenRequest, OpenToken, TerminalBackend};
@@ -123,6 +123,21 @@ fn owner_answer<C: ControlPlane>(
     machine: &str,
     carrier: &Carrier,
 ) -> Result<bool, CloudError> {
+    let identity = match server.control_plane_mut().session() {
+        Ok(status) if status.signed_in => (true, status.team),
+        Ok(_) | Err(RelayError::NotSignedIn) => {
+            let error = CloudError::new(codes::AUTH_REQUIRED, "Sign in to cmux Cloud first");
+            end_links_after(server, machine, &error);
+            return Err(error);
+        }
+        Err(RelayError::Unavailable(_)) => {
+            let attach = server.attach_mut();
+            attach.infos.forget(machine);
+            attach.owner_answers.remove(machine);
+            return Ok(false);
+        }
+    };
+    server.update_auth_identity(identity.0, identity.1);
     let epoch = server.auth_epoch();
     if let Some((generation, cached_epoch, owns)) =
         server.attach().owner_answers.get(machine).copied()
@@ -147,10 +162,7 @@ fn owner_answer<C: ControlPlane>(
 }
 
 fn transient_owner_error(error: &CloudError) -> bool {
-    matches!(
-        error.code,
-        codes::RELAY_UNAVAILABLE | codes::PROVIDER_UNAVAILABLE
-    )
+    matches!(error.code, codes::RELAY_UNAVAILABLE | codes::PROVIDER_UNAVAILABLE)
 }
 
 /// Ends the links a Cloud read's `error` says may not go on: every link on
