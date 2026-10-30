@@ -36,10 +36,14 @@ export default agentPaneEntry({
       },
     },
     focused: {
-      note: "Keyboard focus reveals the same rail at every width without a pointer gesture.",
+      note: "With eighteen real prompts, Tab and ArrowDown put keyboard focus on the third tick. The base has no outline; the fix shows its inset focus ring at every width.",
       snapshot: chat(rows, { title: "Prompt rail revealed by keyboard" }),
       play: async (ctx) => {
         await ctx.focus({ selector: '[data-tick="0"]' });
+        await ctx.press("Tab");
+        await ctx.waitFor(() => ctx.document.activeElement?.matches('[data-tick="1"]'));
+        await ctx.press("ArrowDown");
+        await ctx.waitFor(() => ctx.document.activeElement?.matches('[data-tick="2"]:focus-visible'));
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__card"));
       },
     },
