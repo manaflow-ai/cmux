@@ -28,6 +28,11 @@
 .acpmux-minimap__rail {
   position: absolute;
   margin: 0;
+  /* Keep rail hover transforms and highlight opacity in their own compositing surface. The
+     transcript scroller has an edge mask; without a stable boundary Chromium can re-raster the
+     masked transcript whenever the rail's lit ticks or glass card changes (#25766). */
+  isolation: isolate;
+  will-change: transform;
   animation: acpmux-minimap-in var(--cmux-motion-micro) cubic-bezier(0.23, 1, 0.32, 1);
 }
 .acpmux-minimap__strip {
@@ -523,4 +528,17 @@
 .acpmux-minimap__entry {
   flex: none;
   display: block;
+}
+/* On the right edge (railSide.ts: Settings > Agent Chat > Prompt Rail Side, or the rail's right-click
+   menu) the rail is the left one mirrored (design/session-rail.md): its narrow-pane hover strip sits at
+   the pane's right edge, and its ticks start at that edge and grow toward the text. The compact rail
+   mirrors its list (the rail itself keeps its box and data attributes); the full-height map mirrors
+   whole. Only x flips: rows and the pointer's y are as on the left. */
+.acpmux-minimap__strip[data-side="right"] {
+  left: auto;
+  right: 0;
+}
+.acpmux-minimap__rail[data-side="right"] .acpmux-minimap__list,
+.acpmux-scrollmap[data-side="right"] {
+  transform: scaleX(-1);
 }

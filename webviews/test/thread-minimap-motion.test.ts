@@ -259,6 +259,28 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
     await page.close();
   });
 
+  // Only a rail click lands at once; Next Turn (Ctrl-Opt-Down) keeps its glide on the step curve.
+  test("Next Turn still glides to the next prompt over the step's duration", async () => {
+    const page = await open(false);
+    await page.mouse.move(900, 400);
+    await settled(page);
+    const sampling = sample(page, 900);
+    await page.evaluate(() => {
+      (window as unknown as { __over: number }).__over = performance.now();
+      window.dispatchEvent(new CustomEvent("cmux-acpmux-nextTurn"));
+    });
+    await sampling;
+    const started = await page.evaluate(() => (window as unknown as { __over: number }).__over);
+    const scrolls = (await samples(page)).filter((entry) => entry.t >= started);
+    const final = scrolls.at(-1)!.scroll;
+    expect(final).toBeGreaterThan(0);
+    // Some painted frame shows the scroll part of the way there, and it lands after a few frames.
+    expect(scrolls.some((entry) => entry.scroll > 1 && entry.scroll < final - 1)).toBe(true);
+    const landed = scrolls.find((entry) => Math.abs(entry.scroll - final) <= 1)!;
+    expect(landed.t - started).toBeGreaterThan(50);
+    await page.close();
+  });
+
   /// The flash's keyframe colors' alpha, read off the landing animation on the clicked prompt's bubble.
   async function landingAlphas(page: Page, index: number): Promise<number[]> {
     return page.evaluate(async (index) => {
