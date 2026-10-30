@@ -907,10 +907,10 @@ impl<B: Backend> Server<B> {
             return Ok(std::borrow::Cow::Borrowed(arguments));
         };
         let answer = self.call_v2(tab_get, &lookup);
-        if answer["isError"] == true {
+        if answer.get("isError").and_then(Value::as_bool) == Some(true) {
             return Err(answer);
         }
-        let record = &answer["structuredContent"];
+        let record = answer.get("structuredContent").unwrap_or(&Value::Null);
         let record = record.get("value").unwrap_or(record);
         let Some(terminal) = record["content_id"].as_str().filter(|id| id.starts_with("term_"))
         else {
