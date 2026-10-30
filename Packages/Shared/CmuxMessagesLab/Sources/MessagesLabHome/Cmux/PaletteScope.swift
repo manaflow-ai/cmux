@@ -4,8 +4,10 @@ import os
 /// cmux: one window view's palette (its Home chat's theme and Chat Colors…), with a stable id that keys every
 /// palette-dependent cache. Equal themes share one box (``PaletteScope/box(for:)``), so equal palettes share
 /// their row bitmaps and tiles, and two chats with different colours never read each other's.
-// FixtureTheme is a struct of `let` NSColor and CGGradient values that nothing mutates after it is made.
-// crash-allow: immutable after init (two `let`s set before the box is published), so any thread may read a box.
+// Not checked Sendable: FixtureTheme.swift:28 (`outgoingGradient: CGGradient?`) holds a CGGradient, which the SDK
+// does not mark Sendable (fleet probe e72b1f95374d27da0c9f8e94, 2026-10-30). FixtureTheme is a struct of `let`s that
+// nothing mutates after init. Owner: cmux-next Performance Lead (PR #28036); this waiver expires 2026-11-13.
+// crash-allow: immutable: two `let`s set in init, before the box is published to any other thread, so any thread may read it.
 final class PaletteBox: @unchecked Sendable {
     let theme: FixtureTheme
     let id: Int
