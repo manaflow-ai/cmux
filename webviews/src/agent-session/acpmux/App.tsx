@@ -7093,6 +7093,7 @@ function AcpmuxPane() {
   /// The chat's agent runs on this Mac (`localCwd`, set below each render): it can open a long
   /// recording's file.
   const chatIsLocal = useRef(false);
+  const recordingUploadGeneration = useRef(0);
   const [recordingUploadsPending, setRecordingUploadsPending] = useState(0);
   const dictation = useDictation(dictationTarget, callNative, {
     accepts: snapshot.summary?.promptCapabilities?.audio === true,
@@ -7101,8 +7102,12 @@ function AcpmuxPane() {
       const composer = composerHandle.current;
       if (!composer) return false;
       const local = chatIsLocal.current;
+      const generation = recordingUploadGeneration.current;
       setRecordingUploadsPending((count) => count + 1);
-      const moved = () => session !== sessionIdRef.current || composer !== composerHandle.current;
+      const moved = () =>
+        session !== sessionIdRef.current ||
+        composer !== composerHandle.current ||
+        generation !== recordingUploadGeneration.current;
       try {
         const recording = await recordingAttachment(audio, translate("dictation.recording"), local, async (file) => {
           const result = await uploadFiles([file], moved);
@@ -10062,6 +10067,9 @@ function AcpmuxPane() {
             keptAttachments={quick ? undefined : keptAttachments}
             onCmuxCommand={handleCmuxCommand}
             onSend={(text, chips, steer) => {
+              // Invalidate any recording upload that was waiting for this draft: a manual or
+              // continuation send must never let its late file attach to the next draft.
+              recordingUploadGeneration.current += 1;
               // A Sandboxed new chat (preview): the message runs once on a throwaway VM, through the
               // host, and the chat shows its receipt; no acpmux chat starts.
               // While the tab's run holds the chat nothing else sends as Sandboxed (the composer keeps
