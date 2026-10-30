@@ -232,6 +232,20 @@ struct UnopenedCloudMachinesTests {
         #expect(services.windows.registry.value.owner(of: "ws-a-only") == nil, "opening the clone opened the other machine")
     }
 
+    /// Review finding: a batch whose second workspace is a held machine's files that machine's
+    /// other workspaces too, not only the first workspace's machine.
+    @Test func aBatchOpensEveryHeldMachineItCarries() throws {
+        let services = Self.services()
+        defer { Self.closeWindows(services) }
+        Self.machine(services, id: "vm-one", workspaces: ["ws-one", "ws-one-more"])
+        Self.machine(services, id: "vm-two-b", workspaces: ["ws-two", "ws-two-more"])
+        services.windows.reconcileMembership()
+
+        let window = try #require(services.windows.openWindow(workspaces: ["ws-one", "ws-two"])?.state.id)
+
+        #expect(services.windows.registry.value.owner(of: "ws-two-more") == window, "the second machine's other workspace stayed out")
+    }
+
     // MARK: Fixtures
 
     static func services() -> AppServices {
