@@ -31,6 +31,10 @@
 use super::*;
 use std::sync::atomic::AtomicU64;
 
+/// Listed in `initialize`'s features by a daemon that takes a peer's person's Stop as its own
+/// person's (`server/requests/person_stop.rs`).
+pub(crate) const PERSON_STOP_FEATURE: &str = "personStop";
+
 /// How long a cancelled turn waits for its agent's answer before acpmux ends it.
 const CANCEL_GRACE: std::time::Duration = std::time::Duration::from_secs(10);
 
