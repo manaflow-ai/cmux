@@ -6,7 +6,7 @@ extension SidebarStyle {
     static func columns(rowWidth: CGFloat, depth: Int = 0, leadingOffset: CGFloat = 0) -> SidebarColumns {
         SidebarColumns(rowWidth: rowWidth, comfortable: SidebarDensityTokens.isComfortable,
                        depth: depth, leadingOffset: leadingOffset,
-                       leadingInset: horizontalInset, trailingInset: rowEdgeGap)
+                       leadingInset: horizontalInset, trailingInset: horizontalInset)
     }
 
     static var trailingSlotSide: CGFloat { controlSize }

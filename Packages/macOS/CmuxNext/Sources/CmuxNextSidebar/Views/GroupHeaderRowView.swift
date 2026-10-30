@@ -343,7 +343,10 @@ final class GroupHeaderRowView: SidebarRowView {
         // The bar fills the row (as tall as a workspace row); the type and glyphs keep their scale.
         // Type and glyphs follow a one-line row: an Expanded header is two lines tall, its name is not bigger.
         let barHeight = SidebarStyle.groupHeaderContentHeight(rowHeight: min(b.height, SidebarLayoutMetrics.standard.rowHeight))
-        let columns = SidebarStyle.columns(rowWidth: b.width, leadingOffset: railReach)
+        let columns = SidebarColumns(rowWidth: b.width, comfortable: SidebarDensityTokens.isComfortable,
+                                     leadingOffset: railReach,
+                                     leadingInset: LayoutGrid.sidebarLead - (SidebarStyle.horizontalInset - Metrics.space1),
+                                     trailingInset: SidebarStyle.horizontalInset)
         // The name starts where ungrouped rows start (`SidebarStyle.horizontalInset`): an icon
         // on their icon column with the name on their text column, or the name alone on it.
         let lead = columns.lead
@@ -415,7 +418,7 @@ final class GroupHeaderRowView: SidebarRowView {
         let iconLead = lead
         glyph.frame = NSRect(x: iconLead, y: (b.height - glyphSide) / 2, width: glyphSide, height: glyphSide)
         // The label's frame sits its text inset left of the column, as a workspace title's does.
-        let nx = columns.text(hasLeadingMark: hasIcon || pinned) - SidebarStyle.labelCellPadding
+        let nx = columns.text(hasLeadingMark: hasIcon || pinned) - SidebarStyle.labelCellPadding - (hasIcon || pinned ? 0 : Metrics.space2)
         let countWidth = count.stringValue.isEmpty || renaming ? 0 : Self.drawnWidth(count)
         let nh = ceil(name.intrinsicContentSize.height)
         count.isHidden = countWidth == 0

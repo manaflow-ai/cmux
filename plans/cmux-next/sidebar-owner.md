@@ -14,6 +14,13 @@ performance.
 
 ## Rule for every sidebar change
 
+### Shared grid columns (2026-10-30)
+
+Native sidebar rows consume `SidebarColumns` for lead, text, nesting and trailing slots. Text-only
+rows start on the lead without reserving an empty icon well; group headers keep their members'
+text column while the existing rail and edge geometry stays unchanged. Requested by Leo's grid
+alignment ask (grid.md 5.4), coordinated by `claude-sr2/grid-system`.
+
 ### Group editor opening (2026-10-28)
 
 Leo's standing rule: "Menus open on the click, with no fade-in or delay"; "Fade out, yes".

@@ -307,8 +307,8 @@ extension SidebarGridAlignmentTests {
             #expect(SidebarDensityTokens.rowHeight == height)
             #expect(SidebarDensityTokens.headerHeight == (comfortable ? 26 : 22))
             #expect(SidebarStyle.rowEdgeGap == 1.5)
-            #expect(SidebarStyle.controlSize == 20)
-            #expect(SidebarStyle.trailingSlotSide == 20)
+            #expect(SidebarStyle.controlSize == Metrics.iconSize + Metrics.space2)
+            #expect(SidebarStyle.trailingSlotSide == SidebarStyle.controlSize)
             #expect(SidebarStyle.titleFont == Typography.body)
             #expect(SidebarStyle.subtitleFont == Typography.caption)
             let c = Case(kind: .workspace, comfortable: comfortable, depth: 0, marks: 1)
@@ -323,22 +323,22 @@ extension SidebarGridAlignmentTests {
             workspace.layout()
             for control in [workspace.closeButton, workspace.moreButton, workspace.pinButton,
                             workspace.audioButton, workspace.disclosureButton, workspace.treeFoldButton] {
-                #expect(control.frame.size == CGSize(width: 20, height: 20))
+                #expect(control.frame.size == CGSize(width: SidebarStyle.controlSize, height: SidebarStyle.controlSize))
             }
             let groupCase = Case(kind: .group, comfortable: comfortable, depth: 0, marks: 2)
             let group = try #require(Self.view(groupCase, width: 312, height: height) as? GroupHeaderRowView)
             group.onAdd = {}
             group.layout()
             #expect(group.titleFont.pointSize == (comfortable ? 12 : 11))
-            #expect(group.moreButton.frame.size == CGSize(width: 20, height: 20))
-            #expect(group.addButton.frame.size == CGSize(width: 20, height: 20))
+            #expect(group.moreButton.frame.size == CGSize(width: SidebarStyle.controlSize, height: SidebarStyle.controlSize))
+            #expect(group.addButton.frame.size == CGSize(width: SidebarStyle.controlSize, height: SidebarStyle.controlSize))
             let chevron = try #require(group.subviews.first { $0 is DisclosureChevronView })
-            #expect(chevron.frame.size == CGSize(width: 20, height: 20))
+            #expect(chevron.frame.size == CGSize(width: SidebarStyle.controlSize, height: SidebarStyle.controlSize))
             let sectionCase = Case(kind: .sectionHeader, comfortable: comfortable, depth: 0, marks: 2)
             let section = try #require(Self.view(sectionCase, width: 312,
                                                 height: SidebarDensityTokens.headerHeight) as? SectionHeaderRowView)
             section.layout()
-            #expect(section.addButton.frame.size == CGSize(width: 20, height: 20))
+            #expect(section.addButton.frame.size == CGSize(width: SidebarStyle.controlSize, height: SidebarStyle.controlSize))
             #expect(section.fillVerticalInset == 0)
             // Group pills and section fills retain their full row height.
             #expect(group.layer?.sublayers?.contains { $0.frame == group.bounds } == true)
@@ -373,8 +373,8 @@ extension SidebarGridAlignmentTests {
         let columns = SidebarColumns(rowWidth: 304, comfortable: comfortable)
         let first = columns.trailingFrame(centerY: 14, side: 20)
         let second = columns.trailingFrame(before: columns.trailingEdge(before: first), centerY: 14,
-                                           size: CGSize(width: 20, height: 20))
-        #expect(first.size == CGSize(width: 20, height: 20))
+                                           size: CGSize(width: SidebarStyle.controlSize, height: SidebarStyle.controlSize))
+        #expect(first.size == CGSize(width: SidebarStyle.controlSize, height: SidebarStyle.controlSize))
         #expect(second.size == first.size)
         #expect(first.midX - second.midX == 20)
         #expect(second.maxX <= first.minX)
