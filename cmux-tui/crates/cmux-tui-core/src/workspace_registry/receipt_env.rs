@@ -19,17 +19,24 @@ use super::*;
 
 const RECEIPT_ENV_DOMAIN: &[u8] = b"cmux.resource-receipt-env.v1";
 
+// Only rows that still hold a value: SQLite counts a same-value UPDATE as a
+// change, and a change makes the open checkpoint and truncate the whole WAL
+// (3.7 s per launch on a 41.6 GB nightly registry, Lawrence 2026-10-29).
 const SCRUB_EFFECT_INTENTS: &str = "UPDATE resource_effect_receipts
      SET intent_json = json_set(intent_json, '$.fields.env', json((
        SELECT json_group_object(key, NULL) FROM json_each(intent_json, '$.fields.env'))))
      WHERE state IN ('committed', 'indeterminate')
-       AND json_type(intent_json, '$.fields.env') = 'object'";
+       AND json_type(intent_json, '$.fields.env') = 'object'
+       AND EXISTS (
+         SELECT 1 FROM json_each(intent_json, '$.fields.env') WHERE type != 'null')";
 
 const SCRUB_CREATION_INTENTS: &str = "UPDATE resource_creation_receipts
      SET intent_json = json_set(intent_json, '$.fields.env', json((
        SELECT json_group_object(key, NULL) FROM json_each(intent_json, '$.fields.env'))))
      WHERE state IN ('created', 'not_applied', 'indeterminate')
-       AND json_type(intent_json, '$.fields.env') = 'object'";
+       AND json_type(intent_json, '$.fields.env') = 'object'
+       AND EXISTS (
+         SELECT 1 FROM json_each(intent_json, '$.fields.env') WHERE type != 'null')";
 
 impl ResourceEffectPepper {
     fn env_value_hmac(&self, key: &str, value: &str) -> String {
