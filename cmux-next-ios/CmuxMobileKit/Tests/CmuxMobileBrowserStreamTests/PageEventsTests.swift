@@ -41,6 +41,11 @@ import Testing
       {"id":33000,"type":"command","label":"&Back","enabled":false,"checked":false,"items":[]},
       {"id":33002,"type":"command","label":"&Reload","enabled":true,"checked":false,"items":[]},
       {"id":-1,"type":"separator","label":"","enabled":true,"checked":false,"items":[]},
+      {"id":35004,"type":"command","label":"Save &As…","enabled":true,"checked":false,"items":[]},
+      {"id":35011,"type":"command","label":"C&ast…","enabled":true,"checked":false,"items":[]},
+      {"id":51034,"type":"command","label":"Create QR Code for this Page","enabled":true,"checked":false,"items":[]},
+      {"id":35002,"type":"command","label":"View Page &Source","enabled":true,"checked":false,"items":[]},
+      {"id":-1,"type":"separator","label":"","enabled":true,"checked":false,"items":[]},
       {"id":50100,"type":"command","label":"Open Link in New &Tab","enabled":true,"checked":false,"items":[]},
       {"id":50101,"type":"command","label":"Open Link in New &Window","enabled":true,"checked":false,"items":[]},
       {"id":50102,"type":"command","label":"Open Link in Inco&gnito Window","enabled":true,"checked":false,"items":[]},
@@ -105,9 +110,10 @@ import Testing
         await host(sink, Self.linkMenu)
         let open = try #require(got.first ?? nil)
         #expect(open.token == 3 && model.contextMenu?.token == 3)
-        // Rows that act on the Mac itself (Incognito, Save, Copy, Print, Inspect, and Speech,
-        // whose ids CEF renumbers) and rows Chromium opens as a tab the host does not hand to
-        // viewers (Open Link in New Tab and Window, Search for) are left out with their
+        // Rows that act on the Mac itself (Incognito, Save, Copy, Print, Cast, QR Code, Inspect,
+        // and Speech, whose ids CEF renumbers) and rows Chromium opens as a tab the host does not
+        // hand to viewers (Open Link in New Tab and Window, Search for, View Page Source; the
+        // ids the host sent on the real link, 2026-10-29) are left out with their
         // separators; Chromium's `&` mnemonics are dropped (`&&` is `&`). Page rows stay.
         let rows = open.menu.phoneItems
         #expect(rows.map(\.label) == ["Back", "Reload", "", "Spelling"])
