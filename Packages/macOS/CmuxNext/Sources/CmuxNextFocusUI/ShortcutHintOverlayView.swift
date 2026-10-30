@@ -25,12 +25,24 @@ public final class ShortcutHintOverlayView: NSView {
         public var row: Row
         /// What the chip's shortcut selects (`workspace:<id>`), for debug readback; nil when unnamed.
         public var target: String?
+        /// How far a `.target` chip's right edge stays inside `rect`'s: 2 pt for a tab or a pane, 0 for a sidebar
+        /// row, whose rect is already its content (the trailing mark column's right edge).
+        public var trailingInset: CGFloat
 
-        public init(text: String, rect: CGRect, row: Row = .target, target: String? = nil) {
+        /// Creates a hint.
+        ///
+        /// - Parameters:
+        ///   - text: The shortcut, in symbols.
+        ///   - rect: The target, in the overlay's coordinates.
+        ///   - row: Where the chip goes.
+        ///   - target: What the shortcut selects, for debug readback.
+        ///   - trailingInset: The gap between the chip's and `rect`'s right edges (2 pt by default).
+        public init(text: String, rect: CGRect, row: Row = .target, target: String? = nil, trailingInset: CGFloat = 2) {
             self.text = text
             self.rect = rect
             self.row = row
             self.target = target
+            self.trailingInset = trailingInset
         }
     }
 
@@ -88,7 +100,7 @@ public final class ShortcutHintOverlayView: NSView {
             badge.text = hint.text
             badge.refresh()
             let size = badge.fittingSize
-            var origin = CGPoint(x: hint.rect.maxX - size.width - 2, y: hint.rect.midY - size.height / 2)
+            var origin = CGPoint(x: hint.rect.maxX - size.width - hint.trailingInset, y: hint.rect.midY - size.height / 2)
             if hint.row == .target, hint.rect.width < size.width + Self.narrowTargetSlack {
                 // An icon tile (Home, the App Store in a tile band) is narrower than a trailing chip: center on it.
                 origin.x = hint.rect.midX - size.width / 2
