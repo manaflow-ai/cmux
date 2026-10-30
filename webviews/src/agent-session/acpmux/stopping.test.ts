@@ -239,7 +239,11 @@ test("a refused Stop stops reading as stopping and says why", () =>
   withStoppingClient(async (f) => {
     const { translate } = await import("./i18n");
     await f.start();
-    const notes = () => f.shown().rows.filter((row) => row.kind === "notice").map((row) => row.text);
+    const notes = () =>
+      f
+        .shown()
+        .rows.filter((row) => row.kind === "notice")
+        .map((row) => row.text);
     const before = notes().length;
     await f.client.cancel();
     expect(f.shown().stopping).toBe(true);
