@@ -504,6 +504,14 @@ public actor MockHomeSource: HomeSource {
         publish(.draft(update))
     }
 
+    /// Publishes one live run frame (``HomeLiveEvent``), as an owner sends a running Chief's
+    /// "working on" line (the DEBUG Home fixture's status-line captures). Nothing is stored.
+    ///
+    /// - Parameter event: The frame, for example an `.activity` frame with the step running now.
+    public func streamLive(_ event: HomeLiveEvent) {
+        publish(.live(event))
+    }
+
     // MARK: Owner logic
 
     private func apply(_ intent: HomeIntent) throws -> HomeOpResult {

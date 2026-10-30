@@ -1,6 +1,7 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "newTab.row.run": {"comment":"New Tab dropdown: a Commands palette action row's hint when the action has no shortcut","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Run"}},"ar":{"stringUnit":{"state":"translated","value":"تشغيل"}},"bs":{"stringUnit":{"state":"translated","value":"Pokreni"}},"da":{"stringUnit":{"state":"translated","value":"Kør"}},"de":{"stringUnit":{"state":"translated","value":"Ausführen"}},"es":{"stringUnit":{"state":"translated","value":"Ejecutar"}},"fr":{"stringUnit":{"state":"translated","value":"Exécuter"}},"it":{"stringUnit":{"state":"translated","value":"Esegui"}},"ja":{"stringUnit":{"state":"translated","value":"実行"}},"km":{"stringUnit":{"state":"translated","value":"ដំណើរការ"}},"ko":{"stringUnit":{"state":"translated","value":"실행"}},"nb":{"stringUnit":{"state":"translated","value":"Kjør"}},"pl":{"stringUnit":{"state":"translated","value":"Uruchom"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Executar"}},"ru":{"stringUnit":{"state":"translated","value":"Выполнить"}},"th":{"stringUnit":{"state":"translated","value":"เรียกใช้"}},"tr":{"stringUnit":{"state":"translated","value":"Çalıştır"}},"uk":{"stringUnit":{"state":"translated","value":"Виконати"}},"vi":{"stringUnit":{"state":"translated","value":"Chạy"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"运行"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"執行"}}}},
     "chatInspector.usage.showSubagents": {"comment":"Agent pane: Session Info's Usage","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Show"}},"ar":{"stringUnit":{"state":"translated","value":"إظهار"}},"bs":{"stringUnit":{"state":"translated","value":"Prikaži"}},"da":{"stringUnit":{"state":"translated","value":"Vis"}},"de":{"stringUnit":{"state":"translated","value":"Anzeigen"}},"es":{"stringUnit":{"state":"translated","value":"Mostrar"}},"fr":{"stringUnit":{"state":"translated","value":"Afficher"}},"it":{"stringUnit":{"state":"translated","value":"Mostra"}},"ja":{"stringUnit":{"state":"translated","value":"表示"}},"km":{"stringUnit":{"state":"translated","value":"បង្ហាញ"}},"ko":{"stringUnit":{"state":"translated","value":"보기"}},"nb":{"stringUnit":{"state":"translated","value":"Vis"}},"pl":{"stringUnit":{"state":"translated","value":"Pokaż"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Mostrar"}},"ru":{"stringUnit":{"state":"translated","value":"Показать"}},"th":{"stringUnit":{"state":"translated","value":"แสดง"}},"tr":{"stringUnit":{"state":"translated","value":"Göster"}},"uk":{"stringUnit":{"state":"translated","value":"Показати"}},"vi":{"stringUnit":{"state":"translated","value":"Hiện"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"显示"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"顯示"}}}},
     "chatInspector.usage.restartWithCap": {"comment":"Agent pane: Session Info's Usage","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Restart with cap"}},"ar":{"stringUnit":{"state":"translated","value":"إعادة التشغيل مع حد"}},"bs":{"stringUnit":{"state":"translated","value":"Ponovo pokreni s ograničenjem"}},"da":{"stringUnit":{"state":"translated","value":"Genstart med grænse"}},"de":{"stringUnit":{"state":"translated","value":"Mit Grenze neu starten"}},"es":{"stringUnit":{"state":"translated","value":"Reiniciar con límite"}},"fr":{"stringUnit":{"state":"translated","value":"Redémarrer avec limite"}},"it":{"stringUnit":{"state":"translated","value":"Riavvia con limite"}},"ja":{"stringUnit":{"state":"translated","value":"上限付きで再起動"}},"km":{"stringUnit":{"state":"translated","value":"ចាប់ផ្ដើមឡើងវិញដោយមានកំណត់"}},"ko":{"stringUnit":{"state":"translated","value":"제한을 두고 다시 시작"}},"nb":{"stringUnit":{"state":"translated","value":"Start på nytt med grense"}},"pl":{"stringUnit":{"state":"translated","value":"Uruchom ponownie z limitem"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Reiniciar com limite"}},"ru":{"stringUnit":{"state":"translated","value":"Перезапустить с ограничением"}},"th":{"stringUnit":{"state":"translated","value":"เริ่มใหม่พร้อมขีดจำกัด"}},"tr":{"stringUnit":{"state":"translated","value":"Sınırla yeniden başlat"}},"uk":{"stringUnit":{"state":"translated","value":"Перезапустити з обмеженням"}},"vi":{"stringUnit":{"state":"translated","value":"Khởi động lại có giới hạn"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"设上限后重启"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"設上限後重新啟動"}}}},
     "chatInspector.usage.restartWithCapSoon": {"comment":"Agent pane: Session Info's Usage","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"acpmux cannot restart a session with an autocompact cap yet"}},"ar":{"stringUnit":{"state":"translated","value":"لا يستطيع acpmux بعد إعادة تشغيل جلسة مع حد للضغط التلقائي"}},"bs":{"stringUnit":{"state":"translated","value":"acpmux još ne može ponovo pokrenuti sesiju s ograničenjem automatskog sažimanja"}},"da":{"stringUnit":{"state":"translated","value":"acpmux kan endnu ikke genstarte en session med en grænse for automatisk komprimering"}},"de":{"stringUnit":{"state":"translated","value":"acpmux kann eine Sitzung noch nicht mit einer Grenze für automatisches Komprimieren neu starten"}},"es":{"stringUnit":{"state":"translated","value":"acpmux aún no puede reiniciar una sesión con un límite de compactación automática"}},"fr":{"stringUnit":{"state":"translated","value":"acpmux ne peut pas encore redémarrer une session avec une limite de compaction auto"}},"it":{"stringUnit":{"state":"translated","value":"acpmux non può ancora riavviare una sessione con un limite di compattazione automatica"}},"ja":{"stringUnit":{"state":"translated","value":"acpmux はまだ自動圧縮の上限付きでセッションを再起動できません"}},"km":{"stringUnit":{"state":"translated","value":"acpmux មិនទាន់អាចចាប់ផ្ដើមវគ្គឡើងវិញដោយមានកំណត់បង្រួមស្វ័យប្រវត្តិទេ"}},"ko":{"stringUnit":{"state":"translated","value":"acpmux는 아직 자동 압축 제한을 두고 세션을 다시 시작할 수 없습니다"}},"nb":{"stringUnit":{"state":"translated","value":"acpmux kan ennå ikke starte en økt på nytt med en grense for automatisk komprimering"}},"pl":{"stringUnit":{"state":"translated","value":"acpmux nie może jeszcze uruchomić sesji ponownie z limitem automatycznego kompaktowania"}},"pt-BR":{"stringUnit":{"state":"translated","value":"O acpmux ainda não consegue reiniciar uma sessão com limite de compactação automática"}},"ru":{"stringUnit":{"state":"translated","value":"acpmux пока не умеет перезапускать сеанс с ограничением автосжатия"}},"th":{"stringUnit":{"state":"translated","value":"acpmux ยังเริ่มเซสชันใหม่พร้อมขีดจำกัดการบีบอัดอัตโนมัติไม่ได้"}},"tr":{"stringUnit":{"state":"translated","value":"acpmux bir oturumu henüz otomatik sıkıştırma sınırıyla yeniden başlatamıyor"}},"uk":{"stringUnit":{"state":"translated","value":"acpmux поки не вміє перезапускати сеанс з обмеженням автостиснення"}},"vi":{"stringUnit":{"state":"translated","value":"acpmux chưa thể khởi động lại phiên với giới hạn tự động nén"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"acpmux 暂时无法以自动压缩上限重启会话"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"acpmux 暫時無法以自動壓縮上限重新啟動工作階段"}}}},
@@ -53881,6 +53882,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "從此處分支"
+          }
+        }
+      }
+    },
+    "turn.nothingToContinue": {
+      "comment": "Agent pane: notice when Continue After Error (palette, CLI, MCP) runs but the chat's last turn did not fail",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا شيء للمتابعة: الدور الأخير لم يفشل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nema se šta nastaviti: posljednji potez nije pao."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Intet at fortsætte: den sidste tur fejlede ikke."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nichts fortzusetzen: Der letzte Durchgang ist nicht fehlgeschlagen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing to continue: the last turn didn’t fail."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No hay nada que continuar: el último turno no falló."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rien à poursuivre : le dernier tour n’a pas échoué."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Niente da continuare: l’ultimo turno non è fallito."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "続行するものはありません：最後のターンは失敗していません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានអ្វីត្រូវបន្តទេ៖ វេនចុងក្រោយមិនបានបរាជ័យទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "계속할 항목이 없습니다. 마지막 턴은 실패하지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingenting å fortsette: den siste runden feilet ikke."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie ma czego kontynuować: ostatnia tura nie zakończyła się błędem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nada para continuar: o último turno não falhou."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нечего продолжать: последний ход не завершился ошибкой."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีอะไรให้ดำเนินการต่อ: เทิร์นล่าสุดไม่ได้ล้มเหลว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Devam edilecek bir şey yok: son tur başarısız olmadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нічого продовжувати: останній хід не завершився помилкою."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có gì để tiếp tục: lượt cuối không bị lỗi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有可继续的内容：上一轮没有失败。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有可繼續的內容：上一輪沒有失敗。"
           }
         }
       }

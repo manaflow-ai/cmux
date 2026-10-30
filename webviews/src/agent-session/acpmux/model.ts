@@ -275,6 +275,9 @@ export type AcpmuxRow = {
   viaCli?: string;
   /// The originating prompt row, so Retry can restore image/PDF attachments.
   retryRowId?: string;
+  /// A turn summary of the chat's last turn, which a failed turn's Retry asks acpmux to retry
+  /// (turns.ts), even when its prompt is an attempt acpmux sent and draws nothing.
+  retryable?: boolean;
   /// A turn footer's answer row (turns.ts), whose right-click menu the footer's More opens.
   answerId?: string;
   retryAttachments?: ComposerAttachment[];
@@ -357,6 +360,10 @@ export type AcpmuxRow = {
   /// The last turn's footer when the reader stopped that turn and nothing followed: it offers
   /// Continue (conversation/turns.ts, TurnRows.tsx TurnFooter).
   resumable?: boolean;
+  /// The last turn's footer when that turn failed after doing work, or with no prompt to send again
+  /// (a turn a notice started): its error card leads with Continue, which resumes the turn with its
+  /// context, instead of Retry (conversation/errorRecovery.ts).
+  continuable?: boolean;
   /// An edited-files card of a turn that has ended, which offers Undo (conversation/turns.ts).
   ended?: boolean;
   /// A todo list whose turn has ended: a step left in progress no longer spins (conversation/turns.ts).
