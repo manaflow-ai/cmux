@@ -7501,6 +7501,8 @@ export class AcpmuxDirectClient {
   /// `since`: the status read's tick (`PeerStateEvents.statusStarted`); omitted for a reply that is
   /// not a fresh read of every peer's state, which then never replaces an event entry.
   private readPeers(status: any, since?: number): void {
+    // Asked before a status read that already landed: it would put back what that one replaced.
+    if (since !== undefined && !this.peerEvents.statusRead(since)) return;
     this.peers = Array.isArray(status?.peers)
       ? status.peers
           .map((peer: any) => (typeof peer?.name === "string" ? peer.name : undefined))
@@ -7511,7 +7513,6 @@ export class AcpmuxDirectClient {
     this.peerStates = peerStatesFromStatus(status);
     this.peerResources = peerResourcesFromStatus(status);
     this.peerStatus = peerStatusFromStatus(status);
-    if (since !== undefined) this.peerEvents.statusRead(since);
     if (this.peerEvents.observed) this.applyPeerStates();
   }
   /// Probes every agent's live model list again (`_acpmux/models {refresh: true}`): acpmux forgets

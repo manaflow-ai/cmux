@@ -93,14 +93,18 @@ export class PeerStateEvents {
     return true;
   }
 
-  /// The status read started at `start` landed: it is newer than every entry written before it
-  /// started, so those are dropped and the status read speaks for them. A failed restart goes
-  /// restarting -> reconnecting, both `reconnecting` on the wire, so the daemon sends no note and
-  /// only a status read says so. A snapshot that started after it stays the authority.
-  statusRead(start: number): void {
-    this.statusLanded = Math.max(this.statusLanded, start);
+  /// The status read started at `start` landed. One older than a status read that already landed
+  /// (or than this connection) says nothing new: false, and the caller drops it whole. Otherwise it
+  /// is newer than every entry written before it started, so those are dropped and the status read
+  /// speaks for them. A failed restart goes restarting -> reconnecting, both `reconnecting` on the
+  /// wire, so the daemon sends no note and only a status read says so. A snapshot that started after
+  /// it stays the authority.
+  statusRead(start: number): boolean {
+    if (start <= this.statusLanded) return false;
+    this.statusLanded = start;
     for (const [name, entry] of this.links) if (entry.revision < start) this.links.delete(name);
     if (start > this.snapshotLanded) this.authoritative = false;
+    return true;
   }
 
   *entries(): IterableIterator<[string, Link]> {
