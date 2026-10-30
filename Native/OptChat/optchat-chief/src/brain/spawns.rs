@@ -789,8 +789,8 @@ impl Brain {
         self.save();
     }
 
-    /// Opening workspace `key` failed (at spawn or on `control show`): it is
-    /// hidden, and the next `show` opens under a fresh key (a half-made
+    /// Workspace `key` is gone (opening it failed at spawn or on `control
+    /// show`, or a short task's idle close closed it): it is hidden, and the next `show` opens under a fresh key (a half-made
     /// workspace was closed under this one, and the daemon replays its
     /// mutations).
     pub(super) fn sub_workspace_failed(&mut self, id: &str, key: &str) {
@@ -1605,7 +1605,7 @@ impl Brain {
             }
             self.save();
         }
-        let (log, id) = (self.log.clone(), id.to_owned());
+        let (log, tx, id) = (self.log.clone(), self.tx.clone(), id.to_owned());
         std::thread::spawn(move || {
             let closed = if explicit {
                 workspaces.close(&key).map(|()| true)
@@ -1613,6 +1613,11 @@ impl Brain {
                 workspaces.close_idle(&key)
             };
             match closed {
+                // A short task's key is forgotten once its workspace is gone,
+                // so a later `control show` opens a new one.
+                Ok(true) if !explicit => {
+                    let _ = tx.send(super::Input::SubagentWorkspaceFailed { id, key });
+                }
                 Ok(true) => {}
                 Ok(false) => log(&format!(
                     "subagent {id}: its workspace stays: a terminal runs a command"

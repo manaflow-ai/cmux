@@ -186,8 +186,8 @@ pub enum Input {
         key: String,
         name: String,
     },
-    /// `control show` could not open workspace `key`: the subagent stays
-    /// hidden.
+    /// Workspace `key` is gone (it could not open, or a short task's idle
+    /// close closed it): the subagent stays hidden until `control show`.
     SubagentWorkspaceFailed {
         id: String,
         key: String,

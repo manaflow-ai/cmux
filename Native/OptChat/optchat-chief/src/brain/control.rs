@@ -282,6 +282,14 @@ impl Brain {
         let log = self.log.clone();
         if call.action == "hide" {
             let Some(key) = sub.workspace.clone() else {
+                // A spawn may still be opening its workspace under the slot's
+                // key: a fresh key fences that open, which then closes.
+                if sub.workspace_slot.is_some() {
+                    if let Some(s) = self.state.sub_mut(&id) {
+                        retire_slot_key(s);
+                    }
+                    self.save();
+                }
                 let _ = reply.send(outcome(
                     "noop",
                     format!("{id} has no workspace; it runs hidden"),
