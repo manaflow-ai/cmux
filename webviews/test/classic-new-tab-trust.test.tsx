@@ -1,8 +1,8 @@
 // The classic New Tab page with no agent to name yet (acpmux listed none): Return starts the chat
-// with a bare `chat.new` in the folder picked on the page. When acpmux refuses that start, the
-// prompt is never lost with it, nor is anything typed in the chat composer while the start was out:
-// a trust refusal sends it once Trust is answered, once; any other refusal leaves it in the composer
-// to send again, in the same folder.
+// with a bare `chat.new` in the folder picked on the page, which stays up until that start settles.
+// When acpmux refuses the start, the prompt is never lost with it: a trust refusal sends it once
+// Trust is answered, once; any other refusal leaves it in the composer to send again, in the same
+// folder.
 //
 // The pane runs on its in-page mock daemon (transport "mock"), whose session/new refuses the
 // picked folder until it is trusted, as acpmux's trust gate does (trust_gate.rs).
@@ -256,31 +256,36 @@ test("classic Return with no agent named: a start refused for the folder's trust
   expect(started).toEqual([folder, folder]);
 }, 60_000);
 
-test("a start refused after a while keeps the prompt ahead of what was typed in the composer meanwhile", async () => {
+// The New Tab page stays up until its start settles (#27009: leaving it first flashed the empty chat
+// hero), so nothing can be typed in the chat composer while the start is out: the page holds the
+// prompt until then, and a refusal after a while gives it back as a quick one does.
+test("a start refused after a while keeps the New Tab page until then, and gives the prompt back with the trust question", async () => {
   const folder = "/tmp/slow-untrusted-project";
-  let answer!: () => void;
-  const { prompts } = await mountClassic(folder, async (attempt) => {
+  let answer: (() => void) | undefined;
+  const { prompts, started } = await mountClassic(folder, async (attempt) => {
     if (attempt > 1) return undefined;
     await new Promise<void>((done) => (answer = done));
     return trustRefusal(folder);
   });
   await askIn(folder, "hello");
-  // The start is still out: the chat composer shows, and the person goes on typing in it.
-  await until(() => promptField() !== undefined && answer !== undefined, "the chat composer is up");
-  await act(async () => void promptField()!.type("and one more thing"));
-  expect(composerText()).toBe("and one more thing");
+  // The start is still out: the New Tab page stays, and no chat composer stands in for it yet.
+  await until(() => answer !== undefined, "the start went");
+  await tick();
+  expect(host.querySelector(".acpmux-newtab-field"), "the New Tab page while the start is out").not.toBeNull();
+  expect(promptField(), "no chat composer while the start is out").toBeUndefined();
+  expect(prompts).toEqual([]);
 
-  await act(async () => answer());
+  await act(async () => answer!());
   await until(() => trustButton() !== undefined, "the trust question shows");
-  // Nothing is lost: the refused prompt first, then what was typed since, and nothing went yet.
-  await until(() => composerText().includes("hello"), "the composer got the prompt back");
-  expect(composerText()).toBe("hello\n\nand one more thing");
+  // Nothing is lost: the refused prompt is back in the chat composer, and nothing went yet.
+  await until(() => composerText() === "hello", "the composer got the prompt back");
   expect(prompts).toEqual([]);
 
   await act(async () => trustButton()!.click());
   await until(() => prompts.length > 0, "the prompt went after Trust");
   await quiet("the page settles after the send");
-  expect(prompts).toEqual(["hello\n\nand one more thing"]);
+  expect(prompts).toEqual(["hello"]);
+  expect(started).toEqual([folder, folder]);
 }, 60_000);
 
 test("a start refused for another reason leaves the prompt in the composer, and sending it starts the chat in the folder", async () => {
