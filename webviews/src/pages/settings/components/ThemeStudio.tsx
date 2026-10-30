@@ -72,6 +72,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
     accent: useId(),
   };
   const [previewing, setPreviewing] = useState<{ name: string; target: "terminal" | "app" } | null>(null);
+  const previewOwners = useRef(new Map<"terminal" | "app", object>());
   const load = useCallback((node: HTMLElement | null) => void (node && store.loadThemeColors()), [store]);
 
   const row = rowsByKey.get(THEME_KEY)!;
@@ -189,10 +190,16 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
 
   const write = (next: ThemeSpec | null) =>
     next ? store.set(THEME_KEY, formatThemeSpec(next)) : store.reset(THEME_KEY);
-  const previewTerminal = (name: string | null) => {
-    setPreviewing(name ? { name, target: "terminal" } : null);
-    if (name) store.preview(THEME_KEY, name);
-    else store.previewEnd(THEME_KEY);
+  const previewTerminal = (name: string | null, owner?: object) => {
+    if (name) {
+      previewOwners.current.set("terminal", owner ?? {});
+      setPreviewing({ name, target: "terminal" });
+      store.preview(THEME_KEY, name, owner);
+    } else if (!owner || previewOwners.current.get("terminal") === owner) {
+      previewOwners.current.delete("terminal");
+      setPreviewing((current) => (current?.target === "terminal" ? null : current));
+      store.previewEnd(THEME_KEY, owner);
+    }
   };
   const writeApp = (next: ThemeSpec | null) =>
     next ? store.set(APP_THEME_KEY, formatThemeSpec(next)) : store.reset(APP_THEME_KEY);
@@ -216,10 +223,16 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
       custom={custom}
     />
   );
-  const previewApp = (name: string | null) => {
-    setPreviewing(name ? { name, target: "app" } : null);
-    if (name) store.preview(APP_THEME_KEY, name);
-    else store.previewEnd(APP_THEME_KEY);
+  const previewApp = (name: string | null, owner?: object) => {
+    if (name) {
+      previewOwners.current.set("app", owner ?? {});
+      setPreviewing({ name, target: "app" });
+      store.preview(APP_THEME_KEY, name, owner);
+    } else if (!owner || previewOwners.current.get("app") === owner) {
+      previewOwners.current.delete("app");
+      setPreviewing((current) => (current?.target === "app" ? null : current));
+      store.previewEnd(APP_THEME_KEY, owner);
+    }
   };
   const paired = spec?.kind === "pair";
   const current = (side: "light" | "dark") => (spec ? themeFor(spec, side, fallbackName) : null);

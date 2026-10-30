@@ -60,7 +60,7 @@ export function ThemeRowEditor({ row, value, disabled, labelId }: EditorProps) {
               : { ...spec, dark: name };
         return store.set(row.key, formatThemeSpec(next));
       }}
-      onPreview={(name) => (name ? store.preview(row.key, name) : store.previewEnd(row.key))}
+      onPreview={(name, owner) => (name ? store.preview(row.key, name, owner) : store.previewEnd(row.key, owner))}
     />
   );
 }

@@ -44,7 +44,7 @@ export function ThemePicker({
   /** Writes the choice; the live preview ends once the returned promise settles. */
   onPick(name: string | null): void | Promise<unknown>;
   /** The highlighted row while the list is open; null when it closes or nothing is highlighted. */
-  onPreview(name: string | null): void;
+  onPreview(name: string | null, owner?: object): void;
   /** Whether a theme has the user's color edits (appearance.themeEdits): it reads "<name> (custom)". */
   custom?(name: string): boolean;
   /** Whether the list offers the null choice (`configLabel`); the button still shows it for a null value. */
@@ -57,6 +57,7 @@ export function ThemePicker({
   const [pinned, setPinned] = useState<string | null>(null);
   // A live preview is showing in the app; it must end even if the picker goes away while open.
   const showing = useRef<string | null>(null);
+  const owner = useRef<object | null>(null);
   // The pending pointer-rest preview; any other preview, a pick or a close cancels it.
   const dwell = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelDwell = () => {
@@ -68,14 +69,21 @@ export function ThemePicker({
     // The same theme again is no new preview: no bridge round trip, no hero re-render.
     if (name === showing.current) return;
     showing.current = name;
-    onPreview(name);
+    owner.current = {};
+    onPreview(name, owner.current);
   };
-  const end = useRef(() => {});
-  end.current = () => {
+  const end = (expectedOwner?: object) => {
     cancelDwell();
-    if (showing.current !== null) preview(null);
+    if (showing.current !== null && (expectedOwner === undefined || owner.current === expectedOwner)) {
+      const currentOwner = owner.current;
+      showing.current = null;
+      owner.current = null;
+      onPreview(null, currentOwner ?? undefined);
+    }
   };
-  useEffect(() => () => end.current(), []);
+  const endOnUnmount = useRef(() => {});
+  endOnUnmount.current = () => end();
+  useEffect(() => () => endOnUnmount.current(), []);
   const highlight = (name: string | undefined, by: "keyboard" | "pointer" | "none") => {
     const target = name && name !== CONFIG ? name : pinned;
     if (by === "keyboard") return preview(target);
@@ -94,7 +102,7 @@ export function ThemePicker({
   const close = () => {
     cancelDwell();
     dismiss();
-    preview(null);
+    end();
   };
   // Disabled while open (the key became managed, the host disconnected) closes it too.
   useEffect(() => {
@@ -107,7 +115,8 @@ export function ThemePicker({
     dismiss();
     const chosen = name === CONFIG ? null : names.includes(name) ? name : undefined;
     if (chosen === undefined) return preview(null);
-    void Promise.resolve(onPick(chosen)).finally(() => preview(null));
+    const pickOwner = owner.current;
+    void Promise.resolve(onPick(chosen)).finally(() => end(pickOwner ?? undefined));
   };
   return (
     <>
