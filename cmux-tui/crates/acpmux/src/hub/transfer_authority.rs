@@ -241,4 +241,115 @@ mod tests {
         assert_eq!(session.transfer_blocked(), Some(false));
         assert!(session.moving().is_none(), "the failed begin left the chat frozen");
     }
+
+    /// Only the daemon's own records (`dir: "mux"`) decide: an agent's update may carry any
+    /// kind, so one named `transfer_aborted` or `imported` never reopens a moving chat.
+    #[test]
+    fn an_agent_record_named_like_a_transfer_event_decides_nothing() {
+        let mut config = Config::default();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
+        let hub = Hub::new(config, store);
+        let meta: SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "agent-named", "name": "agent",
+            "harness": "fake", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1
+        }))
+        .unwrap();
+        hub.store.save(&meta).unwrap();
+        let session = hub.make_session(meta);
+        hub.append(&session, "mux", "transfer_out", json!({"transferId": "xfer"}));
+        for kind in ["transfer_aborted", "imported"] {
+            hub.append(&session, "in", kind, json!({}));
+        }
+        assert_eq!(session.transfer_blocked(), Some(true), "an agent's record reopened it");
+        *session.transfer_authority.lock().unwrap() = None;
+        hub.restore_transfer_authority(&session);
+        assert_eq!(session.transfer_blocked(), Some(true), "a restart read the agent's record");
+    }
+
+    /// Logs whether the chat was still moving when its `transfer_aborted` was appended.
+    struct AbortOrderStore {
+        inner: Box<dyn Store>,
+        session: Arc<StdMutex<Option<Arc<Session>>>>,
+        moving_at_abort: Arc<StdMutex<Option<bool>>>,
+    }
+
+    impl Store for AbortOrderStore {
+        fn list(&self) -> anyhow::Result<Vec<SessionMeta>> {
+            self.inner.list()
+        }
+        fn load(&self, id: &str) -> anyhow::Result<Option<SessionMeta>> {
+            self.inner.load(id)
+        }
+        fn save(&self, meta: &SessionMeta) -> anyhow::Result<()> {
+            self.inner.save(meta)
+        }
+        fn append(&self, id: &str, record: &EventRecord) -> anyhow::Result<()> {
+            if record.kind == "transfer_aborted"
+                && let Some(session) = self.session.lock().unwrap().as_ref()
+            {
+                *self.moving_at_abort.lock().unwrap() = Some(session.moving().is_some());
+            }
+            self.inner.append(id, record)
+        }
+        fn events(&self, id: &str, after: u64, limit: usize) -> anyhow::Result<Vec<EventRecord>> {
+            self.inner.events(id, after, limit)
+        }
+        fn scan_strict(
+            &self,
+            id: &str,
+            after: u64,
+            visit: &mut dyn FnMut(EventRecord) -> bool,
+        ) -> anyhow::Result<()> {
+            self.inner.scan_strict(id, after, visit)
+        }
+        fn delete(&self, id: &str) -> anyhow::Result<()> {
+            self.inner.delete(id)
+        }
+    }
+
+    /// An abort logs `transfer_aborted` while the chat is still frozen: a new move can begin
+    /// only after it, so a late abort record never follows (and so never undoes) its
+    /// `transfer_out`.
+    #[tokio::test]
+    async fn an_abort_is_logged_before_the_chat_can_move_again() {
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let mut config: Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", fake]}},
+            "defaultHarness": "fake",
+        }))
+        .unwrap();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let inner = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
+        let watched = Arc::new(StdMutex::new(None));
+        let moving_at_abort = Arc::new(StdMutex::new(None));
+        let store = AbortOrderStore {
+            inner,
+            session: watched.clone(),
+            moving_at_abort: moving_at_abort.clone(),
+        };
+        let hub = Arc::new(Hub::new(config, Box::new(store)));
+        let meta: SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "abort-order", "name": "abort",
+            "harness": "fake", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1
+        }))
+        .unwrap();
+        hub.store.save(&meta).unwrap();
+        let session = hub.make_session(meta);
+        hub.sessions.lock().unwrap().insert(session.id.clone(), session.clone());
+        *watched.lock().unwrap() = Some(session.clone());
+        let begun = hub
+            .transfer_request("_acpmux/transfer_begin", &json!({"sessionId": session.id}))
+            .await
+            .unwrap();
+        let params = json!({"sessionId": session.id, "transferId": begun["transferId"]});
+        hub.transfer_request("_acpmux/transfer_abort", &params).await.unwrap();
+        assert_eq!(
+            *moving_at_abort.lock().unwrap(),
+            Some(true),
+            "unfrozen before the abort logged"
+        );
+        assert_eq!(session.transfer_blocked(), Some(false));
+        assert!(session.moving().is_none());
+    }
 }
