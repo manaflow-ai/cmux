@@ -5,14 +5,64 @@ import type { SlashCommand } from "./slashCommands";
 /** Commands owned by cmux and available in every harness chat. Their description is a pane string. */
 export type CmuxCommand = SlashCommand & {
   source: "cmux";
-  action: "import" | "continue" | "fork" | "btw" | "side" | "status";
-  descriptionKey?: NonNullable<SlashCommand["descriptionKey"]>;
+  action:
+    | "model"
+    | "fast"
+    | "context"
+    | "plan"
+    | "passThrough"
+    | "import"
+    | "continue"
+    | "fork"
+    | "btw"
+    | "side"
+    | "status";
+  descriptionKey?: SlashCommand["descriptionKey"];
 };
 
+/// A handler's answer that the prompt goes to the harness as typed, through the normal send path
+/// (attachments and steer included), as if cmux did not own the command.
+export const CMUX_PASS_THROUGH: unique symbol = Symbol("cmux.passThrough");
+
+const HARNESS_TOO: ReadonlySet<CmuxCommand["action"]> = new Set(["model", "fast", "context", "plan", "passThrough"]);
+
+/// A command the harness also takes as typed: with no host to run cmux's own version, it is sent.
+export function harnessTakesToo(command: CmuxCommand): boolean {
+  return HARNESS_TOO.has(command.action);
+}
+
 /** A command handler may return a user-facing refusal while keeping the draft in the field. */
-export type CmuxCommandResult = boolean | void | string | Promise<unknown>;
+export type CmuxCommandResult = boolean | void | string | typeof CMUX_PASS_THROUGH | Promise<unknown>;
 
 export const CMUX_COMMANDS: readonly CmuxCommand[] = [
+  {
+    name: "model",
+    description: "",
+    descriptionKey: "picker.model",
+    source: "cmux",
+    action: "model",
+  },
+  {
+    name: "fast",
+    description: "",
+    descriptionKey: "picker.fastMode",
+    source: "cmux",
+    action: "fast",
+  },
+  {
+    name: "context",
+    description: "",
+    descriptionKey: "composer.slashContext",
+    source: "cmux",
+    action: "context",
+  },
+  {
+    name: "plan",
+    description: "",
+    descriptionKey: "picker.plan",
+    source: "cmux",
+    action: "plan",
+  },
   {
     name: "import",
     description: "",
@@ -59,20 +109,48 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
   },
 ];
 
+/// Harnesses commonly expose these, but not every adapter advertises them through ACP. Keep a
+/// cmux-owned fallback in the menu; an advertised entry wins and keeps the harness's description
+/// and hint. The action sends the exact slash prompt through ACP.
+const PASS_THROUGH_FALLBACKS: readonly CmuxCommand[] = [
+  {
+    name: "compact",
+    description: "",
+    descriptionKey: "composer.slashCompact",
+    source: "cmux",
+    action: "passThrough",
+  },
+  {
+    name: "clear",
+    description: "",
+    descriptionKey: "composer.slashClear",
+    source: "cmux",
+    action: "passThrough",
+  },
+];
+
 /** cmux commands come first, while a harness keeps the order it advertised. */
 export function mergedCommands(
   agent: readonly SlashCommand[] | undefined,
   enabledCmuxActions: ReadonlySet<CmuxCommand["action"]> = new Set(CMUX_COMMANDS.map((command) => command.action)),
 ): SlashCommand[] {
   const seen = new Set<string>();
-  return [...CMUX_COMMANDS.filter((command) => enabledCmuxActions.has(command.action)), ...(agent ?? [])].filter(
-    (command) => {
-      const name = command.name.trim().toLowerCase();
-      if (!name || seen.has(name)) return false;
-      seen.add(name);
-      return true;
-    },
-  );
+  const merged = [
+    ...CMUX_COMMANDS.filter((command) => enabledCmuxActions.has(command.action)),
+    ...(agent ?? []),
+  ].filter((command) => {
+    const name = command.name.trim().toLowerCase();
+    if (!name || seen.has(name)) return false;
+    seen.add(name);
+    return true;
+  });
+  for (const fallback of PASS_THROUGH_FALLBACKS) {
+    if (!seen.has(fallback.name)) {
+      seen.add(fallback.name);
+      merged.push(fallback);
+    }
+  }
+  return merged;
 }
 
 export function commandArgs(text: string, command: SlashCommand): string | undefined {
@@ -141,6 +219,11 @@ export function cmuxCommandRefusal(
 ): StringKey | undefined {
   switch (command.action) {
     case "import":
+    case "model":
+    case "fast":
+    case "context":
+    case "plan":
+    case "passThrough":
       return undefined;
     case "status":
       return state.summary ? undefined : "composer.cmuxStatusUnavailable";
