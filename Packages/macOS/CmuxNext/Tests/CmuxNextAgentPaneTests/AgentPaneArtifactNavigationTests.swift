@@ -64,4 +64,38 @@ struct AgentPaneArtifactNavigationTests {
                                           sourceFrameURL: pane, hook: hook) == .allow)
         }
     }
+
+    /// Only the agent page itself may create the artifact's script-capable frame: a loopback preview, another
+    /// site or a frame with no source cannot acquire that endpoint by framing it (feat #26216 on the page host).
+    @Test func onlyTheTrustedPaneMayCreateAnArtifactFrame() throws {
+        let pane = try #require(URL(string: "cmux-page://cmux.agent/"))
+        let artifact = try #require(URL(string: AgentPaneRenderFrame.artifactSource))
+        let render = try #require(URL(string: AgentPaneRenderFrame.source))
+        for text in ["http://127.0.0.1:8080/preview", "https://example.com/", "about:blank"] {
+            let untrusted = try #require(URL(string: text))
+            for hook in hooks {
+                #expect(PageNavigation.policy(for: artifact, page: page, userClicked: false, mainFrame: false,
+                                              sourceFrameURL: untrusted, hook: hook) == .cancel, "\(text)")
+                // Ordinary render cards keep their existing navigation policy.
+                #expect(PageNavigation.policy(for: render, page: page, userClicked: false, mainFrame: false,
+                                              sourceFrameURL: untrusted, hook: hook) == .allow, "\(text)")
+            }
+        }
+        for hook in hooks {
+            #expect(PageNavigation.policy(for: artifact, page: page, userClicked: false, mainFrame: false, hook: hook) == .cancel)
+            // The pane creates a fresh child whose target request may still be empty or about:blank.
+            for target in [nil, URL(string: "about:blank")] {
+                #expect(PageNavigation.policy(for: artifact, page: page, userClicked: false, mainFrame: false,
+                                              targetFrameURL: target, sourceFrameURL: pane, hook: hook) == .allow)
+            }
+        }
+    }
+
+    /// The render frame keeps the CDN and eval-capable policy a chart or mock needs (the artifact endpoint's
+    /// own opaque sandbox and pane ancestors are `PageArtifactFrameTests`').
+    @Test func renderFrameKeepsItsLibraryPolicy() {
+        #expect(AgentPaneRenderFrame.policy.contains("https://cdn.jsdelivr.net"))
+        #expect(AgentPaneRenderFrame.policy.contains("'unsafe-eval'"))
+        #expect(!AgentPaneRenderFrame.policy.contains("127.0.0.1"))
+    }
 }

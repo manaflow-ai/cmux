@@ -47,6 +47,9 @@ extension HomeService {
                                                                                                    work: services.mainWork) {
                     TabMoves.toNewDockColumn($0, anchor: $1, edge: .left, role: .agentChat, respawn: $2, pinned: $3, services: services,
                                              completion: $4) })
+                // Each window's own Home is docked on every connect too (cmux#27880); before the
+                // Chief's tab, which can wait long for the Chief's owner.
+                if !HomeDock.classic { await services.windowHomes.ensureDocks(connection) }
                 try await ensureChiefTab(connection, home: home)
             } catch is CancellationError {
             } catch {

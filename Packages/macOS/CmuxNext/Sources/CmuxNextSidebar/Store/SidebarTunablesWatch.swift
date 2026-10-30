@@ -52,8 +52,11 @@ final class SidebarTunablesWatch {
 }
 
 extension SidebarTabRowView: SidebarLookFollower {
-    /// `sidebar.tabLines` may have changed: draw the last tab again in the look read now.
+    /// `sidebar.tabLines` may have changed, or the parent's leading mark (`sidebar.agentMark`: a tab-only
+    /// viewport still follows its offscreen parent's): draw the last tab again in the look read now.
     func sidebarLookChanged() {
         redrawLastConfiguration()
+        // The parent's title column can change while the tab's own Content stays equal.
+        needsLayout = true
     }
 }

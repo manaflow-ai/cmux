@@ -245,7 +245,7 @@ struct CloudStartSessionTests {
             steps.note("prepare")
             return true
         })
-        var host = AgentTabRemoteHost(surface: 1, session: nil, machine: "devbox", endpoint: { throw CancellationError() },
+        var host = AgentTabRemoteHost(surface: 1, session: nil, machine: "devbox", hostID: "devbox", endpoint: { throw CancellationError() },
                                       mainWork: MainWorkScheduler(budget: MainFrameBudget()),
                                       servesKeyedReason: servesKeyedReason, approvals: approvals)
         host.start = { _, _, _, key in

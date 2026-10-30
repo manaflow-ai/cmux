@@ -10,14 +10,16 @@ public final class AgentUnsentDrafts {
     static let maximumCharacters = 1_000_000
 
     let file: URL?
+    /// Saves leave the main thread: typing in a new chat saves every settled edit.
+    private let store: AgentPaneStateFile?
     /// Observed one tab at a time (perf-speed-of-light.md I2): a pane snapshot's title and the oracle's agents
     /// facet read their own tab's text, so typing in another tab's new chat re-runs neither.
     private let drafts = ObservedMap<String, String>()
 
     public init(file: URL?) {
         self.file = file
-        // concurrency-allow: one read of a small local state file when the tab store is made
-        let data = file.flatMap { try? Data(contentsOf: $0) }
+        store = file.map(AgentPaneStateFile.at)
+        let data = store?.read()
         let saved = data.flatMap { try? JSONDecoder().blockingDecode([String: String].self, from: $0) } ?? [:]
         for (key, text) in saved { drafts[key] = text }
     }
@@ -72,13 +74,8 @@ public final class AgentUnsentDrafts {
     }
 
     private func save() {
-        guard let file else { return }
+        guard let store else { return }
         let saved = Dictionary(drafts.entries.map { ($0.key, $0.value) }, uniquingKeysWith: { first, _ in first })
-        if saved.isEmpty {
-            try? FileManager.default.removeItem(at: file)
-            return
-        }
-        // concurrency-allow: one small atomic write per settled edit of a new chat's text
-        try? JSONEncoder().encode(saved).write(to: file, options: .atomic)
+        store.write { saved.isEmpty ? nil : try JSONEncoder().encode(saved) }
     }
 }

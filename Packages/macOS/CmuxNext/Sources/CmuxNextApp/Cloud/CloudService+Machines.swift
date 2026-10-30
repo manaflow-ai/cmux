@@ -57,6 +57,7 @@ extension CloudService {
     }
 
     func signOut() async {
+        signedOutCreation.cancel()
         // Start-session asks and runs end now, not after the link and install cleanup below.
         startSessionRuns.forgetAll()
         startSessionAsks.endAll()

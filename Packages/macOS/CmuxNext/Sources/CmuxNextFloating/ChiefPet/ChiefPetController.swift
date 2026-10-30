@@ -46,7 +46,7 @@ public final class ChiefPetController {
     private let appEvents: AppEvents
     /// The app-activation subscriptions on the app's one ``AppEvents``, kept for the controller's life.
     private var activationObservers: [EventSubscription] = []
-    /// Follows `home.chiefPetEnabled`, `home.chiefPetMascot` and the worn upload (``start(on:enabled:mascot:upload:)``).
+    /// Follows `home.chiefPetEnabled`, `home.chiefPetMascot` and the worn upload (``start(on:enabled:mascot:upload:state:)``).
     private var watch: ServiceObservation<PetSetting>?
     /// `home.chiefPetEnabled` as last followed: off, arrivals are dropped.
     public private(set) var isOn = false
@@ -54,6 +54,20 @@ public final class ChiefPetController {
     /// The person's own upload the pet wears instead of `mascot` (``ChiefAvatarUploads``), and its frames.
     private(set) var upload: URL?
     private var clip: ChiefPetClip?
+    /// The character's frames when it is an animated one (`ChiefPetSprite`); nil for a still one.
+    private(set) var sprite: ChiefPetSprite?
+    /// What the Chief is doing (the App's state source), and what the pet draws: `done` for one
+    /// pass of its row after a turn ends, then `idle`.
+    private(set) var chiefState = ChiefPetState.idle
+    private(set) var drawnState = ChiefPetState.idle
+    /// Ends `done` after one pass of its row (one-shot; cancelled by the next state and when the pet turns off).
+    private let doneTimer: DemandTimer
+    /// Reduce Motion (the system's, calm mode or the test override) or the motion switches changing
+    /// (``AppearanceSignals``' `reduceMotion` and `motion`), kept for the controller's life.
+    private var motionWatch: AnyObject?
+    /// Whether the pet's frames must stand: the same loop policy as an upload's (Reduce Motion, calm
+    /// mode, the Home motion switch: `Motion.home.animatesLoops`); tests pin one.
+    var reduceMotion: @MainActor () -> Bool = { !Motion.home.animatesLoops }
     /// The notices unfolded into a column (the rail's chevron); folded, a deck.
     private(set) var expanded = false
     /// Message the Chief ran while `home.chiefPetEnabled` was off: the pet shows for this message only
@@ -75,6 +89,11 @@ public final class ChiefPetController {
         self.appEvents = appEvents
         // timer-class-allow: the card's fold runs on the injected clock ChiefPetNoticeTests steps; one deadline per arrival
         toast = DemandTimer(owner: "chiefPet.toast", clock: clock)
+        doneTimer = DemandTimer(owner: "chiefPet.done", clock: clock)
+        // The system's Reduce Motion reaches the signals through the app's one display-options observer.
+        motionWatch = DesignSettings.shared.signals.subscribe([.reduceMotion, .motion], owner: "ChiefPetController") { [weak self] in
+            self?.drawCharacter()
+        }
         // Switching to another app takes the card down at once; coming back shows it if its time is not up.
         // No node: the pet floats over every app, so the decision is the whole app's.
         let rerender: @MainActor () -> Void = { [weak self] in self?.render(animated: false) }
@@ -91,31 +110,37 @@ public final class ChiefPetController {
     /// `ChiefPetMascot` id) and `upload` (the default Chief's worn upload, ``ChiefAvatarUploads``),
     /// read under observation: shows the pet when it turns on, hides it when it turns off, and draws
     /// the upload, else the chosen character. The current values apply before it returns.
+    /// `state`: what the Chief is doing now, read under observation too (an animated character draws it).
     ///
     /// A ``ServiceObservation`` in the `visible` class on `mainWork`: the pet is its own panel over every
     /// app, so the follow runs whatever cmux shows; a person's settings toggle applies before its
     /// input's commit, and another change once per burst.
     public func start(on mainWork: MainWorkScheduler, enabled: @escaping @MainActor @Sendable () -> Bool,
                       mascot: @escaping @MainActor @Sendable () -> String = { ChiefPetMascot.initial.rawValue },
-                      upload: @escaping @MainActor @Sendable () -> URL? = { nil }) {
+                      upload: @escaping @MainActor @Sendable () -> URL? = { nil },
+                      state: @escaping @MainActor @Sendable () -> ChiefPetState = { .idle }) {
         watch?.cancel()
         // The Home motion switch and speed (`Motion.home`) are observed too: a moving upload stops at once.
         watch = ServiceObservation(.visible, owner: "ChiefPet.setting", on: mainWork) {
-            PetSetting(on: enabled(), mascot: mascot(), upload: upload(), animatesLoops: Motion.home.animatesLoops)
+            PetSetting(on: enabled(), mascot: mascot(), upload: upload(), animatesLoops: Motion.home.animatesLoops, state: state())
         } apply: { [weak self] setting in
             self?.setMascot(ChiefPetMascot(rawValue: setting.mascot) ?? .initial)
             self?.setUpload(setting.upload)
             self?.panel?.pet.reconcileClip()
+            self?.setState(setting.state)
+            // A motion switch that changed stops or starts the character's frames too.
+            self?.drawCharacter()
             self?.sync(setting.on)
         }
     }
 
-    /// What ``start(on:enabled:mascot:upload:)`` follows: an unchanged set applies nothing.
+    /// What ``start(on:enabled:mascot:upload:state:)`` follows: an unchanged set applies nothing.
     private struct PetSetting: Equatable {
         let on: Bool
         let mascot: String
         let upload: URL?
         let animatesLoops: Bool
+        let state: ChiefPetState
     }
 
     /// Draws the upload `file` from now on instead of the character (nil: the character again).
@@ -126,6 +151,8 @@ public final class ChiefPetController {
         // The old upload's files are gone: its clip leaves now, and the character shows until the new one is read.
         clip = nil
         panel?.pet.play(nil)
+        // The character again (an animated one steps), until the new upload is read.
+        drawCharacter()
         guard let file else { return }
         // task-owner: one read of an upload's frames (at most 512 KB); ends when they are shown
         // main-hop-allow: the person's upload; its frames are read off main (detached) and the clip lands in this one resume
@@ -134,14 +161,51 @@ public final class ChiefPetController {
             guard let self, upload == file else { return }
             self.clip = clip
             panel?.pet.play(clip)
+            // An upload that could not be read leaves the character, drawn as it is now.
+            if clip == nil { drawCharacter() }
         }
+    }
+
+    /// The Chief's state now. A turn that ends (working or thinking, then idle) plays `done` once first.
+    func setState(_ state: ChiefPetState) {
+        guard state != chiefState else { return }
+        let finished = state == .idle && (chiefState == .working || chiefState == .thinking)
+        chiefState = state
+        doneTimer.cancel()
+        drawnState = finished && sprite != nil ? .done : state
+        if drawnState == .done, let sprite {
+            let pass = sprite.track(.done, facingRight: true).duration
+            doneTimer.schedule(after: .milliseconds(Int(pass * 1000))) { @MainActor [weak self] in
+                guard let self, self.drawnState == .done else { return }
+                self.drawnState = self.chiefState
+                self.drawCharacter()
+            }
+        }
+        drawCharacter()
+    }
+
+    /// Whether the character's frames move now. The stop conditions: the pet off or hidden, covered,
+    /// cmux in the background, or Reduce Motion; then it shows its state's first frame and runs nothing.
+    var characterMoves: Bool {
+        guard isOn || transient, let panel, panel.isVisible, panel.occlusionState.contains(.visible) else { return false }
+        return appIsActive() && !reduceMotion()
+    }
+
+    /// Draws the character: an animated one in `drawnState`, facing the side it is docked toward.
+    func drawCharacter() {
+        guard let panel else { return }
+        // An uploaded GIF moves only while it can be watched: the pet on screen over an active cmux.
+        panel.pet.runClip(panel.isVisible && appIsActive())
+        panel.pet.animate(sprite, state: drawnState, facingRight: panel.facesRight, moving: characterMoves)
     }
 
     /// Draws `mascot` from now on (the panel keeps it while hidden).
     func setMascot(_ mascot: ChiefPetMascot) {
         guard mascot != self.mascot else { return }
         self.mascot = mascot
+        sprite = mascot.sprite
         panel?.pet.image = mascot.image
+        drawCharacter()
     }
 
     func sync(_ on: Bool) {
@@ -157,8 +221,12 @@ public final class ChiefPetController {
             expiries.removeAll()
             toast.cancel()
             presenting = false
-            // A message summoned with the setting off (or turning off) keeps its box until it closes.
+            // A message summoned with the setting off (or turning off) keeps its box until it closes,
+            // and its pet still plays a `done` it shows (each state change syncs off again).
             if transient, replyPanel?.isVisible == true { return render(animated: false) }
+            doneTimer.cancel()
+            // A `done` cut short ends here: shown again, the pet draws the Chief's state.
+            drawnState = chiefState
             transient = false
             closeReply()
             render(animated: false)
@@ -230,8 +298,7 @@ public final class ChiefPetController {
     /// `animated`: a new front notice fades the bubble in once; nothing else moves.
     func render(animated: Bool) {
         panel?.pet.badge = feed.attention
-        // An uploaded GIF moves only while it can be watched: the pet on screen over an active cmux.
-        panel?.pet.runClip(panel?.isVisible == true && appIsActive())
+        drawCharacter()
         replyPanel?.show(targets: ChiefPetReply.targets(feed))
         if feed.notices.isEmpty, expanded {
             expanded = false
@@ -283,6 +350,7 @@ public final class ChiefPetController {
         let made = makePanel()
         if mascot != .initial { made.pet.image = mascot.image }
         if let clip { made.pet.play(clip) }
+        made.onVisibilityChange = { [weak self] in self?.drawCharacter() }
         made.onClick = { [weak self] in self?.toggleReply() }
         // The right-click menu: the settings close the reply box first, so they come up alone.
         made.onSettings = { [weak self] in

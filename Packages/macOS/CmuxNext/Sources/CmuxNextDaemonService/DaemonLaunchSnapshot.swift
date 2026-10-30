@@ -19,6 +19,9 @@ import os
 public final class DaemonLaunchSnapshot {
     /// The window records of the snapshot, drawn before the first connection (`LaunchSnapshotWindow`); nil without one.
     public private(set) var windows: WindowStateDocument?
+    /// The sidebar document the snapshot saved (`LaunchSnapshot.sidebarDoc`), shown before the handshake; the sidebar's
+    /// wiring takes it once (nil after), and the daemon owns the document from there on.
+    public var sidebarDoc: Data?
     /// The local session whose launch snapshot path each handshake records.
     var session: String?
     var location = LaunchSnapshotLocation()
@@ -103,6 +106,7 @@ public final class DaemonLaunchSnapshot {
             guard !store.isLoaded else { return }
             store.applyProvisional(snapshot: snapshot.tree)
             windows = snapshot.windows
+            sidebarDoc = snapshot.sidebarDoc
             DaemonService.launchMark("launch_snapshot_applied")
         }
     }

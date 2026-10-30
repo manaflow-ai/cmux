@@ -100,13 +100,14 @@ final class HomeDockTab: InternalPageProvider {
         pending[tabID, default: []].append(body)
     }
 
-    /// The docked Home's view in the live tree, once its tab has shown (nil while it is discarded).
+    /// The active window's docked Home view in the live tree (cmux#27880: each window has its own),
+    /// once its tab has shown (nil while it is discarded).
     static func view(_ services: AppServices) -> HomeDockView? {
         guard let found = dockTab(services) else { return nil }
         return found.provider.views[found.key]
     }
 
-    /// The conversation the docked Messages view shows, live or discarded
+    /// The conversation the active window's docked Messages view shows, live or discarded
     /// (`memoryDiscardInternalPages`: the tab still stands for what its view showed), so an action
     /// needs no live view. Nil before the dock first shows.
     static func shownConversation(_ services: AppServices) -> ConversationID? {
@@ -115,9 +116,11 @@ final class HomeDockTab: InternalPageProvider {
         return found.provider.saved[found.key]?.messages?.shown
     }
 
-    /// The docked Home's provider and its tab's provider key.
+    /// The active window's docked Home provider and its tab's provider key (cmux#27880: each window has its own
+    /// Home workspace; the app's own before any window).
     private static func dockTab(_ services: AppServices) -> (provider: HomeDockTab, key: String)? {
-        guard let tab = services.home.homeWorkspace.flatMap(HomeDock.pageTab(in:))?.tab,
+        let home = services.windows.active.map { services.windowHomes.home(in: $0.state.id) } ?? services.home.homeWorkspace
+        guard let tab = home.flatMap(HomeDock.pageTab(in:))?.tab,
               let provider = services.pages.provider(.homeDock) as? HomeDockTab else { return nil }
         return (provider, services.pages.storeKey(of: tab.id) ?? tab.id)
     }

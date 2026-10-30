@@ -50,6 +50,7 @@ final class FeedPageService: InternalPageProvider {
         guard let services else { return NSView() }
         let feed = services.feed
         FeedGitHubActions.install(on: feed.model, services: services)
+        feed.model.place = FeedPlace.lookup(services.daemon.store.place)
         let layout: FeedLayout = FeedTunables.reportsBasket.value ? .reportsBasket : .inbox
         let replies = replies
         // Resolved once at startup: a reply runs no executable lookup or signature check.

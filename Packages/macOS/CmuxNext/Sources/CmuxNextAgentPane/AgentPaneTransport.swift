@@ -56,6 +56,13 @@ import func CmuxSafeConcurrency.withOnceContinuation
     var sentFirst = false
     /// The send line (``submit(connection:frames:reply:)``), drained in order by one task at a time.
     var pending: [PendingSend] = []
+    /// Host-owned requests (for example the trust record after a native folder picker). They share
+    /// the page send line so initialization and person proof always precede them.
+    var pendingHost: [PendingHostSend] = []
+    var awaitingHost: [Int: PendingHostSend] = [:]
+    var personProofID: Int?
+    var pendingTrustFolders: [AgentPanePromptJournal.PendingTrust] = []
+    var trustDaemon: String?
     var draining = false
     /// Waiting on the send line to drain (``lineDrained(within:)``).
     var drainWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
@@ -73,6 +80,8 @@ import func CmuxSafeConcurrency.withOnceContinuation
     public let decisions = AcpmuxDecisionContexts()
     /// The keyed restart the chat's machine offers, when it runs on another machine.
     private(set) var remoteApprovals: AgentPaneRemoteApprovals?
+    /// The canonical host key of the current remote chat, when its tab record supplied one.
+    private(set) var remoteHostID: String?
     /// The current connection is a chat on another machine (``RemoteAcpmuxWire``): its folders are
     /// that machine's, so this Mac's folder rule does not read them (that machine's acpmux checks
     /// its own folder trust, cx-k21v).
@@ -131,9 +140,10 @@ import func CmuxSafeConcurrency.withOnceContinuation
     /// spent goes on to the chat that starts there (``pickCredit``), then its first prompt. The New
     /// Tab page asks for the folder in the same turn as the Send, so the pick took the Send's only
     /// gesture and the chat's first prompt was refused ("Not sent. Press Retry to send it.").
-    func grantPicked(_ folder: String) {
+    func grantPicked(_ folder: String, carryGesture: Bool = true, trust: Bool = true) async {
         grant(folder)
-        if socket != nil { pickCredit.give(connection: current, at: gestures.uptime) }
+        if carryGesture, socket != nil { pickCredit.give(connection: current, at: gestures.uptime) }
+        if trust { await trustPicked(folder) }
     }
     /// Whether the daemon's asking table (acpmux `web_modes.rs`) lists `mode` for the session's
     /// family: true or false, nil when it cannot tell (which needs the confirmation, fail closed).
@@ -244,7 +254,14 @@ import func CmuxSafeConcurrency.withOnceContinuation
         localAppToken = connection.localAppToken
         socketPath = connection.socketPath
         remoteApprovals = connection.remote?.approvals
+        remoteHostID = connection.remote?.hostID
         remoteWire = connection.remote != nil
+        trustDaemon = remoteWire ? nil : (connection.socketPath ?? connection.url.absoluteString)
+        if let daemon = trustDaemon {
+            bindPreOpenTrust(to: daemon)
+            guard await restorePendingTrust(daemon: daemon, connection: id) else { throw .closed }
+        }
+        guard id == current else { throw .staleConnection }
         let wire = connection.remote?.makeWire()
         if let wire {
             remoteImageLoader = { path in try await wire.loadRemoteImage(path) }
@@ -271,13 +288,13 @@ import func CmuxSafeConcurrency.withOnceContinuation
         // cx-fcaq: the local WebSocket goes only to a port the acpmux this app runs listens on.
         if connection.remote == nil, let executable = connection.executable, let port = connection.url.port,
            !(await AcpmuxServerPeer.verifyListener(port: port, executable: executable)) {
-            if self.socket === socket { self.socket = nil; localAppToken = nil }
+            if self.socket === socket { self.socket = nil; localAppToken = nil; trustDaemon = nil }
             throw .connectFailed
         }
         do {
             try await socket.start(timeout: limits.connectTimeout)
         } catch {
-            if self.socket === socket { self.socket = nil; localAppToken = nil }
+            if self.socket === socket { self.socket = nil; localAppToken = nil; trustDaemon = nil }
             Self.logger.error("agent pane transport connect failed connection=\(id, privacy: .public)")
             throw .connectFailed
         }
@@ -379,7 +396,10 @@ import func CmuxSafeConcurrency.withOnceContinuation
 
     /// Closes the connection if it is the current one. The page gets `reason` with the close.
     public func close(connection id: Int, reason: String = "") {
-        guard id == current, let socket else { return }
+        guard id == current else { return }
+        failHostRequests(connection: id)
+        trustDaemon = nil // A new native pick after close belongs to the next local connection.
+        guard let socket else { return }
         socket.close(code: 1000, reason: reason, error: nil)
         gestures.clearTickets(connection: id)
         localAppToken = nil
@@ -409,7 +429,9 @@ import func CmuxSafeConcurrency.withOnceContinuation
         flushes += 1
         let event = AgentPaneTransportEvent(connection: current, frames: batch.frames, closed: batch.closed)
         if batch.closed != nil {
+            failHostRequests(connection: current)
             self.socket = nil
+            trustDaemon = nil
             gestures.clearTickets(connection: current)
             localAppToken = nil
             // A connection the daemon closed: the page was told, so its prompts are the page's again

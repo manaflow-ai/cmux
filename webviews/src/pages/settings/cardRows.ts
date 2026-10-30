@@ -12,6 +12,9 @@ export const APP_THEME_KEY = "appearance.appTheme";
 export const THEME_EDITS_KEY = "appearance.themeEdits";
 /** appearance.accent: drawn by the theme studio as the swatch popup, after the app theme. */
 export const ACCENT_KEY = "appearance.accent";
+/** appearance.highlightColor: drawn by the theme studio as its setting row, after the accent (the App Theme
+ * group's last key: without it the page drew a second "App Theme" card for this one row). */
+export const HIGHLIGHT_COLOR_KEY = "appearance.highlightColor";
 
 export const BACKGROUND_KEY = "appearance.background";
 export const BACKGROUND_OPACITY_KEY = "appearance.backgroundOpacity";
@@ -35,8 +38,17 @@ export function useBackdropsShown(): boolean {
 export const CHIEF_PET_ENABLED = "home.chiefPetEnabled";
 export const CHIEF_PET_MASCOT = "home.chiefPetMascot";
 export const CHIEF_BUBBLE_STYLE = "home.chiefBubbleStyle";
+/** The bubble colors every chat starts with (`HomeBubbleColorsSetting`), in the schema's order. */
+export const CHIEF_BUBBLE_COLORS: readonly string[] = ["sent", "sentText", "received", "receivedText"].map(
+  (role) => `home.bubbleColors.${role}`,
+);
 /** The rows the Chief Pet card draws in place of their group. */
-export const CHIEF_PET_ROWS: ReadonlySet<string> = new Set([CHIEF_PET_ENABLED, CHIEF_PET_MASCOT, CHIEF_BUBBLE_STYLE]);
+export const CHIEF_PET_ROWS: ReadonlySet<string> = new Set([
+  CHIEF_PET_ENABLED,
+  CHIEF_PET_MASCOT,
+  CHIEF_BUBBLE_STYLE,
+  ...CHIEF_BUBBLE_COLORS,
+]);
 
 /** `home.chiefEngine`: the Chief's engine (Auto, This Mac, Hosted). The Chiefs card draws it. */
 export const CHIEF_ENGINE = "home.chiefEngine";

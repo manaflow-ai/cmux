@@ -33,13 +33,15 @@ extension AgentPaneTransport {
 
 extension RemoteAcpmuxWire {
     /// The wire of the chat `session` on a scheduler of its own.
-    @MainActor convenience init(client: any AgentSessionRemoteClient, session: String, trust: Trust? = nil) {
-        self.init(client: client, session: session, trust: trust, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+    @MainActor convenience init(client: any AgentSessionRemoteClient, session: String, host: String? = nil, linksAlias: String? = nil,
+                                trust: Trust? = nil) {
+        self.init(client: client, session: session, host: host, linksAlias: linksAlias, trust: trust,
+                  mainWork: MainWorkScheduler(budget: MainFrameBudget()))
     }
 
     /// A new chat's wire on a scheduler of its own.
-    @MainActor convenience init(start: @escaping Start, trust: Trust? = nil) {
-        self.init(start: start, trust: trust, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+    @MainActor convenience init(start: @escaping Start, host: String? = nil, linksAlias: String? = nil, trust: Trust? = nil) {
+        self.init(start: start, host: host, linksAlias: linksAlias, trust: trust, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
     }
 }
 

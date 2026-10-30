@@ -111,6 +111,7 @@ fn app_usage(scope: &str, messages: &crate::localization::AppControlMessages) ->
         "open" => OPEN_HELP,
         "ghostty" => GHOSTTY_HELP,
         "errors" => ERRORS_HELP,
+        "team" => TEAM_HELP,
         _ => return None,
     };
     Some(format!("{}\n", text.trim_end()))
@@ -187,6 +188,17 @@ journal (`--source page` matches every page). --level shows that level and
 worse (warning, error, fault, crash); --top orders by count instead of most
 recent. Each list reads new log lines first unless --no-harvest. The journal
 is under ~/Library/Application Support/<bundle id>/errors, at most about 8 MB.";
+
+const TEAM_HELP: &str = "\
+usage: cmux team invite --email <address>[,<address>...] [--team <name|id>]
+                        [--role member|admin] [--reason <text>]
+Emails an invite to join a cmux team as the person signed in to the app. The
+app first shows a confirmation with who asked, the reason, the addresses, the
+team and the role; nothing is sent until the person clicks Send Invite, and
+Don't Send or 3 minutes without an answer sends nothing. An accepted invite
+adds a member, which can raise the team's bill. An agent must give --reason.
+Without --team the one shared team is used. The result lists each invitation
+with state pending.";
 
 const GHOSTTY_HELP: &str = "\
 usage: cmux ghostty diagnostics

@@ -40,6 +40,9 @@ public final class FeedHostView: NSView, VisibilityGatedContent {
     /// node is visible. A theme change while it is hidden resolves the colors once, on show.
     private let visibility: ViewVisibility
     public var visibilityNode: VisibilityNode { visibility.node }
+    #if DEBUG
+    private var bench: FeedBench?
+    #endif
 
     /// - Parameters:
     ///   - model: The feed.
@@ -98,6 +101,12 @@ public final class FeedHostView: NSView, VisibilityGatedContent {
         super.viewDidMoveToWindow()
         visibility.place(in: window)
         resolveColors()
+        #if DEBUG
+        if window != nil, bench == nil, let settings = FeedBench.Settings(environment: ProcessInfo.processInfo.environment) {
+            bench = FeedBench(settings: settings, model: model, host: self)
+            bench?.start()
+        }
+        #endif
     }
 
     // R-hide: hiding forwards to the node.

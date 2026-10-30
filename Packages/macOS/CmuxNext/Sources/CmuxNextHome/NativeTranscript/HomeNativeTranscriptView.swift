@@ -147,6 +147,8 @@ public final class HomeNativeTranscriptView: NSView {
     let visibility: VisibilityNode
     /// The live settings (HomeNativeTranscriptView+Settings.swift).
     var settingsWatch: FrameObservation<HomeTranscriptSettings>?
+    /// Who else has the conversation open, drawn as the header's faces (HomeNativeTranscriptView+Presence.swift).
+    var presenceWatch: FrameObservation<[String]>?
     /// The settings last applied; nil before the first apply.
     var appliedSettings: HomeTranscriptSettings?
     /// The scheduler the live settings and ``chatColorsWatch`` apply on (`deadlines.work`).
@@ -216,6 +218,7 @@ public final class HomeNativeTranscriptView: NSView {
         // A long draft grows the field with no size change: refit the panel and the notice above it.
         transcript.onFieldTopChange = { [weak self] in self?.needsLayout = true } // invalidate: told only when the field's height changed
         settingsWatch = followSettings(on: deadlines.work)
+        presenceWatch = followPresence(on: deadlines.work)
         applyTheme()
         updateFirstRun()
     }
@@ -241,6 +244,8 @@ public final class HomeNativeTranscriptView: NSView {
         guard !stopped else { return }
         stopped = true
         settingsWatch?.cancel()
+        presenceWatch?.cancel()
+        presenceWatch = nil
         chatColorsWatch?.cancel()
         chatColorsWatch = nil
         windowed.set(.hidden)

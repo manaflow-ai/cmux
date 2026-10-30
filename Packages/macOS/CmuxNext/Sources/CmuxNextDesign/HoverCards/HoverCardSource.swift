@@ -20,12 +20,17 @@ public struct HoverCardBody {
     /// The card has a button: its window takes clicks instead of letting them through (a tab card's Discard).
     public var interactive: Bool
     public var applyTheme: () -> Void
+    /// The card's corner radius; nil is the floating panels' (`HoverCardPanel.cornerRadius`). A card
+    /// that hangs from its target with no gap takes the target's shape (a tab's card, the tab's
+    /// `Metrics.tabCornerRadius`).
+    public var cornerRadius: CGFloat?
     public init(view: NSView, placement: HoverCardPlacement, themeAnchor: NSView?, interactive: Bool = false,
-                applyTheme: @escaping () -> Void) {
+                cornerRadius: CGFloat? = nil, applyTheme: @escaping () -> Void) {
         self.view = view
         self.placement = placement
         self.themeAnchor = themeAnchor
         self.interactive = interactive
+        self.cornerRadius = cornerRadius
         self.applyTheme = applyTheme
     }
 }

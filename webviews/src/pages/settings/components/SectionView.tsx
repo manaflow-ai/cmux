@@ -7,6 +7,7 @@ import {
   BACKDROP_ROWS,
   CHIEF_PET_ROWS,
   CHIEFS_ROWS,
+  HIGHLIGHT_COLOR_KEY,
   MACHINE_COLORS_KEY,
   THEME_EDITS_KEY,
   THEME_KEY,
@@ -33,10 +34,11 @@ export function SectionView({
   const category = categoryById(section);
   // Rows the host leaves out on this Mac now (Energy Saver while its feature is off).
   const hidden = useHiddenRows();
-  // The theme studio draws appearance.theme, appearance.appTheme and appearance.accent itself; the
-  // schema's group for them would draw each a second time (a second "App Theme" card).
+  // The theme studio draws appearance.theme, appearance.appTheme, appearance.accent and
+  // appearance.highlightColor itself; the schema's group for them would draw each a second time (a
+  // second "App Theme" card).
   const studio = category.lead.includes("themeStudio");
-  const drawn = new Set(studio ? [THEME_KEY, APP_THEME_KEY, ACCENT_KEY] : []);
+  const drawn = new Set(studio ? [THEME_KEY, APP_THEME_KEY, ACCENT_KEY, HIGHLIGHT_COLOR_KEY] : []);
   // The background picker draws appearance.background and its Opacity while it shows.
   const picker = useBackdropsShown() && [...category.lead, ...category.trail].includes("backdrops");
   // The Chief Pet card draws home.chiefPetEnabled and home.chiefPetMascot.

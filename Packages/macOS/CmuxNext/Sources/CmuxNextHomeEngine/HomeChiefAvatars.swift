@@ -179,11 +179,18 @@ public nonisolated struct HomeChiefAvatars: Sendable {
     /// - Throws: when `source` is not a usable picture, or the registry cannot be reached or refuses it.
     public func setPicture(from source: URL, chief: String) async throws {
         let files = files(chief)
+        try await setPicture(try await lanes.runFiles(.userBlocking) { try files.pictureData(from: source) }, chief: chief)
+    }
+
+    /// Makes `picture` (a crop the person chose, ``HomeChiefPictureCrop``) Chief `chief`'s, as
+    /// ``setPicture(from:chief:)`` does with a file's.
+    /// - Throws: when the registry cannot be reached or refuses it, or the files cannot be written.
+    public func setPicture(_ picture: ChiefAvatarPicture, chief: String) async throws {
+        let files = files(chief)
         guard let registry else {
-            try await lanes.runFiles(.userBlocking) { try files.writePicture(from: source) }
+            try await lanes.runFiles(.userBlocking) { try files.writePicture(picture) }
             return
         }
-        let picture = try await lanes.runFiles(.userBlocking) { try files.pictureData(from: source) }
         try await registry.setPicture(picture, of: chief)
         try await lanes.runFiles(.userBlocking) { files.clearPicture() }
     }

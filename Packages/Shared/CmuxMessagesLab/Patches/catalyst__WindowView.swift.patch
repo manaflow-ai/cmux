@@ -709,7 +709,38 @@
      func softMaskOwner(_ h: Hit) -> CALayer? {
          guard !threadOpen else { return nil }
          for case let cell as RowCell in collection.visibleCells where cell.spec?.key == h.key { return cell.fillContainer }
-@@ -2317,6 +2575,9 @@
+@@ -2252,12 +2510,29 @@
+                 let r = cell.convert(cell.bounds, to: self)
+                 if pv.outgoing {
+                     if p.x >= r.minX + spec.metrics.rightEdge - max(pv.box.width, 90) { return pv.root }
+-                } else if p.x <= r.minX + Fixture.leftEdge + max(pv.box.width, 90) { return pv.root }
++                } else if p.x <= r.minX + pv.cmuxLeft + max(pv.box.width, 90) { return pv.root } // cmux: group indent
+             }
+         }
+         return nil
+     }
+ 
++    /// cmux: the key of the transcript row under `p` (a visible cell), or nil.
++    func rowKey(at p: CGPoint) -> String? {
++        for case let cell as RowCell in collection.visibleCells where cell.convert(cell.bounds, to: self).contains(p) {
++            return cell.spec?.key
++        }
++        return nil
++    }
++
++    /// cmux: where the transcript row `key` is in this view (a visible cell, under an open thread view's
++    /// blur too), or nil when it is not on screen.
++    func rowFrame(key: String) -> CGRect? {
++        for case let cell as RowCell in collection.visibleCells where cell.spec?.key == key {
++            return cell.convert(cell.bounds, to: self)
++        }
++        return nil
++    }
++
+     func threadContentContains(_ p: CGPoint) -> Bool {
+         threadViews.contains { $0.frame.insetBy(dx: 0, dy: RowDraw.margin).contains(p) }
+             || threadHeaderView?.frame.contains(p) == true
+@@ -2317,6 +2592,9 @@
  
      /// The host's thread header changed (title, status, owner): the open thread view asks
      /// `HostHooks.threadHeader` again.
@@ -719,7 +750,7 @@
      func threadHeaderDidChange() {
          guard store.state.ui.threadMode == .tree, store.state.ui.openThread != nil, threadClosing == 0 else { return }
          threadForceRebuild = true
-@@ -2334,10 +2595,8 @@
+@@ -2334,10 +2612,8 @@
          let layout = ThreadHeaderDraw.layout(header, width: bounds.width)
          threadHeaderHits = layout.hits.map { ($0.0.offsetBy(dx: frame.minX, dy: frame.minY), $0.1) }
          let v = CanvasView(frame: frame) { [weak self] ctx, _ in
@@ -731,7 +762,7 @@
              }
          }
          v.layer.contentsScale = renderScale
-@@ -2476,7 +2735,7 @@
+@@ -2476,7 +2752,7 @@
      private let blur: CALayer?
      private let tint = CALayer()
      /// CAFilter inputRadius 10 gives sigma 9.5 pt (refit live on cmux-lawrence-2 against swipe-full).
@@ -740,7 +771,7 @@
          let a = ProcessInfo.processInfo.arguments
          return a.firstIndex(of: "--thread-blur-r").flatMap { a.dropFirst($0 + 1).first }.flatMap { Double($0) }.map { CGFloat($0) } ?? 10.0 // no index math
      }()
-@@ -2505,7 +2764,9 @@
+@@ -2505,7 +2781,9 @@
          guard let cls = NSClassFromString("CABackdropLayer") as? CALayer.Type,
                let fc = NSClassFromString("CAFilter") as? NSObject.Type else { return nil }
          let sel = NSSelectorFromString("filterWithType:")
@@ -751,7 +782,7 @@
          f.setValue("gaussianBlur", forKey: "name")
          f.setValue(0, forKey: "inputRadius")
          f.setValue(true, forKey: "inputNormalizeEdges")
-@@ -2515,12 +2776,21 @@
+@@ -2515,12 +2793,21 @@
          return l
      }
  
@@ -774,7 +805,7 @@
          let delay = open ? ThreadBackdrop.openDelay : 0
          let t = CABasicAnimation(keyPath: "opacity"); t.fromValue = a0; t.toValue = a1; t.duration = d; t.timingFunction = fn
          // Without a wait, start at the commit as the row flights do (`fly`, `fade`): a begin
-@@ -2529,7 +2799,6 @@
+@@ -2529,7 +2816,6 @@
          if delay > 0 { t.beginTime = CACurrentMediaTime() + delay; t.fillMode = .backwards }
          tint.add(t, forKey: "thread")
          if let blur {
@@ -782,7 +813,7 @@
              let b = CABasicAnimation(keyPath: "filters.gaussianBlur.inputRadius"); b.fromValue = r0; b.toValue = r1; b.duration = d; b.timingFunction = fn
              if delay > 0 { b.beginTime = CACurrentMediaTime() + delay; b.fillMode = .backwards }
              blur.add(b, forKey: "thread")
-@@ -2727,7 +2996,7 @@
+@@ -2727,7 +3013,7 @@
          let textTop = Fixture.bubblePadY
          if case let .part(p) = spec0.kind, case let .text(t, _) = p.part, p.text == nil {
              let l = LongTextStore.shared.layout(t, width: spec0.width, message: p.ref.messageId, markdown: p.markdownFormat)
@@ -791,7 +822,7 @@
              inner = (l, l.anchor(atTextY: y), y)
          }
          apply()
-@@ -2828,7 +3097,7 @@
+@@ -2828,7 +3114,7 @@
          let ink = open ? UIColor(red: 0.30, green: 0.85, blue: 0.45, alpha: 1) : Fixture.secondaryText
          let r = min(l.chip.width, l.chip.height) / 2 * 0.999
          ctx.saveGState()
@@ -800,7 +831,7 @@
          ctx.setFillColor((Fixture.lightAppearance && !open ? UIColor(white: 0, alpha: 0.08) : fill).cgColor)
          ctx.fillPath()
          ctx.restoreGState()
-@@ -2836,3 +3105,150 @@
+@@ -2836,3 +3122,150 @@
          TextDraw.line(l.owner, font: ownerFont, color: Fixture.secondaryText, x: l.ownerX, baseline: l.chip.minY + 12, in: ctx, kern: RowDraw.captionKern)
      }
  }

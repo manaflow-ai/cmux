@@ -7,7 +7,7 @@ public import CmuxNextControl
 public import CmuxNextDaemon
 public import CmuxNextTrace
 public import CmuxNextWakeups
-import Foundation
+public import Foundation
 import Network
 public import Observation
 public import os

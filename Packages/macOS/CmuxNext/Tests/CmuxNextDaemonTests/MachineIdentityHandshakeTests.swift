@@ -48,7 +48,7 @@ struct MachineIdentityHandshakeTests {
                 reply.update(error='unknown identify field', error_code='bad-request')
             print(json.dumps(reply), flush=True)
         """#
-        let bridge = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", script, mode])
+        let bridge = DaemonBridge.fakePython(["-c", script, mode])
         let connection = DaemonConnection(endpoint: .init(socketPath: "/tmp/cmux-identity-test-\(UUID().uuidString).sock", bridge: bridge),
             configuration: .init(requiredCapabilities: [], terminalEnvironment: nil, clientHello: withHello ? .init(installKey: key) : nil))
         do {

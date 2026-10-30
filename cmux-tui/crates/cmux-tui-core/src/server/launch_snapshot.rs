@@ -230,6 +230,11 @@ fn launch_snapshot_value(mux: &Mux, include_projections: bool) -> anyhow::Result
     } else {
         json!([])
     };
+    // The sidebar document (`sidebar.get`'s reply): its Pinned band draws in
+    // the app's first frame, not after this daemon's restore and handshake
+    // (seconds on a large registry). A pin bumps `personal_revision`, so a
+    // pin change rewrites the snapshot. Left out of the smaller retry.
+    let sidebar_doc = if include_projections { launch_sidebar_doc(mux) } else { Value::Null };
     Ok(json!({
         "schema_version": LAUNCH_SNAPSHOT_SCHEMA_VERSION,
         "app": "cmux-tui",
@@ -244,7 +249,26 @@ fn launch_snapshot_value(mux: &Mux, include_projections: bool) -> anyhow::Result
         "tree": tree,
         "personal": personal,
         "frontend_projections": projections,
+        "sidebar_doc": sidebar_doc,
     }))
+}
+
+/// The sidebar document, or null before its migration or on a read error
+/// (the snapshot is a cache: the app then waits for `sidebar.get`).
+fn launch_sidebar_doc(mux: &Mux) -> Value {
+    let read = mux.personal_state_read(|connection| {
+        if !crate::state::sidebar_doc_store::is_migrated(connection)? {
+            return Ok(Value::Null);
+        }
+        crate::state::sidebar_doc_store::snapshot(connection)
+    });
+    match read {
+        Ok(value) => value,
+        Err(error) => {
+            eprintln!("cmux-tui: launch snapshot without the sidebar document: {error:?}");
+            Value::Null
+        }
+    }
 }
 
 fn write_launch_snapshot(mux: &Mux, path: &Path) -> anyhow::Result<()> {

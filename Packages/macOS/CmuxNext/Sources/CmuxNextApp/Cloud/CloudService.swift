@@ -120,6 +120,7 @@ final class CloudService {
     @ObservationIgnored let startSessionAsks = CloudStartSessionAsks()
     /// `cmux cloud start-session` runs, joined by a repeat of the same ask (``CloudStartSessionRuns``).
     @ObservationIgnored let startSessionRuns = CloudStartSessionRuns()
+    @ObservationIgnored let signedOutCreation = CloudSignedOutCreationContinuation()
     /// When the loaded list landed (``hasCurrentList(within:)``).
     @ObservationIgnored private var listLoadedAt: ContinuousClock.Instant?
     /// Moved chats' file requests for this Mac, asked in their chats.
@@ -281,6 +282,7 @@ final class CloudService {
         // homes for a later confirmed run after policy is restored.
         codexBroker.setAvailable(!disabled)
         if disabled {
+            signedOutCreation.cancel()
             for session in machines.cloud {
                 session.daemon.policyBlock.set(true)
                 session.disconnect()
@@ -369,11 +371,6 @@ final class CloudService {
     /// signed in now: a failed or superseded refresh, or another team's list, is not one.
     func hasCurrentList(within age: Duration) -> Bool {
         Self.listIsCurrent(loadedAt: hasLoadedMachines ? listLoadedAt : nil, loadedFor: loadedAccount, account: listAccount, now: .now, within: age)
-    }
-
-    nonisolated static func listIsCurrent(loadedAt: ContinuousClock.Instant?, loadedFor: [String?]?, account: [String?], now: ContinuousClock.Instant, within age: Duration) -> Bool {
-        guard let loadedAt, loadedFor == account else { return false }
-        return loadedAt.duration(to: now) < age
     }
 
     private func reconcile(_ list: [CloudMachine]) {
@@ -508,7 +505,7 @@ final class CloudService {
             // The write waited: the account is checked again before the machine joins the list.
             try proceed()
         }
-        if let existing = machines.session(machine.id) { return existing }
+        if let existing = machines.session(machine.id) { existing.sizePick = machine.sizePick ?? existing.sizePick; return existing }
         guard let session = addSession(machine) else { throw ActionFailure(message: CloudStrings.noClient) }
         // A list in flight was asked before this machine existed.
         listGeneration += 1
@@ -525,7 +522,7 @@ final class CloudService {
                               onSent: @escaping @MainActor @Sendable () async -> Void) async throws -> CloudMachine {
         // `api` is pinned to the first send's team: the server scopes a key per team, so a team
         // switched in the app meanwhile must not make the same key a new machine in the other team.
-        let send = { try await api.createMachine(displayName: name, memoryMb: request.memoryMb, idlePauseMinutes: idlePause,
+        let send = { try await api.createMachine(displayName: name, memoryMb: request.memoryMb, autosize: request.autosize, idlePauseMinutes: idlePause,
                                                     idempotencyKey: request.idempotencyKey, onSent: onSent) }
         for _ in 0..<inProgressRetries {
             do {
@@ -592,6 +589,7 @@ final class CloudService {
             self?.account
         } apply: { [weak self] account in
             guard let self, let account, account != last else { return }
+            signedOutCreation.scopeDidChange(from: last, to: account)
             last = account
             startSessionRuns.forgetAll()
             startSessionAsks.endAll()
@@ -602,6 +600,7 @@ final class CloudService {
     }
 
     func stop() {
+        signedOutCreation.cancel()
         isFollowing = false
         accountFollow?.cancel()
         accountFollow = nil

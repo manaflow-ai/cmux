@@ -126,6 +126,10 @@ extension AgentTabStore {
                                  peerUpdates: RemoteInstaller(paths: .standard(bundleID: Bundle.main.bundleIdentifier), work: services.work))
         (tabs.launchImages, tabs.pullRequestReader) = (services.launchImages, services.pullRequests.reader)
         tabs.agentAvatars = AgentAvatars(uploads: services.chiefAvatarUploads, openPanel: services.openPanel)
+        tabs.chiefFace = { [weak services, weak tabs] chief in
+            guard let services, let avatars = tabs?.agentAvatars else { return [:] }
+            return await services.home.agentPageFace(of: chief, avatars: avatars)
+        }
         tabs.pageShown = { [weak services] in services?.home.launchFeeds?.need() }  // the New Tab feeds right after the first frame
         // A pane freed without close() (2026-10-28, handoff/cef-parent-tracker-crash.md): a fault and a crash key name its maker.
         tabs.onFreedUnclosed = { [weak services] maker in
@@ -286,8 +290,9 @@ extension AgentTabStore {
                 guard started else { return nil }
                 return AgentTabRefusedHost(refusal: .startUnsupported(machine: machine))
             }
-            var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, endpoint: endpoint, mainWork: services.mainWork, servesTrust: daemon.supports(DaemonCapability.agentSessionTrust.rawValue),
+            var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, hostID: record.host, endpoint: endpoint, mainWork: services.mainWork, servesTrust: daemon.supports(DaemonCapability.agentSessionTrust.rawValue),
                                            servesKeyedReason: daemon.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue))
+            host.linksHost = AgentTabStore.registryHost(of: daemon)
             host.cloudMachineID = services.machines.session(daemon.machineID)?.machineID
             host.cloudCredentialRecoveryAvailable = host.cloudMachineID != nil &&
                 services.cloudAuth.isSignedIn && services.cloudAuth.configuration.linkSource == .legacy
@@ -406,6 +411,7 @@ extension AgentTabStore {
             self?.agentAvatars?.remove(session)
             self?.agentAvatarChanged(session)
         }
+        model.onChiefFace = { [weak self] chief in await self?.chiefFace?(chief) ?? [:] }
     }
 
     /// Every agent page (tabs and standalone chats) asks for session `session`'s avatar again: a

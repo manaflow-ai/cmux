@@ -2425,7 +2425,7 @@ use bounded_outbound::write_counted_turn;
 use bounded_outbound::{BatchPoll, count_sent, write_batch_nonblocking};
 use bounded_outbound::{
     BoundedOutbound, ConnectionPermit, InlineSocket, OutboundItem, QueuedSink, SinkControl,
-    SynchronizedTcpStream, claim_connection,
+    SynchronizedTcpStream, claim_connection, claim_watched_connection,
 };
 #[cfg(test)]
 use bounded_outbound::{ControlOutbound, websocket_server_frame_header, write_line_outbound_item};

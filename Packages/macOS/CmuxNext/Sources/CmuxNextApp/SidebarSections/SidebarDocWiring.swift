@@ -53,6 +53,15 @@ enum SidebarDocWiring {
         }
         store.onUndoRefused = { origin in (origin as? PinUndoStep)?.abandon() }
         DaemonSidebarDocRemote.follow(local.store.session, into: store)
+        // The launch snapshot is read off main: its sidebar document shows once it is applied (at once when it is).
+        local.launchSnapshot.whenSettled { [weak services] in
+            guard let services, let data = local.launchSnapshot.sidebarDoc else { return }
+            local.launchSnapshot.sidebarDoc = nil // read once: the daemon owns the document from here on
+            if let follow = docMachines(machines).showLaunchSnapshot(data, in: store, connected: { local.connection != nil }, serves: serves,
+                                                                     shown: { layout.docLayout = $0 }, on: services.mainWork) {
+                services.lifetimeFollowers.append(follow)
+            }
+        }
         // Link rows draw the favicon at their item's icon address; an open tab's favicon address is stored on the item.
         SidebarModel.itemFavicon = { [weak services] in services?.favicons.image(for: $0, profile: .default).map { SidebarFavicon($0.cgImage) } }
         services.lifetimeFollowers.append(SidebarDocMachines.followFavicons(store, revision: { [weak services] in services?.favicons.revision },

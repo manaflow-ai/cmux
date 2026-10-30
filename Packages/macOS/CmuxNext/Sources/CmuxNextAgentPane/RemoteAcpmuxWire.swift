@@ -55,22 +55,32 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.remote")
     private let start: Start?
     private let trust: Trust?
+    private let host: String?
+    /// The daemon's own store host (`registry:<id>`) when the tab's `host` names another (an
+    /// `install:` tab of that machine): its links are noted under both, so a lookup by either finds them.
+    private let linksAlias: String?
     private let state: Mutex<State>
     /// The app's one main-thread scheduler: the children's parents reach the sidebar's tree on it.
     private let mainWork: MainWorkScheduler
 
     /// The wire of the chat `session` (its store record), through `client`; `mainWork` is the app's one main-thread
     /// scheduler (`AppServices.mainWork`).
-    public init(client: any AgentSessionRemoteClient, session: String, trust: Trust? = nil, mainWork: MainWorkScheduler) {
+    public init(client: any AgentSessionRemoteClient, session: String, host: String? = nil, linksAlias: String? = nil,
+                trust: Trust? = nil, mainWork: MainWorkScheduler) {
         start = nil
+        self.host = host
+        self.linksAlias = linksAlias
         self.trust = trust
         self.mainWork = mainWork
         state = Mutex(State(client: client, session: session))
     }
 
     /// The wire of a new chat that has no session yet: the page's first `session/new` runs `start`.
-    public init(start: @escaping Start, trust: Trust? = nil, mainWork: MainWorkScheduler) {
+    public init(start: @escaping Start, host: String? = nil, linksAlias: String? = nil, trust: Trust? = nil,
+                mainWork: MainWorkScheduler) {
         self.start = start
+        self.host = host
+        self.linksAlias = linksAlias
         self.trust = trust
         self.mainWork = mainWork
         state = Mutex(State())
@@ -291,7 +301,10 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
 
     /// The parents of the children the daemon listed or changed, for the sidebar's session tree
     /// and the Subagents rows' open (``RemoteAgentSessionLinks``): read here, off main, and noted in one
-    /// automation task (agents on that machine started them; Chrome's PostTaskAndReplyWithResult).
+    /// automation task (agents on that machine started them; Chrome's PostTaskAndReplyWithResult). A wire
+    /// with a host notes even an empty list, so that daemon has a map of its own (none of its sessions has a
+    /// parent); a hostless wire notes into the hostless map, which only hostless lookups read. The tab's host
+    /// and the daemon's store host are noted as aliases of one daemon, so the sidebar finds a parent tab under either.
     func noteLinks(_ summaries: [[String: Any]]) {
         let parents = summaries.compactMap { summary -> [String: String]? in
             guard let child = summary["sessionId"] as? String else { return nil }
@@ -300,9 +313,15 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             if let spawned = summary["spawnedBy"] as? String { link["spawnedBy"] = spawned }
             return link
         }
-        guard !parents.isEmpty else { return }
+        guard host != nil || !parents.isEmpty else { return }
+        let remoteHost = host, alias = linksAlias.flatMap { $0 != host ? $0 : nil }
         mainWork.postFromAnyThread(.automation, owner: "RemoteAcpmuxWire.links") {
-            RemoteAgentSessionLinks.shared.note(parents)
+            let links = RemoteAgentSessionLinks.shared
+            links.note(parents, host: remoteHost)
+            if let alias {
+                links.note(parents, host: alias)
+                if let remoteHost { links.noteAliases(remoteHost, alias) }
+            }
         }
     }
 

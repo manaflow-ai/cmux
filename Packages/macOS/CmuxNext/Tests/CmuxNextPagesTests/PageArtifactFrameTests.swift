@@ -16,6 +16,8 @@ struct PageArtifactFrameTests {
         #expect(reply.response.value(forHTTPHeaderField: "Content-Security-Policy")?.contains("connect-src 'none'") == true)
         #expect(reply.response.value(forHTTPHeaderField: "Content-Security-Policy")?.contains("frame-src 'none'") == true)
         #expect(reply.response.value(forHTTPHeaderField: "Content-Security-Policy")?.contains("form-action 'none'") == true)
+        // Only the agent page may frame it (feat #26216's trusted-pane ancestors).
+        #expect(reply.response.value(forHTTPHeaderField: "Content-Security-Policy")?.contains("frame-ancestors cmux-page://cmux.agent") == true)
         #expect(String(decoding: reply.body, as: UTF8.self).contains("cmux-render-ready"))
         #expect(await handler.reply(to: URL(string: "cmux-page://cmux.agent/__artifact?copy=1")!) == nil)
     }

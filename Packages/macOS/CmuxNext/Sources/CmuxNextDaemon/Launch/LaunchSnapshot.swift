@@ -14,6 +14,9 @@ public struct LaunchSnapshot: Sendable {
     public var tree: DaemonTree
     /// The window records (`WindowStateStore`'s document), when saved.
     public var windows: WindowStateDocument?
+    /// The sidebar document (`sidebar.get`'s JSON) when the daemon saved it: the pinned band draws from it
+    /// before the handshake. Nil from an older daemon or one without `sidebar-doc-v1`.
+    public var sidebarDoc: Data?
     public var session: String
     public var writtenAtMs: UInt64?
 
@@ -62,7 +65,8 @@ public struct LaunchSnapshot: Sendable {
         }
         var tree = file.tree
         tree.personal = file.personal
-        return LaunchSnapshot(tree: tree, windows: windows, session: file.session, writtenAtMs: file.writtenAtMs)
+        let sidebarDoc = file.sidebarDoc.flatMap { $0 == .null ? nil : try? JSONEncoder().encode($0) }
+        return LaunchSnapshot(tree: tree, windows: windows, sidebarDoc: sidebarDoc, session: file.session, writtenAtMs: file.writtenAtMs)
     }
 
     /// Reads the snapshot at `path` (from `LaunchSnapshotLocation`).
@@ -110,9 +114,12 @@ public struct LaunchSnapshot: Sendable {
         /// Absent in a file from an older daemon.
         var personal: PersonalState?
         var frontendProjections: [FrontendProjection]?
+        /// Absent in a file from an older daemon.
+        var sidebarDoc: JSONValue?
 
         enum CodingKeys: String, CodingKey {
             case session, tree, personal
+            case sidebarDoc = "sidebar_doc"
             case schemaVersion = "schema_version"
             case writtenAtMs = "written_at_ms"
             case frontendProjections = "frontend_projections"

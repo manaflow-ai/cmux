@@ -17,10 +17,20 @@ extension AppServices {
     }
 
     /// The palette's hooks once it is built (`PaletteOnDemand`): hidden rows, open timings, the shortcut
-    /// editor, and the focus overlay. The palette is a panel above the active window: an overlay of that
-    /// window's focus while it is open. Reported synchronously by the
+    /// editor, and the focus overlay. The palette is a panel above the window it opens over: an overlay of
+    /// that window's focus while it is open. Reported synchronously by the
     /// palette, before the key-window change it causes, so a click that
     /// closes it is judged with the overlay already gone (input-spec.md B7).
+    ///
+    /// The overlay goes on the window the panel is a child of, not on
+    /// `windows.active`: the two disagree whenever the palette opens over a
+    /// window that is not the active one (an explicit `relativeTo:`, or a
+    /// press in one window while another holds the keys, where `active` is
+    /// the event's window and the palette parents to the key window). The
+    /// overlay then landed on a window the palette was not over, leaving the
+    /// window under the panel with an empty stack: it goes on applying focus
+    /// to its terminal while the palette holds the keyboard (input-spec.md
+    /// W5, W6, and F1's "an overlay is the keyboard target").
     func paletteBuilt(_ palette: PaletteController) {
         // Energy Saver's session rows show only while they can act (neither while its feature is off);
         // Memory Saver's mode rows only with its feature on (fixed for the launch).
@@ -40,10 +50,11 @@ extension AppServices {
             return event?.type == .keyDown ? event?.timestamp : nil
         }
         palette.shortcutRecorder.editor = paletteShortcutEditor
-        palette.onVisibilityChange = { [weak self] open in
+        palette.onVisibilityChange = { [weak self] open, host in
             guard let self else { return }
             if open {
-                windows.active?.focus.send(.overlayOpened(.palette))
+                let over = host.flatMap { windows.owner(of: $0) } ?? windows.active
+                over?.focus.send(.overlayOpened(.palette))
             } else {
                 for controller in windows.controllers where controller.focus.state.overlays.contains(.palette) {
                     controller.focus.send(.overlayClosed(.palette))

@@ -406,6 +406,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextActions",
                 "CmuxNextDaemon",
                 "CmuxNextDesign",
+                "CmuxNextDesignTokens",
                 "CmuxNextIcons",
                 "CmuxNextTerminal",
                 "CmuxNextTerminalGeometry",
@@ -500,7 +501,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextFloatingTests",
             // CmuxNextWakeups: the pet's AppEvents and the scheduler its setting follow posts on.
             // WakeupsTestSupport: ChiefPetDragFramesTests' fake-link coalescer.
-            dependencies: ["CmuxNextFloating", "CmuxNextTestSupport", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
+            dependencies: ["CmuxNextDesign", "CmuxNextFloating", "CmuxNextTestSupport", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         // Archive and Unarchive of sidebar items (plans/cmux-next/archiving-DESIGN.md): the actions

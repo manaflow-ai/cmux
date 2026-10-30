@@ -34,6 +34,12 @@ pub trait Stream: Read + Write + Send + Sync {
     fn socket_fd(&self) -> Option<std::os::fd::RawFd> {
         None
     }
+    /// The client closed its end: a non-blocking poll reports a hang-up (on
+    /// macOS also a client that shut down only its writing half). `false`
+    /// where it cannot be told.
+    fn peer_closed(&self) -> bool {
+        false
+    }
 }
 
 pub struct Listener {
@@ -141,6 +147,18 @@ mod imp {
 
         fn socket_fd(&self) -> Option<std::os::fd::RawFd> {
             Some(std::os::fd::AsRawFd::as_raw_fd(self))
+        }
+
+        fn peer_closed(&self) -> bool {
+            let mut poll = libc::pollfd {
+                fd: std::os::fd::AsRawFd::as_raw_fd(self),
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            // SAFETY: one pollfd for a descriptor this stream owns; a zero
+            // timeout never blocks.
+            let ready = unsafe { libc::poll(&mut poll, 1, 0) };
+            ready > 0 && poll.revents & (libc::POLLHUP | libc::POLLERR) != 0
         }
     }
 }

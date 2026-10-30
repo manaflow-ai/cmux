@@ -699,6 +699,36 @@ fn a_revoked_inflight_provision_is_not_evicted_before_its_late_host_token() {
 }
 
 #[test]
+fn a_late_host_token_for_an_inflight_tokenless_delete_still_reaches_the_room() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, mux, surface, _owner) = bridged("room-late-token-race", &room);
+    let shares = shares_of(&mux);
+    let created = shares.insert(None, SESSION.into(), surface, 60, 1, true).unwrap();
+    let id = created["share_id"].as_str().unwrap().to_owned();
+    shares.end(None, &super::super::Named { share_id: id.clone(), guest_id: None }).unwrap();
+    assert!(view(&mux, &id).unwrap().delete, "the revoke queues the room's DELETE");
+    // A cleanup worker is in flight for the share and has read it with no credential (the
+    // revoke's own worker, if it ran, has ended: it had no credential either).
+    let deadline = Instant::now() + WAIT;
+    while !shares.claim_room_delete(&id) {
+        assert!(Instant::now() < deadline, "the revoke's worker ends");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    // The late PUT answers: the worker holds the claim, so the token goes to the record.
+    delete(&mux, &id, Some(Held::Host(room.url.clone(), Zeroizing::new("late-host".into()))));
+    room.none(
+        "a DELETE while the worker holds the claim",
+        |s| matches!(s, Seen::Request { method, .. } if method == "DELETE"),
+    );
+    assert_eq!(view(&mux, &id).unwrap().host_token.as_deref(), Some("late-host"));
+    // The worker ends for want of the credential it read before the write.
+    drop(DeleteGuard { mux: Arc::downgrade(&mux), share_id: id.clone(), tokenless: true });
+    let (path, bearer, _) = room.request("DELETE");
+    assert_eq!(path, format!("/v1/chat-shares/{id}"));
+    assert_eq!(bearer, "late-host", "the room is deleted now, not at the share's expiry");
+}
+
+#[test]
 fn room_responses_are_bounded_with_or_without_content_length() {
     // The response is small control-plane JSON, never an attachment or transcript.
     let oversized = format!("{{\"padding\":\"{}\"}}", "x".repeat(64 * 1024));

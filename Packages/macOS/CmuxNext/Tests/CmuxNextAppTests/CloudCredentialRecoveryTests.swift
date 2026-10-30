@@ -39,7 +39,7 @@ struct CloudCredentialRecoveryTests {
     }
 
     @Test func remoteHandshakeCarriesProviderVMIdentitySeparatelyFromSession() async throws {
-        var host = AgentTabRemoteHost(surface: 7, session: "chat-1", machine: "Workspace",
+        var host = AgentTabRemoteHost(surface: 7, session: "chat-1", machine: "Workspace", hostID: "Workspace",
                                       endpoint: { throw CancellationError() },
                                       mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         #expect(try await host.handshake(sessionId: nil).cloudMachineID == nil)

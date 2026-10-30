@@ -138,7 +138,7 @@ extension ChatController {
             let r = cell.convert(cell.bounds, to: demo)
             guard r.contains(p) else { continue }
             let width = max(pv.box.width, 90)
-            let inside = pv.outgoing ? p.x >= r.minX + spec.metrics.rightEdge - width : p.x <= r.minX + Fixture.leftEdge + width
+            let inside = pv.outgoing ? p.x >= r.minX + spec.metrics.rightEdge - width : p.x <= r.minX + pv.cmuxLeft + width
             guard inside else { continue }
             let root = pv.root
             let rows = contentMenu.partItems(part, resolve: { [weak self] a in

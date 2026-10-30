@@ -69,6 +69,12 @@ extension LineTransport {
             lane.post(dispatch.weigh(name, line), bytes: line.count) { onEvent(name, line, index, cause) }
             return nil
         }
+        if envelope.type == "refused" {
+            // The one line of a connection refused at the limit, then EOF: no request ran.
+            if (try? decoder.decode(Refusal.self, from: line))?.code == "server.busy" { state.withLock { $0.sawBusyRefusal = true } }
+            recorder?.lineRead(.ignored)
+            return nil
+        }
         guard envelope.ok != nil || envelope.id != nil else {
             recorder?.lineRead(.ignored)
             return nil

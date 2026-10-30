@@ -280,7 +280,14 @@ final class LineTransport: Sendable {
             submittedID = id
             let message = Self.message(payload, id: id, cmd: waiter.cmd, framing: framing, stream: opening?.id ?? 0)
             if message.framed, let opening { state.withLock { $0.attachStreams.announce(opening) } }
-            writeFailure = socket.fd >= 0 ? writer.write(message.bytes)?.description : "socket closed"
+            if socket.fd < 0 {
+                writeFailure = "socket closed"
+            } else if let failure = writer.write(message.bytes) {
+                // A refused connection is closed right after its one line: a write can fail
+                // (broken pipe) before the reader routes that line. Keep it a busy refusal.
+                let refused = state.withLock { $0.sawBusyRefusal } || Self.hasPendingBusyRefusal(fd: socket.fd)
+                writeFailure = refused ? Self.busyRefusal : failure.description
+            }
             if writeFailure == nil { recorder?.lineWritten(bytes: message.bytes.count) }
             return nil
         }
@@ -314,6 +321,30 @@ final class LineTransport: Sendable {
         }
         child?.terminate()
     }
+
+    /// The close detail of a connection the daemon refused at its connection limit
+    /// (`{"type":"refused","code":"server.busy"}`, then EOF): the daemon is alive and busy.
+    static let busyRefusal = "refused: the session is at its connection limit (server.busy)"
+
+    /// The `code` of a `cmux.protocol/2` refusal line (`type: "refused"`).
+    struct Refusal: Decodable { var code: String? }
+
+    /// The daemon's busy refusal line is waiting unread at the front of `fd`'s receive buffer
+    /// (`MSG_PEEK`, never blocks): the connection was refused, not broken.
+    static func hasPendingBusyRefusal(fd: Int32) -> Bool {
+        var buffer = [UInt8](repeating: 0, count: 512)
+        // SAFETY: recv writes at most `$0.count` bytes into the array's own storage, lent for the call only;
+        // MSG_DONTWAIT never blocks.
+        let count = unsafe buffer.withUnsafeMutableBytes { unsafe Darwin.recv(fd, $0.baseAddress, $0.count, MSG_PEEK | MSG_DONTWAIT) }
+        guard count > 0 else { return false }
+        let head = buffer.prefix(count)
+        guard let line = head.split(separator: 0x0A, maxSplits: 1, omittingEmptySubsequences: false).first,
+              (try? JSONDecoder().decode(RefusalLine.self, from: Data(line))) == RefusalLine(type: "refused", code: "server.busy")
+        else { return false }
+        return true
+    }
+
+    private struct RefusalLine: Decodable, Equatable { var type: String?; var code: String? }
 
     // MARK: - Private
 
@@ -430,7 +461,8 @@ final class LineTransport: Sendable {
         }
         let reason: TransportCloseReason = state.withLock { state in
             if let closed = state.closed { return closed }
-            return state.sawShutdown ? .daemonShutdown : .lost(closeDetail)
+            if state.sawShutdown { return .daemonShutdown }
+            return .lost(state.sawBusyRefusal ? Self.busyRefusal : closeDetail)
         }
         failAll(reason)
         writer.close()

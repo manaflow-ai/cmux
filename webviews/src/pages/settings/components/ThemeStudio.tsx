@@ -3,7 +3,8 @@
 // pick) each have Match System Appearance for a light and dark pair, and the accent
 // (`appearance.accent`) is a swatch popup. Every theme choice is the same ThemePicker. The card also
 // shows the contrast the derived app tokens reach and the active window's scope overrides inline
-// (no space/workspace/terminal tabs). Overrides and the app theme are the host's theme levels. The
+// (no space/workspace/terminal tabs), and ends with the Highlight Color (`appearance.highlightColor`,
+// the app's one selected-text color). Overrides and the app theme are the host's theme levels. The
 // schema's App Theme group lists the same keys; SectionView draws none of them a second time.
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
@@ -17,7 +18,7 @@ import {
   type ThemeEditToken,
 } from "../../../theme/themeEdits";
 import { accentChoices } from "../accentChoices";
-import { ACCENT_KEY, APP_THEME_KEY, THEME_EDITS_KEY, THEME_KEY } from "../cardRows";
+import { ACCENT_KEY, APP_THEME_KEY, HIGHLIGHT_COLOR_KEY, THEME_EDITS_KEY, THEME_KEY } from "../cardRows";
 import { useColorScheme } from "../colorScheme";
 import { useRowState, useSettingsState, useStore, type RowState } from "../context";
 import { Switch } from "../editors/ToggleEditor";
@@ -145,6 +146,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
     />
   );
   const accentRow = rowsByKey.get(ACCENT_KEY);
+  const highlightRow = rowsByKey.get(HIGHLIGHT_COLOR_KEY);
   const accentState = useRowState(ACCENT_KEY);
   // The row `?focus=` names, once the owner's values arrive (before that every control is disabled),
   // revealed once: a row that mounts later (Match System Appearance swapping the rows) never takes
@@ -422,6 +424,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
               />
             </StudioRow>
           )}
+          {highlightRow && <SettingRow row={highlightRow} focused={focused === HIGHLIGHT_COLOR_KEY} />}
         </div>
       </section>
     </div>
