@@ -309,6 +309,10 @@ type AttachWatch = {
   sessionId: string;
   asked?: { createdAt: unknown; peer: unknown };
   seen: Map<string, { createdAt: unknown; peer: unknown }>;
+  /// The newest queue summary received while attach awaits its page/read side work. The attach
+  /// reply may predate this summary (a restart restores queues in the background), so its empty
+  /// detail must not overwrite the row delivered by session_changed.
+  latestSummary?: { session: SessionSummary; seq?: number };
 };
 
 /// The reads a chat draws with besides its page: its permission groups and its handoff, asked
@@ -3546,7 +3550,12 @@ export class AcpmuxDirectClient {
     this.sawPrompts(page);
     this.rebuild();
     // acpmux's list is the order; the replayed `queued` records give each prompt its whole text.
-    this.queue = mergeQueue(this.queue, detail.queue ?? [], this.queueAuthors);
+    const latest = watch.latestSummary;
+    const latestIsNew =
+      latest !== undefined &&
+      (latest.seq === undefined || typeof detail.lastSeq !== "number" || latest.seq >= detail.lastSeq);
+    if (latestIsNew) this.summary = { ...detail, ...latest.session };
+    this.queue = mergeQueue(this.queue, (latestIsNew ? latest?.session.queue : detail.queue) ?? [], this.queueAuthors);
     // acpmux holds nothing older than the page: the pane offers no more history.
     if (result?.hasMore === false) this.historyExhausted = true;
     this.attachedGeneration = generation;
@@ -3650,7 +3659,10 @@ export class AcpmuxDirectClient {
       this.summary = { ...this.summary, ...session };
       this.learnChatThread();
       // A change that doesn't carry the queue keeps the one already mapped.
-      if (session.queue) this.queue = mergeQueue(this.queue, session.queue, this.queueAuthors);
+      if (session.queue) {
+        if (watch) watch.latestSummary = { session, seq: typeof params?.seq === "number" ? params.seq : undefined };
+        this.queue = mergeQueue(this.queue, session.queue, this.queueAuthors);
+      }
       // The machine of a chat shown from the Mac's copy is back: read the chat from it now (an
       // attach of a recreated session replaces the copy). A row naming another session while the
       // machine is still down leaves no copy of the old one on screen as if it were this chat. An

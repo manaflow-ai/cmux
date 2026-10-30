@@ -296,7 +296,7 @@ pub(crate) async fn handle(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcE
                 break fit_reply(reply);
             }
             reread = reread.saturating_add(page_read);
-            want = want.div_ceil(2);
+            want = turn_count.div_ceil(2);
         };
         Ok(reply)
     })

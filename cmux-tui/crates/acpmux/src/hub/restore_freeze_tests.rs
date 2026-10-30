@@ -101,7 +101,7 @@ async fn the_unreadable_log_mark_is_no_move_to_end_or_watch() {
 #[test]
 fn restoring_a_queue_publishes_one_snapshot_for_an_early_attach() {
     let mut config = Config::default();
-    config.store.mode = crate::store::StoreMode::Memory;
+    config.store.mode = crate::config::StoreMode::Memory;
     let store = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
     let hub = Hub::new(config, store);
     let meta: SessionMeta = serde_json::from_value(json!({

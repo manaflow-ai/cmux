@@ -341,6 +341,136 @@ fn a_large_single_turn_reply_is_bounded_without_dropping_events() {
     let _ = std::fs::remove_dir_all(home);
 }
 
+/// Several turns can each fit on their own while the page's ACP representation exceeds one
+/// frame. The handler must reduce the page to whole turns, return a usable byte cursor, and keep
+/// every prompt exactly once as the caller follows that cursor to zero.
+#[tokio::test]
+async fn oversized_native_pages_keep_rpc_bounds_and_continuations() {
+    let home = home("bounded-continuation");
+    let hub = hub(&home);
+    let file = home.join("projects/-work/s1.jsonl");
+    let mut out = std::io::BufWriter::new(std::fs::File::create(&file).unwrap());
+    let content = "x".repeat(40_000);
+    // Three older turns each have roughly 4 MiB of raw Write input and roughly 8 MiB of ACP
+    // call content (rawInput plus the display diff). Two turns exceed the 14 MiB result budget,
+    // while each turn remains well below the individual-event frame limit.
+    for n in 0..3 {
+        writeln!(
+            out,
+            "{}",
+            json!({
+                "type": "user",
+                "timestamp": "2026-10-29T10:00:00.000Z",
+                "message": {"role": "user", "content": format!("large prompt {n}")}
+            })
+        )
+        .unwrap();
+        let blocks: Vec<Value> = (0..100)
+            .map(|t| {
+                json!({
+                    "type": "tool_use",
+                    "id": format!("toolu_{n}_{t}"),
+                    "name": "Write",
+                    "input": {"file_path": format!("/tmp/{n}-{t}.txt"), "content": content}
+                })
+            })
+            .collect();
+        writeln!(
+            out,
+            "{}",
+            json!({
+                "type": "assistant",
+                "timestamp": "2026-10-29T10:00:01.000Z",
+                "message": {"role": "assistant", "content": blocks}
+            })
+        )
+        .unwrap();
+        let results: Vec<Value> = (0..100)
+            .map(|t| {
+                json!({"type": "tool_result", "tool_use_id": format!("toolu_{n}_{t}"),
+                    "content": "File updated successfully"})
+            })
+            .collect();
+        writeln!(out, "{}", json!({"type": "user", "message": {"content": results}})).unwrap();
+        writeln!(
+            out,
+            "{}",
+            json!({
+                "type": "assistant",
+                "timestamp": "2026-10-29T10:00:02.000Z",
+                "message": {
+                    "role": "assistant",
+                    "stop_reason": "end_turn",
+                    "content": [{"type": "text", "text": format!("large answer {n}")}]
+                }
+            })
+        )
+        .unwrap();
+    }
+    // The newest page is seeded with these small turns; the three large turns remain native-only.
+    for n in 3..203 {
+        writeln!(
+            out,
+            "{}",
+            json!({
+                "type": "user",
+                "timestamp": "2026-10-29T10:00:00.000Z",
+                "message": {"role": "user", "content": format!("prompt {n}")}
+            })
+        )
+        .unwrap();
+        writeln!(
+            out,
+            "{}",
+            json!({
+                "type": "assistant",
+                "timestamp": "2026-10-29T10:00:01.000Z",
+                "message": {
+                    "role": "assistant",
+                    "stop_reason": "end_turn",
+                    "content": [{"type": "text", "text": format!("answer {n}")}]
+                }
+            })
+        )
+        .unwrap();
+    }
+    drop(out);
+    let session = hub.resolve("chat").unwrap();
+    hub.replay_adopted(&session, "claude", file.clone()).await;
+    let (mut prompts, mut cursor) = seeded(&hub);
+    let raw_page = crate::adopt_replay::claude_page_with_turns(
+        &file,
+        Some(cursor.0),
+        crate::adopt_replay::PAGE_TURNS,
+    );
+    let raw = page_reply(&session, cursor.0, raw_page, None);
+    assert!(result_bytes(&raw) > super::REPLY_BYTES, "fixture must exceed the result budget");
+    let mut pages = 0;
+    while cursor.0 > 0 {
+        let reply = page(&hub, &cursor).await;
+        let rpc = crate::rpc::Message::ok(json!("native-history"), reply.clone()).to_line();
+        assert!(rpc.len() <= MAX_MESSAGE_BYTES, "native history RPC is {} bytes", rpc.len());
+        let events = reply["events"].as_array().unwrap();
+        assert!(
+            events.iter().all(|event| event["msg"]["_meta"]["acpmux"]["omitted"].is_null()),
+            "whole turns that fit must not omit payloads"
+        );
+        let mut older = prompts_of(events);
+        older.extend(prompts);
+        prompts = older;
+        let next_cursor = next(&reply);
+        assert!(next_cursor.0 < cursor.0, "native cursor did not move back");
+        cursor = next_cursor;
+        pages += 1;
+        assert!(pages <= 8, "large-turn continuation made too many pages");
+    }
+    let expected: Vec<String> = (0..203)
+        .map(|n| if n < 3 { format!("large prompt {n}") } else { format!("prompt {n}") })
+        .collect();
+    assert_eq!(prompts, expected, "native continuation skipped or duplicated a prompt");
+    let _ = std::fs::remove_dir_all(home);
+}
+
 /// The PR's harness (run with `--ignored --nocapture`): a ~400 MB synthetic Claude Code
 /// transcript of tool-heavy turns, adopted, then its older pages read one after another; each
 /// page is timed from the request to its reply.

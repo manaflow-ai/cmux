@@ -74,7 +74,7 @@ function nativePage(before: number) {
 
 /// A daemon over a fake socket; `serves` says whether it lists `_acpmux/native_history`, and
 /// `unknown` makes it answer that method as one it does not serve (an older peer's daemon).
-function fakeDaemon({ serves = true, unknown = false, refused = "" } = {}) {
+function fakeDaemon({ serves = true, unknown = false, refused = "", restoreBeforeReply = false } = {}) {
   let socket: any;
   const nativeReads: number[] = [];
   const nativeMarks: unknown[] = [];
@@ -128,15 +128,17 @@ function fakeDaemon({ serves = true, unknown = false, refused = "" } = {}) {
       send(raw: string) {
         const message = JSON.parse(raw);
         if (message.id === undefined) return;
-        queueMicrotask(() =>
+        queueMicrotask(() => {
+          const response = answer(message.method, message.params);
+          if (restoreBeforeReply && message.method === "_acpmux/attach") restoredQueue();
           socket.onmessage?.({
             data: JSON.stringify({
               jsonrpc: "2.0",
               id: message.id,
-              ...answer(message.method, message.params),
+              ...response,
             }),
-          }),
-        );
+          });
+        });
       },
       close() {},
     };
@@ -233,6 +235,20 @@ test("a fast attach learns held prompts when background log restoration publishe
     expect(snapshot().queue).toEqual([]);
     daemon.restoredQueue();
     await when((next) => next.queue?.some((entry) => entry.id === "held") === true);
+    expect(snapshot().queue?.map(({ id, prompt }) => ({ id, prompt }))).toEqual([
+      { id: "held", prompt: "Send when I resume" },
+    ]);
+    expect(snapshot().summary?.queuePaused).toBe(true);
+    expect(daemon.attaches).toHaveLength(1);
+  } finally {
+    client.close?.();
+  }
+});
+
+test("a restored queue notification arriving before the attach reply survives its stale details", async () => {
+  const daemon = fakeDaemon({ restoreBeforeReply: true });
+  const { client, snapshot } = await open(daemon);
+  try {
     expect(snapshot().queue?.map(({ id, prompt }) => ({ id, prompt }))).toEqual([
       { id: "held", prompt: "Send when I resume" },
     ]);
