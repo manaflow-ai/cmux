@@ -65,21 +65,27 @@ async function openEffortMenu(ctx: PlayContext): Promise<HTMLElement> {
   return openEffortSubmenu(ctx);
 }
 
-/// With the model menu open, resolves with the current model's effort levels: the inline control in
-/// its row (#26521) when the row carries them, else the Effort submenu, opened (pressing the model
-/// button again would close the menu).
+/// With the model menu open, resolves with the current model's effort levels: its side dropdown
+/// beside the running row (#27948) when the row has one, else the Effort submenu, opened (pressing
+/// the model button again would close the menu).
 async function openEffortSubmenu(ctx: PlayContext): Promise<HTMLElement> {
-  const inline = () =>
-    ctx.document
-      .querySelector<HTMLElement>('.acpmux-quick-menu .acpmux-quick-effort-segment[aria-checked="true"]')
-      ?.closest<HTMLElement>(".acpmux-quick-efforts") ?? undefined;
+  const RUNNING = ".acpmux-quick-model-effort[data-running] .acpmux-quick-effort-trigger";
+  const side = () => ctx.document.querySelector<HTMLElement>(RUNNING) ?? undefined;
   const row = () =>
     [...ctx.document.querySelectorAll<HTMLElement>('.acpmux-quick-menu [role="menuitem"]')].find((item) =>
       item.textContent?.trim().startsWith("Effort"),
     );
-  await ctx.waitFor(() => inline() ?? row());
-  const segments = inline();
-  if (segments) return segments;
+  await ctx.waitFor(() => side() ?? row());
+  if (side()) {
+    await ctx.focus({ selector: RUNNING });
+    await ctx.press("ArrowRight");
+    let dropdown: HTMLElement | undefined;
+    await ctx.waitFor(() => {
+      dropdown = ctx.document.querySelector<HTMLElement>(".acpmux-quick-effort-menu") ?? undefined;
+      return dropdown;
+    });
+    return dropdown!;
+  }
   // A submenu row opens on hover or from the keyboard: Base UI's submenu trigger ignores a mouse
   // press while it opens on hover. Enter on the focused row opens it, as a keyboard user does.
   await ctx.focus({ role: "menuitem", name: /^Effort/ });

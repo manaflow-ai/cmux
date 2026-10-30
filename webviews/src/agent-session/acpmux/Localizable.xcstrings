@@ -243244,7 +243244,409 @@
     "retry.menu": {"comment":"Agent pane: the name and tooltip of the more-actions button on a failed subagent's line (subagents/SubagentDoneLine.tsx)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Subagent actions"}},"ar":{"stringUnit":{"state":"needs_review","value":"إجراءات الوكيل الفرعي"}},"bs":{"stringUnit":{"state":"needs_review","value":"Radnje podagenta"}},"da":{"stringUnit":{"state":"needs_review","value":"Underagenthandlinger"}},"de":{"stringUnit":{"state":"needs_review","value":"Subagent-Aktionen"}},"es":{"stringUnit":{"state":"needs_review","value":"Acciones del subagente"}},"fr":{"stringUnit":{"state":"needs_review","value":"Actions du sous-agent"}},"it":{"stringUnit":{"state":"needs_review","value":"Azioni del subagente"}},"ja":{"stringUnit":{"state":"needs_review","value":"サブエージェントの操作"}},"km":{"stringUnit":{"state":"needs_review","value":"សកម្មភាពភ្នាក់ងាររង"}},"ko":{"stringUnit":{"state":"needs_review","value":"하위 에이전트 작업"}},"nb":{"stringUnit":{"state":"needs_review","value":"Underagenthandlinger"}},"pl":{"stringUnit":{"state":"needs_review","value":"Akcje podagenta"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Ações do subagente"}},"ru":{"stringUnit":{"state":"needs_review","value":"Действия субагента"}},"th":{"stringUnit":{"state":"needs_review","value":"การทำงานของเอเจนต์ย่อย"}},"tr":{"stringUnit":{"state":"needs_review","value":"Alt ajan eylemleri"}},"uk":{"stringUnit":{"state":"needs_review","value":"Дії субагента"}},"vi":{"stringUnit":{"state":"needs_review","value":"Thao tác tác tử con"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"子代理操作"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"子代理程式動作"}}}},
     "chatMenu.pauseMachine": {"comment":"Agent pane chat menu: pause the Cloud machine this chat runs on","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Pause Machine"}},"ar":{"stringUnit":{"state":"needs_review","value":"إيقاف الجهاز مؤقتًا"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pauziraj mašinu"}},"da":{"stringUnit":{"state":"needs_review","value":"Sæt maskine på pause"}},"de":{"stringUnit":{"state":"needs_review","value":"Maschine pausieren"}},"es":{"stringUnit":{"state":"needs_review","value":"Pausar máquina"}},"fr":{"stringUnit":{"state":"needs_review","value":"Mettre la machine en pause"}},"it":{"stringUnit":{"state":"needs_review","value":"Metti in pausa la macchina"}},"ja":{"stringUnit":{"state":"needs_review","value":"マシンを一時停止"}},"km":{"stringUnit":{"state":"needs_review","value":"ផ្អាកម៉ាស៊ីន"}},"ko":{"stringUnit":{"state":"needs_review","value":"머신 일시 정지"}},"nb":{"stringUnit":{"state":"needs_review","value":"Sett maskinen på pause"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wstrzymaj maszynę"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Pausar máquina"}},"ru":{"stringUnit":{"state":"needs_review","value":"Приостановить машину"}},"th":{"stringUnit":{"state":"needs_review","value":"หยุดเครื่องชั่วคราว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Makineyi duraklat"}},"uk":{"stringUnit":{"state":"needs_review","value":"Призупинити машину"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tạm dừng máy"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"暂停机器"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"暫停機器"}}}},
     "chatMenu.stopAndPauseMachine": {"comment":"Agent pane chat menu: stop the chat's running turn, then pause the Cloud machine it runs on","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Stop and Pause Machine"}},"ar":{"stringUnit":{"state":"needs_review","value":"إيقاف الدور ثم إيقاف الجهاز مؤقتًا"}},"bs":{"stringUnit":{"state":"needs_review","value":"Zaustavi i pauziraj mašinu"}},"da":{"stringUnit":{"state":"needs_review","value":"Stop og sæt maskine på pause"}},"de":{"stringUnit":{"state":"needs_review","value":"Stoppen und Maschine pausieren"}},"es":{"stringUnit":{"state":"needs_review","value":"Detener y pausar máquina"}},"fr":{"stringUnit":{"state":"needs_review","value":"Arrêter et mettre la machine en pause"}},"it":{"stringUnit":{"state":"needs_review","value":"Interrompi e metti in pausa la macchina"}},"ja":{"stringUnit":{"state":"needs_review","value":"停止してマシンを一時停止"}},"km":{"stringUnit":{"state":"needs_review","value":"បញ្ឈប់ ហើយផ្អាកម៉ាស៊ីន"}},"ko":{"stringUnit":{"state":"needs_review","value":"중지하고 머신 일시 정지"}},"nb":{"stringUnit":{"state":"needs_review","value":"Stopp og sett maskinen på pause"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zatrzymaj i wstrzymaj maszynę"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Parar e pausar máquina"}},"ru":{"stringUnit":{"state":"needs_review","value":"Остановить и приостановить машину"}},"th":{"stringUnit":{"state":"needs_review","value":"หยุดและหยุดเครื่องชั่วคราว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Durdur ve makineyi duraklat"}},"uk":{"stringUnit":{"state":"needs_review","value":"Зупинити й призупинити машину"}},"vi":{"stringUnit":{"state":"needs_review","value":"Dừng và tạm dừng máy"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"停止并暂停机器"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"停止並暫停機器"}}}},
-    "chatMenu.resumeMachine": {"comment":"Agent pane chat menu: resume the paused Cloud machine this chat runs on","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Resume Machine"}},"ar":{"stringUnit":{"state":"needs_review","value":"استئناف الجهاز"}},"bs":{"stringUnit":{"state":"needs_review","value":"Nastavi mašinu"}},"da":{"stringUnit":{"state":"needs_review","value":"Genoptag maskine"}},"de":{"stringUnit":{"state":"needs_review","value":"Maschine fortsetzen"}},"es":{"stringUnit":{"state":"needs_review","value":"Reanudar máquina"}},"fr":{"stringUnit":{"state":"needs_review","value":"Reprendre la machine"}},"it":{"stringUnit":{"state":"needs_review","value":"Riprendi la macchina"}},"ja":{"stringUnit":{"state":"needs_review","value":"マシンを再開"}},"km":{"stringUnit":{"state":"needs_review","value":"បន្តម៉ាស៊ីន"}},"ko":{"stringUnit":{"state":"needs_review","value":"머신 재개"}},"nb":{"stringUnit":{"state":"needs_review","value":"Gjenoppta maskinen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wznów maszynę"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Retomar máquina"}},"ru":{"stringUnit":{"state":"needs_review","value":"Возобновить машину"}},"th":{"stringUnit":{"state":"needs_review","value":"ทำงานเครื่องต่อ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Makineyi sürdür"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відновити машину"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tiếp tục máy"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"恢复机器"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"恢復機器"}}}}
+    "chatMenu.resumeMachine": {"comment":"Agent pane chat menu: resume the paused Cloud machine this chat runs on","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Resume Machine"}},"ar":{"stringUnit":{"state":"needs_review","value":"استئناف الجهاز"}},"bs":{"stringUnit":{"state":"needs_review","value":"Nastavi mašinu"}},"da":{"stringUnit":{"state":"needs_review","value":"Genoptag maskine"}},"de":{"stringUnit":{"state":"needs_review","value":"Maschine fortsetzen"}},"es":{"stringUnit":{"state":"needs_review","value":"Reanudar máquina"}},"fr":{"stringUnit":{"state":"needs_review","value":"Reprendre la machine"}},"it":{"stringUnit":{"state":"needs_review","value":"Riprendi la macchina"}},"ja":{"stringUnit":{"state":"needs_review","value":"マシンを再開"}},"km":{"stringUnit":{"state":"needs_review","value":"បន្តម៉ាស៊ីន"}},"ko":{"stringUnit":{"state":"needs_review","value":"머신 재개"}},"nb":{"stringUnit":{"state":"needs_review","value":"Gjenoppta maskinen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wznów maszynę"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Retomar máquina"}},"ru":{"stringUnit":{"state":"needs_review","value":"Возобновить машину"}},"th":{"stringUnit":{"state":"needs_review","value":"ทำงานเครื่องต่อ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Makineyi sürdür"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відновити машину"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tiếp tục máy"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"恢复机器"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"恢復機器"}}}},
+    "chatMenu.moveToMachine": {
+      "comment": "Agent pane chat title menu: parent row for the existing Cloud machine target list",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move to machine"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نقل إلى جهاز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Premjesti na mašinu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flyt til maskine"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Auf einen Rechner verschieben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mover a otra máquina"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Déplacer vers une machine"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sposta su una macchina"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "マシンに移動"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្លាស់ទីទៅម៉ាស៊ីន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "머신으로 이동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flytt til maskin"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przenieś na maszynę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mover para uma máquina"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Переместить на машину"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ย้ายไปยังเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Makineye taşı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перемістити на машину"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Di chuyển sang máy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "移至机器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "移至機器"
+          }
+        }
+      }
+    },
+    "chatMenu.deleteConfirmBody": {
+      "comment": "Agent pane chat header: confirmation before permanently deleting a chat",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This removes the chat's history and uploaded files."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سيؤدي هذا إلى إزالة سجل الدردشة والملفات المرفوعة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovim se uklanjaju historija chata i otpremljene datoteke."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette fjerner chattens historik og uploadede filer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dadurch werden Chatverlauf und hochgeladene Dateien entfernt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esto elimina el historial del chat y los archivos subidos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cela supprime l’historique du chat et les fichiers importés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo rimuove la cronologia della chat e i file caricati."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットの履歴とアップロードしたファイルが削除されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "វានឹងលុបប្រវត្តិជជែក និងឯកសារដែលបានផ្ទុកឡើង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅 기록과 업로드한 파일이 삭제됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette fjerner chattens historikk og opplastede filer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spowoduje to usunięcie historii czatu i przesłanych plików."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Isso remove o histórico do chat e os arquivos enviados."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "История чата и загруженные файлы будут удалены."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การดำเนินการนี้จะลบประวัติแชทและไฟล์ที่อัปโหลด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu işlem sohbet geçmişini ve yüklenen dosyaları kaldırır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Це видалить історію чату та завантажені файли."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thao tác này sẽ xóa lịch sử trò chuyện và các tệp đã tải lên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "这会删除聊天记录和已上传的文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "這會刪除聊天記錄和已上傳的檔案。"
+          }
+        }
+      }
+    },
+    "chatMenu.saveMarkdown": {
+      "comment": "Agent pane chat header: Copy submenu row that saves the chat as a Markdown file",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save as Markdown…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حفظ بتنسيق Markdown…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sačuvaj kao Markdown…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gem som Markdown…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als Markdown sichern…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guardar como Markdown…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistrer en Markdown…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salva come Markdown…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown として保存…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រក្សាទុកជា Markdown…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown으로 저장…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lagre som Markdown…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zapisz jako Markdown…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salvar como Markdown…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сохранить как Markdown…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บันทึกเป็น Markdown…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown olarak kaydet…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зберегти як Markdown…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lưu dưới dạng Markdown…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "存储为 Markdown…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "儲存為 Markdown…"
+          }
+        }
+      }
+    },
+    "unavailable.paused.title": {"comment":"Agent pane: a tab's chat whose Cloud machine is paused","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Machine is paused"}},"ar":{"stringUnit":{"state":"translated","value":"الجهاز متوقف مؤقتًا"}},"bs":{"stringUnit":{"state":"translated","value":"Mašina je pauzirana"}},"da":{"stringUnit":{"state":"translated","value":"Maskinen er sat på pause"}},"de":{"stringUnit":{"state":"translated","value":"Die Maschine ist pausiert"}},"es":{"stringUnit":{"state":"translated","value":"La máquina está en pausa"}},"fr":{"stringUnit":{"state":"translated","value":"La machine est en pause"}},"it":{"stringUnit":{"state":"translated","value":"La macchina è in pausa"}},"ja":{"stringUnit":{"state":"translated","value":"マシンは一時停止中です"}},"km":{"stringUnit":{"state":"translated","value":"ម៉ាស៊ីនត្រូវបានផ្អាក"}},"ko":{"stringUnit":{"state":"translated","value":"컴퓨터가 일시 중지되었습니다"}},"nb":{"stringUnit":{"state":"translated","value":"Maskinen er satt på pause"}},"pl":{"stringUnit":{"state":"translated","value":"Maszyna jest wstrzymana"}},"pt-BR":{"stringUnit":{"state":"translated","value":"A máquina está pausada"}},"ru":{"stringUnit":{"state":"translated","value":"Компьютер приостановлен"}},"th":{"stringUnit":{"state":"translated","value":"เครื่องหยุดชั่วคราวอยู่"}},"tr":{"stringUnit":{"state":"translated","value":"Makine duraklatıldı"}},"uk":{"stringUnit":{"state":"translated","value":"Машину призупинено"}},"vi":{"stringUnit":{"state":"translated","value":"Máy đã tạm dừng"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"机器已暂停"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"機器已暫停"}}}},
+    "unavailable.paused.detail": {"comment":"Agent pane: under a paused Cloud machine's chat; {machine} is that machine's name","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"{machine} is paused. Resume it to reopen this chat."}},"ar":{"stringUnit":{"state":"translated","value":"تم إيقاف {machine} مؤقتًا. استأنفها لإعادة فتح هذه الدردشة."}},"bs":{"stringUnit":{"state":"translated","value":"{machine} je pauzirana. Nastavite je da ponovo otvorite ovaj chat."}},"da":{"stringUnit":{"state":"translated","value":"{machine} er sat på pause. Genoptag den for at åbne denne chat igen."}},"de":{"stringUnit":{"state":"translated","value":"{machine} ist pausiert. Setze sie fort, um diesen Chat wieder zu öffnen."}},"es":{"stringUnit":{"state":"translated","value":"{machine} está en pausa. Reanúdala para volver a abrir este chat."}},"fr":{"stringUnit":{"state":"translated","value":"{machine} est en pause. Reprenez-la pour rouvrir cette discussion."}},"it":{"stringUnit":{"state":"translated","value":"{machine} è in pausa. Riprendila per riaprire questa chat."}},"ja":{"stringUnit":{"state":"translated","value":"{machine} は一時停止中です。再開するとこのチャットが再び開きます。"}},"km":{"stringUnit":{"state":"translated","value":"{machine} ត្រូវបានផ្អាក។ បន្តវា ដើម្បីបើកការជជែកនេះឡើងវិញ។"}},"ko":{"stringUnit":{"state":"translated","value":"{machine}이(가) 일시 중지되었습니다. 재개하면 이 채팅을 다시 엽니다."}},"nb":{"stringUnit":{"state":"translated","value":"{machine} er satt på pause. Gjenoppta den for å åpne denne chatten igjen."}},"pl":{"stringUnit":{"state":"translated","value":"{machine} jest wstrzymana. Wznów ją, aby ponownie otworzyć ten czat."}},"pt-BR":{"stringUnit":{"state":"translated","value":"{machine} está pausada. Retome-a para reabrir este chat."}},"ru":{"stringUnit":{"state":"translated","value":"{machine} приостановлен. Возобновите его, чтобы снова открыть этот чат."}},"th":{"stringUnit":{"state":"translated","value":"{machine} หยุดชั่วคราวอยู่ กดเริ่มต่อเพื่อเปิดแชทนี้อีกครั้ง"}},"tr":{"stringUnit":{"state":"translated","value":"{machine} duraklatıldı. Bu sohbeti yeniden açmak için devam ettirin."}},"uk":{"stringUnit":{"state":"translated","value":"{machine} призупинено. Відновіть його, щоб знову відкрити цей чат."}},"vi":{"stringUnit":{"state":"translated","value":"{machine} đã tạm dừng. Hãy tiếp tục để mở lại cuộc trò chuyện này."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"{machine} 已暂停。恢复它即可重新打开此聊天。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"{machine} 已暫停。恢復它即可重新開啟此聊天。"}}}},
+    "unavailable.resumeMachine": {"comment":"Agent pane: button on a paused Cloud machine's chat; resumes the machine","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Resume machine"}},"ar":{"stringUnit":{"state":"translated","value":"استئناف تشغيل الجهاز"}},"bs":{"stringUnit":{"state":"translated","value":"Nastavi mašinu"}},"da":{"stringUnit":{"state":"translated","value":"Genoptag maskinen"}},"de":{"stringUnit":{"state":"translated","value":"Maschine fortsetzen"}},"es":{"stringUnit":{"state":"translated","value":"Reanudar máquina"}},"fr":{"stringUnit":{"state":"translated","value":"Reprendre la machine"}},"it":{"stringUnit":{"state":"translated","value":"Riprendi macchina"}},"ja":{"stringUnit":{"state":"translated","value":"マシンを再開"}},"km":{"stringUnit":{"state":"translated","value":"បន្តម៉ាស៊ីន"}},"ko":{"stringUnit":{"state":"translated","value":"컴퓨터 재개"}},"nb":{"stringUnit":{"state":"translated","value":"Gjenoppta maskinen"}},"pl":{"stringUnit":{"state":"translated","value":"Wznów maszynę"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Retomar máquina"}},"ru":{"stringUnit":{"state":"translated","value":"Возобновить работу компьютера"}},"th":{"stringUnit":{"state":"translated","value":"เริ่มเครื่องต่อ"}},"tr":{"stringUnit":{"state":"translated","value":"Makineyi sürdür"}},"uk":{"stringUnit":{"state":"translated","value":"Відновити роботу машини"}},"vi":{"stringUnit":{"state":"translated","value":"Tiếp tục máy"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"恢复机器"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"恢復機器"}}}},
+    "unavailable.machineDeleted.title": {"comment":"Agent pane: title in place of a chat whose Cloud machine was deleted","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This machine was deleted"}},"ar":{"stringUnit":{"state":"translated","value":"تم حذف هذا الجهاز"}},"bs":{"stringUnit":{"state":"translated","value":"Ova mašina je izbrisana"}},"da":{"stringUnit":{"state":"translated","value":"Denne maskine blev slettet"}},"de":{"stringUnit":{"state":"translated","value":"Diese Maschine wurde gelöscht"}},"es":{"stringUnit":{"state":"translated","value":"Esta máquina se eliminó"}},"fr":{"stringUnit":{"state":"translated","value":"Cette machine a été supprimée"}},"it":{"stringUnit":{"state":"translated","value":"Questa macchina è stata eliminata"}},"ja":{"stringUnit":{"state":"translated","value":"このマシンは削除されました"}},"km":{"stringUnit":{"state":"translated","value":"ម៉ាស៊ីននេះត្រូវបានលុប"}},"ko":{"stringUnit":{"state":"translated","value":"이 컴퓨터가 삭제되었습니다"}},"nb":{"stringUnit":{"state":"translated","value":"Denne maskinen ble slettet"}},"pl":{"stringUnit":{"state":"translated","value":"Ta maszyna została usunięta"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Esta máquina foi excluída"}},"ru":{"stringUnit":{"state":"translated","value":"Этот компьютер был удалён"}},"th":{"stringUnit":{"state":"translated","value":"เครื่องนี้ถูกลบแล้ว"}},"tr":{"stringUnit":{"state":"translated","value":"Bu makine silindi"}},"uk":{"stringUnit":{"state":"translated","value":"Цю машину видалено"}},"vi":{"stringUnit":{"state":"translated","value":"Máy này đã bị xóa"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"此机器已被删除"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"此機器已被刪除"}}}},
+    "unavailable.machineDeleted.detail": {"comment":"Agent pane: under a chat whose Cloud machine was deleted; {machine} is that machine's name","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"{machine} was deleted. You can still resume this chat from its saved transcript."}},"ar":{"stringUnit":{"state":"translated","value":"تم حذف {machine}. لا يزال بإمكانك استئناف هذه الدردشة من النص المحفوظ."}},"bs":{"stringUnit":{"state":"translated","value":"{machine} je izbrisana. Ovaj chat i dalje možete nastaviti iz sačuvanog transkripta."}},"da":{"stringUnit":{"state":"translated","value":"{machine} blev slettet. Du kan stadig genoptage denne chat fra dens gemte udskrift."}},"de":{"stringUnit":{"state":"translated","value":"{machine} wurde gelöscht. Du kannst diesen Chat weiterhin aus seinem gespeicherten Transkript fortsetzen."}},"es":{"stringUnit":{"state":"translated","value":"{machine} se eliminó. Aún puedes reanudar este chat desde su transcripción guardada."}},"fr":{"stringUnit":{"state":"translated","value":"{machine} a été supprimée. Vous pouvez toujours reprendre cette discussion depuis sa transcription enregistrée."}},"it":{"stringUnit":{"state":"translated","value":"{machine} è stata eliminata. Puoi ancora riprendere questa chat dalla trascrizione salvata."}},"ja":{"stringUnit":{"state":"translated","value":"{machine} は削除されました。保存された会話履歴からこのチャットを再開できます。"}},"km":{"stringUnit":{"state":"translated","value":"{machine} ត្រូវបានលុប។ អ្នកនៅតែអាចបន្តការជជែកនេះពីកំណត់ត្រាដែលបានរក្សាទុករបស់វា។"}},"ko":{"stringUnit":{"state":"translated","value":"{machine}이(가) 삭제되었습니다. 저장된 대화 기록에서 이 채팅을 계속할 수 있습니다."}},"nb":{"stringUnit":{"state":"translated","value":"{machine} ble slettet. Du kan fortsatt gjenoppta denne chatten fra den lagrede transkripsjonen."}},"pl":{"stringUnit":{"state":"translated","value":"{machine} została usunięta. Nadal możesz wznowić ten czat z jego zapisanej transkrypcji."}},"pt-BR":{"stringUnit":{"state":"translated","value":"{machine} foi excluída. Você ainda pode retomar este chat a partir da transcrição salva."}},"ru":{"stringUnit":{"state":"translated","value":"{machine} был удалён. Вы всё ещё можете возобновить этот чат из сохранённой записи."}},"th":{"stringUnit":{"state":"translated","value":"{machine} ถูกลบแล้ว คุณยังเริ่มแชทนี้ต่อจากบันทึกที่บันทึกไว้ได้"}},"tr":{"stringUnit":{"state":"translated","value":"{machine} silindi. Bu sohbete kaydedilmiş dökümünden devam edebilirsiniz."}},"uk":{"stringUnit":{"state":"translated","value":"{machine} видалено. Ви все ще можете відновити цей чат із його збереженого транскрипту."}},"vi":{"stringUnit":{"state":"translated","value":"{machine} đã bị xóa. Bạn vẫn có thể tiếp tục cuộc trò chuyện này từ bản ghi đã lưu."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"{machine} 已被删除。你仍可从其保存的记录中恢复此聊天。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"{machine} 已被刪除。您仍可從其儲存的記錄中恢復此聊天。"}}}},
+    "unavailable.resumeFailed": {"comment":"Agent pane: error after a paused Cloud machine failed to reconnect in time","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The machine did not reconnect. Try resuming it again."}},"ar":{"stringUnit":{"state":"translated","value":"لم يتصل الجهاز مجددًا. حاول استئنافه مرة أخرى."}},"bs":{"stringUnit":{"state":"translated","value":"Mašina se nije ponovo povezala. Pokušajte je ponovo nastaviti."}},"da":{"stringUnit":{"state":"translated","value":"Maskinen oprettede ikke forbindelse igen. Prøv at genoptage den igen."}},"de":{"stringUnit":{"state":"translated","value":"Die Maschine hat keine Verbindung hergestellt. Versuche, sie erneut fortzusetzen."}},"es":{"stringUnit":{"state":"translated","value":"La máquina no se volvió a conectar. Intenta reanudarla de nuevo."}},"fr":{"stringUnit":{"state":"translated","value":"La machine ne s'est pas reconnectée. Essayez de la reprendre."}},"it":{"stringUnit":{"state":"translated","value":"La macchina non si è riconnessa. Prova a riprenderla."}},"ja":{"stringUnit":{"state":"translated","value":"マシンは再接続されませんでした。もう一度再開してください。"}},"km":{"stringUnit":{"state":"translated","value":"ម៉ាស៊ីនមិនបានភ្ជាប់ឡើងវិញទេ។ ព្យាយាមបន្តវាម្តងទៀត។"}},"ko":{"stringUnit":{"state":"translated","value":"컴퓨터가 다시 연결되지 않았습니다. 다시 재개해 보세요."}},"nb":{"stringUnit":{"state":"translated","value":"Maskinen koblet ikke til igjen. Prøv å gjenoppta den på nytt."}},"pl":{"stringUnit":{"state":"translated","value":"Maszyna nie połączyła się ponownie. Spróbuj wznowić ją ponownie."}},"pt-BR":{"stringUnit":{"state":"translated","value":"A máquina não se reconectou. Tente retomá-la novamente."}},"ru":{"stringUnit":{"state":"translated","value":"Компьютер не подключился повторно. Попробуйте возобновить его ещё раз."}},"th":{"stringUnit":{"state":"translated","value":"เครื่องไม่เชื่อมต่ออีกครั้ง ลองเริ่มต่ออีกครั้ง"}},"tr":{"stringUnit":{"state":"translated","value":"Makine yeniden bağlanmadı. Yeniden sürdürmeyi deneyin."}},"uk":{"stringUnit":{"state":"translated","value":"Машину не вдалося під'єднати знову. Спробуйте відновити її ще раз."}},"vi":{"stringUnit":{"state":"translated","value":"Máy không kết nối lại. Hãy thử tiếp tục lại."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"机器未重新连接。请再次尝试恢复。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"機器未重新連線。請再次嘗試恢復。"}}}}
   },
   "version": "1.0"
 }
