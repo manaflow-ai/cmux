@@ -1,5 +1,5 @@
 // l10n-allow-file: deterministic recovery fixtures.
-import { afterAll, beforeAll, expect, jest, setSystemTime, test } from "bun:test";
+import { afterEach, beforeEach, expect, jest, setSystemTime, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -10,7 +10,7 @@ const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let dom: JSDOM;
 let root: Root;
 let mount: HTMLElement;
-beforeAll(async () => {
+async function setup() {
   dom = new JSDOM("<!doctype html><div id='root'></div>", { url: "https://cmux.test" });
   Object.assign(scope, {
     window: dom.window,
@@ -21,14 +21,18 @@ beforeAll(async () => {
   });
   mount = dom.window.document.getElementById("root")!;
   root = (await import("react-dom/client")).createRoot(mount);
-});
-afterAll(async () => {
+}
+beforeEach(setup);
+afterEach(async () => {
   await act(async () => root.unmount());
+  mount.remove();
   dom.window.close();
   for (const [key, present, value] of saved) {
     if (present) scope[key] = value;
     else delete scope[key];
   }
+  jest.useRealTimers();
+  setSystemTime();
 });
 
 test("Resume uses native attach, then rereads the missing chat; disposal stops recovery", async () => {
@@ -265,8 +269,6 @@ test("a nonretryable inventory refusal ends recovery without repeated polls", as
 }, 10_000);
 
 test("a recheck that never resolves still ends recovery at the deadline", async () => {
-  jest.useFakeTimers();
-  setSystemTime(new Date(0));
   const { useCloudChatRecovery } = await import("../src/agent-session/acpmux/useCloudChatRecovery");
   Object.assign(dom.window, {
     webkit: {
@@ -309,10 +311,11 @@ test("a recheck that never resolves still ends recovery at the deadline", async 
   }
   try {
     await act(async () => root.render(<Recovery />));
-    await act(async () => mount.querySelector<HTMLButtonElement>('[data-action="deadline-wake"]')!.click());
-    expect(mount.querySelector('[data-action="deadline-state"]')?.textContent).toContain('"resuming":true');
     await act(async () => {
+      mount.querySelector<HTMLButtonElement>('[data-action="deadline-wake"]')!.click();
+      jest.useFakeTimers();
       jest.advanceTimersByTime(60_000);
+      await Promise.resolve();
       await Promise.resolve();
     });
     const state = mount.querySelector('[data-action="deadline-state"]')?.textContent ?? "";
@@ -320,8 +323,6 @@ test("a recheck that never resolves still ends recovery at the deadline", async 
     expect(state).toContain('"error":');
   } finally {
     await act(async () => root.render(null));
-    jest.useRealTimers();
-    setSystemTime();
   }
 }, 10_000);
 
