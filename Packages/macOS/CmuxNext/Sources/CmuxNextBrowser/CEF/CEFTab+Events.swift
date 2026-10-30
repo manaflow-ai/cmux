@@ -226,7 +226,7 @@ extension CEFTab {
         }
         let json = try await runtime.devTools(browserID, method: "Runtime.evaluate", params: params)
         // Parsed off the main actor: an agent's page text or DOM snapshot is megabytes of JSON.
-        return try await CEFDevToolsResult.parsedEvaluation(json)
+        return try CEFDevToolsResult.evaluation(json) // red proof: parsed on main
     }
 
     /// Applies a page title now, or keeps the latest for the end of the
