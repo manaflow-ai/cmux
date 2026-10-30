@@ -24,6 +24,10 @@ enum AgentShareStrings {
         String(localized: "agentShare.badUses", defaultValue: "--uses takes a number from 1 to 8.", table: "AgentShare", bundle: .module)
     }
 
+    static var timedOut: String {
+        String(localized: "agentShare.timedOut", defaultValue: "The link may still have been made. Check cmux share list before trying again.", table: "AgentShare", bundle: .module)
+    }
+
     static func noSurface(_ surface: Int) -> String {
         String(format: String(localized: "agentShare.noSurface", defaultValue: "No agent chat is on surface %lld.", table: "AgentShare", bundle: .module), Int64(surface))
     }
@@ -67,6 +71,11 @@ enum AgentShareStrings {
     /// A share verb's failure for its caller: the daemon's `share.*` code (the CLI and MCP see it as
     /// the error code) with a sentence a person can act on.
     static func failure(_ error: any Error) -> ActionWorkFailure {
+        // No answer in time: the daemon may still make (or provision) the share, so the caller is
+        // told the run may have applied and must not simply retry.
+        if case DaemonError.timedOut = error {
+            return ActionWorkFailure(timedOut, mayHaveApplied: true)
+        }
         guard case DaemonError.command(_, let message, let code?, _, _) = error, code.hasPrefix("share.") else {
             return ActionWorkFailure(RefusalStrings.describe(error))
         }

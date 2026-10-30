@@ -656,6 +656,137 @@
         }
       }
     },
+    "agentShare.timedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The link may still have been made. Check cmux share list before trying again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Link wurde möglicherweise trotzdem erstellt. Prüfe cmux share list, bevor du es erneut versuchst."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le lien a peut-être quand même été créé. Vérifiez cmux share list avant de réessayer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ربما أُنشئ الرابط رغم ذلك. تحقّق من cmux share list قبل المحاولة مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Es posible que el enlace se haya creado de todos modos. Revisa cmux share list antes de volver a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連結可能已經建立。請先查看 cmux share list 再重試。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "链接可能已经创建。请先查看 cmux share list 再重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "링크가 이미 만들어졌을 수 있습니다. 다시 시도하기 전에 cmux share list를 확인하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクはすでに作成されている可能性があります。再試行する前に cmux share list を確認してください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link je možda ipak napravljen. Provjeri cmux share list prije ponovnog pokušaja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linket er måske alligevel blevet oprettet. Tjek cmux share list, før du prøver igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il link potrebbe essere stato creato comunque. Controlla cmux share list prima di riprovare."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "តំណអាចត្រូវបានបង្កើតរួចហើយ។ សូមពិនិត្យ cmux share list មុនពេលព្យាយាមម្តងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lenken kan ha blitt laget likevel. Sjekk cmux share list før du prøver igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link mógł mimo to zostać utworzony. Sprawdź cmux share list, zanim spróbujesz ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O link pode ter sido criado mesmo assim. Confira cmux share list antes de tentar de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ссылка, возможно, уже создана. Проверьте cmux share list, прежде чем повторить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลิงก์อาจถูกสร้างไปแล้ว ตรวจสอบ cmux share list ก่อนลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bağlantı yine de oluşturulmuş olabilir. Yeniden denemeden önce cmux share list'i kontrol edin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Посилання, можливо, вже створено. Перевірте cmux share list, перш ніж повторити."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Có thể liên kết vẫn đã được tạo. Hãy kiểm tra cmux share list trước khi thử lại."
+          }
+        }
+      }
+    },
     "agentShare.notAChat": {
       "extractionState": "manual",
       "localizations": {

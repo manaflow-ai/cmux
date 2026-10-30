@@ -186,6 +186,11 @@ struct AgentShareTests {
         let other = AgentShareStrings.failure(DaemonError.command(cmd: "agent-session-share-create", message: "the share is not open", code: "share.closed"))
         #expect(other.code == "share.closed" && other.message == "the share is not open")
         #expect(AgentShareStrings.failure(DaemonError.notConnected).code == nil)
+        #expect(!AgentShareStrings.failure(DaemonError.notConnected).mayHaveApplied)
+        // A create with no answer in time may still have made the link: the caller must not just retry.
+        let late = AgentShareStrings.failure(DaemonError.timedOut("agent-session-share-create"))
+        #expect(late.mayHaveApplied)
+        #expect(late.message == AgentShareStrings.timedOut)
     }
 
     @Test func theAnswersCarryTheLinkButNeverItsSecretAlone() {
