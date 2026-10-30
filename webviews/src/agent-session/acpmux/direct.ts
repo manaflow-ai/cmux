@@ -4355,19 +4355,16 @@ export class AcpmuxDirectClient {
       event.kind === "turn_result" && typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
     if (event.dir === "mux" && ["turn_end", "turn_result", "turn_error"].includes(event.kind)) {
       const terminalTurnId = typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
-      // Behind the fence, only an end that names the running turn is that turn's (turn_end included).
-      const ambiguous =
-        this.compactionFenceSeq !== undefined &&
-        (terminalTurnId === undefined || terminalTurnId !== this.runningTurnId);
-      // An end naming another turn than the running one is that turn's, late. That includes any named
-      // turn a newer, unnamed turn opened over (supersededTurns), for each of its ends. An end naming
-      // no turn while an unnamed turn runs cannot be told apart, and ends what runs, as before.
-      const stale =
+      // An end naming a turn is late when another named turn runs, or when it names a turn that has
+      // ended (its result came) or that a newer turn opened over. A late end only settles its own Stop.
+      const late =
         terminalTurnId !== undefined &&
         (this.runningTurnId !== undefined
           ? terminalTurnId !== this.runningTurnId
-          : this.supersededTurns.has(terminalTurnId));
-      if (ambiguous || stale) {
+          : this.supersededTurns.has(terminalTurnId) || this.endedTurns.has(terminalTurnId));
+      // Behind the compaction fence an end naming no turn cannot say which turn it closes.
+      const ambiguous = this.compactionFenceSeq !== undefined && terminalTurnId === undefined;
+      if (ambiguous || late) {
         // The old Stop can be acknowledged independently, before any turn-scoped side effects
         // (including foreground subagents) see a result that belongs to a different turn.
         if (terminalTurnId !== undefined && terminalTurnId === this.stopTurnId) this.stopAnswered(event);
