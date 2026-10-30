@@ -18,6 +18,20 @@ struct CloudOpenMachineExistingWorkspaceTests {
         #expect(await read.value == "ws-existing", "an empty list before the first tree made a second workspace")
     }
 
+    /// After a resume the store still holds the last connection's tree: that list is not this
+    /// connection's, so the read waits for the new tree (review finding).
+    @Test func theLastConnectionsTreeIsNotReadAfterAReconnect() async {
+        let store = DaemonStore()
+        store.apply(snapshot: DaemonTree(registryID: "s-vm"))
+        store.connectionEpoch += 1
+        let read = Task { @MainActor in await CloudHandlers.existingWorkspace(in: store) }
+        await Task.yield()
+        store.apply(snapshot: DaemonTree(registryID: "s-vm", workspaces: [
+            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "ws-made-meanwhile"), name: "workspace-1"),
+        ]))
+        #expect(await read.value == "ws-made-meanwhile", "the last connection's empty list made a second workspace")
+    }
+
     @Test func aLoadedEmptyTreeHasNone() async {
         let store = DaemonStore()
         store.apply(snapshot: DaemonTree(registryID: "s-vm"))
