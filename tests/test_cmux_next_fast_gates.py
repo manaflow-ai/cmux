@@ -178,8 +178,12 @@ class WorkflowShape(unittest.TestCase):
         self.assertEqual(result.returncode, 17)
         self.assertIn("rate limit exceeded", result.stderr)
         self.assertNotIn("comes from", result.stdout + result.stderr)
-        self.assertEqual(len(calls), 4)
-        self.assertEqual(waits, ["10", "20", "40"])
+        # The resolve step makes one API read.  A shell retry loop here is
+        # indistinguishable from token polling to the CI guard and spends the
+        # shared GitHub-token budget; transient failures are surfaced for the
+        # workflow retry machinery instead.
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(waits, [])
         self.assertEqual(output, "")
 
     def test_dispatch_empty_owner_is_not_reported_as_a_fork(self):
