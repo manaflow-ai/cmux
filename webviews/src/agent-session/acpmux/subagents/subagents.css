@@ -462,7 +462,7 @@ button.cv-subagent > :last-child {
   --acpmux-tray-lines: 5;
   flex: 0 1 auto;
   min-height: 0;
-  max-height: calc(var(--acpmux-tray-lines) * 28px);
+  max-height: calc(var(--acpmux-tray-lines) * var(--ui-row-height, 28px));
   margin: 0;
   padding: 0;
   overflow-y: auto;
