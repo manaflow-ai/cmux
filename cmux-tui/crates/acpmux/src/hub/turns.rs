@@ -594,9 +594,9 @@ impl Hub {
             super::titles::set_fallback_title(&mut m, &text);
             m.preview = Some(String::new());
             // The sender of a chat's first turn is its delegator (`inbox.rs`): named once the
-            // turn starts, so a prompt refused before it names none.
+            // turn starts, so a prompt refused before it names none, and over one a message the
+            // inbox took while this first work waited to start named.
             if m.turn_count == 0
-                && m.delegator.is_none()
                 && let Some(from) = super::inbox::sender_session(provenance.as_ref())
                 && from != m.id
             {

@@ -252,21 +252,24 @@ pub(super) fn review_box(session: &Session) -> bool {
 }
 
 /// Takes the chat's first work for `prompt_id` when a message now would be it: the chat never ran
-/// a turn, none runs, nothing waits in its queue or its inbox, and no other prompt holds it. Taken
-/// under the inbox's lock, so of two messages that come at once only one is the first work.
+/// a turn, none runs, nothing waits in its queue or its inbox, and no other prompt holds it. The
+/// hold is taken under the inbox's lock, so of two messages that come at once only one is the
+/// first work; the chat is read only once it is held, so a first work that ran and let go before
+/// this took it is seen as the turn it ran.
 fn first_work(session: &Arc<Session>, prompt_id: &str) -> Option<FirstWork> {
+    {
+        let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+        if !inbox.items.is_empty() || inbox.first.is_some() {
+            return None;
+        }
+        inbox.first = Some(prompt_id.to_owned());
+    }
+    let first = FirstWork { session: Arc::downgrade(session), prompt_id: prompt_id.to_owned() };
     let idle = session.meta.lock().unwrap_or_else(|e| e.into_inner()).turn_count == 0
         && session.turn().is_none()
         && session.queue.lock().unwrap_or_else(|e| e.into_inner()).is_empty();
-    if !idle {
-        return None;
-    }
-    let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
-    if !inbox.items.is_empty() || inbox.first.is_some() {
-        return None;
-    }
-    inbox.first = Some(prompt_id.to_owned());
-    Some(FirstWork { session: Arc::downgrade(session), prompt_id: prompt_id.to_owned() })
+    // Not idle: dropping `first` lets the hold go.
+    idle.then_some(first)
 }
 
 /// The refusal of a steer-only message from another agent to a review box's running turn.
