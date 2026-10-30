@@ -45,6 +45,8 @@ export function useNativePopup(options: NativePopupOptions): { available: boolea
       if (event.popupId !== id) return;
       if (event.type === "dismiss") {
         if (event.revision < openingRevision.current || event.revision > revision.current) return;
+        // The native popup is gone: a later model change must show it again, not update it.
+        shown.current = false;
         latest.current.onDismiss(event.reason);
       } else {
         if (event.revision < openingRevision.current || event.revision > revision.current) return;
@@ -93,7 +95,10 @@ export function useNativePopup(options: NativePopupOptions): { available: boolea
       openingRevision.current = model.revision;
       void transport.show(model).then((reply) => {
         if (openingRevision.current !== model.revision || !shown.current) return;
-        if ((reply as { shown?: boolean } | undefined)?.shown !== true) latest.current.onDismiss();
+        if ((reply as { shown?: boolean } | undefined)?.shown !== true) {
+          shown.current = false;
+          latest.current.onDismiss();
+        }
       });
     }
   }, [transport, options.open, serialized, acknowledgment, id]);
