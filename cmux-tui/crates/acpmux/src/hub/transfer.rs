@@ -263,6 +263,9 @@ impl Hub {
         };
         // Made once nothing can fail: a failed import leaves nothing in the child index.
         let session = self.make_session(meta.clone());
+        // Its copied log may hold the source's move: unknown until its own `imported` receipt
+        // is logged (`transfer_authority.rs`), so a failed receipt never reads as local.
+        *session.transfer_authority.lock().unwrap_or_else(|e| e.into_inner()) = None;
         session.seq.store(last, Ordering::SeqCst);
         session.meta.lock().unwrap().last_seq = last;
         if live {
