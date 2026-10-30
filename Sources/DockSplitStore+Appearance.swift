@@ -10,7 +10,9 @@ extension DockSplitStore {
     static let minimumDockPaneSize: CGFloat = 48
 
     func applyGhosttyChrome(from config: GhosttyConfig) {
-        bonsplitController.configuration.appearance = Self.makeAppearance(from: config)
+        var appearance = Self.makeAppearance(from: config)
+        appearance.splitButtons = bonsplitController.configuration.appearance.splitButtons
+        bonsplitController.configuration.appearance = appearance
     }
 
     /// Applies Dock chrome using the window's already-resolved theme color.
@@ -20,10 +22,12 @@ extension DockSplitStore {
         from config: GhosttyConfig,
         windowAppearance: WindowAppearanceSnapshot
     ) {
-        bonsplitController.configuration.appearance = Self.makeAppearance(
+        var appearance = Self.makeAppearance(
             from: config,
             windowAppearance: windowAppearance
         )
+        appearance.splitButtons = bonsplitController.configuration.appearance.splitButtons
+        bonsplitController.configuration.appearance = appearance
     }
 
     static func makeConfiguration() -> BonsplitConfiguration {
@@ -45,42 +49,23 @@ extension DockSplitStore {
     /// Applies the same built-in surface-tab buttons used by workspace panes.
     /// The Dock has no workspace-command execution context, so custom command
     /// buttons remain workspace-only until Dock routing is added.
-    func applySurfaceTabBarButtons(_ buttons: [CmuxSurfaceTabBarButton]) {
+    func applySurfaceTabBarButtons(
+        _ buttons: [CmuxSurfaceTabBarButton],
+        sourcePath: String?,
+        globalConfigPath: String
+    ) {
+        let splitButtons = buttons.compactMap { button -> BonsplitConfiguration.SplitActionButton? in
+            guard case .builtIn(let builtIn) = button.action,
+                  builtIn.bonsplitAction != nil else { return nil }
+            return button.bonsplitActionButton(
+                configSourcePath: sourcePath,
+                globalConfigPath: globalConfigPath
+            )
+        }
         var configuration = bonsplitController.configuration
-        let splitButtons = Self.bonsplitButtons(for: buttons)
         guard configuration.appearance.splitButtons != splitButtons else { return }
         configuration.appearance.splitButtons = splitButtons
         bonsplitController.configuration = configuration
-    }
-
-    static func bonsplitButtons(
-        for buttons: [CmuxSurfaceTabBarButton]
-    ) -> [BonsplitConfiguration.SplitActionButton] {
-        buttons.compactMap { button in
-            let resolved: CmuxSurfaceTabBarButton
-            switch button.action {
-            case .builtIn:
-                resolved = button
-            case .actionReference(let identifier):
-                guard let builtIn = CmuxSurfaceTabBarBuiltInAction(configID: identifier),
-                      builtIn.bonsplitAction != nil else { return nil }
-                resolved = CmuxSurfaceTabBarButton.builtIn(
-                    builtIn,
-                    id: button.id,
-                    title: button.title,
-                    icon: button.icon,
-                    tooltip: button.tooltip
-                )
-            default:
-                return nil
-            }
-            guard case .builtIn(let builtIn) = resolved.action,
-                  builtIn.bonsplitAction != nil else { return nil }
-            return resolved.bonsplitActionButton(
-                configSourcePath: nil,
-                globalConfigPath: CmuxConfigStore.defaultGlobalConfigPath()
-            )
-        }
     }
 
     /// Resolves the app-level `app.tabBarVisibility` setting to bonsplit's

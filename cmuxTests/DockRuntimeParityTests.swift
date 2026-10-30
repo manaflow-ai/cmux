@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import Combine
+import CmuxAppKitSupportUI
 import CmuxControlSocket
 import CmuxFoundation
 import CmuxNotifications
@@ -79,21 +80,55 @@ private extension DockSplitStore {
 struct DockRuntimeParityTests {
     private static let socketWorker = DispatchQueue(label: "DockRuntimeParityTests.socketWorker")
 
-    @Test("Dock tab buttons follow the configured built-in list")
-    func dockTabButtonsFollowConfiguredBuiltIns() {
-        let buttons = [
-            CmuxSurfaceTabBarButton.actionReference(
-                CmuxSurfaceTabBarBuiltInAction.newBrowser.configID
-            ),
-            CmuxSurfaceTabBarButton.actionReference(
-                CmuxSurfaceTabBarBuiltInAction.splitDown.configID
+    @Test("Dock tab buttons follow config before and after creation", arguments: [false, true])
+    func dockTabButtonsFollowConfig(createBeforeConfig: Bool) async throws {
+        try await withAppContext { _, manager, workspace, _ in
+            var workspaceDock: DockSplitStore?
+            var windowDock: DockSplitStore?
+            if createBeforeConfig {
+                workspaceDock = try #require(workspace.dockSplit)
+                windowDock = manager.makeWindowDockStore(windowId: UUID())
+            }
+            manager.applySurfaceTabBarButtons(
+                [], sourcePath: nil, globalConfigPath: "/tmp/cmux-dock-buttons.json",
+                terminalCommandSourcePaths: [:], workspaceCommands: [:]
             )
-        ]
+            if !createBeforeConfig {
+                workspaceDock = try #require(workspace.dockSplit)
+                windowDock = manager.makeWindowDockStore(windowId: UUID())
+            }
+            let docks = [try #require(workspaceDock), try #require(windowDock)]
+            defer { docks.forEach { $0.closeAllPanels() } }
+            for dock in docks {
+                #expect(dock.bonsplitController.configuration.appearance.splitButtons.isEmpty)
+                dock.applyGhosttyChrome(from: GhosttyConfig())
+                #expect(dock.bonsplitController.configuration.appearance.splitButtons.isEmpty)
+                dock.applyGhosttyChrome(
+                    from: GhosttyConfig(),
+                    windowAppearance: .rightSidebarPanelViewTestDefault
+                )
+                #expect(dock.bonsplitController.configuration.appearance.splitButtons.isEmpty)
+            }
 
-        let resolved = DockSplitStore.bonsplitButtons(for: buttons)
-
-        #expect(resolved.map(\.id) == ["cmux.newBrowser", "cmux.splitDown"])
-        #expect(resolved.map(\.action) == [.newBrowser, .splitDown])
+            // Resolved built-ins retain the user's order and metadata; custom
+            // commands and unsupported built-ins must not draw inert buttons.
+            let buttons: [CmuxSurfaceTabBarButton] = [
+                .builtIn(.splitDown, id: "down", tooltip: "Split below"),
+                CmuxSurfaceTabBarButton(id: "custom", action: .command("echo test")),
+                .builtIn(.copyScreen),
+                .builtIn(.newTerminal, id: "terminal")
+            ]
+            manager.applySurfaceTabBarButtons(
+                buttons, sourcePath: nil, globalConfigPath: "/tmp/cmux-dock-buttons.json",
+                terminalCommandSourcePaths: [:], workspaceCommands: [:]
+            )
+            for dock in docks {
+                let actual = dock.bonsplitController.configuration.appearance.splitButtons
+                #expect(actual.map(\.id) == ["down", "terminal"])
+                #expect(actual.map(\.action) == [.splitDown, .newTerminal])
+                #expect(actual.first?.tooltip == "Split below")
+            }
+        }
     }
 
     @Test("Conversations reuses a live Dock terminal", arguments: [false, true])

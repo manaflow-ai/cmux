@@ -217,6 +217,9 @@ class TabManager: ObservableObject {
     // side effects in didSet).
     let workspaces = WorkspacesModel<Workspace>()
     var workspacesById: [UUID: Workspace] { workspaces.tabsById }
+    private var windowDockSurfaceTabBarConfiguration: (
+        buttons: [CmuxSurfaceTabBarButton], sourcePath: String?, globalConfigPath: String
+    )?
     private let windowDockTitleRoutingStores =
         NSMapTable<NSUUID, DockSplitStore>.strongToWeakObjects()
 
@@ -1276,6 +1279,13 @@ class TabManager: ObservableObject {
             agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
             fileContentChangeCoordinator: fileContentChangeCoordinator
         )
+        if let configuration = windowDockSurfaceTabBarConfiguration {
+            store.applySurfaceTabBarButtons(
+                configuration.buttons,
+                sourcePath: configuration.sourcePath,
+                globalConfigPath: configuration.globalConfigPath
+            )
+        }
         windowDockTitleRoutingStores.setObject(
             store,
             forKey: windowId as NSUUID
@@ -4811,6 +4821,7 @@ class TabManager: ObservableObject {
         terminalCommandSourcePaths: [String: String],
         workspaceCommands: [String: CmuxResolvedCommand]
     ) {
+        windowDockSurfaceTabBarConfiguration = (buttons, sourcePath, globalConfigPath)
         for workspace in tabs {
             workspace.applySurfaceTabBarButtons(
                 buttons,
@@ -4822,7 +4833,11 @@ class TabManager: ObservableObject {
             )
         }
         for dockStore in liveWindowDockStores {
-            dockStore.applySurfaceTabBarButtons(buttons)
+            dockStore.applySurfaceTabBarButtons(
+                buttons,
+                sourcePath: sourcePath,
+                globalConfigPath: globalConfigPath
+            )
         }
     }
 
