@@ -119,6 +119,8 @@ deliver() {
   local found="$cache_bin" verb="$1"
   if [[ -n "$output" && "$output" != "$cache_bin" ]]; then
     mkdir -p "$(dirname "$output")"
+    # cp follows a link at the destination; remove links before copying.
+    rm -f "$output" "$output.ref"
     cp -f "$cache_bin" "$output"
     cp -f "$cache_bin.ref" "$output.ref" 2>/dev/null || true
     chmod 755 "$output"
@@ -185,6 +187,11 @@ if command -v rustup >/dev/null 2>&1; then
 fi
 
 mkdir -p "$cache_dir"
+# Every rebuild path writes the binary and its provenance fresh. A restored or
+# reused entry may hold links in their place (a missing binary skips the
+# identity check above), so remove the links themselves, never their targets,
+# before anything is written; a directory there stops the build.
+rm -f "$cache_bin" "$cache_bin.ref"
 slices=()
 for target in "${targets[@]}"; do
   echo "==> building optchat-chief ($commit, $target)"
@@ -203,9 +210,15 @@ for target in "${targets[@]}"; do
   slices+=("$slice")
 done
 staged="$cache_bin.tmp.$$"
+rm -f "$staged"
 if [[ ${#slices[@]} -eq 1 ]]; then cp "${slices[0]}" "$staged"; else lipo -create "${slices[@]}" -output "$staged"; fi
 chmod 755 "$staged"
 mv -f "$staged" "$cache_bin"
-printf '%s\n' "commit=$commit" "archs=$archs" ${input_key:+"inputs=$input_key"} ${environment_key:+"environment=$environment_key"} "sha256=$(shasum -a 256 "$cache_bin" | awk '{print $1}')" > "$cache_bin.ref"
+# Write the provenance to a new file and rename it into place: a rename
+# replaces a link that appeared since, and never writes through it.
+staged_ref="$cache_bin.ref.tmp.$$"
+rm -f "$staged_ref"
+printf '%s\n' "commit=$commit" "archs=$archs" ${input_key:+"inputs=$input_key"} ${environment_key:+"environment=$environment_key"} "sha256=$(shasum -a 256 "$cache_bin" | awk '{print $1}')" > "$staged_ref"
+mv -f "$staged_ref" "$cache_bin.ref"
 prune_input_keyed
 deliver built
