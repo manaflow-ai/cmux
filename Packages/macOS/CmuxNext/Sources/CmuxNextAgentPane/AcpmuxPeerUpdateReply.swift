@@ -28,8 +28,9 @@ nonisolated struct AcpmuxPeerUpdateReply: Decodable, Sendable, Equatable {
         /// holds the host's lock; nothing changed) reads as ``busy``. Every other `failed` reason
         /// (`unsupportedPlatform`, `pushFailed`, `pushMismatch`, `restartFailed`, the hand-written
         /// unit's refusals, ...) stays a failure: retrying the same build would fail the same way,
-        /// unless its error is ssh's own word that it never connected (``sshNeverConnected(_:)``):
-        /// nothing ran on the peer, so that is ``unreachable`` too.
+        /// unless its error is ssh's own word that it never connected (``sshNeverConnected(_:)``),
+        /// or that the binary's upload lost its connection (``uploadLostConnection(_:)``):
+        /// nothing changed on the peer, so that is ``unreachable`` too.
         case unreachable
         /// The CLI run was cut short by a signal before it printed a reply (the local daemon
         /// restarted under it, or it was killed): no answer about the peer. Not final: asked again.
@@ -80,7 +81,7 @@ nonisolated struct AcpmuxPeerUpdateReply: Decodable, Sendable, Equatable {
             case "cloudMachine": outcome = .cloudMachine
             case "unreachable": outcome = .unreachable
             case "updateRunning": outcome = .busy
-            default: outcome = error.map(Self.sshNeverConnected) == true ? .unreachable : .failed
+            default: outcome = error.map(Self.offline) == true ? .unreachable : .failed
             }
         default: outcome = .failed
         }
@@ -94,6 +95,23 @@ nonisolated struct AcpmuxPeerUpdateReply: Decodable, Sendable, Equatable {
         let text = error.lowercased()
         return ["ssh: connect to host ", "ssh: could not resolve hostname", "connection timed out during banner exchange"]
             .contains { text.contains($0) }
+    }
+
+    /// Whether the binary's upload lost its connection part way (`scp to H failed: client_loop:
+    /// send disconnect: Broken pipe`, `lost connection`): the copy goes to a staging folder the
+    /// next push clears, and nothing is installed until it runs, so the peer is unchanged and
+    /// offline, not broken. Only the upload: a later step's dropped connection may have changed
+    /// the peer.
+    static func uploadLostConnection(_ error: String) -> Bool {
+        let text = error.lowercased()
+        guard text.hasPrefix("scp to ") else { return false }
+        return ["lost connection", "connection closed by", "broken pipe", "connection reset by peer", "client_loop: send disconnect"]
+            .contains { text.contains($0) }
+    }
+
+    /// The peer is offline (``sshNeverConnected(_:)`` or ``uploadLostConnection(_:)``).
+    static func offline(_ error: String) -> Bool {
+        sshNeverConnected(error) || uploadLostConnection(error)
     }
 
     /// The reply for `peer` in `output`: `--json` prints `{"updated": [ROW...], "peers": [...]}`

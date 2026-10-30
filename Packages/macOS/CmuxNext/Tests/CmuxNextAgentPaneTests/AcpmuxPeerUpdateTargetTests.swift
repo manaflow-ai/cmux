@@ -74,6 +74,13 @@ import Testing
         #expect(outcome(#"{"outcome":"failed","reason":"pushFailed","error":"ssh h failed: ssh: connect to host 192.0.2.7 port 22: Operation timed out"}"#) == .unreachable)
         #expect(outcome(#"{"outcome":"failed","error":"ssh: Could not resolve hostname h: nodename nor servname provided"}"#) == .unreachable)
         #expect(outcome(#"{"outcome":"failed","reason":"restartFailed","error":"Connection timed out during banner exchange"}"#) == .unreachable)
+        // The peer dropped during the binary's upload: nothing was installed (review of #27288).
+        #expect(outcome(#"{"outcome":"failed","reason":"pushFailed","error":"scp to h failed: client_loop: send disconnect: Broken pipe lost connection"}"#) == .unreachable)
+        #expect(outcome(#"{"outcome":"failed","reason":"pushFailed","error":"scp to h failed: Connection closed by 192.0.2.7 port 22"}"#) == .unreachable)
+        #expect(outcome(#"{"outcome":"failed","reason":"pushFailed","error":"scp to h failed: ssh: connect to host 192.0.2.7 port 22: Operation timed out"}"#) == .unreachable)
+        // A full disk on the peer is a failure, and a dropped later step may have changed it.
+        #expect(outcome(#"{"outcome":"failed","reason":"pushFailed","error":"scp to h failed: scp: write remote: No space left on device"}"#) == .failed)
+        #expect(outcome(#"{"outcome":"failed","reason":"restartFailed","error":"ssh h failed: Connection closed by 192.0.2.7 port 22"}"#) == .failed)
         // ssh reached it and something there failed: still a failure.
         #expect(outcome(#"{"outcome":"failed","reason":"restartFailed","error":"ssh h failed: Bootstrap failed: 125"}"#) == .failed)
         // Another update holds the host's lock: nothing changed, not now (review of #25388).
