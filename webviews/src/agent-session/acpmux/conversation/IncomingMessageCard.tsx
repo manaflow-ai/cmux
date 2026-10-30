@@ -32,9 +32,11 @@ import { FindReveal } from "./chatFind";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { Bot, ChevronRight, TerminalSquare } from "./icons";
 import { Markdown } from "./Markdown";
+import { CardCopy } from "./CardCopy";
 import { AgentMark } from "../../shared/AgentMark";
 import { useSenderChat, useSenderPlace } from "../subagents/subsessions";
 import { useAgentAvatar } from "../agentAvatar";
+import { useChiefFace } from "../chiefFace";
 import { DisclosureRow } from "../subagents/DisclosureRow";
 import "../subagents/AgentCard.css";
 import { MessageScopeContext, type MessageScope } from "../chips/messageScope";
@@ -117,7 +119,11 @@ export function IncomingMessageLine({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new match opens, not a new callback
   }, [inText, inRaw, reveal]);
   const raw = message.raw.trim() === message.text ? undefined : message.raw;
-  const sender = useSenderChat(message.name, message.sessionId);
+  // A Chief's message names the Chief (chiefFace.ts): its name and avatar as the sidebar shows them.
+  // Its turn session is no chat of the list, so no listed chat with its name stands in for it.
+  const chief = useChiefFace(message.chief);
+  const name = (message.chief && chief?.name) || message.name;
+  const sender = useSenderChat(message.chief ? "" : message.name, message.sessionId);
   const sessionId = sender.sessionId;
   const place = useSenderPlace(sessionId);
   const avatar = useAgentAvatar(sessionId);
@@ -132,10 +138,10 @@ export function IncomingMessageLine({
   const preview = useMemo(() => messagePreview(body), [body]);
   // "Open chief-ui (huge-blue)": the chat Open chat opens, and the other machine it runs on.
   const openTitle = sender.host
-    ? t("subagents.openOnHost", { name: message.name, host: sender.host })
-    : t("subagents.open", { name: message.name });
+    ? t("subagents.openOnHost", { name, host: sender.host })
+    : t("subagents.open", { name });
   // A sub-session family's sender says who it is to this chat.
-  const from = message.relation ? t(RELATION_LABEL[message.relation], { name: message.name }) : message.name;
+  const from = message.relation ? t(RELATION_LABEL[message.relation], { name }) : name;
   // A reply needs a chat to go to and the message's id to answer: acpmux's `agent_message`.
   const replies = onReply !== undefined && message.sessionId !== undefined && message.msgId !== undefined;
   const [reply, setReplyState] = useState<"closed" | "open" | "sent" | "failed">(() =>
@@ -168,8 +174,13 @@ export function IncomingMessageLine({
     if (!next && editing) setReply("closed");
     show(next);
   };
-  const icon = avatar ? (
-    <img className="cv-agent-avatar" src={avatar} alt="" width={16} height={16} />
+  const picture = message.chief ? chief?.src : avatar;
+  const icon = picture ? (
+    <img className="cv-agent-avatar" src={picture} alt="" width={16} height={16} />
+  ) : message.chief && chief?.text ? (
+    <span className="cv-chief-text-avatar" aria-hidden="true">
+      {chief.text}
+    </span>
   ) : (
     <AgentMark agent={sender.harness} size={14} fallback={<Bot size={16} />} />
   );
@@ -190,9 +201,10 @@ export function IncomingMessageLine({
           </span>
         </>
       }
-      onOpen={sessionId ? () => onOpen(sessionId) : undefined}
-      openLabel={sessionId ? t("subsession.openChat") : undefined}
-      openTitle={sessionId ? openTitle : undefined}
+      // A Chief's turn session is no chat to open.
+      onOpen={sessionId && !message.chief ? () => onOpen(sessionId) : undefined}
+      openLabel={sessionId && !message.chief ? t("subsession.openChat") : undefined}
+      openTitle={sessionId && !message.chief ? openTitle : undefined}
       // It opens at once, its height alone moving, as the message's card always did; closing fades.
       fadeIn={false}
       actions={
@@ -206,6 +218,8 @@ export function IncomingMessageLine({
         </>
       }
     >
+      {/* The sender's words, as written, from the card's corner. */}
+      <CardCopy text={text} />
       {/* Find counts the message, not this header of it. */}
       <div className="cv-received__from-line" data-find-skip="">
         {t("message.fromHeader", { name: from })}
@@ -258,7 +272,7 @@ export function IncomingMessageLine({
           <PromptEditor
             initial={replyDrafts.get(key) ?? ""}
             canSend
-            label={t("message.replyTo", { name: message.name })}
+            label={t("message.replyTo", { name })}
             // UserBubble's own prop, which takes focus through a ref when the editor mounts, not
             // the DOM attribute the rule is about: the reader opened this reply editor with a
             // click and types into it next.
