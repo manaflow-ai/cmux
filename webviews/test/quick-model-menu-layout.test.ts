@@ -241,11 +241,12 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
   test("one row per model; effort is a vertical side dropdown beside the model, never a row of words", async () => {
     // The P0 wall (#26521 put every level under every model). Leo 2026-10-30: "we dont like
     // horizontal text for effort. just make it vertical. hell, why not do a vertical slider?".
-    for (const [entry, variant] of [
-      ["new-tab.quick-model-menu", "claude-many-harnesses-inline-effort"],
-      ["agent-pane.inline-model-effort", "chat"],
+    for (const [entry, variant, width] of [
+      ["new-tab.quick-model-menu", "claude-many-harnesses-inline-effort", 640],
+      ["agent-pane.inline-model-effort", "chat", 640],
+      ["agent-pane.inline-model-effort", "chat", 1000],
     ] as const) {
-      const page = await open(variant, 640, 560, entry);
+      const page = await open(variant, width, 560, entry);
       try {
         await page.locator(".acpmux-quick-model-effort").first().waitFor();
         // Every model one 28 px row, and no level in the menu itself.
@@ -272,10 +273,15 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
         }
         const rowBox = (await row.boundingBox())!;
         const menuBox = (await dropdown.boundingBox())!;
-        expect(menuBox.x, `${variant}: row ${JSON.stringify(rowBox)} dropdown ${JSON.stringify(menuBox)}`).toBeGreaterThanOrEqual(
-          rowBox.x + rowBox.width - 8,
-        );
         const viewport = page.viewportSize()!;
+        // Beside the row whenever the window has room on that side; a narrow window shifts it, as
+        // every submenu of this menu (the shared Submenu's collision handling), and it stays whole.
+        if (viewport.width - (rowBox.x + rowBox.width) >= menuBox.width)
+          expect(menuBox.x, `${variant}: row ${JSON.stringify(rowBox)} dropdown ${JSON.stringify(menuBox)}`).toBeGreaterThanOrEqual(
+            rowBox.x + rowBox.width - 8,
+          );
+        expect(menuBox.x).toBeGreaterThanOrEqual(0);
+        expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(viewport.width);
         expect(menuBox.y).toBeGreaterThanOrEqual(0);
         expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(viewport.height);
         // Each level is one line: its name and any "Recommended" badge share the row (review of #27948).
