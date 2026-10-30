@@ -1608,7 +1608,7 @@ jobs:
     if: ${{ !cancelled() && (needs.build.result == 'success' || needs.build-darwin-fallback.result == 'success' || needs.darwin-fallback-plan.outputs.recovered == 'true') && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
     needs: [build, darwin-fallback-plan, build-darwin-fallback]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
-    # 15 minutes of work, plus the hour the attestation retry may wait for the API budget.
+    # 15 minutes of work, plus the 50 minutes the attestation retry may wait for the API budget.
     timeout-minutes: 75
     permissions:
       contents: read
@@ -1967,10 +1967,19 @@ jobs:
       # retry 4 s later was not enough: run 40422130372's core budget had calls
       # left, so the refusal was GitHub's secondary limit, and the retry hit it
       # again. So it is tried four times. Each failed try waits through
-      # scripts/ci/gh_budget_wait.sh --backoff: until the reset when /rate_limit
-      # reads a budget exhausted, else 60, 120 and 240 s for the secondary limit,
-      # at most 15 minutes in all. The last try is not continue-on-error, so no
-      # binary is published without provenance.
+      # scripts/ci/gh_budget_wait.sh --backoff-probe, which reads the attestations
+      # API (the refused write's own API, with the same token) and, while GitHub
+      # refuses that read for the rate limit, waits for the reset the refusal
+      # names and reads again; the next try runs once GitHub answers it. A fixed
+      # 60, 120 and 240 s, at most 15 minutes in all, was not enough: owner run
+      # 41017791425 (2026-10-30) was refused at 07:14, 07:15, 07:17 and 07:21,
+      # the limit still holding at its last try, so tree 13939dda was never published
+      # and the nightly fell behind. When the read is answered at once (a limit
+      # it does not share), the try waits as --backoff does (until the reset when
+      # /rate_limit reads a budget exhausted, else 60, 120, 240 s). At most 50
+      # minutes in all, inside the job's 75 with its 15 minutes of work. The
+      # last try is not continue-on-error, so no binary is published without
+      # provenance.
       - name: Attest raw binary subjects
         id: attest_subjects
         continue-on-error: true
@@ -1994,8 +2003,10 @@ jobs:
         if: steps.attest_subjects.outcome == 'failure'
         env: &attest-backoff-env
           GH_TOKEN: ${{ github.token }}
-          GH_BUDGET_WAIT_MAX_SECONDS: "900"
-        run: bash scripts/ci/gh_budget_wait.sh --backoff 1 "the attestation"
+          GH_BUDGET_WAIT_MAX_SECONDS: "3000"
+          # Any digest: a read GitHub answers (200 or 404) means the limit cleared.
+          ATTEST_PROBE: repos/${{ github.repository }}/attestations/sha256:0000000000000000000000000000000000000000000000000000000000000000
+        run: bash scripts/ci/gh_budget_wait.sh --backoff-probe 1 "$ATTEST_PROBE" "the attestation"
 
       - name: Attest raw binary subjects (try 2)
         id: attest_subjects_2
@@ -2007,7 +2018,7 @@ jobs:
       - name: Back off before the third attestation try
         if: steps.attest_subjects_2.outcome == 'failure'
         env: *attest-backoff-env
-        run: bash scripts/ci/gh_budget_wait.sh --backoff 2 "the attestation"
+        run: bash scripts/ci/gh_budget_wait.sh --backoff-probe 2 "$ATTEST_PROBE" "the attestation"
 
       - name: Attest raw binary subjects (try 3)
         id: attest_subjects_3
@@ -2019,7 +2030,7 @@ jobs:
       - name: Back off before the last attestation try
         if: steps.attest_subjects_3.outcome == 'failure'
         env: *attest-backoff-env
-        run: bash scripts/ci/gh_budget_wait.sh --backoff 3 "the attestation"
+        run: bash scripts/ci/gh_budget_wait.sh --backoff-probe 3 "$ATTEST_PROBE" "the attestation"
 
       - name: Attest raw binary subjects (last try)
         if: steps.attest_subjects_3.outcome == 'failure'
@@ -2645,7 +2656,7 @@ jobs:
     if: ${{ !cancelled() && needs.publish.result == 'success' && needs.build-windows.outputs.windows_built == 'true' }}
     needs: [publish, build-windows]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
-    # As publish: the shared steps' attestation retry may wait up to an hour.
+    # As publish: the shared steps' attestation retry may wait up to 50 minutes.
     timeout-minutes: 75
     permissions:
       contents: read
