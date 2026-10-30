@@ -241,7 +241,7 @@ async fn a_digest_waits_for_the_next_turn_when_the_running_one_is_past_its_cap()
     let made = c.request(DIGEST, json!({"sessionId": id})).await.unwrap();
     assert_eq!((made["digested"].clone(), made["delivery"].clone()), (json!(2), json!("queued")));
     let digest = made["promptId"].as_str().unwrap().to_owned();
-    assert_eq!(queue_order(&mut c, &id).await, [digest.clone()]);
+    assert_eq!(queue_order(&mut c, &id).await, std::slice::from_ref(&digest));
     tokio::time::sleep(Duration::from_millis(300)).await;
     let events = hub.events(&id, 0, 1000).unwrap();
     let steered = find(&events, "user_message")
@@ -789,4 +789,68 @@ async fn messages_drained_twice_follow_the_newest_digest_at_a_restart() {
     let (a, b, slash) = (at("p-a"), at("p-b"), at("p-slash"));
     assert!(a.is_some() && a < b && b < slash, "{order:?}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A digest whose turn never reached its agent (the agent could not start again: its folder is
+/// gone) puts the messages it took back unheld, as a failed start puts back any agent message
+/// that joined it: each gets its own try at once, not after the held messages' retry wait.
+#[tokio::test]
+async fn a_digest_whose_agent_cannot_start_puts_its_messages_back_unheld() {
+    let root = std::env::temp_dir().join(format!("acpmux-inbox-digest-{}", uuid::Uuid::now_v7()));
+    let (state, folder) = (root.join("state"), root.join("work"));
+    std::fs::create_dir_all(&folder).unwrap();
+    let hub = durable_hub(&state);
+    // A held message's own retry waits out the test.
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![60_000]);
+    let mut c = connect(&hub).await;
+    let s = c.request(method::SESSION_NEW, json!({"cwd": folder, "mcpServers": []})).await;
+    let id = s.unwrap()["sessionId"].as_str().unwrap().to_owned();
+    let turn =
+        c.send(method::SESSION_PROMPT, prompt(&id, "until-cancel-then-exit", Some("p-turn"))).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "running").await;
+    let a = queue(&mut c, from_agent(&id, "p-a", "lane-a", "from a")).await;
+    let b = queue(&mut c, from_agent(&id, "p-b", "lane-b", "from b")).await;
+    let made = c.request(DIGEST, json!({"sessionId": id})).await.unwrap();
+    assert_eq!((made["digested"].clone(), made["delivery"].clone()), (json!(2), json!("queued")));
+    let digest = made["promptId"].as_str().unwrap().to_owned();
+    std::fs::remove_dir_all(&folder).unwrap();
+    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    c.response(turn).await;
+
+    // Each tries on its own and is answered from that try, well before a held retry.
+    let answered = tokio::time::timeout(Duration::from_secs(15), answers(&mut c, &[a, b])).await;
+    let answered = answered.expect("a message the digest put back stayed held");
+    for answer in answered.values() {
+        assert_ne!(answer["_meta"]["acpmux"]["joinedPromptId"], *digest, "{answer}");
+    }
+    let events = hub.events(&id, 0, 10_000).unwrap();
+    let held = find(&events, "queue_paused")
+        .into_iter()
+        .any(|e| e.msg["held"].as_array().is_some_and(|h| h.contains(&json!("p-a"))));
+    assert!(!held, "the messages went back held");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A digest goes behind the person's prompts, a held one included: draining agent messages moves
+/// none of the person's prompts behind them.
+#[tokio::test]
+async fn a_digest_goes_behind_a_held_prompt_of_the_persons() {
+    let root = std::env::temp_dir().join(format!("acpmux-inbox-digest-{}", uuid::Uuid::now_v7()));
+    let hub = durable_hub(&root.join("state"));
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![60_000]);
+    let mut c = connect(&hub).await;
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await;
+    let id = s.unwrap()["sessionId"].as_str().unwrap().to_owned();
+    c.send(method::SESSION_PROMPT, prompt(&id, "die-later: gone", Some("p-die"))).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "dying ").await;
+    queue(&mut c, prompt(&id, "mine", Some("p-me"))).await;
+    queue(&mut c, from_agent(&id, "p-a", "lane-a", "from a")).await;
+    record_until(&hub, &id, "queue_paused", |m| m["held"] == json!(["p-me", "p-a"])).await;
+
+    let made = c.request(DIGEST, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(made["digested"], 1, "{made}");
+    assert_eq!(made["position"], 2, "the digest went ahead of the person's prompt: {made}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
 }

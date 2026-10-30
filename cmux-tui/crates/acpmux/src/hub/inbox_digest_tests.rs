@@ -211,3 +211,18 @@ fn a_cmux_agent_message_shows_its_words_not_its_envelope() {
     let text = render("d", &[part]).text;
     assert!(text.ends_with("- builder (promptId p1): heads up: CI is slow…"), "{text}");
 }
+
+/// A sender is its address: copies under a name it changed between them still fold, and its
+/// results stay under one heading.
+#[test]
+fn a_renamed_sender_still_folds_and_groups_by_its_address() {
+    let mut renamed = part("p2", "lane-a2", Class::Result, 2, "done");
+    renamed.from = "acp:lane-a".into();
+    let mut later = part("p3", "lane-a2", Class::Result, 3, "and more");
+    later.from = "acp:lane-a".into();
+    let parts = [part("p1", "lane-a", Class::Result, 1, "done"), renamed, later];
+    let Rendered { text, .. } = render("d1", &parts);
+    assert_eq!(text.matches("### from ").count(), 1, "{text}");
+    assert_eq!(text.matches("\n\n[result]").count(), 2, "{text}");
+    assert!(text.contains("promptId p2 (×2)"), "{text}");
+}
