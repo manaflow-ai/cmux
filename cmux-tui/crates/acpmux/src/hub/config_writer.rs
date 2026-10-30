@@ -31,6 +31,9 @@ struct Shared {
     written: Condvar,
 }
 
+/// What runs on the writer thread before each batch is written ([`ConfigWriter::start_with_hook`]).
+pub(crate) type WriteHook = Arc<dyn Fn() + Send + Sync>;
+
 /// The writer thread's name, also its name in a hang record.
 const THREAD: &str = "acpmux-config-writer";
 
@@ -42,6 +45,15 @@ pub(crate) struct ConfigWriter {
 impl ConfigWriter {
     /// Starts the writer thread under `supervisor`.
     pub(crate) fn start(supervisor: &Supervisor) -> Self {
+        Self::start_with_hook(supervisor, None)
+    }
+
+    /// [`Self::start`]; `before_write` runs on the writer thread before each batch is written
+    /// (a test queues the next bytes there, so the queue is never empty when a batch ends).
+    pub(crate) fn start_with_hook(
+        supervisor: &Supervisor,
+        before_write: Option<WriteHook>,
+    ) -> Self {
         let shared = Arc::new(Shared::default());
         let worker = shared.clone();
         // A panic in the thread leaves its queue half-written and every `flush` waiting:
@@ -52,7 +64,7 @@ impl ConfigWriter {
             cmux_threads::ThreadQos::Utility,
             Fatal,
             ShutdownBehavior::Continue,
-            move || run(&worker),
+            move || run(&worker, before_write.as_deref()),
         )
         .map_err(|e| {
             tracing::error!("the config writer did not start; files are written in place: {e}")
@@ -105,7 +117,7 @@ impl Drop for ConfigWriter {
     }
 }
 
-fn run(shared: &Shared) {
+fn run(shared: &Shared, before_write: Option<&(dyn Fn() + Send + Sync)>) {
     let watched = SyncThread::register(THREAD, WRITE_ITEM);
     let mut state = shared.state.lock().unwrap_or_else(|e| e.into_inner());
     loop {
@@ -120,6 +132,9 @@ fn run(shared: &Shared) {
         let batch = std::mem::take(&mut state.queued);
         state.writing = true;
         drop(state);
+        if let Some(hook) = before_write {
+            hook();
+        }
         for (path, bytes) in batch {
             let _item = watched.item();
             write(&path, &bytes);
