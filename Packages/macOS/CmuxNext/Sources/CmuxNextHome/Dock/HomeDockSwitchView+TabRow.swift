@@ -42,3 +42,9 @@ extension HomeDockSwitchView: PaneTabRowSharing {
         return cover
     }
 }
+
+/// The shown view's tools' rows in the pane's more menu (the Chief's, over Messages): the pane keeps
+/// one ⋮ (Lawrence 2026-10-22).
+extension HomeDockSwitchView: PaneMoreMenuContributing {
+    public func paneMoreMenuItems() -> [NSMenuItem] { (rowTools[mode] as? PaneMoreMenuContributing)?.paneMoreMenuItems() ?? [] }
+}

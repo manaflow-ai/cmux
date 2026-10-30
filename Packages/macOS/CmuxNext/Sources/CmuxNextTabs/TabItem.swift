@@ -57,6 +57,10 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     /// Explains the machine badge in the hover card and to VoiceOver (a
     /// remote-localhost browser tab: "localhost is build-box").
     public var machineBadgeHelp: String?
+    /// The machine's own name, when the badge shows another (an SSH host's address): the
+    /// badge's color (MachineColor) comes from it, so the tab matches the machine's sidebar
+    /// rows. Nil: the badge's text.
+    public var machineName: String?
     /// The terminal's own theme, when it has one: a subtle swatch dot.
     public var themeBadge: TabThemeBadge?
     /// The tab's browser profile when it differs from the one its workspace

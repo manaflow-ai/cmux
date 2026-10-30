@@ -3,13 +3,19 @@ import { useRef } from "react";
 import { type DeferredDiffReason } from "../deferred-diffs";
 import { fileName, fileStats, type DiffItem } from "../diff-stream";
 import { DiffHeaderMetadata } from "../diff-metadata";
-import { isHeaderToggleKey, shouldToggleFromHeaderClick, type HeaderPress } from "../file-header-toggle";
+import {
+  HEADER_DRAG_THRESHOLD_PX,
+  isHeaderToggleKey,
+  shouldToggleFromHeaderClick,
+  type HeaderPress,
+} from "../file-header-toggle";
 import { FileIcon } from "../file-icons";
 import { Icon } from "../icons";
 import { FileMenuButton } from "../DiffToolbar";
 import { type FileKind } from "../fileKinds";
 import { type ViewedFileState } from "../viewed-files";
 import type { DiffViewerLabelKey, DiffViewerLabelResolver } from "../labels";
+import { opensFile, type DiffFileOpen } from "./openFile";
 
 /** The kinds' names in the viewer's table (diffViewer.fileKind.*). */
 const FILE_KIND_LABELS: Record<FileKind, DiffViewerLabelKey> = {
@@ -26,7 +32,9 @@ const FILE_KIND_LABELS: Record<FileKind, DiffViewerLabelKey> = {
  * itself is Pierre's opaque sticky header): the language icon, the dim
  * directory and bright file name, the collapse caret, then the change counts
  * and the review controls. The whole bar is the collapse toggle
- * (file-header-toggle.ts); its controls keep their own actions.
+ * (file-header-toggle.ts); its controls keep their own actions. With
+ * `onOpenFile`, the file name is a button that opens the file (D4), and the
+ * menu opens it in a tab, the editor app or Finder; a deleted file has none.
  */
 export function FileHeader({
   item,
@@ -34,8 +42,10 @@ export function FileHeader({
   label,
   onCopyPath,
   onLoadDiff,
+  onOpenFile,
   onToggleCollapsed,
   onToggleViewed,
+  revert,
   stage: stageAction,
   viewedState,
 }: {
@@ -46,8 +56,13 @@ export function FileHeader({
   /** The "..." menu's Copy path; the menu shows only that row when given. */
   onCopyPath?: (path: string) => void;
   onLoadDiff: () => void;
+  /** Opens a file of the diff (openFile.ts); absent where the host cannot. */
+  onOpenFile?: DiffFileOpen;
   onToggleCollapsed: () => void;
   onToggleViewed: () => void;
+  /** Revert the file (D3): an icon beside Stage and a menu row, where the scope's changes are in the
+   *  work tree (Unstaged, Uncommitted). The host asks before anything is lost. */
+  revert?: { label: string; run: (path: string, previousPath: string | null) => void };
   /** Stage or Unstage the file (cx-ueuc8), where the viewer's source can; a button and a menu row.
    *  `offers` limits it to some files (Branch: those with work-tree changes; cx-4ukqc). */
   stage?: { label: string; run: (path: string) => void; offers?: (path: string) => boolean };
@@ -64,6 +79,9 @@ export function FileHeader({
   const caretLabel = (collapsed ? label("expandFile") : label("collapseFile")).replace("{file}", baseName);
   const press = useRef<HeaderPress | null>(null);
   const stage = stageAction && (!stageAction.offers || stageAction.offers(path)) ? stageAction : undefined;
+  const open =
+    onOpenFile && opensFile(fileDiff) ? (where?: "editor" | "finder") => onOpenFile(path, undefined, where) : undefined;
+  const namePress = useRef<HeaderPress | null>(null);
   return (
     // The bar holds its own buttons (Viewed, Load diff), which a <button>
     // cannot contain, so the toggle is a focusable element with the button role.
@@ -106,7 +124,32 @@ export function FileHeader({
             <bdi>{directory}</bdi>
           </span>
         ) : null}
-        <span className="file-header-name">{baseName}</span>
+        {open ? (
+          <button
+            type="button"
+            className="file-header-name file-header-open"
+            onMouseDown={(event) => {
+              namePress.current = event.button === 0 ? { x: event.clientX, y: event.clientY } : null;
+            }}
+            onClick={(event) => {
+              event.stopPropagation();
+              // A drag that selected the name ends in a click: it selects, it does not open. A
+              // double click (selecting the name) opens once. A key's click (detail 0) has no press.
+              const start = namePress.current;
+              namePress.current = null;
+              if (event.detail > 1) return;
+              const dragged =
+                event.detail > 0 &&
+                start != null &&
+                Math.hypot(event.clientX - start.x, event.clientY - start.y) > HEADER_DRAG_THRESHOLD_PX;
+              if (!dragged) open();
+            }}
+          >
+            {baseName}
+          </button>
+        ) : (
+          <span className="file-header-name">{baseName}</span>
+        )}
       </span>
       <span className="file-header-caret" aria-hidden="true">
         <Icon name="chevronDown" />
@@ -135,6 +178,20 @@ export function FileHeader({
           {stage.label}
         </button>
       ) : null}
+      {revert ? (
+        <button
+          type="button"
+          className="file-review-revert"
+          aria-label={label("revertFileLabel").replace("{file}", baseName)}
+          title={revert.label}
+          onClick={(event) => {
+            event.stopPropagation();
+            revert.run(path, previousPath);
+          }}
+        >
+          <Icon name="revert" />
+        </button>
+      ) : null}
       <FileReviewControls
         item={item}
         label={label}
@@ -145,8 +202,35 @@ export function FileHeader({
       <FileMenuButton
         label={label("fileActions").replace("{file}", baseName)}
         items={[
+          ...(open
+            ? [
+                { id: "open", icon: "document" as const, label: label("openFile"), onChoose: () => open() },
+                {
+                  id: "open-editor",
+                  icon: "external" as const,
+                  label: label("openInEditor"),
+                  onChoose: () => open("editor"),
+                },
+                {
+                  id: "reveal",
+                  icon: "files" as const,
+                  label: label("revealInFinder"),
+                  onChoose: () => open("finder"),
+                },
+              ]
+            : []),
           ...(stage
             ? [{ id: "stage", icon: "check" as const, label: stage.label, onChoose: () => stage.run(path) }]
+            : []),
+          ...(revert
+            ? [
+                {
+                  id: "revert",
+                  icon: "revert" as const,
+                  label: revert.label,
+                  onChoose: () => revert.run(path, previousPath),
+                },
+              ]
             : []),
           {
             id: "viewed",

@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import CmuxNextActions
 import CmuxNextControl
 import CmuxNextDaemon

@@ -29,3 +29,14 @@ import Testing
         #expect(item.markdown == "cmux's model service isn't available for this team yet.")
     }
 }
+
+/// acpmux's `user_message` names the images a prompt sent (`images: [{id, mimeType, name?}]`).
+@Suite struct RecordedPromptImagesTests {
+    @Test func userMessageImagesBecomeRecordedAttachments() {
+        let records = AcpmuxRecords(sessionID: "s1")
+        let line = try! JSONDecoder().decode(JSONValue.self, from: Data(#"{"seq":3,"at":1700000000000,"dir":"mux","kind":"user_message","msg":{"text":"look","promptId":"p1","turnId":"t1","images":[{"id":"abc","mimeType":"image/png"},{"id":"def","mimeType":"image/jpeg","name":"cat.jpg"},{"mimeType":"image/png"}]}}"#.utf8))
+        guard case .userMessage(_, _, _, let attachments, _)? = records.map(line).first else { Issue.record("no user message"); return }
+        #expect(attachments.map(\.recordedImageID) == ["abc", "def"])
+        #expect(attachments.map(\.name) == ["Photo", "cat.jpg"])
+    }
+}

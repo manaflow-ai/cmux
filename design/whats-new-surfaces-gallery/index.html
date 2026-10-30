@@ -3,25 +3,38 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>What's New card + Update Ready · 6 designs</title>
+<title>What's New card, notes + Update Ready · 12 designs</title>
 <style>
   :root {
     --text: #ececef; --text-2: rgba(236,236,239,.72); --text-3: rgba(236,236,239,.5);
     --hover: rgba(255,255,255,.08); --sel: rgba(255,255,255,.14); --sep: rgba(255,255,255,.1);
-    --pop: rgba(44,44,48,.92);
+    --pop: rgba(44,44,48,.92); --page: #161618; --notes: #1c1c1f; --elev: rgba(236,236,239,.13); --rim: rgba(236,236,239,.18);
+    --dot: #4b4b52; --tag-now: rgba(255,255,255,.6); --press: rgba(255,255,255,.25); --shadow: rgba(0,0,0,.45);
+    --wall: linear-gradient(160deg, #2b3c52 0%, #5a4232 48%, #3a3328 62%, #1f2c24 100%); --plain-side: #1d1d20;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
     --body: 13px; --detail: 12px; --caption: 11px;
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
     color-scheme: dark;
   }
+  /* Light: the same roles in the system's light colors. */
+  :root[data-theme="light"] {
+    --text: #1d1d1f; --text-2: rgba(29,29,31,.74); --text-3: rgba(29,29,31,.52);
+    --hover: rgba(0,0,0,.05); --sel: rgba(0,0,0,.09); --sep: rgba(0,0,0,.1);
+    --pop: rgba(250,250,251,.94); --page: #ececee; --notes: #ffffff; --elev: rgba(255,255,255,.62); --rim: rgba(0,0,0,.08);
+    --dot: #d6d6da; --tag-now: rgba(0,0,0,.18); --press: rgba(0,0,0,.2); --shadow: rgba(0,0,0,.16);
+    --wall: linear-gradient(160deg, #c9d8ea 0%, #ead3c1 48%, #e7dcc6 62%, #cfdccf 100%); --plain-side: #f4f4f6;
+    color-scheme: light;
+  }
   * { box-sizing: border-box; }
-  body { margin: 0; background: #161618; color: var(--text); font-size: var(--body); line-height: 1.38; -webkit-font-smoothing: antialiased; }
+  body { margin: 0; background: var(--page); color: var(--text); font-size: var(--body); line-height: 1.38; -webkit-font-smoothing: antialiased; }
   header { padding: 24px 28px 6px; max-width: 1500px; -webkit-user-select: text; user-select: text; }
   h1 { font-size: 20px; margin: 0 0 6px; font-weight: 650; }
   header p { margin: 4px 0; color: var(--text-2); max-width: 980px; }
   header b { color: var(--text); }
   .controls { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; align-items: center; }
   .controls button { background: var(--hover); color: var(--text); border: 1px solid var(--sep); border-radius: 7px; height: 26px; padding: 0 10px; font: inherit; font-size: 12px; }
-  .controls button[aria-pressed="true"] { background: var(--sel); border-color: rgba(255,255,255,.25); }
+  .controls button[aria-pressed="true"] { background: var(--sel); border-color: var(--press); }
+  .controls .gap { width: 10px; }
   #log { color: var(--text-3); font-size: 12px; margin-left: 8px; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(640px, 1fr)); gap: 26px; padding: 16px 28px 60px; max-width: 1500px; }
   .cell { display: flex; flex-direction: column; gap: 8px; }
@@ -29,29 +42,29 @@
   .num { font: 600 12px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text-3); }
   .name { font-weight: 600; }
   .tag { margin-left: auto; font-size: 11px; color: #0b0b0c; background: #30d158; border-radius: 5px; padding: 0 6px; font-weight: 600; }
-  .tag.now { background: rgba(255,255,255,.6); }
+  .tag.now { background: var(--tag-now); color: var(--text); }
   .note { color: var(--text-3); font-size: 12px; min-height: 32px; }
   .pair { display: flex; gap: 12px; align-items: flex-start; }
 
   .sidebar { position: relative; flex: none; width: 260px; height: 440px; border-radius: 12px; overflow: hidden; border: 1px solid var(--sep);
-    background: linear-gradient(160deg, #2b3c52 0%, #5a4232 48%, #3a3328 62%, #1f2c24 100%); }
-  .plain .sidebar { background: #1d1d20; }
+    background: var(--wall); }
+  .plain .sidebar { background: var(--plain-side); }
   .rows { padding: 38px 8px 0; }
   .row { height: 28px; border-radius: 7px; display: flex; align-items: center; gap: 8px; padding: 0 8px; color: var(--text-2); }
   .row.sel { background: var(--sel); color: var(--text); }
-  .row i { width: 14px; height: 14px; border-radius: 4px; background: rgba(255,255,255,.18); flex: none; }
+  .row i { width: 14px; height: 14px; border-radius: 4px; background: var(--sel); flex: none; }
   .footer { position: absolute; left: 0; right: 0; bottom: 0; height: 34px; display: flex; align-items: center; gap: 10px; padding: 0 12px; }
-  .footer i { width: 18px; height: 18px; border-radius: 50%; background: rgba(255,255,255,.2); }
+  .footer i { width: 18px; height: 18px; border-radius: 50%; background: var(--sel); }
   .slot { position: absolute; left: 8px; right: 8px; bottom: 40px; }
 
   /* Shared atoms. Text selects (the fix that shipped); buttons stay chrome. */
   .card, .pop { -webkit-user-select: text; user-select: text; }
   .card button, .pop button { -webkit-user-select: none; user-select: none; }
-  .card { position: relative; padding: 10px 12px; border-radius: 12px; background: rgba(236,236,239,.13);
-    box-shadow: inset 0 0 0 .5px rgba(236,236,239,.18); backdrop-filter: blur(20px) saturate(1.4); }
-  .plain .card { background: rgba(236,236,239,.08); }
+  .card { position: relative; padding: 10px 12px; border-radius: 12px; background: var(--elev);
+    box-shadow: inset 0 0 0 .5px var(--rim); backdrop-filter: blur(20px) saturate(1.4); }
+  .plain .card { background: var(--hover); }
   .pop { flex: none; width: 340px; padding: 10px 12px 8px; border-radius: 10px; background: var(--pop); backdrop-filter: blur(30px);
-    box-shadow: 0 0 0 .5px rgba(255,255,255,.16), 0 10px 30px rgba(0,0,0,.45); }
+    box-shadow: 0 0 0 .5px var(--rim), 0 10px 30px var(--shadow); }
   .eyebrow { color: var(--text-3); font-size: var(--caption); padding-right: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .ver { font-variant-numeric: tabular-nums; }
   .btn { height: 24px; padding: 0 10px; border-radius: 7px; border: 1px solid var(--sep); background: var(--hover); color: var(--text); font: inherit; font-size: var(--detail); font-weight: 500; white-space: nowrap; }
@@ -95,7 +108,7 @@
   .v3 ul, .v3 ol { list-style: none; margin: 8px 0 0; padding: 0; position: relative; font-size: var(--detail); }
   .v3 ul::before, .v3 ol::before { content: ""; position: absolute; left: 4.5px; top: 7px; bottom: 7px; width: 1px; background: var(--sep); }
   .v3 li { position: relative; padding: 2px 0 4px 16px; }
-  .v3 li::before { content: ""; position: absolute; left: 2px; top: 7px; width: 6px; height: 6px; border-radius: 3px; background: #4b4b52; box-shadow: 0 0 0 1.5px var(--text-3); }
+  .v3 li::before { content: ""; position: absolute; left: 2px; top: 7px; width: 6px; height: 6px; border-radius: 3px; background: var(--dot); box-shadow: 0 0 0 1.5px var(--text-3); }
   .v3 ol li { font-size: var(--body); }
   .v3 ol small { display: block; color: var(--text-2); font-size: var(--detail); }
 
@@ -127,14 +140,114 @@
   .v6 ol li { padding: 4px 0; border-bottom: 1px solid var(--sep); }
   .v6 ol li:last-child { border-bottom: 0; }
   .v6 ol small { display: block; color: var(--text-2); font-size: var(--detail); }
+  /* ---------- #7 to #12: Conductor-style (conductor.build/changelog, a408) ----------
+     Conductor writes each release as "0.91.0: A (mostly) boring update", the date on its own line
+     under it, a short intro, a full-width clip, then Improvements and Fixes as plain short bullets.
+     Each design below shows the three surfaces: the sidebar card, the expanded notes (the What's New
+     tab) and the Update Ready hover card. */
+  .cell.wide { grid-column: 1 / -1; }
+  .trio { display: flex; gap: 14px; align-items: flex-start; }
+  .notes { flex: 1 1 420px; min-width: 360px; max-width: 560px; max-height: 560px; overflow: auto; padding: 22px 26px 26px;
+    border-radius: 12px; background: var(--notes); border: 1px solid var(--sep); -webkit-user-select: text; user-select: text; }
+  .notes button { -webkit-user-select: none; user-select: none; }
+  .notes h2 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 650; letter-spacing: -.01em; }
+  .notes h3 { margin: 18px 0 4px; font-size: var(--body); font-weight: 600; }
+  .notes p { margin: 8px 0 0; color: var(--text-2); }
+  .notes .date { margin-top: 2px; color: var(--text-3); font-size: var(--detail); font-variant-numeric: tabular-nums; }
+  .notes ul { margin: 0; padding: 0 0 0 16px; }
+  .notes li { padding: 2px 0; }
+  .notes li::marker { color: var(--text-3); }
+  .shot { display: block; width: 100%; margin: 14px 0 0; border-radius: 8px; box-shadow: 0 0 0 1px var(--sep); }
+  .mono { font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .clip { position: relative; display: block; }
+  .clip::after { content: "▶"; position: absolute; left: 50%; top: 50%; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 15px;
+    display: grid; place-items: center; font-size: 11px; padding-left: 2px; color: #fff; background: rgba(0,0,0,.5); backdrop-filter: blur(8px); }
+  .clip.small::after { width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 11px; font-size: 8px; }
+  .pop ul.plain-list { list-style: none; margin: 0; padding: 0; }
+  .pop ul.plain-list li { padding: 2px 0; color: var(--text-2); font-size: var(--detail); }
+  .pop h4 { margin: 8px 0 2px; color: var(--text-3); font-size: var(--caption); font-weight: 600; }
+
+  /* 7 · Release page: Conductor's entry as is. The card and the hover card lead with the
+     release's own title; the notes read top to bottom: title, date, intro, clip, Improvements, Fixes. */
+  .v7 .rel-title { margin: 6px 0 0; font-weight: 600; line-height: 17px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .v7 .card ul { list-style: none; margin: 6px 0 0; padding: 0; font-size: var(--detail); color: var(--text-2); }
+  .v7 .card li { padding: 1px 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .v7 .pop .rel-title { font-size: 14px; }
+  .v7 .pop .intro { margin: 3px 0 0; color: var(--text-2); font-size: var(--detail); }
+
+  /* 8 · Index: Conductor's /changelog list, one line per release ("version: title — date"); every
+     update since the one you had is a line, the newest opens in place. */
+  .v8 .idx { list-style: none; margin: 6px 0 0; padding: 0; }
+  .v8 .idx li { display: grid; grid-template-columns: auto 1fr; column-gap: 6px; padding: 3px 0; font-size: var(--detail); }
+  .v8 .idx .mono { color: var(--text-3); padding-top: 1px; }
+  .v8 .idx .d { grid-column: 2; color: var(--text-3); font-size: var(--caption); }
+  .v8 .card .idx li + li { border-top: 1px solid var(--sep); }
+  .v8 .notes .idx { margin-top: 12px; }
+  .v8 .notes .idx > li { display: block; padding: 10px 0; border-top: 1px solid var(--sep); font-size: var(--body); }
+  .v8 .notes .idx > li .line { display: flex; gap: 8px; align-items: baseline; }
+  .v8 .notes .idx > li .line b { font-weight: 600; }
+  .v8 .notes .idx > li .line .d { margin-left: auto; }
+  .v8 .notes .idx > li ul { margin: 6px 0 0; }
+  .v8 .notes .idx > li ul li { color: var(--text-2); font-size: var(--detail); }
+
+  /* 9 · Margin: the date and the version sit in a left margin, the changes to their right, as
+     Conductor's date sits apart from the text (and as the Ledger page does). */
+  .v9 .m { display: grid; grid-template-columns: 44px 1fr; gap: 8px; margin-top: 6px; }
+  .v9 .m .when { color: var(--text-3); font-size: var(--caption); line-height: 16px; }
+  .v9 .m .when b { display: block; color: var(--text); font-weight: 600; font-size: var(--detail); }
+  .v9 .m ul { list-style: none; margin: 0; padding: 0; font-size: var(--detail); line-height: 16px; }
+  .v9 .m li { padding: 0 0 4px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .v9 .notes .m { grid-template-columns: 96px 1fr; gap: 18px; margin-top: 0; }
+  .v9 .notes .when { position: sticky; top: 0; align-self: start; font-size: var(--detail); line-height: 18px; }
+  .v9 .notes .when b { font-size: var(--body); }
+  .v9 .notes .m ul { font-size: var(--body); line-height: 19px; padding-left: 0; }
+  .v9 .notes .m li { display: block; padding: 0 0 8px; }
+  .v9 .notes .m li small { display: block; color: var(--text-2); font-size: var(--detail); }
+  .v9 .notes h3 { margin-top: 16px; }
+
+  /* 10 · Clip first: Conductor opens a release with its clip. The card shows the clip's poster
+     small, the hover card at its width, the notes at the page's width. */
+  .v10 .card .shot { margin-top: 7px; border-radius: 6px; height: 76px; object-fit: cover; object-position: top left; }
+  .v10 .card ul { list-style: none; margin: 6px 0 0; padding: 0; font-size: var(--detail); }
+  .v10 .card li { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .v10 .card li:first-child { font-weight: 600; }
+  .v10 .card li + li { color: var(--text-2); }
+  .v10 .notes .shot { margin: 0 0 16px; }
+  .v10 .pop .shot { margin: 6px 0 4px; border-radius: 6px; }
+  .v10 .pop ol { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 6px; }
+  .v10 .pop ol li { display: grid; grid-template-columns: 14px 1fr; gap: 6px; align-items: baseline; }
+  .v10 .pop ol .n { color: var(--text-3); font-size: var(--caption); text-align: right; font-variant-numeric: tabular-nums; }
+
+  /* 11 · Improvements and Fixes: Conductor's two sections, counted. The card says how much changed
+     of each kind and names the top one; the hover card lists both. */
+  .v11 .counts { margin-top: 6px; display: flex; gap: 10px; font-size: var(--caption); color: var(--text-3); }
+  .v11 .counts b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .v11 .card ul { list-style: none; margin: 4px 0 0; padding: 0; font-size: var(--detail); }
+  .v11 .card li { display: grid; grid-template-columns: 62px 1fr; gap: 6px; padding: 2px 0; }
+  .v11 .card li .k { color: var(--text-3); font-size: var(--caption); line-height: 16px; }
+  .v11 .notes h3 .c, .v11 .pop h4 .c { color: var(--text-3); font-weight: 400; margin-left: 4px; font-variant-numeric: tabular-nums; }
+  .v11 .pop .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  /* 12 · Letter: Conductor's intros are a person talking ("like a caveman"). The update is a short
+     note in prose first, the lists after it. */
+  .v12 .card .prose { margin: 6px 0 0; font-size: var(--detail); line-height: 17px; }
+  .v12 .card ul { list-style: none; margin: 6px 0 0; padding: 6px 0 0; border-top: 1px solid var(--sep); font-size: var(--caption); color: var(--text-3); }
+  .v12 .card li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .v12 .notes { font-size: 14px; line-height: 21px; }
+  .v12 .notes p { color: var(--text); margin-top: 12px; }
+  .v12 .notes .sign { color: var(--text-3); font-size: var(--detail); margin-top: 14px; }
+  .v12 .pop .prose { margin: 4px 0 0; line-height: 18px; }
 </style>
 </head>
 <body>
 <header>
-  <h1>What's New card + Update Ready hover card · 6 designs</h1>
-  <p>Each design shows the sidebar's <b>"Updated" card</b> (left, in a 260 pt sidebar) and the <b>Update Ready hover card</b> (right, 340 pt). All text selects now: drag over it, double-click a word, ⌘C or right-click Copy. Buttons still click (they log below). Hover a card for its ×.</p>
-  <p><b>#2 Readable</b> is Recommended and ships as the default: titles wrap to two lines instead of being cut off, so you can read and select the whole change. Tell Chief another number to switch.</p>
+  <h1>What's New card, notes + Update Ready hover card · 12 designs</h1>
+  <p>Each design shows the sidebar's <b>"Updated" card</b> (left, in a 260 pt sidebar) and the <b>Update Ready hover card</b> (340 pt); <b>#7 to #12</b> also show the <b>expanded notes</b> (the What's New tab) between them. All text selects: drag over it, double-click a word, ⌘C or right-click Copy. Buttons still click (they log below). Hover a card for its ×.</p>
+  <p><b>#2 Readable</b> is Recommended and ships as the default. <b>#7 to #12</b> are new, modelled on <a href="https://www.conductor.build/changelog">Conductor's changelog</a>: a release title ("0.91.0: A (mostly) boring update"), the date on its own line, a short intro, a clip, then Improvements and Fixes as short bullets. Switch Light and Dark to see both. Tell Chief another number to switch.</p>
   <div class="controls">
+    <button id="theme-dark" aria-pressed="true">Dark</button>
+    <button id="theme-light" aria-pressed="false">Light</button>
+    <span class="gap"></span>
     <button id="wall" aria-pressed="true">Wallpaper</button>
     <button id="plain" aria-pressed="false">Plain</button>
     <span id="log">Clicks show here.</span>
@@ -175,16 +288,80 @@ const designs = [
     card: `<div class="card">${X}<div class="one"><div class="txt"><div class="t">Updated to <span class="ver">${ver}</span></div><div class="s">${changes.length + more} changes · ${changes[0].t}</div></div><button class="btn" data-act="see what's new">What's New</button></div></div>`,
     pop: `<div class="pop"><div class="pop-title">What's new in <span class="ver">${ver}</span></div><div class="pop-from">Updating from ${from}</div><ol>${changes.map(c => `<li>${c.t}<small>${c.s}</small></li>`).join("")}</ol>${popFoot}</div>` },
 ];
-document.getElementById("grid").innerHTML = designs.map(d => `
-  <section class="cell v${d.n}">
-    <div class="label"><span class="num">#${d.n}</span><span class="name">${d.name}</span>${d.tag ? `<span class="tag ${d.tag === "now" ? "now" : ""}">${d.tag === "now" ? "Today" : d.tag}</span>` : ""}</div>
+/* #7 to #12: one release, as Conductor writes it. */
+const rel = {
+  v: "1.0 nightly 3845050", short: "nightly 3845050", day: "Oct 22", long: "October 22, 2026",
+  title: "Workspace groups, undo close, and a calmer restart",
+  intro: "Groups get colored labels and pins, a closed tab comes back from a toast, and Restart to Update answers at once while your terminals and agents keep running.",
+  improvements: [
+    "Workspace groups have colored labels, icons and pins that keep a group together.",
+    "Undo a tab close from the toast, or with ⌘Z.",
+    "Markdown tables scroll sideways instead of squeezing their columns.",
+    "The command palette finds settings by what they do.",
+  ],
+  fixes: [
+    "Restart to Update reacts at once; terminals and agents keep running.",
+    "Cmd-D in Home splits right of the dock.",
+    "The sidebar keeps its order while agents finish.",
+    "A new tab opens after the current one.",
+    "Notifications name the workspace and the tab.",
+  ],
+  past: [
+    { v: "nightly 3822410", day: "Oct 21", title: "Every webview on Chromium" },
+    { v: "nightly 3801702", day: "Oct 20", title: "Dialogs in the command palette" },
+  ],
+};
+const total = rel.improvements.length + rel.fixes.length;
+const theme = () => document.documentElement.dataset.theme || "dark";
+const shot = (cls = "") => `<img class="shot ${cls}" alt="" data-shot src="../changelog-variations-gallery/workspace-groups-${theme()}.jpg">`;
+const li = xs => xs.map(x => `<li>${x}</li>`).join("");
+const eyebrow = `<div class="eyebrow">Updated to <span class="ver">${rel.short}</span> · ${rel.day}</div>`;
+const popHead = `<div class="pop-title">What's new in <span class="ver">${rel.short}</span></div><div class="pop-from">Updating from ${from}</div>`;
+const popAll = (n) => `<div class="pop-foot"><span class="muted">${n}</span><button class="link" data-act="see all">See all changes →</button></div>`;
+const cardBtn = (label, left = `${total} changes`) => `<div class="foot"><span class="muted">${left}</span><button class="btn" data-act="see what's new">${label}</button></div>`;
+const sections = (count = false) => `<h3>Improvements${count ? `<span class="c">${rel.improvements.length}</span>` : ""}</h3><ul>${li(rel.improvements)}</ul>
+  <h3>Fixes${count ? `<span class="c">${rel.fixes.length}</span>` : ""}</h3><ul>${li(rel.fixes)}</ul>`;
+designs.push(
+  { n: 7, name: "Release page", note: "Conductor's entry as is: the release's own title, the date under it, an intro, the clip, then Improvements and Fixes.",
+    card: `<div class="card">${X}${eyebrow}<div class="rel-title">${rel.title}</div><ul>${li(rel.improvements.slice(0, 2))}</ul>${cardBtn("Read the notes")}</div>`,
+    notes: `<div class="notes"><h2>${rel.short}: ${rel.title}</h2><div class="date">${rel.long}</div><p>${rel.intro}</p><span class="clip">${shot()}</span>${sections()}</div>`,
+    pop: `<div class="pop">${popHead}<div class="rel-title">${rel.title}</div><div class="intro">${rel.intro}</div><h4>Improvements</h4><ul class="plain-list">${li(rel.improvements.slice(0, 3))}</ul><h4>Fixes</h4><ul class="plain-list">${li(rel.fixes.slice(0, 2))}</ul>${popAll(`${total - 5} more`)}</div>` },
+  { n: 8, name: "Index", note: "Conductor's changelog index: one line per release, version, title and date. Every update since yours is a line; the newest opens in place.",
+    card: `<div class="card">${X}<div class="eyebrow">3 updates since you last looked</div><ul class="idx">${[{ v: rel.short, day: rel.day, title: rel.title }, ...rel.past].map(r => `<li><span class="mono">${r.v.replace("nightly ", "")}</span><span>${r.title}</span><span class="d">${r.day}</span></li>`).join("")}</ul>${cardBtn("See What's New", "")}</div>`,
+    notes: `<div class="notes"><h2>What's New</h2><div class="date">Newest first · ${rel.long}</div><ul class="idx">
+      <li><div class="line"><span class="mono">${rel.short}</span><b>${rel.title}</b><span class="d">${rel.day}</span></div><ul>${li([...rel.improvements, ...rel.fixes.slice(0, 2)])}</ul></li>
+      ${rel.past.map(r => `<li><div class="line"><span class="mono">${r.v}</span><span>${r.title}</span><span class="d">${r.day}</span></div></li>`).join("")}</ul></div>`,
+    pop: `<div class="pop">${popHead}<ul class="idx">${[{ v: rel.short, day: rel.day, title: rel.title }, ...rel.past.slice(0, 1)].map(r => `<li><span class="mono">${r.v.replace("nightly ", "")}</span><span>${r.title}</span><span class="d">${r.day}</span></li>`).join("")}</ul><h4>In ${rel.short}</h4><ul class="plain-list">${li(rel.improvements.slice(0, 3))}</ul>${popAll(`${total - 3} more`)}</div>` },
+  { n: 9, name: "Margin", note: "The date and the version sit in a left margin, the changes to their right; in the notes the margin stays put while you scroll.",
+    card: `<div class="card">${X}<div class="eyebrow">Updated to <span class="ver">${rel.short}</span></div><div class="m"><div class="when"><b>${rel.day}</b>${total} changes</div><ul>${li(rel.improvements.slice(0, 2).concat(rel.fixes.slice(0, 1)))}</ul></div>${cardBtn("See What's New", "")}</div>`,
+    notes: `<div class="notes"><div class="m"><div class="when"><b>${rel.long}</b><span class="mono">${rel.short}</span></div><div><h2>${rel.title}</h2><p>${rel.intro}</p>${shot()}${sections()}</div></div></div>`,
+    pop: `<div class="pop">${popHead}<div class="m"><div class="when"><b>${rel.day}</b>${total}</div><ul>${li(rel.improvements.slice(0, 3).concat(rel.fixes.slice(0, 2)))}</ul></div>${popAll(`${total - 5} more`)}</div>` },
+  { n: 10, name: "Clip first", note: "Conductor opens a release with its clip: small in the card, at the hover card's width, at the page's width in the notes.",
+    card: `<div class="card">${X}${eyebrow}<span class="clip small">${shot()}</span><ul>${li([rel.improvements[0], rel.fixes[0]])}</ul>${cardBtn("Watch and read")}</div>`,
+    notes: `<div class="notes"><span class="clip">${shot()}</span><h2>${rel.title}</h2><div class="date">${rel.long} · ${rel.short}</div><p>${rel.intro}</p>${sections()}</div>`,
+    pop: `<div class="pop">${popHead}<span class="clip small">${shot()}</span><ol>${rel.improvements.slice(0, 3).map((c, i) => `<li><span class="n">${i + 1}</span><div>${c}</div></li>`).join("")}</ol>${popAll(`${total - 3} more`)}</div>` },
+  { n: 11, name: "Improvements and Fixes", note: "Conductor's two sections, counted: the card says how much of each kind changed and names the top one of each.",
+    card: `<div class="card">${X}${eyebrow}<div class="counts"><span><b>${rel.improvements.length}</b> improvements</span><span><b>${rel.fixes.length}</b> fixes</span></div><ul><li><span class="k">Improved</span><span>${rel.improvements[0]}</span></li><li><span class="k">Fixed</span><span>${rel.fixes[0]}</span></li></ul>${cardBtn("See What's New", "")}</div>`,
+    notes: `<div class="notes"><h2>${rel.short}</h2><div class="date">${rel.long}</div><p>${rel.intro}</p>${sections(true)}</div>`,
+    pop: `<div class="pop">${popHead}<div class="cols"><section><h4>Improvements<span class="c">${rel.improvements.length}</span></h4><ul class="plain-list">${li(rel.improvements.slice(0, 3))}</ul></section><section><h4>Fixes<span class="c">${rel.fixes.length}</span></h4><ul class="plain-list">${li(rel.fixes.slice(0, 3))}</ul></section></div>${popAll(`${total - 6} more`)}</div>` },
+  { n: 12, name: "Letter", note: "Conductor's intros are a person talking. The update is a short note in prose first; the lists follow.",
+    card: `<div class="card">${X}${eyebrow}<div class="prose">${rel.intro}</div><ul>${li([`Also: ${rel.fixes[1]}`])}</ul>${cardBtn("Read the note", "")}</div>`,
+    notes: `<div class="notes"><h2>${rel.title}</h2><div class="date">${rel.long} · ${rel.short}</div><p>${rel.intro}</p><p>Groups were the big one. Give a group a color and an icon, pin it, and it stays together in every window. Closed a tab by mistake? The toast brings it back.</p>${shot()}${sections()}<div class="sign">The cmux team</div></div>`,
+    pop: `<div class="pop">${popHead}<div class="prose">${rel.intro}</div><h4>Also fixed</h4><ul class="plain-list">${li(rel.fixes.slice(1, 3))}</ul>${popAll(`${total - 2} more`)}</div>` },
+);
+const render = () => {
+  document.getElementById("grid").innerHTML = designs.map(d => `
+  <section class="cell v${d.n}${d.notes ? " wide" : ""}" data-design="${d.n}"${d.n === 2 ? " data-default" : ""}>
+    <div class="label"><span class="num">#${d.n}</span><span class="name">${d.name}</span>${d.tag ? `<span class="tag ${d.tag === "now" ? "now" : ""}">${d.tag === "now" ? "Today" : d.tag}</span>` : d.n > 6 ? `<span class="tag now">New</span>` : ""}</div>
     <div class="note">${d.note}</div>
-    <div class="pair">${sidebar(d.card)}${d.pop}</div>
+    ${d.notes ? `<div class="trio">${sidebar(d.card)}${d.notes}${d.pop}</div>` : `<div class="pair">${sidebar(d.card)}${d.pop}</div>`}
   </section>`).join("");
+};
+render();
 const log = document.getElementById("log");
 document.addEventListener("click", e => {
   const b = e.target.closest("[data-act]");
-  if (b) log.textContent = `#${b.closest(".cell").className.match(/v(\d)/)[1]}: clicked “${b.dataset.act}”`;
+  if (b) log.textContent = `#${b.closest(".cell").dataset.design}: clicked “${b.dataset.act}”`;
 });
 document.addEventListener("selectionchange", () => {
   const s = getSelection().toString().trim();
@@ -192,6 +369,15 @@ document.addEventListener("selectionchange", () => {
 });
 const set = plain => { document.body.classList.toggle("plain", plain); wall.setAttribute("aria-pressed", String(!plain)); document.getElementById("plain").setAttribute("aria-pressed", String(plain)); };
 wall.onclick = () => set(false); document.getElementById("plain").onclick = () => set(true);
+/* Light or dark: the system's scheme first; the buttons switch it. Pictures follow the scheme. */
+const setTheme = t => {
+  document.documentElement.dataset.theme = t;
+  for (const x of ["light", "dark"]) document.getElementById(`theme-${x}`).setAttribute("aria-pressed", String(x === t));
+  for (const img of document.querySelectorAll("[data-shot]")) img.src = `../changelog-variations-gallery/workspace-groups-${t}.jpg`;
+};
+document.getElementById("theme-light").onclick = () => setTheme("light");
+document.getElementById("theme-dark").onclick = () => setTheme("dark");
+setTheme(matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
 </script>
 </body>
 </html>

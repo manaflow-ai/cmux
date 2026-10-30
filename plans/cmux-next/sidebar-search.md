@@ -13,8 +13,8 @@ icon button for search and it should search through all types of stuff".
   (the avatar stays the leading control; amendment 2 of SIDEBAR-FOOTER-AND-SPACE-MENU).
   It is always visible, the same 28 pt square hit target as the avatar, with a tooltip
   and an accessibility label ("Search").
-- A click opens the palette on the **Search** scope, anchored to the button: the panel's
-  bottom-left corner sits just above the button and the panel is clamped to the screen.
+- A click opens the palette on the **Search** scope, centered over the window like Cmd-P
+  (amended 2026-10-25, Lawrence 12344: no popup over the button).
   It is the same panel, field, keys and rows as Cmd-P and Cmd-Shift-P.
 - One query searches every kind of thing the app already indexes. Rows stay grouped by
   type (sections), not merged into one list, so "Workspaces", "Tabs", "History",
@@ -53,8 +53,7 @@ once the user types (the empty query is Recent only), so the first frame stays s
 ## 3. Entry points (one action, every surface)
 
 There is no new action id: every surface runs the existing `palette.open` with
-`scope: search`, whose handler anchors the panel to the active window's Search button
-when that window shows it, and centers it over the window otherwise.
+`scope: search`, whose handler centers the panel over the window, as for every palette scope.
 
 | Surface | How |
 | --- | --- |
@@ -84,11 +83,12 @@ avatar hidden it takes the leading slot. With the spaces dots on top it still si
 - `PaletteSearchScopeTests` (CmuxNextPaletteTests): the `search` scope exists and opens a
   page titled Search; one query returns workspace, tab, setting, command and contributed
   history rows, each in its own section; Return on a workspace row selects it; Backspace
-  on the empty query returns to the root; the anchored open places the panel above the
-  anchor's leading edge, inside the screen.
+  on the empty query returns to the root.
+- `SidebarSearchOpensCenteredTests` (CmuxNextAppTests): pressing the footer's Search button
+  opens the panel centered over the window.
 - `SidebarSearchButtonTests` (CmuxNextSidebarTests): the footer shows a search button
   after the avatar with a hit target at least 28 x 28 pt and an accessibility label;
-  pressing it calls `onSearch` with the button as anchor; `showsSearchButton = false`
+  pressing it calls `onSearch`; `showsSearchButton = false`
   hides it.
 - `SidebarShowSearchButtonSettingTests` (CmuxNextSettingsTests): the setting parses, is on
   by default, a bad value keeps the default with a diagnostic.

@@ -67,6 +67,10 @@ public nonisolated struct ImportFinding: Codable, Sendable, Hashable, Identifiab
         self.access = access
     }
 
+    /// Nothing new to bring now (cmux Classic's saved session is all here already): only
+    /// Settings › Import lists it, to run the import again.
+    public var offersNothingNew: Bool { kind == .cmuxClassic && count == 0 }
+
     /// Every kind any profile holds, in `ImportDataKind` order.
     public var kinds: [ImportDataKind] {
         // History first, as the cards name them ("history, bookmarks and cookies"), then the rest.

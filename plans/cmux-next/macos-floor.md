@@ -10,9 +10,9 @@ deployment target is 14.0: `Packages/macOS/CmuxNext/Package.swift`
 at minos 14.0. Every compile of CmuxNext is now a floor-14 check: a new use of
 a macOS 15 or 26 API fails at the source push unless it is under
 `if #available` with a fallback (put shared fallbacks in CmuxNextCompat or
-CmuxNextDesign). The Computer Use helper is also at 14 (cx-s6wi.10). VM proof
-on 14, 15 and 26: `scripts/cmux-next/os-smoke/run.sh` (hq
-`build-host/macos-vm-smoke.md`).
+CmuxNextDesign). The Computer Use helper is also at 14 (cx-s6wi.10). The
+former Tart launch probe on 14, 15 and 26 was removed with the cmux-next
+smoke-test suite. The floor remains compile-gated.
 
 Known risk, now fixed: `withValueInTask` (CmuxNextActions) bound a task local
 without a task below macOS 26 (no `Task.immediate`). macOS 15.4 to 15.x run an
@@ -20,8 +20,8 @@ inline isolated deinit through the runtime's stop-lookup marker, which frees a
 global-allocator pointer with `free()`. NEXT 3889579838401 trapped this way on
 macOS 15.8.1 (a Cmd-T released the previous New Tab key hold under Chromium's
 allocator). Below macOS 26 the binding now runs inside a task started with the
-runtime's `Task.startOnMainActor` (Swift 5.9, macOS 14). The VM smoke step
-`newtab_burst` reproduces the crash on 15 before the fix.
+runtime's `Task.startOnMainActor` (Swift 5.9, macOS 14). The former VM launch
+probe's `newtab_burst` reproduced the crash on 15 before the fix.
 
 That task is used only from macOS 15.4 (2026-10-19). On macOS 14 a task started with
 `startOnMainActor` loses its current-task state when its body spins a nested run loop that
@@ -35,8 +35,8 @@ pushed, so the plain binding is safe there. Repro: `scripts/fuzz/macos-matrix/vm
 **Floor: macOS 14 Sonoma.** It is the floor of classic cmux, so the move to
 cmux-next strands no current user. It keeps 100% of today's cmux users (macOS
 14 is 2.0% of them, 4,180 of 206,425 in 30 days) and about 96.7% of the
-Homebrew developer population. Cost: about 11 agent-days once, plus a VM launch
-smoke per release. The work is mostly mechanical shims: `Mutex`/`Atomic`
+Homebrew developer population. Cost: about 11 agent-days once. The work is
+mostly mechanical shims: `Mutex`/`Atomic`
 (macOS 15), the `Observations` async sequence (macOS 26), and fallbacks for
 Liquid Glass and SpeechAnalyzer (macOS 26).
 
@@ -63,10 +63,9 @@ and a few small SwiftUI behaviors (macOS 15 table column resize, `animate`).
 Strongest objection: every supported major is one more row in the test matrix.
 No fleet host and, after 2026-11-02, no GitHub runner runs macOS 14. A
 regression that shows only on 14 or 15 (for example a fallback material, or a
-wakeup difference in the `Observations` shim) reaches users unless the VM smoke
-below exists before the first release. Mitigation: build the smoke first, and
-on 26 forward the shim to the native `Observations`, so that the main
-population runs Apple's code.
+wakeup difference in the `Observations` shim) reaches users without a runtime
+matrix gate. The compile floor and focused package tests remain the active
+checks.
 
 ## Who is on each version
 
@@ -240,16 +239,8 @@ and has one `#available` check.
 - GitHub-hosted: macos-13 retired 2025-12-04; macos-14 is unsupported from
   2026-11-02; macos-15 and macos-26 remain
   (https://github.com/actions/runner-images/issues/13518).
-- Apple-silicon VMs (Virtualization.framework, Tart): macOS 12+ guests from an
-  IPSW, two macOS guests per host at once, paravirtualized Metal for 13+ guests.
-  Proposal: one fleet Mac keeps a Tart image per supported major (14, 15,
-  26; 13 only if chosen). A `cmux-ci` step class `os-smoke` boots each image, installs the
-  release-candidate build, launches it with `CMUX_NEXT_NO_ACTIVATE=1`, waits for
-  the first window and the socket, opens one terminal and one CEF tab, takes a
-  window snapshot, and quits. One run per release candidate and per nightly.
-  Cost: about 2 agent-days to build the images and the step, about 60 GB disk
-  per image.
-- macos-15 hosted runners can also run the launch smoke as a second source.
+- Apple-silicon Tart VMs remain available for ad hoc investigation, but the
+  cmux-next smoke-test matrix is not a release gate.
 
 ## Cost per floor
 
@@ -264,15 +255,13 @@ Agent-days, one capable agent, including review and a VM launch check:
 | other API gates (`#available` or older equivalents) | 0.5 | 1 | 1.5 |
 | `Mutex`/`Atomic` shim (`OSAllocatedUnfairLock`, `swift-atomics`), import swap in 118 files | 0 | 1.5 | 1.5 |
 | Observation back-port (`swift-perception` or ObservableObject rewrite), about 130 models, every SwiftUI view that reads them, `withObservationTracking` and `Observations` call sites, debug checker in CI | 0 | 0 | 12 |
-| VM launch smoke per supported major (Tart images, `os-smoke` step) | 2 | 2 | 3 (Ventura image is not maintained) |
 | buffer for unknowns in the 18 unmeasured modules | 1 | 1 | 2 |
 | **total** | **about 9.5** | **about 11.5** | **about 24.5** |
 
 A floor of 13 also adds a permanent tax: every new view and model must use the
 back-port correctly, because a missed wrapper is a silent stale-UI bug.
 
-Next steps if 14 is chosen: (1) build the VM smoke on one fleet Mac; (2) land
-the shims (Mutex/Atomic, Observations) at the current 26 floor first, as
+Next steps if 14 is chosen: (1) land the shims (Mutex/Atomic, Observations) at the current 26 floor first, as
 no-op refactors; (3) add the glass and speech fallbacks; (4) lower the
 deployment targets and rebuild the binaries in one landing with the FFI
 release and pin; (5) add a CI compile at the floor to keep it from regressing

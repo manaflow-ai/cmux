@@ -4,6 +4,16 @@ import Testing
 @testable import CmuxNextComputerUse
 
 struct ComputerUseHelperV2PeerTests {
+    @Test func helperLaunchScopeContainsOnlyItsOwnTaggedDevBundle() {
+        let own = "com.cmuxterm.app.debug.guard-test"
+        let environment = ComputerUseHelperV2.environment(bundleID: own)
+        #expect(environment["CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS"] == own)
+        for bundleID in [nil, "com.cmuxterm.app", "com.cmuxterm.app.nightly",
+                         "com.cmuxterm.app.debug", "com.cmuxterm.app.debug.", "com.apple.Terminal"] {
+            #expect(ComputerUseHelperV2.environment(bundleID: bundleID)["CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS"] == "")
+        }
+    }
+
     @Test func signedAdmissionUsesALiveTeamRequirementInsteadOfAPathHash() {
         let executable = URL(fileURLWithPath: "/mutable/acpmux")
         let signed = ComputerUseHelperV2.acpmuxAdmission(
@@ -20,7 +30,7 @@ struct ComputerUseHelperV2PeerTests {
         #expect(development.requirement == nil)
     }
 
-    @Test func daemonRegistrationRejectsAConnectedPeerOutsideTheAppsTeam() async throws {
+    @Test func daemonRegistrationTakesASameUserPeerAtTheAcpmuxPathOnly() async throws {
         let socketPath = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-cua-peer-\(UUID().uuidString.prefix(8)).sock").path
         let listener = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -50,17 +60,15 @@ struct ComputerUseHelperV2PeerTests {
         let pathBytes = executablePath.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
         let executable = URL(fileURLWithPath: String(decoding: pathBytes, as: UTF8.self))
 
-        let pathMatch = await ComputerUseHelperV2.daemonStamp(
-            socketPath: socketPath, executable: executable, teamIdentifier: nil
-        )
+        let pathMatch = await ComputerUseHelperV2.daemonStamp(socketPath: socketPath, executable: executable)
         #expect(pathMatch?.pid == getpid())
         let accepted = Darwin.accept(listener, nil, nil)
         try #require(accepted >= 0)
         close(accepted)
 
-        let wrongTeam = await ComputerUseHelperV2.daemonStamp(
-            socketPath: socketPath, executable: executable, teamIdentifier: "NOTCMUXTEAM"
+        let otherPath = await ComputerUseHelperV2.daemonStamp(
+            socketPath: socketPath, executable: URL(fileURLWithPath: "/not-the-peer")
         )
-        #expect(wrongTeam == nil)
+        #expect(otherPath == nil)
     }
 }

@@ -1,11 +1,12 @@
-/* Import suggestion cards (ImportCards.tsx). Colors come from the page's theme: the agent page's
-   --agent-* tokens on New Tab, the --cmux-* tokens in Settings, so the cards follow light, dark
-   and custom themes. No animation: a card changes in one frame. */
+/* Import suggestion cards (ImportCards.tsx), in Settings › Import. Colors come from the page's
+   theme (--cmux-* tokens), so the cards follow light, dark and custom themes. No animation: a card
+   changes in one frame. */
 .import-cards {
   --import-text: var(--agent-text, var(--cmux-text, CanvasText));
   --import-dim: color-mix(in srgb, var(--import-text) 64%, transparent);
   --import-faint: color-mix(in srgb, var(--import-text) 46%, transparent);
-  --import-accent: var(--agent-accent, var(--cmux-accent, AccentColor));
+  /* Unthemed (no page tokens) the accent is the text ink, never the system blue AccentColor. */
+  --import-accent: var(--agent-accent, var(--cmux-accent, var(--import-text)));
   --import-edge: var(--cmux-hairline, var(--cmux-separator, color-mix(in srgb, var(--import-text) 12%, transparent)));
   --import-surface: var(
     --acpmux-composer-surface,
@@ -23,6 +24,7 @@
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
   font-weight: 600;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .import-cards-empty {
@@ -30,16 +32,13 @@
   color: var(--import-dim);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .import-cards-grid {
   display: grid;
   gap: 8px;
   min-width: 0;
-}
-
-.import-cards[data-layout="row"] .import-cards-grid {
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
 .import-card {
@@ -89,6 +88,7 @@
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .import-card-facts,
@@ -97,6 +97,7 @@
   color: var(--import-faint);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .import-card[data-state="failed"] .import-card-status {
@@ -109,6 +110,7 @@
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
   font-style: italic;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .import-card-benefit {
@@ -116,6 +118,7 @@
   color: var(--import-dim);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .import-card-progress {
@@ -157,7 +160,7 @@
   border-radius: 6px;
   font: inherit;
   font-size: var(--text-detail);
-  cursor: default;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .import-card-primary {

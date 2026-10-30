@@ -11,8 +11,8 @@ import CmuxTheme
 /// (palette, dialogs, hover cards, find and prompt bars, page info,
 /// popovers) is one of these, made with `Glass.makeOverlayPanel`, and
 /// follows this Mac's material like the overlays without text (the drop
-/// overlay, dock backdrop). A card (`isCard`: every theme-tone `makeOverlayPanel`
-/// but the hover card window's, which stays bare glass)
+/// overlay, dock backdrop). A card (`isCard`: only `makeOverlayPanel(cardFill:
+/// true)`, which no overlay uses since Leo 2026-10-21: glass, never solid)
 /// also lays the ``CardMaterial`` on its glass or blur: the popup surface,
 /// mostly opaque, with a visible rim, so its text keeps 4.5:1 over any
 /// wallpaper or page (Lawrence 2026-10-20: hover cards were "too liquid
@@ -198,6 +198,16 @@ public final class OverlaySurfaceView: NSView {
 
     private func applyShape() {
         rimView?.cornerRadius = cornerRadius
+        // The content takes the surface's shape on every material. The blur and the solid
+        // surface clip it already (their layer masks to bounds), but `NSGlassEffectView` never
+        // clips its content view: a content background (`OverlayBackingView`'s veil) painted
+        // square corners past the rounded glass (Lawrence 2026-10-27, the save-password bar).
+        contentView.wantsLayer = true
+        if let layer = contentView.layer {
+            layer.cornerRadius = cornerRadius
+            layer.cornerCurve = .continuous
+            layer.masksToBounds = true
+        }
         if isCard, material == .liquidGlass, let layer = tintView?.layer {
             layer.cornerRadius = cornerRadius
             layer.cornerCurve = .continuous

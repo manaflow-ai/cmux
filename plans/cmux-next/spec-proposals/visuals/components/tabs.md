@@ -68,13 +68,13 @@ Pressed screenshots are UNVERIFIED: a synthetic mouse-down enters AppKit's track
 
 ## Unfocused pane tabs (focus.inactiveTabStyle)
 
-Applies when `appearance.focusIndicator` is `tabs` or `both`, the screen has more than one pane, and the pane is not focused (`CmuxNextDesign/ChromeEmphasis.swift:30-77 (ChromeEmphasis.forPane, ThemeTokens.emphasized)`). Style: cmux.json `focus.inactiveTabStyle`, `fade` (default), `tonal` or `quiet`; Settings > Appearance > Unfocused Pane Tabs; the Debug tunable of the same name overrides it. Strength 0.6 (Debug tunable `focus.inactiveTabStrength`; 0.35 until 2026-10-21). Contrast floors: primary 3.5, secondary 2.5, tertiary 2.0. Fade step: `fade` starts at the strength and steps the mix fraction down by 0.02 until the color holds min(floor, its own contrast) against the page; tonal and quiet fade the tertiary tier by strength / 2.
+Applies when `appearance.focusIndicator` is `tabs` or `both`, the screen has more than one pane, and the pane is not focused (`CmuxNextDesign/ChromeEmphasis.swift:30-77 (ChromeEmphasis.forPane, ThemeTokens.emphasized)`). Style: cmux.json `focus.inactiveTabStyle`, `fade` (default), `tonal` or `quiet`; Settings > Appearance > Unfocused Pane Tabs; the Debug tunable of the same name overrides it. Strength 0.4 (Debug tunable `focus.inactiveTabStrength`; 0.35, then briefly 0.6, on 2026-10-21). Contrast floors: primary 3.5, secondary 2.5, tertiary 2.0. Fade step: `fade` starts at the strength and steps the mix fraction down by 0.02 until the color holds min(floor, its own contrast) against the page; tonal and quiet fade the tertiary tier by strength / 2.
 
 | style | textPrimary | textSecondary | selectionFill | hoverFill |
 |---|---|---|---|---|
-| fade (default) | mixed toward the page by 0.6, floor 3.5 | mixed, floor 2.5 | alpha × 0.4 | alpha × 0.7 (half the strength) |
-| tonal | ← textSecondary | ← textTertiary | hoverFill alpha × 0.7 | unchanged |
-| quiet | ← textSecondary | textTertiary faded by 0.3 | transparent | unchanged |
+| fade (default) | mixed toward the page by 0.4, floor 3.5 | mixed, floor 2.5 | alpha × 0.6 | alpha × 0.8 (half the strength) |
+| tonal | ← textSecondary | ← textTertiary | hoverFill alpha × 0.8 | unchanged |
+| quiet | ← textSecondary | textTertiary faded by 0.2 | transparent | unchanged |
 
 Resolved at the earlier strength 0.35, Apple System dark: fade primary `#B0B0B0`, selection `#FFFFFF11`; tonal selection `#FFFFFF0D`; quiet selection none. All themes: `components["tabs.inactivePaneEmphasis"].resolved` in the JSON. Screenshot check (dark): selected tab in the unfocused pane is `#2D2D2D` (fade), `#292929` (tonal), `#1E1E1E` (quiet).
 

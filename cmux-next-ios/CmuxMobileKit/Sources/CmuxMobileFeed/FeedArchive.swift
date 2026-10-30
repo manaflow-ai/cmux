@@ -64,6 +64,8 @@ public struct FeedArchive: Sendable {
         var agentName: String
         var harness: String
         var workspaceTitle: String
+        /// The tab's name (nil in archives before it existed).
+        var tabTitle: String?
         var markdown: String
         var quote: String?
         var quoteFromAgent: Bool?
@@ -74,6 +76,8 @@ public struct FeedArchive: Sendable {
         var replies: [String]
         /// A terminal agent's event (nil in archives before it existed).
         var opensTerminal: Bool?
+        /// The Mac that sent it (nil in archives before it existed).
+        var macID: String?
 
         init?(_ item: FeedItem) {
             switch item.kind {
@@ -88,6 +92,7 @@ public struct FeedArchive: Sendable {
             agentName = item.agentName
             harness = item.harness
             workspaceTitle = item.workspaceTitle
+            tabTitle = item.tabTitle.isEmpty ? nil : item.tabTitle
             markdown = item.markdown
             quote = item.quote?.text
             quoteFromAgent = item.quote?.author == .agent ? true : nil
@@ -97,6 +102,7 @@ public struct FeedArchive: Sendable {
             resolution = item.resolution
             replies = item.replies
             opensTerminal = item.opensTerminal ? true : nil
+            macID = item.macID
         }
 
         var item: FeedItem? {
@@ -115,6 +121,8 @@ public struct FeedArchive: Sendable {
             item.resolution = resolution
             item.replies = replies
             item.opensTerminal = opensTerminal == true
+            item.macID = macID
+            item.tabTitle = tabTitle ?? ""
             return item
         }
     }

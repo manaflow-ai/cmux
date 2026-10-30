@@ -47,14 +47,34 @@ def ad_hoc_helper(app: Path) -> Path:
     return app
 
 
+def use_plain_binary(root: Path, arch: str) -> None:
+    """The fake cargo's build product is a plain `arch` binary, as a real cargo build is.
+
+    The shared fixture copies /usr/bin/true, an arm64e platform binary. build-cmux-cua.sh strips
+    it, signs it ad hoc and runs `--version`, and macOS kills an ad-hoc arm64e binary (SIGKILL,
+    "Killed: 9" on the macos-26 runner).
+    """
+    plain = root / "plain-cmux-cua"
+    subprocess.run(
+        ["/usr/bin/xcrun", "clang", "-arch", arch, "-x", "c", "-", "-o", str(plain)],
+        input="int main(void) { return 0; }\n", text=True, check=True, capture_output=True,
+    )
+    cargo = root / "bin" / "cargo"
+    script = cargo.read_text()
+    assert "cp /usr/bin/true " in script, script
+    cargo.write_text(script.replace("cp /usr/bin/true ", f'cp "{plain}" '))
+
+
 def build_dev_app(root: Path, extra: list[str]) -> tuple[subprocess.CompletedProcess[str], Path]:
     sha = build_fixture.pinned_sha()
     contents = root / "cmux DEV test.app" / "Contents"
     output = contents / "Resources" / "bin" / "cmux-cua"
     arch = "arm64" if platform.machine() in {"arm64", "aarch64"} else "x86_64"
+    environment = build_fixture.successful_build_environment(root, sha)
+    use_plain_binary(root, arch)
     result = subprocess.run(
         [str(BUILD_SCRIPT), "--output", str(output), "--archs", arch, "--cache-dir", str(root / "cache"), *extra],
-        env=build_fixture.successful_build_environment(root, sha),
+        env=environment,
         capture_output=True,
         text=True,
     )

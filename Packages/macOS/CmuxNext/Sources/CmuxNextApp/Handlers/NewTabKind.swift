@@ -23,7 +23,7 @@ nonisolated enum NewTabKind: Equatable, Sendable {
         return .terminal
     }
 
-    /// `tabs.terminalFirst` (#23021): a person's Cmd-T, Cmd-D and Cmd-Shift-D open a terminal, as in cmux classic.
+    /// `tabs.terminalFirst`, cmux Classic Mode (#23021): a person's Cmd-T, Cmd-D, Cmd-Shift-D and Cmd-N open a terminal.
     @MainActor static func terminalFirst(_ services: AppServices) -> Bool {
         services.settings?.snapshot.terminalFirst ?? TerminalFirstSetting.fallback
     }

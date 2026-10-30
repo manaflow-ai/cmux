@@ -20,10 +20,13 @@ public nonisolated struct ChiefBackend: Hashable, Sendable, Identifiable {
     public static let claude = ChiefBackend(id: "claude", createsOnThisMac: false)
     /// Codex.
     public static let codex = ChiefBackend(id: "codex", createsOnThisMac: true)
+    /// Muse Code (Meta) through the cmux-muse-acp adapter (acpmux harness `muse`), on this
+    /// Mac's Muse sign-in (`muse login`).
+    public static let muse = ChiefBackend(id: "muse", createsOnThisMac: true)
     /// UniiChat: acpmux's built-in `unii` harness (`acpmux uniichat-agent`), on the person's UniiChat account.
     public static let unii = ChiefBackend(id: "unii", createsOnThisMac: true)
     /// Every official engine, in the order the pickers offer them.
-    public static let official: [ChiefBackend] = [.claude, .codex, .unii]
+    public static let official: [ChiefBackend] = [.claude, .codex, .muse, .unii]
 
     /// The engine whose harness id is `id`; nil for an id that is not an official engine.
     public init?(id: String) {
@@ -43,6 +46,7 @@ public nonisolated struct ChiefBackend: Hashable, Sendable, Identifiable {
     public var title: String {
         switch id {
         case "codex": String(localized: "home.chief.backend.codex", defaultValue: "Codex", bundle: .module)
+        case "muse": String(localized: "home.chief.backend.muse", defaultValue: "Muse Code", bundle: .module)
         case "unii": String(localized: "home.chief.backend.unii", defaultValue: "UniiChat", bundle: .module)
         default: String(localized: "home.chief.backend.claude", defaultValue: "Claude", bundle: .module)
         }
@@ -54,6 +58,10 @@ public nonisolated struct ChiefBackend: Hashable, Sendable, Identifiable {
         case "unii":
             String(localized: "home.chief.backend.uniiHint",
                    defaultValue: "Runs on your UniiChat account. Sign in first with `unii login`.", bundle: .module)
+        case "muse":
+            String(localized: "home.chief.backend.museHint",
+                   defaultValue: "Runs on this Mac with your Muse sign-in (`muse login`) through the muse-acp adapter.",
+                   bundle: .module)
         case "codex":
             String(localized: "home.chief.backend.codexHint",
                    defaultValue: "Runs on this Mac with your Codex sign-in.", bundle: .module)
@@ -61,15 +69,15 @@ public nonisolated struct ChiefBackend: Hashable, Sendable, Identifiable {
         }
     }
 
-    /// The name to show for harness `id`: an official engine's title, else the id as it is
-    /// (`claude-cr`, a harness of the user's own acpmux config).
+    /// The name to show for harness `id`: an official engine's title, else the id made readable
+    /// (``Swift/String/chiefHarnessName``: `claude-cr` → "Claude (CodeRouter)"), never the raw id.
     public static func title(for id: String) -> String {
-        ChiefBackend(id: id)?.title ?? id
+        ChiefBackend(id: id)?.title ?? id.chiefHarnessName
     }
 
     /// The badge a Home row shows for a Chief whose effective harness is `harness`: nil for
     /// the default engine (no choice, `default`, or a Claude route such as `claude-cr`),
-    /// else the engine's name (an unknown id as it is).
+    /// else the engine's name (an unknown id made readable).
     public static func badge(for harness: String?) -> String? {
         guard let harness = harness?.trimmingCharacters(in: .whitespacesAndNewlines), !harness.isEmpty,
               harness != "default", !harness.hasPrefix(ChiefBackend.claude.id) else { return nil }

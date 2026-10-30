@@ -12,6 +12,9 @@ public final class HomeInboxSource {
     /// The owner's reply (rows in list order, the Cloud state); nil without an owner that serves `home-inbox`.
     public private(set) var reply: HomeInboxRequest.Response?
     public var rows: [HomeInboxRequest.Row]? { reply?.rows }
+    /// The owner answered this launch (rows, or that it serves no `home-inbox`). Until then `reply`
+    /// may be the last launch's rows (`seed`), so the list's first frame is the list as it was.
+    @ObservationIgnored public private(set) var answered = false
     /// `["local"]` for the Chief home's daemon, `["cloud"]` for the build's daemon (its Cloud lease).
     public let owners: [String]
     private var isCloud: Bool { owners == ["cloud"] }
@@ -67,14 +70,10 @@ public final class HomeInboxSource {
                 let read = await Self.read(connection, owners: owners)
                 guard generation == self.generation else { continue }
                 switch read {
-                case .unsupported: if reply != nil { reply = nil }
-                case .reply(var next):
-                    // The Cloud did not answer: its last rows stay, only the state changes.
-                    if next.cloud == "unavailable", let last = reply { next.rows = last.rows }
-                    if pendingWrites == 0 {
-                        if reply != next { reply = next }
-                        onRows?()
-                    }
+                case .unsupported:
+                    answered = true
+                    if reply != nil { reply = nil }
+                case .reply(let next): accept(next)
                 case .failed: break
                 }
                 if !readAgain { break }
@@ -83,11 +82,32 @@ public final class HomeInboxSource {
         }
     }
 
+    /// The last launch's rows (`HomeSidebarLaunchCache`), shown until the owner answers; nothing
+    /// once it has. The owner's first answer replaces them in place (the list moves only what changed).
+    public func seed(_ last: HomeInboxRequest.Response?) {
+        guard !answered, reply == nil, let last else { return }
+        reply = last
+    }
+
+    /// One owner reply: kept unless an edit is still unanswered.
+    func accept(_ reply: HomeInboxRequest.Response) {
+        var next = reply
+        // The Cloud did not answer: its last rows (this session's or the launch's) stay, only the state changes.
+        if next.cloud == "unavailable", let last = self.reply { next.rows = last.rows }
+        guard pendingWrites == 0 else { return }
+        answered = true
+        if self.reply != next { self.reply = next }
+        onRows?()
+    }
+
     private enum Read: Sendable { case unsupported, reply(HomeInboxRequest.Response), failed }
 
     private static func read(_ connection: DaemonConnection, owners: [String]) async -> Read {
-        guard await connection.identity?.supports(DaemonCapabilities.shared.homeInbox) == true else { return .unsupported }
-        guard let reply = try? await connection.request(HomeInboxRequest(owners: owners)) else { return .failed }
+        guard await connection.identity?.supports(DaemonCapability.homeInbox.rawValue) == true else { return .unsupported }
+        // The Cloud rows are every page of the inbox, read by the daemon within its budget plus one
+        // page's read (under the Cloud's 30 s request timeout); the local rows answer at once.
+        let timeout: Duration? = owners.contains("cloud") ? CloudConversationClient.networkTimeout : nil
+        guard let reply = try? await connection.request(HomeInboxRequest(owners: owners), timeout: timeout) else { return .failed }
         return .reply(reply)
     }
 

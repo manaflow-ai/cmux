@@ -1,0 +1,16 @@
+2026-10-24T03:24:16.761794Z  INFO cmux_mobile_link::dial::turn: TURN allocation for WireGuard relayed=104.30.136.5:53511 server="turn.cloudflare.com:3478" transport=Udp
+2026-10-23 20:24:16.888 CmuxMobileApp[98074:609509146] void * _Nullable NSMapGet(NSMapTable * _Nonnull, const void * _Nullable): map table argument is NULL
+2026-10-24T03:24:16.972974Z DEBUG cmux_mobile_link::link: input lane attached role=Phone
+2026-10-24T03:24:17.018587Z DEBUG cmux_mobile_link::dial::wireguard: peer confirmed our datagrams reach it direct=Some(Route { carrier: Turn, addr: 104.184.154.177:18322 })
+objc[98074]: Class UIAccessibilityLoaderWebShared is implemented in both /Library/Developer/CoreSimulator/Volumes/iOS_23F77/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.5.simruntime/Contents/Resources/RuntimeRoot/System/Library/AccessibilityBundles/WebKit.axbundle/WebKit (0x11828c398) and /Library/Developer/CoreSimulator/Volumes/iOS_23F77/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.5.simruntime/Contents/Resources/RuntimeRoot/System/Library/AccessibilityBundles/WebCore.axbundle/WebCore (0x11a3a8310). This may cause spurious casting failures and mysterious crashes. One of the duplicates must be removed or renamed.
+2026-10-23 20:24:19.166 CmuxMobileApp[98074:609509146] CoreText performance note: Client called CTFontCreateWithName() using name "Apple Color Emoji" and got font with PostScript name "AppleColorEmoji". For best performance, only use PostScript names when calling this API.
+2026-10-23 20:24:19.166 CmuxMobileApp[98074:609509146] CoreText performance note: Set a breakpoint on CTFontLogSuboptimalRequest to debug.
+IOSurfaceClientSetSurfaceNotify failed e00002c7
+2026-10-24T03:24:26.835819Z DEBUG cmux_mobile_link::signaling: dropping a signal for an unknown session session="a096ad75-8add-4153-a5c5-6a2eda787ff2"
+2026-10-24T03:24:42.689070Z  INFO cmux_mobile_link::hybrid: media session up session="a52ae1c4-3607-4615-964c-fdc63a801eeb"
+2026-10-24T03:24:50.454525Z DEBUG cmux_mobile_link::signaling: dropping a signal for an unknown session session="df65c97a-9cc4-46c4-9f1b-f8f0cab967d9"
+2026-10-24T03:36:05.003988Z DEBUG cmux_mobile_link::link: link closed reason="closed by the app"
+2026-10-24T03:36:58.310754Z  INFO cmux_mobile_link::dial::turn: TURN allocation for WireGuard relayed=104.30.145.3:15765 server="turn.cloudflare.com:3478" transport=Udp
+2026-10-24T03:36:58.619381Z DEBUG cmux_mobile_link::link: input lane attached role=Phone
+2026-10-24T03:36:58.998616Z  INFO cmux_mobile_link::hybrid: media session up session="8279cba8-79a9-4916-af2f-c5f2a6bfe2a2"
+2026-10-24T03:36:59.200067Z DEBUG cmux_mobile_link::dial::wireguard: peer confirmed our datagrams reach it direct=Some(Route { carrier: Turn, addr: 104.184.154.177:60805 })

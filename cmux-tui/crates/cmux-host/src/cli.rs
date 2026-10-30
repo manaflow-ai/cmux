@@ -14,6 +14,7 @@
 //! Exit codes follow `cmux server`: 0 ok, 1 internal, 2 usage, 3 not
 //! found, 4 rejected (unsupported platform).
 
+use crate::json::JsonField;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -245,7 +246,7 @@ fn roles_verb(args: &[String]) -> u8 {
     if json {
         println!("{status}");
     } else {
-        for role in status["roles"].as_array().into_iter().flatten() {
+        for role in status.field("roles").as_array().into_iter().flatten() {
             let field = |key: &str| role[key].as_str().unwrap_or("").to_owned();
             let error = field("last_error");
             println!("{}\t{}\t{}", field("name"), field("state"), error);

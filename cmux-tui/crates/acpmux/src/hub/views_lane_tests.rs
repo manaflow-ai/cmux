@@ -103,3 +103,74 @@ fn whitespace_before_a_secret_does_not_move_the_scan_cut_into_it() {
     let step = lane(&running(&prompt))["step"].as_str().unwrap_or_default().to_owned();
     assert_eq!(step, "[GitHub Personal Access Token] tail");
 }
+
+/// manaflow-ai/cmux#25230: between turns, work the session started that still runs keeps it
+/// working; a failed last turn, a lost agent and a peer gone unreachable still say so.
+#[test]
+fn work_below_the_turn_is_working_unless_the_chat_failed_or_its_peer_went() {
+    use super::status_indicator;
+    let at = |status: &str, last: Option<&str>| {
+        let mut s = json!({"status": status, "turnCount": 1, "updatedAt": 9, "subagentsWorkingSince": 7,
+                           "lastTurn": {"endedAt": 6}});
+        match last {
+            Some(last) => s["lastTurn"]["status"] = json!(last),
+            None => s["lastTurn"] = Value::Null,
+        }
+        s
+    };
+    let ready = at("ready", Some("completed"));
+    assert_eq!(status_indicator(&ready), Some("working"));
+    assert_eq!(lane(&ready)["state"], "working");
+    assert_eq!(lane(&ready)["since"], 7);
+    // Its harness stopped for idleness while a sub-session it started runs.
+    assert_eq!(status_indicator(&at("idle", Some("completed"))), Some("working"));
+    assert_eq!(status_indicator(&at("disconnected", Some("completed"))), Some("working"));
+    assert_eq!(status_indicator(&at("ready", None)), Some("working"));
+    assert_eq!(status_indicator(&at("ready", Some("failed"))), Some("failed"));
+    assert_eq!(status_indicator(&at("disconnected", Some("cancelled"))), Some("lost"));
+    assert_eq!(status_indicator(&at("unreachable", Some("completed"))), Some("done"));
+    assert_eq!(status_indicator(&at("unreachable", None)), None);
+    assert_eq!(status_indicator(&at("closed", Some("completed"))), None);
+    let mut done = at("ready", Some("completed"));
+    done["subagentsWorkingSince"] = Value::Null;
+    assert_eq!(status_indicator(&done), Some("done"));
+}
+
+/// A harness title that is a whole prompt shows as its first 200 characters in every summary; a
+/// shorter one is untouched, its spacing too.
+#[test]
+fn a_summary_title_is_at_most_200_characters() {
+    use super::{TITLE_CHARS, summary_title};
+    let short = "Fix  the\nsidebar";
+    assert_eq!(summary_title(short), short);
+    let edge = "é".repeat(TITLE_CHARS);
+    assert_eq!(summary_title(&edge), edge);
+    let prompt = "You are a fix helper. ".repeat(400);
+    let cut = summary_title(&prompt);
+    assert_eq!(cut.chars().count(), TITLE_CHARS + 1, "{cut}");
+    assert!(cut.ends_with('…') && prompt.starts_with(cut.trim_end_matches('…').trim_end()));
+}
+
+/// A peer's row heard as a census row is cut the same, whatever acpmux the peer runs.
+#[test]
+fn a_peers_census_row_cuts_its_title_too() {
+    let row =
+        json!({"sessionId": "p", "title": "x".repeat(5_000), "tools": [], "toolsMutable": true});
+    let census = super::without_summary_tools(row);
+    assert_eq!(census["title"].as_str().unwrap().chars().count(), super::TITLE_CHARS + 1);
+    assert!(census.get("tools").is_none() && census.get("toolsMutable").is_none());
+    let short = super::without_summary_tools(json!({"sessionId": "p", "title": "a  b"}));
+    assert_eq!(short["title"], "a  b");
+}
+
+/// A secret the title's cut would split is masked whole first: no head of it is left for a
+/// peer's masking to miss.
+#[test]
+fn a_secret_across_the_title_cut_is_masked_before_the_cut() {
+    let title = format!("{} {} {}", "a".repeat(180), github_token(), "b".repeat(300));
+    let cut = super::summary_title(&title);
+    assert!(!cut.contains("ghp_"), "{cut}");
+    assert!(cut.chars().count() <= super::TITLE_CHARS + 1, "{cut}");
+    let census = super::without_summary_tools(json!({"title": title}));
+    assert!(!census["title"].as_str().unwrap().contains("ghp_"), "{census}");
+}

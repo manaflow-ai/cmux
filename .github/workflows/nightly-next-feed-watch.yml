@@ -9,10 +9,16 @@ name: nightly-next feed watch
 # `nightly-next-feed-stale` issue naming the stuck stage
 # (scripts/ci/nightly_next_feed_watch.py, tested by
 # tests/test_nightly_next_feed_watch.py). It also requests the continuation
-# run that publishes a build Apple accepted after its run stopped waiting.
+# run that publishes a build Apple accepted after its run stopped waiting, and
+# dispatches an automatic nightly-next tick after 25 minutes without a
+# publication when no promotion request is active and the newest tree-ready
+# commit is not already building. Older nightlies keep running beside the new
+# tip. The guard covers classic NIGHTLY too.
 on:
   schedule:
-    - cron: "7,37 * * * *"
+    # Five-minute checks keep the 25-minute starvation threshold below the
+    # 30-minute freshness bound without cancelling a started nightly.
+    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 permissions: {}
@@ -24,10 +30,10 @@ concurrency:
 jobs:
   watch:
     if: github.repository_owner == 'manaflow-ai'
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
-      actions: write # read nightly-next runs and artifacts; dispatch a continuation run
+      actions: write # read runs and dispatch continuation/starvation builds
       contents: read # the nightly-next release body's published commit
       issues: write # the nightly-next-feed-stale issue
     steps:

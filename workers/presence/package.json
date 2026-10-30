@@ -17,5 +17,11 @@
     "@typescript/native-preview": "7.0.0-dev.20260616.1",
     "typescript": "^5.8.0",
     "wrangler": "^4.20.0"
+  },
+  "overrides": {
+    "esbuild": "0.28.1",
+    "sharp": "0.35.5",
+    "undici": "7.29.1",
+    "ws": "8.21.0"
   }
 }

@@ -293,7 +293,7 @@ ENCODE = ["-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(publish.VID
 
 def ffmpeg(argv: list[str], cwd: Path) -> None:
     done = subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-y", *argv],
-                          cwd=cwd, capture_output=True, text=True)
+                          cwd=cwd, capture_output=True, text=True, env=pr_media.tool_env())
     if done.returncode != 0:
         raise RuntimeError(done.stderr.strip()[-500:] or "ffmpeg failed")
 

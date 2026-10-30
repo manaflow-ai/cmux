@@ -1,0 +1,619 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		041AF974E3BE60838D074F5B /* SeedImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FF8B403BAE7CCD08C35184D /* SeedImport.swift */; };
+		092697F98C34F4CD226C10D9 /* CmuxVNCApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD42CD58C625DF169A1FE45A /* CmuxVNCApp.swift */; };
+		1300D6B7D3F5C5D99921ED6E /* CmuxVNCDemoServer in Frameworks */ = {isa = PBXBuildFile; productRef = A202773E9B5B948AA35F7918 /* CmuxVNCDemoServer */; };
+		27707F70407ACBE92B626F2C /* ConnectionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA99D8A346AB019C11A4A22A /* ConnectionsView.swift */; };
+		2A6249922C218BF4446B0ED8 /* CmuxVNC in Frameworks */ = {isa = PBXBuildFile; productRef = 70719AB65CB7047B142F5467 /* CmuxVNC */; };
+		33411CC9145C936D3FDC67E0 /* CmuxScreenKitUI in Frameworks */ = {isa = PBXBuildFile; productRef = 07FB08D0D7E80AC10FCCCA8B /* CmuxScreenKitUI */; };
+		3DE4EA9698154D6BF09451C3 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B429AE6EE4AA26D818EA95CA /* Assets.xcassets */; };
+		46D21F1C949A4E84CEDC8D03 /* CmuxScreenKit in Frameworks */ = {isa = PBXBuildFile; productRef = D043F13E142295EE3CAFF4B1 /* CmuxScreenKit */; };
+		4A8640D01932E12BFE02CF3A /* CmuxVNCApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD42CD58C625DF169A1FE45A /* CmuxVNCApp.swift */; };
+		4DFAA2147426349D75E79C48 /* PairView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8AFBCE0EE78C73DD21C6A38 /* PairView.swift */; };
+		5644833820FAA7A1243B1DE1 /* Snapshotter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 789676ADCF30DB0BD93352BC /* Snapshotter.swift */; };
+		59BC0DE35E23E1A241514C2D /* HostStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 763951F27B0C01E5C5523742 /* HostStore.swift */; };
+		750AF2A781BF33CD4DBB639C /* CmuxScreenKitUI in Frameworks */ = {isa = PBXBuildFile; productRef = 7607B560A86EF731801EA822 /* CmuxScreenKitUI */; };
+		7D7B85D5E12830EE106E7F51 /* CmuxVNCDemoServer in Frameworks */ = {isa = PBXBuildFile; productRef = 341EC55BEB52F82641855469 /* CmuxVNCDemoServer */; };
+		891CDDA3E4D9D76A5E17CA89 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B429AE6EE4AA26D818EA95CA /* Assets.xcassets */; };
+		895117D798A4A9EF21E82A92 /* CmuxScreenKit in Frameworks */ = {isa = PBXBuildFile; productRef = 96C9E082B9DF954005605AD5 /* CmuxScreenKit */; };
+		8BD72848E6A45991B1C19C64 /* PairView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8AFBCE0EE78C73DD21C6A38 /* PairView.swift */; };
+		8FD25FE9777F3A124516AA7F /* SeedImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FF8B403BAE7CCD08C35184D /* SeedImport.swift */; };
+		8FD3A62EEE7F8AEEF1933A18 /* HostEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7C179D5FF8893AF8F176074 /* HostEditorView.swift */; };
+		99C7E63394F5D19520514332 /* HostEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7C179D5FF8893AF8F176074 /* HostEditorView.swift */; };
+		A7799914403C1BF49AB9B6F7 /* Autopilot.swift in Sources */ = {isa = PBXBuildFile; fileRef = E34218DA8A55EF28C184DB10 /* Autopilot.swift */; };
+		B1ADE045C502ECBDF703155A /* ConnectionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA99D8A346AB019C11A4A22A /* ConnectionsView.swift */; };
+		DAFDB8F94A293A9DFA7EDE96 /* HostStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 763951F27B0C01E5C5523742 /* HostStore.swift */; };
+		E8F5AE024C1E0E4EE0F7E1AE /* Autopilot.swift in Sources */ = {isa = PBXBuildFile; fileRef = E34218DA8A55EF28C184DB10 /* Autopilot.swift */; };
+		EF55EF7D8A926773CCA9EBCC /* CmuxVNCWebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = 4B909E452D84A68D195CB89E /* CmuxVNCWebRTC */; };
+		F35AA2738654BA48D9310F91 /* CmuxVNC in Frameworks */ = {isa = PBXBuildFile; productRef = 8955AA16B580B257152AAABB /* CmuxVNC */; };
+		FA854B6DF943A38388A32149 /* CmuxVNCWebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = 112702CB1772EEA50B796AAE /* CmuxVNCWebRTC */; };
+		FE965FE907CE2621BEE1602D /* Snapshotter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 789676ADCF30DB0BD93352BC /* Snapshotter.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		0C21C1DFEAB881D45F4FB21E /* CmuxVNCiOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = CmuxVNCiOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		3C31BB7872E2FAD260DB644C /* CmuxScreenKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CmuxScreenKit; path = ../../Packages/Shared/CmuxScreenKit; sourceTree = SOURCE_ROOT; };
+		3E1DB2147CBCD84F34A58FA3 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		3FF8B403BAE7CCD08C35184D /* SeedImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeedImport.swift; sourceTree = "<group>"; };
+		494DF156D54D5E620928A545 /* CmuxVNCRustiOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = CmuxVNCRustiOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		641F7284DC05B04A8FF1D9BC /* CmuxVNCWebRTC */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CmuxVNCWebRTC; path = ../../Packages/Shared/CmuxVNCWebRTC; sourceTree = SOURCE_ROOT; };
+		763951F27B0C01E5C5523742 /* HostStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostStore.swift; sourceTree = "<group>"; };
+		789676ADCF30DB0BD93352BC /* Snapshotter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Snapshotter.swift; sourceTree = "<group>"; };
+		AA99D8A346AB019C11A4A22A /* ConnectionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionsView.swift; sourceTree = "<group>"; };
+		B429AE6EE4AA26D818EA95CA /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		BD42CD58C625DF169A1FE45A /* CmuxVNCApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxVNCApp.swift; sourceTree = "<group>"; };
+		C8AFBCE0EE78C73DD21C6A38 /* PairView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairView.swift; sourceTree = "<group>"; };
+		E233F29DA734930808AB0D11 /* CmuxVNC */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CmuxVNC; path = ../../Packages/Shared/CmuxVNC; sourceTree = SOURCE_ROOT; };
+		E34218DA8A55EF28C184DB10 /* Autopilot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Autopilot.swift; sourceTree = "<group>"; };
+		F7C179D5FF8893AF8F176074 /* HostEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostEditorView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		04217138A325411E2B64E7B9 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2A6249922C218BF4446B0ED8 /* CmuxVNC in Frameworks */,
+				1300D6B7D3F5C5D99921ED6E /* CmuxVNCDemoServer in Frameworks */,
+				EF55EF7D8A926773CCA9EBCC /* CmuxVNCWebRTC in Frameworks */,
+				895117D798A4A9EF21E82A92 /* CmuxScreenKit in Frameworks */,
+				750AF2A781BF33CD4DBB639C /* CmuxScreenKitUI in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		202734D53F90299FCBB9AC7D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F35AA2738654BA48D9310F91 /* CmuxVNC in Frameworks */,
+				7D7B85D5E12830EE106E7F51 /* CmuxVNCDemoServer in Frameworks */,
+				FA854B6DF943A38388A32149 /* CmuxVNCWebRTC in Frameworks */,
+				46D21F1C949A4E84CEDC8D03 /* CmuxScreenKit in Frameworks */,
+				33411CC9145C936D3FDC67E0 /* CmuxScreenKitUI in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		0C6DE3CC4D2F5AD0330FDF9F /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				0C21C1DFEAB881D45F4FB21E /* CmuxVNCiOS.app */,
+				494DF156D54D5E620928A545 /* CmuxVNCRustiOS.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		0D83C7B21892D459B7BEE93F /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				AA99D8A346AB019C11A4A22A /* ConnectionsView.swift */,
+				F7C179D5FF8893AF8F176074 /* HostEditorView.swift */,
+				C8AFBCE0EE78C73DD21C6A38 /* PairView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		11CCB9EDEF3A651F73071C6A = {
+			isa = PBXGroup;
+			children = (
+				A25EDEA067F1F23EB657577D /* CmuxVNCiOS */,
+				4EB5F23277DB215859F2266B /* Packages */,
+				0C6DE3CC4D2F5AD0330FDF9F /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		4EB5F23277DB215859F2266B /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				3C31BB7872E2FAD260DB644C /* CmuxScreenKit */,
+				E233F29DA734930808AB0D11 /* CmuxVNC */,
+				641F7284DC05B04A8FF1D9BC /* CmuxVNCWebRTC */,
+			);
+			name = Packages;
+			sourceTree = "<group>";
+		};
+		A25EDEA067F1F23EB657577D /* CmuxVNCiOS */ = {
+			isa = PBXGroup;
+			children = (
+				B429AE6EE4AA26D818EA95CA /* Assets.xcassets */,
+				3E1DB2147CBCD84F34A58FA3 /* Info.plist */,
+				D1AA787CDD982B7EF1612CD2 /* App */,
+				AC0C8E8586ECFF00F4142739 /* Model */,
+				0D83C7B21892D459B7BEE93F /* Views */,
+			);
+			path = CmuxVNCiOS;
+			sourceTree = "<group>";
+		};
+		AC0C8E8586ECFF00F4142739 /* Model */ = {
+			isa = PBXGroup;
+			children = (
+				E34218DA8A55EF28C184DB10 /* Autopilot.swift */,
+				763951F27B0C01E5C5523742 /* HostStore.swift */,
+				3FF8B403BAE7CCD08C35184D /* SeedImport.swift */,
+				789676ADCF30DB0BD93352BC /* Snapshotter.swift */,
+			);
+			path = Model;
+			sourceTree = "<group>";
+		};
+		D1AA787CDD982B7EF1612CD2 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				BD42CD58C625DF169A1FE45A /* CmuxVNCApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		263C10A9966CD5883ADAE11B /* CmuxVNCRustiOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0CCDE336BFD1D5544ADF9101 /* Build configuration list for PBXNativeTarget "CmuxVNCRustiOS" */;
+			buildPhases = (
+				8D20434AE29D630B0ED96221 /* Sources */,
+				2E12C88FB9E9D155C7ED8E68 /* Resources */,
+				202734D53F90299FCBB9AC7D /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = CmuxVNCRustiOS;
+			packageProductDependencies = (
+				8955AA16B580B257152AAABB /* CmuxVNC */,
+				341EC55BEB52F82641855469 /* CmuxVNCDemoServer */,
+				112702CB1772EEA50B796AAE /* CmuxVNCWebRTC */,
+				D043F13E142295EE3CAFF4B1 /* CmuxScreenKit */,
+				07FB08D0D7E80AC10FCCCA8B /* CmuxScreenKitUI */,
+			);
+			productName = CmuxVNCRustiOS;
+			productReference = 494DF156D54D5E620928A545 /* CmuxVNCRustiOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+		9F1BB6E81F9465A3B31C268A /* CmuxVNCiOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3C4E383EB753777B74ABB957 /* Build configuration list for PBXNativeTarget "CmuxVNCiOS" */;
+			buildPhases = (
+				13FEAE44FD0CDC42D0AA07B4 /* Sources */,
+				E356F4D8110DCF5613E7B869 /* Resources */,
+				04217138A325411E2B64E7B9 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = CmuxVNCiOS;
+			packageProductDependencies = (
+				70719AB65CB7047B142F5467 /* CmuxVNC */,
+				A202773E9B5B948AA35F7918 /* CmuxVNCDemoServer */,
+				4B909E452D84A68D195CB89E /* CmuxVNCWebRTC */,
+				96C9E082B9DF954005605AD5 /* CmuxScreenKit */,
+				7607B560A86EF731801EA822 /* CmuxScreenKitUI */,
+			);
+			productName = CmuxVNCiOS;
+			productReference = 0C21C1DFEAB881D45F4FB21E /* CmuxVNCiOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		E26E53C1DB2232F67FC4A25D /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					263C10A9966CD5883ADAE11B = {
+						ProvisioningStyle = Automatic;
+					};
+					9F1BB6E81F9465A3B31C268A = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 2F812FC0CB0B8DC9B546631F /* Build configuration list for PBXProject "CmuxVNCiOS" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 11CCB9EDEF3A651F73071C6A;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				9F40A98CA4B1960B7C61DAAE /* XCLocalSwiftPackageReference "../../Packages/Shared/CmuxScreenKit" */,
+				0142DD7E5D837B0F7D599108 /* XCLocalSwiftPackageReference "../../Packages/Shared/CmuxVNC" */,
+				4323414C4B22920C7F4E3231 /* XCLocalSwiftPackageReference "../../Packages/Shared/CmuxVNCWebRTC" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 0C6DE3CC4D2F5AD0330FDF9F /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				9F1BB6E81F9465A3B31C268A /* CmuxVNCiOS */,
+				263C10A9966CD5883ADAE11B /* CmuxVNCRustiOS */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		2E12C88FB9E9D155C7ED8E68 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				891CDDA3E4D9D76A5E17CA89 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E356F4D8110DCF5613E7B869 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3DE4EA9698154D6BF09451C3 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		13FEAE44FD0CDC42D0AA07B4 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A7799914403C1BF49AB9B6F7 /* Autopilot.swift in Sources */,
+				4A8640D01932E12BFE02CF3A /* CmuxVNCApp.swift in Sources */,
+				27707F70407ACBE92B626F2C /* ConnectionsView.swift in Sources */,
+				8FD3A62EEE7F8AEEF1933A18 /* HostEditorView.swift in Sources */,
+				DAFDB8F94A293A9DFA7EDE96 /* HostStore.swift in Sources */,
+				8BD72848E6A45991B1C19C64 /* PairView.swift in Sources */,
+				8FD25FE9777F3A124516AA7F /* SeedImport.swift in Sources */,
+				FE965FE907CE2621BEE1602D /* Snapshotter.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8D20434AE29D630B0ED96221 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E8F5AE024C1E0E4EE0F7E1AE /* Autopilot.swift in Sources */,
+				092697F98C34F4CD226C10D9 /* CmuxVNCApp.swift in Sources */,
+				B1ADE045C502ECBDF703155A /* ConnectionsView.swift in Sources */,
+				99C7E63394F5D19520514332 /* HostEditorView.swift in Sources */,
+				59BC0DE35E23E1A241514C2D /* HostStore.swift in Sources */,
+				4DFAA2147426349D75E79C48 /* PairView.swift in Sources */,
+				041AF974E3BE60838D074F5B /* SeedImport.swift in Sources */,
+				5644833820FAA7A1243B1DE1 /* Snapshotter.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		0752E5F51EA93F5383E32B9D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIconRust;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = CmuxVNCRustiOS/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "cmux VNC Rust";
+				INFOPLIST_KEY_NSCameraUsageDescription = "cmux VNC Rust scans the pairing code a Mac's cmux-screen-host shows.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "cmux VNC Rust connects to screen sharing on computers in your local network and tailnet.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.vnc.rust;
+				PRODUCT_NAME = CmuxVNCRustiOS;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		1C76CE272E8B308156344DDC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = CmuxVNCiOS/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "cmux VNC";
+				INFOPLIST_KEY_NSCameraUsageDescription = "cmux VNC scans the pairing code a Mac's cmux-vnc-host shows.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "cmux VNC connects to screen sharing on computers in your local network and tailnet.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.vnc.demo;
+				PRODUCT_NAME = CmuxVNCiOS;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		2506CBD9D4803019CB41BFE8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = CmuxVNCiOS/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "cmux VNC";
+				INFOPLIST_KEY_NSCameraUsageDescription = "cmux VNC scans the pairing code a Mac's cmux-vnc-host shows.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "cmux VNC connects to screen sharing on computers in your local network and tailnet.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.vnc.demo;
+				PRODUCT_NAME = CmuxVNCiOS;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		6C1A1C0730C2E7D31743C819 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIconRust;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = CmuxVNCRustiOS/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "cmux VNC Rust";
+				INFOPLIST_KEY_NSCameraUsageDescription = "cmux VNC Rust scans the pairing code a Mac's cmux-screen-host shows.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "cmux VNC Rust connects to screen sharing on computers in your local network and tailnet.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.vnc.rust;
+				PRODUCT_NAME = CmuxVNCRustiOS;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		8B1F0669A393E901B7F36E49 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.1;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		EE8C2C340DD397EED6AB059C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.1;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		0CCDE336BFD1D5544ADF9101 /* Build configuration list for PBXNativeTarget "CmuxVNCRustiOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0752E5F51EA93F5383E32B9D /* Debug */,
+				6C1A1C0730C2E7D31743C819 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		2F812FC0CB0B8DC9B546631F /* Build configuration list for PBXProject "CmuxVNCiOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				EE8C2C340DD397EED6AB059C /* Debug */,
+				8B1F0669A393E901B7F36E49 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		3C4E383EB753777B74ABB957 /* Build configuration list for PBXNativeTarget "CmuxVNCiOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2506CBD9D4803019CB41BFE8 /* Debug */,
+				1C76CE272E8B308156344DDC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		0142DD7E5D837B0F7D599108 /* XCLocalSwiftPackageReference "../../Packages/Shared/CmuxVNC" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../../Packages/Shared/CmuxVNC;
+		};
+		4323414C4B22920C7F4E3231 /* XCLocalSwiftPackageReference "../../Packages/Shared/CmuxVNCWebRTC" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../../Packages/Shared/CmuxVNCWebRTC;
+		};
+		9F40A98CA4B1960B7C61DAAE /* XCLocalSwiftPackageReference "../../Packages/Shared/CmuxScreenKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../../Packages/Shared/CmuxScreenKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		07FB08D0D7E80AC10FCCCA8B /* CmuxScreenKitUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CmuxScreenKitUI;
+		};
+		112702CB1772EEA50B796AAE /* CmuxVNCWebRTC */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CmuxVNCWebRTC;
+		};
+		341EC55BEB52F82641855469 /* CmuxVNCDemoServer */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CmuxVNCDemoServer;
+		};
+		4B909E452D84A68D195CB89E /* CmuxVNCWebRTC */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CmuxVNCWebRTC;
+		};
+		70719AB65CB7047B142F5467 /* CmuxVNC */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CmuxVNC;
+		};
+		7607B560A86EF731801EA822 /* CmuxScreenKitUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CmuxScreenKitUI;
+		};
+		8955AA16B580B257152AAABB /* CmuxVNC */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CmuxVNC;
+		};
+		96C9E082B9DF954005605AD5 /* CmuxScreenKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CmuxScreenKit;
+		};
+		A202773E9B5B948AA35F7918 /* CmuxVNCDemoServer */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CmuxVNCDemoServer;
+		};
+		D043F13E142295EE3CAFF4B1 /* CmuxScreenKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CmuxScreenKit;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = E26E53C1DB2232F67FC4A25D /* Project object */;
+}

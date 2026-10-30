@@ -62,7 +62,9 @@ import Testing
         room.show(nil)
         #expect(room.backdropTintOpacity == nil)
         workspace.pinBackdropTint(1)
-        #expect(workspace.backdropTintOpacity == WindowBackdrop.maximumWorkspaceTint)
+        #expect(workspace.backdropTintOpacity == 1)
+        workspace.pinBackdropTint(1.5)
+        #expect(workspace.backdropTintOpacity == 1)
         // A hand-edited "nan" follows the work's tint rather than turning the window opaque.
         workspace.pinBackdropTint(.nan)
         #expect(workspace.backdropTintOpacity == nil)
@@ -74,7 +76,8 @@ import Testing
         #expect(dense.tintOpacity == 0.9)
         #expect(dense.tintOpacity >= own.tintOpacity)
         #expect(clear.tintOpacity == 0)
-        #expect(!WindowBackdrop(tokens, selection: Self.work, tintOpacity: 1).isOpaque)
+        // 100% is opaque: the window hides the art (2026-10-21, "all the way to 100%").
+        #expect(WindowBackdrop(tokens, selection: Self.work, tintOpacity: 1).isOpaque)
         // Without art the window's own opacity stands.
         #expect(WindowBackdrop(tokens, tintOpacity: 0.3) == WindowBackdrop(tokens))
     }

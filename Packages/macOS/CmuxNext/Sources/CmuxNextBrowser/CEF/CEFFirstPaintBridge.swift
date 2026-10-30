@@ -1,4 +1,6 @@
+import CmuxNextCompat
 import Foundation
+import CmuxNextWakeups
 
 /// When a Chromium document first paints content, through the DevTools
 /// protocol's page lifecycle events (`CEFAgentRelay.deliver` hands every raw
@@ -59,9 +61,19 @@ final class CEFFirstPaintBridge {
     /// document owns the page area from now on. Always false, so this only
     /// reads the stream and never takes a message off it: an agent relaying
     /// raw protocol messages still sees every lifecycle event.
-    func handle(_ json: String) -> Bool {
-        if Self.isFirstContentfulPaint(json, mainFrame: mainFrame) { tab?.documentDidSettle() }
+    func handle(_ head: DevToolsMessageHead) -> Bool {
+        if Self.isFirstContentfulPaint(head, mainFrame: mainFrame) { painted() }
         return false
+    }
+
+    /// The main frame's document painted content (a lifecycle event, or from fork API 29 the
+    /// first paint channel, `BrowserFirstPaintScript`).
+    func painted() {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        ChatOpenTrace.shared.mark(.firstContentfulPaint, chromiumPane: tab?.host.key.pane.rawValue)
+        if let tab { tab.runtime.benchMarks.firstPaint(tab.id.rawValue) }
+        #endif
+        tab?.documentDidSettle()
     }
 
     /// Whether `json` is the first contentful paint of `mainFrame`. A
@@ -69,8 +81,13 @@ final class CEFFirstPaintBridge {
     /// before the main frame is known, when every frame does: that is the
     /// load-end behavior at worst, never a missed hand-over.
     nonisolated static func isFirstContentfulPaint(_ json: String, mainFrame: String?) -> Bool {
-        guard json.contains("\"Page.lifecycleEvent\""), json.contains("\"\(firstContentfulPaint)\""),
-              let data = json.data(using: .utf8),
+        isFirstContentfulPaint(DevToolsMessageHead(json: json), mainFrame: mainFrame)
+    }
+
+    /// The same check for a message whose head the relay already read.
+    nonisolated static func isFirstContentfulPaint(_ head: DevToolsMessageHead, mainFrame: String?) -> Bool {
+        guard head.method == "Page.lifecycleEvent", head.contains("\"\(firstContentfulPaint)\""),
+              let data = head.json.data(using: .utf8),
               let message = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               message["method"] as? String == "Page.lifecycleEvent",
               let params = message["params"] as? [String: Any],

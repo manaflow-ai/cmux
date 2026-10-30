@@ -15,6 +15,8 @@ extension HomeChiefSettingsView {
         let home = muxHome
         // task-owner: one read off the main actor; ends when it is shown
         return Task { [weak self] in
+            // This Mac's acpmux harnesses, for a brain that runs here (a paired server's are its own).
+            if let self, source.isLocal { listedHarnesses = await listHarnesses() }
             let result = await Task.detached { () async -> Result<HomeChiefSnapshot, HomeChiefEngineError> in
                 do { return .success(try await source.read()) } catch let error as HomeChiefEngineError { return .failure(error) } catch { return .failure(.other(String(describing: error))) }
             }.value
@@ -77,6 +79,8 @@ extension HomeChiefSettingsView {
         let changed = failure.isHidden || failure.stringValue != text
         failure.stringValue = text
         failure.isHidden = false
+        // The avatar's tooltip opens below it, over this note: it steps aside while the note shows.
+        avatarButton.themedToolTip = nil
         changeFailed = kept
         if changed {
             var element: Any = NSApp as Any
@@ -91,13 +95,20 @@ extension HomeChiefSettingsView {
     /// picture's note, set after its open panel closed the card, waits for the next open.
     func cardClosed() {
         guard changeFailed else { return }
+        hideNote(resize: false)
+    }
+
+    /// Hides the note; the avatar's tooltip comes back.
+    func hideNote(resize: Bool = true) {
         changeFailed = false
         failure.isHidden = true
+        avatarButton.themedToolTip = HomeEngineStrings.changePicture
+        if resize { onResize() }
     }
 
     func show(_ snapshot: HomeChiefSnapshot) {
         shownEngine = snapshot
-        if !changeFailed { failure.isHidden = true }
+        if !changeFailed, !failure.isHidden { hideNote(resize: false) }
         // A harness check under way keeps the pickers off until it answers.
         for button in pickers { button.isEnabled = checkingHarness == nil }
         let shown = titles(snapshot)
@@ -108,6 +119,7 @@ extension HomeChiefSettingsView {
         fill(speed, [("fast", HomeEngineStrings.speedFast)], current: snapshot.speed == "default" ? nil : snapshot.speed,
              defaultTitle: HomeEngineStrings.defaultValue)
         if let row = speed.superview, row.isHidden == shown.offersFast { row.isHidden = !shown.offersFast }
+        reactionRows.show(snapshot)
         stats.stringValue = snapshot.turns.first.map(HomeEngineStrings.lastTurn) ?? HomeEngineStrings.noTurn
         // Which engine answered each recent reply (the trace's turn.end).
         replies.stringValue = snapshot.turns.isEmpty ? ""
@@ -131,8 +143,12 @@ extension HomeChiefSettingsView {
         var all = values
         if let current, !all.contains(where: { $0.value == current }) { all.append((current, title(current))) }
         for item in all {
-            button.addItem(withTitle: item.title)
-            button.lastItem?.representedObject = item.value
+            // Added as items, not by title: two ids can read as one name, and addItem(withTitle:) keeps only one.
+            let entry = NSMenuItem(title: item.title, action: nil, keyEquivalent: "")
+            entry.representedObject = item.value
+            // A value shown by a name keeps its id where a person can still find it.
+            entry.toolTip = item.title == item.value ? nil : item.value
+            button.menu?.addItem(entry)
         }
         if let current, let index = all.firstIndex(where: { $0.value == current }) {
             button.selectItem(at: index + 1)
@@ -171,7 +187,7 @@ extension HomeChiefSettingsView {
     /// The rows' items for `snapshot`, with this harness's recent models.
     func titles(_ snapshot: HomeChiefSnapshot) -> HomeChiefEngineTitles {
         let harness = snapshot.harness ?? snapshot.effective?.harness
-        return HomeChiefEngineTitles(snapshot, recents: harness.map(recents.models(harness:)) ?? [])
+        return HomeChiefEngineTitles(snapshot, recents: harness.map(recents.models(harness:)) ?? [], listed: listedHarnesses)
     }
 
     @objc func picked(_ sender: NSPopUpButton) {

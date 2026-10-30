@@ -46,7 +46,6 @@ enum DebugHome {
             return .object(row)
         }
         let local = services.machines.local
-        let caps = DaemonCapabilities.shared
         let workspace = home.homeWorkspace
         let tabs = workspace?.screens.flatMap(\.panes).flatMap(\.tabs) ?? []
         let setup: CmuxNextSettings.JSONValue = .object([
@@ -54,9 +53,9 @@ enum DebugHome {
             "workspace": workspace.map { .string($0.id) } ?? .null,
             "kind": workspace?.kind.map(CmuxNextSettings.JSONValue.string) ?? .null,
             "tab_kinds": .array(tabs.map { .string(String(describing: $0.kind)) }),
-            "workspace_kind": .bool(local.supports(caps.workspaceKind)),
-            "conversation_tabs": .bool(local.supports(caps.conversationTabs)),
-            "local_conversations": .bool(home.chief.supports(caps.localConversations)),
+            "workspace_kind": .bool(local.supports(DaemonCapability.workspaceKind.rawValue)),
+            "conversation_tabs": .bool(local.supports(DaemonCapability.conversationTabs.rawValue)),
+            "local_conversations": .bool(home.chief.supports(DaemonCapability.localConversations.rawValue)),
         ])
         let chief = home.chief
         let owner: CmuxNextSettings.JSONValue = .object([
@@ -70,12 +69,28 @@ enum DebugHome {
             "cache": home.homeStore.cache.map { .string($0.url.path) } ?? .null,
         ])
         return .object(["available": .bool(home.isAvailable), "chief_owner": owner, "home_workspace": setup,
+                        "chief_names": chiefNames(home, tabs: tabs),
                         "conversations": .array(conversations), "page": page(services: services), "classic": .bool(home.dock.isClassic),
                         "dock": dock(services: services), "hosted_chief": hosted(home),
                         "migration_notice": home.migrationNotice.map { .string($0) } ?? .null])
     }
 
     /// `hosted_chief`: the Hosted Chief proof's view (scripts/cmux-next/hosted-chief-proof.py).
+    /// Each Chief's name as every surface shows it (issue 26393): the list's tile (`tile`), and for
+    /// each open Home tab its header (`header`) and its strip title (`tab`), with a rename still shown.
+    static func chiefNames(_ home: HomeService, tabs: [TabModel]) -> CmuxNextSettings.JSONValue {
+        var names: [String: CmuxNextSettings.JSONValue] = home.chiefNames.reduce(into: [:]) {
+            $0[$1.key.rawValue] = .object(["tile": .string($1.value), "pending": .bool(home.chiefRenames.isPending($1.key))])
+        }
+        for tab in tabs where tab.kind == .conversation {
+            guard let id = tab.snapshot.conversation?.conversation, case .object(var row)? = names[id] ?? .object([:]) else { continue }
+            row["tab"] = .string(home.tabTitle(for: tab))
+            if let view = home.existingTabView(tab.id) { row["header"] = view.transcript.headerTitle.map { .string($0) } ?? .null }
+            names[id] = .object(row)
+        }
+        return .object(names)
+    }
+
     static func hosted(_ home: HomeService) -> CmuxNextSettings.JSONValue {
         .init(foundation: home.hostedChief.debugState(cloud: home.cloudChiefs, tab: home.tabChiefs, shown: home.cloudChief?.mainConversation)) ?? .null
     }

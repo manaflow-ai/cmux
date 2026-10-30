@@ -13,7 +13,7 @@ extension AppServices {
             var last = (Borders.current.mode, AgentPaneTunables.chatWidth.value)
             for await mode in ObservationStream({ (Borders.current.mode, AgentPaneTunables.chatWidth.value) }) where mode != last {
                 last = mode
-                ThemeStore.shared.repaintAll()
+                self.themeStore.repaintAll()
             }
         }
     }

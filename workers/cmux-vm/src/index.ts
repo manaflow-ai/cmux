@@ -18,6 +18,7 @@ import { upstreamLayer } from "./upstream/live.ts";
 import { vmImagesLayer } from "./upstream/live-images.ts";
 import { sqlSnapshotStoreLayer } from "./db/snapshots.ts";
 import { sqlApiKeyAdminStoreLayer } from "./db/api-keys.ts";
+import { sqlAgentStoreLayer } from "./db/agents.ts";
 import { stackTeamAdminLayer } from "./auth/team-admin.ts";
 import { upstreamSnapshotsLayer } from "./upstream/live-snapshots.ts";
 import { upstreamTerminalsLayer } from "./upstream/live-terminals.ts";
@@ -70,7 +71,7 @@ const liveServices = (env: Env) => {
   });
   return Layer.mergeAll(
     // Snapshot rows and API key management (slice S3a) share the request's connection with the other stores.
-    Layer.mergeAll(sqlStoresLayer, sqlSnapshotStoreLayer, sqlApiKeyAdminStoreLayer, sqlMeshStoreLayer, sqlWebhookDeliveryStoreLayer).pipe(
+    Layer.mergeAll(sqlStoresLayer, sqlSnapshotStoreLayer, sqlApiKeyAdminStoreLayer, sqlAgentStoreLayer, sqlMeshStoreLayer, sqlWebhookDeliveryStoreLayer).pipe(
       Layer.provide(sql),
     ),
     policy,
@@ -115,7 +116,13 @@ const meshServices = (env: Env) =>
     }),
   );
 
-let cached: { readonly env: Env; readonly handler: (request: Request) => Promise<Response> } | undefined;
+interface Served {
+  readonly handler: (request: Request) => Promise<Response>;
+  /** One agent reaper run, or nothing when the service is not configured or its schema is not applied. */
+  readonly reap: () => Promise<void>;
+}
+
+let cached: ({ readonly env: Env } & Served) | undefined;
 
 /** A missing secret or binding answers 503 instead of crashing every request. */
 const notConfigured = (): Promise<Response> =>
@@ -123,29 +130,54 @@ const notConfigured = (): Promise<Response> =>
     Response.json({ _tag: "ServiceUnavailable", message: "The cmux VM service is not configured" }, { status: 503 }),
   );
 
-const makeHandler = (env: Env): ((request: Request) => Promise<Response>) => {
+const unconfigured: Served = { handler: notConfigured, reap: () => Promise.resolve() };
+
+const makeServed = (env: Env): Served => {
   try {
     if (!env.HYPERDRIVE || !env.TENANT_LIMITS || !env.UPSTREAM_API_KEY || !env.STACK_PROJECT_ID || !env.STACK_SECRET_SERVER_KEY) {
-      return notConfigured;
+      return unconfigured;
     }
     const secret = env.STACK_WEBHOOK_SECRET?.trim();
-    const { handler } = makeWebHandler(liveServices(env), {
+    const { handler, reap } = makeWebHandler(liveServices(env), {
       perRequest: withRequestConnection,
       perWebhook: withRequestConnection,
       ...(secret === undefined || secret.length === 0 ? {} : { stackWebhookSecret: Redacted.make(secret) }),
     });
     // A deploy must never run ahead of its migration: 503 "schema not applied" until the tables this build needs exist.
     const check = () => Effect.runPromise(Effect.provide(checkSchema, hyperdriveSqlLayer(env.HYPERDRIVE.connectionString)));
-    return makeSchemaGate(check, (incoming) => handler(incoming));
+    return {
+      handler: makeSchemaGate(check, (incoming) => handler(incoming)),
+      // The reaper deletes VMs: it runs only against the schema this build was written for.
+      reap: async () => {
+        const problems = await check();
+        if (problems.length > 0) {
+          console.error(JSON.stringify({ event: "cmux_vm_reaper_skipped", reason: "schema", problems }));
+          return;
+        }
+        await reap();
+      },
+    };
   } catch {
     console.error("cmux-vm configuration invalid");
-    return notConfigured;
+    return unconfigured;
   }
+};
+
+const served = (env: Env): Served => {
+  if (cached === undefined || cached.env !== env) cached = { env, ...makeServed(env) };
+  return cached;
 };
 
 export default {
   fetch(request: Request, env: Env): Promise<Response> {
-    if (cached === undefined || cached.env !== env) cached = { env, handler: makeHandler(env) };
-    return cached.handler(request);
+    return served(env).handler(request);
+  },
+  /** Cron (wrangler.jsonc triggers): the agent reaper. */
+  scheduled(_controller: ScheduledController, env: Env, context: ExecutionContext): void {
+    context.waitUntil(
+      served(env)
+        .reap()
+        .catch(() => console.error(JSON.stringify({ event: "cmux_vm_reaper_failed" }))),
+    );
   },
 } satisfies ExportedHandler<Env>;

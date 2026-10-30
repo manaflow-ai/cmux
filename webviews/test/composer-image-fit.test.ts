@@ -29,7 +29,8 @@ function installEngine(width: number, height: number, encoded: (type: string, wi
       return { drawImage() {}, fillRect() {}, fillStyle: "" };
     }
     async convertToBlob({ type }: { type: string }) {
-      drawn.push({ width: this.width, height: this.height, type });
+      // The chip's thumbnail (160 px tall) is drawn from the same decode; only the preview counts.
+      if (this.height !== 160) drawn.push({ width: this.width, height: this.height, type });
       return new Blob([new Uint8Array(encoded(type, this.width))], { type });
     }
   };
@@ -50,8 +51,13 @@ describe("an image over the per-image limit", () => {
     const result = await readAttachment(big("image.png"), true);
     expect("reason" in result).toBe(false);
     if ("reason" in result) return;
-    expect(result).toMatchObject({ kind: "image", name: "image.png", mimeType: "image/png", size: 1024 });
-    expect([...drawn]).toEqual([{ width: MAX_IMAGE_SIDE, height: 1125, type: "image/png" }]);
+    expect(result).toMatchObject({
+      kind: "image",
+      name: "image.png",
+      mimeType: "image/png",
+      size: 1024,
+    });
+    expect([...drawn]).toEqual([{ width: MAX_IMAGE_SIDE, height: 882, type: "image/png" }]);
     expect(drawn.closed).toBe(1);
   });
 
@@ -82,13 +88,18 @@ describe("an image over the per-image limit", () => {
     expect(result).toMatchObject({ name: "Screen Shot.jpg", mimeType: "image/jpeg", size: 2048 });
   });
 
-  test("is refused as too large only when no encoding fits", async () => {
-    installEngine(4000, 4000, () => MAX_IMAGE_BYTES + 1);
-    expect(await readAttachment(big("huge.png"), true)).toEqual({ name: "huge.png", reason: "tooLarge" });
+  // Leo, 2026-10-24: "we shouldn't have this limit". Past every step the smallest try goes.
+  test("is never refused for its size: past every step its smallest try goes", async () => {
+    const drawn = installEngine(4000, 4000, () => MAX_IMAGE_BYTES + 1);
+    expect(await readAttachment(big("huge.png"), true)).toMatchObject({ name: "huge.jpg", mimeType: "image/jpeg" });
+    expect(drawn.at(-1)).toEqual({ width: 512, height: 512, type: "image/jpeg" });
   });
 
-  test("is refused as too large where the engine cannot scale images", async () => {
-    expect(await readAttachment(big("image.png"), true)).toEqual({ name: "image.png", reason: "tooLarge" });
+  test("goes as a file where the engine cannot draw images", async () => {
+    expect(await readAttachment(big("image.png"), true)).toEqual({
+      name: "image.png",
+      reason: "unsupported",
+    });
   });
 });
 
@@ -101,31 +112,44 @@ describe("any image", () => {
     const drawn = installEngine(3024, 1964, () => 512 * 1024);
     const result = await readAttachment(small("Screenshot.png"), true);
     if ("reason" in result) throw new Error(`refused: ${result.reason}`);
-    expect(result).toMatchObject({ name: "Screenshot.png", mimeType: "image/png", size: 512 * 1024 });
-    expect([...drawn]).toEqual([{ width: MAX_IMAGE_SIDE, height: 1299, type: "image/png" }]);
+    expect(result).toMatchObject({
+      name: "Screenshot.png",
+      mimeType: "image/png",
+      size: 512 * 1024,
+    });
+    expect([...drawn]).toEqual([{ width: MAX_IMAGE_SIDE, height: 1018, type: "image/png" }]);
   });
 
-  test("within the side and the budget goes as it is, a GIF still animated", async () => {
+  test("within the side and the budget is still reencoded to strip metadata", async () => {
     const drawn = installEngine(1200, 800, () => 1);
     const gif = await readAttachment(small("party.gif", "image/gif"), true);
-    expect(gif).toMatchObject({ name: "party.gif", mimeType: "image/gif", size: 100 * 1024 });
-    expect([...drawn]).toEqual([]);
+    expect(gif).toMatchObject({ name: "party.png", mimeType: "image/png", size: 1 });
+    expect([...drawn]).toEqual([{ width: 1200, height: 800, type: "image/png" }]);
     expect(drawn.closed).toBe(1);
   });
 
   test("over the budget steps down in size until it fits, rather than being refused", async () => {
-    const heavy = new File([new Uint8Array(IMAGE_BUDGET_BYTES + 1)], "noise.png", { type: "image/png" });
+    const heavy = new File([new Uint8Array(IMAGE_BUDGET_BYTES + 1)], "noise.png", {
+      type: "image/png",
+    });
     // Only a canvas at most 1200 wide encodes under the budget, and only as JPEG.
     const drawn = installEngine(4000, 3000, (type, width) =>
       type === "image/jpeg" && width <= 1200 ? IMAGE_BUDGET_BYTES : IMAGE_BUDGET_BYTES * 2,
     );
     const result = await readAttachment(heavy, true);
     if ("reason" in result) throw new Error(`refused: ${result.reason}`);
-    expect(result).toMatchObject({ name: "noise.jpg", mimeType: "image/jpeg", size: IMAGE_BUDGET_BYTES });
+    expect(result).toMatchObject({
+      name: "noise.jpg",
+      mimeType: "image/jpeg",
+      size: IMAGE_BUDGET_BYTES,
+    });
     expect(drawn.at(-1)).toEqual({ width: 1200, height: 900, type: "image/jpeg" });
   });
 
-  test("goes as it is where the engine cannot scale images, when the API takes it", async () => {
-    expect(await readAttachment(small("plain.png"), true)).toMatchObject({ name: "plain.png", mimeType: "image/png" });
+  test("does not pass unsanitized bytes through when the image engine is unavailable", async () => {
+    expect(await readAttachment(small("plain.png"), true)).toEqual({
+      name: "plain.png",
+      reason: "unsupported",
+    });
   });
 });

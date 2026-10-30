@@ -125,3 +125,162 @@ test("a Retry refused again says so, instead of drawing the same bubble back", a
     pane.client.close?.();
   }
 });
+
+// Leo 2026-10-21: failed sends read "Not sent: trust.pending: answer the trust question for the
+// folder first" and "Not sent: The pane sent a request the app does not accept." The bubble says
+// one plain sentence chosen by acpmux's reason or the host's code; their words and code stay for
+// Details.
+test("a failed send says one plain sentence by its cause, and keeps the raw error and code for Details", async () => {
+  const trustPending = Object.assign(new Error("trust.pending: answer the trust question for the folder first"), {
+    data: { reason: "trust.pending", cwd: "/home/dev/parity-demo" },
+  });
+  const paneBug = Object.assign(new Error("The pane sent a request the app does not accept."), {
+    code: "transport.intent_invalid",
+  });
+  const pane = await paneWith((attempt) => (attempt === 1 ? trustPending : paneBug));
+  try {
+    await pane.client.send("ship it").catch(() => undefined);
+    await pane.client.send("and the tests").catch(() => undefined);
+    const shown = (text: string) =>
+      pane.rows().find((row) => row.kind === "user" && row.text === text) as
+        | (Row & { delivery?: { reason?: string; code?: string; error?: string } })
+        | undefined;
+    const trust = shown("ship it");
+    expect(trust?.failed).toBe(true);
+    expect(trust?.error).toBe("Not sent until you trust this folder.");
+    expect(trust?.delivery?.reason).toBe("trust.pending");
+    expect(trust?.delivery?.error).toBe("trust.pending: answer the trust question for the folder first");
+    const bug = shown("and the tests");
+    expect(bug?.error).toBe("Not sent because of an error in the agent pane.");
+    expect(bug?.delivery?.code).toBe("transport.intent_invalid");
+    // No code in the words the bubble shows.
+    for (const row of [trust, bug]) expect(row?.error).not.toMatch(/trust\.pending|transport\.|:\s*The /);
+  } finally {
+    pane.client.close?.();
+  }
+});
+
+// The host spends one click's gesture on one session/prompt, so a card's Retry for several failed
+// prompts sends them as one prompt: the texts in order, over the last one's bubble.
+test("Retry on a run of failed prompts sends them again as one prompt", async () => {
+  const pane = await paneWith((attempt) => (attempt <= 3 ? new Error("upstream request failed (502)") : undefined));
+  try {
+    for (const text of ["ship it", "and the tests", "open a PR"]) await pane.client.send(text).catch(() => undefined);
+    const failed = pane.rows().filter((row) => row.kind === "user" && row.failed);
+    expect(failed.map((row) => row.text)).toEqual(["ship it", "and the tests", "open a PR"]);
+    await pane.client.retryPrompts(failed.map((row) => row.id));
+    expect(pane.prompts).toEqual(["ship it", "and the tests", "open a PR", "ship it\n\nand the tests\n\nopen a PR"]);
+    const users = pane.rows().filter((row) => row.kind === "user");
+    expect(users.some((row) => row.failed)).toBe(false);
+    expect(users.filter((row) => row.text === "ship it\n\nand the tests\n\nopen a PR")).toHaveLength(1);
+    expect(users.some((row) => row.text === "and the tests")).toBe(false);
+  } finally {
+    pane.client.close?.();
+  }
+});
+
+// #24144 review: a prompt refused with trust.pending keeps a Trust replay of its failed row. A chat
+// switch (A, then B, back to A) clears the client's failed prompts with the rows; Trust in A must
+// still send A's prompt, while a failed prompt the person removed stays gone.
+test("Trust in a chat sends its trust-refused prompt even after a switch away and back", async () => {
+  const { failedRowTrustRetry } = await import("./failedRowTrustRetry");
+  const { MockAcpmuxSocket } = await import("./mock");
+  const trustPending = () =>
+    Object.assign(new Error("trust.pending: answer the trust question for the folder first"), {
+      data: { reason: "trust.pending", cwd: "/home/dev/parity-demo" },
+    });
+  const pane = await paneWith((attempt) => (attempt <= 2 ? trustPending() : undefined));
+  try {
+    const client = pane.client;
+    const home = client.selectedSession!;
+    const other = MockAcpmuxSocket.live!.seedLoadSession(2);
+    const replays: (() => void)[] = [];
+    // Trust's replay sends without waiting (failedRowTrustRetry); the test waits for the sends it started.
+    const started: Promise<unknown>[] = [];
+    const track = <T>(send: Promise<T>) => (started.push(send), send);
+    const settled = () => Promise.allSettled(started.splice(0));
+    const rowRetry = failedRowTrustRetry({
+      retry: (rowIds, ticket, anchor) => track(client.retryPrompts(rowIds, ticket, anchor)),
+      runOf: (row) => [row],
+      hold: () => undefined,
+      takeTicket: () => undefined,
+      copy: (rowIds) => client.failedPromptCopies(rowIds),
+      restore: (copies) => client.restoreFailedPrompts(copies),
+    });
+    const route = (_error: unknown, again: () => void) => {
+      replays.push(again);
+      return true;
+    };
+    // Two refused prompts: one Trust replays, one the person removes before switching away.
+    for (const text of ["ship it", "drop me"])
+      await client.send(text).catch((error: unknown) => rowRetry.replayAfterTrust(error, route));
+    expect(replays).toHaveLength(2);
+    const dropped = pane.rows().find((row) => row.kind === "user" && row.text === "drop me");
+    client.removeFailedPrompt(dropped!.id);
+    await client.select(other);
+    await client.select(home);
+    expect(pane.rows().some((row) => row.failed)).toBe(false);
+    // Trust: both replays run; only the prompt that was still failed goes, once.
+    for (const again of replays) again();
+    await settled();
+    expect(pane.prompts).toEqual(["ship it", "drop me", "ship it"]);
+    const users = pane.rows().filter((row) => row.kind === "user" && row.text === "ship it");
+    expect(users).toHaveLength(1);
+    expect(users[0]!.failed).not.toBe(true);
+    // A second Trust replay of the same row sends nothing more.
+    replays[0]!();
+    await settled();
+    expect(pane.prompts).toEqual(["ship it", "drop me", "ship it"]);
+  } finally {
+    pane.client.close?.();
+  }
+});
+
+// #24144 review: the snapshot a held chat switch still shows takes Remove and Edit after the switch
+// cleared the failed prompts. A prompt removed or taken back there is not brought back by Trust.
+test("a failed prompt removed or edited after a switch cleared it stays gone after Trust", async () => {
+  const { failedRowTrustRetry } = await import("./failedRowTrustRetry");
+  const { MockAcpmuxSocket } = await import("./mock");
+  const trustPending = () =>
+    Object.assign(new Error("trust.pending: answer the trust question for the folder first"), {
+      data: { reason: "trust.pending", cwd: "/home/dev/parity-demo" },
+    });
+  const pane = await paneWith((attempt) => (attempt <= 2 ? trustPending() : undefined));
+  try {
+    const client = pane.client;
+    const home = client.selectedSession!;
+    const other = MockAcpmuxSocket.live!.seedLoadSession(2);
+    const replays: (() => void)[] = [];
+    // Trust's replay sends without waiting (failedRowTrustRetry); the test waits for the sends it started.
+    const started: Promise<unknown>[] = [];
+    const track = <T>(send: Promise<T>) => (started.push(send), send);
+    const settled = () => Promise.allSettled(started.splice(0));
+    const rowRetry = failedRowTrustRetry({
+      retry: (rowIds, ticket, anchor) => track(client.retryPrompts(rowIds, ticket, anchor)),
+      runOf: (row) => [row],
+      hold: () => undefined,
+      takeTicket: () => undefined,
+      copy: (rowIds) => client.failedPromptCopies(rowIds),
+      restore: (copies) => client.restoreFailedPrompts(copies),
+    });
+    const route = (_error: unknown, again: () => void) => {
+      replays.push(again);
+      return true;
+    };
+    for (const text of ["remove me", "edit me"])
+      await client.send(text).catch((error: unknown) => rowRetry.replayAfterTrust(error, route));
+    const rowOf = (text: string) => pane.rows().find((row) => row.kind === "user" && row.text === text)!.id;
+    const removed = rowOf("remove me");
+    const edited = rowOf("edit me");
+    await client.select(other);
+    // The held snapshot's Remove and Edit land after the switch cleared the client's failed prompts.
+    client.removeFailedPrompt(removed);
+    client.takeFailedPrompt(edited);
+    await client.select(home);
+    for (const again of replays) again();
+    await settled();
+    expect(pane.prompts).toEqual(["remove me", "edit me"]);
+  } finally {
+    pane.client.close?.();
+  }
+});

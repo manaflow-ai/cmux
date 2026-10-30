@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence 2026-10-20: "opening and closing sidebar workspace groups still lags too much ... the algorithm must not
@@ -101,6 +102,16 @@ import Testing
         return Cost(median: samples[samples.count / 2], p90: samples[(samples.count * 9) / 10], reloadsPerToggle: Double(reloads) / Double(runs))
     }
 
+    /// `measure`, with the runner's reference workload timed before and after the toggles
+    /// (FrameBudgetCalibration), so a budget can be scaled to the runner they ran on.
+    static func measure(_ h: Harness, runs: Int = 16, calibrating calibration: inout FrameBudgetCalibration,
+                        work: @MainActor (Harness) -> Void = { toggle($0) }) -> Cost {
+        calibration.checkpoint()
+        let cost = measure(h, runs: runs, work: work)
+        calibration.checkpoint()
+        return cost
+    }
+
     /// Where one toggle's time goes (median of 16 each, ms): the model's write, the list's splice, the render, and
     /// the mouse handling around them.
     static func phases(_ h: Harness) -> String {
@@ -142,25 +153,115 @@ import Testing
     @Test func aToggleThatWaitsCostsOnlyItsOwnWork() {
         let h = Self.make(100)
         defer { h.window.close() }
-        let cost = Self.measure(h, runs: 8) { h in
+        var calibration = FrameBudgetCalibration()
+        let cost = Self.measure(h, runs: 8, calibrating: &calibration) { h in
             Thread.sleep(forTimeInterval: 0.02)
             Self.toggle(h)
         }
-        #expect(cost.p90 < 8, "a toggle that waited 20 ms cost \(cost.p90) ms (p90): the wait was counted as its work")
+        print("group-toggle-wait \(cost) | \(calibration.summary)")
+        if let reason = calibration.skipReason { return print("group-toggle-wait skipped the 8 ms check: \(reason)") }
+        #expect(cost.p90 < calibration.budget(8),
+                "a toggle that waited 20 ms cost \(cost.p90) ms (p90), over 8 ms scaled to \(calibration.budget(8)) ms: the wait was counted as its work")
     }
 
-    /// The guard: a toggle at 10,000 workspaces costs at most 1.5x one at 100, and fits in one 8 ms frame.
+    /// A slow runner, stood in deterministically as in SidebarScrollCostTests: every toggle and every
+    /// reference sample is done `slowdown` times. This host's own reference is nominal and its own
+    /// toggles set the budget, so the host's speed cancels out; the slowed toggles break that budget
+    /// as it is and hold it scaled by the reference `measure` times around them.
+    @Test func aToggleOnASlowRunnerIsHeldToAScaledBudget() {
+        let slowdown = 3
+        let h = Self.make(100)
+        defer { h.window.close() }
+        let fast = Self.measure(h)
+        FrameBudgetCalibration.referenceWork() // warm up
+        let reference = (0..<15).map { _ in FrameBudgetCalibration.cpuMs { FrameBudgetCalibration.referenceWork() } }
+        var slow = FrameBudgetCalibration(nominalMs: SidebarScrollBench.percentile(reference, 0.5),
+                                          reference: { for _ in 0..<slowdown { FrameBudgetCalibration.referenceWork() } })
+        // An even number of toggles a run leaves the group as it found it; an odd one alternates it.
+        let slowed = Self.measure(h, calibrating: &slow) { h in for _ in 0..<slowdown { Self.toggle(h) } }
+        let budget = 1.5 * fast.p90
+        print("group-toggle-calibration fast \(fast) slowed \(slowed) budget=\(String(format: "%.3f", budget))ms | \(slow.summary)")
+        #expect(slowed.p90 > budget, "the stand-in runner is not slow enough to break an unscaled budget")
+        #expect(slow.checkpoints.count == 2, "measure did not time the reference workload before and after the toggles")
+        if let reason = slow.skipReason { return print("group-toggle-calibration skipped: \(reason)") }
+        #expect(slowed.p90 < slow.budget(budget),
+                "a runner \(slowdown)x slower at the reference took \(slowed.p90) ms a toggle against a budget scaled to \(slow.budget(budget)) ms")
+    }
+
+    /// The guard: a toggle at 10,000 workspaces costs at most 1.5x one at 100, and fits in one 8 ms frame (scaled to
+    /// the runner by FrameBudgetCalibration). The ratio is not scaled: both sizes run on the same runner in one run.
     @Test func toggleCostDoesNotGrowWithWorkspaces() {
+        var calibration = FrameBudgetCalibration()
         let small = Self.make(100)
-        let smallCost = Self.measure(small)
+        let smallCost = Self.measure(small, calibrating: &calibration)
         small.window.close()
         let large = Self.make(10_000)
-        let largeCost = Self.measure(large)
+        let largeCost = Self.measure(large, calibrating: &calibration)
         large.window.close()
         let ratio = largeCost.median / max(smallCost.median, 0.05)
-        print("group-toggle-guard n=100 \(smallCost) n=10000 \(largeCost) ratio=\(String(format: "%.2f", ratio))")
+        print("group-toggle-guard n=100 \(smallCost) n=10000 \(largeCost) ratio=\(String(format: "%.2f", ratio)) | \(calibration.summary)")
         #expect(ratio <= 1.5, "a toggle at 10,000 workspaces costs \(String(format: "%.1f", ratio))x one at 100: \(largeCost) vs \(smallCost)")
-        #expect(largeCost.p90 < 8, "a toggle at 10,000 workspaces took \(largeCost.p90) ms (p90), over one 8 ms frame")
         #expect(largeCost.reloadsPerToggle <= 1, "a toggle laid the whole list out \(largeCost.reloadsPerToggle) times")
+        if let reason = calibration.skipReason { return print("group-toggle-guard skipped the 8 ms check: \(reason)") }
+        #expect(largeCost.p90 < calibration.budget(8),
+                "a toggle at 10,000 workspaces took \(largeCost.p90) ms (p90), over one 8 ms frame scaled to \(calibration.budget(8)) ms")
+    }
+
+    /// The first fold after loading sections must not prepare every other group's lookup before the list can
+    /// start moving. The warm-click harness above deliberately warms both directions and would miss that delay.
+    @Test(arguments: [false, true])
+    func firstFoldDoesNotScanOtherGroups(replacingSections: Bool) {
+        let target = GroupID("first-fold-9999")
+        func sections() -> [SidebarSection] {
+            let nodes = (0..<10_000).map { index in
+                SidebarNode.group(SidebarGroup(id: GroupID("first-fold-\(index)"), name: "Group \(index)", workspaces: []))
+            }
+            let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+            return [SidebarSection(kind: .machine(machine), nodes: nodes)]
+        }
+        var first: [Double] = [], warm: [Double] = []
+        var calibration = FrameBudgetCalibration()
+        calibration.checkpoint()
+        for _ in 0..<9 {
+            let model = SidebarModel(sections: replacingSections ? [] : sections())
+            if replacingSections { model.sections = sections() }
+            // The callback is where the list starts its fold. No layout or animation work is included here.
+            var reachedList = false
+            model.onGroupFolded = { id in reachedList = id == target }
+            first.append(FrameBudgetCalibration.cpuMs { model.setGroupCollapsed(target, true) })
+            #expect(reachedList, "the first fold never reached the list")
+            #expect(model.group(target)?.isCollapsed == true)
+            warm.append(FrameBudgetCalibration.cpuMs { model.setGroupCollapsed(target, false) })
+            model.onGroupFolded = nil
+        }
+        calibration.checkpoint()
+        let coldMs = SidebarScrollBench.percentile(first, 0.5)
+        let warmMs = SidebarScrollBench.percentile(warm, 0.5)
+        print("group-first-fold replaced=\(replacingSections) n=10000 first=\(coldMs)ms warm=\(warmMs)ms | \(calibration.summary)")
+        if let reason = calibration.skipReason { return print("group-first-fold skipped budget: \(reason)") }
+        #expect(coldMs < max(warmMs * 1.5, calibration.budget(0.075)),
+                "the first fold spent \(coldMs) ms before the list, compared with \(warmMs) ms once warm")
+    }
+
+    @Test func firstFoldFindsTheGroupAfterSectionsMoveOrRemoveIt() {
+        let a = GroupID("fold-a"), b = GroupID("fold-b")
+        let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+        func section(_ ids: [GroupID]) -> [SidebarSection] {
+            [SidebarSection(kind: .machine(machine), nodes: ids.map {
+                .group(SidebarGroup(id: $0, name: $0.rawValue, workspaces: []))
+            })]
+        }
+        let model = SidebarModel(sections: section([a, b]))
+        #expect(model.group(a)?.id == a)
+        model.sections = section([b, a])
+        #expect(model.group(a)?.id == a)
+        #expect(model.setGroupCollapsed(a, true))
+        #expect(model.group(a)?.isCollapsed == true)
+        #expect(model.group(b)?.isCollapsed == false)
+        model.sections = section([b])
+        #expect(model.group(a) == nil)
+        #expect(!model.setGroupCollapsed(a, true))
+        #expect(model.setGroupCollapsed(b, true))
+        #expect(model.group(b)?.isCollapsed == true)
     }
 }

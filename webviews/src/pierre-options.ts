@@ -18,17 +18,47 @@ export type DiffViewerOptions = {
   expandUnchanged: boolean;
   /** The delineated diff: files in kind order, code first (diff-kind-groups.ts). */
   groupByKind: boolean;
-  layout: "split" | "unified";
+  /**
+   * Hide white space: the sidecar diffs with `--ignore-all-space` (session.ts
+   * `diffSessionRequest`), so it reloads the diff and is not a render option.
+   */
+  hideWhitespace: boolean;
+  /**
+   * Hide imports: the page leaves import-only hunks out of each file's patch
+   * (diff-viewer/importHunks.ts), so it reloads the diff. Not saved: it lasts for the tab.
+   */
+  hideImports: boolean;
+  /**
+   * Load full files: each shown file's two sides load (diff-viewer/fullFiles.ts), so its
+   * "N unmodified lines" rows expand from their chevrons, `EXPANSION_LINE_COUNT` lines a click.
+   * Nothing expands by itself. Not saved: it lasts for the tab.
+   */
+  loadFullFiles: boolean;
+  /**
+   * Rich preview: Markdown and image files get a Preview button that opens their sheet
+   * (diff-viewer/RichPreviewSheet.tsx). Not saved: it lasts for the tab.
+   */
+  richPreview: boolean;
+  /** `auto` draws split while the viewer is wide enough for two readable sides, unified below. */
+  layout: "split" | "unified" | "auto";
   lineNumbers: boolean;
   showBackgrounds: boolean;
+  /** The floating Stage all / Revert all bar (`diff.showBulkActions`, Settings only). */
+  showBulkActions: boolean;
   wordDiffs: boolean;
   wordWrap: boolean;
 };
 
+/** How many unchanged lines one press of a gap's chevron shows (Load full files). */
+export const EXPANSION_LINE_COUNT = 20;
+
+/** The options a diff is drawn with: `auto` resolved to the layout the viewer width allows. */
+export type DrawnDiffOptions = Omit<DiffViewerOptions, "layout"> & { layout: "split" | "unified" };
+
 /** Height of a file header row; also the virtualizer's header metric. */
 export const DIFF_FILE_HEADER_HEIGHT = 38;
 
-export function codeViewOptions(options: DiffViewerOptions, appearance: DiffViewerAppearance): CodeViewOptions<any> {
+export function codeViewOptions(options: DrawnDiffOptions, appearance: DiffViewerAppearance): CodeViewOptions<any> {
   return {
     layout: { paddingTop: 0, gap: 1, paddingBottom: 0 },
     itemMetrics: { diffHeaderHeight: DIFF_FILE_HEADER_HEIGHT },
@@ -36,6 +66,7 @@ export function codeViewOptions(options: DiffViewerOptions, appearance: DiffView
     diffIndicators: options.diffIndicators,
     overflow: options.wordWrap ? "wrap" : "scroll",
     expandUnchanged: options.expandUnchanged,
+    expansionLineCount: EXPANSION_LINE_COUNT,
     disableBackground: !options.showBackgrounds,
     disableLineNumbers: !options.lineNumbers,
     lineHoverHighlight: "number",
@@ -75,6 +106,19 @@ export function workerHighlighterOptions(
 
 export function codeViewUnsafeCSS(): string {
   return `
+    /* An inline preview (diff-viewer/InlinePreview.tsx) is the only file item the diff tab draws:
+       its one placeholder line and its line numbers are hidden, and its annotation (the
+       preview) takes the whole width. Diffs are \`pre[data-diff]\` and keep theirs. */
+    pre[data-file] {
+      --diffs-code-grid: 0 minmax(0, 1fr);
+    }
+    pre[data-file] [data-gutter],
+    pre[data-file] [data-content] > [data-line] {
+      display: none;
+    }
+    pre[data-file] [data-code] {
+      padding-block: 0;
+    }
     :host {
       /* Code rows and separators are clear over the page's one backdrop
          (only html paints it, so a translucent backdrop never stacks). */
@@ -112,9 +156,17 @@ export function codeViewUnsafeCSS(): string {
       user-select: text;
       cursor: text;
     }
-    /* The file header is never transparent (Lawrence): it paints the
-       backdrop composited onto the theme color at full alpha, so scrolled
-       code never shows through it, even over a see-through window. Its
+    /* A line listener (Cmd-click opens the file, openFile.ts) makes Pierre show a pointer on
+       every line; the text cursor stays, since a plain click selects text. */
+    [data-interactive-lines] [data-line] {
+      cursor: text;
+    }
+    /* Over an opaque window the file header paints the backdrop composited onto
+       the theme color at full alpha, so scrolled code never shows through it
+       (Lawrence). Over an image or a see-through window it is a clear film
+       (--cmux-diff-header-bg, a 5% text tint) with a plain blur(20px)
+       (styles.css): WebKit frosts the code under it; Chromium cannot blur behind
+       the page, so there the code shows through the film. Its
        content is the slotted FileHeader (renderCustomHeader), so the row's
        height is fixed to the virtualizer's diffHeaderHeight metric. */
     [data-diffs-header] {
@@ -122,8 +174,17 @@ export function codeViewUnsafeCSS(): string {
       min-height: 0;
       display: flex;
       align-items: stretch;
-      background-color: var(--cmux-diff-solid-bg);
+      background-color: var(--cmux-diff-header-bg, var(--cmux-diff-solid-bg));
+      -webkit-backdrop-filter: var(--cmux-diff-glass-filter, none);
+      backdrop-filter: var(--cmux-diff-glass-filter, none);
       border-bottom: 1px solid var(--cmux-diff-border);
+    }
+    /* Reduce Transparency: no frost (the host's data-reduce-transparency clears the variable too). */
+    @media (prefers-reduced-transparency: reduce) {
+      [data-diffs-header] {
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
+      }
     }
     [data-line-type='change-addition']:where([data-column-number], [data-gutter-buffer]) {
       color: var(--cmux-diff-number-addition);
@@ -194,7 +255,7 @@ export function fileTreeUnsafeCSS(): string {
       display: block;
       height: 100%;
       min-height: 0;
-      background-color: var(--cmux-diff-files-bg, var(--cmux-diff-solid-bg));
+      background-color: var(--cmux-diff-files-layer-bg, var(--cmux-diff-files-bg, var(--cmux-diff-solid-bg)));
       /* Icon hues from the terminal theme (styles.css \`--cmux-file-icon-*\`), as in file headers. */
       --trees-icon-gray: var(--cmux-file-icon-gray);
       --trees-icon-red: var(--cmux-file-icon-red);
@@ -209,12 +270,14 @@ export function fileTreeUnsafeCSS(): string {
       --trees-icon-purple: var(--cmux-file-icon-purple);
       --trees-icon-pink: var(--cmux-file-icon-pink);
       --trees-icon-mauve: var(--cmux-file-icon-mauve);
+      /* A modified or renamed file's name and change square: the terminal palette's blue. */
+      --cmux-tree-modified: var(--cmux-diff-count-modified);
     }
     [data-file-tree-virtualized-scroll='true'] {
       height: 100%;
       min-height: 0;
       overflow: auto;
-      background-color: var(--cmux-diff-files-bg, var(--cmux-diff-solid-bg));
+      background-color: var(--cmux-diff-files-layer-bg, var(--cmux-diff-files-bg, var(--cmux-diff-solid-bg)));
       padding-inline-start: 0;
       padding-inline-end: 0;
       scrollbar-gutter: stable;
@@ -242,9 +305,49 @@ export function fileTreeUnsafeCSS(): string {
     [data-item-section='decoration'] svg {
       display: block;
     }
+    /* An added file's name and icon are green, a deleted one's red (the counts' colors), a modified
+       or renamed one's blue (file-tree-stats \`nameColoredGitStatus\`). The row's square says the
+       change, so the tree's status letters and folder dots are hidden. */
+    [data-item-section='git'] {
+      display: none;
+    }
+    [data-item-git-status='added'] {
+      --trees-item-git-status-color: var(--trees-status-added);
+    }
+    [data-item-git-status='deleted'] {
+      --trees-item-git-status-color: var(--trees-status-deleted);
+    }
+    [data-item-git-status='modified'],
+    [data-item-git-status='renamed'] {
+      --trees-item-git-status-color: var(--cmux-tree-modified);
+    }
+    /* Over an image or a see-through window a status-colored name loses contrast against the
+       backdrop, so it is mixed toward the text color there (--cmux-diff-tree-name-strength,
+       styles.css): the same hue, brighter in a dark theme, darker in a light one. Elsewhere the
+       strength is 100%, the status color itself. */
+    /* A shortened name's marker covers the hidden text: over glass the solid backdrop
+       (--cmux-diff-truncate-marker-bg), since the tree's own surfaces are clear there. */
+    [data-type='item'] {
+      --truncate-marker-background-color: var(--cmux-diff-truncate-marker-bg, var(--trees-bg));
+    }
+    [data-item-git-status] > [data-item-section='content'] {
+      color: color-mix(
+        in oklab,
+        var(--trees-item-git-status-color) var(--cmux-diff-tree-name-strength, 100%),
+        var(--cmux-diff-fg)
+      );
+    }
     [data-file-tree-sticky-overlay-content] {
-      background-color: var(--cmux-diff-files-bg, var(--cmux-diff-solid-bg)) !important;
+      background-color: var(--cmux-diff-files-sticky-bg, var(--cmux-diff-files-bg, var(--cmux-diff-solid-bg))) !important;
+      -webkit-backdrop-filter: var(--cmux-diff-glass-filter, none);
+      backdrop-filter: var(--cmux-diff-glass-filter, none);
       box-shadow: 0 1px 0 var(--trees-border-color);
+    }
+    @media (prefers-reduced-transparency: reduce) {
+      [data-file-tree-sticky-overlay-content] {
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
+      }
     }
     ${PIERRE_TREES_SCROLLER_CSS}
   `;

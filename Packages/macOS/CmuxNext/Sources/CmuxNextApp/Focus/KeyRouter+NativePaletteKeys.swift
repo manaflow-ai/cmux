@@ -43,7 +43,7 @@ extension KeyRouter {
     /// A palette key while web content outside a cmux main window has the keyboard: the native
     /// palette opens over the last main window and the page never gets the key-down. Returns
     /// whether it took the key. Main windows are left to ``dispatch(_:in:controller:facts:)``,
-    /// which also keeps browser focus mode's rule (the page owns every key but system ones).
+    /// which also keeps browser focus mode's rule (the page owns every key but its exit chords and Quit).
     func routesNativePaletteKey(_ event: NSEvent, in window: NSWindow?) -> Bool {
         // Cheapest first: this runs for every key-down, plain typing included.
         guard Self.isChord(event.modifierFlags), let window, Self.webContentHasKeys(in: window), focus(for: window).1 != .content,

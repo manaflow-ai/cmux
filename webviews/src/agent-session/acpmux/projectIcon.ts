@@ -1,19 +1,51 @@
 // Project favicons for the picker badges (ProjectBadge): the host reads a few well-known icon files
 // in a project folder on this Mac, then in its repository's main checkout, then its GitHub owner's
 // avatar, and answers a small data URL (`project.icon {cwd}`, AgentPaneProjectIcon.swift); the page
-// reads no file itself (CSP `img-src data:`). With it, or alone, comes the project's language or
-// framework (`glyph`, from Package.swift, Cargo.toml, package.json and the like), which the badge
-// draws when there is no image. A remote project is never asked about: its folder is on another
-// machine. Each folder's answer is kept for the page; neither keeps the letters. A failed ask (an
-// older host, the page not yet connected) is not kept, so the next badge asks again.
+// reads no file itself (CSP `img-src data:`). With it, or alone, comes the project's framework or
+// language (`glyph`, from package.json dependencies, Package.swift, Cargo.toml and the like), which
+// the badge draws when there is no image. A remote project is never asked about: its folder is on
+// another machine. Each folder's answer is kept for the page; neither keeps the letters. A failed or
+// empty ask (an older host, the page not yet connected, or a capability still warming) is not kept,
+// so the next badge asks again.
 import { useEffect, useState } from "react";
 import { postNative } from "./native";
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 let call: Call = postNative;
 
-/// The languages and frameworks the badge has a glyph for (ProjectGlyph.tsx).
-export const PROJECT_GLYPHS = ["swift", "rust", "react", "typescript", "node", "python", "go", "ruby"] as const;
+/// The languages and frameworks the badge has a glyph for (projectGlyphs.tsx), named as the host
+/// answers them (AgentPaneProjectIcon.glyph).
+export const PROJECT_GLYPHS = [
+  "react",
+  "next",
+  "nuxt",
+  "remix",
+  "astro",
+  "svelte",
+  "angular",
+  "vue",
+  "expo",
+  "electron",
+  "tauri",
+  "vite",
+  "typescript",
+  "node",
+  "bun",
+  "deno",
+  "swift",
+  "rust",
+  "python",
+  "go",
+  "ruby",
+  "zig",
+  "kotlin",
+  "java",
+  "php",
+  "elixir",
+  "dart",
+  "flutter",
+  "cpp",
+] as const;
 export type ProjectGlyphName = (typeof PROJECT_GLYPHS)[number];
 
 /// A folder's answer: its image, its glyph, either or neither.
@@ -41,7 +73,7 @@ function load(cwd: string): Promise<ProjectIcon> {
           ...(typeof src === "string" && src.startsWith("data:image/") ? { src } : {}),
           ...(PROJECT_GLYPHS.includes(glyph as ProjectGlyphName) ? { glyph: glyph as ProjectGlyphName } : {}),
         };
-        icons.set(cwd, icon);
+        if (Object.keys(icon).length > 0) icons.set(cwd, icon);
         return icon;
       },
       (): ProjectIcon => ({}),

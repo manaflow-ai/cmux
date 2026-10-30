@@ -37,6 +37,8 @@ struct SidebarMinimalModeTests {
             .workspace(notes), .group(SidebarGroup(id: Self.group, name: "New Group", workspaces: [build])),
         ])]
         let design = DesignSettings()
+        // The status block is opt-in since Lawrence 2026-10-21: on here, so minimal mode has one to drop.
+        design.sidebarSections.workspaceRow.base.shown.insert(.agentStatus)
         let sidebar = SidebarView(model: SidebarModel(sections: sections), design: design)
         sidebar.frame = NSRect(x: 0, y: 0, width: 240, height: 600)
         sidebar.layoutSubtreeIfNeeded()

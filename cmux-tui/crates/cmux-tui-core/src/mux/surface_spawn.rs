@@ -151,11 +151,15 @@ impl Mux {
                     id,
                     opts,
                     Arc::downgrade(self),
-                    (
-                        Some(terminal_id),
+                    crate::surface::HostLaunch {
+                        terminal_id: Some(terminal_id),
                         // Reopen Closed of an archived terminal (ARCHIVE-1).
-                        &self.terminal_respawns.take_seed(&terminal_hex).unwrap_or_default(),
-                    ),
+                        seed: &self.terminal_respawns.take_seed(&terminal_hex).unwrap_or_default(),
+                        // Its first record names the workspace, so the
+                        // recovery mirror below needs no second synced write.
+                        workspace_key,
+                        standby: None,
+                    },
                     Some(terminal_identity(tab_id)?),
                     crate::surface::PtyLifetime::SessionOwned,
                     cell_pixels,
@@ -304,7 +308,7 @@ impl Mux {
                     id,
                     opts,
                     Arc::downgrade(self),
-                    (None, &[]),
+                    crate::surface::HostLaunch::default(),
                     Some(terminal_identity(tab_id)?),
                     crate::surface::PtyLifetime::SessionOwned,
                     cell_pixels,
@@ -316,7 +320,7 @@ impl Mux {
                     id,
                     opts,
                     Arc::downgrade(self),
-                    (None, &[]),
+                    crate::surface::HostLaunch::default(),
                     Some(terminal_identity(tab_id)?),
                     crate::surface::PtyLifetime::SessionOwned,
                     cell_pixels,

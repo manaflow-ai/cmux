@@ -1,6 +1,7 @@
 @testable import CmuxNextApp
 import Foundation
 import Testing
+import CmuxNextHistory
 
 @Suite struct LegacyHistoryFileTests {
     @Test func aProfileSymlinkCannotRedirectHistoryCleanup() throws {

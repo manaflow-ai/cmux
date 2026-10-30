@@ -1,8 +1,9 @@
-// Reduce Motion keeps popup fades (POLISH: calm motion, no flash; plans/cmux-next/motion.md rule 7).
-// Menus faded and scaled in only under `no-preference`, and the pages' shared stylesheet cut every
-// animation and transition to 0.01ms under `reduce`, so a menu, tooltip or sheet appeared and left
-// in one frame there. Under Reduce Motion a menu now fades in at its size, on every page.
-// This opens the shared menu in the gallery, with the pages' shared stylesheet, under emulated Reduce Motion.
+// Reduce Motion keeps popup close fades (POLISH: calm motion, no flash; plans/cmux-next/motion.md
+// rule 7). The pages' shared stylesheet cut every animation and transition to 0.01ms under
+// `reduce`, so a menu, tooltip or sheet left in one frame there. A menu opens in one frame in every
+// motion setting (Leo 2026-10-24: "No fade in ever for any of these"; test/popover-instant-open.test.ts)
+// and fades as it closes. This opens the shared menu in the gallery, with the pages' shared
+// stylesheet, under emulated Reduce Motion.
 import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -54,32 +55,6 @@ await requireBrowserLane("popup-reduce-motion.test.ts", async () => {
     await vite?.close();
   });
 
-  test("under Reduce Motion a menu fades in at its size", async () => {
-    const page = await browser!.newPage({ viewport: { width: 560, height: 420 }, reducedMotion: "reduce" });
-    try {
-      await page.goto(url());
-      await ready(page);
-      // Every page (settings, history, the editor) loads the shared desktop stylesheet.
-      await page.addStyleTag({ content: desktopCss });
-      await page.getByRole("button", { name: "Open demo menu" }).click();
-      const popup = page.locator(".ui-popup").first();
-      await popup.waitFor();
-      const motion = await popup.evaluate((element) => {
-        const style = getComputedStyle(element);
-        const name = style.animationName;
-        const frames = [...document.styleSheets]
-          .flatMap((sheet) => [...sheet.cssRules])
-          .find((rule): rule is CSSKeyframesRule => rule instanceof CSSKeyframesRule && rule.name === name);
-        const properties = frames ? [...frames.cssRules].flatMap((frame) => [...(frame as CSSKeyframeRule).style]) : [];
-        return { duration: parseFloat(style.animationDuration) * 1000, properties: [...new Set(properties)].sort() };
-      });
-      expect(motion.duration).toBeGreaterThanOrEqual(100);
-      expect(motion.properties).toEqual(["opacity"]);
-    } finally {
-      await page.close();
-    }
-  });
-
   for (const reduced of [false, true]) {
     test(`a menu fades out when it closes${reduced ? " under Reduce Motion" : ""}`, async () => {
       // POLISH audit batch 2 (cx-2grmt): a closed menu vanished in one frame.
@@ -94,7 +69,7 @@ await requireBrowserLane("popup-reduce-motion.test.ts", async () => {
         await page.getByRole("button", { name: "Open demo menu" }).click();
         const popup = page.locator(".ui-popup").first();
         await popup.waitFor();
-        // The open settles: its fade-in has run to the end.
+        // The open settles: nothing it started is still running.
         await popup.evaluate((element) => Promise.all(element.getAnimations({ subtree: true }).map((a) => a.finished)));
         await page.evaluate(() => {
           const faded: string[] = [];

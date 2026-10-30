@@ -43,6 +43,8 @@ public struct AccountRowState: Sendable, Equatable {
         case linkedFailed(String)
         case reauthStarted
         case reauthEnded
+        /// The login or logout never opened (no local pane): free the row.
+        case reauthFailed(String)
         case connectStarted
         case connectSucceeded([LinkedAccount])
         case connectFailed(String)
@@ -70,11 +72,15 @@ public struct AccountRowState: Sendable, Equatable {
         case .linkedFailed(let message):
             codeRouterProblem = message
         case .reauthStarted:
-            guard phase == .idle, canReauthenticate else { return }
+            guard phase == .idle, canReauthenticate || canSignOut else { return }
             phase = .reauthenticating
             outcome = nil
         case .reauthEnded:
             if phase == .reauthenticating { phase = .detecting }
+        case .reauthFailed(let message):
+            guard phase == .reauthenticating else { return }
+            phase = .idle
+            outcome = .failed(message)
         case .connectStarted:
             guard phase == .idle, canConnect else { return }
             phase = .connecting
@@ -111,6 +117,24 @@ public struct AccountRowState: Sendable, Equatable {
     public var isBusy: Bool { phase != .idle }
 
     public var canReauthenticate: Bool { provider.reauthPlan != .none }
+
+    /// Sign Out runs the provider's logout: only for a sign-in the logout
+    /// removes, the CLI's own file or Keychain item
+    /// (``AIProvider/signOutRemoves(_:)``). A shell variable is not the CLI's
+    /// to remove; ``shellVariableInUse`` names it instead.
+    public var canSignOut: Bool {
+        guard provider.signOutPlan != .none, status == .signedIn || status == .expired else { return false }
+        return detection?.sources.contains(where: provider.signOutRemoves) == true
+    }
+
+    /// The shell variable the sign-in comes from (`$CLAUDE_CODE_OAUTH_TOKEN`),
+    /// for a provider whose CLI it overrides: while it is set, the CLI uses
+    /// it and ignores a re-authentication or a sign-out made here.
+    public var shellVariableInUse: String? {
+        guard provider.signOutPlan != .none, status == .signedIn || status == .expired, let first = detection?.sources.first,
+              first.isEnvironment else { return nil }
+        return first.label
+    }
 
     /// Whether CodeRouter can hold this provider at all.
     public var isLinkable: Bool { provider.codeRouterLink != .unsupported }

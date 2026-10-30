@@ -14,6 +14,10 @@ import Testing
 /// relaunch's events in order (launch snapshot, handshake, live tree, session snapshot).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(2)))
 struct TerminalFontZoomRelaunchTests {
+    /// AppServices reads `NSApp` (an implicitly unwrapped Optional) from its observers and services;
+    /// a suite run in its own process has no shared application until something makes it.
+    init() { _ = NSApplication.shared }
+
     static let zoom = 1.154
 
     private static func tree() -> DaemonTree {
@@ -24,7 +28,7 @@ struct TerminalFontZoomRelaunchTests {
 
     /// A daemon handshake that serves state resources (tab records).
     private static func identity() throws -> DaemonIdentity {
-        let json = #"{"app":"cmux-tui","protocol":1,"session":"font-zoom-relaunch-test","generation":"g1","capabilities":["\#(DaemonCapabilities.shared.stateResources)"]}"#
+        let json = #"{"app":"cmux-tui","protocol":1,"session":"font-zoom-relaunch-test","generation":"g1","capabilities":["\#(DaemonCapability.stateResources.rawValue)"]}"#
         return try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8))
     }
 

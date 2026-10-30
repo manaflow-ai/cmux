@@ -26,11 +26,12 @@ struct AgentChatViewTests {
         #expect(opened.last?.reply["watch"] == nil, "a chat the tab runs sends no watch flag")
     }
 
-    /// Open shows outside chats View Only by default (the Debug toggle), and only a Claude Code or
-    /// Codex chat is ever watched: another harness's chat opens as it always did.
+    /// Open resumes outside chats to steer by default (Leo 2026-10-21); the Debug toggle makes it View
+    /// Only, and only a Claude Code or Codex chat is ever watched: another harness's chat opens as it always did.
     @Test func openIsViewOnlyForClaudeCodeAndCodexOnly() throws {
         #expect(AgentPaneTunables.openOutsideChatsViewOnly.descriptor.key == "agent.openOutsideChatsViewOnly")
         #expect(AgentPaneTunables.all.contains { $0.key == "agent.openOutsideChatsViewOnly" })
+        #expect(AgentPaneTunables.openOutsideChatsViewOnly.defaultValue == false, "Open steers an outside chat by default")
         let opencode = try #require(AcpmuxChatOpenPlan(result: [
             "kind": "adopt", "cwd": "/tmp", "adopt": ["harness": "opencode", "agentSessionId": "x"], "sessionNew": ["cwd": "/tmp"],
         ]))

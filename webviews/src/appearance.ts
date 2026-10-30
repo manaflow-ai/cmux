@@ -67,6 +67,7 @@ type HostTerminalTheme = {
   background?: string;
   foreground?: string;
   palette?: Record<string, string>;
+  selectionBackground?: string;
   fontFamily?: string | null;
 };
 
@@ -91,6 +92,9 @@ export function hostTerminalTheme(): DiffViewerTheme | null {
   if (typeof terminal.background === "string") theme.background = terminal.background;
   if (typeof terminal.foreground === "string") theme.foreground = terminal.foreground;
   if (terminal.palette && typeof terminal.palette === "object") theme.palette = terminal.palette;
+  // The app's one highlight color (WebTheme.swift `terminal.selectionBackground`), so code pages
+  // select in it rather than a fixed blue (user 2026-10-28).
+  if (typeof terminal.selectionBackground === "string") theme.selectionBackground = terminal.selectionBackground;
   return theme;
 }
 
@@ -192,6 +196,12 @@ export function applyDiffViewerAppearance(appearance?: DiffViewerAppearance) {
     rootStyle.setProperty(
       `--cmux-diff-deletion-fg-${type}`,
       changeColor(theme, type, ["9", "1"], STANDARD_DELETION[type]),
+    );
+    // A modified file in the files list: the palette's blue, else the theme's own text color
+    // (no fixed blue: the page paints the theme).
+    rootStyle.setProperty(
+      `--cmux-diff-modified-fg-${type}`,
+      semanticPaletteColor(theme, ["12", "4"], colorString(theme.foreground, type === "light" ? "#000000" : "#ffffff")),
     );
   }
   rootStyle.setProperty("--cmux-diff-selection-bg-light", colorString(lightTheme.selectionBackground, "#abd8ff"));

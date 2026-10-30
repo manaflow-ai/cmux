@@ -28,7 +28,15 @@ import { armIds, validateExperiments, type Experiment } from "../experiments/exp
 import { validateTunables, type Tunable } from "../experiments/tunable";
 import { optionAccepts, validateOptions, type GalleryOption } from "./options";
 import type { MockOptions } from "../pages/settings/mockProvider";
-import type { AccountsState, AgentsState, HarnessesState, HostLists, IntegrationsState } from "../pages/settings/ops";
+import type {
+  AccountsState,
+  AgentsState,
+  CloudEnvironmentsState,
+  DevicesState,
+  HarnessesState,
+  HostLists,
+  IntegrationsState,
+} from "../pages/settings/ops";
 import type { MockData } from "../pages/passwords/mockProvider";
 
 /** Initial gestures use the real controls, so local forms remain interactive. */
@@ -45,10 +53,14 @@ export type SettingsPageVariant = VariantBase & {
   options?: MockOptions;
   host?: Partial<HostLists>;
   accounts?: AccountsState;
+  /** Settings > Accounts > Cloud Environments fixture state. */
+  environments?: CloudEnvironmentsState;
   /** Settings > Agents over the mock's harness list (`manages: false`: an older acpmux). */
   agents?: Partial<AgentsState>;
   /** Settings > Agents > Harnesses; default the mock's four. */
   harnesses?: HarnessesState;
+  /** Settings > Devices; default the mock's (this Mac, two other devices, two relays). */
+  devices?: DevicesState;
   /** Settings > Agents > Agent integrations; default the mock's four (focus `agents.integrations` opens it). */
   integrations?: IntegrationsState;
   /** Public-safe thumbnail data URLs for native-origin backdrop images. */
@@ -72,7 +84,11 @@ export type PasswordsPageVariant = VariantBase & {
 export type ChipHostFixture = {
   paths?: Record<string, { place: "root" | "outside" | "denied" | "missing"; folder: boolean }>;
   sites?: Record<string, { icon?: string; title?: string }>;
-  policy?: { outsideRoots?: "confirm" | "text" | "open"; remoteImages?: "click" | "never" | "always" };
+  policy?: {
+    outsideRoots?: "confirm" | "text" | "open";
+    remoteImages?: "click" | "never" | "always";
+    clickFreeImageHosts?: string[];
+  };
   images?: Record<string, string | null>;
   /** `media.load` answers: the URL the player plays for each path. */
   media?: Record<string, string>;
@@ -159,6 +175,22 @@ export type AgentPaneVariant = VariantBase & {
   snapshot: AcpmuxSnapshot;
   /** With `ready.transport: "mock"`: the harnesses the mock daemon lists (`[]`: none installed). */
   mockHarnesses?: unknown[];
+  /** Mock-daemon health rows by harness id. Absent keeps its signed-in default. */
+  mockHarnessHealth?: Record<string, { auth: "signedIn" | "signedOut" | "unknown"; login?: string }>;
+  /** With `ready.transport: "mock"`: the capability ids the mock daemon's `initialize` names. */
+  mockCapabilities?: string[];
+  /** Mock-daemon selected-session auth reply. Expiry is session-scoped, never a harness health row. */
+  mockSessionAuth?: {
+    state: "ready" | "signedOut" | "expired" | "routeAuthNeeded" | "routeUnreachable" | "peerUnreachable" | "unknown";
+    source: "peerLink" | "routeProbe" | "turn" | "authCheck" | "none";
+    evidenceAt: number | null;
+    detail?: string;
+    harness: string;
+    host: string | null;
+    routeId: string | null;
+    fromSessionId: string | null;
+    login?: { kind: "terminal" | "route"; command?: string; host?: string | null; routeId?: string | null };
+  };
   /** Answers for native page methods (`turn.undo`, ...) by name; any other method answers null.
    * `{ nativeError: {code, userMessage?} }` answers as the app refusing the call. */
   native?: Record<string, unknown>;
@@ -173,6 +205,12 @@ export type AgentPaneVariant = VariantBase & {
   /** The in-session status toggle (Debug Settings `agent.sessionStatus`, off by default) on, as the
    *  app's `sessionStatus` push sends it: the live plan card and the recap card. */
   sessionStatus?: boolean;
+  /** The chat's `display` push (AgentPaneDisplaySetting.swift, chatDisplay.ts): `agentPane.display.*`
+   *  keys and the app keys the chat follows, such as Minimal Mode (`{ "sidebar.minimal": true }`). */
+  display?: Record<string, unknown>;
+  /** Labs workflows (Settings `workflowLabs`, off by default) on, as the app's `workflowLabs` push
+   *  sends it: a Claude workflow's transcript card and its Session Info panel. */
+  workflowLabs?: boolean;
   /** `<html data-*>` attributes the app sets at document start for Debug Settings choices
    *  (AgentPaneTunables `documentAttributes`), by name without `data-`: `{ "needs-you": "off" }`. */
   documentAttributes?: Record<string, string>;
@@ -226,7 +264,7 @@ export type AppsPageVariant = VariantBase & {
 /** The Cloud page on an in-page cmuxPage host serving the Cloud app server's projection. */
 export type CloudPageVariant = VariantBase & {
   mode?: "normal" | "loading" | "error";
-  action?: "select-machine" | "create" | "get";
+  action?: "select-machine" | "create" | "get" | "ports-pending";
   error?: { code: string; message: string };
   signedIn?: boolean;
   layout?: "rows" | "cards";
@@ -234,6 +272,10 @@ export type CloudPageVariant = VariantBase & {
   hash?: string;
   /** The plan's active machine limit, when the variant needs another than the sample plan's. */
   maxActive?: number;
+  /** Sample forwards shown by Ports variants (gallery-only). */
+  ports?: import("../pages/cloud/ops").PortForward[];
+  /** Hold one port action after its control is activated to show the busy boundary. */
+  pendingAction?: "forward" | "close" | "browser";
   machines: CloudMachine[];
   snapshots: CloudSnapshot[];
 };

@@ -17,9 +17,10 @@
 # exports there when this run made them (ACTIONS_MADE_AT) and none was held: the tip then holds this
 # run's exports, or a newer commit's own copy (base-autofix-push.sh lands them as progress past a
 # move of their inputs), and the checks compare the built files with the exports committed beside them. The defaults snapshot, which reads
-# both exports, also needs the tip's settings stamp current: the tip has one, and the tip's own
-# defaults_guard.py check-stamp passes in the checkout of the tip (the guard finds the repository
-# from its own path, so a copy elsewhere reads nothing and passes). Otherwise,
+# both exports, also needs the settings exports' inputs on the tip to be the ones this run judged
+# them at: the tip's sources give the same source stamp (defaults_guard.py source-stamp, derived from
+# each tree; the stamp is never committed) as SETTINGS_MADE_AT when this run made them and none was
+# held, or else as BASE_SHA, whose committed exports the first push built the snapshot from. Otherwise,
 # and for the webviews formatting, a held file waits for the next run and the run fails.
 # A round that finds nothing left to repair on the tip ends the run.
 #
@@ -40,6 +41,18 @@ main() {
   actions_made_at="${5:-}"
   actions_current=0 settings_current=0
   action_exports='^plans/cmux-next/(action-surfaces\.json|actions\.md|links\.json)$'
+  # From scripts/cmux-next/settings-exports.txt, the one list of what the settings export writes,
+  # so this does not become a fourth hand-kept copy of it (review of #23915).
+  local settings_alternation
+  settings_alternation="$(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' -e 's/[.]/[.]/g' \
+    "$(dirname "${BASH_SOURCE[0]}")/settings-exports.txt" | paste -sd'|' -)"
+  # An empty list would give `^()$`, which matches the empty string and nothing else: every export
+  # would silently look unrelated to the settings area instead of failing here.
+  [[ -n "$settings_alternation" ]] || {
+    echo "::error::scripts/cmux-next/settings-exports.txt lists no export" >&2
+    exit 1
+  }
+  settings_exports="^($settings_alternation)$"
   here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   rounds="${CMUX_BASE_AUTOFIX_ROUNDS:-3}"
   token="${TOKEN:-}"
@@ -55,6 +68,7 @@ main() {
   push_script="${CMUX_BASE_AUTOFIX_PUSH:-}"
   if [[ -z "$push_script" ]]; then
     cp "$here/base-autofix-push.sh" "$work/push.sh"
+    cp "$here/settings-exports.txt" "$work/settings-exports.txt"
     push_script="$work/push.sh"
     export CMUX_BASE_AUTOFIX_AREAS="$areas_script"
   fi
@@ -65,7 +79,7 @@ main() {
   # rest needs the Mac job or an artifact made at an older commit.
   remade() {
     case "$1" in
-      Packages/macOS/CmuxNext/ci-target-graph.json | cmux-tui/bindings/* | scripts/lint-namespace-types-ratchet.txt \
+      Packages/macOS/CmuxNext/ci-target-graph.json | plans/cmux-next/daemon-capabilities.json | cmux-tui/bindings/* | scripts/lint-namespace-types-ratchet.txt \
         | clients/ts/cloud/* | cmux-tui/crates/cmux-cloud-wire/src/generated/*) return 0 ;;
       web/data/cmux-shortcuts.generated.json | cmux-tui/crates/cmux-app-host/generated/*) ((actions_current)) ;;
       schemas/defaults/cmux-next.json) ((actions_current && settings_current)) ;;
@@ -116,9 +130,16 @@ main() {
     actions_current=0 settings_current=0
     if exports_landed "$held"$'\n'"$waits"; then
       actions_current=1
-      if git cat-file -e "$tip:schemas/settings-export/settings-schema.sources.sha256" 2>/dev/null \
-        && [[ -f "$root/scripts/ci/defaults_guard.py" ]] \
-        && python3 "$root/scripts/ci/defaults_guard.py" check-stamp --ref "$tip" >/dev/null 2>&1; then
+      judged="$base"
+      if [[ -n "$settings_made_at" ]]; then
+        judged="$settings_made_at"
+        grep -qE "$settings_exports" <<<"$held"$'\n'"$waits" && judged=""
+      fi
+      # The tip's own guard (it finds the repository from its own path) derives both stamps.
+      if [[ -n "$judged" && -f "$root/scripts/ci/defaults_guard.py" ]] \
+        && judged_stamp="$(python3 "$root/scripts/ci/defaults_guard.py" source-stamp --ref "$judged" 2>/dev/null)" \
+        && [[ -n "$judged_stamp" ]] \
+        && [[ "$judged_stamp" == "$(python3 "$root/scripts/ci/defaults_guard.py" source-stamp --ref "$tip" 2>/dev/null)" ]]; then
         settings_current=1
       fi
     fi

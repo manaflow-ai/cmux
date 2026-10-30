@@ -105,7 +105,9 @@ extension AppActionContext {
         return record
     }
 
-    private func explicitBrowserProfile(_ invocation: ActionInvocation) throws -> BrowserProfileRecord? {
+    /// The profile an invocation names (its target, or its `browserProfile`
+    /// argument by id or name), nil when it names none; an unknown one throws.
+    func explicitBrowserProfile(_ invocation: ActionInvocation) throws -> BrowserProfileRecord? {
         let text: String?
         if let target = invocation.target, target.kind == .browserProfile {
             text = target.id

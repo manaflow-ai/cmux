@@ -8,13 +8,15 @@ public import Foundation
 /// page's `hostEvents.ts` runs the same `cmuxAcpmuxBridge` function with `value`.
 public nonisolated struct AgentPageEvent: Equatable, Sendable {
     /// `theme`, `shortcuts`, `preview`, `sessionStatus`, `editedFiles`, `customization`, `registry`, `dictation`, `revealTurn`,
-    /// `command`, `focusLocation` or `transport`.
+    /// `command`, `stopTurn`, `sideQuestion`, `focusLocation` or `transport`.
     public let kind: String
     public let value: JSONValue
+    let deliveryID: UInt64?
 
-    public init(kind: String, value: JSONValue = .null) {
+    public init(kind: String, value: JSONValue = .null, deliveryID: UInt64? = nil) {
         self.kind = kind
         self.value = value
+        self.deliveryID = deliveryID
     }
 
     /// The stream event: `{kind, value}`.
@@ -34,7 +36,7 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
 
     /// Whether preview features show.
     public static func preview(_ on: Bool) -> AgentPageEvent { AgentPageEvent(kind: "preview", value: .bool(on)) }
-    /// Whether agents suggest tasks (the `agent.suggestedTasks` Debug Settings toggle, cx-lo9yf).
+    /// Whether agents suggest tasks (``AgentPaneSuggestedTasks``, cx-lo9yf).
     public static func suggestedTasks(_ on: Bool) -> AgentPageEvent { AgentPageEvent(kind: "suggestedTasks", value: .bool(on)) }
 
     /// Whether the in-session status cards show (the `agent.sessionStatus` tunable).
@@ -68,6 +70,18 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
 
     /// A dispatcher command (`searchChats`, `continueIn`, `createCheckpoint`, `permissionAllowOnce`, ...).
     public static func command(_ name: String) -> AgentPageEvent { AgentPageEvent(kind: "command", value: .string(name)) }
+
+    /// A native tab-row control or one of its menu items was invoked.
+    public static func tabRowToolInvoked(id: String, menuItemId: String? = nil) -> AgentPageEvent {
+        var value: [String: Any] = ["id": id]
+        if let menuItemId { value["menuItemId"] = menuItemId }
+        return AgentPageEvent(kind: "tabRowToolInvoked", value: JSONValue(foundation: value) ?? .null)
+    }
+
+    /// The palette's side-question command, carrying the session selected when it was invoked.
+    public static func sideQuestion(_ sessionId: String) -> AgentPageEvent {
+        AgentPageEvent(kind: "sideQuestion", value: .string(sessionId))
+    }
 
     /// A batch of the host socket's frames, or its close (``AgentPaneTransport``, bridgeSocket.ts).
     public static func transport(_ event: AgentPaneTransportEvent) -> AgentPageEvent {

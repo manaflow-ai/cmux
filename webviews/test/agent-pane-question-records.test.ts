@@ -2,9 +2,10 @@
 // An agent's question (Claude Code AskUserQuestion here) shows as a card above the composer while
 // it waits. Once answered it left nothing in the chat: the card went, and so did what the person
 // chose. Codex and Claude Code keep a compact record where the question was asked. The transcript
-// now keeps one: "Auth method: OAuth 2.0" for an answer, "Not answered: …" for a question
-// cancelled or declined. It comes from acpmux's own log (`permission_request`, then its
-// `permission_decision`), so a reload shows it as before, and it stays out of the turn's
+// now keeps one, a compact card: the question with "OAuth 2.0" in grey under it for an answer,
+// "Skipped" for a question declined and "Stopped before an answer" for one the turn's stop cancelled. It comes from acpmux's own log
+// (`permission_request`, then its `permission_decision`), so a reload shows it as before, and it
+// stays out of the turn's
 // "Worked for" fold. The page is the pane's dev entry with its browser host, talking JSON-RPC to
 // a stand-in acpmux daemon that can push live events.
 //
@@ -227,18 +228,18 @@ await requireBrowserLane("agent-pane-question-records.test.ts", async () => {
   test("an answered question leaves what was chosen in the chat, outside the turn's fold", async () => {
     const page = await open(ANSWERED, "Going with OAuth 2.0.");
     await page.locator(".acpmux-question-answered").first().waitFor({ timeout: 5_000 });
-    expect(await records(page)).toEqual(["Answered Auth method: OAuth 2.0"]);
+    expect(await records(page)).toEqual([`Answered ${PROMPT} OAuth 2.0`]);
     await page.close();
   });
 
-  test("a cancelled or declined question leaves a Not answered line", async () => {
+  test("a question the turn stopped or the person skipped says so", async () => {
     const cancelled = await open(CANCELLED, "Stopped.");
     await cancelled.locator(".acpmux-question-cancelled").first().waitFor({ timeout: 5_000 });
-    expect(await records(cancelled)).toEqual([`Not answered: ${PROMPT}`]);
+    expect(await records(cancelled)).toEqual([`${PROMPT} Stopped before an answer`]);
     await cancelled.close();
     const declined = await open(DECLINED, "I'll pick one myself.");
     await declined.locator(".acpmux-question-cancelled").first().waitFor({ timeout: 5_000 });
-    expect(await records(declined)).toEqual([`Not answered: ${PROMPT}`]);
+    expect(await records(declined)).toEqual([`${PROMPT} Skipped`]);
     await declined.close();
   });
 
@@ -249,7 +250,7 @@ await requireBrowserLane("agent-pane-question-records.test.ts", async () => {
     push(answer);
     await page.locator(".acpmux-question-answered").first().waitFor({ timeout: 5_000 });
     expect(await page.getByRole("radio", { name: /OAuth 2\.0/ }).count()).toBe(0);
-    expect(await records(page)).toEqual(["Answered Auth method: OAuth 2.0"]);
+    expect(await records(page)).toEqual([`Answered ${PROMPT} OAuth 2.0`]);
     // The work after the answer draws below its record, never in the row above it.
     push([
       "in",
@@ -300,7 +301,7 @@ await requireBrowserLane("agent-pane-question-records.test.ts", async () => {
     await page.getByText("Going with").first().waitFor({ timeout: 5_000 });
     send({ method: "_acpmux/event", params: record(LAG, chunk(" OAuth 2.0."), 7) });
     await page.getByText("Going with OAuth 2.0.").waitFor({ timeout: 5_000 });
-    expect(await records(page)).toEqual(["Answered Auth method: OAuth 2.0"]);
+    expect(await records(page)).toEqual([`Answered ${PROMPT} OAuth 2.0`]);
     await page.close();
   });
 });

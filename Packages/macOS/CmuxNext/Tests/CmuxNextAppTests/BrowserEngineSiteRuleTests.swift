@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 import CmuxNextBrowser
+import CmuxNextBrowserTabs
 import CmuxNextSettings
 import Foundation
 import Testing
@@ -26,8 +27,8 @@ import Testing
         "https://www.amazon.com/gp/video/storefront", "https://tv.apple.com/", "https://music.apple.com/us/browse",
     ])
     func aProtectedMediaSiteOpensInWebKitAndIsPinned(url: String) throws {
-        let opened = try choice(BrowserEngineResolver.resolve(requested: nil, siteEngine: siteEngine(url),
-                                                               defaultEngine: .chromium, cefUnavailable: nil))
+        let opened = try choice(BrowserEngineResolver(defaultEngine: .chromium, cefUnavailable: nil)
+            .resolve(requested: nil, siteEngine: siteEngine(url)))
         #expect(opened.engine == .webkit)
         #expect(opened.pinned)
         #expect(opened.fallback == nil)
@@ -35,37 +36,37 @@ import Testing
 
     @Test(arguments: ["https://music.youtube.com/", "https://www.amazon.com/dp/B000", "https://example.com/"])
     func anotherSiteFollowsTheDefaultEngine(url: String) throws {
-        let opened = try choice(BrowserEngineResolver.resolve(requested: nil, siteEngine: siteEngine(url),
-                                                               defaultEngine: .chromium, cefUnavailable: nil))
+        let opened = try choice(BrowserEngineResolver(defaultEngine: .chromium, cefUnavailable: nil)
+            .resolve(requested: nil, siteEngine: siteEngine(url)))
         #expect(opened.engine == .cef)
         #expect(!opened.pinned)
     }
 
     @Test func anExplicitEngineBeatsTheSiteRule() throws {
-        let opened = try choice(BrowserEngineResolver.resolve(requested: "chromium", siteEngine: .webkit,
-                                                               defaultEngine: .chromium, cefUnavailable: nil))
+        let opened = try choice(BrowserEngineResolver(defaultEngine: .chromium, cefUnavailable: nil)
+            .resolve(requested: "chromium", siteEngine: .webkit))
         #expect(opened.engine == .cef)
         #expect(opened.pinned)
     }
 
     @Test func anInheritedEngineBeatsTheSiteRule() throws {
-        let opened = try choice(BrowserEngineResolver.resolve(requested: nil, inherited: "cef", siteEngine: .webkit,
-                                                               defaultEngine: .webkit, cefUnavailable: nil))
+        let opened = try choice(BrowserEngineResolver(defaultEngine: .webkit, cefUnavailable: nil)
+            .resolve(requested: nil, inherited: "cef", siteEngine: .webkit))
         #expect(opened.engine == .cef)
         #expect(opened.inherited)
         #expect(!opened.pinned)
     }
 
     @Test func aChromiumSiteRuleFallsBackToWebKitWhenChromiumIsMissing() throws {
-        let opened = try choice(BrowserEngineResolver.resolve(requested: nil, siteEngine: .chromium,
-                                                               defaultEngine: .webkit, cefUnavailable: .notBundled))
+        let opened = try choice(BrowserEngineResolver(defaultEngine: .webkit, cefUnavailable: .notBundled)
+            .resolve(requested: nil, siteEngine: .chromium))
         #expect(opened.engine == .webkit)
         #expect(opened.fallback == .notBundled)
     }
 
     @Test func aChromiumSiteRuleBeatsAWebKitDefault() throws {
-        let opened = try choice(BrowserEngineResolver.resolve(requested: nil, siteEngine: .chromium,
-                                                               defaultEngine: .webkit, cefUnavailable: nil))
+        let opened = try choice(BrowserEngineResolver(defaultEngine: .webkit, cefUnavailable: nil)
+            .resolve(requested: nil, siteEngine: .chromium))
         #expect(opened.engine == .cef)
         #expect(opened.pinned)
     }

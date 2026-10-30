@@ -94,6 +94,13 @@ placement):
 cmux-next copy is not open, and says "Every workspace from classic cmux is already open here."
 when nothing is missing. Runs never overlap.
 
+The cmux Classic card in Settings › Import runs that same import (`OnboardingHandlers.importClassic`)
+as a tracked job: progress is the share of the plan's workspaces handled, and it ends with
+"Imported N sessions" (N workspaces this run opened, 0 on a second run). The card stays in Settings
+while classic has a saved session, as Import Again once everything is here; Home and New Tab show
+it only while workspaces are left to bring. Cancel in the preview removes the job; a quit leaves it
+paused for Resume, which runs the import again.
+
 Switches: on by default only for shipping bundle IDs (stable, nightly, nightly.cmux-next, rc,
 staging). `CMUX_NEXT_CLASSIC_MIGRATION=0` turns it off, `=1` turns it on for dev builds.
 

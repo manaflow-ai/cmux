@@ -17,16 +17,24 @@ its subagents and every other agent chat.
     (`_acpmux/btw`, then `chat.sideChat`), seeded with "What is going on here?". The relay sends
     `_acpmux/btw` only for a chat in the pane's scope, so an ask of another chat opens that chat
     first, as a one-click answer does.
-- **Needs your input pill.** While any ask is open, the floating Jump to latest button becomes a
-  pill: the blue dot, "Needs your input" (or "Needs your input · N"), and a chevron.
-  - A press goes to this chat's ask first, then cycles through the asks open in other chats.
+- **Needs your input pill.** While this chat, or a chat it started, has an open ask, the floating
+  Jump to latest button becomes a pill: the blue dot, "Needs your input" (or "Needs your input ·
+  N"), and a chevron.
+  - It speaks for this chat only: its own asks and those of the chats it started (acpmux
+    `startedBy` or `spawnedBy`, at any depth: the agents its tray lists). Every other chat's ask
+    is in the header's list and on its sidebar row, never on this chat's button. It used to count
+    every ask acpmux reports, and show at the latest message for them, so a chat where nothing
+    waited read "Needs your input" for a Codex audit on another computer that no chat on screen
+    had started and this pane could not answer (Leo 2026-10-22, "it doesn't work rn").
+  - A press goes to this chat's ask first, then cycles through the asks of the chats it started.
   - With nothing open, it is the plain button again.
 - **One mark.** The blue dot is the one "needs you" mark: the sidebar's input mark, the Chief
   dock's waiting card, the badge and the pill. Its color is the window sidebar's unread dot,
   `Palette.notificationBlue`.
-- **Debug Settings toggles**, both on by default; new agent tabs read them:
-  - `agentPane.debug.needsYou`: pinned, compact or off;
-  - `agentPane.debug.needsYouPill`.
+- **Debug Settings toggles**; new agent tabs read them:
+  - `agentPane.debug.needsYou`: pinned (default), compact or off;
+  - `agentPane.debug.needsYouPill`: off by default (Leo 2026-10-23: "default off for needs your
+    input.. bc it doenstr work rn... we need to fix it").
 
 ## The data model
 

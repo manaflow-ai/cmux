@@ -8,7 +8,7 @@
         "key": "settings.group.sidebar",
         "text": "Sidebar"
       },
-      "note": "The Now Playing player (Austin's idea, Leo 2026-10-18): off by default since 2026-10-19 (Lawrence did not want the card in the sidebar); the user can turn it on.",
+      "note": "The Now Playing player (Austin's idea, Leo 2026-10-18): off by default since 2026-10-19 (Lawrence did not want the card in the sidebar); the user can turn it on. Only cmux's own tabs and player feed it unless sidebar.nowPlaying.otherApps is on (Lawrence 2026-10-21: it showed his other browser's audio).",
       "rows": [
         {
           "key": "sidebar.nowPlaying.enabled",
@@ -32,6 +32,31 @@
             "song",
             "sidebar"
           ]
+        },
+        {
+          "key": "sidebar.nowPlaying.otherApps",
+          "note": "Off by default (Lawrence 2026-10-21). Off: the sidebar card and the New Tab player show only what plays in cmux (its browser tabs and its player), and macOS Now Playing is not read. On: another app that plays (Spotify, Music, another browser) shows too.",
+          "title": {
+            "key": "settings.sidebar.nowPlaying.otherApps",
+            "text": "Include Other Apps in Now Playing"
+          },
+          "help": {
+            "key": "settings.sidebar.nowPlaying.otherApps.help",
+            "text": "Also show what plays in other apps, such as Spotify, Music or another browser. Off: only what plays in cmux."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "music",
+            "now playing",
+            "player",
+            "media",
+            "spotify",
+            "other apps",
+            "browser",
+            "chrome",
+            "safari"
+          ]
         }
       ]
     },
@@ -42,12 +67,12 @@
         "key": "settings.group.tabs",
         "text": "Tabs"
       },
-      "note": "The New Tab page's Now Playing player (Leo 2026-10-19: \"disableable\"): on by default; its right-click menu's Hide Now Playing turns it off.",
+      "note": "The New Tab page's Now Playing player (Leo 2026-10-19: \"disableable\"): off by default since 2026-10-21 (Lawrence: \"get rid of music player thing by default\"); its right-click menu's Hide Now Playing turns it off.",
       "rows": [
         {
           "key": "tabs.newTabNowPlaying",
           "name": "newTab",
-          "note": "On by default (Leo 2026-10-19), apart from the sidebar card (sidebar.nowPlaying.enabled, off by default). Off: no player on the New Tab page and no space kept for it.",
+          "note": "Off by default since 2026-10-21 (Lawrence), as the sidebar card (sidebar.nowPlaying.enabled) is. Off: no player on the New Tab page and no space kept for it. A cmux.json without the key gets the new default; a true written by the user stays.",
           "title": {
             "key": "settings.tabs.newTabNowPlaying",
             "text": "Show Now Playing on New Tab"
@@ -57,7 +82,7 @@
             "text": "A player for what is playing, on the New Tab page."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "music",
             "now playing",
@@ -67,6 +92,42 @@
             "song",
             "new tab",
             "new chat"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "pictureInPicture",
+      "section": "browser",
+      "group": {
+        "key": "settings.group.media",
+        "text": "Media"
+      },
+      "note": "cmux's own Picture in Picture entry points for a web page's video: on by default (today's behavior).",
+      "rows": [
+        {
+          "key": "media.pictureInPicture.enabled",
+          "name": "pictureInPicture",
+          "note": "On by default. Off: cmux offers no Picture in Picture of its own: the tab and media card menus, the palette, the CLI and MCP action, the Now Playing card's button and the media hub's button are gone. A site's own video controls are unchanged.",
+          "title": {
+            "key": "settings.media.pictureInPicture.enabled",
+            "text": "Picture in Picture"
+          },
+          "help": {
+            "key": "settings.media.pictureInPicture.enabled.help",
+            "text": "Offer Picture in Picture for a web page's video in menus, the command palette and the media controls. A site's own video controls are not affected."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "pip",
+            "picture in picture",
+            "video",
+            "float",
+            "floating",
+            "pop out",
+            "media",
+            "now playing"
           ]
         }
       ]

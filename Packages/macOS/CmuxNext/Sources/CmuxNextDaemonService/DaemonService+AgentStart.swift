@@ -7,7 +7,7 @@ extension DaemonService {
     /// (`workspace.agent_start.get`, cx-9aps). Nil from a daemon without `workspace-agent-start-v1`
     /// or when the read fails, so the pane keeps its own rules (compatibility only, cx-6bf9).
     public func agentStart(_ cwd: String?, workspace: ResourceID) async -> AgentPaneStartFolder? {
-        guard supports(DaemonCapabilities.shared.workspaceAgentStart), let connection else { return nil }
+        guard supports(DaemonCapability.workspaceAgentStart.rawValue), let connection else { return nil }
         do {
             let answer = try await connection.state.agentStart(workspace, cwd: cwd)
             return AgentPaneStartFolder(kind: answer.kind, cwd: answer.cwd, agentHome: answer.agentHome,

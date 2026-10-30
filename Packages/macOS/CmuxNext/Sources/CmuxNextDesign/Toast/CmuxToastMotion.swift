@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 
 /// How a toast arrives, restacks and leaves (cx-f6i7). It rises from the
 /// window's bottom edge, where toasts live, as it fades in; when a toast
@@ -38,9 +39,7 @@ enum CmuxToastMotion {
         guard animated, Motion.canAnimate(in: toast), let layer = layer(of: toast), Motion.overlays.duration(.fadeOut) > 0 else { return remove() }
         toast.onHover = nil
         CATransaction.begin()
-        CATransaction.setCompletionBlock {
-            MainActor.assumeIsolated { remove() } // main-proof: CATransaction.h: the completion block is called on the main thread
-        }
+        CATransaction.setMainCompletion(remove)
         Motion.overlays.set(layer, "opacity", to: Float(0), fade: .fadeOut)
         CATransaction.commit()
     }

@@ -1,5 +1,6 @@
 public import CoreGraphics
 public import Foundation
+public import CmuxNextDesignTokens
 
 /// What a page's glass lenses (the `cmuxTheme.backdrop` payload, plans/cmux-next/glass-lens-DESIGN.md),
 /// without the image itself: `key` names it, so a push compares and carries the large data URL

@@ -21,9 +21,37 @@ export function followScrollEdges(node: HTMLElement, axis: "y" | "x" = "y"): () 
         };
   const resize = new ResizeObserver(mark);
   resize.observe(node);
-  for (const child of node.children) resize.observe(child);
-  const content = new MutationObserver(() => {
-    for (const child of node.children) resize.observe(child);
+  const children = new Set<Element>();
+  const watchChild = (child: Node) => {
+    if (child.nodeType !== 1) return;
+    const element = child as Element;
+    // A child that draws no box of its own (display: contents, the attachment strip's slots)
+    // never resizes: its children are the ones laid out in the row.
+    const style = element.ownerDocument?.defaultView?.getComputedStyle?.(element);
+    if (style?.display === "contents") {
+      for (const inner of element.children ?? []) watchChild(inner);
+      return;
+    }
+    if (children.has(element)) return;
+    children.add(element);
+    resize.observe(element);
+  };
+  const unwatchChild = (child: Node) => {
+    if (child.nodeType !== 1) return;
+    const element = child as Element;
+    if (!children.delete(element)) {
+      // A boxless child was never watched itself: its children were.
+      for (const inner of element.children ?? []) unwatchChild(inner);
+      return;
+    }
+    resize.unobserve(element);
+  };
+  for (const child of node.children) watchChild(child);
+  const content = new MutationObserver((records) => {
+    for (const record of records) {
+      for (const child of record.addedNodes) watchChild(child);
+      for (const child of record.removedNodes) unwatchChild(child);
+    }
     mark();
   });
   content.observe(node, { childList: true });
@@ -32,6 +60,7 @@ export function followScrollEdges(node: HTMLElement, axis: "y" | "x" = "y"): () 
   return () => {
     resize.disconnect();
     content.disconnect();
+    children.clear();
     node.removeEventListener("scroll", mark);
   };
 }

@@ -1,0 +1,37 @@
+{
+  "id": "links-landed-report",
+  "owner": "a672",
+  "about": "a subagent's landed sha range and CI run become GitHub links",
+  "history": [
+    {
+      "kind": "user",
+      "text": "fix the Cmd+P crash"
+    },
+    {
+      "kind": "talk",
+      "text": "- a901: fixing the Cmd+P crash"
+    }
+  ],
+  "turns": [
+    {
+      "text": "[a901] Landed 1a2b3c4d5e6..9f8e7d6c5b4 on feat-cmux-next (manaflow-ai/cmux). Root cause: nil palette index. CI run 18234567890 green. Test added: palette_nil_index.",
+      "checks": [
+        {
+          "type": "reply_matches",
+          "re": "\\]\\(https://github\\.com/manaflow-ai/cmux/(compare|commit)/"
+        },
+        {
+          "type": "reply_matches",
+          "re": "\\]\\(https://github\\.com/manaflow-ai/cmux/actions/runs/18234567890\\)"
+        },
+        {
+          "type": "no_raw_ids"
+        },
+        {
+          "type": "max_words",
+          "n": 80
+        }
+      ]
+    }
+  ]
+}

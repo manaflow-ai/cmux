@@ -8,6 +8,7 @@
 import { useEffect, useId, useState, type InputHTMLAttributes } from "react";
 import type { Strings } from "../shared/i18n";
 import { describeError, type ChiefEditorService } from "./chiefEditing";
+import { chiefEffortName, chiefModelName } from "./chiefNames";
 import {
   chiefBackend,
   type HomeChiefBackend,
@@ -125,7 +126,9 @@ export function ChiefBackendPicker({
                 {entry.name}
               </option>
             ))}
-            {engine.model && !model && <option value={engine.model}>{engine.model}</option>}
+            {engine.model && !model && (
+              <option value={engine.model}>{chiefModelName(engine.model, models, strings)}</option>
+            )}
           </select>
         ) : (
           <input
@@ -153,10 +156,12 @@ export function ChiefBackendPicker({
           <option value="">{t("chief.backend.usual")}</option>
           {efforts.map((effort) => (
             <option key={effort} value={effort}>
-              {effort}
+              {chiefEffortName(effort, strings)}
             </option>
           ))}
-          {engine.effort && !efforts.includes(engine.effort) && <option value={engine.effort}>{engine.effort}</option>}
+          {engine.effort && !efforts.includes(engine.effort) && (
+            <option value={engine.effort}>{chiefEffortName(engine.effort, strings)}</option>
+          )}
         </select>
       </span>
       <span className="ce-note">

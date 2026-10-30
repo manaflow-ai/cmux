@@ -18,6 +18,7 @@
 	<key>keychain-access-groups</key>
 	<array>
 		<string>$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+		<string>$(DEVELOPMENT_TEAM).$(CMUX_MOBILE_APP_BUNDLE_ID).push</string>
 	</array>
 </dict>
 </plist>

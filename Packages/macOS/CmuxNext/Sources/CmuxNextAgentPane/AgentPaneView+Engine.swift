@@ -16,6 +16,14 @@ extension AgentPaneView {
         return try? await webView.takeSnapshot(configuration: nil)
     }
 
+    /// Whether ``pageSnapshot()`` can stand in for the page under a pane (``PageWebView/snapshotKeepsClearAreas``).
+    public var snapshotKeepsClearAreas: Bool { page?.snapshotKeepsClearAreas ?? true }
+
+    /// Whether the page shows, or is to show, in Chromium. Chromium draws it in its own window over the
+    /// pane, which a page kept clear (alpha 0) does not hide: a picture under it shows through its clear
+    /// areas until the picture goes (the New Tab composer row drawn twice, 2026-10-24).
+    public var pageDrawsOverCovers: Bool { page?.engineDecision.engine == .cef }
+
     /// Whether `point` (screen coordinates) in `eventWindow` is on the Chromium page of this pane: a
     /// Chromium page draws in a child window of the pane's window, over its view.
     func chromiumPageContains(_ point: CGPoint, eventWindow: NSWindow?) -> Bool {

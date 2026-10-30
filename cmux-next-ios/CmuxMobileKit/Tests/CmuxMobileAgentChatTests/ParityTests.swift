@@ -111,7 +111,9 @@ import Testing
     @Test func decodesByKind() throws {
         let text = try LinkFileArtifactSource.content(for: TerminalArtifact(reference: "a.md", kind: .markdown), data: Data("# Hi".utf8))
         guard case .text("# Hi") = text else { Issue.record("text"); return }
+        // Not text after all: a local copy for Quick Look (or Share), named as on the Mac.
         let binary = try LinkFileArtifactSource.content(for: TerminalArtifact(reference: "a.txt", kind: .text), data: Data([0xff, 0xfe, 0x00, 0xd8]))
-        guard case .binary = binary else { Issue.record("binary"); return }
+        guard case .quickLook(let url) = binary else { Issue.record("quickLook"); return }
+        #expect(url.lastPathComponent == "a.txt")
     }
 }

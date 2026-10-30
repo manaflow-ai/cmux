@@ -16,11 +16,13 @@ public final class LiveFeed: FeedActions {
         public var workspaceID: String
         public var tabID: String
         public var workspaceTitle: String
+        public var tabTitle: String
 
-        public init(workspaceID: String, tabID: String, workspaceTitle: String) {
+        public init(workspaceID: String, tabID: String, workspaceTitle: String, tabTitle: String = "") {
             self.workspaceID = workspaceID
             self.tabID = tabID
             self.workspaceTitle = workspaceTitle
+            self.tabTitle = tabTitle
         }
     }
 
@@ -30,6 +32,8 @@ public final class LiveFeed: FeedActions {
     weak var terminal: TerminalFeed?
     var place: @MainActor (String) -> Place?
     let now: @MainActor () -> Date
+    /// The Mac this feed reads (`MacSession`): every item it makes names it.
+    var macID: String?
     /// Open asks per session (resolved when the session reports none pending).
     private(set) var openAsks: [String: Set<String>] = [:]
     /// Every ask's session, by Feed item id.
@@ -77,11 +81,13 @@ public final class LiveFeed: FeedActions {
                 return
             }
             let id = "ask-\(permissionID)"
-            guard store.item(id: id) == nil else { return }
-            log.info("feed ask \(id, privacy: .public)")
+            // This Mac answers the ask even when the Feed already lists it (read
+            // again on a new link or a refresh), so its answer is routed here.
             openAsks[sessionID, default: []].insert(id)
             askSessions[id] = sessionID
             askKinds[id] = waits
+            guard store.item(id: id) == nil else { return }
+            log.info("feed ask \(id, privacy: .public)")
             store.upsert(item(id: id, kind: kind, sessionID: sessionID, session: session, markdown: markdown,
                               quote: session?.lastPrompt.map { FeedItem.Quote($0) }), atTop: true)
         case .sessionChanged(let session, let recordKind, let seq):
@@ -132,12 +138,15 @@ public final class LiveFeed: FeedActions {
     func item(id: String, kind: FeedItem.Kind, sessionID: String, session: AcpmuxSession?, markdown: String, quote: FeedItem.Quote?) -> FeedItem {
         let place = place(sessionID)
         let harness = session?.harness ?? "agent"
-        return FeedItem(
+        var item = FeedItem(
             id: id, kind: kind, workspaceID: place?.workspaceID ?? "", tabID: place?.tabID ?? sessionID,
             agentName: session?.name.isEmpty == false ? session!.name : DaemonTree.agentName(harness), harness: harness,
             workspaceTitle: place?.workspaceTitle ?? (session?.cwd).map { ($0 as NSString).lastPathComponent } ?? "",
             markdown: markdown, quote: quote, createdAt: now()
         )
+        item.macID = macID
+        item.tabTitle = place?.tabTitle ?? ""
+        return item
     }
 
     // MARK: FeedActions
@@ -148,7 +157,7 @@ public final class LiveFeed: FeedActions {
     public func refresh() async throws {
         await terminal?.refresh()
         guard let hub else { throw AcpmuxConnection.RPCError(code: 0, message: "Not connected to your Mac", reason: nil) }
-        let watched = try await hub.request("_acpmux/watch", .object(["enabled": .bool(true)]))
+        let watched = try await hub.request("_acpmux/watch", .object(["enabled": .bool(true)]), timeout: .seconds(20))
         let sessions = (watched["sessions"]?.arrayValue ?? []).compactMap(AcpmuxSession.init)
         hydrate(sessions)
         let byID = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
@@ -163,7 +172,7 @@ public final class LiveFeed: FeedActions {
                 "beforeSeq": .number(Double(session.lastSeq + 1)),
                 "limit": .number(200),
                 "kinds": .array([.string("permission_request"), .string("permission_decision")]),
-            ]))
+            ]), timeout: .seconds(20))
             for (permissionID, request) in Self.openRequests(page["events"]?.arrayValue ?? []) {
                 handle(.permissionPending(sessionID: session.id, permissionID: permissionID, request: request), sessions: byID)
             }

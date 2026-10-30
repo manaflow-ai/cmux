@@ -3,9 +3,11 @@
 // it here and Start; an offer made alone is the same card with one task. A started task becomes
 // one quiet row hung off the card by an elbow, with what its chat is doing now, which opens that
 // chat. The prompt that brings a task's result back draws as one "Received message from" line.
-// Gated by the `agent.suggestedTasks` Debug toggle or the session-offer experiment (offersShown.ts).
+// Gated by the `sessions.promptSuggestions` setting (or the Debug tunable forcing it on) or the
+// session-offer experiment (offersShown.ts).
 import { useId, useState } from "react";
 import { Icon } from "../icons/Icon";
+import { Bot } from "../conversation/icons";
 import { useT, type Translate } from "../i18n";
 import type { AcpmuxOfferResult, AcpmuxSessionOffer } from "../model";
 import { errorMessage } from "../transportErrors";
@@ -264,7 +266,10 @@ function StartedTask({
 }
 
 /// The prompt that brought a started task's result back: "Received message from <title> ›",
-/// which opens that task's chat. The title keeps its place in the sentence in every language.
+/// which opens that task's chat. It draws as another agent's message line does
+/// (conversation/IncomingMessageCard.tsx): at the left with the agent's text, never the person's
+/// bubble, a small bot first and the task's title as a chip. The title keeps its place in the
+/// sentence in every language.
 export function ReceivedResult({
   result,
   onOpen,
@@ -277,6 +282,9 @@ export function ReceivedResult({
   return (
     <div className="acpmux-task-received">
       <button type="button" className="acpmux-task-received-line" onClick={() => onOpen(result.childSessionId)}>
+        <span className="acpmux-task-received-icon">
+          <Bot size={16} />
+        </span>
         {before}
         <span className="acpmux-task-received-title">{result.title}</span>
         {after}

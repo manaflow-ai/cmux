@@ -49,3 +49,28 @@ test("a prompt with no attachments sends only its text, and an empty one sends n
   empty.screen.onAsk("claude", "");
   expect(empty.sent.some(([method]) => method === "chat.send")).toBe(false);
 });
+
+test("keeps the New Tab visible until its folder is accepted", () => {
+  let leaves = 0;
+  let acceptFolder: ((folder: string) => void) | undefined;
+  const screen = newTabScreenActions({
+    callNative: async () => undefined,
+    cwd: "/Users/you/src/app",
+    chatCwd: "/Users/you/src/app",
+    leave: () => {
+      leaves += 1;
+    },
+    requestFolder: (_cwd, start) => {
+      acceptFolder = start;
+    },
+    selectSession: noop,
+    showAllChats: noop,
+    runShell: noop,
+  });
+
+  screen.onAsk("claude", "start in the picked folder", "/Users/you/src/other");
+  expect(leaves).toBe(0);
+  expect(acceptFolder).toBeDefined();
+  acceptFolder!("/Users/you/src/other");
+  expect(leaves).toBe(1);
+});

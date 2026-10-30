@@ -92,16 +92,30 @@ function expectFullCard(card: HTMLElement | null) {
   const text = card!.textContent ?? "";
   expect(text).toContain(TITLE);
   expect(text).toContain("manaflow-ai/leo-workspace#634");
-  expect(text).toContain("Draft");
+  // The glyph follows the PR state and the status row names it for quick scanning.
+  expect(card!.querySelector(".acpmux-pr-card__glyph svg")?.getAttribute("aria-label")).toBe("Draft");
+  expect(card!.querySelector(".acpmux-pr-card__state")?.textContent).toBe("Draft");
+  expect(shownText(card!)).toContain("Draft");
   expect(text).toContain("teamleaderleo");
-  expect(text).toContain("7 of 9 checks passed, 2 failing");
+  expect(card!.querySelector(".acpmux-pr-card__checks .acpmux-pr-card__sr")?.textContent).toBe(
+    "7 of 9 checks passed, 2 failing",
+  );
+  expect(card!.querySelector(".acpmux-pr-card__failed")?.textContent).toBe("✗ 2");
+}
+
+/** The card's text as it shows: no svg titles and no screen-reader-only words. */
+function shownText(element: Element): string {
+  const copy = element.cloneNode(true) as Element;
+  for (const hidden of copy.querySelectorAll("title, .acpmux-pr-card__sr")) hidden.remove();
+  return copy.textContent ?? "";
 }
 
 test("a pull request bar opens the pull request card", async () => {
   const { act } = await import("react");
   const { createRoot } = await import("react-dom/client");
   const { UiProvider } = await import("../src/ui/UiProvider");
-  const { PullRequestDock } = await import("../src/agent-session/acpmux/summary/PullRequestDock");
+  const { PullRequestDock, RowPullRequests } = await import("../src/agent-session/acpmux/summary/PullRequestDock");
+  const { transcriptPullRequests } = await import("../src/agent-session/acpmux/summary/transcriptPullRequests");
   const host = await rig();
   const element = dom.window.document.getElementById("root")!;
   const root = createRoot(element);
@@ -111,7 +125,9 @@ test("a pull request bar opens the pull request card", async () => {
   await act(async () =>
     root.render(
       <UiProvider container={element}>
-        <PullRequestDock rows={rows as never} sessionId="card" />
+        <RowPullRequests.Provider value={transcriptPullRequests(rows as never)}>
+          <PullRequestDock />
+        </RowPullRequests.Provider>
       </UiProvider>,
     ),
   );
@@ -149,8 +165,15 @@ test("a pull request chip in a reply opens the same card", async () => {
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   const card = element.querySelector<HTMLElement>(".cv-link-preview.acpmux-pr-card");
   expectFullCard(card);
-  // It keeps the link card's Open.
+  // It keeps the link card's Open, and its title sits in the head beside the GitHub mark.
   expect(card!.querySelector("button")?.textContent).toContain("Open");
+  const head = card!.querySelector<HTMLElement>(".cv-link-preview__head")!;
+  // The head's icon is the pull request glyph in its state's colour (draft here).
+  expect(head.querySelector('.cv-link-preview__icon .acpmux-pr-card__glyph[data-state="draft"] svg')).not.toBeNull();
+  expect(head.querySelector(".cv-link-preview__site")?.textContent).toBe(TITLE);
+  // No address line: the head and owner/repo#N already say where it is (Leo 2026-10-21).
+  expect(card!.querySelector(".cv-link-preview__target")).toBeNull();
+  expect(card!.textContent).not.toContain("https://");
   await act(async () => root.unmount());
   host.done();
 });
@@ -177,10 +200,11 @@ test("an inline link opens the same card: favicon, page title, host, the address
   await act(async () => element.querySelector<HTMLElement>("a.cv-chip")!.focus());
   const card = element.querySelector<HTMLElement>(".cv-link-preview")!;
   expect(card.classList.contains("acpmux-pr-card")).toBe(false);
+  expect(card.classList.contains("ui-glass")).toBe(true);
   expect(card.querySelector(".cv-link-preview__icon img")).not.toBeNull();
   expect(card.querySelector(".cv-link-preview__site")?.textContent).toBe("Example Guide");
   expect(card.querySelector(".cv-link-preview__target")?.textContent).toBe(
-    "docs.example.test · https://docs.example.test/guide?page=2&token=•••",
+    "https://docs.example.test/guide?page=2&token=•••",
   );
   expect([...card.querySelectorAll("button")].map((button) => button.textContent)).toEqual(
     expect.arrayContaining([expect.stringContaining("Open"), expect.stringContaining("Open in")]),
@@ -189,4 +213,30 @@ test("an inline link opens the same card: favicon, page title, host, the address
   expect(host.calls.some((call) => call.method === "pr.inspect")).toBe(false);
   await act(async () => root.unmount());
   host.done();
+});
+
+// Leo 2026-10-21: quiet borderless Open and Open in, tight spacing with no divider under the head,
+// "+905 −50" with no dotted underline, and glass rather than a solid card.
+test("the card's chrome is quiet: borderless buttons, no divider, no underline, a glass surface", async () => {
+  const { readFileSync } = await import("node:fs");
+  const path = await import("node:path");
+  const styles = readFileSync(path.join(import.meta.dir, "../src/agent-session/acpmux/chips/linkCard.css"), "utf8");
+  const rule = (selector: string) =>
+    new RegExp(`(?:^|\\})${selector.replace(/[[\]().:]/g, "\\$&")}\\{([^}]*)\\}`, "m").exec(styles)?.[1] ?? "";
+  const open = rule(".cv-link-preview__open");
+  expect(open).toContain("border:0");
+  expect(open).toContain("background:transparent");
+  expect(open).not.toContain("box-shadow");
+  expect(rule(".cv-link-preview .acpmux-open-in")).toContain("box-shadow:none");
+  expect(rule(".cv-link-preview__head")).not.toContain("border");
+  expect(rule(".acpmux-pr-card__lines")).toContain("display:inline-flex");
+  // Glass: the shared liquid glass (.ui-glass) paints the card, so the card itself sets no fill;
+  // plain glass and Reduce Transparency get the tooltip's tint and blur through the glass tokens.
+  const card = rule(".cv-link-preview");
+  expect(card).not.toContain("background");
+  expect(card).not.toContain("box-shadow");
+  expect(rule(".cv-link-preview.ui-card")).toContain("--glass-elevation:");
+  const fallback = rule(':root:not([data-glass="lens"], [data-glass="spectrum"]) .cv-link-preview.ui-card.ui-glass');
+  expect(fallback).toContain("--glass-tint:var(--tooltip-tint");
+  expect(fallback).toContain("--glass-backdrop:var(--tooltip-blur");
 });

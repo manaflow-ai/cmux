@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 public import AppKit
 public import WebKit
 
@@ -74,6 +74,19 @@ extension AgentPaneView {
     /// otherwise (``PageWebView/debugPress(x:y:)``).
     public func debugPress(x: Double, y: Double) async -> Bool {
         await page?.debugPress(x: x, y: y) ?? false
+    }
+
+    /// The screen point of `x`,`y` (CSS pixels) on the chat's Chromium page, nil on WebKit. Chromium draws the
+    /// page in its own child window over ``chromiumPage``'s container view (which stays in the pane's window):
+    /// `debug.agent_pane click` turns the point into that window's mouse down for ``judge(_:eventWindow:)``,
+    /// the host's half of a person's click there. The DevTools press (``debugPress(x:y:)``) is the page's half
+    /// and is never seen by the gesture monitor, so without it a click on a Chromium chat records no gesture and
+    /// the answer it picks is refused (`transport.gesture_required`).
+    public func debugChromiumScreenPoint(x: Double, y: Double) -> NSPoint? {
+        guard let content = chromiumPage?.contentView, let window = content.window else { return nil }
+        let zoom = max(debugPageZoom, 0.01)
+        let local = NSPoint(x: x * zoom, y: content.isFlipped ? y * zoom : content.bounds.height - y * zoom)
+        return window.convertPoint(toScreen: content.convert(local, to: nil))
     }
 }
 #endif

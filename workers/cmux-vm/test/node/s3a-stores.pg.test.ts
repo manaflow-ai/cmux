@@ -1,3 +1,4 @@
+import agentKeys from "../../migrations/0016_cmux_vm_agent_keys.sql?raw";
 /**
  * The snapshot store against migrations 0001, 0002 and 0003
  * on an in-process Postgres (PGlite). No network database is involved.
@@ -31,6 +32,7 @@ beforeEach(async () => {
   await pg.exec(s2);
   await pg.exec(snapshots);
   await pg.exec(uncommittedCreations);
+  await pg.exec(agentKeys);
   const sql = Layer.succeed(SqlClient, {
     query: (operation, text, params) =>
       Effect.tryPromise({
@@ -68,6 +70,7 @@ describe("migration 0003", () => {
       "cmux_vm.api_keys",
       "cmux_vm.audit_log",
       "cmux_vm.resources",
+      "cmux_vm.vm_client_sessions",
     ]);
   });
 });

@@ -182,6 +182,16 @@ impl Mailbox {
     }
 
     pub fn send(&self, input: SendInput) -> std::result::Result<SendResult, MailboxError> {
+        self.send_inner(input)
+    }
+
+    /// Append a message without injecting it into a model turn. The notify is
+    /// only a mailbox-reader wakeup; report readers use a non-session alias.
+    pub fn deliver_quiet(&self, input: SendInput) -> std::result::Result<SendResult, MailboxError> {
+        self.send_inner(input)
+    }
+
+    fn send_inner(&self, input: SendInput) -> std::result::Result<SendResult, MailboxError> {
         validate(&input)?;
         let mut inner = self
             .inner
@@ -466,6 +476,7 @@ fn persist_state(
 fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    crate::config::refuse_lost_home(path).map_err(std::io::Error::other)?;
 
     let mut file = std::fs::OpenOptions::new()
         .write(true)
@@ -612,6 +623,19 @@ mod tests {
         b.send(input("m1", "b", "one")).unwrap();
         let page = task.await.unwrap();
         assert_eq!(page.rows[0].message.id, "m1");
+    }
+
+    #[tokio::test]
+    async fn quiet_delivery_wakes_reports_waiters_without_model_injection() {
+        let b = Mailbox::memory();
+        let waiter = b.clone();
+        let task =
+            tokio::spawn(async move { waiter.wait("reports:leo", 0, 10, 1_000).await.unwrap() });
+        tokio::task::yield_now().await;
+        b.deliver_quiet(input("report-1", "reports:leo", "one")).unwrap();
+        let page = task.await.unwrap();
+        assert_eq!(page.rows[0].message.body, "one");
+        assert_eq!(page.rows[0].message.recipient, "reports:leo");
     }
 
     #[tokio::test]

@@ -296,6 +296,23 @@ class ConvertTests(unittest.TestCase):
             self.assertEqual(made, into / "clip.gif")
             self.assertEqual(made.read_bytes(), GIF)
 
+    def test_ffmpeg_runs_without_the_publish_steps_secrets(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            source = written(scratch, "clip.mp4", MP4)
+            seen = {}
+
+            def runner(argv, **kwargs):
+                seen.update(kwargs["env"])
+                Path(argv[-1]).write_bytes(GIF)
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+            secrets = {"PR_MEDIA_PRIVATE_TERMS": "secret-host", "GH_TOKEN": "t", "PATH": "/usr/bin"}
+            with self.ffmpeg(runner), mock.patch.dict(MODULE.os.environ, secrets):
+                MODULE.convert(self.upload(source), Path(scratch), 10, 900, runner=runner)
+            self.assertEqual(seen.get("PATH"), "/usr/bin")
+            self.assertFalse({"PR_MEDIA_PRIVATE_TERMS", "GH_TOKEN"} & set(seen))
+            self.assertLessEqual(set(seen), set(MODULE.TOOL_ENV_KEYS))
+
     def test_a_failed_conversion_says_what_ffmpeg_said(self):
         with tempfile.TemporaryDirectory() as scratch:
             source = written(scratch, "clip.mp4", MP4)
@@ -662,7 +679,9 @@ class PrivacyTests(unittest.TestCase):
 
         def ocr(local):
             self.ocr_calls.append(local.name)
-            return ["cmux@cmux7s-Mac-mini ~ %"] if b"LEAK" in local.read_bytes() else ["ok"]
+            data = local.read_bytes()
+            # TERM: a frame showing the private-terms list's "glow-box".
+            return ["cmux@cmux7s-Mac-mini ~ %"] if b"LEAK" in data else ["ssh glow-box"] if b"TERM" in data else ["ok"]
 
         def lookup(numbers):
             self.lookups.append(numbers)
@@ -702,22 +721,28 @@ class PrivacyTests(unittest.TestCase):
         self.assertEqual(sorted(gh.puts), ["7/shot.png"])
         self.assertEqual(self.ocr_calls, ["shot.png"])
 
-    def test_a_teammates_hit_is_reported_and_uploaded(self):
-        leak = written(self.scratch, "shot.png", PNG + b"LEAK")
+    def test_a_teammates_capture_with_a_private_name_is_refused_and_names_only_its_category(self):
+        # Leo, 2026-10-22: "1 ok": a teammate's PR is refused like an agent's, and nothing is uploaded.
+        clean = written(self.scratch, "01-clean.png", PNG)
+        frame = written(self.scratch, "02-frame.png", PNG + b"TERM")
         gh = FakeGh()
-        code, _, err = self.run_main(["--pr", "8", str(leak)], runner=gh)
-        self.assertEqual(code, 0)
-        self.assertEqual(sorted(gh.puts), ["8/shot.png"])
-        self.assertIn("reported, uploading anyway", err)
-
-    def test_a_hit_whose_author_cannot_be_looked_up_is_refused(self):
-        self.authors = None
-        leak = written(self.scratch, "shot.png", PNG + b"LEAK")
-        gh = FakeGh()
-        code, _, err = self.run_main(["--pr", "8", str(leak)], runner=gh)
+        code, out, err = self.run_main(["--pr", "8", str(clean), str(frame)], runner=gh)
         self.assertEqual(code, 1)
         self.assertFalse(gh.puts)
-        self.assertIn("PR author unknown", err)
+        self.assertIn("8/02-frame.png shows a personal machine or account name; refused", err)
+        self.assertIn("then recapture", err)
+        self.assertNotIn("glow", (out + err).replace(self.scratch, ""))
+        self.assertEqual(self.lookups, [])  # whoever's PR it is, no author decides
+
+    def test_a_refusal_names_each_category_never_the_text(self):
+        leak = written(self.scratch, "shot.png", PNG + b"LEAK")
+        gh = FakeGh()
+        code, out, err = self.run_main(["--pr", "8", str(leak)], runner=gh)
+        self.assertEqual(code, 1)
+        self.assertFalse(gh.puts)
+        self.assertIn("fleet Mac mini name", err)
+        self.assertIn("fleet shell prompt", err)
+        self.assertNotIn("cmux7s", out + err)
 
     def test_the_gif_made_from_an_mp4_is_what_gets_checked(self):
         clip = written(self.scratch, "drag.mp4", MP4)
@@ -751,17 +776,16 @@ class PrivacyTests(unittest.TestCase):
         code, out, err = self.run_main(["--pr", "8", "--dry-run", str(leak)])
         self.assertEqual(self.lookups, [])
         self.assertEqual(code, 1)
-        self.assertIn("not looked up", out)
         self.assertIn("8/shot.png", err)
 
-    def test_without_an_agent_list_a_hit_is_refused_off_ci_too(self):
+    def test_off_ci_a_hit_is_refused_too(self):
         self.env = {"HOME": self.scratch, "PR_MEDIA_PRIVATE_TERMS": '["glow-box"]'}
-        leak = written(self.scratch, "shot.png", PNG + b"LEAK")
+        frame = written(self.scratch, "shot.png", PNG + b"TERM")
         gh = FakeGh()
-        code, _, err = self.run_main(["--pr", "8", str(leak)], runner=gh)
+        code, _, err = self.run_main(["--pr", "8", str(frame)], runner=gh)
         self.assertEqual(code, 1)
         self.assertFalse(gh.puts)
-        self.assertIn("PR_MEDIA_AGENT_AUTHORS is empty", err)
+        self.assertIn("personal machine or account name", err)
 
     def test_a_refusal_is_a_privacy_error_so_callers_never_retry_it(self):
         leak = written(self.scratch, "shot.png", PNG + b"LEAK")

@@ -1,6 +1,7 @@
 @testable import CmuxNextAgentPermissions
 import Foundation
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// The request store (agent-permissions-DESIGN.md section 2) against a mock
 /// TCC probe: no card for a grant that is on, nothing opens before Continue,

@@ -66,7 +66,7 @@ grep -q 'using attested same-tree acpmux companion' <<<"$out" || { printf '%s\n'
 grep -q '^tree/' "$TMP/requests" || true
 grep -q 'cmux-tui-aarch64-apple-darwin.sha256' "$TMP/requests" || { cat "$TMP/requests" >&2; exit 1; }
 grep -q 'cmux-tui-acpmux-aarch64-apple-darwin' "$TMP/requests" || { cat "$TMP/requests" >&2; exit 1; }
-for unwanted in 'cmux-tui-aarch64-apple-darwin$' cmux-tui-app-host- cmux-tui-cloud-server- cmux-tui-browser-host- cmux-tui-host-; do
+for unwanted in 'cmux-tui-aarch64-apple-darwin$' cmux-tui-app-host- cmux-tui-cloud-server- cmux-tui-browser-host- cmux-tui-host- cmux-tui-holder-; do
   ! grep -q "$unwanted" "$TMP/requests" || { echo "unexpected companion request: $unwanted" >&2; cat "$TMP/requests" >&2; exit 1; }
 done
 

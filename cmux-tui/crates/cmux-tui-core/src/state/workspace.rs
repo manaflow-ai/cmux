@@ -62,12 +62,23 @@ impl Mux {
             "description": update.description,
             "task_status": update.task_status,
         });
+        // The raw tree (`list-workspaces`) carries the title, color and icon
+        // but not the notes (description, task status): those reach every
+        // client in the workspace's `extra` on the state feed. A notes-only
+        // update sends no `tree-changed`, which made every delta client
+        // refetch and re-apply the whole tree for one workspace's status
+        // (the app's sidebar churn: ~10 Hz of `--task-status`).
+        let effects = if update.title.is_some() || update.color.is_some() || update.icon.is_some() {
+            StateEffects::PRESENTATION
+        } else {
+            StateEffects::NOTES
+        };
         self.commit_state(
             mutation,
             "workspace.update",
             &fingerprint,
             expected_revision,
-            StateEffects::PRESENTATION,
+            effects,
             |transaction, state| {
                 let resolved =
                     self.resolve_in_state(state, crate::ResourceTarget::Workspace, selectors)?;

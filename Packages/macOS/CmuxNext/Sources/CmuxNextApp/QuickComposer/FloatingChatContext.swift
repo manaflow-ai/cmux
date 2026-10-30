@@ -20,7 +20,7 @@ enum FloatingChatContext {
             return trimmed(view.viewportText()).map { AgentPaneQuickContext(name: title, text: $0) }
         case .browser(let entry):
             let page = entry.tab
-            let selection = try? await page.evaluate(AgentTabSeed.selectionScript, world: .isolated).stringValue
+            let selection = try? await page.evaluate(AgentTabSeed.selectionScript, world: .isolated, gesture: .cmux).stringValue
             guard let text = AgentTabSeed.browserDraft(title: page.state.title, url: page.state.url, selection: selection) else { return nil }
             let name = trimmed(page.state.title) ?? title
             return AgentPaneQuickContext(name: trimmed(selection) == nil ? name : selectionName(name),

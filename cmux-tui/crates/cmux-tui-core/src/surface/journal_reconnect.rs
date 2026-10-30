@@ -26,6 +26,13 @@ impl PtyTerminalRuntime {
         }
     }
 
+    /// The `screen_cleared` marker after clear-history on a local terminal
+    /// (a hosted one records `host_reconnect` from its resync): a restore or
+    /// respawn starts after the clear.
+    pub(super) fn journal_clear_gap(&self, mux: &Arc<Mux>) {
+        self.journal_output_gap(mux, "screen_cleared");
+    }
+
     /// Queue the marker on the terminal lane (after this terminal's earlier
     /// resizes). False when this terminal is not journaled.
     fn journal_output_gap(&self, mux: &Arc<Mux>, reason: &'static str) -> bool {

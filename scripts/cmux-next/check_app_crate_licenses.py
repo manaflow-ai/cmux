@@ -9,7 +9,7 @@ the normal-dependency closure from `cargo metadata` and fail when:
     or openh264-sys2; Mac uses VideoToolbox; shipped OpenH264 is Cisco's
     prebuilt binary downloaded and loaded at first use);
   - a crate's license is not on the allowlist (MIT, Apache-2.0, BSD,
-    ISC, Unicode, Zlib) and the crate is not one of the seven named
+    ISC, Unicode, Zlib) and the crate is not one of the ten named
     first-party GPL crates.
 Build and dev dependencies are not linked into the app and are skipped.
 

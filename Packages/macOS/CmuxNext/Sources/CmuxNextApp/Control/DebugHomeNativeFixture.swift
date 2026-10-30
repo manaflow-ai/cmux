@@ -1,5 +1,6 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
+import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextSettings
 
@@ -15,6 +16,12 @@ extension InternalPageID {
 @MainActor
 final class DebugHomeNativeFixture: InternalPageProvider {
     private var fixtures: [String: HomeNativeFixture] = [:]
+    /// The app's made-ahead file picker, for each fixture's "+".
+    private let openPanel: MadeAheadOpenPanel
+
+    init(openPanel: MadeAheadOpenPanel) {
+        self.openPanel = openPanel
+    }
     /// The open fixture whose transcript is `view`.
     func fixture(showing view: HomeNativeTranscriptView) -> HomeNativeFixture? { fixtures.values.first { $0.shows(view) } }
     /// The next page shows the attachment fixture (`{"attachments": true}`).
@@ -25,7 +32,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     var symbol: String { "bubble.left.and.bubble.right" }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        let fixture = HomeNativeFixture(attachments: nextAttachments)
+        let fixture = HomeNativeFixture(attachments: nextAttachments, openPanel: openPanel)
         nextAttachments = false
         fixtures[key] = fixture
         return fixture.container
@@ -50,7 +57,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     }
 
     /// `debug.home.drive` {action: focus | type | send | tapback | video | scroll
-    /// | menu | geometry | link | texts | typing | rows | resize | nudge | list, text, dx, dy, trims, mine, tab, prefix, limit}: drives the shown Home through its own entry points (the
+    /// | chat_colors | menu | geometry | link | texts | typing | rows | resize | nudge | list | presence | live | faces, text, steps, elapsed, dx, dy, trims, mine, tab, prefix, limit}: drives the shown Home through its own entry points (the
     /// field's text system, Return's send, the tapback picker's react, the
     /// scroll view) for screenshots and recordings on a window that is
     /// never key. `tab` (a key from `debug.home` page.tabs) drives that Home tab.
@@ -73,6 +80,17 @@ final class DebugHomeNativeFixture: InternalPageProvider {
         }
         let ok: Bool
         switch params["action"]?.stringValue ?? "" {
+        case "chat_colors":
+            // The shown view (the fixture too) follows the app's Chat Colors store; `home.chatColors` then sets them.
+            // {sent, sentText, received, receivedText: "#RRGGBB" | "default", reset, panel}: the action's own store path.
+            let store = services.home.chatColors, id = view.conversationID.rawValue
+            view.chatColors = store
+            let values = ["sent", "sentText", "received", "receivedText"].reduce(into: [String: String]()) { $0[$1] = params[$1]?.stringValue }
+            do { try store.apply(values, reset: params["reset"]?.boolValue ?? false, to: id) } catch {
+                return .object(["error": .string(error.localizedDescription)])
+            }
+            if params["panel"]?.boolValue == true { services.home.chatColorsPanel.show(conversation: id, name: "", over: view.window) }
+            return .object(["ok": .bool(true), "conversation": .string(id), "colors": .string(store.colors(for: id).hexSummary)])
         case "menu":
             let titles = view.debugMenuTitles(mine: params["mine"]?.boolValue ?? false) ?? []
             return .object(["ok": .bool(!titles.isEmpty), "items": .array(titles.map { .string($0) })])
@@ -80,6 +98,11 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             // A click on the first shown link with this prefix (a Chief subagent's `cmux://chief/`).
             let url = view.debugClickLink(prefix: params["prefix"]?.stringValue ?? "https://")
             return .object(["ok": .bool(url != nil), "url": url.map { .string($0) } ?? .null])
+        case "fixture_typing":
+            guard let fixture = (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.fixture(showing: view) else {
+                return .object(["error": .string("no mock Home fixture is shown")])
+            }
+            return .object(["ok": .bool(fixture.debugTyping(params["on"]?.boolValue ?? true))])
         case "typing":
             // The typing bubble's body in window points (bottom-left origin) and the window's size,
             // for a pixel check of a window snapshot (scripts/cmux-next/home-typing-still.py).
@@ -161,6 +184,26 @@ final class DebugHomeNativeFixture: InternalPageProvider {
                 return .object(["error": .string("stream needs the Home fixture (debug.home_native_fixture.open)")])
             }
             ok = fixture.debugStream(params["text"]?.stringValue ?? "", done: params["done"]?.boolValue ?? false)
+        case "live":
+            // The fixture's Chief works: its typing bubble and the status line above it, one frame per
+            // step of `steps` (default "Reading", "Starting agents"), the last begun `elapsed` s ago.
+            guard let fixture = (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.fixture(showing: view) else {
+                return .object(["error": .string("live needs the native Home fixture (debug.home_native_fixture.open)")])
+            }
+            let steps = params["steps"]?.arrayValue?.compactMap(\.stringValue) ?? ["Reading", "Starting agents"]
+            ok = fixture.debugLive(steps, elapsed: params["elapsed"]?.doubleValue ?? 7)
+        case "presence":
+            // Who else has the fixture's conversation open (`people`: mock participant ids, default
+            // three of the mock's people; `typing`: one of them types), as the owner's presence.
+            guard let fixture = (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.fixture(showing: view) else {
+                return .object(["error": .string("presence needs the native Home fixture (debug.home_native_fixture.open)")])
+            }
+            let people = params["people"]?.arrayValue?.compactMap(\.stringValue) ?? HomeNativeFixture.presencePeople
+            ok = fixture.debugPresence(people, typing: params["typing"]?.stringValue)
+        case "faces":
+            // The header's faces as drawn: each initial, and whether they show.
+            let drawn = view.debugHeaderFaces
+            return .object(["ok": .bool(true), "initials": .array(drawn.initials.map { .string($0) }), "shown": .bool(drawn.shown)])
         case "focus": ok = view.window?.makeFirstResponder(view.primaryInput) ?? false
         case "type":
             guard let field = view.primaryInput as? NSTextView else { return .object(["error": .string("no field")]) }
@@ -211,7 +254,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     }
 
     static func open(services: AppServices, attachments: Bool = false, fresh: Bool = false) -> JSONValue {
-        if services.pages.provider(.homeNativeFixture) == nil { services.pages.register(DebugHomeNativeFixture()) }
+        if services.pages.provider(.homeNativeFixture) == nil { services.pages.register(DebugHomeNativeFixture(openPanel: services.openPanel)) }
         (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.nextAttachments = attachments
         let view = fresh ? services.pages.openNew(.homeNativeFixture, in: services.windows.active, focus: true)
             : services.pages.show(.homeNativeFixture, in: services.windows.active, focus: true)

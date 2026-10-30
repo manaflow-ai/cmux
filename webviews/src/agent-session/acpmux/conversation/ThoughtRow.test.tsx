@@ -18,6 +18,7 @@ import {
   ThoughtRow,
   thoughtDuration,
   thoughtLayout,
+  thoughtParts,
   thoughtPreview,
   type ThoughtFoldThreshold,
   type ThoughtHeader,
@@ -248,11 +249,15 @@ test("a long thought streaming holds the live viewport and reads Thinking", () =
   expect(container.querySelector(".cv-thought__text")?.textContent).toBe(LONG);
 });
 
-test("a thought no taller than the live viewport streams in full after Thought", () => {
+test("a thought no taller than the live viewport streams in full under Thinking, never after Thought", () => {
   height = THOUGHT_LIVE_PX;
-  render(thought(), true, "live-short:0");
+  render(thought("I am here, reading the retry helper first."), true, "live-short:0");
   expect(row()?.classList.contains("is-live")).toBe(false);
-  expect(label()).toBe("Thought");
+  // The label on its own line, the text under it: never "Thought I am here" as one sentence.
+  expect(row()?.classList.contains("is-full")).toBe(true);
+  expect(label()).toBe("Thinking");
+  expect(container.querySelector(".cv-thought__text")?.textContent).toBe("I am here, reading the retry helper first.");
+  expect(row()?.textContent).not.toContain("Thought");
 });
 
 test("with the live viewport's toggle off, or the fold's, a long thought streams in full", () => {
@@ -390,4 +395,69 @@ test("a short thought still streaming draws, and folds once done", () => {
   render({ ...thought(SUMMARY), startedAt: 1_000, endedAt: 6_000 }, false, "every-live:0");
   expect(toggle()?.textContent).toBe("Thought for 5s");
   expect(body()).toBeNull();
+});
+
+// Every path names a thought with its time or "Thinking", never with its own first words (Leo
+// 2026-10-21: "the way we're rendering it with Thought I am here is prettyy weird").
+test("a finished thought shown in full by a Debug choice reads Thought for 12s over its text", () => {
+  threshold = "viewport";
+  height = 20;
+  render({ ...thought(SUMMARY), startedAt: 1_000, endedAt: 13_000 }, false, "full-done:0");
+  expect(toggle()).toBeNull();
+  expect(row()?.classList.contains("is-full")).toBe(true);
+  expect(label()).toBe("Thought for 12s");
+  expect(container.querySelector(".cv-thought__text")?.textContent).toBe(SUMMARY);
+});
+
+test("an undated finished thought shown in full reads Thought alone over its text", () => {
+  threshold = "viewport";
+  height = 20;
+  render(thought(SUMMARY), false, "full-undated:0");
+  expect(label()).toBe("Thought");
+  expect(row()?.classList.contains("is-full")).toBe(true);
+});
+
+const CODEX = "**Planning the retry fix**\n\nThe helper swallows the status.\n\n**Checking callers**\nTwo call sites.";
+
+test("Codex's reasoning headings are muted titles in the text, never glued after Thought", () => {
+  threshold = "every";
+  height = 20;
+  render({ ...thought(CODEX), startedAt: 0, endedAt: 12_000 }, false, "codex:0");
+  expect(toggle()?.textContent).toBe("Thought for 12s");
+  click();
+  const titles = [...container.querySelectorAll(".cv-thought__title")].map((node) => node.textContent);
+  expect(titles).toEqual(["Planning the retry fix", "Checking callers"]);
+  expect(body()?.textContent).not.toContain("**");
+  expect(body()?.textContent).toContain("The helper swallows the status.");
+});
+
+test("a streaming Codex thought reads Thinking, its heading a title under it", () => {
+  height = 20;
+  render(thought(CODEX), true, "codex-live:0");
+  expect(label()).toBe("Thinking");
+  expect(container.querySelector(".cv-thought__title")?.textContent).toBe("Planning the retry fix");
+  expect(container.textContent).not.toContain("**");
+});
+
+test("thoughtParts splits headings from the text around them", () => {
+  expect(thoughtParts(CODEX)).toEqual([
+    { title: "Planning the retry fix" },
+    { text: "The helper swallows the status." },
+    { title: "Checking callers" },
+    { text: "Two call sites." },
+  ]);
+  expect(thoughtParts("## Check errors\nnext")).toEqual([{ title: "Check errors" }, { text: "next" }]);
+  // Bold inside a line is text, not a heading.
+  expect(thoughtParts("Use **retry** here.")).toEqual([{ text: "Use **retry** here." }]);
+  expect(thoughtParts("plain\n\ntwo paragraphs")).toEqual([{ text: "plain\n\ntwo paragraphs" }]);
+});
+
+test("an empty or redacted thought draws nothing, streaming or done", () => {
+  for (const [index, streaming] of [true, false].entries())
+    for (const text of ["", "   ", "\n\n"]) {
+      render({ ...thought(text), startedAt: 0, endedAt: 12_000 }, streaming, `empty-${index}-${text.length}:0`);
+      expect(container.innerHTML).toBe("");
+      act(() => root!.unmount());
+      root = undefined;
+    }
 });

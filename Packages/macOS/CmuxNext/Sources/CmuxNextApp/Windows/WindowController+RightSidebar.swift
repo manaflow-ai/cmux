@@ -38,7 +38,15 @@ extension WindowController {
 
     /// Puts the model's state on screen: the panel's width in the root.
     func applyRightSidebar() {
-        root.rightPanelWidth = rightSidebar.isVisible ? RightSidebarModel.width : 0
+        root.rightPanelWidth = rightSidebar.isVisible ? rightSidebar.width : 0
+    }
+
+    /// A drag on the panel's inner edge: follows the pointer live (no animation, the drag is the
+    /// person's own pacing), and remembers the width when it ends (`proposed` nil).
+    func resizeRightSidebar(to proposed: CGFloat?) {
+        guard let proposed else { return rightSidebar.saveWidth() }
+        rightSidebar.resize(to: proposed)
+        applyRightSidebar()
     }
 
     /// The window's panel, made on first use.
@@ -49,8 +57,10 @@ extension WindowController {
         let view = RightSidebarView(
             modes: sections.modes,
             title: { registry.descriptor(for: $0.actionID)?.title ?? $0.rawValue },
+            icon: sections.icon,
             makeSection: { [weak self] mode in self.flatMap { sections.makeView(mode, for: $0) } },
             run: { registry.perform($0) })
+        view.onResize = { [weak self] in self?.resizeRightSidebar(to: $0) }
         rightSidebarView = view
         root.rightPanel = view
         return view

@@ -18,9 +18,16 @@ use anyhow::{Context as _, anyhow, bail};
 use serde_json::Value;
 use wait_timeout::ChildExt;
 
+#[cfg(all(unix, feature = "tailnet"))]
+pub mod embedded;
+#[cfg(all(unix, feature = "tailnet"))]
+pub(crate) mod embedded_service;
+
 /// How long one CLI call may take (status on a large tailnet is the
 /// slowest, about 100 ms measured on a 150-peer tailnet).
 const CLI_BOUND: Duration = Duration::from_secs(8);
+/// How long `tailscale version` may take while choosing a CLI.
+const PROBE_BOUND: Duration = Duration::from_secs(3);
 /// Largest CLI output read (a 2,000-peer status is about 4 MiB).
 const MAX_OUTPUT: u64 = 32 * 1024 * 1024;
 
@@ -95,34 +102,49 @@ pub struct Tailnet {
 }
 
 impl Tailnet {
-    /// Finds the CLI: `CMUX_TAILSCALE_BIN`, then `PATH`, then each
-    /// platform's install location.
+    /// Finds the CLI: `CMUX_TAILSCALE_BIN` (taken as is), then the first
+    /// working CLI on `PATH`, then in each platform's install locations.
     pub fn locate() -> anyhow::Result<Self> {
         if let Some(bin) = std::env::var_os("CMUX_TAILSCALE_BIN").filter(|v| !v.is_empty()) {
             return Ok(Self { bin: PathBuf::from(bin) });
         }
         let name = if cfg!(windows) { "tailscale.exe" } else { "tailscale" };
+        let mut candidates = Vec::new();
         if let Some(paths) = std::env::var_os("PATH") {
-            for dir in std::env::split_paths(&paths) {
-                let candidate = dir.join(name);
-                if candidate.is_file() {
-                    return Ok(Self { bin: candidate });
-                }
-            }
+            candidates.extend(std::env::split_paths(&paths).map(|dir| dir.join(name)));
         }
-        for candidate in platform_candidates() {
-            if candidate.is_file() {
-                return Ok(Self { bin: candidate });
-            }
-        }
-        bail!(
-            "Tailscale is not installed on this machine (no `tailscale` command found). Install it and sign in, then run this again."
-        )
+        candidates.extend(platform_candidates());
+        Self::locate_among(&candidates).ok_or_else(|| {
+            anyhow!(
+                "Tailscale is not installed on this machine (no `tailscale` command found). Install it and sign in, then run this again."
+            )
+        })
+    }
+
+    /// The first of `candidates` that is a working CLI: a file that answers
+    /// `tailscale version` with a version. A file that prints nothing (the
+    /// macOS app binary where it does not act as a CLI, a stale shim) or fails
+    /// is skipped, so cmux never settles on a binary that answers nothing.
+    fn locate_among(candidates: &[PathBuf]) -> Option<Self> {
+        candidates.iter().filter(|c| c.is_file()).find_map(|bin| {
+            let found = Self { bin: bin.clone() };
+            let out = found.run_bounded(&["version"], PROBE_BOUND).ok()?;
+            (!String::from_utf8_lossy(&out).trim().is_empty()).then_some(found)
+        })
     }
 
     fn run(&self, args: &[&str]) -> anyhow::Result<Vec<u8>> {
+        self.run_bounded(args, CLI_BOUND)
+    }
+
+    fn run_bounded(&self, args: &[&str], bound: Duration) -> anyhow::Result<Vec<u8>> {
         let mut child = Command::new(&self.bin)
             .args(args)
+            // The macOS app binary (`Tailscale.app/Contents/MacOS/Tailscale`,
+            // or a shim to it) acts as the CLI only when started from a
+            // terminal or with this set; under launchd it starts the GUI and
+            // prints nothing. Other builds ignore it.
+            .env("TAILSCALE_BE_CLI", "1")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -146,16 +168,12 @@ impl Tailnet {
             let _ = (&mut stderr).take(64 * 1024).read_to_end(&mut buf);
             buf
         });
-        let status = match child.wait_timeout(CLI_BOUND)? {
+        let status = match child.wait_timeout(bound)? {
             Some(status) => status,
             None => {
                 let _ = child.kill();
                 let _ = child.wait();
-                bail!(
-                    "`tailscale {}` did not answer within {}s",
-                    args.join(" "),
-                    CLI_BOUND.as_secs()
-                );
+                bail!("`tailscale {}` did not answer within {}s", args.join(" "), bound.as_secs());
             }
         };
         let stdout = out.join().unwrap_or_default();
@@ -186,9 +204,11 @@ impl Tailnet {
 fn platform_candidates() -> Vec<PathBuf> {
     if cfg!(target_os = "macos") {
         vec![
-            PathBuf::from("/Applications/Tailscale.app/Contents/MacOS/Tailscale"),
-            PathBuf::from("/opt/homebrew/bin/tailscale"),
+            // Standalone CLIs first: the app binary is a CLI only with
+            // TAILSCALE_BE_CLI=1, and only while the app is the node.
             PathBuf::from("/usr/local/bin/tailscale"),
+            PathBuf::from("/opt/homebrew/bin/tailscale"),
+            PathBuf::from("/Applications/Tailscale.app/Contents/MacOS/Tailscale"),
         ]
     } else if cfg!(windows) {
         let mut out = Vec::new();
@@ -297,5 +317,52 @@ pub fn is_tailnet_ip(ip: IpAddr) -> bool {
             let s = v6.segments();
             s[0] == 0xfd7a && s[1] == 0x115c && s[2] == 0xa1e0
         }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod cli_tests {
+    use super::*;
+
+    /// A fake `tailscale` in a fresh folder: `body` is the shell after `#!/bin/sh`.
+    fn fake(name: &str, body: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tailnet-{}-{}-{name}",
+            std::process::id(),
+            line!()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bin = dir.join("tailscale");
+        crate::test_exec::write_executable(&bin, format!("#!/bin/sh\n{body}\n"));
+        bin
+    }
+
+    /// The macOS app binary starts its GUI (and prints nothing) unless
+    /// `TAILSCALE_BE_CLI=1`; under launchd nothing else sets it.
+    #[test]
+    fn every_cli_call_sets_tailscale_be_cli() {
+        let bin = fake("becli", r#"[ "$TAILSCALE_BE_CLI" = 1 ] && echo 1.90.0"#);
+        let out = Tailnet { bin }.run(&["version"]).unwrap();
+        assert_eq!(String::from_utf8_lossy(&out).trim(), "1.90.0");
+    }
+
+    /// A candidate that answers `version` with nothing (an app binary that
+    /// is not a CLI there) is skipped for the next one.
+    #[test]
+    fn locate_skips_a_candidate_that_prints_no_version() {
+        let silent = fake("silent", "exit 0");
+        let good = fake("good", "echo 1.90.0");
+        let found = Tailnet::locate_among(&[silent, good.clone()]).unwrap();
+        assert_eq!(found.bin, good);
+    }
+
+    #[test]
+    fn locate_skips_a_candidate_that_fails_or_is_missing() {
+        let failing = fake("failing", "exit 1");
+        let good = fake("good2", "echo 1.90.0");
+        let missing = PathBuf::from("/nonexistent/cmux/tailscale");
+        let found = Tailnet::locate_among(&[missing, failing, good.clone()]).unwrap();
+        assert_eq!(found.bin, good);
+        assert!(Tailnet::locate_among(&[PathBuf::from("/nonexistent/x")]).is_none());
     }
 }

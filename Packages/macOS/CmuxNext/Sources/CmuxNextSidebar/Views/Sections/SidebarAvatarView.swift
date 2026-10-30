@@ -33,7 +33,8 @@ final class SidebarAvatarView: NSView {
         performWithTheme { Self.draw(avatar, in: circleFrame, strong: isStrong) }
     }
 
-    /// The picture clipped round, else the initial on the profile's color.
+    /// The picture clipped round, else the initial on the profile's color or the theme accent,
+    /// glazed like glass (Leo 2026-10-21: "just make it a good icon").
     /// theme-scoped: called from the footer or the menu image renderer.
     static func draw(_ avatar: SidebarAvatar, in circle: NSRect, strong: Bool) {
         if let picture = picture(avatar) {
@@ -41,19 +42,42 @@ final class SidebarAvatarView: NSView {
             NSBezierPath(ovalIn: circle).addClip()
             picture.draw(in: circle, from: .zero, operation: .sourceOver, fraction: strong ? 1 : 0.85, respectFlipped: true, hints: nil)
             NSGraphicsContext.restoreGraphicsState()
+            drawRim(in: circle)
             return
         }
-        let colored = avatar.color != nil
-        let fill = avatar.color.map { SidebarStyle.color($0) } ?? Palette.textPrimary.withAlphaComponent(strong ? 0.24 : 0.16)
-        fill.setFill()
+        // Glass, never opaque: the disc lets the sidebar through a little, more at rest.
+        let glass: CGFloat = strong ? 0.94 : 0.84
+        let fill = avatar.color.map { SidebarStyle.color($0) } ?? Palette.accentFill
+        fill.withAlphaComponent(glass).setFill()
         NSBezierPath(ovalIn: circle).fill()
-        let text = colored ? Palette.textOnPrimary : (strong ? Palette.textPrimary : Palette.textSecondary)
+        drawGlaze(in: circle)
+        drawRim(in: circle)
+        let text = avatar.color == nil ? Palette.onAccent : Palette.textOnPrimary
         let scale: CGFloat = avatar.initial.count > 1 ? 0.44 : 0.56
         let font = NSFont.systemFont(ofSize: circle.height * scale, weight: TypeScale.strong)
         let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: text]
         avatar.initial.draw(at: initialOrigin(avatar.initial, font: font, in: circle,
                                               flipped: NSGraphicsContext.current?.isFlipped ?? true),
                             withAttributes: attributes)
+    }
+
+    /// The glass sheen: light falling on the disc's top half and fading out by its middle.
+    private static func drawGlaze(in circle: NSRect) {
+        guard let glaze = NSGradient(colorsAndLocations: (NSColor.white.withAlphaComponent(0.3), 0),
+                                     (NSColor.white.withAlphaComponent(0), 0.6)) else { return }
+        // Angle 90 runs from minY to maxY: the top in a flipped view, the bottom in a bitmap.
+        let flipped = NSGraphicsContext.current?.isFlipped ?? true
+        glaze.draw(in: NSBezierPath(ovalIn: circle), angle: flipped ? 90 : -90)
+    }
+
+    /// The glass rim: a hairline just inside the edge, so the disc reads crisp on any backdrop.
+    private static func drawRim(in circle: NSRect) {
+        let width = Metrics.lineWidth(1) / max(NSGraphicsContext.current?.cgContext.userSpaceToDeviceSpaceTransform.a ?? 2, 1)
+        guard width > 0 else { return }
+        let rim = NSBezierPath(ovalIn: circle.insetBy(dx: width / 2, dy: width / 2))
+        rim.lineWidth = width
+        Palette.textPrimary.withAlphaComponent(0.18).setStroke()
+        rim.stroke()
     }
 
     /// Where `initial` draws so its ink sits in the middle of `circle` (Leo 2026-10-20: the "L"

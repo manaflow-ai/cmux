@@ -1,3 +1,4 @@
+#if canImport(ImageIO)
 internal import CoreGraphics
 public import Foundation
 internal import ImageIO
@@ -120,3 +121,4 @@ public struct MobileImageAttachmentPreparer: Sendable {
         return encoded as Data
     }
 }
+#endif

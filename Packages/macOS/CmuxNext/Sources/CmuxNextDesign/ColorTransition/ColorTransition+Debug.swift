@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 extension ColorTransition {
     /// The window backdrop's colors as the render server shows them now, mid-blend included

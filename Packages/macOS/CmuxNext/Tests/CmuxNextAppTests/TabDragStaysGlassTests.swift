@@ -10,12 +10,12 @@ import Testing
 /// show in a capture, so the cell's own layer is the evidence.
 @MainActor @Suite(.serialized) struct TabDragStaysGlassTests {
     @Test func theLiftedTabKeepsItsGlassFillWhileItIsDragged() throws {
-        let original = ThemeStore.shared.input
-        defer { _ = ThemeStore.shared.apply(original) }
+        let original = ThemeScope.app.store.input
+        defer { _ = ThemeScope.app.store.apply(original) }
         var input = original
         input.backgroundOpacity = 0.65 // cmux.json `appearance.backgroundOpacity` 0.65, `backgroundBlur` "frosted"
         input.backgroundBlur = 20
-        _ = ThemeStore.shared.apply(input)
+        _ = ThemeScope.app.store.apply(input)
 
         let model = TabStripModel(tabs: (0..<5).map { TabItem(id: TabID("t\($0)"), title: "Tab \($0)") }, selectedID: TabID("t0"))
         model.intentHandler = { intent in if case .select(let id) = intent { model.selectedID = id } }

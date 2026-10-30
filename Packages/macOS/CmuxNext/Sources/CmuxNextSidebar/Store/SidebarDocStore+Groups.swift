@@ -43,7 +43,7 @@ extension SidebarDocStore {
     }
 
     static func wire(_ tint: GroupTint) -> String {
-        if case .custom = tint { tint.wire } else { tint.token.rawValue }
+        if case .palette = tint { tint.token.rawValue } else { tint.wire }
     }
 
     /// The item id the reducer gives a live workspace it adopts (`itm_w_<session>_<workspace>`).

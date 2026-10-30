@@ -11,11 +11,14 @@ const UDP: u8 = 17;
 const HOP_LIMIT: u8 = 64;
 
 fn checksum_add(mut sum: u32, bytes: &[u8]) -> u32 {
-    for pair in bytes.chunks(2) {
-        let word = u16::from_be_bytes([pair[0], *pair.get(1).unwrap_or(&0)]);
-        sum += u32::from(word);
+    let pairs = bytes.chunks_exact(2);
+    let odd = pairs.remainder().first().map_or(0, |last| u32::from(*last) << 8);
+    for pair in pairs {
+        if let [high, low] = *pair {
+            sum += u32::from(u16::from_be_bytes([high, low]));
+        }
     }
-    sum
+    sum + odd
 }
 
 fn checksum_finish(mut sum: u32) -> u16 {
@@ -33,6 +36,7 @@ pub(crate) fn packet(source: SocketAddr, destination: SocketAddr, payload: &[u8]
     udp.extend_from_slice(&source.port().to_be_bytes());
     udp.extend_from_slice(&destination.port().to_be_bytes());
     udp.extend_from_slice(&(udp_len as u16).to_be_bytes());
+    let checksum_at = udp.len();
     udp.extend_from_slice(&[0, 0]);
     udp.extend_from_slice(payload);
     let mut pseudo = 0u32;
@@ -68,7 +72,9 @@ pub(crate) fn packet(source: SocketAddr, destination: SocketAddr, payload: &[u8]
         0 => 0xFFFF,
         sum => sum,
     };
-    udp[6..8].copy_from_slice(&sum.to_be_bytes());
+    if let Some(field) = udp.get_mut(checksum_at..checksum_at + 2) {
+        field.copy_from_slice(&sum.to_be_bytes());
+    }
     packet.extend_from_slice(&udp);
     packet
 }
@@ -78,41 +84,45 @@ pub(crate) fn packet(source: SocketAddr, destination: SocketAddr, payload: &[u8]
 pub(crate) fn parse(packet: &[u8]) -> Option<(SocketAddr, SocketAddr, &[u8])> {
     let (source, destination, udp): (IpAddr, IpAddr, &[u8]) = match packet.first()? >> 4 {
         4 => {
-            let header_len = usize::from(packet[0] & 0x0F) * 4;
-            if header_len < IPV4_HEADER || packet.len() < header_len || packet[9] != UDP {
+            let header_len = usize::from(packet.first()? & 0x0F) * 4;
+            if header_len < IPV4_HEADER || packet.len() < header_len || *packet.get(9)? != UDP {
                 return None;
             }
             // Fragments (more-fragments set, or a non-zero offset) are not
             // whole datagrams: this stack never reassembles them.
-            if u16::from_be_bytes([packet[6], packet[7]]) & 0x3FFF != 0 {
+            if be16(packet, 6)? & 0x3FFF != 0 {
                 return None;
             }
-            let source: [u8; 4] = packet[12..16].try_into().ok()?;
-            let destination: [u8; 4] = packet[16..20].try_into().ok()?;
-            (source.into(), destination.into(), &packet[header_len..])
+            let source: [u8; 4] = packet.get(12..16)?.try_into().ok()?;
+            let destination: [u8; 4] = packet.get(16..20)?.try_into().ok()?;
+            (source.into(), destination.into(), packet.get(header_len..)?)
         }
         6 => {
-            if packet.len() < IPV6_HEADER || packet[6] != UDP {
+            if packet.len() < IPV6_HEADER || *packet.get(6)? != UDP {
                 return None;
             }
-            let source: [u8; 16] = packet[8..24].try_into().ok()?;
-            let destination: [u8; 16] = packet[24..40].try_into().ok()?;
-            (source.into(), destination.into(), &packet[IPV6_HEADER..])
+            let source: [u8; 16] = packet.get(8..24)?.try_into().ok()?;
+            let destination: [u8; 16] = packet.get(24..40)?.try_into().ok()?;
+            (source.into(), destination.into(), packet.get(IPV6_HEADER..)?)
         }
         _ => return None,
     };
-    if udp.len() < UDP_HEADER {
-        return None;
-    }
-    let length = usize::from(u16::from_be_bytes([udp[4], udp[5]]));
+    let (&[s0, s1, d0, d1, l0, l1, _, _], _) = udp.split_first_chunk::<UDP_HEADER>()?;
+    let length = usize::from(u16::from_be_bytes([l0, l1]));
     if length < UDP_HEADER || length > udp.len() {
         return None;
     }
-    let source_port = u16::from_be_bytes([udp[0], udp[1]]);
-    let destination_port = u16::from_be_bytes([udp[2], udp[3]]);
+    let source_port = u16::from_be_bytes([s0, s1]);
+    let destination_port = u16::from_be_bytes([d0, d1]);
     Some((
         SocketAddr::new(source, source_port),
         SocketAddr::new(destination, destination_port),
-        &udp[UDP_HEADER..length],
+        udp.get(UDP_HEADER..length)?,
     ))
+}
+
+/// The big-endian `u16` at `at` in `bytes`, if both bytes are there.
+fn be16(bytes: &[u8], at: usize) -> Option<u16> {
+    let pair = bytes.get(at..at.checked_add(2)?)?;
+    Some(u16::from_be_bytes(pair.try_into().ok()?))
 }

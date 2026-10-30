@@ -1,5 +1,5 @@
 public import Foundation
-import Observation
+public import Observation
 
 /// Snapshots and persists eligibility for the one-time Auto-Connect introduction.
 ///

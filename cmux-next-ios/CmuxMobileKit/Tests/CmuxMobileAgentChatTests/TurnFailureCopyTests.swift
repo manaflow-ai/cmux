@@ -37,6 +37,24 @@ import Testing
         #expect(TurnFailureCopy(message: "trust.pending: answer the trust question").kind == .trustPending)
     }
 
+    /// Codex on a team Cloud machine whose team has no Codex account gets CodeRouter's 403 and shows
+    /// only its message. It is not a rate limit or a refused route: the card names the fix.
+    @Test func teamMachineWithoutAnAccountSaysSo() {
+        let url = ", url: https://coderouter.cmux.dev/v1/responses, request id: req-1"
+        let current = "unexpected status 403 Forbidden: Codex needs a team account on this machine. To add one for the team, run `cr add codex` in this machine's terminal. If someone added one as private, they can choose Share with team at coderouter.dev." + url
+        let before = "unexpected status 403 Forbidden: No Codex account is shared with this Cloud machine's team. If one was added as private, the person who added it can choose Share with team at coderouter.dev, or add one here with `cr add codex` (accounts added on a Cloud machine are shared with its team). Or use your own Codex sign-in on this machine: run `cr use own codex`, then `codex login`." + url
+        for message in [current, before] {
+            let copy = TurnFailureCopy(message: message, harness: "codex", harnessName: "Codex")
+            #expect(copy.kind == .noTeamAccount)
+            #expect(copy.sentence == "Codex needs a team account on this machine. To add one for the team, run cr add codex in this machine’s terminal.")
+            #expect(copy.detail == message)
+        }
+        // A real rate limit or capacity answer still says rate limited.
+        for message in ["exceeded retry limit, last status: 503 Service Unavailable, request id: req-2", "unexpected status 429 Too Many Requests: Rate limit reached" + url] {
+            #expect(TurnFailureCopy(message: message, harness: "codex", harnessName: "Codex").kind == .rateLimited)
+        }
+    }
+
     @Test func otherErrorsReadTheInnerMessage() {
         let copy = TurnFailureCopy(message: #"API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long"}}"#)
         #expect(copy.kind == .other && copy.sentence == "Prompt is too long.")

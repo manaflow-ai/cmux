@@ -120,6 +120,9 @@ async function openComposer(sent: Sent[] = [], onEdit?: (command: ComposerEditCo
         onProject={() => {}}
         onNewChat={() => {}}
         {...(onEdit ? { onEdit } : {})}
+        // A pasted file goes to the chat's host and its chip is the saved path (#24652): the
+        // session gets the file by path, never its contents inline.
+        upload={async (files) => ({ paths: files.map((file) => `/session/uploads/${file.name}`) })}
         localName="studio"
         projectChoices={[{ cwd: "/Users/you/src/app", label: "app" }]}
         handle={handle}
@@ -283,7 +286,7 @@ test("Paste as Plain Text of only a file leaves no raw paste armed for the next 
   await plainPasteKey({ key: "v", code: "KeyV" });
   await paste("", [new File(["notes"], "notes.txt", { type: "text/plain" })]);
   await paste(LOG);
-  expect(chips(composer).map((chip) => chip.kind)).toEqual(["text", "pasted"]);
+  expect(chips(composer).map((chip) => chip.kind)).toEqual(["link", "pasted"]);
 });
 
 test("a bubble shows a pasted chip's text as the echo will; a resend never sends the paste twice", () => {
@@ -344,4 +347,42 @@ test("a pasted chip is kept with the chat's unsent chips, its text with it (#231
   const chip = pastedTextAttachment(LOG);
   expect(keptChips([chip])).toEqual([chip]);
   expect(chip).toMatchObject({ kind: "pasted", text: LOG, name: "line 1 of the build log" });
+});
+
+/// One Backspace press on the prompt, as the key delivers it (`repeat` while it is held down).
+const backspace = (repeat = false) =>
+  act(async () => {
+    field().dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { key: "Backspace", repeat, bubbles: true, cancelable: true }),
+    );
+  });
+
+// Austin 2026-10-21: a pasted image could only go by its ×. Backspace at the prompt's start now
+// takes back the last chip, as Claude's composer does; Backspace inside the text still edits it.
+test("Backspace at the prompt's start removes the last chip, one per press; anywhere else it takes none", async () => {
+  const composer = await openComposer();
+  await paste("", [new File(["a"], "a.txt", { type: "text/plain" })]);
+  await paste("", [new File(["b"], "b.txt", { type: "text/plain" })]);
+  expect(chips(composer).map((chip) => chip.name)).toEqual(["a.txt", "b.txt"]);
+  await typeDraft("hi");
+  // The caret is after "hi": the key is the editor's, and no chip goes.
+  await backspace();
+  expect(chips(composer).map((chip) => chip.name)).toEqual(["a.txt", "b.txt"]);
+  await act(async () => markdownField().writeText("", 0, 0));
+  await backspace();
+  expect(chips(composer).map((chip) => chip.name)).toEqual(["a.txt"]);
+  // Holding Backspace down to clear the prompt stops at its start: a repeat takes no chip.
+  await backspace(true);
+  expect(chips(composer).map((chip) => chip.name)).toEqual(["a.txt"]);
+  await backspace();
+  expect(chips(composer)).toEqual([]);
+});
+
+test("Backspace at the start of a heading lifts the heading; the chips stay", async () => {
+  const composer = await openComposer();
+  await paste("", [new File(["a"], "a.txt", { type: "text/plain" })]);
+  await act(async () => markdownField().type("# Title"));
+  await act(async () => markdownField().setCaret(0));
+  await backspace();
+  expect(chips(composer).map((chip) => chip.name)).toEqual(["a.txt"]);
 });

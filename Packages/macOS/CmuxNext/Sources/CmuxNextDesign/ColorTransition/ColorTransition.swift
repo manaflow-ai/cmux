@@ -1,6 +1,7 @@
 public import AppKit
 import CCmuxMotionFFI
 public import CmuxTheme
+public import CmuxNextDesignTokens
 
 /// How every theme and color change animates (`appearance.colorTransition.*`, cx-3rf4z; Lawrence
 /// 2026-10-15: "always smooth animation (that can be configured, fully ... or even just instant").
@@ -226,7 +227,7 @@ extension ColorTransition {
     /// user's own number.
     @MainActor
     public static var current: ColorTransition {
-        guard ThemeStore.shared.hasAppliedConfig else { return ColorTransition(enabled: false) }
+        guard ThemeScope.app.store.hasAppliedConfig else { return ColorTransition(enabled: false) }
         return DesignSettings.shared.colorTransition.resolved(speedOff: !Motion.feedback.isEnabled, systemReduceMotion: Motion.reduceMotion)
     }
 }

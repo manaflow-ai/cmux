@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Fails when CmuxNext code animates without the Motion tokens
 # (plans/cmux-next/motion.md). Every duration, curve and spring constant
-# lives in Sources/CmuxNextDesign/Motion; everything else asks `Motion` for a
+# lives in Sources/CmuxNextDesign/Motion and Sources/CmuxNextDesignTokens/Motion; everything else asks `Motion` for a
 # token, so `ui.animationSpeed`, Reduce Motion and retuning apply everywhere.
 #
-# Flags, outside CmuxNextDesign/Motion (tests are exempt):
+# Flags, outside those two Motion folders (tests are exempt):
 #   - numeric durations: `duration = 0.2`, `duration: 0.14`, `setAnimationDuration(`
 #   - spring constants: `response: 0.3`, `dampingFraction:`, `dampingRatio:`,
 #     `stiffness =`, `damping =`, `perceptualDuration:`, `bounce:`
@@ -43,7 +43,9 @@ import sys
 
 root = sys.argv[1]
 sources = os.path.join(root, "Sources")
-exempt = os.path.join(sources, "CmuxNextDesign", "Motion") + os.sep
+# The motion tokens and the gate: Design's Motion folder and its view-free half in DesignTokens.
+exempt = (os.path.join(sources, "CmuxNextDesign", "Motion") + os.sep,
+          os.path.join(sources, "CmuxNextDesignTokens", "Motion") + os.sep)
 
 # The MotionGate members (Sources/CmuxNextDesign/Motion): every one decides with a category.
 GATE_MEMBERS = "|".join([
@@ -71,7 +73,7 @@ RULES = [
      r"\.(transition|contentTransition|symbolEffect|matchedGeometryEffect)\(|\b(phaseAnimator|keyframeAnimator)\b|TimelineView\(\.animation"),
     ("window animationBehavior outside a motion gate (use gate.animatesMovement ? .x : .none)",
      r"\banimationBehavior\s*=\s*\.(?!none\b)(?![^\n]*\bMotion\.)"),
-    ("popover animates outside a motion gate", r"\.animates\s*=\s*(?![^\n]*\bMotion\.)"),
+    ("popover animates outside a motion gate", r"\.animates\s*=(?!\s*false\s*(?:;|}))(?![^\n]*\bMotion\.)"),
 ]
 # An .animator() change must run inside a Motion gate's animation group: outside one, AppKit
 # animates it on its own 0.25 s default, which no switch reaches. Heuristic: a gate call that
@@ -96,6 +98,21 @@ def code_part(line):
             return line[:i]
     return line
 
+def popover_assignment_code(index, code, lines):
+    # A newline after `false` need not end a Swift expression. Only treat it as a
+    # literal assignment when the next significant line starts a new statement or
+    # closes the scope. Operators, member access, casts and type checks continue it.
+    if not re.search(r"\.animates\s*=\s*false\s*$", code):
+        return code
+    for following in lines[index + 1:]:
+        following = code_part(following).strip()
+        if not following:
+            continue
+        if re.match(r"(?:as|is)\b", following) or not re.match(r"[A-Za-z_@};]", following):
+            return code
+        break
+    return code + ";"
+
 failures = []
 for directory, _, files in os.walk(sources):
     for name in files:
@@ -113,7 +130,8 @@ for directory, _, files in os.walk(sources):
             allowed = bool(ALLOW.search(line) or (index > 0 and ALLOW.search(lines[index - 1])))
             code = code_part(line)
             for rule, pattern in compiled:
-                if pattern.search(code) and not allowed:
+                rule_code = popover_assignment_code(index, code, lines) if rule == "popover animates outside a motion gate" else code
+                if pattern.search(rule_code) and not allowed:
                     failures.append(f"{os.path.relpath(path, root)}:{index + 1}: {rule}: {stripped}")
             if animator_use.search(code) and not allowed:
                 window = [code_part(l) for l in lines[max(0, index - 40):index + 41]]

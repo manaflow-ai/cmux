@@ -64,6 +64,12 @@ class LiteralReadsCase(unittest.TestCase):
         root = Path(self.tmp.name).resolve()
         (root / "App").mkdir()
         (root / "App" / "README.md").write_text("app\n", encoding="utf-8")
+        (root / ".git").mkdir()
+        (root / ".git" / "config").write_text("[core]\n", encoding="utf-8")
+        (root / ".claude").mkdir()
+        (root / ".claude" / "settings.json").write_text("{}\n", encoding="utf-8")
+        (root / ".codex").mkdir()
+        (root / ".codex" / "hooks.json").write_text("{}\n", encoding="utf-8")
         (root / "schemas" / "settings").mkdir(parents=True)
         (root / "schemas" / "settings" / "schema.json").write_text("{}\n", encoding="utf-8")
         package = root / "Packages" / "macOS" / "CmuxNext"
@@ -72,6 +78,9 @@ class LiteralReadsCase(unittest.TestCase):
         (self.tests / "SomeTests.swift").write_text(
             'let fixture = "app/README.md"\n'
             'let schema = "schemas/settings/schema.json"\n'
+            'let checkoutState = ".git/config"\n'
+            'let home = ".claude/settings.json"\n'
+            'let codexHome = ".codex/hooks.json"\n'
             'let real = "App/README.md"\n',
             encoding="utf-8",
         )
@@ -89,6 +98,37 @@ class LiteralReadsCase(unittest.TestCase):
             self.graph.literal_reads(self.tests),
             ["App/README.md", "schemas/settings/schema.json"],
         )
+
+
+class GlobReadsCase(unittest.TestCase):
+    """A literal with `*` (PageDevServerTests' "webviews/src/pages/*/main.tsx") is recorded as that
+    pattern when it matches a file in its exact case, and dropped when it matches none."""
+
+    def setUp(self):
+        self.graph = load_graph_module()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name).resolve()
+        for page in ("settings", "files"):
+            (root / "webviews" / "src" / "pages" / page).mkdir(parents=True)
+            (root / "webviews" / "src" / "pages" / page / "main.tsx").write_text("x\n", encoding="utf-8")
+        package = root / "Packages" / "macOS" / "CmuxNext"
+        self.tests = package / "Tests" / "PagesTests"
+        self.tests.mkdir(parents=True)
+        (self.tests / "PagesTests.swift").write_text(
+            'let entries = "webviews/src/pages/*/main.tsx"\n'
+            'let none = "webviews/src/pages/*/missing.tsx"\n'
+            'let wrongCase = "Webviews/src/pages/*/main.tsx"\n'
+            'let git = ".git/*/config"\n',
+            encoding="utf-8",
+        )
+        for name, value in (("ROOT", root), ("PACKAGE", package)):
+            patcher = mock.patch.object(self.graph, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_a_pattern_literal_is_a_pattern_read(self):
+        self.assertEqual(self.graph.literal_reads(self.tests), ["webviews/src/pages/*/main.tsx"])
 
 
 if __name__ == "__main__":

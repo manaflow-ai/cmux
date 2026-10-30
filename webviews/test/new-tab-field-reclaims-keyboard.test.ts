@@ -36,7 +36,15 @@ await requireBrowserLane("new-tab-field-reclaims-keyboard.test.ts", async () => 
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");
   const HOME = "/Users/you";
-  const context = { kind: "agent", hotkeys: {}, home: HOME, projects: [`${HOME}/src/atlas`], host: "cosmic-gray" };
+  // Cards: its chat cards and All Chats button are what the field takes the keyboard back from.
+  const context = {
+    kind: "agent",
+    hotkeys: {},
+    home: HOME,
+    projects: [`${HOME}/src/atlas`],
+    host: "cosmic-gray",
+    template: "cards",
+  };
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   const browsers = new Map<string, Browser>();
   beforeAll(async () => {

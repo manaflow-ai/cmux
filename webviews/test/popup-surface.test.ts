@@ -83,13 +83,14 @@ ${tooltips}
 <div class="page-menu" id="page-menu">Sort</div>
 <div class="ui-glass icon-bar-pill" id="icon-bar-pill">Icons</div>
 <div class="md-link-bubble" id="md-link-bubble">https://example.com</div>
-<div class="md-link-popover" id="md-link-popover">Edit link</div>
+<div class="ui-popup ui-glass ui-popover md-link-popover" id="md-link-popover">Edit link</div>
 <div class="hc-msg-toolbar" id="hc-msg-toolbar">React</div>
 <div class="lg-palette" id="lg-palette">Search conversations</div>
 <div class="lg-form" id="lg-form">New message</div>
 <div id="editor-widget" style="background: var(--cmux-editor-widget-background)">Suggest</div>`,
     // Tooltips are frosted glass (tooltip-surface.test.ts).
-    glass: ["menu", "icon-bar-pill"],
+    // The markdown link editor is a ui/Popover: glass, like the menus.
+    glass: ["menu", "icon-bar-pill", "md-link-popover"],
     surfaces: [
       "menu",
       "page-menu",
@@ -123,7 +124,6 @@ ${tooltips}
     ),
     body: `<div class="acpmux-shell">
 <div class="ui-popup ui-glass acpmux-menu" id="cascade">Model</div>
-<div class="ui-popup ui-glass ui-popover acpmux-context-pop" id="context-pop">Context</div>
 <div class="ui-popup ui-glass acpmux-slash-menu" id="slash">/compact</div>
 <div class="acpmux-composer"><div class="ui-popup ui-glass acpmux-slash-menu acpmux-mention-menu" id="composer-menu">@file</div></div>
 <div class="ui-popup ui-glass ui-picker-popup acpmux-mp" id="model-picker">Models</div>
@@ -135,7 +135,7 @@ ${tooltips}
 <div class="ui-positioner"><div class="ui-popup ui-glass acpmux-access-menu" id="access">Full access</div></div>
 <div class="ui-positioner"><div class="ui-popup ui-glass acpmux-chat-menu-popover" id="chat-menu">Rename</div></div>
 <div class="ui-positioner"><div class="ui-popup ui-glass ui-popover acpmux-pr-status" id="pr-status">Checks</div></div>
-<div class="acpmux-shell"><div class="acpmux-summary-card" data-placement="popover" id="summary">Summary</div></div>
+<div class="acpmux-shell"><div class="ui-glass ui-glass-floats acpmux-summary-card" data-placement="popover" id="summary">Summary</div></div>
 <div class="ui-positioner"><div class="ui-popup ui-glass ui-popover nt-popover" id="new-tab-suggestions">reddit.com</div></div>
 <div class="ui-positioner"><div class="ui-popup ui-glass ui-popover acpmux-needs-you" id="needs-you">Needs you</div></div>
 <div class="acpmux-shell"><dialog open class="ui-popup ui-glass acpmux-agents-list" id="agents-list">Agents</dialog></div>
@@ -143,7 +143,6 @@ ${tooltips}
 ${tooltips}`,
     glass: [
       "cascade",
-      "context-pop",
       "slash",
       // The slash, mention and access menus open inside the composer: never its solid card tint.
       "composer-menu",
@@ -158,12 +157,14 @@ ${tooltips}`,
       "new-tab-suggestions",
       "needs-you",
       "agents-list",
+      // The Summary popover (Outputs, Subagents, Sources, Background tasks) floats over the chat
+      // (Leo 2026-10-30: "I don't like the non-glassness").
+      "summary",
       // A dialog, not a popup (no popup elevation), but glass all the same.
       "add-project",
     ],
     surfaces: [
       "cascade",
-      "context-pop",
       "slash",
       "composer-menu",
       "model-picker",

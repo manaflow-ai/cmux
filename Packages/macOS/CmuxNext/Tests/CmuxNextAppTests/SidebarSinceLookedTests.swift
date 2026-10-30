@@ -61,4 +61,30 @@ import Testing
         #expect(store.stamps.count == SidebarLookedStore.limit)
         #expect(store.stamps[WorkspaceID("ws-0")] == nil, "the oldest stamp goes first")
     }
+
+    /// Perf budgets 2026-10-21: holding Cmd-] walks the selection several times a second; each step
+    /// stamped the workspace and JSON-encoded every stamp into UserDefaults on the main thread.
+    /// Stamps are kept in memory and written once after the walk settles.
+    @Test func walkingTheSelectionDoesNotWriteDefaultsPerStep() {
+        let defaults = CountingDefaults(suiteName: "SidebarSinceLookedTests.\(UUID().uuidString)")!
+        let store = SidebarLookedStore(defaults: defaults)
+        for index in 0..<50 {
+            store.stamp(WorkspaceID("ws-\(index)"), now: Date(timeIntervalSince1970: TimeInterval(index)))
+        }
+        #expect(store.stamps.count == 50)
+        #expect(defaults.writes <= 1, "50 stamps wrote defaults \(defaults.writes) times")
+        store.flush()
+        #expect(defaults.writes == 1, "a flush writes the pending stamps once")
+        #expect(SidebarLookedStore(defaults: defaults).stamps.count == 50, "the stamps read back")
+    }
+}
+
+/// UserDefaults that counts its writes.
+private nonisolated final class CountingDefaults: UserDefaults, @unchecked Sendable {
+    // Test-only: written and read on the test's main actor only.
+    var writes = 0
+    override func set(_ value: Any?, forKey defaultName: String) {
+        writes += 1
+        super.set(value, forKey: defaultName)
+    }
 }

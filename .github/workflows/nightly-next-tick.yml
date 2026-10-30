@@ -8,18 +8,21 @@ name: nightly-next tick
 # feat-cmux-next finishes, whatever its conclusion (a cancelled run finishes
 # too), and on demand, for the newest feat-cmux-next commit that is buildable
 # (green Release compile, published cmux-tui tree, fresh strings;
-# scripts/cmux-next/request-nightly-next.sh). No clock: the user wants nightlies
-# as soon as possible, not on a cron (2026-10-20; the dedicated builder Mac is
-# cmux22, plans/cmux-next/nightly-builder-DESIGN.md). Main's promote job ignores
-# a request that does not move nightly-next forward, and the concurrency group
-# below keeps one tick running and one waiting, so a burst of finished runs
-# costs at most two ticks. GitHub runs `workflow_run` only from the default
+# scripts/cmux-next/request-nightly-next.sh). The event path still starts builds
+# as soon as possible, and a 30-minute catch-up handles missed workflow events
+# (the dedicated builder Mac is cmux22, plans/cmux-next/nightly-builder-DESIGN.md).
+# Main's promote job ignores
+# a request that does not move nightly-next forward, and the shared concurrency
+# group below keeps one tick running and the newest one waiting, so a burst of
+# finished runs costs at most two ticks. GitHub runs `workflow_run` only from the default
 # branch: this file must exist on main.
 on:
   workflow_run:
     workflows: ["cmux-next", "cmux-tui artifacts"]
     branches: [feat-cmux-next]
     types: [completed]
+  schedule:
+    - cron: "7,37 * * * *"
   workflow_dispatch:
     inputs:
       sha:
@@ -35,15 +38,27 @@ env:
   # (tests/test_ci_workflow_run_sources.py).
   SOURCE_WORKFLOW_PATHS: .github/workflows/cmux-next.yml .github/workflows/cmux-tui-artifacts.yml
 
-concurrency:
-  group: nightly-next-tick
-  cancel-in-progress: false
-
 jobs:
   request:
     if: github.repository == 'manaflow-ai/cmux' && (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository)
-    runs-on: ubuntu-24.04 # nightly path never waits on Blacksmith
-    timeout-minutes: 15
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    # 15 minutes of work, plus the hour its gh calls may wait for a rate limit (below).
+    timeout-minutes: 75
+    # One tick runs and the newest waits: GitHub replaces an older pending tick
+    # with a newer one. A tick only asks main's nightly.yml for a promotion and
+    # reads the branch tip when it starts, so a replaced pending tick loses
+    # nothing, and no build is ever cancelled: the builds run in nightly.yml,
+    # whose own groups never cancel (a delivery-concurrency test enforces it).
+    # The group is on the job, so a tick whose `if` skips it (a non-push
+    # source run) never replaces a waiting one, and a dispatch for one
+    # commit gets its own group so a later tick cannot replace it.
+    # This replaced a github-script coalescer that listed this workflow's runs
+    # every 15 s for up to 12 minutes per waiting tick, a large share of the
+    # repository's GITHUB_TOKEN quota (nightly-next runs 40234225207 and
+    # 40240049419 then failed with "API rate limit exceeded for installation").
+    concurrency:
+      group: ${{ inputs.sha != '' && format('nightly-next-tick-{0}', github.run_id) || 'nightly-next-tick' }}
+      cancel-in-progress: false
     permissions:
       # actions: read finds the Release compile; actions: write dispatches
       # main's promote-nightly-next.
@@ -56,20 +71,53 @@ jobs:
           ref: ${{ inputs.sha != '' && inputs.sha || 'refs/heads/feat-cmux-next' }}
           fetch-depth: 150
 
+      # This workflow's own copy of the wrapper, not the checked-out branch's.
+      - name: Checkout the gh rate-limit wait
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .tick-tooling
+          sparse-checkout: |
+            scripts/ci/gh_budget_wait.sh
+            scripts/ci/nightly_next_cancelled_tip.sh
+          sparse-checkout-cone-mode: false
+
+      # A tick refused "API rate limit exceeded for installation" lost its promotion
+      # (2026-10-26, run 40325957281, while /rate_limit showed thousands of calls left).
+      # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits instead: until the
+      # reset when a budget reads exhausted, else 60, 120, 240, then 300 s, at most an hour
+      # per job, each wait logged. The first refusal also logs GitHub's message and the
+      # token's /rate_limit headers then, to name the limiter.
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        run: bash .tick-tooling/scripts/ci/gh_budget_wait.sh --install
+
       # The release train (nightly-next-train.yml, docs/ci/nightly-next-train.md).
-      # Unset or dry-run: the train plans from the last good build and its run
-      # summary is the plan; the promotion below still goes ahead. on: the
-      # train replaces it (a train commit is not on feat-cmux-next, so a plain
-      # promotion after one is refused). off: nothing.
+      # on: the train replaces the promotion below (a train commit is not on
+      # feat-cmux-next, so a plain promotion after one is refused). Anything
+      # else starts no train: a dry run only plans and runs every car's guards
+      # (an hour for 145 cars), publishes nothing, and its runs displaced each
+      # other in group nightly-next-train on every landing. Run mode=plan by
+      # hand for a plan.
       - name: Start the nightly-next train
-        if: vars.NIGHTLY_NEXT_TRAIN != 'off'
+        if: vars.NIGHTLY_NEXT_TRAIN == 'on'
         env:
           GH_TOKEN: ${{ github.token }}
-          MODE: ${{ vars.NIGHTLY_NEXT_TRAIN == 'on' && 'drive' || 'plan' }}
+          MODE: drive
         run: |
           set -euo pipefail
           gh workflow run nightly-next-train.yml -R "$GITHUB_REPOSITORY" --ref feat-cmux-next -f mode="$MODE" \
             || echo "::warning::could not start the nightly-next train ($MODE); is nightly-next-train.yml on feat-cmux-next and main?"
+
+      # A tip on nightly-next whose newest run ended cancelled (a rescue that lost its
+      # re-run, run 40340830337) is never requested again below ("already on
+      # nightly-next"), so it is re-run here; scripts/ci/nightly_next_cancelled_tip.sh.
+      - name: Re-run a cancelled nightly-next tip
+        # The promotion below must run even when this check cannot.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .tick-tooling/scripts/ci/nightly_next_cancelled_tip.sh "$GITHUB_REPOSITORY"
 
       - name: Request nightly-next promotion on main
         if: vars.NIGHTLY_NEXT_TRAIN != 'on'
@@ -80,12 +128,69 @@ jobs:
           # The tip's cmux-tui tree is often still publishing, so walk back
           # first-parent commits until one has a published, daemon-tested tree; the script
           # then picks the newest green Release compile with that tree.
+          refusals="$RUNNER_TEMP/refusals.txt"
+          : > "$refusals"
+          # Each commit runs its own revision of request-nightly-next.sh, and
+          # each call listed 99 cmux-next push runs and read their jobs again,
+          # up to 120 times a tick: with the old coalescer, most of the
+          # repository's GITHUB_TOKEN budget (2026-10-25). Two cuts, both here
+          # so they hold for every revision:
+          # 1. A gh in front of PATH keeps those two read-only listings for
+          #    this tick (a failed read is never kept).
+          # 2. --tree-ready answers for the commit's cmux-tui tree: it searches
+          #    every recent push run with that tree between nightly-next and
+          #    the branch, whichever commit asks. A commit whose tree a newer
+          #    commit already asked about gets the same answer, so it is
+          #    passed over. Only when nightly-next is in this history: without
+          #    it the script bounds the search by the asking commit instead.
+          GH_REAL="$(command -v gh)"
+          GH_TICK_CACHE="$RUNNER_TEMP/gh-tick-cache"
+          export GH_REAL GH_TICK_CACHE
+          mkdir -p "$GH_TICK_CACHE/bin"
+          cat > "$GH_TICK_CACHE/bin/gh" <<'SH'
+          #!/usr/bin/env bash
+          set -uo pipefail
+          if [[ "${1:-}" == api ]]; then
+            case "${!#}" in
+              repos/*/actions/workflows/cmux-next.yml/runs\?*|repos/*/actions/runs/*/jobs\?*)
+                file="$GH_TICK_CACHE/$(printf '%s\n' "$*" | sha256sum | cut -c1-40)"
+                [[ -s "$file" ]] && { cat "$file"; exit 0; }
+                "$GH_REAL" "$@" > "$file.$$" || { rc=$?; cat "$file.$$"; rm -f "$file.$$"; exit "$rc"; }
+                mv "$file.$$" "$file" && cat "$file"
+                exit
+                ;;
+            esac
+          fi
+          exec "$GH_REAL" "$@"
+          SH
+          chmod +x "$GH_TICK_CACHE/bin/gh"
+          export PATH="$GH_TICK_CACHE/bin:$PATH"
+          dedupe=""
+          if line="$(git ls-remote origin refs/heads/nightly-next 2>/dev/null)" \
+             && git cat-file -e "${line%%[[:space:]]*}^{commit}" 2>/dev/null; then
+            dedupe=1
+          fi
+          asked_keys=" "
           for sha in $(git rev-list --first-parent -n 120 HEAD); do
             git checkout -q --detach "$sha"
+            if [[ -n "$dedupe" ]] && key="$(python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$sha" 2>/dev/null)" \
+               && [[ "$key" =~ ^[0-9a-f]{40}$ ]]; then
+              [[ "$asked_keys" != *" $key "* ]] || continue
+              asked_keys+="$key "
+            fi
             out="$(scripts/cmux-next/request-nightly-next.sh --tree-ready "$sha" --repo "$GITHUB_REPOSITORY" 2>&1)" || { printf '%s\n' "$out"; exit 1; }
             printf '%s\n' "$out"
             # Stop once a promotion is requested or nightly-next already has
             # it; pass over commits with no published or daemon-tested tree.
-            ! grep -qE '^requested nightly-next promotion|already on nightly-next' <<<"$out" || exit 0
+            ! grep -q '^requested nightly-next promotion' <<<"$out" || exit 0
+            grep -E '^not promoting' <<<"$out" >> "$refusals" || true
+            ! grep -q 'already on nightly-next' <<<"$out" || break
           done
-          echo "::warning::none of the 120 newest feat-cmux-next commits has a published cmux-tui tree"
+          # Nothing requested. nightly-next-feed-watch.yml quotes this
+          # annotation (title "nightly-next tick") when the feed falls behind,
+          # so its alarm names why every newer commit was refused.
+          if [[ -s "$refusals" ]]; then
+            tally="$(sed -E 's/^not promoting( [0-9a-f]{12})?: //; s/[0-9a-f]{12,40}/<sha>/g' "$refusals" | sort | uniq -c | sort -rn | head -3 \
+              | awk '{n=$1; $1=""; printf "%s%dx%s", (NR>1 ? "; " : ""), n, $0}')"
+            echo "::warning title=nightly-next tick::no newer feat-cmux-next commit is promotable ($(wc -l < "$refusals" | tr -d ' ') refused): $tally"
+          fi

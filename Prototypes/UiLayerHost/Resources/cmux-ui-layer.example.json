@@ -1,0 +1,13 @@
+{
+  "capturedAt": "2026-10-23T00:00:00Z",
+  "selectedWorkspaceID": "work",
+  "workspaces": [
+    { "id": "work", "name": "cmux NEXT", "tabs": [
+      { "id": "sidebar", "title": "Sidebar", "subtitle": "~/Projects/cmux", "unread": false },
+      { "id": "review", "title": "Review", "subtitle": "feat-cmux-next", "unread": true }
+    ] },
+    { "id": "docs", "name": "Docs", "tabs": [
+      { "id": "design", "title": "Design", "subtitle": "ui-layer.md", "unread": false }
+    ] }
+  ]
+}

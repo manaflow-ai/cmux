@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextWakeups
+import CmuxNextCompat
 
 /// The consent panel of an agent's cookie import: a glass panel centered on a
 /// shell window (a child window, so it stays above Chromium page windows),
@@ -21,7 +22,7 @@ final class CookieImportConsentPanel {
     private let panel: NSPanel
     private let body = ThemeChangeView()
     private weak var parent: NSWindow?
-    private var observers: [any NSObjectProtocol] = []
+    private var observers: [MainActorObservation] = []
     private var finish: ((CookieImportAnswer) -> Void)?
     /// Answers Deny once ``limit`` passes without an answer.
     private let deadline = DemandTimer(owner: "CookieImportConsentPanel.deadline")
@@ -176,12 +177,12 @@ final class CookieImportConsentPanel {
         NSApp.requestUserAttention(.informationalRequest)
         let center = NotificationCenter.default
         for name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification] {
-            observers.append(center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.place() } // main-proof: observer on queue: .main
+            observers.append(MainActorObservation(name, object: window, center: center) { [weak self] in
+                self?.place()
             })
         }
-        observers.append(center.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.answer(.deny) } // main-proof: observer on queue: .main
+        observers.append(MainActorObservation(NSWindow.willCloseNotification, object: window, center: center) { [weak self] in
+            self?.answer(.deny)
         })
     }
 
@@ -203,7 +204,6 @@ final class CookieImportConsentPanel {
         guard let finish else { return }
         self.finish = nil
         deadline.cancel()
-        for observer in observers { NotificationCenter.default.removeObserver(observer) }
         observers.removeAll()
         parent?.removeChildWindow(panel)
         panel.orderOut(nil)

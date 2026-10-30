@@ -12,7 +12,8 @@ nonisolated enum AppStoreActionCatalog: ActionCatalogGroup {
                 keywords: ["apps", "store", "extensions", "plugins", "install", "marketplace", "sidebar sections"],
                 category: .settings, symbol: "bag", surfaces: [.palette, .keyboard, .contextMenu],
                 arguments: [ActionArgument(name: "app", title: t("argument.appStore.app", "App"), kind: .string, isRequired: false),
-                            ActionArgument(name: "tab", title: t("argument.appStore.tab", "Tab"), kind: .string, isRequired: false)],
+                            ActionArgument(name: "tab", title: t("argument.appStore.tab", "Tab"), kind: .string, isRequired: false),
+                            ActionArgument(name: "category", title: t("argument.appStore.category", "Category"), kind: .string, isRequired: false)],
                 cliName: "app store",
                 surfacePlan: ActionSurfacePlan(
                     // A tab of the active window; automation opens it without
@@ -24,7 +25,7 @@ nonisolated enum AppStoreActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "appStore.showInstalled", title: t("action.appStore.showInstalled", "Installed Apps"),
                 keywords: ["apps", "installed", "extensions", "plugins", "permissions", "logs", "reload", "disable"],
-                category: .settings, symbol: "bag.badge.checkmark", surfaces: [.palette, .keyboard],
+                category: .settings, symbol: "checkmark.seal", surfaces: [.palette, .keyboard],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
             // Hide is a per-user view preference (app-platform.md V9): the app keeps running

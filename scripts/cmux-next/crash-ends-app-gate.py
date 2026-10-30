@@ -14,6 +14,11 @@ nothing received. This guard launches a Debug `cmux DEV <tag>.app` twice, with S
   frozen     `debug.crash.app {"signal": "frozen"}`: a crash path that blocks on a trap whose Mach
              exception nothing receives; the crash deadline must end it within --frozen-seconds
              (default 30).
+  suspended  `debug.crash.app {"signal": "suspended"}` (#22844): the crash path begins, the deadline
+             thread is suspended (as Sentry's report writer suspends every thread) and the main thread
+             blocks; only the out-of-process crash watcher (CrashWatcher, 15 s) can end it, within
+             --suspended-seconds (default 20). The watcher's sample and the run marker (the next
+             launch names the crash) must be in the app's marker folder.
 
 Before each crash it checks with `sample` that Sentry's primary Mach handler thread runs, so the
 guard holds the failing setup. A process that does not end is sampled into --out and then stopped
@@ -34,7 +39,9 @@ parser.add_argument("--app", required=True)
 parser.add_argument("--out", required=True)
 parser.add_argument("--exception-seconds", type=float, default=8)
 parser.add_argument("--frozen-seconds", type=float, default=30)
-parser.add_argument("--runs", default="exception,frozen", help="comma list of exception, frozen")
+parser.add_argument("--suspended-seconds", type=float, default=20)
+# suspended is opt-in (`--runs suspended`): run it yourself on the fleet; CI keeps its two runs.
+parser.add_argument("--runs", default="exception,frozen", help="comma list of exception, frozen, suspended")
 opts = parser.parse_args()
 
 bundle = os.path.realpath(opts.app).rstrip("/")
@@ -84,6 +91,16 @@ def sample(pid, path, seconds=1):
         return ""
 
 
+def marker_folder():
+    """The app's run marker folder (AppRunMarker.standardDirectory: the bundle id, made path-safe)."""
+    import plistlib
+    with open(os.path.join(bundle, "Contents/Info.plist"), "rb") as file:
+        bundle_id = plistlib.load(file).get("CFBundleIdentifier", "unknown")
+    root = os.path.expanduser("~/Library/Application Support/cmux-next")
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", bundle_id)
+    return os.path.join(root, safe)
+
+
 def run(kind):
     scratch = tempfile.mkdtemp(prefix=f"crash-gate-{tag}-")
     ghostty = os.path.join(scratch, "ghostty")
@@ -111,13 +128,18 @@ def run(kind):
         before = sample(pid, os.path.join(opts.out, f"before-{kind}.txt"))
         if PRIMARY not in before:
             return f"{kind}: Sentry's primary Mach exception thread does not run before the crash (CMUX_NEXT_DEV_SENTRY=1 not honored?)"
-        limit = opts.exception_seconds if kind == "exception" else opts.frozen_seconds
-        args = ["--expect-reporting"] if kind == "exception" else ["--crash", "frozen"]
+        limit = {"exception": opts.exception_seconds, "frozen": opts.frozen_seconds}.get(kind, opts.suspended_seconds)
         started = time.time()
-        # No --app-pid: the app is this script's child, so it stays a zombie (alive to kill -0) until
-        # it is reaped here; process.wait times the end.
-        result = subprocess.run([sys.executable, os.path.join(HERE, "exception-report-e2e.py"), "--socket", sock,
-                                 "--phase", "raise"] + args, timeout=limit + 120)
+        if kind == "suspended":
+            # The app blocks before it answers: no reply is expected.
+            rpc("debug.crash.app", {"signal": "suspended"}, timeout=2)
+            result = subprocess.CompletedProcess([], 0)
+        else:
+            args = ["--expect-reporting"] if kind == "exception" else ["--crash", "frozen"]
+            # No --app-pid: the app is this script's child, so it stays a zombie (alive to kill -0) until
+            # it is reaped here; process.wait times the end.
+            result = subprocess.run([sys.executable, os.path.join(HERE, "exception-report-e2e.py"), "--socket", sock,
+                                     "--phase", "raise"] + args, timeout=limit + 120)
         try:
             process.wait(max(limit - (time.time() - started), 0.1))
         except subprocess.TimeoutExpired:
@@ -134,6 +156,16 @@ def run(kind):
         # A frozen crash that ended early never blocked: the deadline was not tested.
         if kind == "frozen" and elapsed < 8:
             return f"frozen: the app ended after {elapsed:.1f} s, before the crash deadline: its trap did not block"
+        if kind == "suspended":
+            if elapsed < 14:
+                return f"suspended: the app ended after {elapsed:.1f} s, before the watcher's 15 s: the path did not block"
+            if process.returncode != -signal.SIGKILL:
+                return f"suspended: the app ended with status {process.returncode}, not the watcher's SIGKILL"
+            folder = marker_folder()
+            for name in ("crash-watcher-sample.txt", "run.json"):
+                path = os.path.join(folder, name)
+                if not os.path.exists(path) or os.path.getmtime(path) < started - 300:
+                    return f"suspended: no fresh {name} in {folder}"
         print(f"crash-ends-app-gate: {kind}: ended in {elapsed:.1f} s (exit status {process.returncode})", flush=True)
         return None
     finally:

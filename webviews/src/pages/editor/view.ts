@@ -21,6 +21,7 @@ import { hostTerminalTheme, type DiffViewerAppearance } from "../../appearance";
 import { PLAIN_TEXT_LANGUAGE } from "../../diff-languages/detect";
 import { editorAction, isEditorAction, MONACO_QUICK_COMMAND, type EditorCommand, type RevealPosition } from "./keys";
 import { keybindingRules } from "./vscodeKeys";
+import { installNativeEditorMenu } from "./nativeEditorMenu";
 import type { CodeView, EditorDocument } from "./store";
 import type { FindRange, FindTarget } from "./editorFind";
 import { DARK_THEME, LIGHT_THEME, SyntaxEngine, editorThemes } from "./syntax";
@@ -344,10 +345,15 @@ export class MonacoView implements CodeView {
         },
       }),
       this.editor.onDidChangeCursorSelection(() => this.reportStatus()),
-      // Overlay scrollers show while the editor scrolls (scrollers.ts MONACO_SCROLLER_CSS).
-      this.editor.onDidScrollChange(() => {
+      // A right-click opens the app's standard macOS menu, not Monaco's (nativeEditorMenu.ts).
+      installNativeEditorMenu(this.editor, container, {
+        [MONACO_QUICK_COMMAND]: () => this.callbacks.openCommandPalette?.(),
+      }),
+      // Overlay scrollers show while the editor scrolls (scrollers.ts MONACO_SCROLLER_CSS). Monaco
+      // reports a new scroll size too (its first layout, a pane or window resize); that is not a scroll.
+      this.editor.onDidScrollChange((event) => {
         const node = this.editor.getDomNode();
-        if (node) markScrolling(node);
+        if (node && (event.scrollTopChanged || event.scrollLeftChanged)) markScrolling(node);
       }),
       {
         dispose: onScrollerStyleChange(() => this.editor.updateOptions(this.editorOptions()), document.documentElement),

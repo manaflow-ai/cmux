@@ -30,7 +30,7 @@ final class KeybindingsFileService {
     }
 
     /// The home daemon serves keybindings.json.
-    var serves: Bool { services?.machines.local.supports(DaemonCapabilities.shared.keybindings) ?? false }
+    var serves: Bool { services?.machines.local.supports(DaemonCapability.keybindings.rawValue) ?? false }
 
     func start() {
         services?.machines.local.store.sideEvents.subscribe { [weak self] event in

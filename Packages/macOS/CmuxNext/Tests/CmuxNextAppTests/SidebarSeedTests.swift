@@ -1,4 +1,4 @@
-import CmuxNextSidebar
+@testable import CmuxNextSidebar
 import Testing
 
 /// Regression coverage for the launch-only Cloud rows in ``SidebarSeed``.
@@ -63,6 +63,30 @@ struct SidebarSeedTests {
         let failed = [Self.section(status: .failed)]
         #expect(!Self.hasPlaceholders(seed.merge(failed, launching: true)))
         #expect(!Self.hasPlaceholders(seed.merge(connecting, launching: true)))
+    }
+
+    /// A restore launch's sidebar was held clear from its first frame (1830 ms after process
+    /// start) to 2744 ms, although its saved sidebar was on screen: that profile had no
+    /// workspaces, so no row could ever turn real before the launch ended (Leo's never-blank
+    /// first launch frame). A saved sidebar with no rows has nothing to wait for.
+    @Test func aSavedSidebarWithNoRowsShowsInTheFirstFrame() {
+        let local = MachineID("local")
+        let saved = SidebarSection(kind: .machine(SidebarMachine(id: local, name: "This Mac", kind: .local, status: .connected)), nodes: [])
+        var seed = SidebarSeed(sections: [saved])
+        let shown = seed.merge([saved], launching: true)
+        #expect(seed.isReadyForReveal(shown, launching: true), "the saved sidebar (no workspaces) stayed clear until the launch ended")
+    }
+
+    @Test func savedRowsShowAtOnceAndPlaceholdersWait() {
+        let local = MachineID("local")
+        let machine = SidebarMachine(id: local, name: "This Mac", kind: .local, status: .connected)
+        let row = SidebarWorkspace(id: WorkspaceID("w1"), machineID: local, title: "w1", rowState: .stale)
+        let saved = SidebarSection(kind: .machine(machine), nodes: [.workspace(row)])
+        var seed = SidebarSeed(sections: [saved])
+        let empty = SidebarSection(kind: .machine(machine), nodes: [])
+        #expect(seed.isReadyForReveal(seed.merge([empty], launching: true), launching: true), "the saved rows stand in: they show in the first frame")
+        let bars = SidebarSection(kind: .machine(machine), nodes: SidebarSeed.placeholders(machine: local).map(SidebarNode.workspace))
+        #expect(!seed.isReadyForReveal([bars], launching: true), "placeholder bars alone are not the sidebar's rows")
     }
 }
 

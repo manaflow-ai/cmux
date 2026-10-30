@@ -68,6 +68,12 @@ const KEEPALIVE_SECONDS: u16 = 10;
 /// the link gives up.
 const DIRECT_STALE: Duration = Duration::from_secs(14);
 const STUN_WAIT: Duration = Duration::from_millis(1500);
+/// Once one STUN server answered, how much longer the others get. Cloudflare
+/// lists STUN on 3478 and on 53, and cellular networks often take port 53 for
+/// their own DNS or drop it: waiting out [`STUN_WAIT`] for that one held
+/// every dial and roam on such a network 1.5 s (link-reliability-20261023.md).
+/// A second answer only adds a reflexive address the first usually shares.
+const STUN_GRACE: Duration = Duration::from_millis(150);
 
 pub struct WireGuardDialer;
 
@@ -217,6 +223,7 @@ fn offered(endpoints: impl IntoIterator<Item = SocketAddr>, options: &DialOption
 }
 
 /// What [`gather_endpoints`] found.
+#[derive(Debug)]
 struct Gathered {
     /// Host and server-reflexive endpoints, as offered to the peer.
     endpoints: Vec<String>,
@@ -255,7 +262,7 @@ async fn gather_endpoints(socket: &UdpSocket, options: &DialOptions) -> Gathered
             transactions.push(transaction);
         }
     }
-    let deadline = Instant::now() + STUN_WAIT;
+    let mut deadline = Instant::now() + STUN_WAIT;
     let mut buffer = [0u8; 1500];
     let mut answered = 0;
     while !transactions.is_empty() {
@@ -273,6 +280,7 @@ async fn gather_endpoints(socket: &UdpSocket, options: &DialOptions) -> Gathered
         if let Some(index) = found {
             transactions.swap_remove(index);
             answered += 1;
+            deadline = deadline.min(Instant::now() + STUN_GRACE);
         }
     }
     Gathered { endpoints: offered(endpoints, options), stun: servers, answered }
@@ -2084,6 +2092,54 @@ mod tests {
         assert!(!underlay.confirmed);
         underlay.apply(Control::Reached { from: Some(relayed), via_turn: false });
         assert!(underlay.confirmed, "a reach naming the new allocation confirms the route");
+    }
+
+    /// A local STUN server that answers every binding request with the
+    /// sender's address.
+    async fn answering_stun() -> SocketAddr {
+        let server = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let addr = server.local_addr().unwrap();
+        tokio::spawn(async move {
+            let mut buffer = [0u8; 1500];
+            while let Ok((len, from)) = server.recv_from(&mut buffer).await {
+                if len < 20 {
+                    continue;
+                }
+                let mut transaction = [0u8; 12];
+                transaction.copy_from_slice(&buffer[8..20]);
+                let reply = cmux_transport::stun::binding_success(transaction, from);
+                let _ = server.send_to(&reply, from).await;
+            }
+        });
+        addr
+    }
+
+    /// Cloudflare lists STUN on 3478 and on 53, and many cellular networks
+    /// answer port 53 themselves (their DNS) or drop it. One silent server
+    /// must not hold every dial and every roam for the whole STUN wait: once
+    /// one answered, the others get a short grace.
+    #[tokio::test]
+    async fn a_silent_stun_server_does_not_hold_the_gather() {
+        let answering = answering_stun().await;
+        // Nothing listens there: no answer ever comes.
+        let silent = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let silent_addr = silent.local_addr().unwrap();
+        let options = DialOptions {
+            include_loopback: true,
+            ice_servers: vec![crate::api::IceServer {
+                urls: vec![format!("stun:{answering}"), format!("stun:{silent_addr}")],
+                username: None,
+                credential: None,
+            }],
+            ..DialOptions::default()
+        };
+        let socket = bind_udp().unwrap();
+        let started = Instant::now();
+        let gathered = gather_endpoints(&socket, &options).await;
+        let took = started.elapsed();
+        assert_eq!(gathered.answered, 1, "{gathered:?}");
+        assert!(took < Duration::from_millis(600), "gathering waited {took:?} for a silent STUN server");
+        drop(silent);
     }
 
     #[test]

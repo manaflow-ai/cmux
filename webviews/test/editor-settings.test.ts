@@ -111,6 +111,15 @@ test("the new editor.* keys reach Monaco's options", () => {
   expect(settings.insertFinalNewline).toBe(true);
 });
 
+test("the cursor is a thin bar unless the user picks another style", () => {
+  // User 2026-10-21: "monaco editor default thing cursor needs to be the default bar thing".
+  const options = (section: Record<string, unknown>) =>
+    monacoOptions(resolveEditorSettings(section), undefined, { readOnly: false, large: false, ariaLabel: "x" });
+  expect(options({}).cursorStyle).toBe("line");
+  expect(options({ cursorStyle: "beam" }).cursorStyle).toBe("line");
+  expect(options({ cursorStyle: "block" }).cursorStyle).toBe("block");
+});
+
 test("an editor section without the new keys resolves as before", () => {
   const settings = resolveEditorSettings({});
   expect(settings).toEqual(EDITOR_DEFAULTS);
@@ -130,4 +139,15 @@ test("an editor section without the new keys resolves as before", () => {
   );
   expect(large.quickSuggestions).toBe(false);
   expect((large.guides as { bracketPairs: boolean }).bracketPairs).toBe(false);
+});
+
+test("the editor types through its textarea, never Chromium's EditContext", () => {
+  // The app's key router delivers typing only once a page reports an input, textarea or
+  // contenteditable focused (PageInputReadiness); an EditContext element never qualifies.
+  const options = monacoOptions(resolveEditorSettings(undefined), undefined, {
+    readOnly: false,
+    large: false,
+    ariaLabel: "x",
+  });
+  expect(options.editContext).toBe(false);
 });

@@ -110,7 +110,7 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
             evaluatedURL = url
             Task { [weak self] in
                 let result: String
-                do { result = String(describing: try await tab.evaluate(script)) } catch { result = "error: \(error)" }
+                do { result = String(describing: try await tab.evaluate(script, world: .page, gesture: .agent)) } catch { result = "error: \(error)" }
                 self?.evalResult = result
                 self?.report()
             }

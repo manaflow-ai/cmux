@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
 // The transcript runs the pane's full height and scrolls under the composer, as the Claude and
 // Codex apps do (Leo 2026-10-19): its scrollbar's track reaches the pane's bottom corner instead of
@@ -8,7 +9,7 @@
 // composer that grows or shrinks leaves the view as it was: its offset, its height and so its
 // scrollbar, and the rows being read (Leo 2026-10-20: a newline in the composer made the
 // transcript's scrollbar jump). Back at the end after it grew, by the wheel or by Jump to latest
-// (which glides), the last row is above the card on every frame.
+// (which scrolls there smoothly), the last row is above the card on every frame.
 //
 // Before: the transcript ended at the top of the bottom stack, so its track ended about a
 // composer's height (111px here, 211px with a five-line prompt) above the pane's bottom.
