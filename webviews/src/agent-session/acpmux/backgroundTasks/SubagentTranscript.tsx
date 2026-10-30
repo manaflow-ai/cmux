@@ -238,7 +238,7 @@ export function SubagentTranscript({
   );
 }
 
-/// One row, redrawn only when its version moves.
+/// One row, redrawn only when its version moves or its reply settles.
 const TranscriptRow = memo(
   function TranscriptRow({ row }: { row: AcpmuxRow; version: number }) {
     if (row.kind === "assistant" && row.text)
@@ -282,7 +282,8 @@ const TranscriptRow = memo(
       </div>
     );
   },
-  (a, b) => a.row.id === b.row.id && a.version === b.version,
+  // A reply settles (`streaming` goes false) without a new version when its agent completes.
+  (a, b) => a.row.id === b.row.id && a.version === b.version && a.row.streaming === b.row.streaming,
 );
 
 /// What a nested agent's line in a transcript does (BackgroundTasksPanel.tsx provides it): it opens
