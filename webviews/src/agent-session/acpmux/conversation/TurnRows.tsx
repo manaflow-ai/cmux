@@ -346,9 +346,8 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // The card's lead (errorRecovery.ts): Continue when the turn had done work, Retry when nothing
   // ran; it shares the footer Retry's one-at-a-time state and refusal note. A sign-in failure's comes
   // only after its Sign in again, so only the card offers it (signInRetry), never the native command.
-  const recovery = failed
-    ? (errorRecovery(row, route, { resume, retry, retryFailed }) ?? signInRetry(row, route, { retryFailed, reauthenticate }))
-    : undefined;
+  const goOnRecovery = failed ? errorRecovery(row, route, { resume, retry, retryFailed }) : undefined;
+  const recovery = goOnRecovery ?? (failed ? signInRetry(row, route, { retryFailed, reauthenticate }) : undefined);
   const goOn =
     recovery &&
     (() => {
