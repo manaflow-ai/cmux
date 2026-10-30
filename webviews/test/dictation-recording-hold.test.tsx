@@ -118,11 +118,14 @@ test("a send made while a long recording uploads waits for it and carries the re
 test("the pending recording's x lets the waiting send go without it", async () => {
   await fresh();
   const host = upload();
-  await act(async () => intake.attachLater("Recording.wav", host.make, FAILED));
+  let stopped = 0;
+  await act(async () => intake.attachLater("Recording.wav", host.make, FAILED, () => stopped++));
   await act(async () => send());
   expect(sent).toEqual([]);
   await act(async () => intake.cancel(intake.pending[0]!.id));
   expect(sent).toEqual([[]]);
+  // The × stops the host's upload too (dictation.recording.cancel), once.
+  expect(stopped).toBe(1);
   // The upload's late answer stages nothing.
   await act(async () => host.answer({ path: remote }));
   expect(intake.attachments).toEqual([]);

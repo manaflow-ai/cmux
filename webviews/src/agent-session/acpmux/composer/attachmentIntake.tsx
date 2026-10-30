@@ -156,7 +156,7 @@ export function chipRemoved(state: {
 /// (attachLater), with the note its failure shows.
 type PendingSource =
   | { file: File | Promise<File>; uploads: boolean }
-  | { make: () => Promise<ComposerAttachment | undefined>; name: string; failure: string };
+  | { make: () => Promise<ComposerAttachment | undefined>; name: string; failure: string; stop?: () => void };
 
 /// A file whose bytes are still being made (pastedText.ts pastedTextFile): its tile shows at once,
 /// by its name and type, and it is read once `file` settles.
@@ -336,12 +336,12 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// chat's machine): its tile shows at once, drawn before this returns so a send made in the same
   /// task (dictation's auto-send) waits for it, as for a file still being read. `make` answers the
   /// chip, or undefined (or throws) and the tile fails with `failure` and Retry, which runs `make`
-  /// again. Its × drops whatever `make` answers later.
+  /// again. Its × runs `stop` (the host stops sending) and drops whatever `make` answers later.
   const [attachLater] = useState(
-    () => (name: string, make: () => Promise<ComposerAttachment | undefined>, failure: string) => {
+    () => (name: string, make: () => Promise<ComposerAttachment | undefined>, failure: string, stop?: () => void) => {
       const batch = { scope: live.current.options.scope };
       const chip: PendingAttachment = { id: crypto.randomUUID(), name, image: false, scope: batch.scope };
-      sources.current.set(chip.id, { make, name, failure });
+      sources.current.set(chip.id, { make, name, failure, stop });
       batches.current.add(batch);
       flushSync(() => setPending((chips) => [...chips, chip]));
       void make()
@@ -365,8 +365,11 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         });
     },
   );
-  /// A pending chip's ×: it goes, and whatever its read makes later is dropped.
+  /// A pending chip's ×: it goes, and whatever its read makes later is dropped; a chip the host
+  /// is making (attachLater) is stopped there too.
   const [cancel] = useState(() => (id: string) => {
+    const source = sources.current.get(id);
+    if (source && "make" in source) source.stop?.();
     sources.current.delete(id);
     setPending((chips) => chips.filter((chip) => chip.id !== id));
   });
@@ -374,8 +377,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const [retry] = useState(() => (id: string) => {
     const source = sources.current.get(id);
     if (source && "make" in source) {
-      cancel(id);
-      attachLater(source.name, source.make, source.failure);
+      sources.current.delete(id);
+      setPending((chips) => chips.filter((chip) => chip.id !== id));
+      attachLater(source.name, source.make, source.failure, source.stop);
       return;
     }
     const file = source?.file;

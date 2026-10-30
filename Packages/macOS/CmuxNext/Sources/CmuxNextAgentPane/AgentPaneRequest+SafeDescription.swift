@@ -114,6 +114,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .upload: "upload"
         case .uploadStage: "uploadStage"
         case .dictationRecordingUpload: "dictationRecordingUpload"
+        case .dictationRecordingCancel: "dictationRecordingCancel"
         case .unsupported: "unsupported"
         }
     }

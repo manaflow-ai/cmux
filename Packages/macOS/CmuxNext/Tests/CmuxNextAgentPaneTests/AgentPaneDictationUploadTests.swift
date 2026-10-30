@@ -29,6 +29,8 @@ struct AgentPaneDictationUploadTests {
         var finish: [String: Any] = AgentPaneReply.success(["path": "/home/me/.acpmux/uploads/chat-a/Recording.wav"])
         /// The chunk the stager refuses (its machine dropped), if any.
         var failsAtChunk: Int?
+        /// Runs as each chunk arrives (the page's × landing mid-upload).
+        var onChunk: (@MainActor () async -> Void)?
         private var chunkCount = 0
 
         var stage: AgentPaneUploadStager {
@@ -40,6 +42,7 @@ struct AgentPaneDictationUploadTests {
                     return AgentPaneReply.success(["token": "t1", "size": size, "chunkSize": 512 * 1024])
                 case .chunk(_, let offset, let data):
                     chunkCount += 1
+                    await onChunk?()
                     if chunkCount - 1 == failsAtChunk { return AgentPaneReply.failure(code: "upload_failed", message: "Couldn't send the file to huge-blue.") }
                     received.append(data)
                     return AgentPaneReply.success(["offset": offset + data.count])
@@ -77,6 +80,11 @@ struct AgentPaneDictationUploadTests {
             == .unsupported("dictation.recording.upload"))
         #expect(AgentPaneRequest(body: ["method": "dictation.recording.upload"]) == .unsupported("dictation.recording.upload"))
         #expect(AgentPageOps.methods["dictation.recording.upload"] == "dictation.recording.upload")
+        #expect(AgentPaneRequest(body: ["method": "dictation.recording.cancel", "params": ["path": "/tmp/a/Recording.wav"]])
+            == .dictationRecordingCancel(path: "/tmp/a/Recording.wav"))
+        #expect(AgentPaneRequest(body: ["method": "dictation.recording.cancel", "params": ["path": "Recording.wav"]])
+            == .unsupported("dictation.recording.cancel"))
+        #expect(AgentPageOps.methods["dictation.recording.cancel"] == "dictation.recording.cancel")
         #expect(!AgentPaneRequest.dictationRecordingUpload(path: "/Users/me/secret.wav").description.contains("secret"))
     }
 
@@ -197,5 +205,57 @@ struct AgentPaneDictationUploadTests {
         #expect(givenBack.recordings.map(\.session) == ["chat-a"])
         #expect(stager.requests.last == .cancel(token: "t1"))
         #expect(!stager.requests.contains(.finish(token: "t1")))
+    }
+
+    /// Review of #26953 at 92225ed0: the chip's × only dropped the page's tile, while the host read
+    /// and sent the whole file. The × (`dictation.recording.cancel`) stops the upload before its
+    /// next chunk and cancels the stage, so nothing is left on the chat's machine.
+    @Test func theChipsCancelStopsTheUploadAndItsStage() async throws {
+        let (file, _) = try recordingFile(bytes: 1_300_000)
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let model = AgentPaneModel(host: NoHost(), sessionId: "chat-a")
+        let stager = Stager()
+        stager.onChunk = { [model] in
+            _ = await model.respond(to: AgentPaneRequest(body: ["method": "dictation.recording.cancel", "params": ["path": file.path]]))
+        }
+        model.onUploadStage = { stager.stage }
+        model.onDictationRecording = { _, _ in file }
+        let reply = await upload(file.path, in: model)
+        #expect(Self.errorCode(reply) == "cancelled")
+        var chunks = 0
+        for case .chunk = stager.requests { chunks += 1 }
+        #expect(chunks == 1, "no chunk after the ×")
+        #expect(stager.requests.last == .cancel(token: "t1"))
+        #expect(!stager.requests.contains(.finish(token: "t1")))
+        #expect(model.dictationUploads.running.isEmpty && model.dictationUploads.cancelled.isEmpty)
+        // A × for a path not uploading leaves nothing behind for a later upload of it.
+        _ = await model.respond(to: AgentPaneRequest(body: ["method": "dictation.recording.cancel", "params": ["path": file.path]]))
+        #expect(model.dictationUploads.cancelled.isEmpty)
+    }
+
+    /// Review of #26953 at 92225ed0: the file's type was checked by path and each chunk opened it
+    /// again, so a link swapped in between went out. A link is refused, and the file is read
+    /// through the one descriptor it was opened with.
+    @Test func aLinkAtTheRecordingsPathIsNotFollowed() async throws {
+        let (file, data) = try recordingFile(bytes: 1_300_000)
+        let folder = file.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let secret = folder.appending(path: "secret.txt")
+        try Data("secret".utf8).write(to: secret)
+        let link = folder.appending(path: "Link.wav")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: secret)
+        let refused = Stager()
+        #expect(Self.errorCode(await AgentPaneDictationUpload.send(link, through: refused.stage, session: "chat-a")) == "upload_failed")
+        #expect(refused.requests.isEmpty)
+        // Swapped for a link after it was opened: the bytes are still the recording's.
+        let stager = Stager()
+        stager.onChunk = {
+            guard (try? FileManager.default.destinationOfSymbolicLink(atPath: file.path)) == nil else { return }
+            try? FileManager.default.removeItem(at: file)
+            try? FileManager.default.createSymbolicLink(at: file, withDestinationURL: secret)
+        }
+        let reply = await AgentPaneDictationUpload.send(file, through: stager.stage, session: "chat-a")
+        #expect(reply["ok"] as? Bool == true)
+        #expect(stager.received == data)
     }
 }

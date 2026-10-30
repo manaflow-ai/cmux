@@ -7187,6 +7187,8 @@ function AcpmuxPane() {
           `${name}.wav`,
           () => remoteRecordingAttachment(audio, name, callNative),
           translate(recordingLeftOutNotice("elsewhere")),
+          // Its ×: the host stops sending and drops what it staged on that machine.
+          () => void callNative("dictation.recording.cancel", { path: audio.path }).catch(() => {}),
         );
     },
     omitted: (reason) => directClient.current?.notice(translate(recordingLeftOutNotice(reason))),
