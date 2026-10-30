@@ -67,8 +67,10 @@ import Foundation
             guard let answer = await task.value else { throw refusal }
             return answer
         }, onCancel: {
-            permit.invalidate()
-            task.cancel()
+            Task { @MainActor in
+                permit.invalidate()
+                task.cancel()
+            }
         })
     }
 }
