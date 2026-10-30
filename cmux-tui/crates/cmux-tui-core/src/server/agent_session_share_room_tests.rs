@@ -7,7 +7,7 @@ use crate::server::agent_session_attach_tests::{
     Client, FakeAcpmux, SESSION, WAIT, agent_tab, assert_code, mux_with,
 };
 use std::cell::RefCell;
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -1072,4 +1072,20 @@ fn only_guest_facing_redeem_refusals_reach_the_room() {
     for internal in ["share.unsaved", "share.unknown", "share.provisioning", "share.bad_request"] {
         assert!(!GUEST_REFUSALS.contains(&internal), "{internal} stays in the daemon");
     }
+}
+
+#[test]
+fn a_whole_chat_list_closes_the_shares_of_chats_it_left_out() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, mux, surface, mut owner) = bridged("room-unlisted", &room);
+    create(&mut owner, surface);
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    let listed = std::iter::once(SESSION.to_owned()).collect();
+    crate::server::close_unlisted_chat_shares(&mux, &listed);
+    assert_eq!(state(&mut owner)["state"], "active", "a listed chat keeps its share");
+    crate::server::close_unlisted_chat_shares(&mux, &HashSet::new());
+    assert_eq!(room.frame(conn), json!({"v": 1, "t": "end", "reason": "closed"}));
+    room.request("DELETE");
+    assert_eq!(state(&mut owner)["state"], "closed");
 }

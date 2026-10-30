@@ -140,7 +140,7 @@ pub use agent_session_attach::{
     start_link_share_bridge,
 };
 #[cfg(unix)]
-pub(crate) use agent_session_attach::close_chat_shares;
+pub(crate) use agent_session_attach::{close_chat_shares, close_unlisted_chat_shares};
 #[cfg(unix)]
 pub mod agent_transfer;
 mod app_trust;

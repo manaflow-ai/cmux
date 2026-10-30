@@ -220,6 +220,8 @@ fn read_watch(
     let mut page = Some(2_u64);
     let mut whole = None;
     let mut pushed = HashSet::new();
+    // Every local chat this connection's list named, whatever its status.
+    let mut listed = HashSet::new();
     loop {
         // A whole line however long: acpmux sends none past its largest message.
         let mut line = Vec::new();
@@ -238,6 +240,11 @@ fn read_watch(
                 return Err(std::io::Error::other("acpmux did not list its sessions"));
             };
             for summary in sessions {
+                if summary["peer"].is_null()
+                    && let Some(session) = summary["sessionId"].as_str()
+                {
+                    listed.insert(session.to_owned());
+                }
                 if summary["peer"].is_null()
                     && summary["status"] == "closed"
                     && let Some(session) = summary["sessionId"].as_str()
@@ -266,10 +273,10 @@ fn read_watch(
                 }
                 Value::Null => {
                     // The list is whole: a chat it left out is gone, and so are its link shares
-                    // (purged while the watch was away).
-                    for session in unlisted.keys() {
-                        crate::server::close_chat_shares(&mux, session);
-                    }
+                    // (purged while the watch was away, or before this daemon started). A chat
+                    // a push reached is still there.
+                    listed.extend(pushed.iter().cloned());
+                    crate::server::close_unlisted_chat_shares(&mux, &listed);
                     unlisted.clear();
                     whole = Some(Instant::now());
                     None
