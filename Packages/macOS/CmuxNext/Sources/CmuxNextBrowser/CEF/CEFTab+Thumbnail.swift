@@ -41,7 +41,7 @@ enum CEFThumbnail {
         }
         let answer = tab.runtime.sendDevToolsInOrder(browserID, method: "Page.captureScreenshot", params: params,
                                                      refused: .snapshotUnavailable) { [weak tab] in
-            tab.map { mayPicture($0, evenHidden: evenHidden) } ?? false
+            tab.map { mayPicture($0, evenHidden: true) // red proof: the queued turn ignores hidden } ?? false
         }
         return BrowserPictureRequest { [weak tab] in
             let json = try await answer.value()
