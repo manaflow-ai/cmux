@@ -1992,11 +1992,16 @@ def _iso(moment: dt.datetime) -> str:
 
 def new_lost_reruns(candidates: Iterable[Candidate], results: Mapping[int, str], *,
                     now: dt.datetime) -> list[dict[str, Any]]:
-    """Pending re-run entries for this sweep's category-e cancels that took and asked for one."""
+    """Pending re-run entries for this sweep's category-e cancels that took and asked for one.
+
+    A cancel whose POST failed (CANCEL_SENT) may have taken anyway: its entry is kept too, marked
+    `cancel_unconfirmed`, and a later sweep's plan_lost_reruns() re-runs it once the run has completed as
+    cancelled, keeps it while it is still in flight, and drops it once it finished any other way."""
     entries = []
     for candidate in candidates:
         result = results.get(candidate.run["id"]) or ""
-        if candidate.rerun and (result == "cancelled" or result.startswith("force-cancelled")):
+        unconfirmed = result.startswith(CANCEL_SENT)
+        if candidate.rerun and (result == "cancelled" or result.startswith("force-cancelled") or unconfirmed):
             run = candidate.run
             entry = {"run_id": run["id"], "attempt": int(run.get("run_attempt") or 1),
                      "head_sha": str(run.get("head_sha") or ""), "branch": str(run.get("head_branch") or ""),
@@ -2006,6 +2011,8 @@ def new_lost_reruns(candidates: Iterable[Candidate], results: Mapping[int, str],
             if candidate.open_head:
                 # At an open pull request's head: only cmux-bot re-runs it (rerun_open_head(), plan_lost_reruns()).
                 entry["open_head"] = True
+            if unconfirmed:
+                entry["cancel_unconfirmed"] = True
             entries.append(entry)
     return entries
 
@@ -3030,6 +3037,12 @@ def open_head_jobs_moved(before: Sequence[Mapping[str, Any]], now: Sequence[Mapp
     return None
 
 
+# cancel_plan()'s result for a cancel or force-cancel POST that failed: GitHub may have taken it all the same
+# (a dropped connection after it did), so the run's re-run entry is kept and the next sweep reconciles it
+# (new_lost_reruns(), plan_lost_reruns()).
+CANCEL_SENT = "failed (cancel sent, outcome unknown): "
+
+
 def cancel_plan(
     github: "GitHub",
     candidates: Sequence[Candidate],
@@ -3093,14 +3106,14 @@ def cancel_plan(
         except RuntimeError as error:
             if not _cancel_refused(error):
                 failures += 1
-                results[run_id] = f"failed: {error}"
+                results[run_id] = f"{CANCEL_SENT}{error}"
                 continue
             try:
                 github.force_cancel(run_id)
             except RuntimeError as force_error:
                 if not _cancel_refused(force_error):
                     failures += 1
-                    results[run_id] = f"failed: {force_error}"
+                    results[run_id] = f"{CANCEL_SENT}{force_error}"
                 else:
                     results[run_id] = (f"stuck: GitHub refused cancel and force-cancel "
                                        f"(cancel refused: {error}; {force_error})")
@@ -3978,7 +3991,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         save_lost_reruns([*pending, *fresh])
         # The stall-aware failover at an open PR's head: re-run in this sweep, once the cancels settle. What it
         # cannot re-run now stays in `fresh` for the next sweep; the rest leaves it.
-        open_head = [entry for entry in fresh if entry.get("open_head")]
+        # A cancel whose POST failed is not waited on here: the next sweep reconciles it (new_lost_reruns()).
+        open_head = [entry for entry in fresh if entry.get("open_head") and not entry.get("cancel_unconfirmed")]
         if open_head:
             if cmux_bot() and time.monotonic() - sweep_started < LOST_FAILOVER_CUTOFF_S:
                 open_head_decisions, open_head_pending, open_head_results, open_head_failures = rerun_open_head(
@@ -3994,7 +4008,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             failures += open_head_failures
             open_head_freed = sum(1 for decision in open_head_decisions if decision.action == "rerun"
                                   and open_head_results.get(int(decision.entry["run_id"])) == "re-ran failed jobs")
-            fresh = [*(entry for entry in fresh if not entry.get("open_head")), *open_head_pending]
+            fresh = [*(entry for entry in fresh if not (entry.get("open_head") and not entry.get("cancel_unconfirmed"))),
+                     *open_head_pending]
             save_lost_reruns([*pending, *fresh])
         runs_now: dict[int, Mapping[str, Any]] = {}
         for entry in pending:
