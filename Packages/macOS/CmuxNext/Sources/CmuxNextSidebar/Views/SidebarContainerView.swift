@@ -131,6 +131,9 @@ public final class SidebarContainerView: NSView {
     var handleConstraints: [NSLayoutConstraint] = []
     /// The band the handle is pinned to now.
     var mountedBand: SidebarResizeBand?
+    /// The pane reach used when the handle's line offset was last mounted. Card and flat styles
+    /// share the same resize band, so the reach is tracked separately for style switches.
+    private var mountedPaneReach: CGFloat = 0
 
     /// Dragging the resize edge narrower than this hides the sidebar
     /// (there is no intermediate width below `Metrics.sidebarMinWidth`).
@@ -300,7 +303,9 @@ public final class SidebarContainerView: NSView {
                  SidebarTunables.collapseMotion.value, [Metrics.dividerHitWidth, Metrics.mainPaneGutter])
             }) {
                 self?.handle.restingLineWidth = border
-                if let self, self.resizeBand != self.mountedBand { self.mountHandle() }
+                if let self, self.resizeBand != self.mountedBand || self.paneReach != self.mountedPaneReach {
+                    self.mountHandle()
+                }
                 self?.followDefaultWidth(defaultWidth)
                 self?.syncRail()
                 self?.apply()

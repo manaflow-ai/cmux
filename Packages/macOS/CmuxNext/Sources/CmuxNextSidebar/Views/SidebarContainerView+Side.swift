@@ -74,6 +74,7 @@ extension SidebarContainerView {
         }
         let band = resizeBand
         mountedBand = band
+        mountedPaneReach = paneReach
         // Keep the grab target centred on the container's logical edge so the existing hit area
         // stays stable; only the resting line follows the extended surface edge.
         handle.edgeOffset = side == .left ? band.inside + paneReach : band.outside - paneReach

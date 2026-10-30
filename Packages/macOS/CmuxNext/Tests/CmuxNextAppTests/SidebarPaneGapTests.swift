@@ -52,10 +52,35 @@ import Testing
         #expect(root.contentHost.frame.minX == root.sidebar.frame.maxX)
         #expect(root.sidebar.handleFrameForTesting().minY == 0)
     }
+
+    @Test func styleSwitchRemountsTheDividerAtTheNewSurfaceEdge() throws {
+        let design = DesignSettings.shared
+        let before = design.chromeStyle
+        defer { design.chromeStyle = before }
+        let (window, root) = root(style: .card)
+        defer { window.close() }
+
+        let cardLineX = root.sidebar.handleLineFrameInRoot().midX
+        let cardReach = root.sidebar.paneReach
+        #expect(cardReach > 0)
+
+        design.chromeStyle = .flatSidebarLine
+        root.applyMainPane()
+        root.sidebar.apply()
+        root.layoutSubtreeIfNeeded()
+
+        let flatLineX = root.sidebar.handleLineFrameInRoot().midX
+        #expect(cardLineX - flatLineX == cardReach)
+        #expect(flatLineX == root.sidebar.frame.maxX)
+    }
 }
 
 private extension SidebarContainerView {
     func handleFrameForTesting() -> CGRect {
         handle.drawnLineFrame
+    }
+
+    func handleLineFrameInRoot() -> CGRect {
+        handle.convert(handleFrameForTesting(), to: superview)
     }
 }
