@@ -136,9 +136,11 @@ enum NewWorkspacePlacements {
         return NewWorkspaceDefaultSlot(placement: placement, current: current, currentMachine: currentMachine)
     }
 
-    /// Whether workspace `id` shows as an item of a section of `layout` (pinned, the top region, a
-    /// custom section), which the window's workspace list leaves out.
+    /// Whether workspace `id` shows outside the window's workspace list: an item of a section of
+    /// `layout` (pinned, the top region, a custom section), or a legacy pin (`workspace-pin-v1`, the
+    /// Pinned list section while the sidebar layout is unavailable).
     static func shownInBand(_ id: String, layout: SidebarLayoutDocument, machines: MachineRegistry) -> Bool {
+        if machines.workspace(id: id)?.0.pinned == true { return true }
         guard let ref = WorkspaceLayoutRefs(machines: machines).ref(forWorkspace: id) else { return false }
         return layout.sections.contains { $0.items.contains { $0.ref == ref } }
     }

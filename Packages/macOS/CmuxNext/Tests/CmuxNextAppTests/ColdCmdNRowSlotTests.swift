@@ -94,7 +94,7 @@ struct ColdCmdNRowSlotTests {
                 nodes: [.workspace(SidebarWorkspace(id: WorkspaceID(current.id), machineID: MachineID(machine), title: "current"))]
             )]
             let settledFrame = PendingWorkspaceRows.adding([probe], to: settledSections, home: nil)
-            #expect(settledFrame.flatMap(\.workspaces).map(\.id.rawValue) == [current.id.rawValue, "cold-probe"])
+            #expect(settledFrame.flatMap(\.workspaces).map(\.id.rawValue) == [current.id, "cold-probe"])
             #expect(!probeRule.awaitsCurrentAnchor(section: .machine(MachineID(machine)), in: staleSections, home: current.id),
                     "Home/current rows intentionally omitted from the sidebar must use the normal fallback")
             let bottomRule = NewWorkspaceDefaultSlot(placement: .bottom, current: nil)
