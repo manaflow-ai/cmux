@@ -267,6 +267,31 @@ import Testing
 
 /// An edited-files card's viewed marks follow the file's content: a new diff of the same
 /// file with the same line and addition counts is not shown as already viewed.
+#if os(iOS)
+/// A diff file is prepared in place only when it is small in text, not only in lines: one
+/// minified line of 200,000 characters is laid out off the main thread.
+@Suite struct DiffInlineBuildTests {
+    static func file(lines: Int, width: Int) -> DiffFile {
+        let text = String(repeating: "x", count: width)
+        return DiffFile(path: "a.js", status: .modified,
+                        lines: (0..<lines).map { DiffLine(kind: .added, oldNumber: nil, newNumber: $0 + 1, text: text) },
+                        hasFullContext: false)
+    }
+
+    @Test func aSmallFileIsPreparedInPlace() {
+        #expect(DiffRenderer.preparesInPlace(Self.file(lines: 40, width: 80)))
+    }
+
+    @Test func aMinifiedLineIsPreparedOffMain() {
+        #expect(!DiffRenderer.preparesInPlace(Self.file(lines: 1, width: 200_000)))
+    }
+
+    @Test func aLongFileIsPreparedOffMain() {
+        #expect(!DiffRenderer.preparesInPlace(Self.file(lines: 400, width: 10)))
+    }
+}
+#endif
+
 @MainActor
 @Suite struct CardViewedKeyTests {
     @Test func aChangedDiffWithTheSameCountsGetsItsOwnKey() {
