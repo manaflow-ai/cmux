@@ -15,7 +15,7 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         "host add",
         &[
             ("Add a peer reached over your ssh config", "acpmux host add mini-3"),
-            ("Add a peer at an ssh host under another name", "acpmux host add box ssh://cmux16"),
+            ("Add a peer at an ssh host under another name", "acpmux host add box ssh://mini-2"),
             (
                 "Add a peer at a websocket URL with its token",
                 "acpmux host add lab ws://10.0.0.5:47811 --token 3f9c2a7e",
@@ -65,7 +65,7 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             ("Mint a client ticket that lives 15 minutes", "acpmux host ticket new"),
             (
                 "Mint a ticket that lets this machine drive the new one",
-                "acpmux host ticket new --role daemon --ttl 2h --label cmux16",
+                "acpmux host ticket new --role daemon --ttl 2h --label mini-2",
             ),
             (
                 "Mint a watch-only ticket for a laptop",
@@ -85,7 +85,7 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[
             (
                 "Unpair a machine by name and close its connections",
-                "acpmux host ticket revoke cmux16",
+                "acpmux host ticket revoke mini-2",
             ),
             ("Revoke an unused ticket by id", "acpmux host ticket revoke tk-7f3a2c"),
         ],
@@ -95,11 +95,11 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[
             (
                 "Stop a paired machine running chats in Full access",
-                "acpmux host ticket full-access cmux16 off",
+                "acpmux host ticket full-access mini-2 off",
             ),
             (
                 "Ask to let a paired machine run in Full access",
-                "acpmux host ticket full-access cmux16 on",
+                "acpmux host ticket full-access mini-2 on",
             ),
         ],
     ),
@@ -112,7 +112,7 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             ),
             (
                 "Pair a daemon-role ticket, saying where to reach this daemon",
-                "printf '%s\\n' \"$TICKET\" | acpmux host join --advertise wss://cmux16:47811",
+                "printf '%s\\n' \"$TICKET\" | acpmux host join --advertise wss://mini-2:47811",
             ),
             ("Show this machine's cloud join status", "acpmux host join --status"),
         ],
@@ -141,17 +141,14 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     (
         "host setup",
         &[
-            (
-                "Install acpmux on an ssh host and add it as a peer",
-                "acpmux host setup cmux-lawrence",
-            ),
+            ("Install acpmux on an ssh host and add it as a peer", "acpmux host setup build-mac"),
             (
                 "Set up a host under another peer name and port",
                 "acpmux host setup admin@10.0.0.7 --name lab --port 47812",
             ),
             (
                 "Set up a Linux host without the update timer",
-                "acpmux host setup cmux16 --no-auto-update",
+                "acpmux host setup mini-2 --no-auto-update",
             ),
         ],
     ),
@@ -190,14 +187,14 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     (
         "host enroll",
         &[
-            ("Enroll a machine over ssh in one go", "acpmux host enroll huge-blue"),
+            ("Enroll a machine over ssh in one go", "acpmux host enroll mini-4"),
             (
                 "Enroll a host and copy a harness profile to it",
                 "acpmux host enroll admin@10.0.0.7 --name lab --harness codex",
             ),
             (
                 "Enroll a host and add this machine as its peer too",
-                "acpmux host enroll cmux16 --reverse",
+                "acpmux host enroll mini-2 --reverse",
             ),
         ],
     ),
@@ -207,7 +204,7 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             ("List the Macs that may allow prompts here", "acpmux host approvals"),
             (
                 "From this Mac, let its app allow a peer's prompts",
-                "acpmux host approvals enroll cmux16",
+                "acpmux host approvals enroll mini-2",
             ),
         ],
     ),
@@ -227,14 +224,14 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[
             (
                 "From this Mac, let its app allow a peer's prompts",
-                "acpmux host approvals enroll cmux16",
+                "acpmux host approvals enroll mini-2",
             ),
             ("Do the same for an ssh host", "acpmux host approvals enroll admin@10.0.0.7"),
         ],
     ),
     (
         "host approvals unenroll",
-        &[("From this Mac, stop its Allows on a peer", "acpmux host approvals unenroll cmux16")],
+        &[("From this Mac, stop its Allows on a peer", "acpmux host approvals unenroll mini-2")],
     ),
     (
         "host doctor",
@@ -242,7 +239,7 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             ("Check a peer step by step, changing nothing", "acpmux host doctor mini-3"),
             (
                 "Check an ssh host and repair what fails",
-                "acpmux host doctor cmux16 --fix --reverse",
+                "acpmux host doctor mini-2 --fix --reverse",
             ),
             ("Check this machine's one-line join", "acpmux host doctor --here"),
         ],

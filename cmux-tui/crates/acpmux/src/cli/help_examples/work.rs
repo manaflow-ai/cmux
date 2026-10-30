@@ -264,7 +264,7 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             ("Open a chat again", "acpmux chats open claude-code:5f0c2a9e"),
             (
                 "Open a chat moved from a Linux machine",
-                "acpmux chats open codex:019a2b3c --cwd-map /home/leo=/Users/leoli",
+                "acpmux chats open codex:019a2b3c --cwd-map /home/sam=/Users/sam",
             ),
             (
                 "Open a chat whose folder is gone",

@@ -209,12 +209,12 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         "deliver",
         &[
             (
-                "Leave Leo a report without waking any session",
-                "acpmux deliver --target reports:leo \"PR 27310 landed\"",
+                "Leave Sam a report without waking any session",
+                "acpmux deliver --target reports:sam \"PR 27310 landed\"",
             ),
             (
                 "Leave a report read from stdin, marked for coordinators",
-                "printf 'Nightly is green' | acpmux deliver --target reports:leo \
+                "printf 'Nightly is green' | acpmux deliver --target reports:sam \
                  --audience coordinator -",
             ),
         ],
