@@ -197,6 +197,11 @@ const text = () => host.querySelector(".acpmux-md")?.textContent ?? "";
 
 test("a draft read before its attachment came places it once it comes", async () => {
   const { controls } = await render({ text: `read ${inlineToken(FILE.id)} please` });
+  // Before it comes the token is already its node, drawing nothing: never the token's text
+  // (composer/inlineNode.ts placeTokensIn reads a token of an unknown id as a node too).
+  expect(nodes()).toEqual([FILE.id]);
+  expect(text()).not.toContain(FILE.id);
+  expect(host.querySelector(".acpmux-md-inline-chip")).toBeNull();
   await act(async () => controls.setAttachments([FILE]));
   await until(() => nodes().includes(FILE.id));
   expect(nodes()).toEqual([FILE.id]);
