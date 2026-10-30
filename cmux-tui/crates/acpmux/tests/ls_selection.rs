@@ -32,9 +32,11 @@ fn write_sessions(home: &Path, count: usize) {
         fs::create_dir_all(&dir).unwrap();
         fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
         let at = if i + 1 == count { now } else { now.saturating_sub(2 * 86_400_000) + i as u64 };
+        // Every tenth session is closed, the rest live (`ls`'s compact view and `--live`).
+        let status = if i % 10 == 0 { "closed" } else { "idle" };
         let row = json!({
             "schema": "acpmux.session.v1", "id": id, "name": format!("lane-{i}"),
-            "harness": "claude", "model": "sonnet", "cwd": "/tmp", "status": "idle",
+            "harness": "claude", "model": "sonnet", "cwd": "/tmp", "status": status,
             "createdAt": at, "updatedAt": at, "turnCount": 1, "lastSeq": 0,
             "eventCount": 0,
             "tools": {"rows": [{"id": "mcp:example", "name": "example", "kind": "mcp",
@@ -166,4 +168,44 @@ fn selected_listing_is_bounded_and_newest_first_for_a_large_store() {
     assert!(recent.status.success(), "since filter failed: {recent:?}");
     let recent: Value = serde_json::from_slice(&recent.stdout).unwrap();
     assert_eq!(recent["sessions"].as_array().map(Vec::len), Some(1));
+
+    // Leo, 2026-10-29: "are the tools/commands/docs/etc clear and good enough for you guys? i
+    // feel like they could be better". A busy host's `ls` is thousands of rows: `--live`,
+    // `--name` and `--host` narrow it, the same in text and JSON.
+    let (live, _) = run(&root, &["--json", "ls", "--live", "--fields", "name,status"]);
+    assert!(live.status.success(), "--live failed: {live:?}");
+    let live: Value = serde_json::from_slice(&live.stdout).unwrap();
+    let live = live["sessions"].as_array().unwrap();
+    assert_eq!(live.len(), 2_700);
+    assert!(live.iter().all(|s| s["status"] != "closed"));
+    let (named, _) = run(&root, &["--json", "ls", "--name", "^lane-29[0-9][0-9]$", "--live"]);
+    let named: Value = serde_json::from_slice(&named.stdout).unwrap();
+    assert_eq!(named["sessions"].as_array().map(Vec::len), Some(90));
+    let (here, _) = run(&root, &["--json", "ls", "--host", "local", "--limit", "5"]);
+    let here: Value = serde_json::from_slice(&here.stdout).unwrap();
+    assert_eq!(here["sessions"].as_array().map(Vec::len), Some(5));
+    let (elsewhere, _) = run(&root, &["--json", "ls", "--host", "no-such-peer"]);
+    let elsewhere: Value = serde_json::from_slice(&elsewhere.stdout).unwrap();
+    assert_eq!(elsewhere["sessions"].as_array().map(Vec::len), Some(0));
+    let (bad, _) = run(&root, &["ls", "--name", "("]);
+    assert_eq!(bad.status.code(), Some(2), "a bad pattern is a usage error: {bad:?}");
+    let (text, _) = run(&root, &["ls", "--name", "^lane-299[0-9]$"]);
+    let text = String::from_utf8_lossy(&text.stdout);
+    assert_eq!(text.lines().count(), 11, "a header and every match, closed too: {text}");
+
+    // With no filter, the text view is the live sessions, capped, and says what it left out.
+    let (compact, _) = run(&root, &["ls"]);
+    assert!(compact.status.success(), "compact ls failed: {compact:?}");
+    let compact = String::from_utf8_lossy(&compact.stdout);
+    let lines: Vec<&str> = compact.lines().collect();
+    assert_eq!(lines.len(), 42, "a header, 40 rows and the note: {compact}");
+    assert!(lines[1].starts_with("lane-2999 "), "{compact}");
+    assert!(!compact.contains("closed  "), "{compact}");
+    assert_eq!(
+        lines[41],
+        "2660 more live and 300 closed not shown: --all lists every session; --live, --name \
+REGEX, --host HOST, --status S or --limit N narrow it"
+    );
+    let (all, _) = run(&root, &["ls", "--all"]);
+    assert_eq!(String::from_utf8_lossy(&all.stdout).lines().count(), 3_001);
 }

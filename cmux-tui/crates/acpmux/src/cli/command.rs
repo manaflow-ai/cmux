@@ -257,7 +257,9 @@ pub enum Command {
         #[arg(long, default_value = "leo")]
         audience: String,
     },
-    /// List sessions on every host.
+    /// List sessions on every host. With no filter, the text view shows the live sessions
+    /// (newest first, at most 40) and says how many it left out; `--json` with no filter is
+    /// every session's full record.
     #[command(alias = "list", alias = "list-sessions")]
     Ls {
         /// Include tool inventories in JSON rows (otherwise read `session info SESSION`).
@@ -281,6 +283,18 @@ pub enum Command {
         /// Only sessions updated within this duration (for example `24h` or `30m`).
         #[arg(long, value_name = "DURATION")]
         since: Option<String>,
+        /// Only live sessions: any status but closed.
+        #[arg(long)]
+        live: bool,
+        /// Only sessions whose name (`HOST/NAME` for a peer's) matches this regular expression.
+        #[arg(long, value_name = "REGEX")]
+        name: Option<String>,
+        /// Only sessions on this host: a peer's name, or this machine's (`local` too).
+        #[arg(long, value_name = "HOST")]
+        host: Option<String>,
+        /// Text view: every session, closed ones too, instead of the compact live view.
+        #[arg(long)]
+        all: bool,
     },
     /// Open the TUI on a session, or on the session list.
     #[command(alias = "a")]

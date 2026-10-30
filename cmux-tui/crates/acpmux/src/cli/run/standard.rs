@@ -235,15 +235,42 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             Ok(())
         }
-        Command::Ls { status, pending, tag, limit, fields, since, with_tools } => {
+        Command::Ls {
+            status,
+            pending,
+            tag,
+            limit,
+            fields,
+            since,
+            with_tools,
+            live,
+            name,
+            host,
+            all,
+        } => {
             let since_ms = since.as_deref().map(parse_duration_ms).transpose()?;
             let selected = limit.is_some() || fields.is_some() || since_ms.is_some();
             let fields = fields.as_deref().map(parse_fields).transpose()?;
+            let rows = super::ls::RowFilter::new(
+                live,
+                name.as_deref(),
+                host.as_deref(),
+                crate::pairing::machine_name(),
+            )?;
+            // Any filter at all: the text view prints every row it keeps. None (and no
+            // `--all`): the compact live view (`ls.rs`).
+            let compact = !all
+                && !rows.narrows()
+                && status.is_none()
+                && !pending
+                && tag.is_none()
+                && !selected;
             let client = connect(true).await?;
             // The daemon already sorts pages newest first. Ask it to trim the response when
             // possible; a `--since` filter must run before the limit, so that combination reads
             // the complete list and applies both filters locally.
-            let daemon_limit = limit.filter(|_| status.is_none() && !pending && tag.is_none());
+            let daemon_limit =
+                limit.filter(|_| status.is_none() && !pending && tag.is_none() && !rows.narrows());
             let mut params = if since_ms.is_none() {
                 daemon_limit.map_or_else(|| json!({}), |n| json!({"limit": n}))
             } else {
@@ -252,8 +279,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if with_tools {
                 params["withTools"] = json!(true);
             }
+            // The daemon drops closed rows itself (`hub/session_pages.rs`), so a `--live` reply
+            // carries none of them; `RowFilter` checks again below.
+            if live {
+                params["excludeStatus"] = json!(["closed"]);
+            }
             let mut v = client.request(method::MUX_SESSIONS, params).await?;
-            if status.is_some() || pending || tag.is_some() || selected {
+            if status.is_some() || pending || tag.is_some() || selected || rows.narrows() {
                 let mut sessions = match v.get_mut("sessions") {
                     Some(Value::Array(rows)) => std::mem::take(rows),
                     _ => Vec::new(),
@@ -303,7 +335,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     let since_ok = cutoff.is_none_or(|at| {
                         s.get("updatedAt").and_then(Value::as_u64).unwrap_or(0) >= at
                     });
-                    status_ok && (!pending || pend) && tag_ok && since_ok
+                    status_ok && (!pending || pend) && tag_ok && since_ok && rows.keeps(s)
                 });
                 if let Some(limit) = limit {
                     sessions.truncate(usize::try_from(limit).unwrap_or(usize::MAX));
@@ -317,11 +349,21 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 print_json(&v);
                 return Ok(());
             }
-            let sessions = v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
+            let sessions = match v.get_mut("sessions") {
+                Some(Value::Array(rows)) => std::mem::take(rows),
+                _ => Vec::new(),
+            };
             if sessions.is_empty() {
-                println!("no sessions (create one: acpmux new -m codex -n my-task)");
+                if compact {
+                    println!("no sessions (create one: acpmux new -m codex -n my-task)");
+                } else {
+                    println!("no sessions match (acpmux ls --all lists every session)");
+                }
                 return Ok(());
             }
+            let (sessions, hidden) =
+                super::ls::text_rows(sessions, compact, super::ls::COMPACT_ROWS);
+            let note = super::ls::hidden_note(&hidden, sessions.len());
             if let Some(fields) = fields.as_deref() {
                 println!("{}", fields.join("\t"));
                 for session in sessions {
@@ -334,6 +376,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                             .join("\t")
                     );
                 }
+                return Ok(());
+            }
+            if sessions.is_empty() {
+                println!("{}", note.unwrap_or_default());
                 return Ok(());
             }
             println!(
@@ -356,6 +402,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     age(s.get("updatedAt").and_then(Value::as_u64).unwrap_or(0)),
                     short(s.get("lastPrompt").and_then(Value::as_str).unwrap_or(""), 50)
                 );
+            }
+            if let Some(note) = note {
+                println!("{note}");
             }
             Ok(())
         }
