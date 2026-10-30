@@ -245,9 +245,12 @@ impl Hub {
         session.meta.lock().unwrap().last_seq = last;
         if live {
             self.restore_queue(&session);
-            // Its log holds the source's move (`transfer_out`), not one of this daemon's.
-            *session.moving.lock().unwrap_or_else(|e| e.into_inner()) = None;
         }
+        // Published frozen: it is not this daemon's chat until its own receipt is logged (a
+        // failed one removes it), so no prompt starts before that. Its log's `transfer_out` is
+        // the source's move, not one of this daemon's.
+        *session.moving.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some(transfer_out::IMPORTING.to_owned());
         // The source's subagent retries stayed there (`subagent_retry.rs`).
         self.settle_subagent_retries(&session);
         self.sessions.lock().unwrap().insert(meta.id.clone(), session.clone());
@@ -269,6 +272,8 @@ impl Hub {
             let _ = self.kill(&session, true).await;
             return Err(RpcError::internal("import: could not durably record imported"));
         }
+        // Its queued prompts run now (`end_move` follows its policy, then wakes the queue).
+        self.end_move(&session);
         self.save_meta(&session);
         if !defer_finalize && let Err(error) = self.finalize_harness_state(&session.meta()) {
             self.recover_staged_replacements();

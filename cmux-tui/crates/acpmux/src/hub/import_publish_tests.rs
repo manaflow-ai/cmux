@@ -91,4 +91,6 @@ async fn an_imported_chat_takes_no_prompt_before_its_receipt_is_logged() {
         "the chat could take a prompt before its receipt was logged"
     );
     assert!(imported.moving().is_none(), "the logged import left the chat frozen");
+    // No abort, commit or watchdog takes the import's mark for a move.
+    assert!(!transfer_out::names_a_move(transfer_out::IMPORTING));
 }
