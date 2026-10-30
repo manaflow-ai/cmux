@@ -81,14 +81,19 @@ public final class CmuxToastCenter {
         // A successor of the newest toast shows in its slot at once, so a
         // repeated toast never blinks out and fades back in.
         let inPlace = newest.map { replaced.contains($0) && entries[$0]?.handle.toast.id == toast.id } ?? false
+        // A same-id predecessor goes at once; one pushed over the limit fades once the stack has its
+        // final heights (below), so it never overlaps a taller toast moving into its slot.
+        var fading: [Int] = []
         for old in replaced {
-            let fades = entries[old]?.handle.toast.id != toast.id
-            // One pushed out fades a slot above the stack, clear of the toast moving into its slot.
-            if fades, let view = entries[old]?.view { host.move(view, to: stack.serials.count) }
-            end(old, .replaced, relayout: false, animated: fades)
+            if entries[old]?.handle.toast.id != toast.id { fading.append(old) } else { end(old, .replaced, relayout: false, animated: false) }
         }
         host.show(view, in: window, slot: 0, appearing: !inPlace) { [weak self] in self?.windowClosed(key) }
         relayout(key)
+        for old in fading {
+            // One pushed out fades a slot above the stack, clear of the toast moving into its slot.
+            if let view = entries[old]?.view { host.move(view, to: stack.serials.count) }
+            end(old, .replaced, relayout: false, animated: true)
+        }
         startTimer(serial)
         // A toast that appears under a still pointer holds at once.
         if view.isHovered { setHovered(true, handle) }
