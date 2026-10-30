@@ -7748,6 +7748,10 @@
     },
     "request:cloud-host-replica-status": {},
     "request:cloud-inbox-list": {
+      "/cursor": {
+        "ty": "string",
+        "nullable": true
+      },
       "/include_archived": {
         "ty": "boolean"
       },
@@ -8180,6 +8184,13 @@
       }
     },
     "request:conversation-runs": {
+      "/answers": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/answers/*": {
+        "ty": "string"
+      },
       "/before_started_at": {
         "ty": "uint64",
         "nullable": true
@@ -10015,6 +10026,14 @@
       },
       "/shell_args/*": {
         "ty": "string"
+      },
+      "/side": {
+        "ty": "enum",
+        "nullable": true,
+        "values": [
+          "left",
+          "right"
+        ]
       },
       "/tab_id": {
         "ty": "string",
