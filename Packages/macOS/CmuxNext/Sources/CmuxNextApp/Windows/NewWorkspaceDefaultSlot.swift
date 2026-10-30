@@ -53,6 +53,22 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
     /// not know is moved to: inside the current workspace's group, after the window's current one.
     func move(for id: String, section: SectionID, in sections: [SidebarRowSection], home: String?) -> WorkspaceSlot? {
         guard let slot = slot(for: id, section: section, in: sections, home: home) else { return nil }
+        // The local daemon applies `afterCurrent` in the create commit. When the selected
+        // workspace is present in this sidebar, that is already the desired slot; sending the
+        // same slot through the drag path would create a second state/layout pass.
+        if placement == .afterCurrent,
+           let current,
+           current != id,
+           current != home,
+           slot == .below(current),
+           sections.contains(where: { section in
+               section.nodes.contains { node in
+                   guard case let .workspace(workspace) = node else { return false }
+                   return workspace.id.rawValue == current
+               }
+           }) {
+            return nil
+        }
         if slot == Self.top(for: id, section: section, in: sections, home: home) { return nil }
         return slot
     }
