@@ -10,9 +10,10 @@ import Testing
 @MainActor @Suite(.serialized, .closesItsWindows) struct SidebarDoneFoldTests {
     static let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
 
-    static func ws(_ id: String, done: Bool = false) -> SidebarWorkspace {
+    static func ws(_ id: String, done: Bool = false, chip: SidebarPriorityEntry.State? = nil) -> SidebarWorkspace {
         var row = SidebarWorkspace(id: WorkspaceID(id), title: id)
         if done { row.taskStatus = .done }
+        row.agentChip = chip
         return row
     }
 
@@ -49,6 +50,19 @@ import Testing
         #expect(Self.keys(Self.options()) == [
             Self.w("a"), Self.w("c"), .group(GroupID("g")), Self.w("g2"), .doneFold(Self.groupFold), .doneFold(Self.looseFold),
         ])
+    }
+
+    @Test func finishedAgentChatsJoinTheCollapsedFold() {
+        let nodes: [SidebarNode] = [
+            .workspace(Self.ws("working")),
+            .workspace(Self.ws("finished", chip: .done)),
+            .workspace(Self.ws("failed", chip: .failed)),
+            .workspace(Self.ws("lost", chip: .lost)),
+            .workspace(Self.ws("waiting", chip: .needsYou)),
+            .workspace(Self.ws("ci", chip: .ciFailing)),
+        ]
+        let sections = [SidebarSection(kind: .machine(Self.machine), nodes: nodes)]
+        #expect(Self.keys(Self.options(), sections) == [Self.w("working"), Self.w("waiting"), Self.w("ci"), .doneFold(Self.looseFold)])
     }
 
     @Test func theFoldRowCountsItsWorkspaces() throws {
