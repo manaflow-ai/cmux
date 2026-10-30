@@ -38,7 +38,9 @@ import Testing
         let full = CGRect(x: 200, y: 40, width: pv.box.width, height: pv.box.height)
         let box = outgoing ? full.insetBy(dx: 0.5, dy: 0.5) : full
         let outline = pv.outline(in: box).cgPath
-        let body = BubblePath.make(body: box, outgoing: outgoing, tail: false, circularEnds: true).cgPath
+        // The body the tail joins: the one-line quote's corners (half its height) at every line count.
+        let corner = (box.height - ThreadPreview.textLinePitch * CGFloat(pv.textLines.count - 1)) / 2
+        let body = CGPath(roundedRect: box, cornerWidth: corner, cornerHeight: corner, transform: nil)
         // The tail's top joins the body 2.0 to 2.4 pt above its bottom; above 1.8 pt the tail must sit inside the curve.
         var worst: CGFloat = 0, at: CGFloat = 0
         var h: CGFloat = 1.8
