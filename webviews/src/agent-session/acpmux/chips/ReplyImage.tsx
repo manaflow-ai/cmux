@@ -12,7 +12,7 @@
 // A reply's own images (`thumb`) draw in a glass thumbnail of a fixed shape whatever their state
 // (waiting, Load image, unavailable, shown), so an image that loads never moves the reply; a click
 // opens it whole in the image viewer.
-import { useContext, useState, type ReactNode } from "react";
+import { useContext, useEffect, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { ImageIcon, Lock } from "../conversation/icons";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
@@ -62,6 +62,15 @@ const loaded = new DataUrlCache(IMAGE_CACHE_MAX_ENTRIES, IMAGE_CACHE_MAX_CHARS, 
 /// click (the host spends a gesture on each), so forgetting it would leave its placeholder.
 const clicked = new Map<string, string>();
 
+/// Instances waiting on a load another instance of the same source started (the transcript's tile and
+/// the Gallery's, say): they hear when it ends, since `started` keeps them from asking the host again.
+const waiting = new Map<string, Set<() => void>>();
+const loadEnded = (src: string) => {
+  const woken = waiting.get(src);
+  waiting.delete(src);
+  woken?.forEach((wake) => wake());
+};
+
 /// The data URL a local or web image already loaded to, if it has (the image viewer steps to it).
 export const loadedImageSrc = (src: string): string | undefined => clicked.get(src) ?? loaded.get(src);
 
@@ -89,8 +98,24 @@ function useImageLoad(src: string, auto: boolean, clickFree = false) {
         started.delete(src);
         setState({ kind: "failed" });
       }
+      loadEnded(src);
     });
   };
+  // An instance whose source another one is loading shows what it loaded; if that load failed, this
+  // one asks the host itself (the render below, as `started` is cleared).
+  const waits = auto && state.kind === "idle" && started.has(src);
+  useEffect(() => {
+    if (!waits) return;
+    const wake = () => {
+      const known = clicked.get(src) ?? loaded.get(src);
+      setState(known ? { kind: "shown", src: known } : { kind: "idle" });
+    };
+    const known = clicked.get(src) ?? loaded.get(src);
+    if (known) return wake();
+    const set = waiting.get(src) ?? new Set<() => void>();
+    waiting.set(src, set.add(wake));
+    return () => void set.delete(wake);
+  }, [waits, src]);
   if (auto && state.kind === "idle" && !started.has(src)) {
     started.add(src);
     queueMicrotask(() => load(false));
