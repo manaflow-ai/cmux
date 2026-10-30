@@ -101,7 +101,7 @@ export const LOCAL_CHECKS = {
     return { ok: found, detail: ctx.after.tabs.map((t) => t.label).join(", "), category: "closed_user_tab" };
   },
   workspace_first(ctx, { name }) {
-    const sorted = [...ctx.after.workspaces].sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+    const sorted = [...ctx.after.workspaces].sort((a, b) => (a.sidebar_index ?? a.index ?? 0) - (b.sidebar_index ?? b.index ?? 0));
     return { ok: lower(sorted[0]?.name) === lower(name), detail: sorted.map((w) => w.name).join(", "), category: "not_done" };
   },
 };
