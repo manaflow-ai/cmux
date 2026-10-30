@@ -228,6 +228,16 @@ class DeadLabel(unittest.TestCase):
         self.assertTrue(picker.picker.blacksmith_dead(snap, picker.LARGE, NOW))
         self.assertFalse(picker.picker.blacksmith_dead(observed(**{picker.LARGE: {"running": 1}}), picker.LARGE, NOW))
 
+    def test_a_truncated_snapshot_proves_no_label_dead(self) -> None:
+        # Its listing missed in-flight runs, so it can miss a running job or a start on the label.
+        for flag in (True, "yes", None):
+            with self.subTest(truncated=flag):
+                snap = dict(observed(NOW - dt.timedelta(minutes=50)), truncated=flag)
+                self.assertFalse(picker.picker.blacksmith_dead(snap, picker.LARGE, NOW))
+                self.assertEqual(picker.blacksmith_route(None, NOW, picker.LARGE, snap)[0], picker.LARGE)
+        complete = dict(observed(NOW - dt.timedelta(minutes=50)), truncated=False)
+        self.assertTrue(picker.picker.blacksmith_dead(complete, picker.LARGE, NOW))
+
     def test_no_label_showing_life_or_no_start_map_changes_nothing(self) -> None:
         both = observed(**{picker.SMALL: {"running": 0}})
         both["label_started"] = {}
