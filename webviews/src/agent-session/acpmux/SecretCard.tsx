@@ -13,17 +13,30 @@ export function SecretCard({
 }: {
   ask: AcpmuxSecretAsk;
   agent: string;
-  /// `value` provides the secret; none declines.
-  onAnswer(value?: string): void;
+  /// `value` provides the secret; none declines. A rejection means the secret did not go.
+  onAnswer(value?: string): void | Promise<unknown>;
 }) {
   const t = useT();
   const [value, setValue] = useState("");
+  const [refused, setRefused] = useState(false);
+  const [sending, setSending] = useState(false);
   const provide = (event: React.FormEvent) => {
     event.preventDefault();
-    if (!value) return;
+    if (!value || sending) return;
     const sent = value;
     setValue("");
-    onAnswer(sent);
+    setRefused(false);
+    setSending(true);
+    // The field empties as it is sent; only a send that failed puts the typed secret back, so the
+    // person does not have to retype it.
+    void Promise.resolve(onAnswer(sent)).then(
+      () => setSending(false),
+      () => {
+        setSending(false);
+        setRefused(true);
+        setValue((current) => current || sent);
+      },
+    );
   };
   return (
     <form className="acpmux-secret-card" aria-live="polite" onSubmit={provide}>
@@ -41,9 +54,13 @@ export function SecretCard({
           aria-label={t("secret.field", { name: ask.name })}
           placeholder={ask.name}
           value={value}
-          onChange={(event) => setValue(event.target.value)}
+          aria-invalid={refused}
+          onChange={(event) => {
+            setRefused(false);
+            setValue(event.target.value);
+          }}
         />
-        <button type="submit" className="acpmux-secret-card-action" disabled={!value}>
+        <button type="submit" className="acpmux-secret-card-action" disabled={!value || sending}>
           {t("secret.provide")}
         </button>
         <button type="button" className="acpmux-secret-card-action" onClick={() => onAnswer()}>
