@@ -57,6 +57,7 @@ extension DaemonService {
             await closeTicket(ticket, label: label, error: nil, replying: connection)
             return .success(value)
         } catch {
+            Self.checkStandInRollback(intent, error: error, label: label)
             await settleReply { [store] in store.rejectIntent(transaction) }
             logger.error("\(label, privacy: .public) rejected: \(String(describing: error), privacy: .public)")
             await closeTicket(ticket, label: label, error: error)
