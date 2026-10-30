@@ -261,10 +261,11 @@ cmux_codex_apply_auth_mode() {
     # cmux-owned trusted hashes across; dropping them makes every file hook
     # show "needs review" even though the bake trusted it. Serialize the
     # complete rewrite: two panes can launch at once during image verify.
-    # A default config that cannot be read, or an entry without a string
-    # trusted_hash, is logged on stderr and keeps the hash this home already
-    # has: a trusted_hash is the hook's content hash, so a kept one never
-    # trusts a hook that changed since.
+    # A default config that cannot be read keeps the hashes this home already
+    # has (a trusted_hash is the hook's content hash, so a kept one never
+    # trusts a hook that changed since) and logs it on stderr. In a config
+    # that reads, an entry without a string trusted_hash is a hook the user
+    # has not approved (or revoked): it is logged and left untrusted here too.
     : > "$CODEX_HOME/config.toml.cmux-lock" 2>/dev/null || return 1
     chmod 0600 "$CODEX_HOME/config.toml.cmux-lock" 2>/dev/null || return 1
     (
@@ -295,15 +296,14 @@ def log(message):
 
 
 try:
-    published = {key: entry["trusted_hash"] for key, entry in trust_table(target).items()
-                 if key.startswith(prefix) and isinstance(entry, dict) and isinstance(entry.get("trusted_hash"), str)}
-except (OSError, ValueError, UnicodeError):
-    published = {}
-try:
     state = trust_table(source)
 except (OSError, ValueError, UnicodeError) as error:
     log(f"cannot read Codex hook trust from {source} ({error}); keeping the trust this home has")
-    trusted = published
+    try:
+        trusted = {key: entry["trusted_hash"] for key, entry in trust_table(target).items()
+                   if key.startswith(prefix) and isinstance(entry, dict) and isinstance(entry.get("trusted_hash"), str)}
+    except (OSError, ValueError, UnicodeError):
+        trusted = {}
 else:
     trusted = {}
     for key, entry in state.items():
@@ -313,9 +313,7 @@ else:
         if isinstance(digest, str):
             trusted[key] = digest
             continue
-        log(f"skipping Codex hook trust entry {json.dumps(key, ensure_ascii=False)} in {source}: it has no string trusted_hash")
-        if key in published:
-            trusted[key] = published[key]
+        log(f"skipping Codex hook trust entry {json.dumps(key, ensure_ascii=False)} in {source}: it has no string trusted_hash, so it stays untrusted")
 lines = [
     'model_provider = "cmux"',
     "",
