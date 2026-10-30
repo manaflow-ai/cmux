@@ -179,6 +179,8 @@ pub use subsession_send::Delivery;
 mod drafts;
 pub(crate) mod outbox;
 pub mod rules;
+#[cfg(test)]
+mod stop_settles_tests;
 mod transcript;
 mod transfer;
 mod transfer_guard;
