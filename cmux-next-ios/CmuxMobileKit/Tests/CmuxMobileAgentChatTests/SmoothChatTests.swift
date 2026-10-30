@@ -216,6 +216,26 @@ import Testing
 
 /// The snippet's preview lines match `unifiedPreview` (the hunks with one line of context).
 @Suite struct EditPreviewTests {
+    /// A tap on a snippet before its turn's diff landed waits for the one computing, off the
+    /// main thread, instead of running the diff on the main thread.
+    @Test func openingChangesBeforeTheDiffLandsNeverDiffsOnTheMainThread() async {
+        let store = AgentChatStore(source: Silent())
+        store.apply(.batch((0..<3).flatMap { Self.turn($0, edit: $0 == 2) }))
+        let cache = ChatDiffCache()
+        let onMain = OnMainFlag()
+        cache.compute = { inputs in
+            if Thread.isMainThread { onMain.set() }
+            return ChatDiffCache.diffFiles(inputs)
+        }
+        let changes = await cache.changeSetReady(for: store.turns[2])
+        #expect(changes?.files.count == 1)
+        #expect(cache.computations == 1)
+        #expect(!onMain.value)
+        // Ready now: the next open reuses it.
+        #expect(await cache.changeSetReady(for: store.turns[2]) == changes)
+        #expect(cache.computations == 1)
+    }
+
     @Test func previewLinesMatchUnifiedPreview() {
         let old = (0..<300).map { "line \($0)" }.joined(separator: "\n")
         let new = (0..<300).map { $0 % 7 == 0 || $0 % 11 == 0 ? "changed \($0)" : "line \($0)" }.joined(separator: "\n")
@@ -268,4 +288,12 @@ import Testing
         revisions.removeAll()
         #expect(revisions.bump("w-t1") > again)
     }
+}
+
+/// Set from the diff's thread (tests).
+final class OnMainFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var flag = false
+    func set() { lock.withLock { flag = true } }
+    var value: Bool { lock.withLock { flag } }
 }

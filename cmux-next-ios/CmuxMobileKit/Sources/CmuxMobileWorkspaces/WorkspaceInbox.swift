@@ -425,11 +425,13 @@ extension WorkspaceInbox {
 
         private var last: (input: Input, inbox: WorkspaceInbox)?
         private var lastIDs: [String] = []
+        private var lastIDSet: Set<String> = []
         private var lastNeedsYou: [String] = []
         /// How many inboxes this memo built (tests).
         public private(set) var builds = 0
-        /// Changes when the store's workspace ids or their order change (rows
-        /// come or go), not when a row's content does: the list animates on it.
+        /// Changes when rows come or go (the store's set of workspace ids), not
+        /// when they only reorder or a row's content changes: the list animates
+        /// on it, and a live reorder moves rows in place without animating.
         public private(set) var workspaceIDsKey = 0
         /// Changes when the Needs You rows change.
         public private(set) var needsYouKey = 0
@@ -444,7 +446,11 @@ extension WorkspaceInbox {
             if lastIDs.count != input.workspaces.count
                 || !zip(lastIDs, input.workspaces).allSatisfy({ $0 == $1.id }) {
                 lastIDs = input.workspaces.map(\.id)
-                workspaceIDsKey &+= 1
+                let idSet = Set(lastIDs)
+                if idSet != lastIDSet {
+                    lastIDSet = idSet
+                    workspaceIDsKey &+= 1
+                }
             }
             let needsYou = inbox.needsYou.map(\.id)
             if needsYou != lastNeedsYou {

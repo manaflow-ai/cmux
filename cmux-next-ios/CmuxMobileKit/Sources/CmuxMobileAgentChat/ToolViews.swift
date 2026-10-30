@@ -275,8 +275,8 @@ struct DiffSnippet: View {
     /// One file per diff of the call with its preview lines, computed once off the main
     /// thread (`ChatDiffCache`); nil while it computes (the header shows, the lines follow).
     let previews: [ChatDiffCache.EditPreview]?
-    /// The turn's changes, built when the diff opens (not per body).
-    let changeSet: () -> DiffChangeSet
+    /// The turn's changes, built when the diff opens (not per body), off the main thread.
+    let changeSet: () async -> DiffChangeSet
     @Environment(\.openSessionFile) private var openFile
     @Environment(\.openDiff) private var openDiff
     @Environment(\.chatDisclosures) private var disclosures
@@ -315,12 +315,20 @@ struct DiffSnippet: View {
         .background(Color.cmuxMobileCodeBackground, in: .rect(cornerRadius: 20, style: .continuous))
     }
 
+    /// Opens the diff once the turn's changes are ready (the cache has them, or computes
+    /// them off the main thread).
+    private func open(_ fileID: String) {
+        let changeSet = changeSet
+        let openDiff = openDiff
+        Task { @MainActor in openDiff(await changeSet(), file: fileID) }
+    }
+
     private func card(_ edit: ChatDiffCache.EditPreview) -> some View {
         let file = edit.file
         let preview = showAll ? edit.long : edit.short
         return VStack(alignment: .leading, spacing: 0) {
             Button {
-                openDiff(changeSet(), file: file.id)
+                open(file.id)
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: call.isRunning ? "pencil" : (file.status == .added ? "doc.badge.plus" : "pencil"))
@@ -378,7 +386,7 @@ struct DiffSnippet: View {
             RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Color(uiColor: .separator).opacity(0.5), lineWidth: 0.5)
         }
         .contextMenu {
-            Button("Open Diff", systemImage: "arrow.up.right.square") { openDiff(changeSet(), file: file.id) }
+            Button("Open Diff", systemImage: "arrow.up.right.square") { open(file.id) }
             if openFile.isAvailable, file.status != .deleted {
                 Button("Open File", systemImage: "doc.text.magnifyingglass") { openFile(file.path) }
             }

@@ -134,6 +134,21 @@ public final class ChatDiffCache {
         return set
     }
 
+    /// The turn's changes for a tap on a snippet or a menu: the cached diff, else the one
+    /// computing (awaited), else computed off the main thread now. The main thread never runs
+    /// the diff (hundreds of milliseconds for a large rewrite).
+    func changeSetReady(for turn: AgentTurn) async -> DiffChangeSet? {
+        if case .some(let ready) = changeSet(for: turn) { return ready }
+        let key = "t-\(turn.id)"
+        let inputs = Self.inputs(turn)
+        if let task = running[key] { await task.value }
+        if let entry = turnSets[key], entry.inputs == inputs, case .some(let ready) = entry.value { return ready }
+        computations += 1
+        let compute = compute
+        let files = await Task.detached(priority: .userInitiated) { compute(inputs) }.value
+        return Self.changeSet(turnID: turn.id, files: files)
+    }
+
     /// Waits for the diffs that are computing (tests).
     func settle() async {
         while let task = running.values.first {

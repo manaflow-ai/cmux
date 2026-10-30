@@ -290,7 +290,7 @@ struct SubagentRowView: View {
                 ToolRowView(call: call)
             } else {
                 DiffSnippet(call: call, previews: diffs.files(for: call)) {
-                    diffs.changeSetNow(for: turn) ?? DiffChangeSet(id: call.id, title: "Changes", subtitle: "", files: [])
+                    await diffs.changeSetReady(for: turn) ?? DiffChangeSet(id: call.id, title: "Changes", subtitle: "", files: [])
                 }
             }
         case .plan(_, let entries):

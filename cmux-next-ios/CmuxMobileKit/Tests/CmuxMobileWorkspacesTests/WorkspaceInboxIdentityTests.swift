@@ -68,6 +68,9 @@ import Testing
         let key = memo.workspaceIDsKey
         _ = memo.inbox(WorkspaceInbox.Memo.Input(scope: .all, macs: macs, workspaces: changed, query: "b"))
         #expect(memo.workspaceIDsKey == key)
+        // A live reorder (a row went to the top) is not membership: the list moves it in place.
+        _ = memo.inbox(WorkspaceInbox.Memo.Input(scope: .all, macs: macs, workspaces: changed.reversed()))
+        #expect(memo.workspaceIDsKey == key)
         _ = memo.inbox(WorkspaceInbox.Memo.Input(scope: .all, macs: macs, workspaces: changed + [ws("z")]))
         #expect(memo.workspaceIDsKey != key)
     }

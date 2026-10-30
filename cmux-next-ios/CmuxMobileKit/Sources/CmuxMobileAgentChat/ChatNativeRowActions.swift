@@ -45,7 +45,8 @@ enum ChatNativeRowActions {
             let openFile = context.openFile
             actions.hit = { hit in
                 switch hit {
-                case .openDiff(let file): openDiff(context.changeSet(turnID: turnID, fallbackID: call.id), file: file)
+                case .openDiff(let file):
+                    Task { @MainActor in openDiff(await context.changeSet(turnID: turnID, fallbackID: call.id), file: file) }
                 case .toggle(let key): ChatMotion.set { disclosures.set(key, true) }
                 default: break
                 }
@@ -54,7 +55,7 @@ enum ChatNativeRowActions {
                 guard let file = files?.first?.file else { return nil }
                 var items: [UIMenuElement] = [
                     UIAction(title: "Open Diff", image: UIImage(systemName: "arrow.up.right.square")) { _ in
-                        openDiff(context.changeSet(turnID: turnID, fallbackID: call.id), file: file.id)
+                        Task { @MainActor in openDiff(await context.changeSet(turnID: turnID, fallbackID: call.id), file: file.id) }
                     },
                 ]
                 if openFile.isAvailable, file.status != .deleted {

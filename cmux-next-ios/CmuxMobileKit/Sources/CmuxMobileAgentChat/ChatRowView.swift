@@ -32,11 +32,11 @@ final class ChatRowContext {
     }
 
     /// The turn's changes when a diff opens (cached, else computed for the tap).
-    func changeSet(turnID: String, fallbackID: String) -> DiffChangeSet {
+    func changeSet(turnID: String, fallbackID: String) async -> DiffChangeSet {
         guard let turn = store.turns.last(where: { $0.id == turnID }) else {
             return DiffChangeSet(id: fallbackID, title: "Changes", subtitle: "", files: [])
         }
-        return store.diffs.changeSetNow(for: turn) ?? DiffChangeSet(id: fallbackID, title: "Changes", subtitle: "", files: [])
+        return await store.diffs.changeSetReady(for: turn) ?? DiffChangeSet(id: fallbackID, title: "Changes", subtitle: "", files: [])
     }
 }
 
@@ -82,7 +82,7 @@ struct ChatRowView: View {
                 ToolRowView(call: call)
             } else {
                 let turnID = row.turnID
-                DiffSnippet(call: call, previews: files) { context.changeSet(turnID: turnID, fallbackID: call.id) }
+                DiffSnippet(call: call, previews: files) { await context.changeSet(turnID: turnID, fallbackID: call.id) }
             }
         case .plan(let entries):
             PlanCard(entries: entries)
