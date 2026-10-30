@@ -383,7 +383,7 @@ final class WindowManager {
         // A window none of whose workspaces is mirrored yet stays off screen
         // until `contentDidAppear` (never an empty frame). The launch window
         // (no workspaces) shows the connecting state at once.
-        if controller.content != nil || controller.shownCloudAbsence != nil || hasMirroredWorkspace(window) || window.workspaceIDs.isEmpty {
+        if controller.content != nil || hasMirroredWorkspace(window) || window.workspaceIDs.isEmpty {
             present(controller)
         } else {
             awaitingContent[window.id] = false
@@ -392,9 +392,9 @@ final class WindowManager {
         return controller
     }
 
-    /// True when a machine reports at least one of `window`'s workspaces.
+    /// True when a machine reports at least one of `window`'s workspaces, or the window keeps a Cloud workspace that is not connected (it shows why).
     func hasMirroredWorkspace(_ window: WindowRegistry.Window) -> Bool {
-        window.workspaceIDs.contains { services.machines.workspace(id: $0) != nil }
+        window.workspaceIDs.contains { services.machines.workspace(id: $0) != nil || services.cloudAbsences.absence(of: $0) != nil }
     }
 
     /// Runs `body` once `controller` next shows a workspace, if that is
@@ -415,13 +415,6 @@ final class WindowManager {
                 waiter.body()
             }
         }
-        guard let front = awaitingContent.removeValue(forKey: controller.state.id) else { return }
-        present(controller)
-        if front { bringToFront(controller) }
-    }
-
-    /// A window kept off screen shows a kept Cloud workspace that is not connected (P-AUSTIN B7): it is ordered in.
-    func absentContentDidAppear(_ controller: WindowController) {
         guard let front = awaitingContent.removeValue(forKey: controller.state.id) else { return }
         present(controller)
         if front { bringToFront(controller) }

@@ -67,7 +67,6 @@ extension WindowController {
         }
         titleObservation?.cancel()
         root.titlebar.title = title
-        services.windows.absentContentDidAppear(self)
     }
 
     /// The kept Cloud workspace this window shows as not connected, and why (P-AUSTIN B7); nil otherwise.

@@ -231,14 +231,14 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             return
         }
         // A kept Cloud workspace that is not connected says why, never a blank pane (P-AUSTIN B7).
-        if let requested, let absence = services.windows.cloudAbsence(of: requested) { return showAbsent(requested, absence) }
+        if let requested, let absence = services.cloudAbsences.absence(of: requested) { return showAbsent(requested, absence) }
         if requested != nil, state.machineID != MachineRegistry.localID, isWaiting(for: state.machineID) { return }
         let members = services.windows.registry.members(of: state.id)
         if let (workspace, daemon) = members.lazy.compactMap({ machines.workspace(id: $0) }).first {
             if !showsHomePage(instead: workspace) { show(workspace, on: daemon) }
             return
         }
-        if let (id, absence) = members.lazy.compactMap({ id in self.services.windows.cloudAbsence(of: id).map { (id, $0) } }).first {
+        if let (id, absence) = members.lazy.compactMap({ id in self.services.cloudAbsences.absence(of: id).map { (id, $0) } }).first {
             return showAbsent(id, absence)
         }
         // Keep what is shown (the old content stays until the manager

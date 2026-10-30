@@ -6,6 +6,7 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextBrowserHistory
+import CmuxNextCloudUI
 import CmuxNextChiefPetWiring
 import CmuxNextChromiumWarmup
 import CmuxNextCompat
@@ -179,6 +180,8 @@ final class AppServices {
     }()
     #endif
     private(set) lazy var windows: WindowManager = WindowManager(services: self)  // first read in init (no IUO)
+    /// Kept Cloud workspaces that no machine lists, and why (P-AUSTIN B7).
+    private(set) lazy var cloudAbsences = CloudWorkspaceAbsences(host: self)
     private(set) lazy var dragSession: TabDragSession = TabDragSession(services: self)  // first read in init (no IUO)
     private(set) lazy var palette: PaletteController = {
         let palette = PaletteController(registry: registry, sources: PaletteSourcesBridge.make(services: self),

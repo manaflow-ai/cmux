@@ -73,7 +73,7 @@ extension SidebarBridge {
     func absentCloudRows(_ state: WindowState) -> (rows: [SidebarWorkspace], headers: [MachineID: SidebarMachine]) {
         guard state.profileID == .defaultProfile else { return ([], [:]) }
         let windows = services.windows
-        let absent = windows.registry.members(of: state.id).compactMap { id in windows.cloudAbsence(of: id).map { (id, $0) } }
+        let absent = windows.registry.members(of: state.id).compactMap { id in services.cloudAbsences.absence(of: id).map { (id, $0) } }
         guard !absent.isEmpty else { return ([], [:]) }
         let saved = savedRows(state.id)
         var headers: [MachineID: SidebarMachine] = [:]
@@ -123,7 +123,7 @@ extension SidebarBridge {
     /// back). False for intents on other rows.
     func handleAbsent(_ intent: SidebarIntent, state: WindowState) -> Bool {
         let windows = services.windows
-        func isAbsent(_ id: SidebarWorkspaceID) -> Bool { windows.cloudAbsence(of: id.rawValue) != nil }
+        func isAbsent(_ id: SidebarWorkspaceID) -> Bool { services.cloudAbsences.absence(of: id.rawValue) != nil }
         switch intent {
         case .select(let id) where isAbsent(id):
             model.apply(intent)
