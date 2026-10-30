@@ -159,17 +159,9 @@ fn change<T>(
 /// The room ended `share_id` (close code 4001): a share still active here is revoked, with no
 /// room `DELETE` (the room is gone) and no kick left to send, and its guests' connections close.
 fn ended_by_room(mux: &Mux, share_id: &str) {
-    let ended = change(mux, share_id, |s| {
-        if s.state != ShareState::Active {
-            return (false, false);
-        }
-        s.state = ShareState::Revoked;
-        s.pending_room_ops.retain(|o| o["op"] != "kick");
-        (true, true)
-    });
-    if ended == Some(true) {
-        shares(mux).settle(mux);
-    }
+    let directory = mux.session_state_directory();
+    shares(mux).ended_by_room(directory.as_deref(), share_id);
+    shares(mux).settle(mux);
 }
 
 /// What the bridge reads of one share.
@@ -651,8 +643,15 @@ async fn serve_host(
         let target = target.filter(|v| v.state == ShareState::Active);
         let Some((url, token)) = target.and_then(|v| Some((v.url?, v.host_token?))) else { break };
         match connect(&url, &share_id, &token, timing.request).await {
-            Err(true) => break,
-            Err(false) => {}
+            Err(Refused::Gone) => {
+                // The room has no such share any more (deleted or expired there).
+                if let Some(mux) = mux.upgrade() {
+                    ended_by_room(&mux, &share_id);
+                }
+                break;
+            }
+            Err(Refused::ForGood) => break,
+            Err(Refused::Retry) => {}
             Ok(socket) => match session(&mux, &share_id, socket, &mut commands).await {
                 None => break,
                 Some(true) => wait = timing.backoff_min,
@@ -676,11 +675,27 @@ async fn serve_host(
 /// The largest `cmux.share/1` frame (and message) the host socket takes.
 const MAX_HOST_FRAME_BYTES: usize = 512 * 1024;
 
-/// Opens `{room}/v1/chat-shares/{id}/host` with the host token. `Err(true)`: refused for good.
-async fn connect(url: &str, share_id: &str, token: &str, timeout: Duration) -> Result<Ws, bool> {
+/// Why a host socket did not open.
+enum Refused {
+    /// The room has no such share (404, 410): it ended there.
+    Gone,
+    /// Refused for good (401, 403, or a request that cannot be made).
+    ForGood,
+    /// Try again after the backoff.
+    Retry,
+}
+
+/// Opens `{room}/v1/chat-shares/{id}/host` with the host token.
+async fn connect(
+    url: &str,
+    share_id: &str,
+    token: &str,
+    timeout: Duration,
+) -> Result<Ws, Refused> {
     let socket = format!("{}/v1/chat-shares/{share_id}/host", url.replacen("http", "ws", 1));
-    let mut request = socket.into_client_request().map_err(|_| true)?;
-    let bearer = HeaderValue::from_str(&format!("Bearer {token}")).map_err(|_| true)?;
+    let mut request = socket.into_client_request().map_err(|_| Refused::ForGood)?;
+    let bearer =
+        HeaderValue::from_str(&format!("Bearer {token}")).map_err(|_| Refused::ForGood)?;
     request.headers_mut().insert("authorization", bearer);
     // `cmux.share/1` frames are at most 512 KiB: a larger one ends the socket unparsed.
     let config = tungstenite::protocol::WebSocketConfig::default()
@@ -689,10 +704,12 @@ async fn connect(url: &str, share_id: &str, token: &str, timeout: Duration) -> R
     let connect = tokio_tungstenite::connect_async_with_config(request, Some(config), false);
     match tokio::time::timeout(timeout, connect).await {
         Ok(Ok((socket, _))) => Ok(socket),
-        Ok(Err(tungstenite::Error::Http(reply))) => {
-            Err(matches!(reply.status().as_u16(), 401 | 403 | 404 | 410))
-        }
-        _ => Err(false),
+        Ok(Err(tungstenite::Error::Http(reply))) => Err(match reply.status().as_u16() {
+            404 | 410 => Refused::Gone,
+            401 | 403 => Refused::ForGood,
+            _ => Refused::Retry,
+        }),
+        _ => Err(Refused::Retry),
     }
 }
 
@@ -724,6 +741,14 @@ async fn session(
                     }
                     // 4000 replaced, 4001 ended, 4003 refused.
                     return (!matches!(code, Some(4000 | 4001 | 4003))).then_some(ready);
+                }
+                // Answered at once: tungstenite only queues the pong until the next write, and
+                // an idle host socket writes nothing else.
+                Some(Ok(Message::Ping(payload))) => {
+                    if sink.send(Message::Pong(payload)).await.is_err() {
+                        return Some(ready);
+                    }
+                    continue;
                 }
                 Some(Ok(_)) => continue,
                 None | Some(Err(_)) => return Some(ready),

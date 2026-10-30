@@ -25,6 +25,8 @@ enum Seen {
     Request { method: String, path: String, bearer: String, body: Value },
     Host { conn: u64, bearer: String },
     Frame { conn: u64, frame: Value },
+    /// A host socket upgrade the room refused with `status`.
+    Refused { status: u16 },
 }
 
 #[derive(Default)]
@@ -47,6 +49,8 @@ struct Shared {
     conns: AtomicU64,
     /// The newest host socket's outbox: a frame, or `None` to close it.
     to_host: Mutex<Option<Sender<Option<Value>>>>,
+    /// The status every host socket upgrade answers instead of opening, while set.
+    refuse_host: Mutex<Option<u16>>,
 }
 
 struct FakeRoom {
@@ -249,6 +253,19 @@ fn serve(stream: TcpStream, shared: &Shared, seen: &Sender<Seen>, base: &str) {
 // tungstenite's handshake callback type fixes its large error variant.
 #[allow(clippy::result_large_err)]
 fn serve_host(stream: TcpStream, shared: &Shared, seen: &Sender<Seen>) {
+    if let Some(status) = *shared.refuse_host.lock().unwrap() {
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        loop {
+            let mut line = String::new();
+            if reader.read_line(&mut line).unwrap_or(0) == 0 || line.trim().is_empty() {
+                break;
+            }
+        }
+        let mut stream = stream;
+        let _ = write!(stream, "HTTP/1.1 {status} Gone\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+        let _ = seen.send(Seen::Refused { status });
+        return;
+    }
     let mut bearer = String::new();
     let callback = |request: &Request, response: Response| -> Result<Response, ErrorResponse> {
         let header = request.headers().get("authorization").and_then(|v| v.to_str().ok());
@@ -270,6 +287,11 @@ fn serve_host(stream: TcpStream, shared: &Shared, seen: &Sender<Seen>) {
                 let _ = socket.flush();
                 return;
             };
+            // `{"ping": text}` pings, as a room or a load balancer does.
+            if let Some(text) = frame["ping"].as_str() {
+                let _ = socket.send(Message::Ping(text.as_bytes().to_vec().into()));
+                continue;
+            }
             // `{"close": code}` closes the socket with that code, as the room does.
             if let Some(code) = frame["close"].as_u64() {
                 let code = tungstenite::protocol::frame::coding::CloseCode::from(code as u16);
@@ -286,6 +308,10 @@ fn serve_host(stream: TcpStream, shared: &Shared, seen: &Sender<Seen>) {
             Ok(Message::Text(text)) => {
                 let frame = serde_json::from_str(text.as_str()).unwrap();
                 let _ = seen.send(Seen::Frame { conn, frame });
+            }
+            Ok(Message::Pong(payload)) => {
+                let pong = String::from_utf8_lossy(&payload).into_owned();
+                let _ = seen.send(Seen::Frame { conn, frame: json!({"pong": pong}) });
             }
             Ok(Message::Close(_)) => return,
             Ok(_) => {}
@@ -1088,4 +1114,58 @@ fn a_whole_chat_list_closes_the_shares_of_chats_it_left_out() {
     assert_eq!(room.frame(conn), json!({"v": 1, "t": "end", "reason": "closed"}));
     room.request("DELETE");
     assert_eq!(state(&mut owner)["state"], "closed");
+}
+
+#[test]
+fn the_host_socket_answers_a_ping() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, _mux, surface, mut owner) = bridged("room-ping", &room);
+    create(&mut owner, surface);
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    room.send(json!({"ping": "keepalive"}));
+    assert_eq!(room.frame(conn), json!({"pong": "keepalive"}));
+}
+
+#[test]
+fn a_share_the_room_no_longer_has_ends_here() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, _mux, surface, mut owner) = bridged("room-gone", &room);
+    create(&mut owner, surface);
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    *room.shared.refuse_host.lock().unwrap() = Some(404);
+    room.drop_host();
+    room.take("a refused upgrade", |s| matches!(s, Seen::Refused { status: 404 }));
+    let deadline = Instant::now() + WAIT;
+    while state(&mut owner)["state"] != "revoked" {
+        assert!(Instant::now() < deadline, "a share its room no longer has ends here");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    room.none("a DELETE of a room already gone", |s| {
+        matches!(s, Seen::Request { method, .. } if method == "DELETE")
+    });
+}
+
+#[test]
+fn a_room_end_stands_when_its_write_fails() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, mux, surface, mut owner) = bridged("room-ended-unsaved", &room);
+    let share = create(&mut owner, surface)["data"].clone();
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    shares_of(&mux).refuse_writes.store(true, Ordering::Relaxed);
+    room.send(json!({"close": 4001}));
+    let deadline = Instant::now() + WAIT;
+    loop {
+        let redeem = owner.request(json!({"cmd":"agent-session-share-redeem",
+            "share_id":share["share_id"], "secret":share["secret"], "name":"Late",
+            "attempt_id":"attempt-late"}));
+        if redeem["error_code"] == "share.revoked" {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the room's end stands unwritten: {redeem}");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    shares_of(&mux).refuse_writes.store(false, Ordering::Relaxed);
 }

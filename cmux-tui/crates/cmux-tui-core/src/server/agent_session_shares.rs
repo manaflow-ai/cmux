@@ -538,24 +538,46 @@ impl LinkShares {
 
     /// Closes every open share whose chat `gone` names, as [`Self::close_chat`] does.
     fn close_where(&self, directory: Option<&Path>, gone: impl Fn(&str) -> bool) {
+        self.end_where(directory, |s| gone(&s.session), |share| {
+            share.state = ShareState::Closed;
+            if share.room.is_some() && !share.pending_room_ops.iter().any(|o| o["op"] == "delete")
+            {
+                share.pending_room_ops.push(json!({"op": "delete"}));
+            }
+        });
+    }
+
+    /// The room ended `share_id` (it closed the host socket with 4001, or refused its upgrade as
+    /// gone): a share still open here is revoked, with no room `DELETE` (the room is gone) and no
+    /// kick left to send.
+    pub(super) fn ended_by_room(&self, directory: Option<&Path>, share_id: &str) {
+        self.end_where(directory, |s| s.share_id == share_id, |share| {
+            share.state = ShareState::Revoked;
+            share.pending_room_ops.retain(|o| o["op"] != "kick" && o["op"] != "delete");
+        });
+    }
+
+    /// Ends every open share `which` picks with `end`. The end stands even when it cannot be
+    /// written: no guest reaches the share from now on, and the write is retried.
+    fn end_where(
+        &self,
+        directory: Option<&Path>,
+        which: impl Fn(&LinkShare) -> bool,
+        end: impl Fn(&mut LinkShare),
+    ) {
         let mut slot = self.shares.lock().unwrap_or_else(|e| e.into_inner());
         let shares = slot.get_or_insert_with(|| load(directory));
         let start = shares.clone();
         let mut changed = false;
-        for share in shares.iter_mut().filter(|s| gone(&s.session)) {
+        for share in shares.iter_mut().filter(|s| which(s)) {
             if matches!(share.state, ShareState::Active | ShareState::Provisioning) {
-                share.state = ShareState::Closed;
-                if share.room.is_some()
-                    && !share.pending_room_ops.iter().any(|o| o["op"] == "delete")
-                {
-                    share.pending_room_ops.push(json!({"op": "delete"}));
-                }
+                end(share);
                 changed = true;
             }
         }
         self.note_ended(&start, shares);
         if changed && let Some(Err(error)) = self.save(directory, shares) {
-            eprintln!("cmux-tui: closed link shares not written, retrying: {error}");
+            eprintln!("cmux-tui: ended link shares not written, retrying: {error}");
             drop(slot);
             self.save_later(Duration::from_secs(1));
         }
