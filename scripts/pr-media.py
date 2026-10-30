@@ -584,8 +584,13 @@ class MediaBranch:
         return {"GIT_AUTHOR_NAME": name, "GIT_AUTHOR_EMAIL": email,
                 "GIT_COMMITTER_NAME": name, "GIT_COMMITTER_EMAIL": email}
 
-    def put(self, files: dict[str, Path], message: str) -> str:
-        """Write FILES (path on the branch -> local file) as one commit on the branch; return the commit."""
+    def put(self, files: dict[str, Path], message: str, expect: dict[str, str | None] | None = None) -> str:
+        """Write FILES (path on the branch -> local file) as one commit on the branch; return the commit.
+
+        EXPECT (path -> the blob the caller saw there, None for absent) makes the write a compare-and-swap:
+        every tip it builds on, the first and each one fetched after a lost race, must still hold exactly
+        that, or nothing is written. Without it a run that saw a path free would silently replace a file
+        another uploader put there between its check and its push."""
         for path in files:
             safe_remote_path(path)
         with self.locked():
@@ -594,6 +599,11 @@ class MediaBranch:
                      for path, local in files.items()}
             for attempt in range(1, PUSH_ATTEMPTS + 1):
                 tip = self.fetch()
+                moved = sorted(path for path, seen in (expect or {}).items() if self.blob_sha(path) != seen)
+                if moved:
+                    raise MediaError(f"{', '.join(moved)} changed on {self.branch} while this run was uploading "
+                                     "(another upload got there first); nothing was written. Check what is "
+                                     "there now, then rename the file or pass --force to replace it.")
                 tree = self.tree_with(f"{tip}^{{tree}}", blobs)
                 env = {**git_env(), **self.identity()}
                 commit = subprocess.run(["git", "-C", str(self.dir), "commit-tree", tree, "-p", tip, "-m", message],
@@ -630,16 +640,16 @@ def existing_sha(repo: str, branch: str, path: str, store: MediaBranch | None = 
 
 
 def put_files(repo: str, branch: str, files: dict[str, Path], message: str, checked: bool = False,
-              store: MediaBranch | None = None) -> str:
+              store: MediaBranch | None = None, expect: dict[str, str | None] | None = None) -> str:
     """Write FILES (path on the branch -> local file) to the branch in one commit.
 
     Every file goes through the privacy check first unless the caller already checked them (`checked=True`,
     as main() does for its whole batch). A refusal raises PrivacyError before anything is written and is
     never retried. A push that lost a race to another uploader is built again on the new tip and retried a
-    bounded number of times."""
+    bounded number of times. EXPECT makes it a compare-and-swap (MediaBranch.put)."""
     if not checked:
         check_privacy(list(files.items()), repo)
-    return (store or media_branch(repo, branch)).put(files, message)
+    return (store or media_branch(repo, branch)).put(files, message, expect=expect)
 
 
 def put_file(repo: str, branch: str, path: str, local: Path, message: str,
@@ -773,8 +783,11 @@ def main(argv: list[str] | None = None, runner=None) -> int:
                 print(f"replacing {target} (blob {sha})")
             # One commit for the whole batch: every file lands, or none does.
             names = ", ".join(upload.name for upload, _ in ready)
-            put_files(args.repo, args.branch, {remote_path(args.pr, upload.name): path for upload, path in ready},
-                      f"PR {args.pr} media {names}", checked=True)
+            targets = {remote_path(args.pr, upload.name): path for upload, path in ready}
+            # Without --force every target must still be free when the commit is built (and rebuilt after a
+            # lost race), not only when it was checked above; --force replaces whatever is there then.
+            put_files(args.repo, args.branch, targets, f"PR {args.pr} media {names}", checked=True,
+                      expect=None if args.force else dict.fromkeys(targets))
             for upload, _ in ready:
                 print(f"uploaded {remote_path(args.pr, upload.name)}")
 

@@ -515,6 +515,61 @@ class UploadTests(unittest.TestCase):
         self.assertEqual((files["7/mine.png"], files["7/theirs.png"]), (PNG, b"theirs"))
         self.assertEqual(slept.call_count, 1)
 
+    def test_a_path_taken_after_the_check_is_never_replaced_without_force(self):
+        # Review of #28265: a run that saw 7/shot.png free, then lost the path to another uploader before its
+        # push, must not silently replace that upload. The check holds on the tip the commit is built on.
+        origin = Origin(self)
+        with tempfile.TemporaryDirectory() as scratch:
+            shot = written(scratch, "shot.png", PNG)
+            real_put = MODULE.MediaBranch.put
+
+            def put(store, files, message, expect=None):
+                origin.write({"7/shot.png": b"theirs"})  # lands after main() checked, before the commit
+                return real_put(store, files, message, expect=expect)
+
+            with mock.patch.object(MODULE.MediaBranch, "put", put), \
+                    contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as err:
+                code = MODULE.main(["--pr", "7", str(shot)], runner=FakeGh())
+        self.assertEqual(code, 1)
+        self.assertIn("7/shot.png changed on pr-media", err.getvalue())
+        self.assertEqual(origin.files()["7/shot.png"], b"theirs")
+
+    def test_a_path_taken_during_a_lost_race_is_caught_on_the_rebuilt_tip(self):
+        origin = Origin(self)
+        real_fetch = MODULE.MediaBranch.fetch
+        fetches = []
+
+        def fetch(store):
+            tip = real_fetch(store)
+            fetches.append(tip)
+            if len(fetches) == 1:
+                origin.write({"7/shot.png": b"theirs"})  # the first push now loses, and the path is taken
+            return tip
+
+        with tempfile.TemporaryDirectory() as scratch, mock.patch.object(MODULE.MediaBranch, "fetch", fetch), \
+                mock.patch.object(MODULE.time, "sleep"), self.assertRaises(MODULE.MediaError) as raised:
+            MODULE.put_files("o/r", "pr-media", {"7/shot.png": written(scratch, "shot.png", PNG)}, "m",
+                             checked=True, expect={"7/shot.png": None})
+        self.assertIn("changed on pr-media", str(raised.exception))
+        self.assertEqual(len(fetches), 2)
+        self.assertEqual(origin.files()["7/shot.png"], b"theirs")
+
+    def test_force_replaces_whatever_is_there_when_the_commit_is_built(self):
+        origin = Origin(self, existing=["7/shot.png"])
+        with tempfile.TemporaryDirectory() as scratch:
+            shot = written(scratch, "shot.png", PNG)
+            real_put = MODULE.MediaBranch.put
+
+            def put(store, files, message, expect=None):
+                self.assertIsNone(expect)
+                origin.write({"7/shot.png": b"newer theirs"})
+                return real_put(store, files, message, expect=expect)
+
+            with mock.patch.object(MODULE.MediaBranch, "put", put), contextlib.redirect_stdout(io.StringIO()):
+                code = MODULE.main(["--pr", "7", "--force", str(shot)], runner=FakeGh())
+        self.assertEqual(code, 0)
+        self.assertEqual(origin.files()["7/shot.png"], PNG)
+
     def test_a_refused_push_fails_with_what_the_remote_said_and_is_not_retried(self):
         origin = Origin(self)
         origin.hook("echo 'protected branch: no pushes here' >&2\nexit 1\n")

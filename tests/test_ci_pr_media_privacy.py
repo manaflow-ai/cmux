@@ -519,7 +519,7 @@ class FeatWriterCase(unittest.TestCase):
 
         # The branch write itself (a git commit and push, tests/test_pr_media.py covers it) is recorded here
         # instead: these tests are about what reaches it.
-        def put(store, files, message):
+        def put(store, files, message, expect=None):
             self.puts.extend(files)
             return "0" * 40
 
