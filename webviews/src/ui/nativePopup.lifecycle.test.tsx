@@ -36,11 +36,14 @@ function harness() {
   const updates: NativePopupModel[] = [];
   const dismissed: (string | undefined)[] = [];
   const events: NativePopupEvent[] = [];
+  const hides: Record<string, unknown>[] = [];
+  const anchor = { present: true };
   const host = createPopupHost(
     (call, params) => {
       if (call === "show")
         return new Promise((resolve) => shows.push({ model: params as unknown as NativePopupModel, resolve }));
       if (call === "update") updates.push(params as unknown as NativePopupModel);
+      if (call === "hide") hides.push(params);
       return Promise.resolve({});
     },
     (listener) => {
@@ -54,7 +57,8 @@ function harness() {
     useNativePopup({
       open,
       model: { title, side: "bottom", align: "start", width: 240, rows: [], ...model },
-      anchor: () => ({ getBoundingClientRect: () => ({ left: 0, top: 0, right: 20, bottom: 20 }) }),
+      anchor: () =>
+        anchor.present ? { getBoundingClientRect: () => ({ left: 0, top: 0, right: 20, bottom: 20 }) } : null,
       onEvent: (event) => events.push(event),
       onDismiss: (reason) => dismissed.push(reason),
     });
@@ -72,7 +76,7 @@ function harness() {
     act(() => {
       listeners.forEach((listener) => listener(event as unknown as PopupEvent));
     });
-  return { render, receive, shows, updates, dismissed, events };
+  return { render, receive, shows, updates, dismissed, events, hides, anchor };
 }
 
 test("a current opening dismissal survives a descriptor update but an old opening does not", () => {
@@ -87,6 +91,17 @@ test("a current opening dismissal survives a descriptor update but an old openin
   h.render(true);
   h.receive({ type: "dismiss", popupId: first.id, revision: first.revision, reason: "outside" });
   expect(h.dismissed).toEqual(["escape"]);
+});
+
+test("a shown popup hides when its anchor goes away", () => {
+  const h = harness();
+  h.render(true);
+  const first = h.shows[0]!.model;
+  h.anchor.present = false;
+  h.render(true, "Anchor gone");
+  expect(h.hides).toEqual([{ schemaVersion: 1, id: first.id, revision: first.revision }]);
+  expect(h.dismissed).toEqual(["anchor-gone"]);
+  expect(h.updates).toHaveLength(0);
 });
 
 test("an opening refusal survives descriptor changes", async () => {
