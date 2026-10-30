@@ -329,9 +329,8 @@ class PublishedInTests(unittest.TestCase):
                 comments.pop()
         with patch.object(module, "status_api", api), patch.object(module.time, "sleep"):
             self.assertEqual(module.publish("o/r", 7, line, comments, 0), "written")
-        self.assertEqual(calls[1][0], "DELETE")
-        self.assertNotIn("POST", [method for method, _, _ in calls])
-        self.assertNotIn("PATCH", [method for method, _, _ in calls])
+        self.assertEqual([method for method, _, _ in calls if method != "GET"], ["DELETE"])
+        self.assertEqual(len(comments), 1)
 
     def test_settle_preserves_prior_build_after_stale_writer(self):
         old = module.build_line("v1", "https://x/v1", "a" * 40)

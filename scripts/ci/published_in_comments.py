@@ -120,15 +120,28 @@ def publish(repo: str, number: int, line: str, comments: list[dict], pause: floa
                                          for key, value in old_sections.items()
                                          if key != SECTION)
                 if publication_lost or other_section_lost:
-                    return legacy_publish(repo, number, line, snapshot, pause, text)
+                    fallback = legacy_publish(repo, number, line, snapshot, pause, text)
+                    return did if fallback == "unchanged" else fallback
             # plan() puts the shared edit before legacy deletions. Finish the
             # migration in this run; a future release would need another edit
             # and could otherwise leave the old comment behind indefinitely.
             # Pace each deletion too, so cleanup stays under the write limit.
             for method, path, payload in writes:
+                if method == "DELETE":
+                    # A different publisher may append to a legacy comment
+                    # during the paced pause. Merge its history before cleanup,
+                    # or keep the legacy fallback if the new history cannot fit.
+                    fresh = pr_status.list_comments(status_api, repo, number)
+                    latest = publication_text(fresh, line, text)
+                    pending = pr_status.plan(repo, number, fresh, SECTION, latest, legacy=MARKER)
+                    if latest != text or any(m != "DELETE" for m, _, _ in pending):
+                        text = latest
+                        break
+                    if not any(m == "DELETE" and p == path for m, p, _ in pending):
+                        continue
                 status_api(method, path, payload)
                 time.sleep(pause)
-            did = "written"
+                did = "written"
         else:
             # A status comment can already be at GitHub's size cap. In that
             # case render() may trim the newly appended line and produce the
@@ -136,7 +149,8 @@ def publish(repo: str, number: int, line: str, comments: list[dict], pause: floa
             # reports no write even though this publication was lost. Keep a
             # standalone legacy comment as the lossless overflow path.
             if not has_publication_line(snapshot, line):
-                return legacy_publish(repo, number, line, snapshot, pause, text)
+                fallback = legacy_publish(repo, number, line, snapshot, pause, text)
+                return did if fallback == "unchanged" else fallback
             return did
     return did + " (unconfirmed: another writer kept replacing the comment)"
 
