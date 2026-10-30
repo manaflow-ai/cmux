@@ -114,6 +114,55 @@ struct OwnerRestartWaitsForChatTests {
         await BranchDaemonHarness.shutDown(owner)
     }
 
+    /// The update handoff of a Chief owner an update replaced (`ChiefConversationOwner.restartIfReplaced`)
+    /// goes through the same idle wait: under an open `cmux chief` chat it waits, and it hands off
+    /// to the bundled build once the chat detaches.
+    @Test func theUpdateHandoffWaitsWhileACLIChatIsAttachedAndRunsAfterItDetaches() async throws {
+        let binary = try #require(RealBinary.url)
+        let id = UUID().uuidString.prefix(8).lowercased()
+        let root = URL(fileURLWithPath: "/tmp/cnd-upd-\(id)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let base = ProcessInfo.processInfo.environment
+        let environment = LoginEnvironment.shared.daemonEnvironment(login: nil, base: base, overrides: [:])
+        // `binaryIsBundled`: an update handoff is refused for an external binary.
+        let launcher = DaemonLauncher(
+            configuration: .init(binary: binary, session: "cnd-upd-\(id)", stateDirectory: root.appendingPathComponent("state"),
+                                 binaryIsBundled: true),
+            environment: { environment })
+        let owner = DaemonConnection(endpointProvider: launcher.endpointProvider)
+        var chat: DaemonConnection?
+        do {
+            _ = try await launcher.ensure()
+            let old = try await owner.start()
+            let endpoint = try #require(await owner.endpoint)
+            let chatConnection = DaemonConnection(endpoint: endpoint, configuration: .init(clientName: "cmux chief"))
+            chat = chatConnection
+            _ = try await chatConnection.start()
+            _ = try await chatConnection.resourceRequest({ id in
+                ResourceRequestEnvelope(id: id, operation: "client.metadata.update",
+                                        params: ["client": .string("current"), "name": .string("cmux chief"),
+                                                 "kind": .string("chief-chat")])
+            }, as: JSONValue.self)
+
+            let restart = IdleOwnerRestart(probe: OwnerIdleProbe(owner)) {
+                await launcher.handOffForUpdate(identity: old, using: owner)
+            }
+            #expect(await restart.attempt() == .waiting)
+            #expect(await owner.identity?.pid == old.pid, "the owner was handed off under an open chat")
+
+            await chatConnection.close()
+            chat = nil
+            let outcome = try await Self.firstOutcome(of: restart, on: owner, timeout: Self.restartTimeout)
+            #expect(outcome == .started)
+            try await Self.expectNewOwner(after: old, on: owner)
+        } catch {
+            await chat?.close()
+            await BranchDaemonHarness.shutDown(owner)
+            throw error
+        }
+        await BranchDaemonHarness.shutDown(owner)
+    }
+
     /// The owner is a new process on the same session state: the connection reconnected to it.
     private static func expectNewOwner(after old: DaemonIdentity, on owner: DaemonConnection) async throws {
         let deadline = ContinuousClock.now + .seconds(60)
