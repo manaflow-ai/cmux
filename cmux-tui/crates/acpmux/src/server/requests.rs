@@ -1989,8 +1989,17 @@ async fn dispatch_request(
             // Only its sender takes a prompt back (`author.rs`), checked as it leaves.
             let author = crate::author::author(&params)?;
             let editor = crate::author::editor(author.as_ref());
-            let removed = hub.withdraw_queued(&s, prompt_id, editor)?;
-            Ok(json!({"sessionId": s.id, "promptId": prompt_id, "removed": removed}))
+            // `acpmux session queue clear --from-agents`: only while it is another agent's
+            // message, checked as it leaves, so an edit meanwhile keeps the person's prompt.
+            let agents_only = params.get("fromAgentsOnly").and_then(Value::as_bool) == Some(true);
+            let w = hub.withdraw_queued(&s, prompt_id, editor, agents_only)?;
+            let mut reply = json!({"sessionId": s.id, "promptId": prompt_id,
+                "removed": w == crate::hub::Withdrawn::Removed});
+            if agents_only {
+                reply["fromAgentsOnly"] = json!(true);
+                reply["notFromAgent"] = json!(w == crate::hub::Withdrawn::NotFromAgent);
+            }
+            Ok(reply)
         }
         method::MUX_SEND_QUEUE | method::MUX_SEND_STATUS => {
             super::outbox::handle(hub, conn, m, &params).await

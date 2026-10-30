@@ -77,6 +77,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .processTerminal: "processTerminal"
         case .newChatHere: "newChatHere"
         case .checkpointAvailability: "checkpointAvailability"
+        case .commandAvailability: "commandAvailability"
         case .painted(let fromKeptTail): fromKeptTail ? "painted(keptTail)" : "painted"
         case .dictation: "dictation"
         case .openFile: "openFile"
