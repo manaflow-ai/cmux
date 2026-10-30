@@ -1599,9 +1599,6 @@ impl Hub {
             self.touch(session);
         }
         let appended = match kept {
-            log_deferral::Kept::Refused => {
-                Err(anyhow::anyhow!("a record it makes due was refused"))
-            }
             // A fenced record keeps its receipt.
             log_deferral::Kept::Stub(msg) if !fenced => self.store.append(
                 &session.id,

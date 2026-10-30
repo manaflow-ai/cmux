@@ -195,7 +195,9 @@ impl Deferral {
     }
 
     /// Records [`Deferral::keep`] or [`Deferral::take_all`] gave to be stored that the store
-    /// refused, in order: they are stored first, before whatever comes next.
+    /// refused, in order: they are stored first at the next record, after the one that made them
+    /// due (stored as it would be). That order keeps every call's fold: the record made them due
+    /// by ending their call with no content, or by not being the agent's stream.
     pub fn retry(&mut self, refused: Vec<(&'static str, Value)>) {
         let mut later = std::mem::replace(&mut self.retry, refused);
         self.retry.append(&mut later);
