@@ -148,7 +148,13 @@ extension HomeFirstRunView {
         for row in [agent, terminal, memory, pet] {
             row.applyColors(text: colors.primary, quiet: colors.tertiary, fill: colors.fill, hover: colors.hover, border: colors.border)
         }
-        variantFrame.layer?.backgroundColor = colors.fill.cgColor
+        // One background for the whole Home screen (the user, 2026-10-30): rows, the Switching card and
+        // the framed card draw no fill of their own, only a hairline over the shared background.
+        for row in [agent, terminal, memory, pet] {
+            row.applyColors(text: colors.primary, quiet: colors.tertiary, fill: .clear, hover: colors.hover, border: colors.border)
+        }
+        switchCard.applyColors(primary: colors.primary, tertiary: colors.tertiary, fill: .clear, border: colors.border)
+        variantFrame.layer?.backgroundColor = NSColor.clear.cgColor
         variantFrame.layer?.borderColor = colors.border.cgColor
         if variant.introBlue {
             // The sent-message blue Messages uses, white text: Chief's first line reads as a chat bubble.
@@ -166,12 +172,48 @@ extension HomeNativeTranscriptView {
     /// DEBUG: shows the first-run panel as variation `number` (1...16; anything else: the shipping
     /// panel) and returns its caption (nil for the shipping panel).
     @discardableResult public func debugSetFirstRunVariant(_ number: Int) -> String? {
-        firstRun.variant = HomeFirstRunVariant.numbered(number)
+        let variant = HomeFirstRunVariant.numbered(number)
+        firstRun.variant = variant
+        if let window {
+            let background = (variant?.background ?? .shipping).color(dark: effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
+            debugUnifyBackground(window, background)
+        }
         // The gallery shows the panel even where the capture Mac's Chief conversation is not the shown one.
         firstRun.isHidden = false
         firstRun.needsLayout = true
         needsLayout = true
-        return firstRun.variant?.caption
+        guard let variant else { return nil }
+        return "\(variant.caption). Background: \(variant.background.name)"
     }
+}
+
+/// DEBUG: paints `color` as the one background of the whole window (title bar, sidebar, chat,
+/// compose band): the window and its content view take it, and every panel-sized layer fill,
+/// vibrancy view and glass band under them is cleared or hidden. Small controls (the field,
+/// search and filter capsules, bubbles, buttons) keep their own look. Nil puts nothing back:
+/// the gallery relaunches the app between runs.
+@MainActor private func debugUnifyBackground(_ window: NSWindow, _ color: NSColor?) {
+    guard let color, let content = window.contentView else { return }
+    window.backgroundColor = color
+    window.titlebarAppearsTransparent = true
+    content.wantsLayer = true
+    content.layer?.backgroundColor = color.cgColor
+    let wide = content.bounds.width * 0.2
+    func walk(_ view: NSView) {
+        for child in view.subviews {
+            let big = child.bounds.width >= wide
+            if big, child is NSVisualEffectView || child is GlassPanelView, child.bounds.height >= 24 {
+                child.isHidden = true
+                continue
+            }
+            if big, child.bounds.height >= 44, let fill = child.layer?.backgroundColor, fill.alpha > 0 {
+                child.layer?.backgroundColor = NSColor.clear.cgColor
+            }
+            walk(child)
+        }
+    }
+    walk(content)
+    // The title bar's own views sit beside the content view, under the frame view.
+    if let frame = content.superview { for sibling in frame.subviews where sibling !== content { walk(sibling) } }
 }
 #endif

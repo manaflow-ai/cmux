@@ -12,6 +12,27 @@ public struct HomeFirstRunVariant: Sendable {
     public enum RowStyle: Sendable { case card, plain, pill, tall }
     public enum Vertical: Sendable { case center, top, bottom }
 
+    /// The one background the whole Home screen shares in this variant (title bar, sidebar, chat,
+    /// compose band, team list): a light and a dark colour and the name the caption gives it.
+    public struct Background: Sendable {
+        public var name: String
+        var light: UInt32
+        var dark: UInt32
+        /// nil: the shipping look (no override).
+        func color(dark isDark: Bool) -> NSColor? {
+            guard name != Self.shipping.name else { return nil }
+            let hex = isDark ? dark : light
+            return NSColor(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255,
+                           blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
+        }
+        static let shipping = Background(name: "shipping (no override)", light: 0, dark: 0)
+        static let paper = Background(name: "Paper white #FFFFFF / Ink #1C1C1E", light: 0xFFFFFF, dark: 0x1C1C1E)
+        static let messages = Background(name: "Messages gray #F5F5F7 / #232325", light: 0xF5F5F7, dark: 0x232325)
+        static let warm = Background(name: "Warm paper #FAF8F4 / #1D1B18", light: 0xFAF8F4, dark: 0x1D1B18)
+        static let mist = Background(name: "Blue mist #F3F6FB / Night blue #161A22", light: 0xF3F6FB, dark: 0x161A22)
+        static let graphite = Background(name: "Graphite #ECECEE / True black #000000", light: 0xECECEE, dark: 0x000000)
+    }
+
     public var number: Int
     public var caption: String
     var parts: [Part]
@@ -41,10 +62,18 @@ public struct HomeFirstRunVariant: Sendable {
     var tileHeight: CGFloat = 84
     /// The whole panel sits on a raised card.
     var framed = false
+    var background: Background = .paper
 
     // swiftlint:disable line_length
     /// The gallery's variations, V1 to V16 (V0 is the shipping panel, nil).
-    public static let all: [HomeFirstRunVariant] = [
+    public static let all: [HomeFirstRunVariant] = designs.map { design in
+        var variant = design
+        let cycle: [Background] = [.paper, .messages, .warm, .mist, .graphite]
+        variant.background = cycle[(design.number - 1) % cycle.count]
+        return variant
+    }
+
+    private static let designs: [HomeFirstRunVariant] = [
         HomeFirstRunVariant(number: 1, caption: "Quiet: no hero, three plain suggestions just above the field", parts: [.starters], width: 520, leading: true, vertical: .bottom,
                             starters: ["Fix the failing test in my repo", "Start an agent on a new branch", "What can you do?"], starterLook: .plain),
         HomeFirstRunVariant(number: 2, caption: "iMessage thread: Chief's welcome as a blue bubble at the top, chips under it", parts: [.intro, .starters], width: 460, leading: true, vertical: .top,
@@ -69,7 +98,7 @@ public struct HomeFirstRunVariant: Sendable {
                             starters: ["Help me open a workspace", "Help me start an agent"]),
         HomeFirstRunVariant(number: 10, caption: "Keyboard first: \"Keys to know\" card leads, actions with shortcuts under it", parts: [.heading, .switchCard, .actions], width: 360,
                             heading: "Keys to know"),
-        HomeFirstRunVariant(number: 11, caption: "Framed card: the whole welcome on one raised card", parts: [.hero, .actions], width: 320, face: 56, framed: true),
+        HomeFirstRunVariant(number: 11, caption: "Framed: the whole welcome inside one hairline outline (no card fill)", parts: [.hero, .actions], width: 320, face: 56, framed: true),
         HomeFirstRunVariant(number: 12, caption: "Full welcome: intro bubble, hero, suggestions, actions, keys", parts: [.intro, .hero, .starters, .actions, .switchCard], width: 360, face: 56,
                             starters: ["Help me open a workspace", "Help me start an agent", "Help me choose my next task"]),
         HomeFirstRunVariant(number: 13, caption: "Memory first: bring what Claude Code and ChatGPT know, before anything else", parts: [.hero, .actions], width: 360, rowStyle: .tall, face: 56,
