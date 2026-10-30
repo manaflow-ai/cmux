@@ -354,7 +354,22 @@ export interface MemberApproverDecision {
   decisionNonce: string;
 }
 
+/** The sender and receiver projection of a persisted session-to-session message. */
+export type MessageEvent = {
+  at: number;
+  messageId: string;
+  sender: MessageSender;
+  sessionId: string;
+  text: string;
+} & Record<string, unknown>;
+
 export type MessageRole = "agent" | "user";
+
+export type MessageSender = {
+  host?: (string | null);
+  name: string;
+  sessionId: string;
+} & Record<string, unknown>;
 
 /**
  * One person in a chat. The hub never marks the caller's own entry: a connection may carry
@@ -898,7 +913,7 @@ export type SessionDetail = {
    * the tree from these links at any depth.
    */
   startedBy?: (string | null);
-  /** Effective liveness: `stuck` after three classified harness failures, else `status`. */
+  /** Effective liveness: `stopping` while a Stop waits for its turn to end, `stuck` after three classified harness failures, else `status`. */
   state?: string;
   stateSeq: number;
   /**
@@ -1103,7 +1118,7 @@ export type SessionSummary = {
    * the tree from these links at any depth.
    */
   startedBy?: (string | null);
-  /** Effective liveness: `stuck` after three classified harness failures, else `status`. */
+  /** Effective liveness: `stopping` while a Stop waits for its turn to end, `stuck` after three classified harness failures, else `status`. */
   state?: string;
   stateSeq: number;
   /**

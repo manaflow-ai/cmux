@@ -257,31 +257,10 @@ pub enum Command {
         #[arg(long, default_value = "leo")]
         audience: String,
     },
-    /// List sessions on every host.
-    #[command(alias = "list", alias = "list-sessions")]
-    Ls {
-        /// Include tool inventories in JSON rows (otherwise read `session info SESSION`).
-        #[arg(long)]
-        with_tools: bool,
-        /// Only sessions in this state: running, ready, idle, closed, waiting.
-        #[arg(long)]
-        status: Option<String>,
-        /// Only sessions with a pending permission request.
-        #[arg(long)]
-        pending: bool,
-        /// Only sessions carrying this tag (key or key=value).
-        #[arg(long)]
-        tag: Option<String>,
-        /// Return at most N sessions, newest first.
-        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..))]
-        limit: Option<u64>,
-        /// Select comma-separated fields from each session record.
-        #[arg(long, value_name = "FIELD[,FIELD…]")]
-        fields: Option<String>,
-        /// Only sessions updated within this duration (for example `24h` or `30m`).
-        #[arg(long, value_name = "DURATION")]
-        since: Option<String>,
-    },
+    /// List sessions on every host: by default only live, named lanes, one short line each;
+    /// `--json` with no filter is every session's full record.
+    #[command(alias = "list", alias = "list-sessions", after_help = crate::cli::ls_table::HELP)]
+    Ls(crate::cli::run::LsArgs),
     /// Open the TUI on a session, or on the session list.
     #[command(alias = "a")]
     Attach {
@@ -1339,6 +1318,11 @@ mod help_contract_tests {
         ),
         ("acpmux README", include_str!("../../README.md")),
         ("acpmux skill", include_str!("../../skills/acpmux/SKILL.md")),
+        ("docs/cli-sessions.md", include_str!("../../docs/cli-sessions.md")),
+        ("docs/cli-hosts.md", include_str!("../../docs/cli-hosts.md")),
+        ("docs/cli-harnesses.md", include_str!("../../docs/cli-harnesses.md")),
+        ("docs/cli-daemon.md", include_str!("../../docs/cli-daemon.md")),
+        ("docs/cli-work.md", include_str!("../../docs/cli-work.md")),
     ];
 
     fn shell_words(text: &str) -> Vec<String> {
