@@ -71,6 +71,7 @@ import { useNoEntryMotion } from "./noEntryMotion";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { AmbientWidgets } from "./AmbientWidgets";
 import type { NewTabWeather } from "./ambient";
+import { knownMachines, type Environment } from "../environments";
 import { EnvironmentCard, SuggestionsCard } from "./StageCards";
 import { Icon } from "../icons/Icon";
 import { type NewTabTranslate, useNt } from "./strings";
@@ -311,11 +312,22 @@ export function NewTabScreen(props: Props) {
   // A tab with no project of its own (none, the home folder or a private agent-home folder) and no
   // start folder from the host starts on the most recent project (Leo 2026-10-18), until a pick.
   const [picked, setPicked] = useState(false);
+  // The machine selected by the headline, or the machine attached to a project row. This uses
+  // the existing `onAsk(..., saved.peer)` route; no new host protocol is needed.
+  const [projectPeer, setProjectPeer] = useState<string | undefined>();
   // Do not work in a project (Leo 2026-10-18): no project, no start folder, until a folder pick.
-  const [none, setNone] = useState(false);
-  // Another machine acpmux lists, picked in the location row's machine list: the chat starts there
-  // (screenActions onAsk with its `peer`), in a folder on it once one is picked.
-  const [machine, setMachine] = useState<{ peer: string; folder?: string }>();
+  const [pickedNoProject, setNone] = useState(false);
+  // Saved SSH environments obey the same live-peer boundary as headline picks. Validate before
+  // deriving any folder or send target, including the render before cleanup effects run.
+  const saved = useSavedEnvironments(props.environments ? props.savedEnvironments : undefined);
+  const clearSavedPick = saved.pick;
+  const savedPeer = saved.picked?.kind === "ssh" ? saved.picked.host : undefined;
+  const savedPeerRemoved =
+    saved.picked?.kind === "ssh" && (savedPeer === undefined || !(snapshot.peers ?? []).includes(savedPeer));
+  const environment = savedPeerRemoved ? undefined : saved.picked;
+  const peerRemoved = !saved.picked && projectPeer !== undefined && !(snapshot.peers ?? []).includes(projectPeer);
+  // Suppress the removed machine's folder in this render, before effect cleanup runs.
+  const none = pickedNoProject || peerRemoved || savedPeerRemoved;
   const folderless = !props.cwd || props.cwd === home || isAgentHome(props.cwd);
   const startsRecent = !picked && folderless && !props.startCwd;
   const candidate = useMemo(
@@ -456,13 +468,10 @@ export function NewTabScreen(props: Props) {
     () => snapshot.catalog.map((entry) => ({ id: entry.id, name: entry.name })),
     [snapshot.catalog],
   );
-  // A saved environment the picker picked names where the chat starts (askInEnvironment).
-  const saved = useSavedEnvironments(props.environments ? props.savedEnvironments : undefined);
-  const environment = saved.picked;
   // WEB-SWAP: a reload also loses a pick the page keeps only in its state: shell mode, a folder or
   // no folder, a saved environment, one being edited (pages/shared/webSwap.ts).
   const editingEnvironment = saved.on && saved.editing !== undefined;
-  useWebSwapHold(shell || picked || none || environment || editingEnvironment || machine ? "newtab.choice" : null);
+  useWebSwapHold(shell || picked || none || environment || editingEnvironment || projectPeer ? "newtab.choice" : null);
   // A real pick names its folder; else the folder the chat really starts in (screenActions onAsk).
   const chatFolder = environment
     ? environment.kind === "local"
@@ -470,7 +479,7 @@ export function NewTabScreen(props: Props) {
       : undefined
     : none
       ? undefined
-      : project && project !== props.cwd
+      : project && (projectPeer !== undefined || project !== props.cwd)
         ? project
         : (props.startCwd ?? project ?? props.cwd);
   // The project chip names the folder a prompt starts in (screenActions onAsk): a real pick, else
@@ -480,14 +489,17 @@ export function NewTabScreen(props: Props) {
   // project (the handshake starts its chat there), so the first frame shows it.
   const askFolder = none
     ? undefined
-    : project && project !== props.cwd
+    : project && (projectPeer !== undefined || project !== props.cwd)
       ? project
       : (props.startCwd ?? (props.startPending && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
+  const localAskFolder = projectPeer === undefined ? askFolder : undefined;
   // The environment card checks the project the chat starts in: the chip's folder, else the tab's
   // own project (never the home ~ or a private agent-home folder it inherited).
   const envFolder = none
     ? undefined
-    : (askFolder ?? (props.cwd && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
+    : projectPeer !== undefined
+      ? undefined
+      : (askFolder ?? (props.cwd && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
   // A prompt's chat, in no project when that was the pick.
   // The images and files pasted or dropped on the page go with the first prompt.
   /// A Sandboxed send refused here (attachments, an agent a sandbox can't run): said over the box,
@@ -503,20 +515,12 @@ export function NewTabScreen(props: Props) {
       return started === true;
     }
     if (environment) return askInEnvironment(environment, agent, prompt, model);
-    if (machine)
-      return props.onAsk(
-        agent,
-        prompt,
-        machine.folder,
-        model,
-        undefined,
-        attachments.length ? attachments : undefined,
-        {
-          peer: machine.peer,
-        },
-      );
-    if (attachments.length > 0) return props.onAsk(agent, prompt, cwd, model, none || undefined, attachments);
-    return none ? props.onAsk(agent, prompt, cwd, model, true) : props.onAsk(agent, prompt, cwd, model);
+    const savedPeer = projectPeer && !peerRemoved ? { peer: projectPeer } : undefined;
+    if (attachments.length > 0)
+      return props.onAsk(agent, prompt, cwd, model, none || undefined, attachments, savedPeer);
+    return none
+      ? props.onAsk(agent, prompt, cwd, model, true, undefined, savedPeer)
+      : props.onAsk(agent, prompt, cwd, model, undefined, undefined, savedPeer);
   };
   // The agent Enter asks and the chip's model (newTabStart): the chip's pick, else the last pick.
   const remembered = useLastPick(chatFolder);
@@ -533,8 +537,10 @@ export function NewTabScreen(props: Props) {
     ? environment.kind === "ssh" && environment.host && snapshot.peers?.includes(environment.host)
       ? environment.host
       : undefined
-    : machine?.peer;
-  const remoteTarget = environment ? environment.kind === "ssh" : Boolean(machine?.peer);
+    : peerRemoved
+      ? undefined
+      : projectPeer;
+  const remoteTarget = environment ? environment.kind === "ssh" : Boolean(projectPeer && !peerRemoved);
   const authQuery =
     harness && (!remoteTarget || targetHost)
       ? { target: { harness, ...(targetHost ? { host: targetHost } : {}) } }
@@ -600,7 +606,11 @@ export function NewTabScreen(props: Props) {
             home,
             create: creates,
             ...(ask ? { ask } : {}),
-            createNames: { terminal: nt("create.terminal"), browser: nt("create.browser"), chat: nt("create.chat") },
+            createNames: {
+              terminal: nt("create.terminal"),
+              browser: nt("create.browser"),
+              chat: nt("create.chat"),
+            },
             ...(props.suggestionOrder ? { order: props.suggestionOrder } : {}),
           })
         : [],
@@ -616,6 +626,62 @@ export function NewTabScreen(props: Props) {
     setSelected(row ? rowKey(row) : NO_ROW);
   };
   const t = useT();
+  const headlineMachines = useMemo<Environment[]>(
+    () => [
+      { id: "local", label: props.machineName ?? t("composer.thisMac"), kind: "local" },
+      ...knownMachines(
+        snapshot.peers ?? [],
+        snapshot.sessions,
+        snapshot.peerKinds ?? {},
+        [],
+        snapshot.peerConnected ?? {},
+        snapshot.peerStates ?? {},
+      ).filter((machine) => (snapshot.peers ?? []).includes(machine.id)),
+    ],
+    [
+      props.machineName,
+      snapshot.peers,
+      snapshot.sessions,
+      snapshot.peerKinds,
+      snapshot.peerConnected,
+      snapshot.peerStates,
+      t,
+    ],
+  );
+  const [headlineMachineSelection, setHeadlineMachineSelection] = useState("local");
+  // A peer can disappear between snapshots. Keep the visible machine and the peer sent with a
+  // prompt bound to the same live row instead of showing a stale remote selection.
+  const headlineMachineTarget = environment
+    ? environment.kind === "ssh"
+      ? environment.host!
+      : "local"
+    : headlineMachineSelection;
+  const headlineMachineIsLive =
+    headlineMachineTarget === "local" || (snapshot.peers ?? []).includes(headlineMachineTarget);
+  const headlineMachine =
+    (headlineMachineIsLive ? headlineMachines.find((machine) => machine.id === headlineMachineTarget) : undefined) ??
+    headlineMachines[0]!;
+  const headlineMachineId = headlineMachine.id;
+  // The handshake may omit a display name on older hosts; the local row still has a stable
+  // localized label, and the headline picker must remain usable in that case.
+  const machineHeadlineEnabled = widgets.has("greeting");
+  const headlineProjects = useMemo(() => {
+    if (headlineMachineId === "local") return props.projects ?? [];
+    const byPath = new Map<string, Project>();
+    for (const session of snapshot.sessions) {
+      const peer = session.peer ?? (session.hostKind === "cloud" ? session.host : undefined);
+      if (peer !== headlineMachineId || !session.cwd || isAgentHome(session.cwd)) continue;
+      const key = `${peer}\u0000${session.cwd}`;
+      if (!byPath.has(key))
+        byPath.set(key, {
+          cwd: session.cwd,
+          label: projectLabel(session.cwd),
+          peer,
+          host: session.host ?? peer,
+        });
+    }
+    return [...byPath.values()];
+  }, [headlineMachineId, props.projects, snapshot.sessions]);
   const targetAuthText = authText(targetAuth, t);
   const chrome = useComposerChrome();
   // The chat composer's footer look (composerSettings.ts plainFooter): the New Tab row draws the
@@ -847,7 +913,7 @@ export function NewTabScreen(props: Props) {
     // agent here to warm; an address the person ends up typing releases it once cleared.
     props.onPromptTyped?.(
       shell ? "" : next,
-      environment || !askFolder || !harness ? undefined : { harness, cwd: askFolder },
+      environment || projectPeer || !askFolder || !harness ? undefined : { harness, cwd: askFolder },
     );
   };
   const submit = () => {
@@ -1132,37 +1198,66 @@ export function NewTabScreen(props: Props) {
   };
   // Each folder choice takes a number; a worktree reply applies only while its choice is the latest.
   const projectChoice = useRef(0);
-  const pickProject = (cwd?: string) => {
+  const pickProject = (cwd?: string, peer?: string) => {
     projectChoice.current += 1;
-    // A folder picked anywhere on the page (a widget card's project) replaces a saved environment,
-    // and is on this Mac.
+    // A folder pick replaces a saved environment and retains the project row's machine.
     saved.pick(undefined);
-    setMachine(undefined);
     touch();
     setPicked(true);
     setNone(cwd === undefined);
     setProject(cwd);
+    setProjectPeer(peer);
+    setHeadlineMachineSelection(peer ?? "local");
     field.current?.focus();
     // The folder menu hands focus back to its button as it closes: the field takes it after that,
     // so Return sends instead of reopening the menu.
     requestAnimationFrame(() => field.current?.focus());
   };
-  // A machine picked in the location row: the chat starts there, and the prompt takes the keyboard
-  // back, as after a folder pick (the picker returns no focus itself).
-  const pickMachine = (next?: { peer: string; folder?: string }) => {
-    // A newer choice than any worktree still on its way (`projectChoice`).
+  const pickHeadlineMachine = (id: string) => {
+    touch();
+    // Invalidate an outstanding folder/worktree result from the previous machine.
     projectChoice.current += 1;
     saved.pick(undefined);
+    setHeadlineMachineSelection(id);
+    // A machine pick changes the scope of the project suggestions. Keep the page in its
+    // no-project state until a project row is chosen, while routing a prompt to that machine.
+    setPicked(true);
+    setNone(true);
+    setProject(undefined);
+    setProjectPeer(id === "local" ? undefined : id);
+    field.current?.focus();
+  };
+  const pickHeadlineNoProject = () => {
     touch();
-    setMachine(next);
+    projectChoice.current += 1;
+    saved.pick(undefined);
+    setHeadlineMachineSelection(headlineMachineId);
+    setPicked(true);
+    setNone(true);
+    setProject(undefined);
+    setProjectPeer(headlineMachineId === "local" ? undefined : headlineMachineId);
     field.current?.focus();
     requestAnimationFrame(() => field.current?.focus());
   };
-  // This Mac's chats and the chats on acpmux's machines (their folders there): a Cloud chat's host
-  // that acpmux does not list is no place a chat can start from this page.
+  useEffect(() => {
+    if (headlineMachineIsLive && !peerRemoved && !savedPeerRemoved) return;
+    // A removed peer may still appear in historical sessions. Clear its folder and saved
+    // environment before the page falls back to this Mac, so the next send requires a fresh pick.
+    projectChoice.current += 1;
+    clearSavedPick(undefined);
+    setHeadlineMachineSelection("local");
+    setPicked(true);
+    setNone(true);
+    setProject(undefined);
+    setProjectPeer(undefined);
+  }, [headlineMachineIsLive, peerRemoved, savedPeerRemoved, clearSavedPick]);
   const startableSessions = useMemo(
-    () => snapshot.sessions.filter((session) => session.peer || session.hostKind !== "cloud"),
-    [snapshot.sessions],
+    () =>
+      snapshot.sessions.filter((session) => {
+        const peer = session.peer ?? (session.hostKind === "cloud" ? session.host : undefined);
+        return peer ? (snapshot.peers ?? []).includes(peer) : session.hostKind !== "cloud";
+      }),
+    [snapshot.sessions, snapshot.peers],
   );
   const [worktreeError, setWorktreeError] = useState<string>();
   // A saved environment's chat: on its machine, in its folder there, or on this computer in a new
@@ -1172,11 +1267,14 @@ export function NewTabScreen(props: Props) {
   function askInEnvironment(picked: SavedEnvironment, agent: string, prompt: string, model?: string) {
     const extra = attachments.length > 0 ? attachments : undefined;
     if (picked.kind === "ssh")
-      return props.onAsk(agent, prompt, picked.folder, model, undefined, extra, { peer: picked.host });
+      return props.onAsk(agent, prompt, picked.folder, model, undefined, extra, {
+        peer: picked.host,
+      });
     if (!picked.worktree || !picked.folder || !props.onNewWorktree)
       return props.onAsk(agent, prompt, picked.folder, model, undefined, extra, {});
     if (worktreePending.current) return;
     worktreePending.current = true;
+    const choice = projectChoice.current;
     setWorktreeError(undefined);
     // No chat started: the page's create buttons work again (startChat set `created`).
     const unstarted = () => {
@@ -1185,13 +1283,14 @@ export function NewTabScreen(props: Props) {
     };
     void props.onNewWorktree(picked.folder).then(
       (folder) => {
-        if (!folder) return unstarted();
+        if (!folder || choice !== projectChoice.current) return unstarted();
         worktreePending.current = false;
         props.onAsk(agent, prompt, folder, model, undefined, extra, {});
       },
       (error: unknown) => {
         unstarted();
-        setWorktreeError((error instanceof Error && error.message) || String(error));
+        if (choice === projectChoice.current)
+          setWorktreeError((error instanceof Error && error.message) || String(error));
       },
     );
   }
@@ -1211,13 +1310,15 @@ export function NewTabScreen(props: Props) {
           );
         }
       : undefined;
-  const browseProject = props.onBrowseProject
-    ? () => {
-        void props.onBrowseProject?.().then((cwd) => {
-          if (cwd) pickProject(cwd);
-        });
-      }
-    : undefined;
+  const browseProject =
+    props.onBrowseProject && headlineMachineId === "local"
+      ? () => {
+          const choice = ++projectChoice.current;
+          void props.onBrowseProject?.().then((cwd) => {
+            if (cwd && choice === projectChoice.current) pickProject(cwd);
+          });
+        }
+      : undefined;
   const Chips = props.chips;
   const chooser = useRef<HTMLInputElement>(null);
   /// The Cards template (u2851): the field is a pill of its own and the chips sit under it. The
@@ -1266,14 +1367,9 @@ export function NewTabScreen(props: Props) {
         summary={{
           ...chipSnapshot.summary,
           sessionId: chipSnapshot.summary?.sessionId ?? "",
-          ...(machine
-            ? { peer: machine.peer, cwd: machine.folder }
-            : askFolder
-              ? { cwd: askFolder }
-              : { cwd: undefined }),
+          ...(projectPeer && !peerRemoved ? { peer: projectPeer } : {}),
+          ...(askFolder ? { cwd: askFolder } : { cwd: undefined }),
         }}
-        // Every machine acpmux lists (`_acpmux/status`), as the chat composer lists them: a pick
-        // starts the chat there (screenActions onAsk with its `peer`).
         sessions={startableSessions}
         peers={snapshot.peers ?? []}
         {...(snapshot.peerKinds ? { peerKinds: snapshot.peerKinds } : {})}
@@ -1281,12 +1377,12 @@ export function NewTabScreen(props: Props) {
         {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
         {...(snapshot.peerResources ? { peerResources: snapshot.peerResources } : {})}
         {...(props.onRefreshMachines ? { onRefreshMachines: props.onRefreshMachines } : {})}
-        onComputer={(computer) => pickMachine(computer === "local" ? undefined : { peer: computer })}
+        onMachineScope={pickHeadlineMachine}
         {...(props.machineName ? { localName: props.machineName } : {})}
         projectChoices={props.projects ?? []}
-        onProject={(cwd, peer) => (peer ? pickMachine({ peer, folder: cwd }) : pickProject(cwd))}
-        onNoProject={() => pickProject(undefined)}
-        noProject={none}
+        onProject={(cwd, peer) => pickProject(cwd, peer)}
+        onNoProject={pickHeadlineNoProject}
+        noProject={none && !environment}
         {...(browseProject ? { onBrowseProject: browseProject } : {})}
         {...(props.environments ? { environments: true } : {})}
         {...(newWorktreeHere ? { onNewWorktree: newWorktreeHere } : {})}
@@ -1299,10 +1395,14 @@ export function NewTabScreen(props: Props) {
                 ...(environment ? { current: environment.id } : {}),
                 onPick: (id: string) => {
                   touch();
+                  projectChoice.current += 1;
                   saved.pick(id);
                   requestAnimationFrame(() => field.current?.focus());
                 },
-                onClear: () => saved.pick(undefined),
+                onClear: () => {
+                  projectChoice.current += 1;
+                  saved.pick(undefined);
+                },
                 onCreate: () => saved.edit(null),
                 onEdit: (id: string) => saved.edit(saved.list.find((other) => other.id === id)),
               },
@@ -1316,6 +1416,14 @@ export function NewTabScreen(props: Props) {
     () => (snapshot.peers ?? []).filter((peer) => snapshot.peerKinds?.[peer] === "ssh"),
     [snapshot.peers, snapshot.peerKinds],
   );
+  const saveEnvironment = async (draft: Parameters<typeof saved.save>[0]) => {
+    projectChoice.current += 1;
+    return saved.save(draft);
+  };
+  const removeEnvironment = (environment: Parameters<typeof saved.remove>[0]) => {
+    projectChoice.current += 1;
+    saved.remove(environment);
+  };
   const machineFolders = (machine: string) =>
     [
       ...new Set(
@@ -1326,7 +1434,7 @@ export function NewTabScreen(props: Props) {
     <SavedEnvironmentPanel
       key={saved.editing?.id ?? "new"}
       {...(saved.editing ? { environment: saved.editing } : {})}
-      initial={{ kind: "local", ...(askFolder ? { folder: askFolder } : {}) }}
+      initial={{ kind: "local", ...(localAskFolder ? { folder: localAskFolder } : {}) }}
       folders={(props.projects ?? [])
         .filter((choice) => !isAgentHome(choice.cwd))
         .map((choice) => ({ id: choice.cwd, label: choice.label }))}
@@ -1334,8 +1442,8 @@ export function NewTabScreen(props: Props) {
       machines={sshMachines}
       machineFolders={machineFolders}
       {...(props.onConnect ? { onConnectSSH: () => props.onConnect!("ssh") } : {})}
-      onSave={saved.save}
-      onRemove={saved.remove}
+      onSave={saveEnvironment}
+      onRemove={removeEnvironment}
       onClose={() => {
         saved.edit(undefined);
         requestAnimationFrame(() => field.current?.focus());
@@ -1385,7 +1493,7 @@ export function NewTabScreen(props: Props) {
         <WidgetCards
           sessions={snapshot.sessions}
           projects={props.projects ?? []}
-          {...(askFolder ? { folder: askFolder } : {})}
+          {...(localAskFolder ? { folder: localAskFolder } : {})}
           {...(props.cwd ? { inherited: props.cwd } : {})}
           attention={!allChats}
           {...(props.machineName ? { machineName: props.machineName } : {})}
@@ -1584,7 +1692,7 @@ export function NewTabScreen(props: Props) {
       <EnvironmentCard
         projects={props.projects ?? []}
         {...(envFolder ? { current: envFolder } : {})}
-        noProject={none}
+        noProject={none && !environment}
         {...(props.machineName ? { machineName: props.machineName } : {})}
         onPick={(cwd) => pickProject(cwd)}
         onNoProject={() => pickProject(undefined)}
@@ -1623,11 +1731,24 @@ export function NewTabScreen(props: Props) {
     frame(
       "greeting",
       <NewTabHeadline
-        projects={props.projects ?? []}
+        projects={headlineProjects}
         {...(askFolder ? { folder: askFolder } : {})}
-        noProject={none}
-        onPick={(cwd) => pickProject(cwd)}
-        onNoProject={() => pickProject(undefined)}
+        {...(machineHeadlineEnabled
+          ? {
+              machineName: headlineMachine.label,
+              machineId: headlineMachine.id,
+              savedEnvironmentSelected: environment !== undefined,
+              machines: headlineMachines,
+              onPickMachine: pickHeadlineMachine,
+              ...(props.environments && props.runMode ? { runMode: props.runMode } : {}),
+              ...(props.onRefreshMachines ? { onRefreshMachines: props.onRefreshMachines } : {}),
+            }
+          : {})}
+        noProject={none && !environment}
+        onPick={(cwd, peer) =>
+          pickProject(cwd, peer ?? (headlineMachineId === "local" ? undefined : headlineMachineId))
+        }
+        onNoProject={pickHeadlineNoProject}
         {...(browseProject ? { onBrowse: browseProject } : {})}
       />,
     );
@@ -1638,7 +1759,11 @@ export function NewTabScreen(props: Props) {
         onEditWidgets
           ? [
               editing.editing
-                ? { id: "edit.done", label: nt("edit.done"), onSelect: () => editing.setEditing(false) }
+                ? {
+                    id: "edit.done",
+                    label: nt("edit.done"),
+                    onSelect: () => editing.setEditing(false),
+                  }
                 : { id: "edit", label: nt("edit.menu"), onSelect: () => editing.setEditing(true) },
             ]
           : []

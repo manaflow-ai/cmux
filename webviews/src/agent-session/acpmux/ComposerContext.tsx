@@ -118,6 +118,7 @@ export function ComposerContext({
   onRefreshMachines: onRefreshPeers,
   folderNote,
   onComputer,
+  onMachineScope,
   cloudMachines,
   onCloudMachine = (machine) => void runCloudMachine(machine),
   runMode,
@@ -176,9 +177,10 @@ export function ComposerContext({
   /// A quiet line in the folder menu: where a new chat starts while it has no folder (its
   /// workspace's private folder).
   folderNote?: string;
-  /// A new chat's machine was picked (`local` for this Mac) where no folder of it is known; with a
-  /// known folder the pick is `onProject(folder, peer)`.
+  /// A machine pick with no known folder (`local` for this Mac).
   onComputer?(computer: string): void;
+  /// A controlled machine scope on New Tab; leave the folder unselected until a project pick.
+  onMachineScope?(computer: string): void;
   /// The account's Cloud machines (cloudMachines.ts); by default the app's list, read again as the
   /// machine list opens. Only a new chat lists them.
   cloudMachines?: readonly CloudMachine[];
@@ -380,6 +382,7 @@ export function ComposerContext({
     if (waiting) setWaiting(undefined);
     if (!readOnly && id !== selectedComputer) {
       setSelectedComputer(id);
+      if (onMachineScope) return onMachineScope(id);
       const folder = availableFolders(summary, sessions, id)[0]?.id;
       if (folder) onProject?.(folder, id === "local" ? undefined : id);
       else onComputer?.(id);

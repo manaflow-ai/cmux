@@ -2,19 +2,26 @@
 // through the same path as a click: the DEBUG `debug.agent_pane` socket method
 // (cmuxAcpmuxDebug.openMenu) and the capture scripts. A scripted pointer click can be
 // cancelled by the window focus changes it causes; this cannot.
-const openers = new Map<string, () => void>();
+const openers = new Map<string, (() => void)[]>();
 
 /// Registers `open` under `label`; returns the unregister function.
 export function registerPicker(label: string, open: () => void): () => void {
-  openers.set(label, open);
+  const entries = openers.get(label) ?? [];
+  entries.push(open);
+  openers.set(label, entries);
   return () => {
-    if (openers.get(label) === open) openers.delete(label);
+    const current = openers.get(label);
+    if (!current) return;
+    const index = current.lastIndexOf(open);
+    if (index >= 0) current.splice(index, 1);
+    if (current.length === 0) openers.delete(label);
   };
 }
 
 /// Opens the menu labelled `label`; false when none is mounted.
 export function openPicker(label: string): boolean {
-  const open = openers.get(label);
+  const entries = openers.get(label);
+  const open = entries?.at(-1);
   open?.();
   return open !== undefined;
 }
