@@ -305,6 +305,38 @@ for (const [id, name, family] of [
     expect(switched).toEqual([]);
   });
 
+// Leo 2026-10-30: "the fact that it's asking me to fork while im inside an existing claude code chat
+// is bad". Inside a chat on a harness, that harness's tab lists its models so the model switches in
+// place; Fork to is only another harness's. Claude's launchers (sr, sr2) are not models and never
+// fork rows inside the Claude tab of a Claude chat, whichever of them the chat runs on.
+const claudeLaunchers = [
+  { id: "claude", name: "Claude Code", family: "claude", models: [{ id: "claude-opus-5-5", name: "Opus 5.5" }, { id: "claude-sonnet-5-5", name: "Sonnet 5.5" }] },
+  { id: "claude-sr", name: "claude-sr", family: "claude", models: [{ id: "claude-opus-5-5", name: "Opus 5.5" }] },
+  { id: "claude-sr2", name: "Claude Code (sr2, headless)", family: "claude", models: [{ id: "claude-opus-5-5", name: "Opus 5.5" }] },
+  { id: "claude-sr2-internal", name: "Claude Code (sr2 internal)", family: "claude", models: [{ id: "claude-opus-5-5", name: "Opus 5.5" }] },
+  { id: "codex", name: "Codex", family: "codex", models: [{ id: "gpt-6-astra", name: "GPT-6 Astra" }] },
+] as Snapshot["catalog"];
+
+for (const running of ["claude", "claude-sr", "claude-sr2-internal"])
+  test(`a Claude chat on ${running} switches models in place and forks only to other harnesses`, async () => {
+    const { forked } = await mount(1, { ready: true }, running, claudeLaunchers);
+    await open();
+    const labels = itemsOf(menu()!).map(labelOf);
+    const shown = `tabs ${railTabs()
+      .map((tab) => tab.getAttribute("aria-label"))
+      .join(", ")}; items ${labels.join(" | ")}; note ${menu()!.querySelector(".acpmux-quick-note")?.textContent ?? "-"}`;
+    expect(labels.filter((label) => label.startsWith("Fork to Claude")), shown).toEqual([]);
+    const models = [...menu()!.querySelectorAll<HTMLElement>('.acpmux-quick-item[role="menuitemradio"]')].map(labelOf);
+    expect(models, shown).toContain("Opus 5.5");
+    expect(menu()!.querySelector(".acpmux-quick-note"), shown).toBeNull();
+    await showTab("Codex");
+    const fork = itemsOf(menu()!).find((item) => labelOf(item) === "Fork to Codex");
+    expect(fork, shown).toBeDefined();
+    await act(async () => fork!.click());
+    await settle();
+    expect(forked).toEqual(["codex"]);
+  });
+
 test("while the chat can't fork (a turn running), Fork to is disabled and does nothing", async () => {
   const { forked } = await mount(1, { ready: false });
   await open();
