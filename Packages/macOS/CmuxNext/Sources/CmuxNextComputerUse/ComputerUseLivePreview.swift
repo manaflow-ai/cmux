@@ -1,7 +1,7 @@
 import CmuxNextAgentActivity
 import CmuxNextCompat
 public import CmuxNextSettings
-import CmuxNextWakeups
+public import CmuxNextWakeups
 import Foundation
 
 /// What the live preview needs from the App: its agent chats and word when a tab's chat changes,

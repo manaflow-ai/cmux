@@ -18,7 +18,7 @@ import Testing
         done
         """)
         let child = MobileHostProcess()
-        try child.start(MobileHostTests.launch(executable: script), environment: [:], log: nil)
+        try await child.start(MobileHostTests.launch(executable: script), environment: [:], log: nil)
         defer { child.stop() }
         var lines = child.lines.makeAsyncIterator()
         #expect(await lines.next() == "ready")
