@@ -1418,7 +1418,7 @@
     },
     "browser.keepNeighborTabsAwake" : {
       "default" : 1,
-      "description" : "Tabs on each side of the shown tab stay loaded and running, so switching to them is instant. 0 turns it off. Memory pressure and Low Power Mode turn it off.",
+      "description" : "Tabs on each side of the shown tab stay loaded and running, so switching to them is instant. 0 turns it off. Memory pressure, Low Power Mode and Energy Saver turn it off.",
       "maximum" : 3,
       "minimum" : 0,
       "title" : "Keep Neighbor Tabs Awake",
@@ -1884,6 +1884,11 @@
       "title" : "DisabledFeatures",
       "type" : "array"
     },
+    "DisableRemoteFeatureFlags" : {
+      "description" : "Turn off remote feature flags: cmux neither fetches the signed feature document published with its release notes nor applies a stored one.",
+      "title" : "DisableRemoteFeatureFlags",
+      "type" : "boolean"
+    },
     "DisableTelemetry" : {
       "description" : "Turn off anonymous telemetry, crash reports included, whatever the user chose (also honored in the legacy com.cmuxterm.app domain).",
       "title" : "DisableTelemetry",
@@ -2260,6 +2265,18 @@
       "title" : "Wrap Column",
       "type" : "number"
     },
+    "energy.saver" : {
+      "default" : "auto",
+      "description" : "Energy Saver makes cmux use less power: web pages you are not using draw at most 30 frames per second, background animations stop, and timers and background checks run less often. Typing, scrolling and the animations you start are not slowed. Automatic: on in Low Power Mode, on battery below 20%, or on battery while the Mac is hot. On Battery: on whenever the Mac runs on battery. Always: always on. Off: never on. Turn Off for Now keeps it off until you plug in the Mac or change this setting.",
+      "enum" : [
+        "auto",
+        "onBattery",
+        "always",
+        "off"
+      ],
+      "title" : "Energy Saver",
+      "type" : "string"
+    },
     "EnrollmentToken" : {
       "description" : "Team enrollment token from the cmux dashboard. Signed-in users in a verified domain of the team join it; the token alone never grants membership.",
       "title" : "EnrollmentToken",
@@ -2488,6 +2505,20 @@
       "title" : "Server",
       "type" : "string"
     },
+    "input.resampleDrags" : {
+      "default" : true,
+      "description" : "A dragged divider or pane edge is drawn where the pointer was at each frame's time, so it moves at an even pace. Snaps and where it lands still follow the pointer exactly. Reduce Motion turns it off.",
+      "title" : "Smooth Divider Drags",
+      "type" : "boolean"
+    },
+    "input.resampleFrameAheadMs" : {
+      "default" : 0,
+      "description" : "Draws a dragged divider this far ahead of the frame, guessed from the pointer's speed. 0 does not guess ahead. Snaps and where it lands still follow the real pointer.",
+      "maximum" : 16,
+      "minimum" : 0,
+      "title" : "Drag Prediction Ahead",
+      "type" : "number"
+    },
     "labs.classicHome" : {
       "default" : false,
       "description" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.",
@@ -2517,6 +2548,12 @@
       "description" : "The room's web address. Empty uses the room server on this Mac.",
       "title" : "Voice Room Address",
       "type" : "string"
+    },
+    "launch.savedPicture" : {
+      "default" : true,
+      "description" : "At quit, cmux saves a picture of each window on this Mac and shows it while the window opens next time. Pictures can show terminal text and web pages. Incognito windows, password entry and protected video are never saved. Off deletes the pictures.",
+      "title" : "Open Windows from a Saved Picture",
+      "type" : "boolean"
     },
     "layout.centerFocusedColumn" : {
       "default" : "never",
@@ -2865,6 +2902,18 @@
       "description" : "Offer Picture in Picture for a web page's video in menus, the command palette and the media controls. A site's own video controls are not affected.",
       "title" : "Picture in Picture",
       "type" : "boolean"
+    },
+    "memory.saver" : {
+      "default" : "medium",
+      "description" : "Frees memory from hidden pages, conversations and workspaces you are not using. Moderate waits longest, Maximum frees memory soonest, and Balanced is in between. Off frees memory only when the Mac runs low on memory. Browser tabs follow Hibernate Hidden Tabs.",
+      "enum" : [
+        "off",
+        "conservative",
+        "medium",
+        "aggressive"
+      ],
+      "title" : "Memory Saver",
+      "type" : "string"
     },
     "MinimumVersion" : {
       "description" : "Oldest cmux version allowed to sign in, for example 1.2.0.",
@@ -4657,6 +4706,17 @@
       },
       "title" : "Program Link Rules",
       "type" : "array"
+    },
+    "terminal.predictiveEcho" : {
+      "default" : "off",
+      "description" : "Shows the characters you type before the host echoes them, dimmed and underlined, as mosh does. A guess the echo does not confirm disappears. Remote and Slow Terminals: for terminals on another machine and when the echo is slow. Always: in every terminal. Never while an input method composes text or secure input is on.",
+      "enum" : [
+        "off",
+        "remote",
+        "always"
+      ],
+      "title" : "Predictive Echo",
+      "type" : "string"
     },
     "ui.animations.bounce" : {
       "default" : "none",

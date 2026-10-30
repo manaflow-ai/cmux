@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 526,
+  "count": 528,
   "sections": [
     {
       "id": "general",
@@ -434,6 +434,20 @@
           "kind": "toggle",
           "default": true,
           "group": "Computer Use"
+        },
+        {
+          "key": "energy.saver",
+          "title": "Energy Saver",
+          "help": "Energy Saver makes cmux use less power: web pages you are not using draw at most 30 frames per second, background animations stop, and timers and background checks run less often. Typing, scrolling and the animations you start are not slowed. Automatic: on in Low Power Mode, on battery below 20%, or on battery while the Mac is hot. On Battery: on whenever the Mac runs on battery. Always: always on. Off: never on. Turn Off for Now keeps it off until you plug in the Mac or change this setting.",
+          "kind": "choice",
+          "default": "auto",
+          "group": "Energy Saver",
+          "values": [
+            "auto",
+            "onBattery",
+            "always",
+            "off"
+          ]
         },
         {
           "key": "files.textEditor",
@@ -3921,6 +3935,19 @@
           "kind": "string_list",
           "default": [],
           "group": "Opening Links"
+        },
+        {
+          "key": "terminal.predictiveEcho",
+          "title": "Predictive Echo",
+          "help": "Shows the characters you type before the host echoes them, dimmed and underlined, as mosh does. A guess the echo does not confirm disappears. Remote and Slow Terminals: for terminals on another machine and when the echo is slow. Always: in every terminal. Never while an input method composes text or secure input is on.",
+          "kind": "choice",
+          "default": "off",
+          "group": "Typing",
+          "values": [
+            "off",
+            "remote",
+            "always"
+          ]
         }
       ]
     },
@@ -4533,7 +4560,7 @@
         {
           "key": "browser.keepNeighborTabsAwake",
           "title": "Keep Neighbor Tabs Awake",
-          "help": "Tabs on each side of the shown tab stay loaded and running, so switching to them is instant. 0 turns it off. Memory pressure and Low Power Mode turn it off.",
+          "help": "Tabs on each side of the shown tab stay loaded and running, so switching to them is instant. 0 turns it off. Memory pressure, Low Power Mode and Energy Saver turn it off.",
           "kind": "number",
           "default": 1,
           "group": "Memory",
