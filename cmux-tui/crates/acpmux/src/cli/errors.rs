@@ -225,8 +225,12 @@ pub fn exit_with(e: &anyhow::Error, json_out: bool) -> ! {
             && let Some(data) = &app.data
         {
             let args: Vec<String> = std::env::args().collect();
-            for line in crate::cli::resolve::choice_commands(&args, data) {
+            let lines = crate::cli::resolve::choice_commands(&args, data);
+            for line in lines.iter().take(10) {
                 eprintln!("  {line}");
+            }
+            if lines.len() > 10 {
+                eprintln!("  … and {} more (`--json` lists every one)", lines.len() - 10);
             }
         }
     }

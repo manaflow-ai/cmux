@@ -1,12 +1,12 @@
 //! Part of `Hub`; see `hub/mod.rs`. One rule for the session a bare key names, on this machine
 //! and its peers alike (Leo, 2026-10-30: "various not as ergonomic/one-command-y as i'd liike set
-//! of commands for interacting with stuff"): a bare name or a session id prefix (a name prefix
-//! too, for a session here) names the one live session across this daemon and every peer it
-//! lists. Several live matches
-//! are refused with each one's `HOST/NAME`; nothing is picked silently, and a session here does
-//! not hide a peer's of the same name (as `locate.rs` already holds for control callers).
-//! Closed sessions count only when no live one matches. Keys this daemon already reads exactly
-//! (an id, a qualified id, `HOST/NAME`) are left as they are.
+//! of commands for interacting with stuff"): a whole name or an id prefix names the one live
+//! session that has it across this daemon and every peer it lists (a name prefix still names a
+//! session here when nothing else matches, as it always did). Several live matches are refused
+//! with each one's `HOST/NAME`; nothing is picked silently, and a session here does not hide a
+//! peer's of the same name (as `locate.rs` already holds for control callers). Closed sessions
+//! count only when no live one matches. Keys this daemon already reads exactly (an id, a
+//! qualified id, `HOST/NAME`) are left as they are.
 //!
 //! The request path (`server/requests.rs`, the unix socket only) asks [`Hub::key_route`] before
 //! anything else reads the key, and swaps a name for the route it found, so every session
@@ -17,7 +17,7 @@ use super::*;
 /// The `reason` of the refusal for a key several live sessions match.
 pub(crate) const AMBIGUOUS: &str = "session_ambiguous";
 
-/// The most choices a refusal lists (a short prefix can match hundreds).
+/// The most choices a refusal's message names; its data lists every one.
 const SHOWN: usize = 10;
 
 /// One session a bare key matches.
@@ -46,15 +46,18 @@ impl Hub {
         pick(key, &found).map(|c| c.map(|c| c.route.clone()))
     }
 
-    /// The sessions here and on peers whose whole name is `key`, then those whose id starts with
-    /// it (or, here, whose name does). Names are read under each session's meta lock, never cloned
-    /// (`resolve_here`).
+    /// The sessions here and on peers that `key` names as a whole name or by their id (a prefix
+    /// of it), all in one tier, so a name never hides an id another session has; then, only for
+    /// sessions here, those whose name starts with `key` (the rule this daemon always had). A
+    /// prefix of a peer's name names nothing, as `resolve_remote` never matched one: a short
+    /// key never reaches another machine's chat nobody named. Names are read under each
+    /// session's meta lock, never cloned (`resolve_here`).
     fn key_candidates(&self, key: &str, own: &str) -> (Vec<Candidate>, Vec<Candidate>) {
         let (mut named, mut prefixed) = (Vec::new(), Vec::new());
         for s in self.sessions.lock().unwrap().values() {
             let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            let exact = meta.name == key;
-            if !exact && !s.id.starts_with(key) && !meta.name.starts_with(key) {
+            let by_key = meta.name == key || s.id.starts_with(key);
+            if !by_key && !meta.name.starts_with(key) {
                 continue;
             }
             let c = Candidate {
@@ -63,25 +66,20 @@ impl Hub {
                 route: s.id.clone(),
                 closed: meta.status == SessionStatus::Closed,
             };
-            if exact { named.push(c) } else { prefixed.push(c) }
+            if by_key { named.push(c) } else { prefixed.push(c) }
         }
         for (route, r) in self.remote_sessions.lock().unwrap().iter() {
             let name = r.summary["name"].as_str().unwrap_or_default();
             let bare = name.strip_prefix(&format!("{}/", r.peer)).unwrap_or(name);
-            // A peer's session is matched by its whole name or an id prefix, never a prefix of its
-            // name, as `resolve_remote` always has: a short key never reaches another machine's
-            // chat that nobody named.
-            let exact = bare == key;
-            if !exact && !r.receipt.mux_session_id.starts_with(key) {
+            if bare != key && !r.receipt.mux_session_id.starts_with(key) {
                 continue;
             }
-            let c = Candidate {
+            named.push(Candidate {
                 host: r.peer.clone(),
                 name: bare.to_owned(),
                 route: route.clone(),
                 closed: r.summary["status"] == "closed",
-            };
-            if exact { named.push(c) } else { prefixed.push(c) }
+            });
         }
         (named, prefixed)
     }
@@ -119,11 +117,10 @@ fn ambiguous(key: &str, many: &[&Candidate]) -> RpcError {
             })
         })
         .collect();
-    let choices: Vec<Value> = choices.into_iter().take(SHOWN).collect();
     let mut list: Vec<String> =
-        choices.iter().filter_map(|c| c["use"].as_str()).map(str::to_owned).collect();
+        choices.iter().take(SHOWN).filter_map(|c| c["use"].as_str()).map(str::to_owned).collect();
     if many.len() > SHOWN {
-        list.push(format!("and {} more", many.len() - SHOWN));
+        list.push(format!("and {} more (`--json` lists every one)", many.len() - SHOWN));
     }
     let live = if many.iter().all(|c| c.closed) { "closed" } else { "live" };
     RpcError::invalid_params(format!(
@@ -223,6 +220,10 @@ mod tests {
         assert_eq!(hub.key_route("0199").unwrap_err().data.unwrap()["reason"], AMBIGUOUS);
         // A prefix of a peer's name is no route there.
         assert_eq!(hub.key_route("build").unwrap(), None);
+        // A name here and another session's id prefix are one tier: a tie, not the name.
+        named(&hub, "0199aaaa").await;
+        let e = hub.key_route("0199aaaa").unwrap_err();
+        assert_eq!(e.data.unwrap()["choices"].as_array().unwrap().len(), 2);
     }
 
     #[tokio::test]
@@ -272,5 +273,11 @@ mod tests {
         let uses: Vec<&str> =
             data["choices"].as_array().unwrap().iter().filter_map(|c| c["use"].as_str()).collect();
         assert_eq!(uses, ["big-red/review", "hb/m3", "hb/m4"]);
+        // The message names ten; the data lists every one.
+        let many: Vec<Candidate> =
+            (0..12).map(|i| c(&format!("h{i}"), "review", &format!("h{i}/m"), false)).collect();
+        let e = pick("review", &many).unwrap_err();
+        assert!(e.message.contains("h9/review, and 2 more"), "{}", e.message);
+        assert_eq!(e.data.unwrap()["choices"].as_array().unwrap().len(), 12);
     }
 }

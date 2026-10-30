@@ -598,11 +598,12 @@ fn caller_sends_no_files(
 
 /// Swap the bare session key of `m`'s params (`sessionId` or `session`; a send's
 /// `request.sessionId`) for the route [`Hub::key_route`] finds. A method that names no session
-/// or answers itself for a peer's session (`peer_forward.rs`) keeps its params as they are.
+/// or answers itself for a peer's session (`peer_forward.rs`) keeps its params as they are, and
+/// so does `keep`, whose `sessionId` is an exact id this connection owns (`ephemeral.rs`).
 fn route_bare_key(hub: &Arc<Hub>, m: &str, params: &mut Value) -> Result<(), RpcError> {
     let slot = if m == method::MUX_SEND_QUEUE {
         params.pointer_mut("/request/sessionId")
-    } else if super::peer_forward::names_a_session(m) {
+    } else if m != method::MUX_KEEP && super::peer_forward::names_a_session(m) {
         let field = ["sessionId", "session"].into_iter().find(|f| params[*f].is_string());
         field.and_then(|f| params.get_mut(f))
     } else {

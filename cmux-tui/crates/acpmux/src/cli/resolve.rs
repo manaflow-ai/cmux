@@ -77,8 +77,15 @@ fn ambiguous(query: &str, many: &[&Value]) -> AppError {
 /// the ambiguous key swapped for the choice.
 pub(crate) fn choice_commands(args: &[String], data: &Value) -> Vec<String> {
     let Some(key) = data["session"].as_str() else { return Vec::new() };
-    let Some(at) = args.iter().skip(1).position(|a| a == key).map(|i| i + 1) else {
-        return Vec::new();
+    // The session argument: the one argument that is the key, or, when an option's value is the
+    // key too (`--from review review`), the one no option precedes.
+    let at: Vec<usize> = (1..args.len()).filter(|&i| args[i] == key).collect();
+    let at = match at.as_slice() {
+        [one] => *one,
+        many => match many.iter().find(|&&i| !args[i - 1].starts_with('-')) {
+            Some(&i) => i,
+            None => return Vec::new(),
+        },
     };
     let program = args.first().map_or("acpmux", |p| p.rsplit('/').next().unwrap_or(p));
     data["choices"]
@@ -197,6 +204,10 @@ mod tests {
         );
         let other: Vec<String> = ["acpmux", "ls"].map(String::from).into();
         assert!(choice_commands(&other, &data).is_empty());
+        // An option whose value is the key too keeps it.
+        let from: Vec<String> =
+            ["acpmux", "send", "--from", "review", "review", "hi"].map(String::from).into();
+        assert_eq!(choice_commands(&from, &data)[0], "acpmux send --from review big-red/review hi");
     }
 
     /// `resolve`'s cards: a closed session counts only when no live one matches.
