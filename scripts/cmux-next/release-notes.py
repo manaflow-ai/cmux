@@ -185,6 +185,11 @@ def _plain_line(text):
     text = re.sub(r"\s+", " ", text).strip(" -")
     if not text:
         return ""
+    # A PR body can contain several prose sentences. Keep the first complete sentence so the
+    # generated description is always one line and one sentence, before applying the length cap.
+    match = re.search(r".*?[.!?。！？](?=\s|$)", text)
+    if match:
+        text = match.group(0).strip()
     if len(text) >= DESCRIPTION_LIMIT:
         text = text[:DESCRIPTION_LIMIT - 1].rsplit(" ", 1)[0].rstrip(" ,;:-")
     return sentence(text)
@@ -381,8 +386,11 @@ def pr_media_picture(data):
 def pr_body(pr, fixture):
     if fixture is not None:
         return fixture["bodies"].get(str(pr), "")
-    result = subprocess.run(["gh", "api", f"repos/manaflow-ai/cmux/pulls/{pr}", "--jq", ".body // \"\""],
-                            capture_output=True, text=True, timeout=PR_MEDIA_TIMEOUT)
+    try:
+        result = subprocess.run(["gh", "api", f"repos/manaflow-ai/cmux/pulls/{pr}", "--jq", ".body // \"\""],
+                                capture_output=True, text=True, timeout=PR_MEDIA_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return ""
     return result.stdout if result.returncode == 0 else ""
 
 
