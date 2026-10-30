@@ -533,6 +533,9 @@ pub struct Hub {
     /// Turns a shutdown settled as cancelled (`endAgents`) or handed to the next daemon: their
     /// prompt futures write no result of their own when the agent ends.
     pub(super) settled_by_shutdown: StdMutex<std::collections::HashSet<String>>,
+    /// A turn's end under way (`Session::ending`) landed or went: a shutdown waiting for those
+    /// ends looks again (`shutdown.rs` `settle_ends`).
+    pub(super) ends_moved: Notify,
     /// `npx -y PACKAGE` launches resolved to their bin: (npx, package) to path.
     pub(super) launchers: StdMutex<HashMap<(String, String), String>>,
     /// Harnesses whose last model probe failed, with the reason; reported in
@@ -762,6 +765,7 @@ impl Hub {
             agent_hosts: AtomicBool::new(false),
             shutdown_plan: StdMutex::new(shutdown::ShutdownPlan::default()),
             settled_by_shutdown: StdMutex::new(Default::default()),
+            ends_moved: Notify::new(),
             launchers: StdMutex::new(HashMap::new()),
             probe_errors: StdMutex::new(HashMap::new()),
             clock: StdMutex::new(crate::clock::TokioClock::new()),
@@ -1127,6 +1131,8 @@ impl Hub {
             launched_with_tools: std::sync::atomic::AtomicU8::new(0),
             launch_env: StdMutex::new(None),
             route_switch: AtomicBool::new(false),
+            ending: StdMutex::new(None),
+            detaching: AtomicBool::new(false),
             inbound_tx,
             inbound_rx: Mutex::new(Some(inbound_rx)),
             steering: AtomicBool::new(steering),

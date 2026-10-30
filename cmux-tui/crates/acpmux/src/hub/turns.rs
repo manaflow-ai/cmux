@@ -1095,8 +1095,18 @@ impl Hub {
         // A turn its agent runs on with steers it read after this one ended takes its place
         // (`carried_turn.rs`).
         let in_place = next.map(|n| n.next.clone());
-        let detached =
-            self.take_turn(session, turn_id, in_place).is_none_or(|t| t.turn_id != turn_id);
+        // Taken under the shutdown's lock: its sweep finds the turn running or here, never in
+        // between (`shutdown.rs` `settle_ends`).
+        let detached = {
+            let _ends = self.settled_by_shutdown.lock().unwrap_or_else(|e| e.into_inner());
+            let taken = self.take_turn(session, turn_id, in_place);
+            let took = taken.as_ref().is_some_and(|t| t.turn_id == turn_id);
+            if took {
+                *session.ending.lock().unwrap_or_else(|e| e.into_inner()) = taken;
+            }
+            !took
+        };
+        let ending = EndUnderWay { hub: self, session, turn_id };
         // Named in this turn's `turn_result`, so a restart before it starts still runs it.
         let carried_next = next.filter(|_| !detached);
         // The turn a Stop was stopping has ended (`cancel.rs`): it no longer reads `stopping`,
@@ -1235,6 +1245,18 @@ impl Hub {
             super::fallback_start::say_fallback(e);
         }
         let git = super::turn_git::turn_git(session).await;
+        // The end is written from here with no wait, under the shutdown's lock: a shutdown that
+        // settled the turn meanwhile wrote its end (Quit Everything) or handed it on, and its
+        // sweep finds this one either written or still to settle (`shutdown.rs` `settle_ends`).
+        let ends = self.settled_by_shutdown.lock().unwrap_or_else(|e| e.into_inner());
+        if ends.contains(turn_id) {
+            drop(ends);
+            if self.hands_off(session) {
+                super::digest::forget_joined(joined);
+            }
+            return result;
+        }
+        ending.clear();
         // A Stop kept the prompt from the fallback a failover started (`stopped_before_prompt`),
         // or the agent of a turn a Stop was stopping ended it with an error (it exited, its
         // cancel failed, or it reported one): the turn ends as the Stop's, cancelled, and holds
@@ -1317,6 +1339,7 @@ impl Hub {
                 self.write_turn_result(session, msg, git);
             }
         }
+        drop(ends);
         self.reset_stream(session);
         // Nobody showing it: the sidebar dot and `wait --until done` see it.
         if !self.shown(session) {
@@ -1928,16 +1951,45 @@ impl Hub {
         if self.hands_off(session) {
             return;
         }
+        // Held through the agent's end, so no new agent starts beside the one ending; a shutdown
+        // that meets the lock meanwhile waits for this end (`detaching`).
+        session.detaching.store(true, Ordering::SeqCst);
         self.revoke_permission_chat(session);
         self.cancel_pending_permissions(session);
         if let Some(child) = slot.take() {
             child.kill().await;
         }
+        session.detaching.store(false, Ordering::SeqCst);
         drop(slot);
         *session.turn.lock().unwrap() = None;
         if session.status() != SessionStatus::Closed {
             self.set_status(session, SessionStatus::Idle);
         }
+    }
+}
+
+/// Clears `Session::ending` once `finish_turn` leaves, however it leaves, and wakes a shutdown
+/// waiting for ends under way (`shutdown.rs` `settle_ends`).
+struct EndUnderWay<'a> {
+    hub: &'a Hub,
+    session: &'a Session,
+    turn_id: &'a str,
+}
+
+impl EndUnderWay<'_> {
+    fn clear(&self) {
+        let mut ending = self.session.ending.lock().unwrap_or_else(|e| e.into_inner());
+        if ending.as_ref().is_some_and(|t| t.turn_id == self.turn_id) {
+            *ending = None;
+        }
+        drop(ending);
+        self.hub.ends_moved.notify_waiters();
+    }
+}
+
+impl Drop for EndUnderWay<'_> {
+    fn drop(&mut self) {
+        self.clear();
     }
 }
 
