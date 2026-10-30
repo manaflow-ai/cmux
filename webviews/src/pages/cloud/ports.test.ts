@@ -319,10 +319,10 @@ describe("Cloud port action boundaries", () => {
         reconciled.resolve({ forwards: [] });
         expect(await closing).toBe(true);
       }
-      const current = f.get().ports;
+      const expected = action === "forward" ? [forward(), forward("a", 4000)] : [];
       snapshots.resolve({ snapshots: [] });
       await loading;
-      expect(f.get().ports).toEqual(current);
+      expect(f.get().ports).toEqual(expected);
       expect(f.pending()).toEqual([]);
     });
   }

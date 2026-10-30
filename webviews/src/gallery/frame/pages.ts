@@ -6,6 +6,7 @@ import { HostError, installMockHost, type HostOp } from "../../../test/latency/m
 import type { PageClient } from "../../pages/shared/pageClient";
 import { AppsOps, OPEN_ACTION } from "../../pages/apps/types";
 import { sampleApps, MockAppsProvider } from "../../pages/apps/mockProvider";
+import type { PortForward } from "../../pages/cloud/ops";
 import { CloudOps, ACTION_RUN as CLOUD_ACTION_RUN, PAGE_COMMAND as CLOUD_PAGE_COMMAND } from "../../pages/cloud/ops";
 import { MockCloudProvider } from "../../pages/cloud/mockProvider";
 import { CodeRouterOps } from "../../pages/coderouter/types";
@@ -327,19 +328,25 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
     error: state.error,
   });
   if (state.pendingAction) {
-    const pendingOp = state.pendingAction === "forward" ? CloudOps.portForward
-      : state.pendingAction === "close" ? CloudOps.portClose : CLOUD_ACTION_RUN;
+    const pendingOp =
+      state.pendingAction === "forward"
+        ? CloudOps.portForward
+        : state.pendingAction === "close"
+          ? CloudOps.portClose
+          : CLOUD_ACTION_RUN;
     const pending = operations[pendingOp];
-    operations[pendingOp] = async (params: unknown) => {
+    operations[pendingOp] = async (params, context) => {
       if (state.pendingAction === "browser" && (params as { action?: string }).action !== "cmux.browser.tab.open")
-        return pending(params);
+        return pending(params, context);
       return await new Promise<never>(() => undefined);
     };
   }
-  const host = installMockHost(
-    operations,
-    [CloudOps.machineWatch, CloudOps.fileTransferChanged, "cmux.page.connection", CLOUD_PAGE_COMMAND],
-  );
+  const host = installMockHost(operations, [
+    CloudOps.machineWatch,
+    CloudOps.fileTransferChanged,
+    "cmux.page.connection",
+    CLOUD_PAGE_COMMAND,
+  ]);
   host.delayMs = 0;
   document.documentElement.dataset.cmuxPage = "cloud";
   document.documentElement.dataset.cmuxWebviewKind = "cloud";
@@ -359,7 +366,11 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
         input.dispatchEvent(new Event("input", { bubbles: true }));
         document.querySelector<HTMLElement>(".cloud-forward-add")?.click();
       } else {
-        document.querySelector<HTMLElement>(state.pendingAction === "browser" ? ".cloud-forward-browser" : ".cloud-forward-close")?.click();
+        document
+          .querySelector<HTMLElement>(
+            state.pendingAction === "browser" ? ".cloud-forward-browser" : ".cloud-forward-close",
+          )
+          ?.click();
       }
     }, 320);
   }

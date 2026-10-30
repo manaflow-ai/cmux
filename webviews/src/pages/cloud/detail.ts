@@ -71,6 +71,8 @@ export interface DetailHost {
 
 export class DetailReader {
   private generation = 0;
+  private portRevision = 0;
+  private readonly portChanges = new Map<number, { revision: number; forward: PortForward | null }>();
   private readonly portActions = new Map<string, PendingPort & { machine: string }>();
 
   constructor(
@@ -80,11 +82,13 @@ export class DetailReader {
 
   async load(machine: string | undefined): Promise<void> {
     const generation = ++this.generation;
+    this.portChanges.clear();
     if (!machine || !this.client) {
       this.portActions.clear();
       this.host.set(undefined);
       return;
     }
+    const portRevision = this.portRevision;
     this.host.set({ machine, loading: true, pendingPorts: this.pendingPorts(machine) });
     const results = await Promise.allSettled(SECTIONS.map((section) => this.read(section, machine)));
     if (generation !== this.generation) return;
@@ -98,8 +102,11 @@ export class DetailReader {
     let failed: unknown;
     SECTIONS.forEach((section, index) => {
       const result = results[index];
-      if (result.status === "fulfilled") Object.assign(detail, { [section]: result.value });
-      else if (isUnsupported(result.reason)) this.host.unsupported(SECTION_OPS[section]);
+      if (result.status === "fulfilled") {
+        if (section === "ports") {
+          detail.ports = this.mergePorts(result.value as PortForward[], portRevision);
+        } else Object.assign(detail, { [section]: result.value });
+      } else if (isUnsupported(result.reason)) this.host.unsupported(SECTION_OPS[section]);
       else failed ??= result.reason;
     });
     this.host.set(detail);
@@ -111,11 +118,15 @@ export class DetailReader {
     const current = this.host.get();
     if (!current || !this.client) return;
     const generation = this.generation;
+    const portRevision = this.portRevision;
     try {
       const value = await this.read(section, current.machine);
       const latest = this.host.get();
       if (generation !== this.generation || !latest) return;
-      this.host.set({ ...latest, [section]: value });
+      this.host.set({
+        ...latest,
+        [section]: section === "ports" ? this.mergePorts(value as PortForward[], portRevision) : value,
+      });
     } catch (error) {
       if (generation === this.generation) this.reject(SECTION_OPS[section], error);
     }
@@ -142,6 +153,7 @@ export class DetailReader {
       const forward = await this.change<PortForward>(CloudOps.portForward, { machine, port });
       const latest = this.host.get();
       if (!forward?.localPort || latest?.machine !== machine) return false;
+      this.portChanges.set(forward.port, { revision: ++this.portRevision, forward });
       const others = (latest.ports ?? []).filter((f) => f.port !== forward.port);
       this.host.set({ ...latest, ports: [...others, forward] });
       return true;
@@ -152,6 +164,7 @@ export class DetailReader {
     return this.portAction(machine, port, "close", async () => {
       const closed = await this.change(CloudOps.portClose, { machine, port });
       if (closed === undefined) return false;
+      this.portChanges.set(port, { revision: ++this.portRevision, forward: null });
       await this.reload("ports");
       return true;
     });
@@ -181,7 +194,8 @@ export class DetailReader {
       };
       try {
         const result = await this.client!.call<ActionRunResult | null>(ACTION_RUN, {
-          action: HostActions.browserTabOpen, args,
+          action: HostActions.browserTabOpen,
+          args,
         });
         return result?.confirmed !== false;
       } catch (error) {
@@ -198,13 +212,26 @@ export class DetailReader {
     });
   }
 
+  private mergePorts(ports: PortForward[], readRevision: number): PortForward[] {
+    const merged = new Map(ports.map((forward) => [forward.port, forward]));
+    for (const [port, { revision, forward }] of this.portChanges) {
+      if (revision <= readRevision) continue;
+      if (forward) merged.set(port, forward);
+      else merged.delete(port);
+    }
+    return [...merged.values()];
+  }
+
   private pendingPorts(machine: string): PendingPort[] {
     return [...this.portActions.values()].filter((pending) => pending.machine === machine);
   }
 
   /** Lock synchronously, including conflicting actions on the same port, before any host call. */
   private async portAction(
-    machine: string, port: number, action: PortAction, run: () => Promise<boolean>,
+    machine: string,
+    port: number,
+    action: PortAction,
+    run: () => Promise<boolean>,
   ): Promise<boolean> {
     const current = this.host.get();
     const key = JSON.stringify([machine, port]);
@@ -222,8 +249,7 @@ export class DetailReader {
       if (this.portActions.get(key) === pending) {
         this.portActions.delete(key);
         const latest = this.host.get();
-        if (latest?.machine === machine)
-          this.host.set({ ...latest, pendingPorts: this.pendingPorts(machine) });
+        if (latest?.machine === machine) this.host.set({ ...latest, pendingPorts: this.pendingPorts(machine) });
       }
     }
   }
