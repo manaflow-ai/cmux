@@ -655,8 +655,8 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
     # No secret and no environment here: the pick above can be a reused owned
     # Mac, or whatever MACOS_RUNNER_TESTS names. The R2 restore reads the
-    # public URL; a seed_cache run's R2 save happens in
-    # ios-simulator-cache-save, which holds the write keys.
+    # public URL; the seed_cache preflight that checks the R2 write keys runs
+    # in ios-simulator-cache-seed.
     timeout-minutes: 35
     env:
       # An owned Mac's label (glaeda-<class>-xcode-<version>) names the
@@ -673,12 +673,6 @@ jobs:
       compile_seconds: ${{ steps.compile-product.outputs.seconds }}
       package_seconds: ${{ steps.package-product.outputs.seconds }}
       upload_seconds: ${{ steps.upload-metrics.outputs.seconds }}
-      # Set only on a main seed_cache run that saves to R2: the packed
-      # .ci-ios-source-packages, its cache key and this runner's platform, for
-      # ios-simulator-cache-save.
-      spm_cache_artifact_id: ${{ steps.upload-spm-cache.outputs.artifact-id }}
-      spm_cache_key: ${{ steps.spm-cache-pack.outputs.key }}
-      spm_cache_platform: ${{ steps.spm-cache-pack.outputs.platform }}
     steps:
       - name: Verify GitHub-hosted route
         env:
@@ -1036,44 +1030,16 @@ jobs:
           echo "IOS_BUILD_ONCE_METRIC upload_seconds=$seconds archive_bytes=$ARCHIVE_BYTES provider_digest=$PROVIDER_DIGEST"
           printf 'Artifact upload: %ss for %s bytes; provider digest %s\n' "$seconds" "$ARCHIVE_BYTES" "$PROVIDER_DIGEST" >> "$GITHUB_STEP_SUMMARY"
 
-      # The GitHub and Warp stores need no secret, and a GitHub-store entry
-      # written on Linux would not restore here, so they save from this job.
+      # Holds no bucket keys: the cache-save action takes them from this
+      # step's env, and this job holds no secret. ios-simulator-cache-seed
+      # runs the seed_cache preflight that checks them.
       - name: Save iOS SwiftPM cache
-        if: ${{ inputs.seed_cache && github.ref == 'refs/heads/main' && (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') != 'r2' }}
+        if: ${{ inputs.seed_cache && github.ref == 'refs/heads/main' }}
         uses: ./.github/actions/cache-save
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: .ci-ios-source-packages
           key: ios-spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.xcode-version') }}-${{ hashFiles('ios/cmux.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-
-      # An R2 save signs with the bucket's write keys, which this job never
-      # holds: pack the packages for ios-simulator-cache-save, with the key
-      # and platform this runner gives them (the same key the restore reads).
-      - name: Pack iOS SwiftPM cache for the R2 save
-        id: spm-cache-pack
-        if: ${{ inputs.seed_cache && github.ref == 'refs/heads/main' && (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') == 'r2' }}
-        env:
-          CACHE_KEY: ios-spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.xcode-version') }}-${{ hashFiles('ios/cmux.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          CACHE_PLATFORM: ${{ runner.os }}-${{ runner.arch }}
-        run: |
-          set -euo pipefail
-          archive="$RUNNER_TEMP/ios-spm-cache.tar.gz"
-          rm -f "$archive"
-          COPYFILE_DISABLE=1 tar -cf - -C "$IOS_SPM_CACHE" . | gzip -1 > "$archive"
-          echo "key=$CACHE_KEY" >> "$GITHUB_OUTPUT"
-          echo "platform=$CACHE_PLATFORM" >> "$GITHUB_OUTPUT"
-          echo "Packed $CACHE_KEY for the R2 save: $(du -m "$archive" | cut -f1) MB"
-
-      - name: Upload iOS SwiftPM cache for the R2 save
-        id: upload-spm-cache
-        if: ${{ steps.spm-cache-pack.outcome == 'success' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ios-spm-cache-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/ios-spm-cache.tar.gz
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 1
 
       - name: Save this owned Mac's iOS packages
         if: ${{ always() && steps.owned-state.outputs.fingerprint != '' }}
@@ -1096,37 +1062,21 @@ jobs:
           xcrun simctl shutdown "$SIMULATOR_ID" >/dev/null 2>&1 || true
           xcrun simctl delete "$SIMULATOR_ID"
 
-  ios-simulator-cache-save:
-    # The R2 half of a main seed_cache run's SwiftPM save. ios-simulator-build
-    # runs on ios_runner_pool.py's pick, which can be a reused owned Mac or
-    # whatever MACOS_RUNNER_TESTS names, so it holds no secret: it packs
-    # .ci-ios-source-packages into an artifact of this run. This job, on an
-    # ephemeral Linux VM no variable can move, holds the R2 write keys and
-    # saves that tree under the build's key and platform (macOS-ARM64, not
-    # this VM's), where the build's restores look. The pattern of #27622.
-    needs: [detect-ios-changes, ios-simulator-build]
-    # The build packs only on a main seed_cache run that saves to R2. A build
-    # step that fails after the pack does not undo the save, as before.
-    if: ${{ !cancelled() && inputs.seed_cache && github.ref == 'refs/heads/main' && needs.ios-simulator-build.outputs.spm_cache_artifact_id != '' }}
+  ios-simulator-cache-seed:
+    # The seed_cache preflight, moved off ios-simulator-build: that job runs on
+    # ios_runner_pool.py's pick, which can be a reused owned Mac or whatever
+    # MACOS_RUNNER_TESTS names, so it holds no secret. This job, on an
+    # ephemeral Linux VM no variable can move, holds the R2 write keys only
+    # to fail a main seed_cache run that has none, as the step did in the
+    # build job (after a successful build). The pattern of #27622.
+    needs: [ios-simulator-build]
+    if: ${{ !cancelled() && needs.ios-simulator-build.result == 'success' && inputs.seed_cache && github.ref == 'refs/heads/main' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
-    timeout-minutes: 30
+    timeout-minutes: 5
     permissions:
       contents: read
-      actions: read
     steps:
-      # The tested commit's cache-save action and r2-cache.sh, as the build
-      # job ran them.
-      - name: Checkout cache helpers
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ needs.detect-ios-changes.outputs.target_sha }}
-          sparse-checkout: |
-            .github/actions/cache-save
-            scripts/ci/r2-cache.sh
-          sparse-checkout-cone-mode: false
-          persist-credentials: false
-
       - name: Seed iOS caches from main
         env:
           AWS_ACCESS_KEY_ID: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
@@ -1141,33 +1091,6 @@ jobs:
             exit 1
           fi
           echo "Seeding iOS caches through $cache_backend"
-
-      - name: Download iOS SwiftPM cache
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          artifact-ids: ${{ needs.ios-simulator-build.outputs.spm_cache_artifact_id }}
-          path: ${{ runner.temp }}/ios-spm-cache
-
-      - name: Unpack iOS SwiftPM cache
-        run: |
-          set -euo pipefail
-          rm -rf .ci-ios-source-packages
-          mkdir -p .ci-ios-source-packages
-          tar -xzf "$RUNNER_TEMP/ios-spm-cache/ios-spm-cache.tar.gz" -C .ci-ios-source-packages
-          rm -rf "$RUNNER_TEMP/ios-spm-cache"
-
-      - name: Save iOS SwiftPM cache
-        uses: ./.github/actions/cache-save
-        env:
-          AWS_ACCESS_KEY_ID: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
-          AWS_SECRET_ACCESS_KEY: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
-          CI_CACHE_R2_ENDPOINT: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
-          CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
-          CI_CACHE_R2_PLATFORM: ${{ needs.ios-simulator-build.outputs.spm_cache_platform }}
-        with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
-          path: .ci-ios-source-packages
-          key: ${{ needs.ios-simulator-build.outputs.spm_cache_key }}
 
   ios-simulator:
     permissions:
@@ -1507,7 +1430,7 @@ jobs:
       - package-conventions-lint
       - mobile-core-package
       - ios-simulator-build
-      - ios-simulator-cache-save
+      - ios-simulator-cache-seed
       - ios-simulator
     # Preserve the aggregate verdict after a failed suite, but do not allocate
     # a Blacksmith runner after the workflow has been cancelled.
