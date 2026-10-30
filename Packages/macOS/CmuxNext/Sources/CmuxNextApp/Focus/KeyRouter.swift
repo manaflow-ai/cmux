@@ -141,7 +141,7 @@ final class KeyRouter: BrowserKeyRouting {
                 if candidate.tier == .content { return .deliver }
             }
             if Self.allows(candidate.tier, id: candidate.id, focus: focus) {
-                return Self.offersToPage(candidate, focus: focus, facts: facts) ? .offerToPage(candidate) : .run(candidate)
+                return Self.offersToPage(candidate, event: event, focus: focus, facts: facts) ? .offerToPage(candidate) : .run(candidate)
             }
         }
         // The code editor's Cmd-[ / Cmd-] are outdent and indent (Monaco), not page Back / Forward.

@@ -1,7 +1,7 @@
 # Voice Room: an always-on room where people and Chief talk
 
 Status: MVP. The room server and page (experiments/voice-room) are landed; the cmux Labs part
-(`labs.voiceRoom`, CmuxNextDictation/VoiceRoom, the two actions) lands after its fleet compile. Owner: the Voice Room agent (a764),
+(`labs.voiceRoom`, CmuxNextDictation/VoiceRoom, the two actions) is part 2. Owner: the Voice Room agent (a764),
 2026-10-27. Ask (Lawrence, 14549): record the screen all the time and just talk, like Wispr Flow, but
 shaped like FaceTime/Zoom: an input method into a multiplayer interface to AI; a website first, or
 pulled into cmux as a non-official feature enabled only in Settings; several people in one room

@@ -126,6 +126,7 @@ GENERATED_INPUTS = (
     "plans/cmux-next/",
     "scripts/cmux-next/regenerate-action-contracts.sh",
     "scripts/cmux-next/check-action-surfaces.sh",
+    "scripts/cmux-next/judge-action-exports.sh",
     # The settings exports (regenerate-settings-exports.sh; the generated
     # files job exports them fresh and compares). The CmuxNextSettings sources
     # and the export tests are under PACKAGE.

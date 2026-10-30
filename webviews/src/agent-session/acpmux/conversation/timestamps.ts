@@ -6,8 +6,8 @@
 //   the thread's first and over an hour old, or when it comes more than an hour after the
 //   previous turn's answer. A day change alone draws no line.
 // - wording: calendar days before now ≤ 1 → "Today" / "Yesterday", ≤ 7 → the weekday,
-//   ≤ 365 → "Sun, Sep 13", else "Sep 13, 2025"; then the time, joined by " at " only past
-//   seven days.
+//   ≤ 365 → "Sun, Sep 13", else "Sep 13, 2025"; dates past seven days use the locale's
+//   combined date and time format.
 
 const HOUR_MS = 36e5;
 
@@ -67,8 +67,13 @@ export function timestampText(ms: number, clock: Clock): string {
     const relative = new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(-days, "day");
     date = locale.startsWith("en") ? relative[0]!.toUpperCase() + relative.slice(1) : relative;
   } else if (days <= 7) date = format({ weekday: "long" });
-  else if (days <= 365) date = format({ weekday: "short", month: "short", day: "numeric" });
-  else date = format({ month: "short", day: "numeric", year: "numeric" });
+  else {
+    const dateOptions: Intl.DateTimeFormatOptions =
+      days <= 365
+        ? { weekday: "short", month: "short", day: "numeric" }
+        : { month: "short", day: "numeric", year: "numeric" };
+    return format({ ...dateOptions, hour: "numeric", minute: "2-digit" });
+  }
   const time = format({ hour: "numeric", minute: "2-digit" });
-  return days > 7 ? `${date} at ${time}` : `${date} ${time}`;
+  return `${date} ${time}`;
 }

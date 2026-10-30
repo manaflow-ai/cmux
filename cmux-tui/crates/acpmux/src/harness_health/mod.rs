@@ -162,7 +162,7 @@ fn now_ms() -> u64 {
 
 /// Login commands for the harnesses acpmux finds on PATH, which carry no
 /// profile (`config/discover.rs`). A profile's `auth.login` comes first.
-fn builtin_login(family: &str) -> Option<&'static str> {
+pub(crate) fn builtin_login(family: &str) -> Option<&'static str> {
     Some(match family {
         "codex" => "codex login",
         "claude" => "claude auth login",
@@ -308,6 +308,35 @@ fn auth_failure(output: &str) -> Auth {
         Auth::Expired
     } else {
         Auth::SignedOut
+    }
+}
+
+/// One harness's sign-in, asked now for `_acpmux/session/auth {refresh}` (`hub/session_auth.rs`),
+/// never from the saved check: the profile's `auth.check` when starting it cannot read the login
+/// keychain ([`keychain_sign_in`]), else the built-in evidence that reads only files and
+/// `codex login status` with a file login ([`builtin_auth`]). `profile` carries the chat's own
+/// account home. Err: nothing here could answer without the keychain, or the check failed to
+/// run; a failure to run is never a sign-in state.
+pub(crate) fn fresh_auth(
+    id: &str,
+    profile: &crate::config::HarnessProfile,
+    notes: Option<&crate::config::profiles::AuthNotes>,
+) -> Result<(Auth, String), String> {
+    let s = Subject::of(id, profile, notes).ok_or("the harness has no command")?;
+    let keychain = keychain_sign_in(id, profile);
+    if !s.check.is_empty() && keychain.is_none() {
+        let check = s.check.join(" ");
+        return match probe::auth_check(&s.check, &s.env, &s.family)? {
+            (true, _) => Ok((Auth::SignedIn, format!("`{check}` passed"))),
+            (false, output) => Ok((auth_failure(&output), format!("`{check}` failed"))),
+        };
+    }
+    match builtin_auth(&s) {
+        Some((auth, detail)) if auth != Auth::Unknown => Ok((auth, detail.unwrap_or_default())),
+        _ => Err(match keychain {
+            Some(why) => format!("no check ran: {why}, which acpmux does not read"),
+            None => "the harness has no sign-in check acpmux can run".to_owned(),
+        }),
     }
 }
 

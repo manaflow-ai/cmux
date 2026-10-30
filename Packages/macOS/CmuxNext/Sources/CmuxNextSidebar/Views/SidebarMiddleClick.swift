@@ -33,8 +33,11 @@ struct SidebarPress {
 
 /// MIDDLE-CLICK-CLOSES-WORKSPACE: a middle click on a sidebar workspace row
 /// closes that workspace through the row x's intent (`.close`, so the same
-/// confirmation and the shared close path); on a group, section or tab row
-/// it does nothing. Down and up must land on the same row.
+/// confirmation and the shared close path); on a tab listed beneath it, that
+/// tab alone (`.closeTab`, Close Tab's path, as the tab strip's middle-click;
+/// Leo 2026-10-27: "we need to be able to middle-click ... Like just closing
+/// tabs fundamentally"); on a group or section row it does nothing. Down and
+/// up must land on the same row.
 @MainActor
 final class SidebarMiddleClick {
     /// The row the middle press went down on.
@@ -63,8 +66,14 @@ final class SidebarMiddleClick {
     /// A middle press came up at `point` (list coordinates).
     func pressUp(at point: NSPoint, in list: SidebarListView) {
         defer { pressKey = nil }
-        guard case let .workspace(id)? = list.clickHit(at: point)?.key, pressKey == .workspace(id),
-              !list.model.isPlaceholder(id) else { return }
-        list.model.send(.close([id]))
+        guard let key = list.clickHit(at: point)?.key, key == pressKey else { return }
+        switch key {
+        case let .workspace(id) where !list.model.isPlaceholder(id):
+            list.model.send(.close([id]))
+        case let .tab(workspace, tab):
+            list.model.send(.closeTab(workspace: workspace, tab: tab))
+        default:
+            break
+        }
     }
 }

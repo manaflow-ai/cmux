@@ -28,7 +28,7 @@ const modes = {
   availableModes: [
     { id: "ask", name: "Supervised", description: "Ask before changing files or running commands" },
     { id: "auto", name: "Auto", description: "Choose the safest approval level for each action" },
-    { id: "bypassPermissions", name: "Full access", description: "Run actions without approval" },
+    { id: "bypassPermissions", name: "Bypass permissions", description: "Run actions without approval" },
   ],
 };
 
@@ -98,7 +98,7 @@ export default agentPaneEntry({
     "mid-folder": {
       note: "A new chat in a folder that fits a 341 px pane whole and cuts in the middle at 340, the strip's folder step.",
       ready: { newSession: true },
-      snapshot: fresh(true, { cwd: "/Users/you/src/atlas-checkout", branch: "main" }),
+      snapshot: fresh(true, { cwd: "/Users/you/src/atlas-web-checkout", branch: "main" }),
     },
     "no-project": {
       note: "A new chat with no folder yet: Choose folder in the strip, which keeps its height.",

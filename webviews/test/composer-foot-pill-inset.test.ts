@@ -5,7 +5,8 @@
 // label like a sliver; it is 8 px, the inset of an NSMenu row's highlight and of Codex's and
 // ChatGPT's mode chip. The row's own padding is counted from the same inset, so the mode's text
 // stays 17 px in from the box's side and the model's 14 px in from the other, and neighbouring chips
-// tuck the extra padding under each other: only the pill grows.
+// tuck the extra padding under each other: only the pill grows. Since #24216 the row itself has no
+// side padding: it spans the box.
 // test/composer-row-rhythm.test.ts measures the drawn row in Chromium.
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -43,12 +44,13 @@ test("each chip's pill is padded by the row's inset", () => {
   expect(chip).toMatch(/padding-inline\s*:\s*var\(--acpmux-row-inset\)/);
 });
 
-test("the row's padding is counted from the inset, so only the pill grows, not the text's place", () => {
+test("the row adds no side padding of its own, so each pill's inset is the only one", () => {
   const foot = rules(".acpmux-composer-foot").join(";");
-  // The mode's text 17 px in from the box's side; the model's --acpmux-row-edge in from the other.
-  expect(foot).toMatch(
-    /padding-inline\s*:\s*calc\(17px - var\(--acpmux-row-inset\)\)\s+calc\(var\(--acpmux-row-edge\) - var\(--acpmux-row-inset\)\)/,
-  );
+  // #24216 (Leo 2026-10-22, "stop with the left right padding"): the row spans the box, the mode's
+  // pill starting on its left edge and the last control's ending on its right edge.
+  // test/composer-side-inset.test.ts measures it.
+  const paddings = [...foot.matchAll(/padding-inline\s*:\s*([^;]+)/g)].map((match) => match[1].trim());
+  expect(paddings[paddings.length - 1]).toBe("0");
   // Chips touch (no gap of their own), so neighbouring pills never overlap.
   expect(px(foot, "--acpmux-row-gap")).toBe(0);
 });

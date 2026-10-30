@@ -15,6 +15,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, anyhow};
 use base64::Engine;
 use cmux_build_identity::BUILD_IDENTITY;
+use cmux_json::JsonSet as _;
 #[cfg(test)]
 use cmux_remote::admin::UnixPeerAuthError;
 use cmux_remote::admin::{AdminRequest, AdminResponse, call_admin, call_admin_with_peer_exit};
@@ -2100,8 +2101,11 @@ fn run_update_need(args: &[String]) -> anyhow::Result<()> {
         "need": need, "reason": reason, "remote": side(&remote), "local": side(&local),
     });
     if reason == cmux_remote::update_need::Reason::Incomparable {
-        answer["warning"] = serde_json::json!(
-            "each build serves a capability the other lacks; neither replaces the other"
+        answer.set(
+            "warning",
+            serde_json::json!(
+                "each build serves a capability the other lacks; neither replaces the other"
+            ),
         );
     }
     println!("{answer}");
@@ -2127,8 +2131,10 @@ fn run_probe(args: &[String]) -> anyhow::Result<()> {
     // 4096 bytes of this output, and the list alone is larger (cx-3r9mt).
     let mut value = value;
     if args.iter().any(|argument| argument == "--build-facts") {
-        value["daemon_capabilities"] =
-            serde_json::json!(cmux_tui_core::server::build_capabilities());
+        value.set(
+            "daemon_capabilities",
+            serde_json::json!(cmux_tui_core::server::build_capabilities()),
+        );
     }
     if args.iter().any(|argument| argument == "--json") {
         println!("{}", serde_json::to_string(&value)?);

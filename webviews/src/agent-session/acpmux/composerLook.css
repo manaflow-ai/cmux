@@ -193,14 +193,16 @@
   position: absolute;
   /* Match the card's content column so the floating dock's gutters still pass
      pointer and wheel input through to the transcript. */
-  inset-inline: var(--cv-inset, max(18px, calc((100% - 760px) / 2)));
+  inset-inline: var(--cv-inset, max(18px, calc((100% - 760px) / 2)))
+    var(--cv-inset-end, var(--cv-inset, max(18px, calc((100% - 760px) / 2))));
   bottom: 0;
   z-index: calc(var(--layer-raised, 1) + 1);
 }
-/* The shared model footer adds its 28px row, 8px margins and 20px composer gutter. Keep Codex's dots
-   overlay on the box's dead-space edge, instead of at the bottom of that footer. */
+/* The shared model footer adds its 28px row and 8px margins above and below it. Keep Codex's dots
+   overlay on the box's dead-space edge, instead of at the bottom of that footer. (64px was measured
+   in a gallery that applied styles.css's 48px bar height to the row, which the app never does.) */
 .acpmux-composer[data-composer-look="codex"]:has(.acpmux-composer-foot) > .acpmux-composer-under {
-  bottom: 64px;
+  bottom: 44px;
   height: var(--ds-space-5);
 }
 .acpmux-composer-under:not([data-beside-foot]) .acpmux-look-slot {

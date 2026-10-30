@@ -6,6 +6,19 @@ import { bezierAt, type CubicBezier } from "../../../ui/cubicBezier";
 import { HIGHLIGHT_EASING, HIGHLIGHT_MS } from "./model";
 
 const running = new WeakMap<HTMLElement, () => void>();
+
+/// Sent (not bubbling) on a scroller right after this module's motion writes its offset from a frame
+/// callback. The browser's own `scroll` event for that write comes on the next frame, after this one
+/// paints, so what must move with the scroll on its own frame (the minimap's band) listens for this too.
+export const MOTION_SCROLL_EVENT = "acpmux-motion-scroll";
+
+/// Tells `node`'s listeners that the motion just moved it (`MOTION_SCROLL_EVENT`).
+function announceScroll(node: HTMLElement): void {
+  // A stand-in scroller (a unit test's) may have no document or events of its own.
+  if (typeof node.dispatchEvent !== "function") return;
+  const Event_ = node.ownerDocument?.defaultView?.Event ?? globalThis.Event;
+  if (Event_) node.dispatchEvent(new Event_(MOTION_SCROLL_EVENT));
+}
 const READER_INPUTS = ["wheel", "pointerdown", "touchstart", "keydown"] as const;
 
 /// Reduce Motion: the system's, or the app's (its motion tokens are 0 when Reduce Motion is on or
@@ -130,6 +143,7 @@ function runScroll(
     }
     const progress = Math.min(1, Math.max(0, (now - start) / duration));
     write(bezierAt(curve, progress));
+    announceScroll(node);
     if (!active) return;
     if (progress < 1) frame = requestAnimationFrame(step);
     else {
@@ -168,6 +182,7 @@ export function settleScroll(node: HTMLElement, offset: () => number | undefined
       const to = Math.max(0, Math.min(max, node.scrollTop + by));
       if (Math.abs(to - node.scrollTop) > 0.5) {
         node.scrollTop = to;
+        announceScroll(node);
         steady = 0;
       } else steady += 1;
     }

@@ -321,24 +321,30 @@ await requireBrowserLane("editor-page.test.ts", async () => {
         expect(await asked()).toEqual(["commandPalette"]);
         expect(await monacoPalette()).toBe(false);
         expect(await editorText(page)).toBe("const a = 1;\n");
-        // The context menu's Command Palette item (its last row) runs the same command. Chosen from
-        // the keyboard: Monaco's menu did not take a synthetic mouse-up on its row here.
+        // The context menu's Command Palette row runs the same command. The right-click menu is the
+        // app's native menu (nativeEditorMenu.ts): the dev host notes its rows and picks the row
+        // the test names, as the person would in the app's NSMenu.
+        await page.evaluate(
+          (id) =>
+            ((window as unknown as { __cmuxEditorDev: { menuPick: string | null } }).__cmuxEditorDev.menuPick = id),
+          "editor.action.quickCommand",
+        );
         await page.click(".monaco-editor .view-lines", { button: "right" });
-        await page
-          .locator('.monaco-menu [role="menuitem"]', { hasText: "Command Palette" })
-          .first()
-          .waitFor({ timeout: 10_000 });
-        await page.keyboard.press("ArrowUp");
-        expect(
-          await page.evaluate(() => document.activeElement?.shadowRoot?.activeElement?.textContent ?? ""),
-        ).toContain("Command Palette");
-        await page.keyboard.press("Enter");
         await page.waitForFunction(
           () =>
             (window as unknown as { __cmuxEditorDev: { appActions: unknown[] } }).__cmuxEditorDev.appActions.length > 1,
           null,
           { timeout: 10_000 },
         );
+        const rows = await page.evaluate(() =>
+          (
+            window as unknown as { __cmuxEditorDev: { menus: { items: { id: string; label: string }[] }[] } }
+          ).__cmuxEditorDev.menus
+            .at(-1)!
+            .items.map((row) => row.label),
+        );
+        expect(rows).toContain("Command Palette");
+        expect(await page.locator(".monaco-menu").count()).toBe(0);
         expect(await asked()).toEqual(["commandPalette", "commandPalette"]);
         expect(await monacoPalette()).toBe(false);
       });

@@ -1,6 +1,7 @@
 import { Schema } from "effect"
 import { APPROVAL, APPROVAL_DOC, CloudMachine, CloudMachineSize, KEY, LIMITED, MachineName, PROVIDER, SnapshotId, cloudMutation, cloudRead } from "./cloud-machine-ops.ts"
 import { Revision, UserId } from "./schemas.ts"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * Cloud environments (plans/cmux-next/cloud-environments-DESIGN.md): a repository, a setup script
@@ -11,12 +12,12 @@ import { Revision, UserId } from "./schemas.ts"
  * cloud.environment.secrets_unavailable.
  */
 
-export const EnvironmentId = Schema.String.check(Schema.isPattern(/^env_[a-z0-9]{20}$/)).annotate({ identifier: "EnvironmentId", description: "A Cloud environment." })
-const VarName = Schema.String.check(Schema.isPattern(/^[A-Za-z_][A-Za-z0-9_]{0,127}$/))
+export const EnvironmentId = Schema.String.check(isPattern(/^env_[a-z0-9]{20}$/)).annotate({ identifier: "EnvironmentId", description: "A Cloud environment." })
+const VarName = Schema.String.check(isPattern(/^[A-Za-z_][A-Za-z0-9_]{0,127}$/))
 
 export const CloudEnvironmentVariable = Schema.Union([
   Schema.Struct({ name: VarName, value: Schema.String.check(Schema.isMaxLength(32768)) }),
-  Schema.Struct({ name: VarName, secret: Schema.String.check(Schema.isPattern(/^[A-Za-z0-9._-]{1,128}$/)) })
+  Schema.Struct({ name: VarName, secret: Schema.String.check(isPattern(/^[A-Za-z0-9._-]{1,128}$/)) })
 ]).annotate({ identifier: "CloudEnvironmentVariable", description: "A plain variable (baked into the snapshot) or a secret (a vault item name; the value never enters the snapshot)." })
 
 const Millis = Schema.Int

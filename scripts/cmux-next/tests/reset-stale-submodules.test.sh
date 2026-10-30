@@ -98,4 +98,25 @@ echo dirty > "$ws/cmux-tui/a"
 out=$(fetch)
 [[ "$out" == "1 "* ]] && grep -q 'uncommitted cmux-tui source changes' <<<"$out" \
   || fail "a real cmux-tui edit was not refused after the reset:" "$out"
+
+# A workspace that lost .git/modules (2026-10-28, the warm nightly-next
+# builder): the checkout's .git file names nothing. The reset drops it to an
+# empty directory instead of failing in `git submodule status`, and a later
+# update clones it again.
+"$RESET" "$ws"
+git_q -C "$ws" submodule update --init ghostty-next || fail "setup: init before losing .git/modules failed"
+rm -rf "$ws/.git/modules"
+git -C "$ws" submodule status >/dev/null 2>&1 && fail "setup: submodule status passed on a dangling checkout"
+out=$("$RESET" "$ws" 2>&1) || fail "reset failed on a dangling submodule checkout:" "$out"
+grep -q 'ghostty-next: its .git names' <<<"$out" || fail "the reset did not say it dropped the dangling checkout:" "$out"
+[[ -d "$ws/ghostty-next" && -z "$(ls -A "$ws/ghostty-next")" ]] || fail "the dangling checkout was not emptied"
+git_q -C "$ws" submodule update --init ghostty-next || fail "re-init after dropping the dangling checkout failed"
+[[ "$(git -C "$ws/ghostty-next" rev-parse HEAD)" == "$commit_b" ]] || fail "re-init did not check out the gitlink"
+
+# A half-made git dir (no HEAD) goes with its checkout, so the update clones afresh.
+mkdir -p "$ws/.git/modules/ghostty-next/objects"
+rm -f "$ws/.git/modules/ghostty-next/HEAD"
+"$RESET" "$ws" >/dev/null || fail "reset failed on a half-made submodule git dir"
+[[ ! -e "$ws/.git/modules/ghostty-next" ]] || fail "the half-made git dir was kept"
+git_q -C "$ws" submodule update --init ghostty-next || fail "re-init after dropping a half-made git dir failed"
 printf 'reset-stale-submodules tests: ok\n'
