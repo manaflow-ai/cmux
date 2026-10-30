@@ -71,7 +71,7 @@ struct QuitStateFilesTests {
 
 /// A save held on a file's queue (a busy disk) that only the start of a drain of the files lets go
 /// (``AgentPaneStateFiles/init(drainBegan:)``), and the order of the quit's steps around it.
-final class DrainGate: Sendable {
+nonisolated final class DrainGate: Sendable {
     private let release: DispatchSemaphore
     private let began: FirstOutcome<Bool>
     private let order: DrainGateLog
@@ -122,7 +122,7 @@ final class DrainGate: Sendable {
 }
 
 /// The quit steps' order around a ``DrainGate``, from any thread.
-final class DrainGateLog: Sendable {
+nonisolated final class DrainGateLog: Sendable {
     private let order = Mutex<[String]>([])
 
     func append(_ event: String) {
