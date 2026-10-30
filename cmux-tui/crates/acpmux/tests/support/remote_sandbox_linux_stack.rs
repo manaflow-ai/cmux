@@ -5,7 +5,8 @@ use super::*;
 use futures_util::{SinkExt, StreamExt};
 use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, tungstenite::Message as WsMessage};
+use tokio_tungstenite::tungstenite::{Message as WsMessage, client::IntoClientRequest};
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
 type Ws = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 
@@ -112,7 +113,11 @@ async fn production_spawn(tag: &str, vm_host: bool) {
     .unwrap()
     .unwrap();
     let ready: Value = serde_json::from_str(&ready).unwrap();
-    let url = ready["webUrl"].as_str().unwrap().replace("http://", "ws://");
+    // The listener token rides in the URL fragment and is read only from a header
+    // (`server/ws_auth.rs`, d29c3ec299a): send it as a native client does.
+    let (base, token) = ready["webUrl"].as_str().unwrap().split_once("/#token=").unwrap();
+    let mut url = format!("{}/", base.replace("http://", "ws://")).into_client_request().unwrap();
+    url.headers_mut().insert("authorization", format!("Bearer {token}").parse().unwrap());
     let (mut ws, _) =
         tokio::time::timeout(Duration::from_secs(45), tokio_tungstenite::connect_async(url))
             .await
