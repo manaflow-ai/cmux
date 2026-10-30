@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1223,
+    "entries": 1226,
     "shortcuts": 189
   },
   "sections": [
@@ -170,6 +170,12 @@
           "title": "Invite to cmux-next…",
           "shortcut": null,
           "command": "cmux home invite"
+        },
+        {
+          "id": "home.inviteToTeam",
+          "title": "Invite to Team…",
+          "shortcut": null,
+          "command": "cmux home invite-to-team"
         },
         {
           "id": "keepMacAwake",
@@ -6046,6 +6052,12 @@
           "command": "cmux agent stop-computer-use"
         },
         {
+          "id": "agentPane.stopReadingAloud",
+          "title": "Stop Reading Aloud",
+          "shortcut": null,
+          "command": "cmux agent stop-reading-aloud"
+        },
+        {
           "id": "home.stopChief",
           "title": "Stop the Chief",
           "shortcut": null,
@@ -6848,6 +6860,12 @@
           "title": "Installed Apps",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "team.invite",
+          "title": "Invite to Team…",
+          "shortcut": null,
+          "command": "cmux team invite"
         },
         {
           "id": "help.discord",

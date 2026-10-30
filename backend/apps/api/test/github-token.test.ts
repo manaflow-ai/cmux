@@ -181,6 +181,34 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     })
   })
 
+  it("drops a cached installation token GitHub refuses and lists with a fresh one; a second refusal needs a relink", async () => {
+    const a = await signedInWithInstall("gh-token-repo-401", "cli")
+    const { gh } = await linkGitHub(a.session, a.team)
+    await inDO(testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(a.team)), async (instance) => {
+      const h: LedgerHost = { ...instance.ledgerHost(a.team), state: () => instance.boundEngine.currentState }
+      const p: Principal = { identity: `user:${a.user}`, kind: "session", user: a.user, team: a.team }
+      const refused = new Set<string>()
+      gh.routes["https://api.github.com/installation/repositories"] = (request) => {
+        const auth = request.headers.get("authorization") ?? ""
+        return refused.has(auth) ? new Response(null, { status: 401 }) : ok({ total_count: 1, repositories: [{ full_name: "acme/web", private: true }] })
+      }
+      // Warm the per-isolate installation token cache, then GitHub revokes that token.
+      expect(await githubRepos(h, p, {})).toMatchObject({ ok: true })
+      const listings = () => gh.calls.filter((call) => call.url.includes("/installation/repositories?"))
+      const cached = listings().at(-1)!.auth!
+      refused.add(cached)
+      const mints = gh.mints().length
+      expect(await githubRepos(h, p, {})).toMatchObject({ ok: true, value: { repos: [{ full_name: "acme/web", private: true }] } })
+      expect(gh.mints().length).toBe(mints + 1)
+      const fresh = listings().at(-1)!.auth!
+      expect(fresh).not.toBe(cached)
+      // The fresh token is cached; when GitHub refuses that one and the next, the connection needs a relink.
+      gh.routes["https://api.github.com/installation/repositories"] = () => new Response(null, { status: 401 })
+      expect(await githubRepos(h, p, {})).toMatchObject({ ok: false, status: 409, code: "needs_reauth" })
+      expect(gh.mints().length).toBe(mints + 2)
+    })
+  })
+
   it("mints a token narrowed to one repository and the asked permissions, reuses it per principal, never across principals", async () => {
     const a = await signedInWithInstall("gh-token-1", "cli")
     const { gh } = await linkGitHub(a.session, a.team)
@@ -213,7 +241,12 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
 
     // Status: configured, the connection and its repositories.
     const res = await worker.fetch(`https://api.test/v1/integrations/github/status?team=${a.team}`, { headers: { authorization: `Bearer ${a.installToken}` } })
-    expect(await res.json()).toMatchObject({ configured: true, app_slug: "cmux-test", connection: { account: "acme", status: "active", repos: ["acme/api", "acme/web"], allow_workflows: false } })
+    expect(await res.json()).toMatchObject({ configured: true, app_slug: "cmux-test", allowed: true, connection: { account: "acme", status: "active", repos: ["acme/api", "acme/web"], allow_workflows: false } })
+
+    // A team policy without GitHub: the status says so, as the token route refuses it.
+    await policy(a.session, a.team, { allowed_providers: ["linear"] })
+    const denied = await worker.fetch(`https://api.test/v1/integrations/github/status?team=${a.team}`, { headers: { authorization: `Bearer ${a.installToken}` } })
+    expect(await denied.json()).toMatchObject({ allowed: false, connection: { status: "active" } })
   })
 
   it("refuses repositories outside the connection or policy, other owners, unknown permissions and workflows without the policy flag", async () => {

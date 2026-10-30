@@ -4,7 +4,7 @@ import type { Connection } from "@cmux/protocol"
 import { githubRepoAllowed, mayUse, policyOf, providerAllowed, type ConnectionsState } from "../domains/connections.ts"
 import type { Env } from "../env.ts"
 import { open, seal, type SealedSecret } from "./crypto.ts"
-import { github, installationToken, mintedToken, requestInstallationToken, revokeInstallationToken, type Http } from "./providers.ts"
+import { forgetInstallationToken, github, installationToken, mintedToken, requestInstallationToken, revokeInstallationToken, type Http } from "./providers.ts"
 
 /**
  * GitHub installation tokens handed to callers (POST /v1/integrations/github/token, gh-app-product
@@ -161,13 +161,26 @@ export const githubRepos = async (
   {
     const installation = Number(/^github:installation:(\d+)$/.exec(connection.account?.key ?? "")?.[1])
     if (!Number.isSafeInteger(installation)) return fail(503, "integration.unavailable", "the GitHub connection has no installation")
-    let token: string
-    try {
-      token = await installationToken(h.env, h.http, installation)
-    } catch {
-      return fail(503, "integration.unavailable", "GitHub did not answer; retry")
+    // A cached installation token GitHub refuses (revoked, or the App re-installed) is dropped and
+    // minted once more before the connection is reported as needing a relink.
+    const list = async (): Promise<{ token: string; response: Response | null } | null> => {
+      let token: string
+      try {
+        token = await installationToken(h.env, h.http, installation)
+      } catch {
+        return null
+      }
+      const response = await h.http(new Request(`https://api.github.com/installation/repositories?per_page=100&page=${cursor.page}`, { headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", "user-agent": "cmux-cloud" } })).catch(() => null)
+      return { token, response }
     }
-    const response = await h.http(new Request(`https://api.github.com/installation/repositories?per_page=100&page=${cursor.page}`, { headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", "user-agent": "cmux-cloud" } })).catch(() => null)
+    let listed = await list()
+    if (listed?.response?.status === 401) {
+      forgetInstallationToken(installation, listed.token)
+      listed = await list()
+      if (listed?.response?.status === 401) forgetInstallationToken(installation, listed.token)
+    }
+    if (!listed) return fail(503, "integration.unavailable", "GitHub did not answer; retry")
+    const response = listed.response
     if (!response) return fail(503, "integration.unavailable", "GitHub did not answer; retry")
     if (!response.ok) return response.status === 401 ? fail(409, "needs_reauth", "the GitHub App installation needs to be linked again") : fail(503, "integration.unavailable", "GitHub repository listing failed")
     const body = (await response.json().catch(() => undefined)) as { repositories?: unknown; total_count?: unknown } | undefined
@@ -344,6 +357,8 @@ export const githubStatus = (env: Env, state: ConnectionsState, p: Principal) =>
   return {
     configured: Boolean(env.INTEGRATIONS_KEK) && github.configured(env),
     app_slug: env.GITHUB_APP_SLUG ?? null,
+    // The token route's own policy check: a connection the team policy disallows mints nothing.
+    allowed: providerAllowed(policyOf(state), "github"),
     connection: c ? { id: c.id, account: c.account?.name ?? null, status: c.status === "expired" ? "needs_reauth" : c.status, repos: c.resources?.repos ?? null, allow_workflows: policyOf(state).github.allow_workflows === true } : null
   }
 }

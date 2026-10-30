@@ -142,7 +142,8 @@
    "27.0": true
   },
   "NSButton call:resetCursorRects/0": {
-   "27.0": true
+   "27.0": true,
+   "27.0.1": true
   },
   "NSButton call:resignFirstResponder/0": {
    "26.5.2": true,
@@ -508,6 +509,18 @@
    "27.0": true,
    "27.0.1": true
   },
+  "NSSplitView call:mouseEntered/1": {
+   "27.0.1": true
+  },
+  "NSSplitView call:mouseExited/1": {
+   "27.0.1": true
+  },
+  "NSSplitView call:updateTrackingAreas/0": {
+   "27.0.1": true
+  },
+  "NSSplitView call:viewDidChangeEffectiveAppearance/0": {
+   "27.0.1": true
+  },
   "NSSplitView call:viewDidMoveToWindow/0": {
    "27.0.1": true,
    "27.0": true
@@ -764,7 +777,8 @@
    "27.0.1": true
   },
   "NSView call:addCursorRect/2:cursor": {
-   "27.0": true
+   "27.0": true,
+   "27.0.1": true
   },
   "NSView call:addSubview/3:positioned,relativeTo": {
    "26.5.2": true,

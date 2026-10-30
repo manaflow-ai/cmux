@@ -68,6 +68,11 @@ export const installationToken = async (env: Env, http: Http, installation: numb
   return token
 }
 
+/** Drops a cached installation token GitHub refused (a 401), so the next ask mints a fresh one. */
+export const forgetInstallationToken = (installation: number, token: string) => {
+  if (installationTokens.get(installation)?.token === token) installationTokens.delete(installation)
+}
+
 export const github: ProviderImpl = {
   configured: (env) => Boolean(env.GITHUB_APP_SLUG && env.GITHUB_APP_CLIENT_ID && env.GITHUB_APP_CLIENT_SECRET && env.GITHUB_APP_PRIVATE_KEY),
   defaultScopes: [],
