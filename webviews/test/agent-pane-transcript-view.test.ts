@@ -152,6 +152,14 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
         stored: localStorage.getItem("cmux.acpmux.transcriptView"),
         worked: [...document.querySelectorAll(".cv-worked")].map((node) => node.getAttribute("aria-expanded")),
         rows: [...document.querySelectorAll("[data-row-kind], .cv-tool")].length,
+        classes: [
+          ...new Set(
+            [...document.querySelectorAll("[class*='cv-']")].flatMap((node) =>
+              [...node.classList].filter((name) => name.startsWith("cv-")),
+            ),
+          ),
+        ].join(" "),
+        text: (document.querySelector(".acpmux-main") as HTMLElement | null)?.innerText.slice(0, 700),
       }));
       if (!(await thought.count())) throw new Error(`Thinking drew no thought: ${JSON.stringify(picked)}`);
       const thinking = {
