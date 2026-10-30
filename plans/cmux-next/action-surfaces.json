@@ -36758,34 +36758,6 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "offered",
-      "cli_name" : "team invite",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "team.invite",
-      "main_menu" : null,
-      "mcp" : "offered",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.settings",
-        "order" : 112,
-        "title" : "Settings and Help",
-        "title_key" : "category.settings",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Invite to Team…",
-      "title_key" : "action.team.invite",
-      "title_table" : "ActionCatalog"
-    },
-    {
       "cli" : "devOnly",
       "cli_name" : "action server-make-this-mac-a-server",
       "context_menu" : "noObject",
