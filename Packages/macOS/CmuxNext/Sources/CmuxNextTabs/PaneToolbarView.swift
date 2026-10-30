@@ -187,7 +187,13 @@ public final class PaneToolbarView: NSView {
         let menu = NSMenu(title: tool.label)
         let invoke = onNativeTool
         menu.autoenablesItems = false
-        let rows = menuItemID.flatMap { id in findMenuItem(id, in: tool.menu)?.children } ?? tool.menu
+        let rows: [PaneTabRowMenuItem]
+        if let menuItemID {
+            guard let item = findMenuItem(menuItemID, in: tool.menu) else { return nil }
+            rows = item.children
+        } else {
+            rows = tool.menu
+        }
         for item in rows {
             if item.separatorBefore { menu.addItem(.separator()) }
             menu.addItem(menuItem(item, tool: tool, ancestorsEnabled: tool.enabled, invoke: invoke))
