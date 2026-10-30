@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { AGENT_MUX, messageText, USER_LOCAL } from "../src/conversation-types.ts";
 import { FakeDaemon } from "./fakes/fake-daemon.ts";
@@ -135,4 +135,30 @@ test("mux hook removes its temporary cursor when the write fails", () => {
   expect(run.exitCode, run.stderr.toString()).not.toBe(0);
   expect(run.stderr.toString()).toContain("EFBIG");
   expect(readdirSync(sessions)).toEqual([]);
+});
+
+test("mux hook sweeps temporary cursors a killed hook left behind", () => {
+  const dir = mkdtempSync("/tmp/muxh-stale-");
+  cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+  const home = join(dir, "home");
+  const sessions = join(home, "state", "sessions");
+  mkdirSync(sessions, { recursive: true });
+  // A hook killed between its write and its rename leaves its temporary cursor behind.
+  const stale = join(sessions, "killed.json.4242.1.ab.tmp");
+  const fresh = join(sessions, "killed.json.4243.2.cd.tmp");
+  const other = join(sessions, "other.json.4244.3.ef.tmp");
+  for (const file of [stale, fresh, other]) writeFileSync(file, '{"seen":1}\n');
+  const old = new Date(Date.now() - 10 * 60_000);
+  utimesSync(stale, old, old);
+  utimesSync(other, old, old);
+  const run = Bun.spawnSync([process.execPath, main, "hook", "session-start"], {
+    env: { PATH: "/usr/bin:/bin", HOME: dir, MUX_HOME: home },
+    stdin: new Blob([JSON.stringify({ session_id: "killed" })]),
+  });
+  expect(run.exitCode, run.stderr.toString()).toBe(0);
+  // Its own stale temporary goes; a fresh one may belong to a hook still writing, and
+  // another session's temporaries are that session's to sweep.
+  expect(readdirSync(sessions).sort()).toEqual(
+    ["killed.json", "killed.json.4243.2.cd.tmp", "other.json.4244.3.ef.tmp"].sort(),
+  );
 });
