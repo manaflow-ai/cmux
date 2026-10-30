@@ -383,7 +383,10 @@ def owned_label_full(snapshot: Mapping[str, Any] | None, label: str, now: dt.dat
         if min(listening, queued, *counts) < 0:
             return True
     except (KeyError, TypeError, ValueError):
-        return True
+        # Legacy janitor records have no authoritative listener health. Treat
+        # them as full only after the observed queue has crossed the overflow
+        # threshold; an empty/short legacy queue must retain a live idle route.
+        return queued_wait_s >= OWNED_HEALTH_QUEUE_SECONDS
     return listening == 0 and queued > 0 and any(counts)
 
 

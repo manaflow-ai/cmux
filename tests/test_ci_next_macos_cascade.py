@@ -113,6 +113,11 @@ class Counts(unittest.TestCase):
         self.assertEqual(cascade.queued({"generated_at": "2026-10-19T21:58:00Z", "pools": {}}, NOW),
                          {LARGE: 0, SMALL: 0})
 
+    def test_legacy_health_record_with_no_queue_keeps_live_route(self):
+        shot = snapshot(minutes_old=1)
+        shot["pools"][GUI] = {"queued": 0, "running": 1, "oldest_queued_minutes": 0}
+        self.assertFalse(cascade.owned_label_full(shot, GUI, NOW))
+
     def test_owned_health_full_then_overflows(self):
         shot = snapshot(minutes_old=1)
         shot["pools"][GUI] = {"listening": 0, "busy": 9,
