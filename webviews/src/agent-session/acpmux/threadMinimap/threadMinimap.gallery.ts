@@ -50,7 +50,7 @@ const turns: Array<[string, string]> = [
   ],
   [
     "Check the long-chat recording against the implementation",
-    "The measured reference has a 10 px pitch, 6 px resting ticks, a 26 px hovered tick, and a 250 ms preview delay. The parity page replays those timings.",
+    "The measured reference has a 10 px pitch, 6 px resting ticks, a 26 px hovered tick, and a preview that opens with the hover. The parity page replays those timings.",
   ],
   [
     "Summarize what is ready to land",
@@ -271,7 +271,7 @@ export default agentPaneEntry({
       },
     },
     "long-chat": {
-      note: "Eighteen prompts as the Codex rail: 10 px rows 16 px from the left edge, the prompts on screen brighter. Hovering row 8 magnifies it and its neighbors (26, 20, 14, 10 px) and opens the preview card 250 ms later, flush right of the row.",
+      note: "Eighteen prompts as the Codex rail: 10 px rows 16 px from the left edge, the prompts on screen brighter. Hovering row 8 magnifies it and its neighbors (26, 20, 14, 10 px) and opens the preview card at once, flush right of the row.",
       snapshot: chat(rows, { title: "Thread minimap review" }),
       play: async (ctx) => {
         // The PR diff runner also replays base widths where the rail can be hidden; skip there.
@@ -281,7 +281,7 @@ export default agentPaneEntry({
       },
     },
     hovered: {
-      note: "Hovering the rail keeps the default cursor and turns only the highlighted tick white; unbookmarked rows do not grow a dot.",
+      note: "Hovering the rail keeps the default cursor and turns only the highlighted tick white; unbookmarked rows do not grow a dot. Captured on the hover's commit: the preview card is already open beside the row (it waited 250 ms before).",
       snapshot: chat(rows, { title: "Thread minimap hover" }),
       play: async (ctx) => {
         if (!ctx.document.querySelector('[data-tick="8"]')) return;

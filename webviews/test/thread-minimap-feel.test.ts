@@ -267,6 +267,44 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
       await page.close();
     });
 
+    test("the hovered tick, its lit band and its card share one center line, and the card starts at the rail's edge", async () => {
+      const page = await open(turns(0, COUNT), 9000);
+      const index = await firstVisibleTick(page);
+      const point = await tickPoint(page, index + 6);
+      await page.mouse.move(point.x, point.y);
+      await page.waitForFunction(() => (window as any).__card());
+      await page.evaluate(() => (window as any).__still(8));
+      const box = await page.evaluate((at) => {
+        const center = (node: Element) => {
+          const rect = node.getBoundingClientRect();
+          return rect.top + rect.height / 2;
+        };
+        const tick = document.querySelector<HTMLElement>(`[data-tick="${at}"]`)!;
+        const bar = tick.querySelector(".acpmux-minimap__bar")!;
+        const card = document.querySelector<HTMLElement>(".acpmux-minimap__card")!.getBoundingClientRect();
+        const rail = document.querySelector<HTMLElement>(".acpmux-minimap__rail")!.getBoundingClientRect();
+        const lit = [...document.querySelectorAll<HTMLElement>(".acpmux-minimap__tick")]
+          .map((node) => node.querySelector(".acpmux-minimap__bar")!)
+          .map((node) => center(node) - center(node.parentElement!));
+        return {
+          row: center(tick),
+          bar: center(bar),
+          card: card.top + card.height / 2,
+          cardLeft: card.left,
+          railRight: rail.right,
+          offsets: lit,
+        };
+      }, index + 6);
+      // Every tick's bar sits on its row's center line, so the lit band and the hovered tick do too.
+      for (const offset of box.offsets) expect(Math.abs(offset)).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(box.bar - box.row)).toBeLessThanOrEqual(0.5);
+      // The card's center is the hovered row's (it is clear of the view's edges here).
+      expect(Math.abs(box.card - box.row)).toBeLessThanOrEqual(0.5);
+      // The card starts where the rail ends.
+      expect(Math.abs(box.cardLeft - box.railRight)).toBeLessThanOrEqual(0.5);
+      await page.close();
+    });
+
     test("the band of lit rows follows the scroll on the scroll's own frame", async () => {
       const page = await open(turns(0, COUNT), 9000);
       await page.mouse.move(640, 400);
