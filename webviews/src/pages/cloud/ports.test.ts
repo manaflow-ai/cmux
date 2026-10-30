@@ -14,7 +14,12 @@ function deferred<T>() {
 }
 
 const forward = (machine = "a", port = 3000): PortForward => ({
-  machine, port, host: "127.0.0.1", localPort: port + 10000, generation: 1, state: "up",
+  machine,
+  port,
+  host: "127.0.0.1",
+  localPort: port + 10000,
+  generation: 1,
+  state: "up",
 });
 const route = (machine = "a", port = 3000): BrowserRoute => ({
   machine,
@@ -60,14 +65,24 @@ async function fixture() {
       if (op === CloudOps.browserOpen) return route(String(params.machine), Number(params.port)) as R;
       return null as R;
     },
-    async subscribe() { return () => {}; },
-    handle() { return () => {}; },
+    async subscribe() {
+      return () => {};
+    },
+    handle() {
+      return () => {};
+    },
   };
   const reader = new DetailReader(client, {
     get: () => detail,
-    set: (next) => { detail = next; },
-    fail: (error) => { failures.push(error); },
-    unsupported: (op) => { unavailable.push(op); },
+    set: (next) => {
+      detail = next;
+    },
+    fail: (error) => {
+      failures.push(error);
+    },
+    unsupported: (op) => {
+      unavailable.push(op);
+    },
     planRefused: () => false,
     usageChanged: () => {},
     canChange: () => changeable,
@@ -75,11 +90,17 @@ async function fixture() {
   });
   await reader.load("a");
   return {
-    reader, hold, failures, unavailable, calls,
+    reader,
+    hold,
+    failures,
+    unavailable,
+    calls,
     get: () => detail!,
     pending: () => detail?.pendingPorts?.map(({ port, action }) => ({ port, action })) ?? [],
     count: (op: string) => calls.filter((call) => call.op === op).length,
-    disallow: () => { changeable = false; },
+    disallow: () => {
+      changeable = false;
+    },
   };
 }
 
@@ -87,7 +108,11 @@ type Fixture = Awaited<ReturnType<typeof fixture>>;
 const actions: { action: PortAction; op: string; run: (f: Fixture, machine?: string) => Promise<boolean> }[] = [
   { action: "forward", op: CloudOps.portForward, run: (f, machine = "a") => f.reader.forwardPort(machine, 3000) },
   { action: "close", op: CloudOps.portClose, run: (f, machine = "a") => f.reader.closePort(machine, 3000) },
-  { action: "browser", op: CloudOps.browserOpen, run: (f, machine = "a") => f.reader.openBrowser(machine, 3000, "Example") },
+  {
+    action: "browser",
+    op: CloudOps.browserOpen,
+    run: (f, machine = "a") => f.reader.openBrowser(machine, 3000, "Example"),
+  },
 ];
 
 describe("Cloud port action boundaries", () => {
@@ -107,7 +132,12 @@ describe("Cloud port action boundaries", () => {
     first.resolve(forward());
     expect(await running).toBe(true);
     expect(f.pending()).toEqual([]);
-    expect(f.get().ports?.map((entry) => entry.port).sort()).toEqual([3000, 4000]);
+    expect(
+      f
+        .get()
+        .ports?.map((entry) => entry.port)
+        .sort(),
+    ).toEqual([3000, 4000]);
   });
 
   test("close stays pending until the acknowledged close's list reconciliation finishes", async () => {
@@ -135,7 +165,10 @@ describe("Cloud port action boundaries", () => {
     expect(await f.reader.openBrowser("a", 3000, "Example")).toBe(false);
     discovery.resolve(route());
     const tabArgs = await tab.started;
-    expect(tabArgs).toMatchObject({ action: HostActions.browserTabOpen, args: { engine: "cef", machineStore: { machine: "a" } } });
+    expect(tabArgs).toMatchObject({
+      action: HostActions.browserTabOpen,
+      args: { engine: "cef", machineStore: { machine: "a" } },
+    });
     expect(f.get().browser).toEqual(route());
     expect(f.pending()).toEqual([{ port: 3000, action: "browser" }]);
     expect(await f.reader.openBrowser("a", 3000, "Example")).toBe(false);
@@ -153,7 +186,10 @@ describe("Cloud port action boundaries", () => {
         const f = await fixture();
         const request = f.hold(op);
         const running = run(f);
-        const error = pageError(unsupported ? "cmux.protocol.unknown_op" : "cmux.cloud.upstream_error", "Request refused");
+        const error = pageError(
+          unsupported ? "cmux.protocol.unknown_op" : "cmux.cloud.upstream_error",
+          "Request refused",
+        );
         request.reject(error);
         expect(await running).toBe(false);
         expect(f.pending()).toEqual([]);
@@ -181,7 +217,10 @@ describe("Cloud port action boundaries", () => {
         const listCalls = f.count(CloudOps.portList);
         const tabCalls = f.count(ACTION_RUN);
         if (reject) request.reject(pageError("cmux.protocol.unknown_op", "Late failure"));
-        else request.resolve(action === "forward" ? { ...forward(), localPort: 65000 } : action === "browser" ? route() : null);
+        else
+          request.resolve(
+            action === "forward" ? { ...forward(), localPort: 65000 } : action === "browser" ? route() : null,
+          );
         expect(await running).toBe(false);
         expect({ ports: f.get().ports, browser: f.get().browser }).toEqual(before);
         expect(f.count(CloudOps.portList)).toBe(listCalls);
@@ -200,7 +239,10 @@ describe("Cloud port action boundaries", () => {
       const running = f.reader.openBrowser("a", 3000, "Example");
       await tab.started;
       if (outcome === "declined") tab.resolve({ confirmed: false });
-      else tab.reject(pageError(outcome === "unsupported" ? "cmux.app.unknown_action" : "cmux.browser.cef_unavailable", "No tab"));
+      else
+        tab.reject(
+          pageError(outcome === "unsupported" ? "cmux.app.unknown_action" : "cmux.browser.cef_unavailable", "No tab"),
+        );
       expect(await running).toBe(false);
       expect(f.pending()).toEqual([]);
       expect(f.get().browser).toEqual(route());
@@ -261,6 +303,29 @@ describe("Cloud port action boundaries", () => {
     expect(f.pending()).toEqual([]);
     expect(f.get().ports?.map((entry) => entry.port)).toEqual([3000, 4000]);
   });
+
+  for (const action of ["forward", "close"] as const) {
+    test(`detail load cannot replace a completed ${action} with its older port list`, async () => {
+      const f = await fixture();
+      const snapshots = f.hold(CloudOps.snapshotList);
+      const loading = f.reader.load("a");
+      await snapshots.started;
+      if (action === "forward") {
+        expect(await f.reader.forwardPort("a", 4000)).toBe(true);
+      } else {
+        const reconciled = f.hold(CloudOps.portList);
+        const closing = f.reader.closePort("a", 3000);
+        await reconciled.started;
+        reconciled.resolve({ forwards: [] });
+        expect(await closing).toBe(true);
+      }
+      const current = f.get().ports;
+      snapshots.resolve({ snapshots: [] });
+      await loading;
+      expect(f.get().ports).toEqual(current);
+      expect(f.pending()).toEqual([]);
+    });
+  }
 
   test("a failed close reconciliation releases the guard and reports the read error", async () => {
     const f = await fixture();
