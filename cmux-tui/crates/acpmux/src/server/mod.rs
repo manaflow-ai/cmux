@@ -1695,6 +1695,7 @@ mod clock_text;
 pub(crate) use clock_text::iso;
 mod change_kind;
 mod chat_windows;
+pub use chat_windows::live_tasks as live_chat_window_tasks;
 mod chats;
 pub mod conn_auth;
 mod ephemeral;

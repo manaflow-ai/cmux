@@ -12,11 +12,15 @@
 //!   or an `_acpmux/lagged` (the connection dropped a notification), opens the window again.
 //! - `_acpmux/chats_window_close {window}` stops it.
 //!
+//! Owned (R6): the connection's one task ends when its connection closes, when its last window
+//! closes (a later open starts a new one), and with the runtime at daemon exit; a drop guard
+//! counts it out on every path (`live_tasks`).
+//!
 //! The state is level-triggered: a window is recomputed from the index as it is now, so a lagged
 //! or coalesced change can never leave a window behind.
 
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 
 use serde_json::{Value, json};
@@ -30,13 +34,42 @@ use crate::rpc::{Message, RpcError};
 /// A connection's chat windows.
 #[derive(Default)]
 pub(super) struct ConnWindows {
-    /// By window name. Held while a recompute sends, so every window's messages leave in revision
-    /// order.
-    windows: StdMutex<BTreeMap<String, WindowState>>,
-    /// Wakes the connection's task after a chat activity change.
+    /// Held while a recompute sends, so every window's messages leave in revision order.
+    windows: StdMutex<Windows>,
+    /// Wakes the connection's task after a chat activity change or a close.
     wake: tokio::sync::Notify,
-    /// The task runs (it starts with the first window once the index is up).
-    started: AtomicBool,
+}
+
+#[derive(Default)]
+struct Windows {
+    by_name: BTreeMap<String, WindowState>,
+    /// The connection's task runs. Set and cleared under this lock, so an open never misses a
+    /// task that is ending, and a task never ends with a window open.
+    task: bool,
+}
+
+/// Window tasks alive in this process (tests check that none outlives its connection).
+static LIVE_TASKS: AtomicUsize = AtomicUsize::new(0);
+
+/// How many chat window tasks are alive in this process.
+pub fn live_tasks() -> usize {
+    LIVE_TASKS.load(Ordering::Acquire)
+}
+
+/// Counts one task out however it ends: return, connection close, or cancel at runtime drop.
+struct Live;
+
+impl Live {
+    fn new() -> Self {
+        LIVE_TASKS.fetch_add(1, Ordering::AcqRel);
+        Self
+    }
+}
+
+impl Drop for Live {
+    fn drop(&mut self) {
+        LIVE_TASKS.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 
 fn lock<T>(mutex: &StdMutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -45,7 +78,7 @@ fn lock<T>(mutex: &StdMutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 impl ConnWindows {
     fn is_empty(&self) -> bool {
-        lock(&self.windows).is_empty()
+        lock(&self.windows).by_name.is_empty()
     }
 }
 
@@ -60,8 +93,8 @@ pub(super) async fn open(
     let window = spec.window.clone();
     {
         let mut windows = lock(&conn.chat_windows.windows);
-        let revision = windows.get(&window).map_or(0, WindowState::revision);
-        windows.insert(window.clone(), WindowState::new(spec, revision));
+        let revision = windows.by_name.get(&window).map_or(0, WindowState::revision);
+        windows.by_name.insert(window.clone(), WindowState::new(spec, revision));
     }
     let Some(service) = service else {
         // The index has not started (the app connects at launch): the window fills when it does.
@@ -85,7 +118,7 @@ pub(super) fn close(conn: &Conn, params: &Value) -> Result<Value, RpcError> {
         .get("window")
         .and_then(Value::as_str)
         .ok_or_else(|| RpcError::invalid_params("window must be a string"))?;
-    let closed = lock(&conn.chat_windows.windows).remove(window).is_some();
+    let closed = lock(&conn.chat_windows.windows).by_name.remove(window).is_some();
     Ok(json!({"window": window, "closed": closed}))
 }
 
@@ -96,15 +129,22 @@ pub(super) fn activity_changed(conn: &Conn) {
     }
 }
 
-/// Starts the connection's task once: it recomputes the windows after each index change and each
-/// wake, until the connection closes.
+/// Starts the connection's task unless it runs: it recomputes the windows after each index change
+/// and each wake, until the connection closes or its last window closes.
 fn start(hub: &Arc<Hub>, service: &Arc<ChatService>, conn: &Arc<Conn>) {
-    if conn.chat_windows.started.swap(true, Ordering::AcqRel) {
-        return;
+    {
+        let mut windows = lock(&conn.chat_windows.windows);
+        if windows.task || windows.by_name.is_empty() {
+            return;
+        }
+        windows.task = true;
     }
     let mut changes = service.subscribe();
     let (hub, service, conn) = (hub.clone(), service.clone(), conn.clone());
+    let live = Live::new();
+    // task-owner: the connection (R6): it ends with the connection, its last window or the runtime.
     tokio::spawn(async move {
+        let _live = live;
         loop {
             tokio::select! {
                 () = conn.closed() => break,
@@ -119,7 +159,9 @@ fn start(hub: &Arc<Hub>, service: &Arc<ChatService>, conn: &Arc<Conn>) {
                 break;
             }
         }
-        lock(&conn.chat_windows.windows).clear();
+        let mut windows = lock(&conn.chat_windows.windows);
+        windows.by_name.clear();
+        windows.task = false;
     });
 }
 
@@ -134,7 +176,7 @@ async fn refresh(
     let (service, conn) = (service.clone(), conn.clone());
     tokio::task::spawn_blocking(move || {
         let mut windows = lock(&conn.chat_windows.windows);
-        for state in windows.values_mut() {
+        for state in windows.by_name.values_mut() {
             let rows = service.window_rows(&state.spec, &activity);
             if let Some(message) = state.next(rows) {
                 conn.send(&Message::notification("_acpmux/chats_window_changed", message));
