@@ -222,9 +222,8 @@ struct AgentPaneDictationUploadTests {
         model.onDictationRecording = { _, _ in file }
         let reply = await upload(file.path, in: model)
         #expect(Self.errorCode(reply) == "cancelled")
-        var chunks = 0
-        for case .chunk = stager.requests { chunks += 1 }
-        #expect(chunks == 1, "no chunk after the ×")
+        let chunks = stager.requests.filter { if case .chunk = $0 { true } else { false } }
+        #expect(chunks.count == 1, "no chunk after the ×")
         #expect(stager.requests.last == .cancel(token: "t1"))
         #expect(!stager.requests.contains(.finish(token: "t1")))
         #expect(model.dictationUploads.running.isEmpty && model.dictationUploads.cancelled.isEmpty)
