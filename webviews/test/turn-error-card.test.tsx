@@ -326,6 +326,8 @@ test("Compact is offered only where the agent lists /compact", async () => {
 // two things to discover and the prompt to retype. The card leads with Sign in again and keeps Retry
 // beside it for once the login is done.
 const signedOut = "Not logged in · Please run /login";
+// The last turn's row as turns.ts draws it: retryable, so the failed turn's own retry serves it.
+const signedOutRow = () => ({ ...failed(signedOut), retryable: true });
 
 test("a sign-in failure's card leads with Sign in again, then Retry, then Switch model", async () => {
   const done: string[] = [];
@@ -333,20 +335,26 @@ test("a sign-in failure's card leads with Sign in again, then Retry, then Switch
     root.render(
       <TurnActionsContext.Provider
         value={{
-          retry: () => done.push("retry"),
+          retry: () => done.push("resend"),
+          retryFailed: () => {
+            done.push("retry");
+            return Promise.resolve(undefined);
+          },
           switchModel: () => done.push("switch"),
           reauthenticate: () => done.push("sign-in"),
         }}
       >
-        <TurnFooter row={failed(signedOut)} />
+        <TurnFooter row={signedOutRow()} />
       </TurnActionsContext.Provider>,
     ),
   );
   expect(card().getAttribute("data-failure-kind")).toBe("subscription-login");
   const labels = [...card().querySelectorAll(".cv-turn-error__actions > button")].map((element) => element.textContent);
   expect(labels).toEqual(["Sign in again", "Retry", "Switch model"]);
+  expect(card().querySelectorAll(".cv-turn-error__primary").length).toBe(1);
   expect(button("Sign in again")!.classList.contains("cv-turn-error__primary")).toBe(true);
   expect(button("Retry")!.classList.contains("cv-turn-error__primary")).toBe(false);
+  expect(button("Switch model")!.classList.contains("cv-turn-error__primary")).toBe(false);
   await act(async () => button("Sign in again")!.click());
   await act(async () => button("Retry")!.click());
   expect(done).toEqual(["sign-in", "retry"]);
@@ -366,6 +374,62 @@ test("a sign-in failure with a login but no Retry leads with Sign in again, Swit
   expect(labels).toEqual(["Sign in again", "Switch model"]);
   expect(card().querySelectorAll(".cv-turn-error__primary").length).toBe(1);
   expect(button("Sign in again")!.classList.contains("cv-turn-error__primary")).toBe(true);
+});
+
+// A View Only chat, a read-only pane or one whose composer cannot send has no `retryFailed` (App's
+// `restartChat`), only the plain resend, which sends to whichever chat the pane shows: its sign-in
+// card offered a Retry that could do nothing, or reach the next chat during a switch.
+test("a sign-in card in a View Only chat or a read-only pane offers no Retry, only Sign in again", async () => {
+  const sent: string[] = [];
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider
+        value={{
+          retry: (rowId) => sent.push(rowId),
+          switchModel: () => undefined,
+          reauthenticate: () => undefined,
+        }}
+      >
+        <TurnFooter row={signedOutRow()} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  const labels = [...card().querySelectorAll(".cv-turn-error__actions > button")].map((element) => element.textContent);
+  expect(labels).toEqual(["Sign in again", "Switch model"]);
+  expect(card().querySelectorAll(".cv-turn-error__primary").length).toBe(1);
+  expect(button("Sign in again")!.classList.contains("cv-turn-error__primary")).toBe(true);
+  expect(sent).toEqual([]);
+});
+
+// Sign in again leads a sign-in card and is its one filled button: never Switch model beside it,
+// with or without a Retry, for the CLI's own login and an unexplained 401 alike.
+test("a sign-in card with Sign in again and Switch model fills only Sign in again", async () => {
+  for (const error of [signedOut, "HTTP 401 Unauthorized"])
+    for (const withRetry of [false, true]) {
+      await act(async () =>
+        root.render(
+          <TurnActionsContext.Provider
+            value={{
+              switchModel: () => undefined,
+              reauthenticate: () => undefined,
+              ...(withRetry && { retry: () => undefined, retryFailed: () => Promise.resolve(undefined) }),
+            }}
+          >
+            <TurnFooter row={{ ...failed(error), retryable: true }} />
+          </TurnActionsContext.Provider>,
+        ),
+      );
+      const labels = [...card().querySelectorAll(".cv-turn-error__actions > button")].map(
+        (element) => element.textContent,
+      );
+      const filled = [...card().querySelectorAll(".cv-turn-error__primary")].map((element) => element.textContent);
+      expect([error, withRetry, labels]).toEqual([
+        error,
+        withRetry,
+        withRetry ? ["Sign in again", "Retry", "Switch model"] : ["Sign in again", "Switch model"],
+      ]);
+      expect([error, withRetry, filled]).toEqual([error, withRetry, ["Sign in again"]]);
+    }
 });
 
 test("a sign-in failure with no login to run keeps Switch model alone, with no Retry that would fail again", async () => {
