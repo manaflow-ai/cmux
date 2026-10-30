@@ -234,3 +234,67 @@ test("Retry on a staged image uploads its original again; the preview sends mean
   expect(uploaded).toEqual([["shot.png"], ["shot.png"]]);
   expect(host.querySelector(".acpmux-attachment-original-retry")).toBeNull();
 });
+
+// Review (Astra): Retry's upload stops once its chip leaves the strip, also after the chip moved
+// with the composer to another chat, and a chip out of the strip keeps no file for a Retry it
+// cannot show, also when it left with a switch to another chat.
+test("Retry's upload stops when its carried chip leaves the strip", async () => {
+  const uploaded: string[][] = [];
+  let retrying: ((index: number) => boolean) | undefined;
+  let finish = () => {};
+  const upload: AttachmentIntakeOptions["upload"] = async (files, cancelled) => {
+    uploaded.push(files.map((file) => file.name));
+    if (uploaded.length === 1) return { error: "The disk is full." };
+    retrying = cancelled;
+    await new Promise<void>((resolve) => (finish = resolve));
+    return { error: "cancelled" };
+  };
+  const options = (scope: string): AttachmentIntakeOptions => ({
+    allowImages: true,
+    pasteTarget: () => undefined,
+    upload,
+    scope,
+    carries: () => true,
+  });
+  const handle: { current: Intake | null } = { current: null };
+  root = createRoot(host);
+  act(() => root!.render(<Harness options={options("A")} handle={handle} />));
+  await act(() => handle.current!.attach([png("shot.png")], true));
+  await until(() => Boolean(handle.current!.attachments[0]?.originalFailed));
+  // A harness switch: the composer, its strip with this chip, moves to the new chat.
+  act(() => root!.render(<Harness options={options("B")} handle={handle} />));
+  act(() => host.querySelector<HTMLButtonElement>(".acpmux-attachment-original-retry")!.click());
+  await until(() => retrying !== undefined);
+  expect(retrying!(0)).toBe(false);
+  act(() => handle.current!.setAttachments([]));
+  expect(retrying!(0)).toBe(true);
+  await act(async () => finish());
+  expect(handle.current!.attachments).toEqual([]);
+});
+
+test("a failed original whose chip left with a switch to another chat keeps no file for Retry", async () => {
+  const uploaded: string[][] = [];
+  const options = (scope: string): AttachmentIntakeOptions => ({
+    allowImages: true,
+    pasteTarget: () => undefined,
+    scope,
+    upload: async (files) => {
+      uploaded.push(files.map((file) => file.name));
+      return { error: "The disk is full." };
+    },
+  });
+  const handle: { current: Intake | null } = { current: null };
+  root = createRoot(host);
+  act(() => root!.render(<Harness options={options("A")} handle={handle} />));
+  await act(() => handle.current!.attach([png("shot.png")], true));
+  await until(() => Boolean(handle.current!.attachments[0]?.originalFailed));
+  const chip = handle.current!.attachments[0]!;
+  // Another chat shows: its strip has its own chips (the composer's kept drafts swap them).
+  act(() => root!.render(<Harness options={options("B")} handle={handle} />));
+  act(() => handle.current!.setAttachments([]));
+  // The file went when the chip left: the same chip staged again (here, while B shows) runs no Retry
+  // for a file no longer held.
+  act(() => handle.current!.setAttachments([chip]));
+  act(() => handle.current!.retry(chip.id));
+  expect(uploaded).toEqual([["shot.png"]]);
+});
