@@ -50,6 +50,15 @@ extension CMUXCLI {
             .path
     }
 
+    /// Kept beside, not inside, the hooks directory Kiro CLI V3 scans.
+    static func kiroGlobalHooksLockPath(forHooksFile path: String) -> String {
+        URL(fileURLWithPath: path, isDirectory: false)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent(".cmux-global-hooks.lock", isDirectory: false)
+            .path
+    }
+
     /// Kiro CLI V3 adds a successful SessionStart/UserPromptSubmit hook's
     /// stdout to the model context, reads a Stop hook's stdout as a possible
     /// "keep working" decision, and forwards any other exit code's output to
@@ -170,7 +179,10 @@ extension CMUXCLI {
               let entries = json["hooks"] as? [[String: Any]] else {
             return false
         }
-        return entries.contains(where: isCmuxOwnedKiroGlobalHookEntry)
+        // The disabled ownership marker left by a partial uninstall is not an install.
+        return entries.contains {
+            isCmuxOwnedKiroGlobalHookEntry($0) && $0["name"] as? String != kiroGlobalOwnershipEntryName
+        }
     }
 
     /// `cmux hooks setup kiro --global`: writes cmux's lifecycle hooks to the
@@ -302,7 +314,7 @@ extension CMUXCLI {
     /// lock. The confirmation prompt never holds the lock; a competing edit
     /// requires a fresh ownership check and preview even with --yes.
     private func mutateKiroGlobalHooks(atPath path: String, expected: Data?, replacement: Data?) throws -> Bool {
-        let descriptor = Darwin.open(path + ".lock", O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0o600)
+        let descriptor = Darwin.open(Self.kiroGlobalHooksLockPath(forHooksFile: path), O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0o600)
         guard descriptor >= 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
         defer { _ = Darwin.close(descriptor) }
         var result: Int32
@@ -317,7 +329,18 @@ extension CMUXCLI {
             ))
         }
         if let replacement {
-            try replacement.write(to: URL(fileURLWithPath: path), options: .atomic)
+            // A live symlink (for example into a dotfiles repo) stays a link:
+            // write through to its target and keep the target's mode.
+            var destination = path
+            var metadata = stat()
+            if lstat(path, &metadata) == 0, (metadata.st_mode & S_IFMT) == S_IFLNK {
+                destination = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+            }
+            let mode = (try? FileManager.default.attributesOfItem(atPath: destination))?[.posixPermissions] as? NSNumber
+            try replacement.write(to: URL(fileURLWithPath: destination), options: .atomic)
+            if let mode {
+                try FileManager.default.setAttributes([.posixPermissions: mode], ofItemAtPath: destination)
+            }
         } else {
             try FileManager.default.removeItem(atPath: path)
         }

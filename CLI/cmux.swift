@@ -21648,8 +21648,8 @@ struct CMUXCLI {
                    cmux hooks uninstall [agent] [--agent <name>] [--yes|-y]
                    cmux hooks setup kiro --global [--yes|-y]
                    cmux hooks uninstall kiro --global
-                   cmux hooks <agent> install [--yes|-y]
-                   cmux hooks <agent> uninstall [--yes|-y]
+                   cmux hooks <agent> install [--yes|-y] (opencode supports --project, kiro supports --global)
+                   cmux hooks <agent> uninstall [--yes|-y] (opencode supports --project, kiro supports --global)
                    cmux hooks <agent> <event> [flags]
                    cmux hooks feed --source <agent> [--event <event>]
 
