@@ -45,13 +45,20 @@ final class DeclarativePopupHost {
         panel.adoptPopupStyle(card: surface)
         popup.onDismiss = { [weak self] in
             guard let self else { return }
-            if popup.dismissalReason == "escape" { dismiss(reason: "escape") }
+            // A submenu's own dismissal closes only that layer; the root keeps its own
+            // outside-click, deactivation and key-loss rules and closes everything itself.
+            if popup.dismissalReason == "escape" || parent != nil { dismiss(reason: popup.dismissalReason) }
             else { root.dismiss(reason: popup.dismissalReason) }
         }
         // A child assigns its model before taking the keys. Preserve the ancestor through
         // that synchronous key transfer, while outside-click and deactivation rules stay live.
         popup.keepsOpenOnKeyLoss = { [weak self] in self?.child?.activeID != nil }
-        popup.keepsOpen = { [weak self] event in self?.root.contains(event.window) == true }
+        // The root stays open for a press in any of its layers. A submenu stays open only for a
+        // press in itself or its own submenus: a press back in an ancestor panel closes it.
+        popup.keepsOpen = { [weak self] event in
+            guard let self else { return false }
+            return (parent == nil ? root : self).contains(event.window)
+        }
         // NativePopupHost installs key-loss handling and the click/escape monitors. Keep that
         // callback intact: replacing it here would skip the host's focus restoration path.
         content.emit = { [weak self] type, id, value in self?.event(type, id: id, value: value, reason: self?.content.selectionReason) }
