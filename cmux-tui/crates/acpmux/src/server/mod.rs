@@ -55,9 +55,9 @@ pub struct SubOpts {
 /// (`peer_forward.rs`).
 /// Each record by its own seq: a replay's older records may come after a newer live one.
 /// Bounded: past `MESSAGE_NOTICES_KEPT` seqs, the lowest is dropped and the low-water mark
-/// `floor` rises to it, every seq at or below it counting as heard. Only a record older than the
-/// last `MESSAGE_NOTICES_KEPT` this connection heard of the chat, coming after them and never
-/// heard, is then not sent; a reopen starts fresh (`MessageNoticeBook::reopen`).
+/// `floor` rises to it. A live record at or below the mark counts as heard (the live stream
+/// comes in seq order, so it sent it). A replay record is checked against the kept seqs alone:
+/// one the bound forgot may go a second time, never not at all.
 #[derive(Default)]
 pub(super) struct MessageNotices {
     heard: std::collections::BTreeSet<u64>,
@@ -68,9 +68,16 @@ pub(super) struct MessageNotices {
 pub(super) const MESSAGE_NOTICES_KEPT: usize = 4096;
 
 impl MessageNotices {
-    /// The replay's notice of record `seq`: sent unless the live stream sent it.
+    /// The replay's notice of record `seq`: sent unless the live stream sent it and it is still
+    /// kept. The mark is not applied: the replay's older records may come after the live stream
+    /// raised it, never having been sent.
     pub(super) fn replay(&mut self, seq: u64) -> bool {
-        self.live(seq)
+        if seq == 0 {
+            return true;
+        }
+        let fresh = self.heard.insert(seq);
+        self.bound();
+        fresh
     }
 
     /// The live notice of record `seq`: sent unless this connection heard it. A record of no
@@ -82,12 +89,17 @@ impl MessageNotices {
         if seq <= self.floor || !self.heard.insert(seq) {
             return false;
         }
+        self.bound();
+        true
+    }
+
+    /// Keeps at most `MESSAGE_NOTICES_KEPT` seqs, raising the mark to the ones it drops.
+    fn bound(&mut self) {
         while self.heard.len() > MESSAGE_NOTICES_KEPT {
             if let Some(lowest) = self.heard.pop_first() {
                 self.floor = self.floor.max(lowest);
             }
         }
-        true
     }
 
     #[cfg(test)]
