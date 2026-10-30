@@ -97,6 +97,46 @@ class PublishedInTests(unittest.TestCase):
         self.assertEqual(len(comments), 2)
         self.assertIn(old, comments[1]["body"])
 
+    def test_legacy_updated_during_migration_is_not_deleted(self):
+        old, first, concurrent = [module.build_line(f"v{i}", f"https://x/v{i}", str(i) * 40)
+                                  for i in range(3)]
+        published = "Shipped in:\n" + old + "\n" + first
+        size = module.pr_status.LIMIT - len(module.pr_status.render(
+            {"checks": "x", "published": published})) + 1 - 5
+        comments = [
+            {"id": 1, "body": module.pr_status.render({"checks": "x" * size}),
+             "user": {"login": "github-actions[bot]"}},
+            {"id": 2, "body": module.MARKER + "\nShipped in:\n" + old,
+             "user": {"login": "github-actions[bot]"}},
+        ]
+        injected = False
+        writes = []
+
+        def api(method, path, payload=None):
+            if method == "GET":
+                return [dict(comment) for comment in comments]
+            writes.append((method, path))
+            target = next(c for c in comments if str(c["id"]) == path.rsplit("/", 1)[-1])
+            if method == "PATCH":
+                target["body"] = payload["body"]
+            elif method == "DELETE":
+                comments.remove(target)
+            else:
+                self.fail(f"unexpected write: {method}")
+
+        def sleep(_):
+            nonlocal injected
+            if not injected:
+                injected = True
+                self.assertEqual(module.publish("o/r", 7, concurrent, comments.copy(), 7.5), "written")
+
+        with patch.object(module, "status_api", api), patch.object(module.time, "sleep", sleep):
+            self.assertEqual(module.publish("o/r", 7, first, comments.copy(), 7.5), "written")
+        self.assertNotIn(("DELETE", "repos/o/r/issues/comments/2"), writes)
+        bodies = "\n".join(c["body"] for c in comments)
+        self.assertTrue(all(line in bodies for line in (old, first, concurrent)))
+        self.assertEqual(module.pr_status.parse(comments[0]["body"])["checks"], "x" * size)
+
     def test_standalone_migration_edits_without_new_timeline_entry(self):
         line = module.build_line("v1", "https://x/v", "a" * 40)
         comments = [{"id": 2, "body": module.MARKER + "\nShipped in:\n" + line,
