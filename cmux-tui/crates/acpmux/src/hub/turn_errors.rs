@@ -66,7 +66,7 @@ pub fn is_capacity_error(message: &str) -> bool {
 }
 
 /// An HTTP gateway failure is independent of account credentials.
-fn is_gateway_error(message: &str) -> bool {
+pub(super) fn is_gateway_error(message: &str) -> bool {
     let m = message.to_lowercase();
     (500..=599).any(|code| has_status(&m, &code.to_string())) || m.contains("harness_unavailable")
 }

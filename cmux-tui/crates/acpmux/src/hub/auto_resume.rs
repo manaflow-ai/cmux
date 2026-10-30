@@ -74,16 +74,16 @@ use tokio::sync::Notify;
 
 use crate::protocol::session::{RetryReason, RetrySummary};
 
-/// `_acpmux/retry`: a failed turn retried on demand.
-pub(crate) mod retry_turn;
 mod pending;
 pub(super) mod reset_hint;
+/// `_acpmux/retry`: a failed turn retried on demand.
+pub(crate) mod retry_turn;
 
 /// Exponential waits from 10 seconds, capped at 20 minutes; about two hours in total.
 /// Explicit provider reset hints can extend a wait beyond this backoff window.
 pub const DEFAULT_DELAYS_MS: [u64; 12] = [
-    10_000, 20_000, 40_000, 80_000, 160_000, 320_000,
-    640_000, 1_200_000, 1_200_000, 1_200_000, 1_200_000, 1_200_000,
+    10_000, 20_000, 40_000, 80_000, 160_000, 320_000, 640_000, 1_200_000, 1_200_000, 1_200_000,
+    1_200_000, 1_200_000,
 ];
 
 /// The configured loop stays bounded, including attempts resumed after daemon restarts.
@@ -420,11 +420,18 @@ impl Hub {
             let Some(&delay) = delays.get(done) else {
                 let ours = hub.take_pending(&session, &turn_id);
                 if done > 0 {
-                    let message = format!("Automatic recovery stopped after {done} attempts: {error}. Retry this turn when the service is available.");
+                    let message = format!(
+                        "Automatic recovery stopped after {done} attempts: {error}. Retry this turn when the service is available."
+                    );
                     let msg = json!({"promptId": root, "attempts": done, "turnId": turn_id, "reason": reason.as_str(), "error": message});
                     hub.append(&session, "mux", "auto_resume_exhausted", msg);
                     // A turn_error is displayed in the chat, so exhaustion cannot look idle.
-                    hub.append(&session, "mux", "turn_error", json!({"turnId": turn_id, "error": message}));
+                    hub.append(
+                        &session,
+                        "mux",
+                        "turn_error",
+                        json!({"turnId": turn_id, "error": message}),
+                    );
                 } else if ours {
                     hub.settled_unretried(&session, &turn_id, "off");
                 }
@@ -456,8 +463,10 @@ impl Hub {
             if let Some(from) = &from {
                 msg.set("from", json!(from));
             }
+            // Persist the schedule before publishing the in-memory retry row. A daemon crash
+            // between these operations must leave an event that restart restoration can replay.
+            hub.append(&session, "mux", "auto_resume_scheduled", msg);
             if hub.set_retry(&session, &turn_id, retry) {
-                hub.append(&session, "mux", "auto_resume_scheduled", msg);
                 // Its delay, or its mark going (`Wake`): Stop, close, a turn that took the chat.
                 tokio::select! {
                     () = tokio::time::sleep(Duration::from_millis(delay)) => {}
