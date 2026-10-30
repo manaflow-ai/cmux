@@ -21,8 +21,9 @@ pub trait Stream: Read + Write + Send + Sync {
     fn peer_token(&self) -> Option<cmux_link::app_caller::PeerToken> {
         None
     }
-    /// The client closed its end: a non-blocking poll reports a hang-up.
-    /// `false` where it cannot be told.
+    /// The client closed its end: a non-blocking poll reports a hang-up (on
+    /// macOS also a client that shut down only its writing half). `false`
+    /// where it cannot be told.
     fn peer_closed(&self) -> bool {
         false
     }

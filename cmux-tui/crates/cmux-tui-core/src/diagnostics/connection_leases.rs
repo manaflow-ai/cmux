@@ -10,6 +10,11 @@
 //! client. The pool is bounded by the same limit, so connection threads stay
 //! bounded at twice it. The thread itself is untouched: it finishes its request
 //! and exits as before.
+//!
+//! On macOS `poll` reports a hang-up as soon as the read side is at EOF, so a
+//! client that only shut down its writing half (`cmux-tui relay`) also moves to
+//! the pool. It is still served to the end; only its slot is counted in the
+//! pool instead of the limit. Linux reports it once both halves are closed.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, PoisonError, Weak};
