@@ -459,7 +459,7 @@ mod autostart_pair_tests {
     #[test]
     fn only_the_default_home_is_created_for_a_start() {
         let dir = tempfile::tempdir().unwrap();
-        let gone = dir.path().join("tmp7uxt3tq_/.acpmux");
+        let gone = dir.path().join("tmp7uxt3tq_/removed-home");
         let own = gone.join("acpmux.sock");
         let why = autostart_refusal(&gone, true, None, &own).expect("a missing home is refused");
         assert!(why.contains("does not exist"), "{why}");
@@ -477,7 +477,10 @@ mod autostart_pair_tests {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path();
         let own = home.join("acpmux.sock");
-        let chief = Path::new("/Users/me/.cmux/chief/default/acpmux/acpmux.sock");
+        // Another home's socket, as the Chief's would be.
+        let elsewhere = tempfile::tempdir().unwrap();
+        let chief_socket = elsewhere.path().join("acpmux.sock");
+        let chief = chief_socket.as_path();
         let why = autostart_refusal(home, false, Some(chief), &own).expect("unpaired");
         assert!(why.contains(&chief.display().to_string()), "{why}");
         assert!(why.contains(&own.display().to_string()), "{why}");
