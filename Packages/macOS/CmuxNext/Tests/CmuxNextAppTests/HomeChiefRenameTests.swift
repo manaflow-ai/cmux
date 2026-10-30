@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDaemon
 @testable import CmuxNextHomeEngine
 import Testing
 
@@ -56,6 +57,62 @@ import Testing
         #expect(view.failure.isHidden)
     }
 
+    /// Issue 27915: the owner saved "MARIO" but its answer was lost, so the card said "could not
+    /// be changed" and put "Chief" back in the field, still being edited. The saved record's
+    /// echo then named the Chief "MARIO", and leaving the field sent "Chief" as a new rename:
+    /// the person's saved name was undone 3 s later (the registry's history on the reporter's
+    /// Mac). A name the card put back itself is no rename.
+    @Test func leavingTheFieldAfterARefusalRenamesNothing() async throws {
+        let view = Self.view()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: HomeChiefSettingsView.width, height: 600),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = view
+        defer { window.close() }
+        var sent: [String] = []
+        view.onRename = { name in
+            sent.append(name)
+            return sent.count == 1 ? .noConnection : nil
+        }
+        view.setName("Chief")
+        #expect(window.makeFirstResponder(view.nameField))
+        view.nameField.stringValue = "MARIO"
+        await try #require(view.commitName()).value
+        // Still in the field (Return keeps the editor), it shows the kept name.
+        #expect(view.nameField.currentEditor() != nil)
+        #expect(view.nameField.stringValue == "Chief")
+        // The saved record's echo arrives: the Chief is named MARIO after all.
+        view.setName("MARIO")
+        // Leaving the field: the card's own "Chief" is not the person's.
+        let leave = view.commitName()
+        await leave?.value
+        #expect(leave == nil)
+        #expect(sent == ["MARIO"])
+    }
+
+    /// A name the person types after a refusal still renames.
+    @Test func typingAgainAfterARefusalRenames() async throws {
+        let view = Self.view()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: HomeChiefSettingsView.width, height: 600),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = view
+        defer { window.close() }
+        var sent: [String] = []
+        view.onRename = { name in
+            sent.append(name)
+            return sent.count == 1 ? .noConnection : nil
+        }
+        view.setName("Chief")
+        #expect(window.makeFirstResponder(view.nameField))
+        view.nameField.stringValue = "MARIO"
+        await try #require(view.commitName()).value
+        view.nameField.stringValue = "Luigi"
+        await try #require(view.commitName()).value
+        #expect(sent == ["MARIO", "Luigi"])
+        #expect(view.failure.isHidden)
+    }
+
     /// The card says why a rename failed (Lawrence 2026-10-21: a cloud Chief's rename only said
     /// "Try again in a moment", which no retry fixed).
     @Test(arguments: [HomeChiefRenameFailure.signedOut, .changedElsewhere, .invalidName, .notFound, .refused("chief_archived")])
@@ -87,6 +144,53 @@ import Testing
         await try #require(view.commitName()).value
         #expect(view.failure.isHidden)
         #expect(view.avatarButton.themedToolTip == HomeEngineStrings.changePicture)
+    }
+}
+
+/// Issue 27915: a rename of this Mac's Chief whose answer is lost (the connection closed, timed
+/// out, or answered what could not be read) may have been saved. It asks once more with the same
+/// idempotency key, so the owner answers the save it made; only a second loss says "try again".
+@Suite struct HomeLocalChiefRenameRetryTests {
+    actor Calls {
+        var keys: [String] = []
+        func add(_ key: String) -> Int {
+            keys.append(key)
+            return keys.count
+        }
+    }
+
+    @Test(arguments: [DaemonError.connectionClosed(reason: "eof"), .timedOut("chief.profile.update"),
+                      .malformedResponse("JSONValue"), .notConnected])
+    func aLostAnswerIsAskedAgainWithTheSameKey(_ lost: DaemonError) async {
+        let calls = Calls()
+        let failure = await HomeLocalChiefRename(chief: "agent_mux", name: "MARIO").send { key in
+            if await calls.add(key) == 1 { throw lost }
+        }
+        #expect(failure == nil)
+        let keys = await calls.keys
+        #expect(keys.count == 2)
+        #expect(Set(keys).count == 1)
+        #expect(keys.first?.hasPrefix("home-chief-rename-agent_mux-") == true)
+    }
+
+    @Test func twoLostAnswersSayTryAgain() async {
+        let calls = Calls()
+        let failure = await HomeLocalChiefRename(chief: "agent_mux", name: "MARIO").send { key in
+            _ = await calls.add(key)
+            throw DaemonError.connectionClosed(reason: "eof")
+        }
+        #expect(failure == .noConnection)
+        #expect(await calls.keys.count == 2)
+    }
+
+    @Test func aRefusalIsNotAskedAgain() async {
+        let calls = Calls()
+        let failure = await HomeLocalChiefRename(chief: "agent_mux", name: "").send { key in
+            _ = await calls.add(key)
+            throw DaemonError.command(cmd: "chief.profile.update", message: "display_name", code: "validation.invalid")
+        }
+        #expect(failure == .invalidName)
+        #expect(await calls.keys.count == 1)
     }
 }
 

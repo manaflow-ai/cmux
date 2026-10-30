@@ -124,9 +124,15 @@ public nonisolated struct HomeLocalChiefRename: Hashable, Sendable {
     /// Saves the rename on `connection`, the app's trusted connection to this Mac's Chief owner.
     /// Nil when saved, else why not.
     public func send(over connection: DaemonConnection) async -> HomeChiefRenameFailure? {
+        await send { [operation, params] key in
+            _ = try await ResourceRelayClient(connection: connection).send(operation: operation, params: params, idempotencyKey: key)
+        }
+    }
+
+    /// Saves the rename through `request`, which sends the op with the idempotency key it is given.
+    public func send(_ request: @Sendable (String) async throws -> Void) async -> HomeChiefRenameFailure? {
         do {
-            _ = try await ResourceRelayClient(connection: connection).send(operation: operation, params: params,
-                                                                           idempotencyKey: idempotencyKey(UUID().uuidString.lowercased()))
+            try await request(idempotencyKey(UUID().uuidString.lowercased()))
             return nil
         } catch {
             return Self.failure(error)
