@@ -16,9 +16,9 @@ const gateway = (exports as unknown as { AgentGateway?: Gateway }).AgentGateway
 const inDO = runInDurableObject as unknown as <T>(stub: unknown, cb: (instance: any, state: DurableObjectState) => Promise<T>) => Promise<T>
 let seq = 0
 
-const tokenFor = async (sub: string) => {
+const tokenFor = async (sub: string, scope = "mcp:write") => {
   const key = await importJWK(JSON.parse(e.STACK_TEST_PRIVATE_JWK) as JWK, "ES256")
-  return new SignJWT({ email: `${sub}@example.test`, email_verified: true, name: sub })
+  return new SignJWT({ scope, email: `${sub}@example.test`, email_verified: true, name: sub })
     .setProtectedHeader({ alg: "ES256", kid: "stack-test" }).setIssuer(`https://api.stack-auth.com/api/v1/projects/${e.STACK_PROJECT_ID}`)
     .setAudience(e.STACK_PROJECT_ID).setSubject(sub).setIssuedAt().setExpirationTime("10m").sign(key)
 }
@@ -30,9 +30,9 @@ const op = (token: string, name: string, params: unknown, key = crypto.randomUUI
 const read = (token: string, name: string, params: unknown = {}) => call("/v1/read", token, { op: name, params })
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } })
 
-const setup = async (label: string) => {
+const setup = async (label: string, scope = "mcp:write") => {
   const sub = `agent-gateway-${label}-${++seq}`
-  const session = await tokenFor(sub)
+  const session = await tokenFor(sub, scope)
   const ensured = (await op(session, "user.ensure", {})).json.value
   const user = ensured.id as string
   const team = ensured.personal_team as string
@@ -69,6 +69,16 @@ const setup = async (label: string) => {
 }
 
 describe("hosted MCP agent gateway", { timeout: 60_000 }, () => {
+  it("refuses a read-only caller before creating approval or contacting GitHub", async () => {
+    expect(gateway).toBeDefined()
+    if (!gateway) return
+    const s = await setup("read-only", "mcp:read")
+    const refused = await gateway.dispatchIssueComment(s.input({ requestId: "read-only" }))
+    expect(refused).toMatchObject({ ok: false, error: { code: "auth.insufficient_scope" } })
+    expect(await s.items()).toHaveLength(0)
+    expect(s.calls.filter((x) => x.url.includes("/comments") || x.url.includes("access_tokens"))).toHaveLength(0)
+  })
+
   it("requires the dev named entrypoint, gates agents, and keeps human direct calls separate", async () => {
     expect(gateway).toBeDefined()
     if (!gateway) return

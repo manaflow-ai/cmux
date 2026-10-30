@@ -38,6 +38,20 @@ export const emailDomainOf = (email: string | null | undefined): string | undefi
   return /^[a-z0-9.-]+\.[a-z0-9-]+$/.test(domain) ? domain : undefined
 }
 
+const scopeClaim = (value: unknown): string | undefined => {
+  if (typeof value === "string") return value
+  if (Array.isArray(value) && value.every((item) => typeof item === "string")) return value.join(" ")
+  return undefined
+}
+
+type ScopedPrincipal = Principal & { readonly scope?: string }
+
+/** Scope decisions use only claims returned by jwtVerify, never decoded request data. */
+export const hasScope = (principal: Principal, required: string): boolean => {
+  const scope = (principal as ScopedPrincipal).scope
+  return typeof scope === "string" && scope.split(/\s+/).includes(required)
+}
+
 /** A Stack access token: a human session. */
 const sessionPrincipal = async (env: Env, token: string): Promise<Principal | undefined> => {
   try {
@@ -53,6 +67,7 @@ const sessionPrincipal = async (env: Env, token: string): Promise<Principal | un
     // Only an explicit `true` counts: absent, false or any other value means unverified.
     const emailVerified = email !== null && payload.email_verified === true
     const name = typeof payload.name === "string" && payload.name ? payload.name : undefined
+    const scope = scopeClaim(payload.scope)
     return {
       kind: "session",
       identity: `session:${user}`,
@@ -63,6 +78,7 @@ const sessionPrincipal = async (env: Env, token: string): Promise<Principal | un
       email_verified: emailVerified,
       ...(typeof payload.exp === "number" ? { expires_at: payload.exp * 1000 } : {}),
       ...(name ? { display_name: name } : {}),
+      ...(scope ? { scope } : {}),
       // SSO is never read from the token (Stack tokens carry no custom claims); policy-gate.ts
       // resolves it from TeamDO's record of the sessions our OIDC callback created.
       ...(typeof payload.refresh_token_id === "string" && payload.refresh_token_id ? { stack_session: payload.refresh_token_id } : {})
@@ -129,8 +145,9 @@ const installPrincipal = async (env: Env, token: string): Promise<Principal | un
       audience: "api",
       clockTolerance: 30
     })
-    const { sub, team, inst, grant, exp, sso_team, edom, agt, vm, tvm } = payload as { sub?: unknown; team?: unknown; inst?: unknown; grant?: unknown; exp?: unknown; sso_team?: unknown; edom?: unknown; agt?: unknown; vm?: unknown; tvm?: unknown }
+    const { sub, team, inst, grant, exp, sso_team, edom, agt, vm, tvm, scope: rawScope } = payload as { sub?: unknown; team?: unknown; inst?: unknown; grant?: unknown; exp?: unknown; sso_team?: unknown; edom?: unknown; agt?: unknown; vm?: unknown; tvm?: unknown; scope?: unknown }
     if (typeof sub !== "string" || typeof team !== "string" || typeof inst !== "string" || typeof grant !== "string") return undefined
+    const scope = scopeClaim(rawScope)
     return {
       kind: "install",
       identity: inst,
@@ -138,6 +155,7 @@ const installPrincipal = async (env: Env, token: string): Promise<Principal | un
       team,
       install: inst,
       grant,
+      ...(scope ? { scope } : {}),
       ...(typeof exp === "number" ? { expires_at: exp * 1000 } : {}),
       ...(typeof sso_team === "string" ? { sso_team } : {}),
       ...(typeof edom === "string" ? { email_domain: edom } : {}),
