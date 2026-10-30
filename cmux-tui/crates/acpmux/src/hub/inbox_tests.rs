@@ -159,3 +159,36 @@ fn class_aliases_name_the_inbox_kinds() {
     assert_eq!(kind_of(PromptClass::Result), "action");
     assert_eq!(kind_of(PromptClass::Fyi), "fyi");
 }
+
+#[test]
+fn trim_lets_go_only_of_answered_read_messages_and_remembers_them() {
+    let mut inbox = Inbox::default();
+    for n in 0..KEEP + 3 {
+        let mut i = item(&format!("m-{n}"), "from:a", "a", PromptClass::Result, n as u64, "x");
+        (i.noticed, i.read) = (true, true);
+        // The first two are answered; the third went in with no answer yet (its notice runs).
+        if n < 2 {
+            i.answered = Some(Ok(json!({"stopReason": "end_turn"})));
+        }
+        inbox.items.push(i);
+    }
+    trim(&mut inbox);
+    assert_eq!(inbox.items.len(), KEEP + 1, "only the answered ones go");
+    assert!(inbox.trimmed.contains("m-0") && inbox.trimmed.contains("m-1"));
+    assert!(inbox.items.iter().any(|i| i.prompt_id == "m-2"));
+}
+
+#[test]
+fn an_answered_record_keeps_an_answer_or_an_error() {
+    let ok =
+        json!({"noticePromptId": "n-1", "promptIds": ["a"], "answer": {"stopReason": "end_turn"}});
+    let (notice, answer) = answered_record(&ok).unwrap();
+    assert_eq!(
+        (notice.as_str(), answer.unwrap()["stopReason"].clone()),
+        ("n-1", json!("end_turn"))
+    );
+    let failed = RpcError::internal("the agent died");
+    let err = json!({"noticePromptId": "n-2", "promptIds": ["b"], "error": failed});
+    let (_, answer) = answered_record(&err).unwrap();
+    assert_eq!(answer.unwrap_err().message, "the agent died");
+}

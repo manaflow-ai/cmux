@@ -38,6 +38,8 @@ static DECIDING: OnceLock<Mutex<()>> = OnceLock::new();
 
 /// How long the answer waits for the notice to be recorded (queued or steered).
 const NOTICE_WAIT: Duration = Duration::from_secs(5);
+/// How long a withdraw waits for a notice that carries its inbox message and is not written yet.
+const INBOX_SETTLE: Duration = Duration::from_secs(10);
 
 fn refusal(code: i64, reason: &str, message: &str) -> RpcError {
     RpcError::new(code, format!("{reason}: {message}")).with_data(json!({"reason": reason}))
@@ -260,6 +262,14 @@ impl Hub {
         if session.moving().is_some() {
             return Err(super::super::queue::moving_error());
         }
+        // An inbox message a notice carries that is not written yet: decided once it was written
+        // (retracted) or ended (still new, so unsent). Waited for outside the lock every withdraw
+        // takes, and for at most `INBOX_SETTLE`: a notice still on its way then (queued behind a
+        // turn) is retracted, and the retraction goes into its thread next to it.
+        if !by_msg {
+            let settle = self.inbox_settled(session, id);
+            let _ = tokio::time::timeout(INBOX_SETTLE, settle).await;
+        }
         let _deciding = DECIDING.get_or_init(|| Mutex::new(())).lock().await;
         let found = match self.decide(session, by_msg, id)? {
             Decision::Reply(reply) => return Ok(reply),
@@ -316,7 +326,10 @@ impl Hub {
                 super::super::inbox::Unsend::Unsent => {
                     return Ok(Decision::Reply(outcome(session, &found, "unsent")));
                 }
-                super::super::inbox::Unsend::Noticed => found.started = true,
+                // Written since, or still on its way past `INBOX_SETTLE` (above): retracted.
+                super::super::inbox::Unsend::Noticed | super::super::inbox::Unsend::Carried => {
+                    found.started = true
+                }
                 super::super::inbox::Unsend::Gone => {}
             }
         }

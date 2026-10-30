@@ -44,10 +44,12 @@
 //! steer refused or withdrawn, a turn of its own stopped or failed before its prompt was written)
 //! leaves its messages new, so none is lost; it is tried again no sooner than
 //! [`REFUSED_RETRY_MS`], or when a turn starts or ends. A notice that went in logs its answer (an
-//! `inbox_answered` record): a resend of one of its messages, before or after a restart, answers
-//! with it, and a resend of one withdrawn before any notice carried it answers withdrawn
-//! ([`Inbox::removed`]). A restart keeps the inbox (its records), a closed chat's included, and
-//! what was new is noticed again.
+//! `inbox_answered` record, an error too): a resend of one of its messages, before or after a
+//! restart, and after [`trim`] let go of it ([`Inbox::trimmed`]), answers with it; a resend of
+//! one withdrawn before any notice carried it answers withdrawn ([`Inbox::removed`]). A withdraw
+//! of a message a notice carries that is not written yet waits for it (`inbox_settled`): unsent
+//! if it did not go in, retracted if it did. A restart keeps the inbox (its records), a closed
+//! chat's included, and what was new is noticed again.
 //!
 //! The timer: one per session ([`Inbox::timer`]), for an idle chat's next wake or flush. Stop
 //! condition: it wakes once, at its deadline, and ends; it is armed only while a new message
@@ -80,7 +82,7 @@ pub(super) struct Item {
     /// The notice that carried it, once one went in: a resend answers with its outcome.
     pub(super) notice: Option<String>,
     /// That notice's answer, once it ended (an `inbox_answered` record): a resend's answer.
-    pub(super) answered: Option<Value>,
+    pub(super) answered: Option<super::queue::Answer>,
     pub(super) thread: String,
     /// Its sender's name, and its session when it has one here (`sender_session`).
     pub(super) from: String,
@@ -119,9 +121,15 @@ pub struct Inbox {
     /// Every notice whose task has not finished: what it carries and the waiting senders it
     /// answers. Here, not in its task, so a close answers them (`inbox_closed`).
     pub(super) carrying: Vec<Carry>,
-    /// The messages withdrawn before any notice carried them (newest last, at most [`KEEP`]): a
-    /// resend of one answers withdrawn, never puts it back.
-    pub(super) removed: std::collections::VecDeque<String>,
+    /// The messages withdrawn before any notice carried them: a resend of one answers withdrawn,
+    /// never puts it back. Ids only, as the prompt ledger keeps them.
+    pub(super) removed: std::collections::HashSet<String>,
+    /// The messages [`trim`] let go of (read, noticed and answered): a resend of one answers from
+    /// the log (`logged_inbox`), never puts it back.
+    pub(super) trimmed: std::collections::HashSet<String>,
+    /// Woken when a notice is written or ends, or the chat closes: a withdraw waits on it for
+    /// a notice that carries its message and is not written yet (`inbox_settled`).
+    pub(super) settled: Arc<tokio::sync::Notify>,
 }
 
 /// A notice whose task has not finished (`Inbox::carrying`).
@@ -136,6 +144,8 @@ pub(super) struct Carry {
 
 /// What [`Hub::inbox_unsend`] did with an inbox item.
 pub(super) enum Unsend {
+    /// A notice carries it and is not written yet: wait for it (`inbox_settled`) and ask again.
+    Carried,
     /// No notice had carried it: it left the inbox.
     Unsent,
     /// A notice carried it: it stays.
@@ -440,8 +450,9 @@ impl Hub {
         let text = prompt_text(blocks);
         let thread = thread_key(explicit, sender, &text);
         let (tx, mut rx) = tokio::sync::watch::channel(None);
-        let mut resent: Option<(Option<Value>, Option<String>)> = None;
+        let mut resent: Option<(Option<super::queue::Answer>, Option<String>)> = None;
         let mut withdrawn = false;
+        let mut from_log = false;
         let fresh = {
             let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
             // Read under the inbox's lock: `kill` marks the chat closed before `inbox_closed`
@@ -457,9 +468,13 @@ impl Hub {
                     None => carry.waiters.push((prompt_id.to_owned(), tx.clone())),
                 }
                 false
-            } else if inbox.removed.iter().any(|id| id == prompt_id) {
+            } else if inbox.removed.contains(prompt_id) {
                 // A resend of one withdrawn before a notice carried it: never back in.
                 withdrawn = true;
+                false
+            } else if inbox.trimmed.contains(prompt_id) {
+                // A resend of one answered and let go of: answered from the log.
+                from_log = true;
                 false
             } else {
                 match inbox.items.iter_mut().find(|i| i.prompt_id == prompt_id) {
@@ -497,6 +512,15 @@ impl Hub {
                 }
             }
         };
+        if from_log {
+            let logged = self.logged_inbox(session, prompt_id);
+            let mut done = logged.unwrap_or_else(|| json!({"stopReason": "end_turn"}));
+            merge_mux_meta(&mut done, json!({"duplicate": true, "noticed": true}));
+            accept(
+                json!({"sessionId": session.id, "promptId": prompt_id, "queued": false, "inbox": true, "duplicate": true}),
+            );
+            return Ok(done);
+        }
         if withdrawn {
             accept(
                 json!({"sessionId": session.id, "promptId": prompt_id, "queued": false, "inbox": true, "withdrawn": true}),
@@ -504,11 +528,17 @@ impl Hub {
             return Ok(super::queue::withdrawn_reply(prompt_id, ""));
         }
         if let Some((answered, notice)) = resent {
-            let logged =
-                answered.or_else(|| notice.and_then(|id| self.logged_prompt(session, &id)));
-            let mut done = logged.unwrap_or_else(|| json!({"stopReason": "end_turn"}));
-            merge_mux_meta(&mut done, json!({"duplicate": true, "noticed": true}));
-            tx.send_replace(Some(Ok(done)));
+            let answer = match answered {
+                Some(answer) => answer,
+                None => Ok(notice
+                    .and_then(|id| self.logged_prompt(session, &id))
+                    .unwrap_or_else(|| json!({"stopReason": "end_turn"}))),
+            };
+            let answer = answer.map(|mut done| {
+                merge_mux_meta(&mut done, json!({"duplicate": true, "noticed": true}));
+                done
+            });
+            tx.send_replace(Some(answer));
         }
         if fresh {
             let mut msg = json!({"promptId": prompt_id, "threadId": thread, "from": sender, "class": class, "kind": kind_of(class), "client": client, "text": text, "prompt": blocks});
@@ -701,16 +731,14 @@ impl Hub {
             if went_in {
                 inbox.refused_at = 0;
                 let answer = if closed { Err(super::queue::closing_error()) } else { result };
-                let answered = answer.as_ref().ok().cloned();
-                if let Some(v) = &answered {
-                    for item in inbox.items.iter_mut().filter(|i| ids.contains(&i.prompt_id)) {
-                        item.answered = Some(v.clone());
-                    }
+                for item in inbox.items.iter_mut().filter(|i| ids.contains(&i.prompt_id)) {
+                    item.answered = Some(answer.clone());
                 }
                 for (_, waiter) in waiters {
                     waiter.send_replace(Some(answer.clone()));
                 }
-                answered
+                inbox.settled.notify_waiters();
+                Some(answer)
             } else {
                 // Tried again after the backoff, or sooner when a turn starts or ends.
                 inbox.refused_at = now_ms();
@@ -726,11 +754,16 @@ impl Hub {
                         }
                     }
                 }
+                inbox.settled.notify_waiters();
                 None
             }
         };
         if let Some(answer) = answered {
-            let msg = json!({"noticePromptId": notice_id, "promptIds": ids, "answer": answer});
+            let mut msg = json!({"noticePromptId": notice_id, "promptIds": ids});
+            match answer {
+                Ok(answer) => msg["answer"] = answer,
+                Err(error) => msg["error"] = json!(error),
+            }
             self.append(session, "mux", "inbox_answered", msg);
         }
         self.inbox_review(session);
@@ -762,6 +795,7 @@ impl Hub {
                 for item in inbox.items.iter_mut().filter(|i| ids.contains(&i.prompt_id)) {
                     item.notice = Some(id.clone());
                 }
+                inbox.settled.notify_waiters();
             }
             landed
         };
@@ -789,6 +823,7 @@ impl Hub {
         for answer in waiting.into_iter().chain(held.collect::<Vec<_>>()) {
             answer.send_replace(Some(Err(super::queue::closing_error())));
         }
+        inbox.settled.notify_waiters();
     }
 
     /// Arms the wake timer for `at`, aborting the one before (module docs), under the inbox's
@@ -821,7 +856,8 @@ impl Hub {
         let mut noticed: std::collections::HashMap<String, String> = Default::default();
         let mut read: std::collections::HashSet<String> = Default::default();
         let mut removed: std::collections::HashSet<String> = Default::default();
-        let mut answered: std::collections::HashMap<String, Value> = Default::default();
+        let mut answered: std::collections::HashMap<String, super::queue::Answer> =
+            Default::default();
         let kinds = ["inbox", "inbox_noticed", "inbox_answered", "inbox_read", "inbox_removed"];
         let scanned = self.store.scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
             let ids = || {
@@ -859,9 +895,8 @@ impl Hub {
                     noticed.extend(ids().map(|id| (id, notice.clone())));
                 }
                 "inbox_answered" => {
-                    let notice = e.msg.get("noticePromptId").and_then(Value::as_str);
-                    if let (Some(notice), Some(answer)) = (notice, e.msg.get("answer")) {
-                        answered.insert(notice.to_owned(), answer.clone());
+                    if let Some((notice, answer)) = answered_record(&e.msg) {
+                        answered.insert(notice, answer);
                     }
                 }
                 "inbox_read" => read.extend(ids()),
@@ -878,11 +913,12 @@ impl Hub {
         }
         let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
         for mut item in items {
-            if removed.contains(&item.prompt_id) && !inbox.removed.contains(&item.prompt_id) {
-                inbox.removed.push_back(item.prompt_id.clone());
+            if removed.contains(&item.prompt_id) {
+                inbox.removed.insert(item.prompt_id.clone());
             }
             if item.prompt_id.is_empty()
                 || removed.contains(&item.prompt_id)
+                || inbox.trimmed.contains(&item.prompt_id)
                 || inbox.items.iter().any(|i| i.prompt_id == item.prompt_id)
             {
                 continue;
@@ -892,9 +928,6 @@ impl Hub {
             item.noticed = noticed.contains_key(&item.prompt_id);
             item.read = read.contains(&item.prompt_id);
             inbox.items.push(item);
-        }
-        while inbox.removed.len() > KEEP {
-            inbox.removed.pop_front();
         }
         trim(&mut inbox);
     }
@@ -908,12 +941,12 @@ impl Hub {
             let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
             match inbox.items.iter().position(|i| i.prompt_id == prompt_id) {
                 None => return Unsend::Gone,
+                Some(i) if inbox.items[i].noticed && inbox.items[i].notice.is_none() => {
+                    return Unsend::Carried;
+                }
                 Some(i) if inbox.items[i].noticed => return Unsend::Noticed,
                 Some(i) => {
-                    if inbox.removed.len() >= KEEP {
-                        inbox.removed.pop_front();
-                    }
-                    inbox.removed.push_back(prompt_id.to_owned());
+                    inbox.removed.insert(prompt_id.to_owned());
                     inbox.items.remove(i)
                 }
             }
@@ -924,6 +957,79 @@ impl Hub {
             answer.send_replace(Some(Ok(super::queue::withdrawn_reply(prompt_id, ""))));
         }
         Unsend::Unsent
+    }
+
+    /// Waits until no notice that is not written yet carries `prompt_id` (`Unsend::Carried`):
+    /// it was written (the message went in) or it ended (the message is new again).
+    pub(super) async fn inbox_settled(&self, session: &Session, prompt_id: &str) {
+        loop {
+            let settled = session.inbox.lock().unwrap_or_else(|e| e.into_inner()).settled.clone();
+            let woken = settled.notified();
+            tokio::pin!(woken);
+            woken.as_mut().enable();
+            let carried = {
+                let inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+                let item = inbox.items.iter().find(|i| i.prompt_id == prompt_id);
+                item.is_some_and(|i| i.noticed && i.notice.is_none())
+                    && inbox.carrying.iter().any(|c| c.ids.iter().any(|id| id == prompt_id))
+            };
+            if !carried || super::queue::closing(session) {
+                return;
+            }
+            woken.await;
+        }
+    }
+
+    /// A resent inbox message the log holds (`logged_prompt`): withdrawn, its notice's answer,
+    /// or `interrupted` when a notice carried it and the daemon stopped before it ended. None
+    /// while the inbox still holds it unanswered (`inbox_accept` answers then), or when the log
+    /// has no such message.
+    pub(super) fn logged_inbox(&self, session: &Session, prompt_id: &str) -> Option<Value> {
+        let names = |m: &Value| {
+            let ids = m.get("promptIds").and_then(Value::as_array);
+            ids.is_some_and(|ids| ids.iter().any(|v| v.as_str() == Some(prompt_id)))
+        };
+        let (mut found, mut removed, mut noticed) = (false, false, false);
+        let mut answer: Option<super::queue::Answer> = None;
+        let kinds = ["inbox", "inbox_noticed", "inbox_answered", "inbox_removed"];
+        let _ = self.store.scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
+            let own = e.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id);
+            match e.kind.as_str() {
+                "inbox" if own => found = true,
+                "inbox_removed" if own => removed = true,
+                "inbox_noticed" if names(&e.msg) => noticed = true,
+                "inbox_answered" if names(&e.msg) => answer = answered_record(&e.msg).map(|a| a.1),
+                _ => {}
+            }
+            true
+        });
+        if !found {
+            return None;
+        }
+        if removed {
+            return Some(super::queue::withdrawn_reply(prompt_id, ""));
+        }
+        let meta = json!({"promptId": prompt_id, "inbox": true, "duplicate": true});
+        match answer {
+            Some(Ok(mut v)) => {
+                merge_mux_meta(&mut v, meta);
+                Some(v)
+            }
+            Some(Err(e)) => Some(json!({
+                "stopReason": Value::Null,
+                "_meta": {"acpmux": {"promptId": prompt_id, "inbox": true, "duplicate": true, "status": "failed", "error": e}},
+            })),
+            None => {
+                let held = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+                if !noticed || held.items.iter().any(|i| i.prompt_id == prompt_id) {
+                    return None;
+                }
+                Some(json!({
+                    "stopReason": Value::Null,
+                    "_meta": {"acpmux": {"promptId": prompt_id, "inbox": true, "duplicate": true, "status": "interrupted"}},
+                }))
+            }
+        }
     }
 
     /// `_acpmux/inbox_threads`: the chat's threads, the one with the newest message first.
@@ -1046,6 +1152,16 @@ impl Hub {
     }
 }
 
+/// An `inbox_answered` record's notice and answer.
+fn answered_record(msg: &Value) -> Option<(String, super::queue::Answer)> {
+    let notice = msg.get("noticePromptId").and_then(Value::as_str)?.to_owned();
+    if let Some(answer) = msg.get("answer") {
+        return Some((notice, Ok(answer.clone())));
+    }
+    let error = serde_json::from_value::<RpcError>(msg.get("error")?.clone()).ok()?;
+    Some((notice, Err(error)))
+}
+
 /// Keeps at most [`KEEP`] messages: the oldest read and noticed ones go first.
 fn trim(inbox: &mut Inbox) {
     // A message a notice carries that has not gone in yet may be new again: never trimmed.
@@ -1056,13 +1172,14 @@ fn trim(inbox: &mut Inbox) {
         .chain(inbox.carrying.iter().map(|c| &c.ids))
         .flat_map(|ids| ids.iter().cloned())
         .collect();
-    let items = &mut inbox.items;
-    while items.len() > KEEP {
-        let gone =
-            |i: &Item| i.read && i.noticed && i.answer.is_none() && !carried.contains(&i.prompt_id);
-        match items.iter().position(gone) {
+    while inbox.items.len() > KEEP {
+        let gone = |i: &Item| {
+            i.read && i.noticed && i.answered.is_some() && !carried.contains(&i.prompt_id)
+        };
+        match inbox.items.iter().position(gone) {
             Some(i) => {
-                items.remove(i);
+                let item = inbox.items.remove(i);
+                inbox.trimmed.insert(item.prompt_id);
             }
             None => break,
         }
