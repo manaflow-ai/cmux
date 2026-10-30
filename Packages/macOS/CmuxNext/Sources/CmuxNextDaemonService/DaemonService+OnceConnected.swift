@@ -1,5 +1,6 @@
 public import CmuxNextActions
 public import CmuxNextDaemon
+import CmuxNextCompat
 
 extension DaemonService {
     /// Whether commands reach the daemon now: a connection whose link is up. `connection`
