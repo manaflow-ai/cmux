@@ -12,6 +12,7 @@
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Duration;
 
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use zeroize::Zeroizing;
 
@@ -136,14 +137,14 @@ struct View {
 
 fn view(mux: &Mux, share_id: &str) -> Option<View> {
     change(mux, share_id, |s| {
-        let room = |field: &str| s.room.as_ref().and_then(|r| r[field].as_str()).map(str::to_owned);
+        let room = |field: &str| s.room_str(field).map(str::to_owned);
         let body = json!({"provision_key": s.provision_key, "secret_sha256": s.secret_sha256,
             "expires_at": s.expires_at, "uses": s.uses_left});
         let view = View {
             url: room("url"),
             host_token: room("host_token"),
             expires_at: s.expires_at,
-            delete: s.pending_room_ops.iter().any(|o| o["op"] == "delete"),
+            delete: s.delete_queued(),
             body,
         };
         (view, false)
@@ -169,8 +170,7 @@ fn adopt(mux: &Mux, share_id: &str, url: &str, host_token: &str) -> Result<(), &
 /// `DELETE`, written once (false while the write fails: [`delete`] holds the token meanwhile).
 fn retire(mux: &Mux, share_id: &str, url: &str, host_token: &str) -> bool {
     change(mux, share_id, |s| {
-        let kept = s.room.as_ref().is_some_and(|r| r["host_token"] == host_token)
-            && s.pending_room_ops.iter().any(|o| o["op"] == "delete");
+        let kept = s.room_str("host_token") == Some(host_token) && s.delete_queued();
         if !kept {
             s.room = Some(json!({"url": url, "host_token": host_token}));
             abandon_share(s, true);
@@ -185,7 +185,7 @@ fn abandon_share(share: &mut LinkShare, delete: bool) {
     if share.state == ShareState::Provisioning {
         share.state = ShareState::Revoked;
     }
-    let queued = share.pending_room_ops.iter().any(|o| o["op"] == "delete");
+    let queued = share.delete_queued();
     if delete && share.state != ShareState::Active && !queued {
         share.pending_room_ops.push(json!({"op": "delete"}));
     }
@@ -255,7 +255,10 @@ async fn put(room: &Room, share_id: &str, token: &str, body: &Value) -> Put {
     let url = format!("{}/v1/chat-shares/{share_id}", room.url);
     let reply = call(reqwest::Method::PUT, &url, token, Some(body), room.timing.request).await;
     match reply {
-        Some((200..=299, body)) => match (body["host_token"].as_str(), body["url_base"].as_str()) {
+        Some((200..=299, body)) => match (
+            body.get("host_token").and_then(Value::as_str),
+            body.get("url_base").and_then(Value::as_str),
+        ) {
             (Some(token), Some(base)) if !token.is_empty() && valid_url_base(room, base) => {
                 Put::Done { host_token: token.into(), url_base: base.into() }
             }
@@ -308,7 +311,7 @@ pub(super) fn provision(
     room: Room,
     token: Zeroizing<String>,
 ) -> Result<Value, &'static str> {
-    let share_id = created["share_id"].as_str().unwrap_or_default().to_owned();
+    let share_id = created.get("share_id").and_then(Value::as_str).unwrap_or_default().to_owned();
     let body = view(mux, &share_id).ok_or("share.unknown")?.body;
     let Some(runtime) = shares(mux).bridge.runtime() else {
         abandon(mux, &share_id, false);
@@ -320,9 +323,10 @@ pub(super) fn provision(
                 delete(mux, &share_id, Some(Held::Host(room.url, Zeroizing::new(host_token))));
                 return Err(code);
             }
-            let secret = created["secret"].as_str().unwrap_or_default().to_owned();
-            created["url"] = json!(format!("{url_base}#{secret}"));
-            created["room"] = json!(room.url);
+            let secret =
+                created.get("secret").and_then(Value::as_str).unwrap_or_default().to_owned();
+            created.set("url", json!(format!("{url_base}#{secret}")));
+            created.set("room", json!(room.url));
             Ok(created)
         }
         Put::Refused(code) => {
@@ -547,10 +551,7 @@ pub(super) fn expired(shares: &LinkShares) {
         let slot = shares.shares.lock().unwrap_or_else(|e| e.into_inner());
         slot.iter()
             .flatten()
-            .filter(|share| {
-                share.expires_at <= now
-                    && share.pending_room_ops.iter().any(|op| op["op"] == "delete")
-            })
+            .filter(|share| share.expires_at <= now && share.delete_queued())
             .map(|share| share.share_id.clone())
             .collect::<Vec<_>>()
     };
@@ -582,10 +583,7 @@ pub fn start_link_share_bridge(mux: &Arc<Mux>, room: Option<&str>) {
             abandon_share(share, bridged);
             changed = true;
         }
-        let ids = all
-            .iter()
-            .filter(|s| s.pending_room_ops.iter().any(|o| o["op"] == "delete"))
-            .map(|s| s.share_id.clone());
+        let ids = all.iter().filter(|s| s.delete_queued()).map(|s| s.share_id.clone());
         Ok((ids.collect::<Vec<_>>(), changed))
     });
     for id in bridged.unwrap_or_default() {
