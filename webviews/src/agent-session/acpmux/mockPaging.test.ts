@@ -107,13 +107,12 @@ test("disconnect cancels an older-page backoff while the mounted session waits t
     // The mounted transcript still has the old `loadOlder` callback while the socket is down.
     socket!.readyState = 3;
     socket!.onclose?.();
-    const settled = await Promise.race([
-      waiting.then(
-        () => true,
-        () => true,
-      ),
-      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 50)),
-    ]);
+    // The request itself is the condition: disconnect must settle it, rather than a timer merely
+    // deciding that the test has waited long enough.
+    const settled = await waiting.then(
+      () => true,
+      () => true,
+    );
     expect(settled).toBe(true);
     expect(pageRequests).toBe(1);
 

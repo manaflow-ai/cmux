@@ -149,6 +149,8 @@ test("a reader back at the top after a page lands gets the next page", async () 
     await act(async () => Promise.resolve());
     await draw(true);
     expect(asked).toBe(beforeDisconnect + 1);
+    // fixed-wait: the retry delay is deliberately 500 ms; waiting past it proves a stale timer
+    // did not re-arm after disconnect, while the reconnect assertion above proves the new request.
     await new Promise((resolve) => setTimeout(resolve, 550));
     expect(asked).toBe(beforeDisconnect + 1);
   } finally {
