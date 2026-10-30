@@ -61,8 +61,7 @@ struct NewTerminalOnPendingSplitTests {
                                                           isARepeat: false, keyCode: text == "\r" ? 36 : 0))
                 if !services.keyRouter.interceptKeyDown(event, in: window) { window.sendEvent(event) }
             }
-            let screen = try? await connection.request(WaitForTextRequest(surface: tab.surface, pattern: "p0t\(nonce)t42", timeoutMs: 20_000),
-                                                       timeout: .seconds(25))
+            let screen = try? await connection.screen(of: tab.surface, showing: "p0t\(nonce)t42", within: .seconds(20))
             if screen?.matched != true {
                 // Where the typed line went instead: each terminal of the pane, and who had the keyboard.
                 var screens: [String] = []

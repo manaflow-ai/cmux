@@ -58,9 +58,23 @@ struct SplitOfPendingSplitTests {
                                                           isARepeat: false, keyCode: text == "\r" ? 36 : 0))
                 if !services.keyRouter.interceptKeyDown(event, in: window) { window.sendEvent(event) }
             }
-            let screen = try await connection.request(WaitForTextRequest(surface: surface, pattern: "p0x\(nonce)x42", timeoutMs: 20_000),
-                                                      timeout: .seconds(25))
-            #expect(screen.matched == true, "the line typed after the second Cmd-D did not run in its pane: \(screen.text.suffix(300))")
+            let screen = try await connection.screen(of: surface, showing: "p0x\(nonce)x42", within: .seconds(20))
+            #expect(screen.matched, "the line typed after the second Cmd-D did not run in its pane: \(screen.text.suffix(300))")
+        }
+    }
+}
+
+extension DaemonConnection {
+    /// `surface`'s screen once it shows `pattern`: `read-screen` again every 100 ms until the text holds it (this branch's
+    /// daemon has no `wait.text`). `matched` says whether it showed; `limit` only ends a wait that failed, it decides
+    /// nothing for a pass.
+    func screen(of surface: SurfaceID, showing pattern: String, within limit: Duration) async throws -> (matched: Bool, text: String) {
+        let deadline = ContinuousClock.now + limit
+        while true {
+            let text = try await request(ReadScreenRequest(surface: surface), timeout: .seconds(5)).text
+            if text.contains(pattern) { return (true, text) }
+            if ContinuousClock.now >= deadline { return (false, text) }
+            try await Task.sleep(for: .milliseconds(100))
         }
     }
 }
