@@ -141,8 +141,6 @@ extension AppActionContext {
         }
         for window in services.windows.controllers {
             for pane in window.content?.panes.values.map({ $0 }) ?? [] {
-                // A context menu's target names its machine: a same-id tab of another machine is not it.
-                if let machine = invocation.targetMachineID, pane.daemon.machineID != machine { continue }
                 let hit = target.kind == .pane
                     ? pane.paneKey == target.id
                     : pane.stripModel.tab(StripTabID(target.id)) != nil

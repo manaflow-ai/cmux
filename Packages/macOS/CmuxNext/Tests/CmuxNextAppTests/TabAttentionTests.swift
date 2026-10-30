@@ -287,13 +287,6 @@ import Testing
         try await PinnedPageTests.until({ controller.content?.panes.isEmpty == false })
         let content = try #require(controller.content)
         try #require(content.workspace === remoteWorkspace)
-        // A menu row on the remote tab resolves the remote pane, not a same-id tab elsewhere.
-        var tabRow = ActionInvocation(target: ActionTargetRef(kind: .tab, id: remoteTab.id))
-        tabRow.targetMachineID = ssh.daemon.machineID
-        #expect(ActionScope(services: services, invocation: tabRow).pane?.daemon === ssh.daemon)
-        #expect(AppActionContext(services: services).paneController(tabRow)?.daemon === ssh.daemon)
-        tabRow.targetMachineID = services.daemon.machineID
-        #expect(ActionScope(services: services, invocation: tabRow).pane == nil, "a local menu row reached the remote pane")
         let strip = try #require(content.panes.values.first?.view.stripView)
         content.contentView.layoutSubtreeIfNeeded()
         let point = strip.convert(NSPoint(x: strip.bounds.midX, y: strip.bounds.midY), to: nil)

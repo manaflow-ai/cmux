@@ -17,15 +17,7 @@ struct ActionScope {
         if let target = invocation.target ?? invocation["tab"]?.targetValue ?? invocation["pane"]?.targetValue {
             switch target.kind {
             case .tab:
-                // A context menu's target names its machine: look only there, not at a same-id tab elsewhere.
-                let located: (TabModel, PaneModel)? = if let machine = invocation.targetMachineID {
-                    services.machines.daemon(machine: machine).flatMap { daemon in
-                        daemon.store.tab(idOrResource: target.id).flatMap { tab in daemon.store.pane(holding: tab).map { (tab, $0) } }
-                    }
-                } else {
-                    services.locateTab(target.id)
-                }
-                guard let (_, pane) = located else { return notFound(RefusalStrings.noTab(target.id)) }
+                guard let (_, pane) = services.locateTab(target.id) else { return notFound(RefusalStrings.noTab(target.id)) }
                 // In a hidden or parked workspace: no controller to act on.
                 guard let controller = services.paneController(for: pane) else {
                     services.registry.refuse(RefusalStrings.notShownInAnyWindow(target.description))
@@ -34,9 +26,7 @@ struct ActionScope {
                 return controller
             case .pane:
                 for controller in services.windows.controllers {
-                    if let pane = controller.content?.panes.values.first(where: {
-                        $0.paneKey == target.id && invocation.targetMachineID.map { machine in $0.daemon.machineID == machine } ?? true
-                    }) { return pane }
+                    if let pane = controller.content?.panes.values.first(where: { $0.paneKey == target.id }) { return pane }
                 }
                 return notFound(RefusalStrings.noPaneID(target.id))
             default: break
