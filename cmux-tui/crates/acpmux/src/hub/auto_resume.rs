@@ -711,6 +711,12 @@ impl Hub {
     ) {
         let (root, cut_turn) = (cut.prompt_id, cut.turn_id);
         let skipped = |why: &str| json!({"promptId": root, "attempt": attempt, "turnId": cut_turn, "skipped": why});
+        // A supervisor handoff preserves the durable retry row. Do not fire it while the
+        // shutdown plan is active: a refused prompt would otherwise replace `lastTurn` and
+        // publish a skip that prevents the next daemon from restoring the retry.
+        if self.shutting_down() {
+            return;
+        }
         if let Err(why) = self.fire_pending(session, cut_turn) {
             // Stop or close took it, or a newer turn replaced it.
             self.append(session, "mux", "auto_resume_skipped", skipped(why));
@@ -757,6 +763,10 @@ impl Hub {
                 self.resume_held(session, &held);
             }
             Ok(_) => {}
+            Err(_) if self.shutting_down() => {
+                // Keep the durable schedule for the restarting daemon; no failure or skip is
+                // recorded for a prompt refused only because this daemon is going away.
+            }
             Err(e) => match e.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str) {
                 Some(why @ ("auto_resume.superseded" | "auto_resume.stopped")) => {
                     let why = why.trim_start_matches("auto_resume.");

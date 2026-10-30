@@ -60,64 +60,113 @@ fn last_sunday(year: i32, month: time::Month) -> Option<u8> {
     Some(day - last.weekday().number_days_from_sunday())
 }
 
-fn us_dst(date: time::Date) -> bool {
-    let month = date.month() as u8;
-    let day = date.day();
-    match month {
-        3 => nth_sunday(date.year(), time::Month::March, 2).is_some_and(|start| day >= start),
-        4..=10 => true,
-        11 => nth_sunday(date.year(), time::Month::November, 1).is_some_and(|end| day < end),
-        _ => false,
+fn us_dst_utc(utc: time::OffsetDateTime) -> bool {
+    let year = utc.year();
+    let Some(start_day) = nth_sunday(year, time::Month::March, 2) else {
+        return false;
+    };
+    let Some(end_day) = nth_sunday(year, time::Month::November, 1) else {
+        return false;
+    };
+    let Some(start_date) = time::Date::from_calendar_date(year, time::Month::March, start_day).ok()
+    else {
+        return false;
+    };
+    let Some(end_date) = time::Date::from_calendar_date(year, time::Month::November, end_day).ok()
+    else {
+        return false;
+    };
+    let start = time::PrimitiveDateTime::new(start_date, time::Time::from_hms(10, 0, 0).unwrap())
+        .assume_utc();
+    let end =
+        time::PrimitiveDateTime::new(end_date, time::Time::from_hms(9, 0, 0).unwrap()).assume_utc();
+    utc >= start && utc < end
+}
+
+fn london_dst_utc(utc: time::OffsetDateTime) -> bool {
+    let year = utc.year();
+    let Some(start_day) = last_sunday(year, time::Month::March) else {
+        return false;
+    };
+    let Some(end_day) = last_sunday(year, time::Month::October) else {
+        return false;
+    };
+    let Some(start_date) = time::Date::from_calendar_date(year, time::Month::March, start_day).ok()
+    else {
+        return false;
+    };
+    let Some(end_date) = time::Date::from_calendar_date(year, time::Month::October, end_day).ok()
+    else {
+        return false;
+    };
+    let start = time::PrimitiveDateTime::new(start_date, time::Time::from_hms(1, 0, 0).unwrap())
+        .assume_utc();
+    let end =
+        time::PrimitiveDateTime::new(end_date, time::Time::from_hms(1, 0, 0).unwrap()).assume_utc();
+    utc >= start && utc < end
+}
+
+fn fixed_offset(zone: &str) -> Option<time::UtcOffset> {
+    let sign = if zone.starts_with('-') { -1 } else { 1 };
+    let digits = zone.trim_start_matches(['+', '-']);
+    let (h, m) = if let Some((h, m)) = digits.split_once(':') {
+        (h.parse::<i32>().ok()?, m.parse::<i32>().ok()?)
+    } else if digits.len() == 4 {
+        (digits[..2].parse::<i32>().ok()?, digits[2..].parse::<i32>().ok()?)
+    } else {
+        (digits.parse::<i32>().ok()?, 0)
+    };
+    let hours = i8::try_from(sign * h).ok()?;
+    let minutes = i8::try_from(sign * m).ok()?;
+    time::UtcOffset::from_hms(hours, minutes, 0).ok()
+}
+
+fn zone_offsets(zone: &str) -> Option<Vec<time::UtcOffset>> {
+    let zone = zone.trim().to_ascii_lowercase();
+    match zone.as_str() {
+        "utc" | "gmt" | "z" => Some(vec![time::UtcOffset::UTC]),
+        "america/los_angeles" | "us/pacific" => Some(vec![
+            time::UtcOffset::from_hms(-8, 0, 0).ok()?,
+            time::UtcOffset::from_hms(-7, 0, 0).ok()?,
+        ]),
+        "america/new_york" | "us/eastern" => Some(vec![
+            time::UtcOffset::from_hms(-5, 0, 0).ok()?,
+            time::UtcOffset::from_hms(-4, 0, 0).ok()?,
+        ]),
+        "europe/london" => {
+            Some(vec![time::UtcOffset::UTC, time::UtcOffset::from_hms(1, 0, 0).ok()?])
+        }
+        _ => Some(vec![fixed_offset(&zone)?]),
     }
 }
 
-fn zone_offset(zone: &str, date: time::Date) -> Option<time::UtcOffset> {
+fn zone_offset_at_utc(zone: &str, utc: time::OffsetDateTime) -> Option<time::UtcOffset> {
     let zone = zone.trim().to_ascii_lowercase();
-    let month = date.month() as u8;
-    let hours = match zone.as_str() {
-        "utc" | "gmt" | "z" => 0,
+    match zone.as_str() {
         "america/los_angeles" | "us/pacific" => {
-            if us_dst(date) {
-                -7
-            } else {
-                -8
-            }
+            time::UtcOffset::from_hms(if us_dst_utc(utc) { -7 } else { -8 }, 0, 0).ok()
         }
         "america/new_york" | "us/eastern" => {
-            if us_dst(date) {
-                -4
-            } else {
-                -5
-            }
+            time::UtcOffset::from_hms(if us_dst_utc(utc) { -4 } else { -5 }, 0, 0).ok()
         }
-        "europe/london" => {
-            let start = last_sunday(date.year(), time::Month::March).unwrap_or(31);
-            let end = last_sunday(date.year(), time::Month::October).unwrap_or(31);
-            if month > 3 && month < 10
-                || month == 3 && date.day() >= start
-                || month == 10 && date.day() < end
-            {
-                1
-            } else {
-                0
-            }
+        "europe/london" => Some(if london_dst_utc(utc) {
+            time::UtcOffset::from_hms(1, 0, 0).ok()?
+        } else {
+            time::UtcOffset::UTC
+        }),
+        _ => zone_offsets(&zone)?.into_iter().next(),
+    }
+}
+
+fn local_deadline_ms(zone: &str, date: time::Date, clock: time::Time) -> Option<u64> {
+    let local = time::PrimitiveDateTime::new(date, clock);
+    for offset in zone_offsets(zone)? {
+        let utc = local.assume_offset(offset).to_offset(time::UtcOffset::UTC);
+        if zone_offset_at_utc(zone, utc) == Some(offset) {
+            return u64::try_from(utc.unix_timestamp_nanos() / 1_000_000).ok();
         }
-        _ => {
-            let sign = if zone.starts_with('-') { -1 } else { 1 };
-            let digits = zone.trim_start_matches(['+', '-']);
-            let (h, m) = if let Some((h, m)) = digits.split_once(':') {
-                (h.parse::<i32>().ok()?, m.parse::<i32>().ok()?)
-            } else if digits.len() == 4 {
-                (digits[..2].parse::<i32>().ok()?, digits[2..].parse::<i32>().ok()?)
-            } else {
-                (digits.parse::<i32>().ok()?, 0)
-            };
-            let hours = i8::try_from(sign * h).ok()?;
-            let minutes = i8::try_from(sign * m).ok()?;
-            return time::UtcOffset::from_hms(hours, minutes, 0).ok();
-        }
-    };
-    time::UtcOffset::from_hms(hours, 0, 0).ok()
+    }
+    None
 }
 
 fn clock_reset(error: &str, now_ms: u64) -> Option<u64> {
@@ -164,26 +213,12 @@ fn clock_reset(error: &str, now_ms: u64) -> Option<u64> {
         .strip_prefix('(')
         .and_then(|s| s.split_once(')').map(|(zone, _)| zone))
         .unwrap_or("UTC");
-    let mut offset = zone_offset(zone, now.date())?;
-    let local_now = now.to_offset(offset);
     let time = time::Time::from_hms(hour, minute, 0).ok()?;
-    let mut deadline = u64::try_from(
-        time::PrimitiveDateTime::new(local_now.date(), time)
-            .assume_offset(offset)
-            .unix_timestamp_nanos()
-            / 1_000_000,
-    )
-    .ok()?;
+    let local_now = now.to_offset(zone_offset_at_utc(zone, now)?);
+    let mut deadline = local_deadline_ms(zone, local_now.date(), time)?;
     if deadline <= now_ms {
         let tomorrow = local_now.date().next_day()?;
-        offset = zone_offset(zone, tomorrow)?;
-        deadline = u64::try_from(
-            time::PrimitiveDateTime::new(tomorrow, time)
-                .assume_offset(offset)
-                .unix_timestamp_nanos()
-                / 1_000_000,
-        )
-        .ok()?;
+        deadline = local_deadline_ms(zone, tomorrow, time)?;
     }
     Some(deadline)
 }
@@ -294,7 +329,7 @@ pub(super) fn reset_at(error: &str, usage_limits: Option<&Value>, now_ms: u64) -
                     w.get("resetsAt").and_then(Value::as_u64).map(|s| s.saturating_mul(1000))
                 })
                 .filter(|reset| *reset > now_ms)
-                .min()
+                .max()
         })
 }
 
@@ -361,13 +396,25 @@ mod tests {
             reset_at("You've hit your limit · resets 3pm (Europe/London)", None, now,),
             Some(now + 3 * 3_600_000)
         );
+        let spring = time::PrimitiveDateTime::new(
+            time::Date::from_calendar_date(2026, time::Month::March, 8).unwrap(),
+            time::Time::from_hms(7, 30, 0).unwrap(),
+        )
+        .assume_utc()
+        .unix_timestamp_nanos() as u64
+            / 1_000_000;
+        assert_eq!(
+            reset_at("You've hit your limit · resets 12am (America/Los_Angeles)", None, spring,),
+            Some(spring + 30 * 60_000)
+        );
         let usage = serde_json::json!({
             "windows": [
                 {"usedPercent": 100, "resetsAt": 1},
-                {"usedPercent": 100, "resetsAt": 200}
+                {"usedPercent": 100, "resetsAt": 200},
+                {"usedPercent": 100, "resetsAt": 300}
             ]
         });
-        assert_eq!(reset_at("usage limit", Some(&usage), 150_000), Some(200_000));
+        assert_eq!(reset_at("usage limit", Some(&usage), 150_000), Some(300_000));
         assert_eq!(
             error_reset_at(Some(&serde_json::json!({"Retry-After":"2m"})), 1000),
             Some(121_000)
