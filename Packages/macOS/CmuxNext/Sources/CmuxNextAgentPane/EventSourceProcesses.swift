@@ -27,6 +27,9 @@ nonisolated struct EventSourceProcess: Equatable, Sendable {
 /// given again only after its process has ended and been reaped and the kernel's pid counter has come
 /// round to it, so the next event from that pid misses and is read again.
 ///
+/// An exec (same pid and start time, a new program) fires the same watch: the entry leaves, and the next
+/// event reads the new image.
+///
 /// SECURITY: an entry exists only while its exit watch is attached. When the kernel refuses the watch
 /// (any errno from `EVFILT_PROC`/`NOTE_EXIT`), nothing is kept: the event takes the safe default (not
 /// the person's) and the next event from that pid is read again, off the main thread. So an old
@@ -40,7 +43,8 @@ nonisolated struct EventSourceProcess: Equatable, Sendable {
 public nonisolated final class EventSourceProcesses: Sendable {
     /// Reads the process `pid` names now; nil when there is none. A system call: never on the main thread.
     typealias Resolve = @Sendable (pid_t) -> EventSourceProcess?
-    /// Arms a watch for the exit of process `pid`: `exited` runs on `queue` once that process ends.
+    /// Arms a watch for the exit of process `pid`: `exited` runs on `queue` once that process ends or runs
+    /// a new program (exec: same pid and start time, a new image, so the path read is no longer its).
     /// Returns the watch's cancel, or nil when the kernel did not attach it (the process is gone, or
     /// the watch is refused): then nothing may be kept for that pid.
     typealias WatchExit = @Sendable (pid_t, DispatchQueue, @escaping @Sendable () -> Void) -> (@Sendable () -> Void)?
@@ -161,7 +165,7 @@ public nonisolated final class EventSourceProcesses: Sendable {
         return info.pbi_start_tvsec &* 1_000_000 &+ info.pbi_start_tvusec
     }
 
-    /// The kernel's exit notice: a kqueue of its own with one `EVFILT_PROC`/`NOTE_EXIT` filter on `pid`,
+    /// The kernel's exit notice: a kqueue of its own with one `EVFILT_PROC` filter (`NOTE_EXIT | NOTE_EXEC`) on `pid`,
     /// registered with `EV_RECEIPT` so a refusal is seen here (nil), and read by a dispatch source on
     /// `queue`. A process that has already ended is refused with `ESRCH`.
     static let kernelExit: WatchExit = { pid, queue, exited in
@@ -182,11 +186,12 @@ public nonisolated final class EventSourceProcesses: Sendable {
         let descriptor = kqueue()
         guard descriptor >= 0 else { return .failure(POSIXError(POSIXErrorCode(rawValue: errno) ?? .EINVAL)) }
         var change = kevent(ident: UInt(pid), filter: Int16(EVFILT_PROC), flags: UInt16(EV_ADD | EV_ONESHOT | EV_RECEIPT),
-                            fflags: UInt32(NOTE_EXIT), data: 0, udata: nil)
+                            fflags: UInt32(NOTE_EXIT) | UInt32(NOTE_EXEC), data: 0, udata: nil)
         var receipt = kevent()
         // EV_RECEIPT: the call returns the registration's result at once and never waits for an event.
         let count = kevent(descriptor, &change, 1, &receipt, 1, nil)
-        let error = count < 0 ? errno : (count == 1 && receipt.flags & UInt16(EV_ERROR) != 0 ? Int32(receipt.data) : 0)
+        // Fail closed: only one receipt that says no error (EV_ERROR with data 0) is an attached watch.
+        let error: Int32 = count < 0 ? errno : count == 1 && receipt.flags & UInt16(EV_ERROR) != 0 ? Int32(clamping: receipt.data) : EIO
         guard error == 0 else {
             close(descriptor)
             return .failure(POSIXError(POSIXErrorCode(rawValue: error) ?? .EINVAL))
