@@ -1,8 +1,10 @@
 /**
  * A cloud environment: what a new cloud workspace already has when it opens. Repo + setup script +
  * environment variables, nothing else (plans/cmux-next/cloud-environments-DESIGN.md). Pure values and
- * validation; no I/O. Runs in Workers and Node (Web Crypto only).
+ * validation; no I/O. Runs in Workers (nodejs_compat) and Node: the digest is synchronous because
+ * CloudDO's reducers are.
  */
+import { createHash } from "node:crypto"
 
 export interface EnvironmentRepo {
   readonly owner: string
@@ -156,17 +158,15 @@ export const environmentSpecBody = (spec: EnvironmentSpec): Record<string, unkno
   env: spec.env
 })
 
-const hex = (buf: ArrayBuffer) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("")
-
 /**
  * The identity of what a snapshot holds: every build input and the base image, not the display name
  * and not variable order. Equal digests mean a snapshot serves the spec; an edit to a build input or a
  * new base image makes it stale.
  */
-export const environmentBuildDigest = async (spec: EnvironmentSpec, baseImage: string): Promise<string> => {
+export const environmentBuildDigest = (spec: EnvironmentSpec, baseImage: string): string => {
   const env = [...spec.env]
     .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
     .map((v) => ("value" in v ? ["v", v.name, v.value] : ["s", v.name, v.secret]))
   const canonical = JSON.stringify({ v: 1, baseImage, repo: spec.repo, setupScript: spec.setupScript, env })
-  return hex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical)))
+  return createHash("sha256").update(canonical).digest("hex")
 }

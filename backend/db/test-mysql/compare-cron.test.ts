@@ -5,7 +5,7 @@ import { projectionStatement } from "../../apps/api/src/projection.ts"
 import { projectionStatementMysql } from "../../apps/api/src/projection-mysql.ts"
 import { runProjectionCompare } from "../../apps/api/src/projection-compare-cron.ts"
 import { PROJECTION_TABLES } from "../projection-compare.ts"
-import { cases } from "./projection-cases.ts"
+import { cases, junkFixture } from "./projection-cases.ts"
 
 /**
  * The dual-write safety net (state-placement.md 4.5): the staging Worker's cron compares every
@@ -138,6 +138,31 @@ run("projection compare cron", () => {
       const [[row]] = (await my.query("SELECT display_name AS n, source_seq AS s FROM teams WHERE id = 'team_p1'")) as [Array<{ n: string; s: number }>]
       expect(row).toMatchObject({ n: "ahead" })
       expect(Number(row?.s)).toBe(99)
+    } finally {
+      errors.mockRestore()
+      logs.mockRestore()
+    }
+  }, 60_000)
+
+  it("junk teams only Postgres has are no difference and are never repaired into MySQL", async () => {
+    await my.query("UPDATE teams SET display_name = 'Team 5', source_seq = 5 WHERE id = 'team_p1'")
+    const junkIds = new Set(["team_junk", "team_junk_empty"])
+    for (const [i, [kind, payload]] of junkFixture.entries()) {
+      const p = projectionStatement(kind, payload, `s:j${i}`, 1)!
+      await pgc.query(p[0], p[1])
+      if (junkIds.has(String(payload.team ?? payload.id))) continue
+      const m = projectionStatementMysql(kind, payload, `s:j${i}`, 1)!
+      await my.query(m[0], m[1])
+    }
+    const d = deps()
+    const errors = spyOn(console, "error").mockImplementation(() => {})
+    const logs = spyOn(console, "log").mockImplementation(() => {})
+    try {
+      const report = await runProjectionCompare({ ...d, repair: d.mysql })
+      expect(report).toEqual({ diffs: [], repaired: {} })
+      expect(JSON.parse(String(logs.mock.calls.at(-1)?.[0]))).toMatchObject({ event: "projection.compare.ok", junk_teams: 2 })
+      const [[left]] = (await my.query("SELECT count(*) AS n FROM teams WHERE id IN ('team_junk', 'team_junk_empty')")) as [Array<{ n: number }>]
+      expect(Number(left?.n)).toBe(0)
     } finally {
       errors.mockRestore()
       logs.mockRestore()

@@ -5,6 +5,7 @@ import { afterAll, expect, jest, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { installJsdomScroller, scrollerEnd } from "./support/jsdomScroller";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -45,18 +46,8 @@ Object.assign(scope, replacements);
 // jsdom has no layout: a 600 px viewport (the transcript's first height) over a long conversation,
 // and a scroll offset the test moves as the reader would.
 const VIEWPORT = 600;
-Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => VIEWPORT });
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 760 });
-const offsets = new WeakMap<object, number>();
-Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
-  configurable: true,
-  get(this: object) {
-    return offsets.get(this) ?? 0;
-  },
-  set(this: object, value: number) {
-    offsets.set(this, value);
-  },
-});
+installJsdomScroller(dom.window as never, () => VIEWPORT);
 
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
@@ -121,8 +112,7 @@ test("a scrolled-up chat reports where it rests and reopens there, not at the la
         />,
       ),
     );
-    const latest =
-      parseFloat(dom.window.document.querySelector<HTMLElement>(".acpmux-spacer")!.style.height) - VIEWPORT;
+    const latest = scrollerEnd(dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!);
     expect(scroller().scrollTop).toBe(latest);
 
     // The reader scrolls up and stops: one report, a row and how far into it.
@@ -171,8 +161,7 @@ test("a place whose row is gone opens at the latest message", async () => {
         />,
       ),
     );
-    const latest =
-      parseFloat(dom.window.document.querySelector<HTMLElement>(".acpmux-spacer")!.style.height) - VIEWPORT;
+    const latest = scrollerEnd(dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!);
     expect(dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop).toBe(latest);
   } finally {
     await act(async () => root.unmount());
@@ -203,8 +192,7 @@ test("switching chats opens the new chat at latest instead of the old chat's scr
         <VirtualTranscript rows={rowsB} sessionId="session-b" onToggleActivity={() => {}} expanded={new Set()} />,
       ),
     );
-    const latest =
-      parseFloat(dom.window.document.querySelector<HTMLElement>(".acpmux-spacer")!.style.height) - VIEWPORT;
+    const latest = scrollerEnd(dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!);
     expect(scroller().scrollTop).toBe(latest);
   } finally {
     await act(async () => root.unmount());

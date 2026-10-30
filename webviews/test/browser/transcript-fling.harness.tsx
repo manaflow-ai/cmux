@@ -39,13 +39,23 @@ Object.assign(root.style, { height: "100%", display: "flex", flexDirection: "col
 
 let current: AcpmuxRow[] = [];
 let show: (rows: AcpmuxRow[]) => void = () => {};
+const olderRow: AcpmuxRow = {
+  id: "prefetched-older",
+  kind: "user",
+  text: "Prefetched question",
+  version: 1,
+  at: 1,
+};
 function Transcript() {
   const [rows, setRows] = useState<AcpmuxRow[]>([]);
+  const [older, setOlder] = useState(false);
+  (window as unknown as { __showOlder: (shown: boolean) => void }).__showOlder = setOlder;
   show = setRows;
   return (
     <VirtualTranscript
-      rows={turnView(rows, new Set())}
+      rows={turnView(older ? [olderRow, ...rows] : rows, new Set())}
       sessionId="session-1"
+      jumpButton
       onToggleActivity={() => {}}
       expanded={new Set()}
     />

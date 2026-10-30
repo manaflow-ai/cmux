@@ -84,13 +84,20 @@ extension AppServices {
         if signedIn, let machine = windows.active?.state.machineID, machines.session(machine) != nil {
             context.insert(.cloudWorkspace)
         }
+        #if DEBUG
+        // `debug.cloud_machine_fixture`: a capture's Cloud machine header, with no session or sign-in.
+        if DebugCloudMachineFixture.holdsCloudWorkspace(self) { context.insert(.cloudWorkspace) }
+        #endif
         if registry.context != context { registry.context = context }
     }
 
     /// Starts Cloud and keeps the registry context current.
     func startCloud() -> Task<Void, Never> {
         // An agent's request waits in the sidebar card; with the active window's sidebar hidden it takes the sheet, so it never waits unseen.
-        cloud.confirmCreate = { [weak self] in await CloudPresenter.confirmCreate($0, in: self?.windows.active?.window, asks: self?.windows.active?.state.sidebarHidden == false ? self?.machineAsks : nil, chatOpen: { [weak self] in self?.agentTabs.tab(showing: $0) != nil }) }
+        // The plan gate's Upgrade takes the one paid-plan path (PaidPlanUpgrade): Checkout that returns here, else pricing.
+        cloud.confirmCreate = { [weak self] in await CloudPresenter.confirmCreate($0, in: self?.windows.active?.window, asks: self?.windows.active?.state.sidebarHidden == false ? self?.machineAsks : nil, chatOpen: { [weak self] in self?.agentTabs.tab(showing: $0) != nil },
+                                                                           openPricing: { [weak self] _ in Task { await self?.paidPlanUpgrade().start(source: .cloudCreate) } }) }
+        cloud.planObserved = { [weak self] in self?.paidPlanObserved($0) }
         cloud.start()
         // Each Cloud machine follows the app's cmux-tui build by itself, also while an agent works there.
         CloudMachineUpdates.start(self)

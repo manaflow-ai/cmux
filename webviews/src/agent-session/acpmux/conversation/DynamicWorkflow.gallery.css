@@ -37,7 +37,7 @@
   --workflow-warning-soft: rgba(155, 91, 0, 0.13);
   --workflow-success: #197144;
   --workflow-success-soft: rgba(25, 113, 68, 0.12);
-  --workflow-shadow: 0 12px 30px rgba(24, 32, 42, 0.1);
+  --workflow-shadow: var(--elevation-2);
   box-sizing: border-box;
   min-height: 100%;
   padding: var(--workflow-space-20);
@@ -62,7 +62,7 @@
   --workflow-warning-soft: rgba(255, 202, 118, 0.14);
   --workflow-success: #70d09b;
   --workflow-success-soft: rgba(112, 208, 155, 0.13);
-  --workflow-shadow: 0 14px 36px rgba(0, 0, 0, 0.34);
+  --workflow-shadow: var(--elevation-2);
   color-scheme: dark;
 }
 

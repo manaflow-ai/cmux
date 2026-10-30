@@ -50,6 +50,7 @@ mod steer;
 mod transcript;
 mod turns;
 mod wakes;
+mod watches;
 pub use reaction_wake::{JudgeAsk, ReactionJudge};
 pub use replies::{REACTIONS, reaction, tapback};
 pub use steer::STEER_DEADLINE;
@@ -172,6 +173,8 @@ pub enum Input {
         id: String,
         key: String,
         name: String,
+        /// Its public id (`ws_…`), when the place can name it.
+        ws: Option<String>,
     },
     /// A subagent could not start.
     SubagentFailed {
@@ -283,6 +286,13 @@ pub enum Input {
         call: crate::tools::SleepCall,
         reply: Sender<Result<String, String>>,
     },
+    /// `watch(...)` (watches.rs): start, cancel or list watches.
+    Watch {
+        call: crate::tools::WatchCall,
+        reply: Sender<Result<String, String>>,
+    },
+    /// A watch's command ended it (watches.rs): the Chief wakes once.
+    WatchFired(Box<crate::watch::Fired>),
     /// A message from a Chief on another machine (peer_chiefs.rs), already
     /// framed as `[chief:<name>] ...`: queued as a note that wakes the Chief.
     PeerChiefNote {
@@ -680,6 +690,9 @@ pub struct Brain {
     state: HostState,
     tx: Sender<Input>,
     log: Log,
+    /// The running watches by id (watches.rs); dropping one kills its
+    /// process group, so a stopping host leaves none behind.
+    watch_runs: HashMap<String, crate::watch::Running>,
     daemon: Option<Box<dyn ConversationPort>>,
     reconnect: Option<Box<dyn Fn() + Send>>,
     summary: Option<Summary>,
@@ -926,6 +939,7 @@ impl Brain {
             state,
             tx,
             log,
+            watch_runs: HashMap::new(),
             daemon: None,
             reconnect: None,
             summary: None,
@@ -1029,6 +1043,10 @@ impl Brain {
             steer_due: None,
             reply_waits: reply_ledger::REPLY_RETRY_WAITS.to_vec(),
         };
+        // A host can exit after sub_done persists Done but before deliver
+        // queues the report. Recover that durable outbox before accepting new
+        // work so the report reaches both Chief and Home after restart.
+        brain.redeliver_saved_reports();
         // Each cut turn runs again first, on the reference client's note;
         // its messages are in the log already and are not logged again.
         let resumes = brain.state.resumes.clone();
@@ -1242,6 +1260,7 @@ impl Brain {
     /// Runs until a fatal error; returns it.
     pub fn run(mut self, rx: Receiver<Input>) -> String {
         self.rearm_auto_resumes();
+        self.rearm_watches();
         loop {
             if let Some(fatal) = &self.fatal {
                 return fatal.clone();
@@ -1342,7 +1361,9 @@ impl Brain {
                 self.stop_if_cancelled(&id);
             }
             Input::SubagentTurnStarted { id, prompt_id } => self.sub_turn_started(&id, &prompt_id),
-            Input::SubagentWorkspace { id, key, name } => self.sub_workspace(&id, key, name),
+            Input::SubagentWorkspace { id, key, name, ws } => {
+                self.sub_workspace(&id, key, name, ws)
+            }
             Input::SubagentFailed { id, error } => self.sub_failed(&id, &error),
             Input::SubagentAgentKey { id, key_id } => self.sub_agent_key(&id, key_id),
             Input::AgentKeyRevoked { id } => self.agent_key_revoked(&id),
@@ -1405,6 +1426,10 @@ impl Brain {
             Input::Sleep { call, reply } => {
                 let _ = reply.send(self.sleep(call));
             }
+            Input::Watch { call, reply } => {
+                let _ = reply.send(self.watch(call));
+            }
+            Input::WatchFired(fired) => self.watch_fired(*fired),
             Input::PeerChiefNote { text } => self.queue(text, Source::Note),
             Input::EscalateAuth {
                 agent,

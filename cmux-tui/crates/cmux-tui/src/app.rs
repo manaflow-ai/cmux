@@ -47,9 +47,12 @@ mod presentation;
 mod session_apply;
 
 mod config_status;
+mod dock_ops;
 mod graphics_emit;
 mod layout_sync;
 mod render;
+mod window_docks;
+mod window_frame;
 
 mod drag_resize;
 mod input_admission;
@@ -422,6 +425,8 @@ pub struct App {
     /// Durable identity for per-client focus memory on the mux
     /// (client-focus-v1); None when no config directory is available.
     client_focus_id: Option<String>,
+    /// Docked workspaces: this client's frame record and last placement.
+    pub(crate) docks: window_docks::DockFrameState,
     /// Terminal cells actually represented by the last rendered snapshot.
     /// Foreign-viewer padding outside these bounds is display-only.
     pub(crate) rendered_terminal_bounds: HashMap<SurfaceId, Rect>,

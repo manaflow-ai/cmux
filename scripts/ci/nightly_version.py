@@ -23,6 +23,10 @@
       already offers (another run published it) prints
       `already_published=true` and exits 0; otherwise the last line is
       `already_published=false`.
+      With --superseded-ok as well, a build some feed is already above (a
+      newer build published first: builds run side by side and publication
+      is latest-wins) prints `superseded=true` and exits 0 instead of
+      refusing; otherwise `superseded=false` follows.
 
 CFBundleVersion is the run-derived number (`<run id><attempt, 2 digits>`),
 which only grows; Sparkle compares it, never the marketing version.
@@ -161,11 +165,18 @@ def feed_builds(root):
     return numeric
 
 
-def check_build(build, feeds, optional_feeds=(), already_published_ok=False):
+class Superseded(Exception):
+    """A feed is already above the build: a newer build published first."""
+
+
+def check_build(build, feeds, optional_feeds=(), already_published_ok=False, superseded_ok=False):
     """`optional_feeds` may not exist yet (a track's new feed before its first
     publication); any other read failure still refuses. Returns whether a feed
-    already offers exactly `build` (only allowed with `already_published_ok`)."""
+    already offers exactly `build` (only allowed with `already_published_ok`).
+    With `superseded_ok`, a feed above the build raises Superseded instead of
+    Refused, after every feed was read (an unreadable feed still refuses)."""
     published_in = None
+    above = None
     if not BUILD.match(build):
         raise Refused(f"build {build!r} is not a number")
     for source in [*feeds, *optional_feeds]:
@@ -183,8 +194,14 @@ def check_build(build, feeds, optional_feeds=(), already_published_ok=False):
             print(f"build {build} is already the highest in {source}")
             continue
         if highest is not None and int(build) <= highest:
-            raise Refused(f"build {build} is not above {highest} in {source}")
+            if not superseded_ok:
+                raise Refused(f"build {build} is not above {highest} in {source}")
+            above = above or f"build {build} is superseded by {highest} in {source}"
+            print(above)
+            continue
         print(f"build {build} is above {source} (highest {highest})")
+    if above:
+        raise Superseded(above)
     return published_in is not None
 
 
@@ -203,6 +220,8 @@ def main(argv):
     c.add_argument("--feed", action="append", required=True)
     c.add_argument("--feed-if-present", action="append", default=[], help="a feed that may not exist yet")
     c.add_argument("--already-published-ok", action="store_true", help="a feed already offering this build is not a refusal")
+    c.add_argument("--superseded-ok", action="store_true",
+                   help="a feed already above this build (a newer build published first) is not a refusal")
     args = parser.parse_args(argv)
     try:
         if args.command == "marketing":
@@ -210,9 +229,16 @@ def main(argv):
         elif args.command == "next-base":
             print(next_base(args.root))
         else:
-            published = check_build(args.build, args.feed, args.feed_if_present, args.already_published_ok)
+            try:
+                published = check_build(args.build, args.feed, args.feed_if_present, args.already_published_ok,
+                                        args.superseded_ok)
+            except Superseded:
+                print("superseded=true")
+                return 0
             if args.already_published_ok:
                 print(f"already_published={'true' if published else 'false'}")
+            if args.superseded_ok:
+                print("superseded=false")
     except Refused as error:
         print(f"nightly_version: {error}", file=sys.stderr)
         return 1

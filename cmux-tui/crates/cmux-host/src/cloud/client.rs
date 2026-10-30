@@ -334,15 +334,37 @@ impl<H: Http> CloudClient<H> {
     }
 
     /// A GitHub token for this machine (`POST /v1/integrations/github/token`
-    /// as its `vm` install, the machine's team). Only a 401 or an `auth.*`
-    /// 403 drops the cached bearer and retries once: a `policy.denied` is
-    /// the answer, not a stale bearer.
+    /// as its `vm` install, the machine's team).
     pub fn github_token(&mut self, ask: &super::github::TokenAsk, now_wall_ms: u64) -> Answer {
-        let url = self.url(super::github::TOKEN_PATH);
         let body = ask.api_body(&self.bound.team);
+        self.post_as_install(super::github::TOKEN_PATH, &body, now_wall_ms)
+    }
+
+    /// A hand-off report for one of this machine's sessions (`POST
+    /// /v1/handoffs/<id>/report` as its `vm` install). The hand-off is named
+    /// from the install's user and the session, as the store names it.
+    pub fn handoff_report(
+        &mut self,
+        report: &super::handoff::HandoffReport,
+        now_wall_ms: u64,
+    ) -> (String, Answer) {
+        let id = super::handoff::handoff_id(&self.bound.user, &report.session);
+        let answer = self.post_as_install(
+            &super::handoff::report_path(&id),
+            &report.api_body(),
+            now_wall_ms,
+        );
+        (id, answer)
+    }
+
+    /// One POST as the `vm` install. Only a 401 or an `auth.*` 403 drops the
+    /// cached bearer and retries once: a `policy.denied` is the answer, not
+    /// a stale bearer.
+    fn post_as_install(&mut self, path: &str, body: &Value, now_wall_ms: u64) -> Answer {
+        let url = self.url(path);
         let send = |client: &mut Self| -> Option<(u16, Value)> {
             let token = client.token(now_wall_ms).ok()?;
-            client.http.post(&url, &body, Some(&token)).ok()
+            client.http.post(&url, body, Some(&token)).ok()
         };
         let Some((mut status, mut answer)) = send(self) else { return Answer::Transport };
         let stale = status == 401

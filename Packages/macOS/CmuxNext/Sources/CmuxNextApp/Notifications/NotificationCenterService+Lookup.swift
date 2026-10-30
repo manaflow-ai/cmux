@@ -72,14 +72,11 @@ extension NotificationCenterService {
         return Self.unreadCount(services?.daemon.store, homeUnread: home.map(\.rawValue))
     }
 
-    /// Sets the Dock tile's unread count. Compares with the label it set
-    /// last: reading `dockTile.badgeLabel` asks the Dock and can block.
+    /// Sets the Dock tile's unread count (``DockBadge``: written only when it changes, and again
+    /// when the Dock icon comes back).
     func updateDockBadge(_ count: Int) {
         dockAttention.unreadChanged(count)
-        let label = preferences.dockBadge && count > 0 ? String(count) : nil
-        guard label != dockBadgeLabel else { return }
-        dockBadgeLabel = label
-        NSApp.dockTile.badgeLabel = label
+        dockBadge.show(preferences.dockBadge && count > 0 ? String(count) : nil)
     }
 
     /// The handoff driver over the local daemon and this Mac's install

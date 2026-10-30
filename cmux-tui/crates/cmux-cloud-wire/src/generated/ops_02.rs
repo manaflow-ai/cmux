@@ -4,6 +4,255 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Build the environment's snapshot: a builder machine from the deployment's image clones the repo, runs the setup script, and is snapshotted and deleted. Answers at once with status building (built: true); the build takes minutes, and cloud.environment.list shows ready or failed with the log tail. A snapshot that still matches answers built: false and changes nothing. The new snapshot counts against max_saved (cloud.quota.exceeded {resource: saved}); it replaces the previous one when it is ready. One build per environment at a time (cloud.environment.busy). A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.
+    CloudEnvironmentBuildOp {
+        name: "cloud.environment.build",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:CloudDO",
+        risk: "money",
+        principals: [Session, Install],
+        params: CloudEnvironmentBuildParams,
+        result: CloudEnvironmentBuildResult,
+        error: CloudEnvironmentBuildError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudEnvironmentBuildParams {
+    pub environment: EnvironmentId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudEnvironmentBuildResult {
+    pub environment: CloudEnvironment,
+    pub built: bool,
+}
+
+wire_errors! {
+    /// The error codes cloud.environment.build declares.
+    CloudEnvironmentBuildError {
+        ApprovalDenied = "approval.denied",
+        ApprovalExpired = "approval.expired",
+        ApprovalPending = "approval.pending",
+        ApprovalTooManyPending = "approval.too_many_pending",
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        CloudEnvironmentBusy = "cloud.environment.busy",
+        CloudEnvironmentNotFound = "cloud.environment.not_found",
+        CloudEnvironmentSecretsUnavailable = "cloud.environment.secrets_unavailable",
+        CloudPlanRequired = "cloud.plan.required",
+        CloudProviderUnavailable = "cloud.provider.unavailable",
+        CloudQuotaExceeded = "cloud.quota.exceeded",
+        CloudRateLimited = "cloud.rate_limited",
+        IdempotencyConflict = "idempotency.conflict",
+        MutationIndeterminate = "mutation.indeterminate",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Delete an environment and its snapshot (cloud.snapshot.removed follows). Machines booted from it keep running. A build still running answers cloud.environment.busy. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.
+    CloudEnvironmentDeleteOp {
+        name: "cloud.environment.delete",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:CloudDO",
+        risk: "destructive",
+        principals: [Session, Install],
+        params: CloudEnvironmentDeleteParams,
+        result: CloudEnvironmentDeleteResult,
+        error: CloudEnvironmentDeleteError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudEnvironmentDeleteParams {
+    pub environment: EnvironmentId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudEnvironmentDeleteResult {
+    pub deleted: BoolLit<true>,
+}
+
+wire_errors! {
+    /// The error codes cloud.environment.delete declares.
+    CloudEnvironmentDeleteError {
+        ApprovalDenied = "approval.denied",
+        ApprovalExpired = "approval.expired",
+        ApprovalPending = "approval.pending",
+        ApprovalTooManyPending = "approval.too_many_pending",
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        CloudEnvironmentBusy = "cloud.environment.busy",
+        CloudEnvironmentNotFound = "cloud.environment.not_found",
+        CloudRateLimited = "cloud.rate_limited",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// The team's Cloud environments, oldest first, with each one's build status.
+    CloudEnvironmentListOp {
+        name: "cloud.environment.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:CloudDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: CloudEnvironmentListParams,
+        result: CloudEnvironmentListResult,
+        error: CloudEnvironmentListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudEnvironmentListParams {}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudEnvironmentListResult {
+    pub environments: Vec<CloudEnvironment>,
+}
+
+wire_errors! {
+    /// The error codes cloud.environment.list declares.
+    CloudEnvironmentListError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        OwnerUnreachable = "owner.unreachable",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Create an environment (name required) or edit one. The inputs are checked as a whole: cloud.environment.invalid {field, message} (a GitHub repo as owner/name[@ref] or a github.com URL without credentials, a setup script up to 64 KB, at most 100 variables with names the machine does not own). An edit to the repo, the script or the variables makes a built snapshot stale; a rename does not. At most 20 environments per team (cloud.quota.exceeded {limit, used, resource: environments}). Agent principals are refused; the client asks a person first.
+    CloudEnvironmentSetOp {
+        name: "cloud.environment.set",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:CloudDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: CloudEnvironmentSetParams,
+        result: CloudEnvironmentSetResult,
+        error: CloudEnvironmentSetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudEnvironmentSetParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub environment: Option<EnvironmentId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub repo: Option<Option<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub setup_script: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub env: Option<Vec<CloudEnvironmentVariable>>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudEnvironmentSetResult {
+    pub environment: CloudEnvironment,
+}
+
+wire_errors! {
+    /// The error codes cloud.environment.set declares.
+    CloudEnvironmentSetError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        CloudEnvironmentInvalid = "cloud.environment.invalid",
+        CloudEnvironmentNotFound = "cloud.environment.not_found",
+        CloudQuotaExceeded = "cloud.quota.exceeded",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. A read never mints a credential: the dial token comes from cloud.machine.link_token.
+    CloudMachineConnectInfoOp {
+        name: "cloud.machine.connect_info",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:CloudDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: CloudMachineConnectInfoParams,
+        result: CloudConnectInfo,
+        error: CloudMachineConnectInfoError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineConnectInfoParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine: Option<MachineId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<HostId>,
+}
+
+wire_errors! {
+    /// The error codes cloud.machine.connect_info declares.
+    CloudMachineConnectInfoError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        CloudMachineNotBound = "cloud.machine.not_bound",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        OwnerUnreachable = "owner.unreachable",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used}, cloud.size.locked. A same-key retry never makes a second machine. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.
+    CloudMachineCreateOp {
+        name: "cloud.machine.create",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:CloudDO",
+        risk: "money",
+        principals: [Session, Install],
+        params: CloudMachineCreateParams,
+        result: CloudMachineCreateResult,
+        error: CloudMachineCreateError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineCreateParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub size: CloudMachineSize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_snapshot: Option<SnapshotId>,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CloudMachineCreateResult {
     pub machine: CloudMachine,
@@ -638,268 +887,4 @@ pub struct CloudShellOpenParams {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CloudShellOpenResult {
     pub stream: String,
-}
-
-wire_errors! {
-    /// The error codes cloud.shell.open declares.
-    CloudShellOpenError {
-        AuthForbidden = "auth.forbidden",
-        AuthSsoRequired = "auth.sso_required",
-        AuthUnauthenticated = "auth.unauthenticated",
-        ClientTooOld = "client.too_old",
-        CloudMachineNotFound = "cloud.machine.not_found",
-        CloudMachinePaused = "cloud.machine.paused",
-        CloudProviderUnavailable = "cloud.provider.unavailable",
-        IdempotencyConflict = "idempotency.conflict",
-        MutationIndeterminate = "mutation.indeterminate",
-        OwnerUnreachable = "owner.unreachable",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Take a snapshot of a running or paused, bound machine (else cloud.machine.not_running {machine, state}): answers status creating; cloud.snapshot.upsert brings ready (or failed). It counts against the plan's saved limit (max_saved): cloud.quota.exceeded {limit, used, resource: saved}. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.
-    CloudSnapshotCreateOp {
-        name: "cloud.snapshot.create",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:CloudDO",
-        risk: "money",
-        principals: [Session, Install],
-        params: CloudSnapshotCreateParams,
-        result: CloudSnapshotCreateResult,
-        error: CloudSnapshotCreateError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudSnapshotCreateParams {
-    pub machine: MachineId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudSnapshotCreateResult {
-    pub snapshot: CloudSnapshot,
-}
-
-wire_errors! {
-    /// The error codes cloud.snapshot.create declares.
-    CloudSnapshotCreateError {
-        ApprovalDenied = "approval.denied",
-        ApprovalExpired = "approval.expired",
-        ApprovalPending = "approval.pending",
-        ApprovalTooManyPending = "approval.too_many_pending",
-        AuthForbidden = "auth.forbidden",
-        AuthSsoRequired = "auth.sso_required",
-        AuthUnauthenticated = "auth.unauthenticated",
-        ClientTooOld = "client.too_old",
-        CloudMachineNotFound = "cloud.machine.not_found",
-        CloudMachineNotRunning = "cloud.machine.not_running",
-        CloudPlanRequired = "cloud.plan.required",
-        CloudProviderUnavailable = "cloud.provider.unavailable",
-        CloudQuotaExceeded = "cloud.quota.exceeded",
-        CloudRateLimited = "cloud.rate_limited",
-        IdempotencyConflict = "idempotency.conflict",
-        MutationIndeterminate = "mutation.indeterminate",
-        OwnerUnreachable = "owner.unreachable",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Delete a snapshot (its provider snapshot under the recorded name only); cloud.snapshot.removed follows. A snapshot still being taken answers cloud.machine.busy. A signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.
-    CloudSnapshotDeleteOp {
-        name: "cloud.snapshot.delete",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:CloudDO",
-        risk: "destructive",
-        principals: [Session, Install],
-        params: CloudSnapshotDeleteParams,
-        result: CloudSnapshotDeleteResult,
-        error: CloudSnapshotDeleteError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudSnapshotDeleteParams {
-    pub snapshot: SnapshotId,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudSnapshotDeleteResult {
-    pub deleted: BoolLit<true>,
-}
-
-wire_errors! {
-    /// The error codes cloud.snapshot.delete declares.
-    CloudSnapshotDeleteError {
-        ApprovalDenied = "approval.denied",
-        ApprovalExpired = "approval.expired",
-        ApprovalPending = "approval.pending",
-        ApprovalTooManyPending = "approval.too_many_pending",
-        AuthForbidden = "auth.forbidden",
-        AuthSsoRequired = "auth.sso_required",
-        AuthUnauthenticated = "auth.unauthenticated",
-        ClientTooOld = "client.too_old",
-        CloudMachineBusy = "cloud.machine.busy",
-        CloudProviderUnavailable = "cloud.provider.unavailable",
-        CloudRateLimited = "cloud.rate_limited",
-        CloudSnapshotNotFound = "cloud.snapshot.not_found",
-        IdempotencyConflict = "idempotency.conflict",
-        MutationIndeterminate = "mutation.indeterminate",
-        OwnerUnreachable = "owner.unreachable",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Snapshots of one machine, or of the team.
-    CloudSnapshotListOp {
-        name: "cloud.snapshot.list",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:CloudDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: CloudSnapshotListParams,
-        result: CloudSnapshotListResult,
-        error: CloudSnapshotListError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudSnapshotListParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub machine: Option<MachineId>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudSnapshotListResult {
-    pub snapshots: Vec<CloudSnapshot>,
-}
-
-wire_errors! {
-    /// The error codes cloud.snapshot.list declares.
-    CloudSnapshotListError {
-        AuthForbidden = "auth.forbidden",
-        AuthSsoRequired = "auth.sso_required",
-        AuthUnauthenticated = "auth.unauthenticated",
-        ClientTooOld = "client.too_old",
-        CloudMachineNotFound = "cloud.machine.not_found",
-        OwnerUnreachable = "owner.unreachable",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Create a new machine booted from a ready snapshot (plan checks as create; a fresh bind like any create). A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.
-    CloudSnapshotRestoreOp {
-        name: "cloud.snapshot.restore",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:CloudDO",
-        risk: "money",
-        principals: [Session, Install],
-        params: CloudSnapshotRestoreParams,
-        result: CloudSnapshotRestoreResult,
-        error: CloudSnapshotRestoreError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudSnapshotRestoreParams {
-    pub snapshot: SnapshotId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudSnapshotRestoreResult {
-    pub machine: CloudMachine,
-}
-
-wire_errors! {
-    /// The error codes cloud.snapshot.restore declares.
-    CloudSnapshotRestoreError {
-        ApprovalDenied = "approval.denied",
-        ApprovalExpired = "approval.expired",
-        ApprovalPending = "approval.pending",
-        ApprovalTooManyPending = "approval.too_many_pending",
-        AuthForbidden = "auth.forbidden",
-        AuthSsoRequired = "auth.sso_required",
-        AuthUnauthenticated = "auth.unauthenticated",
-        ClientTooOld = "client.too_old",
-        CloudNoSnapshotConfigured = "cloud.no_snapshot_configured",
-        CloudPlanRequired = "cloud.plan.required",
-        CloudProviderUnavailable = "cloud.provider.unavailable",
-        CloudQuotaExceeded = "cloud.quota.exceeded",
-        CloudRateLimited = "cloud.rate_limited",
-        CloudSizeLocked = "cloud.size.locked",
-        CloudSnapshotNotFound = "cloud.snapshot.not_found",
-        IdempotencyConflict = "idempotency.conflict",
-        MutationIndeterminate = "mutation.indeterminate",
-        OwnerUnreachable = "owner.unreachable",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Send one event to the team's subscribers as the ephemeral team event cloud.machine.event (never stored). v1 kinds only; data per kind, at most 4 KB, URL query strings and fragments removed; 10/s, burst 50 per install. No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine).
-    CloudVmEventEmitOp {
-        name: "cloud.vm.event.emit",
-        class: Mutation,
-        idempotency: None,
-        owner: "cloud:CloudDO",
-        risk: "execute",
-        principals: [Install],
-        params: CloudVmEventEmitParams,
-        result: CloudVmEventEmitResult,
-        error: CloudVmEventEmitError,
-    }
-}
-
-wire_enum! {
-    CloudVmEventEmitParamsKind {
-        AgentStarted = "agent.started",
-        AgentFinished = "agent.finished",
-        AgentNeedsInput = "agent.needs_input",
-        Notification = "notification",
-        BrowserLeaseChanged = "browser.lease.changed",
-        CuaSessionStarted = "cua.session.started",
-        CuaSessionEnded = "cua.session.ended",
-        ServicePortOpened = "service.port.opened",
-        ServicePortClosed = "service.port.closed",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmEventEmitParams {
-    pub machine: MachineId,
-    pub kind: CloudVmEventEmitParamsKind,
-    pub at: i64,
-    pub data: Value,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmEventEmitResult {
-    pub delivered: bool,
-}
-
-wire_errors! {
-    /// The error codes cloud.vm.event.emit declares.
-    CloudVmEventEmitError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        CloudMachineNotFound = "cloud.machine.not_found",
-        CloudRateLimited = "cloud.rate_limited",
-        ValidationInvalid = "validation.invalid",
-    }
 }
