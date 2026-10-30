@@ -23,12 +23,12 @@ pub(super) fn negotiate(
                 "transport closed before client capabilities response".into(),
             )
         })?;
-    if response["type"] == "refused" {
+    if response.get("type").and_then(Value::as_str) == Some("refused") {
         return Err(resolve::Failure::Refused);
     }
     // A daemon that is not ready can refuse every frame with the normal v2
     // resource error. Preserve that error; it is not an unsupported hello.
-    if response["protocol"] == cmux_tui_core::resource::PROTOCOL {
+    if response.get("protocol").and_then(Value::as_str) == Some(cmux_tui_core::resource::PROTOCOL) {
         let reply: cmux_tui_core::resource::ResponseEnvelope = serde_json::from_value(response)
             .map_err(|error| resolve::Failure::Transport(format!("protocol error: {error}")))?;
         reply.validate().map_err(|error| resolve::Failure::Transport(error.message))?;
@@ -46,7 +46,9 @@ pub(super) fn negotiate(
             "protocol error: expected raw client capabilities response".into(),
         ));
     }
-    if response["id"] != id || !response["ok"].is_boolean() {
+    if response.get("id").and_then(Value::as_str) != Some(id.as_str())
+        || !response.get("ok").is_some_and(Value::is_boolean)
+    {
         return Err(resolve::Failure::Transport(
             "protocol error: invalid client capabilities response".into(),
         ));
