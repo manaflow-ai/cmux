@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextCloud
 import CmuxNextDaemon
 import Foundation
 
@@ -11,20 +12,35 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     /// The chat's session; nil for a new chat that ``start`` starts on its machine first.
     let session: String?
     let machine: String
+    let hostID: String
+    /// The daemon's store host (`registry:<id>`, ``AgentTabStore/registryHost(of:)``), which opening a
+    /// remote child checks its lineage under; the wire notes the daemon's links under it too.
+    var linksHost: String?
     let endpoint: AgentSessionAttachClient.EndpointProvider
+    /// Asked when a connection to the machine fails: reconnects a down link and tries once more
+    /// (``AgentPaneMachineLink/reconnecting(machine:)``); nil, never.
+    var reconnect: AgentSessionAttachClient.Reconnect?
     /// `.observe` opens the remote session as a read-only viewer with no mutation fallback.
     var mode: AgentSessionAttachClient.Mode = .attach
     /// Present only for a Cloud VM resolved by the native machine registry.
     var cloudMachineID: String?
+    var cloudAccount: [String?]?
     var cloudCredentialRecoveryAvailable = false
     /// The machine's daemon answers the folder trust question (`agent-session-trust-v1`).
     var servesTrust = false
     /// The machine's daemon says whether a keyed acpmux restart loses nothing
     /// (`agent-session-start-keyed-reason-v1`, cx-0w0jj).
     var servesKeyedReason = false
-    /// A Cloud machine's link owner answer (`CloudMachineLink.ownerLink`), read at each trust call
+    /// A Cloud machine's link owner answer (``ownerLink(appLink:link:)``), read at each trust call
     /// and never kept. Nil for a machine that is not a Cloud machine.
     var ownerLink: AgentSessionAttachClient.OwnerLink?
+
+    /// The owner answer of the link a Cloud machine's calls go over: the app link's own
+    /// (``CloudLinkSession/ownerLink``) or the legacy link's (``CloudMachineLink/ownerLink``).
+    static func ownerLink(appLink: CloudLinkSession?, link: CloudMachineLink?) -> AgentSessionAttachClient.OwnerLink {
+        if let appLink { return { await appLink.ownerLink } }
+        return { await link?.ownerLink }
+    }
     /// The keyed restart of the machine's acpmux (an SSH machine, or a paired server on the ssh
     /// route); nil where the app has no exec channel of its own (cx-0q7o).
     var approvals: AgentPaneRemoteApprovals?
@@ -34,7 +50,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     /// Starts a new chat in the machine's own acpmux (`agent-session-start`, policy `ask`) in the
     /// page's folder with the page's agent (nil: the tab's own) and answers the tab's surface there
     /// and the session (``AgentTabStore/startRemoteChat``). Called only by the page's first send.
-    var start: (@Sendable (_ cwd: String?, _ harness: String?, _ personKey: AgentSessionAttachClient.PersonKey?) async throws
+    var start: (@Sendable (_ cwd: String?, _ harness: String?, _ model: String?, _ personKey: AgentSessionAttachClient.PersonKey?) async throws
         -> AgentTabRemoteStart.Started)?
 
     func handshake(sessionId: String?) async throws -> AgentPaneHandshake {
@@ -53,33 +69,33 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
         }
         let route: AgentPaneRemoteRoute
         // The folder trust question of this machine (cx-1bhjj), on the tab as its store lists it.
-        let ask: RemoteAcpmuxWire.Trust = { [existing, surface, endpoint, ownerLink] (cwd: String, level: String?, home: Bool) async throws -> Data in
-            let client = AgentSessionAttachClient(surface: try await existing?()?.surface ?? surface, endpoint: endpoint)
+        let ask: RemoteAcpmuxWire.Trust = { [existing, surface, endpoint, reconnect, ownerLink] (cwd: String, level: String?, home: Bool) async throws -> Data in
+            let client = AgentSessionAttachClient(surface: try await existing?()?.surface ?? surface, reconnect: reconnect, endpoint: endpoint)
             let answer: Result<Data, any Error>
             do { answer = .success(try await AgentTabRemoteClient(client: client, mode: .attach).mapped { try await client.trust(cwd: cwd, level: level, homeConfirmed: home, ownerLink: ownerLink) }) } catch { answer = .failure(error) }
             await client.close()
             return try answer.get()
         }
         if let session {
-            route = AgentPaneRemoteRoute(machine: machine, approvals: approvals) { [surface, session, endpoint] in
-                let client = AgentSessionAttachClient(surface: surface, mode: mode, endpoint: endpoint)
-                return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session, trust: mode == .attach && servesTrust ? ask : nil)
+            route = AgentPaneRemoteRoute(machine: machine, hostID: hostID, approvals: approvals) { [surface, session, endpoint, reconnect] in
+                let client = AgentSessionAttachClient(surface: surface, mode: mode, reconnect: reconnect, endpoint: endpoint)
+                return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session, host: hostID, linksAlias: linksHost, trust: mode == .attach && servesTrust ? ask : nil)
             }
         } else if let start, mode == .attach {
             // A new chat: nothing runs on that machine until the page's first send (cx-k21v). The
             // page shows the New Tab page or an empty chat; its `session/new` starts the chat.
-            route = AgentPaneRemoteRoute(machine: machine, approvals: approvals) { [endpoint] in
-                RemoteAcpmuxWire(start: { [approvals = approvals, servesKeyedReason] cwd, harness in
+            route = AgentPaneRemoteRoute(machine: machine, hostID: hostID, approvals: approvals) { [endpoint, reconnect] in
+                RemoteAcpmuxWire(start: { [approvals = approvals, servesKeyedReason] cwd, harness, model in
                     let started: AgentTabRemoteStart.Started
                     do {
-                        started = try await Self.keyedStart(cwd, harness, approvals: approvals,
+                        started = try await Self.keyedStart(cwd, harness, model, approvals: approvals,
                                                             servesKeyedReason: servesKeyedReason, proceed: Self.proceedAlways, start: start)
                     } catch let refusal as AgentRemoteStartRefusal {
                         throw AgentSessionRemoteError(code: refusal.code, message: servesTrust ? refusal.userMessage : refusal.withoutTrust.userMessage, folder: refusal.folder)
                     }
-                    let client = AgentSessionAttachClient(surface: started.surface, endpoint: endpoint)
+                    let client = AgentSessionAttachClient(surface: started.surface, reconnect: reconnect, endpoint: endpoint)
                     return (AgentTabRemoteClient(client: client, mode: .attach), started.session)
-                }, trust: servesTrust ? ask : nil)
+                }, host: hostID, linksAlias: linksHost, trust: servesTrust ? ask : nil)
             }
         } else {
             throw AgentRemoteStartRefusal.startUnsupported(machine: machine)
@@ -90,6 +106,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
         // The composer's machine chip names the chat's machine, not this Mac (cx-k21v).
         handshake.machineName = machine
         handshake.cloudMachineID = cloudMachineID
+        handshake.cloudAccount = cloudAccount
         handshake.cloudCredentialRecoveryAvailable = cloudCredentialRecoveryAvailable
         return handshake
     }
@@ -102,9 +119,9 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     /// same keyed start, in `cwd` (nil: the tab's seed folder, then its workspace's) with `harness`.
     /// `proceed` runs before each step that changes that machine (a keyed restart, each start
     /// try): its throw stops the start there, and what it threw is what this throws.
-    func startNow(cwd: String?, harness: String, proceed: @escaping @Sendable () async throws -> Void) async throws -> AgentTabRemoteStart.Started {
+    func startNow(cwd: String?, harness: String, model: String? = nil, proceed: @escaping @Sendable () async throws -> Void) async throws -> AgentTabRemoteStart.Started {
         guard let start else { throw AgentRemoteStartRefusal.startUnsupported(machine: machine) }
-        return try await Self.keyedStart(cwd, harness, approvals: approvals, servesKeyedReason: servesKeyedReason, proceed: proceed, start: start)
+        return try await Self.keyedStart(cwd, harness, model, approvals: approvals, servesKeyedReason: servesKeyedReason, proceed: proceed, start: start)
     }
 
     /// The chat's Allow needs this app's key on that machine's agent daemon (cx-oa6ah): an idle
@@ -113,24 +130,24 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     /// the start asks for this app's key, and its `needs_keyed_start` answer says whether to
     /// restart; after the restart (or without one) the chat starts as it is.
     private static func keyedStart(
-        _ cwd: String?, _ harness: String?, approvals: AgentPaneRemoteApprovals?, servesKeyedReason: Bool,
+        _ cwd: String?, _ harness: String?, _ model: String?, approvals: AgentPaneRemoteApprovals?, servesKeyedReason: Bool,
         proceed: @escaping @Sendable () async throws -> Void,
-        start unchecked: @escaping @Sendable (String?, String?, AgentSessionAttachClient.PersonKey?) async throws -> AgentTabRemoteStart.Started
+        start unchecked: @escaping @Sendable (String?, String?, String?, AgentSessionAttachClient.PersonKey?) async throws -> AgentTabRemoteStart.Started
     ) async throws -> AgentTabRemoteStart.Started {
-        let start = { @Sendable (cwd: String?, harness: String?, key: AgentSessionAttachClient.PersonKey?) in
+        let start = { @Sendable (cwd: String?, harness: String?, model: String?, key: AgentSessionAttachClient.PersonKey?) in
             try await proceed()
-            return try await unchecked(cwd, harness, key)
+            return try await unchecked(cwd, harness, model, key)
         }
-        guard let approvals, let prepare = approvals.prepare else { return try await start(cwd, harness, nil) }
+        guard let approvals, let prepare = approvals.prepare else { return try await start(cwd, harness, model, nil) }
         guard servesKeyedReason else {
             // An older cmux-tui: the app's own status check (remove with ``AgentPaneRemoteApprovals/Preparation/checkStatus``).
             try await proceed()
             _ = await prepare(.checkStatus)
-            return try await start(cwd, harness, nil)
+            return try await start(cwd, harness, model, nil)
         }
         let key = AgentSessionAttachClient.PersonKey(instance: AcpmuxRemotePersonKeys.shared.instance(machine: approvals.machineID))
         do {
-            return try await start(cwd, harness, key)
+            return try await start(cwd, harness, model, key)
         } catch let refusal as AgentRemoteStartRefusal where refusal.code == AgentSessionAttachError.needsKeyedStart {
             // Another chat's keyed restart bound a new key meanwhile: never restart again over it.
             // (nil: a restart runs or failed; prepare joins it or tries again)
@@ -140,7 +157,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
                 try await proceed()
                 _ = await prepare(.daemonSaidSafe)
             }
-            return try await start(cwd, harness, nil)
+            return try await start(cwd, harness, model, nil)
         }
     }
 }
