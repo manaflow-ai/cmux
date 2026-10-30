@@ -260,6 +260,7 @@ export interface AcpmuxNotifications {
   "_acpmux/harness_inventory": unknown;
   "_acpmux/start_mode_changed": unknown;
   "_acpmux/prompt_accepted": unknown;
+  "_acpmux/cancel_refused": unknown;
   "_acpmux/lagged": unknown;
 }
 
@@ -526,6 +527,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/harness_inventory", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/start_mode_changed", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/prompt_accepted", kind: "notification", acp: false, typed: false },
+  { name: "_acpmux/cancel_refused", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/lagged", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/disconnected", kind: "client_local", acp: false, typed: false },
 ];

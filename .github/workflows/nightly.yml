@@ -2253,46 +2253,29 @@ jobs:
           fi
           echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
 
-      # The Home Chief's brain host (Native/OptChat/optchat-chief) ships in the
-      # cmux-next nightly only: this step builds it for the "Bundle
-      # optchat-chief" phase script, which copies it to Resources/bin, and
-      # build-sign-notarize-nightly signs it with the app's Developer ID and
-      # hardened runtime (sign-cmux-bundle-helpers.sh signs every Mach-O
-      # there). Main's nightly, RC and stable never set the variable, so they
-      # bundle nothing, and the app starts the bundled Chief only on DEV and
-      # NIGHTLY bundle ids (HomeBrainHost.bundledChiefAllowed).
+      # The Home Chief (cmux-next nightly only): see scripts/ci/nightly-steps/chief-build.sh.
+      - name: Prepare the OptChat Chief cache key
+        id: chief-cache-key
+        if: (inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next') && steps.nightly-product.outputs.hit != 'true'
+        env:
+          SOURCE_KEY: ${{ needs.resolve-nightly-cmux-tui-client.outputs.chief_key }}
+          ARCHS: ${{ env.NIGHTLY_COMPILE_ARCHS }}
+        run: bash scripts/ci/nightly-steps/chief-cache-key.sh
+
+      - name: Restore the OptChat Chief cache
+        id: chief-cache-restore
+        if: steps.chief-cache-key.outputs.cache_key != ''
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ steps.chief-cache-key.outputs.cache_root }}
+          key: ${{ steps.chief-cache-key.outputs.save_key }}
+          restore-keys: |
+            ${{ steps.chief-cache-key.outputs.restore_prefix }}
+
       - name: Build the OptChat Chief (cmux-next)
         if: (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')) && steps.nightly-product.outputs.hit != 'true'
-        run: |
-          set -euo pipefail
-          chief_bin="$RUNNER_TEMP/cmux-next-optchat-chief/optchat-chief"
-          # A trusted NEXT worker keeps Chief binaries keyed by their inputs
-          # (optchat-chief-input-key.py: the path-dependency closure, the
-          # regenerated inspector page, toolchain, SDK and cargo settings), so
-          # a push that changes none of them skips cargo. The step took 90-114 s
-          # on every build (runs 39349353760 to 39374887542); about 6 in 10
-          # consecutive promotions on 2026-10-19/20 left these inputs unchanged.
-          case "${RUNNER_NAME:-}" in
-            *-glaeda|*-glaeda-[0-9]*)
-              export CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEYED=1
-              export CMUX_NEXT_OPTCHAT_CHIEF_CACHE="$HOME/Library/Caches/cmux-nightly-next/$RUNNER_NAME/caches/optchat-chief"
-              ;;
-          esac
-          # It builds in the background, beside the Release build (it took 90 to
-          # 176 s of this job's serial path): "Bundle the OptChat Chief and the
-          # iPhone host" joins it after xcodebuild and copies it in with the
-          # Xcode phase's own script. Install its toolchain and targets, and the
-          # iPhone host's, here first, so no two background builds install into
-          # one toolchain at once (both scripts then find them in place).
-          toolchain="$(sed -n 's/^channel *= *"\(.*\)"/\1/p' cmux-tui/rust-toolchain.toml)"
-          rustup toolchain install "$toolchain" --profile minimal >/dev/null
-          rustup target add --toolchain "$toolchain" aarch64-apple-darwin x86_64-apple-darwin >/dev/null
-          (cd cmux-next-ios/rust && rustup target add aarch64-apple-darwin x86_64-apple-darwin >/dev/null)
-          python3 scripts/ci/background_build.py start --state "$RUNNER_TEMP/nightly-helper-builds" optchat-chief -- \
-            nice -n 10 env CMUX_NEXT_OPTCHAT_CHIEF_ARCHS="$NIGHTLY_COMPILE_ARCHS" scripts/cmux-next/build-optchat-chief.sh --output "$chief_bin"
-          echo "CMUX_NEXT_OPTCHAT_CHIEF_PENDING_BIN=$chief_bin" >> "$GITHUB_ENV"
-          # The built-in full uBlock Origin must be in every nightly-next build (bundle-ublock.sh).
-          echo "CMUX_NEXT_REQUIRE_UBLOCK=1" >> "$GITHUB_ENV"
+        run: bash scripts/ci/nightly-steps/chief-build.sh
 
       # The cmux mobile iPhone host (cmux-next-ios/rust/crates/cmux-mobile-host), which
       # Settings > Mobile runs: the "Bundle cmux-mobile-host" phase script
@@ -2540,6 +2523,19 @@ jobs:
           python3 scripts/ci/background_build.py join --state "$state" mobile-host
           env "${phase_env[@]}" CMUX_NEXT_MOBILE_HOST_BIN="${CMUX_NEXT_MOBILE_HOST_PENDING_BIN:?}" \
             CMUX_NEXT_REQUIRE_MOBILE_HOST=1 scripts/cmux-next/bundle-mobile-host.sh
+
+      - name: Read whether the OptChat Chief was rebuilt
+        id: chief-cache-result
+        if: steps.chief-cache-key.outputs.cache_key != ''
+        run: bash scripts/ci/nightly-steps/chief-cache-result.sh
+
+      - name: Save the OptChat Chief cache
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && steps.chief-cache-key.outputs.cache_key != '' && steps.chief-cache-result.outputs.rebuilt == 'true'
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ steps.chief-cache-key.outputs.cache_root }}
+          key: ${{ steps.chief-cache-key.outputs.save_key }}
 
       # cmux-next ships THIRD_PARTY_LICENSES.md for exactly what this nightly
       # bundles: the daemon, app host and Cloud server come from this tree
@@ -3144,6 +3140,7 @@ jobs:
       tip_sha: ${{ needs.decide.outputs.head_sha }}
       behind: ${{ steps.build.outputs.behind }}
       behind_hours: ${{ steps.build.outputs.behind_hours }}
+      chief_key: ${{ steps.chief-key.outputs.key }}
       # The resolved build commit against the published marker (decide reads the tip).
       already_published: ${{ steps.build.outputs.already_published }}
       # A nightly-next push whose ref moved on builds nothing; the newer push's run builds the tip.
@@ -3250,6 +3247,14 @@ jobs:
             echo "- tip: \`$TIP_SHA\` (${BEHIND:-0} commits and ${BEHIND_HOURS:-0} h behind)"
             echo "- already published: $already_published"
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Compute portable OptChat Chief input key
+        id: chief-key
+        if: needs.decide.outputs.track == 'nightly-next' && inputs.nightly_next_unsigned_run == ''
+        continue-on-error: true
+        env:
+          BUILD_SHA: ${{ steps.build.outputs.build_sha }}
+          ARCHS: ${{ needs.decide.outputs.compile_archs }}
+        run: bash scripts/ci/nightly-steps/chief-input-key.sh
       - name: Leave the build slot to a newer nightly-next push
         id: superseded
         if: github.event_name == 'push' && github.ref == 'refs/heads/nightly-next'
@@ -3901,7 +3906,8 @@ jobs:
   # macOS cap. The signing jobs, which hold the keys, stay on Blacksmith.
   pick-nightly-sign-runner:
     needs: [decide, prepare-nightly-variant]
-    if: ${{ !cancelled() && needs.prepare-nightly-variant.result == 'success' }}
+    # Also when only the legacy sign runs (a full re-run of a published build), so it can take an owned Mac.
+    if: ${{ !cancelled() && (needs.prepare-nightly-variant.result == 'success' || needs.decide.result == 'success' && github.ref == 'refs/heads/nightly-next' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off') }}
     # A failed pick reads as success to the signing jobs, whose runs-on then falls back to
     # vars.MACOS_RUNNER_26: a pick never blocks signing. It holds a key: Blacksmith Linux 32.
     continue-on-error: true
@@ -3928,8 +3934,8 @@ jobs:
       # the owned-pool-watch marker is uploaded, as pick-nightly-build-runner's does.
       owned: ${{ (github.event_name == 'push' && github.run_attempt == 1 || steps.upload-marker.outcome == 'success') && steps.owned.outputs.owned || '' }}
       # A drained (or draining) owned Mac for the release signing jobs (sign-nightly-identity-legacy), as the JSON runs-on
-      # array scripts/ci/signing_runner.py prints, or empty. Attempt 1 only, under the same marker rule as `owned`.
-      sign_owned: ${{ github.run_attempt == 1 && (github.event_name == 'push' || steps.upload-marker.outcome == 'success') && steps.sign-owned.outputs.owned || '' }}
+      # array scripts/ci/signing_runner.py prints, or empty, under the same marker and `attempt` rules as `owned`.
+      sign_owned: ${{ (github.event_name == 'push' && github.run_attempt == 1 || steps.upload-marker.outcome == 'success') && steps.sign-owned.outputs.owned || '' }}
       attempt: ${{ github.run_attempt }}
     steps:
       - name: Checkout publication tooling at the workflow commit
@@ -4022,11 +4028,12 @@ jobs:
       # Off unless vars.CI_SIGN_OWNED is 1; any failure leaves it empty and the signing jobs take Blacksmith.
       - name: Pick a drained owned Mac for the signing jobs
         id: sign-owned
-        if: github.repository == 'manaflow-ai/cmux' && vars.CI_SIGN_OWNED == '1' && vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_name == 'nightly-next'
+        if: github.repository == 'manaflow-ai/cmux' && vars.CI_SIGN_OWNED == '1' && vars.CI_PR_POOL_OWNED == '1' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_name == 'nightly-next'
         continue-on-error: true
         timeout-minutes: 2
         env:
           ENABLED: ${{ vars.CI_SIGN_OWNED }}
+          PICK_ON_RERUN: "1"
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
           # actions: read, to count the signing jobs already holding an owned Mac (at most one at once).
           SNAPSHOT_TOKEN: ${{ steps.snapshot-read-token.outputs.token || github.token }}
@@ -5926,14 +5933,13 @@ jobs:
         if: steps.verdict.outputs.blocks == 'true'
         run: bash scripts/ci/nightly-steps/visual-gate-enforce-verdict.sh
 
-  # publish-nightly waits on this Linux job, never on the Mac gate: a gate still queued after 15 min,
-  # or past its 75 min, is `unavailable` and holds nothing. Same needs and `if` as the gate.
+  # publish-nightly waits on this Linux job, never the Mac gate: at most 10 min past the signed DMG.
   visual-gate-nightly-verdict:
-    needs: [decide, resolve-nightly-cmux-tui-client, route-visual-gate-nightly]
-    if: needs.route-visual-gate-nightly.outputs.runs_on != '' && needs.route-visual-gate-nightly.outputs.mode != 'off' && needs.route-visual-gate-nightly.outputs.mode != 'invalid' && needs.route-visual-gate-nightly.outputs.mode != ''
+    needs: [decide, resolve-nightly-cmux-tui-client, route-visual-gate-nightly, verify-final-dmg-nightly]
+    # A skipped signing path must not skip this job (implicit success()).
+    if: "!cancelled() && needs.verify-final-dmg-nightly.result == 'success' && needs.route-visual-gate-nightly.outputs.runs_on != '' && needs.route-visual-gate-nightly.outputs.mode != 'off' && needs.route-visual-gate-nightly.outputs.mode != 'invalid' && needs.route-visual-gate-nightly.outputs.mode != ''"
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
-    # The 15 min queue budget, the gate's 75 min timeout, 5 min of slack in
-    # the script and 5 here.
+    # A re-run's 15 + 75 min, plus slack; attempt 1 waits at most 10.
     timeout-minutes: 100
     permissions:
       contents: read # the sparse checkout of the script
@@ -5952,10 +5958,11 @@ jobs:
             scripts/ci/nightly-steps/visual-gate-fail-when-held.sh
           sparse-checkout-cone-mode: false
 
-      - name: Wait for the visual gate, at most 15 min in the queue
+      - name: Wait for the visual gate, at most 10 min past the signed build
         id: await
         env:
           GH_TOKEN: ${{ github.token }}
+          GATE_MODE: ${{ needs.route-visual-gate-nightly.outputs.mode }}
         run: bash scripts/ci/nightly-steps/visual-gate-await.sh
 
       - name: Fail with the gate when it holds the build
@@ -6933,9 +6940,9 @@ jobs:
       dmg_sha256: ${{ steps.handoff.outputs.dmg_sha256 }}
       minimum_system_version: ${{ steps.handoff.outputs.minimum_system_version }}
       stapled_app_fallback_id: ${{ steps.notarize.outputs.stapled_app_fallback == 'true' && steps.notarize.outputs.stapled_app_pending_id || '' }}
-    # Owned Macs before Blacksmith (Leo, 2026-10-28): a drained mini on attempt 1 (sign_owned), held whole
-    # for this job (the claim step below), else the moving Blacksmith label.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || github.run_attempt > 1 && needs.legacy-identity-target.outputs.sign_alternate || needs.legacy-identity-target.outputs.sign_runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    # Owned Macs before Blacksmith (Leo, 2026-10-28): a drained mini the picker chose on this attempt (sign_owned),
+    # held whole for this job (the claim step below), else the moving Blacksmith label.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || github.run_attempt > 1 && needs.legacy-identity-target.outputs.sign_alternate || needs.legacy-identity-target.outputs.sign_runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     # Apple's wait is 20 min, as for cmux NEXT (#20518). A submission still in
     # Apple's queue is kept (artifacts cmux-nightly-identity-pending-meta and
     # -bundle) and a later run continues that exact submission
@@ -7205,7 +7212,7 @@ jobs:
     needs: [decide, build-nightly-app, legacy-identity-target, pick-nightly-sign-runner, sign-nightly-identity-legacy]
     # Signs when the owned attempt never passed its claim gate, or failed after it with no submission at
     # Apple (signed_ok, as continue-on-error reads a failure as success).
-    if: "!cancelled() && github.run_attempt == 1 && needs.pick-nightly-sign-runner.outputs.sign_owned != '' && needs.sign-nightly-identity-legacy.result != 'skipped' && needs.sign-nightly-identity-legacy.result != 'cancelled' && (needs.sign-nightly-identity-legacy.outputs.claim != 'owned' || needs.sign-nightly-identity-legacy.outputs.signed_ok != 'true' && needs.sign-nightly-identity-legacy.outputs.skip != 'true' && needs.sign-nightly-identity-legacy.outputs.pending != 'true')"
+    if: "!cancelled() && needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned != '' && needs.sign-nightly-identity-legacy.result != 'skipped' && needs.sign-nightly-identity-legacy.result != 'cancelled' && (needs.sign-nightly-identity-legacy.outputs.claim != 'owned' || needs.sign-nightly-identity-legacy.outputs.signed_ok != 'true' && needs.sign-nightly-identity-legacy.outputs.skip != 'true' && needs.sign-nightly-identity-legacy.outputs.pending != 'true')"
     continue-on-error: true
     environment: release-next
     concurrency: *sign-nightly-identity-legacy-concurrency
