@@ -32,6 +32,94 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
     await server?.close();
   });
 
+  for (const interfaceScale of [1, 1.25]) {
+    for (const theme of ["Apple System Colors", "Apple System Colors Light"]) {
+      test(`narrow short dock keeps header and View all reachable at scale ${interfaceScale} (${theme})`, async () => {
+        const port = (server.httpServer!.address() as { port: number }).port;
+        const page = await browser.newPage({
+          viewport: { width: 300, height: 400 },
+          deviceScaleFactor: 2,
+          reducedMotion: "reduce",
+        });
+        try {
+          await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant: "short-dock", interfaceScale, theme })}`);
+          await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+          await page.waitForFunction(() => document.querySelector(".acpmux-running-tray[data-narrow]"));
+          const pinned = await page.evaluate(() => {
+            const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
+            const head = tray.querySelector<HTMLElement>(".acpmux-running-tray__head")!;
+            const more = tray.querySelector<HTMLElement>(".acpmux-running-tray__finished")!;
+            const box = tray.getBoundingClientRect();
+            const bounds = (node: HTMLElement) => {
+              const rect = node.getBoundingClientRect();
+              return {
+                top: rect.top,
+                bottom: rect.bottom,
+                height: rect.height,
+                hit: node.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)),
+              };
+            };
+            return { trayTop: box.top, trayBottom: box.bottom, head: bounds(head), more: bounds(more) };
+          });
+          expect(pinned.head.height).toBeCloseTo(56 * interfaceScale, 1);
+          expect(pinned.more.height).toBeCloseTo(28 * interfaceScale, 1);
+          for (const row of [pinned.head, pinned.more]) {
+            expect(row.top).toBeGreaterThanOrEqual(pinned.trayTop - 0.5);
+            expect(row.bottom).toBeLessThanOrEqual(pinned.trayBottom + 0.5);
+            expect(row.hit).toBe(true);
+          }
+          if (process.env.CMUX_TRAY_CAPTURE_DIR) {
+            await mkdir(process.env.CMUX_TRAY_CAPTURE_DIR, { recursive: true });
+            const clip = await page.evaluate(() => {
+              const tray = document.querySelector(".acpmux-running-tray")!.getBoundingClientRect();
+              const composer = document.querySelector(".acpmux-composer")!.getBoundingClientRect();
+              const top = Math.max(0, tray.top - 16);
+              return { x: 0, y: top, width: 300, height: Math.min(innerHeight, composer.bottom + 16) - top };
+            });
+            await page.screenshot({
+              path: path.join(
+                process.env.CMUX_TRAY_CAPTURE_DIR,
+                `tray-short-dock-${interfaceScale}-${theme.endsWith("Light") ? "light" : "dark"}.png`,
+              ),
+              clip,
+            });
+          }
+          const more = page.locator(".acpmux-running-tray__finished");
+          await more.click();
+          expect(await more.getAttribute("aria-expanded")).toBe("true");
+
+          // Give the list a row of room again, then exercise the live Stop control inside its
+          // scroller. A clipped tray or a footer overlay must not cover the control's hit target.
+          await page.evaluate(() => {
+            const dock = document.querySelector<HTMLElement>(".acpmux-dock")!;
+            const header = dock.querySelector<HTMLElement>(".acpmux-running-tray__head")!;
+            const height = Number.parseFloat(dock.style.maxHeight);
+            dock.style.maxHeight = `${height + 2 * header.getBoundingClientRect().height}px`;
+          });
+          const stop = page.locator(".acpmux-running-tray .acpmux-agent-line__stop-slot > button").first();
+          await stop.scrollIntoViewIfNeeded();
+          const control = await stop.evaluate((node) => {
+            const list = node.closest(".acpmux-running-tray__list")!;
+            const box = node.getBoundingClientRect();
+            const listBox = list.getBoundingClientRect();
+            return {
+              top: box.top,
+              bottom: box.bottom,
+              listTop: listBox.top,
+              listBottom: listBox.bottom,
+              hit: node.contains(document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)),
+            };
+          });
+          expect(control.top).toBeGreaterThanOrEqual(control.listTop - 0.5);
+          expect(control.bottom).toBeLessThanOrEqual(control.listBottom + 0.5);
+          expect(control.hit).toBe(true);
+        } finally {
+          await page.close();
+        }
+      });
+    }
+  }
+
   for (const theme of ["Apple System Colors", "Apple System Colors Light"]) {
     test(`expanded tray keeps trailing columns with real durations (${theme})`, async () => {
       const port = (server.httpServer!.address() as { port: number }).port;

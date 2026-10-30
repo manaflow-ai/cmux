@@ -172,6 +172,7 @@
   min-height: var(--ui-row-height, var(--ds-control-row, 28px));
 }
 .acpmux-dock > .acpmux-running-tray[data-narrow] {
+  --acpmux-tray-header-lines: 2;
   min-height: calc(2 * var(--ui-row-height, var(--ds-control-row, 28px)));
 }
 @media (min-height: 360px) {
@@ -181,7 +182,8 @@
     > .acpmux-running-tray:has(
       > .acpmux-running-tray__fold:not([style*="overflow"]) > .acpmux-running-tray__finished
     ) {
-    min-height: calc(2 * var(--ui-row-height, var(--ds-control-row, 28px)) + 2px + 2 * var(--cmux-hairline, 0.5px));
+    /* View all needs one row in addition to the header's one or two lines. */
+    min-height: calc((var(--acpmux-tray-header-lines, 1) + 1) * var(--ui-row-height, var(--ds-control-row, 28px)) + 2px + 2 * var(--cmux-hairline, 0.5px));
   }
 }
 /* A pane too short for both pinned rows and the composer (a webview under 360px) keeps the composer

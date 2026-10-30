@@ -306,6 +306,36 @@ export default agentPaneEntry({
       },
       snapshot: panel(3, 1),
     },
+    "short-dock": {
+      note: "A 300px pane with a constrained dock: the two-line header and View all stay reachable when the list gives up its height.",
+      height: 400,
+      snapshot: chat(
+        [
+          user("Keep the running check and completed checks accessible", 4),
+          group(
+            [
+              durationAgent("Long check", 12 * 60 * 60_000 + 59 * 60_000 + 59_000),
+              ...Array.from({ length: 4 }, (_, index) => agent(`Completed check ${index + 1}`, 3, "completed")),
+            ],
+            3,
+          ),
+        ],
+        { isWorking: true },
+      ),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__finished"));
+        const shell = ctx.document.querySelector<HTMLElement>(".acpmux-shell")!;
+        shell.style.width = "300px";
+        shell.style.maxWidth = "100%";
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray[data-narrow]"));
+        const dock = ctx.document.querySelector<HTMLElement>(".acpmux-dock")!;
+        const composer = dock.querySelector<HTMLElement>(".acpmux-composer")!;
+        const header = dock.querySelector<HTMLElement>(".acpmux-running-tray__head")!;
+        // Leave less than the pinned header + footer need. The tray's minimum must win as
+        // the dock and composer share their height; the list is the part that may collapse.
+        dock.style.maxHeight = `${composer.getBoundingClientRect().height + header.getBoundingClientRect().height}px`;
+      },
+    },
     "panel-118": {
       note: 'The same panel with 118 agents, every ended one opened and the list scrolled to its end (Leo: the collapse at the top "disappears for some reason ... sometimes"): the header stays pinned on top and View all at the foot; only the list scrolls.',
       play: scrollPanel,
