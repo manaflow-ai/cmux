@@ -83,7 +83,7 @@ public final class AgentPaneMachineLink {
 
     private func send(_ state: State?, to view: AgentPaneView) {
         let event = Self.event(state)
-        view.deliver([event])
+        view.deliver([event], scripts: [])
     }
 
     private func restart() {
