@@ -221,6 +221,11 @@ fn launch_snapshot_value(mux: &Mux, include_projections: bool) -> anyhow::Result
     } else {
         json!([])
     };
+    // The sidebar document (`sidebar.get`'s reply): its Pinned band draws in
+    // the app's first frame, not after this daemon's restore and handshake
+    // (seconds on a large registry). A pin bumps `personal_revision`, so a
+    // pin change rewrites the snapshot. Left out of the smaller retry.
+    let sidebar_doc = if include_projections { launch_sidebar_doc(mux) } else { Value::Null };
     Ok(json!({
         "schema_version": LAUNCH_SNAPSHOT_SCHEMA_VERSION,
         "app": "cmux-tui",
@@ -235,7 +240,26 @@ fn launch_snapshot_value(mux: &Mux, include_projections: bool) -> anyhow::Result
         "tree": tree,
         "personal": personal,
         "frontend_projections": projections,
+        "sidebar_doc": sidebar_doc,
     }))
+}
+
+/// The sidebar document, or null before its migration or on a read error
+/// (the snapshot is a cache: the app then waits for `sidebar.get`).
+fn launch_sidebar_doc(mux: &Mux) -> Value {
+    let read = mux.personal_state_read(|connection| {
+        if !crate::state::sidebar_doc_store::is_migrated(connection)? {
+            return Ok(Value::Null);
+        }
+        crate::state::sidebar_doc_store::snapshot(connection)
+    });
+    match read {
+        Ok(value) => value,
+        Err(error) => {
+            eprintln!("cmux-tui: launch snapshot without the sidebar document: {error:?}");
+            Value::Null
+        }
+    }
 }
 
 fn write_launch_snapshot(mux: &Mux, path: &Path) -> anyhow::Result<()> {
@@ -378,6 +402,84 @@ mod tests {
             let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
             assert_eq!(mode, 0o600, "tab titles and paths are private to the user");
         }
+
+        drop(writer);
+        mux.shutdown();
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// The app draws the Pinned band from the snapshot before it connects
+    /// (Lawrence 2026-10-29: pins came back minutes after an update), so the
+    /// snapshot holds the sidebar document as `sidebar.get` returns it, and a
+    /// pin rewrites it.
+    #[test]
+    fn cmux_next_launch_snapshot_carries_the_sidebar_document() {
+        let root = temp_root("sidebar-doc");
+        let mux =
+            Mux::open_persistent("launch-snapshot-sidebar-doc", SurfaceOptions::default(), &root)
+                .unwrap();
+        let writer = start_launch_snapshot_writer_with(
+            &mux,
+            LaunchSnapshotTiming {
+                settle: Duration::from_millis(50),
+                max_delay: Duration::from_millis(500),
+            },
+        )
+        .unwrap()
+        .unwrap();
+        let request = |operation: &str, params: Value, key: Option<&str>| {
+            let mut params = params;
+            params["machine"] = json!("current");
+            params["session"] = json!("current");
+            let mut envelope = json!({"protocol":"cmux.protocol/2","type":"request","id":operation,
+                                      "operation":operation,"params":params});
+            if let Some(key) = key {
+                envelope["idempotency_key"] = json!(key);
+            }
+            let response =
+                crate::resource_router::handle_resource_message(&mux, &envelope.to_string())
+                    .unwrap();
+            assert_eq!(response["ok"], true, "{operation}: {response}");
+            response["result"].clone()
+        };
+        mux.create_empty_workspace(Some("pinned-one".into()), None, None).unwrap();
+        let doc = request("sidebar.get", json!({}), None);
+        let item = doc["items"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|item| item["body"]["type"] == "workspace")
+            .map(|item| item["id"].clone());
+        let item = match item {
+            Some(item) => item,
+            None => {
+                let (registry_id, _) = mux.registry_identity();
+                let listed = run_command(&mux, json!({"cmd":"list-workspaces"}));
+                let workspace = listed["workspaces"][0]["resource_id"].clone();
+                request(
+                    "sidebar.adopt",
+                    json!({"refs":[{"session_id":registry_id,"workspace_id":workspace}]}),
+                    Some("launch-snapshot-adopt"),
+                );
+                let doc = request("sidebar.get", json!({}), None);
+                doc["items"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .find(|item| item["body"]["type"] == "workspace")
+                    .map(|item| item["id"].clone())
+                    .expect("the adopted workspace has an item")
+            }
+        };
+        request("sidebar.pin", json!({"items":[item]}), Some("launch-snapshot-pin"));
+        let expected = request("sidebar.get", json!({}), None);
+        let snapshot = wait_for_snapshot(writer.path(), |snapshot| {
+            snapshot["sidebar_doc"]["items"].as_array().is_some_and(|items| {
+                items.iter().any(|entry| entry["id"] == item && entry["section"] == "sec_pinned")
+            })
+        });
+        assert_eq!(snapshot["sidebar_doc"], expected, "the snapshot's document is sidebar.get's");
 
         drop(writer);
         mux.shutdown();

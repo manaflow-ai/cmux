@@ -871,6 +871,39 @@ export default agentPaneEntry({
         await ctx.hover({ selector: ".acpmux-attachment-pasted" });
       },
     },
+    // Leo (2026-10-28): "double paste of long block text should reveal it instead of duplicating
+    // the paste", "if you paste that and then paste again, then you don't have to click it. It just
+    // does it." The same block pasted again opens its chip, as a click does (pastedChips.ts).
+    "text-pasted-again": {
+      note: "The same 40-line log pasted twice: the second paste opens the first's Pasted text chip, its text in the prompt after the typed words, and no second chip.",
+      ready: { draft: "Why does the build fail? " },
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const log = Array.from(
+          { length: 40 },
+          (_, index) => `[build] step ${index + 1}: compiling module ${index + 1}`,
+        ).join("\n");
+        const paste = () => {
+          const data = new view.DataTransfer();
+          data.setData("text/plain", log);
+          const event = new view.Event("paste", { bubbles: true, cancelable: true });
+          Object.defineProperty(event, "clipboardData", { value: data });
+          ctx.find({ selector: ".acpmux-md" }).dispatchEvent(event);
+        };
+        paste();
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-pasted"));
+        paste();
+        // Either way the second paste went: its text in the prompt with no chip, or a second chip.
+        await ctx.waitFor(() => {
+          const chips = ctx.document.querySelectorAll(".acpmux-attachment-pasted").length;
+          const prompt = ctx.document.querySelector(".acpmux-md")?.textContent ?? "";
+          return chips > 1 || (chips === 0 && prompt.includes("step 40: compiling"));
+        });
+        if (ctx.document.querySelector(".acpmux-attachment-pasted"))
+          throw new Error("the same long paste again must open its chip, never add a second");
+      },
+    },
     "quick-image-attached": {
       note: "Quick Composer: clicking a pasted image thumbnail opens the same image viewer as a full chat.",
       ready: { surface: "quick" },
@@ -2085,6 +2118,26 @@ export default agentPaneEntry({
         );
       },
     },
+    "slash-menu-cmux-descriptions": {
+      note: "Play: type /; import starts a new chat with the transcript as its first prompt, and fork opens a new chat.",
+      snapshot: chat([...finished.slice(0, -1), summary(9, { status: "completed", seq: 12 })], { commands: [] }),
+      play: async (ctx) => {
+        await ctx.click({ selector: "[contenteditable='true']" });
+        await ctx.type("/");
+        const row = (name: string) =>
+          [...ctx.document.querySelectorAll("#acpmux-slash-menu [role='option']")].find(
+            (option) => option.querySelector(".acpmux-slash-name")?.textContent === `/${name}`,
+          );
+        await ctx.waitFor(() => !!row("import") && !!row("fork"));
+        if (
+          row("import")?.querySelector(".acpmux-slash-description")?.textContent !==
+          "Start a new chat with this transcript as its first prompt"
+        )
+          throw new Error("/import description does not explain the transcript's first prompt");
+        if (!row("fork")?.querySelector(".acpmux-slash-description")?.textContent?.includes("new chat"))
+          throw new Error("/fork description does not describe its new chat");
+      },
+    },
     "reasoning-claude": {
       note: "Play: the model button reads Medium with no Fast word; its menu ends on a checked Fast mode row, and its effort levels (inline in the current row, or the Effort submenu) are the ones Opus 5.5 offers (Low, Medium, High, Max), with no Fast.",
       snapshot: withSummary(chat(finished, { title: "Claude reasoning" }), {
@@ -2468,6 +2521,16 @@ export default agentPaneEntry({
     disconnected: {
       note: "The daemon connection dropped.",
       snapshot: chat(finished, { connection: "disconnected" }),
+    },
+    // Leo 2026-10-29: "i literally can't stop you i clicked the stop button and it didnt do anything".
+    "working-stop-reconnecting": {
+      note: "Play: Stop while the pane reconnects to acpmux mid-turn (an acpmux restart): the app refuses the cancel, and the composer says Stopping… until the Stop goes out on the reconnect (stopThroughReconnect.ts).",
+      snapshot: chat(working, { isWorking: true, connection: "disconnected" }),
+      native: { "chat.cancel": { nativeError: { code: "native.not_connected" } } },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Stop" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cancel[data-stopping]"));
+      },
     },
   },
 });
