@@ -732,7 +732,10 @@ fn epoch_ms_to_instant(epoch_ms: u64) -> tokio::time::Instant {
     let now = tokio::time::Instant::now();
     let wall_now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
     let target = Duration::from_millis(epoch_ms);
-    now + target.saturating_sub(wall_now)
+    // The reset timer wakes the hub, and its `turn_started` event may reach this queue just
+    // afterward. Keep the same short decision window used before a retry is scheduled so the
+    // wake itself is never reported as a failed hand-off.
+    now + target.saturating_sub(wall_now).saturating_add(DECIDE_WAIT)
 }
 
 /// The Cloud agent's socket.

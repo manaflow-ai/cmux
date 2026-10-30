@@ -498,6 +498,23 @@ async fn a_cut_turn_goes_on_with_its_continuation() {
     );
 }
 
+/// A continuation that arrives just after the provider reset deadline still owns the hand-off;
+/// the reset wake needs a short dispatch window before the old turn may be reported failed.
+#[tokio::test(start_paused = true)]
+async fn a_continuation_after_reset_deadline_is_not_reported_failed() {
+    let (mut r, fake) = reporter();
+    fake.answer([ok(1, "running"), ok(1, "running"), ok(1, "done")]);
+    r.step(S, began(1)).await;
+    r.step(S, cut_off(1)).await;
+    let next_at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64 + 1_000;
+    r.step(S, Step::RetryScheduledAt(next_at)).await;
+    tokio::time::advance(Duration::from_millis(1_001)).await;
+    r.step(S, began(1)).await;
+    assert_eq!(fake.take(), [s(1, "running", None), s(1, "running", None)]);
+    r.step(S, done(1, "Picked up after reset.")).await;
+    assert_eq!(fake.take(), [s(1, "done", Some("Picked up after reset."))]);
+}
+
 /// A cut turn with no continuation coming is reported failed: no retry, another prompt, a close,
 /// or too long a wait.
 #[tokio::test(start_paused = true)]
