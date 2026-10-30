@@ -41,6 +41,8 @@ final class CaptureSceneRegistry {
     /// Seeds one dense real scene, waits for the agent page to paint, and snapshots the app window.
     func render(_ params: [String: CmuxNextSettings.JSONValue]) async -> CmuxNextSettings.JSONValue {
         let name = params["scene"]?.stringValue ?? "main-showcase"
+        // A cloud-machine-disconnected picture stays for the capture's stills; any next render ends it.
+        endCloudMachineDisconnected()
         guard let definition = Self.definitions.first(where: { $0.name == name }) else {
             return .object([
                 "error": .string("unknown scene"),
@@ -497,9 +499,11 @@ extension CaptureSceneRegistry {
     /// (`sidebar.groupByComputer`, as `DebugCloudMachineFixture` does), connects each so its link
     /// ends, waits until the list lays out both headers, scrolls to them (they follow This Mac's rows,
     /// maybe below the fold), waits until both draw inside the list's visible part, and snapshots the
-    /// window. One `defer` takes the machines and the setting back on every exit, a cancelled wait
-    /// included. Nothing claims the machines' workspaces for a window (a header draws without rows),
-    /// so no claim outlives the scene. A header that never draws fails the scene: the check reads
+    /// window. The capture driver takes its own light and dark stills (`debug.window_snapshot`) after
+    /// this returns, so a pictured render keeps the machines and the setting until the next render
+    /// (``endCloudMachineDisconnected()``); a failure, a cancelled wait included, takes them away at
+    /// once. Nothing claims the machines' workspaces for a window (a header draws without rows), so
+    /// no claim outlives the scene. A header that never draws fails the scene: the check reads
     /// the drawn rows (`SidebarView.debugRows`) of a sidebar that shows, never only the model.
     func renderCloudMachineDisconnected(_ params: [String: CmuxNextSettings.JSONValue], definition: CaptureSceneDefinition,
                                         windowID: String) async -> CmuxNextSettings.JSONValue {
@@ -509,13 +513,9 @@ extension CaptureSceneRegistry {
         }
         // A saved hidden or collapsed sidebar would keep its rows mounted but out of the picture.
         controller.sidebar.restore(width: 300, hidden: false)
-        let groupedBefore = DesignSettings.shared.sidebarSections.groupsByComputer
-        for id in ids { services.machines.remove(id)?.disconnect() }
-        defer {
-            for id in ids { services.machines.remove(id)?.disconnect() }
-            services.windows.reconcileMembership()
-            DesignSettings.shared.sidebarSections.groupsByComputer = groupedBefore
-        }
+        endCloudMachineDisconnected()
+        var shown = false
+        defer { if !shown { endCloudMachineDisconnected() } }
         // Machine headers draw only with a section per computer.
         DesignSettings.shared.sidebarSections.groupsByComputer = true
         for machine in Self.endedLinkMachines {
@@ -559,12 +559,29 @@ extension CaptureSceneRegistry {
         snapshotParams["window"] = .string(windowID)
         let snapshot = await DebugWindowSnapshot.captureAsync(snapshotParams, services: services)
         guard case .object(var result) = snapshot else { return snapshot }
+        shown = result["error"] == nil
         result["scene"] = .string(definition.name)
         result["description"] = .string(definition.description)
         result["settled_ms"] = settled.map(CmuxNextSettings.JSONValue.number) ?? .null
         result["frames"] = frameStats
         result["scene_action"] = report
         return .object(result)
+    }
+
+    /// Takes a shown cloud-machine-disconnected picture away: whichever of its machines are still
+    /// listed, and the grouping setting it turned on, back to the settings' own value (as
+    /// `DebugCloudMachineFixture` derives it). Unconditional and with no saved state:
+    /// `debug.scene.render` makes a new registry each call, and a Cloud reconcile may already have
+    /// taken the machines away while the setting is still forced on.
+    func endCloudMachineDisconnected() {
+        var removed = false
+        for id in Self.endedLinkMachines.map(\.id) {
+            guard let session = services.machines.remove(id) else { continue }
+            session.disconnect()
+            removed = true
+        }
+        if removed { services.windows.reconcileMembership() }
+        DesignSettings.shared.sidebarSections.groupsByComputer = (services.settings?.snapshot.sidebarSections ?? .defaults).groupsByComputer
     }
 
     /// Machine `id`'s header row in `windowID`'s sidebar list, as the list laid it out (drawn or
