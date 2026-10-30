@@ -12,6 +12,7 @@
 // (requireBrowserLane). Locally: CMUX_BROWSER_TESTS=1 bun test test/new-tab-draft-survives-host-failure.test.ts
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
+import { mkdir } from "node:fs/promises";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -74,6 +75,19 @@ await requireBrowserLane("new-tab-draft-survives-host-failure.test.ts", async ()
     return page;
   }
 
+  // Fleet captures use the same real-browser interaction as the regression, with generated
+  // text and image only. The optional directory is collected by the hosted artifact step.
+  async function captureDraft(page: Page, classic: boolean, phase: string) {
+    const directory = process.env.CMUX_DRAFT_CAPTURE_DIR;
+    if (!directory) return;
+    await mkdir(directory, { recursive: true });
+    for (const colorScheme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme });
+      await page.screenshot({ path: path.join(directory, `${classic ? "classic" : "new-tab"}-${phase}-${colorScheme}.png`) });
+    }
+    await page.emulateMedia({ colorScheme: "light" });
+  }
+
   /// A PNG pasted on `field`, as a copied screenshot is.
   async function pasteImage(page: Page, selector: string) {
     const data = await page.evaluateHandle(async () => {
@@ -118,6 +132,8 @@ await requireBrowserLane("new-tab-draft-survives-host-failure.test.ts", async ()
       // Read (no longer pending): a staged attachment.
       await page.locator(chip).waitFor();
 
+      await captureDraft(page, classic, "before-failure");
+
       // The host fails: the error card takes the page's place.
       await page.evaluate(() => (window as unknown as { failHost(): void }).failHost());
       await page.locator(field).waitFor({ state: "detached" });
@@ -133,6 +149,7 @@ await requireBrowserLane("new-tab-draft-survives-host-failure.test.ts", async ()
         .waitFor({ timeout: 10_000 })
         .catch(() => {});
       expect(await page.locator(chip).count()).toBe(1);
+      await captureDraft(page, classic, "after-retry");
       await page.close();
     });
   }
