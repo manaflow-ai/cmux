@@ -518,7 +518,7 @@ impl Hub {
     /// The row transition after a continuous outage's grace has elapsed.
     pub(super) fn mark_peer_unreachable(&self, peer: &str, generation: u64) {
         let changed = {
-            let mut map = self.remote_sessions.lock().unwrap();
+            let mut map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
             if !self.is_current(peer, generation) {
                 return;
             }

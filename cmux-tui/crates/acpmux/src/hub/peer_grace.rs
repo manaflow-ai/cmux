@@ -18,7 +18,7 @@ impl Hub {
         // Purge fencing and transcript persistence belong to the real link
         // boundary, never to its later row deadline (a new handshake may be busy).
         {
-            let _rows = self.remote_sessions.lock().unwrap();
+            let _rows = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
             let Some(current) = self.peer(peer).filter(|p| p.generation == generation) else {
                 return;
             };
