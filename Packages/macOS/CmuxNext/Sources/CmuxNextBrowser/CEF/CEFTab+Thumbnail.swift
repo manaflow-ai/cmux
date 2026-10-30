@@ -29,19 +29,26 @@ enum CEFThumbnail {
         tab.browserID != nil && !tab.isClosed && (evenHidden || !tab.isContentHidden) && tab.runtime.acceptsNewBrowsers
     }
 
-    /// One `Page.captureScreenshot` of `tab`, sent now, in the caller's turn (here, not in CEFTab, which is at its
-    /// type-size limit); a refused one sends nothing.
+    /// One `Page.captureScreenshot` of `tab` (here, not in CEFTab, which is at its type-size limit), in the browser's
+    /// call order: sent now, in the caller's turn, when no earlier call to the page waits, else right after them,
+    /// checked again there (``mayPicture(_:evenHidden:)``); a refused one sends nothing. A queued app picture of a page
+    /// hidden since it was asked for (the leave picture, behind a page host batch still encoding) is refused: the
+    /// content view's hide is not in the browser's order, and the app never pictures a hidden page (P0 #1,
+    /// 223988ec101: a capture of a page whose view was gone crashed Chromium).
     @MainActor static func start(_ tab: CEFTab, _ params: [String: Any], evenHidden: Bool) -> BrowserPictureRequest {
-        guard mayPicture(tab, evenHidden: evenHidden), let browserID = tab.browserID,
-              let sent = tab.runtime.sendDevTools(browserID, method: "Page.captureScreenshot", params: params) else {
+        guard mayPicture(tab, evenHidden: evenHidden), let browserID = tab.browserID else {
             return .refused(.snapshotUnavailable)
         }
-        let runtime = tab.runtime
+        let answer = tab.runtime.sendDevToolsInOrder(browserID, method: "Page.captureScreenshot", params: params,
+                                                     refused: .snapshotUnavailable) { [weak tab] in
+            tab.map { mayPicture($0, evenHidden: evenHidden) } ?? false
+        }
         return BrowserPictureRequest { [weak tab] in
-            let json = try await runtime.result(of: sent, method: "Page.captureScreenshot")
+            let json = try await answer.value()
             // The answer is for a page that may have gone meanwhile: nothing of a closed page is kept.
             guard let tab, !tab.isClosed else { throw BrowserTabError.closed }
-            return try CEFDevToolsResult.screenshot(json)
+            // Decoded off the main actor: base64 and PNG or JPEG of a whole page view.
+            return try await CEFDevToolsResult.decodedScreenshot(json)
         }
     }
 }

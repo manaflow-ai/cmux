@@ -110,7 +110,7 @@ import Testing
         OneWaySpy.devToolsAnswer = 9
         #expect(tab.setFrozen(true))
         #expect(OneWaySpy.devToolsCalls.filter { $0 == "Page.setWebLifecycleState" }.count == 2)
-        #expect(rig.runtime.sendDevTools(7, method: "Page.enable")?.key == CEFDevToolsKey(browser: 7, message: 9))
+        #expect(rig.runtime.sendDevTools(7, method: "Page.enable", encodedParams: "{}")?.key == CEFDevToolsKey(browser: 7, message: 9))
     }
 
     // MARK: Rig
