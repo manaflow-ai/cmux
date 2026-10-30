@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ComposerAttachment } from "../attachments";
+import { appendAttachments } from "./attachmentIntake";
 import { holdWebSwap } from "../../../pages/shared/webSwap";
 
 /// Where the host keeps each chat's unsent chips (AgentPaneDraftAttachments.swift), so reopening
@@ -26,6 +27,19 @@ export function keptChips(attachments: readonly ComposerAttachment[]): ComposerA
     const { video: _video, ...kept } = chip;
     return [kept];
   });
+}
+
+/// Adds `chips` to chat `chat`'s kept chips: a file whose read ended after the composer left that
+/// chat (attachmentIntake.ts `elsewhere`).
+export function keepElsewhere(store: KeptAttachments, chat: string, chips: ComposerAttachment[]): Promise<void> {
+  return store
+    .read(chat)
+    .catch(() => [])
+    .then((kept) => store.write(chat, appendAttachments(kept, chips)))
+    .then(
+      () => undefined,
+      () => undefined,
+    );
 }
 
 type Pending = { sessionId: string; chips: ComposerAttachment[]; timer: ReturnType<typeof setTimeout> };
