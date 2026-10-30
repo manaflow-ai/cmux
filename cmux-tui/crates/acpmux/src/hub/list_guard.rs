@@ -165,11 +165,12 @@ impl Snapshot {
         .clone()
     }
 
-    /// The reply to `params` that has no `limit` (the whole list, or a filter of it, from a
-    /// `cursor` or not), with tools when `tools`: every row it lists, or, when they come to more
-    /// than `budget` bytes, the first that fit, with the `nextCursor` of the rest
-    /// (`session_pages::byte_page`). One daemon's whole list was 17 MB with tools on
-    /// 2026-10-30, past the message limit, and was refused whole.
+    /// The reply to `params` that has no `limit` (the whole list, or a filter of it), with tools
+    /// when `tools`: every row it lists, newest first, as before; or, when they come to more
+    /// than `budget` bytes or `params` has a page's cursor, a page of them that fits, with the
+    /// `nextCursor` of the rest (`session_pages::byte_page`, in an order updates do not change).
+    /// One daemon's whole list was 17 MB with tools on 2026-10-30, past the message limit, and
+    /// was refused whole.
     pub(crate) fn bounded(
         &self,
         hub: &Hub,
@@ -182,11 +183,16 @@ impl Snapshot {
             Some(full) => (full.whole.as_str(), &full.spans, &full.keys),
             None => (self.whole.as_str(), &self.spans, &self.keys),
         };
+        // A page's cursor (`h...`) is byte_page's; a session list cursor stays a filter, as
+        // before: the rows after the session it names.
         let mut filters = params.clone();
-        let cursor = filters.as_object_mut().and_then(|p| p.remove("cursor"));
-        let cursor = match &cursor {
+        let cursor = match params.get("cursor") {
             None | Some(Value::Null) => None,
-            Some(Value::String(text)) => Some(text.as_str()),
+            Some(Value::String(text)) if text.starts_with('h') => {
+                filters.as_object_mut().and_then(|p| p.remove("cursor"));
+                Some(text.as_str())
+            }
+            Some(Value::String(_)) => None,
             Some(_) => return Err(RpcError::invalid_params("cursor must be a string")),
         };
         let picked = super::session_pages::session_list_reply(keys.clone(), &filters)?;
@@ -200,8 +206,15 @@ impl Snapshot {
                 None => "null".into(),
             }
         };
-        let (page, next) =
-            super::session_pages::byte_page(rows, cursor, budget, |n| row(&rows[n]), |r| r.len())?;
+        let whole = cursor.is_none() && {
+            let bytes: usize = rows.iter().map(|key| row(key).len() + 1).sum();
+            bytes <= budget
+        };
+        let (page, next) = if whole {
+            (rows.iter().map(row).collect(), None)
+        } else {
+            super::session_pages::byte_page(rows, cursor, budget, |n| row(&rows[n]), |r| r.len())?
+        };
         let mut out = String::from("{");
         if let Some(next) = next {
             out.push_str(&format!("\"nextCursor\":{},", Value::String(next)));

@@ -136,13 +136,74 @@ async fn a_fleet_sized_session_list_goes_in_pages_under_the_message_limit() {
     check("watch", &rows, &sizes, all, false);
 }
 
+/// A list that fits is one reply with no cursor, newest first, as before paging: with tools,
+/// filtered, whole and as a watch's first list.
 #[tokio::test]
-async fn a_session_list_that_fits_is_one_reply_with_no_cursor() {
+async fn a_session_list_that_fits_is_one_reply_newest_first_with_no_cursor() {
     let hub = fleet_hub(2, 20).await;
     let mut conn = Conn::open(&hub).await;
-    for params in [json!({}), json!({"withTools": true}), json!({"excludeStatus": ["closed"]})] {
-        let (page, _) = conn.call(method::MUX_SESSIONS, params.clone()).await;
-        assert_eq!(page["sessions"].as_array().unwrap().len(), 40, "{params}");
-        assert!(page.get("nextCursor").is_none(), "{params}: {}", page["nextCursor"]);
+    for (m, params) in [
+        (method::MUX_SESSIONS, json!({})),
+        (method::MUX_SESSIONS, json!({"withTools": true})),
+        (method::MUX_SESSIONS, json!({"excludeStatus": ["closed"]})),
+        (method::MUX_SESSIONS, json!({"withTools": true, "excludeStatus": ["closed"]})),
+        (method::MUX_WATCH, json!({"enabled": true})),
+    ] {
+        let (page, _) = conn.call(m, params.clone()).await;
+        let rows = page["sessions"].as_array().unwrap();
+        assert_eq!(rows.len(), 40, "{m} {params}");
+        assert!(page.get("nextCursor").is_none(), "{m} {params}: {}", page["nextCursor"]);
+        let stamps: Vec<u64> = rows.iter().map(|r| r["updatedAt"].as_u64().unwrap()).collect();
+        assert!(stamps.windows(2).all(|w| w[0] >= w[1]), "{m} {params}: not newest first");
     }
+}
+
+/// `Client::whole_list` joins a paged list newest first, as one reply lists it, and refuses a
+/// cursor that comes again instead of asking for it forever.
+#[cfg(unix)]
+#[tokio::test]
+async fn whole_list_joins_pages_newest_first_and_refuses_a_cursor_given_twice() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let dir = cmux_unix_socket::short_test_dir("whole-list");
+    let socket = dir.path().join("s");
+    let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+    let server = tokio::spawn(async move {
+        loop {
+            let (stream, _) = listener.accept().await.unwrap();
+            tokio::spawn(async move {
+                let (read, mut write) = stream.into_split();
+                let mut lines = BufReader::new(read).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    let msg: Value = serde_json::from_str(&line).unwrap();
+                    let Some(id) = msg.get("id") else { continue };
+                    let row = |id: &str, at: u64| json!({"sessionId": id, "updatedAt": at});
+                    let loops = msg["params"]["loop"] == true;
+                    let result =
+                        match (msg["method"].as_str().unwrap(), msg["params"]["cursor"].as_str()) {
+                            (method::INITIALIZE, _) => json!({}),
+                            (_, None) => json!({"sessions": [row("old", 1)], "nextCursor": "h1"}),
+                            (_, Some(_)) if loops => json!({"sessions": [], "nextCursor": "h1"}),
+                            (_, Some("h1")) => {
+                                json!({"sessions": [row("new", 9)], "nextCursor": "h2"})
+                            }
+                            (_, Some(_)) => json!({"sessions": [row("mid", 5)]}),
+                        };
+                    let response = json!({"jsonrpc": "2.0", "id": id, "result": result});
+                    write.write_all(format!("{response}\n").as_bytes()).await.unwrap();
+                }
+            });
+        }
+    });
+    let client = crate::client::Client::connect(&socket).await.unwrap();
+    let list = client.whole_list(method::MUX_SESSIONS, json!({})).await.unwrap();
+    let ids: Vec<&str> = list["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["sessionId"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, ["new", "mid", "old"]);
+    let error = client.whole_list(method::MUX_SESSIONS, json!({"loop": true})).await.unwrap_err();
+    assert!(error.to_string().contains("twice"), "{error}");
+    server.abort();
 }

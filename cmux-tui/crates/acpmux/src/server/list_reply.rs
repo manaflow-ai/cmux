@@ -90,9 +90,10 @@ fn with_tools(params: &Value) -> Result<bool, RpcError> {
 }
 
 /// `_acpmux/sessions`: the whole list shared, or a page or filter cut from it. One with no
-/// `limit` that comes to more than [`LIST_PAGE_BYTES`] goes in pages, each with the
-/// `nextCursor` of the rest (`Snapshot::bounded`), rather than as one message too large to
-/// send; a census in its own order (`orderBy`) pages by `limit` itself.
+/// `limit` goes whole, newest first, as before, when it fits in [`LIST_PAGE_BYTES`] as the
+/// client reads it; one larger goes in pages, each with the `nextCursor` of the rest
+/// (`Snapshot::bounded`), rather than as one message too large to send. A census in its own
+/// order (`orderBy`) pages by `limit` itself.
 pub(super) async fn sessions(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
     let raw = conn.raw_text;
     let limit = params.get("limit").and_then(Value::as_u64);
@@ -132,14 +133,19 @@ pub(super) async fn sessions(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
         .await;
     }
     reply(hub, conn, None, |list| {
-        if list.whole.len() > LIST_PAGE_BYTES {
-            return within_limit(raw, |budget| list.bounded(hub, params, false, budget));
+        // The cached whole list, as the client reads it (masked for a peer, which may lengthen
+        // it), when that fits in one message; else its pages.
+        if list.whole.len() <= LIST_PAGE_BYTES {
+            let whole = if raw {
+                list.whole.clone()
+            } else {
+                list.made("masked", |list| masked(json!({"sessions": list.values()})))
+            };
+            if whole.len() <= LIST_PAGE_BYTES {
+                return Ok(whole);
+            }
         }
-        Ok(if raw {
-            list.whole.clone()
-        } else {
-            list.made("masked", |list| masked(json!({"sessions": list.values()})))
-        })
+        within_limit(raw, |budget| list.bounded(hub, params, false, budget))
     })
     .await
 }
