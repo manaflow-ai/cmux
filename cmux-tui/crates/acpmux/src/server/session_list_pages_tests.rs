@@ -159,10 +159,11 @@ async fn a_session_list_that_fits_is_one_reply_newest_first_with_no_cursor() {
 }
 
 /// `Client::whole_list` joins a paged list newest first, as one reply lists it, and refuses a
-/// cursor that comes again instead of asking for it forever.
+/// cursor that comes again instead of asking for it forever, and one that is not a string
+/// instead of returning a short list.
 #[cfg(unix)]
 #[tokio::test]
-async fn whole_list_joins_pages_newest_first_and_refuses_a_cursor_given_twice() {
+async fn whole_list_joins_pages_newest_first_and_refuses_a_repeated_or_bad_cursor() {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     let dir = cmux_unix_socket::short_test_dir("whole-list");
     let socket = dir.path().join("s");
@@ -178,9 +179,13 @@ async fn whole_list_joins_pages_newest_first_and_refuses_a_cursor_given_twice() 
                     let Some(id) = msg.get("id") else { continue };
                     let row = |id: &str, at: u64| json!({"sessionId": id, "updatedAt": at});
                     let loops = msg["params"]["loop"] == true;
+                    let bad = msg["params"]["bad"] == true;
                     let result =
                         match (msg["method"].as_str().unwrap(), msg["params"]["cursor"].as_str()) {
                             (method::INITIALIZE, _) => json!({}),
+                            (_, None) if bad => {
+                                json!({"sessions": [row("old", 1)], "nextCursor": 7})
+                            }
                             (_, None) => json!({"sessions": [row("old", 1)], "nextCursor": "h1"}),
                             (_, Some(_)) if loops => json!({"sessions": [], "nextCursor": "h1"}),
                             (_, Some("h1")) => {
@@ -205,5 +210,7 @@ async fn whole_list_joins_pages_newest_first_and_refuses_a_cursor_given_twice() 
     assert_eq!(ids, ["new", "mid", "old"]);
     let error = client.whole_list(method::MUX_SESSIONS, json!({"loop": true})).await.unwrap_err();
     assert!(error.to_string().contains("twice"), "{error}");
+    let error = client.whole_list(method::MUX_SESSIONS, json!({"bad": true})).await.unwrap_err();
+    assert!(error.to_string().contains("page cursor 7"), "{error}");
     server.abort();
 }

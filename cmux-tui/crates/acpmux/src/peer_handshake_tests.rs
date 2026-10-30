@@ -141,6 +141,151 @@ async fn a_paged_watch_list_is_read_whole_before_the_link_connects() {
     fake.abort();
 }
 
+/// A fake peer on `server` that answers each request with the frames `answer(request)` gives
+/// (notifications, then its reply), or drops the link when it gives none.
+fn fake_peer_frames(
+    mut server: WebSocketStream<tokio::io::DuplexStream>,
+    answer: fn(&Value) -> Vec<Value>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        while let Some(Ok(frame)) = server.next().await {
+            let Frame::Text(text) = frame else { continue };
+            let msg: Value = serde_json::from_str(&text).unwrap();
+            let Some(id) = msg.get("id").cloned() else { continue };
+            let frames = match msg["method"].as_str() {
+                Some(method::MUX_WATCH | method::MUX_SESSIONS) => answer(&msg),
+                _ => vec![json!({"result": {}})],
+            };
+            if frames.is_empty() {
+                return;
+            }
+            for mut frame in frames {
+                frame["jsonrpc"] = json!("2.0");
+                if frame.get("method").is_none() {
+                    frame["id"] = id.clone();
+                }
+                if server.send(Frame::Text(frame.to_string().into())).await.is_err() {
+                    return;
+                }
+            }
+        }
+    })
+}
+
+/// Serves `peer` against `answer` until its link ends (or connects), and returns how it ended
+/// with every notice it sent; `None` when it was still up after 5 s.
+async fn serve_until_end(
+    peer: &Arc<Peer>,
+    notices: &mut mpsc::Receiver<(String, u64, PeerNotice)>,
+    answer: fn(&Value) -> Vec<Value>,
+) -> (Option<Result<LinkEnd, String>>, Vec<PeerNotice>) {
+    let (ours, theirs) = tokio::io::duplex(1 << 16);
+    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+    let server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+    let fake = fake_peer_frames(server, answer);
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    let ended =
+        tokio::time::timeout(Duration::from_secs(5), peer.serve(client, &mut out_rx)).await.ok();
+    fake.abort();
+    let mut seen = Vec::new();
+    while let Ok((_, _, notice)) = notices.try_recv() {
+        seen.push(notice);
+    }
+    (ended, seen)
+}
+
+/// The first page of a watch list, with more after it.
+fn first_page() -> Vec<Value> {
+    vec![json!({"result": {"sessions": [{"sessionId": "a", "updatedAt": 5}], "nextCursor": "h1"}})]
+}
+
+/// A link that drops while its watch list comes in pages publishes no part of that list: the
+/// hub keeps the last whole list it had, instead of a first page that lacks every later row.
+#[tokio::test]
+async fn a_paged_watch_list_that_drops_midway_publishes_none_of_it() {
+    let (tx, mut notices) = mpsc::channel(64);
+    let peer = Peer::new("web", "ws://10.0.0.9:9", None, None, tx);
+    let (ended, seen) = serve_until_end(&peer, &mut notices, |msg| {
+        if msg["method"] == method::MUX_WATCH { first_page() } else { vec![] }
+    })
+    .await;
+    assert!(ended.expect("the link ends when it drops").is_err());
+    assert!(!seen.iter().any(|n| matches!(n, PeerNotice::Sessions(_))), "{seen:?}");
+    assert!(!peer.link().is_ready());
+}
+
+/// A change the peer sends while its watch list comes in pages reaches the hub after the whole
+/// list, never before it, so that list never overwrites the newer change.
+#[tokio::test]
+async fn a_change_during_a_paged_watch_list_comes_after_the_whole_list() {
+    let (tx, mut notices) = mpsc::channel(64);
+    let peer = Peer::new("web", "ws://10.0.0.9:9", None, None, tx);
+    let (ours, theirs) = tokio::io::duplex(1 << 16);
+    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+    let server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+    let fake = fake_peer_frames(server, |msg| {
+        if msg["method"] == method::MUX_WATCH {
+            return first_page();
+        }
+        let changed = json!({"sessionId": "a", "updatedAt": 9, "title": "newer"});
+        vec![
+            json!({"method": method::MUX_SESSION_CHANGED,
+                   "params": {"session": changed, "kind": "updated", "seq": 1}}),
+            json!({"result": {"sessions": [{"sessionId": "b", "updatedAt": 4}]}}),
+        ]
+    });
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    let link = peer.clone();
+    let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+    let mut seen = Vec::new();
+    loop {
+        let (_, _, notice) = tokio::time::timeout(Duration::from_secs(5), notices.recv())
+            .await
+            .expect("the link connects")
+            .expect("the link stays open");
+        let connected = matches!(notice, PeerNotice::Connected);
+        seen.push(notice);
+        if connected {
+            break;
+        }
+    }
+    let lists: Vec<_> = seen
+        .iter()
+        .enumerate()
+        .filter_map(|(at, n)| match n {
+            PeerNotice::Sessions(rows) => Some((at, rows)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(lists.len(), 1, "one list, published whole: {seen:?}");
+    let (list_at, rows) = lists[0];
+    let ids: Vec<&str> = rows.iter().map(|r| r["sessionId"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["a", "b"]);
+    let changed_at = seen
+        .iter()
+        .position(|n| matches!(n, PeerNotice::SessionChanged { .. }))
+        .expect("the change is published");
+    assert!(list_at < changed_at, "the change comes after the list: {seen:?}");
+    serving.abort();
+    fake.abort();
+}
+
+/// A watch page cursor that is not a string ends the handshake with an error, instead of
+/// connecting with the rows before it as if the list were whole.
+#[tokio::test]
+async fn a_watch_page_cursor_that_is_not_a_string_ends_the_handshake() {
+    let (tx, mut notices) = mpsc::channel(64);
+    let peer = Peer::new("web", "ws://10.0.0.9:9", None, None, tx);
+    let (ended, seen) = serve_until_end(&peer, &mut notices, |_| {
+        vec![json!({"result": {"sessions": [{"sessionId": "a", "updatedAt": 5}], "nextCursor": 7}})]
+    })
+    .await;
+    let why = ended.expect("the link ends").expect_err("a bad cursor is an error");
+    assert!(why.contains("page cursor 7"), "{why}");
+    assert!(!seen.iter().any(|n| matches!(n, PeerNotice::Sessions(_))), "{seen:?}");
+    assert!(!peer.link().is_ready());
+}
+
 /// A handshake step the peer refuses ends the link at once with the peer's error, not with
 /// `handshake timed out after 90s` and no error in between.
 #[tokio::test]
