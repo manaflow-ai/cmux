@@ -16,8 +16,6 @@ extension AgentPaneModel {
     /// Search chats) and the History search page (the + menu's Search pages). They open the app's own
     /// palette, as Cmd-K does, so they need no gesture credit.
     static let paletteActions: Set<String> = ["agentPane.searchChats", "history.search"]
-    /// What runs when a connect is refused: signed out, cmux Cloud… starts sign-in.
-    static let connectFallbacks: [String: String] = ["newCloudMachine": "palette.auth.signIn"]
 
     /// A model the person cannot use (Leo 2026-10-26: "if user picks a model they don't have api key,
     /// we offer them to add credits or add their own api key"): Add API Key… opens Settings >
@@ -41,9 +39,9 @@ extension AgentPaneModel {
     /// location row's SSH and cmux Cloud connect flows (Lawrence 2026-10-06: "I cannot click on cmux
     /// Cloud SSH"). Integrate a harness is the page's own Harnesses page (cx-uj5g8).
     /// A connect flow opens app UI, so it uses the user's fresh gesture in the pane (the grant
-    /// credit, as Choose Folder…); page script cannot make one. Its sign-in fallback runs only
-    /// inside that same gesture. An action the app did not run (turned off, or not for this tab), with
-    /// no fallback that ran, is an `unavailable` failure, so the page can say so; one that ran and
+    /// credit, as Choose Folder…); page script cannot make one. The native creation handler owns
+    /// sign-in and its continuation. An action the app did not run (turned off, or not for this tab)
+    /// is an `unavailable` failure, so the page can say so; one that ran and
     /// then stopped reports itself in the app (its refusal or toast).
     func runAction(_ id: String, arguments: [String: String] = [:]) -> [String: Any] {
         let gated = Self.connectActions.contains(id) || Self.accessActions.contains(id)
@@ -53,7 +51,6 @@ extension AgentPaneModel {
         if gated, !transport.gestures.consume() { return Self.transportFailure(.gestureRequired) }
         let fixed = Self.connectArguments[id] ?? Self.accessArguments[id] ?? [:]
         if onRunAction(id, Self.pageArguments(for: id, arguments).merging(fixed) { _, own in own }) { return AgentPaneReply.success() }
-        if let fallback = Self.connectFallbacks[id], onRunAction(fallback, [:]) { return AgentPaneReply.success() }
         return AgentPaneReply.failure(code: "unavailable", message: "The app did not run \(id).")
     }
 }

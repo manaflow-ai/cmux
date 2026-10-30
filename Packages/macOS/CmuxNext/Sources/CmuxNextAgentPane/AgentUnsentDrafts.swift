@@ -9,12 +9,14 @@ public final class AgentUnsentDrafts {
     static let maximumCharacters = 1_000_000
 
     let file: URL?
+    /// Saves leave the main thread: typing in a new chat saves every settled edit.
+    private let store: AgentPaneStateFile?
     private var drafts: [String: String]
 
     public init(file: URL?) {
         self.file = file
-        // concurrency-allow: one read of a small local state file when the tab store is made
-        let data = file.flatMap { try? Data(contentsOf: $0) }
+        store = file.map(AgentPaneStateFile.at)
+        let data = store?.read()
         drafts = data.flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
     }
 
@@ -61,12 +63,8 @@ public final class AgentUnsentDrafts {
     }
 
     private func save() {
-        guard let file else { return }
-        if drafts.isEmpty {
-            try? FileManager.default.removeItem(at: file)
-            return
-        }
-        // concurrency-allow: one small atomic write per settled edit of a new chat's text
-        try? JSONEncoder().encode(drafts).write(to: file, options: .atomic)
+        guard let store else { return }
+        let drafts = drafts
+        store.write { drafts.isEmpty ? nil : try JSONEncoder().encode(drafts) }
     }
 }

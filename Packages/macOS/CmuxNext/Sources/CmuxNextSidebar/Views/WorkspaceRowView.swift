@@ -46,8 +46,8 @@ final class WorkspaceRowView: SidebarRowView {
     /// under the button. Shows on hover only, over the end of the title
     /// behind a fade (Lawrence 2026-10-11: no layout shift).
     let moreButton = OverflowButton(label: Strings.workspaceMenu)
-    /// An expanded row's Pin or Unpin (cx-13w3), on hover beside the menu button.
-    let pinButton = SidebarIconButton(icon: .actionPin, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.pinWorkspace)
+    /// An expanded pinned row's Unpin (cx-13w3), on hover beside the menu button.
+    let pinButton = SidebarIconButton(icon: .statePinned, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.unpinWorkspace)
     /// `sidebar.showWorkspaceTabs`: hides or lists the workspace's tabs. Always drawn
     /// while the setting is on (never on hover), so rows never shift.
     let disclosureButton = SidebarIconButton(icon: .disclosureFolded, pointSize: { Metrics.smallIconSize - Metrics.space2 },

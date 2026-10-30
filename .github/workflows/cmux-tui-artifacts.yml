@@ -1603,7 +1603,7 @@ jobs:
     # is a green build-only run (publish-ref-notice says how to publish).
     if: ${{ !cancelled() && (needs.build.result == 'success' || needs.build-darwin-fallback.result == 'success' || needs.darwin-fallback-plan.outputs.recovered == 'true') && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
     needs: [build, darwin-fallback-plan, build-darwin-fallback]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     # 15 minutes of work, plus the hour the attestation retry may wait for the API budget.
     timeout-minutes: 75
     permissions:
@@ -2039,6 +2039,33 @@ jobs:
           # bytes the commit prefix serves. Each prefix's manifest.json sorts
           # after its binaries (all named c*), so it exists only for a
           # complete upload; the verify step below checks it.
+          # A bounded pool of background transfers: pool_run starts one (at
+          # most 8 at once), pool_wait waits for all of them and returns 75 if
+          # any lost a write-once race, else the last other failure, else 0.
+          # Each background publish_prefix below is its own subshell, so each
+          # has its own pool.
+          pool_pids=()
+          pool_conflict=0
+          pool_failed=0
+          pool_reap() {
+            local rc=0
+            wait "${pool_pids[0]}" || rc=$?
+            pool_pids=("${pool_pids[@]:1}")
+            if [[ "$rc" == 75 ]]; then pool_conflict=1; elif [[ "$rc" != 0 ]]; then pool_failed="$rc"; fi
+          }
+          pool_run() {
+            (( ${#pool_pids[@]} < 8 )) || pool_reap
+            "$@" &
+            pool_pids+=("$!")
+          }
+          pool_wait() {
+            while (( ${#pool_pids[@]} > 0 )); do pool_reap; done
+            local failed="$pool_failed" conflict="$pool_conflict"
+            pool_failed=0
+            pool_conflict=0
+            [[ "$failed" == 0 ]] || return "$failed"
+            [[ "$conflict" == 0 ]] || return 75
+          }
           published_before() {
             local status=0
             curl -fsS --proto '=https' --retry 3 --retry-delay 5 --connect-timeout 20 --max-time 60 -o /dev/null \
@@ -2054,6 +2081,16 @@ jobs:
           # detector), so this run's own file list is not it.
           adopt_published() {
             local directory="$1" prefix="$2" name names checksums=""
+            # The Windows pass reads none of the first pass's prefixes back
+            # from its own copy: after this step it only checks them through
+            # files.cmux.com ("Verify published Unix manifests"). Copying them
+            # here read ~1.6 GB and took 21 min of every publish-windows (run
+            # 40921878495). Only its own cmux-tui-windows/ prefix is copied.
+            if [[ "${CMUX_TUI_PUBLISH_PASS:-}" == windows && "$prefix" != "cmux-tui-windows/"* ]]; then
+              echo "Kept https://files.cmux.com/$prefix/ as published; the Windows pass does not read it back."
+              [[ "$prefix" == "cmux-tui/"* ]] && unix_copy_skipped=1
+              return 0
+            fi
             # Straight from R2, as the uploads go: files.cmux.com served a
             # 31 MB binary at 4-35 KB/s here and the job failed after 20
             # minutes (run 40637082673). The CDN is the fallback, and a
@@ -2083,10 +2120,19 @@ jobs:
               names.update(a["name"] for a in target.values())
           print(" ".join(sorted(names)))
           ' "$directory/manifest.json")"
+            # The files are independent reads, each to its own name: 8 at once.
+            # A name is read once: the legacy mux/ manifest also lists its
+            # checksums file, and two reads of one name would race on the
+            # same file and its .partial.
+            local -A seen=()
             for name in $checksums $names; do
-              [[ "$name" == manifest.json ]] || fetch_published "$name"
+              [[ "$name" == manifest.json || -n "${seen[$name]:-}" ]] && continue
+              seen[$name]=1
+              pool_run fetch_published "$name"
             done
+            pool_wait
           }
+          unix_copy_skipped=0
           # Two runs of one commit at once (a lane commit's side-branch run
           # and its fast-forwarded feat-cmux-next run, cx-a1q4d) race on the
           # write-once prefix. Both upload the files in the same order and
@@ -2110,28 +2156,92 @@ jobs:
             done
             adopt_published "$directory" "$prefix"
           }
+          upload_object() {
+            local file="$1" prefix="$2" cache="$3" write_once="$4"
+            local upload_args=()
+            if [[ "$write_once" == "true" ]]; then
+              upload_args+=(--write-once --conflict-exit-code 75)
+            fi
+            python3 scripts/ci/upload-r2-object.py "${upload_args[@]}" \
+              --file "$file" \
+              --endpoint-url "$R2_ENDPOINT" \
+              --bucket cmux-binaries \
+              --key "$prefix/$(basename "$file")" \
+              --cache-control "$cache"
+          }
           publish_prefix() {
             local directory="$1"
             local prefix="$2"
             local cache="$3"
             local write_once="$4"
-            local status
+            local status file claim=""
             if [[ "$write_once" == "true" ]] && published_before "$prefix"; then
               adopt_published "$directory" "$prefix"
               return
             fi
-            for file in "$directory"/*; do
-              upload_args=()
-              if [[ "$write_once" == "true" ]]; then
-                upload_args+=(--write-once --conflict-exit-code 75)
+            # A write-once prefix with one checksums file that names the
+            # SHA-256 of every other file in it but manifest.json ("Build
+            # manifest and checksums") is claimed by that file: two runs of
+            # one commit race on it alone. The loser has written nothing of
+            # its own and keeps the winner's publication; a run whose
+            # checksums match the winner's has the same bytes, so its writes
+            # are identical (write-once accepts them). The other files then go
+            # up side by side, and manifest.json still goes last, so it exists
+            # only for a complete upload. Any other prefix keeps the serial
+            # order.
+            if [[ "$write_once" == "true" ]]; then
+              local sums=("$directory"/*-checksums.txt)
+              if [[ "${#sums[@]}" == 1 && -f "${sums[0]}" ]] && python3 - "${sums[0]}" <<'PY'
+          import hashlib, pathlib, sys
+          claim = pathlib.Path(sys.argv[1])
+          named = {line.split()[0] for line in claim.read_text().splitlines() if line.strip()}
+          for path in claim.parent.iterdir():
+              if path == claim or path.name == "manifest.json":
+                  continue
+              digest = hashlib.sha256()
+              with path.open("rb") as handle:
+                  for chunk in iter(lambda: handle.read(1 << 20), b""):
+                      digest.update(chunk)
+              if not path.is_file() or digest.hexdigest() not in named:
+                  sys.exit(1)
+          PY
+              then
+                claim="${sums[0]}"
               fi
+            fi
+            if [[ -n "$claim" ]]; then
               status=0
-              python3 scripts/ci/upload-r2-object.py "${upload_args[@]}" \
-                --file "$file" \
-                --endpoint-url "$R2_ENDPOINT" \
-                --bucket cmux-binaries \
-                --key "$prefix/$(basename "$file")" \
-                --cache-control "$cache" || status=$?
+              upload_object "$claim" "$prefix" "$cache" true || status=$?
+              if [[ "$status" == 75 ]]; then
+                adopt_after_conflict "$directory" "$prefix"
+                return
+              fi
+              [[ "$status" == 0 ]] || exit "$status"
+              for file in "$directory"/*; do
+                [[ "$file" == "$claim" || "$(basename "$file")" == manifest.json ]] && continue
+                pool_run upload_object "$file" "$prefix" "$cache" true
+              done
+              status=0
+              pool_wait || status=$?
+              if [[ "$status" == 75 ]]; then
+                adopt_after_conflict "$directory" "$prefix"
+                return
+              fi
+              [[ "$status" == 0 ]] || exit "$status"
+              if [[ -f "$directory/manifest.json" ]]; then
+                status=0
+                upload_object "$directory/manifest.json" "$prefix" "$cache" true || status=$?
+                if [[ "$status" == 75 ]]; then
+                  adopt_after_conflict "$directory" "$prefix"
+                  return
+                fi
+                [[ "$status" == 0 ]] || exit "$status"
+              fi
+              return
+            fi
+            for file in "$directory"/*; do
+              status=0
+              upload_object "$file" "$prefix" "$cache" "$write_once" || status=$?
               if [[ "$status" == 75 && "$write_once" == "true" ]]; then
                 adopt_after_conflict "$directory" "$prefix"
                 return
@@ -2144,11 +2254,19 @@ jobs:
             publish_prefix assets/cmux-tui-windows "cmux-tui-windows/$GITHUB_SHA" "public, max-age=31536000, immutable" true
             echo "Published: https://files.cmux.com/cmux-tui-windows/$GITHUB_SHA/manifest.json"
           fi
-          publish_prefix assets/cmux-relay "cmux-relay/$GITHUB_SHA" "public, max-age=31536000, immutable" true
-          publish_prefix assets/chatmux-relay "chatmux-relay/$GITHUB_SHA" "public, max-age=31536000, immutable" true
           echo "Published: https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json"
-          echo "Published: https://files.cmux.com/cmux-relay/$GITHUB_SHA/manifest.json"
-          echo "Published: https://files.cmux.com/chatmux-relay/$GITHUB_SHA/manifest.json"
+          # The relay, chatmux-relay and legacy mux/ prefixes are independent
+          # of each other (each has its own write-once race handling and its
+          # own directory) and all come after cmux-tui/<sha>/ is complete
+          # (chatmux-relay's manifest names its binaries), so they upload side
+          # by side. Within a prefix the order stays serial: the race handling
+          # above relies on both runs uploading in the same order and stopping
+          # at their first conflict. Each is waited on; any failure fails the step.
+          side_pids=()
+          publish_prefix assets/cmux-relay "cmux-relay/$GITHUB_SHA" "public, max-age=31536000, immutable" true &
+          side_pids+=("$!")
+          publish_prefix assets/chatmux-relay "chatmux-relay/$GITHUB_SHA" "public, max-age=31536000, immutable" true &
+          side_pids+=("$!")
 
           # Transitional double-publish under the pre-rename prefix and binary
           # names: out-of-repo consumers (cmux-cloud bootstrap/install-mux.sh
@@ -2157,6 +2275,14 @@ jobs:
           # (https://github.com/manaflow-ai/cmux-cloud/pull/2).
           legacy_assets="assets-legacy"
           mkdir -p "$legacy_assets"
+          # The legacy copy is made from assets/cmux-tui. When the Windows pass
+          # kept cmux-tui/<sha>/ without copying it, that is this run's build,
+          # which need not be the bytes the prefix serves: the first pass must
+          # have published mux/<sha>/ too, so nothing of it is written here.
+          if [[ "$unix_copy_skipped" == 1 ]] && ! published_before "mux/$GITHUB_SHA" windows; then
+            echo "::error title=mux prefix missing::the first pass published cmux-tui/$GITHUB_SHA/ but not mux/$GITHUB_SHA/; rerun publish" >&2
+            exit 1
+          fi
           for file in assets/cmux-tui/cmux-tui-*; do
             if [[ "$(basename "$file")" == cmux-tui-hook-* || "$(basename "$file")" == cmux-tui-acpmux-* || "$(basename "$file")" == cmux-tui-app-host-* || "$(basename "$file")" == cmux-tui-cloud-server-* || "$(basename "$file")" == cmux-tui-browser-host-* || "$(basename "$file")" == cmux-tui-host-* || "$(basename "$file")" == cmux-tui-holder-* || "$(basename "$file")" == cmux-tui-agent-screen-detection-* ]]; then
               continue
@@ -2196,30 +2322,15 @@ jobs:
           }
           (root / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
           PY
-          publish_legacy_prefix() {
-            local prefix="$1"
-            local cache="$2"
-            if published_before "$prefix"; then
-              adopt_published "$legacy_assets" "$prefix"
-              return
-            fi
-            local status
-            for file in "$legacy_assets"/*; do
-              status=0
-              python3 scripts/ci/upload-r2-object.py --write-once --conflict-exit-code 75 \
-                --file "$file" \
-                --endpoint-url "$R2_ENDPOINT" \
-                --bucket cmux-binaries \
-                --key "$prefix/$(basename "$file")" \
-                --cache-control "$cache" || status=$?
-              if [[ "$status" == 75 ]]; then
-                adopt_after_conflict "$legacy_assets" "$prefix"
-                return
-              fi
-              [[ "$status" == 0 ]] || exit "$status"
-            done
-          }
-          publish_legacy_prefix "mux/$GITHUB_SHA" "public, max-age=31536000, immutable"
+          publish_prefix "$legacy_assets" "mux/$GITHUB_SHA" "public, max-age=31536000, immutable" true &
+          side_pids+=("$!")
+          side_status=0
+          for pid in "${side_pids[@]}"; do
+            wait "$pid" || side_status=$?
+          done
+          [[ "$side_status" == 0 ]] || exit "$side_status"
+          echo "Published: https://files.cmux.com/cmux-relay/$GITHUB_SHA/manifest.json"
+          echo "Published: https://files.cmux.com/chatmux-relay/$GITHUB_SHA/manifest.json"
 
       # Only where latest is published (main's first pass): it keeps a bad
       # commit manifest out of latest/. Elsewhere "Verify published Unix
@@ -2396,7 +2507,11 @@ jobs:
         if: env.CMUX_TUI_PUBLISH_PASS != 'unix'
         run: &verify-published-unix-manifests |
           set -euo pipefail
-          python3 cmux-tui/scripts/verify_published_manifest.py \
+          # The manifests are read-only and independent: each check runs at
+          # once, and every one is waited on before the step can pass.
+          pids=()
+          verify() { "$@" & pids+=("$!"); }
+          verify python3 cmux-tui/scripts/verify_published_manifest.py \
             --manifest-url "https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json" \
             --expected-commit "$GITHUB_SHA" \
             --require-provenance \
@@ -2424,7 +2539,7 @@ jobs:
             --forbid-artifact cmux-tui-acpmux-x86_64-pc-windows-gnu.exe \
             --artifact-base-url "https://files.cmux.com/cmux-tui/$GITHUB_SHA"
           if [[ -d assets/cmux-tui-windows ]]; then
-            python3 cmux-tui/scripts/verify_published_manifest.py \
+            verify python3 cmux-tui/scripts/verify_published_manifest.py \
               --manifest-url "https://files.cmux.com/cmux-tui-windows/$GITHUB_SHA/manifest.json" \
               --expected-commit "$GITHUB_SHA" \
               --require-provenance \
@@ -2432,7 +2547,7 @@ jobs:
               --require-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
               --artifact-base-url "https://files.cmux.com/cmux-tui-windows/$GITHUB_SHA"
           fi
-          python3 cmux-tui/scripts/verify_published_manifest.py \
+          verify python3 cmux-tui/scripts/verify_published_manifest.py \
             --manifest-url "https://files.cmux.com/cmux-relay/$GITHUB_SHA/manifest.json" \
             --expected-commit "$GITHUB_SHA" \
             --require-provenance \
@@ -2442,13 +2557,13 @@ jobs:
             --require-artifact cmux-relay-aarch64-unknown-linux-musl \
             --forbid-artifact cmux-relay-x86_64-pc-windows-gnu.exe \
             --artifact-base-url "https://files.cmux.com/cmux-relay/$GITHUB_SHA"
-          python3 cmux-tui/scripts/verify_published_manifest.py \
+          verify python3 cmux-tui/scripts/verify_published_manifest.py \
             --manifest-url "https://files.cmux.com/chatmux-relay/$GITHUB_SHA/manifest.json" \
             --expected-commit "$GITHUB_SHA" \
             --machine-manifest \
             --artifact-base-url "https://files.cmux.com/chatmux-relay/$GITHUB_SHA"
           if [ "$GITHUB_REF" = "refs/heads/main" ]; then
-            python3 cmux-tui/scripts/verify_published_manifest.py \
+            verify python3 cmux-tui/scripts/verify_published_manifest.py \
               --manifest-url "https://files.cmux.com/cmux-tui/latest/manifest.json?verify=$GITHUB_SHA" \
               --expected-commit "$GITHUB_SHA" \
               --require-provenance \
@@ -2475,7 +2590,7 @@ jobs:
               --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
               --forbid-artifact cmux-tui-acpmux-x86_64-pc-windows-gnu.exe \
               --artifact-base-url "https://files.cmux.com/cmux-tui/latest"
-            python3 cmux-tui/scripts/verify_published_manifest.py \
+            verify python3 cmux-tui/scripts/verify_published_manifest.py \
               --manifest-url "https://files.cmux.com/cmux-relay/latest/manifest.json?verify=$GITHUB_SHA" \
               --expected-commit "$GITHUB_SHA" \
               --require-provenance \
@@ -2485,12 +2600,17 @@ jobs:
               --require-artifact cmux-relay-aarch64-unknown-linux-musl \
               --forbid-artifact cmux-relay-x86_64-pc-windows-gnu.exe \
               --artifact-base-url "https://files.cmux.com/cmux-relay/latest"
-            python3 cmux-tui/scripts/verify_published_manifest.py \
+            verify python3 cmux-tui/scripts/verify_published_manifest.py \
               --manifest-url "https://files.cmux.com/chatmux-relay/latest/manifest.json?verify=$GITHUB_SHA" \
               --expected-commit "$GITHUB_SHA" \
               --machine-manifest \
               --artifact-base-url "https://files.cmux.com/chatmux-relay/latest"
           fi
+          status=0
+          for pid in "${pids[@]}"; do
+            wait "$pid" || status=$?
+          done
+          exit "$status"
 
   # The first pass's read-back of the published manifests through
   # files.cmux.com, beside publish-tree instead of before it (publish's
@@ -2500,7 +2620,7 @@ jobs:
     name: verify the published commit manifests
     if: ${{ !cancelled() && needs.publish.result == 'success' }}
     needs: publish
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -2520,7 +2640,7 @@ jobs:
     name: publish the Windows daemon to R2
     if: ${{ !cancelled() && needs.publish.result == 'success' && needs.build-windows.outputs.windows_built == 'true' }}
     needs: [publish, build-windows]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     # As publish: the shared steps' attestation retry may wait up to an hour.
     timeout-minutes: 75
     permissions:
@@ -2764,7 +2884,7 @@ jobs:
     # jobs queued for the one promote runner
     # (tests/test_cmux_tui_feat_publish_order.py).
     needs: [tree-preflight, publish]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     # A slow companion fetch may take its retries (fetch below).
     timeout-minutes: 30
     # Ownership is elected before expensive work; publication stays per run
@@ -3182,15 +3302,32 @@ jobs:
               names="$names $name"
             fi
           done
-          for name in $names; do
-            get "$base/$name" published
-            get "$base/$name.sha256" published.sha256
-            published_sha="$(awk 'NR==1{print $1}' published.sha256)"
-            [[ "$(sha256sum published | awk '{print $1}')" == "$published_sha" ]]
-            echo "Verified: $base/$name"
+          # Each binary and its digest are read at once, each into its own
+          # directory (the reads are independent, and each is a slow edge
+          # transfer); every one is waited on, and any failure fails the step.
+          local pids=() rc=0 pid
+          for name in $names source.json; do
+            verify_one "$base" "$name" &
+            pids+=("$!")
           done
-          get "$base/source.json" source.json
-          cat source.json
+          for pid in "${pids[@]}"; do
+            wait "$pid" || rc=$?
+          done
+          [[ "$rc" == 0 ]] || exit "$rc"
+          }
+          verify_one() {
+            local base="$1" name="$2" dir
+            dir="$(mktemp -d "${RUNNER_TEMP:-/tmp}/tree-verify.XXXXXX")"
+            if [[ "$name" == source.json ]]; then
+              get "$base/source.json" "$dir/source.json"
+              cat "$dir/source.json"
+              return
+            fi
+            get "$base/$name" "$dir/published"
+            get "$base/$name.sha256" "$dir/published.sha256"
+            published_sha="$(awk 'NR==1{print $1}' "$dir/published.sha256")"
+            [[ "$(sha256sum "$dir/published" | awk '{print $1}')" == "$published_sha" ]]
+            echo "Verified: $base/$name"
           }
           verify_tree "$KEY"
           # CMUX-TUI-TREE-KEY-V2: the v1 publication too, until B2.
@@ -3248,7 +3385,7 @@ jobs:
     name: add the Windows daemon to the tree
     if: ${{ !cancelled() && needs.publish-tree.result == 'success' && needs.publish-windows.result == 'success' }}
     needs: [tree-preflight, publish-tree, publish-windows]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     # As publish-tree, whose steps it runs: a slow companion fetch may take its retries.
     timeout-minutes: 30
     concurrency:
