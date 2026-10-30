@@ -19,14 +19,34 @@ struct AgentPaneTabRowToolsTests {
             "menu": [["id": "open", "label": "Open", "enabled": true]],
         ]
         let tools = try #require(AgentPaneTabRowTools.list([raw]))
-        let item = try #require(tools.first?.menu.first)
-        #expect(tools.first?.badge == nil)
+        let tool = try #require(tools.first)
+        let item = try #require(tool.menu.first)
+        #expect(tool.badge == nil)
         #expect(item.role == nil)
     }
 
-    @Test func rejectsOversizedUtf8Text() {
-        let combining = "a" + String(repeating: "\u{301}", count: 256)
-        let raw: [String: Any] = ["id": "x", "symbol": "x", "label": combining, "enabled": true, "toggled": false]
+    @Test(arguments: ["id", "symbol", "label", "badge"])
+    func boundsUtf8ForEveryToolTextField(field: String) throws {
+        var raw: [String: Any] = ["id": "x", "symbol": "x", "label": "x", "enabled": true, "toggled": false]
+        // Two graphemes, exactly 256 bytes: the encoded-size boundary is independent of String.count.
+        let boundary = "a" + String(repeating: "\u{301}", count: 127) + "b"
+        raw[field] = boundary
+        #expect(try #require(AgentPaneTabRowTools.list([raw])).count == 1)
+        raw[field] = boundary + "\u{301}"
+        #expect(AgentPaneTabRowTools.list([raw]) == nil)
+    }
+
+    @Test(arguments: ["id", "label"])
+    func boundsUtf8ForNestedMenuTextFields(field: String) throws {
+        let boundary = "a" + String(repeating: "\u{301}", count: 127) + "b"
+        var item: [String: Any] = ["id": "child", "label": "Child", "enabled": true]
+        var raw: [String: Any] = ["id": "x", "symbol": "x", "label": "x", "enabled": true, "toggled": false]
+        item[field] = boundary
+        raw["menu"] = [["id": "parent", "label": "Parent", "enabled": true, "children": [item]]]
+        let tools = try #require(AgentPaneTabRowTools.list([raw]))
+        #expect(tools.first?.menu.first?.children.count == 1)
+        item[field] = boundary + "\u{301}"
+        raw["menu"] = [["id": "parent", "label": "Parent", "enabled": true, "children": [item]]]
         #expect(AgentPaneTabRowTools.list([raw]) == nil)
     }
 

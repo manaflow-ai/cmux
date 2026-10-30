@@ -92,7 +92,7 @@ nonisolated enum AgentPaneTabRowTools {
 
     private nonisolated static func optionalRole(_ value: Any?) -> String? {
         guard let value, !(value is NSNull) else { return nil }
-        guard let value = value as? String, value == "destructive" else { return nil }
+        guard let value = text(value), value == "destructive" else { return nil }
         return value
     }
 }
