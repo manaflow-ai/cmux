@@ -343,6 +343,27 @@ def settle_open(run, session):
     return opened
 
 
+def why(record):
+    """What an open's log line says beyond its times, so a run with no artifact (a failed step returns
+    none) still shows why an open had no first content."""
+    parts = []
+    for key in ("error", "timed_out"):
+        if record.get(key):
+            parts.append(f"{key}={str(record[key])[:200]}")
+    if not record.get("first_content_ms"):
+        reply = record.get("open_reply")
+        parts.append(f"open_reply={json.dumps(reply, default=str)[:200]}")
+        # Frames are [ms, surface] pairs (flashes, first_of).
+        surfaces = sorted({str(f[1]) for f in record.get("frames") or [] if isinstance(f, (list, tuple)) and len(f) > 1})
+        parts.append(f"surfaces={surfaces} marks={sorted((record.get('marks_ms') or {}).keys())}")
+        ready = record.get("readiness") or {}
+        if isinstance(ready, dict):
+            parts.append("readiness=" + json.dumps({k: ready.get(k) for k in ("session_id", "body_text_length",
+                                                                                "rows", "transcript_rows")},
+                                                   default=str)[:200])
+    return (" " + " ".join(parts)) if parts else ""
+
+
 def measure_case(run, case, sessions, index):
     session = sessions[case][index] if case != "reopen" else sessions["reopen"][index]
     if case in ("sidebar", "big", "bloated"):
@@ -394,7 +415,7 @@ def main():
                     record = measure_case(run, case, sessions[condition], index)
                     records.append(record)
                     say(f"chat-open: {condition} {case} {index}: first_content_ms={record.get('first_content_ms')} "
-                        f"empty={record.get('longest_empty_ms')} flashes={record.get('flashes')}")
+                        f"empty={record.get('longest_empty_ms')} flashes={record.get('flashes')}{why(record)}")
                 results["raw"].setdefault(condition, {})[case] = records
                 results["cases"].setdefault(condition, {})[case] = summarize(records)
             if "restore" in CASES:
@@ -410,7 +431,7 @@ def main():
                     record["acp_log"] = run.rpc("debug.agent_pane", {"action": "acp_log", "limit": 40})
                     records.append(record)
                     say(f"chat-open: {condition} restore {index}: first_content_ms={record.get('first_content_ms')} "
-                        f"first_image_ms={record.get('first_image_ms')}")
+                        f"first_image_ms={record.get('first_image_ms')}{why(record)}")
                 results["raw"].setdefault(condition, {})["restore"] = records
                 results["cases"].setdefault(condition, {})["restore"] = summarize(records)
             load.stop()
