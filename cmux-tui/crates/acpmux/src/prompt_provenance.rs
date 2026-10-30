@@ -147,6 +147,39 @@ pub fn session_message(from: &str, from_name: &str, to: &str) -> Value {
     json!({"kind": "session_message", "from": from, "fromName": from_name, "to": to})
 }
 
+/// On a session a Chief host made for one of its turns (optchat-chief `acpmux::turn_tags`): the
+/// Chief's participant id (`agent_mux`, `agent_…`), the key the app finds that Chief's name and
+/// picture by.
+pub const CHIEF_PARTICIPANT_TAG: &str = "cmux.chief.participant";
+/// What a Chief's session is called where it is shown: its `mux.label` (the Chief's own name).
+const LABEL_TAG: &str = "mux.label";
+/// On a [`session_message`] from a Chief's turn session: that Chief's participant id, so the
+/// receiving chat draws the Chief's name and picture, not the turn's session name
+/// (`optchat-<home>-<n>`, manaflow-ai/cmux#27914).
+pub const FROM_CHIEF: &str = "fromChief";
+
+/// The [`session_message`] a session of this daemon sends: signed with its session name, or for
+/// a Chief's turn session with the Chief's own name and its participant id ([`FROM_CHIEF`]).
+pub fn session_message_from(from: &str, meta: &crate::store::SessionMeta, to: &str) -> Value {
+    let live = |key: &str| {
+        let tag = meta.tags.get(key)?;
+        if tag.expires_at.is_some_and(|e| e <= crate::store::now_ms()) {
+            return None;
+        }
+        Some(tag.value.trim().to_owned()).filter(|v| !v.is_empty() && !v.chars().any(unshown))
+    };
+    let chief = live(CHIEF_PARTICIPANT_TAG).filter(|c| c.len() <= MAX_FIELD_BYTES);
+    let label = chief
+        .as_ref()
+        .and(live(LABEL_TAG))
+        .filter(|l| l.chars().count() <= MAX_NAME_CHARS);
+    let mut provenance = session_message(from, label.as_deref().unwrap_or(&meta.name), to);
+    if let Some(chief) = chief {
+        provenance[FROM_CHIEF] = json!(chief);
+    }
+    provenance
+}
+
 /// The provenance of a task's result on the prompt that brings it to the chat that gave the task
 /// (`hub/tasks.rs`): from the lane's session, `from` its id as in [`session_message`].
 pub fn task_result(from: &str, from_name: &str, to: &str, task_id: &str, state: &str) -> Value {
@@ -306,6 +339,29 @@ mod sender_tests {
         let half = sent(json!({"fromSessionId": "s-2", "fromHarness": 7}));
         assert_eq!(peer_sender(&half).and_then(|s| s.session_id).as_deref(), Some("s-2"));
         assert_eq!(peer_sender(&json!({})), None);
+    }
+
+    #[test]
+    fn a_chief_turn_session_signs_with_the_chief_name_and_id() {
+        let tag = |v: &str| crate::store::Tag { value: v.into(), expires_at: None };
+        let mut meta: crate::store::SessionMeta = serde_json::from_value(json!({
+            "schema": "acpmux.session.v1", "id": "s-1", "name": "optchat-b902d10e-2991",
+            "harness": "claude", "family": "claude", "cwd": "/tmp", "status": "idle",
+            "createdAt": 1, "updatedAt": 2,
+        }))
+        .unwrap();
+        // A session no Chief made: its name, no Chief.
+        meta.tags.insert(LABEL_TAG.into(), tag("lane"));
+        let plain = session_message_from("s-1", &meta, "s-2");
+        assert_eq!(plain["fromName"], "optchat-b902d10e-2991");
+        assert!(plain.get(FROM_CHIEF).is_none());
+        // A Chief's turn: the Chief's name and participant id.
+        meta.tags.insert(LABEL_TAG.into(), tag("Ops Chief"));
+        meta.tags.insert(CHIEF_PARTICIPANT_TAG.into(), tag("agent_ops"));
+        let chief = session_message_from("s-1", &meta, "s-2");
+        assert_eq!(chief["fromName"], "Ops Chief");
+        assert_eq!(chief[FROM_CHIEF], "agent_ops");
+        assert_eq!(chief["from"], "s-1");
     }
 
     #[test]

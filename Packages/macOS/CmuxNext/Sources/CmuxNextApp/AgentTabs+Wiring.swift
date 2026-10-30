@@ -114,6 +114,10 @@ extension AgentTabStore {
                                  linkScheme: services.linkScheme, settings: services.settings, openPanel: services.openPanel)
         tabs.launchImages = services.launchImages
         tabs.agentAvatars = AgentAvatars(uploads: services.chiefAvatarUploads, openPanel: services.openPanel)
+        tabs.chiefFace = { [weak services, weak tabs] chief in
+            guard let services, let avatars = tabs?.agentAvatars else { return [:] }
+            return await services.home.agentPageFace(of: chief, avatars: avatars)
+        }
         let state = services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
         tabs.unsentDrafts = AgentUnsentDrafts(directory: state)
         tabs.pageChats.environments = state.map { SavedEnvironments(url: $0.appending(path: "environments.json")) }
@@ -387,6 +391,7 @@ extension AgentTabStore {
             self?.agentAvatars?.remove(session)
             self?.agentAvatarChanged(session)
         }
+        model.onChiefFace = { [weak self] chief in await self?.chiefFace?(chief) ?? [:] }
     }
 
     /// Every agent page (tabs and standalone chats) asks for session `session`'s avatar again: a

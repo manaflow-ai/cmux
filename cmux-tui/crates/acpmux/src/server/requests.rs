@@ -1221,8 +1221,7 @@ async fn dispatch_request(
             let provenance = match (provenance, conn.caller()) {
                 (None, Some(caller)) if !conn.is_person() && caller != s.id => {
                     hub.resolve(caller).ok().map(|from| {
-                        let name = from.meta().name;
-                        crate::prompt_provenance::session_message(&from.id, &name, &s.id)
+                        crate::prompt_provenance::session_message_from(&from.id, &from.meta(), &s.id)
                     })
                 }
                 (provenance, _) => provenance,

@@ -74,6 +74,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onAgentAvatar: ((String) async -> String?)?
     @ObservationIgnored public var onSetAgentAvatar: ((String) async -> String?)?
     @ObservationIgnored public var onRemoveAgentAvatar: ((String) -> Void)?
+    /// `chief.face`: Chief `chief`'s name and avatar as the sidebar shows them (`name`, `src` or `text`).
+    @ObservationIgnored public var onChiefFace: ((String) async -> [String: String])?
     /// Returns bounded project paths for the picker, optionally filtered by query.
     @ObservationIgnored public var onListProjects: ((String?) async -> [String])?
     /// The folders a chat on another machine can pick: that machine's (its workspace's folders
@@ -286,7 +288,7 @@ public final class AgentPaneModel {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
         case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .painted, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
-             .tabRowTools, .projectIcon, .agentAvatar, .harnessSymbol, .environment(.list), .cloudMachine(.list), .sandboxState: break
+             .tabRowTools, .projectIcon, .agentAvatar, .chiefFace, .harnessSymbol, .environment(.list), .cloudMachine(.list), .sandboxState: break
         case .reply(let reply) where reply.isPassive: break
         default:
             if !userTouched { touchedBy = String(String(describing: request).prefix { $0 != "(" }) }
@@ -380,6 +382,8 @@ public final class AgentPaneModel {
         case .removeAgentAvatar(let session):
             onRemoveAgentAvatar?(session)
             return AgentPaneReply.success()
+        case .chiefFace(let chief):
+            return AgentPaneReply.success(await onChiefFace?(chief) ?? [:])
         case .projectIcon where remoteChat:
             // A chat on another machine: its folders are there, and this Mac's disk is never read (cx-k21v).
             return AgentPaneReply.success()

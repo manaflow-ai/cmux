@@ -304,6 +304,12 @@ extension AgentPaneRequest {
             if let session = params?["sessionId"] as? String, !session.isEmpty, session.utf8.count <= 256 {
                 self = method == "agent.avatar" ? .agentAvatar(session) : method == "agent.avatar.set" ? .setAgentAvatar(session) : .removeAgentAvatar(session)
             } else { self = .unsupported(method) }
+        case "chief.face":
+            // A Chief's participant id (acpmux `fromChief`): `agent_` and a short token.
+            if let chief = params?["chief"] as? String, chief.hasPrefix("agent_"), chief.utf8.count <= 64,
+               chief.utf8.allSatisfy({ $0 == UInt8(ascii: "_") || $0 == UInt8(ascii: "-") || (0x30...0x39).contains($0) || (0x41...0x5A).contains($0) || (0x61...0x7A).contains($0) }) {
+                self = .chiefFace(chief)
+            } else { self = .unsupported(method) }
         case "harness.symbol":
             if let name = params?["name"] as? String, HarnessSymbolImages.isSymbolName(name) { self = .harnessSymbol(name) }
             else { self = .unsupported(method) }
