@@ -270,3 +270,77 @@ fn open_page_perf() {
     measure("after", true);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Bytes this process has read (Linux `rchar`); 0 elsewhere.
+fn read_bytes() -> u64 {
+    std::fs::read_to_string("/proc/self/io")
+        .ok()
+        .and_then(|io| {
+            io.lines().find(|l| l.starts_with("rchar:"))?.split_whitespace().nth(1)?.parse().ok()
+        })
+        .unwrap_or(0)
+}
+
+/// A restored chat's first open, phase by phase: run with
+/// `cargo test -p acpmux --release -- --ignored --nocapture cold_open_perf`.
+#[test]
+#[ignore = "a measurement, not a check"]
+fn cold_open_perf() {
+    let root = std::env::temp_dir().join(format!("acpmux-cold-open-perf-{}", uuid::Uuid::now_v7()));
+    let sessions = root.join("sessions");
+    let turns: usize =
+        std::env::var("COLD_OPEN_TURNS").ok().and_then(|v| v.parse().ok()).unwrap_or(100);
+    {
+        let writer = LocalStore::new(sessions.clone(), 8 << 20).unwrap();
+        let mut m = meta("c");
+        m.status = crate::store::SessionStatus::Idle;
+        let log = codex_chat(turns, 400, 85, false);
+        for rec in &log {
+            writer.append("c", rec).unwrap();
+        }
+        m.last_seq = log.last().unwrap().seq;
+        m.event_count = log.len() as u64;
+        writer.save(&m).unwrap();
+        writer.flush().unwrap();
+    }
+    let log_bytes: u64 = std::fs::read_dir(sessions.join("c").join("events"))
+        .unwrap()
+        .map(|e| e.unwrap().metadata().unwrap().len())
+        .sum();
+    for _ in 0..3 {
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let mut cfg: crate::config::Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", fake]}},
+            "defaultHarness": "fake",
+        }))
+        .unwrap();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let (r0, t0) = (read_bytes(), std::time::Instant::now());
+        let hub = Hub::new_deferred(
+            cfg,
+            Box::new(LocalStore::new(sessions.clone(), 8 << 20).unwrap()),
+            crate::mailbox::Mailbox::memory(),
+        );
+        let s = hub.resolve("c").unwrap();
+        let (r1, t1) = (read_bytes(), std::time::Instant::now());
+        hub.load_session_log(&s);
+        let (r2, t2) = (read_bytes(), std::time::Instant::now());
+        let page = hub
+            .events_page("c", 0, None, OPEN_LIMIT, Some(OPEN_BYTES), true, &transcript(true))
+            .unwrap();
+        let (r3, t3) = (read_bytes(), std::time::Instant::now());
+        let ms = |a: std::time::Instant, b: std::time::Instant| (b - a).as_secs_f64() * 1000.0;
+        println!(
+            "cold open: log {:.1} MB; start {:.1} ms {:.1} MB read; chat log load {:.1} ms {:.1} MB read; open page {:.1} ms {:.1} MB read, {} records",
+            log_bytes as f64 / 1e6,
+            ms(t0, t1),
+            (r1 - r0) as f64 / 1e6,
+            ms(t1, t2),
+            (r2 - r1) as f64 / 1e6,
+            ms(t2, t3),
+            (r3 - r2) as f64 / 1e6,
+            page.events.len()
+        );
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
