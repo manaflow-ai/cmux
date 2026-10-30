@@ -68,6 +68,7 @@ const { SubagentListPanel, useSubagentList, SUBAGENT_LIST_REVEAL } =
   await import("../src/agent-session/acpmux/subagents/SubagentListPanel");
 const { openSubagentPane } = await import("../src/agent-session/acpmux/subagents/subagentPanes");
 const { openChildSession } = await import("../src/agent-session/acpmux/subagents/subagentNavigation");
+const { NativeError } = await import("../src/agent-session/acpmux/nativeError");
 type Open = (id: string, event?: { metaKey: boolean }) => void;
 const surfaces: [string, (open: Open) => ReactNode][] = [
   [
@@ -211,6 +212,11 @@ test("native subagent placement distinguishes refusal from transport failure", a
   await expect(openSubagentPane(async () => {
     throw new Error("disconnected");
   }, "child-1", true)).resolves.toBe("error");
+  // No app behind the page, or a pane with no subagent panes: shown in place, as before.
+  for (const code of ["native.not_connected", "unsupported"])
+    await expect(openSubagentPane(async () => {
+      throw new NativeError({ code });
+    }, "child-1", true)).resolves.toBe("refused");
 });
 
 test("subagent list hide callback stays stable across renders", async () => {

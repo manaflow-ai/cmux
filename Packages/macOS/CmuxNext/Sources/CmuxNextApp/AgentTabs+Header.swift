@@ -66,7 +66,7 @@ extension AgentTabStore {
             self?.openSubagent(nil, of: session, focus: true, beside: provisional) ?? false
         }
         model.header?.openSideBackground = { [weak self] _, fork in _ = self?.openChildBeside(fork, beside: provisional, focus: false) }
-        model.header?.showSessionBackground = { [weak self] session in self?.showSessionBeside(session, chat: provisional, focus: false) ?? false }
+        model.header?.showSessionBeside = { [weak self] session, focus in self?.showSessionBeside(session, chat: provisional, focus: focus) ?? false }
         model.chatMenuItems = actions.menuItems
         model.onSearchWeb = actions.searchWeb
     }

@@ -26,7 +26,11 @@ enum AgentPaneOfferOpen {
         if workspace {
             return AgentPaneReply.success(["opened": header.openTab(session, .workspace)])
         }
-        let shown = focus ? header.showSession(session) : (header.showSessionBackground?(session) ?? false)
+        // A message's sender goes to the tab that shows it wherever it is; a subagent or sub-session
+        // reuses only a tab beside this chat, so a click never moves the person to another workspace.
+        let shown = if sender { header.showSession(session) }
+            else if let beside = header.showSessionBeside { beside(session, focus) }
+            else { focus ? header.showSession(session) : false }
         if !shown {
             if focus { header.openSide(chat, session) }
             else { header.openSideBackground?(chat, session) }

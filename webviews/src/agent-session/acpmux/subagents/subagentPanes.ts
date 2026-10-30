@@ -12,6 +12,7 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { AcpmuxRow } from "../model";
 import { subagentsIn } from "./subagentRows";
+import { NativeError } from "../nativeError";
 
 /// The `revealTurn` prefix that opens a pane on a subagent's view.
 export const SUBAGENT_REVEAL = "subagent:";
@@ -59,14 +60,18 @@ export function useAutoOpenSubagents(): [boolean, (on: boolean) => void] {
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 export type SubagentPaneResult = "opened" | "refused" | "error";
 
+/// The host has no subagent panes at all: no app behind the page (the gallery, a browser) or a pane
+/// whose host answers `unsupported` (a floating chat, an older app). Those show it in place, as a refusal.
+const NO_PANES = new Set(["native.not_connected", "unsupported"]);
+
 /// Asks the app for subagent `id`'s pane. A native refusal is distinct from a lost transport reply:
 /// only the former permits the in-place fallback.
 export async function openSubagentPane(call: Call, id: string, focus: boolean): Promise<SubagentPaneResult> {
   try {
     const reply = await call("chat.subagentPane", { subagent: id, focus });
     return (reply as { opened?: unknown } | null)?.opened === true ? "opened" : "refused";
-  } catch {
-    return "error";
+  } catch (error) {
+    return error instanceof NativeError && error.code && NO_PANES.has(error.code) ? "refused" : "error";
   }
 }
 

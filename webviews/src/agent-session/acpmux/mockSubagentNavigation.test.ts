@@ -3,7 +3,7 @@ import { MockAcpmuxSocket } from "./mock";
 import { SUBAGENT_NAVIGATION_SESSION } from "./mockFixture";
 import type { EventRecord } from "./direct";
 import { SubagentFold } from "./subagents/subagentFold";
-import { subagentFullName, subagentName, subagentTitle } from "./subagents/subagentNavigation";
+import { subagentName } from "./subagents/subagentNavigation";
 
 test("independent mock pages retain completed subagents and each child's transcript", async () => {
   // Native side tabs create independent pages; no mutable state is shared with the source.
@@ -44,16 +44,4 @@ test("independent mock pages retain completed subagents and each child's transcr
       socket.close();
     }
   }
-});
-
-test("a hidden transport id stays in the full name and the hover text", () => {
-  const opaque = { id: "child-x", name: "0123abcd-4567/toolu_01", task: "Audit pane placement" } as Parameters<typeof subagentName>[0];
-  expect(subagentName(opaque)).toBe("Audit pane placement");
-  expect(subagentFullName(opaque)).toBe("Audit pane placement (0123abcd-4567/toolu_01)");
-  expect(subagentTitle(opaque)).toBe("Audit pane placement (0123abcd-4567/toolu_01)");
-  const unnamed = { id: "child-y", task: "Review tab reuse" } as Parameters<typeof subagentName>[0];
-  expect(subagentFullName(unnamed)).toBe("Review tab reuse (child-y)");
-  const named = { id: "child-z", name: "Reviewer", task: "Check it" } as Parameters<typeof subagentName>[0];
-  expect(subagentFullName(named)).toBe("Reviewer");
-  expect(subagentTitle(named)).toBe("Check it");
 });

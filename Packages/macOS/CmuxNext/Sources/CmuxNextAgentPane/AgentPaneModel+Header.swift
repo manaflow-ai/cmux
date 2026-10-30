@@ -49,7 +49,10 @@ public struct AgentPaneHeaderHooks {
     /// Shows and focuses the tab that shows acpmux session `id` already, so a chat never streams in
     /// two tabs (``AgentPaneOfferOpen``); false when no tab shows it.
     public var showSession: @MainActor (String) -> Bool
-    public var showSessionBackground: (@MainActor (String) -> Bool)?
+    /// Shows the tab of acpmux session `id` only when it is in the chat's own right pane (the current
+    /// workspace), focused with `focus`; false otherwise. A subagent click reuses only that tab, never
+    /// one in another workspace; nil leaves ``showSession`` in charge.
+    public var showSessionBeside: (@MainActor (_ session: String, _ focus: Bool) -> Bool)?
     /// Whether acpmux session `session` is of chat `chat`'s family: a sub-session it started at any
     /// depth, or the session that started it (acpmux `startedBy`, mirrored by the app's turn-state
     /// watch). ``AgentPaneOfferOpen`` opens only those, or the pane's own sessions; none by default.
@@ -90,7 +93,7 @@ public struct AgentPaneHeaderHooks {
         self.moveToFloatingChat = moveToFloatingChat
         self.refreshPullRequest = refreshPullRequest
         self.showSession = showSession
-        self.showSessionBackground = nil
+        self.showSessionBeside = nil
         self.isFamily = isFamily
     }
 
