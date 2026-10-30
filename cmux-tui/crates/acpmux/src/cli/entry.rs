@@ -101,8 +101,15 @@ fn runtime_workers(args: &[OsString]) -> Option<usize> {
     STDIO_MCP_SERVERS.iter().any(|name| command == name).then_some(MCP_WORKERS)
 }
 
+/// Each runtime worker's stack: the main thread's default on Linux and macOS, not tokio's 2 MiB.
+/// The daemon's request futures (`server/requests.rs` `dispatch_request` above all) are large in a
+/// debug build, and a worker that polled one deep in adoption overflowed its stack and aborted the
+/// daemon (`tests/durable_agents.rs`, about one run in three on Linux CI).
+const WORKER_STACK_BYTES: usize = 8 << 20;
+
 fn runtime(args: &[OsString]) -> std::io::Result<tokio::runtime::Runtime> {
     let mut builder = tokio::runtime::Builder::new_multi_thread();
+    builder.thread_stack_size(WORKER_STACK_BYTES);
     if let Some(workers) = runtime_workers(args) {
         builder.worker_threads(workers);
     }

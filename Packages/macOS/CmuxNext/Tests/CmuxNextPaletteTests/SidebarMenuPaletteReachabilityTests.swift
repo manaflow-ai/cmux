@@ -1,13 +1,14 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextPalette
+import CmuxNextTestSupport
 import Testing
 
 /// Sidebar rows keep the long tail searchable after the pointer menu trim. Querying each action
 /// ID exercises the same palette search path a person uses, rather than only checking descriptor
 /// metadata.
 @MainActor
-@Suite(.paletteRanker)
+@Suite(.paletteRanker, .closesItsWindows)
 struct SidebarMenuPaletteReachabilityTests {
     private static let trimmedActions: [ActionID] = [
         "workspace.setTheme", "workspace.setTint", "workspace.removeAllColors",
@@ -24,7 +25,7 @@ struct SidebarMenuPaletteReachabilityTests {
         let registry = ActionRegistry.standard()
         for id in Self.trimmedActions { registry.bind(id, invoke: { _ in }) }
         let palette = PaletteController(registry: registry, frecencyPersistence: nil)
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         palette.show(.commands)
         await palette.model.settle()
 
