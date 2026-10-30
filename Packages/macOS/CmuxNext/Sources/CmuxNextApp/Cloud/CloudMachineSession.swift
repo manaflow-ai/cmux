@@ -275,11 +275,14 @@ final class CloudMachineSession {
 
     /// A machine list read's record for this machine (`CloudService.reconcile`):
     /// one that stopped being live suspends the session, one that turned live
-    /// connects it. `connectsAtRead` is ``connects`` when the read began.
+    /// connects it. `connectsAtRead` is ``connects`` when the read began: a
+    /// connect since then (a click's, which starts a paused machine) is newer
+    /// than the answer, so a paused record does not suspend it.
     func listed(_ record: CloudMachine, connectsAtRead: Int) {
         let wasLive = machine.status.isLive
         machine = record
         if wasLive, !record.status.isLive {
+            guard connects == connectsAtRead else { return }
             suspend()
         } else if !wasLive, record.status.isLive {
             connect()
