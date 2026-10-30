@@ -352,7 +352,9 @@ final class HomeHostView: NSView {
                 (service.isAvailable || service.isCloudConversation(id), service.isRefused || service.migrationNotice != nil,
                  service.homeStore.isOnline, service.unavailableMessage, service.conversationNotice(for: id))
             }) {
-                self?.transcript.isHidden = !available
+                // An unanswered availability check is still loading: keep Home's existing
+                // transcript loading/connecting treatment visible instead of leaving a blank pane.
+                self?.transcript.isHidden = !available && explained
                 self?.message.isHidden = available || !explained
                 self?.message.stringValue = why
                 self?.transcript.showConversationNotice(notice)
