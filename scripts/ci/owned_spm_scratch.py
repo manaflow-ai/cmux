@@ -86,6 +86,7 @@ from __future__ import annotations
 import contextlib
 import fcntl
 import hashlib
+import itertools
 import json
 import os
 from pathlib import Path
@@ -541,13 +542,25 @@ def lease(workspace: Path, store: Path, runner: str, verdict: dict[str, object] 
     def root(k: int) -> Path:
         return scratch / (fingerprints[k] if fingerprints is not None else shared_fingerprint(parts, k))
 
-    roots = [root(k) for k in range(count)]
+    existing = [root(k) for k in range(count) if root(k).is_dir()]
+
+    def new_roots():
+        # Not bounded by the scan above: another job may take root k (or make it) after the scan and
+        # before our lock, so the numbers go on until a lock is ours or the disk has no room. Each held
+        # lock is a live job, so this ends after at most as many roots as jobs run at once.
+        k = 0
+        while fingerprints is None or k < len(fingerprints):
+            candidate = root(k)
+            if candidate not in existing:
+                yield candidate
+            k += 1
+
     sizes: dict[str, int] = {}
     held: tuple[Path, int] | None = None
     room_checked = False
     # Every root that exists, lowest first; then new ones in order while the disk has room for one.
     # A root another job holds or is making (its lock taken) is passed over, never waited for.
-    for target in [r for r in roots if r.is_dir()] + [r for r in roots if not r.is_dir()]:
+    for target in itertools.chain(existing, new_roots()):
         if not target.is_dir():
             if not room_checked:
                 estimate = max((size for size, _ in (tree_stats(entry) for entry in known)), default=0)
@@ -559,9 +572,12 @@ def lease(workspace: Path, store: Path, runner: str, verdict: dict[str, object] 
         fd = os.open(lock_path(target), os.O_RDWR | os.O_CREAT, 0o644)
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
+        except BlockingIOError:
             os.close(fd)
             continue  # another job builds there
+        except OSError:
+            os.close(fd)
+            raise  # locks do not work here: the caller links its own workspace
         held = (target, fd)
         break
     if held is None:

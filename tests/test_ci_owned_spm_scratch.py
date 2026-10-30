@@ -332,6 +332,31 @@ class Scratch(unittest.TestCase):
             fcntl.flock(handle, fcntl.LOCK_EX)  # another job is making root 0 right now
             self.assertEqual(self.lease(("root-0", "root-1", "root-2")).parent.name, "root-1")
 
+    def test_a_job_that_takes_root_0_after_the_scan_sends_the_other_to_root_1(self):
+        # The production numbering, not test fingerprints: both jobs scanned an empty scratch (no
+        # directory, no lock file), then the other job locked root 0 before this one tried it.
+        self.checkout()
+        parts = ("x", "s", "b")
+        self.scratch.mkdir()
+        other = []
+
+        def parts_then_the_other_job_locks_root_0(workspace):
+            handle = open(scratch.lock_path(self.scratch / scratch.shared_fingerprint(parts, 0)), "a")
+            fcntl.flock(handle, fcntl.LOCK_EX)
+            other.append(handle)
+            return parts
+
+        with unittest.mock.patch.object(scratch, "toolchain_parts", side_effect=parts_then_the_other_job_locks_root_0):
+            source = scratch.lease(self.workspace, self.store, RUNNER)
+        other[0].close()
+        self.assertEqual(source, self.scratch / scratch.shared_fingerprint(parts, 1) / scratch.SHARED_SOURCE)
+
+    def test_a_lock_error_that_is_not_contention_is_raised_not_skipped(self):
+        self.checkout()
+        with unittest.mock.patch.object(scratch.fcntl, "flock", side_effect=OSError(37, "No locks available")):
+            with self.assertRaises(OSError):
+                self.lease()
+
     def test_a_root_above_a_pruned_one_is_still_found_and_reused(self):
         self.checkout()
         self.lease(("root-0", "root-1", "root-2"))
