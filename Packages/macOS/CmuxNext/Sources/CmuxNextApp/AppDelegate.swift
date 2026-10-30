@@ -36,14 +36,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Set in applicationDidFinishLaunching; nil before it (no IUO).
     private var services: AppServices?
     /// A second quit signal's exit (`QuitSignal`): the Home cache's last write, bounded, then the end.
-    private lazy var forcedQuitExit = ForcedQuitExit(prepare: { [weak self] in
-        self?.services?.crashRecovery.applicationWillTerminate()
-        AppProcessRoot.shared.hangReports?.applicationWillTerminate()
-        allowBlocking(.terminate) { AgentPaneStateFile.flushAll() }
-        self?.services?.home.applicationWillTerminate()
-    }, save: { [weak self] in
-        await self?.services?.home.flushCacheForQuit()
-    })
+    private lazy var forcedQuitExit = Self.secondSignalExit { [weak self] in self?.services }
+
+    /// The exit's steps (tests inject the deadline and the end).
+    static func secondSignalExit(_ services: @escaping @MainActor () -> AppServices?, armDeadline: ((Duration) -> Void)? = nil,
+                                end: (@MainActor () -> Void)? = nil) -> ForcedQuitExit {
+        ForcedQuitExit(prepare: {
+            services()?.crashRecovery.applicationWillTerminate()
+            AppProcessRoot.shared.hangReports?.applicationWillTerminate()
+            allowBlocking(.terminate) { AgentPaneStateFile.flushAll() }
+            services()?.home.applicationWillTerminate()
+        }, save: {
+            await services()?.home.flushCacheForQuit()
+        }, armDeadline: armDeadline, end: end)
+    }
     private var settings: SettingsController?
     /// The app's one main-thread scheduler for budgeted work: its per-frame budget, with the
     /// person's pending-input check and task signposts. Built here, the composition root, and
