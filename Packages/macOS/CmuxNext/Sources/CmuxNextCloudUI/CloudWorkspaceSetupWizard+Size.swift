@@ -1,6 +1,6 @@
 public import CmuxNextCloud
-public import CmuxNextDesign
-import Foundation
+import CmuxNextDesign
+public import Foundation
 
 // The machine size in New Cloud Workspace: the plan's sizes from `GET /api/vm`'s `limits`
 // (`memoryOptionsMb`, `vcpusByMemoryMb`) and, where the server already priced a machine of that
