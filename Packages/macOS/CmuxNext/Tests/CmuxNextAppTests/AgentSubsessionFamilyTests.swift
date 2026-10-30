@@ -32,14 +32,14 @@ struct AgentSubsessionFamilyTests {
     @Test func theFeedReadsStartedByFromItsPageAndItsChanges() {
         func message(_ json: String) -> AgentTurnStateFeed.Message? { AgentTurnStateFeed.Message(line: Data(json.utf8)) }
         let page = message(#"{"id":2,"result":{"sessions":[{"sessionId":"c1","startedBy":"root"},{"sessionId":"root"}]}}"#)
-        guard case .page(_, _, _, _, _, _, _, let links) = page else { Issue.record("not a page: \(String(describing: page))"); return }
+        guard case .page(_, _, _, _, _, _, _, let links, _) = page else { Issue.record("not a page: \(String(describing: page))"); return }
         #expect(links == ["c1": "root"])
         let change = message(#"{"method":"_acpmux/session_changed","params":{"sessionId":"c1","session":{"sessionId":"c1","startedBy":"root"}}}"#)
-        guard case .change(let session, _, _, _, _, _, _, _, let parent, _, _) = change else { Issue.record("not a change: \(String(describing: change))"); return }
+        guard case .change(let session, _, _, _, _, _, _, _, let parent, _, _, _) = change else { Issue.record("not a change: \(String(describing: change))"); return }
         #expect(session == "c1")
         #expect(parent == "root")
         let purge = message(#"{"method":"_acpmux/session_changed","params":{"sessionId":"c1","kind":"purged"}}"#)
-        guard case .change(_, _, _, _, _, _, _, _, let purged, _, _) = purge else { Issue.record("not a change: \(String(describing: purge))"); return }
+        guard case .change(_, _, _, _, _, _, _, _, let purged, _, _, _) = purge else { Issue.record("not a change: \(String(describing: purge))"); return }
         #expect(purged == nil, "a purged session keeps no parent")
     }
 
@@ -49,7 +49,7 @@ struct AgentSubsessionFamilyTests {
         /// The change's peer; nil inside when it names none, nil outside when the line is no change.
         func peer(_ params: String) -> (name: String, stale: Bool)?? {
             let line = #"{"method":"_acpmux/session_changed","params":"# + params + "}"
-            guard case .change(_, _, _, _, _, _, _, _, _, _, let peer) = AgentTurnStateFeed.Message(line: Data(line.utf8)) else { return nil }
+            guard case .change(_, _, _, _, _, _, _, _, _, _, let peer, _) = AgentTurnStateFeed.Message(line: Data(line.utf8)) else { return nil }
             return .some(peer)
         }
         let live = peer(#"{"sessionId":"p1","peer":"huge-blue","kind":"status","session":{"sessionId":"p1","status":"idle"}}"#)

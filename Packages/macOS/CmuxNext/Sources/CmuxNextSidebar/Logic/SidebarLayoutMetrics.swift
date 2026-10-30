@@ -223,7 +223,9 @@ nonisolated extension SidebarLayoutOptions {
         if !minimal, let chip = WorkspaceRowContent.rowChip(ws.agentChip) { content.chip = chip }
         // A row that already has a second line says there what its agent does now; a one-line row
         // keeps its height, so rows do not grow and shrink as agents start and stop.
-        if !minimal, content.detail != nil, let step = ws.agentStep { (content.now, content.detail) = (step, step) }
+        if !minimal, content.detail != nil, let step = ws.agentStep {
+            (content.now, content.detail) = (step, step)
+        }
         return content
     }
 

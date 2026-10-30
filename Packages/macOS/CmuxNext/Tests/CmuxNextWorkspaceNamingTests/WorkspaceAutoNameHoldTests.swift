@@ -30,7 +30,7 @@ struct WorkspaceAutoNameHoldTests {
     }
 
     private static func title(_ turns: AgentTurnStateStore, _ session: String, _ title: String?) {
-        turns.apply(session: session, state: nil, lastMessage: nil, muted: false, title: title, detail: nil)
+        turns.apply(session: session, state: nil, lastMessage: nil, muted: false, title: title, generatedTitle: title, detail: nil)
     }
 
     @Test func aChatNamedRowKeepsItsNameWhileTheTitleIsUnknown() throws {
