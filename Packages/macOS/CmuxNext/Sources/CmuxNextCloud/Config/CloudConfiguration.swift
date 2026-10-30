@@ -118,17 +118,17 @@ public struct CloudConfiguration: Sendable, Equatable {
             // CMUX_NEXT_CLOUD_LINK survives the launch: the app unsets every inherited
             // CMUX_* variable but CMUX_NEXT_* (LaunchIdentity.stripInheritedEnvironment);
             // CMUX_CLOUD_LINK works only when baked into the bundle's LSEnvironment.
-            linkSource: linkSource(asked: value("CMUX_NEXT_CLOUD_LINK") ?? value("CMUX_CLOUD_LINK"), backend: backend))
+            linkSource: resolvedLink(asked: value("CMUX_NEXT_CLOUD_LINK") ?? value("CMUX_CLOUD_LINK"), backend: backend))
     }
 
     /// A non-production build's link: `app` or `legacy` as asked, else the app
     /// server on a staging or development backend and the legacy link on a
     /// local-only one. (The classic `/api/vm` makes machines from an older
     /// guest image whose cmux-tui cannot hold agent chat tabs.)
-    static func linkSource(asked: String?, backend: Backend) -> LinkSource {
+    static func resolvedLink(asked: String?, backend: Backend) -> LinkSource {
         switch asked?.lowercased() {
-        case "app": return .appServer
-        case "legacy": return .legacy
+        case "app"?: return .appServer
+        case "legacy"?: return .legacy
         default:
             if case .development = backend { return .appServer }
             return .legacy
