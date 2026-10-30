@@ -184,7 +184,11 @@ import Testing
             return Task.isCancelled ? nil : "thumb"
         }
         // Two tiles ask at once: one make. One scrolls away; the other still gets the thumbnail.
-        func until(_ condition: () -> Bool) async { for _ in 0..<10_000 where !condition() { await Task.yield() } }
+        func until(_ condition: () -> Bool, sourceLocation: SourceLocation = #_sourceLocation) async {
+            for _ in 0..<10_000 where !condition() { await Task.yield() }
+            // A wait that runs out fails here, not as a later expectation reading a half-done state.
+            if !condition() { Issue.record("timed out waiting", sourceLocation: sourceLocation) }
+        }
         let first = Task { await memo.value(for: artifact, make: make) }
         await until { memo.waiting(for: artifact) == 1 }
         let second = Task { await memo.value(for: artifact) { _ in "other" } }
@@ -226,7 +230,11 @@ import Testing
     @Test func aLateCancelledMakeNeverStopsItsReplacement() async {
         let memo = ArtifactMemo<String>(costLimit: 1 << 20)
         let artifact = TerminalArtifact(reference: "build/late.png", kind: .image, order: 1)
-        func until(_ condition: () -> Bool) async { for _ in 0..<10_000 where !condition() { await Task.yield() } }
+        func until(_ condition: () -> Bool, sourceLocation: SourceLocation = #_sourceLocation) async {
+            for _ in 0..<10_000 where !condition() { await Task.yield() }
+            // A wait that runs out fails here, not as a later expectation reading a half-done state.
+            if !condition() { Issue.record("timed out waiting", sourceLocation: sourceLocation) }
+        }
         // The first make ignores its cancellation until its gate opens (a decode that never checks).
         let oldGate = AsyncStream<Void>.makeStream()
         let first = Task { await memo.value(for: artifact) { _ in

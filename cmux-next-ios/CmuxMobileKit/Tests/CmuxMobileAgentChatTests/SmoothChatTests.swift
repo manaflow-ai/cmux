@@ -324,6 +324,26 @@ import UIKit
         #expect(layouts.madeNow == 0)
     }
 
+}
+
+/// Find in Chat jumping to a block far up the transcript scrolls by the block's real height,
+/// not its estimate: its off-main layout may not have landed yet, so the reveal lays it out first.
+@MainActor
+@Suite struct FindRevealLayoutTests {
+    @Test func aRevealedRowIsLaidOutBeforeTheScroll() throws {
+        let store = AgentChatStore(source: SmoothChatTests.Silent())
+        store.nextFrame = nil
+        store.apply(.batch((0..<20).flatMap { SmoothChatTests.turn($0) }))
+        let list = ChatTranscriptList(store: store, surface: AgentChatSurface())
+        list.collectionView.frame = CGRect(x: 0, y: 0, width: 390, height: 800)
+        list.boundsMayHaveChanged()
+        let id = try #require(list.layout.items.first { $0.id.hasPrefix("m0#") }?.id)
+        #expect(list.layout.items.first { $0.id == id }?.exact == false, "the oldest blocks wait for their off-main layout")
+        list.layOutNow(id)
+        #expect(list.layout.items.first { $0.id == id }?.exact == true)
+    }
+}
+
 /// Native answer rows keep what the SwiftUI blocks offered: a heading is a heading to
 /// VoiceOver, and a block's long-press menu can select text, not only copy the whole message.
 @MainActor
@@ -348,6 +368,11 @@ import UIKit
         #expect(Self.traits(try Self.cell(.heading(level: 2, text: "Plan"))).contains { $0.contains(.header) })
         #expect(!Self.traits(try Self.cell(.paragraph("Ship it."))).contains { $0.contains(.header) })
     }
-}
+
+    @Test func aBlocksMenuOffersSelectText() throws {
+        let titles = ChatNativeRowCell.messageMenu { "Ship it." }.compactMap { ($0 as? UIAction)?.title }
+        #expect(titles.contains("Select Text"))
+        #expect(titles.contains("Copy"))
+    }
 }
 #endif

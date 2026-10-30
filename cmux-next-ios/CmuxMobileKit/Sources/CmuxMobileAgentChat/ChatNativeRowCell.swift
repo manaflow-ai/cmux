@@ -28,6 +28,8 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
     private var layout: ChatNativeLayout?
     private var actions = ChatNativeActions()
     private var labels: [UILabel] = []
+    /// The labels (by index) that show a markdown heading.
+    private var headerLabels: Set<Int> = []
     private var symbols: [UIImageView] = []
     private var bars: [UIView] = []
     private var boxes: [UIView] = []
@@ -100,8 +102,10 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
                 view.apply(scroller)
                 view.isHidden = false
             }
+            headerLabels = []
             for text in drawn.texts {
                 let label = usedLabels < labels.count ? labels[usedLabels] : newLabel()
+                if text.isHeader { headerLabels.insert(usedLabels) }
                 usedLabels += 1
                 label.attributedText = text.text
                 label.frame = text.frame.offsetBy(dx: margin, dy: 0)
@@ -304,7 +308,7 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
         var items: [(frame: CGRect, element: Any)] = []
         // An edit card's diff lines, read with "Added" and "Removed" for their markers.
         for scroller in scrollers.prefix(usedScrollers) { items.append((scroller.frame, scroller)) }
-        for label in labels.prefix(usedLabels) {
+        for (index, label) in labels.prefix(usedLabels).enumerated() {
             // A list's marker ("•", "3.") is not read on its own; its item is.
             let marker = label.attributedText.map { Self.isListMarker($0.string) } ?? false
             let covered = marker || hits.contains { $0.frame.contains(CGPoint(x: label.frame.midX, y: label.frame.midY)) }
@@ -312,6 +316,7 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
             label.accessibilityLabel = label.attributedText?.string
             label.accessibilityCustomActions = covered ? nil : linkActions(label)
             label.accessibilityTraits = (label.accessibilityCustomActions?.isEmpty ?? true) ? .staticText : [.staticText, .link]
+            if headerLabels.contains(index) { label.accessibilityTraits.insert(.header) }
             if !covered { items.append((label.frame, label)) }
         }
         for (index, area) in hits.enumerated() {
@@ -395,6 +400,7 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
                 UIAction(title: "Copy as Markdown", image: UIImage(systemName: "text.document")) { _ in
                     UIPasteboard.general.string = "```\(code.language ?? "")\n\(code.code)\n```"
                 },
+                UIAction(title: "Select Text", image: UIImage(systemName: "selection.pin.in.out")) { _ in ChatSelectText.present(code.code) },
                 UIAction(title: "Share", image: UIImage(systemName: "square.and.arrow.up")) { _ in ChatShare.present(code.code) },
             ]
         case .table(let table):
@@ -405,12 +411,19 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
                 return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in built }
             }
             guard let message = actions.message else { return nil }
-            items = [
-                UIAction(title: "Copy", image: UIImage(systemName: "doc.on.doc")) { _ in UIPasteboard.general.string = message() },
-                UIAction(title: "Share", image: UIImage(systemName: "square.and.arrow.up")) { _ in ChatShare.present(message()) },
-            ]
+            items = Self.messageMenu(message)
         }
         return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in UIMenu(children: items) }
+    }
+
+    /// An answer block's long-press menu: the whole message, copied, selected from or shared
+    /// (the SwiftUI blocks' text selection becomes Select Text, as on a prompt).
+    static func messageMenu(_ message: @escaping () -> String) -> [UIMenuElement] {
+        [
+            UIAction(title: "Copy", image: UIImage(systemName: "doc.on.doc")) { _ in UIPasteboard.general.string = message() },
+            UIAction(title: "Select Text", image: UIImage(systemName: "selection.pin.in.out")) { _ in ChatSelectText.present(message()) },
+            UIAction(title: "Share", image: UIImage(systemName: "square.and.arrow.up")) { _ in ChatShare.present(message()) },
+        ]
     }
 }
 

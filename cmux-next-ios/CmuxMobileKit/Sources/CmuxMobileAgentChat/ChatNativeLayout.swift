@@ -19,6 +19,8 @@ struct ChatNativeLayout: @unchecked Sendable {
     struct Text {
         var text: NSAttributedString
         var frame: CGRect
+        /// A markdown heading: VoiceOver reads it as a heading (rotor navigation).
+        var isHeader = false
     }
 
     struct Symbol {
@@ -157,7 +159,8 @@ struct ChatNativeLayout: @unchecked Sendable {
             let text = ChatInlineText.make(source, font: font, color: .label)
             let top: CGFloat = level <= 2 ? 6 : 2
             let size = measure(text, width: width)
-            return ChatNativeLayout(content: .drawn(Drawn(texts: [Text(text: text, frame: CGRect(x: 0, y: top, width: width, height: size.height))])),
+            return ChatNativeLayout(content: .drawn(Drawn(texts: [Text(text: text, frame: CGRect(x: 0, y: top, width: width, height: size.height),
+                                                                       isHeader: true)])),
                                     height: top + size.height)
         case .quote(let source):
             let text = ChatInlineText.make(source, font: body, color: .secondaryLabel)

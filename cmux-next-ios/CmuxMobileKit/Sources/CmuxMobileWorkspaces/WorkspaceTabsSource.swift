@@ -124,7 +124,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// cards, pages and menus pass to the chat and terminal stores.
     @ObservationIgnored private(set) var workspaceSnapshot: Workspace?
     /// What pages and cards take from the workspace (its Mac, folder, title,
-    /// branch): observed, and written only when it changes, so a card re-runs
+    /// branch, and its screens for the cards' screen chips): observed, and written only when it changes, so a card re-runs
     /// when its workspace is replaced, not on every Mac publish.
     private var workspaceIdentity: WorkspaceIdentity?
     /// The listed workspace, for page, card and accessory bodies.
@@ -138,6 +138,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
         var title: String
         var directory: String
         var branch: String?
+        /// Which tab is on which of the Mac's screens (a card's chip names it).
+        var screens: [MacScreen]
     }
     /// Per tab: its model as last listed, for its card and page (`TabEntry`).
     @ObservationIgnored private var entries: [String: TabEntry] = [:]
@@ -187,7 +189,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
         workspaceSnapshot = workspace
         if openingTabID != opening { openingTabID = opening }
-        let identity = workspace.map { WorkspaceIdentity(macID: $0.macID, title: $0.title, directory: $0.directory, branch: $0.branch) }
+        let identity = workspace.map { WorkspaceIdentity(macID: $0.macID, title: $0.title, directory: $0.directory, branch: $0.branch,
+                                                         screens: $0.screens) }
         if workspaceIdentity != identity { workspaceIdentity = identity }
         guard let workspace else {
             if !tabs.isEmpty { tabs = [] }

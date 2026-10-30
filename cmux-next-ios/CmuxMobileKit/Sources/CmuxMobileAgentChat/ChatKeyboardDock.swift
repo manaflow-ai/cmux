@@ -661,8 +661,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     }
 
     func revealFindBlock(_ findBlock: String, position: Double, animated: Bool) {
-        view.layoutIfNeeded()
         let id = ChatTranscriptList.rowID(findBlock: findBlock)
+        list.layOutNow(id)
+        view.layoutIfNeeded()
         guard let top = list.layout.top(of: id) else { return }
         // Within a row taller than the screen (a long paragraph or code card), the match's
         // place in the row's text, as a share of the row's height.

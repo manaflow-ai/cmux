@@ -479,6 +479,18 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         reload()
     }
 
+    /// Find in Chat: the row's real height before a scroll to it. A row far from the reader
+    /// may still wait for its off-main layout, and a reveal by its estimate lands off the match.
+    func layOutNow(_ id: String) {
+        guard let row = rows[id], lookup.eligible(row) else { return }
+        let revision = revisions[id] ?? 0
+        let open = lookup.expanded(id)
+        guard !lookup.layouts.has(id, revision: revision, expanded: open) else { return }
+        guard lookup.layouts.makeNow(row, revision: revision, expanded: open) != nil else { return }
+        shownTurns[row.turnID] = nil
+        reload()
+    }
+
     /// "Show all N lines" on a native code card.
     private func showAll(_ id: String) {
         surface.disclosures.set("code-\(id)", true)
