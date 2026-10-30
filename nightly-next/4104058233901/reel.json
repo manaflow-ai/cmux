@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "build": "4104058233901",
+  "notes": "notes/4104058233901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27625,
+      "title": "bench: agent chat click-to-first-content, idle and under load",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27864,
+      "title": "Agent chat: a run of messages to agents is one group, \"Messaged <target> 3 times\"",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28020,
+      "title": "Composer model menu: the Account switcher is back (Cmux under a Provider heading)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
