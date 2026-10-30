@@ -9,9 +9,9 @@ import Testing
 /// place by `workspaces.newPlacement` (`NewWorkspaceDefaultSlot`); New Workspace Below and Duplicate
 /// pass `.below(current)` themselves. With the default `top`, a new workspace made from `d` in group
 /// `g1` (`c`, `d`, `e`) went to the top of the group, above `c`; it belongs right below `d`.
-/// Lawrence 2026-10-28: a new workspace made inside a group goes to the TOP of that group by
-/// default, like a new workspace goes to the top of the sidebar; `afterCurrent` ("After Current
-/// Workspace" in Settings) keeps Leo's place right below the current one.
+/// Leo's sidebar item B ask: "Cmd-N should create right below the selected row, inside its selected
+/// group, not at bottom." The existing #22926 path is `NewWorkspaceDefaultSlot`; its default must
+/// remain the shared `afterCurrent` rule so the daemon and app make one placement pass.
 @Suite struct NewWorkspaceInGroupTests {
     static let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
     static let g1 = GroupID("g1")
@@ -46,17 +46,10 @@ import Testing
         return (loose, group)
     }
 
-    @Test func topFromAGroupMemberGoesToTheTopOfThatGroup() throws {
-        for current in ["c", "d", "e"] {
-            let placed = try Self.placed(.top, from: current)
-            #expect(placed.group == ["n", "c", "d", "e"], "top from \(current)")
-            #expect(placed.loose == ["a", "f"], "top from \(current)")
-        }
-    }
-
-    @Test func theDefaultPlacementPutsANewWorkspaceFirstInItsGroup() throws {
+    @Test func theDefaultPlacementPutsANewWorkspaceBelowTheSelectedMember() throws {
         let placed = try Self.placed(CmuxConfigSnapshot.newWorkspacePlacementFallback, from: "d")
-        #expect(placed.group == ["n", "c", "d", "e"])
+        #expect(placed.group == ["c", "d", "n", "e"])
+        #expect(placed.loose == ["a", "f"])
     }
 
     @Test func afterCurrentFromAGroupMemberGoesRightBelowItInThatGroup() throws {

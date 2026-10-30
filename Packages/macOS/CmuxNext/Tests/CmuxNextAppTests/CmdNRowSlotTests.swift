@@ -58,12 +58,15 @@ struct CmdNRowSlotTests {
         services.windows.select(anchor, in: state)
         controller.showWorkspace(requested: state.workspaceID)
 
+        let beforeLayout = list.displayed
         var frames: [[String]] = []
+        list.motionProbe.start()
         list.onApply = { frames.append(rows($0)) }
         _ = services.registry.perform("newTab")
         await RapidWorkspaceCreateTests.wait(within: .seconds(30)) { settled(start + 4) && rows(list.displayed).count > before.count }
         if !settled(start + 4) { print("cmd-n-slot: not settled after the press: \(describe())") }
         list.onApply = nil
+        let motion = list.motionProbe.stop()
         let after = rows(list.displayed)
         await launched.stop()
 
@@ -71,6 +74,24 @@ struct CmdNRowSlotTests {
         #expect(after == Array(before[...at]) + [created] + before[(at + 1)...], "rows \(before) became \(after)")
         let elsewhere = frames.filter { frame in frame.contains(created) && frame.firstIndex(of: created) != frame.firstIndex(of: anchor).map { $0 + 1 } }
         #expect(elsewhere.isEmpty, "frames that drew the new row away from its slot below \(anchor): \(elsewhere)")
+
+        let aboveIDs = before[...at]
+        let aboveKeys = Set(aboveIDs.map { String(describing: SidebarRowKey.workspace(WorkspaceID($0))) })
+        let baseline = Dictionary(uniqueKeysWithValues: aboveIDs.compactMap { id -> (String, CGFloat)? in
+            guard let row = beforeLayout.row(for: .workspace(WorkspaceID(id))) else { return nil }
+            return (String(describing: SidebarRowKey.workspace(WorkspaceID(id))), list.frame(for: row).minY)
+        })
+        let existingKeys = Set(before.map { String(describing: SidebarRowKey.workspace(WorkspaceID($0))) })
+        for frame in motion {
+            for key in aboveKeys {
+                if let shown = frame.views[key], let y = baseline[key] {
+                    #expect(abs(shown.minY - y) < 0.75, "row above Cmd-N moved in a display frame: \(key) from \(y) to \(shown.minY)")
+                }
+            }
+            for key in existingKeys where frame.views[key] != nil {
+                #expect((frame.opacity[key] ?? 0) > 0.01, "an existing row was hidden during Cmd-N: \(key)")
+            }
+        }
     }
 }
 
