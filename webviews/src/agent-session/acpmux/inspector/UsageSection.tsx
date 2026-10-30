@@ -178,6 +178,8 @@ export const UsageSection = memo(function UsageSection({
                   type="button"
                   className="acpmux-chat-inspector-usage__sort-option"
                   aria-pressed={sort === option}
+                  // The pressed option is the order shown: a click on it would do nothing.
+                  disabled={sort === option}
                   onClick={() => setSort(option)}
                 >
                   {t(option === "cost" ? "chatInspector.usage.sortCost" : "chatInspector.usage.sortContext")}

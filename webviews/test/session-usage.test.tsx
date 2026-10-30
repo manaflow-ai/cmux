@@ -235,8 +235,11 @@ test("open, Usage lists this chat's numbers, then every host's sessions by 24h c
       (option) => option.textContent === label,
     );
   expect(sortBy("24h cost")?.getAttribute("aria-pressed")).toBe("true");
+  // The pressed option is the order shown, so it takes no click (inspector-dead-clicks.test.tsx).
+  expect([sortBy("24h cost")?.disabled, sortBy("Context")?.disabled]).toEqual([true, false]);
   await click(sortBy("Context"));
   expect(sortBy("Context")?.getAttribute("aria-pressed")).toBe("true");
+  expect([sortBy("24h cost")?.disabled, sortBy("Context")?.disabled]).toEqual([false, true]);
   expect(listed()).toEqual([
     ["dep-land", "build-box", "330K"],
     ["dep-fleet", "build-box", "290K"],

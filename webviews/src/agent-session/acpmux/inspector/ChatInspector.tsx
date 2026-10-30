@@ -1089,35 +1089,41 @@ export function ChatInspector({
     [showsCalls, rows],
   );
   const body = useRef<HTMLDivElement>(null);
-  // Usage's Show: Subagents opens and comes into view.
-  const showSubagents = useCallback(() => {
-    (onSection ?? setInspectorSection)("subagents", true);
-    body.current?.querySelector<HTMLElement>('[data-section="subagents"]')?.scrollIntoView?.({ block: "nearest" });
-  }, [onSection]);
-  const anyUsage = useMemo(() => !!allSessions?.some((entry) => entry.usageStats), [allSessions]);
   // Once: then it is done, so the palette or another pane opening the Inspector again does not jump
   // back to this section.
   // The section lights for a moment (inspector.css `[data-revealed]`), so a reveal of a section already
   // in view still shows it answered (the header's Environment line, Leo 2026-10-21: no dead clicks).
   // Not the reveal effect's cleanup: `onRevealed` clears the reveal at once, which would put it out.
   const lit = useRef<{ section: HTMLElement; timer: number }>(undefined);
-  const unlight = () => {
+  const unlight = useCallback(() => {
     if (!lit.current) return;
     window.clearTimeout(lit.current.timer);
     delete lit.current.section.dataset.revealed;
     lit.current = undefined;
-  };
-  useEffect(() => unlight, []);
+  }, []);
+  useEffect(() => unlight, [unlight]);
+  const light = useCallback(
+    (id: InspectorSectionId) => {
+      const section = body.current?.querySelector<HTMLElement>(`[data-section="${id}"]`);
+      section?.scrollIntoView?.({ block: "nearest" });
+      if (!section) return;
+      unlight();
+      section.dataset.revealed = "";
+      lit.current = { section, timer: window.setTimeout(unlight, REVEAL_LIT_MS) };
+    },
+    [unlight],
+  );
   useEffect(() => {
     if (!revealed) return;
-    const section = body.current?.querySelector<HTMLElement>(`[data-section="${revealed.section}"]`);
-    section?.scrollIntoView?.({ block: "nearest" });
+    light(revealed.section);
     onRevealed?.();
-    if (!section) return;
-    unlight();
-    section.dataset.revealed = "";
-    lit.current = { section, timer: window.setTimeout(unlight, REVEAL_LIT_MS) };
-  }, [revealed, onRevealed]);
+  }, [revealed, onRevealed, light]);
+  // Usage's Show: Subagents opens, comes into view and lights, as a reveal does.
+  const showSubagents = useCallback(() => {
+    (onSection ?? setInspectorSection)("subagents", true);
+    light("subagents");
+  }, [onSection, light]);
+  const anyUsage = useMemo(() => !!allSessions?.some((entry) => entry.usageStats), [allSessions]);
   const scheduled = made?.scheduled ?? [];
   const pullRequests = visibleChanges(made?.pullRequests ?? [], statuses);
   const sources = made?.sources ?? [];

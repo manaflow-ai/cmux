@@ -37,9 +37,8 @@
   font: inherit;
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
-  cursor: default;
 }
-.acpmux-chat-inspector-usage__sort-option:hover {
+.acpmux-chat-inspector-usage__sort-option:hover:not(:disabled) {
   color: var(--agent-text);
 }
 .acpmux-chat-inspector-usage__sort-option[aria-pressed="true"] {
@@ -61,7 +60,6 @@
   font: inherit;
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
-  cursor: default;
 }
 .acpmux-chat-inspector-usage__action:hover:not(:disabled) {
   background: color-mix(in srgb, var(--agent-text) 7%, transparent);
