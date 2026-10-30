@@ -307,6 +307,16 @@ pub struct CloudConversations {
     inner: Arc<Inner>,
 }
 
+/// Pages `CloudConversations::inbox_list_all` reads at most (200 entries each).
+pub const MAX_INBOX_PAGES: usize = 50;
+/// Wall time, from the start of the read, after which `inbox_list_all` asks for no
+/// further page. With one more page's read (the transport's 20 s request
+/// timeout) the read ends inside the app's 30 s Cloud request timeout, so the
+/// request slot it holds is never left with a caller that gave up.
+pub const INBOX_ALL_BUDGET: Duration = Duration::from_secs(8);
+/// The owner's longest `inbox.list` cursor (ops-home-inbox.ts).
+const MAX_INBOX_CURSOR: usize = 256;
+
 /// The refusal text of a lease change from a connection that is not the app.
 const APP_ONLY_LEASE: &str = "the cloud session lease belongs to the verified cmux app connection; only it may set or clear it";
 
@@ -448,19 +458,85 @@ impl CloudConversations {
         Ok(RequestPermit { inner: self.inner.clone() })
     }
 
-    /// `cloud-inbox-list`.
+    /// `cloud-inbox-list`: one page of the inbox, `limit` entries (default
+    /// 200) from `cursor` (the owner's `next_cursor` of the page before), with
+    /// the owner's `next_cursor` (null on the last page). One page per call,
+    /// so every reply is one bounded read; a client pages with the cursor.
     pub fn inbox_list(
         &self,
         limit: Option<u32>,
         include_archived: bool,
+        cursor: Option<&str>,
     ) -> Result<Value, CloudError> {
-        let limit = limit.unwrap_or(MAX_PAGE);
+        self.inbox_page(limit.unwrap_or(MAX_PAGE), include_archived, cursor)
+    }
+
+    /// The inbox for `home-inbox`'s Cloud rows: every page the owner has,
+    /// following `next_cursor`, while `budget` lasts and for at most
+    /// `MAX_INBOX_PAGES` pages (`budget` counts from the start of the read). An entry a later page lists again (its
+    /// activity moved it while the pages were read) is kept once, where it
+    /// was first listed. Any page's failure is the read's. The budget or the
+    /// cap ends the read with the pages already read (`next_cursor` then
+    /// names where it stopped, else null).
+    pub fn inbox_list_all(
+        &self,
+        include_archived: bool,
+        budget: Duration,
+    ) -> Result<Value, CloudError> {
+        let started = Instant::now();
+        let mut entries: Vec<Value> = Vec::new();
+        let mut seen: BTreeSet<String> = BTreeSet::new();
+        let mut revision = Value::Null;
+        let mut cursor: Option<String> = None;
+        for page_index in 0..MAX_INBOX_PAGES {
+            if page_index > 0 && started.elapsed() >= budget {
+                break;
+            }
+            // Any page's failure is the read's: `home-inbox` answers `unavailable` and the
+            // app keeps its last rows, where a partial list would drop the rest.
+            let page = self.inbox_page(MAX_PAGE, include_archived, cursor.as_deref())?;
+            if page_index == 0 {
+                revision = page.get("revision").cloned().unwrap_or(Value::String(String::new()));
+            }
+            for entry in page.get("entries").and_then(Value::as_array).into_iter().flatten() {
+                let id = entry.get("conversation").and_then(Value::as_str).map(str::to_owned);
+                if id.is_none_or(|id| seen.insert(id)) {
+                    entries.push(entry.clone());
+                }
+            }
+            match page.get("next_cursor").and_then(Value::as_str) {
+                // A cursor that does not move would read the same page forever.
+                Some(next) if Some(next) != cursor.as_deref() => cursor = Some(next.to_owned()),
+                _ => {
+                    return Ok(
+                        json!({"entries": entries, "revision": revision, "next_cursor": null}),
+                    );
+                }
+            }
+        }
+        Ok(json!({"entries": entries, "revision": revision, "next_cursor": cursor}))
+    }
+
+    fn inbox_page(
+        &self,
+        limit: u32,
+        include_archived: bool,
+        cursor: Option<&str>,
+    ) -> Result<Value, CloudError> {
         if !(1..=MAX_PAGE).contains(&limit) {
             return Err(CloudError::BadRequest(format!("limit must be 1-{MAX_PAGE}")));
         }
         let mut params = json!({"limit": limit});
         if include_archived {
             params.set("include_archived", json!(true));
+        }
+        if let Some(cursor) = cursor {
+            if cursor.len() > MAX_INBOX_CURSOR {
+                return Err(CloudError::BadRequest(format!(
+                    "cursor is over {MAX_INBOX_CURSOR} bytes"
+                )));
+            }
+            params.set("cursor", json!(cursor));
         }
         let reply = self.post("/v1/read", &read_body("inbox.list", params))?;
         let (value, revision) = read_value(reply)?;

@@ -208,14 +208,63 @@ enum Mark {
 }
 
 /// The retry state of one session instance; returning imports have their own mark.
-#[derive(Default)]
 pub(crate) struct Pending {
     mark: Mutex<Option<Mark>>,
+    /// Counts the times a continuation stopped being pending (`continuation_pending`): the
+    /// inbox's timer, put off while one was, looks again then (`inbox.rs`).
+    released: tokio::sync::watch::Sender<u64>,
+}
+
+impl Default for Pending {
+    fn default() -> Self {
+        Self { mark: Mutex::default(), released: tokio::sync::watch::channel(0).0 }
+    }
+}
+
+/// Whether `mark` is a continuation that may still fire (`continuation_pending`).
+fn is_pending(mark: Option<&Mark>) -> bool {
+    matches!(mark, Some(Mark::Waiting { .. } | Mark::Firing(_) | Mark::Ending(_)))
 }
 
 impl Pending {
-    fn lock(&self) -> std::sync::MutexGuard<'_, Option<Mark>> {
-        self.mark.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    fn lock(&self) -> PendingGuard<'_> {
+        let mark = self.mark.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let was = is_pending(mark.as_ref());
+        PendingGuard { mark, was, released: &self.released }
+    }
+
+    /// Changes each time a pending continuation is let go, however it went: settled, stopped,
+    /// exhausted, refused or started.
+    pub(super) fn released(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.released.subscribe()
+    }
+}
+
+/// The mark, locked; letting go of a pending continuation is announced as the lock is.
+struct PendingGuard<'a> {
+    mark: std::sync::MutexGuard<'a, Option<Mark>>,
+    was: bool,
+    released: &'a tokio::sync::watch::Sender<u64>,
+}
+
+impl std::ops::Deref for PendingGuard<'_> {
+    type Target = Option<Mark>;
+    fn deref(&self) -> &Option<Mark> {
+        &self.mark
+    }
+}
+
+impl std::ops::DerefMut for PendingGuard<'_> {
+    fn deref_mut(&mut self) -> &mut Option<Mark> {
+        &mut self.mark
+    }
+}
+
+impl Drop for PendingGuard<'_> {
+    fn drop(&mut self) {
+        if self.was && !is_pending(self.mark.as_ref()) {
+            self.released.send_modify(|n| *n = n.wrapping_add(1));
+        }
     }
 }
 
@@ -487,10 +536,7 @@ impl Hub {
     /// Whether a continuation may still answer for the chat's cut turn: it releases what that
     /// turn held, so a held agent message's own retry waits for it (`digest.rs`).
     pub(super) fn continuation_pending(&self, session: &Session) -> bool {
-        matches!(
-            session.auto_resume.lock().as_ref(),
-            Some(Mark::Waiting { .. } | Mark::Firing(_) | Mark::Ending(_))
-        )
+        is_pending(session.auto_resume.lock().as_ref())
     }
 
     /// Stop or close: the chat's waiting continuation does not fire, and the turn running or
@@ -632,10 +678,7 @@ impl Hub {
         if session.replaced.load(std::sync::atomic::Ordering::SeqCst) {
             return Err(superseded());
         }
-        let continuation = matches!(
-            pending.as_ref(),
-            Some(Mark::Waiting { .. } | Mark::Firing(_) | Mark::Ending(_))
-        );
+        let continuation = is_pending(pending.as_ref());
         if exclusive
             && (continuation || session.harness_turn.load(std::sync::atomic::Ordering::SeqCst))
         {

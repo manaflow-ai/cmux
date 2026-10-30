@@ -682,10 +682,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     #[cfg(all(unix, feature = "tailnet"))]
     tailnet.shutdown().await;
     // Keep encrypted bridges alive until WebSocket close/restart frames have drained.
-    if let Some(transport) = wireguard
-        && tokio::time::timeout(SHUTDOWN_BUDGET, transport.shutdown()).await.is_err()
-    {
-        tracing::warn!("WireGuard did not close within {SHUTDOWN_BUDGET:?}");
+    if let Some(transport) = wireguard {
+        transport.shutdown(tokio::time::Instant::now() + SHUTDOWN_BUDGET).await;
     }
     // A node a person started closes with the daemon; its saved login stays.
     // The controller is made here if no request made it (it holds no node
