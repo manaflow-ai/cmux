@@ -63,6 +63,17 @@ struct AcpmuxCrashRestartTests {
         #expect(!fixture.launched, "a reconnect started a daemon that was shut down")
     }
 
+    /// The card's explicit Retry is a fresh `ready` handshake, unlike the automatic reconnect
+    /// loop above. A cleanly stopped app-owned daemon must therefore be started by that action.
+    @Test func aManualRetryAfterAShutdownStartsTheBundledDaemon() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let host = AcpmuxHost(environment: fixture.environment)
+
+        await #expect(throws: (any Error).self) { _ = try await host.handshake(sessionId: "s") }
+        #expect(fixture.launched, "manual Retry did not start the bundled acpmux after a clean stop")
+    }
+
     @Test func theChiefsHostNeverStartsADaemonEvenAfterACrash() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }

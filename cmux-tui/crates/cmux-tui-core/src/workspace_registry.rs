@@ -41,6 +41,7 @@ mod effect_store;
 pub(crate) mod feed_local_store;
 pub use compact::{RegistryCompactError, RegistryCompaction, compact_registry};
 mod browser_profile_proxy;
+pub(crate) mod history_check;
 mod idle_policy_store;
 mod journal_extensions;
 mod mutation_ledger;
@@ -58,6 +59,7 @@ mod public_projection_store;
 mod receipt_env;
 pub(crate) mod registry_connection;
 mod root_identity;
+pub(crate) mod terminal_end_prefetch;
 pub(crate) mod wal_durability;
 pub(crate) use registry_connection::RegistryConnection;
 mod registry_intent;
@@ -3890,12 +3892,27 @@ fn check_registry_integrity(connection: &Connection) -> anyhow::Result<()> {
         )?;
         statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
     };
-    for table in tables.iter().filter(|table| !skipped_by_open_check(table.as_str())) {
+    // The tables that grow with use are checked in full by the maintenance
+    // worker after the daemon serves, unless it found one damaged
+    // (`history_check`).
+    let full = history_check::full_open_check_required(connection)?;
+    for table in tables.iter().filter(|table| {
+        !skipped_by_open_check(table.as_str())
+            && (full || !history_check::is_background_checked(table.as_str()))
+    }) {
         let pragma = format!("PRAGMA quick_check('{}')", table.replace('\'', "''"));
         let result: String = connection.query_row(&pragma, [], |row| row.get(0))?;
         if result != "ok" {
             anyhow::bail!("workspace registry integrity check failed: {result}");
         }
+    }
+    if full {
+        connection.execute(
+            "DELETE FROM meta WHERE key = ?1",
+            [history_check::FULL_OPEN_CHECK_META_KEY],
+        )?;
+    } else {
+        history_check::touch_background_checked_tails(connection, &tables)?;
     }
     // History is validated incrementally when replayed. Touch only each
     // table's newest indexed row during open so a corrupt tail page is caught
@@ -3906,7 +3923,10 @@ fn check_registry_integrity(connection: &Connection) -> anyhow::Result<()> {
         ("journal_event_index", "sequence"),
         ("journal_segments", "end_sequence"),
         ("journal_checkpoints", "source_sequence"),
-        ("journal_content_blobs", "created_at_ms"),
+        // created_at_ms has no index: ordering by it scanned and sorted every
+        // blob through its overflow pages (0.67 s cold on a 41.6 GB registry).
+        // Blobs are append-only, so the newest rowid is the newest blob.
+        ("journal_content_blobs", "rowid"),
     ] {
         let query = format!("SELECT 1 FROM {table} ORDER BY {order} DESC LIMIT 1");
         let _: Option<i64> = connection.query_row(&query, [], |row| row.get(0)).optional()?;
@@ -5901,6 +5921,9 @@ mod tests;
 
 #[cfg(test)]
 mod receipt_env_tests;
+
+#[cfg(test)]
+mod open_cost_tests;
 
 #[cfg(test)]
 mod personal_tests;

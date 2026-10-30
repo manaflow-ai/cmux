@@ -68,7 +68,7 @@ export function FolderPopover({
   const trigger = useRef<HTMLButtonElement>(null);
   // Escape (not a blur) closes back to the strip's control.
   const escaped = useRef(false);
-  const { control, anchor, open, setOpen, side } = useLocationPopover();
+  const { control, anchor, open, setOpen, side, flip } = useLocationPopover();
   const press = usePopoverTrigger(open, (next) => {
     setOpen(next);
     if (!next) {
@@ -276,7 +276,7 @@ export function FolderPopover({
         label={label}
         className="acpmux-menu acpmux-location-menu acpmux-folder-popover"
         side={side}
-        flip={false}
+        flip={flip}
         finalFocus={false}
       >
         <Combobox
