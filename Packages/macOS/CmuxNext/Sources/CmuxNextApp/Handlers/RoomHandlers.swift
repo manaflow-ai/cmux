@@ -336,8 +336,13 @@ extension RoomHandlers {
         // action-wait-allow: the space follows a session id that exists only once the Cloud machine is up and connected.
         return .waiting(.network) {
             do {
-                let machine = try await target ?? services.cloud.createMachine(name: nil, startedByPerson: invocation.origin == .user,
-                                                                                  askedBy: invocation.callerAgentSession)
+                let machine: CloudMachineSession
+                if let target {
+                    machine = target
+                } else {
+                    machine = try await services.cloud.createMachine(name: nil, startedByPerson: invocation.origin == .user,
+                                                                     askedBy: invocation.callerAgentSession)
+                }
                 try await machine.connectedForSpace()
                 let daemon = machine.daemon
                 guard await CloudMove.holds(within: .seconds(30), until: { daemon.store.registryID != nil }),
