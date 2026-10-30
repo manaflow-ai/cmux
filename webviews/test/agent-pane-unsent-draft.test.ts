@@ -210,11 +210,19 @@ await requireBrowserLane("agent-pane-unsent-draft.test.ts", async () => {
       await page.locator('[data-notice-action="dismiss"]').click();
       const line = page.locator(".acpmux-composer-trust-note");
       await line.waitFor();
+      expect(await line.count()).toBe(1);
       expect(await line.innerText()).toContain("team-route");
+      expect(await page.locator(".acpmux-send").isDisabled()).toBe(true);
       expect(await page.locator('[data-harness-notice="signedOut"]').count()).toBe(0);
       await page.locator(".acpmux-composer-prompt .ProseMirror").click();
       await page.keyboard.press("Enter");
       expect((await page.locator(".acpmux-composer-prompt .ProseMirror").innerText()).trim()).toBe("conflicting health draft");
+      const sent = await page.evaluate(() =>
+        (window as unknown as { cmuxGalleryLog: { method: string }[] }).cmuxGalleryLog.some(
+          ({ method }) => method === "acpmux session/new" || method === "acpmux session/prompt",
+        ),
+      );
+      expect(sent).toBe(false);
       await page.close();
     });
 
