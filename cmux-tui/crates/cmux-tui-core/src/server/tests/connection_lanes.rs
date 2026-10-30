@@ -97,6 +97,46 @@ fn one_terminal_opening_many_connections_cannot_starve_another() {
     );
 }
 
+/// Lead review of 56317988d86a: a budget derived from a small open-file
+/// limit is one connection per lane, and the fair share must still admit a
+/// client there: no lane ever refuses every client.
+#[test]
+fn every_lane_admits_a_client_at_the_smallest_budget() {
+    let budget = ConnectionBudget::from_limits(16, 64, Some(1));
+    assert_eq!(budget.lane(ConnectionLane::Shared), 1);
+    assert_eq!(budget.lane(ConnectionLane::App), 1);
+    let stats = ConnectionStats::with_budget(budget);
+    assert!(
+        stats.try_claim_in(ConnectionLane::Shared, Some(7)).is_some(),
+        "a one-connection session socket refused its first client"
+    );
+    assert!(stats.try_claim_in(ConnectionLane::App, None).is_some());
+    assert!(
+        stats.try_claim_in(ConnectionLane::Shared, Some(8)).is_none(),
+        "the lane admitted more than its budget"
+    );
+}
+
+/// Lead review of 56317988d86a: the app socket is an addition. When it can't
+/// be bound (here a directory nobody may remove sits at its path), the daemon
+/// still starts and serves the session socket; the app falls back to it.
+#[cfg(unix)]
+#[test]
+fn the_session_socket_serves_when_the_app_socket_cannot_be_bound() {
+    let dir = TestSocketDir::create("app-lane-blocked");
+    let path = dir.path().join("mux.sock");
+    let blocked = app_lane_socket_path(&path);
+    std::fs::create_dir(&blocked).unwrap();
+    std::fs::write(blocked.join("keep"), b"").unwrap();
+    let mux = test_mux();
+    let _pending = serve_paused(mux, Some(path.clone()))
+        .expect("the daemon did not start without its app socket");
+    let mut client = transport::connect(&path).unwrap();
+    let reply = ask(&mut client, &json!({"id": 1, "cmd": "identify"}));
+    assert_eq!(reply["ok"], true, "the session socket is not served: {reply}");
+    assert!(blocked.join("keep").exists(), "the daemon removed what it could not own");
+}
+
 /// Takes every byte of `service`'s outbound budgets, as session-socket
 /// clients that stopped reading hold them until their queues overflow.
 #[cfg(unix)]
