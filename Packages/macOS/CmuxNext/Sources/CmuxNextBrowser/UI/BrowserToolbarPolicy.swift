@@ -54,7 +54,9 @@ public nonisolated struct BrowserToolbarPolicy {
         case .designMode:
             // chrome-icons: allow Chrome has no Design mode button
             return BrowserToolbarButtonState(icon: .theme,
-                                             label: hinted(Strings.toolbarDesignMode), isActive: facts.designMode)
+                                             label: hinted(Strings.toolbarDesignMode),
+                                             isEnabled: BrowserPageTunables.uiPointer.value || facts.designMode,
+                                             isActive: facts.designMode)
         case .profile:
             let label = facts.profileName.map(Strings.toolbarProfile) ?? Strings.toolbarProfileUnknown
             return BrowserToolbarButtonState(icon: .browserToolbarProfile, label: label)

@@ -50,3 +50,32 @@ public nonisolated enum SidebarGroupPalette: String, Sendable, CaseIterable, Has
         help: "Where sidebar group colors come from: the fixed group palette, the same in every theme, or the theme's own colors.",
         default: .fixed, code: "SidebarGroupPalette.tunable")
 }
+
+/// Where a sidebar group's members' line sits against its header (`sidebar.groupLineLayout`, Debug). Leo
+/// 2026-10-23, on the line: "THE FUCKING THHIN PURPLE LIINE IS THE GROUP!!!! THE POINT IS WHY DID IT GET SO OVFF
+/// FUCKING CENTER ... PLUS THE SHAPING ON IT... WTF HAPPENED TO IT BEING PUSHED TO THE LEFT!?" Every layout keeps
+/// the line where the header's rail reach puts it (`SidebarStyle.groupRailReach`) and draws Chrome's shape: 2 pt,
+/// flat ends, the header bar's color. The members keep the ungrouped rows' left edge in every layout.
+public nonisolated enum SidebarGroupLineLayout: String, Sendable, CaseIterable, Hashable, TunableChoice {
+    /// The line's left edge is the header bar's (Lawrence 2026-10-23), a cut below the bar.
+    case edge
+    /// Leo's join option ("option to just.. join the line would be cute", "it should all be lined up on the
+    /// left"): as `edge`, with no cut, the bar's bottom-left corner square: bar and line read as one L.
+    case joined
+    /// Chrome's corner (Leo 2026-10-19: the line about 4 to 5 pt inside the header's left edge): the header reaches
+    /// `SidebarStyle.groupLineCornerInset` further left, so the line runs out from under its rounded corner, a cut below.
+    case inside
+
+    public var tunableTitle: String {
+        switch self {
+        case .edge: "At the header's left edge"
+        case .joined: "Joined to the header"
+        case .inside: "Inside the header's corner"
+        }
+    }
+
+    public static let tunable = Tunable<SidebarGroupLineLayout>.choice(
+        "sidebar.groupLineLayout", .sidebar, "Group line",
+        help: "Where a group's members' line sits: at the header's left edge, joined to the header as one shape, or inside the header's left corner.",
+        default: .edge, code: "SidebarGroupLineLayout.tunable")
+}

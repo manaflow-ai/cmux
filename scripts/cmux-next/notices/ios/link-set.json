@@ -1,4 +1,55 @@
 {
+  "app_link": {
+    "absent_owners": {},
+    "absent_zig_packages": {
+      "iterm2_themes": "only src/build/GhosttyResources.zig names it (an installed resource directory, not code); the app holds no themes file",
+      "zig_js": "src/build/SharedDeps.zig adds it only under `cpu.arch == .wasm32`; the iOS slice is arm64"
+    },
+    "evidence": {
+      "app": "cmux-ios.xcarchive/Products/Applications/cmux.app",
+      "artifact_sha256": "7dab5f522ba5438d0ad2bcb46d54b957475bfa049a6682a90fa38718c54e0e30",
+      "binaries": {
+        "PlugIns/NotificationService.appex/NotificationService": "075bc349fc7de8239caa898763c5860013ebc847218d0e850c60348a8031c658",
+        "cmux": "80460203be3dcb666d782e8c6b245c1ae0c43061d7dabcc2f0398cddad4bad6d"
+      },
+      "cmux_ci_job": "0f10475cf6d7091f56de8376",
+      "source_commit": "61ea34bde1e5fa77a403dbbe0412635110cd0bcc"
+    },
+    "pin_sha256": "4277faf01e59b9af97d2bb9a5ad4b866fc762f20144e21b5e3583b1bf31de58c",
+    "present_owners": {
+      "vendored:pkg/dcimgui": 2,
+      "vendored:pkg/highway": 11,
+      "vendored:pkg/macos": 1,
+      "vendored:pkg/simdutf": 200,
+      "zig-lib:include": 13874,
+      "zig-lib:libcxx": 11196,
+      "zig-lib:std": 3,
+      "zig-package:bindings": 1524,
+      "zig-package:freetype": 1563,
+      "zig-package:glslang": 2942,
+      "zig-package:highway": 8,
+      "zig-package:imgui": 3591,
+      "zig-package:libpng": 449,
+      "zig-package:oniguruma": 1047,
+      "zig-package:spirv_cross": 4503,
+      "zig-package:zlib": 99
+    },
+    "witness_symbols": [
+      "_BDF_Face_Done",
+      "_CC_ESC_WARN",
+      "_GImGui",
+      "_ImBitVector_Clear",
+      "_ImFontConfig_ImFontConfig",
+      "_Resources",
+      "__ZGRN7simdutf8internalL33available_implementation_pointersE_",
+      "__ZGVZN11spirv_cross11CompilerMSL22get_illegal_func_namesEvE18illegal_func_names",
+      "__ZN3hwy14DisableTargetsEx",
+      "___anon_1096",
+      "__dist_code",
+      "_decode_gamma",
+      "_zig_os_log_with_type"
+    ]
+  },
   "dwarf_owners": [
     "vendored:pkg/dcimgui",
     "vendored:pkg/highway",
@@ -214,9 +265,9 @@
     "zutil.o"
   ],
   "pin": {
-    "ghostty_revision": "89dc50175b2f6bcd95ee93611bbd70130d6ed4e2",
-    "sha256": "985669d5323fa1d076415893ae395955af070cdfe1970900a44207ec6d84a3fc",
-    "url": "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-89dc50175b2f6bcd95ee93611bbd70130d6ed4e2-apple-v6/GhosttyNextKit.xcframework.zip"
+    "ghostty_revision": "9ce9b7d08472f6249d0bc8ce14b7087049613e73",
+    "sha256": "4277faf01e59b9af97d2bb9a5ad4b866fc762f20144e21b5e3583b1bf31de58c",
+    "url": "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-9ce9b7d08472f6249d0bc8ce14b7087049613e73-apple-v6/GhosttyNextKit.xcframework.zip"
   },
   "schema": 1,
   "slice": "ios-arm64",

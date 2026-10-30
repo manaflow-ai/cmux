@@ -8,9 +8,25 @@
 //! HEAD through a loose ref, else `packed-refs`. Anything it cannot read
 //! leaves that part `None`; it never fails the session.
 
+use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
+
+/// Where a session's folder came from in git (`SessionMeta::worktree`; `hub/worktree_care/revive.rs`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeOrigin {
+    pub cwd: PathBuf,
+    pub root: PathBuf,
+    pub common_dir: PathBuf,
+    /// The branch checked out there: `None` on a detached HEAD, which comes back at `head`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    /// Its commit then: a worktree whose branch is gone comes back there.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub head: Option<String>,
+}
 
 /// The git state of a folder at one moment.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -64,6 +80,23 @@ impl GitState {
             head: resolve_ref(&git_dir, &common, name, 0),
         }
     }
+}
+
+/// The linked worktree `dir` is in, canonical: its top folder and the repository's common git
+/// directory, which outlives the worktree (`hub/worktree_care/revive.rs` adds it back from there).
+/// `None` outside a repository, in a main checkout (its git directory goes with it) or in a
+/// submodule.
+pub fn linked_worktree(dir: &Path) -> Option<(PathBuf, PathBuf)> {
+    let dir = std::fs::canonicalize(dir).ok()?;
+    let top = dir.ancestors().find(|folder| folder.join(".git").exists())?;
+    let dot_git = top.join(".git");
+    if dot_git.is_dir() {
+        return None;
+    }
+    let text = read_trimmed(&dot_git)?;
+    let git_dir = top.join(text.strip_prefix("gitdir:")?.trim());
+    let common = read_trimmed(&git_dir.join("commondir"))?;
+    Some((top.to_path_buf(), std::fs::canonicalize(git_dir.join(common)).ok()?))
 }
 
 /// The folder holding `dir`'s HEAD file (its worktree's git directory, a
@@ -246,6 +279,22 @@ mod tests {
         std::os::unix::fs::symlink(main.join("sub"), &link).unwrap();
         let state = GitState::read(&link);
         assert_eq!(state, GitState { branch: Some("linked".into()), head: Some(head) });
+    }
+
+    #[test]
+    fn a_linked_worktree_names_its_top_folder_and_common_git_dir() {
+        let dir = scratch("linked-origin");
+        let (main, linked) = (dir.join("main"), dir.join("wt"));
+        std::fs::create_dir_all(&main).unwrap();
+        repo(&main, "trunk");
+        git(&main, &["worktree", "add", "-q", "-b", "side", linked.to_str().unwrap()]);
+        std::fs::create_dir_all(linked.join("sub")).unwrap();
+        let common = std::fs::canonicalize(main.join(".git")).unwrap();
+        assert_eq!(linked_worktree(&linked), Some((linked.clone(), common.clone())));
+        assert_eq!(linked_worktree(&linked.join("sub")), Some((linked, common)));
+        // A main checkout's git directory goes with it: nothing to add back.
+        assert_eq!(linked_worktree(&main), None);
+        assert_eq!(linked_worktree(&dir.join("gone")), None);
     }
 
     #[test]

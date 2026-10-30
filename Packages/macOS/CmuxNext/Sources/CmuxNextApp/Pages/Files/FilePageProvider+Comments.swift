@@ -8,8 +8,8 @@ import Foundation
 extension FilePageProvider {
     /// The saved comments of `url` as the page's JSON object, or nil.
     func savedComments(_ url: URL) async -> JSONValue? {
-        guard let list = await commentList(url.path), !list.comments.isEmpty else { return nil }
-        return try? JSONValue.parse(list.data)
+        guard let comments, let data = await comments.read(url.path) else { return nil }
+        return await Self.commentJSON(data, keepEmpty: false)
     }
 
     /// Keeps `quote`'s comment with this tab's file and shows it in the page; false when the quote
@@ -17,9 +17,9 @@ extension FilePageProvider {
     @discardableResult
     func addComment(_ quote: ChatQuote, id: String = UUID().uuidString) async -> Bool {
         guard kind == .markdown, let file, Self.canonical(URL(fileURLWithPath: quote.source)) == file else { return false }
-        var list = await commentList(file.path) ?? ViewerCommentList()
-        guard list.add(quote, id: id) else { return false }
-        return await save(list, at: file)
+        guard let comments, let result = await comments.add(quote, id: id, at: file.path) else { return false }
+        await publishComments(result, for: file)
+        return result.written.attribute || result.written.fallback
     }
 
     /// `cmux.markdown.deleteComment {path, id}`: forgets one comment; answers whether it was there.
@@ -27,22 +27,25 @@ extension FilePageProvider {
         let url = try path(params["path"])
         guard let file, Self.canonical(url) == file else { throw PageError.invalidParams("path is not this page's file") }
         guard let id = params["id"]?.stringValue else { throw PageError.invalidParams("id must be a string") }
-        guard var list = await commentList(file.path), list.remove(id) else { return ["removed": false] }
-        return ["removed": .bool(await save(list, at: file))]
+        guard let comments, let result = await comments.remove(id, at: file.path) else { return ["removed": false] }
+        await publishComments(result, for: file)
+        return ["removed": .bool(result.written.attribute || result.written.fallback)]
     }
 
-    private func commentList(_ path: String) async -> ViewerCommentList? {
-        guard let comments, let data = await comments.read(path) else { return nil }
-        return ViewerCommentList(data: data)
+    /// Publishes only the newest persisted mutation. Parsing is concurrent work, so this check is
+    /// repeated after the await before the page callback can apply a stale list.
+    private func publishComments(_ result: MarkdownCommentPersistenceResult, for file: URL) async {
+        guard self.file == file else { return }
+        guard let value = await Self.commentJSON(result.data, keepEmpty: true) else { return }
+        guard self.file == file, result.sequence > latestCommentsSequence else { return }
+        latestCommentsSequence = result.sequence
+        onCommentsChanged?(value)
     }
 
-    /// Writes `list` (dropping the oldest until it fits the store) and sends it to the page.
-    private func save(_ list: ViewerCommentList, at file: URL) async -> Bool {
-        guard let comments else { return false }
-        var list = list
-        list.trim(toBytes: MarkdownTableWidthRepository.commentsValueLimit)
-        let written = await comments.write(file.path, list.comments.isEmpty ? nil : list.data)
-        if let value = try? JSONValue.parse(list.data) { onCommentsChanged?(value) }
-        return written.attribute || written.fallback
+    /// Decode and encode the bounded list away from the page's main actor. The encoded value is
+    /// sent to the page only after the persistence actor has completed its write attempt.
+    @concurrent nonisolated private static func commentJSON(_ data: Data, keepEmpty: Bool) async -> JSONValue? {
+        guard let list = ViewerCommentList(data: data), keepEmpty || !list.comments.isEmpty else { return nil }
+        return try? JSONValue.parse(list.data)
     }
 }

@@ -157,6 +157,11 @@ const MAX_TEMP_INDEX_ENTRIES: usize = 4096;
 struct SessionOwner {
     session_id: String,
     capability_token: String,
+    /// What a git-backed session's patch compares, for `fileContents`
+    /// (`file_contents.rs`). Written once the patch is made; a `patch` session
+    /// has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sides: Option<file_contents::SessionSides>,
 }
 
 #[cfg(feature = "http-server")]
@@ -539,6 +544,9 @@ async fn handle_protocol_request(request: DiffRequest, state: Option<&AppState>)
                 }
             }
         }
+        DiffCommand::FileContents(params) => {
+            file_contents_response(request.id, state, &params).await
+        }
         DiffCommand::BranchChange(params) => {
             let Some(state) = state else {
                 return DiffResponse::failure(request.id, "hostUnavailable", "Host unavailable");
@@ -551,6 +559,7 @@ async fn handle_protocol_request(request: DiffRequest, state: Option<&AppState>)
                     &params.repo_root,
                     &params.base_ref,
                     &params.capability_token,
+                    params.ignore_whitespace,
                 ),
             )
             .await
@@ -573,11 +582,57 @@ async fn handle_protocol_request(request: DiffRequest, state: Option<&AppState>)
     }
 }
 
+/// Answers `fileContents` (`file_contents.rs`).
+async fn file_contents_response(
+    id: String,
+    state: Option<&AppState>,
+    params: &crate::protocol::FileContentsRequest,
+) -> DiffResponse {
+    let Some(state) = state else {
+        return DiffResponse::failure(id, "hostUnavailable", "Host unavailable");
+    };
+    match tokio::time::timeout(SESSION_GIT_TIMEOUT, file_contents::read(state, params)).await {
+        Ok(Ok(value)) => DiffResponse::success(id, DiffResult::FileContents(value)),
+        Ok(Err(file_contents::FileContentsError::Unauthorized)) => {
+            DiffResponse::failure(id, "notAllowed", "This file is not in the diff session")
+        }
+        Err(_) | Ok(Err(file_contents::FileContentsError::Failed)) => {
+            DiffResponse::failure(id, "fileContentsFailed", "Could not read the file")
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum SessionOpenError {
     Unauthorized,
     Empty,
     Failed,
+}
+
+/// Whether a git-backed session's diff shows white space changes (the
+/// viewer's Hide white space is `Ignore`: `git diff --ignore-all-space`).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Whitespace {
+    Show,
+    Ignore,
+}
+
+impl Whitespace {
+    fn requested(ignore: Option<bool>) -> Self {
+        if ignore == Some(true) {
+            Self::Ignore
+        } else {
+            Self::Show
+        }
+    }
+
+    /// The `git diff` options this adds.
+    fn diff_args(self) -> &'static [&'static str] {
+        match self {
+            Self::Show => &[],
+            Self::Ignore => &["--ignore-all-space"],
+        }
+    }
 }
 
 #[allow(clippy::too_many_lines)]
@@ -616,6 +671,8 @@ async fn open_session(
             },
             source: params.source,
             generated_paths: Vec::new(),
+            // A patch source is fixed bytes: white space cannot be hidden.
+            ignore_whitespace: false,
         });
     }
     let _permit = state
@@ -659,11 +716,20 @@ async fn open_session(
     );
 
     let source = resolve_session_source(params.source, &canonical_repo).await?;
+    let whitespace = Whitespace::requested(params.ignore_whitespace);
     let git = SessionGit::open(&canonical_repo, SESSION_GIT_TIMEOUT)
         .await
         .ok_or(SessionOpenError::Failed)?;
-    run_git_patch(&source, &git, &temporary_path).await?;
-    let generated_paths = git_generated_paths(&source, &git).await;
+    run_git_patch(&source, whitespace, &git, &temporary_path).await?;
+    let generated_paths = git_generated_paths(&source, whitespace, &git).await;
+    let sides = file_contents::session_sides(&source, &canonical_repo, &git).await?;
+    file_contents::record_session_sides(
+        &state.config.root,
+        &session_id,
+        &params.capability_token,
+        sides,
+    )
+    .map_err(|_| SessionOpenError::Failed)?;
     rename_owned_session_temp(&state.config.root, &temporary_path, &final_path)
         .map_err(|_| SessionOpenError::Failed)?;
     temporary_file.retarget(final_path.clone());
@@ -700,6 +766,7 @@ async fn open_session(
         },
         source,
         generated_paths,
+        ignore_whitespace: whitespace == Whitespace::Ignore,
     })
 }
 
@@ -775,14 +842,23 @@ async fn resolve_session_source(
 
 async fn run_git_patch(
     source: &DiffSource,
+    whitespace: Whitespace,
     git: &SessionGit,
     output_path: &Path,
 ) -> Result<(), SessionOpenError> {
-    run_git_patch_with_limit(source, git, output_path, MAX_SESSION_PATCH_BYTES).await
+    run_git_patch_with_limit(
+        source,
+        whitespace,
+        git,
+        output_path,
+        MAX_SESSION_PATCH_BYTES,
+    )
+    .await
 }
 
 async fn run_git_patch_with_limit(
     source: &DiffSource,
+    whitespace: Whitespace,
     git: &SessionGit,
     output_path: &Path,
     max_patch_bytes: u64,
@@ -795,6 +871,7 @@ async fn run_git_patch_with_limit(
         "--no-color",
         "--binary",
     ]);
+    command.args(whitespace.diff_args());
     match source {
         DiffSource::Unstaged { .. } => {
             command.arg("--");
@@ -834,6 +911,8 @@ async fn run_git_patch_with_limit(
             // Best effort: an untracked file git cannot read, or one that does
             // not fit the remaining budget, is left out. It must never fail the
             // session or hide the tracked diff, which plain `git diff` shows.
+            // White space does not matter here: every line of a new file is
+            // an addition.
             let untracked = git_untracked_paths(git).await.unwrap_or_default();
             for path in untracked {
                 let budget = max_patch_bytes
@@ -923,8 +1002,12 @@ async fn stream_git_stdout(
 /// Changed paths whose `.gitattributes` mark them generated
 /// (`linguist-generated` set or `diff` unset). Best effort: any failure or an
 /// oversized listing yields an empty list so a session never fails over it.
-async fn git_generated_paths(source: &DiffSource, git: &SessionGit) -> Vec<String> {
-    let Ok(mut paths) = git_changed_paths(source, git).await else {
+async fn git_generated_paths(
+    source: &DiffSource,
+    whitespace: Whitespace,
+    git: &SessionGit,
+) -> Vec<String> {
+    let Ok(mut paths) = git_changed_paths(source, whitespace, git).await else {
         return Vec::new();
     };
     if matches!(source, DiffSource::Unstaged { .. })
@@ -987,6 +1070,7 @@ async fn git_generated_paths(source: &DiffSource, git: &SessionGit) -> Vec<Strin
 /// Paths changed by the source, mirroring the range `run_git_patch` diffs.
 async fn git_changed_paths(
     source: &DiffSource,
+    whitespace: Whitespace,
     git: &SessionGit,
 ) -> Result<Vec<String>, SessionOpenError> {
     let mut command = git.command();
@@ -997,6 +1081,7 @@ async fn git_changed_paths(
         "--name-only",
         "-z",
     ]);
+    command.args(whitespace.diff_args());
     match source {
         DiffSource::Unstaged { .. } => {}
         DiffSource::Staged { .. } => {
@@ -1382,6 +1467,7 @@ fn reserve_session_owner(root: &Path, session_id: &str, token: &str) -> Result<P
     let owner = SessionOwner {
         session_id: session_id.to_owned(),
         capability_token: token.to_owned(),
+        sides: None,
     };
     let bytes = serde_json::to_vec(&owner).map_err(|error| error.to_string())?;
     let mut file = OpenOptions::new()
@@ -1724,6 +1810,7 @@ async fn change_branch(
     repo: &str,
     base: &str,
     token: &str,
+    ignore_whitespace: Option<bool>,
 ) -> Result<SessionOpened, SessionOpenError> {
     let base = base.trim();
     if base.is_empty() || !authorize_branch_change(state, token, group, repo).await {
@@ -1738,6 +1825,7 @@ async fn change_branch(
             },
             capability_token: token.to_owned(),
             session_id: None,
+            ignore_whitespace,
         },
     )
     .await
@@ -2126,8 +2214,16 @@ pub async fn write_handshake_to_stdout() -> Result<(), String> {
     stdout.flush().await.map_err(|error| error.to_string())
 }
 
+mod file_contents;
+
+#[cfg(all(test, unix))]
+mod file_contents_tests;
+
 #[cfg(all(test, unix))]
 mod hostile_repository_tests;
+
+#[cfg(all(test, unix))]
+mod whitespace_tests;
 
 #[cfg(test)]
 mod tests {
@@ -2141,9 +2237,9 @@ mod tests {
 
     use super::{
         AllowedFile, DiffSource, FileExt, Manifest, OpenOptions, RpcRequestRead, SessionOpenError,
-        TemporaryPatchFile, UNTRUSTED_RPC_REQUEST_ID, git_generated_paths, handle_protocol_request,
-        prune_orphaned_session_temp_files, read_rpc_request, register_session_temp,
-        reserve_session_owner, run_git_patch_with_limit, valid_group_id,
+        TemporaryPatchFile, UNTRUSTED_RPC_REQUEST_ID, Whitespace, git_generated_paths,
+        handle_protocol_request, prune_orphaned_session_temp_files, read_rpc_request,
+        register_session_temp, reserve_session_owner, run_git_patch_with_limit, valid_group_id,
     };
     use super::{AppState, ResourceScheme, ServerConfig, app_state, resource_url};
     use super::{SESSION_GIT_TIMEOUT, SessionGit};
@@ -2171,6 +2267,11 @@ mod tests {
             handshake
                 .capabilities
                 .contains(&"transport.page".to_owned())
+        );
+        assert!(
+            handshake
+                .capabilities
+                .contains(&crate::protocol::IGNORE_WHITESPACE_CAPABILITY.to_owned())
         );
         #[cfg(feature = "http-server")]
         assert!(
@@ -2416,9 +2517,15 @@ mod tests {
             repo_root: repo.to_string_lossy().into_owned(),
         };
 
-        run_git_patch_with_limit(&source, &session_git(&repo).await, &patch_path, 1024 * 1024)
-            .await
-            .expect("write unstaged patch");
+        run_git_patch_with_limit(
+            &source,
+            Whitespace::Show,
+            &session_git(&repo).await,
+            &patch_path,
+            1024 * 1024,
+        )
+        .await
+        .expect("write unstaged patch");
 
         // Untracked (non-ignored) files are part of the unstaged working tree,
         // so the session patch carries them as added files after `git diff`.
@@ -2431,9 +2538,15 @@ mod tests {
 
         // An untracked-only working tree is not an empty diff.
         std::fs::write(repo.join("story.txt"), "one\n").expect("restore tracked file");
-        run_git_patch_with_limit(&source, &session_git(&repo).await, &patch_path, 1024 * 1024)
-            .await
-            .expect("write untracked-only patch");
+        run_git_patch_with_limit(
+            &source,
+            Whitespace::Show,
+            &session_git(&repo).await,
+            &patch_path,
+            1024 * 1024,
+        )
+        .await
+        .expect("write untracked-only patch");
         let patch = std::fs::read_to_string(&patch_path).expect("read untracked-only patch");
         assert!(!patch.contains("+two"), "{patch}");
         assert!(patch.contains("+brand new content"), "{patch}");
@@ -2484,7 +2597,8 @@ mod tests {
             repo_root: repo.to_string_lossy().into_owned(),
         };
 
-        let mut generated = git_generated_paths(&source, &session_git(&repo).await).await;
+        let mut generated =
+            git_generated_paths(&source, Whitespace::Show, &session_git(&repo).await).await;
         generated.sort();
         assert_eq!(
             generated,
@@ -2501,7 +2615,7 @@ mod tests {
             repo_root: repo.to_string_lossy().into_owned(),
         };
         assert!(
-            git_generated_paths(&staged, &session_git(&repo).await)
+            git_generated_paths(&staged, Whitespace::Show, &session_git(&repo).await)
                 .await
                 .is_empty()
         );
@@ -2553,9 +2667,14 @@ mod tests {
         // A 16 KiB budget fits the tracked change and the small untracked file
         // but not the 64 KiB one. Neither the oversized nor the unreadable
         // untracked file may fail the session or hide the tracked diff.
-        let result =
-            run_git_patch_with_limit(&source, &session_git(&repo).await, &patch_path, 16 * 1024)
-                .await;
+        let result = run_git_patch_with_limit(
+            &source,
+            Whitespace::Show,
+            &session_git(&repo).await,
+            &patch_path,
+            16 * 1024,
+        )
+        .await;
         let _ = std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(0o644));
         result.expect("write unstaged patch");
         let patch = std::fs::read_to_string(&patch_path).expect("read patch");
@@ -2605,6 +2724,7 @@ mod tests {
             &DiffSource::Unstaged {
                 repo_root: repo.to_string_lossy().into_owned(),
             },
+            Whitespace::Show,
             &session_git(&repo).await,
             &patch_path,
             1024,

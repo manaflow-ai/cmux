@@ -40,6 +40,11 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     /// Whether an unsigned development daemon needs its person key on an
     /// inherited descriptor. Signed builds enroll only after checking the peer.
     public var passesPersonKeyAtSpawn = true
+    /// The daemon is another app's, reached through `CMUX_NEXT_ACPMUX_ATTACH`
+    /// (AcpmuxEnvironment+Attach.swift): this app never starts, hands off or ends it.
+    public var isAttached = false
+    /// This build's own home while attached (``logPath``); nil otherwise.
+    public var ownHome: URL?
 
     /// The Computer Use variables (AgentActivitySocketSource.Configuration).
     /// The spawn environment drops all three when inherited and takes only
@@ -71,7 +76,9 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         return launch == "deny" || disabled == "1"
     }
 
-    public var logPath: String { home.appendingPathComponent("daemon.log").path }
+    /// Where this app writes why it could not reach the daemon: its own home's `daemon.log`, so an
+    /// attached daemon's log (another app's home) gets no line from this app.
+    public var logPath: String { (ownHome ?? home).appendingPathComponent("daemon.log").path }
 
     /// Resolves the environment of `build` (nil: no build, the shared home),
     /// or nil when no `acpmux` executable exists. `bundledBinDirectory` is the
@@ -110,6 +117,7 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         uid: UInt32 = getuid(),
         isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) },
         launchEnvironment: [String: String] = [:],
+        personsHome: URL? = AcpmuxEnvironment.testProcessPersonsHome,
         executableOverride: URL?,
         teamIdentifier: String? = AcpmuxServerPeer.ownTeam,
         isTrustedExecutable: (URL, String) -> Bool = { AcpmuxServerPeer.executableSignedByAppTeam($0, team: $1) }
@@ -118,7 +126,7 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
             ?? executableCandidates(bundledBinDirectory: bundledBinDirectory, environment: environment, userHome: userHome)
             .first(where: { isExecutable($0.path) }) else { return nil }
         if let teamIdentifier, !isTrustedExecutable(executable, teamIdentifier) { return nil }
-        let root = testRoot(environment) ?? userHome.appendingPathComponent(".acpmux", isDirectory: true)
+        let root = testRoot(environment) ?? sharedRoot(userHome: userHome)
         let ownHome = build?.acpmuxHome(root: root) ?? root
         let home: URL
         let customHome = environment["ACPMUX_HOME"].flatMap { $0.isEmpty ? nil : $0 }
@@ -126,6 +134,11 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
             home = URL(fileURLWithPath: customHome, isDirectory: true)
         } else {
             home = ownHome
+        }
+        // A test process never reaches the person's own daemons (AcpmuxEnvironment+TestGuard.swift).
+        if let personsHome, Self.isPersonsAcpmuxHome(home, personsHome: personsHome) {
+            Self.refuseInTest()
+            return nil
         }
         let configured = customHome == nil ? nil : environment["ACPMUX_SOCKET"].flatMap { $0.isEmpty ? nil : $0 }
         let socket = socketPath(configured: configured, home: home, uid: uid)
@@ -143,6 +156,11 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
             daemonArguments: ownHome == root ? [] : ["--listen", "127.0.0.1:0"], childEnvironment: childEnvironment,
             passesPersonKeyAtSpawn: teamIdentifier == nil
         )
+    }
+
+    /// `~/.acpmux` of `userHome`: NIGHTLY's home, and the root of every build home.
+    static func sharedRoot(userHome: URL) -> URL {
+        userHome.appendingPathComponent(".acpmux", isDirectory: true)
     }
 
     /// `CMUX_NEXT_ACPMUX_ROOT`, the directory that stands for `~/.acpmux` in a

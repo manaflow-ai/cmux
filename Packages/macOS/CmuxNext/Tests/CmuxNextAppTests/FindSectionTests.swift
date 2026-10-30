@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import Foundation
 import Testing
+import CmuxNextFilesUI
 
 /// The right sidebar's Find section and Open Find as Pane (classic's project-wide find): ripgrep
 /// over the focused terminal's folder, one row per matching line, a result opening in cmux.

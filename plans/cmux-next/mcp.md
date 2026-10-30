@@ -1,5 +1,9 @@
 # cmux next: the MCP server (`cmux mcp`)
 
+How Chiefs get MCP servers (tool packs, `.mcp.json` and codex config per Chief) is in
+[chief-toolpacks-DESIGN.md](chief-toolpacks-DESIGN.md) section 6; this file stays the contract of
+`cmux mcp serve`.
+
 `cmux mcp serve` gives MCP clients (Claude Code, Codex, any stdio MCP client) the
 same control of cmux that the `cmux` CLI has. It is part of the Rust `cmux` binary
 (cli.md, C2) and lives in `cmux-tui/crates/cmux-tui/src/cli/mcp*`. Phase 1, agreed
@@ -140,6 +144,15 @@ when `cmux` is not on the client's `PATH`. Global options go before `mcp`:
     ids, states and short titles; no terminal text, chat text or tool input, and notification title and
     body are cut to 80 and 160 characters (`truncated: true`). Kinds not asked for are
     skipped, not kept. Read-only;
+  - `agents_chat_new`, `agents_chat_state` and `agents_chat_interrupt` (`cmux agents
+    chat new|state|interrupt`, plus `chat continue`, a send with default text;
+    `cli/agents/chat_control.rs`, #23026): `new` starts a chat in the acpmux `cmux acp`
+    reaches with the harness, model, effort, mode and policy given (acpmux decides what
+    the caller may pick) and `CMUX_WORKSPACE_ID` of its workspace, then the app shows it
+    through `agent.openSessionWorkspace` in the given pane, workspace or a new workspace,
+    without focus (`opened: false` and `open_error` when no app answers); a first prompt
+    goes as a send. `state` reads `_acpmux/info`; `interrupt` is `session/cancel`, never
+    on the caller's own chat. Both reach only this session's chats, as below;
   - `agents_chat_send` and `agents_chat_read` (`cmux agents chat send|read`,
     `cli/agents/chat.rs`): one agent prompts another agent chat and reads its
     transcript. Both reach only chats whose acpmux session runs in a workspace of this
@@ -211,7 +224,7 @@ when `cmux` is not on the client's `PATH`. Global options go before `mcp`:
 | `session.*` (list, get, open, snapshot, ping, creation, journal, defaults, window title, shutdown, reload), `client.get/list`, `frontend_projection.*`, `pairing_request.*`, `sidebar_view.*` | cmux-tui-only scopes the curated `cmux` CLI also refuses; pairing needs a person |
 | app actions the app exempts from MCP (`surfaces.mcp` in `action.list`, its `ActionSurfacePlan`: `credentials` such as account connect/remove and sign in/out, `endsApp` such as quit, `systemChange` such as toggle setting or install CLI) | the app owns the decision; the server words the reason and refuses an action whose app reports no `surfaces.mcp` |
 | GUI-only actions, `action.run` by id | only `cli: true` actions |
-| `settings.*`, `history.list`, `bookmark.list`, `accounts.list`, `browser.page.*`, `events.stream`, `system.*` | not catalog operations or CLI actions; private data, credentials or page access; later phases decide |
+| `settings.*`, `history.list`, `bookmark.list`, `bookmark.importSources`, `accounts.list`, `browser.page.*`, `events.stream`, `system.*` | not catalog operations or CLI actions; private data, credentials or page access; later phases decide |
 
 The parity test (`cli/mcp/tests.rs`) fails when a catalog operation is neither a tool
 nor excluded, when a tool's operation has no `cmux` command, or when `cmux` offers an

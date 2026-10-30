@@ -11,10 +11,20 @@ import CmuxNextSidebar
 /// with the host's name and status, in one list. New workspaces in it run on the host.
 @MainActor
 enum RemoteGroupHandlers {
+    static func shouldContinueMarking(status: SSHConnectionMachine.Status) -> Bool {
+        status != .offline
+    }
+
+    /// A focus request makes an automated run interactive for this action even
+    /// while the registry is capturing its refusal output.
+    static func shouldOfferInteractiveFlow(_ invocation: ActionInvocation) -> Bool {
+        invocation.allowsViewChange
+    }
+
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let ssh = context.services.ssh
         CloudHandlers.bind("remote.newGroup", registry, reason: { ssh.unavailableReason }) { invocation in
-            let interactive = !registry.isCapturingRefusal
+            let interactive = shouldOfferInteractiveFlow(invocation)
             let make = { (text: String) throws in
                 let session = try ssh.connect(destination: text, session: nil, offerInstall: interactive)
                 markWhenNamed(session)
@@ -93,19 +103,15 @@ enum RemoteGroupHandlers {
                     mark(session: name)
                     return
                 }
-                switch status {
-                case .connecting, .connected, .reconnecting, .installing, .needsInstall, .unreachable, .failed: continue
-                case .offline, .authFailed, .hostKeyUntrusted, .installFailed: return
-                }
+                if Self.shouldContinueMarking(status: status) { continue }
+                return
             }
         }
     }
 
-    /// Sends the document ops that make the machine section of daemon session `session` a remote group.
-    static func mark(session: String) {
-        guard let store = SidebarDocStore.current, SidebarDocWiring.isActive else { return }
-        let ops = SidebarDocHostGroupPlan(session: session, records: store.records).ops
-        guard !ops.isEmpty else { return }
-        store.send(ops: ops, title: RemoteStrings.newGroupTitle, undoable: false)
+    /// Makes the machine section of daemon session `session` a remote group; nothing for an unnamed session.
+    /// New Remote Group, New Cloud Workspace and a new Cloud machine call it: a Cloud machine's workspaces sit in one group.
+    static func mark(session: String?) {
+        if let session, SidebarDocWiring.isActive { SidebarDocStore.current?.markHostGroup(session: session, title: RemoteStrings.newGroupTitle) }
     }
 }

@@ -29,11 +29,16 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
         public var pageCount: Int?
         /// A link chip's file or folder on this computer (Attach files or folders).
         public var path: String?
+        /// A normalized image preview's original file on the session machine.
+        public var originalPath: String?
+        public var originalName: String?
 
         public init(id: String, kind: String, name: String, mimeType: String, size: Double,
-                    data: String? = nil, text: String? = nil, pageCount: Int? = nil, path: String? = nil) {
+                    data: String? = nil, text: String? = nil, pageCount: Int? = nil, path: String? = nil,
+                    originalPath: String? = nil, originalName: String? = nil) {
             (self.id, self.kind, self.name, self.mimeType, self.size) = (id, kind, name, mimeType, size)
             (self.data, self.text, self.pageCount, self.path) = (data, text, pageCount, path)
+            (self.originalPath, self.originalName) = (originalPath, originalName)
         }
     }
 

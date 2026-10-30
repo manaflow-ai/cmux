@@ -1,54 +1,84 @@
-/* A cmux-subsessions call (SubsessionCallCard.tsx): tool rows in their font, height and rhythm, with
-   nothing on hover (Leo 2026-10-13). States take the Ghostty theme's colours: a sub-session waiting
-   on the person the warning yellow, a failed one the red; a working one keeps the row's colour and
-   the working spinner. */
-.cv-subsession__name {
-  all: unset;
-  color: var(--cv-text);
-  font-weight: 500;
+/* A cmux-subsessions call (SubsessionCallCard.tsx): its sub-sessions' cards (subagents/AgentCard.css)
+   and its lines in tool rows' font, height and rhythm. */
+/* What a card adds (a prompt, a reply) and an opened message: at the card's text indent (its icon's
+   16px plus the 8px gap), in the transcript's Markdown at the detail size. */
+.cv-subsession__cut,
+.cv-subsession__raw {
+  margin-inline-start: 24px;
+  min-width: 0;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
-/* The name opens the sub-session's chat: the pointer and an underline on keyboard focus only, as
-   neighbouring transcript rows show focus, never a box. */
-.cv-subsession__name.is-link {
-  cursor: pointer;
-}
-.cv-subsession__name.is-link:focus-visible {
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-.cv-subsession__state[data-state="input"] {
-  color: var(--acpmux-warning);
-}
-.cv-subsession__state[data-state="failed"] {
-  color: var(--agent-danger);
-}
-.cv-subsession[data-state="failed"] > .cv-tool__icon {
-  color: var(--agent-danger);
-}
-.cv-subsession[data-state="input"] > .cv-tool__icon {
-  color: var(--acpmux-warning);
-}
-/* What a working sub-session does now, and a reply's first lines: under the row's text, at its
-   indent (the icon's 16px, less its -1.5px margin, plus the 8px gap). */
 .cv-subsession__under {
   margin: -3px 0 4px 22.5px;
-  color: var(--cv-text-muted);
-  font-size: var(--text-detail);
-  line-height: var(--text-detail--line-height);
   min-width: 0;
 }
-.cv-subsession__doing {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.cv-subsession__reply {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  overflow: hidden;
-  white-space: pre-wrap;
+.cv-subsession__markdown {
+  margin-top: 2px;
   overflow-wrap: anywhere;
   user-select: text;
   -webkit-user-select: text;
+}
+.cv-subsession__markdown > .cv-md {
+  --cv-font-size: var(--text-detail);
+  --cv-line-height: var(--text-detail--line-height);
+  color: var(--cv-text-muted);
+}
+.cv-subsession__markdown > .cv-md > :first-child {
+  margin-top: 0;
+}
+.cv-subsession__markdown > .cv-md > :last-child {
+  margin-bottom: 0;
+}
+/* Cut: its first three lines, the last fading out under a mask (the card's glass shows through).
+   model.ts estimates the same height: change them together. */
+.cv-subsession__markdown[data-cut] {
+  max-height: calc(var(--text-detail--line-height) * 3);
+  overflow: hidden;
+}
+/* Only a cut that hides lines fades its last one. */
+.cv-subsession__markdown[data-more] {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    currentColor calc(100% - var(--text-detail--line-height)),
+    transparent
+  );
+  mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--text-detail--line-height)), transparent);
+}
+.cv-subsession__toggle {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.cv-subsession__toggle:hover,
+.cv-subsession__toggle:focus-visible {
+  color: var(--cv-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+/* A sent message's first line after the row's words (SentMessageLine.tsx). */
+.cv-sent__preview {
+  margin-inline-start: 8px;
+}
+
+/* The target of a sent message, when its chat is listed: opens it beside this one. */
+.cv-sent__target {
+  all: unset;
+  cursor: pointer;
+  color: var(--cv-text);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  text-underline-offset: 2px;
+}
+.cv-sent__target:hover {
+  text-decoration-color: currentColor;
+}
+.cv-sent__target:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  border-radius: 3px;
 }

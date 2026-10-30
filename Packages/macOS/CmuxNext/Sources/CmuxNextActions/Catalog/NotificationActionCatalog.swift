@@ -36,7 +36,7 @@ nonisolated enum NotificationActionCatalog: ActionCatalogGroup {
                 id: "toggleUnread",
                 title: String(localized: "action.toggleUnread", defaultValue: "Mark Tab Read/Unread", bundle: .module),
                 keywords: ["notifications", "read"], defaultShortcut: Shortcut("u", modifiers: [.option, .command]),
-                category: .notifications, symbol: "circle.badge", surfaces: [.palette, .keyboard, .menu],
+                category: .notifications, symbol: "envelope.badge", surfaces: [.palette, .keyboard, .menu],
                 cliName: "notification toggle-unread", mainMenu: .window
             ),
             ActionDescriptor(

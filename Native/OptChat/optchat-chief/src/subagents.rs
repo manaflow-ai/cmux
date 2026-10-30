@@ -174,6 +174,9 @@ pub struct SpawnPlan {
     pub peer: Option<String>,
     /// Each subagent's peer, in `ids` order (B4: the least busy one each).
     pub peers: Vec<Option<String>>,
+    /// Each subagent's own VM size (one VM per subagent), in `ids` order;
+    /// None: a shared peer or this host.
+    pub sizes: Vec<Option<String>>,
 }
 
 /// The engine a spawn's subagents run on: the calling turn's harness and
@@ -221,12 +224,17 @@ pub struct SubagentSettings {
     pub claude_md: Option<String>,
 }
 
-/// A subagent session's tags: `mux.parent`, its spawn and its id.
-pub fn tags(parent: &str, spawn: &str, id: &str) -> BTreeMap<String, String> {
+/// A subagent session's tags: `mux.parent`, its spawn and its id, and the
+/// names acpmux's approval cards give it (`mux.handle` its id, `mux.label`
+/// its `title`, the name of its workspace).
+pub fn tags(parent: &str, spawn: &str, id: &str, title: &str) -> BTreeMap<String, String> {
+    use cmux_chief::rules::{HANDLE_TAG, LABEL_TAG, PARENT_TAG};
     BTreeMap::from([
-        (cmux_chief::rules::PARENT_TAG.to_owned(), parent.to_owned()),
+        (PARENT_TAG.to_owned(), parent.to_owned()),
         (SPAWN_TAG.to_owned(), spawn.to_owned()),
         (SUBAGENT_TAG.to_owned(), id.to_owned()),
+        (HANDLE_TAG.to_owned(), id.to_owned()),
+        (LABEL_TAG.to_owned(), title.to_owned()),
     ])
 }
 
@@ -275,6 +283,90 @@ pub fn cloud_repo(cwd: Option<&str>) -> Option<String> {
     parts.last().map(|p| (*p).to_owned())
 }
 
+/// The `control cloud` value that gives each subagent its own Freestyle VM
+/// (one VM per subagent, cloud-subagents-DESIGN.md) instead of naming
+/// shared peers.
+pub const PER_AGENT: &str = "freestyle";
+
+/// The VM sizes a subagent can get (cmuxterm-hq `tools/cloud-subagents`
+/// `SIZES`): small 2 vCPU / 4 GiB, medium 4 / 8, large 8 / 16.
+pub const SIZES: [&str; 3] = ["small", "medium", "large"];
+
+/// Subagent `id`'s own VM and acpmux peer.
+pub fn agent_peer(id: &str) -> String {
+    format!("chief-sub-{id}")
+}
+
+/// Whether `peer` is a subagent's own VM (`chief-sub-a<N>`).
+pub fn is_agent_peer(peer: &str) -> bool {
+    peer.strip_prefix("chief-sub-a")
+        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
+fn mentions(task: &str, words: &[&str]) -> bool {
+    let t = task.to_lowercase();
+    words.iter().any(|w| t.contains(w))
+}
+
+/// Whether a task needs this Mac: the app's UI, screenshots, computer use,
+/// a tagged build to launch, the simulator or a sign-in. Those subagents
+/// stay here; everything else may run in its own VM.
+pub fn needs_mac(task: &str) -> bool {
+    mentions(
+        task,
+        &[
+            "screenshot",
+            "screen recording",
+            "computer use",
+            "computer-use",
+            "cua ",
+            "reload.sh",
+            "--launch",
+            "tagged app",
+            "tagged build",
+            "simulator",
+            "xcode",
+            "testflight",
+            "sign in",
+            "sign-in",
+            "passkey",
+            "touch id",
+            "keychain",
+            "dogfood",
+            "click ",
+            "drive the app",
+        ],
+    )
+}
+
+/// The VM size a task needs: `medium` for tests, type checks and installs
+/// (bun, node, go); `small` otherwise (design, docs, review, plain edits).
+/// Swift, Rust and app builds go to the Mac-mini fleet, so no task gets
+/// `large` unless the Chief asks for it (`place: "cloud:large"`).
+pub fn size_for(task: &str) -> &'static str {
+    if mentions(
+        task,
+        &[
+            "bun test",
+            "bun run",
+            "npm ",
+            "pnpm",
+            "vitest",
+            "playwright",
+            "typecheck",
+            "tsc",
+            "go test",
+            "pytest",
+            "web/",
+            "next build",
+        ],
+    ) {
+        "medium"
+    } else {
+        "small"
+    }
+}
+
 /// The environment variable naming the acpmux peer cloud subagents run on;
 /// unset or empty: they run on this machine.
 pub const PEER_ENV: &str = "OPTCHAT_SUBAGENT_PEER";
@@ -304,11 +396,24 @@ impl CloudPlacement {
 
     /// The first message's task on the peer: the subagent system text (no
     /// preset there), where it runs and how it gets its own worktree.
+    ///
+    /// It opens with the task's own `Title:` line, and its `Group: Chief agents`
+    /// line when it has one (`workspaces::spawn_group`; no other group, #27712):
+    /// the workspace name and group are read from this text (`workspaces::title`)
+    /// and so is the peer session's title (acpmux `prompt_gist`). With the
+    /// instructions first, 31 workspaces read "You are a subagent of Chief, an…"
+    /// (Oct 22-25; since 82a981959a4, Oct 19).
     pub fn task(&self, id: &str, asked: Option<&str>, task: &str) -> String {
         let repo = cloud_repo(asked).unwrap_or_else(|| "cmux".to_owned());
         format!(
-            "{}\n\n# Where you run\n\nYou run on the cloud VM `{peer}` (acpmux peer `{peer}`), not on the user's Mac. Paths in the view and the task that start with ~/fun or /Users are the Mac's: here the repo `{repo}` is a clone at ~/src/{repo}. Make your own worktree before you change anything: `git -C ~/src/{repo} fetch -q origin && git -C ~/src/{repo} worktree add {dir}/{id} origin/<branch>` and work in {dir}/{id}. Mac builds and tests go to the fleet (cmux-ci); this VM reaches the fleet controller and sr2 only. Your zoom and date tools are not here. If `git push` has no credential, commit and say the worktree path and sha in your report: the Chief lands it.\n\n{task}",
+            "Title: {title}\n{group}\n{}\n\n# Where you run\n\nYou run on the cloud VM `{peer}` (acpmux peer `{peer}`), not on the user's Mac. Paths in the view and the task that start with ~/fun or /Users are the Mac's: here the repo `{repo}` is a clone at ~/src/{repo}. Make your own worktree before you change anything: `git -C ~/src/{repo} fetch -q origin && git -C ~/src/{repo} worktree add {dir}/{id} origin/<branch>` and work in {dir}/{id}. Mac builds and tests go to the fleet (cmux-ci); this VM reaches the fleet controller and sr2 only. Your zoom and date tools are not here. This VM has no GitHub credential, never a token; do not ask for one. To land, commit everything, then run `git -C {dir}/{id} config cmux.land <branch>` (the branch it goes to, e.g. feat-cmux-next): when your final report pauses this VM, the Chief host rebases those commits on the newest origin branch and pushes them plain through the Mac. Say the worktree path, sha and branch in your report.\n\n{fleet}\n\n{task}",
             self.instructions.trim_end(),
+            title = crate::workspaces::title(task),
+            group = match crate::workspaces::spawn_group(task) {
+                "" => String::new(),
+                g => format!("Group: {g}\n"),
+            },
+            fleet = crate::fleet_wait::NOTE,
             peer = self.peer,
             dir = self.dir.display(),
         )
@@ -357,6 +462,12 @@ pub struct Spawner {
     cloud_vms: Option<Arc<dyn crate::cloud_vms::CloudVms>>,
     /// Issues each cloud subagent its own sandbox key (agent_keys.rs); None: off.
     agent_keys: Option<Arc<dyn crate::agent_keys::AgentKeys>>,
+    /// The person profile `remember` writes (`optchat/person.md`); None: no
+    /// profile on this host.
+    person: Option<std::path::PathBuf>,
+    /// The app's Cloud actions `cloud_workspace` runs (cloud_workspace.rs);
+    /// None: no cmux app behind this host.
+    cloud_workspaces: Option<Arc<crate::cloud_workspace::CloudWorkspaces>>,
 }
 
 impl Spawner {
@@ -384,7 +495,24 @@ impl Spawner {
             cloud_text: None,
             cloud_vms: None,
             agent_keys: None,
+            person: None,
+            cloud_workspaces: None,
         }
+    }
+
+    /// `cloud_workspace` makes Cloud workspaces through `cloud` (None: off).
+    pub fn with_cloud_workspaces(
+        mut self,
+        cloud: Option<Arc<crate::cloud_workspace::CloudWorkspaces>>,
+    ) -> Spawner {
+        self.cloud_workspaces = cloud;
+        self
+    }
+
+    /// `remember` keeps preferences in the profile at `path`.
+    pub fn with_person(mut self, path: std::path::PathBuf) -> Spawner {
+        self.person = Some(path);
+        self
     }
 
     /// Cloud subagents get their own sandbox key from `keys` (None: off).
@@ -589,6 +717,8 @@ impl Spawner {
             .workspaces
             .as_ref()
             .map(|_| crate::workspaces::new_key());
+        // Its workspace's name, also its name on an approval card it is in.
+        let name = crate::workspaces::title(task);
         let spec = SessionSpec {
             name: format!("{}-{id}", s.prefix),
             cwd: s.cwd.clone(),
@@ -599,7 +729,7 @@ impl Spawner {
             effort: s.effort.clone(),
             preset: s.preset.clone(),
             tags: {
-                let mut t = tags(&s.parent, spawn, id);
+                let mut t = tags(&s.parent, spawn, id, &name);
                 if floor.is_some() {
                     t.insert(
                         crate::approval::POLICY_TAG.to_owned(),
@@ -707,10 +837,17 @@ impl Spawner {
             );
             return Ok(format!("no cmux workspace ({})", self.no_workspace_reason));
         };
-        let name = crate::workspaces::title(task);
-        let group = crate::workspaces::topic_group(task);
+        // No group unless the task asks for the person's "Chief agents" (#27712).
+        let group = crate::workspaces::spawn_group(task);
         let key = key.unwrap_or_else(crate::workspaces::new_key);
-        match workspaces.open(&key, &session, &name, &group, &s.cwd) {
+        // The terminal beside the chat runs on this Mac: a peer session's
+        // folder is on the VM (/home/agent/work), and a PTY spawned in a
+        // folder missing here fails, so the subagent got no workspace (a511).
+        let term_cwd = match &peer {
+            Some(_) => &self.settings.cwd,
+            None => &s.cwd,
+        };
+        match workspaces.open(&key, &session, &name, group, term_cwd) {
             Ok(key) => {
                 let place = workspaces.place();
                 // a313: the real ws_ id, so the CLI can list, move and pin it.
@@ -722,7 +859,7 @@ impl Spawner {
                 );
                 // No link here: the posted reply links every mention (link_subagents), so
                 // the memory keeps the plain id, not a 70-character URL per mention.
-                let mut note = format!("workspace \"{name}\" in group \"{group}\" in {place}");
+                let mut note = format!("workspace \"{name}\" in {place}");
                 if let Some(r) = &located {
                     note.push_str(&format!(
                         " (id {}; `{}` moves it to the top)",
@@ -734,6 +871,7 @@ impl Spawner {
                     id: id.to_owned(),
                     key,
                     name,
+                    ws: located.map(|r| r.id),
                 });
                 Ok(note)
             }
@@ -1183,7 +1321,9 @@ impl Orchestrator for Spawner {
                 "harness": run.harness,
             }),
         );
-        if let (None, Some(text), Some(preset)) = (&cloud, &run.claude_md, &run.preset) {
+        // Subagents that run here (all of them, or with one VM per subagent
+        // the ones that need the Mac or whose VM was not made).
+        if let (Some(text), Some(preset)) = (&run.claude_md, &run.preset) {
             let file = (!self.agents.system_prompt(preset)).then_some(text.as_str());
             if let Err(e) = crate::session_dir::set_claude_md(&run.cwd, file) {
                 (self.log)(&format!("the subagent directory's CLAUDE.md: {e}"));
@@ -1206,6 +1346,15 @@ impl Orchestrator for Spawner {
                 .or_else(|| run.effort.clone()),
             ..run.clone()
         };
+        // A subagent that runs here when others of the spawn run on peers.
+        let (local_dir, local_dir_note) = match &cloud {
+            Some(_) => self.run_dir(cwd.as_deref(), &run),
+            None => (dir.clone(), None),
+        };
+        let local_launch = SubagentSettings {
+            cwd: local_dir.clone(),
+            ..launch.clone()
+        };
         // On a peer: its own harness profile, no local preset or model.
         if let Some(c) = &cloud {
             launch.harness = c.harness.clone();
@@ -1214,6 +1363,7 @@ impl Orchestrator for Spawner {
             launch.claude_md = None;
         }
         let mut started = Vec::new();
+        let mut placed: Vec<(String, Option<String>)> = Vec::new();
         let mut lines = Vec::new();
         if let Some(e) = &refused {
             // Queued ids first, before any failure frees a slot: the brain
@@ -1248,7 +1398,7 @@ impl Orchestrator for Spawner {
                     id: id.clone(),
                     launch: crate::state::QueuedLaunch {
                         task: task.clone(),
-                        cwd: Some(dir.display().to_string()),
+                        cwd: Some(local_dir.display().to_string()),
                         effort: launch.effort.clone(),
                         floor: floor.clone(),
                         harness: None,
@@ -1281,15 +1431,22 @@ impl Orchestrator for Spawner {
                 ));
                 continue;
             }
-            let task = match &sub_cloud {
-                Some(c) => c.task(id, cwd.as_deref(), task),
-                None => task.clone(),
-            };
-            // A paused VM resumes first (B4); a no-op when it runs.
+            // A paused VM resumes first (B4); a no-op when it runs. A
+            // subagent's own VM is made now (one VM per subagent).
             let resumed = match (&sub_peer, &self.cloud_vms) {
                 (Some(p), Some(vms)) => {
                     let began = Instant::now();
-                    let r = vms.resume(p);
+                    let r = if is_agent_peer(p) {
+                        let size = plan
+                            .sizes
+                            .get(k)
+                            .cloned()
+                            .flatten()
+                            .unwrap_or_else(|| size_for(task).to_owned());
+                        vms.provision(p, &size)
+                    } else {
+                        vms.resume(p)
+                    };
                     (self.log)(&format!(
                         "cloud: {p} up for {id} in {} ms",
                         began.elapsed().as_millis()
@@ -1297,6 +1454,24 @@ impl Orchestrator for Spawner {
                     r
                 }
                 _ => Ok(()),
+            };
+            // Its own VM was not made (over the daily budget, provider
+            // down): it runs here rather than not at all.
+            let mut here_note = String::new();
+            let (sub_peer, sub_cloud, resumed) = match (&resumed, &sub_peer) {
+                (Err(e), Some(p)) if is_agent_peer(p) => {
+                    let _ = self.to_brain(Input::SubagentPlacedHere {
+                        id: id.clone(),
+                        why: e.clone(),
+                    });
+                    here_note = format!(" (on this Mac: its own cloud VM was not made: {e})");
+                    (None, None, Ok(()))
+                }
+                _ => (sub_peer, sub_cloud, resumed),
+            };
+            let task = match &sub_cloud {
+                Some(c) => c.task(id, cwd.as_deref(), task),
+                None => task.clone(),
             };
             // On a VM that is up: its own sandbox key, named in its task.
             let key = match (&resumed, &sub_peer) {
@@ -1320,14 +1495,19 @@ impl Orchestrator for Spawner {
                     &task,
                     &view,
                     floor.as_deref(),
-                    &launch,
+                    if sub_peer.is_some() {
+                        &launch
+                    } else {
+                        &local_launch
+                    },
                     sub_peer.as_deref(),
                 )
             });
             match started_one {
                 Ok(note) => {
                     started.push(id.clone());
-                    lines.push(format!("- {id}: {note}"));
+                    placed.push((id.clone(), sub_peer.clone()));
+                    lines.push(format!("- {id}: {note}{here_note}"));
                 }
                 Err(e) => {
                     (self.log)(&format!("subagent {id} did not start: {e}"));
@@ -1343,35 +1523,48 @@ impl Orchestrator for Spawner {
             "No subagent started.".to_owned()
         } else if started.is_empty() {
             format!("Queued {}.", plan.queued.join(", "))
-        } else if let Some(c) = &cloud {
-            let mut on: Vec<&str> = plan.peers.iter().flatten().map(String::as_str).collect();
+        } else if placed.iter().any(|(_, p)| p.is_some()) {
+            let mut on: Vec<&str> = placed.iter().filter_map(|(_, p)| p.as_deref()).collect();
             on.sort_unstable();
             on.dedup();
+            let here: Vec<&str> = placed
+                .iter()
+                .filter(|(_, p)| p.is_none())
+                .map(|(id, _)| id.as_str())
+                .collect();
+            let here = if here.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    " {} run on this Mac, in {}.",
+                    here.join(", "),
+                    local_dir.display()
+                )
+            };
             if on.len() > 1 {
-                let each = plan
-                    .ids
+                let each = placed
                     .iter()
-                    .zip(&plan.peers)
-                    .filter(|(id, _)| started.contains(id))
                     .filter_map(|(id, p)| p.as_ref().map(|p| format!("{id} on {p}")))
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!(
-                    "Started {} on the cloud VMs (acpmux peers; {each}), in {}.",
+                    "Started {} on the cloud VMs (acpmux peers; {each}), in {}.{here}",
                     started.join(", "),
                     dir.display()
                 )
             } else {
                 format!(
-                    "Started {} on the cloud VM {} (acpmux peer), in {}.",
+                    "Started {} on the cloud VM {} (acpmux peer), in {}.{here}",
                     started.join(", "),
-                    c.peer,
+                    on[0],
                     dir.display()
                 )
             }
         } else {
-            format!("Started {} in {}.", started.join(", "), dir.display())
+            format!("Started {} in {}.", started.join(", "), local_dir.display())
         };
+        let dir_note =
+            dir_note.or(local_dir_note.filter(|_| placed.iter().any(|(_, p)| p.is_none())));
         let dir_note = dir_note
             .map(|n| format!("\nDirectory: {n}."))
             .unwrap_or_default();
@@ -1413,6 +1606,26 @@ impl Orchestrator for Spawner {
             .map_err(|_| "the Chief host is stopping".to_owned())?
     }
 
+    fn cloud_workspace(&self, request: &crate::cloud_workspace::Request) -> Result<String, String> {
+        let Some(cloud) = &self.cloud_workspaces else {
+            return Err(
+                "cloud_workspace: this Chief host has no cmux app to make Cloud workspaces in"
+                    .into(),
+            );
+        };
+        let answer = cloud.call(request);
+        (self.log)(&format!(
+            "cloud_workspace {:?}: {}",
+            request.title,
+            answer.as_ref().unwrap_or_else(|e| e)
+        ));
+        self.trace.emit(
+            "chief.cloud_workspace",
+            serde_json::json!({"title": self.trace.text(&request.title), "ok": answer.is_ok()}),
+        );
+        answer
+    }
+
     fn control(&self, request: crate::tools::ControlCall) -> Result<String, String> {
         let (reply, answer) = channel();
         self.to_brain(Input::Control { request, reply })?;
@@ -1439,6 +1652,14 @@ impl Orchestrator for Spawner {
             caller: caller.to_owned(),
             reply,
         })?;
+        answer
+            .recv()
+            .map_err(|_| "the Chief host is stopping".to_owned())?
+    }
+
+    fn transcript(&self, n: u32, before: Option<u64>) -> Result<String, String> {
+        let (reply, answer) = channel();
+        self.to_brain(Input::Transcript { n, before, reply })?;
         answer
             .recv()
             .map_err(|_| "the Chief host is stopping".to_owned())?
@@ -1472,9 +1693,30 @@ impl Orchestrator for Spawner {
             .map_err(|_| "the Chief host is stopping".to_owned())?
     }
 
+    fn remember(&self, text: &str) -> Result<String, String> {
+        let Some(person) = &self.person else {
+            return Err("this Chief host has no person profile to remember in".into());
+        };
+        let answer = crate::remember::remember(person, text, &crate::remember::today())?;
+        (self.log)(&format!("remember: {answer}"));
+        self.trace.emit(
+            "chief.remember",
+            serde_json::json!({"text": self.trace.text(text), "noop": answer.starts_with("outcome: noop")}),
+        );
+        Ok(answer)
+    }
+
     fn sleep(&self, call: crate::tools::SleepCall) -> Result<String, String> {
         let (reply, answer) = channel();
         self.to_brain(Input::Sleep { call, reply })?;
+        answer
+            .recv()
+            .map_err(|_| "the Chief host is stopping".to_owned())?
+    }
+
+    fn watch(&self, call: crate::tools::WatchCall) -> Result<String, String> {
+        let (reply, answer) = channel();
+        self.to_brain(Input::Watch { call, reply })?;
         answer
             .recv()
             .map_err(|_| "the Chief host is stopping".to_owned())?

@@ -164,19 +164,40 @@ impl Mux {
         drop(feed);
         self.state.lock().unwrap_or_else(PoisonError::into_inner).resource_revision = revision;
         drop(registry);
-        // An agent's banner takes the reply its hook kept beside the event (memory only).
-        let preview = notification
+        // An agent's banner takes the reply its hook kept beside the event (memory only): the
+        // banner its folded 200-character preview, the phone's Feed the whole message and the
+        // prompt of the turn it ends.
+        let agent_terminal = notification
             .terminal_id
             .as_ref()
-            .filter(|_| notification.source == NotificationSource::Agent)
+            .filter(|_| notification.source == NotificationSource::Agent);
+        let message = agent_terminal
             .and_then(|terminal| self.take_agent_reply(terminal))
             .map(|reply| reply.to_string());
+        let preview = message.as_deref().and_then(crate::agent_hooks::live_prompt_text);
+        let prompt = agent_terminal
+            .and_then(|terminal| self.agent_feed_prompt(terminal))
+            .map(|prompt| prompt.to_string());
+        let session = agent_terminal.and_then(|terminal| {
+            lock(&self.agent_records)
+                .get(terminal)
+                .and_then(|record| record.agent_session_id.clone())
+        });
+        // A question hook's notification takes its question; the terminal keeps it while the
+        // agent waits (`list-notifications`).
+        let question = agent_terminal
+            .and_then(|terminal| self.take_agent_question(terminal, notification.id.as_str()));
         self.emit(MuxEvent::Notification(NotificationEvent {
+            id: Some(notification.id.as_str().to_owned()),
+            message,
+            prompt,
+            session,
             notification: numeric_id,
             title: notification.title.clone(),
             subtitle: notification.subtitle.clone(),
             body: notification.body.clone(),
             preview,
+            question,
             level: notification.level,
             surface: notification.surface,
             workspace_id: notification.workspace_id.clone(),

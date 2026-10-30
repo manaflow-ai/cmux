@@ -3,7 +3,7 @@ import CmuxNextSettings
 /// A place in a text file to open at: a Find result's line and column. Both are 1-based; the
 /// column counts UTF-16 code units, as the code editor (Monaco) does.
 ///
-/// The open path carries it from ``LinkOpener/openFile(_:from:markdown:cmdClick:at:)`` to
+/// The open path carries it from ``LinkOpener/openFile(_:from:markdown:at:)`` to
 /// ``FilePageService``: a new editor tab sends it in `cmux.editor.config` (`reveal`), a tab that
 /// already shows the file gets the `reveal` page command (``pageText``). The markdown page ignores it.
 nonisolated struct FilePosition: Equatable, Sendable {

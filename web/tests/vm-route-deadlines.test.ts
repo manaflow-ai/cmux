@@ -204,7 +204,7 @@ describe("VM route deadline answers", () => {
     expect(response?.status).toBe(503);
     const payload = await response!.json() as Record<string, unknown>;
     expect(payload).toMatchObject({ error: "vm_operation_in_progress", retryable: true });
-    expect(String(payload.action)).toContain("cmux vm ls");
+    expect(String(payload.action)).toContain("cmux cloud list-machines");
     expect(JSON.stringify(payload)).not.toMatch(/temporarily unavailable/i);
   });
 

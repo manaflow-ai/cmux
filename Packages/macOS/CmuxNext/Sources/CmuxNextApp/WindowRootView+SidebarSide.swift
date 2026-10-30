@@ -14,7 +14,9 @@ extension WindowRootView {
     /// under the traffic lights re-check themselves (`syncOverlay`).
     func applySidebarSide() {
         for (side, constraints) in sidePins where side != sidebarSide { NSLayoutConstraint.deactivate(constraints) }
-        NSLayoutConstraint.activate(sidePins[sidebarSide] ?? [])
+        // A page with the whole window keeps the content host on the window's edges (`presentsPage`).
+        NSLayoutConstraint.activate((sidePins[sidebarSide] ?? []).filter { !presentsPage || $0.firstItem !== contentHost })
+        applySidebarRail()
         sidebar.side = sidebarSide
         // The right sidebar's inset moves to the other edge with it.
         applyMainPane()
@@ -26,10 +28,14 @@ extension WindowRootView {
     /// Follows the placement settings from `DesignSettings` (init reads the
     /// first values; the first emission repeats them and changes nothing).
     func observePlacement() -> Task<Void, Never> {
-        Task { [weak self] in
-            for await (side, spaces, visibility) in ObservationStream({
-                (DesignSettings.shared.sidebarSide, DesignSettings.shared.spacesPosition, DesignSettings.shared.spacesVisibility)
+        let sidebar = sidebar
+        return Task { [weak self] in
+            for await (side, spaces, visibility, _) in ObservationStream({ [sidebar] in
+                (DesignSettings.shared.sidebarSide, DesignSettings.shared.spacesPosition, DesignSettings.shared.spacesVisibility,
+                 // `sidebar.style` = rail: the content keeps the rail's inset (`WindowRootView+SidebarRail`).
+                 [sidebar.model.style == .rail ? 1 : 0, sidebar.model.contentInset])
             }) {
+                self?.applySidebarRail()
                 self?.sidebarSide = side
                 self?.sidebar.sidebarView.spacesPosition = spaces
                 self?.sidebar.sidebarView.spacesVisibility = visibility
@@ -42,10 +48,11 @@ extension WindowRootView {
     func layoutRightPanel(rowHeight: CGFloat) {
         guard let rightPanel else { return }
         let width = rightPanelWidth
-        rightPanel.isHidden = width <= 0
-        guard width > 0 else { return }
+        rightPanel.isHidden = width <= 0 || presentsPage
+        guard width > 0, !presentsPage else { return }
         let x = sidebarSide == .left ? bounds.width - width : 0
         rightPanel.topInset = rowHeight
+        rightPanel.innerEdge = sidebarSide == .left ? .minX : .maxX
         let frame = CGRect(x: x, y: 0, width: width, height: bounds.height)
         if rightPanel.frame != frame { rightPanel.frame = frame }
     }

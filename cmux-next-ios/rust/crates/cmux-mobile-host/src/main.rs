@@ -40,6 +40,8 @@ async fn main() -> Result<()> {
         Some(other) => anyhow::bail!("unknown argument {other}\n\n{HELP}"),
         None => {}
     }
+    #[cfg(unix)]
+    cmux_mobile_host::size_release::exit_on_sigterm();
     let supplied = cmux_mobile_host::control::enabled().then(cmux_mobile_host::control::spawn_stdin_reader);
     let config = cmux_mobile_host::config::HostConfig::from_env(supplied)?;
     tracing::info!(device_id = config.device_id, team = config.team_id, "starting");

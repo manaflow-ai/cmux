@@ -49,6 +49,14 @@ reaches outside this Mac or cannot be undone: inviting people, creating a
 paid Cloud machine, or giving a machine you have never seen access to this
 one.
 
+A message the user pasted from a task's `prompt` (in `cmux setup list`, or
+docs/chief-setup-prompts.md) is their request for that task. The machine,
+folder or browser it names counts as one they named, and the cloud-machine
+prompt, which says they know it costs money, answers the ask for a paid
+machine: run it without asking a second time. A word still in capitals
+(HOST, FOLDER, BROWSER, EMAIL) is theirs to fill in: ask for it. Still
+confirm an invite's address before you send it.
+
 ## Tasks
 
 - Trust a folder: `cmux setup trust FOLDER` (default the current folder).
@@ -123,3 +131,28 @@ one.
   machine: tell the user what its text says. Run `cmux setup cloud-machine
   --forget` only after the machine was killed, or once the user says no
   machine is on its way (a `wait` on an empty list ends that way).
+- Notifications: `cmux setup notifications` lets cmux show macOS
+  notifications. The first time, macOS shows its prompt (tell them to click
+  Allow). Kind `grant` means System Settings blocks them: either Allow
+  Notifications is off, or it is on with the alert style None. Run its
+  `command` to open cmux's page there and tell them what its `text` says
+  to turn on. Kind `declined` means they said no: ask before running it
+  again. Which notifications show are settings: `cmux settings set
+  notifications.KEY VALUE`.
+- Browser import: `cmux setup browser-import --browser BROWSER` (a name
+  like Chrome or Arc; `chrome:Work` names one profile) imports its
+  bookmarks into cmux; `ok` means that browser's bookmarks are already in
+  (any profile of it, or the one named), and `undo` removes only the
+  folders this run added. Kind `wait` means the import is still running:
+  run it again in a few seconds. Without `--browser` the result is kind
+  `choose`: ask the user which browser, or run its `command` to show them
+  cmux's list. Cookies (their sign-ins) are theirs: ask the user first,
+  then run it with `--cookies` and a `--reason` they will read
+  (`--domain` keeps it to some sites); cmux shows them a panel to allow
+  it, then macOS asks for the browser's Keychain password. It has no undo
+  and running it again asks them again. Kind `declined` means it was not
+  allowed (they said no, did not answer in time, or another request was
+  already waiting): ask them before running it again. Kind `app` after
+  `--cookies` may mean it ran: never run `--cookies` again without asking
+  them. History and passwords only the user imports, from Import from
+  Browser... in cmux.

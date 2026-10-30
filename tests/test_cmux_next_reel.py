@@ -16,6 +16,8 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
+import importlib.util
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/cmux-next/media/reel.py"
@@ -98,6 +100,24 @@ class DryRunTests(unittest.TestCase):
             report = json.loads((tmp / "out/reel.json").read_text())
         self.assertEqual([(p["pr"], p["title"], p["clip"]) for p in report["prs"]],
                          [(5, "fix: a", "no clip"), (6, "feat: d", "no clip")])
+
+
+class FfmpegEnvTests(unittest.TestCase):
+    def test_ffmpeg_runs_without_the_publish_steps_secrets(self):
+        spec = importlib.util.spec_from_file_location("media_reel", SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        seen = {}
+
+        def run(argv, **kwargs):
+            seen.update(kwargs["env"])
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        secrets = {"PR_MEDIA_PRIVATE_TERMS": "secret-host", "GH_TOKEN": "t", "PATH": "/usr/bin"}
+        with mock.patch.dict(os.environ, secrets), mock.patch.object(module.subprocess, "run", side_effect=run):
+            module.ffmpeg(["-version"], Path("."))
+        self.assertEqual(seen.get("PATH"), "/usr/bin")
+        self.assertFalse({"PR_MEDIA_PRIVATE_TERMS", "GH_TOKEN"} & set(seen))
 
 
 @unittest.skipUnless(HAS_FFMPEG, "needs ffmpeg")

@@ -153,3 +153,36 @@ fn disconnected_deferred_cell_pixel_resolutions_do_not_schedule_work() {
         "a disconnect-only resolution spawned reconciliation work"
     );
 }
+
+/// `send-key` with a Command chord (`super+c`, `cmd+z`): a Kitty-protocol program gets
+/// the CSI-u key, as Ghostty sends it; legacy encoding sends nothing for Command on macOS
+/// (the app sends Cmd-C, Cmd-Z, Cmd-Shift-Z and Cmd-A this way when a TUI owns its keys).
+#[test]
+fn send_key_encodes_command_chords_from_authoritative_keyboard_modes() {
+    let mux = Mux::new_for_test("send-key-command-chords", SurfaceOptions::default());
+    let surface =
+        Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+    let encode = |keys: &[&str]| {
+        let mut encoder = KeyEncoder::new().unwrap();
+        let mut encoded = Vec::new();
+        surface.with_terminal(|term| {
+            encoder.sync_from_terminal(term);
+            for key in keys {
+                let input = ghostty_vt::key_input_from_chord(key).expect(key);
+                encoder.encode(&input, &mut encoded).unwrap();
+            }
+        });
+        encoded
+    };
+
+    #[cfg(target_os = "macos")]
+    assert!(
+        encode(&["super+c", "cmd+z"]).is_empty(),
+        "legacy encoding sent text for a Command chord"
+    );
+    surface.with_terminal(|term| term.vt_write(b"\x1b[?1049h\x1b[>5u"));
+    assert_eq!(
+        encode(&["super+c", "cmd+z", "cmd+shift+z", "command+a"]),
+        b"\x1b[99;9u\x1b[122;9u\x1b[122;10u\x1b[97;9u"
+    );
+}

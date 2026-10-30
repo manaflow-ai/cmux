@@ -12,8 +12,8 @@ public enum ArtifactFilter: String, CaseIterable, Identifiable, Sendable {
         case .files: ![.directory, .link].contains(kind)
         case .folders: kind == .directory
         case .images: kind == .image
-        case .videos: kind == .video
-        case .documents: [.html, .markdown, .pdf, .text].contains(kind)
+        case .videos: kind == .video || kind == .audio
+        case .documents: [.html, .markdown, .pdf, .text, .document].contains(kind)
         case .code: kind == .code
         case .links: kind == .link
         }

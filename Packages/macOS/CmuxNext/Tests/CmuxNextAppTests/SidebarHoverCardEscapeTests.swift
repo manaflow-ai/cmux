@@ -2,10 +2,11 @@ import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// A sidebar workspace's hover card in the real list. Leo 2026-10-21 ("WHY HAS IT NOT BEEN
 /// ALIGNED"): the card's top lines up with its row's top, as Chrome's and Arc's tab cards, and
-/// follows the row from row to row; it stands `rowGap` off the row. The escape slot beside the
+/// follows the row from row to row; it touches the sidebar's edge. The escape slot beside the
 /// row's upper half (#22473, Leo 2026-10-20 "trapped by the preview") is a Debug Settings layout
 /// now, covered by `HoverCardEscapeGeometryTests`. A pointer heading into the card keeps it, one
 /// going down past the row lets it go, and leaving both the row and the card dismisses it.
@@ -83,14 +84,17 @@ import Testing
         try await WorkspaceHoverCardScrollTests.tearDown(window, coordinator)
     }
 
-    /// Leo 2026-10-20: the card opened against the row's top-right corner, where the row's x
-    /// sits, so the next row down ran into it. It stands off the row by a clear gap.
-    @Test func theCardStandsOffItsRow() async throws {
+    /// The row ends before the sidebar's drag thumb. Its preview touches the row, not the thumb.
+    @Test func theCardTouchesItsWorkspaceRowBeforeTheDragThumb() async throws {
         let clock = ManualClock()
         let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
         let (row, card) = try await Self.showSecondRowCard(list, coordinator, clock, rows)
-        let gap = card.minX - row.maxX
-        #expect(gap >= 8 && gap <= 12, "the card sits \(gap) pt from its row")
+        let edge = window.convertToScreen(list.convert(list.bounds, to: nil)).maxX
+        let pixel = 1 / max(window.backingScaleFactor, 1)
+        #expect(row.maxX < edge, "the fixture needs a row-to-thumb gutter")
+        #expect(card.minX <= row.maxX + 0.001, "a \(card.minX - row.maxX) pt gap from row to preview")
+        #expect(row.maxX - card.minX < pixel + 0.001, "overlap must stay below one device pixel")
+        #expect(card.minX < edge, "the preview was pushed past the drag thumb")
         try await WorkspaceHoverCardScrollTests.tearDown(window, coordinator)
     }
 
@@ -99,10 +103,14 @@ import Testing
     @Test func movingDownPastTheRowsRightEndDismissesTheCard() async throws {
         let clock = ManualClock()
         let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
-        let (row, _) = try await Self.showSecondRowCard(list, coordinator, clock, rows)
+        let (row, card) = try await Self.showSecondRowCard(list, coordinator, clock, rows)
         coordinator.pointerMoved(to: CGPoint(x: row.maxX - 2, y: row.minY + 3))
         let shown = try #require(coordinator.machine.shownTarget, "the card went on the row itself")
-        coordinator.pointerMoved(to: CGPoint(x: row.maxX + 3, y: row.minY - 14))
+        // Stay on the list side of the row's edge: with a flush preview, a point to its right
+        // is on the preview itself and correctly keeps it open.
+        let below = CGPoint(x: row.maxX - 2, y: row.minY - 14)
+        try #require(!card.contains(below), "the dismissal path must not enter the preview")
+        coordinator.pointerMoved(to: below)
         // Gone, or handed to the row below (the sidebar's margin can still hit-test as that row).
         #expect(coordinator.machine.shownTarget?.id != shown.id,
                 "the card stayed (\(coordinator.machine.phase)) with the pointer below its row")

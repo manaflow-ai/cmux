@@ -69,6 +69,17 @@ turn budget (6 agent turns per person message, 2 s gap) still stops two Chiefs f
 - B. Chiefs section in the + list: Chiefs grouped first with a header. Needs a click on + first.
 - C. Chief toggle in the composer ("Ask Chief" pill): adds the main Chief only; hides the others.
 
+## 5a. Whose word a Chief acts on (2026-10-26)
+
+In a group each Chief acts for its own owner (CHIEF-DONE B3). The Cloud Chief's message header marks
+its owner's lines "(your owner)" and the Mac Chief's side label says `from your owner`; both prompts
+say the owner's requests run without asking, anyone else's actions need the owner's word, and
+another person's Chief is never the owner's word. Enforcement does not rest on the model: a turn
+whose batch holds a message that asks this Chief from anyone but its owner runs with effects refused
+(`messageEffectAuthorized`, the Mac's `requires_approval`). A message to someone else in the same
+batch is context and leaves the owner's request free. A ready reply that meets the loop guard's 2 s
+gap (agent_rate) is retried for 2 minutes, never dropped after a fixed count.
+
 ## 6. Gaps
 
 1. This Mac's Chief in a cloud group (needs a cloud agent record for local Chiefs, or a relay).

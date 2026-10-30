@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import CmuxNextPages
+import CmuxNextPagesTestSupport
 import CmuxNextSettings
 import Foundation
 import Testing
@@ -19,9 +20,9 @@ struct AgentPaneTabRowHolesTests {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
     }
 
-    private func chromiumChat() async throws -> (AgentPaneView, HoleRecordingPage) {
+    private func chromiumChat() async throws -> (AgentPaneView, FakeChromiumPage) {
         let file = try #require(AgentPageTestRoot.page)
-        let hosting = HoleRecordingHosting()
+        let hosting = FakeChromiumHosting()
         let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), pageHost: true,
                                               chromium: hosting))
         view.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
@@ -29,14 +30,20 @@ struct AgentPaneTabRowHolesTests {
         let deadline = Date().addingTimeInterval(5)
         while !view.debugShowsChromium, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
         #expect(view.debugShowsChromium)
-        let page = try #require(hosting.page)
+        let page = try #require(hosting.made.last)
         return (view, page)
     }
 
-    /// The holes the page window has, back in the chat view's (top-left) coordinates.
-    private func holes(_ page: HoleRecordingPage, in view: AgentPaneView) -> [CGRect] {
-        page.occlusionRects.map { view.convert($0, from: page.contentView).integral }
-            .sorted { $0.minX < $1.minX }
+    /// The holes the page window has, back in the chat view's coordinates measured from its top-left
+    /// corner. The chat view is not flipped, so y 0 of its own coordinates is its bottom: holes there
+    /// cut the composer's footer row out of the page and leave the tabs covered (Lucas 2026-10-23).
+    private func holes(_ page: FakeChromiumPage, in view: AgentPaneView) -> [CGRect] {
+        page.occlusionRects.map { rect -> CGRect in
+            let local = view.convert(rect, from: page.contentView)
+            let top = view.isFlipped ? local.minY - view.bounds.minY : view.bounds.maxY - local.maxY
+            return CGRect(x: local.minX, y: top, width: local.width, height: local.height).integral
+        }
+        .sorted { $0.minX < $1.minX }
     }
 
     @Test func aChromiumChatInTheTabRowLeavesTheTabsAndToolbarUncovered() async throws {
@@ -81,37 +88,5 @@ struct AgentPaneTabRowHolesTests {
             CGRect(x: 940, y: 0, width: 60, height: 36),
         ])
     }
-}
-
-/// A Chromium host whose pages record the holes the host asks for.
-@MainActor
-private final class HoleRecordingHosting: PageChromiumHosting {
-    let preference: BrowserDefaultEngine = .chromium
-    let isAvailable = true
-    private(set) var page: HoleRecordingPage?
-
-    func serves(_ page: PageDescriptor) -> Bool { true }
-
-    func makePage(_ page: PageDescriptor) async throws -> any PageChromiumPage {
-        let made = HoleRecordingPage()
-        self.page = made
-        return made
-    }
-}
-
-@MainActor
-private final class HoleRecordingPage: PageChromiumPage {
-    let contentView = NSView()
-    var onEvent: ((PageChromiumEvent) -> Void)?
-    var resources: (@MainActor (URL) async -> PageChromiumResponse)?
-    var occlusionRects: [CGRect] = []
-
-    func devTools(_ method: String, params: [String: any Sendable]) async throws -> String { #"{"result":{}}"# }
-    func load(_ url: URL) {}
-    func reload() {}
-    func setZoom(_ zoom: Double) {}
-    func setFocused(_ focused: Bool) {}
-    func setVisible(_ visible: Bool) {}
-    func close() {}
 }
 #endif

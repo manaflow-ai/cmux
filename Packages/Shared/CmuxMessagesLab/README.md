@@ -108,6 +108,10 @@ and render-server field animation, blurred header and native scrolling.
   `PaneHeaderView` (HeaderBar's avatar and pill inside the pane),
   `HomeMedia` (attachment bubble pictures as `file:` assets MessagesLab's
   row drawing reads: local files first, else `HomeStoreBinding.fetchAttachment`),
+  `HomeFileCard` (a file attachment as a neutral card on either side, close to
+  Messages': the type's system icon and localized kind, the name shortened in
+  the middle with its extension kept; RowDrawing, Layout and `RowDraw.needsFill`
+  hand file rows to it),
   `HomeVideo` (inline video: lane 16's `VideoPlayback` players placed in
   MessagesLab's video bubbles under the bubble mask, with RowDrawing's play
   disc while paused), `CmuxStrings` (Resources/CmuxHome.xcstrings),
@@ -125,6 +129,12 @@ and render-server field animation, blurred header and native scrolling.
   (the public view).
 
 ## Blocker patches
+
+Home activity is the Messages typing indicator: three staggered dots that pulse on the
+render server inside a breathing bubble. Reduce Motion and the host's Home motion gate
+(`MessagesLabHomeView.holdsTypingStill`) hold them still; ending typing and recycling a row
+remove the loops. `MessagesLabHomeTests/TypingDotsTests` exercises the actual native Home view.
+
 
 | file | why |
 | --- | --- |
@@ -146,12 +156,14 @@ and render-server field animation, blurred header and native scrolling.
 | GlassKeyFix | the over-blend images are built by appending, not by index subscripts (crash ratchet: no new index_subscript hit in MessagesLabHome) |
 | Compose, Transcript, SidebarDrawing (sidebar) | Reduce Motion (cx-sya4n: nothing loops): the caret holds solid, the typing dots stand at one phase and the typing bubble does not breathe (`MessagesLabHomeView.reduceMotionOverride` / `CmuxSidebarView.reduceMotionOverride`: cmux-next mirrors its `Motion.reduceMotionOverride`; nil reads the system setting). `startBlink` is not private, and a running pulse or breath stops in the still branches; the cmux hosts (`MessagesLabHomeView`, `CmuxSidebarView`) observe the system setting and the pins and re-apply them to loops already running |
 | Compose | `onPastePasteboard`: the field's paste reaches the host's attachment intake first (Home's type rule, prepared by HomeStore) |
+| Compose | `pasteTextBesideAttachments`: the words a taken paste carries beside its attachments go in at the caret; `writeSelection(to:types:)` with `draftAttachmentFile`: Copy, Cut and a drag of a selection holding attachments write the words without U+FFFC marks, then the files (`Cmux/ComposeSelectionCopy.swift`) |
 | Layout | `code` runs draw monospaced with one font held for the process (`HomeFonts.code`: a font made per run on the row render threads came back nil and crashed) |
 | LinkPreviews | the cache lives in the app's own caches folder (`<bundle id>/link-previews`), not MessagesLab's |
 | ComposeAttachments | the image placeholder and file tile fill use the theme's chip fill on a light theme (a dark theme keeps the measured white) |
 | Fixture | the gradient mix falls back to the measured blue when a colour cannot convert (never reads components of an unconverted colour; the Markdown getWhite fix is upstream as 40b9869) |
 | SidebarView (sidebar) | Messages' pin drags (reorder a pinned tile, drag it onto the list to unpin, drag a row into the grid to pin it there, Escape cancels): the mouse-down hands off to `Cmux/SidebarPinDragging.swift`, a reload lets the drag follow or the drop land, and the tile layers, render context and avatar cache are readable by that file (the drag copies the drawn tile's parts, so it works on single-bitmap and layered tiles); upstream ask |
 | SidebarView, SidebarModel, SidebarDrawing (sidebar) | Home's neutral selection (`CmuxSidebarView.neutralSelection`, the user 2026-10-18: no blue in the list): the selected row or pinned tile takes the unemphasized grey in every window state, its text keeps the label colour, an unselected pinned name is secondary grey (`SidebarPalette.pinName`), the unread dot and the bell/failed glyphs keep their colours. `roundFilterSide`: the host draws the filter button as a round button of that side with the plain filter glyph (Messages' toolbar buttons); nil keeps the 26 pt accessory button. `neutralFill`: the neutral selection's fill is the host's translucent theme tint (Leo 2026-10-19: not an opaque grey slab), and in the compact list the selected row or tile is a disc behind the avatar |
+| SidebarDrawing (sidebar) | an emoji avatar (a Chief's 🫡) is centered on its disc by its drawn box, not its advance, at 60 % of the diameter on a tile and a row alike (`SidebarDraw.emoji`; set at half the disc it filled 47 % of the tile's and 52 % of the row's, the user 2026-10-20). 🫡's own art is cut at its right by the macOS 27 emoji font, whichever way it is drawn |
 | SidebarView (sidebar) | `headerLayout`: the host lays out the header row (search, its own buttons) and says where the list starts (`CmuxSidebarView.layoutHeader`; Home's one-row header, `HomeSidebarHeaderLayout`); the search field is `CmuxSidebarSearchField`, which reports focus so the host draws its own ring and caret instead of AppKit's system blue |
 | FlightRecorder | the app's policy and log folder (`HomeFlightRecorder`), window captures behind their own opt-in, the pane's optional window (attached from `ChatController.windowChanged`, observers replaced), FlashCheck/LiveProbes/Bench/LiveRecord helpers from `HomeFlightRecorder` |
 | WindowView | a crisp send (7924f00 `crispSends`) also takes the soft edge when its message is delivered, read or failed in the new state, whatever the action (newest 256 messages read): Home sends one status per update (`HomeDiff.keepNewestStatus`) and a rebuild's `replaceWindow` carries statuses with no status action, so a send delivered together with a newer one, or in a rebuild, stayed crisp. Upstream ask (hq-34) |

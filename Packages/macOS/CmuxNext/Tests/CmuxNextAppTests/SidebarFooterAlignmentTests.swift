@@ -77,15 +77,37 @@ import Testing
             #expect(abs(title.midY - circle.midY) <= 0.5, "name \(title) off the avatar's center \(circle)")
         }
 
-        // The avatar fills its square but a hairline, as big as the Search button's glyph box reads
-        // (Leo 2026-10-21: "make the icon slightly bigger"), and the Search button sits flush
-        // against that square: the two controls' own insets are the gap, as a toolbar's buttons.
-        #expect(abs(circle.width - (chip.height - Metrics.space1)) <= 0.25, "avatar \(circle) in its square \(chip)")
+        // The avatar is the sidebar's icon box (16 pt at compact), as before #23757 (Lawrence
+        // 2026-10-21: "bottom footer thing too big, revert to old icon sizes"), centered in its
+        // square, and the Search button sits flush against that square: the two controls' own
+        // insets are the gap, as a toolbar's buttons.
+        #expect(abs(circle.width - SidebarStyle.iconBox) <= 0.25, "avatar \(circle) is not the icon box \(SidebarStyle.iconBox)")
+        #expect(abs(circle.midX - chip.midX) <= 0.25, "avatar \(circle) off its square's center \(chip)")
         #expect(abs(search.minX - chip.maxX) <= 0.25, "search \(search) flush after the avatar's square \(chip)")
 
         // The line's taller control ends exactly the bottom margin above the window's edge (flipped: maxY is the bottom).
         let lineBottom = max(search.maxY, chip.maxY)
         let floor = h.sidebar.bounds.maxY - SidebarStyle.bottomInset
         #expect(abs(lineBottom - floor) <= 0.25, "the footer line ends at \(lineBottom), the margin at \(floor)")
+    }
+
+    /// Compact footer is one slim row: the pinned line is the sidebar row's height with no extra
+    /// padding under it (the Search button is the row's height too), so the whole bottom stack
+    /// from the list's edge to the window's bottom is the row plus the margin.
+    @Test(arguments: cases) func theFooterIsOneRowWithNoPaddingUnderIt(_ c: Case) async throws {
+        let saved = DesignSettings.shared.sidebarSections.density
+        DesignSettings.shared.sidebarSections.density = c.density
+        defer { DesignSettings.shared.sidebarSections.density = saved }
+        let h = await make(width: c.width)
+        defer { h.window.close() }
+        _ = try #require(h.sidebar.footerBand.profileControl?.view)
+        let line = h.sidebar.footerRegion.frame
+        let rowHeight = Metrics.sidebarRowHeight
+        // Half a point of slack for the lens drop (one device pixel).
+        #expect(line.height <= rowHeight + 0.5, "footer line \(line.height) pt is taller than the row \(rowHeight) pt")
+        let reserve = h.sidebar.bounds.maxY - line.minY
+        // The margin is the 4 pt grid step (Metrics.space2 at compact), was 8 pt (space4).
+        #expect(SidebarStyle.bottomInset == Metrics.space2, "margin \(SidebarStyle.bottomInset) pt is not the 4 pt step \(Metrics.space2)")
+        #expect(reserve <= rowHeight + Metrics.space2 + 0.5, "bottom reserve \(reserve) pt exceeds row + 4 pt margin")
     }
 }

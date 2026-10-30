@@ -29,7 +29,7 @@ public nonisolated struct PageEnginePolicy: Sendable, Hashable {
     ///   - chromiumAvailable: Whether Chromium can host a page now.
     ///   - chromiumServes: Whether Chromium's page scheme serves the page; true by default, for a
     ///     caller that only asks about the setting and the page's own blockers.
-    ///   - liveWebOverride: Whether a live web override is in force (Debug and NIGHTLY only).
+    ///   - liveWebOverride: Whether a live web override is in force (Debug, NIGHTLY and cmux NEXT DEV only).
     public init(preference: BrowserDefaultEngine, chromiumAvailable: Bool, chromiumServes: Bool = true,
                 liveWebOverride: Bool = false) {
         self.preference = preference

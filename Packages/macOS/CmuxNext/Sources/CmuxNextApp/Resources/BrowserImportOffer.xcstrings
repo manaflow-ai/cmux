@@ -1,6 +1,138 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "browserImportOffer.turnedOff": {
+      "comment": "Refusal shown when an Import from Browser action runs while browser.import.enabled is off.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import from Browser is turned off in Settings > Browser."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستيراد من المتصفح متوقف في الإعدادات > المتصفح."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uvoz iz preglednika je isključen u Postavke > Preglednik."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importér fra browser er slået fra i Indstillinger > Browser."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Aus Browser importieren“ ist in Einstellungen > Browser ausgeschaltet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importar desde el navegador está desactivado en Ajustes > Navegador."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importer depuis le navigateur est désactivé dans Réglages > Navigateur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importa da browser è disattivato in Impostazioni > Browser."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「ブラウザから読み込む」は 設定 > ブラウザ でオフになっています。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នាំចូលពីកម្មវិធីរុករក ត្រូវបានបិទនៅក្នុង ការកំណត់ > កម្មវិធីរុករក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'브라우저에서 가져오기'가 설정 > 브라우저에서 꺼져 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importer fra nettleser er slått av i Innstillinger > Nettleser."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importuj z przeglądarki jest wyłączone w Ustawienia > Przeglądarka."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importar do navegador está desativado em Ajustes > Navegador."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Импорт из браузера» выключен в разделе Настройки > Браузер."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "นำเข้าจากเบราว์เซอร์ ถูกปิดอยู่ใน การตั้งค่า > เบราว์เซอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarayıcıdan İçe Aktar, Ayarlar > Tarayıcı bölümünde kapalı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Імпорт з браузера» вимкнено в Налаштування > Браузер."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhập từ trình duyệt đang tắt trong Cài đặt > Trình duyệt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“从浏览器导入”已在“设置 > 浏览器”中关闭。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「從瀏覽器匯入」已在「設定 > 瀏覽器」中關閉。"
+          }
+        }
+      }
+    },
     "browserImportOffer.title": {
       "comment": "Browser-data import offer on the first browser tab: title. %@ is the detected browser, for example Google Chrome.",
       "extractionState": "manual",

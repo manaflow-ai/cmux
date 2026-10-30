@@ -1,5 +1,6 @@
 public import CmuxTheme
 public import Foundation
+public import CmuxNextDesignTokens
 
 /// The card fill a floating surface may lay on its glass (`makeOverlayPanel(cardFill:
 /// true)`; the web pages' `--cmux-card-tint`). No native overlay uses it since Leo

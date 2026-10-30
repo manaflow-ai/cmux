@@ -182,7 +182,7 @@ describe("Cloud VM memory allowance", () => {
 });
 
 describe("active-limit response as the paywall moment", () => {
-  test("a zero-allowance free plan is told Cloud VMs require a cmux Pro subscription", async () => {
+  test("a zero-allowance free plan is told Cloud VMs require a cmux Go plan", async () => {
     const response = await vmActiveLimitExceededResponse({
       limit: 0,
       planId: "free",
@@ -191,10 +191,10 @@ describe("active-limit response as the paywall moment", () => {
     expect(response.status).toBe(402);
     const payload = await body(response);
     expect(payload.error).toBe("vm_active_limit_exceeded");
-    expect(payload.message).toBe("Cloud VMs require a cmux Pro subscription.");
-    expect(String(payload.action)).toContain("Subscribe to cmux Pro");
+    expect(payload.message).toBe("Cloud VMs require a cmux Go plan.");
+    expect(String(payload.action)).toContain("Upgrade to cmux Go");
     expect(String(payload.action)).not.toContain("up to");
-    expect(String(payload.action)).not.toContain("cmux vm rm");
+    expect(String(payload.action)).not.toContain("cmux cloud kill-machine --target machine:");
     expect(payload.upgradeRequired).toBe(true);
     expect(payload.upgradeUrl).toBe("https://cmux.com/pricing");
   });
@@ -209,7 +209,7 @@ describe("active-limit response as the paywall moment", () => {
     const payload = await body(response);
     expect(payload.error).toBe("vm_active_limit_exceeded");
     expect(payload.message).toContain("free plan includes 3 Cloud VMs");
-    expect(String(payload.action)).toContain("Upgrade to cmux Pro");
+    expect(String(payload.action)).toContain("https://cmux.com/pricing");
     expect(String(payload.action)).toContain("https://cmux.com/pricing");
     expect(payload.upgradeRequired).toBe(true);
     expect(payload.upgradeUrl).toBe("https://cmux.com/pricing");
@@ -219,13 +219,13 @@ describe("active-limit response as the paywall moment", () => {
     const response = await vmActiveLimitExceededResponse({
       limit: 10,
       planId: "pro",
-      retryAction: "Run `cmux vm ls`, then stop or delete an active VM.",
+      retryAction: "Run `cmux cloud list-machines`, then stop or delete an active VM.",
     });
     expect(response.status).toBe(402);
     const payload = await body(response);
     expect(payload.error).toBe("vm_active_limit_exceeded");
     expect(payload.message).toContain("10 active Cloud VMs");
-    expect(String(payload.action)).toContain("cmux vm ls");
+    expect(String(payload.action)).toContain("cmux cloud list-machines");
     expect(payload.upgradeRequired).toBeUndefined();
   });
 
@@ -311,7 +311,8 @@ describe("free access window", () => {
     expect(payload.message).toContain("5 days");
     expect(payload.message).toContain("preserved");
     expect(String(payload.action)).toContain("https://cmux.com/pricing");
-    expect(String(payload.action)).toContain("cmux vm rm noble-wren");
+    expect(String(payload.action)).toContain("cmux cloud kill-machine --target machine:noble-wren --confirm");
+    expect(String(payload.action)).not.toContain("Pro");
     expect(payload.upgradeRequired).toBe(true);
     expect(payload.upgradeUrl).toBe("https://cmux.com/pricing");
   });

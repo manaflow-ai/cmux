@@ -22,12 +22,13 @@ pub(crate) fn write_bounded(
     let mut delivered = 0;
     let result = (|| {
         let mut nonblocking = NonblockingFdGuard::install(fd)?;
-        let deadline = Instant::now() + timeout;
+        // A timeout too large to represent never expires.
+        let deadline = Instant::now().checked_add(timeout);
         while delivered < bytes.len() {
-            if Instant::now() >= deadline {
+            if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
                 return Err(io::Error::new(io::ErrorKind::TimedOut, timeout_message));
             }
-            let remaining = &bytes[delivered..];
+            let Some(remaining) = bytes.get(delivered..) else { break };
             let written = unsafe { libc::write(fd, remaining.as_ptr().cast(), remaining.len()) };
             if written > 0 {
                 delivered += written as usize;
@@ -43,7 +44,8 @@ pub(crate) fn write_bounded(
             if error.kind() != io::ErrorKind::WouldBlock {
                 return Err(error);
             }
-            let wait = deadline.saturating_duration_since(Instant::now());
+            let wait = deadline
+                .map_or(timeout, |deadline| deadline.saturating_duration_since(Instant::now()));
             if wait.is_zero() {
                 return Err(io::Error::new(io::ErrorKind::TimedOut, timeout_message));
             }

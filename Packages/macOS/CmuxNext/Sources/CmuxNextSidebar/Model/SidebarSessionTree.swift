@@ -116,11 +116,34 @@ public nonisolated struct SidebarSessionTreeState: Hashable, Sendable {
     /// A child workspace to the workspace whose session started it.
     public var parents: [WorkspaceID: WorkspaceID]
     public var pullRequests: [WorkspaceID: SidebarPullRequestBadge]
+    /// What each workspace's agents are doing, as acpmux decided it (the lanes); a workspace
+    /// without a lane is read from its own row (`SidebarAgentState.of`).
+    public var states: [WorkspaceID: SidebarAgentState]
+    /// Parents whose subtree the user folded: their descendants draw as the parent's roll-up.
+    public var collapsed: Set<WorkspaceID>
 
-    public init(parents: [WorkspaceID: WorkspaceID] = [:], pullRequests: [WorkspaceID: SidebarPullRequestBadge] = [:]) {
+    public init(parents: [WorkspaceID: WorkspaceID] = [:], pullRequests: [WorkspaceID: SidebarPullRequestBadge] = [:],
+                states: [WorkspaceID: SidebarAgentState] = [:], collapsed: Set<WorkspaceID> = []) {
         self.parents = parents
         self.pullRequests = pullRequests
+        self.states = states
+        self.collapsed = collapsed
     }
+
+    /// Whether a folded ancestor hides `id` (its roll-up counts it).
+    public func hidesInFold(_ id: WorkspaceID) -> Bool {
+        guard !collapsed.isEmpty else { return false }
+        var seen: Set<WorkspaceID> = [id]
+        var current = id
+        while let parent = parents[current], seen.insert(parent).inserted {
+            if collapsed.contains(parent) { return true }
+            current = parent
+        }
+        return false
+    }
+
+    /// What the order and the Command-numbers need: the parents and the folds.
+    public var shape: SidebarSessionTreeState { SidebarSessionTreeState(parents: parents, collapsed: collapsed) }
 }
 
 /// The session tree's live state; nil while `sidebar.sessionTree` is off, so the list draws as
@@ -132,6 +155,55 @@ public final class SidebarSessionTree {
     public var state: SidebarSessionTreeState?
     /// Every row's pull request badge (`sidebar.pullRequestBadges`), with the tree on or off.
     public var pullRequests: [WorkspaceID: SidebarPullRequestBadge] = [:]
+    /// The parents the user folded (a chevron on the row), kept across launches.
+    public private(set) var collapsed: Set<WorkspaceID>
+    @ObservationIgnored private let defaults: UserDefaults
 
-    public init() {}
+    public init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        collapsed = Set((defaults.stringArray(forKey: Self.collapsedKey) ?? []).map(WorkspaceID.init))
+    }
+
+    /// What the list draws: the live state with the user's folds; nil while the tree is off.
+    public var drawn: SidebarSessionTreeState? {
+        state.map { live in
+            var drawn = live
+            drawn.collapsed = collapsed
+            return drawn
+        }
+    }
+
+    /// Folds or opens the subtree under `id`.
+    public func toggle(_ id: WorkspaceID) {
+        if collapsed.remove(id) == nil { collapsed.insert(id) }
+        save()
+    }
+
+    /// Opens every fold above `id` (a selected session, or one the needs-you tray goes to).
+    public func reveal(_ id: WorkspaceID) {
+        var seen: Set<WorkspaceID> = [id]
+        var current = id, opened = collapsed
+        while let parent = state?.parents[current], seen.insert(parent).inserted {
+            opened.remove(parent)
+            current = parent
+        }
+        guard opened != collapsed else { return }
+        collapsed = opened
+        save(pruning: false)
+    }
+
+    /// Saves the folds, dropping each one that is no longer a parent in the live tree (a closed
+    /// workspace, or one whose sub-sessions ended), so the saved list never outgrows the tree. It
+    /// prunes only on the user's own fold while the tree has parents: before the first pass every
+    /// fold is kept, and `reveal` (which runs for the restored selection at launch, while the lanes
+    /// may still be loading) never prunes.
+    private func save(pruning: Bool = true) {
+        if pruning, let parents = state?.parents, !parents.isEmpty {
+            let live = Set(parents.values)
+            collapsed = collapsed.filter(live.contains)
+        }
+        defaults.set(collapsed.map(\.rawValue).sorted(), forKey: Self.collapsedKey)
+    }
+
+    static let collapsedKey = "sidebar.sessionTree.collapsed"
 }

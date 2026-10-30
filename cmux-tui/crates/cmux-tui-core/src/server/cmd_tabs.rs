@@ -167,7 +167,7 @@ pub(super) fn move_tab_to_new_workspace(
     let (key, workspace_index) = mux
         .with_state(|state| {
             let index = state.workspace_index(workspace)?;
-            Some((state.workspaces[index].key.clone(), index))
+            Some((state.workspaces.get(index)?.key.clone(), index))
         })
         .ok_or_else(|| anyhow::anyhow!("new workspace disappeared"))?;
     let (_, pane) = surface_placement(mux, surface);
@@ -556,7 +556,8 @@ pub(super) fn surface_placement(
         let pane = state.pane_of(surface);
         let workspace = pane
             .and_then(|pane| state.screen_of(pane))
-            .map(|(workspace, _)| state.workspaces[workspace].id);
+            .and_then(|(workspace, _)| state.workspaces.get(workspace))
+            .map(|workspace| workspace.id);
         (workspace, pane)
     })
 }

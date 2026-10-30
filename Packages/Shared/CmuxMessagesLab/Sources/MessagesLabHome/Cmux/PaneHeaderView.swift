@@ -39,8 +39,22 @@ final class PaneHeaderView: NSView {
             needsLayout = true
         }
     }
+    /// cmux: who else has the conversation open (chat multiplayer), beside the name pill; empty
+    /// shows none. `facesLabel` is what VoiceOver reads for them (the host's localized words).
+    let facesView = PaneHeaderFacesView()
+    var faces: [PaneHeaderFace] {
+        get { facesView.faces }
+        set { facesView.faces = newValue; needsLayout = true }
+    }
+    var facesLabel: String = "" { didSet { facesView.setAccessibilityLabel(facesLabel) } }
+    /// The gap between the name pill and the faces.
+    static let facesGap: CGFloat = 8
     /// The accessory's distance from the header's trailing edge.
     static let trailingInset: CGFloat = 12
+    /// cmux: Home's chat with no header (`HostView.useBareTop`): no avatar and no name pill; only
+    /// the accessory shows, `bareAccessoryTop` under the pane's top.
+    var bare = false { didSet { if bare != oldValue { applyTitle() } } }
+    static let bareAccessoryTop: CGFloat = 8
 
     static let avatarSize: CGFloat = 40
     static let avatarTop: CGFloat = 8
@@ -71,6 +85,9 @@ final class PaneHeaderView: NSView {
         pill.target = self
         pill.action = #selector(contactClicked)
         addSubview(pill)
+        facesView.setAccessibilityElement(true)
+        facesView.setAccessibilityRole(.group)
+        addSubview(facesView)
         applyTitle()
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -82,12 +99,15 @@ final class PaneHeaderView: NSView {
     /// drags the window (cmux: Messages' header is its toolbar, so a drag
     /// there moves the window; the scroll view starts below the header). The
     /// accessory's own gaps drag too (its hit test finds no control there).
+    /// Bare (Home with no header, `useBareTop`), only the accessory's controls take clicks: the rows
+    /// under the rest of it keep theirs.
     override func hitTest(_ point: NSPoint) -> NSView? {
+        guard !isHidden else { return nil }
         let p = convert(point, from: superview)
         if pill.frame.contains(p) && !pill.isHidden { return pill }
         if let accessory = trailingAccessory, !accessory.isHidden, accessory.frame.contains(p),
            let hit = accessory.hitTest(p), hit !== accessory { return hit }
-        return bounds.contains(p) ? self : nil
+        return bounds.contains(p) && !bare ? self : nil
     }
 
     override var mouseDownCanMoveWindow: Bool { true }
@@ -120,6 +140,7 @@ final class PaneHeaderView: NSView {
         pillGlass?.frame = pillBacking.bounds
         pillGlass?.cornerRadius = h / 2
         layoutTrailingAccessory()
+        layoutFaces()
     }
 
     /// The accessory at its intrinsic size (else its own frame size), centered on the avatar's line at the trailing edge;
@@ -130,18 +151,30 @@ final class PaneHeaderView: NSView {
         let size = CGSize(width: intrinsic.width == NSView.noIntrinsicMetric ? accessory.frame.width : intrinsic.width,
                           height: intrinsic.height == NSView.noIntrinsicMetric ? accessory.frame.height : intrinsic.height)
         let centerY = PaneHeaderView.avatarTop + PaneHeaderView.avatarSize / 2
-        let frame = CGRect(x: bounds.width - PaneHeaderView.trailingInset - size.width, y: centerY - size.height / 2,
+        let top = bare ? PaneHeaderView.bareAccessoryTop : centerY - size.height / 2
+        let frame = CGRect(x: bounds.width - PaneHeaderView.trailingInset - size.width, y: top,
                            width: size.width, height: size.height)
         if accessory.frame != frame { accessory.frame = frame }
         let avatarFrame = CGRect(x: (bounds.width - PaneHeaderView.avatarSize) / 2, y: PaneHeaderView.avatarTop,
                                  width: PaneHeaderView.avatarSize, height: PaneHeaderView.avatarSize)
-        accessory.isHidden = frame.minX < avatarFrame.maxX + 8
+        accessory.isHidden = bare ? frame.minX < 0 : frame.minX < avatarFrame.maxX + 8
+    }
+
+    /// The faces after the name pill, centered on its line; hidden with the pill, with nobody else
+    /// here, or in a pane too narrow to keep them clear of the trailing accessory.
+    private func layoutFaces() {
+        let size = facesView.intrinsicContentSize
+        let frame = CGRect(x: pill.frame.maxX + PaneHeaderView.facesGap, y: PaneHeaderView.pillCenterY - size.height / 2,
+                           width: size.width, height: size.height)
+        if facesView.frame != frame { facesView.frame = frame }
+        let limit = trailingAccessory.flatMap { $0.isHidden ? nil : $0.frame.minX - 8 } ?? bounds.width - PaneHeaderView.trailingInset
+        facesView.isHidden = pill.isHidden || faces.isEmpty || frame.maxX > limit
     }
 
     private func applyTitle() {
         pill.title = title
-        pill.isHidden = title.isEmpty
-        avatar.isHidden = title.isEmpty
+        pill.isHidden = bare || title.isEmpty
+        avatar.isHidden = pill.isHidden
         pill.setAccessibilityLabel(String(format: NativeStrings.contactFormat, title))
         pill.toolTip = pill.accessibilityLabel()
         avatar.setAccessibilityLabel(title)

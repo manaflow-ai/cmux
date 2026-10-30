@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import os
 
@@ -13,7 +14,7 @@ import os
 ///   sender's own context for `location.href` and `window === window.top` (both unforgeable), and
 ///   ``PageHostTrust`` checks them as for WebKit.
 /// - Replies go back into the sender's context only (`__cmuxPageHostResolve(seq, reply)`).
-/// - ``evaluate(_:)`` runs scripts in order, one at a time.
+/// - ``evaluate(_:)`` runs scripts in order; the ones queued together go in one `Runtime.evaluate`.
 @MainActor
 public final class ChromiumPageHostBridge: PageHostBridge {
     public let engine = PageHostEngine.cef
@@ -38,6 +39,9 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     private var draining = false
     /// Number of messages answered (tests wait on it).
     public private(set) var answered = 0
+    /// Binding calls waiting for their parse off the main actor, in arrival order.
+    private var inbox: AsyncStream<String>.Continuation?
+    private var reading: Task<Void, Never>?
 
     /// - Parameters:
     ///   - page: The Chromium page.
@@ -87,13 +91,44 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     private func drain() async {
         defer { draining = false }
         while !scripts.isEmpty {
-            let script = scripts.removeFirst()
             guard let page else {
                 scripts.removeAll()
                 return
             }
-            _ = try? await page.devTools("Runtime.evaluate", params: ["expression": script, "silent": true])
+            // Everything queued so far goes in one round trip (a streaming reply queues one push per
+            // frame); scripts queued while it runs go in the next.
+            let batch = takeBatch()
+            _ = try? await page.devTools("Runtime.evaluate", params: ["expression": Self.batch(batch), "silent": true])
         }
+    }
+
+    /// The scripts at the head of the queue, up to ``maximumBatchBytes`` (at least one).
+    private func takeBatch() -> [String] {
+        var bytes = 0
+        var count = 0
+        for script in scripts {
+            bytes += script.utf8.count
+            if count > 0, bytes > Self.maximumBatchBytes { break }
+            count += 1
+        }
+        defer { scripts.removeFirst(count) }
+        return Array(scripts.prefix(count))
+    }
+
+    /// The most script bytes sent in one `Runtime.evaluate`.
+    nonisolated static let maximumBatchBytes = 2 << 20
+
+    /// One expression that runs `scripts` in order, each in its own block, so that one that throws
+    /// does not stop the ones after it (as separate evaluations did) and their declarations do not meet.
+    /// A single script is sent as it is.
+    nonisolated static func batch(_ scripts: [String]) -> String {
+        guard scripts.count > 1 else { return scripts.first ?? "" }
+        return scripts.map { "try {\n\($0)\n} catch (e) { console.error(e) }" }.joined(separator: "\n")
+    }
+
+    nonisolated deinit {
+        inbox?.finish()
+        reading?.cancel()
     }
 
     public func uninstall() {
@@ -103,19 +138,58 @@ public final class ChromiumPageHostBridge: PageHostBridge {
 
     // MARK: Messages
 
-    /// Handles one raw DevTools message of the page: true when it was this bridge's binding call.
+    /// Handles one raw DevTools message of the page: true when it is a binding call for this
+    /// bridge. The method and binding name come from the message's bytes on the caller's actor;
+    /// the event and its payload (up to ``maximumPayloadBytes`` of JSON) are parsed off the main
+    /// actor, and the calls are answered in the order they arrived.
     @discardableResult
     public func receive(devToolsMessage json: String) -> Bool {
-        guard json.contains(Self.bindingName), let call = ChromiumPageHostWire.BindingCall(event: json),
-              call.name == Self.bindingName else { return false }
-        guard call.payload.utf8.count <= Self.maximumPayloadBytes,
-              let message = ChromiumPageHostWire.Message(payload: call.payload) else {
-            logger.error("page host binding payload refused")
-            return true
-        }
-        // task-owner: one message; its reply goes back to the context that sent it
-        Task { [weak self] in await self?.answer(message, context: call.contextID) }
+        let head = DevToolsMessageHead(json: json)
+        guard head.method == "Runtime.bindingCalled", head.contains(Self.bindingName) else { return false }
+        if inbox == nil { startReading() }
+        if case .dropped = inbox?.yield(json) { logger.error("page host binding call dropped: \(Self.maximumWaitingCalls) wait for their parse") }
         return true
+    }
+
+    /// The most binding calls that wait for their parse; a page that posts faster loses the newest.
+    nonisolated static let maximumWaitingCalls = 4096
+
+    private func startReading() {
+        let (calls, inbox) = AsyncStream<String>.makeStream(bufferingPolicy: .bufferingOldest(Self.maximumWaitingCalls))
+        self.inbox = inbox
+        // task-owner: the bridge's binding-call reader; deinit finishes its stream and cancels it
+        reading = Task { [weak self] in
+            for await json in calls {
+                let parsed = await Self.parse(json)
+                guard let self else { return }
+                switch parsed {
+                case .call(let message, let context):
+                    // task-owner: one message; its reply goes back to the context that sent it
+                    Task { [weak self] in await self?.answer(message, context: context) }
+                case .refused:
+                    logger.error("page host binding payload refused")
+                case .other:
+                    break
+                }
+            }
+        }
+    }
+
+    /// A binding call, parsed off the caller's actor.
+    private nonisolated enum ParsedCall {
+        case call(ChromiumPageHostWire.Message, context: Int)
+        case refused
+        /// Another binding's call, or no binding call at all.
+        case other
+    }
+
+    /// The parse makes its result and keeps no reference to it, so the result is `sending`.
+    @concurrent
+    private nonisolated static func parse(_ json: String) async -> sending ParsedCall {
+        guard let call = ChromiumPageHostWire.BindingCall(event: json), call.name == bindingName else { return .other }
+        guard call.payload.utf8.count <= maximumPayloadBytes,
+              let message = ChromiumPageHostWire.Message(payload: call.payload) else { return .refused }
+        return .call(message, context: call.contextID)
     }
 
     private func answer(_ message: ChromiumPageHostWire.Message, context: Int) async {

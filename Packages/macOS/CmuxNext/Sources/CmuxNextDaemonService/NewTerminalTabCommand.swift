@@ -25,7 +25,7 @@ public struct NewTerminalTabCommand: Sendable {
     /// Whether `daemon` takes the optimistic create: it accepts a caller-chosen terminal id
     /// (`terminal-placement-env-v1`), which is what names the daemon's tab as this one.
     @MainActor public func isOptimistic(on daemon: DaemonService) -> Bool {
-        daemon.supports(DaemonCapabilities.shared.terminalPlacementEnv)
+        daemon.supports(DaemonCapability.terminalPlacementEnv.rawValue)
     }
 
     /// The provisional tab, and the work that sends `new-tab`.

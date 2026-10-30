@@ -31,11 +31,13 @@ import { serverOps } from "./server-ops.ts"
 import { hostNetworkOps } from "./host-network-ops.ts"
 import { usageOps } from "./usage.ts"
 import { teamAiLimitOps } from "./team-ai-limit-ops.ts"
+import { teamGroupOps } from "./team-group-ops.ts"
 import { UserTeamsList } from "./team-member-ops.ts"
 import { teamVmOps } from "./team-vm-ops.ts"
 import { teamMemberOps } from "./team-member-ops.ts"
 import { teamSshOps } from "./team-ssh-ops.ts"
 import { cloudMachineOps } from "./cloud-machine-ops.ts"
+import { cloudEnvironmentOps } from "./cloud-environment-ops.ts"
 import { cloudVmOps } from "./cloud-vm-ops.ts"
 
 export { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
@@ -269,8 +271,10 @@ export const cloudOps = [
   ...teamVmOps,
   ...teamMemberOps,
   ...teamAiLimitOps,
+  ...teamGroupOps,
   ...teamSshOps,
   ...cloudMachineOps,
+  ...cloudEnvironmentOps,
   ...cloudVmOps,
   ...homeOps
 ] as const

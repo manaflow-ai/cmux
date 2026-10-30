@@ -4,6 +4,15 @@
 // and can take a shortcut in cmux.json; none has a default shortcut.
 
 nonisolated enum ExtensionActionCatalog: ActionCatalogGroup {
+    /// The browser profile whose extensions page or Web Store opens
+    /// (extensions are per profile, as in Chrome); absent: the profile of the
+    /// tab that asked.
+    static var optionalBrowserProfile: ActionArgument {
+        var argument = CatalogArgument.browserProfile
+        argument.isRequired = false
+        return argument
+    }
+
     static func descriptors() -> [ActionDescriptor] {
         let keywords = ["extension", "extensions", "chrome", "chromium", "addon", "plugin"]
         func descriptor(
@@ -22,9 +31,9 @@ nonisolated enum ExtensionActionCatalog: ActionCatalogGroup {
             descriptor("browser.extensions.menu", String(localized: "action.extensions.menu", defaultValue: "Extensions…", table: "Extensions", bundle: .module), "puzzlepiece.extension",
                        "extension menu", extra: ["toolbar", "puzzle"], arguments: []),
             descriptor("browser.extensions.manage", String(localized: "action.extensions.manage", defaultValue: "Manage Extensions", table: "Extensions", bundle: .module), "puzzlepiece",
-                       "extension manage", extra: ["settings", "list"], arguments: []),
+                       "extension manage", extra: ["settings", "list"], arguments: [Self.optionalBrowserProfile]),
             descriptor("browser.extensions.webStore", String(localized: "action.extensions.webStore", defaultValue: "Open Chrome Web Store", table: "Extensions", bundle: .module), "bag",
-                       "extension web-store", extra: ["install", "store", "add"], arguments: []),
+                       "extension web-store", extra: ["install", "store", "add"], arguments: [Self.optionalBrowserProfile]),
             {
                 var loadUnpacked = descriptor(
                     "browser.extensions.loadUnpacked",

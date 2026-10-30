@@ -12,7 +12,7 @@ public struct NewRemoteTerminalTabRequest: DaemonRequest {
         }
     }
     public static let command = "new-remote-terminal-tab"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.remoteTerminalTabs
+    public static let requiredCapability: String? = DaemonCapability.remoteTerminalTabs.rawValue
     public var pane: PaneID?
     public var sessionID: String
     public var terminalID: TerminalID
@@ -40,7 +40,7 @@ public struct UpdateRemoteTerminalTabRequest: DaemonRequest {
         public var changed: Bool
     }
     public static let command = "update-remote-terminal-tab"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.remoteTerminalTabs
+    public static let requiredCapability: String? = DaemonCapability.remoteTerminalTabs.rawValue
     /// The daemon's bound on `snapshot` (UTF-8 bytes).
     public static let snapshotLimit = 65_536
     public var surface: SurfaceID
@@ -84,7 +84,7 @@ public struct RemoteTerminalSnapshotRequest: DaemonRequest {
         public var snapshot: String?
     }
     public static let command = "remote-terminal-snapshot"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.remoteTerminalTabs
+    public static let requiredCapability: String? = DaemonCapability.remoteTerminalTabs.rawValue
     public var surface: SurfaceID
 
     public init(surface: SurfaceID) { self.surface = surface }

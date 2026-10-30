@@ -1,5 +1,7 @@
 """risk_tier.py grades a pull request low, normal or high, and holds only high (for a person) and takebacks."""
+import contextlib
 import importlib.util
+import io
 import os
 import subprocess
 import sys
@@ -61,6 +63,7 @@ class ClassifyTests(unittest.TestCase):
             "Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/TokenStores/FileStackTokenStore.swift",
             "Packages/Shared/CMUXAuthCore/Sources/CMUXAuthCore/Models/Session.swift",
             NEXT + "CmuxNextApp/WebAuth/WebAuthSession.swift",
+            NEXT + "CmuxNextPopups/WebAuth/WebAuthSessionBroker.swift",
             "web/services/auth/hexclave/verify.ts",
             "cmux.nightly.entitlements",
             NEXT + "CmuxNextControl/ControlAuthorizer.swift",
@@ -345,6 +348,234 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(risk.split_diff(diff), {"a.swift": "@@ -1 +1 @@\n-x\n+y", "b.md": "@@ -0,0 +1 @@\n+z"})
 
 
+RS = "cmux-tui/crates/cmux-tui-core/src/history.rs"
+CLEANUP = "        std::fs::remove_dir_all(&dir).unwrap();"
+
+
+def hunk(old, new, lines):
+    """A unified diff hunk at these start lines; each line is (" ", "+" or "-") + text."""
+    return f"@@ -{old},{sum(l[0] != '+' for l in lines)} +{new},{sum(l[0] != '-' for l in lines)} @@\n" + "\n".join(lines)
+
+
+def context(text):
+    return [" " + line for line in text.split("\n")]
+
+
+class RustTestModuleTests(unittest.TestCase):
+    """A delete inside a Rust `#[cfg(test)] mod` is test code, like a file under tests/. Where that
+    can't be known, an added delete counts and a removed one doesn't pay for another."""
+
+    def tier(self, patch, sources=None, base_sources=None, path=RS):
+        return risk.classify([path], {path: patch}, sources, base_sources).tier
+
+    def around(self, opening):
+        """A hunk from line 1 adding the cleanup line below these lines, then a closing brace."""
+        return hunk(1, 1, context(opening) + ["+" + CLEANUP, " }"])
+
+    def test_a_delete_in_an_inline_test_module_is_not_new(self):
+        self.assertEqual(self.tier(hunk(1, 1, context("fn load() {}\n\n#[cfg(test)]\nmod tests {\n    use super::*;")
+                                         + ["+", "+    #[test]", "+    fn cleans_up() {", "+        let dir = tempdir();",
+                                            "+" + CLEANUP, "+    }", " }"])), "normal")
+        for opening in ("#[cfg(test)]\n/// Tests.\n\n#[allow(dead_code)]\npub(crate) mod tests {",
+                        "#[cfg(test)] mod tests {", "#[cfg( test )]\n#[path = \"x\"]\nmod tests {",
+                        "#[cfg(all(test, unix))]\nmod tests {",
+                        "#[cfg(test)]\n/** Tests. */\nmod tests {", "#[cfg(test)]\n/**\n * Tests.\n */\nmod tests {",
+                        "#[cfg(test)] /* a */ /* b /* c */ */ mod tests {", "#[cfg(test)]\n/* x */ #[allow(dead_code)]\nmod tests {", "#[cfg(all(target_os = \"macos\", not(windows), test))]\nmod tests {"):
+            with self.subTest(opening=opening):
+                self.assertEqual(self.tier(self.around(opening)), "normal")
+        # A new file whose test module holds the cleanup.
+        self.assertEqual(self.tier("@@ -0,0 +1,4 @@\n+#[cfg(test)]\n+mod tests {\n+" + CLEANUP + "\n+}"), "normal")
+
+    def test_the_same_delete_outside_the_test_module_is_new(self):
+        # After the module closes, in the same hunk.
+        patch = hunk(1, 1, context("#[cfg(test)]\nmod tests {\n    fn helper() { let s = \"}\"; }\n}")
+                     + ["+", "+fn prune(dir: &Path) {", "+" + CLEANUP, "+}", " fn other() {}"])
+        self.assertEqual(self.tier(patch), "high")
+        # Another hunk of the file, with no module above it.
+        self.assertEqual(self.tier(self.around("#[cfg(test)]\nmod tests {") + "\n"
+                                   + hunk(80, 81, context("fn prune() {\n    let x = 1;") + ["+" + CLEANUP, " }"])), "high")
+        # `#[cfg(test)]` on something else, a plain `mod tests`, or a cfg that isn't test-only, is product code.
+        for opening in ("#[cfg(test)]\nfn helper() {}\nmod store {", "mod tests {", "#[cfg(not(test))]\nmod tests {",
+                        "#[cfg(any(test, unix))]\nmod tests {", "#[cfg(all(unix, feature = \"test\"))]\nmod tests {",
+                        "#[cfg(all(unix /*,test,*/))]\nmod tests {", "#[cfg(all(unix, feature = \"a,test,b\"))]\nmod tests {",
+                        "#[cfg(all(any(test, unix), test2))]\nmod tests {",
+                        "#[cfg_attr(\n    test,\n    allow(dead_code))]\nmod tests {", "#[cfg(test)]\nmod tests\n{"):
+            with self.subTest(opening=opening):
+                self.assertEqual(self.tier(self.around(opening)), "high")
+
+    def test_braces_in_strings_chars_and_comments_do_not_close_the_module(self):
+        body = ["#[cfg(test)]", "mod tests {", "    fn a<'a>(x: &'a str) -> char { '}' }",
+                "    // } a comment", "    /* } /* nested } */ } */", '    const S: &str = "}\\"}";',
+                '    const R: &str = r#"} "} "#;', '    const M: &str = "line one }', '    } line two";',
+                "    fn b() { if true { match 1 { _ => {} } } }"]
+        patch = hunk(1, 1, context("\n".join(body)) + ["+" + CLEANUP, " }"])
+        self.assertEqual(self.tier(patch), "normal")
+        # Unbalanced on purpose: one brace too many closes the module before the delete.
+        self.assertEqual(self.tier(patch.replace("{} } } }", "{} } } } }")), "high")
+
+    def test_a_comment_that_ends_before_code_ends_the_attribute_search(self):
+        # The comment closes on a line that goes on with another item, so the attribute was that item's.
+        self.assertEqual(self.tier(self.around("#[cfg(test)]\n/* comment\n*/ fn helper() {}\nmod production {")), "high")
+        self.assertEqual(self.tier(self.around("#[cfg(test)]\n/* a /* b\n*/ */ fn helper() {}\nmod production {")), "high")
+        self.assertEqual(self.tier(self.around("#[cfg(test)]\n/* comment\n*/ mod tests {")), "normal")
+
+    def test_raw_c_strings_and_escaped_chars_do_not_hide_the_module_end(self):
+        for line in ('    const C: &CStr = cr#"a " { b"#;', "    const T: (char, char) = ('\\'', '{');",
+                     "    const U: char = '\\u{7B}'; const X: u8 = b'\\x7b';"):
+            with self.subTest(line=line):
+                patch = hunk(1, 1, context("#[cfg(test)]\nmod tests {\n" + line + "\n}\nfn prune(dir: &Path) {")
+                             + ["+" + CLEANUP, " }"])
+                self.assertEqual(self.tier(patch), "high")
+                inside = hunk(1, 1, context("#[cfg(test)]\nmod tests {\n" + line) + ["+" + CLEANUP, " }"])
+                self.assertEqual(self.tier(inside), "normal")
+
+    def test_a_raw_string_ends_at_its_quote_even_after_a_backslash(self):
+        patch = hunk(1, 1, context("#[cfg(test)]\nmod tests {\n    const S: &str = r\"\\\";\n}\nfn prune(dir: &Path) {")
+                     + ["+" + CLEANUP, " }"])
+        self.assertEqual(self.tier(patch), "high")
+
+    def test_code_on_the_lines_that_close_or_open_the_module_is_product_code(self):
+        # The module closes and a product function opens on one line.
+        patch = hunk(1, 1, context("#[cfg(test)]\nmod tests {\n} fn prune(dir: &Path) {") + ["+" + CLEANUP, " }"])
+        self.assertEqual(self.tier(patch), "high")
+        for line in ("mod tests { fn a() {} } fn b() { " + CLEANUP.strip() + " }",
+                     "mod tests { } " + CLEANUP.strip()):
+            with self.subTest(line=line):
+                self.assertEqual(self.tier(hunk(1, 1, [" #[cfg(test)]", "+" + line])), "high")
+
+    def test_a_hunk_that_starts_below_line_1_needs_the_file_on_its_side(self):
+        source = "\n".join(["fn prune() {}", "", "#[cfg(test)]", "mod tests {", "    use super::*;", "",
+                            "    #[test]", "    fn one() {", "        let dir = tempdir();", "    }", "",
+                            "    #[test]", "    fn two() {", "        let dir = tempdir();", CLEANUP, "    }", "}", "",
+                            "fn after() {", CLEANUP, "}"])
+        patch = hunk(9, 9, context("        let dir = tempdir();\n    }")
+                     + ["+", "+    #[test]", "+    fn two() {", "+        let dir = tempdir();", "+" + CLEANUP, "+    }", " }"])
+        # Unknown without the file, as when the read fails or the cap is reached: it counts.
+        self.assertEqual(self.tier(patch), "high")
+        self.assertEqual(self.tier(patch, {RS: source}), "normal")
+        # A file whose lines don't match the patch, or the same line after the module, still counts.
+        self.assertEqual(self.tier(patch, {RS: source.replace("fn two", "fn three")}), "high")
+        after = hunk(16, 18, context("\nfn after() {") + ["+" + CLEANUP, " }"])
+        self.assertEqual(self.tier(after, {RS: source}), "high")
+
+    def test_the_file_overrules_a_hunk_that_starts_inside_a_string(self):
+        # Read alone, this hunk sees a test module in the middle of a multi-line string.
+        source = "\n".join(["const DOC: &str = \"", "#[cfg(test)]", "mod tests {", "\";", "fn prune() {", CLEANUP, "}"])
+        patch = hunk(2, 2, context("#[cfg(test)]\nmod tests {\n\";\nfn prune() {") + ["+" + CLEANUP, " }"])
+        self.assertEqual(self.tier(patch), "high")
+        self.assertEqual(self.tier(patch, {RS: source}), "high")
+
+    def test_a_removed_test_cleanup_does_not_pay_for_a_new_product_delete(self):
+        base = "\n".join(["#[cfg(test)]", "mod tests {", "    fn a() {", CLEANUP, "    }", "}", "fn prune() {",
+                          "    let x = 1;", "}"])
+        head = base.replace("fn prune() {\n    let x = 1;", "fn prune() {\n    let x = 1;\n" + CLEANUP)
+        head = head.replace("    fn a() {\n" + CLEANUP, "    fn a() {\n" + CLEANUP + " // again")
+        patch = (hunk(3, 3, context("    fn a() {") + ["-" + CLEANUP, "+" + CLEANUP + " // again", "     }"]) + "\n"
+                 + hunk(7, 7, context("fn prune() {\n    let x = 1;") + ["+" + CLEANUP, " }"]))
+        for sources, base_sources in ((None, None), ({RS: head}, None), ({RS: head}, {RS: base})):
+            with self.subTest(head=sources is not None, base=base_sources is not None):
+                self.assertEqual(self.tier(patch, sources, base_sources), "high")
+
+    def test_a_removed_cleanup_on_a_module_edge_line_does_not_pay_for_a_new_product_delete(self):
+        # The edge lines hold test code too: removing one pays for nothing, while adding one still counts.
+        one_line = "mod tests { fn cleanup(dir: &str) { std::fs::remove_dir_all(dir).unwrap(); } }"
+        base = "\n".join(["#[cfg(test)]", one_line, "fn prune(dir: &str) {", "    let x = 1;", "}"])
+        head = "\n".join(["fn prune(dir: &str) {", "    let x = 1;", "    std::fs::remove_dir_all(dir).unwrap();", "}"])
+        patch = hunk(1, 1, ["-#[cfg(test)]", "-" + one_line] + context("fn prune(dir: &str) {\n    let x = 1;")
+                     + ["+    std::fs::remove_dir_all(dir).unwrap();", " }"])
+        for base_sources in (None, {RS: base}):
+            with self.subTest(base=base_sources is not None):
+                self.assertEqual(self.tier(patch, {RS: head}, base_sources), "high")
+        closing = "} fn cleanup(dir: &str) { std::fs::remove_dir_all(dir).unwrap(); }"
+        base = "\n".join(["#[cfg(test)]", "mod tests {", "    fn a() {}", closing, "fn prune(dir: &str) {",
+                           "    let x = 1;", "}"])
+        head = "\n".join(["#[cfg(test)]", "mod tests {", "    fn a() {}", "}", "fn prune(dir: &str) {",
+                           "    let x = 1;", "    std::fs::remove_dir_all(dir).unwrap();", "}"])
+        patch = hunk(1, 1, context("#[cfg(test)]\nmod tests {\n    fn a() {}") + ["-" + closing, "+}"]
+                     + context("fn prune(dir: &str) {\n    let x = 1;") + ["+    std::fs::remove_dir_all(dir).unwrap();", " }"])
+        self.assertEqual(self.tier(patch, {RS: head}, {RS: base}), "high")
+
+    def test_a_removed_cleanup_under_a_test_cfg_the_reader_does_not_take_pays_for_nothing(self):
+        # A test-only module in a form the module reader doesn't take is not shown to be product code.
+        head_prune = ["fn prune(dir: &str) {", "    let x = 1;", "    std::fs::remove_dir_all(dir).unwrap();", "}"]
+        for attribute in (["#[cfg(all(test, any(unix, windows)))]"], ["#[cfg(", "    test", ")]"],
+                          ["#[cfg_attr(test, allow(dead_code))]"]):
+            with self.subTest(attribute=attribute):
+                base = "\n".join(attribute + ["mod tests {", "    fn cleanup(dir: &str) {",
+                                               "        std::fs::remove_dir_all(dir).unwrap();", "    }", "}",
+                                               "fn prune(dir: &str) {", "    let x = 1;", "}"])
+                head = "\n".join(attribute + ["mod tests {", "    fn cleanup(dir: &str) {", "    }", "}"] + head_prune)
+                n = len(attribute)
+                patch = (hunk(n + 2, n + 2, context("    fn cleanup(dir: &str) {")
+                              + ["-        std::fs::remove_dir_all(dir).unwrap();", "     }"]) + "\n"
+                         + hunk(n + 7, n + 6, context("fn prune(dir: &str) {\n    let x = 1;")
+                                + ["+    std::fs::remove_dir_all(dir).unwrap();", " }"]))
+                self.assertEqual(self.tier(patch, {RS: head}, {RS: base}), "high")
+
+    def test_a_test_module_inside_macro_tokens_is_product_code(self):
+        # A macro can take `#[cfg(test)] mod m { ... }` as tokens and emit the module without the cfg.
+        body = ["    #[cfg(test)]", "    mod generated {", "        fn clean(p: &str) {",
+                "            std::fs::remove_dir_all(p).unwrap();", "        }", "    }"]
+        for opening, closing in (("emit! {", "}"), ("emit!(", ");"), ("macro_rules! emit {", "}"),
+                                 ("fn f() {", "}")):
+            with self.subTest(opening=opening):
+                lines = [opening] + body + [closing]
+                patch = f"@@ -0,0 +1,{len(lines)} @@\n" + "\n".join("+" + line for line in lines)
+                self.assertEqual(self.tier(patch, {RS: "\n".join(lines)}), "high")
+        # Inside a plain module body, the test module still counts.
+        lines = ["mod outer { // the outer module"] + body + ["}"]
+        patch = f"@@ -0,0 +1,{len(lines)} @@\n" + "\n".join("+" + line for line in lines)
+        self.assertEqual(self.tier(patch, {RS: "\n".join(lines)}), "normal")
+
+    def test_an_edited_rust_delete_is_not_new_when_the_base_shows_it_was_product_code(self):
+        base = "\n".join(["use std::fs;", "", "fn prune(dir: &Path) {", "    fs::remove_dir_all(dir).ok();", "}"])
+        head = base.replace("remove_dir_all(dir).ok()", "remove_dir_all(dir)?")
+        patch = hunk(3, 3, context("fn prune(dir: &Path) {") + ["-    fs::remove_dir_all(dir).ok();",
+                                                                  "+    fs::remove_dir_all(dir)?;", " }"])
+        self.assertEqual(self.tier(patch, {RS: head}, {RS: base}), "normal")
+        # Without the base file, a removed line below line 1 can't be shown to be product code.
+        self.assertEqual(self.tier(patch, {RS: head}), "high")
+
+    def test_a_declared_test_module_file_is_still_graded_as_product_code(self):
+        # `#[cfg(test)] mod cleanup;` inside `mod nested` names nested/cleanup.rs, and a #[path] can make the
+        # same file product code: a declaration exempts no file.
+        lib = "cmux-tui/crates/cmux-tui-core/src/lib.rs"
+        child = "cmux-tui/crates/cmux-tui-core/src/cleanup.rs"
+        patches = {lib: hunk(1, 1, context("pub mod cleanup;\nmod nested {") + ["+    #[cfg(test)]", "+    mod cleanup;", " }"]),
+                   child: "@@ -0,0 +1 @@\n+" + CLEANUP}
+        self.assertEqual(risk.classify([lib, child], patches).tier, "high")
+
+    def test_pr_mode_reads_rust_files_that_add_or_remove_a_delete_on_their_side(self):
+        calls = []
+
+        def fake_run(args, attempts=3):
+            calls.append(args[-1])
+            return "fn x() {}\n"
+
+        def fake_json(*args):
+            return {"sha": "b" * 40} if "compare" in args[1] else {"head": {"sha": HEAD}, "base": {"sha": "c" * 40}}
+
+        entries = [
+            {"filename": RS, "status": "modified", "patch": hunk(1, 1, [" fn x() {}", "+" + CLEANUP])},
+            {"filename": "cmux-tui/crates/a/src/b.rs", "status": "modified", "patch": hunk(1, 1, [" fn x() {}", "+    let y = 1;"])},
+            {"filename": "cmux-tui/crates/a/tests/c.rs", "status": "modified", "patch": hunk(1, 1, [" fn x() {}", "+" + CLEANUP])},
+            {"filename": "cmux-tui/crates/a/src/new.rs", "status": "renamed", "previous_filename": "cmux-tui/crates/a/src/old.rs",
+             "patch": hunk(5, 5, [" fn x() {", "-" + CLEANUP, " }"])},
+        ]
+        saved = risk.gh_run, risk.gh_json, risk.gh_items
+        risk.gh_run, risk.gh_json, risk.gh_items = fake_run, fake_json, lambda endpoint: entries
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp) / "out"
+                with contextlib.redirect_stdout(io.StringIO()):
+                    risk.main(["pr", "--repo", "o/r", "--number", "1", "--github-output", str(out)])
+                self.assertIn("tier=high", out.read_text())
+        finally:
+            risk.gh_run, risk.gh_json, risk.gh_items = saved
+        self.assertEqual(sorted(calls), sorted([f"repos/o/r/contents/{RS}?ref={HEAD}",
+                                                f"repos/o/r/contents/cmux-tui/crates/a/src/old.rs?ref={'b' * 40}"]))
+
+
 class RecentRevertTests(unittest.TestCase):
     """A pull request that takes back another pull request's change from the last week is high."""
 
@@ -411,9 +642,22 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(risk.missing_evidence("low"), [])
         self.assertEqual(risk.missing_evidence("normal", body=""), [])
 
-    def test_high_waits_for_a_person_and_nothing_else(self):
-        self.assertEqual(len(risk.missing_evidence("high")), 1)
+    def test_high_is_held_only_by_a_block_on_the_head_and_warns_without_a_verdict(self):
+        # No verdict yet: a warning, not a hold (the check passes and says so).
+        self.assertEqual(risk.missing_evidence("high"), [])
+        self.assertIn("no review verdict", risk.pending_review("high"))
+        # A BLOCK or FIX that is the newest verdict on the head holds it.
+        self.assertEqual(len(risk.missing_evidence("high", blocked=True)), 1)
+        self.assertEqual(risk.pending_review("high", blocked=True), "")
+        # A sign-off clears both; low and normal never warn.
         self.assertEqual(risk.missing_evidence("high", human_ok=True), [])
+        self.assertEqual(risk.pending_review("high", human_ok=True), "")
+        self.assertEqual(risk.pending_review("normal"), "")
+
+    def test_the_evidence_command_fails_only_on_a_block(self):
+        self.assertEqual(risk.main(["evidence", "--tier", "high"]), 0)
+        self.assertEqual(risk.main(["evidence", "--tier", "high", "--blocked"]), 1)
+        self.assertEqual(risk.main(["evidence", "--tier", "high", "--blocked", "--human-ok"]), 0)
 
     def test_a_takeback_holds_any_tier_until_the_description_owns_it(self):
         self.assertEqual(len(risk.missing_evidence("low", taken_back=[21369])), 1)
@@ -499,6 +743,113 @@ class ShipReceiptTests(unittest.TestCase):
         line = f"Review (subagent): SHIP at {HEAD}"
         self.assertIsNone(risk.signed_off([self.comment(line, kind="Bot")], [], HEAD))
         self.assertIsNone(risk.signed_off([self.comment(line, association="CONTRIBUTOR")], [], HEAD))
+
+
+class DescriptionVerdictTests(unittest.TestCase):
+    """A review verdict in the PR description, so a review needs no receipt comment."""
+
+    def pr(self, body, association="MEMBER", kind="User"):
+        return {"body": body, "author_association": association, "head": {"sha": HEAD},
+                "user": {"login": "teamleaderleo", "type": kind}, "labels": []}
+
+    def comment(self, body, at="2026-10-21T20:00:00Z"):
+        return {"body": body, "created_at": at, "author_association": "MEMBER",
+                "user": {"login": "teamleaderleo", "type": "User"}}
+
+    def state(self, body, comments=(), **pr):
+        """(signed off, blocked, warning) as pr_mode grades a high pull request, without the API."""
+        pull = self.pr(body, **pr)
+        found = risk.head_verdicts(list(comments), [], HEAD, "teamleaderleo", pull)
+        who = risk.signed_off(list(comments), [], HEAD, "teamleaderleo", pull) if found else None
+        blocked = bool(found) and who is None
+        return who, blocked, risk.missing_evidence("high", who is not None, body, blocked=blocked), \
+            risk.pending_review("high", who is not None, blocked)
+
+    def test_a_ship_line_at_the_head_in_the_description_signs_off(self):
+        body = f"## Summary\nFixes the gate.\n\nReview (codex gpt-6-astra xhigh): SHIP at {HEAD}\n"
+        who, blocked, missing, pending = self.state(body)
+        self.assertEqual(who, "review (codex gpt-6-astra xhigh) in the description")
+        self.assertEqual((blocked, missing, pending), (False, [], ""))
+        # A list item or quote around it still counts.
+        self.assertIsNotNone(self.state(f"- Review (codex): SHIP at {HEAD}")[0])
+
+    def test_a_ship_at_an_older_head_is_no_verdict_and_only_warns(self):
+        who, blocked, missing, pending = self.state("Review (codex): SHIP at " + "f" * 40)
+        self.assertEqual((who, blocked, missing), (None, False, []))
+        self.assertIn("no review verdict", pending)
+        # Nor does a short sha, a self-review, or a line inside an HTML comment.
+        for body in (f"Review (codex): SHIP at {HEAD[:12]}", f"Review (self): SHIP at {HEAD}",
+                     f"<!--\nReview (codex): SHIP at {HEAD}\n-->"):
+            self.assertEqual(self.state(body)[:3], (None, False, []), body)
+
+    def test_a_fix_or_block_at_the_head_holds(self):
+        for word in ("FIX", "BLOCK"):
+            who, blocked, missing, pending = self.state(f"Review (codex): {word} at {HEAD}: races")
+            self.assertEqual((who, blocked, pending), (None, True, ""), word)
+            self.assertEqual(len(missing), 1, word)
+        # A FIX and a SHIP in the same description: the block wins the tie.
+        self.assertTrue(self.state(f"Review (a): SHIP at {HEAD}\nReview (b): FIX at {HEAD}")[1])
+
+    def test_no_verdict_only_warns(self):
+        self.assertEqual(self.state("## Summary\nNothing about a review here.")[:3], (None, False, []))
+
+    def test_a_comment_ship_still_signs_off_and_a_later_comment_block_beats_the_description(self):
+        ship = self.comment(f"Review (subagent): SHIP at {HEAD}")
+        self.assertEqual(self.state("no verdict here", [ship])[0], "review (subagent)")
+        block = self.comment(f"Review (codex): BLOCK at {HEAD}: races")
+        self.assertTrue(self.state(f"Review (codex): SHIP at {HEAD}", [block])[1])
+        # And a comment SHIP clears a FIX line left in the description.
+        self.assertEqual(self.state(f"Review (codex): FIX at {HEAD}", [ship])[0], "review (subagent)")
+
+    def test_the_description_author_is_trusted_like_a_commenter(self):
+        line = f"Review (codex): SHIP at {HEAD}"
+        self.assertIsNone(self.state(line, association="CONTRIBUTOR")[0])
+        self.assertIsNone(self.state(line, association="NONE")[0])
+        self.assertIsNone(self.state(line, kind="Bot")[0])
+
+    def test_the_grade_passes_with_a_warning_and_holds_on_a_block(self):
+        """pr_mode end to end with the API stubbed: ready is false only for a BLOCK or FIX on the head."""
+        def grade(body, comments=()):
+            pull = dict(self.pr(body), base={"sha": "b" * 40})
+            answers = {
+                "repos/o/r/pulls/7/files?per_page=100": [{"filename": "scripts/ci/risk_tier.py", "patch": ""}],
+                "repos/o/r/issues/7/comments?per_page=100": None if comments is None else list(comments),
+                "repos/o/r/pulls/7/reviews?per_page=100": [],
+                "repos/o/r/issues/7/events?per_page=100": [],
+            }
+            saved = risk.gh_items, risk.gh_json
+
+            def items(endpoint):
+                if answers[endpoint] is None:
+                    raise subprocess.CalledProcessError(1, ["gh", "api", endpoint])
+                return answers[endpoint]
+            risk.gh_items = items
+            risk.gh_json = lambda *args: pull
+            try:
+                with tempfile.TemporaryDirectory() as tmp:
+                    out, summary = Path(tmp) / "out", Path(tmp) / "summary"
+                    risk.main(["pr", "--repo", "o/r", "--number", "7", "--github-output", str(out),
+                               "--summary", str(summary)])
+                    return out.read_text(), summary.read_text()
+            finally:
+                risk.gh_items, risk.gh_json = saved
+
+        out, summary = grade(f"Review (codex): SHIP at {HEAD}")
+        self.assertIn("tier=high", out)
+        self.assertIn("ready=true", out)
+        self.assertIn("Signed off: review (codex) in the description shipped", summary)
+        out, summary = grade("no verdict")
+        self.assertIn("ready=true", out)
+        self.assertIn("Warning: no review verdict", summary)
+        out, summary = grade(f"Review (codex): FIX at {HEAD}")
+        self.assertIn("ready=false", out)
+        out, _ = grade("no verdict", [self.comment(f"Review (subagent): SHIP at {HEAD}")])
+        self.assertIn("ready=true", out)
+        # An unreadable comment read could hide a BLOCK: it holds, and never only warns.
+        out, summary = grade("no verdict", None)
+        self.assertIn("ready=false", out)
+        self.assertIn("could not be read", summary)
+        self.assertNotIn("Warning:", summary)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 import AppKit
 import CoreText
+public import CmuxNextDesignTokens
 
 /// Draws a `StatusMark` as an alpha mask (opaque where the mark is), the one
 /// drawing the live indicator layer and the image export both use. Vector

@@ -24,12 +24,16 @@ extension ScreenContentView {
             return (dock, dock, rect, rect, [])
         }
         let (headers, footers) = paneChromeBands()
-        guard let zoneHit = DropZoneGeometry.target(atView: localPoint, offset: scroll.value, screen: screenID, geometry: geometry,
+        guard var zoneHit = DropZoneGeometry.target(atView: localPoint, offset: scroll.value, screen: screenID, geometry: geometry,
                                                     headers: headers, footers: footers, style: context.style,
                                                     previous: previous) else { return nil }
-        // A pinned dock that takes no other tab (the Home Chief pane) takes no drop at all: a join
-        // or a split there would only be refused (`dock-column-pinned`), so nothing promises one.
-        if case let .pane(pane, _) = zoneHit, layout.column(containing: pane)?.dock?.takesTabs == false { return nil }
+        // A pinned dock (the Home Chief pane) never splits: a tab dropped anywhere over it joins it.
+        // One that takes no other tab (`allow_tabs` off) takes no drop at all: the join would only be
+        // refused (`dock-column-pinned`), so nothing promises one.
+        if case let .pane(pane, _) = zoneHit, let dock = layout.column(containing: pane)?.dock, dock.isPinned {
+            guard dock.takesTabs else { return nil }
+            zoneHit = .pane(pane, .center)
+        }
         let hit = DropZoneGeometry.joiningSharedEdge(zoneHit, from: joinsFrom, frames: navigationFrames)
         let target: DropTarget
         if !edgesArmed, case let .pane(pane, zone) = hit, zone != .center {

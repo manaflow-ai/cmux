@@ -20,12 +20,13 @@ struct StashPageView: View {
         VStack(alignment: .leading, spacing: 0) {
             header
             HairlineDivider(color: colors.separator)
-            if model.groups.isEmpty {
-                Text(StashStrings.empty)
+            let shown = model.groups(matching: draft.query)
+            if shown.isEmpty {
+                Text(model.groups.isEmpty ? StashStrings.empty : StashStrings.noMatches)
                     .font(Font(Typography.body)).foregroundStyle(colors.tertiary).multilineTextAlignment(.center)
                     .padding(Metrics.panelInset * 3).frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                list
+                list(shown)
             }
         }
         .disabled(model.isBusy)
@@ -41,6 +42,10 @@ struct StashPageView: View {
                     Button(StashStrings.importFromOneTab) { draft.open() }
                         .buttonStyle(.borderless).fixedSize().foregroundStyle(colors.secondary)
                 }
+            }
+            if !model.groups.isEmpty {
+                ThemedField(text: $draft.query, placeholder: StashStrings.searchPlaceholder, font: Typography.subtitle,
+                            onCancel: { draft.query = "" })
             }
             if draft.isOpen { importBox }
             if let notice = model.notice {
@@ -69,15 +74,16 @@ struct StashPageView: View {
         }
     }
 
-    private var list: some View {
+    private func list(_ groups: [StashedGroup]) -> some View {
         List {
-            ForEach(model.groups) { group in
+            ForEach(groups) { group in
                 Section {
                     ForEach(group.tabs) { tab in
                         row(tab, in: group)
                     }
                 } header: {
-                    groupHeader(group)
+                    // Restore All and Delete Group take the whole group, not only the pages a search shows.
+                    groupHeader(model.groups.first { $0.id == group.id } ?? group)
                 }
             }
         }
@@ -91,17 +97,21 @@ struct StashPageView: View {
     private static let rowHeight: CGFloat = 28
     private static let rowInsets = EdgeInsets(top: 0, leading: Metrics.panelInset, bottom: 0, trailing: Metrics.panelInset)
 
-    /// A row: a button that restores its page (keyboard and VoiceOver reach it), then its ×.
-    /// Globe, title, host, then the time; the full URL is the tooltip.
+    /// A row: a button that restores its page or workspace (keyboard and VoiceOver reach it), then
+    /// its ×. Globe, title, host, then the time; the full URL is the tooltip. A whole workspace
+    /// shows its name and its first tabs, which are the tooltip.
     private func row(_ tab: StashedGroup.Tab, in group: StashedGroup) -> some View {
         HStack(spacing: Metrics.panelInset) {
             Button { Task { await model.restore(group, tab: tab) } } label: {
                 HStack(spacing: Metrics.panelInset * 1.5) {
-                    Icon(.browser, size: Metrics.iconSize).frame(width: Metrics.iconSize, height: Metrics.iconSize)
-                        .foregroundStyle(colors.secondary)
+                    Icon(tab.isWorkspace ? .workspace : .browser, size: Metrics.iconSize)
+                        .frame(width: Metrics.iconSize, height: Metrics.iconSize).foregroundStyle(colors.secondary)
                     Text(tab.displayTitle).font(Font(Typography.body)).foregroundStyle(colors.primary)
                         .lineLimit(1).truncationMode(.tail)
-                    if let host = URL(string: tab.url)?.host(), !host.isEmpty {
+                    if tab.isWorkspace, !tab.workspaceTabs.isEmpty {
+                        Text(tab.workspaceTabs.formatted(.list(type: .and, width: .narrow)))
+                            .font(Font(Typography.caption)).foregroundStyle(colors.tertiary).lineLimit(1).layoutPriority(-1)
+                    } else if let host = URL(string: tab.url)?.host(), !host.isEmpty {
                         Text(host).font(Font(Typography.caption)).foregroundStyle(colors.tertiary).lineLimit(1).layoutPriority(-1)
                     }
                     Spacer(minLength: Metrics.panelInset)
@@ -111,7 +121,7 @@ struct StashPageView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .themedHelp(tab.url)
+            .themedHelp(tab.isWorkspace ? tab.workspaceTabs.joined(separator: "\n") : tab.url)
             .accessibilityHint(StashStrings.restore)
             Button { Task { await model.delete(group, tab: tab, undoIn: window()) } } label: {
                 Icon(.actionClose, size: Metrics.iconSize).foregroundStyle(colors.tertiary)

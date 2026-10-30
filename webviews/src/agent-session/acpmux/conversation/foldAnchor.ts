@@ -14,6 +14,9 @@ import { foldMs } from "./fold";
 
 /// The disclosures a click holds in place.
 export const FOLD_TOGGLE = "button.is-toggle[aria-expanded], button.cv-subagents[aria-expanded], summary";
+/// What a collapsible's header sends up (bubbling, cancelable) to be held where it is drawn while its
+/// body opens or closes (useAnchoredCollapse.ts); the transcript that holds it cancels it.
+export const ANCHORED_COLLAPSE_EVENT = "cmux:anchored-collapse";
 /// How long a hold outlasts its fold: the last frame's measure, and rows a "Worked for" inserts.
 export const FOLD_SETTLE_MS = 150; // motion-allow: a hold timer after the fold, not an animation
 

@@ -3,8 +3,9 @@ import AppKit
 import Testing
 
 /// The sidebar and every scrollable card share one thin scroller, the chat's (2026-10-21): a 3 pt
-/// rounded knob on no track, an overlay that never takes width, shown for as long as the content
-/// overflows. The opt-in auto-hide hands the knob to AppKit's overlay fade, hidden at rest.
+/// rounded knob on no track, an overlay that never takes width. By default it fades at rest
+/// (Lawrence 2026-10-23, ThinScrollerFadeTests); the opt-out keeps it shown while the content
+/// overflows.
 @MainActor
 @Suite(.serialized)
 struct ThinScrollerTests {
@@ -26,7 +27,7 @@ struct ThinScrollerTests {
         SystemScrollers.followThin(scrollView)
         let scroller = try #require(scrollView.verticalScroller as? ThinScroller)
         #expect(ThinScroller.knobThickness == 3)
-        #expect(ThinScroller.scrollerWidth(for: .regular, scrollerStyle: .overlay) <= 8)
+        #expect(ThinScroller.scrollerWidth(for: .regular, scrollerStyle: .overlay) <= 12)
         #expect(ThinScroller.isCompatibleWithOverlayScrollers)
         #expect(scroller.knobRect(for: CGRect(x: -2, y: 10, width: 6, height: 40)).width == ThinScroller.knobThickness)
         #expect(scrollView.scrollerStyle == .overlay)
@@ -57,8 +58,8 @@ struct ThinScrollerTests {
         #expect(scroller.restingKnobFrame == nil)
     }
 
-    @Test func autoHideLeavesTheKnobToTheOverlayFadeHiddenAtRest() {
-        defer { SystemScrollers.thinScrollersAutoHide = false }
+    @Test func autoHideHidesTheKnobAtRest() {
+        defer { SystemScrollers.thinScrollersAutoHide = true }
         let scroller = Self.overflowing(autoHides: true)
         #expect(scroller.restingKnobFrame == nil)
         scroller.autoHides = false
@@ -67,10 +68,11 @@ struct ThinScrollerTests {
         let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
         scrollView.hasVerticalScroller = true
         SystemScrollers.followThin(scrollView)
-        SystemScrollers.thinScrollersAutoHide = true
-        #expect((scrollView.verticalScroller as? ThinScroller)?.autoHides == true)
+        #expect((scrollView.verticalScroller as? ThinScroller)?.autoHides == true) // the default
         SystemScrollers.thinScrollersAutoHide = false
         #expect((scrollView.verticalScroller as? ThinScroller)?.autoHides == false)
+        SystemScrollers.thinScrollersAutoHide = true
+        #expect((scrollView.verticalScroller as? ThinScroller)?.autoHides == true)
     }
 
     @Test func noTrackIsDrawn() throws {

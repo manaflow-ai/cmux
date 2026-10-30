@@ -18,11 +18,15 @@ public struct ControlPageFacts {
     /// A store page tab's title, as its strip names it (a Files tab names
     /// its file); nil when unknown.
     public var title: @MainActor (TabModel) -> String?
+    /// The browser tabs of other panes a pane's strip also lists (`browser.page.mirror`), in strip order.
+    public var mirroredTabs: @MainActor (PaneModel) -> [String]
 
     public init(appOnlyTabs: @escaping @MainActor (PaneModel) -> [ControlPageTabInfo] = { _ in [] },
-                title: @escaping @MainActor (TabModel) -> String? = { _ in nil }) {
+                title: @escaping @MainActor (TabModel) -> String? = { _ in nil },
+                mirroredTabs: @escaping @MainActor (PaneModel) -> [String] = { _ in [] }) {
         self.appOnlyTabs = appOnlyTabs
         self.title = title
+        self.mirroredTabs = mirroredTabs
     }
 }
 
@@ -32,8 +36,63 @@ extension ControlTopology {
     /// (bd cx-5xsi); `cache` keeps each workspace's daemon facts between calls.
     @MainActor
     public init(store: DaemonStore, selectedTab: (PaneModel) -> String?, pages: ControlPageFacts = ControlPageFacts(),
-                cache: ControlWorkspaceInfoCache? = nil) {
-        self = ControlTopologyMapper.topology(store: store, selectedTab: selectedTab, pages: pages, cache: cache)
+                cache: ControlWorkspaceInfoCache? = nil, scope: ControlAppFactScope? = nil) {
+        self = ControlTopologyMapper.topology(store: store, selectedTab: selectedTab, pages: pages, cache: cache, scope: scope)
+    }
+
+    /// The control values of another store's workspaces (a remote session),
+    /// `decorate` applied to each (its session id and machine). With `cache`
+    /// and `scope`, kept under `slot` and mapped like the home store's
+    /// (``ControlWorkspaceInfoCache/workspaces(of:slot:scope:selectedTab:pages:decorate:)``);
+    /// otherwise every workspace is mapped whole.
+    ///
+    /// - Parameters:
+    ///   - store: the daemon mirror whose workspaces are listed.
+    ///   - cache: keeps the values between calls; nil maps every workspace.
+    ///   - slot: the key the list is kept under; `decorate` must give the same values for a slot.
+    ///   - scope: the panes whose app facts can be set; nil maps every workspace.
+    ///   - selectedTab: the tab a window shows for a pane.
+    ///   - pages: what the app knows of page tabs.
+    ///   - decorate: applied to each workspace's value.
+    /// - Returns: one value per workspace, in the store's order.
+    @MainActor
+    public static func workspaces(of store: DaemonStore, cache: ControlWorkspaceInfoCache?, slot: String, scope: ControlAppFactScope?,
+                                  selectedTab: (PaneModel) -> String?, pages: ControlPageFacts = ControlPageFacts(),
+                                  decorate: (inout ControlWorkspaceInfo) -> Void) -> [ControlWorkspaceInfo] {
+        if let cache, let scope {
+            return cache.workspaces(of: store, slot: slot, scope: scope, selectedTab: selectedTab, pages: pages, decorate: decorate)
+        }
+        return store.workspaces.map { model in
+            var info = ControlTopologyMapper.workspace(from: model, selectedTab: selectedTab, pages: pages)
+            decorate(&info)
+            return info
+        }
+    }
+}
+
+extension ControlWorkspaceInfoCache {
+    /// The control values of `store`'s workspaces, kept under `slot` (one
+    /// per store): a publish maps only the workspaces that changed and the
+    /// ones `scope` names (``ControlAppFactScope``). `selectedTab` and
+    /// `pages` answer the app facts as for ``ControlTopology/init(store:selectedTab:pages:cache:scope:)``;
+    /// `decorate` sets facts the store does not hold (a remote session's id
+    /// and machine) on each daemon value, and must give the same result on
+    /// every call for a slot.
+    ///
+    /// - Parameters:
+    ///   - store: the daemon mirror whose workspaces are listed.
+    ///   - slot: the key the list is kept under between publishes.
+    ///   - scope: the workspaces whose app facts can differ from their daemon facts.
+    ///   - selectedTab: the tab a window shows for a pane.
+    ///   - pages: what the app knows of page tabs.
+    ///   - decorate: applied to each workspace's daemon value.
+    /// - Returns: one value per workspace, in the store's order.
+    @MainActor
+    public func workspaces(of store: DaemonStore, slot: String, scope: ControlAppFactScope,
+                           selectedTab: (PaneModel) -> String?, pages: ControlPageFacts = ControlPageFacts(),
+                           decorate: (inout ControlWorkspaceInfo) -> Void = { _ in }) -> [ControlWorkspaceInfo] {
+        ControlTopologyMapper.workspaces(of: store, cache: self, slot: slot, scope: scope, selectedTab: selectedTab,
+                                         pages: pages, decorate: decorate)
     }
 }
 
@@ -60,7 +119,7 @@ struct ControlPaneSlot {
 enum ControlTopologyMapper {
     static func topology(store: DaemonStore, selectedTab: (PaneModel) -> String?,
                          pages: ControlPageFacts = ControlPageFacts(),
-                         cache: ControlWorkspaceInfoCache? = nil) -> ControlTopology {
+                         cache: ControlWorkspaceInfoCache? = nil, scope: ControlAppFactScope? = nil) -> ControlTopology {
         var topology = ControlTopology()
         topology.isLoaded = store.isLoaded
         topology.daemonState = switch store.connectionState {
@@ -75,10 +134,31 @@ enum ControlTopologyMapper {
         topology.workspaceGroups = groups.map { group in
             ControlWorkspaceGroupInfo(id: group.id.rawValue, name: group.name, color: group.color, isCollapsed: group.collapsed)
         }
-        topology.workspaces = store.workspaces.map { model in
-            cachedWorkspace(from: model, cache: cache, selectedTab: selectedTab, pages: pages)
+        if let cache, let scope {
+            topology.workspaces = cache.workspaces(of: store, slot: ControlWorkspaceInfoCache.homeSlot, scope: scope, selectedTab: selectedTab, pages: pages)
+        } else {
+            topology.workspaces = store.workspaces.map { model in
+                cachedWorkspace(from: model, cache: cache, selectedTab: selectedTab, pages: pages)
+            }
         }
         return topology
+    }
+
+    /// `store`'s workspaces through `cache`'s list under `slot`, `decorate`
+    /// applied to each value (a remote session's id and machine).
+    static func workspaces(of store: DaemonStore, cache: ControlWorkspaceInfoCache, slot: String, scope: ControlAppFactScope,
+                           selectedTab: (PaneModel) -> String?, pages: ControlPageFacts,
+                           decorate: (inout ControlWorkspaceInfo) -> Void) -> [ControlWorkspaceInfo] {
+        cache.workspaces(slot: slot, list: { store.workspaces }, scope: scope, build: { model in
+            var info = workspace(from: model, selectedTab: { _ in nil }, pages: ControlPageFacts())
+            decorate(&info)
+            return (info, slots(of: model))
+        }, appFacts: { model, info, slots in
+            if let applied = applyAppFacts(info, slots: slots, selectedTab: selectedTab, pages: pages) { return applied }
+            var info = workspace(from: model, selectedTab: selectedTab, pages: pages)
+            decorate(&info)
+            return info
+        })
     }
 
     static func cachedWorkspace(from model: WorkspaceModel, cache: ControlWorkspaceInfoCache?,
@@ -125,6 +205,7 @@ enum ControlTopologyMapper {
                 var pane = pane
                 pane.selectedTabID = selectedTab(slot.pane)
                 pane.pageTabs = pages.appOnlyTabs(slot.pane)
+                pane.mirroredTabIDs = pages.mirroredTabs(slot.pane)
                 guard !slot.pageTabs.isEmpty else { return pane }
                 guard pane.tabs.count == slot.pageTabs.count else { aligned = false; return pane }
                 pane.tabs = zip(pane.tabs, slot.pageTabs).map { tab, model in
@@ -151,7 +232,8 @@ enum ControlTopologyMapper {
                   screen.panes.count == paneSlots.count else { return false }
             for paneIndex in paneSlots.indices {
                 guard let pane = screen.panes[checked: paneIndex], let slot = paneSlots[checked: paneIndex],
-                      pane.selectedTabID == selectedTab(slot.pane), pane.pageTabs == pages.appOnlyTabs(slot.pane) else { return false }
+                      pane.selectedTabID == selectedTab(slot.pane), pane.pageTabs == pages.appOnlyTabs(slot.pane),
+                      pane.mirroredTabIDs == pages.mirroredTabs(slot.pane) else { return false }
                 guard !slot.pageTabs.isEmpty else { continue }
                 guard pane.tabs.count == slot.pageTabs.count else { return false }
                 for tabIndex in slot.pageTabs.indices {
@@ -230,6 +312,7 @@ enum ControlTopologyMapper {
             }
         )
         info.pageTabs = pages.appOnlyTabs(model)
+        info.mirroredTabIDs = pages.mirroredTabs(model)
         return info
     }
 

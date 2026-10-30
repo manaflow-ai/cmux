@@ -69,7 +69,7 @@ enum DebugOmnibar {
         .array([rect.minX, rect.minY, rect.width, rect.height].map { .number(Double($0)) })
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// Params: `character` (index the press lands on), optional `drag_to`,
     /// `click_count` (1-3), `button` (`left` or `right`; a right-click skips
     /// the context menu), `pane`, `window`.

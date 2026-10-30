@@ -1,7 +1,9 @@
 import { Schema } from "effect"
 import { automationCapabilityOps } from "./automation-caps.ts"
 import { MachineId } from "./cloud-machine-ops.ts"
+import { ConversationId } from "./ops-home-schemas.ts"
 import { DisplayName, HostId, TeamId, UserId } from "./schemas.ts"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * Automation shape v1 (spec cloud-and-automations.md "Data"). The SchedulerDO
@@ -10,7 +12,7 @@ import { DisplayName, HostId, TeamId, UserId } from "./schemas.ts"
  */
 
 const prefixedId = (prefix: string, identifier: string, description: string) =>
-  Schema.String.check(Schema.isPattern(new RegExp(`^${prefix}_[a-z0-9]{20}$`))).annotate({ identifier, description })
+  Schema.String.check(isPattern(new RegExp(`^${prefix}_[a-z0-9]{20}$`))).annotate({ identifier, description })
 
 export const AutomationId = prefixedId("auto", "AutomationId", "An automation definition, owned by its team's SchedulerDO.")
 export const TriggerId = prefixedId("trg", "TriggerId", "One trigger of an automation; assigned by the owner.")
@@ -106,12 +108,12 @@ export const Step = Schema.Union([
  * DNS names with a letter TLD, so IP literals never match.
  */
 export const EgressHost = Schema.String.check(
-  Schema.isPattern(/^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$/),
+  isPattern(/^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$/),
   Schema.isMaxLength(253)
 ).annotate({ identifier: "EgressHost" })
 
 /** A full Git commit id (40 lowercase hex). Short ids and branch names never pin a run. */
-export const CommitSha = Schema.String.check(Schema.isPattern(/^[0-9a-f]{40}$/)).annotate({ identifier: "CommitSha" })
+export const CommitSha = Schema.String.check(isPattern(/^[0-9a-f]{40}$/)).annotate({ identifier: "CommitSha" })
 
 /**
  * Where an automation's code lives (decisions A12, C1): a directory
@@ -123,8 +125,8 @@ export const CommitSha = Schema.String.check(Schema.isPattern(/^[0-9a-f]{40}$/))
  */
 export const CodeRef = Schema.Struct({
   commit: CommitSha,
-  path: Schema.String.check(Schema.isPattern(/^automations\/[a-z0-9][a-z0-9-]{0,62}$/)),
-  export: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[A-Za-z_$][A-Za-z0-9_$]{0,63}$/)))
+  path: Schema.String.check(isPattern(/^automations\/[a-z0-9][a-z0-9-]{0,62}$/)),
+  export: Schema.optionalKey(Schema.String.check(isPattern(/^[A-Za-z_$][A-Za-z0-9_$]{0,63}$/)))
 }).annotate({ identifier: "CodeRef" })
 export type CodeRef = typeof CodeRef.Type
 
@@ -145,6 +147,18 @@ export const Body = Schema.Union([
     conversation: Schema.Literals(["fresh", "continue"])
   }),
   Schema.Struct({ type: Schema.Literal("steps"), steps: Schema.Array(Step).check(Schema.isMinLength(1), Schema.isMaxLength(50)) }),
+  /**
+   * A Chief's own job (plans/cmux-next/chief-automations-DESIGN.md): each run puts `prompt` in the
+   * Chief's conversation as the Chief's own note and starts a Cloud Chief turn there, so the job
+   * runs in the cloud while the person's computers sleep and the Chief posts the result in that
+   * chat. Delivery refuses a Chief whose owner is not the member the run is charged to.
+   */
+  Schema.Struct({
+    type: Schema.Literal("chief"),
+    chief: Schema.String.check(isPattern(/^agent_[A-Za-z0-9_.-]{1,64}$/)),
+    conversation: ConversationId,
+    prompt: NonEmptyText(8000)
+  }),
   /** Chief-written Workflows code (decision A11) at a pinned commit; runs on Tier 1 Dynamic Workers. */
   Schema.Struct({
     type: Schema.Literal("code"),

@@ -22,6 +22,9 @@ class SidebarRowView: NSView {
         }
     }
 
+    /// The move whose tuck fade this tab line runs (`RowMotion.tuck`), so an older move's end leaves a newer one's.
+    var tuckMove: Int?
+
     /// The row shows as selected, the one source of its AXSelected. A row with more
     /// selection state overrides it and calls `updateAccessibilitySelection()` when that changes.
     var showsSelection: Bool { isSelected }
@@ -80,6 +83,8 @@ class SidebarRowView: NSView {
         fadesNextHover = false
         // A row parked mid-move does not finish that move when it comes back (cx-bqm6).
         layer?.removeAllAnimations()
+        layer?.zPosition = 0 // a tab line parked mid-tuck (`RowMotion.tuck`) draws in order again
+        tuckMove = nil
         clipsToBounds = false
         targetSize = nil
         alphaValue = 1
@@ -143,6 +148,8 @@ class SidebarRowView: NSView {
     /// The leading icon the row's view draws now for debug.sidebar_rows `icon`
     /// (`symbol`, `swatch`, `emoji`, `favicon`, `agentMark`); nil when it draws none.
     var debugIcon: String? { nil }
+    /// The row draws the archived look (plans/cmux-next/archiving-DESIGN.md).
+    var debugArchived: Bool { false }
     /// The address of the favicon the row draws (a link row), for proofs.
     var debugIconAddress: String? { nil }
 
@@ -150,6 +157,8 @@ class SidebarRowView: NSView {
     /// earlier open's completion, run early when a later update reopens the
     /// row, leaves the later open's clip alone (cx-ai79).
     var opens = 0
+    /// Invalidates a previous close's completion when the view parks before that close finishes.
+    var reuseGeneration = 0
     /// The frame a row that left the list closes its slot to, until its close recycles it
     /// (`RowMotion`): a viewport re-anchor mid-close shifts it with the rows (cx-y2uf5).
     var closingEnd: NSRect?
@@ -199,6 +208,7 @@ class SidebarRowView: NSView {
 
 final class EmptySectionRowView: SidebarRowView {
     private let label = SidebarRowView.label(font: SidebarStyle.subtitleFont)
+    private let hint = SidebarRowView.label(font: SidebarStyle.subtitleFont)
 
     required init(key: SidebarRowKey) {
         super.init(key: key)
@@ -206,25 +216,44 @@ final class EmptySectionRowView: SidebarRowView {
         // list reads as the list's first line, not a caption floating in
         // the middle of an empty column.
         label.alignment = .natural
-        addSubview(label)
+        hint.alignment = .natural
+        [label, hint].forEach(addSubview)
     }
 
-    func configure(pinned: Bool) { // a document Pinned too (`.custom(sec_pinned)`, SidebarListView.configure)
+    func configure(pinned: Bool, shortcut: String?) { // a document Pinned too (`.custom(sec_pinned)`, SidebarListView.configure)
         label.setString(pinned ? Strings.pinnedEmpty : Strings.sectionEmpty)
         label.setFont(SidebarStyle.subtitleFont)
+        hint.setString(Strings.sectionEmptyHint(shortcut: shortcut))
+        hint.setFont(SidebarStyle.subtitleFont)
+        hint.isHidden = pinned
         needsLayout = true
     }
 
     override func layout() {
         super.layout()
         let b = layoutBounds
-        let h = ceil(label.intrinsicContentSize.height)
         let x = SidebarStyle.titleLeading - SidebarStyle.labelCellPadding
-        label.frame = NSRect(x: x, y: (b.height - h) / 2, width: max(0, b.width - x - Metrics.space2), height: h)
+        let width = max(0, b.width - x - Metrics.space2)
+        let titleHeight = ceil(label.intrinsicContentSize.height)
+        guard !hint.isHidden else {
+            label.frame = NSRect(x: x, y: (b.height - titleHeight) / 2, width: width, height: titleHeight)
+            hint.frame = .zero
+            needsDisplay = true
+            return
+        }
+        let hintHeight = ceil(hint.intrinsicContentSize.height)
+        let lineGap = Metrics.space1
+        let stackHeight = titleHeight + lineGap + hintHeight
+        let top = (b.height - stackHeight) / 2
+        label.frame = NSRect(x: x, y: top, width: width, height: titleHeight)
+        hint.frame = NSRect(x: x, y: top + titleHeight + lineGap, width: width, height: hintHeight)
         needsDisplay = true
     }
 
     override func updateLayer() {
-        performWithTheme { label.setColor(Palette.textTertiary) }
+        performWithTheme {
+            label.setColor(Palette.textTertiary)
+            hint.setColor(Palette.textSecondary)
+        }
     }
 }

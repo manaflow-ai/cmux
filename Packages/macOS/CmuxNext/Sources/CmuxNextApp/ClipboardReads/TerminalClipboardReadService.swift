@@ -30,7 +30,7 @@ final class TerminalClipboardReadService {
 
     func start() {
         guard broker == nil, let daemon = services?.daemon else { return }
-        let capability = DaemonCapabilities.shared.terminalClipboardRead
+        let capability = DaemonCapability.terminalClipboardRead.rawValue
         broker = TerminalClipboardBroker(host: Self.requestHost, environment: .init(
             setting: { ClipboardReadSetting(ghosttyValue: GhosttyRuntime.shared.clipboardReadValue) },
             // Primary and selection have no Mac pasteboard of their own; the
@@ -61,7 +61,7 @@ final class TerminalClipboardReadService {
     /// Hands the broker the connection and the terminal set, then re-arms.
     private func observe() {
         guard !stopped, let broker, let store = services?.daemon.store else { return }
-        let capability = DaemonCapabilities.shared.terminalClipboardRead
+        let capability = DaemonCapability.terminalClipboardRead.rawValue
         let (connected, terminals) = withObservationTracking {
             (Self.isConnected(store.connectionState) && store.supports(capability), Self.terminalIDs(store))
         } onChange: { [weak self] in

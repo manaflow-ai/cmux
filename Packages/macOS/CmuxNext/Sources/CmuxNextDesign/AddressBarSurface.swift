@@ -1,4 +1,5 @@
 public import CmuxTheme
+public import CmuxNextDesignTokens
 
 /// The address bar's fills, from the terminal theme (cx-d0d.101): the bar
 /// is a tonal step of the theme's text color over the toolbar, stronger on

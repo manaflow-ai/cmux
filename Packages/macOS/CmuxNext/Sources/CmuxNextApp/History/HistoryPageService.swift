@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextAgentActivity
 import CmuxNextBookmarks
 import CmuxNextBridge
@@ -6,7 +7,9 @@ import CmuxNextBrowser
 import CmuxNextBrowserAutomation
 import CmuxNextDaemon
 import CmuxNextHistory
+import CmuxNextMacScreen
 import CmuxNextRemoteView
+import CmuxNextRemoteViewSessions
 import CmuxNextScreenshots
 import CmuxNextStash
 import Foundation
@@ -121,8 +124,16 @@ extension TabContentCache {
         }
         entry.chrome.loadOverride = { [weak self, weak chrome = entry.chrome] typed in
             // chrome://history shows cmux's page; chrome://settings opens Settings and nothing loads here.
-            guard let url = ChromiumPageRouter.routed(typed, services: services) else {
+            // cmux://mac-screen opens the Mac Screen tab beside this one (nil: nothing loads here).
+            guard let url = ChromiumPageRouter.routed(typed, services: services, in: services.paneController(listing: key)) else {
                 chrome?.addressBar.showPageURL()
+                return true
+            }
+            // A Mac Screen pairing link typed or pasted in the address bar: link pairing is
+            // gone, so it is refused with a word; it never loads or searches (it carried a secret).
+            if let refusal = MacScreenPages.pairingLinkRefusal(for: url.absoluteString) {
+                chrome?.addressBar.showPageURL()
+                services.registry.refuse(refusal)
                 return true
             }
             guard Self.isAppPage(url) else { return false }
@@ -195,7 +206,10 @@ extension TabContentCache {
                     pages.confirm(key, url: confirmedURL)
                     guard let self, let tab = tabModel(key) else { return }
                     showAppPage(confirmedURL, in: tab)
-                })
+                },
+                cloudTransport: { [weak services] machine in services?.cloudDesktopTransport(machine: machine) },
+                cloudRd: { [weak services] machine, control in services?.cloudDesktopRdTransport(machine: machine, control: control) },
+                displayName: RemoteViewTabRecord(url: url).flatMap { $0.cloudDesktop ? services.machines.cloudMachineBadge(machine: $0.host) : nil })
             page.onNavigate = { [weak self] target in
                 pages.forget(key)
                 self?.leaveAppPage(key, to: target)

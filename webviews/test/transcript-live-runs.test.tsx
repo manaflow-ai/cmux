@@ -1,6 +1,6 @@
 // Codex-style tool runs while a turn runs (cx-ncc.108, the Debug toggle
 // agentPane.debug.codexToolRuns, on by default): the Codex desktop app never lets a running turn's
-// tool calls pile up as a list. Each run folds into one summary line ("Read files, ran a command")
+// tool calls pile up as a list. Each run folds into one summary line ("Read 2 files, ran a command")
 // that opens to its calls, the latest run too as its calls finish; the call in flight leaves the
 // run for the turn's live line, which names it and replaces itself as calls go by. Off, every call
 // keeps its row.
@@ -43,13 +43,19 @@ function drawnRuns(liveRuns: boolean): Record<string, string> {
   return Object.fromEntries(
     shaped
       .filter((entry) => entry.kind === "activity")
-      .map((entry) => [entry.id, renderToStaticMarkup(<ToolRows row={entry} />).replace(/<[^>]+>/g, " ")]),
+      // Tags to spaces, then one space per gap: a row's verb sits in its own element (ToolVerb.tsx).
+      .map((entry) => [
+        entry.id,
+        renderToStaticMarkup(<ToolRows row={entry} />)
+          .replace(/<[^>]+>/g, " ")
+          .replace(/\s+/g, " "),
+      ]),
   );
 }
 
 test("with live runs on, a run that text followed reads as one summary line", () => {
   const reads = drawnRuns(true).reads!;
-  expect(reads).toContain("Read files, ran a command");
+  expect(reads).toContain("Read 2 files, ran a command");
   expect(reads).not.toContain("README.md");
   expect(reads).not.toContain("ls src");
 });
@@ -91,7 +97,8 @@ test("an ended turn's open Worked for folds each run into its summary line", () 
     text("done"),
     row("s", "turnSummary", { status: "completed", toolCount: 5 }),
   ];
-  const open = new Set(["worked-u"]);
+  // The long text between the runs is a takeaway, so each run folds under its own line.
+  const open = new Set(["worked-u", "worked-between"]);
   const folded = turnView(ended, open, { liveRuns: true }).filter((entry) => entry.kind === "activity");
   expect(folded.map((entry) => entry.foldRun)).toEqual([true, true]);
   const listed = turnView(ended, open, { liveRuns: false }).filter((entry) => entry.kind === "activity");

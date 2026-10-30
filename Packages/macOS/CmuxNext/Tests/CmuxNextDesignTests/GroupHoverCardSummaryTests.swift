@@ -1,6 +1,7 @@
 @testable import CmuxNextDesign
 import Foundation
 import Testing
+import CmuxNextDesignTokens
 
 /// Lawrence 2026-10-20: "hovering on workspace group or tab group for a while should still show the
 /// card, like summary stuff, and should be fully customizable too." One pure summary serves the

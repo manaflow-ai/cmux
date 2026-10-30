@@ -43,6 +43,7 @@ test("start_session names the sub-session it started, from its text or its struc
     running: false,
     sessionId: "0199a-child",
     name: "tests",
+    prompt: "Run the tests",
   });
   const structured = { sessionId: "0199b-child", name: "claude-sr2/lint", shortName: "lint", depth: 1 };
   expect(subsessionCall(codex("start_session", { prompt: "Lint" }, structured, said))).toEqual({
@@ -50,12 +51,75 @@ test("start_session names the sub-session it started, from its text or its struc
     running: false,
     sessionId: "0199b-child",
     name: "lint",
+    prompt: "Lint",
+  });
+  // Queued for a run slot, the text alone.
+  const queued =
+    "Created sub-session docs (sessionId 0199c-child, depth 1). It is queued: you already run as many sub-sessions as your maxRunning limit allows.";
+  expect(subsessionCall(claude("start_session", { prompt: "Docs" }, queued))).toMatchObject({
+    tool: "start",
+    sessionId: "0199c-child",
+    name: "docs",
   });
   // Still running: the name it asked for, if any.
   expect(subsessionCall(claude("start_session", { prompt: "x", name: "docs" }, undefined, "in_progress"))).toEqual({
     tool: "start",
     running: true,
     name: "docs",
+    prompt: "x",
+  });
+});
+
+// As the cmux server serves the tools as its own (cli/mcp/upstream.rs), with the result as Claude
+// Code hands it over: the structured result's JSON (a recorded call, its prompt shortened).
+test("the cmux server's subsessions_* tools read as the server's own", () => {
+  const structured = {
+    depth: 1,
+    harness: "claude",
+    mode: "bypassPermissions",
+    name: "claude-sr2/update-toggle",
+    session: { children: 0, depth: 1, doing: "Working on: You are update-toggle…", harness: "claude", state: "idle" },
+    sessionId: "01a16f99-6033",
+    shortName: "update-toggle",
+    turnId: "01a16f99-634c",
+    waitsForSlot: false,
+  };
+  const args = {
+    name: "update-toggle",
+    harness: "claude",
+    model: "opus",
+    prompt: 'You are "update-toggle".\n\nStep 1',
+  };
+  const viaCmux = (name: string, input: unknown, output?: string, status = "completed"): Tool => ({
+    id: `call-${(ids += 1)}`,
+    title: `mcp__cmux__subsessions_${name}`,
+    status,
+    inputSummary: JSON.stringify(input),
+    ...(output !== undefined && { output }),
+  });
+  expect(subsessionCall(viaCmux("start_session", args, JSON.stringify(structured)))).toEqual({
+    tool: "start",
+    running: false,
+    sessionId: "01a16f99-6033",
+    name: "update-toggle",
+    prompt: args.prompt,
+    model: "opus",
+    harness: "claude",
+  });
+  // Other cmux tools keep the generic row.
+  expect(subsessionCall(viaCmux("workspace_list", {}, "{}"))).toBeUndefined();
+  const listed = { sessions: [{ sessionId: "s-1", shortName: "lint", state: "working", harness: "codex" }], self: {} };
+  expect(subsessionCall(viaCmux("list_sessions", {}, JSON.stringify(listed)))).toEqual({
+    tool: "list",
+    running: false,
+    timedOut: false,
+    sessions: [{ sessionId: "s-1", name: "lint", state: "working", harness: "codex" }],
+  });
+  expect(subsessionCall(viaCmux("list_sessions", {}, undefined, "in_progress"))).toEqual({
+    tool: "list",
+    running: true,
+    timedOut: false,
+    sessions: [],
   });
 });
 
@@ -68,6 +132,10 @@ test("send_message says how the message was delivered", () => {
       { kind: "queued", position: 2 },
     ],
     ["Sent: it started a turn with it.", { kind: "started" }],
+    [
+      "Queued: it starts a turn with it once a run slot frees (its parent already runs as many sub-sessions as maxRunning allows).",
+      { kind: "slot" },
+    ],
   ];
   for (const [said, delivery] of cases)
     expect(subsessionCall(claude("send_message", args, said))).toEqual({
@@ -81,6 +149,9 @@ test("send_message says how the message was delivered", () => {
   expect(subsessionCall(codex("send_message", args, structured))).toMatchObject({
     delivery: { kind: "queued", position: 3 },
   });
+  expect(
+    subsessionCall(codex("send_message", args, { sessionId: "child-1", delivery: "waiting_for_slot" })),
+  ).toMatchObject({ delivery: { kind: "slot" } });
   expect(subsessionCall(claude("send_message", args, undefined, "pending"))).toMatchObject({
     tool: "send",
     running: true,
@@ -160,4 +231,32 @@ test("each sub-session call is its own card, between the calls around it", () =>
   expect(groups[1]).toMatchObject({ type: "subsession", call: { tool: "start", sessionId: "s-a" } });
   // The two list_sessions calls still fold into one MCP line.
   expect(groups[3]).toMatchObject({ type: "mcp", items: [{ tool: list }, {}] });
+});
+
+test("a row with no lane yet reads its state from its status dot", () => {
+  const rows = { sessions: [{ sessionId: "s-new", shortName: "new", state: null, indicator: "working" }] };
+  expect(subsessionCall(codex("list_sessions", {}, rows))).toMatchObject({
+    sessions: [{ sessionId: "s-new", state: "working" }],
+  });
+});
+
+test("a list whose rows cannot be read keeps the generic row", () => {
+  expect(subsessionCall(codex("list_sessions", {}, { sessions: [{ name: "no id" }] }))).toBeUndefined();
+});
+
+test("a row that says no state, or one unreadable row among good ones, keeps the generic row", () => {
+  expect(subsessionCall(codex("list_sessions", {}, { sessions: [{ sessionId: "s-1" }] }))).toBeUndefined();
+  const mixed = { sessions: [{ sessionId: "s-1", state: "working" }, { name: "no id" }] };
+  expect(subsessionCall(codex("list_sessions", {}, mixed))).toBeUndefined();
+  const byStatus = { sessions: [{ sessionId: "s-2", state: null, status: "running" }] };
+  expect(subsessionCall(codex("list_sessions", {}, byStatus))).toMatchObject({
+    sessions: [{ sessionId: "s-2", state: "working" }],
+  });
+});
+
+test("a row waiting for a run slot says so", () => {
+  const rows = { sessions: [{ sessionId: "s-q", shortName: "queued", state: "idle", waitsForSlot: true }] };
+  expect(subsessionCall(codex("list_sessions", {}, rows))).toMatchObject({
+    sessions: [{ sessionId: "s-q", state: "done", slot: true }],
+  });
 });

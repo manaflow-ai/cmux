@@ -1,5 +1,7 @@
 public import AppKit
 import CmuxNextWakeups
+import CmuxNextCompat
+public import CmuxNextDesignTokens
 
 /// The one owner of hover cards in the app (plans/cmux-next/hovercards.md).
 ///
@@ -39,7 +41,14 @@ public final class HoverCardCoordinator {
     private var movesParent: (window: NSWindow, accepted: Bool)?
     /// The last pointer move was on the card.
     private var pointerWasOnCard = false
-    private var observers: [any NSObjectProtocol] = []
+    private var observers: [MainActorObservation] = []
+    /// The last window-server answer to "which window is on top here", for its point and the time it was
+    /// asked: valid for one display frame (``topWindowLifetime``), so a burst of relayouts under a still
+    /// pointer asks once, and a window of another app or a non-key panel brought forward shows by the
+    /// next frame (no notification of this app says so).
+    var topWindowCache: (point: CGPoint, at: CFTimeInterval, number: Int)?
+    /// One frame at 120 Hz: how long a cached top window holds.
+    static let topWindowLifetime: CFTimeInterval = 1.0 / 120
     /// Machine events delivered (debug report).
     public private(set) var eventCount = 0
 
@@ -65,6 +74,8 @@ public final class HoverCardCoordinator {
         if let eventPointer, eventPointer.mouse == mouse { return eventPointer.point }
         return mouse
     }
+    /// The clock the cached top window expires on, in seconds (tests inject one).
+    public var now: () -> CFTimeInterval = { CACurrentMediaTime() }
     /// The number of the topmost window under a screen point, ignoring
     /// the card itself (tests inject one).
     public var windowNumberAt: ((CGPoint) -> Int?)?
@@ -98,21 +109,20 @@ public final class HoverCardCoordinator {
     private func installObserversIfNeeded() {
         guard observers.isEmpty else { return }
         let center = NotificationCenter.default
-        observers.append(center.addObserver(forName: DesignSettings.hoverCardsDidChange, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.hoverCardsSettingChanged() } // main-proof: observer on queue: .main
+        observers.append(MainActorObservation(DesignSettings.hoverCardsDidChange, center: center) { [weak self] in
+            self?.hoverCardsSettingChanged()
         })
-        observers.append(center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { if !WindowPlacement.noActivate { self?.dismiss(.appDeactivated) } } // main-proof: observer on queue: .main
+        observers.append(MainActorObservation(NSApplication.didResignActiveNotification, center: center) { [weak self] in
+            if !WindowPlacement.noActivate { self?.dismiss(.appDeactivated) }
         })
-        observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.dismiss(.windowResignedKey) } // main-proof: observer on queue: .main
+        observers.append(MainActorObservation(NSWorkspace.activeSpaceDidChangeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] in
+            self?.dismiss(.windowResignedKey)
         })
         for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification, NSWindow.didEndLiveResizeNotification,
                      NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
             let ended = name != NSWindow.didMoveNotification && name != NSWindow.didResizeNotification
-            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
-                let number = (note.object as? NSWindow)?.windowNumber
-                MainActor.assumeIsolated { self?.windowGeometryChanged(number, liveResizeEnded: ended) } // main-proof: observer on queue: .main
+            observers.append(MainActorObservation(name, center: center, read: { ($0.object as? NSWindow)?.windowNumber }) { [weak self] number in
+                self?.windowGeometryChanged(number, liveResizeEnded: ended)
             })
         }
     }
@@ -121,10 +131,6 @@ public final class HoverCardCoordinator {
     nonisolated deinit {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
-            for observer in observers {
-                NotificationCenter.default.removeObserver(observer)
-                NSWorkspace.shared.notificationCenter.removeObserver(observer)
-            }
             if let monitor { NSEvent.removeMonitor(monitor) }
             timer.cancel()
         }
@@ -170,10 +176,21 @@ public final class HoverCardCoordinator {
         // nothing: the card goes on this move (Leo 2026-10-20). The gap between a row and its
         // card bridges only a pointer heading into the card: one going down past the row lets
         // the card go (Leo 2026-10-20).
-        let inGap = card != nil && panel?.escapeGeometry?.zone(at: now) == .gap
+        let inGap = card.map { panel?.escapeGeometry?.zone(at: now) == .gap || besideTarget(now, card: $0) } ?? false
         let bridging = hit == nil && !mouseButtonDown()
             && (onCard || (escaped == nil && (inGap ? aiming : bridges(at: now))))
         send(.hit(hit?.target, moved: true, aiming: aiming, bridging: bridging))
+    }
+
+    /// `point` is between the shown target's own frame and its card, beside the card (a sidebar
+    /// row's card stands at the sidebar's edge, past the row's end): only a pointer heading
+    /// into the card keeps it there.
+    private func besideTarget(_ point: CGPoint, card: CGRect) -> Bool {
+        guard let id = machine.shownTarget?.id,
+              let target = owners[id]?.source?.hoverCardTargetFrame(for: id),
+              point.y >= card.minY, point.y < card.maxY, !target.contains(point) else { return false }
+        return card.minX >= target.maxX ? point.x >= target.maxX && point.x < card.minX
+            : point.x < target.minX && point.x >= card.maxX
     }
 
     /// The shown card's frame on screen, nil while none shows.
@@ -310,7 +327,7 @@ public final class HoverCardCoordinator {
             let panel = panel ?? HoverCardPanel()
             self.panel = panel
             panel.present(body: body.view, anchor: anchor, placement: body.placement, parent: parent,
-                          themeAnchor: body.themeAnchor, sliding: sliding, applyTheme: body.applyTheme)
+                          themeAnchor: body.themeAnchor, sliding: sliding, cornerRadius: body.cornerRadius, applyTheme: body.applyTheme)
             // A hover card whose row's escape slot already holds the pointer (it rested in the
             // sidebar's margin beside the row) goes at once: the slot never shows its row's card.
             if case .shown(let shown) = machine.phase, shown.id == target.id, escapeTarget(at: currentPointer()) == target.id {
@@ -494,6 +511,7 @@ public final class HoverCardCoordinator {
             "card_windows": "\(HoverCardPanel.liveInstances)",
             "card_showing": "\(panel?.isShowingCard == true)",
             "card_frame": panel.map { NSStringFromRect($0.cardFrame) } ?? "-",
+            "anchor_frame": panel.map { NSStringFromRect($0.anchorFrame) } ?? "-",
             "timer_armed": "\(timer.isScheduled)",
             "monitor": "\(monitor != nil)",
             "sources": "\(sources.values.filter { $0.source != nil }.count)",

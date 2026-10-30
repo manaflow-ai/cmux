@@ -93,6 +93,52 @@ async fn events_and_attach_page_backwards_through_transcript_records() {
 }
 
 #[tokio::test]
+async fn a_page_says_it_holds_to_the_log_end_only_when_it_reads_there() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "through").await;
+    for text in ["one", "two", "three"] {
+        c.request(method::SESSION_PROMPT, prompt(&id, text, None)).await.unwrap();
+    }
+    let last = hub.resolve("through").unwrap().meta().last_seq;
+    let seqs = |page: &Value| -> Vec<u64> {
+        page["events"].as_array().unwrap().iter().map(|e| e["seq"].as_u64().unwrap()).collect()
+    };
+    let ask = |m: &'static str, extra: Value| {
+        let mut params = json!({"sessionId": id, "kinds": ["transcript"], "limit": 2});
+        params.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        (m, params)
+    };
+    let mut a = connect(&hub).await;
+    let pages = [
+        // A page of older records holds only to its own last one (records after it were never read).
+        ask(method::MUX_EVENTS, json!({"beforeSeq": last})),
+        ask(method::MUX_ATTACH, json!({"beforeSeq": last})),
+        // So does a forward page with more to read.
+        ask(method::MUX_EVENTS, json!({"afterSeq": 0})),
+        ask(method::MUX_ATTACH, json!({"afterSeq": 0})),
+    ];
+    for (m, params) in pages {
+        let page = a.request(m, params.clone()).await.unwrap();
+        let held = seqs(&page);
+        assert!(!held.is_empty() && *held.last().unwrap() < last, "{m} {params}: {page}");
+        assert_eq!(page["pageThrough"], json!(held.last()), "{m} {params}");
+    }
+    // The newest page (more before it or not), and a forward page that reads to the end, hold to
+    // the log's last seq.
+    let newest = a.request(method::MUX_ATTACH, ask(method::MUX_ATTACH, json!({})).1).await.unwrap();
+    assert_eq!(newest["hasMore"], true);
+    assert_eq!(newest["pageThrough"], json!(last));
+    for (m, params) in [
+        ask(method::MUX_EVENTS, json!({"afterSeq": 0, "limit": 10_000})),
+        ask(method::MUX_ATTACH, json!({"afterSeq": 0, "limit": 10_000})),
+    ] {
+        let page = a.request(m, params.clone()).await.unwrap();
+        assert_ne!(page["hasMore"], true, "{m} {params}");
+        assert_eq!(page["pageThrough"], json!(last), "{m} {params}");
+    }
+}
+
+#[tokio::test]
 async fn live_updates_keep_agent_meta_and_event_stream_nests_them() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     let id = new_session(&mut c, "live").await;
@@ -359,7 +405,9 @@ fn segmented_config(segment_bytes: u64) -> Config {
 }
 
 /// A daemon over [`segmented_config`] in a fresh directory.
-async fn setup_segmented(segment_bytes: u64) -> (Arc<Hub>, TestClient, std::path::PathBuf) {
+pub(super) async fn setup_segmented(
+    segment_bytes: u64,
+) -> (Arc<Hub>, TestClient, std::path::PathBuf) {
     let dir = std::env::temp_dir().join(format!("acpmux-tail-{}", uuid::Uuid::now_v7()));
     let cfg = segmented_config(segment_bytes);
     let store = acpmux::store::open(&cfg.store, &dir).unwrap();
@@ -651,4 +699,86 @@ async fn history_page_cost() {
     time("whole log, for reference", t.elapsed().as_millis());
     assert_eq!(all.last().unwrap().seq, seq);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn orchestration_fields_reach_subagent_events_and_session_summary() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "orchestration-fields").await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "orchestration-fields", None)).await.unwrap();
+    let events = hub.events(&id, 0, 1000).unwrap();
+    let rows: Vec<&Value> = events
+        .iter()
+        .filter_map(|e| e.msg.pointer("/params/_meta/acpmux/subagents"))
+        .filter_map(Value::as_array)
+        .flatten()
+        .collect();
+    let started = rows.iter().find(|r| r["state"] == "running").unwrap();
+    assert_eq!(started["model"], "gpt-6");
+    assert_eq!(started["effort"], "high");
+    let ended = rows.iter().find(|r| r["state"] == "completed").unwrap();
+    assert_eq!(ended["lastMessage"], format!("{}…", "é".repeat(239)));
+    assert_eq!(ended["tokens"], 1234);
+    // Text updates do not walk or re-emit subagent rows on every token.
+    assert!(
+        events
+            .iter()
+            .filter(|e| e.kind == "agent_message_chunk")
+            .all(|e| e.msg.pointer("/params/_meta/acpmux/subagents").is_none())
+    );
+    assert_eq!(hub.session_summary(&hub.resolve(&id).unwrap())["effort"], "high");
+}
+
+#[tokio::test]
+async fn orchestration_session_changed_carries_effort() {
+    let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "orchestration-watch").await;
+    c.request(method::MUX_WATCH, json!({"enabled": true})).await.unwrap();
+    c.send(method::SESSION_PROMPT, prompt(&id, "orchestration-fields", None)).await;
+    let changed =
+        c.wait_for(method::MUX_SESSION_CHANGED, |p| p["session"]["effort"] == "high").await;
+    assert_eq!(changed["sessionId"], id);
+}
+
+/// An attach page that starts inside a turn names the prompt that opened it (`turnOpener`), the
+/// record a read of the user messages before the page finds: the pane shows what the turn was
+/// asked with no read of its own after the attach. A page that starts a turn, or holds the log
+/// from its start, names none.
+#[tokio::test]
+async fn an_attach_page_names_the_prompt_of_the_turn_it_starts_inside() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "opener").await;
+    for text in ["one", "two", "three"] {
+        c.request(method::SESSION_PROMPT, prompt(&id, text, None)).await.unwrap();
+    }
+    let mut a = connect(&hub).await;
+    let attach = |limit: u64| json!({"sessionId": id, "kinds": ["transcript"], "limit": limit});
+    let whole = a.request(method::MUX_ATTACH, attach(10_000)).await.unwrap();
+    assert_eq!(whole["hasMore"], false);
+    assert_eq!(whole["turnOpener"], Value::Null, "{whole}");
+    let starts_turn =
+        |e: &Value| e["dir"] == "mux" && e["kind"] == "user_message" && e["msg"]["steer"] != true;
+    let transcript = whole["events"].as_array().unwrap().clone();
+    let last_prompt = transcript.iter().rposition(starts_turn).expect("a prompt in the log");
+    // Pages that start right after the newest prompt, inside its turn.
+    let inside = transcript.len() - last_prompt - 1;
+    assert!(inside >= 1, "the last turn has records after its prompt: {whole}");
+    for limit in 1..=inside as u64 {
+        let page = a.request(method::MUX_ATTACH, attach(limit)).await.unwrap();
+        let first = page["events"][0]["seq"].as_u64().unwrap();
+        let read = a
+            .request(
+                method::MUX_EVENTS,
+                json!({"sessionId": id, "beforeSeq": first, "limit": 16, "kinds": ["user_message"]}),
+            )
+            .await
+            .unwrap();
+        let expected =
+            read["events"].as_array().unwrap().iter().rev().find(|e| starts_turn(e)).cloned();
+        assert_eq!(page["turnOpener"], expected.unwrap(), "limit {limit}: {page}");
+    }
+    // The page that starts with the prompt itself needs none.
+    let at_prompt = a.request(method::MUX_ATTACH, attach(inside as u64 + 1)).await.unwrap();
+    assert!(starts_turn(&at_prompt["events"][0]), "{at_prompt}");
+    assert_eq!(at_prompt["turnOpener"], Value::Null);
 }

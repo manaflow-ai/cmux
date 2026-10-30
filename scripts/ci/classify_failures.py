@@ -92,7 +92,7 @@ from guard_attribution import (  # noqa: E402
 import pr_status  # noqa: E402
 import web_test_failure_census  # noqa: E402
 from test_touches_diff import RUNNER_FILES  # noqa: E402
-from pr_runner_pool import LAST_OWNED_ATTEMPT  # noqa: E402
+from pr_runner_pool import LAST_OWNED_ATTEMPT, RESCUE_ACTORS  # noqa: E402
 
 MACHINE, CODE, DERIVED, UNKNOWN = "machine", "code", "derived", "unknown"
 MARKER = "<!-- cmux-ci-failure-attribution -->"
@@ -1074,7 +1074,7 @@ def rerun_decision(report: Mapping, latest: Mapping | Callable[[], Mapping]) -> 
     # (a full disk, a failed product restore) may have failed again, whose re-run (attempt 3) takes Blacksmith;
     # or a later attempt a person started, whose re-run by this bot takes Blacksmith
     # (pr_runner_pool.host_fault_retry()). Blacksmith ends the chain.
-    if report["attempt"] > LAST_OWNED_ATTEMPT and str((latest.get("triggering_actor") or {}).get("login") or "") == BOT:
+    if report["attempt"] > LAST_OWNED_ATTEMPT and str((latest.get("triggering_actor") or {}).get("login") or "") in RESCUE_ACTORS:
         return False, (f"Every failure is a machine failure, but attempt {report['attempt']} was already an "
                        "automatic re-run. Re-run it by hand if it should go again.")
     return True, (f"Every failure is a machine failure: re-ran the failed jobs as attempt {report['attempt'] + 1} "

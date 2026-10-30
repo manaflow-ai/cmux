@@ -405,6 +405,11 @@ export type CloudOp =
   /** `approve: false` declines: the invite closes as `revoked`. */
   | { readonly kind: "invite.approve_join"; readonly invite_id: string; readonly approve?: boolean }
   | { readonly kind: "invite.delivery.report"; readonly invite_id: string; readonly delivery: { readonly state: DeliveryState; readonly provider_id?: string } }
+  /**
+   * System only, from the owner's UserDO (`chief.update {display_name}`): a Chief's conversation
+   * takes the Chief's new name as its title and as the Chief participant's display name.
+   */
+  | { readonly kind: "chief.rename"; readonly chief: string; readonly display_name: string }
   | {
       readonly kind: "conversation.settings.set"
       readonly wake_policy?: WakePolicy

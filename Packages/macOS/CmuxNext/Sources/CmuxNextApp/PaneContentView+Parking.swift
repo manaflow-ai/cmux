@@ -24,6 +24,10 @@ extension AgentPaneView: PaneParkableContent, PaneTabRowSharing {}
 /// lives as long as its tab (`InternalPageTabStore.close` removes it), so parking costs no memory. Its
 /// page's tools share the tab row (the docked Home's Chief tools, `HomeDockSwitchView+TabRow`).
 extension InternalPageView: PaneParkableContent, PaneTabRowForwarding { var tabRowSharer: PaneTabRowSharing? { content as? PaneTabRowSharing } }
+/// Its page's rows in the pane's more menu (the docked Home's Chief Actions, `ChiefPaneTools`).
+extension InternalPageView: PaneMoreMenuContributing {
+    func paneMoreMenuItems() -> [NSMenuItem] { (content as? PaneMoreMenuContributing)?.paneMoreMenuItems() ?? [] }
+}
 
 /// One parked view, weak: the content cache owns it.
 struct ParkedContent {
@@ -46,6 +50,7 @@ extension PaneContentView {
             view.frame = contentHost.bounds
             view.autoresizingMask = [.width, .height]
             contentHost.addSubview(view)
+            refreshNativeToolOwner()
             // Parked in the pane it came from.
             if view is PaneParkableContent { view.isHidden = false }
             return
@@ -76,8 +81,10 @@ extension PaneContentView {
     /// content leaves the pane. A view another pane took is not touched.
     func retire(_ view: NSView) {
         guard view.superview === contentHost else { return }
+        (view as? AgentPaneView)?.onNativeToolOwnerChange = nil
         guard view is PaneParkableContent else {
             view.removeFromSuperview()
+            refreshNativeToolOwner()
             return
         }
         // The keyboard never stays in a view that does not show: the window
@@ -101,9 +108,16 @@ extension PaneContentView {
     /// `live` (a closed tab, a replaced view).
     func prunePark(live: ((NSView) -> Bool)? = nil) {
         parked.removeAll { entry in
-            guard let view = entry.view, view.superview === contentHost, view !== content else { return true }
+            guard let view = entry.view else { return true }
+            guard view.superview === contentHost else {
+                if view.superview == nil { (view as? AgentPaneView)?.onNativeToolOwnerChange = nil }
+                return true
+            }
+            guard view !== content else { return true }
             guard live?(view) ?? true else {
+                (view as? AgentPaneView)?.onNativeToolOwnerChange = nil
                 view.removeFromSuperview()
+                refreshNativeToolOwner()
                 return true
             }
             return false

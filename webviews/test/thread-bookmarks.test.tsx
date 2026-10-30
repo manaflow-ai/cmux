@@ -123,6 +123,7 @@ test("the popover bookmark sets the mark in acpmux and shows what acpmux answers
   expect(acpmux.gets).toEqual(["chat-1"]);
   const button = await bookmarkOf(host, 0);
   expect(button.getAttribute("aria-pressed")).toBe("false");
+  expect(host.querySelector('[data-tick="0"] .acpmux-minimap__dot')).toBeNull();
 
   await act(async () => button.click());
   // Shown at once, before acpmux answers.
@@ -131,12 +132,14 @@ test("the popover bookmark sets the mark in acpmux and shows what acpmux answers
   await act(async () => acpmux.answer());
   await settle();
   expect(host.querySelector(".acpmux-minimap__bookmark")!.getAttribute("aria-pressed")).toBe("true");
+  expect(host.querySelector('[data-tick="0"] .acpmux-minimap__dot')).not.toBeNull();
 
   await act(async () => (host.querySelector(".acpmux-minimap__bookmark") as HTMLButtonElement).click());
   expect(acpmux.calls.at(-1)).toEqual({ sessionId: "chat-1", seq: 3, bookmarked: false });
   await act(async () => acpmux.answer());
   await settle();
   expect(host.querySelector(".acpmux-minimap__bookmark")!.getAttribute("aria-pressed")).toBe("false");
+  expect(host.querySelector('[data-tick="0"] .acpmux-minimap__dot')).toBeNull();
   await act(async () => root.unmount());
   host.remove();
 });

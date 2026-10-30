@@ -21,7 +21,8 @@ import Testing
            "claude-cr": {"argv": ["claude-agent-acp"], "family": "claude", "displayName": "Claude (CodeRouter)"},
            "gemini": {"argv": ["gemini", "--acp"], "family": "gemini", "unavailable": "gemini is not installed"},
            "pi": {"argv": ["pi"], "family": "pi", "probeError": "probe timed out"},
-           "muse": {"argv": ["muse"], "kind": "terminal"}
+           "muse": {"argv": ["muse"], "kind": "terminal"},
+           "cmux": {"argv": ["claude"], "family": "claude", "kind": "claude-stdio", "pickerHidden": true}
          }}
         """
     }
@@ -61,6 +62,8 @@ import Testing
         let catalog = AgentCatalog(harnesses: try json(harnesses), models: try json(models))
         // A terminal harness runs in a terminal tab, not as a chat.
         #expect(catalog.harness("muse") == nil)
+        // The cmux router is Claude's automatic fallback, not an agent to pick (acpmux `pickerHidden`).
+        #expect(catalog.harness("cmux") == nil)
         // A launcher that can't run is Unavailable with the Mac's reason; a failed probe alone is not.
         #expect(catalog.harness("gemini")?.unavailableReason == "gemini is not installed")
         #expect(catalog.harness("pi")?.canStart == true)
@@ -200,6 +203,19 @@ import Testing
         #expect(ACPMode.phoneChoices(modes, current: "default").map(\.id) == ["default", "plan", "ask"])
         // The current mode stays listed (checked) even when it does not ask.
         #expect(ACPMode.phoneChoices(modes, current: "agent").map(\.id) == ["default", "plan", "ask", "agent"])
+    }
+
+    /// A phone whose Full-access setting covers it (acpmux `initialize` `fullAccess`) also gets
+    /// the harness's Full access mode, the one the Mac offers; never the other modes that do not
+    /// ask (`acceptEdits`, the bridge's `agent`).
+    @Test func aPhoneWithFullAccessAlsoPicksTheFullAccessMode() {
+        let modes = ["default", "acceptEdits", "plan", "bypassPermissions", "ask", "agent", "agent-full-access"]
+            .map { ACPMode(id: $0, name: $0) }
+        #expect(ACPMode.phoneChoices(modes, current: "default", fullAccess: true).map(\.id)
+            == ["default", "plan", "bypassPermissions", "ask", "agent-full-access"])
+        #expect(ACPMode.phoneChoices(modes, current: "default", fullAccess: false).map(\.id) == ["default", "plan", "ask"])
+        #expect(ACPMode.phoneChoices(modes, current: "agent", fullAccess: true).map(\.id)
+            == ["default", "plan", "bypassPermissions", "ask", "agent", "agent-full-access"])
     }
 }
 

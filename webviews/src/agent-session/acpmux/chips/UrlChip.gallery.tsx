@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample URLs), not shipped UI.
 import { componentEntry, type ChipHostFixture, type PullRequestFixture } from "../../../gallery/format";
-import type { Play, PlayContext } from "../../../gallery/play";
+import type { Play } from "../../../gallery/play";
 import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
 import type { ReactNode } from "react";
 
@@ -62,26 +62,6 @@ const openCard: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pr-card__changes"));
 };
 
-// A trusted click lands at the point the row is at when the step runs, so a row that is still
-// moving is clicked where it used to be -- and the pull request card moves twice after it opens:
-// the host's answer fills it in (the `+/−` row drops from 186 to 211) and the card's entrance
-// transition settles it back (211 to 209 over about six frames). Counting painted frames, rather
-// than passes of `waitFor` (which a DOM mutation can run several of within one frame), is what
-// makes "held for eight frames" the row standing still rather than a gap between its two moves.
-const stillRow = async (ctx: PlayContext, selector: string, frames = 8, give = 300): Promise<void> => {
-  const view = ctx.document.defaultView ?? window;
-  const top = () => ctx.document.querySelector(selector)?.getBoundingClientRect().top;
-  let previous = top();
-  let held = 0;
-  for (let painted = 0; held < frames; painted += 1) {
-    if (painted > give) throw new Error(`play: ${selector} never stopped moving (${give} frames)`);
-    await new Promise<void>((done) => view.requestAnimationFrame(() => done()));
-    const now = top();
-    held = now !== undefined && previous !== undefined && Math.round(now) === Math.round(previous) ? held + 1 : 0;
-    previous = now;
-  }
-};
-
 export default componentEntry<UrlChipProps>({
   id: "agent-pane.url-chip",
   title: "URL chips",
@@ -94,7 +74,12 @@ export default componentEntry<UrlChipProps>({
   ],
   load: () => import("./LinkChips").then((module) => module.UrlChip),
   styles: () =>
-    Promise.all([import("../styles.css"), import("../conversation/conversation.css"), import("./chips.css")]),
+    Promise.all([
+      import("../../shared/styles.css"),
+      import("../styles.css"),
+      import("../conversation/conversation.css"),
+      import("./chips.css"),
+    ]),
   widths: { narrow: 360, normal: 640, wide: 860 },
   variants: {
     globe: { props: { href: "https://example.test/docs/getting-started", children: "example.test/docs" } },
@@ -119,21 +104,88 @@ export default componentEntry<UrlChipProps>({
         await ctx.waitFor(() => ctx.document.querySelector(".cv-link-preview"));
       },
     },
-    "pull-request": {
+    // Design variations for Leo's hover-card review. `pull-request-polished` is the chosen
+    // hierarchy: title, state/checks, author/time, compact diff, then secondary context.
+    "pull-request-polished": {
       chipHost: prHost({ pullRequest: pullRequest(), fetchedAt: GALLERY_NOW / 1000 - 20 }),
       props: { href: PULL_REQUEST, children: "manaflow-ai/cmux#22777" },
       play: openCard,
     },
-    "pull-request-lines-by-kind": {
-      chipHost: prHost({ pullRequest: pullRequest(), fetchedAt: GALLERY_NOW / 1000 - 20 }),
+    "pull-request-polished-draft": {
+      chipHost: prHost({
+        pullRequest: pullRequest({
+          title: "cmux NEXT: the composer keeps its caret on a slow send",
+          state: "draft",
+          review: "",
+          mergeable: "mergeable",
+          labels: ["risk:low"],
+          checks: { state: "pending", passed: 12, total: 40 },
+          checkList: [],
+          files: [file("webviews/src/agent-session/acpmux/Composer.tsx", 41, 9)],
+          additions: 41,
+          deletions: 9,
+          changedFiles: 1,
+        }),
+        fetchedAt: GALLERY_NOW / 1000 - 15,
+      }),
       props: { href: PULL_REQUEST, children: "manaflow-ai/cmux#22777" },
-      play: async (ctx) => {
-        await openCard(ctx);
-        // A click pins the breakdown, so it stays open however the stage settles.
-        await stillRow(ctx, ".acpmux-pr-card__lines");
-        await ctx.click({ selector: ".acpmux-pr-card__lines" });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pr-card__kinds"));
-      },
+      play: openCard,
+    },
+    "pull-request-polished-merged": {
+      chipHost: prHost({
+        pullRequest: pullRequest({
+          title: "nightly-next: new builds go to the Dev ring first and move to Nightly on a canary pass",
+          state: "merged",
+          mergeable: "",
+          review: "approved",
+          checks: { state: "failing", passed: 118, total: 122, failingOnBase: 4 },
+          checkList: [],
+        }),
+        fetchedAt: GALLERY_NOW / 1000 - 20,
+      }),
+      props: { href: PULL_REQUEST, children: "manaflow-ai/cmux#22777" },
+      play: openCard,
+    },
+    "pull-request-polished-long-title": {
+      chipHost: prHost({
+        pullRequest: pullRequest({
+          title: "nightly-next: new builds go to the Dev ring first and move to Nightly on a canary pass",
+          review: "",
+          mergeable: "mergeable",
+          labels: ["risk:high"],
+          checks: { state: "passing", passed: 100, total: 100 },
+          checkList: [],
+        }),
+        fetchedAt: GALLERY_NOW / 1000 - 20,
+      }),
+      props: { href: PULL_REQUEST, children: "manaflow-ai/cmux#22777" },
+      play: openCard,
+    },
+    // The theme-color pass keeps all three semantic inks visible together: additions, deletions
+    // and the passing/failing check count. The matrix renders this state in dark, light and
+    // colorful terminal themes for before/after review.
+    "pull-request-theme-colors": {
+      chipHost: prHost({
+        pullRequest: pullRequest({
+          title: "cmux NEXT: terminal theme colors carry through status text",
+          review: "approved",
+          mergeable: "mergeable",
+          labels: ["risk:normal", "theme"],
+          checks: { state: "failing", passed: 97, total: 100 },
+          checkList: [{ name: "cmux-next / web lint", state: "failed" }],
+          files: [
+            file("webviews/src/agent-session/acpmux/chips/linkCard.css", 22, 18),
+            file("webviews/src/agent-session/acpmux/conversation/conversation.css", 30, 30),
+            file("webviews/test/agent-status-colors.test.ts", 96, 0),
+          ],
+          additions: 148,
+          deletions: 48,
+          changedFiles: 3,
+        }),
+        fetchedAt: GALLERY_NOW / 1000 - 12,
+      }),
+      props: { href: PULL_REQUEST, children: "manaflow-ai/cmux#theme-colors" },
+      play: openCard,
     },
     // A red the base branch already has: the compact ✓/✗ count says how many of the failures are not
     // this pull request's, and the ✗ reads muted when none of them are.
@@ -199,8 +251,8 @@ export default componentEntry<UrlChipProps>({
       props: { href: PULL_REQUEST, children: "manaflow-ai/cmux#22777" },
       play: openCard,
     },
-    // Merged: the pull request glyph in purple, no state word, and no checks line (a merged pull
-    // request's reds no longer matter), however red its last run was.
+    // Merged: the pull request glyph in purple and no checks line (a merged pull request's reds
+    // no longer matter), however red its last run was.
     "pull-request-merged": {
       chipHost: prHost({
         pullRequest: pullRequest({

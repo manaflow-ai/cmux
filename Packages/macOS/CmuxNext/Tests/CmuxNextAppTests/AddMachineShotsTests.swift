@@ -67,7 +67,9 @@ enum AddMachineShotState: String, CaseIterable {
         case .pick:
             host.candidates = [
                 HostCandidate(name: "huge-blue", dnsName: "huge-blue.tail1.ts.net.", ip: "100.64.0.2", os: "linux", online: true, alreadyPeer: false, sshOK: true),
-                HostCandidate(name: "cmux16", dnsName: "cmux16.tail1.ts.net.", ip: "100.64.0.3", os: "macOS", online: true, alreadyPeer: true, sshOK: true),
+                HostCandidate(name: "cmux16", dnsName: "cmux16.tail1.ts.net.", ip: "100.64.0.3", os: "macOS", online: true, alreadyPeer: true, sshOK: true, inApp: true),
+                HostCandidate(name: "air-blue", dnsName: "air-blue.tail1.ts.net.", ip: "100.64.0.5", os: "macOS", online: true, alreadyPeer: true,
+                              peer: "air-blue", peerURL: "ssh://air-blue"),
                 HostCandidate(name: "big-red", dnsName: "big-red.tail1.ts.net.", ip: "100.64.0.4", os: "linux", online: true, alreadyPeer: false, sshOK: false),
             ]
             model.begin()

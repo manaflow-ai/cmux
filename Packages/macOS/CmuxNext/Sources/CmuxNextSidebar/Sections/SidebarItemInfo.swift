@@ -16,6 +16,9 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var badge: Int?
     /// The window shows this item (Home, a pinned workspace).
     public var isActive: Bool
+    /// A pinned workspace in the sidebar's multi-selection, not the shown one: drawn with the secondary
+    /// selection fill, as its list row would be. The region sets it (`SidebarRegionView.selectedWorkspaces`).
+    public var isSecondarySelected = false
     /// The reference no longer resolves (a closed workspace): drawn dimmed.
     public var isMissing: Bool
     /// Not drawn at all (a hidden app, D55); the item stays in the layout.
@@ -35,7 +38,15 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var textOnly = false
     /// A workspace in Pinned drawn as a row: a pin leads it, before its icon and title.
     public var leadingPin = false
-    /// An unread dot instead of a count, in every look (What's New after an update).
+    /// The open workspace a workspace tile names: its row shows a workspace row's hover more
+    /// button and close x (`SidebarItemRowView+HoverActions`). Nil for every other item.
+    public var workspace: WorkspaceID?
+    /// The open workspace's own row, as the workspace list maps it (`SidebarMapping.row`): a pinned
+    /// workspace row opens the list's workspace hover card from it, the card a list row shows. Nil for
+    /// every other item.
+    public var workspaceRow: SidebarWorkspace?
+    /// The blue unread dot instead of a count, in every look (Home's unread conversations): a row
+    /// draws a workspace row's dot on the trailing column, an icon look dots its glyph in the same blue.
     public var unreadDot = false
     /// The current profile's avatar (SIDEBAR-FOOTER-AND-SPACE-MENU
     /// amendment 2): an icon-only item with an avatar draws its initial in
@@ -48,6 +59,9 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     /// Levels the row's glyph and title step in under the item before it (a Chief subagent under
     /// the Chief entry); the inline, tile and icon-only looks ignore it.
     public var indent = 0
+    /// What VoiceOver reads for the row; nil reads `title`. For a row whose title only makes sense
+    /// under the item before it (a remote machine's room row names its machine here).
+    public var accessibilityTitle: String?
 
     public init(title: String, symbol: String, icon: IconName? = nil, color: GroupColor? = nil, badge: Int? = nil, isActive: Bool = false,
                 isMissing: Bool = false, isHidden: Bool = false, caption: String? = nil, shortcut: String? = nil, brand: String? = nil,

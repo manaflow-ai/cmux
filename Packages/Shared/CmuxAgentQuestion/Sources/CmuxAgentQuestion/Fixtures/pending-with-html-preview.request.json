@@ -1,0 +1,101 @@
+{
+  "permissionId": "perm_toolu_html",
+  "session": "sess_claude_1",
+  "request": {
+    "sessionId": "sess_claude_1",
+    "toolCall": {
+      "toolCallId": "toolu_html",
+      "title": "Question: Which confirmation should the deploy step show?",
+      "kind": "other",
+      "status": "pending",
+      "rawInput": {
+        "questions": [
+          {
+            "question": "Which confirmation should the deploy step show?",
+            "header": "Confirm UI",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Glass card",
+                "description": "A frosted card with the two actions bottom right.",
+                "preview": "<div style=\"display:flex;flex-direction:column;gap:8px;padding:14px;border-radius:12px;background:linear-gradient(135deg,rgba(120,140,255,.18),rgba(255,255,255,.04));border:1px solid rgba(127,127,127,.25)\"><div style=\"font-weight:600\">Deploy to staging?</div><div style=\"font-size:12px;opacity:.7\">3 services, 2 migrations</div><div style=\"display:flex;gap:6px;justify-content:flex-end\"><span style=\"padding:3px 10px;border-radius:7px;opacity:.7\">Skip</span><span style=\"padding:3px 10px;border-radius:7px;background:#5b6cff;color:#fff\">Deploy</span></div></div>"
+              },
+              {
+                "label": "Compact row",
+                "description": "One line with a status dot and a single action.",
+                "preview": "<div style=\"display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;border:1px solid rgba(127,127,127,.25)\"><span style=\"width:8px;height:8px;border-radius:50%;background:#f5a623\"></span><span style=\"flex:1\">Deploy to staging? <span style=\"opacity:.6\">3 services</span></span><span style=\"padding:2px 8px;border-radius:6px;background:#5b6cff;color:#fff;font-size:12px\">Deploy</span></div>"
+              },
+              {
+                "label": "Checklist",
+                "description": "The steps, ticked as they pass.",
+                "preview": "<div style=\"padding:12px;border-radius:10px;border:1px solid rgba(127,127,127,.25)\"><div style=\"font-weight:600;margin-bottom:6px\">Before deploying</div><div>&#9745; api &middot; web &middot; worker built</div><div>&#9745; 2 migrations reviewed</div><div style=\"opacity:.6\">&#9744; smoke test on staging</div></div>"
+              }
+            ]
+          }
+        ]
+      },
+      "_meta": {
+        "claude": {
+          "tool": "AskUserQuestion",
+          "interactive": true
+        },
+        "acpmux": {
+          "question": {
+            "harness": "claude",
+            "agent": "Claude Code",
+            "items": [
+              {
+                "id": "q0",
+                "header": "Confirm UI",
+                "prompt": "Which confirmation should the deploy step show?",
+                "options": [
+                  {
+                    "id": "Glass card",
+                    "label": "Glass card",
+                    "detail": "A frosted card with the two actions bottom right.",
+                    "preview": {
+                      "text": "<div style=\"display:flex;flex-direction:column;gap:8px;padding:14px;border-radius:12px;background:linear-gradient(135deg,rgba(120,140,255,.18),rgba(255,255,255,.04));border:1px solid rgba(127,127,127,.25)\"><div style=\"font-weight:600\">Deploy to staging?</div><div style=\"font-size:12px;opacity:.7\">3 services, 2 migrations</div><div style=\"display:flex;gap:6px;justify-content:flex-end\"><span style=\"padding:3px 10px;border-radius:7px;opacity:.7\">Skip</span><span style=\"padding:3px 10px;border-radius:7px;background:#5b6cff;color:#fff\">Deploy</span></div></div>",
+                      "format": "html"
+                    }
+                  },
+                  {
+                    "id": "Compact row",
+                    "label": "Compact row",
+                    "detail": "One line with a status dot and a single action.",
+                    "preview": {
+                      "text": "<div style=\"display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;border:1px solid rgba(127,127,127,.25)\"><span style=\"width:8px;height:8px;border-radius:50%;background:#f5a623\"></span><span style=\"flex:1\">Deploy to staging? <span style=\"opacity:.6\">3 services</span></span><span style=\"padding:2px 8px;border-radius:6px;background:#5b6cff;color:#fff;font-size:12px\">Deploy</span></div>",
+                      "format": "html"
+                    }
+                  },
+                  {
+                    "id": "Checklist",
+                    "label": "Checklist",
+                    "detail": "The steps, ticked as they pass.",
+                    "preview": {
+                      "text": "<div style=\"padding:12px;border-radius:10px;border:1px solid rgba(127,127,127,.25)\"><div style=\"font-weight:600;margin-bottom:6px\">Before deploying</div><div>&#9745; api &middot; web &middot; worker built</div><div>&#9745; 2 migrations reviewed</div><div style=\"opacity:.6\">&#9744; smoke test on staging</div></div>",
+                      "format": "html"
+                    }
+                  }
+                ],
+                "multiSelect": false,
+                "allowsOther": true
+              }
+            ]
+          }
+        }
+      }
+    },
+    "options": [
+      {
+        "optionId": "allow_once",
+        "name": "Answer",
+        "kind": "allow_once"
+      },
+      {
+        "optionId": "reject_once",
+        "name": "Reject",
+        "kind": "reject_once"
+      }
+    ]
+  }
+}

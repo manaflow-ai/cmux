@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextIcons
 
@@ -140,23 +141,20 @@ public final class BrowserToolbarButtonsView: NSStackView {
 
     /// Pops `menu` up under `button` (under More when the button is
     /// collapsed, at the top of the view when the toolbar is hidden) on the
-    /// next run-loop turn, so a CLI or palette caller returns first. `themed` draws its rows in the
-    /// cmux NEXT menu look in the toolbar's theme (`NSMenu.themeRows(in:)`; the downloads and device
-    /// menus). A chosen themed row runs once the menu has closed, after `popUp` returns.
+    /// next run-loop turn, so a CLI or palette caller returns first. `themed` opens it in the
+    /// toolbar's light or dark look (`NSMenu.themeRows(in:)`; the downloads and device menus), a
+    /// standard macOS menu.
     public func present(_ menu: NSMenu, from button: BrowserToolbarButton, themed: Bool = false) {
         refresh()
         if themed { menu.themeRows(in: themeScope.fullStrength) }
-        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) { [weak self] in
-            MainActor.assumeIsolated { // main-proof: a CFRunLoopGetMain() block runs on the main thread
-                guard let self, let anchor = self.anchor(for: button) else { return }
-                // Pressed while the menu is open, normal again when it closes (Chrome).
-                let pressed = anchor as? ChromeIconButton
-                pressed?.isMenuOpen = true
-                self.popUpMenu(menu, CmuxPopoverAnchor.menuPoint(for: menu, in: anchor, gap: 4), anchor)
-                pressed?.isMenuOpen = false
-            }
+        MainRunLoopBlock.perform { [weak self] in
+            guard let self, let anchor = self.anchor(for: button) else { return }
+            // Pressed while the menu is open, normal again when it closes (Chrome).
+            let pressed = anchor as? ChromeIconButton
+            pressed?.isMenuOpen = true
+            self.popUpMenu(menu, CmuxPopoverAnchor.menuPoint(for: menu, in: anchor, gap: 4), anchor)
+            pressed?.isMenuOpen = false
         }
-        CFRunLoopWakeUp(CFRunLoopGetMain())
     }
 
     /// The view a popup of `button` opens under: the button, More when it is

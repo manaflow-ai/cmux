@@ -360,6 +360,8 @@ pub fn run(argv: &mut [*mut c_char], out: PathBuf) -> i32 {
         on_loading_state: None,
         on_cursor: None,
         on_open_tab: None,
+        on_file_load: None,
+        on_text_input: None,
     };
     // SAFETY: argv, the strings and the callbacks outlive the call.
     unsafe {

@@ -1,9 +1,11 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextTabs
 import Observation
 
 /// REOPEN-CLOSED (R102/R103): tabs the user closes (Cmd-W, a tab's close
@@ -27,8 +29,9 @@ final class CloseUndoToasts {
     struct Expected {
         /// Each tab's id, with the position it held before the gesture.
         var tabs: [(id: String, index: Int)]
-        /// The daemon's closed items for them come from this pane.
-        var paneResourceID: ResourceID?
+        /// The daemon's closed items for them come from these panes (one for a
+        /// pane's close, every pane of a Close Other Panes, whose one item names one of them).
+        var paneResourceIDs: Set<ResourceID>
         var title: String
         weak var window: NSWindow?
         var daemonItems: [String] = []
@@ -53,6 +56,20 @@ final class CloseUndoToasts {
     var rateLimit = UndoToastRateLimit()
     /// The time the rate limit reads (tests pass their own).
     var now: @MainActor () -> ContinuousClock.Instant = { .now }
+    /// Whether a person's close of a tab waits for its page: a live Chromium
+    /// page runs its beforeunload first (`BrowserUserClosing`) and closes the
+    /// tab itself afterwards. Starts that page's close. Tests pass their own.
+    var pageDecidesClose: @MainActor (PaneController, StripTabID) -> Bool = CloseUndoToasts.livePageDecidesClose
+    /// Tabs whose page decides a person's close now: a quick next Cmd-W skips them (``PageClosingTabs``).
+    let pageClosing = PageClosingTabs()
+    /// Closes of several tabs waiting for their pages, so each stays one Reopen Closed step.
+    let pageDecidedCloses = PageDecidedCloses<PaneController, PreparedTabClose>(
+        prepare: { pane, ids in pane.prepareClose(ids) }, send: { PaneController.send($0, from: $1, userClose: $2) })
+
+    /// ``pageDecidesClose``'s answer in the app: the tab's browser page decides.
+    static func livePageDecidesClose(_ pane: PaneController, _ id: StripTabID) -> Bool {
+        pane.services.cache.browsers[id.rawValue]?.tab.pageDecidesUserClose() == true
+    }
 
     /// Whether a new close toast `id` may show now (`rateLimit`).
     func allowsNewToast(_ id: String) -> Bool {
@@ -109,12 +126,10 @@ final class CloseUndoToasts {
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            observation?.cancel()
-            reopenWatch?.cancel()
-        }
+        observation?.cancel()
+        reopenWatch?.cancel()
     }
 
     private static func daemonItemIDs(_ daemons: [DaemonService]) -> [String] {
@@ -136,20 +151,50 @@ final class CloseUndoToasts {
         for part in parts { part.pane.close(part.ids.filter { part.pane.daemon.store.creations.isPending(tab: $0.rawValue) }) }
         // A tab already closing left the store's visible records with its close intent, so a
         // second close of it (before the daemon answered the first) finds nothing to close.
-        let parts = parts.filter { !$0.ids.isEmpty }
+        // A page's own close of its tab, after a close of several tabs waited for it, joins that close.
+        let undoToasts = parts.first?.pane.services.closedTabs?.undoToasts
+        // A close of a tab whose page was deciding (the page's own close after it decided, a close
+        // button): that decision is over; the close below starts a new one if the page decides again.
+        for part in parts { for id in part.ids { undoToasts?.pageClosing.end(id.rawValue) } }
+        let parts = (undoToasts?.pageDecidedCloses.absorb(parts) ?? parts).filter { !$0.ids.isEmpty }
         guard let first = parts.first?.pane else { return }
         let user = isUserClose, services = first.services, daemon = first.daemon
         let tabs = parts.flatMap { part in part.ids.compactMap(part.pane.tab) }
-        let closes = parts.map { part in { @MainActor [weak pane = part.pane, ids = part.ids] (undo: CloseUndoToasts?, costly: Bool) in
-            // A person's close of a live page runs its beforeunload first (`BrowserUserClosing`): that tab is not
-            // announced or closed now; the page decides, and its own close (after Leave) closes it then.
-            guard let pane, case let closing = user ? ids.filter({ pane.services.cache.browsers[$0.rawValue]?.tab.pageDecidesUserClose() != true }) : ids else { return }
-            undo?.expectGroup(closing, in: pane, costly: costly)
-            pane.close(closing)
-        } }
+        let panes = parts.map { part in (pane: { @MainActor [weak pane = part.pane] in pane }, ids: part.ids) }
+        // One gesture, one daemon close and one closed group (`PaneController.close(_:)`): one Reopen
+        // Closed brings every pane's tabs back, and one undo toast counts them all.
+        let closeAll = { @MainActor (undo: CloseUndoToasts?, costly: Bool) in
+            var closing: [(pane: PaneController, ids: [StripTabID])] = [], deciding: [(pane: PaneController, ids: [StripTabID])] = []
+            for part in panes {
+                guard let pane = part.pane() else { continue }
+                // A person's close of a live page runs its beforeunload first (`BrowserUserClosing`): the page
+                // decides, and its own close (after Leave) closes the tab then.
+                let decides = pane.services.closedTabs?.undoToasts.pageDecidesClose ?? CloseUndoToasts.livePageDecidesClose
+                let deciders = user ? part.ids.filter { !pane.isMirror($0) && decides(pane, $0) } : [] // a mirror's close takes out the chip, never the page
+                if let undo = pane.services.closedTabs?.undoToasts {
+                    for id in deciders { if let page = pane.services.cache.browsers[id.rawValue]?.tab { undo.pageClosing.begin(id.rawValue, page: page) } }
+                }
+                closing.append((pane, part.ids.filter { !deciders.contains($0) }))
+                if !deciders.isEmpty { deciding.append((pane, deciders)) }
+            }
+            let all = closing.map(\.ids.count).reduce(0, +) + deciding.map(\.ids.count).reduce(0, +)
+            let daemon = (closing.first ?? deciding.first)?.pane.daemon
+            // One close of several tabs is one Reopen Closed step even when pages decide (Lawrence
+            // 2026-10-23, Cmd-Opt-T then Cmd-Shift-T): it waits for them (`PageDecidedCloses`).
+            if let undo, !deciding.isEmpty, all > 1, (closing + deciding).allSatisfy({ $0.pane.daemon === daemon }) {
+                let parts = closing.map { part in (pane: part.pane, ids: part.ids + (deciding.first { $0.pane === part.pane }?.ids ?? [])) }
+                    + deciding.filter { part in !closing.contains { $0.pane === part.pane } }
+                undo.expectGroup(parts, costly: costly)
+                undo.pageDecidedCloses.begin(closing: closing.filter { !$0.ids.isEmpty }, deciding: deciding, userClose: user)
+                return
+            }
+            closing = closing.filter { !$0.ids.isEmpty }
+            undo?.expectGroup(closing, costly: costly)
+            PaneController.close(closing)
+        }
         TabCloseGuard.close(tabs, on: daemon, services: services, window: first.view.window) { [weak services] asked in
-            guard user, let undo = services?.closedTabs?.undoToasts else { return closes.forEach { $0(nil, false) } }
-            undo.decideFirst(tabs, on: daemon, asked: asked) { costly in closes.forEach { $0(undo, costly) } }
+            guard user, let undo = services?.closedTabs?.undoToasts else { return closeAll(nil, false) }
+            undo.decideFirst(tabs, on: daemon, asked: asked) { costly in closeAll(undo, costly) }
         }
     }
 
@@ -178,19 +223,37 @@ final class CloseUndoToasts {
         expectGroup(tabs: ids.compactMap(pane.tab), in: pane.pane, window: pane.view.window, costly: costly)
     }
 
+    /// The user is closing tabs of several panes in one gesture: one daemon
+    /// close of one daemon (`PaneController.close(_:)`) stores one closed
+    /// group for all of them, so the gesture waits for one item from any of
+    /// those panes. Parts on several daemons each wait for their own.
+    func expectGroup(_ parts: [(pane: PaneController, ids: [StripTabID])], costly: Bool) {
+        guard let daemon = parts.first?.pane.daemon, parts.count > 1, parts.allSatisfy({ $0.pane.daemon === daemon }) else {
+            for part in parts { expectGroup(part.ids, in: part.pane, costly: costly) }
+            return
+        }
+        expectGroup(parts.map { part in (tabs: part.ids.compactMap(part.pane.tab), pane: part.pane.pane) },
+                    window: parts.first?.pane.view.window, costly: costly)
+    }
+
     /// The user is closing `tabs` of `pane` in one gesture (a tab group
     /// that may not be shown; `window` is where the toast goes).
     func expectGroup(tabs: [TabModel], in pane: PaneModel, window: NSWindow?, costly: Bool) {
-        let entries = tabs.compactMap { tab in
-            pane.tabs.firstIndex { $0 === tab }.map { (id: tab.id, index: $0) }
+        expectGroup([(tabs: tabs, pane: pane)], window: window, costly: costly)
+    }
+
+    private func expectGroup(_ parts: [(tabs: [TabModel], pane: PaneModel)], window: NSWindow?, costly: Bool) {
+        let entries = parts.flatMap { part in
+            part.tabs.compactMap { tab in part.pane.tabs.firstIndex { $0 === tab }.map { (id: tab.id, index: $0) } }
         }
+        let tabs = parts.flatMap(\.tabs)
         announced += 1
         guard !entries.isEmpty else { announcedEmpty += 1; return }
         // A second close of a tab whose close is still waiting (a repeated Cmd-W) is the same gesture.
         let pending = Set(expected.flatMap { $0.tabs.map(\.id) })
         guard !entries.contains(where: { pending.contains($0.id) }) else { return }
         let title = tabs.count == 1 ? Self.title(of: tabs[0], titles: services.map { TabTitleResolver(services: $0) } ?? TabTitleResolver()) : ""
-        expected.append(Expected(tabs: entries.sorted { $0.index < $1.index }, paneResourceID: pane.resourceID,
+        expected.append(Expected(tabs: entries.sorted { $0.index < $1.index }, paneResourceIDs: Set(parts.compactMap(\.pane.resourceID)),
                                  title: title, window: window, costly: costly))
         if expected.count > 16 { expected.removeFirst(expected.count - 16) }
     }
@@ -218,7 +281,7 @@ final class CloseUndoToasts {
         for id in added {
             let entry = DaemonClosedHistory.entry(id, in: services)
             let position = entry.flatMap { entry in
-                entry.item.kind == .tab ? expected.firstIndex { $0.paneResourceID != nil && $0.paneResourceID == entry.item.paneID } : nil
+                entry.item.kind == .tab ? expected.firstIndex { close in entry.item.paneID.map(close.paneResourceIDs.contains) == true } : nil
             }
             recentDaemonItems.append((id, entry?.item.paneID?.rawValue, entry?.item.tabs.count ?? 0, position != nil))
             if recentDaemonItems.count > 8 { recentDaemonItems.removeFirst(recentDaemonItems.count - 8) }
@@ -261,6 +324,6 @@ final class CloseUndoToasts {
 
     /// The gestures still waiting for their history records (`debug.filepages`).
     var waiting: [(pane: String?, tabs: Int, daemonTabs: Int)] {
-        expected.map { ($0.paneResourceID?.rawValue, $0.tabs.count, $0.daemonTabs) }
+        expected.map { ($0.paneResourceIDs.map(\.rawValue).sorted().joined(separator: ","), $0.tabs.count, $0.daemonTabs) }
     }
 }

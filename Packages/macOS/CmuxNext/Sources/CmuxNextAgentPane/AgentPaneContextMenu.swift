@@ -20,11 +20,14 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
     var links: [URL]
     /// The pointer is on an image the page opens on click.
     var opensImage: Bool
+    /// The pointer is on an image (one the page opens, or one I sent): Copy Image, Save Image As…,
+    /// Quick Look and Show in Finder act on it.
+    var hasImage: Bool
     /// The code block, command, path or link under the pointer (webviews conversation/menuParts.ts).
     var part: AgentPaneMenuPart?
 
     init(text: String, markdown: String? = nil, forkSeq: Int? = nil, sideChat: Bool = false, retryRowId: String? = nil,
-         links: [URL] = [], opensImage: Bool = false, part: AgentPaneMenuPart? = nil) {
+         links: [URL] = [], opensImage: Bool = false, hasImage: Bool? = nil, part: AgentPaneMenuPart? = nil) {
         self.text = text
         self.markdown = markdown
         self.forkSeq = forkSeq
@@ -32,6 +35,7 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
         self.retryRowId = retryRowId
         self.links = links
         self.opensImage = opensImage
+        self.hasImage = hasImage ?? opensImage
         self.part = part
     }
 
@@ -44,8 +48,9 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
         guard let object = body as? [String: Any] else { return nil }
         let text = object["text"] as? String ?? ""
         opensImage = (object["openImage"] as? NSNumber)?.boolValue ?? false
+        hasImage = opensImage || ((object["image"] as? NSNumber)?.boolValue ?? false)
         part = AgentPaneMenuPart(report: object["part"])
-        guard !text.isEmpty || opensImage || part != nil else { return nil }
+        guard !text.isEmpty || hasImage || part != nil else { return nil }
         self.text = text
         markdown = (object["markdown"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         forkSeq = (object["forkSeq"] as? NSNumber).map(\.intValue)
@@ -62,7 +67,7 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
 }
 
 /// The agent pane's native context menu. The pane is app chrome, so WebKit's default menu (Reload,
-/// Back, Look Up, Share...) never shows: Open Image and WebKit's Copy Image on an image; the items
+/// Back, Look Up, Share...) never shows: on an image Open Image, Copy Image, Save Image As…, Quick Look and Show in Finder; the items
 /// of the code block, command, path or link under the pointer (``AgentPaneMenuPart``, cx-2lm4);
 /// Cut, Copy and Paste where WebKit offers them (Copy on a
 /// selection, Cut and Paste in the composer); for the message under the pointer Copy Message (a
@@ -96,6 +101,8 @@ enum AgentPaneContextMenu {
         var page: (String, [String: String]) -> Void = { _, _ in }
         /// The web view WebKit's Paste item runs `paste:` on (``AgentPaneDroppedPaths``); nil keeps WebKit's own action.
         var pasteTarget: AnyObject?
+        /// The Labs pointer inspector, offered for every app-owned webview element.
+        var inspectElement: (() -> Void)? = nil
     }
 
     /// The selected transcript text the page reported with the menu (it reports a selection only
@@ -104,6 +111,15 @@ enum AgentPaneContextMenu {
         guard let text = (body as? [String: Any])?["selection"] as? String,
               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         return text
+    }
+
+    /// The More button the page reported the message from (`popUp`, CSS px in the page's viewport):
+    /// the pane opens the message's menu under it. Nil for a right-click's report.
+    static func popUpAnchor(report body: Any?) -> CGRect? {
+        guard let box = (body as? [String: Any])?["popUp"] as? [String: Any] else { return nil }
+        let edge = { (key: String) in (box[key] as? NSNumber)?.doubleValue }
+        guard let left = edge("left"), let top = edge("top"), let right = edge("right"), let bottom = edge("bottom") else { return nil }
+        return CGRect(x: left, y: top, width: max(0, right - left), height: max(0, bottom - top))
     }
 
     /// `text` as a Markdown quote, with a blank line after it for the reply.
@@ -120,20 +136,18 @@ enum AgentPaneContextMenu {
 
     /// A row's SF Symbol as a template image, as the action registry's menus draw theirs.
     static func icon(_ symbol: String) -> NSImage? {
-        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
-        image?.isTemplate = true
-        return image
+        NSImage.menuSymbol(symbol)
     }
 
     /// WebKit's own item (Cut, Copy, Look Up...): its target forgets the menu once WebKit's popUp
-    /// returns, so a themed row runs it as the menu closes (`runsInPlace`), as a native row would.
+    /// returns, so it must run as the menu closes, as a native row does.
     static func isWebKitItem(_ item: NSMenuItem) -> Bool {
         item.identifier?.rawValue.hasPrefix("WKMenuItemIdentifier") == true
     }
 
     /// Replaces WebKit's items in `menu` with the pane's, in groups split by separators. With a
-    /// `scope` (the pane's), the rows then draw as every cmux menu's do: the theme's glass highlight
-    /// (`NSMenu.themeRows(in:)`), each with its icon.
+    /// `scope` (the pane's), the menu opens in its light or dark look (`NSMenu.themeRows(in:)`): a
+    /// standard macOS menu, each row with its icon.
     static func rebuild(_ menu: NSMenu, target: AgentPaneMessageTarget?, selection: String? = nil, devTools: Bool,
                         chatMenu: [NSMenuItem] = [], scope: ThemeScope? = nil, actions: Actions) {
         fill(menu, target: target, selection: selection, devTools: devTools, chatMenu: chatMenu, actions: actions)
@@ -150,7 +164,12 @@ enum AgentPaneContextMenu {
             paste.target = target
             paste.action = #selector(NSText.paste(_:))
         }
-        let inspect = devTools ? menu.items.first { $0.identifier?.rawValue == inspectItem } : nil
+        // The Labs item owns this app surface while enabled. Do not leave WebKit's
+        // browser inspector beside it with the same title.
+        let inspect = devTools && actions.inspectElement == nil ? menu.items.first { $0.identifier?.rawValue == inspectItem } : nil
+        let inspectElement = actions.inspectElement.map {
+            AgentPaneMenuAction.item("Inspect Element", symbol: "scope", handler: $0)
+        }
         let lookUp = menu.items.first { $0.identifier?.rawValue == lookUpItem }
         let copyImage = menu.items.first { $0.identifier?.rawValue == copyImageItem }
         for item in edits + [inspect, lookUp, copyImage].compactMap({ $0 }) where item.image == nil {
@@ -165,14 +184,23 @@ enum AgentPaneContextMenu {
                 AgentPaneMenuAction.item(AgentPaneMenuStrings.askAboutThis, symbol: "questionmark.bubble") { actions.edit(quote + AgentPaneMenuStrings.askAboutThisPrompt) },
             ]
             let find = [AgentPaneMenuAction.item(AgentPaneMenuStrings.searchTheWeb, symbol: "magnifyingglass") { actions.search(selection) }] + (lookUp.map { [$0] } ?? [])
-            add([selected, find, inspect.map { [$0] } ?? []], to: menu)
+            add([selected, find, inspectElement.map { [$0] } ?? inspect.map { [$0] } ?? []], to: menu)
             return
         }
         var image: [NSMenuItem] = []
         if target?.opensImage == true {
             image.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.openImage, symbol: "photo.on.rectangle") { actions.page("chat.menu.openImage", [:]) })
         }
-        if let copyImage { image.append(copyImage) }
+        if target?.hasImage == true {
+            // The page sends the image to the host, which acts on a named copy (AgentPaneImageCopies+Menu):
+            // Copy Image puts the file and its bytes on the pasteboard, on Chromium and WebKit alike.
+            image.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyImage, symbol: "doc.on.doc") { actions.page("chat.menu.copyImage", [:]) })
+            image.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.saveImageAs, symbol: "square.and.arrow.down") { actions.page("chat.menu.saveImage", [:]) })
+            image.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.quickLook, symbol: "eye") { actions.page("chat.menu.quickLookImage", [:]) })
+            image.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.showInFinder, symbol: "macwindow") { actions.page("chat.menu.revealImage", [:]) })
+        } else if let copyImage {
+            image.append(copyImage)
+        }
         let part = target?.part?.items(copy: actions.copy, openPath: { actions.page("chat.menu.openPath", ["path": $0]) }, open: actions.open,
                                        linkItems: actions.linkItems, pathItems: actions.pathItems) ?? []
         var copies = edits
@@ -200,12 +228,17 @@ enum AgentPaneContextMenu {
                     })
                 }
             }
+            if let seq = target.forkSeq {
+                message.append(AgentForkMenu.item { destination in
+                    actions.page("chat.fork", ["throughSeq": String(seq), "placement": destination.rawValue])
+                })
+            }
             // On a link, the part's Open Link stands for the message's.
             links = target.part?.link == nil ? linkItems(target.links, open: actions.open) : []
         }
         // Empty space (no message, no image, nothing to edit) gets the chat's own menu, its sections kept.
         let chat = target == nil && edits.isEmpty && image.isEmpty ? chatMenu.filter { $0.menu == nil } : []
-        add([image, part, copies, message, links, chat, inspect.map { [$0] } ?? []], to: menu)
+        add([image, part, copies, message, links, chat, inspectElement.map { [$0] } ?? inspect.map { [$0] } ?? []], to: menu)
     }
 
     /// Adds the non-empty groups, split by separators.
@@ -249,6 +282,30 @@ enum AgentPaneContextMenu {
 enum AgentPaneMenuStrings {
     static var openImage: String {
         String(localized: "agentPane.menu.openImage", defaultValue: "Open Image", bundle: .module)
+    }
+
+    static var copyFile: String {
+        String(localized: "agentPane.menu.copyFile", defaultValue: "Copy", bundle: .module)
+    }
+
+    static var saveAs: String {
+        String(localized: "agentPane.menu.saveAs", defaultValue: "Save As…", bundle: .module)
+    }
+
+    static var copyImage: String {
+        String(localized: "agentPane.menu.copyImage", defaultValue: "Copy Image", bundle: .module)
+    }
+
+    static var saveImageAs: String {
+        String(localized: "agentPane.menu.saveImageAs", defaultValue: "Save Image As…", bundle: .module)
+    }
+
+    static var quickLook: String {
+        String(localized: "agentPane.menu.quickLook", defaultValue: "Quick Look", bundle: .module)
+    }
+
+    static var showInFinder: String {
+        String(localized: "agentPane.menu.showInFinder", defaultValue: "Show in Finder", bundle: .module)
     }
 
     static var copyMessage: String {

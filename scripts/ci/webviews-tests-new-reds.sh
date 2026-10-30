@@ -24,7 +24,22 @@ cleanup() {
 trap cleanup EXIT
 
 status=0
+head_results="${CMUX_WEB_TEST_RESULTS:-}"
 CMUX_WEB_TEST_RESULTS="$work/head.json" bash "$here/run-webviews-tests.sh" || status=$?
+# A pull-request shard publishes its complete head verdict for the separate base
+# comparison job. Keep this copy even when existing base reds make the head run
+# return 1.
+if [ -n "$head_results" ] && [ -s "$work/head.json" ]; then
+  mkdir -p "$(dirname "$head_results")"
+  cp "$work/head.json" "$head_results"
+fi
+# Pull requests compare against a recorded base result in another job. Keeping
+# the head run independent prevents a slow base install/build from consuming the
+# shard's timeout and cancelling react-apps-check.
+if [ "${CMUX_WEB_TEST_SKIP_BASE:-}" = 1 ]; then
+  echo "::notice title=Webview test base comparison::base comparison runs in the separate react-apps base job"
+  exit "$status"
+fi
 # 0 is green; anything but 1 (one or more files red) is a broken run, never a base red.
 if [ "$status" -ne 1 ] || [ -z "$base_ref" ] || [ ! -s "$work/head.json" ]; then exit "$status"; fi
 

@@ -8,11 +8,41 @@ extension MachineRegistry {
     func machineName(peer: String) -> String? {
         let wanted = peer.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !wanted.isEmpty else { return nil }
-        let matches = { (names: [String?]) in names.contains { $0?.lowercased() == wanted } }
-        let id = ssh.first { matches([$0.host.destination.host, $0.host.destination.displayName, $0.host.label]) }?.machineID
+        let matches = { (names: [String]) in names.contains { $0.lowercased() == wanted } }
+        let id = sshMachine(named: [wanted])?.machineID
             ?? cloud.first { matches([$0.machine.title]) }?.machineID
             ?? servers.first { matches([$0.name]) }?.machineID
         return id.flatMap { machineName($0) }
+    }
+
+    /// The SSH machine whose host, short host or sidebar name is one of `names` (any case, a
+    /// trailing dot ignored), as ``machineName(peer:)`` matches a peer.
+    func sshMachine(named names: [String]) -> SSHMachineSession? {
+        let normalize = { (name: String) in
+            let name = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return name.hasSuffix(".") ? String(name.dropLast()) : name
+        }
+        let wanted = Set(names.map(normalize).filter { !$0.isEmpty })
+        guard !wanted.isEmpty else { return nil }
+        return ssh.first { session in
+            [session.host.destination.host, session.host.destination.displayName, session.host.label]
+                .contains { wanted.contains(normalize($0)) }
+        }
+    }
+
+    /// The SSH machine whose route host or short display host is one of `names`. This intentionally
+    /// ignores a custom sidebar label: tailnet discovery must match the route, not a person's title.
+    func sshMachine(routeNames names: [String]) -> SSHMachineSession? {
+        let normalize = { (name: String) in
+            let name = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return name.hasSuffix(".") ? String(name.dropLast()) : name
+        }
+        let wanted = Set(names.map(normalize).filter { !$0.isEmpty })
+        guard !wanted.isEmpty else { return nil }
+        return ssh.first { session in
+            [session.host.destination.host, session.host.destination.displayName]
+                .contains { wanted.contains(normalize($0)) }
+        }
     }
 
     /// The other machines whose agent chats the sidebar's Priority view ranks: each reachable

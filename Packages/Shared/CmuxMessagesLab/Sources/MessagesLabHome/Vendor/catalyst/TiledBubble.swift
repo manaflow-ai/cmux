@@ -331,10 +331,13 @@ final class TiledBody {
         }
         guard folded else { bandRect = .zero; return }
         let headH = CGFloat(LongTextFold.headLines) * lh, tailH = CGFloat(LongTextFold.tailLines) * lh
-        // Clips reach 4 pt past their line slots (descenders), never into the other region's text.
-        headClip.frame = CGRect(x: body.minX, y: body.minY, width: body.width, height: textTop + headH + 4 - body.minY)
+        // cmux: clips end at their line slots. A tile holds 16 lines, so the head's last tile also
+        // draws the hidden 41st line and the tail's first tile the line before the tail: 4 pt past
+        // the slots showed their glyph tops and descenders behind the band (Lawrence 2026-10-21).
+        // The body font's glyphs fit the 16 pt slot (baseline 13 pt down, descent about 3 pt).
+        headClip.frame = CGRect(x: body.minX, y: body.minY, width: body.width, height: textTop + headH - body.minY)
         let tailTop = textTop + headH + LongTextFold.bandHeight
-        tailClip.frame = CGRect(x: body.minX, y: tailTop - 4, width: body.width, height: body.maxY - (tailTop - 4))
+        tailClip.frame = CGRect(x: body.minX, y: tailTop, width: body.width, height: body.maxY - tailTop)
         bandRect = CGRect(x: body.minX, y: textTop + headH, width: body.width, height: LongTextFold.bandHeight)
         band.frame = bandRect
         drawBand(LongTextFold.label(layout.index.hardLines), p, scale: s)
@@ -391,7 +394,7 @@ final class TiledBody {
         }
 
         let s = cell.renderScale, palette = Fixture.paletteGeneration
-        let hint = LongTextLayout.TileHint(outgoing: row.outgoing, width: body.width, scale: s, palette: palette)
+        let hint = LongTextLayout.TileHint(outgoing: row.outgoing, width: body.width, scale: s, palette: palette, box: PaletteScope.current)
         if layout.tileHint.map({ $0.outgoing != hint.outgoing || $0.width != hint.width || $0.scale != hint.scale || $0.palette != hint.palette }) ?? true {
             layout.tileHint = hint
         }
@@ -505,15 +508,20 @@ final class TiledBody {
     }
 
     private func enqueue(_ k: TileCache.Key, layout: LongTextLayout, block: Int, width: CGFloat, visible: Bool) {
+        // cmux: the cell's palette goes with the job (a task local does not follow the queue).
+        let box = PaletteScope.current
         let op = BlockOperation()
         op.queuePriority = visible ? .veryHigh : .normal
         op.addExecutionBlock { [weak op] in
             guard let op, !op.isCancelled else { return }
-            let img = TiledBubble.render(layout.blockLayout(block), chunk: k.chunk, outgoing: k.outgoing, width: width, scale: k.scale)
+            let img = PaletteScope.with(box) {
+                TiledBubble.render(layout.blockLayout(block), chunk: k.chunk, outgoing: k.outgoing, width: width, scale: k.scale)
+            }
             DispatchQueue.main.async { [weak self] in
                 TiledStats.tilesAsync += 1
                 // A tile of an older palette is dropped; the key holds the scale (a view at another scale asks for its own).
-                guard k.palette == Fixture.paletteGeneration else { return }
+                // cmux: the key holds the view's palette too; only an appearance or colour space change drops it.
+                guard Fixture.generationIsLive(k.palette) else { return }
                 if let img { TileCache.shared.put(k, img) } // an unallocated tile stays blank
                 guard let self else { return }
                 self.pending.removeValue(forKey: k)

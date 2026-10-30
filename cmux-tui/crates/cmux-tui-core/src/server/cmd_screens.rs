@@ -9,6 +9,7 @@ use crate::Actor;
 use crate::Mux;
 use crate::ScreenId;
 use crate::WorkspaceId;
+use crate::panic_free::JsonFields;
 use anyhow::Context;
 use serde_json::Value;
 use serde_json::json;
@@ -187,7 +188,7 @@ pub(super) fn save_screen_group(
 ) -> anyhow::Result<Value> {
     let saved = mux.save_screen_group_as(&actor, &group)?;
     let mut value = screen_group_outcome_json(&mux.screen_group_outcome_public(&group));
-    value["saved"] = json!(saved);
+    value.insert("saved", json!(saved));
     Ok(value)
 }
 

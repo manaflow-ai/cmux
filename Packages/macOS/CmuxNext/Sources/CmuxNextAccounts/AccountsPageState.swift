@@ -64,6 +64,27 @@ public struct AccountsPageState: Encodable, Equatable, Sendable {
         public let rows: [Row]
     }
 
+    /// The account's teams, the active one marked; nil when signed out or teamless.
+    public struct Teams: Encodable, Equatable, Sendable {
+        public struct Option: Encodable, Equatable, Sendable {
+            public let id: String
+            public let name: String
+            public let active: Bool
+        }
+
+        public let title: String
+        public let help: String
+        public let options: [Option]
+        /// Switching is off (a managed device, or a switch being saved).
+        public let disabled: Bool
+        public let note: String?
+        public let error: String?
+    }
+
+    public let teams: Teams?
+    /// The account's teams with roles, details and the create, rename and
+    /// delete forms (``TeamList``); nil when signed out.
+    public let teamList: TeamList?
     public let refresh: String
     public let refreshing: Bool
     /// cmux's own account: who is signed in, sign in, switch and sign out.
@@ -75,15 +96,31 @@ public struct AccountsPageState: Encodable, Equatable, Sendable {
 /// One gesture on the Accounts part of the Settings page.
 public enum AccountsPageAction: Equatable, Sendable {
     case refresh, signInToCmux
+    /// The Settings window came forward: re-detect rows a login or logout left busy.
+    case windowFocused
     case cmux(CmuxAccountAction)
-    case reauthenticate(AIProvider), addKey(AIProvider), deleteSavedKey(AIProvider), connect(AIProvider)
+    case reauthenticate(AIProvider), signOut(AIProvider), addKey(AIProvider), deleteSavedKey(AIProvider), connect(AIProvider)
     case confirmConnect(AIProvider), cancelConfirm
     case remove(accountID: String)
     case runSetupToken, cancelPaste
     case saveKey(AIProvider, String), sendToCodeRouter(AIProvider, String)
+    case selectTeam(String)
+    /// A gesture of the Teams part (`team.<gesture>`).
+    case team(TeamGesture)
 
-    /// Parses `{action, provider?, account?, secret?}`; nil for an unknown action or provider.
-    public init?(action: String, provider: String?, account: String?, secret: String?) {
+    /// Parses the page's `{action, provider?, account?, secret?, team?, name?}` from its field lookup.
+    public init?(field: (String) -> String?) {
+        self.init(action: field("action") ?? "", provider: field("provider"), account: field("account"),
+                  secret: field("secret"), team: field("team"), name: field("name"))
+    }
+
+    /// Parses `{action, provider?, account?, secret?, team?, name?}`; nil for an unknown action or provider.
+    public init?(action: String, provider: String?, account: String?, secret: String?, team: String? = nil, name: String? = nil) {
+        if action.hasPrefix("team.") {
+            guard let gesture = TeamGesture(action: String(action.dropFirst("team.".count)), team: team, name: name) else { return nil }
+            self = .team(gesture)
+            return
+        }
         // cmux's row: `cmux.<gesture>` (`cmux.signIn`, `cmux.signOut`, …).
         if action.hasPrefix("cmux.") {
             guard let gesture = CmuxAccountAction(rawValue: String(action.dropFirst("cmux.".count))) else { return nil }
@@ -93,8 +130,13 @@ public enum AccountsPageAction: Equatable, Sendable {
         let provider = provider.flatMap(AIProvider.init(rawValue:))
         switch (action, provider) {
         case ("refresh", _): self = .refresh
+        case ("selectTeam", _):
+            guard let team, !team.isEmpty else { return nil }
+            self = .selectTeam(team)
+        case ("focus", _): self = .windowFocused
         case ("signIn", _): self = .signInToCmux
         case ("reauth", let provider?): self = .reauthenticate(provider)
+        case ("signOut", let provider?): self = .signOut(provider)
         case ("addKey", let provider?): self = .addKey(provider)
         case ("deleteKey", let provider?): self = .deleteSavedKey(provider)
         case ("connect", let provider?): self = .connect(provider)
@@ -120,6 +162,8 @@ extension AccountsModel {
     /// The screen as the Settings page draws it.
     public var pageState: AccountsPageState {
         AccountsPageState(
+            teams: pageTeams,
+            teamList: pageTeamList,
             refresh: AccountsStrings.refresh, refreshing: isRefreshing,
             cmux: Self.cmuxRow(services.cmuxAccount),
             removeTitle: AccountsStrings.remove,
@@ -135,9 +179,11 @@ extension AccountsModel {
     public func perform(_ action: AccountsPageAction) async -> String? {
         switch action {
         case .refresh: refresh()
+        case .windowFocused: appDidBecomeActive()
         case .signInToCmux: services.runCmuxAccount(.signIn)
         case .cmux(let gesture): services.runCmuxAccount(gesture)
         case .reauthenticate(let provider): return await performReauthenticate(provider)
+        case .signOut(let provider): return signOut(provider)
         case .addKey(let provider): pasteTarget = provider
         case .deleteSavedKey(let provider): deleteSavedKey(for: provider)
         case .connect(let provider): connect(provider)
@@ -153,8 +199,18 @@ extension AccountsModel {
         case .sendToCodeRouter(let provider, let secret):
             pasteTarget = nil
             connect(provider, pasted: secret)
+        case .selectTeam(let id): await selectTeam(id)
+        case .team(let gesture): return await perform(gesture)
         }
         return nil
+    }
+
+    private var pageTeams: AccountsPageState.Teams? {
+        guard let active = services.activeTeam, !active.teams.isEmpty else { return nil }
+        let activeID = active.id, managed = active.managedTeamID != nil
+        return .init(title: AccountsStrings.teamTitle, help: AccountsStrings.teamHelp,
+                     options: active.teams.map { .init(id: $0.id, name: $0.displayName, active: $0.id == activeID) },
+                     disabled: managed || active.isSwitching, note: managed ? AccountsStrings.teamManaged : nil, error: teamError)
     }
 
     private func pageRow(_ row: AccountRowState) -> AccountsPageState.Row {
@@ -162,6 +218,9 @@ extension AccountsModel {
         var buttons: [AccountsPageState.Button] = []
         if row.canReauthenticate {
             buttons.append(.init(id: "reauth", title: AccountsStrings.reauthTitle(row), disabled: row.isBusy, help: nil, destructive: false))
+        }
+        if row.canSignOut {
+            buttons.append(.init(id: "signOut", title: AccountsStrings.signOut, disabled: row.isBusy, help: nil, destructive: true))
         }
         if provider.acceptsPastedKey {
             buttons.append(.init(id: "addKey", title: AccountsStrings.addKey, disabled: row.isBusy, help: nil, destructive: false))
@@ -186,11 +245,17 @@ extension AccountsModel {
                 .init(id: account.id, label: account.label, state: account.state, healthy: account.isHealthy,
                       busy: row.phase == .removing(accountID: account.id))
             },
-            note: provider.codeRouterLink == .bedrockKeys && isSignedInToCmux && !row.hasBedrockKeys ? AccountsStrings.bedrockNeedsKeys : nil,
+            note: Self.note(row, cmuxSignedIn: isSignedInToCmux),
             outcome: outcome,
             confirm: confirmTarget == provider
                 ? .init(text: AccountsStrings.codexRefreshNote, confirm: AccountsStrings.confirmConnect, cancel: AccountsStrings.cancel) : nil,
             paste: pasteTarget == provider ? pasteForm(provider) : nil)
+    }
+
+    static func note(_ row: AccountRowState, cmuxSignedIn: Bool) -> String? {
+        if row.shellVariableInUse != nil { return AccountsStrings.shellSignInWins }
+        if row.provider.codeRouterLink == .bedrockKeys, cmuxSignedIn, !row.hasBedrockKeys { return AccountsStrings.bedrockNeedsKeys }
+        return nil
     }
 
     private func pasteForm(_ provider: AIProvider) -> AccountsPageState.Paste {

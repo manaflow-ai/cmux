@@ -15,10 +15,15 @@
   --ui-row-bar: inset var(--cmux-row-focus-bar, 0px) 0 0 var(--cmux-accent, currentColor);
   --ui-surface: var(--cmux-elevated-background, Canvas);
   --ui-ring: var(--cmux-focus-ring-color, color-mix(in srgb, var(--cmux-app-focus-ring, var(--ui-fg)) 48%, transparent));
-  --ui-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --ui-font: var(--font-ui);
   font-family: var(--ui-font);
   -webkit-user-select: none;
   user-select: none;
+}
+/* The chrome around the controls keeps the arrow. A button (.ui-button) and a drill row (role
+   option) are not in this list: a rule here comes after the shared pointing-hand rule and would
+   beat it (clickable-cursor.test.ts). */
+:where(.ui-popup, .ui-tooltip, .ui-toolbar, .ui-crumbs, .ui-drill-section, .ui-drill-hint, .ui-listbox, .ui-dialog, .ui-backdrop) {
   cursor: default;
 }
 
@@ -62,6 +67,7 @@
   outline: none;
   /* Base UI's positioner names the side the popup grows from. */
   transform-origin: var(--transform-origin);
+  letter-spacing: var(--text-control--letter-spacing);
 }
 
 /* A menu may own a submenu. Let the safe-triangle bridge extend beyond the parent surface;
@@ -75,6 +81,46 @@
 .ui-menu.ui-select-popup {
   max-height: min(420px, var(--available-height, 420px));
   overflow-y: auto;
+}
+
+/* A select's menu hugs its rows and lines up with its trigger (Leo 2026-10-30, on Settings > Updates'
+   Update Channel menu: "look for wastage"; leo-workspace design/settings.md, "Menus"). It opens at
+   the trigger's left edge (Menu.tsx, align start) and is never narrower than the trigger: Base UI's
+   --anchor-width is the trigger's width. Its rows are AppKit's (design/grid.md 5.3,
+   schemas/menu-metrics): the highlight 5 in from the popup's edge, the checkmark centred on the state
+   column at 10, and, since a select's rows never carry an icon, the text right after it at 22: no
+   empty icon gutter. A row is the menu row token high, with no extra padding above or below. */
+.ui-menu.ui-select-popup {
+  box-sizing: border-box;
+  min-width: max(var(--anchor-width, 0px), 160px);
+  padding: var(--cmux-menu-highlight-inset);
+}
+.ui-menu.ui-select-popup .ui-menu-item {
+  position: relative;
+  box-sizing: border-box;
+  min-height: var(--ui-row-height);
+  padding-block: 0;
+  padding-inline: calc(var(--cmux-menu-state-icon-x) - var(--cmux-menu-highlight-inset))
+    calc(var(--cmux-menu-trailing) - var(--cmux-menu-highlight-inset));
+  border-radius: var(--cmux-menu-highlight-radius);
+}
+.ui-menu.ui-select-popup .ui-menu-check {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: calc(
+    var(--cmux-menu-state-x) - var(--cmux-menu-highlight-inset) - var(--cmux-menu-icon-size) / 2
+  );
+  width: var(--cmux-menu-icon-size);
+}
+.ui-menu.ui-select-popup .ui-menu-shortcut {
+  padding-inline-start: var(--cmux-menu-shortcut-gap);
+}
+/* Its glass frosts what is under it (a slider, a number field) instead of letting it read through:
+   the menu tint and blur (desktop.css --ds-glass-menu-*), never opaque. Reduce Transparency still
+   makes it the solid popup surface (glass.css, !important). The lens keeps its own clearer glass. */
+.ui-popup.ui-glass.ui-select-popup {
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-menu-tint), transparent);
+  --glass-backdrop: var(--ds-glass-menu-blur);
 }
 
 /* Large pickers own scrolling in their two columns; the surface itself must stay fixed so opening
@@ -99,6 +145,7 @@
   color: var(--ui-fg-2);
   font-size: var(--text-caption);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .ui-menu-item[data-highlighted] {
@@ -112,7 +159,7 @@
 }
 
 .ui-menu-item-destructive {
-  color: var(--cmux-app-danger, var(--agent-danger, color-mix(in srgb, var(--ui-fg) 78%, #d44)));
+  color: var(--cmux-app-danger, var(--agent-danger, var(--ui-fg)));
 }
 
 .ui-context-menu-backdrop {
@@ -138,7 +185,6 @@
   color: inherit;
   font: inherit;
   text-align: start;
-  cursor: default;
 }
 
 /* A long label (a link, a path) ends in an ellipsis instead of widening the menu. */
@@ -151,8 +197,10 @@
 
 .ui-menu-check {
   display: inline-flex;
+  align-items: center;
   width: 12px;
   justify-content: center;
+  line-height: 1;
 }
 
 .ui-select {
@@ -221,12 +269,34 @@
   color: var(--ui-fg-2);
   font-size: var(--text-caption);
   font-weight: var(--weight-emphasis);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .ui-separator {
   height: 1px;
   margin: 4px 2px;
   background: var(--ui-line);
+}
+
+/* A long menu's search field (MenuSearchField): a row-high field above its rows. */
+.ui-menu-search {
+  appearance: none;
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--ui-row-height);
+  margin: 0 0 4px;
+  padding: 0 var(--ui-row-padding-inline);
+  border: 0;
+  border-radius: var(--ui-row-radius);
+  background: var(--ui-hover);
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+
+.ui-menu-search:focus-visible {
+  box-shadow: inset 0 0 0 var(--cmux-focus-ring-width, 1.5px) var(--ui-ring);
 }
 
 .ui-toolbar .ui-separator {
@@ -264,7 +334,8 @@
   background: var(--ui-hover);
 }
 
-.ui-toolbar-button[data-pressed] {
+.ui-toolbar-button[data-pressed],
+.ui-toolbar-button[aria-pressed="true"] {
   background: var(--ui-selected);
 }
 
@@ -343,12 +414,6 @@
   white-space: nowrap;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .ui-popup {
-    animation: ui-popup-open var(--ui-popup-open) ease-out;
-  }
-}
-
 /* Sheets only fade, so they fade under Reduce Motion too. Tooltips fade (and rise) with the
    tooltip surface (pages/shared/desktop.css). */
 .ui-sheet {
@@ -373,4 +438,5 @@
   line-height: 1;
   color: var(--ui-fg-2);
   opacity: 0.9;
+  letter-spacing: var(--text-caption--letter-spacing);
 }

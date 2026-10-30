@@ -7,7 +7,7 @@ import CmuxNextRemoteLocalhostService
 enum RemoteLocalhostHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
-        registry.bind("workspace.setRemoteLocalhost", requires: DaemonCapabilities.shared.personalRemoteLocalhost,
+        registry.bind("workspace.setRemoteLocalhost", requires: DaemonCapability.personalRemoteLocalhost.rawValue,
                       daemon: services.machines.local, run: { invocation in
             try services.registry.setWorkspaceLocalhost(invocation, workspace: {
                 let (model, _) = try context.workspace(invocation)
@@ -30,5 +30,19 @@ extension MachineRegistry: RemoteLocalhostMachines {
 
     func personalAddress(ofWorkspace id: String) -> (session: String, key: String)? {
         WindowProfiles.qualified(id, machines: self).map { ($0.session, $0.key) }
+    }
+
+    /// A Cloud machine's private address on its Cloud network (the app's WireGuard tunnel reaches it).
+    func cloudTunnelAddress(machine machineID: String) -> String? {
+        cloudSession(machineID)?.machine.address?.ipv4
+    }
+
+    func cloudMachineBadge(machine machineID: String) -> String? {
+        cloudSession(machineID)?.machine.title
+    }
+
+    /// Open Desktop's URL carries the id lowercased (a DNS label).
+    private func cloudSession(_ machineID: String) -> CloudMachineSession? {
+        session(machineID) ?? cloud.first { $0.machineID.lowercased() == machineID.lowercased() }
     }
 }

@@ -28,9 +28,23 @@ export async function toolCall(id: string, events: Record<string, unknown>[]): P
 /// the result says what the Write did. `updated`: the result said the file was updated and held no
 /// old text, so the mark stays and the old contents are unknown. `created`: the result confirmed a
 /// create, so the mark is gone (`settle_write`). `failed`: the call failed and its last update
-/// carried no content, so the pending fragment is all the call has.
-export const translatorWrite = (id: string, path: string, outcome: "updated" | "created" | "failed") => {
-  const fragment = { type: "diff", path, oldText: null, newText: setupText, _meta: { acpmux: { fragment: true } } };
+/// carried no content, so the pending fragment is all the call has. `canonical`: the path acpmux
+/// recorded beside the agent's (hub `path_canon`), on the diff, the location and the input.
+export const translatorWrite = (
+  id: string,
+  path: string,
+  outcome: "updated" | "created" | "failed",
+  canonical?: string,
+) => {
+  const named = canonical === undefined ? {} : { canonicalPath: canonical };
+  const fragment = {
+    type: "diff",
+    path,
+    oldText: null,
+    newText: setupText,
+    _meta: { acpmux: { fragment: true, ...named } },
+  };
+  const created = { type: "diff", path, oldText: null, newText: setupText, ...canonicalMeta(canonical) };
   return toolCall(id, [
     {
       title: `Write ${path.split("/").pop()}`,
@@ -38,27 +52,30 @@ export const translatorWrite = (id: string, path: string, outcome: "updated" | "
       status: "pending",
       rawInput: { file_path: path, content: setupText },
       content: [fragment],
-      locations: [{ path }],
+      locations: [{ path, ...canonicalMeta(canonical) }],
+      ...canonicalMeta(canonical),
     },
     outcome === "failed"
       ? { status: "failed" }
-      : {
-          status: "completed",
-          content: [outcome === "created" ? { type: "diff", path, oldText: null, newText: setupText } : fragment],
-        },
+      : { status: "completed", content: [outcome === "created" ? created : fragment] },
   ]);
 };
 
-/// An Edit whose content carries its diff, old text and new.
-export const editWithDiff = (id: string, path: string, oldText: string, newText: string) =>
+/// An Edit whose content carries its diff, old text and new; `canonical` as for `translatorWrite`.
+export const editWithDiff = (id: string, path: string, oldText: string, newText: string, canonical?: string) =>
   toolCall(id, [
     {
       title: `Edit ${path.split("/").pop()}`,
       kind: "edit",
       status: "completed",
-      content: [{ type: "diff", path, oldText, newText }],
+      content: [{ type: "diff", path, oldText, newText, ...canonicalMeta(canonical) }],
+      ...(canonical === undefined ? {} : { locations: [{ path, ...canonicalMeta(canonical) }] }),
     },
   ]);
+
+/// acpmux's `_meta.acpmux.canonicalPath` for `canonical`, or nothing.
+const canonicalMeta = (canonical: string | undefined) =>
+  canonical === undefined ? {} : { _meta: { acpmux: { canonicalPath: canonical } } };
 
 export const activity = (id: string, items: AcpmuxActivity[]): AcpmuxRow => ({
   id,

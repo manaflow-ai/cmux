@@ -32,7 +32,7 @@ enum SidebarDocWiring {
 
     static func start(_ services: AppServices, layout: SidebarLayoutService) {
         let local = services.machines.local, machines = services.machines
-        let serves: @MainActor () -> Bool = { local.supports(DaemonCapabilities.shared.sidebarDoc) }
+        let serves: @MainActor () -> Bool = { local.supports(DaemonCapabilities.sidebarDoc) }
         let store = SidebarDocStore(remote: DaemonSidebarDocRemote(connection: { local.connection }, serves: serves))
         SidebarDocStore.current = store
         // Under `top` a new workspace lists at the daemon's slot for it until its item comes (sidebar-ordering-DESIGN.md);
@@ -50,6 +50,10 @@ enum SidebarDocWiring {
         }
         store.onUndoRefused = { origin in (origin as? PinUndoStep)?.abandon() }
         DaemonSidebarDocRemote.follow(local.store.session, into: store)
+        if let data = local.launchSnapshotSidebarDoc {
+            local.launchSnapshotSidebarDoc = nil // read once: the daemon owns the document from here on
+            docMachines(machines).showLaunchSnapshot(data, in: store, connected: { local.connection != nil }, serves: serves) { layout.docLayout = $0 }
+        }
         // Link rows draw the favicon at their item's icon address; an open tab's favicon address is stored on the item.
         SidebarModel.itemFavicon = { [weak services] in services?.favicons.image(for: $0, profile: .default).map { SidebarFavicon($0.cgImage) } }
         SidebarDocMachines.followFavicons(store, revision: { [weak services] in services?.favicons.revision },

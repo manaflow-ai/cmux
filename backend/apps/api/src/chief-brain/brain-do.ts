@@ -10,7 +10,7 @@ import { ackWake, chiefPrincipal, chiefRecord, chiefRecordFresh, postReply, read
 import { clip, clipInput, flushMarks, lastTalk, markPending, runError, readRun, readRuns, readSteps, type Run, type Step, type StepPatch, upsertStep } from "./brain-runs.ts"
 import { type BrainConfig, patchError, readConfig, SCHEMA, writeConfig } from "./brain-store.ts"
 import { AUTH_FAILED, claudeAuthFor, forgetClaudeAuth, holderAuth, holderInvalidate, HOLDER, leaseTotal, ownerTurn, turnsObject } from "./claude-auth.ts"
-import { Compactor, type CallRecord } from "./compactor.ts"
+import { Compactor, compactorHold, type CallRecord } from "./compactor.ts"
 import { PrefixCache, ttlMs } from "./cache-prefix.ts"
 import { prunePiEntries } from "./pi-prune.ts"
 import { type LedgerAnswer, type LedgerOp, runLedger } from "../model-gateway/run-ledger.ts"
@@ -27,7 +27,13 @@ import * as sub from "./brain-sub.ts"
 import * as turnLoop from "./brain-turn.ts"
 import { ccRoute } from "../chief-brain-cc/vm.ts"
 import { ccNotes } from "../chief-brain-cc/turn.ts"
-import { IMPORT_SCHEMA, type ImportBody, type ImportFail, type ImportStatus, importBatch, importing, importStatus } from "./memory-import.ts"
+import { toolFiles, toolsCall } from "../chief-brain-cc/tools.ts"
+import { wakeFire } from "../chief-brain-cc/wake.ts"
+import { chiefJobWake, type ChiefJob, type JobDelivery } from "../chief-brain-cc/jobs.ts"
+import { githubCall, githubDump, type GithubHost, githubPoll, type GithubStatus, githubTurn } from "../chief-brain-cc/github.ts"
+import { ccSandbox, ccSandboxPurge, ccSandboxRetire } from "../chief-brain-cc/sandbox.ts"
+import type { MemoryExport } from "../chief-durable/durable-do.ts"
+import { type AppendBody, type AppendResult, type UndoBody, type UndoResult, IMPORT_SCHEMA, type ImportBody, type ImportFail, type ImportStatus, appendBatch, undoBatch, importBatch, importing, importStatus } from "./memory-import.ts"
 
 /**
  * ChiefBrainDO, one per chief (name = the chief's agent id): a Chief that answers in Cloud
@@ -52,6 +58,15 @@ import { IMPORT_SCHEMA, type ImportBody, type ImportFail, type ImportStatus, imp
 /** Post retries after the loop guard's agent_rate (another agent spoke under 2 s ago). */
 export const POST_RETRY_MS = 2_500
 export const MAX_POST_TRIES = 6
+/**
+ * The loop guard's 2 s gap is per conversation, for every agent: in a group with several Chiefs (and their
+ * subagents' reports) a ready reply can meet agent_rate more than MAX_POST_TRIES times in a row. agent_rate
+ * is "wait", never "no": it is retried until this long after the turn ended, then the reply is refused.
+ */
+export const AGENT_RATE_WINDOW_MS = 120_000
+/** Whether a post refused with `code` is tried again (pure, for tests). */
+export const retryPost = (code: string, tries: number, endedAt: number | null, now: number): boolean =>
+  code === "agent_rate" ? now - (endedAt ?? now) < AGENT_RATE_WINDOW_MS || tries + 1 < MAX_POST_TRIES : code === "owner.unreachable" && tries + 1 < MAX_POST_TRIES
 export const HOST = "cloud-chief"
 /**
  * A turn waits at most this long for every message before its new ones to be summarized (the reference
@@ -217,6 +232,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
       off: () => (importing(this.sql) ? "a memory copy is under way" : this.compactorName() === undefined ? "no compactor model this owner may use" : undefined),
       onFirstFailure: (l, i, error) => console.warn(JSON.stringify({ msg: "chief_brain.compactor_failed", node: `${l}:${i}`, error: error.slice(0, 300) })),
       onRetryWait: (at) => this.schedule("compact", "compact", at),
+      hold: compactorHold(this.sql),
       retryBaseMs: Number(env.CHIEF_BRAIN_COMPACT_RETRY_BASE_MS) || undefined
     })
   }
@@ -357,7 +373,21 @@ export class ChiefBrainDO extends DurableObject<Env> {
   }
 
   /** One batch of the memory copy; after the last one the view is folded again from the copied nodes. */
-  memoryImport(body: ImportBody, brainOn: boolean): ImportStatus | ImportFail {
+  async memoryImport(body: ImportBody | AppendBody | UndoBody, brainOn: boolean): Promise<ImportStatus | ImportFail | (AppendResult & { ok: true }) | (UndoResult & { ok: true })> {
+    if ("mode" in body) {
+      if (this.childOf()) return { ok: false, status: 400, code: "validation.invalid", message: "a subagent has no memory" }
+      if (body.mode === "undo") {
+        const u = undoBatch(this.sql, this.ctx.storage, body)
+        if (u.ok) {
+          this.memory.rewound()
+          this.compactor.pump()
+        }
+        return u
+      }
+      const r = await appendBatch(this.sql, this.ctx.storage, body, (text) => void this.memory.append("note", text))
+      if (r.ok && r.added > 0) this.compactor.pump()
+      return r
+    }
     if (this.childOf()) return { ok: false, status: 400, code: "validation.invalid", message: "a subagent has no memory" }
     const r = importBatch(this.sql, this.ctx.storage, body, brainOn)
     if (!("ok" in r) && body.done) {
@@ -408,6 +438,24 @@ export class ChiefBrainDO extends DurableObject<Env> {
     return a
   }
 
+  /**
+   * Read only: this conversation brain's OptChat memory, for Cloud Chief D's one-time copy when the Chief moves
+   * to `brain_impl: "durable"` (chief-durable/durable-do.ts importFromP). Messages page by index (`after`, `limit`);
+   * the first page (`after` < 0) also carries the summaries, the logged keys, the checkpoint and the read cursor,
+   * read in one synchronous step so they agree with `count`.
+   */
+  async memoryExport(after: number, limit: number): Promise<MemoryExport> {
+    const one = <T,>(q: string, ...b: Array<SqlStorageValue>) => this.sql.exec<Record<string, SqlStorageValue>>(q, ...b).toArray() as unknown as Array<T>
+    const count = Number(this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM oc_message`).one().n)
+    const messages = one<{ i: number; kind: string; text: string; size: number; date: string }>(`SELECT i, kind, text, size, date FROM oc_message WHERE i > ? ORDER BY i LIMIT ?`, after, Math.max(1, Math.min(limit, 1000)))
+    if (after >= 0) return { count, messages, nodes: [], logged: [], checkpoint: null, cursor: null }
+    const nodes = one<{ l: number; i: number; text: string; size: number }>(`SELECT l, i, text, size FROM oc_node`)
+    const logged = one<{ key: string }>(`SELECT key FROM oc_logged`).map((r) => String(r.key))
+    const checkpoint = one<{ json: string }>(`SELECT json FROM oc_checkpoint WHERE id = 1`)[0]?.json ?? null
+    const cursor = one<{ seq: number }>(`SELECT MAX(seq) AS seq FROM cb_cursor`)[0]?.seq ?? null
+    return { count, messages, nodes, logged, checkpoint, cursor: cursor === null ? null : Number(cursor) }
+  }
+
   /** A run with its steps after `afterSeq`, or null. The Worker checked the caller is a member of this brain's conversation first. */
   async run(id: string, afterSeq = 0, limit = 500): Promise<{ run: Run; steps: Array<Step>; has_more: boolean } | null> {
     // A subagent run is read only from a started child: a read never opens a child before its task (its tools come from its role).
@@ -442,12 +490,74 @@ export class ChiefBrainDO extends DurableObject<Env> {
 
   /** The Claude Code route's turn machine (POST /v1/chief-cc/<agent>/<conversation>/notes, chief-brain-cc/turn.ts). */
   async ccNotes(token: string, body: { run?: unknown; events?: unknown; result?: unknown; net?: unknown }): Promise<{ status: number; json?: unknown }> {
+    // A turn machine outlives an evicted object: its post must start the object (onStart resumes the running
+    // turn, which waits for this post), else the post meets no running turn (401) and the ready reply is lost.
+    await this.lifecycle.start()
     return ccNotes(this, token, body)
   }
 
+  /** The Chief's own tools (chief-brain-cc/tools.ts), on its `<agent>/tools` object only: one `chief-tools` call. */
+  async ccTools(req: unknown): Promise<{ status: number; json: unknown }> {
+    return toolsCall(this.sql, req)
+  }
+
+  /** The Chief's own tools as path -> text, for its next turn machine (chief-brain-cc/turn.ts). */
+  async ccToolFiles(): Promise<Record<string, string>> {
+    return toolFiles(this.sql)
+  }
+
+  /** The Chief's GitHub login (chief-brain-cc/github.ts), on its `<agent>/github` object only: one `chief-github` call or settings change. */
+  async ccGithub(agent: string, req: unknown, machine: boolean): Promise<{ status: number; json: unknown }> {
+    await this.lifecycle.start()
+    return githubCall(this.githubHost(), agent, req, machine)
+  }
+
+  /** The token and status a turn machine of this Chief gets (chief-brain-cc/turn.ts). */
+  async ccGithubTurn(agent: string): Promise<{ token: string | null; status: GithubStatus }> {
+    return githubTurn(this.githubHost(), agent)
+  }
+
+  /** Its rows as stored (tests: no token in clear). */
+  async ccGithubDump(): Promise<Array<{ name: string; value: string }>> {
+    return githubDump(this.sql)
+  }
+
+  private githubHost(): GithubHost {
+    return { sql: this.sql, env: this.env, schedule: (at) => this.schedule("gh-poll", "gh-poll", at) }
+  }
+
+  /**
+   * The Chief's sandboxes (chief-brain-cc/sandbox.ts), on its `<agent>/sandboxes` object only: one `chief-vm` call.
+   * `legacy`: sandboxes a conversation brain kept before they moved here (adopted once). `owner`: the Chief's owner,
+   * the Freestyle customer of the VMs it makes.
+   */
+  async ccSandboxCall(agent: string, req: unknown, legacy: ReadonlyArray<{ id: string; name: string; created_at: number }> = [], owner: string | null = null): Promise<{ status: number; json: unknown }> {
+    return ccSandbox(this, agent, req, legacy, owner)
+  }
+
+  /** The Chief was archived: its sandboxes pause and its Freestyle identity goes, with every token and grant. */
+  async ccSandboxRetire(): Promise<{ paused: number; revoked: boolean }> {
+    return ccSandboxRetire(this)
+  }
+
+  /** The Chief was deleted: its sandboxes are deleted and its Freestyle identity goes. */
+  async ccSandboxPurge(): Promise<{ deleted: number; left: number; revoked: boolean }> {
+    return ccSandboxPurge(this)
+  }
+
+  /** A run of one of this Chief's jobs (chief-brain-cc/jobs.ts, AutomationRunWorkflow): its note starts a turn here. */
+  async chiefJob(j: ChiefJob): Promise<JobDelivery> {
+    return chiefJobWake(this, j)
+  }
+
   /** MuxDO forwards a committed wake here. Pulls the conversation's new messages as the chief and starts a turn. */
-  async wake(w: { agent: string; owner: string; conversation: string; seq: number; reason: string; at?: number }): Promise<{ queued: number } | { skipped: string }> {
+  async wake(w: { agent: string; owner: string; conversation: string; seq: number; reason: string; at?: number }): Promise<{ queued: number } | { skipped: string; retry?: true }> {
     return turnLoop.wake(this, w)
+  }
+
+  /** A peer Chief's message (brain-turn.ts peerNote), forwarded by the owner's install. */
+  async peerNote(w: { agent: string; owner: string; conversation: string; from: string; text: string; key: string }): Promise<{ queued: boolean } | { skipped: string }> {
+    return turnLoop.peerNote(this, w)
   }
 
   /**
@@ -531,8 +641,8 @@ export class ChiefBrainDO extends DurableObject<Env> {
    * Posts the run's reply as the chief. Returns when to try again (the loop guard's agent_rate, or no
    * answer), or null when done; done acks the wakes.
    */
-  async post(id: string): Promise<number | null> {
-    return turnLoop.post(this, id)
+  async post(id: string, admission?: Promise<Admission>): Promise<number | null> {
+    return turnLoop.post(this, id, admission)
   }
 
   /** Typing off and the wake cursor moved past the run's messages. */
@@ -710,12 +820,20 @@ export class ChiefBrainDO extends DurableObject<Env> {
       return next === null ? undefined : { rescheduleAt: next }
     }
     if (job.fn === "drain") return void this.kick()
+    if (job.fn === "self-wake") return wakeFire(this, String(job.id))
+    if (job.fn === "gh-poll") {
+      const next = await githubPoll(this.githubHost())
+      return next === null ? undefined : { rescheduleAt: next }
+    }
     if (job.fn === "spawn-pump") return void (await this.pumpSlots())
     if (job.fn === "spawn-post") return void (await this.deliverReports())
     if (job.fn === "spawn-gc") return this.childGc()
     if (job.fn === "agent-out") return void (await this.flushOutcomes())
     if (job.fn !== "compact" || this.compactor.off()) return
+    // Held after failures (compactor.ts): wake when the hold ends, without keeping the object up meanwhile.
+    const held = this.compactor.cooling()
+    if (held > 0) return { rescheduleAt: Date.now() + Math.max(held, RETRY_MS) }
     this.compactor.pump()
-    if (!(await this.compactor.settle(AbortSignal.timeout(60_000)))) return { rescheduleAt: Date.now() + RETRY_MS }
+    if (!(await this.compactor.settle(AbortSignal.timeout(60_000)))) return { rescheduleAt: Date.now() + Math.max(RETRY_MS, this.compactor.cooling()) }
   }
 }

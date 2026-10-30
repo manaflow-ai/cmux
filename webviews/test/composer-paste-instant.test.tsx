@@ -5,11 +5,12 @@
 // place once the file is read, and a prompt sent meanwhile goes once its chips are ready, with them.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { act, createRef } from "react";
+import { act, createRef, type ComponentProps } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
-import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
+import type { Composer as ComposerView, ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
+import type { KeptAttachments } from "../src/agent-session/acpmux/composer/keptAttachments";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -26,6 +27,8 @@ const keys = [
   "requestAnimationFrame",
   "cancelAnimationFrame",
   "localStorage",
+  "createImageBitmap",
+  "OffscreenCanvas",
 ] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let dom: JSDOM;
@@ -53,6 +56,7 @@ beforeAll(() => {
     requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
     cancelAnimationFrame: (id: number) => clearTimeout(id),
     localStorage: window.localStorage,
+    ...imageEngine(),
   });
   host = window.document.getElementById("root")!;
 });
@@ -93,8 +97,42 @@ const PNG = Uint8Array.from([
   0x48,
   0x44,
   0x52,
-  ...Array(512).fill(7),
+  // Its size, 640x480 (the composer reads it before it decodes the picture), then filler.
+  0,
+  0,
+  2,
+  0x80,
+  0,
+  0,
+  1,
+  0xe0,
+  ...Array(504).fill(7),
 ]);
+
+/// The engine's image decoder and canvas, which jsdom lacks. Every attached image is decoded and
+/// re-encoded to strip its metadata (composer/imageWork.ts prepareImage, since #24652); with no
+/// engine to draw it is no image. This one reads the file's bytes as a real decode does, and each
+/// canvas encodes back to the screenshot's own PNG.
+function imageEngine() {
+  return {
+    createImageBitmap: async (source: Blob) => {
+      await source.arrayBuffer();
+      return { width: 640, height: 480, close() {} };
+    },
+    OffscreenCanvas: class {
+      constructor(
+        public width: number,
+        public height: number,
+      ) {}
+      getContext() {
+        return { drawImage() {}, fillRect() {}, fillStyle: "" };
+      }
+      async convertToBlob({ type }: { type: string }) {
+        return new Blob([PNG], { type });
+      }
+    },
+  };
+}
 
 /// A screenshot whose bytes come only when `release()` is called: a large image the composer is
 /// still reading and scaling.
@@ -121,7 +159,11 @@ async function until(ready: () => boolean, what: string) {
   }
 }
 
-async function openComposer(sent: { text: string; attachments: ComposerAttachment[] }[] = [], sessionId = "chat-a") {
+async function openComposer(
+  sent: { text: string; attachments: ComposerAttachment[] }[] = [],
+  sessionId = "chat-a",
+  extra: Partial<ComponentProps<typeof ComposerView>> = {},
+) {
   const { createRoot } = await import("react-dom/client");
   const { Composer } = await import("../src/agent-session/acpmux/Composer");
   const handle = createRef<ComposerHandle>();
@@ -146,6 +188,7 @@ async function openComposer(sent: { text: string; attachments: ComposerAttachmen
         localName="studio"
         projectChoices={[{ cwd: "/Users/you/src/app", label: "app" }]}
         handle={handle}
+        {...extra}
       />,
     ),
   );
@@ -165,6 +208,19 @@ function paste(files: File[]) {
   act(() => {
     field().dispatchEvent(event);
   });
+}
+
+/// The host's kept chips (AgentPaneDraftAttachments.swift), in memory: what each chat holds.
+function keptStore() {
+  const chats = new Map<string, ComposerAttachment[]>();
+  const store: KeptAttachments = {
+    read: async (chat) => chats.get(chat) ?? [],
+    write: async (chat, chips) => {
+      chats.set(chat, chips);
+      return { held: chips.map((chip) => chip.id) };
+    },
+  };
+  return { chats, store };
 }
 
 test("a pasted screenshot shows a chip in the paste's own frame, before its bytes are read", async () => {
@@ -218,17 +274,63 @@ test("a prompt sent while its screenshot is still being read goes once the chip 
 
 test("a prompt held for its screenshot never goes to the chat the composer moved to", async () => {
   const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
-  const composer = await openComposer(sent);
+  const { chats, store } = keptStore();
+  const composer = await openComposer(sent, "chat-a", { keptAttachments: store });
   const shot = slowScreenshot();
   paste([shot.file]);
   act(() => {
     composer.current!.send();
   });
-  await openComposer(sent, "chat-b");
+  await openComposer(sent, "chat-b", { keptAttachments: store });
   shot.release();
-  await until(() => placeholders().length === 0, "the read chip");
+  // The read ends (its chip goes to chat-a) with the composer on chat-b.
+  await until(() => (chats.get("chat-a") ?? []).length === 1, "the read chip");
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
   expect(sent).toHaveLength(0);
+});
+
+test("a screenshot still being read when the composer moves to another chat goes to the chat it was pasted in", async () => {
+  const { chats, store } = keptStore();
+  await openComposer([], "chat-a", { keptAttachments: store });
+  const shot = slowScreenshot();
+  paste([shot.file]);
+  expect(placeholders()).toHaveLength(1);
+  const onB = await openComposer([], "chat-b", { keptAttachments: store });
+  // Its placeholder stays with chat-a.
+  expect(placeholders()).toHaveLength(0);
+  shot.release();
+  await until(() => (chats.get("chat-a") ?? []).length === 1, "chat-a keeping the read chip");
+  expect(chats.get("chat-a")![0]!.kind).toBe("image");
+  expect(onB.current!.wakeState().attachments ?? []).toEqual([]);
+  expect(chips()).toHaveLength(0);
+  // Back on chat-a, the chip is there.
+  const onA = await openComposer([], "chat-a", { keptAttachments: store });
+  await until(() => (onA.current!.wakeState().attachments ?? []).length === 1, "chat-a's chip back");
+  expect(onA.current!.wakeState().attachments![0]!.kind).toBe("image");
+});
+
+test("⌘Return in the Quick Composer while a screenshot is being read sends it with the image, then opens the window", async () => {
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  const opened: boolean[] = [];
+  await openComposer(sent, "chat-a", { onOpenInWindow: (didSend) => opened.push(didSend) });
+  const shot = slowScreenshot();
+  paste([shot.file]);
+  act(() => {
+    field().dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { key: "Enter", metaKey: true, bubbles: true, cancelable: true }),
+    );
+  });
+  // It waits for the image: nothing is sent and the window does not open without it.
+  expect(sent).toHaveLength(0);
+  expect(opened).toEqual([]);
+  shot.release();
+  await until(() => opened.length > 0, "the window opening");
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(sent).toHaveLength(1);
+  expect(sent[0]!.attachments.map((chip) => chip.kind)).toEqual(["image"]);
+  expect(opened).toEqual([true]);
 });

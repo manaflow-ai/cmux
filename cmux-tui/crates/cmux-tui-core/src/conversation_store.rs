@@ -17,6 +17,7 @@ use cmux_conversation::{
     ConversationHead, CreateRequest, Message, Op, OpRequest, Origin, Participant, Reject, Summary,
     encode_id, format_rfc3339_millis, summary, valid_participant_id, valid_token,
 };
+use cmux_json::JsonSet as _;
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -144,6 +145,7 @@ impl ConversationStore {
                     .with_context(|| format!("open conversation store {}", path.display()))?;
                 crate::platform::restrict_file(&path)
                     .with_context(|| format!("restrict conversation store {}", path.display()))?;
+                crate::workspace_registry::wal_durability::attach_store(&connection, &path);
                 connection
             }
             None => Connection::open_in_memory()?,
@@ -157,9 +159,7 @@ impl ConversationStore {
     ) -> anyhow::Result<Self> {
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         connection.execute_batch(
-            "PRAGMA journal_mode=WAL;
-             PRAGMA synchronous=FULL;
-             PRAGMA fullfsync=ON;
+            "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA fullfsync=ON;
              CREATE TABLE IF NOT EXISTS meta (
                key TEXT PRIMARY KEY NOT NULL,
                value TEXT NOT NULL
@@ -867,7 +867,7 @@ impl ConversationEvent {
                     "marked_unread": marked_unread,
                 });
                 if let Some(position) = pin_position {
-                    value["pin_position"] = json!(position);
+                    value.set("pin_position", json!(position));
                 }
                 value
             }

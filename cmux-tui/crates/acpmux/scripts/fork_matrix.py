@@ -18,7 +18,7 @@ Cases (one JSON line per harness, run and case in --out):
   isolation    a fact told only to the fork never reaches the chat
   concurrent   chat and fork answer at the same time
   fork_of_fork a fork of the fork knows the chat's token and the fork's fact
-  busy         a fork taken while the chat runs a turn: works or says why
+  busy         a fork taken while the chat runs a turn: forks now, idle, and the chat's turn ends untouched
   restart      after a daemon restart, a fork of the chat still recalls
   empty        a fork of a chat with no turn: a clear refusal or a usable chat
   image        a fork of a chat whose prompt held an image (skipped: no CLI attachment)
@@ -332,10 +332,13 @@ class Matrix:
         if not self.wait_idle(self.parent, self.turn_timeout + 60):
             return "fail", f"chat never finished its turn after a busy fork ({outcome})"
         if not ok:
-            # A refusal must say why; a silent rc or a hang is the bug.
-            return ("pass", f"status={status}; {outcome}") if clear_refusal(why) else ("fail", outcome)
-        if not self.wait_idle(fb, 120):
-            return "fail", "busy fork never became ready"
+            # A working chat forks now, as it is (2026-10-21): any refusal is the bug.
+            return "fail", f"status={status}; {outcome}"
+        if self.info(fb).get("status") not in ("ready", "idle"):
+            return "fail", f"status={status}; the fork is not idle at once: {self.info(fb).get('status')}"
+        # The chat's turn went on untouched: its long answer reached its end.
+        if "fifty" not in self.last_reply(self.parent).lower():
+            return "fail", f"status={status}; the chat's turn was cut: {self.last_reply(self.parent)[-120:]!r}"
         ok2, reply = self.send(fb, "Reply with only the first code word I gave you.")
         if not ok2:
             return "fail", f"status={status}; fork's turn: {reply}"

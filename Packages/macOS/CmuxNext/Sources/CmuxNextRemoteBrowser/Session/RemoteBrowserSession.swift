@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextBrowser
+import CmuxNextCompat
 public import CmuxNextRemoteView
 public import Foundation
 
@@ -193,12 +194,7 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
             // from a run loop block, not a main-actor task: tracking inside a
             // main-queue callout stops GCD (and so every main-actor task,
             // host messages and control requests included) until it closes.
-            let main = CFRunLoopGetMain()
-            CFRunLoopPerformBlock(main, CFRunLoopMode.commonModes.rawValue) { [nativeUI] in
-                // main-proof: a CFRunLoopGetMain() block runs on the main thread
-                MainActor.assumeIsolated { nativeUI.showMenu(token: token, menu: menu) }
-            }
-            CFRunLoopWakeUp(main)
+            MainRunLoopBlock.perform { [nativeUI] in nativeUI.showMenu(token: token, menu: menu) }
         case let .closeMenu(token):
             nativeUI.closeMenu(token: token)
         case let .showDialog(token, dialog):

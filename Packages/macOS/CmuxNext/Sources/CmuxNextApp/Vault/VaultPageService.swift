@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import Foundation
+import CmuxNextHistory
 
 /// Opens `cmux://vault` in a pane (Open Vault as Pane) and makes its pages,
 /// each a view over the app's one ``SessionVault``.

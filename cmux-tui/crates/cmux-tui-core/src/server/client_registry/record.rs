@@ -14,6 +14,9 @@ pub(in crate::server) struct ClientRecord {
     /// Shared-sizing identity from `set-client-info`. `user_id` is asserted
     /// by the connection; this daemon has no Stack session to verify it.
     pub(in crate::server) identity: ClientIdentityWire,
+    /// A remote device's spliced lane (`set-client-info remote:true`);
+    /// sticky for the connection's life.
+    pub(in crate::server) remote_device: bool,
     pub(in crate::server) capabilities: HashSet<String>,
     pub(in crate::server) browser_pointer_owner: Option<BrowserPointerOwner>,
     pub(in crate::server) attached: BTreeMap<SurfaceId, AttachedSurface>,

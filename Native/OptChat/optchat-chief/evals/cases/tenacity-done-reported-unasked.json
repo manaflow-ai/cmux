@@ -1,0 +1,39 @@
+{
+  "id": "tenacity-done-reported-unasked",
+  "group": "tenacity",
+  "owner": "a676",
+  "about": "A finished task is reported to the user without being asked: what landed, as a link, in a line or two.",
+  "history": [
+    {
+      "kind": "note",
+      "text": "cmux-next code is in https://github.com/manaflow-ai/cmux, branch feat-cmux-next."
+    },
+    {
+      "kind": "user",
+      "text": "make pinned tabs thinner"
+    },
+    {
+      "kind": "talk",
+      "text": "a12 is on it."
+    }
+  ],
+  "turns": [
+    {
+      "kind": "work",
+      "text": "[a12] Landed ee3f5ce0a1b2c3d4e5f60718293a4b5c6d7e8f90..ebadb28f1e2d3c4b5a69788776655443322110ff on feat-cmux-next: pinned tabs are 36 pt (was 44). Tests pass; built on the fleet.",
+      "checks": [
+        {
+          "type": "reply_matches",
+          "re": "\\]\\(https://github\\.com/[^)]+/(commit|compare)/"
+        },
+        {
+          "type": "max_words",
+          "n": 60
+        },
+        {
+          "type": "no_question"
+        }
+      ]
+    }
+  ]
+}

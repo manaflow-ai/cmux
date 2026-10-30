@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import Foundation
 
 /// Protected (DRM) media a Chromium page asked for and could not get, and whether its tab reopens in
@@ -80,19 +81,25 @@ public nonisolated struct BrowserProtectedMedia: Sendable, Hashable {
     })();
     """
 
-    /// The media-world relay: reads ``attribute`` when ``event`` comes and calls ``channel``.
-    static let relayScript = """
-    (() => {
-      let tries = 0;
-      const send = () => {
-        const name = document.documentElement && document.documentElement.getAttribute("\(attribute)");
-        if (!name) return;
-        if (typeof \(channel) === "function") { \(channel)(name); return; }
-        if (++tries < 40) setTimeout(send, 50);
-      };
-      document.addEventListener("\(event)", send, true);
-    })();
-    """
+    /// The media-world relay over a DevTools binding named ``channel``.
+    static let relayScript = relayScript(post: "\(channel)(name)", ready: "typeof \(channel) === \"function\"")
+
+    /// The media-world relay: reads ``attribute`` when ``event`` comes and reports the key system:
+    /// `post` is the statement that sends `name`, `ready` the expression that says it can.
+    static func relayScript(post: String, ready: String) -> String {
+        """
+        (() => {
+          let tries = 0;
+          const send = () => {
+            const name = document.documentElement && document.documentElement.getAttribute("\(attribute)");
+            if (!name) return;
+            if (\(ready)) { \(post); return; }
+            if (++tries < 40) setTimeout(send, 50);
+          };
+          document.addEventListener("\(event)", send, true);
+        })();
+        """
+    }
 
     /// The key system a raw DevTools `Runtime.bindingCalled` of ``channel`` reports, nil for any
     /// other message.
@@ -100,12 +107,24 @@ public nonisolated struct BrowserProtectedMedia: Sendable, Hashable {
     /// - Parameter json: One raw DevTools message.
     /// - Returns: The refused media, or nil.
     public static func refused(bindingCall json: String) -> BrowserProtectedMedia? {
-        guard json.contains("\"\(channel)\""), let data = json.data(using: .utf8),
+        refused(bindingCall: DevToolsMessageHead(json: json))
+    }
+
+    /// The same check for a message whose head the relay already read.
+    public static func refused(bindingCall head: DevToolsMessageHead) -> BrowserProtectedMedia? {
+        guard head.method == "Runtime.bindingCalled", head.contains("\"\(channel)\""), let data = head.json.data(using: .utf8),
               let message = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               message["method"] as? String == "Runtime.bindingCalled",
               let params = message["params"] as? [String: Any], params["name"] as? String == channel,
-              let payload = params["payload"] as? String, !payload.isEmpty, payload.count <= 128 else { return nil }
-        return BrowserProtectedMedia(keySystem: payload)
+              let payload = params["payload"] as? String else { return nil }
+        return BrowserProtectedMedia(reported: payload)
+    }
+
+    /// The refused media a page reported (a binding payload or a page channel post), nil when it
+    /// is no key system name: empty or longer than 128 characters.
+    public init?(reported payload: String) {
+        guard !payload.isEmpty, payload.count <= 128 else { return nil }
+        self.init(keySystem: payload)
     }
 }
 

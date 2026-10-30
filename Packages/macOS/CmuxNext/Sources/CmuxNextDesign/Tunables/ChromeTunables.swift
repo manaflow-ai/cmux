@@ -1,7 +1,8 @@
 public import CoreGraphics
 public import Foundation
+public import CmuxNextDesignTokens
 
-/// Fixed chrome constants (the 2 pt spacing grid, divider widths, insets)
+/// Fixed chrome constants (the 2 pt spacing grid and insets)
 /// and the glass and scroll-fade parameters, as Debug Settings tunables.
 public nonisolated enum ChromeTunables {
     private static func points(_ name: String, _ section: TunableSection, _ label: String, help: String, _ value: CGFloat,
@@ -41,6 +42,11 @@ public nonisolated enum ChromeTunables {
         "chrome.tabs.rowTools", .tabs, "Chat tools in the tab row",
         help: "A chat's header tools sit at the right end of its pane's tab row instead of a row of their own; the tabs make room. Off: the chat header is its own row under the tabs.",
         default: true, code: "ChromeTunables.tabRowTools")
+    /// Native content-supplied controls in the shared tab row; off while the migration series lands.
+    public static let nativeRowTools = Tunable<Bool>.toggle(
+        "chrome.tabs.nativeRowTools", .tabs, "Native chat tools in the tab row",
+        help: "Render content-supplied chat tools as native tab-row buttons. Off: the page owns its controls.",
+        default: false, code: "ChromeTunables.nativeRowTools")
     // @intent opt-in looks live in Debug Settings, off by default, until promoted (Lawrence via Leo, 2026-10-15).
     public static let interfaceSize = Tunable<Bool>.toggle(
         "chrome.interfaceSize", .shape, "Interface size",
@@ -48,8 +54,6 @@ public nonisolated enum ChromeTunables {
         default: false, code: "ChromeTunables.interfaceSize")
     public static let compactTabContentLeadingInset = points("compactTabContentLeadingInset", .tabs, "Compact tab content inset",
                                                              help: "Tab content inset under Compact tabs.", 6, range: 0...24)
-    public static let dividerThickness = points("dividerThickness", .panes, "Divider thickness", help: "Visible line between split panes.", 1, range: 0...6)
-    public static let dividerHitWidth = points("dividerHitWidth", .panes, "Divider hit width", help: "Draggable width centered on a divider.", 7, range: 1...24)
     public static let panePadding = DerivedTunable<CGFloat>.number(
         "chrome.panePadding", .panes, "Pane padding", help: "Inset around every pane's tab strip and content (0 is edge to edge). Default: layout.panePadding, else 2 compact, 4 comfortable.",
         range: 0...24, step: 0.5, unit: .points, code: "ChromeTunables.panePadding") { Metrics.codePanePadding }
@@ -74,8 +78,8 @@ public nonisolated enum ChromeTunables {
 
     static var fixed: [TunableDescriptor] {
         [space1, space2, space3, space4, space5, space6, trafficLightInset, sidebarMinWidth, sidebarMaxWidth, tabBackgroundInset,
-         tabContentLeadingInset, dividerThickness, dividerHitWidth].map(\.descriptor)
-            + [compactTabs.descriptor, compactTabContentLeadingInset.descriptor, tabRowTools.descriptor, interfaceSize.descriptor]
+         tabContentLeadingInset].map(\.descriptor)
+            + [compactTabs.descriptor, compactTabContentLeadingInset.descriptor, tabRowTools.descriptor, nativeRowTools.descriptor, interfaceSize.descriptor]
             + [panePadding.descriptor, opaqueOverlayLift.descriptor, glassOverlayTintStrength.descriptor, cardOpacity.descriptor, scrollFadeMaxFraction.descriptor]
     }
 }
@@ -85,7 +89,7 @@ public nonisolated enum ChromeTunables {
 public nonisolated enum DesignTunables {
     public static var all: [TunableDescriptor] {
         MotionTunables.all + MetricTunables.metrics.map(\.descriptor) + ChromeTunables.fixed + [Borders.tunable.descriptor] + FocusIndicatorTunables.all
-            + StatusIndicatorTunables.all + [LaunchMarkStyle.tunable.descriptor, AttentionHighlightLook.tunable.descriptor, AgentTurnRing.tunable.descriptor, GlassLensMode.tunable.descriptor] + MotionTunables.launchDelays.map(\.descriptor)
+            + StatusIndicatorTunables.all + [LaunchMarkStyle.tunable.descriptor, AttentionHighlightLook.tunable.descriptor, GlassLensMode.tunable.descriptor] + MotionTunables.launchDelays.map(\.descriptor)
             + ChromeTunables.mainPane + [HoverCardEscapeGeometry.escapeSlotTunable.descriptor]
     }
 }

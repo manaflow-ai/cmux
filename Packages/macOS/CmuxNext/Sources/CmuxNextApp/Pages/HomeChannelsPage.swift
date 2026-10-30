@@ -131,7 +131,7 @@ final class DaemonCredentialPageProvider: PageProvider {
         // The file names the endpoint. The page authenticates with a page credential when the
         // daemon has them: only that one carries the person's Cloud lease (the file token is any
         // same-user process's). An older daemon keeps the file token: local conversations only.
-        guard daemon.supports(DaemonCapabilities.shared.pageCredential), case .object(var fields) = file else { return file }
+        guard daemon.supports(DaemonCapability.pageCredential.rawValue), case .object(var fields) = file else { return file }
         // A single-use credential for this connect (every reconnect asks again). A lost connection
         // retries. A refusal (a daemon this app did not start, so the app is not verified there)
         // keeps the file token: local conversations only, never a dead end.

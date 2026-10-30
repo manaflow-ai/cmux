@@ -96,30 +96,39 @@ pub fn diff_lines(old: &str, new: &str) -> Vec<(char, String)> {
         return out;
     }
     let (n, m) = (a.len(), b.len());
-    let mut lcs = vec![vec![0u32; m + 1]; n + 1];
-    for i in (0..n).rev() {
-        for j in (0..m).rev() {
-            lcs[i][j] =
-                if a[i] == b[j] { lcs[i + 1][j + 1] + 1 } else { lcs[i + 1][j].max(lcs[i][j + 1]) };
+    // Cell `i * width + j`: the longest common subsequence of `a[i..]` and `b[j..]`.
+    let width = m + 1;
+    let mut lcs = vec![0u32; (n + 1) * width];
+    let at = |lcs: &[u32], i: usize, j: usize| lcs.get(i * width + j).copied().unwrap_or(0);
+    for (i, x) in a.iter().enumerate().rev() {
+        for (j, y) in b.iter().enumerate().rev() {
+            let v = if x == y {
+                at(&lcs, i + 1, j + 1) + 1
+            } else {
+                at(&lcs, i + 1, j).max(at(&lcs, i, j + 1))
+            };
+            if let Some(cell) = lcs.get_mut(i * width + j) {
+                *cell = v;
+            }
         }
     }
     let (mut i, mut j) = (0, 0);
     let mut out = Vec::new();
-    while i < n && j < m {
-        if a[i] == b[j] {
-            out.push((' ', a[i].to_string()));
+    while let (Some(x), Some(y)) = (a.get(i), b.get(j)) {
+        if x == y {
+            out.push((' ', x.to_string()));
             i += 1;
             j += 1;
-        } else if lcs[i + 1][j] >= lcs[i][j + 1] {
-            out.push(('-', a[i].to_string()));
+        } else if at(&lcs, i + 1, j) >= at(&lcs, i, j + 1) {
+            out.push(('-', x.to_string()));
             i += 1;
         } else {
-            out.push(('+', b[j].to_string()));
+            out.push(('+', y.to_string()));
             j += 1;
         }
     }
-    out.extend(a[i..].iter().map(|l| ('-', l.to_string())));
-    out.extend(b[j..].iter().map(|l| ('+', l.to_string())));
+    out.extend(a.get(i..).unwrap_or_default().iter().map(|l| ('-', l.to_string())));
+    out.extend(b.get(j..).unwrap_or_default().iter().map(|l| ('+', l.to_string())));
     out
 }
 
@@ -131,7 +140,7 @@ pub fn diff_text(path: &str, old: &str, new: &str) -> String {
         .map(|i| {
             let lo = i.saturating_sub(2);
             let hi = (i + 3).min(lines.len());
-            lines[lo..hi].iter().any(|(k, _)| *k != ' ')
+            lines.get(lo..hi).unwrap_or_default().iter().any(|(k, _)| *k != ' ')
         })
         .collect();
     let mut out = String::new();
@@ -139,8 +148,8 @@ pub fn diff_text(path: &str, old: &str, new: &str) -> String {
         out.push_str(&format!("@@ {path}\n"));
     }
     let mut gap = false;
-    for (i, (k, l)) in lines.iter().enumerate() {
-        if !keep[i] {
+    for ((k, l), &kept) in lines.iter().zip(&keep) {
+        if !kept {
             gap = true;
             continue;
         }
@@ -245,6 +254,10 @@ impl Transcript {
             self.last_seq = seq;
         }
         let Some(update) = params.get("update") else { return };
+        // A subagent's words are its own view's, never the chat's reply.
+        if crate::subagents::is_subagents(params) && is_words(update) {
+            return;
+        }
         self.apply_session_update(update);
     }
 
@@ -506,6 +519,8 @@ impl Transcript {
             }
             if msg.get("method").and_then(Value::as_str) == Some("session/update")
                 && let Some(update) = msg.pointer("/params/update")
+                && !(msg.get("params").is_some_and(crate::subagents::is_subagents)
+                    && is_words(update))
             {
                 self.apply_session_update(update);
             }
@@ -587,8 +602,8 @@ impl Transcript {
                 if steer
                     && !prompt_id.is_empty()
                     && let Some(idx) = (0..self.items.len()).rev().find(|&i| {
-                        let shown = match &self.items[i] {
-                            Item::User { text: t, steer: true, .. } => shows_prompt(t, &text),
+                        let shown = match self.items.get(i) {
+                            Some(Item::User { text: t, steer: true, .. }) => shows_prompt(t, &text),
                             _ => false,
                         };
                         shown && !self.waiting_steers.iter().any(|(_, w)| *w == i)
@@ -728,11 +743,20 @@ impl Transcript {
             "stderr" => self.items.push(Item::Stderr {
                 text: msg.get("text").and_then(Value::as_str).unwrap_or("").to_owned(),
             }),
+            // A hibernation (the idle exit, `hub/idle.rs`) and its wake are not the person's to
+            // see: the chat reads as it did.
+            "exited" | "stopped"
+                if msg.get("hibernated").and_then(Value::as_bool) == Some(true) => {}
+            "resumed" if msg.get("wake").and_then(Value::as_bool) == Some(true) => {}
             "exited" => self.items.push(Item::Status {
-                text: format!(
-                    "agent exited unexpectedly (code {})",
-                    msg.get("code").map(|c| c.to_string()).unwrap_or_default()
-                ),
+                text: if msg.get("code").and_then(Value::as_i64) == Some(0) {
+                    "agent stopped".into()
+                } else {
+                    format!(
+                        "agent exited unexpectedly (code {})",
+                        msg.get("code").map(|c| c.to_string()).unwrap_or_default()
+                    )
+                },
             }),
             "stopped" => self.items.push(Item::Status { text: "agent stopped".into() }),
             "resumed" => self.items.push(Item::Status {
@@ -762,6 +786,9 @@ impl Transcript {
                     text: format!("model: {}", self.model.clone().unwrap_or_default()),
                 });
             }
+            // The settings a new agent was given again (`replay_config`): nothing changed, and a
+            // wake from hibernation does it every time.
+            "config" if msg.get("replayed").and_then(Value::as_bool) == Some(true) => {}
             "config" => {
                 if msg.get("configId").and_then(Value::as_str) == Some("model") {
                     self.model = msg.get("value").and_then(Value::as_str).map(str::to_owned);
@@ -816,3 +843,11 @@ pub fn item_text(item: &Item) -> String {
 #[cfg(test)]
 #[path = "transcript_tests.rs"]
 mod tests;
+
+/// A message or thought chunk: the words a reader of the chat's own text keeps.
+fn is_words(update: &Value) -> bool {
+    matches!(
+        update.get("sessionUpdate").and_then(Value::as_str),
+        Some("agent_message_chunk" | "agent_thought_chunk")
+    )
+}

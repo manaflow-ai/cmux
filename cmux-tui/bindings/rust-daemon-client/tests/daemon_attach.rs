@@ -78,6 +78,15 @@ impl Fake {
         serde_json::from_str(&line).expect("one JSON line")
     }
 
+    /// Reads with no time limit from here on: each read ends on the client's next frame or its
+    /// close (EOF), the signals the test waits for. The 10 s read limit is a hang guard for
+    /// scripts whose client may never send; a test whose client is driven step by step from the
+    /// test thread uses this instead, since on a loaded host that thread can take longer than
+    /// 10 s between two frames. nextest's slow-timeout (120 s) still ends a real hang.
+    fn wait_on_client(&mut self) {
+        self.stream.set_read_timeout(None).unwrap();
+    }
+
     fn at_eof(&mut self) -> bool {
         let mut line = String::new();
         matches!(self.reader.read_line(&mut line), Ok(0))
@@ -251,6 +260,9 @@ fn daemon_attach_identity_target_and_stream_order_reach_the_sink_on_its_reader_t
 fn daemon_attach_writer_sends_input_geometry_and_detach_on_the_attach_connection() {
     let (path, server) = spawn(|listener| {
         let mut fake = Fake::accept(&listener);
+        // The test thread sends each frame after waiting on the sink: under load that wait ran
+        // past the 10 s read limit and the fake failed with the client still on its way.
+        fake.wait_on_client();
         let attach = fake.handshake("gen-1");
         fake.write(vt_state("vt-state", 80, 24, b"", b""));
         fake.reply(&attach, json!({"lease": "lease-1"}));

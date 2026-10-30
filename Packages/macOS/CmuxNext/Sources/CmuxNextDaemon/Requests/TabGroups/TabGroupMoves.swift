@@ -4,7 +4,7 @@ import Foundation
 public struct MoveTabGroupRequest: DaemonRequest {
     public typealias Response = TabGroupResult
     public static let command = "move-tab-group"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.tabGroups
+    public static let requiredCapability: String? = DaemonCapability.tabGroups.rawValue
     public var group: TabGroupID
     public var pane: PaneID
     public var index: Int
@@ -21,7 +21,7 @@ public struct MoveTabGroupRequest: DaemonRequest {
 public struct MoveTabGroupToSplitRequest: DaemonRequest {
     public typealias Response = TabGroupResult
     public static let command = "move-tab-group-to-split"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.tabGroups
+    public static let requiredCapability: String? = DaemonCapability.tabGroups.rawValue
     public var group: TabGroupID
     public var pane: PaneID
     public var edge: PaneEdge
@@ -40,7 +40,7 @@ public struct MoveTabGroupToSplitRequest: DaemonRequest {
 public struct MoveTabGroupToColumnRequest: DaemonRequest {
     public typealias Response = TabGroupResult
     public static let command = "move-tab-group-to-column"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.tabGroups
+    public static let requiredCapability: String? = DaemonCapability.tabGroups.rawValue
     public var group: TabGroupID
     public var target: ColumnDropTarget
     public var afterColumn: ColumnID?

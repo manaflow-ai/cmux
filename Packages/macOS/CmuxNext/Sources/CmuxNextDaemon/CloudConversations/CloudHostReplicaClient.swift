@@ -61,12 +61,12 @@ public struct CloudHostReplicaClient: Sendable {
     }
 
     public static func supported(by connection: DaemonConnection) async -> Bool {
-        await connection.identity?.supports(DaemonCapabilities.shared.cloudHostReplica) == true
+        await connection.identity?.supports(DaemonCapability.cloudHostReplica.rawValue) == true
     }
 
     private func send<R: DaemonRequest>(_ request: R) async throws -> R.Response {
         guard await Self.supported(by: connection) else {
-            throw DaemonError.missingCapabilities([DaemonCapabilities.shared.cloudHostReplica])
+            throw DaemonError.missingCapabilities([DaemonCapability.cloudHostReplica.rawValue])
         }
         return try await connection.request(request)
     }

@@ -11,7 +11,7 @@ public final class PaneModel: Identifiable {
     /// Daemon default tab; the window keeps its own selection.
     public internal(set) var defaultTabIndex: Int
     public internal(set) var focusedAt: UInt64
-    public internal(set) var tabs: [TabModel]
+    public internal(set) var tabs: [TabModel] { didSet { adoptUnread() } }
     public internal(set) var tabGroups: [TabGroupModel]
     /// Group spans over `tabs`, recomputed only when tabs or groups change.
     public private(set) var groupSpans: [TabGroupSpan] = []
@@ -26,6 +26,27 @@ public final class PaneModel: Identifiable {
         tabs = s.tabs.map(TabModel.init)
         tabGroups = s.tabGroups.map(TabGroupModel.init)
         recomputeSpans()
+        adoptUnread()
+    }
+
+    /// Its tabs' unread count (``UnreadTally``), kept by ``recountUnread()``.
+    @ObservationIgnored private(set) var unread = UnreadTally()
+    /// The screen that counts this pane.
+    @ObservationIgnored weak var unreadScreen: ScreenModel?
+
+    /// The tabs changed: they report to this pane, which recounts.
+    private func adoptUnread() {
+        for tab in tabs where tab.unreadPane !== self { tab.unreadPane = self }
+        recountUnread()
+    }
+
+    /// Counts its tabs again (a tab's unread mark or the tab list changed) and tells its screen when the count changed.
+    func recountUnread() {
+        var tally = UnreadTally()
+        for tab in tabs { tally.add(tab.unreadMark) }
+        guard tally != unread else { return }
+        unread = tally
+        unreadScreen?.recountUnread()
     }
 
     static func identity(_ s: PaneSnapshot) -> String {

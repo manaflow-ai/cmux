@@ -7,7 +7,11 @@ public import WebKit
 /// `WKWebsiteDataStore`, media capture decisions from the shared store, and
 /// per-navigation JavaScript (`WKWebpagePreferences.allowsContentJavaScript`).
 extension WebKitTab: PageInfoProviding {
-    public var pageInfoSettings: SiteSettingsRegistry { engine?.siteSettings ?? .shared }
+    /// The engine's registry; a page whose engine is gone (it no longer loads) gets an empty one in memory.
+    public var pageInfoSettings: SiteSettingsRegistry { engine?.siteSettings ?? BrowserSharedStores.inMemory().siteSettings }
+
+    /// The engine's zoom per site; nil once the engine is gone.
+    public var siteZoomLevels: SiteZoomLevels? { engine?.stores.siteZoom }
 
     /// WebKit has per-site hooks for these only: camera and microphone
     /// through `WKUIDelegate`, location and notifications through its
@@ -70,7 +74,7 @@ extension WebKitTab: PageInfoProviding {
         var sites: Set<String> = []
         if let pageHost { sites.insert(SiteDomain.registrable(pageHost)) }
         let script = "[location.hostname].concat(performance.getEntriesByType('resource').map(e => { try { return new URL(e.name).hostname } catch (_) { return '' } }))"
-        if case .array(let values) = try? await evaluate(script, world: .isolated) {
+        if case .array(let values) = try? await evaluate(script, world: .isolated, gesture: .cmux) {
             for case .string(let host) in values where !host.isEmpty { sites.insert(SiteDomain.registrable(host)) }
         }
         return sites
