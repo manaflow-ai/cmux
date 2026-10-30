@@ -42,6 +42,9 @@ NO_CAPTURE = re.compile(r"^\s*(?:>\s*)*(?:[-*]\s+)?(?:\*\*)?No capture(?:\*\*)?(
 TEST_PATH = re.compile(r"(?:^|/)Tests?/|(?:^|/)tests?/|_test\.|(?:^|/)\w+Tests\.swift$|\.(?:test|spec)\.[jt]sx?$")
 # A fenced block, or an unclosed fence to the end of the body.
 FENCE = re.compile(r"^\s{0,3}(```|~~~).*?(?:^\s{0,3}\1|\Z)", re.DOTALL | re.MULTILINE)
+# Markdown indented code blocks are code too, even without fence markers.  Strip each
+# indented line before looking for evidence so a copied template cannot satisfy the check.
+INDENTED_CODE = re.compile(r"(?m)^(?: {4}|\t)[^\n]*(?:\n|$)")
 COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 INLINE_CODE = re.compile(r"`[^`\n]+`")
 COMMAND = "cmux-ci capture {sha} --state tour:{tour} --pr {pr}"
@@ -83,7 +86,7 @@ def evidence(body: str, labels: set[str], pr: str = "") -> tuple[str, str | None
 
 def visual_judgment(body: str) -> bool:
     """Whether the body records that its after image was viewed and judged."""
-    text = FENCE.sub("", body or "")
+    text = INDENTED_CODE.sub("", FENCE.sub("", body or ""))
     text = COMMENT.sub("", text)
     verdict = VISUAL_VERDICT.search(text)
     if not VIEWED_AFTER.search(text) or not verdict:
