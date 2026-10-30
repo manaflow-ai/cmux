@@ -95,7 +95,8 @@ struct UnopenedCloudMachinesTests {
         let services = Self.services()
         defer { Self.closeWindows(services) }
         let session = Self.machine(services, id: "vm-agent", workspaces: ["ws-ephemeral", "ws-image-default"])
-        try #require(session.daemon.store.workspace(id: "ws-ephemeral")).applyState(ephemeral: true)
+        try #require(session.daemon.store.workspace(id: "ws-ephemeral")).applyState(
+            ephemeral: true, status: nil, screenGroups: nil)
 
         services.windows.reconcileMembership()
 
