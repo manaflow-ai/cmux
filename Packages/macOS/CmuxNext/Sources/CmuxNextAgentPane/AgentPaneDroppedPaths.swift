@@ -13,9 +13,11 @@ import CmuxNextWakeups
 /// names, with the same names in any order. Any other ask uses it up and answers nothing.
 public final class AgentPaneDroppedPaths {
     /// Which gesture brought the files in. A drop's record and a paste's are kept apart, so one never
-    /// answers for the other.
+    /// answers for the other. `choose`: the person's pick in the page's file input (+ > Attach files,
+    /// ``PageOpenPanel``), which only fills a source record (``stashSource(_:items:claimed:kind:)``):
+    /// the page already has those files' bytes, so `chat.attach.dropped` never asks for it.
     public nonisolated enum Kind: String, Sendable {
-        case drop, paste
+        case drop, paste, choose
     }
 
     /// How long after the drop or paste the page may ask: it asks as soon as it has read the files.

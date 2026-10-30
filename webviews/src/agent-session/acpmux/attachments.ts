@@ -574,6 +574,10 @@ export type LinkItem = { path: string; folder: boolean };
 /// How files came in from the person's own gesture, for the host's record of where they are
 /// (`chat.attach.dropped`): a drop on the page, or a paste.
 export type DroppedKind = "drop" | "paste";
+/// The gesture whose source the host is asked for (`chat.attach.source`): a drop, a paste, or the
+/// person's pick in the composer's file input (+ > Attach files). A pick asks only where its files
+/// came from; the page already has their bytes, so it never asks where they are.
+export type SourceKind = DroppedKind | "choose";
 
 /// The files and folders of the host's `{items: [{path, folder}]}` answer (`chat.attach.choose`,
 /// `chat.attach.dropped`), in order: absolute paths only, a folder only when the host says so.

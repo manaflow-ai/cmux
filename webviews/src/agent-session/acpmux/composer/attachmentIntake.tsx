@@ -19,6 +19,7 @@ import {
   type ComposerAttachment,
   type DroppedKind,
   type LinkItem,
+  type SourceKind,
 } from "../attachments";
 import type { UploadResult } from "../cloudUploads";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
@@ -226,10 +227,12 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// `uploads`: the person dropped, pasted or chose these, so the chat's host may save what the
   /// composer can't attach (a moved chat's machine, or this Mac for a local chat) and its chip sends
   /// the saved path (composer/intakeFiles.ts); never a capture. `kind`: the person's own drop or
-  /// paste, whose files the host of a chat on this Mac knows the paths of (`localPaths`).
-  const [attach] = useState(() => async (given: (File | MadeFile)[], uploads = false, kind?: DroppedKind) => {
+  /// paste, whose files the host of a chat on this Mac knows the paths of (`localPaths`), or pick in
+  /// the file input (`choose`), which the host asks only where its files came from.
+  const [attach] = useState(() => async (given: (File | MadeFile)[], uploads = false, kind?: SourceKind) => {
     if (given.length === 0) return;
     const files = given;
+    const dropped: DroppedKind | undefined = kind === "choose" ? undefined : kind;
     const { options: current } = live.current;
     const batch = { scope: current.scope };
     // In the paste's or drop's own task, so React draws them before the next frame.
@@ -250,10 +253,10 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     /// The chip each file became, by index, for its original's path arriving later.
     const made: (string | undefined)[] = [];
     // The app each file came from: one the page made knows it (a capture cmux took); the host says
-    // the rest for the person's drop or paste (composer/attachmentSources.ts, which answers within
-    // its deadline). A chip read before the answer waits for it, with its tile showing, so the chip
-    // has its source wherever it goes (this chat's strip, or the chat it was pasted in) and its
-    // first draft write keeps it. One whose source nobody knows has none.
+    // the rest for the person's drop, paste or pick in the file input (composer/attachmentSources.ts,
+    // which answers within its deadline). A chip read before the answer waits for it, with its tile
+    // showing, so the chip has its source wherever it goes (this chat's strip, or the chat it was
+    // pasted in) and its first draft write keeps it. One whose source nobody knows has none.
     const fileSource: (AttachmentSource | undefined)[] = files.map((file) =>
       isMadeFile(file) ? undefined : sourceOfFile(file),
     );
@@ -335,7 +338,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         settled,
         {
           allowImages: current.allowImages,
-          ...(kind && paths ? { localPaths: (batch: File[]) => paths(kind, batch) } : {}),
+          ...(dropped && paths ? { localPaths: (batch: File[]) => paths(dropped, batch) } : {}),
           ...(uploads && current.upload ? { upload: current.upload } : {}),
           // A file not yet a chip: its tile's x. One already a chip (an image whose original still
           // uploads): the chip is gone from the strip (its x, or it was sent), so its original
