@@ -73,8 +73,11 @@ public struct CloudWorkPick: Equatable, Sendable {
         let top = await run(["rev-parse", "--show-toplevel"])
         let root = top ?? folder
         let branch = top == nil ? nil : await run(["symbolic-ref", "--quiet", "--short", "HEAD"])
-        let remote = top == nil ? nil : await run(["ls-remote", "--get-url"])
-        let upstream = branch == nil ? nil : await run(["for-each-ref", "--format=%(upstream:remoteref)%00%(upstream:track)", "refs/heads/" + (branch ?? "")])
+        let upstream = branch == nil ? nil : await run(["for-each-ref", "--format=%(upstream:remoteref)%00%(upstream:track)%00%(upstream:remotename)",
+                                                       "refs/heads/" + (branch ?? "")])
+        // The branch's own remote (a fork's `origin` beside the `upstream` it tracks), else git's default.
+        let remoteName = upstream.flatMap(Self.remoteName)
+        let remote = top == nil ? nil : await run(["ls-remote", "--get-url"] + (remoteName.map { [$0] } ?? []))
         let objects = top == nil ? nil : await run(["count-objects", "-v"])
         let listing = try? await work.run(.userBlocking, mayBlock: .files) { listRoot(root) }
         let pushed = upstream.map(isPushed) ?? false
@@ -112,6 +115,14 @@ public struct CloudWorkPick: Equatable, Sendable {
 
     /// `for-each-ref`'s `upstream:lstrip=3` (the remote's branch name) `NUL upstream:track`: pushed when there is an upstream and
     /// it is neither gone nor behind this branch (`[ahead N]`, `[ahead N, behind M]`).
+    /// The upstream's remote name, the line's third field; nil for none or one git can't take as a name.
+    static func remoteName(_ line: String) -> String? {
+        let parts = line.split(separator: "\0", omittingEmptySubsequences: false)
+        guard parts.count > 2 else { return nil }
+        let name = String(parts[2])
+        return name.isEmpty || name.hasPrefix("-") || name.contains(where: \.isNewline) ? nil : name
+    }
+
     static func isPushed(_ line: String) -> Bool {
         let parts = line.split(separator: "\0", maxSplits: 1, omittingEmptySubsequences: false)
         guard let upstream = parts.first, !upstream.isEmpty else { return false }

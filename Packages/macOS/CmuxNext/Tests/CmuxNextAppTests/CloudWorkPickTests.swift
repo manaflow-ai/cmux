@@ -125,6 +125,19 @@ struct CloudWorkPickTests {
         #expect(pick.repo?.ref == "feature", "not origin/feature, the tail of refs/remotes/team/origin/feature")
     }
 
+    @Test func theRepoIsTheTrackedRemotesNotTheDefaultOne() async throws {
+        let (folder, cleanup) = try Self.repo(["Package.swift"], remote: "https://github.com/octo/cmux.git", remoteName: "upstream")
+        defer { cleanup() }
+        // A fork as origin, while the branch tracks upstream.
+        try Self.git(folder, "remote", "add", "origin", "https://github.com/me/cmux-fork.git")
+        let pick = await Self.pick(folder)
+        #expect(pick.repo == CloudMachineRepo(owner: "octo", name: "cmux", ref: "feature/pick"))
+        #expect(pick.repoKey == "github.com/octo/cmux")
+        #expect(CloudWorkPick.remoteName("refs/heads/x\0\0upstream") == "upstream")
+        #expect(CloudWorkPick.remoteName("refs/heads/x\0") == nil)
+        #expect(CloudWorkPick.remoteName("refs/heads/x\0\0-c") == nil)
+    }
+
     @Test func aFolderOutsideGitIsPickedAsItselfWithNoRepo() async throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cloud-work-pick-plain-\(UUID().uuidString)").path
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)

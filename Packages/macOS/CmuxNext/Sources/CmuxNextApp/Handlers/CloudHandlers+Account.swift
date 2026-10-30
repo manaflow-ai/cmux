@@ -58,6 +58,18 @@ extension CloudHandlers {
         }
     }
 
+    /// The asking chat's folder: its tab's cwd, else the folder its local session reports (a chat
+    /// tab may have no cwd cached yet), as Move to Cloud reads it.
+    static func chatFolder(_ chat: TabModel?, _ services: AppServices) async -> String? {
+        guard let chat else { return nil }
+        if let cwd = chat.cwd, cwd.hasPrefix("/") { return cwd }
+        let tabs = services.agentTabs
+        guard let session = tabs.sessions[tabs.resolve(chat.id)] ?? chat.agentSession?.session else { return nil }
+        let host = tabs.localSessionHost ?? tabs.host
+        guard let folder = try? await host.sessionFolder(sessionId: session), folder.isLocal, folder.cwd.hasPrefix("/") else { return nil }
+        return folder.cwd
+    }
+
     static func beginWorkspaceSetup(_ context: AppActionContext, window: WindowState?, askedBy: String?, chat: TabModel? = nil) {
         runTracked("new Cloud workspace", context) {
             let cloud = context.services.cloud, services = context.services
@@ -68,7 +80,7 @@ extension CloudHandlers {
                 let scope: CmuxDialogScope = services.windows.active?.window.map(CmuxDialogScope.window) ?? .app
                 return await CmuxDialogCenter.shared.present(spec, in: scope)
             }
-            let wizard = CloudWorkspaceSetupWizard(), pick = await CloudChatPick(services: services).read(folder: chat?.cwd, tab: chat)
+            let wizard = CloudWorkspaceSetupWizard(), pick = await CloudChatPick(services: services).read(folder: await chatFolder(chat, services), tab: chat)
             // Environments live in the cmux-next backend's CloudDO: only its Cloud path lists them.
             let supportsEnvironments = cloud.configuration.linkSource == .appServer
             let environments = supportsEnvironments ? await cloud.appServerEnvironmentOptions() : []
