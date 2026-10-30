@@ -36,6 +36,7 @@ on:
       - "Packages/Shared/CmuxChiefVoiceCore/**"
       - "Packages/iOS/CmuxTabsKit/**"
       - "Packages/iOS/CmuxConversation/**"
+      - "Packages/iOS/CmuxMobileSupport/**"
       - "vendor/stack-auth-swift-sdk-prerelease/**"
       # The toolchains it uses.
       - ".github/actions/setup-cmux-tui-rust/**"
@@ -58,6 +59,7 @@ on:
       - "Packages/Shared/CmuxChiefVoiceCore/**"
       - "Packages/iOS/CmuxTabsKit/**"
       - "Packages/iOS/CmuxConversation/**"
+      - "Packages/iOS/CmuxMobileSupport/**"
       - "vendor/stack-auth-swift-sdk-prerelease/**"
       # The toolchains it uses.
       - ".github/actions/setup-cmux-tui-rust/**"
