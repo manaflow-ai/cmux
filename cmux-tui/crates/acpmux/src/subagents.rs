@@ -592,11 +592,23 @@ impl SubagentTree {
         }
         self.root_thread = Some(id.to_owned());
         self.parents.remove(id);
-        self.pending.remove(id);
+        let root_children = self.pending.remove(id).unwrap_or_default();
+        for child in root_children {
+            self.forget_pending(&child);
+            if let Some(parent) = self.parents.get_mut(&child) {
+                *parent = None;
+            }
+        }
         // An echo that arrived before the root was known counted it as background work.
         self.background.remove(id);
-        for parent in self.parents.values_mut() {
-            if parent.as_deref() == Some(id) {
+        let children = self
+            .parents
+            .iter()
+            .filter_map(|(child, parent)| (parent.as_deref() == Some(id)).then_some(child.clone()))
+            .collect::<Vec<_>>();
+        for child in children {
+            self.forget_pending(&child);
+            if let Some(parent) = self.parents.get_mut(&child) {
                 *parent = None;
             }
         }
