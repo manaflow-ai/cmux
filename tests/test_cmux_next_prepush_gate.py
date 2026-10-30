@@ -723,6 +723,69 @@ let package = Package(
         dropped = self.push()
         self.assertEqual(dropped.returncode, 0, dropped.stdout + dropped.stderr)
 
+    WAKEUPS_PACKAGE = """// swift-tools-version: 6.2
+import PackageDescription
+let package = Package(
+    name: "CmuxNext",
+    targets: [
+        .target(
+            name: "CmuxNextWakeups"
+        ),
+        .testTarget(
+            name: "CmuxNextActionsTests"
+        ),
+    ]
+)
+"""
+
+    def test_a_push_that_only_deletes_a_baseline_import_s_last_file_must_drop_its_line(self):
+        # Review of 81d1b7fb: changed_files() leaves deletions out, so a push that only deleted the last Swift file
+        # importing a baseline pair changed no file, the gate never ran the dependency check, and the stale
+        # IMPORT_BASELINE line reached CI.
+        checker = "scripts/cmux-next/check-package-dependency-lists.py"
+        pair = '"CmuxNextActionsTests: CmuxNextWakeups",'
+        self.write(f"{PKG}/Package.swift", self.WAKEUPS_PACKAGE)
+        self.write(f"{PKG}/Sources/CmuxNextWakeups/Wakeups.swift", "public enum Wakeups {}\n")
+        self.write(f"{PKG}/Tests/CmuxNextActionsTests/A.swift", "import CmuxNextWakeups\n")
+        self.write(f"{PKG}/Tests/CmuxNextActionsTests/B.swift", "import Foundation\n")
+        self.commit("the one file under a baseline import")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        before = self.remote_head()
+        self.git("rm", "--quiet", f"{PKG}/Tests/CmuxNextActionsTests/A.swift")
+        self.commit("delete its last importing file")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn("IMPORT_BASELINE lists CmuxNextActionsTests: CmuxNextWakeups", output)
+        self.assertIn("drop its line", output)
+
+        self.write(checker, (self.repo / checker).read_text().replace(pair + "\n    ", "", 1))
+        self.assertNotIn(pair, (self.repo / checker).read_text())
+        self.commit("drop its baseline line")
+        dropped = self.push()
+        self.assertEqual(dropped.returncode, 0, dropped.stdout + dropped.stderr)
+
+    def test_a_push_that_renames_a_baseline_import_s_last_file_is_not_told_to_drop_the_line(self):
+        # The rename side of the same fix: the old path is gone but the new one still imports the module.
+        self.write(f"{PKG}/Package.swift", self.WAKEUPS_PACKAGE)
+        self.write(f"{PKG}/Sources/CmuxNextWakeups/Wakeups.swift", "public enum Wakeups {}\n")
+        self.write(f"{PKG}/Tests/CmuxNextActionsTests/A.swift", "import CmuxNextWakeups\n")
+        self.commit("the one file under a baseline import")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        self.git("mv", f"{PKG}/Tests/CmuxNextActionsTests/A.swift", f"{PKG}/Tests/CmuxNextActionsTests/C.swift")
+        self.commit("rename it")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertNotIn("drop its line", output)
+
     def test_a_manifest_edit_does_not_put_a_changed_test_under_production_rules(self):
         # Review of 115ed33e: the package's file list for the dependency check replaced ast-grep's list of changed
         # production sources, so a test's try! failed only when the push also changed Package.swift.
