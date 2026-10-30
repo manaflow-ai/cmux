@@ -35,8 +35,15 @@ nonisolated enum AgentPaneTabRowTools {
         } else {
             badge = nil
         }
+        let contextMenu: [PaneTabRowMenuItem]
+        if let rawContextMenu = object["contextMenu"] {
+            guard let parsed = menu(rawContextMenu, depth: 0, totalMenuItems: &totalMenuItems) else { return nil }
+            contextMenu = parsed
+        } else {
+            contextMenu = []
+        }
         return PaneTabRowTool(id: id, symbol: symbol, label: label, enabled: enabled, toggled: toggled,
-                              badge: badge, menu: menu)
+                              badge: badge, menu: menu, contextMenu: contextMenu)
     }
 
     private nonisolated static func menu(_ raw: Any?, depth: Int, totalMenuItems: inout Int) -> [PaneTabRowMenuItem]? {

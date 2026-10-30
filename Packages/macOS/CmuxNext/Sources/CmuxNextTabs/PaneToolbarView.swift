@@ -159,6 +159,9 @@ public final class PaneToolbarView: NSView {
                     hold?.release()
                 }
             }
+            if !item.contextMenu.isEmpty {
+                button.menuProvider = { [weak self] in self?.contextMenu(for: item) }
+            }
             addSubview(button)
             reveal.add(button)
             return button
@@ -170,6 +173,14 @@ public final class PaneToolbarView: NSView {
         let invoke = onNativeTool
         menu.autoenablesItems = false
         for item in tool.menu { menu.addItem(menuItem(item, tool: tool, ancestorsEnabled: tool.enabled, invoke: invoke)) }
+        return menu
+    }
+
+    private func contextMenu(for tool: PaneTabRowTool) -> NSMenu? {
+        guard !tool.contextMenu.isEmpty else { return nil }
+        let menu = NSMenu(title: tool.label)
+        menu.autoenablesItems = false
+        tool.contextMenu.forEach { menu.addItem(menuItem($0, tool: tool, ancestorsEnabled: tool.enabled, invoke: onNativeTool)) }
         return menu
     }
 

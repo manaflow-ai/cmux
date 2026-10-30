@@ -29,9 +29,11 @@ public nonisolated struct PaneTabRowTool: Equatable, Sendable {
     public let toggled: Bool
     public let badge: String?
     public let menu: [PaneTabRowMenuItem]
+    /// Rows shown by a right-click on this button, such as quick-action customization.
+    public let contextMenu: [PaneTabRowMenuItem]
 
     public init(id: String, symbol: String, label: String, enabled: Bool = true, toggled: Bool = false,
-                badge: String? = nil, menu: [PaneTabRowMenuItem] = []) {
+                badge: String? = nil, menu: [PaneTabRowMenuItem] = [], contextMenu: [PaneTabRowMenuItem] = []) {
         self.id = id
         self.symbol = symbol
         self.label = label
@@ -39,5 +41,6 @@ public nonisolated struct PaneTabRowTool: Equatable, Sendable {
         self.toggled = toggled
         self.badge = badge
         self.menu = menu
+        self.contextMenu = contextMenu
     }
 }
