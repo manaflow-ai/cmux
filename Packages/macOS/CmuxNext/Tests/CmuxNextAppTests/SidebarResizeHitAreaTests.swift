@@ -8,7 +8,7 @@ import Testing
 /// one ... I don't want to change the spacing at all"). The handle straddled the sidebar's edge
 /// but lived inside the sidebar container, so AppKit clipped its outer half: clicks, the resize
 /// cursor and hover only reached the 3.5 pt inside the sidebar, and the 6 pt gutter beside it did
-/// nothing. The band now reaches across the gutter and a few points into the sidebar, over its
+/// nothing. The band now reaches across the gutter and 2 pt into the sidebar, over its
 /// neighbors, and moves no frame.
 @MainActor @Suite(.serialized) struct SidebarResizeHitAreaTests {
     func root(sidebarHidden: Bool = false) -> (NSWindow, WindowRootView) {
