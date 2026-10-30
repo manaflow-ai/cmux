@@ -6,7 +6,7 @@ import CmuxNextDesign
 import CmuxNextCompat
 import CmuxNextSidebar
 
-/// Workspace names, colors, notifications, and Finder reveal (identifier copies: `IdentifierCopyHandlers`).
+/// Workspace names, colors, notifications, and Finder reveal (identifier copies: `TabHandlers.bindIdentifiers`).
 /// Colors go through the sidebar bridge (optimistic row update, then
 /// `set-workspace-metadata`), the same path as the row's context menu.
 /// Pin goes through the one pin path (`PinCommands`).

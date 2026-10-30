@@ -213,12 +213,12 @@ nonisolated extension ActionSurfaceCatalog {
         "tab.muteOtherAudio": [p(.tab, .identity, 209, folder: .options)],
         "agentChat.toggleNotificationMute": [p(.tab, .identity, 205, folder: .options, label: ObjectMenuLabels.toggleChatMute)],
         "disconnectRemoteTab": [p(.tab, .connection, 2, folder: .options)],
-        // The terminal's right-click menu has classic's Copy IDs and Copy Surface Link (#27709).
-        "palette.copyIdentifiers": [p(.tab, .inspect, 503, folder: .copy), p(.terminalSelection, .inspect, 500, folder: .copy)],
+        // The terminal's right-click menu has classic's Copy IDs and Copy Surface Link (#27709), in Tools (13-row cap).
+        "palette.copyIdentifiers": [p(.tab, .inspect, 503, folder: .copy), p(.terminalSelection, .inspect, 500, folder: .tools)],
         "palette.copyPaneID": [p(.pane, .inspect, 500, folder: .copy), p(.tab, .inspect, 504, folder: .copy)],
         "palette.copyPaneLink": [p(.pane, .inspect, 501, folder: .copy), p(.tab, .inspect, 505, folder: .copy)],
         "palette.copySurfaceID": [p(.tab, .inspect, 501, folder: .copy)],
-        "palette.copySurfaceLink": [p(.tab, .inspect, 502, folder: .copy), p(.terminalSelection, .inspect, 501, folder: .copy)],
+        "palette.copySurfaceLink": [p(.tab, .inspect, 502, folder: .copy), p(.terminalSelection, .inspect, 501, folder: .tools)],
         "tab.showResources": [p(.tab, .inspect, 500, folder: .options)],
         "tabGroup.create": [p(.tab, .organize, 300, folder: .group)],
         "tabGroup.addTab": [p(.tab, .organize, 301, folder: .group)],
