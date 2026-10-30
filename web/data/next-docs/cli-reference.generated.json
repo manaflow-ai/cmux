@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 756,
-    "mcp": 674
+    "verbs": 757,
+    "mcp": 675
   },
   "nouns": [
     {
@@ -89,6 +89,13 @@
           "id": "agent.harness.doctor",
           "mcp": true,
           "mcpTool": "app_agent_check_harness"
+        },
+        {
+          "command": "cmux agent continue-after-error",
+          "title": "Continue After Error",
+          "id": "agentPane.continueAfterError",
+          "mcp": true,
+          "mcpTool": "app_agent_continue_after_error"
         },
         {
           "command": "cmux agent edit-instructions",

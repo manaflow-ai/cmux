@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1226,
+    "entries": 1227,
     "shortcuts": 189
   },
   "sections": [
@@ -5654,6 +5654,12 @@
           "title": "Computer Use Setup",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "agentPane.continueAfterError",
+          "title": "Continue After Error",
+          "shortcut": null,
+          "command": "cmux agent continue-after-error"
         },
         {
           "id": "agentPane.continueIn",
