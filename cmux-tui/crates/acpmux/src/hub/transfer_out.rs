@@ -229,8 +229,12 @@ impl Hub {
             Ok(files) => files,
             Err(e) => {
                 let _ = std::fs::remove_dir_all(&dir);
-                self.append(session, "mux", "transfer_aborted", json!({"transferId": transfer_id}));
-                return Err(unfreeze(RpcError::internal(format!("transfer: bundle: {e}"))));
+                let error = RpcError::internal(format!("transfer: bundle: {e}"));
+                let record = json!({"transferId": transfer_id});
+                // Its `transfer_out` is logged: it stays frozen unless its end is too.
+                let (_, logged) =
+                    self.append_at(session, "mux", "transfer_aborted", record, None, None);
+                return Err(if logged { unfreeze(error) } else { error });
             }
         };
         if let Some(socket) = to {
