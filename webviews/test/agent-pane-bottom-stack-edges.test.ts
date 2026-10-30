@@ -31,6 +31,7 @@ type Geometry = {
   prRow: { lines: number; text: string; expanded: string | null } | null;
   foot: number | null;
   trail: Record<string, number | null>;
+  chevrons: { name: string; x: number }[];
 };
 
 await requireBrowserLane("agent-pane-bottom-stack-edges.test.ts", async () => {
@@ -152,12 +153,29 @@ await requireBrowserLane("agent-pane-bottom-stack-edges.test.ts", async () => {
           composer: center(".acpmux-composer-box button:last-of-type svg"),
         };
       })(),
+      // Every stacked row's trailing chevron, by the center x of its glyph: the "N PRs" row's
+      // disclosure, the tray's header and each tray line (Leo: "the stupid right indent
+      // misalignemnt"; two stacked rows' chevrons 25px apart read as one).
+      chevrons: [
+        ...[...document.querySelectorAll(".acpmux-dock > .acpmux-pr-stack .acpmux-pr-stack__disclosure svg")].map(
+          (svg) => ({ name: "N PRs", svg }),
+        ),
+        ...[
+          ...document.querySelectorAll(".acpmux-dock .acpmux-running-tray__head .acpmux-running-tray__status svg"),
+        ].map((svg) => ({ name: "tray header", svg })),
+        ...[...document.querySelectorAll(".acpmux-dock .acpmux-running-tray .acpmux-agent-line__chevron svg")].map(
+          (svg, index) => ({ name: `tray line ${index + 1}`, svg }),
+        ),
+      ]
+        .map(({ name, svg }) => ({ name, rect: svg.getBoundingClientRect() }))
+        .filter(({ rect }) => rect.width > 0 && rect.height > 0)
+        .map(({ name, rect }) => ({ name, x: (rect.left + rect.right) / 2 })),
     };
   }
 
   const VARIANTS = ["collapsed", "expanded", "prs-open", "cards", "strip", "legacy-bars"];
 
-  test("every bottom card shares the composer card's left and right edge, one stack gap apart", async () => {
+  test("every bottom card shares the composer card's left and right edge, one stack gap apart, and every stacked row's chevron one x", async () => {
     const offenders: string[] = [];
     for (const width of WIDTHS)
       for (const variant of VARIANTS) {
@@ -199,6 +217,14 @@ await requireBrowserLane("agent-pane-bottom-stack-edges.test.ts", async () => {
                 `${label}: ${geometry.cards[index]!.name} to ${geometry.cards[index + 1]!.name} gap ${gap.toFixed(1)}px, not ${geometry.token}px`,
               );
           });
+        const first = geometry.chevrons[0];
+        if (geometry.chevrons.length < 2)
+          offenders.push(`${label}: ${geometry.chevrons.length} stacked chevrons found`);
+        for (const chevron of geometry.chevrons.slice(1))
+          if (first && Math.abs(chevron.x - first.x) > 1)
+            offenders.push(
+              `${label}: ${chevron.name}'s chevron at x ${chevron.x.toFixed(1)}, ${first.name}'s at ${first.x.toFixed(1)}`,
+            );
         if (geometry.prRow && geometry.prRow.lines !== 1)
           offenders.push(`${label}: the PR row takes ${geometry.prRow.lines} lines`);
         if (variant === "prs-open") {
