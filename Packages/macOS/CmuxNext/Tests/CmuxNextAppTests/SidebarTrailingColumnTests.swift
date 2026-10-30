@@ -414,6 +414,7 @@ import Testing
             defer { h.window.close() }
             h.model.workspacePin = (isPinned: { $0 == Self.busy }, toggle: { _ in })
             h.model.expanded = true // rows read the model's density flag, which this harness sets by hand
+            h.sidebar.contextMenuProvider = { _ in NSMenu() } // a row with no menu shows neither ⋮ nor its pin
             h.list.reload(animated: false)
             h.sidebar.layoutSubtreeIfNeeded()
             @MainActor func pinShows(_ id: WorkspaceID) throws -> Bool {
