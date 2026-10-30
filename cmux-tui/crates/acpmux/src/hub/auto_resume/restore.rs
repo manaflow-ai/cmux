@@ -763,6 +763,8 @@ mod tests {
             // A returning move replaces the closed session and its old store. Keep the old
             // Arc alive, as a concurrent reader may, while importing the same id's journal.
             *old.moving.lock().unwrap() = Some("previous-move".into());
+            // Committed, as `transfer_commit` marks it: only a committed move is replaced.
+            old.meta.lock().unwrap().moved_to = Some(json!({}));
             old.replaced.store(true, std::sync::atomic::Ordering::SeqCst);
             hub.kill(&old, false).await.unwrap();
             // Memory-store equivalent of transfer_finish staging the old store aside.
@@ -808,6 +810,8 @@ mod tests {
         // Both copies retain the same turn and prompt ids. The old timer is still alive
         // behind startup when transfer replacement stops it and imports the returning log.
         *old.moving.lock().unwrap() = Some("previous-move".into());
+        // Committed, as `transfer_commit` marks it: only a committed move is replaced.
+        old.meta.lock().unwrap().moved_to = Some(json!({}));
         old.replaced.store(true, std::sync::atomic::Ordering::SeqCst);
         hub.kill(&old, false).await.unwrap();
         hub.store.delete(&old.id).unwrap();
