@@ -60,9 +60,22 @@ function seen(ctx: HookContext, sessionID: string): number {
 /** A temporary cursor this old was left by a hook killed between its write and its rename. */
 const STALE_TEMP_MS = 60_000;
 
+/** The suffix setSeen gives a temporary cursor after `<session>.json`: `.<pid>.<ms>.<hex>.tmp`. */
+const TEMP_SUFFIX = /^\.(\d+)\.\d+\.[0-9a-f]*\.tmp$/;
+
+/** Whether a process with this PID is running; one owned by another user counts. */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
 /** Remove this session's temporary cursors that a killed hook left behind. */
 function sweepStaleTemps(ctx: HookContext, sessionID: string, now: number): void {
-  const prefix = `${sessionID}.json.`;
+  const prefix = `${sessionID}.json`;
   let names: string[];
   try {
     names = readdirSync(ctx.sessionsDir);
@@ -70,7 +83,10 @@ function sweepStaleTemps(ctx: HookContext, sessionID: string, now: number): void
     return;
   }
   for (const name of names) {
-    if (!name.startsWith(prefix) || !name.endsWith(".tmp")) continue;
+    // The whole suffix must match, so session "a" never takes session "a.json"'s files.
+    const match = name.startsWith(prefix) ? TEMP_SUFFIX.exec(name.slice(prefix.length)) : null;
+    // A hook that is still running, paused or not, renames or removes its own temporary.
+    if (!match || alive(Number(match[1]))) continue;
     const path = join(ctx.sessionsDir, name);
     try {
       if (now - statSync(path).mtimeMs > STALE_TEMP_MS) rmSync(path, { force: true });
