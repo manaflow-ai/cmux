@@ -441,6 +441,12 @@ impl Hub {
             .collect()
     }
 
+    /// Integration-test stand-in for an older peer (`Peer::forget_session_messages_for_tests`).
+    #[doc(hidden)]
+    pub fn forget_peer_session_messages_for_tests(&self, name: &str) -> bool {
+        self.peer(name).map(|p| p.forget_session_messages_for_tests()).is_some()
+    }
+
     pub(super) fn peer(&self, name: &str) -> Option<Arc<crate::peer::Peer>> {
         self.peers.lock().unwrap().get(name).cloned()
     }

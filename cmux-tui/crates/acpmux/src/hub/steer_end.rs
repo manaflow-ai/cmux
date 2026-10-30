@@ -279,11 +279,13 @@ impl Hub {
                 // it stops no other.
                 let opts = PromptOptions {
                     prompt_id: Some(prompt_id),
+                    message_id: opts.message_id,
                     control,
                     trust_gate,
                     interrupt: opts.interrupt,
                     interrupt_turn: opts.interrupt.then(|| turn_id.to_owned()),
                     provenance: opts.provenance,
+                    message_sender: opts.message_sender,
                     agent: opts.agent,
                     class: opts.class,
                     // Queued under its key, so a later correction still replaces it.

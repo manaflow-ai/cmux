@@ -173,6 +173,8 @@ pub struct Peer {
     upload_resume: AtomicBool,
     /// The peer lists `sessionAuth` (`hub/session_auth.rs`).
     session_auth: AtomicBool,
+    /// The peer lists `session-messages-v1`: its prompt acceptances name the message they kept.
+    session_messages: AtomicBool,
     /// The peer token was held back: the transport is plain `ws://` to a
     /// host that is not loopback (`carries_peer_token`). Logged once.
     withheld: AtomicBool,
@@ -260,6 +262,7 @@ impl Peer {
             prompt_uploads: AtomicBool::new(false),
             upload_resume: AtomicBool::new(false),
             session_auth: AtomicBool::new(false),
+            session_messages: AtomicBool::new(false),
             withheld: AtomicBool::new(false),
             presented: StdMutex::new(None),
             admitting: AtomicBool::new(false),
@@ -725,6 +728,19 @@ impl Peer {
     /// Whether the peer said at its last handshake that it answers `_acpmux/session/auth`.
     pub fn supports_session_auth(&self) -> bool {
         self.session_auth.load(Ordering::SeqCst)
+    }
+
+    /// Whether the peer said at its last handshake that its prompt acceptances name the message
+    /// they kept (`capabilities::SESSION_MESSAGES`).
+    pub fn supports_session_messages(&self) -> bool {
+        self.session_messages.load(Ordering::SeqCst)
+    }
+
+    /// Integration-test stand-in for a peer from before `session-messages-v1`: until the next
+    /// handshake, as though it had not listed it.
+    #[doc(hidden)]
+    pub fn forget_session_messages_for_tests(&self) {
+        self.session_messages.store(false, Ordering::SeqCst);
     }
 
     /// The WebSocket is open and the handshake has not finished.
@@ -1220,6 +1236,13 @@ impl Peer {
             me.upload_resume.store(resume, Ordering::SeqCst);
             let auth = lists(crate::hub::session_auth::FEATURE);
             me.session_auth.store(auth, Ordering::SeqCst);
+            let messages = init
+                .pointer("/_meta/acpmux/capabilities")
+                .and_then(Value::as_array)
+                .is_some_and(|ids| {
+                    ids.iter().any(|id| id.as_str() == Some(crate::capabilities::SESSION_MESSAGES))
+                });
+            me.session_messages.store(messages, Ordering::SeqCst);
             // The reader published the reply's list (`watch_key`), so Connected follows it.
             me.link_request_on(
                 method::MUX_WATCH,
