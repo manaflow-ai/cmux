@@ -313,4 +313,50 @@ import Testing
         for (id, parent) in home { if let parent { #expect(home[parent] != nil, "\(id) lists without its parent \(parent): \(home)") } }
         #expect(home["itm_mo"] != nil && home["itm_mk"] == nil && home["itm_me"] == nil, "\(home)")
     }
+
+    /// Only a Pinned link, tab or app belongs to a space. A built-in, a room or a saved group stays shared: pinning
+    /// or moving one into Pinned in Work stores no space, and one stored in Pinned draws in every space.
+    @Test func onlyLinksTabsAndAppsBelongToASpace() throws {
+        let store = SidebarDocStore(remote: nil, mirror: nil)
+        store.newItemRoom = { Self.work }
+        let layout = SidebarLayoutDocument.defaults
+        let shared: [LayoutItemRef] = [.builtIn(.settings), LayoutItemRef(kind: LayoutItemRef.roomKind, value: "room-1"),
+                                       LayoutItemRef(kind: LayoutItemRef.savedGroupKind, value: "saved-1")]
+        for (index, ref) in shared.enumerated() {
+            let item = LayoutItem(id: LayoutItemID("itm_s\(index)"), ref: ref)
+            let pin = try #require(layout.pinOp(ref, newItem: item.id), "\(ref)")
+            let add = try #require(try store.docOps(for: [pin], layout: layout).first { $0["op"] as? String == "item.add" })
+            #expect((add["item"] as? [String: Any])?["extra"] == nil, "\(ref) stored a space: \(add)")
+        }
+        let app = LayoutItem(id: LayoutItemID("itm_app"), ref: LayoutItemRef(kind: LayoutItemRef.appKind, value: "acme.weather"))
+        let appAdd = try #require(try store.docOps(for: [#require(layout.pinOp(app.ref, newItem: app.id))], layout: layout)
+            .first { $0["op"] as? String == "item.add" })
+        #expect(((appAdd["item"] as? [String: Any])?["extra"] as? [String: String])?["room"] == Self.work, "\(appAdd)")
+
+        let records = SidebarDocRecords(sections: [
+            Self.pinned: SidebarDocSection(id: Self.pinned, kind: .pinned, region: .top),
+            Self.custom: SidebarDocSection(id: Self.custom, kind: .custom, title: "Work"),
+        ], items: [
+            "itm_b": SidebarDocItem(id: "itm_b", section: Self.custom, body: .builtin("settings")),
+            "itm_r": SidebarDocItem(id: "itm_r", section: Self.custom, body: .room("room-1")),
+            "itm_t": SidebarDocItem(id: "itm_t", section: Self.custom, body: .tab("tab-1")),
+        ])
+        let stamped = SidebarDocStore.roomOps(moving: ["itm_b", "itm_r", "itm_t"], into: Self.pinned, room: Self.work, records: records)
+        #expect(stamped.compactMap { $0["id"] as? String } == ["itm_t"], "\(stamped)")
+
+        let pinnedRecords = SidebarDocRecords(sections: [
+            Self.pinned: SidebarDocSection(id: Self.pinned, kind: .pinned, region: .top),
+        ], items: [
+            "itm_pb": SidebarDocItem(id: "itm_pb", section: Self.pinned, body: .builtin("settings")),
+            "itm_pl": SidebarDocItem(id: "itm_pl", section: Self.pinned, body: .url("https://old.example", title: nil)),
+        ])
+        let rows = [
+            SidebarDocRow(key: "itm_pb", kind: "built_in", section: Self.pinned, item: "itm_pb"),
+            SidebarDocRow(key: "itm_pl", kind: "url", section: Self.pinned, item: "itm_pl"),
+        ]
+        let projection = SidebarDocProjection(rows: rows, records: pinnedRecords, revision: 1)
+        let inWork = projection.layout.scopedToWindow(ownedElsewhere: { _ in false }, room: Self.work)
+        #expect(inWork.section(SidebarLayoutDocument.pinnedSectionID)?.items.map(\.id.rawValue) == ["itm_pb"],
+                "a pinned built-in draws in every space; an old link is Default's")
+    }
 }
