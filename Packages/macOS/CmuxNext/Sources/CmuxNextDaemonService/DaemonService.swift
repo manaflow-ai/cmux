@@ -4,7 +4,7 @@ import CmuxNextCompat
 public import CmuxNextControl
 public import CmuxNextDaemon
 public import CmuxNextWakeups
-import Foundation
+public import Foundation
 import Network
 public import Observation
 public import os
@@ -69,6 +69,8 @@ public final class DaemonService {
     /// The window records of the daemon's launch snapshot, drawn before the
     /// first connection (`LaunchSnapshotWindow`); nil without one.
     @ObservationIgnored public var launchSnapshotWindows: WindowStateDocument?
+    /// The sidebar document the launch snapshot saved (`LaunchSnapshot.sidebarDoc`), shown before the handshake.
+    @ObservationIgnored public var launchSnapshotSidebarDoc: Data?
     /// The local session whose launch snapshot path each handshake records.
     @ObservationIgnored var launchSnapshotSession: String?
     @ObservationIgnored var launchSnapshotLocation = LaunchSnapshotLocation()
