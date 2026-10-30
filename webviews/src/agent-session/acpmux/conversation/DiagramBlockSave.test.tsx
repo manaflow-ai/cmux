@@ -11,6 +11,8 @@ type Call = { method: string; params: Record<string, unknown> };
 const calls: Call[] = [];
 let hostSaves = true;
 let drawGate: Promise<void> = Promise.resolve();
+/// A render of a given source waits for its own gate, so one can finish after a newer one.
+const gates = new Map<string, Promise<void>>();
 await mock.module("../native", () => ({
   postNative: async (method: string, params: Record<string, unknown>) => {
     calls.push({ method, params });
@@ -20,9 +22,9 @@ await mock.module("../native", () => ({
 }));
 await mock.module("../../../pages/markdown/diagrams", () => ({
   DiagramLibraries: class {},
-  renderMermaid: async (_libs: unknown, _source: string, target: HTMLElement) => {
-    await drawGate;
-    target.innerHTML = '<svg viewBox="0 0 10 10"><rect width="10" height="10"/></svg>';
+  renderMermaid: async (_libs: unknown, source: string, target: HTMLElement) => {
+    await (gates.get(source) ?? drawGate);
+    target.innerHTML = `<svg viewBox="0 0 10 10" data-source="${source}"><rect width="10" height="10"/></svg>`;
   },
   renderVega: async () => undefined,
 }));
@@ -55,6 +57,7 @@ beforeEach(() => {
   copied.length = 0;
   hostSaves = true;
   drawGate = Promise.resolve();
+  gates.clear();
 });
 
 afterEach(() => {
@@ -99,4 +102,20 @@ test("nothing is offered before the chart is drawn", async () => {
   release();
   await settle();
   expect(saveButton()).not.toBeNull();
+});
+
+test("a render that finishes after a newer one never replaces the chart Save exports", async () => {
+  let releaseOld: () => void = () => undefined;
+  gates.set("old", new Promise((resolve) => (releaseOld = resolve)));
+  await act(async () => root!.render(<DiagramBlock lang="mermaid" code="old" />));
+  await act(async () => root!.render(<DiagramBlock lang="mermaid" code="new" />));
+  await settle();
+  expect(saveButton()).not.toBeNull();
+  // The earlier source's render completes late, after the newer one drew and enabled Save.
+  releaseOld();
+  await settle();
+  expect(container.querySelectorAll("svg").length).toBe(1);
+  await act(async () => saveButton()!.click());
+  expect(String(calls.at(-1)!.params.text)).toContain('data-source="new"');
+  expect(String(calls.at(-1)!.params.text)).not.toContain('data-source="old"');
 });

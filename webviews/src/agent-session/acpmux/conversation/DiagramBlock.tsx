@@ -50,8 +50,12 @@ export function DiagramBlock({ lang, code, actions }: { lang: string; code: stri
     setFailure(undefined);
     setDrawn(false);
     setSaved(false);
+    // Each draw has its own container: a render still running for an earlier source or mode can only
+    // write into its own, which is gone by then, so it never replaces the chart Save would export.
+    const host = target.ownerDocument.createElement("div");
+    target.append(host);
     const drawing =
-      mode === "mermaid" ? renderMermaid(libraries, code, target) : renderVega(libraries, mode, code, target);
+      mode === "mermaid" ? renderMermaid(libraries, code, host) : renderVega(libraries, mode, code, host);
     drawing.then(
       () => {
         if (live) setDrawn(true);
@@ -62,6 +66,7 @@ export function DiagramBlock({ lang, code, actions }: { lang: string; code: stri
     );
     return () => {
       live = false;
+      host.remove();
     };
   }, [near, mode, code]);
 
