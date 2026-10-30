@@ -47,6 +47,7 @@ async fn hub() -> Arc<Hub> {
     cfg.store.mode = StoreMode::Memory;
     // A peer refuses a forwarded resume of a chat that does not ask (`remote_guard.rs`).
     cfg.permission_policy = PermissionPolicy::Ask;
+    cfg.web_asking_modes.insert("fake".into(), vec!["normal".into()]);
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     Hub::new(cfg, store)
 }
