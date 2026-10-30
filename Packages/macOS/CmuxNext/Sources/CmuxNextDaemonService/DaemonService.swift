@@ -148,6 +148,9 @@ public final class DaemonService {
     /// Hands the local daemon off for a confirmed server-update restart (`restartForUpdate`); nil
     /// for a remote or test service.
     @ObservationIgnored var updateHandOff: (@Sendable (DaemonConnection, DaemonIdentity) async -> Bool)?
+    /// The bundled cmux-tui's build commit (`cmux --version`, read once per start), for Restart
+    /// Background Services' running vs bundled builds; nil for a remote or test service.
+    @ObservationIgnored public private(set) var bundledBuildCommit: (@Sendable () async -> String?)?
 
     /// `terminalEnvironment` (`AppEnvironment.terminalEnvironment`) goes to
     /// the daemon process and to every terminal it creates for this app.
@@ -202,6 +205,7 @@ public final class DaemonService {
         let logger = logger
         // task-owner: one `--version` run per start; the handoff check awaits it
         let bundledCommit = prestart?.bundledCommit ?? Task { try? await launcher.bundledBuildCommit() }
+        bundledBuildCommit = { await bundledCommit.value }
         let handOff: @Sendable (DaemonConnection, DaemonIdentity) async -> Bool = { connection, identity in
             guard identity.buildCommit != nil, let bundled = await bundledCommit.value else { return false }
             let decision = await launcher.handOffIfStale(identity: identity, using: connection, bundledCommit: bundled)

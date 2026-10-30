@@ -41,6 +41,7 @@ async fn a_query_the_host_never_answers_times_out() {
         protocol_max: agent_host::PROTOCOL_MAX,
         host_build: "fake".into(),
         socket: socket.clone(),
+        uses_local_router: None,
     };
     // A fake host: answers hello, then reads every frame and answers none.
     tokio::spawn(async move {

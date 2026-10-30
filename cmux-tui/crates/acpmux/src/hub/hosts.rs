@@ -1734,6 +1734,7 @@ impl Hub {
             session_id: session.id.clone(),
             program: std_cmd.get_program().to_string_lossy().into_owned(),
             args: std_cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect(),
+            uses_local_router: Some(crate::routes::names_local_router(&env)),
             env,
             cwd: meta.cwd.clone(),
             codex_bridge,

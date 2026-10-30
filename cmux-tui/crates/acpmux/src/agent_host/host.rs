@@ -130,6 +130,7 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         protocol_max: PROTOCOL_MAX,
         host_build: crate::hub::BUILD.to_owned(),
         socket: spec.socket.clone(),
+        uses_local_router: spec.uses_local_router,
     };
     if let Err(e) = write_record_atomic(&record_path(&spec.hosts_dir, &spec.session_id), &record) {
         if let Some(pg) = child.id() {

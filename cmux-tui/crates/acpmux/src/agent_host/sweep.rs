@@ -23,6 +23,8 @@ pub struct OwnedHost {
     pub harness_pid: Option<u32>,
     /// The host of a pooled (hidden) session.
     pub pooled: bool,
+    /// Its record's `uses_local_router`; None for a host of an older build or an unreadable record.
+    pub uses_local_router: Option<bool>,
 }
 
 impl OwnedHost {
@@ -39,11 +41,15 @@ pub fn running_hosts(hosts: &Path) -> Vec<OwnedHost> {
         let Ok((good, bad)) = load_records(&dir) else { continue };
         let named = good
             .into_iter()
-            .map(|(_, r)| (r.session_id, Some(r.start_nonce), Some(r.host_pid), r.harness_pid))
+            .map(|(_, r)| {
+                let router = r.uses_local_router;
+                (r.session_id, Some(r.start_nonce), Some(r.host_pid), r.harness_pid, router)
+            })
             .chain(
-                bad.into_iter().map(|b| (b.session_id, b.start_nonce, b.host_pid, b.harness_pid)),
+                bad.into_iter()
+                    .map(|b| (b.session_id, b.start_nonce, b.host_pid, b.harness_pid, None)),
             );
-        for (session_id, nonce, host_pid, harness_pid) in named {
+        for (session_id, nonce, host_pid, harness_pid, uses_local_router) in named {
             // Without a nonce and a pid nothing proves which process it is.
             let (Some(start_nonce), Some(host_pid)) = (nonce, host_pid) else { continue };
             let host = OwnedHost {
@@ -53,6 +59,7 @@ pub fn running_hosts(hosts: &Path) -> Vec<OwnedHost> {
                 host_pid,
                 harness_pid,
                 pooled,
+                uses_local_router,
             };
             if host.liveness() != Liveness::Dead {
                 out.push(host);
@@ -184,6 +191,7 @@ mod tests {
             host_pid: child.id(),
             harness_pid: None,
             pooled: false,
+            uses_local_router: None,
         }
     }
 

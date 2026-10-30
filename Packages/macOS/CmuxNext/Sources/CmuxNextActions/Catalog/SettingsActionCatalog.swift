@@ -125,6 +125,15 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette], cliName: "settings restart-server"
             ),
             ActionDescriptor(
+                id: "palette.restartBackgroundServices",
+                title: String(localized: "action.palette.restartBackgroundServices", defaultValue: "Restart Background Services…",
+                              bundle: .module),
+                keywords: ["server", "daemon", "cmux-tui", "acpmux", "agents", "chief", "restart", "update", "build", "version",
+                           "stale", "background"],
+                category: .settings, symbol: "arrow.triangle.2.circlepath",
+                surfaces: [.palette], cliName: "settings restart-background-services"
+            ),
+            ActionDescriptor(
                 id: "palette.checkForUpdates",
                 title: String(localized: "action.palette.checkForUpdates", defaultValue: "Check for Updates…", bundle: .module),
                 keywords: ["update", "version", "sparkle"], category: .settings, symbol: "arrow.down.circle",

@@ -120,6 +120,7 @@ nonisolated extension ActionSurfaceCatalog {
         "device.add", "machine.add", "machine.doctor",
         "reloadConfiguration", "palette.makeDefaultBrowser", "palette.makeDefaultTerminal", "palette.toggleSetting",
         "palette.shortcutKeymap", "palette.installCLI", "palette.uninstallCLI", "palette.restartSocketListener", "palette.restartServer",
+        "palette.restartBackgroundServices",
         "palette.checkForUpdates", "updates.whatsNew", "announcements.show", "announcements.hide", "palette.applyUpdateIfAvailable", "palette.switchAppChannel", "updates.rollback",
         "appearance.density.compact", "appearance.density.comfortable", "appearance.density.ultraCompact", "appearance.density.cozy", "appearance.density.spacious", "appearance.density.set", "appearance.density.create", "appearance.animationSpeed.fast",
         "appearance.animationSpeed.normal", "appearance.animationSpeed.off", "appearance.animations.newTab.toggle", "appearance.animations.newWorkspace.toggle", "appearance.animations.bounce.subtle", "appearance.animations.bounce.none", "appearance.animations.toggle", "appearance.animations.sidebar.toggle", "appearance.animations.tabs.toggle", "appearance.animations.panes.toggle", "appearance.animations.overlays.toggle", "appearance.animations.hoverCards.toggle", "appearance.animations.home.toggle", "appearance.animations.cursor.toggle", "appearance.animations.indicators.toggle", "appearance.animations.feedback.toggle", "appearance.animations.web.toggle",

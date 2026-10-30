@@ -210,6 +210,11 @@ pub struct SpawnSpec {
     /// a write end for its whole life (`daemon::router_owner_fifo`).
     #[serde(default)]
     pub router_owner_fifo: Option<PathBuf>,
+    /// Whether the harness's environment names the local router (a `cmux-router` or
+    /// `local-coderouter` route): the daemon decides at spawn (`routes::names_local_router`),
+    /// and the host keeps it in its record. None from a daemon of an older build.
+    #[serde(default)]
+    pub uses_local_router: Option<bool>,
     /// The folder the harness must exec in, by identity: a sub-session's checked folder
     /// (`cwd_pin.rs`). The host's harness spawn fails when `cwd` leads elsewhere by then.
     #[serde(default)]
@@ -305,6 +310,12 @@ pub struct HostRecord {
     pub protocol_max: u16,
     pub host_build: String,
     pub socket: PathBuf,
+    /// Whether this host's harness uses the local router (`SpawnSpec::uses_local_router`): a
+    /// router of another build is replaced at the next daemon start only when no kept host may
+    /// use it (`daemon/router_owner/users.rs`, cmux issue 23089). None: a host of an older
+    /// build, which counts as a user.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub uses_local_router: Option<bool>,
 }
 
 /// A record file that this build cannot read, and what it could parse.

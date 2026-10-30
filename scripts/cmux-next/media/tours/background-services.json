@@ -1,0 +1,23 @@
+{
+  "title": "Restart Background Services",
+  "steps": [
+    {"title": "Launch", "wait": 3},
+    {"title": "New workspace", "cmux": ["workspace", "new", "--name", "Services"]},
+    {"title": "A shell before the restart", "daemon": true,
+     "cmux": ["workspace", "name:Services", "screen", "current", "pane", "current", "tab", "current",
+              "terminal", "current", "write", "--text", "clear; echo \"before the restart: shell pid $$\"\r"],
+     "wait": 2},
+    {"title": "Restart Background Services: running and bundled builds", "cmux": ["action", "run", "palette.restartBackgroundServices"],
+     "wait": 3, "optional": "Restart Background Services is new in this pull request"},
+    {"title": "Restart: the result toast", "cmux": ["app", "call", "debug.dialog", "{\"press\": \"restart\"}"],
+     "wait": 10, "optional": "Restart Background Services is new in this pull request"},
+    {"title": "The same shell after the restart", "daemon": true,
+     "cmux": ["workspace", "name:Services", "screen", "current", "pane", "current", "tab", "current",
+              "terminal", "current", "write", "--text", "echo \"after the restart: shell pid $$\"\r"],
+     "wait": 2},
+    {"title": "The builds after the restart", "cmux": ["action", "run", "palette.restartBackgroundServices"],
+     "wait": 3, "optional": "Restart Background Services is new in this pull request"},
+    {"title": "Cancel", "cmux": ["app", "call", "debug.dialog", "{\"key\": \"escape\"}"], "wait": 1, "shot": false,
+     "optional": "Restart Background Services is new in this pull request"}
+  ]
+}

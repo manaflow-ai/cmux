@@ -52,6 +52,7 @@ fn spec(dir: &Path, session: &str) -> SpawnSpec {
         hosts_dir: hosts,
         buffer_cap: agent_host::DEFAULT_BUFFER_CAP,
         router_owner_fifo: None,
+        uses_local_router: None,
         cwd_pin: None,
         cpu_class: Default::default(),
         orphan_exit: None,
@@ -502,6 +503,7 @@ fn discovery_rejects_linked_records_and_socket_paths_outside_the_host_namespace(
         protocol_max: acpmux::agent_host::PROTOCOL_MAX,
         host_build: "test".into(),
         socket,
+        uses_local_router: None,
     };
     let wrong = record("wrong-socket", outside_socket.clone());
     let wrong_path = hosts.join("wrong-socket.json");

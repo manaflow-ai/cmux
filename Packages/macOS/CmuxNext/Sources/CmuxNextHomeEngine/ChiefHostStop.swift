@@ -24,7 +24,7 @@ public nonisolated enum ChiefHostStop {
     /// `state/host.handoff` names its own pid takes the signal (an older host would end at once on
     /// SIGUSR1); returns the pid it asked, nil when it asked none.
     @discardableResult
-    static func askToHandOffWhenIdle(home: ChiefHome, isChiefHost: (pid_t) -> Bool = ChiefHostStop.isChiefHost,
+    public static func askToHandOffWhenIdle(home: ChiefHome, isChiefHost: (pid_t) -> Bool = ChiefHostStop.isChiefHost,
                                      signal: (pid_t, Int32) -> Bool = { kill($0, $1) == 0 }) -> pid_t? {
         guard let pid = runningHostPID(home: home, isChiefHost: isChiefHost) else { return nil }
         let mark = home.root.appendingPathComponent("state/host.handoff")

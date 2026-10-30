@@ -18,8 +18,9 @@ import os
 ///
 /// The owner process is detached and outlives the app; the next launch
 /// ensures it and attaches. It is never handed off to the connecting
-/// binary (an older build that still shares NIGHTLY's home would restart it
-/// in turn). Only `local-conversations-v1` is required of it.
+/// binary by itself (an older build that still shares NIGHTLY's home would
+/// restart it in turn); only a person's Restart Background Services… does
+/// (``restartOnBundledBuild()``). Only `local-conversations-v1` is required of it.
 @Observable @MainActor
 public final class ChiefConversationOwner {
     public let home: ChiefHome
@@ -42,6 +43,9 @@ public final class ChiefConversationOwner {
     /// Conversation events (`conversation-changed`, `conversation-typing`, the Home row events).
     @ObservationIgnored public var onEvent: ((DaemonEvent) -> Void)?
     @ObservationIgnored private var runTask: Task<Void, Never>?
+    /// The launcher `start` made: its handoff state makes the next `ensure` wait for an owner
+    /// that exits for ``restartOnBundledBuild()``.
+    @ObservationIgnored private var launcher: DaemonLauncher?
     @ObservationIgnored private let wake = RetryWake(owner: "ChiefConversationOwner")
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
 
@@ -86,6 +90,7 @@ public final class ChiefConversationOwner {
             logger.error("chief owner: \(String(describing: error), privacy: .public)")
             return
         }
+        self.launcher = launcher
         // client-hello role main, with the install key the owner got at launch (an unsigned
         // build): the owner verifies this app, so it issues the page's gesture confirmations.
         let configuration = DaemonConnection.Configuration(
@@ -159,6 +164,17 @@ public final class ChiefConversationOwner {
         self.connection = nil
         _ = try? await connection.request(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation))
         await connection.close()
+    }
+
+    /// Restart Background Services (cmux issue 23089): the person asked to move this owner to
+    /// the bundled build. It is handed off as an app daemon is for a confirmed server update
+    /// (`DaemonLauncher.handOffForUpdate`: `shutdown-daemon` without `end_terminals`, with no Home
+    /// request cut), so its terminals and conversations stay, and this connection's next `ensure`
+    /// waits for the old owner's exit and starts the owner from this app's binary. Returns whether
+    /// the owner accepted; false for an external binary, which would start as itself again.
+    public func restartOnBundledBuild() async -> Bool {
+        guard let launcher, let connection, let identity else { return false }
+        return await launcher.handOffForUpdate(identity: identity, using: connection)
     }
 
     func noteFailure(_ error: DaemonError) {
