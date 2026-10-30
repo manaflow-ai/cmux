@@ -924,16 +924,18 @@ export function NewTabScreen(props: Props) {
     // A Sandboxed New chat that started nothing (no prompt, a refusal) leaves the page's creates open.
     if (asked === false) created.current = false;
   };
-  /// The harness a setup resume waits on while its sign-in check runs.
-  const resumeAfterAuth = useRef<string | undefined>(undefined);
+  /// The harness a setup resume waits on while its sign-in check runs, with the check's target.
+  const resumeAfterAuth = useRef<{ agent: string; target: string } | undefined>(undefined);
+  const authTarget = JSON.stringify(authQuery ?? null);
   continueAfterSetup.current = (agent) => {
     // Setup may finish while an attachment is still loading. Resume the same draft only once
     // its files are ready, reading the latest state rather than the setup-opening snapshot.
     if (holdForAttachments(() => continueAfterSetup.current(agent)) || created.current) return;
     // Setup just made the harness ready, so its sign-in check is usually still running, and askChat
-    // refuses while it does. Resume once it settles; a sign-in it then finds missing keeps the draft.
-    if (targetAuthPending) {
-      resumeAfterAuth.current = agent;
+    // refuses while it does. Resume once that harness's check settles; a sign-in it then finds
+    // missing keeps the draft.
+    if (targetAuthPending && harness === agent) {
+      resumeAfterAuth.current = { agent, target: authTarget };
       return;
     }
     created.current = true;
@@ -946,11 +948,17 @@ export function NewTabScreen(props: Props) {
     if (asked === false) created.current = false;
   };
   useEffect(() => {
-    const agent = resumeAfterAuth.current;
-    if (targetAuthPending || !agent) return;
+    const waiting = resumeAfterAuth.current;
+    if (!waiting) return;
+    // The person picked another harness or machine meanwhile: send nothing; the draft stays.
+    if (waiting.target !== authTarget) {
+      resumeAfterAuth.current = undefined;
+      return;
+    }
+    if (targetAuthPending) return;
     resumeAfterAuth.current = undefined;
-    continueAfterSetup.current(agent);
-  }, [targetAuthPending]);
+    continueAfterSetup.current(waiting.agent);
+  }, [targetAuthPending, authTarget]);
   const send = () => {
     touch();
     if (!shell) return submit();
