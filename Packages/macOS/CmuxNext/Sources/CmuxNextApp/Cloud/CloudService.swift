@@ -621,7 +621,7 @@ final class CloudService {
         // A list in flight was asked while this machine still existed.
         listGeneration += 1
         creations.machineRemoved(machineID)
-        if let session = machines.session(machineID) { session.machine.status = .deleting; session.disconnect() }; changes.began { [weak self] in await self?.refresh() }
+        if let session = machines.session(machineID) { session.retainForDeleteTransition() }; changes.began { [weak self] in await self?.refresh() }
         logger.info("deleted machine \(machineID, privacy: .public)")
     }
 

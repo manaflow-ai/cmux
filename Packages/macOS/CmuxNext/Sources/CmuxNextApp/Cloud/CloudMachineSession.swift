@@ -48,6 +48,9 @@ final class CloudMachineSession {
     /// it instead of waiting up to `CloudAppLinks.connectTimeout`.
     @ObservationIgnored private var connectHop: Task<Void, Never>?
     @ObservationIgnored private var disconnected = false
+    /// Whether this session was removed permanently because its machine disappeared.
+    /// A delete transition must leave this false until a list confirms removal.
+    var isPermanentlyDisconnected: Bool { disconnected }
     /// Repairs an empty workspace on this machine (never on another).
     @ObservationIgnored let emptyWorkspaces: EmptyWorkspaceRepair
     /// Resumes this machine through the Resume Machine path
@@ -387,6 +390,14 @@ final class CloudMachineSession {
             await link?.stop()
             await appLink?.close()
         }
+    }
+
+    /// Keeps a session reusable while an accepted delete is still settling. The provider can
+    /// reject the delete after the server has acknowledged it, in which case the next machine
+    /// list must be able to reconnect this same session when it returns to running.
+    func retainForDeleteTransition() {
+        machine.status = .deleting
+        suspend()
     }
 
     /// Drops the daemon connection while keeping the link reusable after a

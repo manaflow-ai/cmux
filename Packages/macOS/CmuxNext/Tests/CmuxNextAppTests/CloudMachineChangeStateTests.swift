@@ -176,10 +176,15 @@ struct CloudMachineChangeStateTests {
     @Test func aKillTheServerTookReadsDeletingAndTheListIsReadSoon() {
         let session = Self.session(status: .running)
         // CloudService.deleteMachine once the server took the Kill.
-        session.machine.status = .deleting
-        session.disconnect()
+        session.retainForDeleteTransition()
         #expect(session.stage == .deleting)
         #expect(CloudCreationRows.machine(session, compatibility: nil).status == .deleting)
+        #expect(!session.isPermanentlyDisconnected)
+        // A provider failure can put the record back to running. The retained session must still
+        // be connectable; only a list omission permanently disconnects it.
+        session.machine.status = .running
+        session.connect()
+        session.disconnect()
         let changes = CloudMachineChanges()
         changes.began {}
         #expect(changes.isSettling, "the list is read again soon")
