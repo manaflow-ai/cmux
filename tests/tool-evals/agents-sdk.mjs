@@ -4,7 +4,7 @@
 // Each gets the cmux MCP server behind mcp-log.mjs, so the run is graded on what it called,
 // and a clean home (no skills, memory or MCP servers of this machine).
 import { execFileSync, spawn } from "node:child_process";
-import { chmodSync, copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { agentProfile } from "./live-guard.mjs";
@@ -25,7 +25,7 @@ function guarded(home, own, command, args) {
   mkdirSync(home, { recursive: true });
   const profile = join(home, "live-guard.sb");
   const hidden = [join(homedir(), ".agents"), join(homedir(), ".claude", "skills"), join(homedir(), ".codex", "skills"), "/tmp/cmux-tool-evals/runs", "/private/tmp/cmux-tool-evals/runs"];
-  const reads = [...hidden.map((p) => `(deny file-read* (subpath ${JSON.stringify(p)}))`), `(allow file-read* (subpath ${JSON.stringify(own)}))`];
+  const reads = [...hidden.map((p) => `(deny file-read* (subpath ${JSON.stringify(p)}))`), `(allow file-read* (subpath ${JSON.stringify(own)}) (subpath ${JSON.stringify(realpathSync(own))}))`];
   writeFileSync(profile, agentProfile().replace(/\n$/, `\n${reads.join("\n")}\n`));
   return ["sandbox-exec", ["-f", profile, command, ...args]];
 }
@@ -123,6 +123,8 @@ export async function runCodexAppServer({ model, prompt, cwd, mcp, env, home, ow
     `mcp_servers.cmux.args=[${mcp.args.map(tomlString).join(",")}]`,
     `mcp_servers.cmux.env={${Object.entries(mcp.env).map(([k, v]) => `${k}=${tomlString(v)}`).join(",")}}`,
   ].flatMap((c) => ["-c", c]);
+  // The sandbox matches resolved paths (/tmp is /private/tmp): the allow rule names both,
+  // else Codex could not read its own CODEX_HOME in the sample dir and hung at start.
   // A scratch HOME too: Codex reads ~/.agents/skills, which holds this machine's own skills.
   const scratchHome = join(home, "home");
   mkdirSync(scratchHome, { recursive: true });

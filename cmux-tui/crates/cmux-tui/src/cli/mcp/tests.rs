@@ -1716,10 +1716,26 @@ fn code_mode_takes_the_shapes_models_write() {
     let message = missing["structuredContent"]["result"].as_str().unwrap_or_default();
     assert!(message.contains("needs workspace") && message.contains("current"), "{missing}");
 
-    // A body that only starts like a function runs as written.
-    let body = "const n = (await cmux.workspace_list({})).items.length;\nif (n >= 0) { return {ran: true}; }";
+    // Every function form models send runs and returns its value.
+    for wrapped in [
+        "async () => { const r = await cmux.workspace_list({}); return {listed: !!r.items}; }",
+        "(async () => {\n  const r = await cmux.workspace_list({});\n  return {listed: !!r.items};\n})",
+        "async (c) => { return {listed: !!(await c.workspace_list({})).items}; }",
+    ] {
+        let ran = call(&mut server, "cmux_exec", json!({"script": wrapped}));
+        assert_eq!(ran["structuredContent"]["result"]["listed"], true, "{wrapped}: {ran}");
+    }
+    // A body that only starts like a function (an awaited call in parentheses) and ends
+    // with a block runs as written.
+    let body =
+        "(await cmux.workspace_list({})).items.map((t) => t.id);\nif (1) { return {ran: true}; }";
     let ran = call(&mut server, "cmux_exec", json!({"script": body}));
     assert_eq!(ran["structuredContent"]["result"]["ran"], true, "{ran}");
+    // Text that closes the function early is not a function: it runs as a body (and fails
+    // to parse), never at the top level.
+    let escape = "() => {}}); globalThis.escaped = 1; ((x) => { if (1) {}";
+    let ran = call(&mut server, "cmux_exec", json!({"script": escape}));
+    assert_eq!(ran["structuredContent"]["state"], "not_run", "{ran}");
 
     let timer = call(
         &mut server,

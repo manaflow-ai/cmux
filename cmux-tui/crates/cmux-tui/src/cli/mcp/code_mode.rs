@@ -582,36 +582,82 @@ const PRELUDE: &str = r#"
 })();
 "#;
 
-/// The script as a function body. A script written as one function
-/// (`async function () {...}`, `async () => {...}`, the form many models
-/// send) is called and its value returned, where it would be a syntax error
-/// (tests/tool-evals: 29 such scripts from one model).
+/// The script as a function body. A whole script that is one anonymous function
+/// (`async function () {...}`, `async () => {...}`, `(async () => {...})`, the form
+/// many models send) is called with `cmux` and its value returned; as a body it would be
+/// a syntax error or a function nobody calls (tests/tool-evals: 29 such scripts from one
+/// model). The check is on the text alone: the function must open at the start and its
+/// braces must close at the very end, so a body that merely starts with `(` (an awaited
+/// call) and ends with `}` is left as written. Nothing of the script runs to decide.
 fn function_body(script: &str) -> std::borrow::Cow<'_, str> {
     let trimmed = script.trim().trim_end_matches(';').trim_end();
-    let head = trimmed.strip_prefix("async").map_or(trimmed, str::trim_start);
-    // An anonymous function: `function (`, `function(`, `() =>` or `(a) =>`. A named
-    // declaration (`function helper() {...} return helper();`) is ordinary body code.
-    let anonymous =
-        head.strip_prefix("function").is_some_and(|rest| rest.trim_start().starts_with('('))
-            || head.starts_with('(')
-                && head.split_once("=>").is_some_and(|(params, _)| !params.contains('{'));
-    if anonymous && trimmed.ends_with('}') && !compiles_as_body(script) {
-        std::borrow::Cow::Owned(format!("return await ({trimmed})(cmux);"))
+    let inner = match trimmed.strip_prefix('(').and_then(|rest| rest.strip_suffix(')')) {
+        Some(inner) => inner.trim(),
+        None => trimmed,
+    };
+    let head = inner.strip_prefix("async").map_or(inner, str::trim_start);
+    let opens = if let Some(rest) = head.strip_prefix("function") {
+        rest.trim_start().starts_with('(')
+    } else if let Some(params) = head.strip_prefix('(') {
+        // `(params) => {`: the parameter list closes, then the arrow and a brace follow.
+        params.split_once(')').is_some_and(|(list, rest)| {
+            !list.contains(['(', '{'])
+                && rest
+                    .trim_start()
+                    .strip_prefix("=>")
+                    .is_some_and(|r| r.trim_start().starts_with('{'))
+        })
+    } else {
+        false
+    };
+    let body_start = inner.find('{');
+    let closes_at_end =
+        body_start.is_some_and(|start| block_end(inner, start) == Some(inner.len() - 1));
+    if opens && closes_at_end {
+        std::borrow::Cow::Owned(format!("return await ({inner})(cmux);"))
     } else {
         std::borrow::Cow::Borrowed(script)
     }
 }
 
-/// Whether `script` parses as an async function body as written: a body that only
-/// starts like a function (`(await cmux.x()).forEach(t => …); if (y) {…}`) runs as is.
-fn compiles_as_body(script: &str) -> bool {
-    let Ok(runtime) = Runtime::new() else { return true };
-    let Ok(context) = Context::full(&runtime) else { return true };
-    // Evaluating the function expression only makes the function: nothing in it runs.
-    context.with(|ctx| {
-        let probe = format!("(async () => {{\n{script}\n}})");
-        ctx.eval::<rquickjs::Value, _>(probe).is_ok()
-    })
+/// The index of the `}` that closes the `{` at `open`, skipping strings, template
+/// literals and comments; `None` when it never closes.
+fn block_end(text: &str, open: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let (mut depth, mut i) = (0usize, open);
+    while i < bytes.len() {
+        match bytes[i] {
+            b'"' | b'\'' | b'`' => {
+                let quote = bytes[i];
+                i += 1;
+                while i < bytes.len() && bytes[i] != quote {
+                    i += if bytes[i] == b'\\' { 2 } else { 1 };
+                }
+            }
+            b'/' if bytes.get(i + 1) == Some(&b'/') => {
+                while i < bytes.len() && bytes[i] != b'\n' {
+                    i += 1;
+                }
+            }
+            b'/' if bytes.get(i + 1) == Some(&b'*') => {
+                i += 2;
+                while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                    i += 1;
+                }
+                i += 1;
+            }
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
 }
 
 /// Runs one script on this (the engine) thread.
