@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers"
 import { runInDurableObject } from "cloudflare:test"
 import { describe, expect, it } from "vitest"
+import { TABLE_MACHINE } from "../src/domains/cloud.ts"
 import { bindFile, cloudStub, DAEMON, post, signedInWithInstall, SIZE, vmKey, WG_KEY, worker } from "./cloud-bind-support.ts"
 import { settlePolicy } from "./integration-policy-settle.ts"
 import { fireAlarm } from "./setup/alarm.ts"
@@ -176,6 +177,17 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     const mine = await token(vm, { repo: "acme/web", permissions: { contents: "write" } })
     expect(mine.body.token, JSON.stringify(mine.body)).toBe("ghs_secret_1")
     expect((await token(vm, { team: "team_00000000000000000000", repo: "acme/web", permissions: { contents: "write" } })).body.error.code).toBe("auth.forbidden")
+    // A live machine naming a different install refuses this VM, even with a cached token.
+    const bindInstall = (id: string) => inDO(cloudStub(a.team), async (instance) => {
+      const rows = instance.bind(a.team).rows
+      const current = rows.get(TABLE_MACHINE, machine)
+      rows.apply([{ table: TABLE_MACHINE, op: "upsert", key: machine, n: current.n, row: { ...current.row, vm_install: id } }])
+    })
+    await bindInstall("inst_00000000000000000009")
+    const other = await token(vm, { repo: "acme/web", permissions: { contents: "write" } })
+    expect([other.status, other.body.error?.code]).toEqual([403, "auth.forbidden"])
+    expect(gh.mints()).toHaveLength(1)
+    await bindInstall(install.id)
     // Deleting the machine ends the VM install, and with it the VM's tokens.
     expect((await op(a.session, "cloud.machine.delete", { machine })).body.ok).toBe(true)
     expect((await token(vm, { repo: "acme/web", permissions: { contents: "write" } })).status).toBeGreaterThanOrEqual(401)
