@@ -51,6 +51,10 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     public var arguments: [String: ActionValue]
     /// In-app runs are the user's; the control socket sets its caller's.
     public var origin: ActionOrigin
+    /// The control socket carried the run (`RegistryControlBridge` sets it on every one). Its
+    /// ``origin`` is then only the caller's claim, `user` included, so a handler that gives a
+    /// person more than automation (a raw screenshot) checks this, not the origin alone.
+    public var viaControlSocket = false
     /// The calling app preserved by the native provider, even during its user gesture.
     /// Nil for direct native/CLI/page calls; attribution never grants execution authority.
     public var callerApp: String?
