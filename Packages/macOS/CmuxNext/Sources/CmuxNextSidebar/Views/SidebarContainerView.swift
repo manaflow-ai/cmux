@@ -363,6 +363,9 @@ public final class SidebarContainerView: NSView {
         let reachChanged = reach != lastPaneReach
         lastPaneReach = reach
         panelWidth.constant = model.width + reach
+        // A style switch can call apply synchronously before the observation task re-evaluates;
+        // remount here so the divider line follows the new surface edge in that same turn.
+        if reach != mountedPaneReach || resizeBand != mountedBand { mountHandle() }
         if reachChanged || (!isWidthAnimating && targetWidth == target) {
             setClipReach(reach, collapsed: hidden, animated: false)
         }
