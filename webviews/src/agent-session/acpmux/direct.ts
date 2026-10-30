@@ -586,7 +586,8 @@ export function queuedMessage(msg: any, context?: IncomingContext): IncomingMess
   if (!name) return undefined;
   const lead = text.trimStart();
   const named = [`[${name}]`, `From ${name}:`].find((prefix) => lead.toLowerCase().startsWith(prefix.toLowerCase()));
-  return { name, text: (named ? lead.slice(named.length) : text).trim(), raw: text };
+  const harness = typeof msg?.fromHarness === "string" && msg.fromHarness.trim() ? msg.fromHarness.trim() : undefined;
+  return { name, ...(harness ? { harness } : {}), text: (named ? lead.slice(named.length) : text).trim(), raw: text };
 }
 
 /// The images a `queued` or `queue_updated` record names (`images`, in its prompt's order), each
@@ -679,9 +680,22 @@ export function mergeQueue(
     // same), and a name is an agent's, also for a row the pane never read the record of (a
     // reload). An older acpmux lists none.
     const listed = entry?.fromAgent;
-    const listedMessage = queuedMessage({ text: preview, fromAgent: listed });
+    // Keep the complete queue record here: when `fromAgent` is absent, the
+    // sender lives in `_meta.provenance` and `queuedMessage` must see it.
+    // Override only the text with acpmux's current preview; a stale full
+    // prompt would make the provenance branch look like an edit.
+    const listedMessage = queuedMessage({
+      ...entry,
+      text: preview,
+      fromAgent: listed,
+      fromHarness: entry?.fromHarness,
+    });
     const kept = whole ? had.message : undefined;
-    const message = listed === undefined ? kept : listed === null ? undefined : (kept ?? listedMessage);
+    // A queue listing may carry the full provenance even when its compatibility `fromAgent`
+    // field is absent. Preserve that parsed agent message; only an explicit null says that the
+    // prompt is the person's own. Without this, a queued agent_message was rendered as a plain
+    // user prompt until it left the queue, so its received card (and reply actions) disappeared.
+    const message = listed === null ? undefined : (kept ?? listedMessage);
     // A list that names the field says whose it is, null the owner's (acpmux lists it for every
     // prompt once it serves authors); an older acpmux lists none, and the records read decide.
     const author =
@@ -4691,6 +4705,12 @@ export class AcpmuxDirectClient {
         const fallbackPromptId =
           promptId ??
           (text ? [...this.optimisticPromptTexts.entries()].find(([, value]) => value === text)?.[0] : undefined);
+        // Capture the queue metadata before acceptance removes its row: an older or capped
+        // user_message may carry only text, while the queue still holds its paste/file parts.
+        const knownParts = fallbackPromptId
+          ? (this.optimisticPromptParts.get(fallbackPromptId) ??
+            this.queue.find((entry) => entry.id === fallbackPromptId)?.inlineParts)
+          : undefined;
         settleOptimisticPrompt(this.rows, this.optimisticPromptRows, {
           ...msg,
           promptId: fallbackPromptId,
@@ -4755,6 +4775,10 @@ export class AcpmuxDirectClient {
           this.steerRows.delete(promptId);
           this.waitingSteers = this.waitingSteers.filter((waiting) => waiting.rowId !== steered);
         }
+        // The prompt is in the transcript now: a queue row of it (its `dequeued` record missed, or a
+        // listing from before it went in) gives way, so the message never shows twice.
+        if (promptId && this.queue.some((entry) => entry.id === promptId))
+          this.queue = this.queue.filter((entry) => entry.id !== promptId);
         // A newer prompt means any steer before it was read; a second steer can come in the same step.
         if (msg.steer !== true) this.landSteer();
         if (msg.steer !== true && promptId) this.promptsShown.add(promptId);
@@ -4768,10 +4792,6 @@ export class AcpmuxDirectClient {
         // A new list, never one changed in place: the snapshot names its rows by the list's identity.
         if (steer === "waiting") this.waitingSteers = [...this.waitingSteers, { rowId: `user-${event.seq}`, promptId }];
         if (steer === "waiting" && promptId) this.steerRows.set(promptId, `user-${event.seq}`);
-        const knownParts = fallbackPromptId
-          ? (this.optimisticPromptParts.get(fallbackPromptId) ??
-            this.queue.find((entry) => entry.id === fallbackPromptId)?.inlineParts)
-          : undefined;
         const inlineParts = recordedPromptParts(msg, knownParts) ?? knownParts;
         this.rows.set(`user-${event.seq}`, {
           id: `user-${event.seq}`,
