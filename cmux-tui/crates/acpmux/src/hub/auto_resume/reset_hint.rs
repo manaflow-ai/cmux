@@ -54,14 +54,34 @@ fn fixed_offset(zone: &str) -> Option<time::UtcOffset> {
     time::UtcOffset::from_hms(hours, minutes, 0).ok()
 }
 
-fn named_deadline_ms(zone: Tz, date: chrono::NaiveDate, hour: u8, minute: u8) -> Option<u64> {
+fn named_deadline_ms(
+    zone: Tz,
+    date: chrono::NaiveDate,
+    hour: u8,
+    minute: u8,
+    now_ms: u64,
+) -> Option<u64> {
     let local = date.and_hms_opt(u32::from(hour), u32::from(minute), 0)?;
-    let date_time = match zone.from_local_datetime(&local) {
-        LocalResult::Single(value) => value,
-        LocalResult::Ambiguous(first, second) => first.min(second),
+    let timestamps = match zone.from_local_datetime(&local) {
+        LocalResult::Single(value) => [value.timestamp_millis(), i64::MAX],
+        LocalResult::Ambiguous(first, second) => {
+            [first.timestamp_millis(), second.timestamp_millis()]
+        }
         LocalResult::None => return None,
     };
-    u64::try_from(date_time.timestamp_millis()).ok()
+    timestamps
+        .into_iter()
+        .filter(|timestamp| *timestamp != i64::MAX)
+        .filter_map(|timestamp| u64::try_from(timestamp).ok())
+        .filter(|timestamp| *timestamp > now_ms)
+        .min()
+        .or_else(|| {
+            timestamps
+                .into_iter()
+                .filter(|timestamp| *timestamp != i64::MAX)
+                .filter_map(|timestamp| u64::try_from(timestamp).ok())
+                .min()
+        })
 }
 
 fn clock_reset(error: &str, now_ms: u64) -> Option<u64> {
@@ -105,13 +125,14 @@ fn clock_reset(error: &str, now_ms: u64) -> Option<u64> {
     if let Ok(named) = zone.parse::<Tz>() {
         let utc = Utc.timestamp_millis_opt(now_ms as i64).single()?;
         let local_now = utc.with_timezone(&named);
-        let mut deadline = named_deadline_ms(named, local_now.date_naive(), hour, minute)?;
+        let mut deadline = named_deadline_ms(named, local_now.date_naive(), hour, minute, now_ms)?;
         if deadline <= now_ms {
             deadline = named_deadline_ms(
                 named,
                 local_now.date_naive() + chrono::Duration::days(1),
                 hour,
                 minute,
+                now_ms,
             )?;
         }
         return Some(deadline);
@@ -255,9 +276,10 @@ pub(super) fn reset_at(error: &str, usage_limits: Option<&Value>, now_ms: u64) -
                     w.get("usedPercent").and_then(Value::as_f64).is_some_and(|u| u >= 100.0)
                 })
                 .filter_map(|w| {
-                    w.get("resetsAt").and_then(Value::as_u64).map(|s| s.saturating_mul(1000))
+                    let seconds = w.get("resetsAt").and_then(Value::as_u64)?;
+                    let reset = seconds.checked_mul(1000)?;
+                    bounded_deadline(reset, now_ms)
                 })
-                .filter(|reset| *reset > now_ms)
                 .max()
         })
 }
@@ -354,6 +376,17 @@ mod tests {
             reset_at("You've hit your limit · resets 3am (America/New_York)", None, fall,),
             Some(fall + 90 * 60_000)
         );
+        let fall_back = time::PrimitiveDateTime::new(
+            time::Date::from_calendar_date(2026, time::Month::November, 1).unwrap(),
+            time::Time::from_hms(5, 45, 0).unwrap(),
+        )
+        .assume_utc()
+        .unix_timestamp_nanos() as u64
+            / 1_000_000;
+        assert_eq!(
+            reset_at("You've hit your limit · resets 1:30am (America/New_York)", None, fall_back,),
+            Some(fall_back + 45 * 60_000)
+        );
         assert_eq!(
             reset_at("You've hit your limit · resets 3pm (Europe/Berlin)", None, now,),
             Some(now + 2 * 3_600_000)
@@ -367,6 +400,10 @@ mod tests {
             ]
         });
         assert_eq!(reset_at("usage limit", Some(&usage), 150_000), Some(300_000));
+        let far_usage = serde_json::json!({
+            "windows": [{"usedPercent": 100, "resetsAt": 9_999_999_999u64}]
+        });
+        assert_eq!(reset_at("usage limit", Some(&far_usage), 0), None);
         assert_eq!(
             error_reset_at(Some(&serde_json::json!({"Retry-After":"2m"})), 1000),
             Some(121_000)
