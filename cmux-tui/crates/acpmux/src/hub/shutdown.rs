@@ -40,6 +40,11 @@ impl Hub {
         self.shutdown_plan.lock().unwrap_or_else(std::sync::PoisonError::into_inner).started
     }
 
+    /// Fences new turns and automatic continuations before transports begin draining.
+    pub(crate) fn begin_shutdown(&self) {
+        self.shutdown_plan.lock().unwrap().started = true;
+    }
+
     /// Stop every agent at once and save. Each agent's process group gets
     /// SIGTERM, then SIGKILL after `SHUTDOWN_GRACE`; every wait here has a
     /// deadline, so this returns within about `SHUTDOWN_GRACE` + 1 s.
