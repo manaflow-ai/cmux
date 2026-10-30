@@ -2,7 +2,7 @@
   "title": "Agent new chat placement",
   "steps": [
     {"title": "Fresh launch at Home", "wait": 4},
-    {"title": "Open the History top page", "rpc": {"method": "action.run", "params": {"action": "history.show", "origin": "script"}}, "wait": 2},
+    {"title": "Open the Settings top page", "rpc": {"method": "action.run", "params": {"action": "openSettings", "focus": true, "origin": "script"}}, "wait": 2},
     {"title": "Record top page before CLI", "rpc": {"method": "debug.windows"}, "record": true, "shot": false},
     {"title": "CLI new chat from Home", "cmux": ["agent", "new-chat"], "wait": 5},
     {"title": "Record first placement", "rpc": {"method": "debug.windows"}, "record": true, "shot": false},
