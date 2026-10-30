@@ -122,6 +122,24 @@ import Testing
         #expect(HomeNoticeRows.width(notice) == TextDraw.width("Reading › · Starting agents · 7s", font: font))
     }
 
+    /// A narrow column cuts the folded steps first: the step now and its time stay whole.
+    @Test func aNarrowColumnCutsTheStepsNotTheStepNow() throws {
+        let font = HomeFonts.system(ofSize: 11)
+        let notice = "Ran 3 commands · Read 2 files ›\nWaiting for a31's tests\nStarting agents · 7s"
+        let wide = HomeNoticeRows.fittedParts(notice, font: font, maxWidth: 1000)
+        #expect(wide.lead == "Ran 3 commands · Read 2 files › · Waiting for a31's tests")
+        #expect(wide.last == "Starting agents · 7s")
+        let now = TextDraw.width("Starting agents · 7s", font: font)
+        let narrow = HomeNoticeRows.fittedParts(notice, font: font, maxWidth: now + 80)
+        let lead = try #require(narrow.lead)
+        #expect(lead.hasSuffix("…"))
+        #expect(narrow.last == "Starting agents · 7s")
+        #expect(TextDraw.width(lead + HomeNoticeRows.separator + narrow.last, font: font) <= now + 80 + 0.5)
+        let tight = HomeNoticeRows.fittedParts(notice, font: font, maxWidth: now - 20)
+        #expect(tight.lead == nil)
+        #expect(tight.last.hasSuffix("…"))
+    }
+
     @Test func aNewThoughtShowsWithoutWaitingForTheClock() {
         let now = Self.t0
         let line = HomeLiveLine(now: { now })
