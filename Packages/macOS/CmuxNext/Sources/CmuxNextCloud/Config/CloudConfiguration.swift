@@ -128,6 +128,17 @@ public struct CloudConfiguration: Sendable, Equatable {
         return URL(string: isProductionAuth ? "https://cloud-api.cmux.dev" : "https://cloud-api-staging.cmux.dev") ?? Self.inertURL
     }
 
+    /// The Worker machines origin: a Worker machine's exec and file routes (`/v1/vm/{id}/...`,
+    /// ``CloudAPIClient/workerMachines(baseURL:installToken:session:appVersion:)``), on the
+    /// environment of ``ownerAPIBaseURL(environment:)``, whose install token it takes. The
+    /// `CMUX_NEXT_MACHINE_API_URL` override is honored in debug builds only, as there.
+    public func machineRoutesBaseURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
+        if isDebugBuild, let raw = environment["CMUX_NEXT_MACHINE_API_URL"], let url = URL(string: raw) { return url }
+        // Both are constant https literals (CloudCrashLiteralTests parses them); /dev/null stands in.
+        return URL(string: isProductionAuth ? "https://cmux-platform-production.debussy.workers.dev"
+                                            : "https://cmux-platform-staging.debussy.workers.dev") ?? Self.inertURL
+    }
+
     public static func current(bundle: Bundle = .main, isDebugBuild: Bool) -> CloudConfiguration {
         let bundled = bundle.object(forInfoDictionaryKey: "LSEnvironment") as? [String: String] ?? [:]
         return resolve(bundleID: bundle.bundleIdentifier, bundled: bundled,

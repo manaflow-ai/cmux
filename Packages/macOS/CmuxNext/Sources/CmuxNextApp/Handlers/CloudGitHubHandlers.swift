@@ -18,7 +18,7 @@ enum CloudGitHubHandlers {
             // run's scope decides too, so only `--focus` (or a person) opens the browser.
             let opensBrowser = invocation.allowsViewChange && ActionRunScope.viewChangeAllowed()
             let setUp: @MainActor (CloudGitHubSetup.GitIdentity) async throws -> CloudGitHubSetup.Outcome = { identity in
-                let ran = try await cloud.api.exec(session.machineID, command: CloudGitHubSetup.command(identity),
+                let ran = try await cloud.machineAPI.exec(session.machineID, command: CloudGitHubSetup.command(identity),
                                                    timeoutMs: CloudGitHubSetup.timeoutMs)
                 return CloudGitHubSetup.parse(exitCode: ran.exitCode, stdout: ran.stdout)
             }

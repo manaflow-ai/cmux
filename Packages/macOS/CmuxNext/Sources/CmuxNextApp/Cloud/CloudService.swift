@@ -23,6 +23,9 @@ final class CloudService {
     let configuration: CloudConfiguration
     let auth: CloudAuth
     @ObservationIgnored let api: CloudAPIClient
+    /// A machine's exec and file routes: ``api`` on the legacy link, the Worker machines origin on
+    /// the app server link, whose machines have no `/api/vm` row (cmux-platform#89).
+    @ObservationIgnored let machineAPI: CloudAPIClient
     /// The machines a `cloud deliver-secrets` runs for now: one delivery per machine at a time.
     @ObservationIgnored var deliveringSecrets: Set<String> = []
     @ObservationIgnored let paths: CloudPaths
@@ -135,7 +138,19 @@ final class CloudService {
             tokens: { try await auth.tokens() },
             teamID: { await auth.teamID }
         )
-        let api = api
+        let identity = MacInstallIdentity(
+            store: .forApp(directory: paths.root.appendingPathComponent("install", isDirectory: true),
+                           service: "\(configuration.bundleID ?? "cmux").install-key.\(configuration.ownerAPIBaseURL().host ?? "unknown")",
+                           team: CodeSigningTeam.current(), isDebugBuild: configuration.isDebugBuild),
+            transport: InstallHTTPTransport(baseURL: configuration.ownerAPIBaseURL()),
+            deviceName: Self.deviceName,
+            clientVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        )
+        installIdentity = identity
+        machineAPI = configuration.linkSource == .appServer
+            ? CloudAPIClient.workerMachines(baseURL: configuration.machineRoutesBaseURL(), installToken: { try await identity.installToken() })
+            : api
+        let api = api, machineAPI = machineAPI
         let build = LaunchIdentity.current().build
         let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
         let environment = ProcessInfo.processInfo.environment
@@ -157,15 +172,7 @@ final class CloudService {
                     }
                     return CloudCodexBrokerAdapter.Launch(executable: acpmux.executable, prefix: [], codex: codex)
                 }
-            }, target: { scope, machineID in CloudCodexBrokerTarget(api: api, machineID: machineID, scope: scope) })
-        installIdentity = MacInstallIdentity(
-            store: .forApp(directory: paths.root.appendingPathComponent("install", isDirectory: true),
-                           service: "\(configuration.bundleID ?? "cmux").install-key.\(configuration.ownerAPIBaseURL().host ?? "unknown")",
-                           team: CodeSigningTeam.current(), isDebugBuild: configuration.isDebugBuild),
-            transport: InstallHTTPTransport(baseURL: configuration.ownerAPIBaseURL()),
-            deviceName: Self.deviceName,
-            clientVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-        )
+            }, target: { scope, machineID in CloudCodexBrokerTarget(api: machineAPI, machineID: machineID, scope: scope) })
         hostReplica = CloudHostReplicaFollower(origin: HomeCloudLease.origin(configuration.ownerAPIBaseURL()),
             clientVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
             installToken: { [installIdentity] in let token = try await installIdentity.installToken(); return (token, HomeCloudLease.expiry(ofJWT: token) ?? HomeCloudLease.fallbackExpiry(now: Date())) },
@@ -173,7 +180,6 @@ final class CloudService {
         hands = HandsService(
             apiBaseURL: configuration.ownerAPIBaseURL(), accessToken: { [auth] in try await auth.tokens().access }, identity: installIdentity,
             presence: HandPresenceKeyStore(directory: paths.root.appendingPathComponent("install", isDirectory: true)))
-        let identity = installIdentity
         let launcher = configuration.linkSource == .appServer ? CloudLinkLauncher.forApp(build: LaunchIdentity.current().build) : nil
         link = CloudLinkLifecycle(launcher: launcher, installID: { [identity] in await identity.installID() },
                                   connection: { [machines] in machines.local.connection })

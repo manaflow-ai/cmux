@@ -271,7 +271,7 @@ extension AgentTabStore {
                                            servesKeyedReason: daemon.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue))
             host.cloudMachineID = services.machines.session(daemon.machineID)?.machineID
             host.cloudCredentialRecoveryAvailable = host.cloudMachineID != nil &&
-                services.cloud.auth.isSignedIn && services.cloud.configuration.linkSource == .legacy
+                AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: services.cloud.configuration.linkSource, isSignedIn: services.cloud.auth.isSignedIn)
             // A Cloud machine (the app's own record, never the guest's) starts a chat or asks folder
             // trust only on the Cloud API's owner answer on the link the call goes over, checked as
             // it is sent, through any daemon (an app-server link has none: no owner word).
@@ -412,7 +412,11 @@ extension AgentTabStore {
             return await CloudPresenter.recoverCredentials(chat: chat, request: request, services: services)
         }
     }
+    /// Signed in, on either link: a legacy machine's exec and file routes are `/api/vm`'s, a Worker
+    /// machine's (the app server link) the Worker machines origin's (`CloudService.machineAPI`).
     static func cloudCredentialTransferIsAvailable(linkSource: CloudConfiguration.LinkSource, isSignedIn: Bool) -> Bool {
-        linkSource == .legacy && isSignedIn
+        switch linkSource {
+        case .legacy, .appServer: isSignedIn
+        }
     }
 }

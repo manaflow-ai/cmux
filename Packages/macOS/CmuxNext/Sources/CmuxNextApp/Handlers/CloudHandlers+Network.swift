@@ -97,7 +97,7 @@ extension CloudHandlers {
             let text = try? await work.run(.userBlocking, mayBlock: .files) { try String(blockingContentsOf: URL(fileURLWithPath: keyPath), encoding: .utf8) }
             guard let key = text.flatMap(CloudMachineEnrollment.ed25519Key) else { throw ActionFailure(message: CloudStrings.enrollKeyUnreadable(keyPath)) }
             let enrollment = CloudMachineEnrollment(name: name, machineID: machineID, address: address, publicKey: key)
-            let ran = try await cloud.api.exec(machineID, command: enrollment.authorizeCommand, timeoutMs: execTimeoutMs)
+            let ran = try await cloud.machineAPI.exec(machineID, command: enrollment.authorizeCommand, timeoutMs: execTimeoutMs)
             let hostKey = ran.stdout.split(whereSeparator: \.isNewline).last.flatMap { CloudMachineEnrollment.ed25519Key(String($0)) }
             guard ran.exitCode == 0, let hostKey else {
                 throw ActionFailure(message: CloudStrings.enrollAuthorizeFailed(String((ran.stderr.isEmpty ? ran.stdout : ran.stderr).suffix(300))))
