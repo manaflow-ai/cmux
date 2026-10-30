@@ -313,7 +313,10 @@ let uiLayerPreviewTargets: [Target] = [
     .testTarget(
         name: "CmuxNextUiLayerPreviewTests",
         dependencies: ["CmuxNextUiLayerPreview"],
-        swiftSettings: uiSwiftSettings
+        // The preview exists only in Debug (its target's define), so its tests compile only there too.
+        swiftSettings: uiSwiftSettings + [
+            .define("CMUX_UI_LAYER_PREVIEW", .when(configuration: .debug)),
+        ]
     ),
 ]
 
@@ -1092,7 +1095,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextChromiumWarmupTests",
-            dependencies: ["CmuxNextBrowser", "CmuxNextChromiumWarmup", "CmuxNextCompat", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextInputCoreTestSupport", "CmuxNextWakeupsTestSupport"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextChromiumWarmup", "CmuxNextCompat", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextInputCoreTestSupport", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         // Phone access (Settings > Accounts > Phone Access): the phone host's lifecycle
@@ -1348,7 +1351,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextRemoteViewTests",
-            dependencies: ["CmuxNextRemoteView", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport",
+            dependencies: ["CmuxNextRemoteView", "CmuxNextCompat", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport",
                            .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: uiSwiftSettings
         ),
@@ -1976,6 +1979,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDesignTokens",
                 "CmuxNextInput",
                 "CmuxNextTestSupport",
+                "CmuxNextWakeups",
                 "CmuxNextWakeupsTestSupport",
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
@@ -2087,7 +2091,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             // Ghostty action fuzz suites; WakeupsTestSupport for the pointer coalescer's manual clock
             // (TerminalPointerCoalescingTests); Design for the scroller's shared clip (TerminalScrollerTests).
             dependencies: ["CmuxNextCompat", "CmuxNextTerminal", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextInputCore", "CmuxNextWakeups", "CmuxNextInput",
-                           "CmuxNextWakeupsTestSupport", "CmuxNextSignposts", "CmuxNextDesign",
+                           "CmuxNextWakeupsTestSupport", "CmuxNextSignposts", "CmuxNextDesign", "CmuxNextTerminalFind",
                            .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"), .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             // The pin's capabilities: GhosttyTraceHookTests calls the hook through libghostty's record type.
             swiftSettings: uiSwiftSettings + ghosttyNextKitCapabilities,
@@ -2318,7 +2322,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextControlTests",
             // Signposts: BurstTraceRingTests reads the burst.event catalog name and the burst category bit.
-            dependencies: ["CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextCompat", "CmuxNextControl", "CmuxNextActions", "CmuxNextSettings", "CmuxNextDaemon", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextInputCore", "CmuxNextInputCoreTestSupport", "CmuxNextOracle", "CmuxNextFeatures", "CmuxNextTestSupport", .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
+            // Appearance: SocketSettingsWriteTests reads the appearance settings a socket write changes.
+            dependencies: ["CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextCompat", "CmuxNextControl", "CmuxNextActions", "CmuxNextAppearance", "CmuxNextSettings", "CmuxNextDaemon", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextInputCore", "CmuxNextInputCoreTestSupport", "CmuxNextOracle", "CmuxNextFeatures", "CmuxNextTestSupport", .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: daemonSwiftSettings
         ),
         // Settings and palette agent CLI updates (moved out of CmuxNextApp/AgentHarnesses):
@@ -2414,6 +2419,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 // InternalPageDiscardTests shows a page in a fake Chromium host.
                 "CmuxNextPagesTestSupport",
                 "CmuxNextPalette",
+                "CmuxNextPhone",
                 "CmuxNextProcessEnvironment",
                 "CmuxNextRemote",
                 "CmuxNextRemoteLocalhostService",
@@ -2427,6 +2433,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextStash",
                 "CmuxNextTabs",
                 "CmuxNextTasks",
+                "CmuxNextTerminalFind",
                 "CmuxNextTerminalGeometry",
                 "CmuxNextTestExitTrace",
                 "CmuxNextTestSupport",
@@ -2518,7 +2525,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextActionsTests",
-            dependencies: ["CmuxNextActions", "CmuxNextCompat", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextWakeups", "CmuxNextTestSupport"],
+            dependencies: ["CmuxNextActions", "CmuxNextCompat", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextWakeups", "CmuxNextTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
     ] + [appFFI]

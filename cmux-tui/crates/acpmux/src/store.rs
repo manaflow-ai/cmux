@@ -102,6 +102,28 @@ pub struct WatchedTurn {
     pub answered: bool,
 }
 
+/// The branch a chat's `git` records told its watchers (`SessionMeta::git_told`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GitTold {
+    /// Whether the log holds a `git` record. Without one the watchers know the branch the chat
+    /// started on (`SessionMeta::git_branch`).
+    pub recorded: bool,
+    /// The branch the last `git` record told; None for a detached HEAD or no repository.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+}
+
+impl GitTold {
+    /// A chat whose log holds no `git` record (a new chat).
+    pub const NONE: Self = Self { recorded: false, branch: None };
+
+    /// What `told` returns for the watch: the last record's branch, None without a record.
+    pub fn told(&self) -> Option<Option<String>> {
+        self.recorded.then(|| self.branch.clone())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionMeta {
@@ -321,6 +343,12 @@ pub struct SessionMeta {
     /// Initial git commit and linked-worktree recovery record.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub git_head: Option<String>,
+    /// What the log's `git` records told (`hub/git_watch.rs`), so a new daemon compares its
+    /// first read of the folder with it without reading the log. None: not known (a chat saved
+    /// before this field, a fork, or a log that ran ahead of its saved session): the log is read
+    /// once for it, newest record first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_told: Option<GitTold>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree: Option<crate::git_state::WorktreeOrigin>,
     /// The sum of what this session's turns reported (`hub/turn_usage.rs`).
@@ -656,15 +684,26 @@ pub trait Store: Send + Sync {
         }
         Ok(())
     }
-    /// How many records follow `after`, and the last one's `seq` (`after` when none): the
-    /// catch-up of a log that ran ahead of its saved meta. A file store reads only the tail
-    /// past `after`, never the whole log (daemon start, 2026-10-20).
-    fn tail_after(&self, id: &str, after: u64) -> Result<(u64, u64)> {
+    /// How many records follow `after` and the last one's `seq` (`after` when none), and, to
+    /// `visit` in order, those of them whose `kind` is in `kinds`: the catch-up of a log that
+    /// ran ahead of its saved meta (`Hub::catch_up`, `hub/meta_replay.rs`). A file store reads
+    /// only the tail past `after`, never the whole log (daemon start, 2026-10-20), once, and
+    /// parses only the lines of `kinds`: the others count on their header.
+    fn tail_after(
+        &self,
+        id: &str,
+        after: u64,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord),
+    ) -> Result<(u64, u64)> {
         let mut count = 0;
         let mut last = after;
         self.scan(id, after, &mut |rec| {
             count += 1;
             last = last.max(rec.seq);
+            if kinds.contains(&rec.kind.as_str()) {
+                visit(rec);
+            }
             true
         })?;
         Ok((count, last))
@@ -1392,24 +1431,54 @@ impl Store for LocalStore {
         Ok(())
     }
 
-    fn tail_after(&self, id: &str, after: u64) -> Result<(u64, u64)> {
+    /// One pass over the tail, newest first, so it ends at the first record at or before
+    /// `after` (a start whose log did not run ahead reads one block). A line whose header names
+    /// its `seq` and a kind not in `kinds` counts unparsed; any other line is parsed, and so is
+    /// the log's newest line, which a crash may have torn: as before, it counts only if it
+    /// parses. The records of `kinds` go to `visit` oldest first after the pass.
+    fn tail_after(
+        &self,
+        id: &str,
+        after: u64,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord),
+    ) -> Result<(u64, u64)> {
         let mut count = 0;
         let mut last = after;
+        let mut found = Vec::new();
+        let mut newest = true;
         let mut done = false;
         for (_, path) in self.segments(id)?.into_iter().rev() {
             for_each_line_rev(&path, &mut |line| {
-                let Ok(rec) = serde_json::from_slice::<EventRecord>(line) else { return true };
-                if rec.seq <= after {
+                let maybe_torn = std::mem::take(&mut newest);
+                let head = record_seq(line).zip(record_kind(line)).filter(|_| !maybe_torn);
+                let seq = match head {
+                    Some((seq, kind)) if !kinds.iter().any(|k| k.as_bytes() == kind) => seq,
+                    _ => {
+                        let Ok(rec) = serde_json::from_slice::<EventRecord>(line) else {
+                            return true;
+                        };
+                        let seq = rec.seq;
+                        if seq > after && kinds.contains(&rec.kind.as_str()) {
+                            found.push(rec);
+                        }
+                        seq
+                    }
+                };
+                if seq <= after {
                     done = true;
                     return false;
                 }
                 count += 1;
-                last = last.max(rec.seq);
+                last = last.max(seq);
                 true
             })?;
             if done {
                 break;
             }
+        }
+        for rec in found.into_iter().rev() {
+            visit(rec);
         }
         Ok((count, last))
     }

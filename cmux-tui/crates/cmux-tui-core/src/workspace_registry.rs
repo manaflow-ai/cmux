@@ -3422,6 +3422,41 @@ impl WorkspaceRegistry {
         )
     }
 
+    /// The workspace event at `revision`, if the registry has one.
+    #[track_caller]
+    pub fn workspace_event(&self, revision: u64) -> anyhow::Result<Option<RegistryEvent>> {
+        let db = self.connection.get();
+        let sqlite_revision =
+            i64::try_from(revision).context("workspace revision exceeds SQLite integer range")?;
+        let row = db
+            .query_row(
+                "SELECT kind, workspace_key, origin, mutation_id, result_json
+                 FROM workspace_events WHERE revision = ?1",
+                [sqlite_revision],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                    ))
+                },
+            )
+            .optional()?;
+        row.map(|(kind, workspace_key, origin, mutation_id, result)| {
+            Ok(RegistryEvent {
+                revision,
+                kind,
+                workspace_key,
+                origin,
+                mutation_id,
+                result: serde_json::from_str(&result)?,
+            })
+        })
+        .transpose()
+    }
+
     #[track_caller]
     pub fn events_after(&self, revision: u64) -> anyhow::Result<Vec<RegistryEvent>> {
         let db = self.connection.get();

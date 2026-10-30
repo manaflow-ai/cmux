@@ -30,7 +30,7 @@ fn scratch(tag: &str) -> PathBuf {
 }
 
 fn launcher() -> HostLauncher {
-    HostLauncher { exe: daemon_env::bin().into(), prefix: Vec::new() }
+    daemon_env::host_launcher()
 }
 
 fn spec(dir: &Path, session: &str) -> SpawnSpec {

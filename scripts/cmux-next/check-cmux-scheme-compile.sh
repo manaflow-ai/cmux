@@ -127,8 +127,6 @@ build() {
     -project cmux.xcodeproj -scheme cmux -configuration "$configuration"
     -destination 'platform=macOS,arch=arm64'
     -derivedDataPath "$derived_data"
-    # CmuxNextWireGenPlugin is a build-tool plugin; headless xcodebuild cannot answer Xcode's trust prompt.
-    -skipPackagePluginValidation
     ONLY_ACTIVE_ARCH=YES COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO
     # This is a compile check; release packaging retains the project dSYM setting.
     DEBUG_INFORMATION_FORMAT=dwarf

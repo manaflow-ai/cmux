@@ -16,7 +16,7 @@ mod daemon_env;
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
 use acpmux::agent::{ChildAgent, Tap};
-use acpmux::agent_host::link::{self, HostLauncher};
+use acpmux::agent_host::link;
 use acpmux::agent_host::{self, SpawnSpec};
 use acpmux::config::HarnessProfile;
 use acpmux::cwd_pin::CwdPin;
@@ -102,7 +102,7 @@ async fn a_pinned_hosted_harness_never_execs_in_a_swapped_folder() {
         router_owner_fifo: None,
         cwd_pin: Some(pin),
     };
-    let launcher = HostLauncher { exe: daemon_env::bin().into(), prefix: Vec::new() };
+    let launcher = daemon_env::host_launcher();
     let started = link::spawn(&launcher, &spec).await;
     let error = started.expect_err("the host started its harness in the swapped folder");
     assert!(format!("{error:#}").contains("spawn harness process"), "{error:#}");

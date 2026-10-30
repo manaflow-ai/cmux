@@ -256,7 +256,10 @@ pub use layout_types::{
 };
 mod layout_undo_commit;
 pub(crate) mod mux_work;
-pub use events::{GraphicsStatus, LayoutDelta, MachineUsage, MuxEvent, TreeDelta, TreeDeltaKind};
+pub use events::{
+    GraphicsStatus, LayoutDelta, MachineUsage, MuxEvent, RegistryEventStamp, TreeDelta,
+    TreeDeltaKind,
+};
 mod notification_types;
 mod notifications;
 pub use notification_types::{

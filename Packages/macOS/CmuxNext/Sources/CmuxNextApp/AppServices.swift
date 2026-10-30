@@ -839,6 +839,9 @@ final class AppServices {
                                hangWatch: hangWatch, crashKeys: crashKeys, deadlines: mainDeadlines, appEvents: appEvents)
         // A cmux-tui that stays alive but never answers restarts by itself (`UnresponsiveOwnerWatch`).
         daemon.recovery.restartsUnresponsiveOwner = { DaemonTunables.restartUnresponsiveCmuxTUI.value }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        daemon.slowCreateReply = DebugSlowCreateReply(ProcessInfo.processInfo.environment[DebugSlowCreateReply.environmentKey])
+        #endif
         self.launchReveal = launchReveal
         // Not in a crash streak's safe launch: the daemon's launch snapshot and the saved sidebars.
         daemon.launchSnapshot.reads = { [gate = environment.launchCaches] in gate?.safeMode.readsLaunchCaches ?? true }

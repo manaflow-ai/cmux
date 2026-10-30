@@ -119,13 +119,18 @@ final class SettingsPageProvider: PageProvider {
     /// - Parameter work: The app's main-thread scheduler (`AppServices.mainWork`): a stream's
     ///   follower writes to the page's router (which holds it while the page is hidden), so it is a
     ///   ``ServiceObservation`` there, one flush per frame behind the person's input.
-    init(settings: SettingsController, domains: @escaping @MainActor () async -> [String: [String]] = { [:] },
+    init(settings: SettingsController, domains: @escaping @MainActor () async -> [String: [String]] = SettingsPageProvider.noDomains,
          hostLists: (@MainActor () -> JSONValue)? = nil, on work: MainWorkScheduler) {
         self.settings = settings
         self.domains = domains
         self.hostLists = hostLists
         self.work = work
     }
+
+    /// No site domains: the default `domains`. A named function, not an async closure literal, so
+    /// the calling modules share one body (an async closure default is emitted in each caller under
+    /// one weak symbol with different async context sizes: cx-bsue).
+    static func noDomains() async -> [String: [String]] { [:] }
 
     /// A theme's colors as the page reads them (`GhosttyTheme` in webviews/src/theme/ghosttyTheme.ts).
     static func json(_ colors: ThemeFileColors) -> JSONValue {

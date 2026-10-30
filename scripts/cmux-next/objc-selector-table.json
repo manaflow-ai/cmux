@@ -72,6 +72,9 @@
    "27.0": true,
    "27.0.1": true
   },
+  "NSApplication call:sendAction/3:to,from": {
+   "27.0": true
+  },
   "NSApplication call:sendEvent/1": {
    "26.5.2": true,
    "26.7": true,
@@ -110,6 +113,9 @@
    "27.0": true,
    "27.0.1": true
   },
+  "NSButton call:cursorUpdate/1": {
+   "27.0": true
+  },
   "NSButton call:keyDown/1": {
    "26.5.2": true,
    "26.7": true,
@@ -133,6 +139,12 @@
    "26.7": true,
    "27.0": true,
    "27.0.1": true
+  },
+  "NSButton call:mouseDragged/1": {
+   "27.0": true
+  },
+  "NSButton call:mouseUp/1": {
+   "27.0": true
   },
   "NSButton call:performKeyEquivalent/1": {
    "27.0.1": true,
@@ -219,6 +231,21 @@
    "26.7": true,
    "27.0": true,
    "27.0.1": true
+  },
+  "NSClipView call:scroll/1": {
+   "27.0": true
+  },
+  "NSClipView call:setBoundsOrigin/1": {
+   "27.0": true
+  },
+  "NSClipView call:setBoundsSize/1": {
+   "27.0": true
+  },
+  "NSClipView call:setFrameSize/1": {
+   "27.0": true
+  },
+  "NSClipView call:viewFrameChanged/1": {
+   "27.0": true
   },
   "NSCollectionView call:concludeDragOperation/1": {
    "26.5.2": true,
@@ -315,6 +342,12 @@
    "26.7": true,
    "27.0": true,
    "27.0.1": true
+  },
+  "NSMenu call:performKeyEquivalent/1": {
+   "27.0": true
+  },
+  "NSPanel call:addChildWindow/2:ordered": {
+   "27.0": true
   },
   "NSPanel call:becomeKey/0": {
    "26.5.2": true,
@@ -418,6 +451,12 @@
    "27.0": true,
    "27.0.1": true
   },
+  "NSScrollView call:tile/0": {
+   "27.0": true
+  },
+  "NSScrollView call:viewDidMoveToWindow/0": {
+   "27.0": true
+  },
   "NSScrollView get:scrollerStyle/0": {
    "26.5.2": true,
    "26.7": true,
@@ -437,6 +476,9 @@
   "NSScroller call:viewDidMoveToSuperview/0": {
    "27.0": true,
    "27.0.1": true
+  },
+  "NSScroller call:viewDidMoveToWindow/0": {
+   "27.0": true
   },
   "NSScroller call:viewWillMove/1": {
    "27.0": true,
@@ -496,8 +538,17 @@
    "27.0": true,
    "27.0.1": true
   },
+  "NSSplitView call:viewDidHide/0": {
+   "27.0": true
+  },
   "NSSplitView call:viewDidMoveToWindow/0": {
    "27.0.1": true,
+   "27.0": true
+  },
+  "NSSplitView call:viewDidUnhide/0": {
+   "27.0": true
+  },
+  "NSStackView call:didAddSubview/1": {
    "27.0": true
   },
   "NSStackView call:viewDidChangeEffectiveAppearance/0": {
@@ -521,6 +572,9 @@
    "26.7": true,
    "27.0": true,
    "27.0.1": true
+  },
+  "NSStackView call:willRemoveSubview/1": {
+   "27.0": true
   },
   "NSTableCellView call:layout/0": {
    "26.5.2": true,
@@ -720,6 +774,9 @@
    "26.7": true,
    "27.0": true,
    "27.0.1": true
+  },
+  "NSTextView call:viewDidMoveToWindow/0": {
+   "27.0": true
   },
   "NSView call:accessibilityChildren/0": {
    "26.5.2": true,
@@ -1004,6 +1061,9 @@
    "27.0.1": true,
    "27.0": true
   },
+  "NSView get:inputContext/0": {
+   "27.0": true
+  },
   "NSView get:mouseDownCanMoveWindow/0": {
    "26.5.2": true,
    "26.7": true,
@@ -1064,17 +1124,41 @@
    "27.0": true,
    "27.0.1": true
   },
+  "NSWindow call:makeKeyAndOrderFront/1": {
+   "27.0": true
+  },
+  "NSWindow call:order/2:relativeTo": {
+   "27.0": true
+  },
+  "NSWindow call:orderBack/1": {
+   "27.0": true
+  },
+  "NSWindow call:orderFront/1": {
+   "27.0": true
+  },
+  "NSWindow call:orderFrontRegardless/0": {
+   "27.0": true
+  },
   "NSWindow call:performKeyEquivalent/1": {
    "26.5.2": true,
    "26.7": true,
    "27.0": true,
    "27.0.1": true
   },
+  "NSWindow call:removeChildWindow/1": {
+   "27.0": true
+  },
   "NSWindow call:resignKey/0": {
    "26.5.2": true,
    "26.7": true,
    "27.0": true,
    "27.0.1": true
+  },
+  "NSWindow call:selectNextKeyView/1": {
+   "27.0": true
+  },
+  "NSWindow call:selectPreviousKeyView/1": {
+   "27.0": true
   },
   "NSWindow call:sendEvent/1": {
    "26.5.2": true,

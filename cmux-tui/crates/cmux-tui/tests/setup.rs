@@ -86,16 +86,19 @@ case "$host" in *unreachable*)
   echo "ssh: connect to host $host port 22: Connection refused" >&2
   exit 255;;
 esac
-# An install or update holds the host's update lease for its length (41f11ee0253,
-# host_lock.rs): the holder says it took the lease and runs until its stdin closes.
+# The host's update lease (host_lock.rs hold_lease): held until stdin closes.
 case "$script" in *"echo ACPMUX_UPDATE_LOCKED"*)
   echo ACPMUX_UPDATE_LOCKED
-  cat >/dev/null
-  exit 0;;
+  exec cat >/dev/null;;
 esac
-# Every step of it is fenced for that lease: answer the script inside the fence.
-case "$script" in *"} 8>&- 9>&-")
-  script=$(printf '%s\n' "$script" | awk '!f && $0 == "{" {f=1; next} f && $0 != "} 8>&- 9>&-" {print}');;
+# A step fenced for that lease (host_lock.rs fence) runs the script inside the fence.
+case "$script" in *ACPMUX_UPDATE_LOCK_LOST*)
+  script=$(printf '%s\n' "$script" | awk 'body { lines[n++] = $0 } /exit 75; }$/ && !seen { seen = 1; getline; body = 1 } END { for (i = 0; i < n - 1; i++) print lines[i] }');;
+esac
+# An update's step first reads the daemon unit's environment (host_update.rs
+# SERVICE_ENV, which ends at its first unindented `fi`).
+case "$script" in "acpmux_env=\$(command -v systemctl"*)
+  script=$(printf '%s\n' "$script" | awk 'past { print } !past && $0 == "fi" { past = 1 }');;
 esac
 case "$script" in
   # `acp host update`'s probe (c9e045f2e48): this machine's own `uname -sm`,

@@ -125,10 +125,7 @@ public final class WebProcessGroups {
 
     /// Sets `_relatedWebView`; false when this WebKit has no such SPI (the page gets its own process).
     private static func relate(_ configuration: WKWebViewConfiguration, to view: WKWebView) -> Bool {
-        // crash-allow: WebKit private selector, used only after responds(to:) confirms it exists (no unknown-selector exception).
-        let selector = NSSelectorFromString("_setRelatedWebView:")
-        guard configuration.responds(to: selector) else { return false }
-        // crash-allow: WebKit private selector, used only after responds(to:) confirms it exists (no unknown-selector exception).
+        guard let selector = configuration.webKitSPI("_setRelatedWebView:") else { return false }
         configuration.perform(selector, with: view)
         return true
     }

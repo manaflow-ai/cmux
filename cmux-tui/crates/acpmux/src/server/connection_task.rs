@@ -131,6 +131,7 @@ impl Conn {
             remote_media: super::media_forward::RemoteMedia::default(),
             memory_vote: std::sync::OnceLock::new(),
             client_requests: Default::default(),
+            fanout_progress: std::sync::OnceLock::new(),
         }
     }
 }

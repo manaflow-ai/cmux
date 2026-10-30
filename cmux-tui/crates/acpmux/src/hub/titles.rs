@@ -65,6 +65,13 @@ fn fallback_title_fields(
     *title_prompt = Some(short_text(gist.body.trim(), 2000));
 }
 
+/// A generated title: one the title command answered (`apply_generated_title`), or one the
+/// log names (`titled`), applied at start (`meta_replay.rs`).
+pub(super) fn title_generated(m: &mut SessionMeta, title: &str) {
+    m.title = Some(title.to_owned());
+    m.title_source = Some(GENERATED.to_owned());
+}
+
 /// A rename of a chat no title has settled yet (by its prompt, or by a request that came back
 /// empty and may ask again, `wants_title`) makes it `NAMED`: no title is generated after it.
 pub(super) fn title_renamed(m: &mut SessionMeta) {
@@ -404,8 +411,10 @@ impl Hub {
     }
 
     fn apply_generated_title(self: &Arc<Self>, session: &Arc<Session>, title: Option<String>) {
-        let (title, retry) = {
-            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        let mut retry = false;
+        // Changed and logged in one step (`Hub::change_logged`): a restart's replay of the log
+        // comes before it, never over it.
+        let logged = self.change_logged(session, "titled", |m| {
             m.title_asking = false;
             match title {
                 // An empty answer: a thin first prompt may get one refresh after its turn.
@@ -417,26 +426,24 @@ impl Hub {
                         .and_then(|turn| turn.get("status"))
                         .and_then(Value::as_str)
                         == Some("completed");
-                    (None, m.title_thin && completed && m.title_failures == 1)
+                    retry = m.title_thin && completed && m.title_failures == 1;
+                    None
                 }
+                // A harness title that came meanwhile wins.
+                Some(_) if m.title_source.as_deref() != Some(ASKED) => None,
                 Some(title) => {
-                    // A harness title that came meanwhile wins.
-                    if m.title_source.as_deref() != Some(ASKED) {
-                        return;
-                    }
-                    m.title = Some(title.clone());
-                    m.title_source = Some(GENERATED.to_owned());
-                    (Some(title), false)
+                    title_generated(m, &title);
+                    Some(json!({"title": title}))
                 }
             }
-        };
+        });
         if retry {
             self.title_after_turn(session);
             return;
         }
-        let Some(title) = title else { return };
-        self.append(session, "mux", "titled", json!({"title": title}));
-        self.save_meta(session);
+        if logged.is_some() {
+            self.save_meta(session);
+        }
     }
 }
 

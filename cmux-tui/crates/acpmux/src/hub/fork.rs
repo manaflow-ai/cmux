@@ -315,6 +315,8 @@ impl Hub {
             },
             git_branch: git.branch,
             git_head: git.head,
+            // The fork's log copies the parent's records, `git` ones too: read once.
+            git_told: None,
             // Read for the fork's own folder when its agent starts.
             worktree: None,
             // The fork's own spend. Claude Code restores the parent's running cost into a

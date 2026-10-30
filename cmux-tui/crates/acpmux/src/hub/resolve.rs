@@ -364,6 +364,8 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         pull_requests: vec![],
         git_branch: None,
         git_head: None,
+        // A new chat's log holds no `git` record (`hub/git_watch.rs`).
+        git_told: Some(crate::store::GitTold::NONE),
         worktree: None,
         subsession: None,
         subsession_limits: Default::default(),

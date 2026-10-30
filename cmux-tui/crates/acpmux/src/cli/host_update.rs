@@ -927,7 +927,7 @@ pub(crate) async fn update(
         }
     }
     if rows.iter().any(|r| r.2.outcome.failed()) {
-        std::process::exit(1);
+        return Err(crate::cli::errors::Reported(1).into());
     }
     Ok(())
 }

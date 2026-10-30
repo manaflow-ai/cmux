@@ -7,7 +7,11 @@ use super::{
 use std::sync::Arc;
 
 pub(super) fn start(hub: Arc<Hub>, conn: Arc<Conn>) -> tokio::task::JoinHandle<()> {
-    let mut rx = hub.subscribe();
+    // How many hub events this task has handed on (`hub/event_bus.rs`): a reply waits
+    // for it (`Conn::events_handed_on`), so it never overtakes an event sent before it.
+    let (mut rx, mut handed_on) = hub.subscribe_counted();
+    let (progress, handed_on_rx) = tokio::sync::watch::channel(handed_on);
+    conn.watch_fanout(handed_on_rx);
     let mut harnesses = hub.subscribe_harness_changes();
     let mut peer_states = hub.peer_states().subscribe();
     let mut catalog = hub.catalog.subscribe();
@@ -79,12 +83,17 @@ pub(super) fn start(hub: Arc<Hub>, conn: Arc<Conn>) -> tokio::task::JoinHandle<(
                 }
             };
             match ev {
-                Ok(ev) => deliver(&hub, &conn, ev),
+                Ok(ev) => {
+                    deliver(&hub, &conn, ev);
+                    handed_on += 1;
+                }
                 Err(broadcast::error::RecvError::Lagged(n)) => {
                     conn.send(&Message::notification("_acpmux/lagged", json!({"dropped": n})));
+                    handed_on += n;
                 }
                 Err(broadcast::error::RecvError::Closed) => break,
             }
+            progress.send_replace(handed_on);
         }
     })
 }
@@ -104,3 +113,6 @@ fn send_presence(conn: &Conn, note: &serde_json::Value) {
         conn.send(&Message::notification(crate::rpc::method::MUX_PRESENCE, note.clone()));
     }
 }
+#[cfg(test)]
+#[path = "fanout_tests.rs"]
+mod tests;

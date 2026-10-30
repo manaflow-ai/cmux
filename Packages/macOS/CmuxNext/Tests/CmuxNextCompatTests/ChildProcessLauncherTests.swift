@@ -109,6 +109,27 @@ struct ChildProcessLauncherTests {
         }
     }
 
+    /// A child starts with no signal blocked, whatever the spawning thread blocks: a launcher spawns on a dispatch
+    /// worker thread, which blocks every signal but the fault ones, and a child that took that mask could not be
+    /// hung up or interrupted (AgentPaneShellSpawnTests.aCommandStillSpawningWhenThePaneClosesIsHungUp). The item
+    /// blocks SIGHUP, SIGINT and SIGTERM on its own thread too, so the check holds whatever the queue's thread had.
+    @Test func aChildStartsWithNoSignalBlocked() async throws {
+        let launcher = Self.launcher(.userVisible)
+        let child = await launcher.run { () -> SpawnedChild in
+            var blocked = sigset_t(), previous = sigset_t()
+            sigemptyset(&blocked)
+            for signal in [SIGHUP, SIGINT, SIGTERM] { sigaddset(&blocked, signal) }
+            pthread_sigmask(SIG_BLOCK, &blocked, &previous)
+            defer { pthread_sigmask(SIG_SETMASK, &previous, nil) }
+            return BlockingViolationTable.$scoped.withValue(BlockingViolationTable(mode: .record)) {
+                spawnSignalMaskProbe(priority: launcher.priority)
+            }
+        }
+        let printed = await Self.launcher(.userBlocking).run { () -> String? in collectOutput(child) }
+        let mask = try #require(printed, "the probe did not run")
+        #expect(mask == "[]", "the child started with these signals blocked")
+    }
+
     #if DEBUG || CMUX_BLOCKING_CHECKS
     /// The acceptance of task 037: from main-actor code, a spawn through a launcher records no main-thread
     /// site, and the same spawn inline records one.
@@ -190,6 +211,21 @@ private nonisolated func spawnChild(_ arguments: [String], attributes: UnsafeMut
 private nonisolated func spawnQoSProbe(priority: MayBlockPriority) -> SpawnedChild {
     let script = "import ctypes; print(ctypes.CDLL('/usr/lib/libSystem.B.dylib').qos_class_self())"
     return spawnChild(["/usr/bin/python3", "-c", script], attributes: nil, priority: priority, capture: true)
+}
+
+/// Starts a child that prints the signals its thread has blocked (a sorted list of numbers), then exits.
+private nonisolated func spawnSignalMaskProbe(priority: MayBlockPriority) -> SpawnedChild {
+    let script = "import signal; print(sorted(int(s) for s in signal.pthread_sigmask(signal.SIG_BLOCK, [])))"
+    return spawnChild(["/usr/bin/python3", "-c", script], attributes: nil, priority: priority, capture: true)
+}
+
+/// Reads what a probe printed, trimmed, and reaps it; nil when it did not start or failed.
+private nonisolated func collectOutput(_ child: SpawnedChild) -> String? {
+    guard child.status == 0 else { return nil }
+    let handle = FileHandle(fileDescriptor: child.output, closeOnDealloc: true)
+    let printed = try? handle.blockingReadToEnd()
+    guard reap(child.pid) == 0, let printed else { return nil }
+    return String(decoding: printed, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
 /// Reads what a QoS probe printed and reaps it; nil when it did not start, printed no class or failed.

@@ -7024,5 +7024,49 @@
       "fr": "ms is the SI symbol for milliseconds, written the same way in French; the other tokens are values. The translated entry is still required.",
       "es": "ms is the SI symbol for milliseconds, written the same way in Spanish; the other tokens are values. The translated entry is still required."
     }
+  },
+  "actionLatencyHUD.inputRowNoStages": {
+    "source": "%1$@ ms  %2$@  %3$@",
+    "identityLocales": {
+      "de": "ms is the SI symbol for milliseconds, written the same way in German; the other tokens are values. The translated entry is still required.",
+      "fr": "ms is the SI symbol for milliseconds, written the same way in French; the other tokens are values. The translated entry is still required.",
+      "es": "ms is the SI symbol for milliseconds, written the same way in Spanish; the other tokens are values. The translated entry is still required."
+    }
+  },
+  "actionLatencyHUD.target.palette": {
+    "source": "palette",
+    "identityLocales": {
+      "fr": "palette is the French word for the command palette, spelled as in English; the translated entry is still required."
+    }
+  },
+  "actionLatencyHUD.target.terminal": {
+    "source": "terminal",
+    "identityLocales": {
+      "fr": "terminal is the French word for a terminal, spelled as in English; the translated entry is still required.",
+      "es": "terminal is the Spanish word for a terminal, spelled as in English; the translated entry is still required."
+    }
+  },
+  "settings.choice.modelRouterDeepSeekV41Flash": {
+    "class": "brand",
+    "source": "DeepSeek V4.1 Flash"
+  },
+  "settings.choice.modelRouterDeepSeekV4Flash": {
+    "class": "brand",
+    "source": "DeepSeek V4 Flash"
+  },
+  "settings.choice.modelRouterDeepSeekV4Pro": {
+    "class": "brand",
+    "source": "DeepSeek V4 Pro"
+  },
+  "settings.choice.modelRouterDeepSeekV41Flash1017": {
+    "source": "DeepSeek V4.1 Flash 1017 (Images)",
+    "identityLocales": {
+      "fr": {
+        "reason": "DeepSeek V4.1 Flash 1017 is an invariant model name, and Images is the standard French noun. The translated French entry is still required.",
+        "values": [
+          "DeepSeek V4.1 Flash 1017 (Images)"
+        ]
+      }
+    }
   }
 }

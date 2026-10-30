@@ -15,6 +15,7 @@ pub(crate) mod auto_resume;
 mod bg_tasks;
 mod bounded;
 mod btw;
+mod event_bus;
 mod exit_reason;
 pub(crate) mod session_auth;
 pub(crate) mod subagent_retry;
@@ -62,6 +63,7 @@ mod config_writer;
 mod hosts;
 mod lifecycle;
 mod log_load;
+mod meta_replay;
 pub(crate) mod meta_writer;
 mod retention;
 pub use retention::RetentionRequest;
@@ -172,6 +174,8 @@ pub(crate) mod outbox;
 #[cfg(test)]
 mod panic_free_tests;
 pub mod rules;
+#[cfg(test)]
+mod status_close_tests;
 mod transcript;
 mod transfer;
 mod transfer_guard;
@@ -406,8 +410,9 @@ pub struct Hub {
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
     /// Where adopt looks for harness sessions.
     pub(super) harness_homes: StdMutex<crate::adopt::HarnessHomes>,
-    /// Every change watchers hear of, counted for the session list guard (`list_guard.rs`).
-    pub(super) events: list_guard::Events,
+    /// Every change watchers hear of, each counted for the session list guard
+    /// (`list_guard.rs`) and numbered for reply ordering (`event_bus.rs`).
+    pub(super) events: event_bus::EventBus,
     /// The shared, paced full session list (`list_guard.rs`).
     pub(crate) list_guard: list_guard::ListGuard,
     /// `_acpmux/models` replies now asking peers for theirs (`server/models_fanout.rs`): a remote
@@ -631,7 +636,7 @@ impl Hub {
         deferred: bool,
         supervisor: crate::supervised::Supervisor,
     ) -> Arc<Self> {
-        let events = list_guard::Events::new(8192);
+        let events = event_bus::EventBus::new(8192);
         let (peer_notices, peer_notices_rx) = mpsc::channel(4096);
         let peers_cfg = config.peers.clone();
         let handoffs = handoff::Handoffs::open(store.handoff_dir());
@@ -812,6 +817,16 @@ impl Hub {
         self.events.subscribe()
     }
 
+    /// A receiver and the number of events sent before it (`event_bus.rs`).
+    pub(crate) fn subscribe_counted(&self) -> (broadcast::Receiver<HubEvent>, u64) {
+        self.events.subscribe_counted()
+    }
+
+    /// The number of events published so far (`event_bus.rs`).
+    pub(crate) fn events_sent(&self) -> u64 {
+        self.events.sent()
+    }
+
     pub fn mailbox(&self) -> &Mailbox {
         &self.mailbox
     }
@@ -908,22 +923,36 @@ impl Hub {
         self.catch_up_locked(session);
     }
 
+    /// Every caller holds the session's append lock. `caught_up` is set only once the tail is
+    /// replayed: the read-chat fast path (`seen.rs`) reads it without the lock and must never
+    /// see a session as caught up while the replay is still to come.
     fn catch_up_locked(&self, session: &Session) {
-        if session.caught_up.swap(true, Ordering::SeqCst) {
+        if session.caught_up.load(Ordering::SeqCst) {
             return;
         }
         let last_seq = session.meta.lock_or_recover().last_seq;
-        if let Ok((extra, last)) = self.store.tail_after(&session.id, last_seq)
+        // The settings the saved record may be behind on come from the same one read of the
+        // tail (`meta_replay.rs`).
+        let mut changes = Vec::new();
+        let mut change = |rec: EventRecord| changes.push(rec);
+        let tail = self.store.tail_after(&session.id, last_seq, meta_replay::KINDS, &mut change);
+        if let Ok((extra, last)) = tail
             && extra > 0
         {
             let mut meta = session.meta.lock_or_recover();
+            for rec in &changes {
+                meta_replay::apply(&mut meta, rec);
+            }
             meta.event_count += extra;
             meta.last_seq = last;
-            // The log ran ahead of the saved session (a hard stop): a newer command list may be
-            // in that tail, so a client reads the log for it instead of trusting the saved one.
+            // The log ran ahead of the saved session (a hard stop): a newer command list or `git`
+            // record may be in that tail, so they are read from the log instead of trusting the
+            // saved ones.
             meta.available_commands = None;
+            meta.git_told = None;
             session.seq.fetch_max(last, Ordering::SeqCst);
         }
+        session.caught_up.store(true, Ordering::SeqCst);
     }
 
     /// Runs `work` for each session on up to 8 threads (sessions are independent).
@@ -1139,7 +1168,21 @@ impl Hub {
     ) -> (EventRecord, bool) {
         // Off the append lock: it reads the disk.
         tool_paths::add_canonical_paths(session, kind, &mut msg);
-        let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.append_locked(&order, session, dir, kind, msg, host_seq, at)
+    }
+
+    /// [`Hub::append_at`] under `session`'s append lock (`_order`, its guard).
+    fn append_locked(
+        &self,
+        _order: &std::sync::MutexGuard<'_, ()>,
+        session: &Session,
+        dir: &str,
+        kind: &str,
+        msg: Value,
+        host_seq: Option<u64>,
+        at: Option<u64>,
+    ) -> (EventRecord, bool) {
         self.catch_up_locked(session);
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let at = at.unwrap_or_else(now_ms);
@@ -1217,9 +1260,11 @@ impl Hub {
     }
 
     pub fn set_rules(&self, session: &Session, rules: Option<Value>) {
-        self.permission_policy_changed(session, |m| m.permission_rules = rules.clone());
+        self.permission_policy_changed(session, "rules", |m| {
+            m.permission_rules = rules.clone();
+            json!({"rules": rules})
+        });
         self.save_meta(session);
-        self.append(session, "mux", "rules", json!({"rules": rules}));
     }
 
     /// The largest composer draft the daemon will persist for one session.
@@ -1394,6 +1439,14 @@ impl Hub {
     /// the close: a stopped session listed as ready again (ergo-walk2, 2026-10-25: "session stop
     /// says closed but acpmux ls still shows it ready"). The check and the write are one lock.
     pub(super) fn set_status(&self, session: &Session, status: SessionStatus) {
+        self.write_status(session, status, None);
+    }
+
+    /// `status`, unless the session is closed: a turn's end or an agent that went away never
+    /// reopens a session its close already ended. [`Self::set_status`] itself keeps a closed
+    /// session closed (only [`Self::reopen`] leaves Closed), decided under the meta lock the close
+    /// writes under; this name says so at the callers that race a close.
+    pub(super) fn set_status_unless_closed(&self, session: &Session, status: SessionStatus) {
         self.write_status(session, status, None);
     }
 

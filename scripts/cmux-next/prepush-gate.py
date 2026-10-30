@@ -32,8 +32,12 @@ Layers (each one only on files the push changes under Packages/macOS/CmuxNext, c
                dialogs, opaque glass (tree-sitter, so comments, strings and `case .alert` never match)
   swiftformat  --lint with scripts/cmux-next/lint/swiftformat.conf
   swiftlint    swift-syntax rules only (scripts/cmux-next/lint/swiftlint.yml), no SourceKit
-Tool versions are pinned in scripts/cmux-next/lint-tools.lock and downloaded once (sha256 checked)
-to $CMUX_LINT_TOOLS_DIR (default ~/Library/Caches/cmux-lint-tools, ~/.cache/cmux-lint-tools on Linux).
+Tool versions are pinned in scripts/cmux-next/lint-tools.lock and downloaded once (sha256 checked, a failed
+download tried 3 times) into the hook's own cache (<hooks>/lint-tools; install-git-hooks.sh fetches ast-grep there,
+`--fetch-tool TOOL` does it by hand), or $CMUX_LINT_TOOLS_DIR when set; a copy in the per-user cache (default
+~/Library/Caches/cmux-lint-tools, ~/.cache/cmux-lint-tools on Linux) is used too. A cached binary is checked
+against the sha256 recorded when it was placed, whenever the file changed. No pinned build for the platform, or no
+binary after the attempts, refuses the push.
 
 Also on every push, whatever it changes: "Ghostty-default keys" (check-ghostty-reserved-keys.py): the
 exported default keymap keeps Ghostty's split keys (schemas/keybindings/ghostty-reserved-keys.json),
@@ -104,6 +108,7 @@ from __future__ import annotations
 import argparse
 import collections
 import concurrent.futures
+import contextlib
 import fcntl
 import hashlib
 import importlib.util
@@ -326,6 +331,27 @@ def tools_dir() -> Path:
     return Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "cmux-lint-tools"
 
 
+HOOK_TOOLS = "lint-tools"  # the installed hook's own tool cache, beside its cmux-next-checks copies
+TOOL_DOWNLOAD_ATTEMPTS = 3
+TOOL_RETRY_DELAY_S = 2.0  # times the attempt number: 2 s, then 4 s
+
+
+def hook_tools_dir() -> Path | None:
+    """<hooks>/lint-tools when this file is an installed checks copy (<hooks>/cmux-next-checks.vN/), else None.
+    install-git-hooks.sh fills it (--fetch-tool), so a push never waits on a download, nor fails on a flaky one."""
+    here = Path(__file__).resolve().parent
+    return here.parent / HOOK_TOOLS if here.name.startswith("cmux-next-checks") else None
+
+
+def tool_dirs() -> list[Path]:
+    """Where a pinned tool is looked for, in order; a download goes to the first. CMUX_LINT_TOOLS_DIR alone when
+    set; else the hook's cache (an installed copy), then the per-user cache."""
+    if os.environ.get("CMUX_LINT_TOOLS_DIR"):
+        return [tools_dir()]
+    hook = hook_tools_dir()
+    return ([hook] if hook else []) + [tools_dir()]
+
+
 def read_lock(lock: Path) -> dict[str, tuple[str, str, str, str]]:
     rows, key = {}, platform_key()
     for line in lock.read_text(encoding="utf-8").splitlines():
@@ -337,29 +363,134 @@ def read_lock(lock: Path) -> dict[str, tuple[str, str, str, str]]:
     return rows
 
 
-def ensure_tool(lock: Path, tool: str) -> Path:
-    """The pinned binary, downloaded and sha256-checked once per version."""
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def tool_record(target: Path) -> Path:
+    return target.with_name(target.name + ".sha256")
+
+
+def tool_stamp(target: Path) -> str:
+    st = target.stat()
+    return f"{st.st_size} {st.st_mtime_ns} {st.st_ino}"
+
+
+def write_tool_record(target: Path, digest: str) -> bool:
+    """TARGET's sha256 and the file state it was hashed at, written beside it in one rename (a temporary file of its
+    own, so threads and pushes that record the same tool at once never share one). False when the folder cannot be
+    written (a read-only cache): the caller still trusts a hash that matched, and hashes again next time."""
+    record = tool_record(target)
+    try:
+        handle, temporary = tempfile.mkstemp(prefix=f".{record.name}.", suffix=".tmp", dir=record.parent)
+    except OSError:
+        return False
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8") as out:
+            out.write(f"{digest}\n{tool_stamp(target)}\n")
+        os.replace(temporary, record)
+        return True
+    except OSError:
+        with contextlib.suppress(OSError):
+            os.unlink(temporary)
+        return False
+
+
+def verified_tool(target: Path) -> bool:
+    """TARGET is an executable with the sha256 ensure_tool recorded when it took it out of the pinned archive whose
+    sha256 matched. It is hashed again only when its size, mtime or inode changed since (a push pays a stat). A binary
+    from before the record is trusted once and recorded: ensure_tool only ever placed one after the archive matched.
+    A record that cannot be written (write_tool_record) never refuses: the hash that matched is the answer."""
+    if not (target.is_file() and os.access(target, os.X_OK)):
+        return False
+    try:
+        digest, stamp = tool_record(target).read_text(encoding="utf-8").split("\n")[:2]
+    except (OSError, ValueError):
+        write_tool_record(target, file_sha256(target))
+        return True
+    if stamp == tool_stamp(target):
+        return True
+    if file_sha256(target) != digest:
+        return False
+    write_tool_record(target, digest)
+    return True
+
+
+def download_tool(tool: str, version: str, url: str, sha: str, member: str, target: Path) -> Path:
+    """The pinned archive at URL, sha256-checked, with its MEMBER placed at TARGET (and its record beside it).
+    A failed or wrong download is tried again (TOOL_DOWNLOAD_ATTEMPTS); the last failure refuses."""
+    import http.client
+    target.parent.mkdir(parents=True, exist_ok=True)
+    problem = ""
+    for attempt in range(1, TOOL_DOWNLOAD_ATTEMPTS + 1):
+        log(f"prepush-gate: downloading {tool} {version} (once) from {url}"
+            + (f" (attempt {attempt} of {TOOL_DOWNLOAD_ATTEMPTS})" if attempt > 1 else ""))
+        with tempfile.TemporaryDirectory(dir=target.parent) as tmp:
+            archive = Path(tmp) / "tool.zip"
+            try:
+                with urllib.request.urlopen(url, timeout=120) as response, open(archive, "wb") as out:
+                    shutil.copyfileobj(response, out)
+            except (OSError, http.client.HTTPException) as error:  # URLError is an OSError
+                problem = f"{type(error).__name__}: {error}"
+            else:
+                digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+                if digest == sha:
+                    with zipfile.ZipFile(archive) as zf:
+                        extracted = Path(zf.extract(member, tmp))
+                    extracted.chmod(0o755)
+                    binary = file_sha256(extracted)
+                    os.replace(extracted, target)
+                    write_tool_record(target, binary)
+                    return target
+                problem = f"sha256 {digest} != pinned {sha}"
+        if attempt < TOOL_DOWNLOAD_ATTEMPTS:
+            time.sleep(TOOL_RETRY_DELAY_S * attempt)
+    raise SystemExit(f"prepush-gate: could not get {tool} {version} after {TOOL_DOWNLOAD_ATTEMPTS} attempts "
+                     f"({problem}); refusing to run without it. When the network is back, run "
+                     f"`python3 scripts/cmux-next/prepush-gate.py --fetch-tool {tool}` or scripts/install-git-hooks.sh")
+
+
+def pinned_row(lock: Path, tool: str) -> tuple[str, str, str, str]:
     rows = read_lock(lock)
     if tool not in rows:
         raise SystemExit(f"prepush-gate: {tool} has no pinned build for {platform_key()} in {lock}")
-    version, url, sha, member = rows[tool]
-    target = tools_dir() / f"{tool}-{version}-{platform_key()}" / tool
-    if target.is_file() and os.access(target, os.X_OK):
+    return rows[tool]
+
+
+def ensure_tool(lock: Path, tool: str) -> Path:
+    """The pinned binary: a verified copy from tool_dirs(), else downloaded and sha256-checked once into the first."""
+    version, url, sha, member = pinned_row(lock, tool)
+    name = f"{tool}-{version}-{platform_key()}"
+    dirs = tool_dirs()
+    for folder in dirs:
+        if verified_tool(folder / name / tool):
+            return folder / name / tool
+    return download_tool(tool, version, url, sha, member, dirs[0] / name / tool)
+
+
+def fetch_tool(lock: Path, tool: str) -> Path:
+    """ensure_tool into the first of tool_dirs() (the hook's cache for an installed copy): a verified copy from a
+    later folder is copied there, so the hook keeps its own and a push needs no network."""
+    version, url, sha, member = pinned_row(lock, tool)
+    name = f"{tool}-{version}-{platform_key()}"
+    dirs = tool_dirs()
+    target = dirs[0] / name / tool
+    if verified_tool(target):
         return target
-    target.parent.mkdir(parents=True, exist_ok=True)
-    log(f"prepush-gate: downloading {tool} {version} (once) from {url}")
-    with tempfile.TemporaryDirectory(dir=target.parent) as tmp:
-        archive = Path(tmp) / "tool.zip"
-        with urllib.request.urlopen(url, timeout=120) as response, open(archive, "wb") as out:
-            shutil.copyfileobj(response, out)
-        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-        if digest != sha:
-            raise SystemExit(f"prepush-gate: {tool} download sha256 {digest} != pinned {sha}; refusing it")
-        with zipfile.ZipFile(archive) as zf:
-            extracted = Path(zf.extract(member, tmp))
-        extracted.chmod(0o755)
-        os.replace(extracted, target)
-    return target
+    for folder in dirs[1:]:
+        source = folder / name / tool
+        if verified_tool(source):
+            target.parent.mkdir(parents=True, exist_ok=True)
+            temporary = target.with_name(f"{tool}.{os.getpid()}.tmp")
+            shutil.copy2(source, temporary)
+            os.replace(temporary, target)
+            if verified_tool(target) and file_sha256(target) == tool_record(source).read_text().split("\n")[0]:
+                return target
+    return download_tool(tool, version, url, sha, member, target)
 
 
 # ---------------------------------------------------------------- trees
@@ -1133,32 +1264,37 @@ def load_guardrails(repo: Path, trusted_scripts: Path | None):
     return module
 
 
+GUARDRAILS_REPAIR = ("Run scripts/install-git-hooks.sh from a checkout at origin/feat-cmux-next (or one whose "
+                     "guardrails.py loads) and push again; tell the Performance Lead (PL-guardrails) with this line.")
+
+
 def start_guardrails(repo: Path, ranges: list, trusted_scripts: Path | None):
     """(module, ratchet, error): guardrails.py loaded, and its arch ratchet started on a thread at once.
 
     The ratchet runs next to the scanners, so the push pays what is left of it when the gate reaches the
     guardrails (its cost is the Swift files it reads and analyzes; guardrails.Ratchet). A load error is
-    reported there (fail open).
+    reported there, and refuses the push (fail closed: a gate that cannot load has judged nothing).
     """
     try:
         module = load_guardrails(repo, trusted_scripts)
         if module is None:
-            return None, None, ("guardrails.py is not installed; rerun scripts/install-git-hooks.sh"
-                                if trusted_scripts else None)
+            return None, None, ("guardrails.py is not installed, so nothing judged this push and it is refused; "
+                                "rerun scripts/install-git-hooks.sh" if trusted_scripts else None)
         start = getattr(module, "start_ratchet", None)
         return module, (start(repo, ranges) if start is not None else None), None
     except (Exception, SystemExit) as error:  # SystemExit: guardrails.git() exits on a failed git call
-        return None, None, (f"WARNING: guardrails.py failed ({type(error).__name__}: {error}); not applied to this "
-                            "push. Tell the Performance Lead (PL-guardrails) with this line.")
+        return None, None, (f"guardrails.py failed to load ({type(error).__name__}: {error}), so it judged nothing "
+                            f"and refuses this push (fail closed). {GUARDRAILS_REPAIR}")
 
 
 def guardrails(repo: Path, ranges: list, started) -> bool:
     """Print the guardrail warnings and refusals (line rules and arch ratchet) for RANGES; True when they refuse.
 
-    STARTED is start_guardrails()'s result. The rules are advisory debt checks in every agent's hook: a bug in
-    one rule turns off only that rule (guardrails.check warns and runs the rest); a bug outside the rules (a
-    failed load or git call, a parse edge) prints a warning and lets the push through instead of blocking
-    every push with a traceback. RANGES are the gate's push_range.OwnRange values, so the guardrails judge the
+    STARTED is start_guardrails()'s result. The rules are debt checks in every agent's hook: a rule that raises
+    refuses the push with its name and error (guardrails.measure fails closed and runs the rest, so a broken rule
+    never passes a push unjudged; its skip reason lets the push through). A guardrails.py that fails to load or
+    raises out of run_push (a git call, a parse edge) has judged nothing either: it refuses too, and the message
+    says how to reinstall a copy that loads. RANGES are the gate's push_range.OwnRange values, so the guardrails judge the
     same own commits as the scanners: what a push only brings in from origin/feat-cmux-next (a merge of it, or a
     rebase onto it and a force push) never counts, because CI never runs these rules and that base can carry
     debt.
@@ -1166,15 +1302,15 @@ def guardrails(repo: Path, ranges: list, started) -> bool:
     module, ratchet, error = started
     if error:
         log(f"prepush-gate: {error}")
-        return False
+        return True
     if module is None:
-        return False
+        return False  # a manual run in a checkout with no guardrails.py: there are no rules to apply
     try:
         return bool(module.run_push(repo, ranges, ratchet))
     except (Exception, SystemExit) as error:  # SystemExit: guardrails.git() exits on a failed git call
-        log(f"prepush-gate: WARNING: guardrails.py failed ({type(error).__name__}: {error}); not applied to "
-            "this push. Tell the Performance Lead (PL-guardrails) with this line.")
-        return False
+        log(f"prepush-gate: guardrails.py failed ({type(error).__name__}: {error}), so it judged nothing and "
+            f"refuses this push (fail closed). {GUARDRAILS_REPAIR}")
+        return True
 
 
 # The perf cron's unit tests (scripts/cmux-next/perf-cron.py) never run on CI (Lawrence 2026-10-23: no new CI tests;
@@ -1502,8 +1638,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,swiftlint,reserved,leo-bans,conflicts,"
                                        "sidebar,crash-allow,freeze")
     parser.add_argument("--timings", action="store_true")
+    parser.add_argument("--fetch-tool", metavar="TOOL",
+                        help="put the pinned TOOL (lint-tools.lock beside this file) in the hook's tool cache and exit")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
     args = parser.parse_args(argv)
+    if args.fetch_tool:
+        print(fetch_tool(Path(__file__).with_name("lint-tools.lock"), args.fetch_tool))
+        return 0
     repo = Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").decode().strip())
     only = set(args.only.split(",")) if args.only else None
     started = time.monotonic()

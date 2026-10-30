@@ -557,6 +557,9 @@ mod marked_unread_tests {
             add_tab_attention_column(&transaction).unwrap();
             transaction.commit().unwrap();
         }
+        let transaction = connection.transaction().unwrap();
+        add_tab_attention_column(&transaction).unwrap();
+        transaction.commit().unwrap();
         let count = |connection: &Connection| -> i64 {
             connection
                 .query_row("SELECT COUNT(*) FROM tab_state WHERE marked_unread = 1", [], |row| {

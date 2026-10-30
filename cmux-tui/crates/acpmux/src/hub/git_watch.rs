@@ -85,10 +85,10 @@ impl Hub {
                 let cwds: Vec<PathBuf> = held.iter().map(|(_, cwd)| cwd.clone()).collect();
                 // A session with no branch kept yet (this daemon just started)
                 // starts from the last one its log told.
-                let unseeded: Vec<Option<String>> = {
+                let unseeded: Vec<Option<Arc<Session>>> = {
                     let now = hub.git_watch.now.lock().unwrap_or_else(|p| p.into_inner());
                     held.iter()
-                        .map(|(s, _)| (!now.contains_key(&s.id)).then(|| s.id.clone()))
+                        .map(|(s, _)| (!now.contains_key(&s.id)).then(|| s.clone()))
                         .collect()
                 };
                 let watched = watched.clone();
@@ -97,7 +97,7 @@ impl Hub {
                     let read = read_and_watch(&watched, cwds);
                     let told: Vec<_> = unseeded
                         .into_iter()
-                        .map(|id| id.and_then(|id| reader.git_branch_told(&id)))
+                        .map(|session| session.and_then(|s| reader.git_branch_told(&s)))
                         .collect();
                     (read, told)
                 })
@@ -176,16 +176,39 @@ impl Hub {
         }
     }
 
-    /// The branch the last `git` record in session `id`'s log told, if any.
-    /// Reads the log: call off the runtime.
-    fn git_branch_told(&self, id: &str) -> Option<Option<String>> {
+    /// The branch the last `git` record in `session`'s log told, if any: the saved
+    /// `git_told`, so opening a chat reads none of its log for it. Only when that is not
+    /// known (a chat saved before it, a fork, a log that ran ahead of its saved session) is
+    /// the log read, once, newest record first, and the answer saved. Call off the runtime.
+    fn git_branch_told(&self, session: &Session) -> Option<Option<String>> {
+        if let Some(known) = &session.meta.lock().unwrap_or_else(|p| p.into_inner()).git_told {
+            return known.told();
+        }
         let mut told = None;
-        let _ = self.store.scan_kinds(id, &["git"], &mut |rec| {
-            if rec.dir == "mux" {
+        let _ = self.store.scan_back(
+            &session.id,
+            0,
+            u64::MAX,
+            &|dir: &[u8], kind: &[u8]| dir != b"mux" || kind != b"git",
+            &mut |rec| {
+                if rec.dir != "mux" || rec.kind != "git" {
+                    return true;
+                }
                 told = Some(rec.msg.get("gitBranch").and_then(Value::as_str).map(str::to_owned));
+                false
+            },
+        );
+        let known =
+            crate::store::GitTold { recorded: told.is_some(), branch: told.clone().flatten() };
+        {
+            let mut meta = session.meta.lock().unwrap_or_else(|p| p.into_inner());
+            // A `git` record appended since the read (this task's own, in order) wins.
+            if meta.git_told.is_some() {
+                return meta.git_told.as_ref().and_then(crate::store::GitTold::told);
             }
-            true
-        });
+            meta.git_told = Some(known);
+        }
+        self.save_meta(session);
         told
     }
 
@@ -212,7 +235,10 @@ impl Hub {
             }
         };
         if before != branch {
-            self.append(session, "mux", "git", json!({"gitBranch": branch}));
+            self.append(session, "mux", "git", json!({"gitBranch": branch.clone()}));
+            session.meta.lock().unwrap_or_else(|p| p.into_inner()).git_told =
+                Some(crate::store::GitTold { recorded: true, branch });
+            self.save_meta(session);
         }
     }
 }

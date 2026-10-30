@@ -6,7 +6,7 @@
 //! - **One build, shared.** A [`Snapshot`] is the list serialized once; a whole list is
 //!   sent as those bytes, a page or filter is cut from them (rows picked by their keys).
 //! - **Never staler than a client is owed.** It is reused only while nothing a watcher
-//!   hears of changed (every send on [`Events`], attach or detach, write to the peers'
+//!   hears of changed (every send on the hub's `EventBus`, attach or detach, write to the peers'
 //!   rows, and change of a peer's link state counts), within its window, and never while
 //!   the chat logs load. Fields
 //!   that change with the clock alone (a stall, an expiring tag) are at most a window old.
@@ -43,36 +43,6 @@ const REPLIES: u32 = 8;
 const PAGE_MIN: f64 = 1.0 / 16.0;
 /// The longest a list request waits for its turn; a longer wait is refused.
 pub(crate) const MAX_WAIT: Duration = Duration::from_secs(30);
-
-/// The hub's event channel. Every send is a change some list shows.
-pub(crate) struct Events {
-    tx: broadcast::Sender<HubEvent>,
-    changes: AtomicU64,
-}
-
-impl Events {
-    pub(super) fn new(capacity: usize) -> Self {
-        Self { tx: broadcast::channel(capacity).0, changes: AtomicU64::new(0) }
-    }
-
-    /// Counts the change, then sends it.
-    pub(super) fn send(
-        &self,
-        event: HubEvent,
-    ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
-        self.changed();
-        self.tx.send(event)
-    }
-
-    pub(super) fn subscribe(&self) -> broadcast::Receiver<HubEvent> {
-        self.tx.subscribe()
-    }
-
-    /// A change no event carries (an attach): the next list is built anew.
-    pub(super) fn changed(&self) {
-        self.changes.fetch_add(1, Ordering::SeqCst);
-    }
-}
 
 /// One build of the list, kept serialized: a JSON tree of every summary is several
 /// times its text.

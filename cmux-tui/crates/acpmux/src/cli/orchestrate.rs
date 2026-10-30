@@ -3,7 +3,7 @@
 //! called by another agent or a script, so output is stable and errors
 //! carry exit codes (see errors.rs).
 
-use crate::cli::errors::{AppError, Code};
+use crate::cli::errors::{AppError, Code, Reported};
 use crate::cli::output::*;
 use crate::cli::run::resolve_id;
 use crate::client::Client;
@@ -185,7 +185,7 @@ pub(crate) async fn wait(client: Arc<Client>, opts: WaitOpts, json_out: bool) ->
         }
     }
     if code != 0 {
-        std::process::exit(code);
+        return Err(Reported(code).into());
     }
     Ok(())
 }
@@ -743,7 +743,7 @@ pub(crate) async fn compare(
         }
     }
     if worst != 0 {
-        std::process::exit(worst);
+        return Err(Reported(worst).into());
     }
     Ok(())
 }

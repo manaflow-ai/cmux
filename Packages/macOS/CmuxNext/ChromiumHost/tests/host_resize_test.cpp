@@ -1,17 +1,9 @@
-// Checks a hosted page's resize and its fence on the host's side
-// (src/host_resize.h), alone and through the dispatcher
-// (src/host_dispatch.mm) with a fake shim and a fake inbox: the op's fields
-// round-trip and a malformed op is refused; a fence is taken by its seq, the
-// fences of older seqs and those past kMaxPendingFences are released; the
-// fork gets the fence before the page view's frame changes, under the
-// browser's Chromium id, with a deadline of one display frame at most; the
-// host's own right is always released; a fenced op is answered with whether
-// the fork took the fence, an unfenced one is not answered; an op that comes
-// before initialize waits for it; a view's size stays after its browsers
-// close, for the next browser on it, and the sizes kept are bounded without
-// ending the host. The Mach transport itself (SendFence and the checked-in
-// inbox) is macOS only: cef-resize-sync-bench.py --modes host measures it on
-// the fleet.
+// Checks a hosted page's resize on the host's side (src/host_resize.h),
+// alone and through the dispatcher (src/host_dispatch.mm) with a fake shim:
+// the op's fields round-trip and a malformed op is refused; an open view is
+// resized and the op is not answered; an op that comes before initialize
+// waits for it; a view's size stays after its browsers close, for the next
+// browser on it, and the sizes kept are bounded without ending the host.
 // Run by scripts/cmux-next/tests/chromium-host-dispatch.test.sh.
 #include <cstdio>
 #include <cstdlib>
@@ -40,28 +32,10 @@ void Check(bool ok, const std::string& what) {
   }
 }
 
-// Fences cmux sent and the rights the host released, in order.
-struct FakeInbox : FenceInbox {
-  std::vector<Fence> waiting;
-  std::vector<uint32_t> released;
-  std::vector<std::string>* log = nullptr;
-  std::vector<Fence> Drain() override {
-    std::vector<Fence> out;
-    out.swap(waiting);
-    return out;
-  }
-  void Release(uint32_t right) override {
-    released.push_back(right);
-    if (log) log->push_back("release " + std::to_string(right));
-  }
-};
-
-// The fake shim: the joins the dispatcher made, and the browser it creates.
+// The fake shim: the browser it creates.
 struct Shim {
   HostContext* host = nullptr;
-  std::vector<std::string>* log = nullptr;
   int live = 0;
-  int join_result = 1;
 } shim;
 
 }  // namespace
@@ -77,13 +51,6 @@ int cmux_shim_create_window(int request, void*, int, int, const char*, const cha
   ++shim.live;
   HostContext::OnShimEvent(shim.host, CMUX_SHIM_AFTER_CREATED, 3, request, 0, 0, "", "");
   return 1;
-}
-int cmux_shim_browser_set_resize_fence(int browser_id, unsigned int fence_port, unsigned int deadline_frames) {
-  if (shim.log) {
-    shim.log->push_back("join " + std::to_string(browser_id) + " " + std::to_string(fence_port) + " " +
-                        std::to_string(deadline_frames));
-  }
-  return shim.join_result;
 }
 char* cmux_shim_tab_navigation_state(int) { return nullptr; }
 void cmux_shim_free(char* s) { std::free(s); }
@@ -125,88 +92,27 @@ std::vector<control::Field> Fields(const PageResize& resize) {
   return w.Take();
 }
 
-PageResize Resize(uint64_t view, int32_t browser, int32_t width, int32_t height, uint64_t seq, uint32_t frames) {
+PageResize Resize(uint64_t view, int32_t width, int32_t height) {
   PageResize resize;
   resize.view = view;
-  resize.browser = browser;
   resize.width = width;
   resize.height = height;
-  resize.fence_seq = seq;
-  resize.deadline_frames = frames;
   return resize;
 }
 
 void FieldsRoundTrip() {
-  const PageResize sent = Resize(9, kMinted, 640, 480, 7, 2);
+  const PageResize sent = Resize(9, 640, 480);
   const std::optional<PageResize> got = DecodePageResize(Fields(sent));
-  Check(got && got->view == 9 && got->browser == kMinted && got->width == 640 && got->height == 480 &&
-            got->fence_seq == 7 && got->deadline_frames == 2,
-        "a page resize round-trips");
-  Check(!DecodePageResize(Fields(Resize(0, 1, 10, 10, 0, 1))), "view token 0 is refused");
-  Check(!DecodePageResize(Fields(Resize(9, 1, 0, 10, 0, 1))), "a width under 1 point is refused");
-  Check(!DecodePageResize(Fields(Resize(9, 1, 10, 40000, 0, 1))), "a height over 32767 is refused");
+  Check(got && got->view == 9 && got->width == 640 && got->height == 480, "a page resize round-trips");
+  Check(!DecodePageResize(Fields(Resize(0, 10, 10))), "view token 0 is refused");
+  Check(!DecodePageResize(Fields(Resize(9, 0, 10))), "a width under 1 point is refused");
+  Check(!DecodePageResize(Fields(Resize(9, 10, 40000))), "a height over 32767 is refused");
   std::vector<control::Field> extra = Fields(sent);
   extra.push_back(control::Field::I32(control::kTagValue, 1));
   Check(!DecodePageResize(extra), "an extra field is refused");
   std::vector<control::Field> short_op = Fields(sent);
   short_op.pop_back();
   Check(!DecodePageResize(short_op), "a missing field is refused");
-  Writer negative;
-  negative.ViewToken(9);
-  for (int32_t v : {1, 10, 10}) negative.I32(v);
-  negative.I64(0);
-  negative.I32(-1);
-  Check(!DecodePageResize(negative.Take()), "a negative deadline is refused");
-}
-
-void BookTakesBySeq() {
-  FakeInbox inbox;
-  {
-    FenceBook book(&inbox);
-    inbox.waiting = {{1, 101}, {2, 102}, {4, 104}};
-    Check(book.Take(2) == 102, "seq 2's right");
-    Check(inbox.released == std::vector<uint32_t>({101}), "seq 1's op will not come: its right is released");
-    Check(book.Take(3) == 0 && book.pending() == 1, "no fence for seq 3; seq 4 waits for its op");
-    Check(book.Take(0) == 0, "seq 0 has no fence");
-    inbox.waiting = {{5, 105}};
-    Check(book.Take(4) == 104 && book.pending() == 1, "seq 4 then, with 5 still waiting");
-  }
-  Check(inbox.released == std::vector<uint32_t>({101, 105}), "the book releases what waits when it goes");
-
-  FakeInbox flood;
-  FenceBook book(&flood);
-  for (uint64_t seq = 1; seq <= kMaxPendingFences + 3; ++seq) flood.waiting.push_back({seq, static_cast<uint32_t>(seq)});
-  Check(book.Take(kMaxPendingFences + 3) == kMaxPendingFences + 3, "the newest fence of a flood");
-  Check(flood.released.size() == kMaxPendingFences + 2 && book.dropped() == kMaxPendingFences + 2,
-        "the rest are released, never more than kMaxPendingFences kept");
-  FenceBook none(nullptr);
-  Check(none.Take(1) == 0, "no inbox: no fence");
-}
-
-void JoinsBeforeTheFrameChange() {
-  std::vector<std::string> log;
-  FakeInbox inbox;
-  inbox.log = &log;
-  PageResizes resizes(&inbox, [&log](int browser, uint32_t right, uint32_t frames) {
-    log.push_back("join " + std::to_string(browser) + " " + std::to_string(right) + " " + std::to_string(frames));
-    return 1;
-  });
-  inbox.waiting = {{1, 201}};
-  Check(resizes.Apply(Resize(9, 1, 10, 10, 1, 5), 3, [&log] { log.push_back("frame"); }), "the fork took the fence");
-  Check(log == std::vector<std::string>({"join 3 201 1", "release 201", "frame"}),
-        "join (deadline at most one frame), the host's right released, then the frame change");
-  log.clear();
-  Check(!resizes.Apply(Resize(9, 1, 10, 10, 2, 0), 3, [&log] { log.push_back("frame"); }), "no fence for seq 2");
-  Check(log == std::vector<std::string>({"frame"}), "the frame still changes");
-  log.clear();
-  inbox.waiting = {{3, 203}};
-  Check(!resizes.Apply(Resize(9, 1, 10, 10, 3, 1), 0, [&log] { log.push_back("frame"); }), "a browser not open here");
-  Check(log == std::vector<std::string>({"release 203", "frame"}), "its fence is released, not joined");
-  log.clear();
-  Check(!resizes.Apply(Resize(9, 1, 10, 10, 0, 1), 3, [&log] { log.push_back("frame"); }), "an unfenced resize");
-  Check(log == std::vector<std::string>({"frame"}), "takes nothing from the inbox");
-  const PageResizes::Stats& stats = resizes.stats();
-  Check(stats.resizes == 4 && stats.fenced == 3 && stats.joined == 1 && stats.missing == 1, "the counters");
 }
 
 // The dispatcher, initialized, with one browser (cmux's kMinted, Chromium's
@@ -216,8 +122,6 @@ struct Fixture {
   std::vector<std::string> log;
   Delegate delegate;
   Views views;
-  FakeInbox inbox;
-  PageResizes resizes{&inbox, &cmux_shim_browser_set_resize_fence};
   HostContext host{[this](const Message& m) {
                      sent.push_back(m);
                      return true;
@@ -226,10 +130,7 @@ struct Fixture {
   explicit Fixture(bool initialize = true) {
     shim = Shim();
     shim.host = &host;
-    shim.log = &log;
     views.log = &log;
-    inbox.log = &log;
-    host.SetPageResizes(&resizes);
     host.Attach();
     Writer hello;
     hello.Str(kWireID);
@@ -292,28 +193,13 @@ struct Fixture {
 
 void DispatchesThroughTheHost() {
   Fixture f;
-  f.inbox.waiting = {{1, 301}};
-  f.host.OnMessages({Op(kOpPageResize, 5, Fields(Resize(9, kMinted, 640, 480, 1, 1)))});
-  Check(f.log == std::vector<std::string>({"join 3 301 1", "release 301", "resize 9 640x480"}),
-        "the fork joins Chromium's browser 3 to the fence, then view 9 is resized");
-  Check(f.Replies() == std::vector<std::string>({"5 = 1"}), "a fenced resize is answered: joined");
+  f.host.OnMessages({Op(kOpPageResize, 0, Fields(Resize(9, 640, 480)))});
+  Check(f.log == std::vector<std::string>({"resize 9 640x480"}) && f.Replies().empty(),
+        "view 9 is resized, and the op is not answered");
   f.log.clear();
 
-  f.host.OnMessages({Op(kOpPageResize, 0, Fields(Resize(9, kMinted, 700, 480, 0, 1)))});
-  Check(f.log == std::vector<std::string>({"resize 9 700x480"}) && f.Replies().empty(),
-        "an unfenced resize changes the frame and is not answered");
-  f.log.clear();
-
-  shim.join_result = 0;
-  f.inbox.waiting = {{2, 302}};
-  f.host.OnMessages({Op(kOpPageResize, 6, Fields(Resize(9, kMinted, 720, 480, 2, 1)))});
-  Check(f.Replies() == std::vector<std::string>({"6 = 0"}), "a fork that did not take the fence: answered 0");
-  Check(f.inbox.released.back() == 302, "and the host's right is released all the same");
-  f.log.clear();
-
-  f.host.OnMessages({Op(kOpPageResize, 7, Fields(Resize(77, kMinted, 720, 480, 3, 1)))});
-  Check(f.log.empty() && f.Replies() == std::vector<std::string>({"7 = 0"}),
-        "a view not open yet is not made, its fence missing");
+  f.host.OnMessages({Op(kOpPageResize, 0, Fields(Resize(77, 720, 480)))});
+  Check(f.log.empty() && f.Replies().empty(), "a view not open yet is not made");
   Writer create;
   create.I32(kMinted + 1);
   create.I32(43);
@@ -337,7 +223,7 @@ void DispatchesThroughTheHost() {
 
 void WaitsForInitialize() {
   Fixture f(false);
-  f.host.OnMessages({Op(kOpPageResize, 0, Fields(Resize(9, kMinted, 640, 480, 0, 1)))});
+  f.host.OnMessages({Op(kOpPageResize, 0, Fields(Resize(9, 640, 480)))});
   Check(f.log.empty() && f.delegate.calls.empty(), "a resize before initialize waits");
   f.Initialize();
   Check(f.log == std::vector<std::string>({"resize 9 640x480"}) && f.delegate.calls == std::vector<std::string>({"initialize"}),
@@ -349,7 +235,7 @@ void WaitsForInitialize() {
 // the next browser opened on it.
 void AReopenedViewTakesItsLastSize() {
   Fixture f;
-  f.host.OnMessages({Op(kOpPageResize, 0, Fields(Resize(9, kMinted, 640, 480, 0, 1)))});
+  f.host.OnMessages({Op(kOpPageResize, 0, Fields(Resize(9, 640, 480)))});
   f.Close();
   f.log.clear();
   f.Create(kMinted + 1, 9);
@@ -364,12 +250,12 @@ void AReopenedViewTakesItsLastSize() {
 // open view's never.
 void ManySizedViewsStayBoundedAndEndNoHost() {
   Fixture f;
-  f.host.OnMessages({Op(kOpPageResize, 0, Fields(Resize(9, kMinted, 640, 480, 0, 1)))});
+  f.host.OnMessages({Op(kOpPageResize, 0, Fields(Resize(9, 640, 480)))});
   f.log.clear();
   constexpr uint64_t kFirst = 1000;
   constexpr uint64_t kCount = 2 * 4096 + 16;
   for (uint64_t view = kFirst; view < kFirst + kCount; ++view) {
-    f.host.OnMessages({Op(kOpPageResize, 0, Fields(Resize(view, kMinted, 100, 100, 0, 1)))});
+    f.host.OnMessages({Op(kOpPageResize, 0, Fields(Resize(view, 100, 100)))});
   }
   Check(f.delegate.calls == std::vector<std::string>({"initialize"}), "valid resizes past the bound end no host");
   Check(f.log.empty(), "views never opened are not made");
@@ -390,8 +276,6 @@ void ManySizedViewsStayBoundedAndEndNoHost() {
 
 int main() {
   FieldsRoundTrip();
-  BookTakesBySeq();
-  JoinsBeforeTheFrameChange();
   DispatchesThroughTheHost();
   WaitsForInitialize();
   AReopenedViewTakesItsLastSize();

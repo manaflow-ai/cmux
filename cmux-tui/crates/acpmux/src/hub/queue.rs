@@ -654,7 +654,7 @@ impl Hub {
 
     /// `_acpmux/queue_remove`: `remove_queued`, refused while the chat is being moved.
     /// Only `editor`'s own prompt (`author.rs`), checked as it leaves.
-    pub fn withdraw_queued(
+    pub async fn withdraw_queued(
         &self,
         session: &Arc<Session>,
         prompt_id: &str,
@@ -663,7 +663,29 @@ impl Hub {
         if session.moving().is_some() {
             return Err(moving_error());
         }
-        self.remove_queued_by(session, prompt_id, None, editor)
+        let removed = self.remove_queued_by(session, prompt_id, None, editor)?;
+        self.queue_change_logged(session).await?;
+        Ok(removed)
+    }
+
+    /// The one rule for every reply that says a queue change was made (`_acpmux/queue_edit`,
+    /// `_acpmux/queue_remove`, `_acpmux/prompt_withdraw`): it is sent only once every record
+    /// of the session appended so far is written to its log, so a daemon that dies right
+    /// after the reply (a crash, SIGKILL) restores the queue with the change. The file store
+    /// writes logs in the background (`store/log_writer.rs`); this waits for that write (an
+    /// event, not a timer; no fsync), as an agent host's entry is acknowledged only once its
+    /// record is written (`agent::WriteTicket`). A store with no background writer answers
+    /// at once. A log whose write failed is an error, never an ok.
+    pub(super) async fn queue_change_logged(&self, session: &Session) -> Result<(), RpcError> {
+        let logged = crate::agent::WriteTicket::new(
+            session.seq.load(Ordering::SeqCst),
+            self.store.progress(&session.id),
+        );
+        if logged.written().await {
+            Ok(())
+        } else {
+            Err(RpcError::internal("the queue change could not be saved to the chat's log"))
+        }
     }
 
     /// Takes a waiting prompt out of the queue before its turn starts; its `session/prompt` then

@@ -212,16 +212,60 @@ fn classify_message(e: &anyhow::Error, msg: String) -> AppError {
     AppError::new(Code::Runtime, detail, msg)
 }
 
-/// Print and exit. Text mode prints `acpmux: <code>: <message>` and what to do; JSON mode
+/// A command that already printed its whole result, and whose process ends
+/// with this exit code (a wait that timed out, a compare whose worst run
+/// failed, a host update that failed somewhere). It travels as the command's
+/// error so the command returns to its caller instead of ending the process
+/// itself; [`exit_with`] then prints nothing more.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Reported(pub i32);
+
+impl fmt::Display for Reported {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "the command reported its result and exits with {}", self.0)
+    }
+}
+
+impl std::error::Error for Reported {}
+
+/// Prints `e` for the person (nothing for [`Reported`]) and returns the exit
+/// code it maps to. Text mode prints `acpmux: <code>: <message>` and what to do; JSON mode
 /// prints the envelope, both on stderr, nothing on stdout.
-pub fn exit_with(e: &anyhow::Error, json_out: bool) -> ! {
+pub fn report(e: &anyhow::Error, json_out: bool) -> i32 {
+    if let Some(Reported(code)) = e.downcast_ref::<Reported>() {
+        return *code;
+    }
     let app = classify(e);
     if json_out {
         eprintln!("{}", app.envelope());
     } else {
         eprintln!("{}", app.text());
     }
-    std::process::exit(app.exit_status());
+    app.exit_status()
+}
+
+/// Print and exit: [`report`], then the process ends with its code.
+pub fn exit_with(e: &anyhow::Error, json_out: bool) -> ! {
+    std::process::exit(report(e, json_out));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_reported_result_ends_with_its_own_code() {
+        // `wait` timed out (3) after printing its rows: no envelope, the code it chose.
+        let error = anyhow::Error::new(Reported(3)).context("acpmux wait");
+        assert_eq!(report(&error, true), 3);
+        assert_eq!(report(&anyhow::Error::new(Reported(1)), false), 1);
+    }
+
+    #[test]
+    fn any_other_error_ends_with_its_class_code() {
+        assert_eq!(report(&AppError::no_session("x").into(), false), Code::NoSession as i32);
+        assert_eq!(report(&anyhow::anyhow!("boom"), true), Code::Runtime as i32);
+    }
 }
 
 #[cfg(test)]

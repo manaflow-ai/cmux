@@ -693,7 +693,9 @@ class RuleTests(Fixture):
         self.assertFalse(refused)
         self.assertIn("SKIPPED", text)
 
-    def test_a_rule_that_raises_is_off_for_that_push_and_the_others_still_refuse(self):
+    def test_a_rule_that_raises_refuses_the_push_and_the_others_still_refuse(self):
+        # Fail closed: a rule that raised judged nothing, so passing would let every push through it unjudged
+        # (wakeup-ext raised on every merge push for days and nobody saw it, 2026-10-29).
         self.write(f"{KIT}/Added.swift", CASES["main-async"][0])
         self.commit("adds a main hop")
 
@@ -705,23 +707,32 @@ class RuleTests(Fixture):
                 rules = tuple(dataclasses.replace(r, find=broken) if r.id == failing else r for r in guardrails.RULES)
                 with mock.patch.object(guardrails, "RULES", rules):
                     refusals, warnings = self.check()
-                self.assertEqual([r.id for r, _ in refusals], [] if failing == "main-async" else ["main-async"])
+                self.assertEqual(sorted(r.id for r, _ in refusals), sorted({failing, "main-async"}))
+                crashed = {r.id: hits for r, hits in refusals}[failing]
+                self.assertEqual([type(h) for h in crashed], [guardrails.RuleFailure], crashed)
+                self.assertIn(f"rule {failing} failed (RuntimeError: boom at test_cmux_next_guardrails.py:",
+                              crashed[0].text)
                 failed = [text for kind, text in warnings if kind == "guardrails"]
                 self.assertEqual(len(failed), 1, warnings)
                 self.assertIn(f"rule {failing} failed (RuntimeError: boom at test_cmux_next_guardrails.py:", failed[0])
+                text, refused = guardrails.format_report(refusals, warnings)
+                self.assertTrue(refused, text)
+                self.assertIn("refuses it (fail closed)", text)
         with mock.patch.object(guardrails, "perf_hot_warnings", broken):
             refusals, warnings = self.check()
         self.assertEqual([r.id for r, _ in refusals], ["main-async"])
         self.assertIn("perf-hot failed (RuntimeError: boom", " ".join(text for _, text in warnings))
         # The installed hook copies scripts/cmux-next; a CI edit of the lexer next to guardrails.py that no
-        # longer loads turns off the App rules (app-size, app-type) only, never the whole module (and so every rule).
+        # longer loads makes the App rules (app-size, app-type) refuse with their failure named, and never breaks the
+        # whole module (and so every rule).
         installed = self.root / "installed"
         installed.mkdir()
         # As scripts/install-git-hooks.sh installs it: every top-level file of scripts/cmux-next, so the modules
         # guardrails.py loads at import (swift_scope.py, which check-concurrency.sh shares, and what it loads)
         # are next to it, as in the hook.
-        for script in (SOURCE / "scripts/cmux-next").glob("*.py"):
-            shutil.copy(script, installed)
+        for script in (SOURCE / "scripts/cmux-next").iterdir():  # data too: decode-trap reads decode-paths.json
+            if script.is_file():
+                shutil.copy(script, installed)
         (installed / "count-swift-code-lines.py").write_text("raise ImportError('a lexer that does not load')\n")
         spec = importlib.util.spec_from_file_location("cmux_next_guardrails_broken_lexer", installed / "guardrails.py")
         copy = importlib.util.module_from_spec(spec)
@@ -731,7 +742,8 @@ class RuleTests(Fixture):
         self.write(f"{APP}/Grown.swift", "struct Grown {}\n")
         self.commit("an App file, so app-size reads the lexer")
         refusals, warnings = self.check(copy.check)
-        self.assertEqual([r.id for r, _ in refusals], ["main-async"], "the other line rules still refuse")
+        self.assertEqual(sorted(r.id for r, _ in refusals), ["app-size", "app-type", "main-async"],
+                         "the other line rules still refuse, and the two that raised refuse")
         failed = [text for kind, text in warnings if kind == "guardrails"]
         self.assertEqual(len(failed), 2, warnings)  # app-size and app-type read the lexer
         self.assertIn("rule app-size failed (ImportError: a lexer that does not load", failed[0])
@@ -753,7 +765,7 @@ class RuleTests(Fixture):
         for option in named:
             self.assertRegex(usage, rf"(^|\s|\[){re.escape(option)}\b", f"{option} is not a crash_ratchet.py option")
 
-    def test_a_rule_that_raises_only_on_the_pushed_range_of_a_merge_is_warned_once(self):
+    def test_a_rule_that_raises_on_either_range_of_a_merge_refuses_once(self):
         # A branch that merged feat-cmux-next in: check_push checks the branch's range over the merged upstream and
         # takes off what the old remote head already had (its range over the upstream it started from).
         self.git("checkout", "--quiet", "-b", "topic")
@@ -788,8 +800,11 @@ class RuleTests(Fixture):
                 if find is only_pushed:
                     self.assertEqual([t for k, t in branch_warnings if k == "guardrails"], [],
                                      "control: the rule runs on the branch's own range")
-                self.assertEqual([(r.id, [h.path.rsplit("/", 1)[-1] for h in hits]) for r, hits in refusals],
-                                 [("main-async", ["Own.swift"])])
+                found = {r.id: hits for r, hits in refusals}
+                self.assertEqual([h.path.rsplit("/", 1)[-1] for h in found.pop("main-async")], ["Own.swift"])
+                # A failure on both ranges never nets out: the push is refused once, with the rule named.
+                self.assertEqual([(rule, [type(h) for h in hits]) for rule, hits in found.items()],
+                                 [("app-size", [guardrails.RuleFailure])])
                 failed = [text for kind, text in warnings if kind == "guardrails"]
                 self.assertEqual(len(failed), 1, warnings)
                 self.assertIn("rule app-size failed (RuntimeError: boom at test_cmux_next_guardrails.py:", failed[0])
@@ -1559,7 +1574,7 @@ class AppSizeTests(Fixture):
         self.assertEqual(self.type_hits(view), [], "fail open for that file only")
         self.assertTrue(self.growth(), "app-size still runs")
 
-    def test_a_fault_in_the_type_scan_turns_off_only_app_type(self):
+    def test_a_fault_in_the_type_scan_refuses_with_app_type_only(self):
         # Review 1 of app-size-b: the type check ran inside app-size, so an exception in the brace scan turned off
         # the root budget and the new-file refusals too.
         self.append(f"{APP}/AppDelegate.swift", swift_body(35, "wire"))
@@ -1570,7 +1585,8 @@ class AppSizeTests(Fixture):
             refusals, warnings = self.check()
         self.assertEqual(sorted(h.bucket for rule, hits in refusals if rule.id == "app-size" for h in hits),
                          [f"new:{APP}/Quit/QuitNew.swift", "root"])
-        self.assertNotIn("app-type", [rule.id for rule, _ in refusals])
+        self.assertEqual([[type(h) for h in hits] for rule, hits in refusals if rule.id == "app-type"],
+                         [[guardrails.RuleFailure]], "app-type refuses with its failure (fail closed), nothing else")
         failed = [text for kind, text in warnings if kind == "guardrails"]
         self.assertEqual(len(failed), 1, warnings)
         self.assertIn("rule app-type failed (RuntimeError: boom", failed[0])
@@ -2651,7 +2667,7 @@ class BlobReadTests(Fixture):
         self.commit("an escaped main hop")
         self.assertEqual(self.refused(), [])
 
-    def test_a_failed_blob_read_stops_the_check_and_the_hook_fails_open(self):
+    def test_a_failed_blob_read_stops_the_check_and_the_hook_refuses(self):
         self.fake_git("    echo 'fake git: cat-file failed' >&2; exit 1")
         self.write(f"{KIT}/Added.swift", self.TEXT)
         self.commit("an escaped main hop")
@@ -2669,13 +2685,33 @@ class BlobReadTests(Fixture):
         finally:
             os.environ.update(saved)
             sys.modules[_spec.name] = guardrails
-        self.assertFalse(refused, stdout.getvalue())
+        self.assertTrue(refused, stdout.getvalue())  # it judged nothing: fail closed
         self.assertIn("guardrails.py failed", stderr.getvalue())
+        self.assertIn("refuses this push (fail closed)", stderr.getvalue())
         self.assertNotIn("[main-async]", stdout.getvalue())
 
 
 class GateWrapperTests(Fixture):
-    """guardrails.run_push(): a checker failure lets through only the range it could not judge."""
+    """guardrails.run_push(): a range the checker could not judge refuses the push; the others are still judged."""
+
+    def test_a_range_it_could_not_judge_refuses_even_when_the_others_pass(self):
+        def check_own(repo, base, head, before=()):
+            if head == "feat-b":
+                raise SystemExit("guardrails: git diff failed")
+            return [], []
+
+        class Finished:
+            def finish(self):
+                return "", False
+
+        ranges = [types.SimpleNamespace(base=self.base, head=head, before=()) for head in ("feat-a", "feat-b")]
+        stderr = io.StringIO()
+        with mock.patch.object(guardrails, "check_own", check_own), \
+                contextlib.redirect_stderr(stderr), contextlib.redirect_stdout(io.StringIO()):
+            refused = guardrails.run_push(self.repo, ranges, Finished())
+        self.assertTrue(refused, stderr.getvalue())
+        self.assertIn("refuses this push (fail closed)", stderr.getvalue())
+        self.assertIn("feat-b", stderr.getvalue(), "the refusal names the range it could not judge")
 
     def test_a_failure_on_one_pushed_range_keeps_the_refusal_of_another(self):
         rule = next(r for r in guardrails.RULES if r.id == "main-async")
@@ -2826,14 +2862,47 @@ class HookTests(Fixture):
         self.assertIn("arch rule fixture_refuse: refused this push", output)
         self.assertNotIn("arch rules directory", output)
 
-    def test_a_broken_guardrails_script_warns_and_lets_the_push_through(self):
+    def test_a_rule_that_raises_in_the_installed_copy_refuses_the_push(self):
+        # Fail closed through the real hook: a rule that raised judged nothing, so the push stops with the rule
+        # named; only its own skip reason lets the push through.
+        installed = self.repo / ".git" / "cmux-git-hooks" / "cmux-next-checks" / "guardrails.py"
+        with installed.open("a", encoding="utf-8") as script:
+            script.write("\n\ndef _fixture_broken(changes, moved):\n    raise RuntimeError('boom')\n\n\n"
+                         "RULES = tuple(dataclasses.replace(r, find=_fixture_broken) if r.id == 'unchecked-sendable'"
+                         " else r for r in RULES)\n")
+        result = self.push(CMUX_NEXT_CHECKS_SKIP_REASON="fixture: other checks",
+                           CMUX_GUARDRAILS_SKIP_REASON="main-async: fixture")
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("[unchecked-sendable]", output)
+        self.assertIn("rule unchecked-sendable failed (RuntimeError: boom at guardrails.py:", output)
+        self.assertIn("refuses it (fail closed)", output)
+        skipped = self.push(CMUX_NEXT_CHECKS_SKIP_REASON="fixture: other checks",
+                            CMUX_GUARDRAILS_SKIP_REASON="main-async,unchecked-sendable: fixture")
+        output = skipped.stdout + skipped.stderr
+        self.assertEqual(skipped.returncode, 0, output)
+        self.assertIn("SKIPPED by CMUX_GUARDRAILS_SKIP_REASON", output)
+
+    def test_a_guardrails_script_that_raises_or_does_not_load_refuses_the_push(self):
+        # Fail closed: a gate that cannot load, or that raises before it answers, has judged nothing.
         installed = self.repo / ".git" / "cmux-git-hooks" / "cmux-next-checks"
         self.assertTrue(installed.is_symlink(), "the installer swaps a link, so the checks are never missing")
-        (installed / "guardrails.py").write_text("def run_push(repo, ranges, ratchet=None):\n    raise ValueError('boom')\n")
-        result = self.push(CMUX_NEXT_CHECKS_SKIP_REASON="fixture: other checks")
-        output = result.stdout + result.stderr
-        self.assertEqual(result.returncode, 0, output)
-        self.assertIn("guardrails.py failed (ValueError: boom)", output)
+        for name, text, said in (
+                ("raises", "def run_push(repo, ranges, ratchet=None):\n    raise ValueError('boom')\n",
+                 "guardrails.py failed (ValueError: boom)"),
+                ("does not load", "def run_push(:\n", "guardrails.py failed to load (SyntaxError"),
+                ("is missing", None, "guardrails.py is not installed")):
+            with self.subTest(guardrails=name):
+                if text is None:
+                    (installed / "guardrails.py").unlink()
+                else:
+                    (installed / "guardrails.py").write_text(text)
+                result = self.push(CMUX_NEXT_CHECKS_SKIP_REASON="fixture: other checks",
+                                   CMUX_GUARDRAILS_SKIP_REASON="main-async: fixture")
+                output = result.stdout + result.stderr
+                self.assertNotEqual(result.returncode, 0, output)
+                self.assertIn(said, output)
+                self.assertIn("install-git-hooks.sh", output, "the refusal says how to repair the hook")
 
     def test_a_second_install_keeps_the_checks_in_place(self):
         before = (self.repo / ".git" / "cmux-git-hooks" / "cmux-next-checks").resolve()
@@ -3132,6 +3201,10 @@ QUALITY_CASES = {
                             "    let text = try String(contentsOf: root.appending(path: \"Sources/CmuxFoo/Box.swift\"), encoding: .utf8)\n"
                             "    #expect(text.contains(\"NSLock\"))\n}\n",
                             "import Testing\n@testable import CmuxFoo\n@Test func box() {\n    #expect(Box().count == 0)\n}\n"),
+    "assume-isolated": (f"{SHARED}/Hop.swift",
+                        "func apply() {\n    MainActor.assumeIsolated { render() }\n}\n",
+                        "func apply() {\n    // main-proof: AppKit calls this display link callback on the main thread\n"
+                        "    MainActor.assumeIsolated { render() }\n}\n"),
     "multi-type-file": (f"{SHARED}/Pair.swift",
                         "public struct Left {\n    public let x = 0\n}\n\npublic struct Right {\n    public let y = 0\n}\n",
                         "public struct Left {\n    public let x = 0\n}\n\nprivate struct Helper {\n    let y = 0\n}\n"),
@@ -3313,13 +3386,47 @@ class QualityRatchetTests(Fixture):
         self.assertIn("static-shared", ids)
         self.assertIn("quality-baseline", ids)
 
+    def test_assume_isolated_takes_either_escape_and_is_not_judged_twice_in_cmux_next(self):
+        for line in ("model.assumeIsolated { $0.apply() }", "MainActor.assumeIsolated { render() }"):
+            with self.subTest(line=line):
+                self.git("reset", "--quiet", "--hard", self.base)
+                self.write(f"{SHARED}/Hop.swift", f"func f() {{\n    {line}\n}}\n")
+                self.commit("adds an assumeIsolated")
+                self.assertIn("assume-isolated", self.ids())
+        self.git("reset", "--quiet", "--hard", self.base)
+        self.write(f"{SHARED}/Hop.swift", "func f() {\n    // concurrency-allow: the C callback runs on the main queue\n"
+                                          "    MainActor.assumeIsolated { render() }\n}\n")
+        self.write(f"{KIT}/Hop.swift", "func f() {\n    MainActor.assumeIsolated { render() }\n}\n")
+        self.commit("an escaped one, and one in CmuxNext (crash_ratchet.py's)")
+        self.assertNotIn("assume-isolated", self.ids())
+
+    def test_a_rule_new_to_the_base_json_brings_its_baseline_once(self):
+        # The base's json predates assume-isolated; the push's first commit that introduces the rule is its
+        # reference: its old sites pass, a later rewrite that lists new debt does not.
+        path, bad, _ = QUALITY_CASES["assume-isolated"]
+        data = json.loads(self.baseline())
+        del data["sites"]["assume-isolated"]
+        self.rebase_on({guardrails.QUALITY_BASELINE: json.dumps(data, indent=1)}, "a baseline from before the rule")
+        self.write(path, bad)
+        self.commit("old assumeIsolated")
+        self.write(guardrails.QUALITY_BASELINE, self.baseline())
+        self.commit("the rule's first baseline")
+        self.assertEqual([i for i in self.ids() if i in ("assume-isolated", "quality-baseline")], [])
+        self.write(f"{SHARED}/Hop2.swift", "func g() {\n    MainActor.assumeIsolated { draw() }\n}\n")
+        self.commit("a new one")
+        self.write(guardrails.QUALITY_BASELINE, self.baseline())
+        self.commit("the baseline written again, with the new one")
+        ids = self.ids()
+        self.assertIn("assume-isolated", ids)
+        self.assertIn("quality-baseline", ids)
+
     def test_the_counts_name_each_rule_and_the_rules_are_listed(self):
         for rule, (path, bad, _) in QUALITY_CASES.items():
             self.write(path, bad)
         self.commit("one of each")
         data = json.loads(self.baseline())
         self.assertEqual(data["counts"], {"carve-out": 1, "static-shared": 1, "product-sleep": 1,
-                                          "source-reading-test": 1, "multi-type-file": 1})
+                                          "source-reading-test": 1, "multi-type-file": 1, "assume-isolated": 1})
         listed = {r.id for r in guardrails.RULES}
         self.assertTrue(set(QUALITY_CASES) | {"quality-baseline"} <= listed)
         self.assertTrue(all(r.local_only for r in guardrails.QUALITY_RULES))

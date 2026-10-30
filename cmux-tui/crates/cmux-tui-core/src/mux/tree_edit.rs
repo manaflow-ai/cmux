@@ -272,6 +272,7 @@ pub(super) fn close_surface_delta(
             index: Some(tab_index),
             entity,
             workspace_revision: None,
+            registry_event: None,
             transaction: None,
         });
     }
@@ -300,6 +301,7 @@ pub(super) fn close_pane_delta(
             index: Some(panes.iter().position(|candidate| *candidate == pane)?),
             entity,
             workspace_revision: None,
+            registry_event: None,
             transaction: None,
         });
     }
@@ -326,6 +328,7 @@ pub(super) fn close_screen_delta(
         index: Some(si),
         entity,
         workspace_revision: None,
+        registry_event: None,
         transaction: None,
     })
 }
@@ -351,6 +354,7 @@ pub(super) fn close_workspace_delta(
         index: Some(index),
         entity,
         workspace_revision: None,
+        registry_event: None,
         transaction: None,
     })
 }

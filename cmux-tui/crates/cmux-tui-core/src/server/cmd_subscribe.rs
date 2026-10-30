@@ -352,7 +352,7 @@ impl SubscribeFilter {
                 "event": "pairing-resolved",
                 "request": request,
             }),
-            MuxEvent::TreeDelta(delta) if self.tree_deltas => tree_delta_json(delta, &self.mux),
+            MuxEvent::TreeDelta(delta) if self.tree_deltas => tree_delta_json(delta),
             MuxEvent::TreeDelta(_) => json!({"event": "tree-changed"}),
             MuxEvent::TreeSelectionChanged if self.tree_deltas => {
                 json!({"event": "tree-changed"})

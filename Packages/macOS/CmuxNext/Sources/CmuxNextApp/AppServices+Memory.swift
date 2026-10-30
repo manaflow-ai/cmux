@@ -378,7 +378,7 @@ struct AppMemoryConsumers {
     /// A discard rebuilds the page when it shows, so they go only once cmux.json sets `browser.hibernation`,
     /// as browser tabs and the page lifecycle (trunk #25920): they start with the setting's default, which
     /// keeps every page, and follow the loaded setting once the hibernation starts (``followPageDiscards(_:)``).
-    func registerInternalPageDiscards() {
+    private func registerInternalPageDiscards() {
         guard services.features.isEnabled(.memoryDiscardInternalPages), !services.features.isEnabled(.pageLifecycle) else { return }
         let discards = ContentDiscardScheduler(kind: .internalPage, memory: services.memoryCoordinator)
         discards.update(browserHibernation: .fallback)

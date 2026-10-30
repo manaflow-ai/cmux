@@ -58,13 +58,17 @@ pub(super) fn spawn(
         let (hub, conn, method) = (hub.clone(), conn.clone(), method.clone());
         Box::pin(async move {
             let params = params.unwrap_or(Value::Null);
-            match conn.agent_tools() {
+            let result = match conn.agent_tools() {
                 // Boxed: the tool calls hold a whole `chats::route` of their own.
                 Some(tools) => {
                     Box::pin(agent_mcp::handle(&hub, &conn, tools, &method, params)).await
                 }
                 None => chats::route(&hub, &conn, &method, params).await,
-            }
+            };
+            // The reply follows every event published before it on this connection: a turn's
+            // `session/update`s reach the client before its `session/prompt` result.
+            conn.events_handed_on(&hub).await;
+            result
         })
     };
     start_then(hub.supervisor(), conn, id, &method, slot, route, Some(after));

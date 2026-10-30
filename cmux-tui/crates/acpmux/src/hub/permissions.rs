@@ -259,8 +259,11 @@ impl Hub {
                     // The idle exit marked it before it ended the harness (`idle.rs`); a stop clears the mark.
                     let hibernating = session.hibernated_at.load(Ordering::SeqCst) != 0
                         && session.status() != SessionStatus::Closed;
+                    // A close in progress (`kill`) ended it on purpose, even before its
+                    // status reads closed.
                     let intentional = hibernating
-                        || matches!(session.status(), SessionStatus::Idle | SessionStatus::Closed);
+                        || matches!(session.status(), SessionStatus::Idle | SessionStatus::Closed)
+                        || session.closing.load(Ordering::SeqCst);
                     // An agent host's exit was logged before its ack.
                     if host_seq.is_none() {
                         self.append(
@@ -274,8 +277,9 @@ impl Hub {
                             },
                         );
                     }
+                    // Never over a close that landed after the read above.
                     if !intentional {
-                        self.set_status(&session, SessionStatus::Disconnected);
+                        self.set_status_unless_closed(&session, SessionStatus::Disconnected);
                     }
                 }
             }

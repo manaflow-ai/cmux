@@ -152,13 +152,13 @@ impl Hub {
         policy: PermissionPolicy,
         source: &str,
     ) {
-        self.permission_policy_changed(session, |m| {
+        self.permission_policy_changed(session, "policy", |m| {
             m.permission_policy = Some(policy.to_string());
             if m.policy_source.as_deref() != Some(CLEARED_HOST) {
                 m.policy_source = Some(source.to_owned());
             }
+            json!({"policy": policy.to_string()})
         });
-        self.append(session, "mux", "policy", json!({"policy": policy.to_string()}));
         self.save_meta(session);
         self.follow_policy(session).await;
     }

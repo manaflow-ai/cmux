@@ -19,7 +19,7 @@ struct AgentPaneTranscriptStepTests {
     }
 
     /// A page subscribed to the shared host's events. Subscribing queues the replay and flushes it in
-    /// a task (AgentPageProvider, #24617), so a push made right after arrives later: `take` reads the
+    /// a posted task (AgentPageProvider, #24617), so a push made right after arrives later: `take` reads the
     /// stream until it has seen `count` events of `kind`. The time limit only stops a lost push from hanging
     /// the run; it is generous because a loaded runner starts and runs these tests minutes late.
     @MainActor private struct Subscribed {

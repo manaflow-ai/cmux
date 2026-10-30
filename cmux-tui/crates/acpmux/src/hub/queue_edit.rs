@@ -231,6 +231,8 @@ impl Hub {
                 return Err(RpcError::invalid_params(e));
             }
         };
+        // The reply says the change holds (`queue_change_logged`).
+        self.queue_change_logged(session).await?;
         reply.set("ok", ok);
         Ok(reply)
     }
