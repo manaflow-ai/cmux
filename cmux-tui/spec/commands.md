@@ -626,7 +626,7 @@ object{
     effect_intent_batches:uint64, request_effect_commits:uint64,
     writer_registry_locks:uint64
   },
-  hook_queue?:object{queued_events:uint64,reset_dropped_events:uint64}
+  hook_queue?:object{queued_events:uint64,reset_dropped_events:uint64,undeliverable_events:uint64}
 }
 histogram = object{count:uint64,mean:uint64,max:uint64,p50:uint64,p90:uint64,p99:uint64}
 ```
@@ -675,7 +675,11 @@ leaves them queued for the next owner. `queued_events` counts the lines in
 this session's queues (events not answered yet, and answered ones a sender
 has not removed yet). `reset_dropped_events` counts the events that
 `cmux session NAME reset-state` dropped with a session's saved state, for
-the sessions whose sockets share this directory. Unlike the other sections,
+the sessions whose sockets share this directory. `undeliverable_events`
+counts events a live daemon took several times in a row and never answered
+(it closed on them, or did not reply within its own longest journal wait),
+so their senders gave them up and the agent's later events went on. Unlike
+the other sections,
 it reads these small files. It is present only when the session serves a
 socket.
 

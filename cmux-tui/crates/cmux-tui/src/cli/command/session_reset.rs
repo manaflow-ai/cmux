@@ -89,19 +89,25 @@ pub(in crate::cli) fn run_session_reset_state(
     match resetter.reset(&plan.session, plan.confirm_reset.as_deref()) {
         Ok(reset) => {
             // The session has no saved state left, so no owner will ever send
-            // its queued agent hook events: drop and count them (best effort;
-            // a queue left here waits for a session of the same name).
-            if let Ok(socket) = cmux_tui_core::server::try_default_socket_path(&plan.session) {
-                let _ = cmux_tui_core::diagnostics::drop_session_hook_queues(&socket);
+            // its queued agent hook events: drop and count them. A queue that
+            // cannot be dropped is reported, and waits for a session of the
+            // same name.
+            let hook_queue = cmux_tui_core::server::try_default_socket_path(&plan.session)
+                .map_err(|error| error.to_string())
+                .and_then(|socket| {
+                    cmux_tui_core::diagnostics::drop_session_hook_queues(&socket)
+                        .map_err(|error| error.to_string())
+                });
+            let mut result = json!({
+                "session": plan.session,
+                "removed_session_state": reset.removed_session_state,
+                "removed_terminal_hosts": reset.removed_terminal_hosts,
+            });
+            match hook_queue {
+                Ok(dropped) => result["dropped_hook_events"] = json!(dropped),
+                Err(error) => result["hook_queue_error"] = json!(error),
             }
-            super::super::wire::print_local_success(
-                &json!({
-                    "session": plan.session,
-                    "removed_session_state": reset.removed_session_state,
-                    "removed_terminal_hosts": reset.removed_terminal_hosts,
-                }),
-                output,
-            )
+            super::super::wire::print_local_success(&result, output)
         }
         Err(error) => {
             let advice = reset_failure_advice(&error);

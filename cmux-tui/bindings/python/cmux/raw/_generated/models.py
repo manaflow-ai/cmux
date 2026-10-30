@@ -1498,6 +1498,7 @@ class ServerStatsHookQueue:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsHookQueue'
     queued_events: int
     reset_dropped_events: int
+    undeliverable_events: int
 
 
 @dataclass(frozen=True)

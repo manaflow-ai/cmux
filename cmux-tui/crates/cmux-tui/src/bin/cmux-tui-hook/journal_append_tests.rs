@@ -401,15 +401,17 @@ fn a_rejected_hook_event_does_not_hold_back_the_next() {
     assert_eq!(rejected_tries, 1, "a durable rejection was sent again");
 }
 
-/// A daemon that drops every connection: the tries are spaced by a backoff,
-/// not a spin.
+/// A daemon that refuses every connection with its busy line for a while:
+/// the tries are spaced by a backoff, not a spin. (A daemon that takes a
+/// line and closes on it without an answer is a line it will not take:
+/// `a_line_the_daemon_never_answers_is_counted_and_does_not_block_the_agent`.)
 #[test]
-fn dropped_connections_are_retried_with_backoff_not_a_spin() {
+fn busy_refusals_are_retried_with_backoff_not_a_spin() {
     let root = tempfile::tempdir().unwrap();
     let socket = root.path().join("d.sock");
-    let dropping_for = Duration::from_millis(400);
+    let refusing_for = Duration::from_millis(400);
     let policy = move |_: &str, _: usize, since: Duration| {
-        if since < dropping_for { Reply::Close } else { Reply::Receipt }
+        if since < refusing_for { Reply::Busy } else { Reply::Receipt }
     };
     let daemon = Daemon::start(&socket, None, Arc::new(policy));
     let (id, encoded) = hook_request_in("terminal_drop");
@@ -417,11 +419,11 @@ fn dropped_connections_are_retried_with_backoff_not_a_spin() {
     let result = append_with_receipt(&socket, &id, &encoded, &|| {});
     let (connections, admitted) = daemon.stop();
 
-    result.expect("a dropped connection is retried");
+    result.expect("a refused hook event is retried");
     assert_eq!(admitted, vec![id]);
     assert!(
         (2..=12).contains(&connections),
-        "{connections} connections while the daemon dropped them for {dropping_for:?}"
+        "{connections} connections while the daemon refused them for {refusing_for:?}"
     );
 }
 

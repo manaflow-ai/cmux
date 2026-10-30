@@ -19047,6 +19047,10 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/hook_queue/undeliverable_events": {
+        "ty": "uint64",
+        "required": true
+      },
       "/data/journal_writer": {
         "ty": "object",
         "required": true,

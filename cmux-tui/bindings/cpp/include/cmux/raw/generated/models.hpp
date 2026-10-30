@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "62ad309ccc99c948c3bae22fb436125c95ae7364099351f6d14fa65de8c55983";
+inline constexpr std::string_view kProtocolIrSha256 = "ce7fedced903738ee9e05544d13dad77c3128fd142952ef86a3f6e5d30e31390";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -4854,6 +4854,7 @@ struct ServerStatsHistogram {
 struct ServerStatsHookQueue {
     std::uint64_t queued_events{};
     std::uint64_t reset_dropped_events{};
+    std::uint64_t undeliverable_events{};
     friend bool operator==(const ServerStatsHookQueue&, const ServerStatsHookQueue&) = default;
 };
 

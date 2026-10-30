@@ -25,14 +25,25 @@
 use std::fs::File;
 use std::io::{self, BufRead as _, Read as _, Seek as _, SeekFrom, Write as _};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use serde::Serialize;
 use sha2::{Digest as _, Sha256};
+
+/// The longest a daemon holds a journal append (its durable wait, at most the
+/// clamp of `CMUX_TUI_JOURNAL_DURABLE_WAIT_MS`) before it answers, an error
+/// included. A hook sender waits past this for a receipt (R-L5: the client's
+/// deadline is at least the server's own wait).
+pub const JOURNAL_APPEND_LONGEST_WAIT: Duration = Duration::from_secs(5 * 60);
 
 /// The directory of hook queues, beside the session socket.
 pub const HOOK_SPOOL_DIR: &str = "hook-spool";
 /// The count of hook events dropped by `reset-state`, in [`HOOK_SPOOL_DIR`].
 pub const HOOK_SPOOL_DROPPED_EVENTS: &str = "reset-dropped-events";
+/// The count of hook events a live daemon took but never answered, so their
+/// sender gave them up (`cmux-tui-hook` `journal_append`), in
+/// [`HOOK_SPOOL_DIR`].
+pub const HOOK_SPOOL_UNDELIVERABLE_EVENTS: &str = "undeliverable-events";
 
 /// `server-stats` `hook_queue`.
 #[derive(Clone, Debug, Default, Serialize)]
@@ -45,6 +56,11 @@ pub struct HookQueueSnapshot {
     /// a daemon answered them, for every session whose socket shares this
     /// one's directory.
     pub reset_dropped_events: u64,
+    /// Hook events a live daemon took several times in a row and never
+    /// answered (it closed on them, or did not reply within its own longest
+    /// wait), so their senders gave them up, for every session whose socket
+    /// shares this one's directory.
+    pub undeliverable_events: u64,
 }
 
 impl HookQueueSnapshot {
@@ -67,16 +83,22 @@ impl HookQueueSnapshot {
                     .sum()
             })
             .unwrap_or(0);
-        let reset_dropped_events = open_for_reading(&directory.join(HOOK_SPOOL_DROPPED_EVENTS))
-            .ok()
-            .and_then(|file| {
-                // Never wait on a request thread: a writer holds this lock
-                // for microseconds, and a busy moment reports 0.
-                file.try_lock_shared().ok()?;
-                read_count(&file)
-            })
-            .unwrap_or(0);
-        Self { queued_events, reset_dropped_events }
+        let count = |name: &str| {
+            open_for_reading(&directory.join(name))
+                .ok()
+                .and_then(|file| {
+                    // Never wait on a request thread: a writer holds this
+                    // lock for microseconds, and a busy moment reports 0.
+                    file.try_lock_shared().ok()?;
+                    read_count(&file)
+                })
+                .unwrap_or(0)
+        };
+        Self {
+            queued_events,
+            reset_dropped_events: count(HOOK_SPOOL_DROPPED_EVENTS),
+            undeliverable_events: count(HOOK_SPOOL_UNDELIVERABLE_EVENTS),
+        }
     }
 }
 
@@ -91,9 +113,7 @@ pub fn hook_spool_dir(socket: &Path) -> io::Result<PathBuf> {
         })?;
     ensure_private(parent, 0o022)?;
     let directory = parent.join(HOOK_SPOOL_DIR);
-    let mut builder = std::fs::DirBuilder::new();
-    #[cfg(unix)]
-    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    let builder = private_dir_builder();
     match builder.create(&directory) {
         Err(error) if error.kind() != io::ErrorKind::AlreadyExists => return Err(error),
         _ => {}
@@ -279,8 +299,30 @@ fn require_file_identity() -> io::Result<()> {
     }
 }
 
+/// A directory builder that makes a 0700 directory where modes exist.
+fn private_dir_builder() -> std::fs::DirBuilder {
+    #[cfg_attr(not(unix), allow(unused_mut))]
+    let mut builder = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder
+}
+
+/// Counts `events` hook events of the session on `socket` that a live
+/// daemon would not answer, so their sender gave them up. Errors when there
+/// is no private queue directory beside `socket`.
+pub fn add_undeliverable_hook_events(socket: &Path, events: u64) -> io::Result<()> {
+    let directory =
+        existing_hook_spool_dir(socket)?.ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
+    add_count(&directory.join(HOOK_SPOOL_UNDELIVERABLE_EVENTS), events)
+}
+
 fn add_dropped_events(directory: &Path, events: u64) -> io::Result<()> {
-    let mut file = open_spool_file(&directory.join(HOOK_SPOOL_DROPPED_EVENTS))?;
+    add_count(&directory.join(HOOK_SPOOL_DROPPED_EVENTS), events)
+}
+
+fn add_count(path: &Path, events: u64) -> io::Result<()> {
+    let mut file = open_spool_file(path)?;
     file.lock()?;
     let total = read_count(&file).unwrap_or(0).saturating_add(events);
     file.set_len(0)?;

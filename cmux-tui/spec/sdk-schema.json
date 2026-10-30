@@ -6072,12 +6072,21 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "undeliverable_events": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
     }
    },
    "additional_properties": false,
    "constraints": [
     "queued_events counts the hook event lines in this session's queues (hook-spool/ beside the socket): events no daemon answered yet, and answered ones a sender has not removed yet.",
-    "reset_dropped_events counts hook events that cmux session NAME reset-state dropped with a session's saved state, for every session whose socket shares this one's directory."
+    "reset_dropped_events counts hook events that cmux session NAME reset-state dropped with a session's saved state, for every session whose socket shares this one's directory.",
+    "undeliverable_events counts hook events a live daemon took several times in a row and never answered (it closed on them, or did not reply within its own longest journal wait), so their senders gave them up, for every session whose socket shares this one's directory."
    ]
   },
   "ServerStatsResourceProjection": {

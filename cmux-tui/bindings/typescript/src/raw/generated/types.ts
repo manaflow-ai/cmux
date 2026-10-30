@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 62ad309ccc99c948c3bae22fb436125c95ae7364099351f6d14fa65de8c55983. */
+/* cmux-tui mux protocol 12, IR ce7fedced903738ee9e05544d13dad77c3128fd142952ef86a3f6e5d30e31390. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1031,6 +1031,7 @@ export type ServerStatsHistogram = {
 export type ServerStatsHookQueue = {
   "queued_events": bigint;
   "reset_dropped_events": bigint;
+  "undeliverable_events": bigint;
 };
 
 export type ServerStatsJournalWriter = {

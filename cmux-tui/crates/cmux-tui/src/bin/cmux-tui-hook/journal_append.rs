@@ -47,6 +47,20 @@ const RETRY_INITIAL: Duration = Duration::from_millis(100);
 /// The most one retry waits, beyond the daemon's `retry_after_ms`: the
 /// longest a sender stays behind a daemon that has a free slot again.
 const RETRY_MAX: Duration = Duration::from_secs(1);
+/// Tries in a row in which a live daemon took a line and never answered it
+/// (it closed on it, or let `RECEIPT_WAIT` pass) before the sender gives the
+/// line up and counts it (R-L4: a budget; R-L5: the loss shows). A daemon
+/// that stops mid-request costs one; the next connect then finds it gone,
+/// which keeps the line instead.
+const UNANSWERED_TRIES: u32 = 3;
+/// The longest a sender waits for one receipt: past the daemon's own
+/// longest wait for a journal append, so a slow but working daemon always
+/// answers first (R-L5: the client's deadline is at least the server's).
+#[cfg(not(test))]
+const RECEIPT_WAIT: Duration =
+    cmux_tui_core::diagnostics::JOURNAL_APPEND_LONGEST_WAIT.saturating_add(Duration::from_secs(30));
+#[cfg(test)]
+const RECEIPT_WAIT: Duration = Duration::from_millis(300);
 
 /// Queues the request line `encoded` (whose id is `request_id`) behind the
 /// agent's earlier hook events and, when no other child sends that queue,
@@ -90,11 +104,15 @@ pub(super) fn send_session_queues(socket: &Path) {
 /// With no private queue directory (or a queue this child could not append
 /// to): sends the line itself, as one sender. Such a line can arrive before
 /// older lines of its agent that a sender still holds; only a planted file or
-/// a full disk gets here.
+/// a full disk gets here. With no daemon, the event is lost and nothing counts
+/// it (there is nowhere private to count): this path is the shared-directory
+/// and non-Unix one.
 fn send_unqueued(socket: &Path, encoded: &[u8], on_sent: &dyn Fn()) -> anyhow::Result<()> {
     match Sender::new(socket).deliver(encoded, on_sent) {
         Delivered::Answered => Ok(()),
-        Delivered::Rejected(error) | Delivered::Gone(error) => Err(error),
+        Delivered::Rejected(error) | Delivered::Unanswered(error) | Delivered::Gone(error) => {
+            Err(error)
+        }
     }
 }
 
@@ -145,6 +163,14 @@ fn drain(
             Delivered::Answered => {}
             Delivered::Rejected(error) if own => own_rejection = Some(error),
             Delivered::Rejected(_) => {}
+            Delivered::Unanswered(error) => {
+                // Given up: counted where server-stats shows it.
+                let _ =
+                    cmux_tui_core::diagnostics::add_undeliverable_hook_events(&sender.socket, 1);
+                if own {
+                    own_rejection = Some(error);
+                }
+            }
             Delivered::Gone(error) => {
                 spool.compact(offset)?;
                 return Err(error.context("no daemon answered; the hook event stays queued"));
@@ -166,6 +192,9 @@ enum Delivered {
     Answered,
     /// The daemon (or the line itself) can never take it; it leaves the queue.
     Rejected(anyhow::Error),
+    /// A live daemon took it `UNANSWERED_TRIES` times in a row and never
+    /// answered; it leaves the queue and is counted.
+    Unanswered(anyhow::Error),
     /// No daemon listens: the line stays queued.
     Gone(anyhow::Error),
 }
@@ -198,6 +227,7 @@ impl Sender {
         // A daemon from before `live_prompt` refuses unknown parameters: the event goes once more
         // without the prompt, so a version skew never loses a turn start (the prompt is optional).
         let mut current = Cow::Borrowed(line);
+        let mut unanswered = 0_u32;
         loop {
             match self.try_once(&current, &request_id, on_written) {
                 Ok(()) => {
@@ -225,6 +255,17 @@ impl Sender {
                     // No budget: a busy daemon is waited out (the module doc).
                     self.retries.sleep(retry_after);
                 }
+                Err(Try::Unanswered(error)) => {
+                    self.connection = None;
+                    unanswered = unanswered.saturating_add(1);
+                    if unanswered >= UNANSWERED_TRIES {
+                        self.retries.reset();
+                        return Delivered::Unanswered(error.context(format!(
+                            "the daemon took this hook event {UNANSWERED_TRIES} times and never answered"
+                        )));
+                    }
+                    self.retries.sleep(None);
+                }
             }
         }
     }
@@ -250,8 +291,11 @@ impl Sender {
                 if retry { Try::Again(error) } else { Try::Gone(error) }
             })?),
         };
+        // Set while the peer surely still holds the connection: once a daemon
+        // has answered and closed, macOS refuses the option.
+        let _ = connection.get_ref().set_read_timeout(Some(RECEIPT_WAIT));
         let outcome = exchange(&mut connection, line, request_id, on_written);
-        if !matches!(outcome, Err(Try::Again(_))) {
+        if !matches!(outcome, Err(Try::Again(_) | Try::Unanswered(_))) {
             // The daemon answered on it: the next line goes on the same one.
             self.connection = Some(connection);
         }
@@ -279,18 +323,25 @@ fn exchange(
         }));
     }
     on_written();
-    // The receipt, or the connection's close: the daemon's answer is the
-    // signal, so no timer cuts the wait (a slow daemon still answers).
+    // The receipt, or the connection's close. `RECEIPT_WAIT` is past the
+    // daemon's own longest wait, so only a daemon that will never answer
+    // reaches it.
     let reply = read_reply(connection)
-        .map_err(|error| Try::Again(anyhow!(error).context("read the journal receipt")))?
-        .ok_or_else(|| Try::Again(anyhow!("journal append closed without a complete response")))?;
+        .map_err(|error| Try::Unanswered(anyhow!(error).context("read the journal receipt")))?
+        .ok_or_else(|| {
+            Try::Unanswered(anyhow!("journal append closed without a complete response"))
+        })?;
     check_receipt(&reply, request_id)
 }
 
 /// Why one try failed.
 enum Try {
-    /// Busy, dropped or unanswered: the same line goes again after a backoff.
+    /// Busy, or dropped before the line was written: the same line goes
+    /// again after a backoff.
     Again(anyhow::Error),
+    /// The line was written and the daemon closed, or let `RECEIPT_WAIT`
+    /// pass, with no answer: it goes again, `UNANSWERED_TRIES` at most.
+    Unanswered(anyhow::Error),
     /// A durable answer: the line can never be taken.
     Rejected(anyhow::Error),
     /// The session is gone.

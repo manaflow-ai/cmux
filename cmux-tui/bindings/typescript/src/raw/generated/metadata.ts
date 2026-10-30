@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 62ad309ccc99c948c3bae22fb436125c95ae7364099351f6d14fa65de8c55983. */
+/* cmux-tui mux protocol 12, IR ce7fedced903738ee9e05544d13dad77c3128fd142952ef86a3f6e5d30e31390. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "62ad309ccc99c948c3bae22fb436125c95ae7364099351f6d14fa65de8c55983" as const;
+export const SDK_IR_SHA256 = "ce7fedced903738ee9e05544d13dad77c3128fd142952ef86a3f6e5d30e31390" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -10192,7 +10192,8 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "additional_properties": false,
     "constraints": [
       "queued_events counts the hook event lines in this session's queues (hook-spool/ beside the socket): events no daemon answered yet, and answered ones a sender has not removed yet.",
-      "reset_dropped_events counts hook events that cmux session NAME reset-state dropped with a session's saved state, for every session whose socket shares this one's directory."
+      "reset_dropped_events counts hook events that cmux session NAME reset-state dropped with a session's saved state, for every session whose socket shares this one's directory.",
+      "undeliverable_events counts hook events a live daemon took several times in a row and never answered (it closed on them, or did not reply within its own longest journal wait), so their senders gave them up, for every session whose socket shares this one's directory."
     ],
     "fields": {
       "queued_events": {
@@ -10204,6 +10205,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "reset_dropped_events": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "undeliverable_events": {
         "nullable": false,
         "presence": "required",
         "type": {

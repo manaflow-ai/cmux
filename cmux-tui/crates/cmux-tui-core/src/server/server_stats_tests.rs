@@ -70,7 +70,11 @@ fn server_stats_include_reports_the_hook_queue() {
     mux.connection_stats().note_socket(&socket);
 
     let none = stats(&mux, client, json!({"cmd":"server-stats","include":["hook_queue"]}));
-    assert_eq!(none["hook_queue"], json!({"queued_events":0,"reset_dropped_events":0}), "{none}");
+    assert_eq!(
+        none["hook_queue"],
+        json!({"queued_events":0,"reset_dropped_events":0,"undeliverable_events":0}),
+        "{none}"
+    );
     let spool = crate::diagnostics::hook_spool_dir(&socket).unwrap();
     let queue = |socket: &str, terminal: &str| {
         spool.join(format!(
@@ -82,10 +86,15 @@ fn server_stats_include_reports_the_hook_queue() {
     std::fs::write(queue("session.sock", "terminal_a"), "{}\n{}\n").unwrap();
     std::fs::write(queue("other.sock", "terminal_b"), "{}\n").unwrap();
     std::fs::write(spool.join(crate::diagnostics::HOOK_SPOOL_DROPPED_EVENTS), "7\n").unwrap();
+    std::fs::write(spool.join(crate::diagnostics::HOOK_SPOOL_UNDELIVERABLE_EVENTS), "3\n").unwrap();
 
     let plain = stats(&mux, client, json!({"cmd":"server-stats"}));
     assert!(plain.get("hook_queue").is_none(), "{plain}");
     let full = stats(&mux, client, json!({"cmd":"server-stats","include":["hook_queue"]}));
-    assert_eq!(full["hook_queue"], json!({"queued_events":2,"reset_dropped_events":7}), "{full}");
+    assert_eq!(
+        full["hook_queue"],
+        json!({"queued_events":2,"reset_dropped_events":7,"undeliverable_events":3}),
+        "{full}"
+    );
     std::fs::remove_dir_all(root).unwrap();
 }

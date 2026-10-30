@@ -209,8 +209,8 @@ type BetweenUnlinks = Box<dyn FnOnce() + Send>;
 static BETWEEN_UNLINKS: std::sync::Mutex<Vec<BetweenUnlinks>> = std::sync::Mutex::new(Vec::new());
 
 /// Runs `hook` between the two unlinks of the next finished `terminal_race`
-/// queue.
-#[cfg(test)]
+/// queue. Only the Unix tests use it (there is no queue elsewhere).
+#[cfg(all(test, unix))]
 pub(super) fn between_unlinks_for_test(hook: Box<dyn FnOnce() + Send>) {
     BETWEEN_UNLINKS.lock().unwrap().push(hook);
 }

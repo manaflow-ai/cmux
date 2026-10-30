@@ -8553,6 +8553,9 @@ Result<Json> Codec<ServerStatsHookQueue>::encode(const ServerStatsHookQueue& val
     auto encoded_reset_dropped_events = encode_value(value.reset_dropped_events);
     if (!encoded_reset_dropped_events) return std::move(encoded_reset_dropped_events).error();
     object.emplace("reset_dropped_events", std::move(encoded_reset_dropped_events).value());
+    auto encoded_undeliverable_events = encode_value(value.undeliverable_events);
+    if (!encoded_undeliverable_events) return std::move(encoded_undeliverable_events).error();
+    object.emplace("undeliverable_events", std::move(encoded_undeliverable_events).value());
     return Json(std::move(object));
 }
 
@@ -8577,6 +8580,15 @@ Result<ServerStatsHookQueue> Codec<ServerStatsHookQueue>::decode(const Json& val
         auto decoded = decode_value<std::uint64_t>(*field_reset_dropped_events);
         if (!decoded) return std::move(decoded).error();
         result.reset_dropped_events = std::move(decoded).value();
+    }
+    const Json* field_undeliverable_events = value.find("undeliverable_events");
+    if (!field_undeliverable_events) {
+        return make_error(ErrorCode::decode, "missing required field 'undeliverable_events'");
+    }
+    if (field_undeliverable_events) {
+        auto decoded = decode_value<std::uint64_t>(*field_undeliverable_events);
+        if (!decoded) return std::move(decoded).error();
+        result.undeliverable_events = std::move(decoded).value();
     }
     return result;
 }

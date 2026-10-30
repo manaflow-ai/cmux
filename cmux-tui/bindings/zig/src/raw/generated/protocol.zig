@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "62ad309ccc99c948c3bae22fb436125c95ae7364099351f6d14fa65de8c55983";
+pub const ir_sha256 = "ce7fedced903738ee9e05544d13dad77c3128fd142952ef86a3f6e5d30e31390";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1876,6 +1876,7 @@ pub const ServerStatsHistogram = struct {
 pub const ServerStatsHookQueue = struct {
     queued_events: u64,
     reset_dropped_events: u64,
+    undeliverable_events: u64,
 };
 
 pub const ServerStatsJournalWriter = struct {
