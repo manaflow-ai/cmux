@@ -203,6 +203,10 @@ public final class PaneToolbarView: NSView {
         return nil
     }
 
+    private func isNativeToolActive(_ tool: PaneTabRowTool) -> Bool {
+        nativeItems.contains(tool) || nativeMoreTool == tool
+    }
+
     /// Opens a page-supplied native menu, optionally focused on a row's children for palette expansion.
     public func presentNativeMenu(toolID: String, menuItemID: String? = nil) {
         guard let tool = nativeMoreTool, tool.id == toolID, let menu = menu(for: tool, only: menuItemID), !menu.items.isEmpty else { return }
@@ -259,7 +263,7 @@ public final class PaneToolbarView: NSView {
         row.isEnabled = enabled
         if let checked = item.checked { row.state = checked ? .on : .off }
         let invoker = NativeMenuInvoker(enabled: { [weak self] in
-            enabled && self?.nativeItems.contains(tool) == true
+            enabled && self?.isNativeToolActive(tool) == true
         }) {
             guard item.children.isEmpty else { return }
             invoke?(tool.id, item.id)
