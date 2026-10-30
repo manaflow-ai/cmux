@@ -39,7 +39,8 @@ extension WorkspaceRowView {
 
     func layoutColorRail(in bounds: NSRect) {
         guard !colorRail.isHidden else { return }
-        let inset = Metrics.space1
-        colorRail.frame = NSRect(x: bounds.minX + inset, y: bounds.minY + inset, width: Self.colorRailWidth, height: max(0, bounds.height - 2 * inset))
+        // A started workspace's rail moves in with its content (`treeDepth`), clear of its parent's.
+        let inset = Metrics.space1, indent = CGFloat(treeDepth) * SidebarStyle.treeIndent
+        colorRail.frame = NSRect(x: bounds.minX + indent + inset, y: bounds.minY + inset, width: Self.colorRailWidth, height: max(0, bounds.height - 2 * inset))
     }
 }

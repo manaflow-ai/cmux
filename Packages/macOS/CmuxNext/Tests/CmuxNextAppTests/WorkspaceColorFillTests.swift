@@ -1,4 +1,5 @@
 import AppKit
+@testable import CmuxNextApp
 import CmuxNextDesign
 import CmuxNextSettings
 @testable import CmuxNextSidebar
@@ -47,6 +48,12 @@ struct WorkspaceColorFillTests {
         #expect(Self.preferences("fill").workspaceColorIndicator == .fill)
         #expect(Self.preferences("leftRail").workspaceColorIndicator == .leftRail)
         #expect(Self.preferences("solidFill").workspaceColorIndicator == .fill)
+        for legacy in ["rail", "border", "wash", "lift", "typography", "washRail", "blueWashColorRail"] {
+            let snapshot = CmuxConfigSnapshot.parse(.object(["workspaceColors": .object(["indicatorStyle": .string(legacy)])]),
+                                                    validDensities: [], validMetrics: [])
+            #expect(snapshot.sidebarSections.workspaceColorIndicator == .leftRail, "classic's \(legacy) reads as the rail")
+            #expect(!snapshot.diagnostics.contains { $0.path == "workspaceColors.indicatorStyle" })
+        }
         let root: CmuxNextSettings.JSONValue = .object(["workspaceColors": .object(["indicatorStyle": .string("glow")])])
         let snapshot = CmuxConfigSnapshot.parse(root, validDensities: [], validMetrics: [])
         #expect(snapshot.sidebarSections.workspaceColorIndicator == .dot, "a bad value keeps the default")
@@ -133,6 +140,12 @@ struct WorkspaceColorFillTests {
         let restAlpha = try #require(rest.layer?.backgroundColor?.alpha)
         let selectedAlpha = try #require(selected.layer?.backgroundColor?.alpha)
         #expect(selectedAlpha > restAlpha, "selection steps the fill up")
+        for view in [rest, selected] {
+            let fill = try #require(view.layer?.backgroundColor.flatMap(NSColor.init(cgColor:))?.usingColorSpace(.sRGB))
+            let swatch = try #require(GroupColor.green.swatch.usingColorSpace(.sRGB))
+            #expect(abs(fill.redComponent - swatch.redComponent) < 0.01 && abs(fill.greenComponent - swatch.greenComponent) < 0.01
+                && abs(fill.blueComponent - swatch.blueComponent) < 0.01, "the fill is the workspace's color, not the gray selection")
+        }
         [restWindow, plainWindow, selectedWindow].forEach { $0.close() }
     }
 
@@ -142,5 +155,29 @@ struct WorkspaceColorFillTests {
         #expect(view.colorRail.frame.width == WorkspaceRowView.colorRailWidth && view.colorRail.frame.height > 0)
         #expect(!view.debugFill, "the rail style leaves the row unfilled")
         window.close()
+    }
+
+    @Test func aStartedWorkspacesRailMovesInWithItsContent() {
+        let ws = SidebarWorkspace(id: WorkspaceID("ws"), title: "child", color: .blue)
+        let (top, topWindow) = Self.rowView(ws, style: "leftRail")
+        let (nested, nestedWindow) = Self.rowView(ws, style: "leftRail")
+        nested.treeDepth = 1
+        nested.needsLayout = true
+        nested.layoutSubtreeIfNeeded()
+        #expect(nested.colorRail.frame.minX == top.colorRail.frame.minX + SidebarStyle.treeIndent)
+        [topWindow, nestedWindow].forEach { $0.close() }
+    }
+
+    @Test func aSavedSidebarKeepsEachWorkspacesColor() throws {
+        let saved = SidebarSnapshot(sections: Self.sections(), profiles: [], activeProfileID: nil)
+        let decoded = try JSONDecoder().decode(SidebarSnapshot.self, from: JSONEncoder().encode(saved))
+        let rows = decoded.sidebarSections.flatMap(\.nodes).flatMap { node -> [SidebarWorkspace] in
+            switch node {
+            case let .workspace(ws): [ws]
+            case let .group(group): group.workspaces
+            default: []
+            }
+        }
+        #expect(Dictionary(uniqueKeysWithValues: rows.map { ($0.id.rawValue, $0.color) }) == ["loose": .red, "member": .green, "plain": nil])
     }
 }

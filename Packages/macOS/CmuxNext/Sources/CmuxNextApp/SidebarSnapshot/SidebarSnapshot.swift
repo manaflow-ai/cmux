@@ -39,6 +39,8 @@ nonisolated struct SidebarSnapshot: Codable, Hashable, Sendable {
         /// `symbol:<name>`, `swatch:<color>` or `emoji:<text>`.
         var icon: String?
         var iconTint: String?
+        /// The workspace's own color (`SidebarWorkspace.color`), for a filled or railed row; absent in older snapshots.
+        var color: String?
     }
 
     struct Group: Codable, Hashable, Sendable {
@@ -134,12 +136,12 @@ nonisolated struct SidebarSnapshot: Codable, Hashable, Sendable {
         case .favicon?, nil: break
         }
         return Workspace(id: ws.id.rawValue, machineID: ws.machineID.rawValue, title: ws.title,
-                         kind: ws.kind.rawValue, kindBrand: ws.kindBrand, icon: icon, iconTint: tint)
+                         kind: ws.kind.rawValue, kindBrand: ws.kindBrand, icon: icon, iconTint: tint, color: ws.color?.rawValue)
     }
 
     private static func sidebarWorkspace(_ ws: Workspace) -> SidebarWorkspace {
         SidebarWorkspace(id: WorkspaceID(ws.id), machineID: MachineID(ws.machineID), title: ws.title,
-                         icon: ws.icon.flatMap { icon($0, tint: ws.iconTint) },
+                         icon: ws.icon.flatMap { icon($0, tint: ws.iconTint) }, color: ws.color.flatMap(GroupColor.init(rawValue:)),
                          kind: SidebarWorkspaceKind(rawValue: ws.kind ?? "terminal") ?? .terminal,
                          kindBrand: ws.kindBrand, rowState: .stale)
     }

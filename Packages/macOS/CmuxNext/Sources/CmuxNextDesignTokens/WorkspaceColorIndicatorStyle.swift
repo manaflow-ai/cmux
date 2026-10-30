@@ -8,8 +8,13 @@ public nonisolated enum WorkspaceColorIndicatorStyle: String, Hashable, Sendable
     case leftRail
     case fill
 
-    /// The value cmux.json names, or classic's `solidFill` for `fill`, so a classic config carries over.
+    /// The value cmux.json names, or classic's: `solidFill` is `fill`, and classic's legacy styles
+    /// (which classic normalizes to its rail) are `leftRail`, so a classic config carries over.
     public init?(setting value: String) {
-        if value == "solidFill" { self = .fill } else { self.init(rawValue: value) }
+        switch value {
+        case "solidFill": self = .fill
+        case "rail", "border", "wash", "lift", "typography", "washRail", "blueWashColorRail": self = .leftRail
+        default: self.init(rawValue: value)
+        }
     }
 }
