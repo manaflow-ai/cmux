@@ -71,7 +71,7 @@ public nonisolated enum ChildCrashFrames {
 nonisolated(unsafe) private var framesPath: UnsafeMutablePointer<CChar>?
 
 /// The most frames the handler writes.
-private let frameCapacity: Int32 = 128
+nonisolated private let frameCapacity: Int32 = 128
 
 /// Room for the frames, made by ``ChildCrashFrames/printOnFatalSignal(_:)`` before any handler is set: the handler
 /// must not allocate.
