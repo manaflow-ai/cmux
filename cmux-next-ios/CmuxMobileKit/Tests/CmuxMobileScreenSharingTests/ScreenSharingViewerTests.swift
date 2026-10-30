@@ -113,9 +113,12 @@ import Testing
         #expect(viewer.screen == nil)
         await ends.wait(for: 1)
         #expect(ends.calls == [Ends.Call(session: "s7", reason: "failed")])
+        // The Mac's own reason, arriving after the drop, replaces "failed" on the card.
+        service.route(.sessionRevoked(sessionID: "s7", reason: "sharing_off"))
+        #expect(viewer.phase == .ended(reason: "sharing_off"))
         // A late drop of an older stream changes nothing.
         viewer.streamDropped("s0")
-        #expect(viewer.phase == .ended(reason: "failed"))
+        #expect(viewer.phase == .ended(reason: "sharing_off"))
     }
 
     @Test func aDenialPushedBeforeTheAnswerIsKeptForIt() throws {

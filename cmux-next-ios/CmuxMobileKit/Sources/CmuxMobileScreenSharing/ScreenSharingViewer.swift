@@ -98,6 +98,7 @@ public final class ScreenSharingViewer: Identifiable {
 
     /// Asks the Mac for a session (Connect, Try Again).
     public func request(_ scope: SessionScope) {
+        droppedSessionID = nil
         cancelPending(endingSession: true)
         stopStream()
         lastScope = scope
@@ -225,6 +226,18 @@ public final class ScreenSharingViewer: Identifiable {
         end(id, reason: ScreenSharingEndReason.failed.rawValue)
         stopStream()
         phase = .ended(reason: ScreenSharingEndReason.failed.rawValue)
+        droppedSessionID = id
+    }
+
+    /// The session whose stream dropped here last: the Mac's own end reason
+    /// (stopped, sharing off, revoked) often arrives a moment after its stream ends.
+    @ObservationIgnored private(set) var droppedSessionID: String?
+
+    /// The hub's reason for the dropped session: the ended card says it instead of "failed".
+    func droppedReason(_ reason: String?) {
+        guard case .ended(ScreenSharingEndReason.failed.rawValue?) = phase, let reason,
+              reason != ScreenSharingEndReason.failed.rawValue else { return }
+        phase = .ended(reason: reason)
     }
 
     /// `session.denied`.
