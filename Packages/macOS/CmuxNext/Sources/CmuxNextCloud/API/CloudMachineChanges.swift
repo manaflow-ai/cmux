@@ -27,6 +27,7 @@ public final class CloudMachineChanges {
     /// the optimistic transition while the provider request is still in flight.
     private struct Mutation {
         let status: CloudMachine.Status
+        let baselineFailure: CloudMachine.ChangeFailure?
         var requestReturned: Bool
     }
     private var mutations: [String: Mutation] = [:]
@@ -77,7 +78,8 @@ public final class CloudMachineChanges {
     public func run(_ change: CloudMachine.Status, machineID: String,
                     of holder: () -> (any CloudMachineHolder)?,
                     _ call: () async throws -> Void) async throws {
-        mutations[machineID] = Mutation(status: change, requestReturned: false)
+        mutations[machineID] = Mutation(status: change, baselineFailure: holder()?.machine.lastChangeFailure,
+                                        requestReturned: false)
         holder()?.machine.pendingChange = change
         do {
             try await call()
@@ -108,6 +110,7 @@ public final class CloudMachineChanges {
         default: reachedTerminal = true
         }
         let failed = mutation.requestReturned && record.lastChangeFailure != nil
+            && record.lastChangeFailure != mutation.baselineFailure
         if reachedTerminal || failed {
             mutations.removeValue(forKey: record.id)
             return nil
