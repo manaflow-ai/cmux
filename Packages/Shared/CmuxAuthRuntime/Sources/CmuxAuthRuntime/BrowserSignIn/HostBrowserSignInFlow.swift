@@ -234,7 +234,9 @@ public final class HostBrowserSignInFlow {
                 log.log("auth.callback.external.reject reason=unknownOrExpiredState")
                 // Relaunch loses issued states. Keep rejecting the callback, but
                 // let the signed-out UI offer a fresh attempt instead of silence.
+                // A sign-out in this run cleared the states on purpose: stay quiet.
                 let generation = signOutGeneration
+                guard generation == 0 else { return false }
                 let attempt = nextAttemptID
                 await coordinator.awaitBootstrapped()
                 if generation == signOutGeneration, attempt == nextAttemptID,
