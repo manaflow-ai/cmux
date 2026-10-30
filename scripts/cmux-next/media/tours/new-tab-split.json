@@ -1,0 +1,98 @@
+{
+ "title": "New Tab (web page): \"split\" in the dropdown",
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "New workspace",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Tour"
+   ],
+   "shot": false
+  },
+  {
+   "title": "Show the Tour workspace",
+   "cmux": [
+    "workspace",
+    "name:Tour",
+    "focus"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "New Tab",
+   "cmux": [
+    "tab",
+    "new-page"
+   ],
+   "wait": 2.5,
+   "shot": false
+  },
+  {
+   "title": "Type s",
+   "rpc": {
+    "method": "debug.key",
+    "params": {
+     "key": "s"
+    }
+   },
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Type p",
+   "rpc": {
+    "method": "debug.key",
+    "params": {
+     "key": "p"
+    }
+   },
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Type l",
+   "rpc": {
+    "method": "debug.key",
+    "params": {
+     "key": "l"
+    }
+   },
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Type i",
+   "rpc": {
+    "method": "debug.key",
+    "params": {
+     "key": "i"
+    }
+   },
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Type t",
+   "rpc": {
+    "method": "debug.key",
+    "params": {
+     "key": "t"
+    }
+   },
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "Web New Tab: \"split\" in the dropdown",
+   "wait": 0.5
+  }
+ ]
+}
