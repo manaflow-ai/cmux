@@ -1,3 +1,4 @@
+import { retryKey } from "./retryState";
 import type { Subagent } from "./subagentFold";
 import type { AcpmuxRow } from "../model";
 
@@ -31,7 +32,7 @@ export class AgentProgressStore {
   updateAgent(agent: Subagent): void {
     const structure = [agent.id, agent.name, agent.parent, agent.kind, agent.state,
       agent.action, agent.actionShell, agent.endedAt, agent.agentId, agent.harness,
-      agent.task, agent.startedAt, agent.background, agent.command].join("\u0000");
+      agent.task, agent.startedAt, agent.background, agent.command, retryKey(agent)].join("\u0000");
     if (this.structures.get(agent.id) !== structure) {
       this.structures.set(agent.id, structure);
       this.structureVersion += 1;

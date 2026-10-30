@@ -215,6 +215,8 @@ import { descendants, subagentChangesFolder, type SubagentScope } from "./inspec
 import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList";
 import { AgentsPill } from "./subagents/AgentsPill";
 import { SubagentTray } from "./subagents/SubagentTray";
+import { agentProgressSource } from "./subagents/agentProgressSource";
+import { AgentProgressContext, AgentProgressStore } from "./subagents/agentProgressStore";
 import { settleTrayExit } from "./subagents/trayMotion";
 import { SubagentDoneLine } from "./subagents/SubagentDoneLine";
 import { retryKey, runRetry, type RetryTarget } from "./subagents/retryState";
@@ -6606,21 +6608,23 @@ function AcpmuxPane() {
   // the pill's list and the transcript's subagent rows share. A streamed chunk makes a new list of
   // the same agents: the last one stays while nothing the pill shows changed, so a snapshot that
   // streams text redraws neither the pill nor a subagent row.
-  const agentsKey = freshAgents
-    .map((agent) =>
-      [
-        agent.id,
-        agent.name,
-        agent.state,
-        agent.action ?? "",
-        agent.endedAt ?? "",
-        agent.agentId ?? "",
-        retryKey(agent),
-      ].join("\u0000"),
-    )
-    .join("\u0001");
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- a new list only when an agent changes
-  const chatAgents = useMemo(() => freshAgents, [agentsKey]);
+  const producerProgress = agentProgressSource(snapshot.rows);
+  // Native/preview bridges have full snapshots rather than producer metadata. Only that
+  // compatibility path reconciles a full list; direct streaming publishes each changed id.
+  const bridgeProgress = useMemo(() => new AgentProgressStore(), [shownSessionId]);
+  const bridgeStructure = useMemo(() => {
+    if (producerProgress) return undefined;
+    return freshAgents.map((agent) => [agent.id, agent.name, agent.parent, agent.kind,
+      agent.state, agent.action, agent.actionShell, agent.endedAt, agent.agentId,
+      agent.harness, agent.task, agent.startedAt, agent.background, agent.command, retryKey(agent)].join("\u0000")).join("\u0001");
+  }, [producerProgress, freshAgents]);
+  useLayoutEffect(() => {
+    if (!producerProgress) bridgeProgress.update(freshAgents);
+  }, [producerProgress, bridgeProgress, freshAgents]);
+  const progressStore = producerProgress ?? bridgeProgress;
+  const structureVersion = producerProgress?.structureVersion ?? bridgeStructure;
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- usage updates have keyed subscriptions
+  const chatAgents = useMemo(() => freshAgents, [structureVersion, progressStore, shownSessionId]);
   // A subagent draws no tool row (subagents/subagentFold.ts swallows the call that started it), so
   // a running foreground subagent holds Ctrl-B by itself.
   const foregroundAgent =
@@ -11451,7 +11455,9 @@ function AcpmuxPane() {
     <SignInContext.Provider value={signIn}>
       <ChatAccountsContext.Provider value={chatAccounts}>
         <UpdateOfferContext.Provider value={updateOffer}>
-          <NoticeSlot>{pane}</NoticeSlot>
+          <AgentProgressContext.Provider value={progressStore}>
+            <NoticeSlot>{pane}</NoticeSlot>
+          </AgentProgressContext.Provider>
         </UpdateOfferContext.Provider>
       </ChatAccountsContext.Provider>
     </SignInContext.Provider>
