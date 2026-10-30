@@ -549,7 +549,13 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
     };
     HarnessHealth {
         id: s.id,
-        login: s.login.or_else(|| builtin_login(&s.family).map(str::to_owned)),
+        // In the account home the check read (`CODEX_HOME`, `CLAUDE_CONFIG_DIR`), so Log In
+        // signs that login in, not the default one.
+        login: crate::route_account::login_command(
+            s.login.or_else(|| builtin_login(&s.family).map(str::to_owned)),
+            crate::route_account::home_var(&s.family)
+                .and_then(|var| s.env.get(var).map(|home| (var, Path::new(home.as_str())))),
+        ),
         program: s.program,
         path: found,
         channel: install.channel,
