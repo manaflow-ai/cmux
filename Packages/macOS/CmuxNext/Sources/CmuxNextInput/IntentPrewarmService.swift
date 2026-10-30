@@ -80,6 +80,8 @@ public final class IntentPrewarmService<Target: Hashable & Sendable> {
     /// Press prewarms admitted on their press's turn whose work waits for ``pressStart``, oldest first; each is held.
     private var unstarted: [Target] = []
     private var pressureObservation: MainActorHandlerRegistration<MemoryPressureLevel>?
+    /// `CLOCK_UPTIME_RAW` nanoseconds, for ``IntentPrewarmCounters/pressTurns`` and ``IntentPrewarmCounters/pressStarts``.
+    private let uptimeNanos: () -> UInt64
 
     /// - Parameters:
     ///   - warmer: Says which target is cold and runs its prewarm; held weakly (gone: nothing is cold).
@@ -92,9 +94,12 @@ public final class IntentPrewarmService<Target: Hashable & Sendable> {
     ///     no warmer work runs on the press's input turn. Nil: no press prewarm.
     ///   - dwell: The rest before a hover prewarm; the `intentPrewarmHover` feature's `dwell` param.
     ///   - power: The power inputs now.
+    ///   - uptimeNanos: The clock of the press durations (tests pass a fixed one).
     public init(warmer: any IntentPrewarmWarming<Target>, memoryPressure: MemoryPressureEvents, dwellTimer: MainDeadline?,
                 stepTimer: MainDeadline? = nil, pressStart: MainDeadline? = nil, dwell: Duration = .milliseconds(200),
-                power: IntentPrewarmPower = IntentPrewarmPower()) {
+                power: IntentPrewarmPower = IntentPrewarmPower(),
+                uptimeNanos: @escaping () -> UInt64 = { InputLatencyTracker.uptimeNanos() }) {
+        self.uptimeNanos = uptimeNanos
         self.warmer = warmer
         self.memoryPressure = memoryPressure
         self.dwellTimer = dwellTimer
@@ -134,6 +139,15 @@ public final class IntentPrewarmService<Target: Hashable & Sendable> {
               admit(target, trigger: .pointerDown) else { return }
         unstarted.append(target)
         pressStart.scheduleIfIdle(after: .zero) { [weak self] in self?.startPressed() }
+    }
+
+    /// A press, timed: `resolve` finds what the press commits on its release (the app's lookup of the row's page),
+    /// then ``pointerPressed(on:)`` runs; their time on the press's turn is kept in
+    /// ``IntentPrewarmCounters/pressTurns`` (`debug.input` `prewarm.press_turn_ns`).
+    public func pointerPressed(resolving resolve: () -> Target?) {
+        let start = uptimeNanos()
+        pointerPressed(on: resolve())
+        counters.pressTurns.record(uptimeNanos() &- start)
     }
 
     /// A person's next/previous key went `direction`; `following` gives the targets one more step that way
@@ -191,9 +205,11 @@ public final class IntentPrewarmService<Target: Hashable & Sendable> {
 
     /// The press deadline: the work of every press prewarm still held starts, oldest first.
     private func startPressed() {
+        let start = uptimeNanos()
         let targets = unstarted
         unstarted.removeAll()
         for target in targets { warmer?.startPrewarm(target, trigger: .pointerDown) }
+        counters.pressStarts.record(uptimeNanos() &- start)
     }
 
     /// Admits `target` unless it is held already or the power and pressure rules refuse, evicting the oldest

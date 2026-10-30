@@ -1,8 +1,9 @@
 public import CmuxNextInput
 public import CmuxNextInputCore
 
-/// `debug.input` section `prewarm`: what intent prewarm did, so activation-perf.py and
-/// bench_hibernation.py report prewarm hits apart from plain clicks, and press hits apart from hover hits.
+/// `debug.input` section `prewarm`: what intent prewarm did (hits apart from plain clicks, press hits apart from
+/// hover hits) and the main-thread time of each press's prewarm work. scripts/cmux-next/bench-prewarm-press.py
+/// reads `press_turn_ns` and `press_start_ns`; no bench reads the hit counters yet.
 public nonisolated struct DebugInputPrewarm: Sendable, Equatable, Codable {
     /// Prewarms started, by ``IntentPrewarmTrigger`` raw value (`pointerDown`, `hoverDwell`).
     public var started: [String: Int]
@@ -18,6 +19,10 @@ public nonisolated struct DebugInputPrewarm: Sendable, Equatable, Codable {
     public var skippedForPressure: Int
     /// Prewarms held now (at most the FIFO's limit, 2).
     public var held: Int
+    /// The service's time on each press's own turn, nanoseconds, oldest first (at most 512).
+    public var pressTurnNanoseconds: [UInt64]
+    /// Each press deadline's run (the press prewarms' warmer work), nanoseconds, oldest first (at most 512).
+    public var pressStartNanoseconds: [UInt64]
 
     public init(counters: IntentPrewarmCounters, held: Int) {
         started = Dictionary(counters.started.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first })
@@ -27,10 +32,14 @@ public nonisolated struct DebugInputPrewarm: Sendable, Equatable, Codable {
         skippedForPower = counters.skippedForPower
         skippedForPressure = counters.skippedForPressure
         self.held = held
+        pressTurnNanoseconds = counters.pressTurns.nanoseconds
+        pressStartNanoseconds = counters.pressStarts.nanoseconds
     }
 
     private enum CodingKeys: String, CodingKey {
         case started, hits, evicted, held
+        case pressTurnNanoseconds = "press_turn_ns"
+        case pressStartNanoseconds = "press_start_ns"
         case cancelledByPressure = "cancelled_by_pressure"
         case skippedForPower = "skipped_for_power"
         case skippedForPressure = "skipped_for_pressure"

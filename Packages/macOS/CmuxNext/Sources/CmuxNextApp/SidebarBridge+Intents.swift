@@ -197,7 +197,7 @@ extension SidebarBridge {
     /// tab while the button is down; every press ends the hover dwell.
     func noteRowPress(_ row: SidebarRowKey?) {
         guard let prewarm = services.cache.hibernation?.intentPrewarm?.service else { return }
-        prewarm.pointerPressed(on: prewarmTarget(row))
+        prewarm.pointerPressed { prewarmTarget(row) }  // timed: debug.input prewarm.press_turn_ns
     }
 
     /// The page row `row` stands for: a tab row's tab, a workspace row's front tab; nil for any other row.

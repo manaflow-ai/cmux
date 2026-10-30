@@ -64,6 +64,8 @@ struct DebugInputTests {
         counters.started = [.pointerDown: 3, .hoverDwell: 2]
         counters.hits = [.pointerDown: 2]
         counters.evicted = 1
+        counters.pressTurns.record(1_200)
+        counters.pressTurns.record(3_400)
         return DebugInputPrewarm(counters: counters, held: 2)
     }()
 
@@ -160,7 +162,8 @@ struct DebugInputTests {
         #expect(Set(pump.keys) == ["passes_while_input_pending", "deferred_for_input", "pass_ms_p99"])
         let prewarm = try Self.object(JSONValue.parse(JSONEncoder().encode(Self.prewarm)))
         #expect(Set(prewarm.keys) == ["started", "hits", "evicted", "cancelled_by_pressure", "skipped_for_power",
-                                      "skipped_for_pressure", "held"])
+                                      "skipped_for_pressure", "held", "press_turn_ns", "press_start_ns"])
+        #expect(prewarm["press_turn_ns"] as? [Int] == [1_200, 3_400], "bench-prewarm-press.py reads the press turns")
         #expect(prewarm["started"] as? [String: Int] == ["pointerDown": 3, "hoverDwell": 2])
         let tap = try Self.object(JSONValue.parse(JSONEncoder().encode(InputTapDebugSource.snapshot(InputEventTap()))))
         #expect(Set(tap.keys) == ["subscribers", "global_monitors", "flags"], "no event yet: last_dispatched is left out")

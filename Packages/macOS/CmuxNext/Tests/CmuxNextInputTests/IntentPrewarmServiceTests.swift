@@ -45,6 +45,9 @@ struct IntentPrewarmServiceTests {
         let step: MainDeadline
         let pressStart: MainDeadline
         let service: IntentPrewarmService<String>
+        /// The press durations' clock: each read is 1 µs after the last.
+        final class Clock { var now: UInt64 = 0 }
+        let clock = Clock()
 
         init(power: IntentPrewarmPower = IntentPrewarmPower(), hovers: Bool = true, steps: Bool = true, presses: Bool = true) {
             dwell = MainDeadline(owner: "IntentPrewarm.hoverDwell", workClass: .background, scheduler: deadlines.scheduler)
@@ -52,7 +55,8 @@ struct IntentPrewarmServiceTests {
             pressStart = MainDeadline(owner: "IntentPrewarm.pressStart", workClass: .background, scheduler: deadlines.scheduler)
             service = IntentPrewarmService(warmer: warmer, memoryPressure: MemoryPressureEvents(source: pressure),
                                            dwellTimer: hovers ? dwell : nil, stepTimer: steps ? step : nil,
-                                           pressStart: presses ? pressStart : nil, power: power)
+                                           pressStart: presses ? pressStart : nil, power: power,
+                                           uptimeNanos: { [clock] in clock.now += 1_000; return clock.now })
         }
 
         /// A press on `target`, then the press deadline's frame.
@@ -299,6 +303,42 @@ struct IntentPrewarmServiceTests {
         pressured.press("a")
         #expect(pressured.warmer.started.isEmpty)
         #expect(pressured.service.counters.skippedForPressure == 1)
+    }
+
+    // MARK: Press durations
+
+    /// The press's own turn is timed with the app's target lookup inside it, and the press deadline's warmer work
+    /// apart from it, so a bench reads what `intentPrewarmPress` adds to the press (`press_turn_ns`).
+    @Test func aPressTimesItsTurnWithTheLookupAndItsDeadlineApart() async {
+        let rig = Rig()
+        var looked = false
+        rig.service.pointerPressed { looked = true; return "a" }
+        #expect(looked)
+        #expect(rig.service.counters.pressTurns.nanoseconds == [1_000], "the lookup and the admit, on the press's turn")
+        #expect(rig.warmer.started.isEmpty, "no warmer work on the press's turn")
+        #expect(rig.service.counters.pressStarts.nanoseconds.isEmpty)
+        rig.deadlines.fire()
+        #expect(rig.warmer.started == ["a"])
+        #expect(rig.service.counters.pressStarts.nanoseconds == [1_000], "the press deadline's run, timed apart")
+        rig.service.pointerPressed { nil }
+        #expect(rig.service.counters.pressTurns.nanoseconds.count == 2, "a press that prewarms nothing still costs its turn")
+        let service = rig.service
+        let section = await IntentPrewarmDebugSource { service }.read()
+        #expect(section.pressTurnNanoseconds == [1_000, 1_000])
+        #expect(section.pressStartNanoseconds == [1_000])
+        rig.service.resetCounters()
+        #expect(rig.service.counters.pressTurns.nanoseconds.isEmpty)
+    }
+
+    /// The durations keep the newest 512, oldest first, in O(1) per press.
+    @Test func theDurationsKeepTheNewestInARing() {
+        var durations = IntentPrewarmDurations()
+        for nanos in 0..<UInt64(IntentPrewarmDurations.limit + 3) { durations.record(nanos) }
+        let kept = durations.nanoseconds
+        #expect(kept.count == IntentPrewarmDurations.limit)
+        #expect(kept.first == 3)
+        #expect(kept.last == UInt64(IntentPrewarmDurations.limit + 2))
+        #expect(kept == kept.sorted(), "oldest first")
     }
 
     /// `debug.input` section `prewarm` reads the live service's counters in one main-actor copy and
