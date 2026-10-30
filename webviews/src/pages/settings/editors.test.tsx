@@ -289,7 +289,8 @@ describe("editors", () => {
 
   test("Escape drops a typed address instead of saving it on blur", async () => {
     page = await renderPage({ path: "/settings/browser" });
-    const field = () => rowElement(page!.container, "browser.newTabPage").querySelector<HTMLInputElement>("input.text")!;
+    const field = () =>
+      rowElement(page!.container, "browser.newTabPage").querySelector<HTMLInputElement>("input.text")!;
     await changeValue(field(), "https://example.org");
     await fire(field(), "keydown", { key: "Escape" });
     await fire(field(), "blur");
