@@ -96,8 +96,9 @@ final class TabContentCache {
     var crashedPages: Set<String> = []
     /// A restored tab (not opened in this run) started its page (`AppRunMarker.notePageStarted`).
     var onRestoredPageStart: ((String) -> Void)?
-    /// A browser tab is getting its page, whatever opened it (a pane, a link, an agent, a restore):
-    /// the app notes that the browser was used (AgentPaneFeatureTipRecords).
+    /// A browser page was mounted for a tab, whatever opened it (a daemon tab or a pane's local
+    /// tab, a link, a popup, an agent, a restore): the app notes that the browser was used
+    /// (AgentPaneFeatureTipRecords). Called from ``mount(_:as:)``, the one place every page passes.
     var onBrowserTab: (() -> Void)?
     /// Tabs whose deferred page the user started.
     var startedDeferred: Set<String> = []
@@ -248,7 +249,6 @@ final class TabContentCache {
         // A close the daemon makes (`cmux tab close`, another client) frees the page too.
         goneTabs.track(key, in: browserTabs.daemon(for: tab).store) { [weak self] in self?.release($0) }
         if let entry = browsers[key] { return entry }
-        onBrowserTab?()
         if pageRequests.claimCloseOnArrival(tab.surface) {
             // Its page closed before the tab appeared (BrowserPageRequests).
             Task { @MainActor [weak self] in self?.pageRequests.closeTab(key) }
@@ -413,6 +413,7 @@ final class TabContentCache {
         entry.chrome.addressBar.setProfileBadge(profileBadge?(key))
         entry.chrome.addressBar.profileBadgeMenu = { [weak self] in self?.profileBadgeMenu?(key) }
         onBrowserEntryCreated?(entry)
+        onBrowserTab?()
         if page.engineKind == .cef, let handler = makeExtensionMenuHandler?(key) {
             entry.extensionMenuHandler = handler
             entry.chrome.extensionMenuHandler = handler
