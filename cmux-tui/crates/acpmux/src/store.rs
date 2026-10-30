@@ -1520,7 +1520,11 @@ impl Store for LocalStore {
             !kinds.contains(&rec.kind.as_str()) || visit(rec)
         };
         for (index, path) in self.segments(id)? {
-            let (mut copy, from) = match copied.then(|| self.read_kind_index(id, index, &path)) {
+            let mut file = crate::config::private_state_file(&path)?;
+            // What a copy is of: the file this reads, however its path changes meanwhile.
+            let stamp = if copied { Some(file.metadata()?) } else { None };
+            let (mut copy, from) = match stamp.as_ref().map(|s| self.read_kind_index(id, index, s))
+            {
                 Some(Some((lines, from))) => (Some(lines), from),
                 _ => (None, 0),
             };
@@ -1529,9 +1533,6 @@ impl Store for LocalStore {
                     return Ok(());
                 }
             }
-            let mut file = crate::config::private_state_file(&path)?;
-            // What a copy is of: the file this reads, however its path changes meanwhile.
-            let stamp = if copied { Some(file.metadata()?) } else { None };
             if from > 0 {
                 std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(from))?;
             }

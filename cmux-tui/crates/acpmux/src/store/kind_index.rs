@@ -6,7 +6,7 @@
 //! 2026-10-30). Those records are few. A segment is only ever appended to, or replaced whole by a
 //! rename (a retention rewrite, `store/compact.rs`). So a scan for [`INDEXED_KINDS`]
 //! ([`LocalStore::scan_kinds`]) copies a segment's records of those kinds, as written, to
-//! `<session>/events-index/NNNNNN.ndjson`, with the file they came from (device and inode) and
+//! `<session>/events-index/NNNNNN.ndjson`, with the file they came from (device, inode, birth) and
 //! how many of its bytes they cover; a later scan reads the copy, then the segment past those
 //! bytes only.
 //!
@@ -57,20 +57,28 @@ struct Header {
     schema: String,
     dev: u64,
     ino: u64,
+    /// When the file was made (ns since the epoch; 0 where the system does not say): an inode a
+    /// later file reuses is not the same file.
+    born_ns: u64,
     len: u64,
 }
 
-/// The file `meta` is of.
-fn file_id(meta: &std::fs::Metadata) -> (u64, u64) {
+/// The file `meta` is of: its device, inode and birth time.
+fn file_id(meta: &std::fs::Metadata) -> (u64, u64, u64) {
+    let born = meta
+        .created()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_nanos() as u64);
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
-        (meta.dev(), meta.ino())
+        (meta.dev(), meta.ino(), born)
     }
     #[cfg(not(unix))]
     {
         let _ = meta;
-        (0, 0)
+        (0, 0, born)
     }
 }
 
@@ -85,22 +93,21 @@ impl LocalStore {
         self.dir(id).join(DIR).join(format!("{index:06}.ndjson"))
     }
 
-    /// The copied lines of segment `index` at `path`, and the bytes of it they cover, when the
-    /// copy is of that file.
+    /// The copied lines of segment `index`, and the bytes of it they cover, when the copy is of
+    /// the file `segment` (the open file's metadata) and no longer than it.
     pub(super) fn read_kind_index(
         &self,
         id: &str,
         index: u32,
-        path: &Path,
+        segment: &std::fs::Metadata,
     ) -> Option<(Vec<u8>, u64)> {
-        let segment = std::fs::symlink_metadata(path).ok()?;
         let mut bytes = Vec::new();
         let copy = self.kind_index_path(id, index);
         crate::config::private_state_file(&copy).ok()?.read_to_end(&mut bytes).ok()?;
         let end = bytes.iter().position(|b| *b == b'\n')?;
         let header: Header = serde_json::from_slice(&bytes[..end]).ok()?;
-        let (dev, ino) = file_id(&segment);
-        let same = header.schema == SCHEMA && (header.dev, header.ino) == (dev, ino);
+        let same =
+            header.schema == SCHEMA && (header.dev, header.ino, header.born_ns) == file_id(segment);
         (same && segment.len() >= header.len).then(|| (bytes.split_off(end + 1), header.len))
     }
 
@@ -116,8 +123,9 @@ impl LocalStore {
     ) -> Result<()> {
         let dir = self.dir(id).join(DIR);
         crate::config::private_state_dir(&dir)?;
-        let (dev, ino) = file_id(segment);
-        let mut out = serde_json::to_vec(&Header { schema: SCHEMA.into(), dev, ino, len })?;
+        let (dev, ino, born_ns) = file_id(segment);
+        let header = Header { schema: SCHEMA.into(), dev, ino, born_ns, len };
+        let mut out = serde_json::to_vec(&header)?;
         out.push(b'\n');
         out.extend_from_slice(lines);
         write_atomic(&self.kind_index_path(id, index), &out)
