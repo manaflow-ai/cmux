@@ -6598,6 +6598,13 @@ struct CMUXCLI {
         if command == "automation" {
             try validateAutomationArgumentsBeforeSocket(commandArgs)
         }
+        if command == "ssh" || command == "mosh" {
+            // Malformed transport options are reported even when cmux is not running.
+            _ = try parseSSHCommandOptions(
+                commandArgs,
+                defaultTerminalTransport: command == "mosh" ? .mosh : .ssh
+            )
+        }
 
         let envSocketPath = explicitSocketPath == nil
             ? try CLISocketEnvironment.socketPath(in: processEnv)
