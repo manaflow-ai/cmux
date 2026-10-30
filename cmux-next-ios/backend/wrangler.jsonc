@@ -53,7 +53,7 @@
         { "name": "MAILBOX_LIMIT", "namespace_id": "4106", "simple": { "limit": 60, "period": 60 } }
       ],
       // PS_MYSQL: cmux-next-vitess development (readwriter) through Hyperdrive cmux-next-vitess-development, tables
-      // mobile_* (backend/db/drizzle-mysql/0002_mobile). The retired Postgres cmux-mobile-dev is not bound.
+      // mobile_* (backend/db/drizzle-mysql/0002_mobile). The old Postgres cmux-mobile-dev was deleted (2026-10-30).
       "hyperdrive": [{ "binding": "PS_MYSQL", "id": "60893ba4eaef437a91a77da71730ea9b" }]
     },
     "prod": {
@@ -82,7 +82,7 @@
         { "name": "MAILBOX_LIMIT", "namespace_id": "4206", "simple": { "limit": 60, "period": 60 } }
       ],
       // PS_MYSQL: cmux-next-vitess main (readwriter) through Hyperdrive cmux-next-vitess-production, tables mobile_*.
-      // The retired Postgres cmux-mobile-prod is not bound.
+      // The old Postgres cmux-mobile-prod was deleted (2026-10-30).
       "hyperdrive": [{ "binding": "PS_MYSQL", "id": "0533eedddc1e4195adf0d42a4c325fce" }]
     }
   }

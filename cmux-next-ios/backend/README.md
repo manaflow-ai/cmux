@@ -30,10 +30,9 @@ parts of [`../PROTOCOL.md`](../PROTOCOL.md), which is the contract.
 | `dev` | `cmux-mobile-api-dev` | https://cmux-mobile-api-dev.debussy.workers.dev | `cmux/cmux-next-vitess` branch `development`, Hyperdrive `cmux-next-vitess-development` (`60893ba4eaef437a91a77da71730ea9b`, caching disabled, shared with `cmux-api-development`) |
 | `prod` | `cmux-mobile-api-prod` | https://mobile-api.cmux.dev (custom domain; also https://cmux-mobile-api-prod.debussy.workers.dev) | `cmux/cmux-next-vitess` branch `main`, Hyperdrive `cmux-next-vitess-production` (`0533eedddc1e4195adf0d42a4c325fce`, caching disabled, shared with `cmux-api`). Accepts only the production Stack project |
 
-The Postgres databases `cmux/cmux-mobile-dev` and `cmux/cmux-mobile-prod` and their
-Hyperdrive configs (`e4fd2e88…`, `11158756…`) are retired: no Worker binds them and their
-rows were copied into `mobile_*` (`backend/db/copy-mobile-to-vitess.ts`). They are kept
-read-only until their deletion is approved.
+The earlier Postgres databases `cmux/cmux-mobile-dev`, `cmux/cmux-mobile-prod` and `cmux/cmux-next-ios`
+(and their Hyperdrive configs) were deleted on 2026-10-30, after their rows were copied into `mobile_*`
+(`backend/db/copy-mobile-to-vitess.ts`) and verified; private dumps were kept before the delete.
 
 ### Resource names
 
@@ -47,11 +46,11 @@ never shown to anyone. The class itself is `TeamHub`.
 | Dev Worker | `cnx-ios-api-dev` | `cmux-mobile-api-dev` (renamed in place: same script id, secrets and hub namespace) |
 | Prod Worker | `cnx-ios-api-prod` | `cmux-mobile-api-prod` (renamed in place) |
 | Prod host | `cnx-ios-api.cmux.dev` | `mobile-api.cmux.dev` |
-| Dev Hyperdrive | `cnx-ios-dev`, then `cmux-next-ios-dev` | `cmux-mobile-dev` (same id) |
-| Prod Hyperdrive | `cnx-ios-prod`, then `cmux-next-ios` | `cmux-mobile-prod` (same id) |
-| Dev database | `cmux/cnx-ios`, then `cmux/cmux-next-ios-dev` | `cmux/cmux-mobile-dev` |
-| Prod database | `cmux/cnx-ios-prod`, then `cmux/cmux-next-ios` | `cmux/cmux-mobile-prod` |
-| Database role | `cnx-ios-dev` / `cnx-ios-prod`, then `cmux-next-ios-dev` / `cmux-next-ios` | `cmux-mobile-api` in each database |
+| Dev Hyperdrive | `cnx-ios-dev`, then `cmux-next-ios-dev`, then `cmux-mobile-dev` | `cmux-next-vitess-development` (the old configs were deleted 2026-10-30) |
+| Prod Hyperdrive | `cnx-ios-prod`, then `cmux-next-ios`, then `cmux-mobile-prod` | `cmux-next-vitess-production` (the old configs were deleted 2026-10-30) |
+| Dev database | `cmux/cnx-ios`, `cmux/cmux-next-ios-dev`, then `cmux/cmux-mobile-dev` | `cmux/cmux-next-vitess` branch `development` (old ones deleted) |
+| Prod database | `cmux/cnx-ios-prod`, `cmux/cmux-next-ios`, then `cmux/cmux-mobile-prod` | `cmux/cmux-next-vitess` branch `main` (old ones deleted) |
+| Database role | `cnx-ios-dev` / `cnx-ios-prod`, then `cmux-next-ios-dev` / `cmux-next-ios` | the shared `cmux-next-vitess` readwriter passwords behind the Hyperdrive configs (the old roles went with their databases) |
 | Local wrangler name | `cnx-ios-api-local` | `cmux-mobile-api-local` (never deployed) |
 | npm package | `cnx-ios-api` | `cmux-mobile-api` |
 | APNs topics | `dev.cmux.cnx`, `dev.cmux.cnx.cnx`, `dev.cmux.cnx.prod` | `dev.cmux.mobile`, `dev.cmux.mobile.demo`, `dev.cmux.mobile.prod`; TestFlight stays `dev.cmux.app.internal` |
