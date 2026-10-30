@@ -15,6 +15,9 @@ public nonisolated enum SidebarCategory: Hashable, Sendable {
     case fleetMachine
     case fleetSession
     case agentSession
+    /// The existing local machine section is the safe home for a persisted kind
+    /// introduced by a newer daemon before this client learns its richer placement.
+    case localMachine
     case fold
     case custom
     case unknown
@@ -29,10 +32,12 @@ public nonisolated enum SidebarCategory: Hashable, Sendable {
         case .app: self = .app
         case .room: self = .chat
         case .savedGroup: self = .group
-        // Forward-compatible references stay in their document/custom section;
-        // they must never become a loose top-level row merely because the App
-        // does not know their payload yet.
-        case .ref, .other: self = .custom
+        // A reference has a document owner, so preserve that custom placement.
+        case .ref: self = .custom
+        // A newer persisted kind may have no placement metadata at all. The
+        // reducer's existing fallback is this Mac's machine section; never make
+        // an ungrouped row for it.
+        case .other: self = .localMachine
         }
     }
 
@@ -53,7 +58,8 @@ public nonisolated enum SidebarLaneGroup: Hashable, Sendable {
     case lineage(String)
     case agent
 
-    public static func forLane(peer: String?, workspaceID: String?, parent: String?) -> Self {
+    public static func forLane(peer: String?, workspaceID: String?, parent: String?, hasLiveParent: Bool = false) -> Self {
+        if hasLiveParent, let parent { return .lineage(parent) }
         if let peer { return .fleet(peer) }
         if let workspaceID { return .workspace(workspaceID) }
         if let parent { return .lineage(parent) }

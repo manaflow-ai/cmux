@@ -19,10 +19,12 @@ struct SidebarCategoryTests {
             .other("future")
         ]
         #expect(bodies.allSatisfy { SidebarCategory(body: $0).isCategorized })
+        #expect(SidebarCategory(body: .other("future")) == .localMachine)
     }
 
     @Test func lanesUseExistingGroupingDestinations() {
         #expect(SidebarLaneGroup.forLane(peer: "build-mac", workspaceID: nil, parent: nil) == .fleet("build-mac"))
+        #expect(SidebarLaneGroup.forLane(peer: "build-mac", workspaceID: nil, parent: "parent", hasLiveParent: true) == .lineage("parent"))
         #expect(SidebarLaneGroup.forLane(peer: nil, workspaceID: "ws-1", parent: nil) == .workspace("ws-1"))
         #expect(SidebarLaneGroup.forLane(peer: nil, workspaceID: nil, parent: "session-1") == .lineage("session-1"))
         #expect(SidebarCategory.lane(peer: "build-mac", workspaceID: nil, parent: nil) == .fleetSession)
