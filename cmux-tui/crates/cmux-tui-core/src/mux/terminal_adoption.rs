@@ -490,14 +490,15 @@ impl Mux {
         options: &SurfaceOptions,
         record: &crate::terminal_host_runtime::TerminalHostRecord,
     ) -> anyhow::Result<RegistryTerminal> {
-        self.create_empty_workspace(
-            options.template_workspace_name.clone(),
-            Some(record.workspace_key.clone()),
-            None,
-        )?;
+        // A fresh key, never the builder's: every clone of the snapshot holds this host with the
+        // builder's workspace key, and machines that share one are one workspace to an app that
+        // shows several (each clone's row drew under every machine's section). The host's record
+        // keeps the builder's key only as its recovery hint; the registry row below places it.
+        let workspace_key =
+            self.create_empty_workspace(options.template_workspace_name.clone(), None, None)?.key;
         let claimed = RegistryTerminal {
             terminal_id: record.terminal_id.clone(),
-            workspace_key: record.workspace_key.clone(),
+            workspace_key,
             incarnation: None,
             lifecycle: TerminalLifecycle::Launching,
             launch_spec: template_terminal_launch_spec(),
