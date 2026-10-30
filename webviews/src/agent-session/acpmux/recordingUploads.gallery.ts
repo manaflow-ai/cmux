@@ -21,11 +21,11 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-md"));
         const bridge = ctx.document.defaultView!.cmuxAcpmuxBridge!;
-        bridge.dictation({ state: "listening", text: "Keep the original", level: 0.4, cancelled: false });
+        bridge.dictation!({ state: "listening", text: "Keep the original", level: 0.4, cancelled: false });
         // Zero-filled synthetic audio, never a private recording. The real host supplies base64.
         const bytes = 5 * 1024 * 1024;
         const data = "AAAA".repeat(Math.floor(bytes / 3)) + "AAA=";
-        bridge.dictation({
+        bridge.dictation!({
           state: "idle",
           text: "Keep the original recording with these notes.",
           level: 0,
