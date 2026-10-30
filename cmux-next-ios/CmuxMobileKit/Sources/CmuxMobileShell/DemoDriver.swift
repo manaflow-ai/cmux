@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-elsewhere", "relay-only", "approve", "kbd-chat", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-elsewhere", "relay-only", "approve", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "large-preview", "large-preview-low-space"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -65,8 +65,20 @@ struct DemoDriver {
         case "connect-mac": await connectMac()
         case "connect-mac-elsewhere": await connectMacElsewhere()
         case "relay-only": await relayOnly()
+        case "large-preview": largePreview()
+        case "large-preview-low-space": largePreview(lowSpace: true)
         // Keyboard verification (verify/keyboard.md): open a screen and leave
         // it to real touches.
+        case "offline-send":
+            AgentSessionDirectory.shared.makeSource = { summary in
+                var summary = summary
+                summary.name = "Offline draft"
+                summary.macName = "Mac"
+                summary.cwd = "~/project"
+                return DisconnectedAgentSource(summary: summary)
+            }
+            shell.tab = .home
+            shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))
         case "kbd-chat":
             shell.tab = .home
             shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))

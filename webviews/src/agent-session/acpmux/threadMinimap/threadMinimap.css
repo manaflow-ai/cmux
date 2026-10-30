@@ -30,6 +30,16 @@
   margin: 0;
   animation: acpmux-minimap-in var(--cmux-motion-micro) cubic-bezier(0.23, 1, 0.32, 1);
 }
+.acpmux-minimap__strip {
+  position: absolute;
+  left: 0;
+  display: block;
+}
+/* Keep keyboard navigation mounted and the pane-edge strip live while text leaves no room. */
+.acpmux-minimap__rail[data-occluded] {
+  opacity: 0;
+  pointer-events: none;
+}
 @keyframes acpmux-minimap-in {
   from {
     opacity: 0;
@@ -80,7 +90,7 @@
   position: relative;
   flex: none;
   display: block;
-  width: 36px;
+  width: 100%;
   height: 10px;
   margin: 0;
   padding: 0;
@@ -105,7 +115,7 @@
   transition: transform var(--cmux-motion-micro) var(--acpmux-minimap-spring);
 }
 .acpmux-minimap__bar {
-  width: 26px;
+  width: min(26px, 100%);
   height: 2px;
 }
 /* The ticks' entrance (Leo 2026-10-25: "the animation ... those sort of lines pop up. There should
