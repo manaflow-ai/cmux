@@ -223,7 +223,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
   async githubRepos(entity: string, principal: Principal, query: { readonly query?: string; readonly cursor?: string }) {
     if (principal.team !== entity) return { ok: false as const, status: 403, code: "auth.forbidden", message: "not this team's connections" }
     if (!this.boundTo(entity)) return { ok: false as const, status: 404, code: "integration.not_found", message: "this team has no GitHub connection" }
-    return ghTokens.githubRepos({ env: this.env, http: this.http, state: () => this.bind(entity).currentState }, principal, query)
+    return ghTokens.githubRepos({ env: this.env, http: this.http, state: () => this.bind(entity).currentState, needsReauth: this.markNeedsReauth }, principal, query)
   }
 
   /** UserDO revoked an install (install.revoke, a machine delete's VM install): its sockets close and its GitHub tokens are revoked. */
@@ -244,9 +244,11 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
       // UserDO's socket registry calls closeInstall here on a revoke (socket-registry.ts); false when the install is no longer active.
       register: (p, at) => (this.env.USER_DO.get(this.env.USER_DO.idFromName(p.user!)) as unknown as Users).registerSocket(p.user!, p.install!, p.grant, "ConnectionDO", team, at),
       audit: (record) => void this.runSystem("integration.github.token_minted", record, `ghtok:${String(record.token_id)}`),
-      needsReauth: (c, detail) => void this.submitSystem("connection.status", { connection: c.id, status: "needs_reauth", detail }, `status:${c.id}:needs_reauth:${Date.now()}`)
+      needsReauth: this.markNeedsReauth
     }
   }
+
+  private markNeedsReauth = (c: Connection, detail: string) => void this.submitSystem("connection.status", { connection: c.id, status: "needs_reauth", detail }, `status:${c.id}:needs_reauth:${Date.now()}`)
 
   /** Provider-side revocations after disconnects (G5); the alarm retries what is left. */
   private async revokeAtProviders(now: number) {

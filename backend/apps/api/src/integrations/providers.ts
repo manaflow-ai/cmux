@@ -61,7 +61,11 @@ export const installationToken = async (env: Env, http: Http, installation: numb
   const cached = installationTokens.get(installation)
   if (cached && cached.expires_at - 5 * 60_000 > Date.now()) return cached.token
   const res = await http(new Request(`${GH_API}/app/installations/${installation}/access_tokens`, { method: "POST", headers: ghHeaders(await appJwt(env)) }))
-  if (!res.ok) throw failed("github", res, "installation token")
+  if (!res.ok) {
+    // The status rides along: a 401 or 404 means the installation is revoked or gone (a relink).
+    const error = failed("github", res, "installation token")
+    throw new ProviderError(error.code, error.message, error.retryable, res.status)
+  }
   const body = await json(res)
   const token = String(body.token ?? "")
   installationTokens.set(installation, { token, expires_at: Date.parse(String(body.expires_at ?? "")) || Date.now() + 50 * 60_000 })

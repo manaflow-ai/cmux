@@ -4,7 +4,7 @@ import type { Connection } from "@cmux/protocol"
 import { githubRepoAllowed, mayUse, policyOf, providerAllowed, type ConnectionsState } from "../domains/connections.ts"
 import type { Env } from "../env.ts"
 import { open, seal, type SealedSecret } from "./crypto.ts"
-import { forgetInstallationToken, github, installationToken, mintedToken, requestInstallationToken, revokeInstallationToken, type Http } from "./providers.ts"
+import { forgetInstallationToken, github, installationToken, mintedToken, ProviderError, requestInstallationToken, revokeInstallationToken, type Http } from "./providers.ts"
 
 /**
  * GitHub installation tokens handed to callers (POST /v1/integrations/github/token, gh-app-product
@@ -143,7 +143,7 @@ const decodeRepoCursor = (value: string): RepoCursor | TokenFail => {
 
 /** Lists one bounded upstream page at a time; the cursor carries installation and page. */
 export const githubRepos = async (
-  h: { readonly env: Env; readonly http: Http; readonly state: () => ConnectionsState },
+  h: { readonly env: Env; readonly http: Http; readonly state: () => ConnectionsState; readonly needsReauth: LedgerHost["needsReauth"] },
   p: Principal,
   query: { readonly query?: string; readonly cursor?: string },
 ): Promise<RepoListReply> => {
@@ -166,11 +166,15 @@ export const githubRepos = async (
     if (!Number.isSafeInteger(installation)) return fail(503, "integration.unavailable", "the GitHub connection has no installation")
     // A cached installation token GitHub refuses (revoked, or the App re-installed) is dropped and
     // minted once more before the connection is reported as needing a relink.
+    // An installation GitHub no longer accepts (a 401 or 404 on the token mint: revoked or deleted)
+    // needs a relink, as on the token path (mintOrReuse); other mint failures are retryable.
+    let gone: string | null = null
     const list = async (): Promise<{ token: string; response: Response | null } | null> => {
       let token: string
       try {
         token = await installationToken(h.env, h.http, installation)
-      } catch {
+      } catch (error) {
+        if (error instanceof ProviderError && (error.status === 401 || error.status === 404)) gone = error.status === 404 ? "the GitHub App installation is gone" : "GitHub refused the App installation"
         return null
       }
       const response = await h.http(new Request(`https://api.github.com/installation/repositories?per_page=100&page=${cursor.page}`, { headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", "user-agent": "cmux-cloud" } })).catch(() => null)
@@ -182,10 +186,15 @@ export const githubRepos = async (
       listed = await list()
       if (listed?.response?.status === 401) forgetInstallationToken(installation, listed.token)
     }
-    if (!listed) return fail(503, "integration.unavailable", "GitHub did not answer; retry")
+    if (!listed && gone === null) return fail(503, "integration.unavailable", "GitHub did not answer; retry")
+    if (!listed || listed.response?.status === 401) {
+      // Recorded on the connection, so /status shows the relink and later asks stop minting for it.
+      h.needsReauth(connection, gone ?? "GitHub refused a fresh installation token")
+      return fail(409, "needs_reauth", "the GitHub App installation needs to be linked again")
+    }
     const response = listed.response
     if (!response) return fail(503, "integration.unavailable", "GitHub did not answer; retry")
-    if (!response.ok) return response.status === 401 ? fail(409, "needs_reauth", "the GitHub App installation needs to be linked again") : fail(503, "integration.unavailable", "GitHub repository listing failed")
+    if (!response.ok) return fail(503, "integration.unavailable", "GitHub repository listing failed")
     const body = (await response.json().catch(() => undefined)) as { repositories?: unknown; total_count?: unknown } | undefined
     if (!body || !Array.isArray(body.repositories)) return fail(503, "integration.unavailable", "GitHub returned an invalid repository list")
     const repos = body.repositories.flatMap((entry) => {
