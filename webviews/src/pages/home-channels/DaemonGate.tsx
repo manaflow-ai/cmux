@@ -237,9 +237,9 @@ export function DaemonGate({
     return (
       <section className="hc-gate" aria-busy="true">
         {lasting && (
-          <p className="hc-gate-line" role="status">
+          <output className="hc-gate-line">
             {phase.note ? format("connect.failed", phase.note) : t("connect.connecting")}
-          </p>
+          </output>
         )}
       </section>
     );
