@@ -39,6 +39,8 @@ import Testing
         #expect(message.author == "agent_mux")
         #expect(message.clientMsgID == "notice:chief-welcome-v1")
         #expect(message.parts == [.object(["type": .string("text"), "text": .string(Self.text)])])
+        // Read for the local user up to the welcome: no unread dot or badge for it.
+        #expect(await owner.reads == [ReadMark(conversation: "conv_created", seq: 1)])
 
         // The next launch reads the record and posts nothing, even while the conversation reads as empty.
         let again = await ChiefWelcome(root: root, chief: "agent_mux").run(owner: owner.owner, text: Self.text)
@@ -68,6 +70,20 @@ import Testing
         #expect(record?.isOnlyMessage(of: "conv_chief", lastSeq: 0) == false)
     }
 
+    @Test func anUpgradeWithoutALocalChiefGetsNoNewChiefConversation() async throws {
+        // Other conversations and no local Chief (a cloud Chief has the tab, or the local one was
+        // deleted): Home never creates the local Chief there, so the welcome does not either.
+        let other = ConversationSummary(id: "conv_lane", title: "Lane", participants: [Self.me], lastSeq: 3, rev: 1,
+                                        createdAt: "2026-10-27T00:00:00.000Z", updatedAt: "2026-10-27T00:00:00.000Z")
+        let root = try home()
+        let owner = FakeOwner(listed: [other])
+        let record = await ChiefWelcome(root: root, chief: "agent_mux").run(owner: owner.owner, text: Self.text)
+        #expect(record == ChiefWelcome.Record(conversation: "", seq: 0))
+        #expect(await owner.created == 0)
+        #expect(await owner.imports.isEmpty)
+        #expect(await ChiefWelcome(root: root, chief: "agent_mux").load() == record)
+    }
+
     @Test func aFailedImportRecordsNothingAndTheNextConnectionPosts() async throws {
         let root = try home()
         let failing = FakeOwner(listed: [Self.summary("conv_chief", lastSeq: 0)], fails: true)
@@ -89,6 +105,7 @@ import Testing
         let record = await ChiefWelcome(root: try home(), chief: "agent_mux").run(owner: owner.owner, text: Self.text)
         #expect(record == ChiefWelcome.Record(conversation: "conv_chief", seq: 1))
         #expect(await owner.imports.isEmpty)
+        #expect(await owner.reads == [ReadMark(conversation: "conv_chief", seq: 1)])
     }
 
     @Test func aRaceTheOwnerSkippedIsRecordedAsTheFirstMessage() async throws {
@@ -118,7 +135,7 @@ import Testing
 
     @Test func theTextCallsOutCommandPFirstThenTheShortcutsExamplesAndWhatToAsk() throws {
         let text = Self.text
-        let goTo = try #require(text.range(of: "**Press `⌘P` to go anywhere.**"))
+        let goTo = try #require(text.range(of: HomeStrings.chiefWelcomeGoTo("⌘P")))
         let palette = try #require(text.range(of: "- `⇧⌘P` Command Palette"))
         let newTab = try #require(text.range(of: "- `⌘T` New Tab"))
         let examples = try #require(text.range(of: HomeStrings.chiefWelcomeExamplesHeader))
@@ -147,6 +164,11 @@ import Testing
     }
 }
 
+private struct ReadMark: Equatable {
+    var conversation: String
+    var seq: UInt64
+}
+
 /// A Chief owner: its list, the creates and imports it received; `fails` refuses every import.
 private actor FakeOwner {
     let listed: [ConversationSummary]
@@ -154,6 +176,7 @@ private actor FakeOwner {
     let imported: [UInt64]
     var created = 0
     var imports: [ConversationImportRequest] = []
+    var reads: [ReadMark] = []
 
     init(listed: [ConversationSummary], fails: Bool = false, imported: [UInt64] = [1]) {
         self.listed = listed
@@ -162,7 +185,12 @@ private actor FakeOwner {
     }
 
     nonisolated var owner: ChiefWelcome.Owner {
-        ChiefWelcome.Owner(list: { self.listed }, create: { await self.create() }, importMessages: { try await self.receive($0) })
+        ChiefWelcome.Owner(list: { self.listed }, create: { await self.create() }, importMessages: { try await self.receive($0) },
+                           markRead: { await self.read($0, $1) })
+    }
+
+    func read(_ conversation: String, _ seq: UInt64) {
+        reads.append(ReadMark(conversation: conversation, seq: seq))
     }
 
     func create() -> String {

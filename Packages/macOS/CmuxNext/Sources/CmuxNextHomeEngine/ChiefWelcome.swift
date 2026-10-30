@@ -8,11 +8,13 @@ import os
 /// The Chief's welcome (#26053): the first time this Chief home's owner connects, the Chief's own
 /// conversation gets one message from the Chief with the key shortcuts (⌘P first), a few things to
 /// ask it and that it answers anything about cmux, coding agents and browsers. It is written with
-/// `conversation-import` under the Chief as author (a `notice:` client id, which the Chief's
-/// transcript labels a host notice), so no model turn runs.
+/// `conversation-import` under the Chief as author (client id ``clientMsgID``), so no model turn
+/// runs, and is marked read for the local user so it never shows as unread. Its keys and language are
+/// the ones of the launch that posts it.
 ///
 /// Once per Chief home: the record (`<home>/welcome.json`) says where it went. A Chief conversation
-/// with history (an upgrade) is recorded without a post. Home runs it from the owner's `prepare`,
+/// with history, or an owner with other conversations and no Chief (an upgrade), is recorded
+/// without a post, so an upgrade never gets a new local Chief just for the welcome. Home runs it from the owner's `prepare`,
 /// after the old Chiefs' migration and before Home reads the conversation, so the import never
 /// lands under an open transcript and never puts the migration's older messages out of order.
 /// While the welcome is the conversation's only message, Home treats the conversation as empty
@@ -56,24 +58,32 @@ public nonisolated struct ChiefWelcome: Sendable {
     }
 
     /// The owner calls the welcome needs: the conversation list, the Chief conversation's
-    /// idempotent creation, and the import (the seqs it gave).
+    /// idempotent creation, the import (the seqs it gave) and the local user's read cursor.
     public struct Owner: Sendable {
         var list: @Sendable () async throws -> [CmuxNextDaemon.ConversationSummary]
         var create: @Sendable () async throws -> String
         var importMessages: @Sendable (ConversationImportRequest) async throws -> [UInt64]
+        var markRead: @Sendable (_ conversation: String, _ seq: UInt64) async throws -> Void
 
         public init(list: @escaping @Sendable () async throws -> [CmuxNextDaemon.ConversationSummary], create: @escaping @Sendable () async throws -> String,
-                    importMessages: @escaping @Sendable (ConversationImportRequest) async throws -> [UInt64]) {
+                    importMessages: @escaping @Sendable (ConversationImportRequest) async throws -> [UInt64],
+                    markRead: @escaping @Sendable (_ conversation: String, _ seq: UInt64) async throws -> Void) {
             self.list = list
             self.create = create
             self.importMessages = importMessages
+            self.markRead = markRead
         }
 
         /// The Chief owner on `connection`; a missing Chief conversation is made by `create`, Home's request.
         public init(connection: DaemonConnection, create request: CreateConversationRequest) {
             let client = ConversationClient(connection)
             self.init(list: { try await client.list() }, create: { try await client.create(request).conversation.id },
-                      importMessages: { try await client.importHistory($0).imported })
+                      importMessages: { try await client.importHistory($0).imported },
+                      markRead: { conversation, seq in
+                          // The connection's own participant (the local user), as Home's markRead.
+                          _ = try await client.op(ConversationOpRequest(conversation: conversation, idempotencyKey: "read:\(ChiefWelcome.clientMsgID):\(seq)",
+                                                                        transaction: nil, op: .setReadCursor(seq: seq)))
+                      })
         }
     }
 
@@ -108,19 +118,33 @@ public nonisolated struct ChiefWelcome: Sendable {
         if let done = await load() { return done }
         if let migration, !FileManager.checked.fileExists(atPath: migration.path) { return nil }
         do {
-            let listed = HomeChiefName.select(from: try await owner.list())
-            // Imported by an earlier launch whose record was lost (its reply or the write failed).
+            let all = try await owner.list()
+            let listed = HomeChiefName.select(from: all)
+            // Imported by an earlier launch whose record was lost (its reply, the read or the write failed).
             if let listed, listed.lastSeq == 1, listed.lastMessage?.clientMsgID == Self.clientMsgID {
+                await markRead(owner, listed.id, seq: 1)
                 return save(Record(conversation: listed.id, seq: 1))
             }
             if let listed, listed.lastSeq > 0 { return save(Record(conversation: listed.id, seq: 0)) }
+            // An upgrade without a local Chief (a cloud Chief, or the local one deleted): Home looks the
+            // local Chief up and never makes one for it, so the welcome does not either.
+            if listed == nil, !all.isEmpty { return save(Record(conversation: "", seq: 0)) }
             let id: String
             if let listed { id = listed.id } else { id = try await owner.create() }
             let imported = try await owner.importMessages(Self.request(conversation: id, chief: chief, text: text, at: at))
             // Skipped: an earlier run imported it into the then empty conversation and stopped before its record.
-            return save(Record(conversation: id, seq: imported.first ?? 1))
+            let seq = imported.first ?? 1
+            await markRead(owner, id, seq: seq)
+            return save(Record(conversation: id, seq: seq))
         } catch {
             return nil
+        }
+    }
+
+    /// Best effort: a failed read cursor leaves one unread welcome, never a second post.
+    private func markRead(_ owner: Owner, _ conversation: String, seq: UInt64) async {
+        do { try await owner.markRead(conversation, seq) } catch {
+            Logger(subsystem: "com.cmuxterm.app.next", category: "home").info("chief welcome: read cursor not set")
         }
     }
 
