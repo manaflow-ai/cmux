@@ -26,6 +26,8 @@ final class PaneContentView: NSView, PaneContentChrome {
     private var paneBackgroundsObservation: Task<Void, Never>?
     let contentHost = NSView()
     private(set) weak var content: NSView?
+    /// Explicitly observed ownership: first-paint holds can change this without a tab-store update.
+    let nativeToolOwner = PaneNativeToolOwner()
     /// A view in the window that this pane, in no window yet, shows: it moves here when the pane enters one.
     private var windowEntry = WindowEntryHandoff()
     private var tokenObservation: Task<Void, Never>?
@@ -208,9 +210,11 @@ final class PaneContentView: NSView, PaneContentChrome {
         paintHold.kept.flatMap { $0.superview === contentHost ? $0 : nil } ?? (hostsContent ? content : nil)
     }
 
-    /// The selected agent page's model, for native controls owned by the page.
-    var displayedAgentPaneView: AgentPaneView? { visibleContent as? AgentPaneView }
-    var agentPaneModel: AgentPaneModel? { displayedAgentPaneView?.model }
+    /// The controls and their callback follow the same page, including an outgoing first-paint hold.
+    func refreshNativeToolOwner() {
+        nativeToolOwner.model = (visibleContent as? AgentPaneView)?.model
+        toolbar?.refresh()
+    }
 
     var paneFramesContent: Bool { !(visibleContent is AgentPaneView) }
 
@@ -323,7 +327,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         // Another pane may own `previous` now and have taken its callback.
         if let previous, previous !== view, previous.superview == nil { (previous as? PaneContentChrome)?.onPaneHeaderHeightChange = nil }
         content = view
-        toolbar?.refresh()
+        refreshNativeToolOwner()
         // After the incoming view is in: a browser that leaves stays parked
         // here, and the keyboard it held goes to what shows now.
         if let leaving { retire(leaving) }
@@ -364,6 +368,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         let shown = hostsContent ? content : nil
         (shown as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
         content = nil
+        refreshNativeToolOwner()
         if let shown { if parks { retire(shown) } else { shown.removeFromSuperview() } }
         applyCornerRadius()
         updateBand()
@@ -428,4 +433,10 @@ extension PaneContentView: TitlebarPressDeciding {
 private let tabSwitchLog = Logger(subsystem: "com.cmuxterm.app.next", category: "tab-switch")
 private func tabSwitchMark(_ name: String) {
     tabSwitchLog.debug("tab-switch \(name, privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
+}
+
+/// Separates observable page ownership from AppKit's non-observable view hierarchy.
+@Observable
+final class PaneNativeToolOwner {
+    weak var model: AgentPaneModel?
 }

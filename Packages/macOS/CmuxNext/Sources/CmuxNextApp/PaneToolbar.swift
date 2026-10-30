@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
@@ -35,6 +36,7 @@ final class PaneToolbar {
         /// it shows. Hiding "…" for that frame gave its width to the strip, which laid out every
         /// tab again at once (10 tabs, cx-codh2).
         var behind = false
+        var nativeOwnerID: ObjectIdentifier?
         var nativeItems: [PaneTabRowTool] = []
         var nativeEnabled = false
     }
@@ -92,22 +94,16 @@ final class PaneToolbar {
                 }
             }
         }
-        view.onNativeTool = { [weak pane] id, menuItemID in
-            pane?.view.displayedAgentPaneView?.model.onTabRowToolInvoked?(id, menuItemID)
-        }
         refreshCurrent = { [weak self, weak pane] in
             guard let self, let pane else { return }
-            let state = Self.state(pane)
-            guard !state.behind else { return }
-            self.update(target: state.target, kind: state.kind, zoomed: state.zoomed, pinned: state.pinned,
-                        paneKinds: state.paneKinds, nativeItems: state.nativeItems, nativeEnabled: state.nativeEnabled)
+            self.apply(Self.state(pane), owner: pane.view.nativeToolOwner)
         }
         // task-owner: lives as long as the pane's view; event-driven (Observation)
         observation = Task { [weak self, weak pane] in
             for await state in ObservationStream({ [weak pane] in pane.map(Self.state) }) {
                 guard let self, let state else { return }
-                if state.behind { continue }
-                update(target: state.target, kind: state.kind, zoomed: state.zoomed, pinned: state.pinned, paneKinds: state.paneKinds, nativeItems: state.nativeItems, nativeEnabled: state.nativeEnabled)
+                guard let pane else { return }
+                apply(state, owner: pane.view.nativeToolOwner)
             }
         }
     }
@@ -115,22 +111,33 @@ final class PaneToolbar {
     /// Rebinds controls immediately after the pane changes content ownership.
     func refresh() { refreshCurrent?() }
 
+    /// Apply one ownership snapshot; a retained menu can never retarget its IDs to another page.
+    func apply(_ state: State, owner: PaneNativeToolOwner) {
+        let model = owner.model
+        guard state.nativeOwnerID == model.map(ObjectIdentifier.init) else { return }
+        view.onNativeTool = { [weak model, weak owner] id, menuItemID in
+            guard let model, owner?.model === model, model.tabRow.nativeToolsEnabled else { return }
+            model.onTabRowToolInvoked?(id, menuItemID)
+        }
+        update(target: state.behind ? target : state.target, kind: state.behind ? kind : state.kind,
+               zoomed: state.zoomed, pinned: state.pinned, paneKinds: state.paneKinds, nativeItems: state.nativeItems, nativeEnabled: state.nativeEnabled)
+    }
+
     private static func state(_ pane: PaneController) -> State {
-        let displayed = pane.view.displayedAgentPaneView
-        let displayedModel = displayed?.model
+        let displayedModel = pane.view.nativeToolOwner.model
         let pinned = pane.services.settings.map { PaneToolbarButtonsSetting.current($0).pinned } ?? []
         let resolver = TabTitleResolver(services: pane.services)
         let paneKinds = Set(pane.pane.tabs.compactMap { kind($0, isNewTabPage: resolver.isNewTabPage($0)) })
         // The pane's own workspace, not a store scan: this runs for every pane. Whichever tab is
         // selected, so the zoom button's room does not follow the selection.
         let zoomed = pane.workspace?.workspace.screens.contains { $0.zoomedPane == pane.pane.handle } ?? false
-        guard let key = pane.stripModel.selectedID?.rawValue else { return State(zoomed: zoomed, pinned: pinned, paneKinds: paneKinds, nativeItems: displayedModel?.tabRowTools ?? [], nativeEnabled: ChromeTunables.nativeRowTools.value && displayed?.nativeRowToolsAvailable == true) }
+        guard let key = pane.stripModel.selectedID?.rawValue else { return State(zoomed: zoomed, pinned: pinned, paneKinds: paneKinds, nativeOwnerID: displayedModel.map(ObjectIdentifier.init), nativeItems: displayedModel?.tabRowTools ?? [], nativeEnabled: displayedModel?.tabRow.nativeToolsEnabled == true) }
         guard let tab = pane.pane.tabs.first(where: { $0.id == key }) else {
             // A window's own page or browser tab is never in the store: no "…", not a stale bar.
             let local = key.hasPrefix(LocalPageTab.prefix) || key.hasPrefix(LocalBrowserTab.prefix)
-            return State(zoomed: zoomed, pinned: pinned, paneKinds: paneKinds, behind: !local, nativeEnabled: ChromeTunables.nativeRowTools.value)
+            return State(zoomed: zoomed, pinned: pinned, paneKinds: paneKinds, behind: !local, nativeOwnerID: displayedModel.map(ObjectIdentifier.init), nativeItems: displayedModel?.tabRowTools ?? [], nativeEnabled: displayedModel?.tabRow.nativeToolsEnabled == true)
         }
-        return State(target: key, kind: kind(tab, isNewTabPage: resolver.isNewTabPage(tab)), zoomed: zoomed, pinned: pinned, paneKinds: paneKinds, nativeItems: displayedModel?.tabRowTools ?? [], nativeEnabled: ChromeTunables.nativeRowTools.value && displayed?.nativeRowToolsAvailable == true)
+        return State(target: key, kind: kind(tab, isNewTabPage: resolver.isNewTabPage(tab)), zoomed: zoomed, pinned: pinned, paneKinds: paneKinds, nativeOwnerID: displayedModel.map(ObjectIdentifier.init), nativeItems: displayedModel?.tabRowTools ?? [], nativeEnabled: displayedModel?.tabRow.nativeToolsEnabled == true)
     }
 
     static func kind(_ tab: TabModel, isNewTabPage: Bool) -> Kind? {
