@@ -216,18 +216,25 @@ def closing(text: str, start: int) -> int:
 
 def target_spans(text: str) -> dict[str, tuple[str, int, int]]:
     """{name: (kind, the index of its `(`, the index of the `)` that closes it)} for each target the manifest
-    declares on a line of its own (`.target(`, `.testTarget(`, `.executableTarget(`)."""
+    declares (`.target(`, `.testTarget(`, `.executableTarget(`), its arguments on that line or on the next ones
+    (review of 6e507c72: `.target(name: "CmuxNextMallocZone")` on one line was never read). A `.target(name:)`
+    inside another target's call is a dependency, not a declaration; a `//` comment declares nothing."""
     spans = {}
-    for match in re.finditer(r"(?m)^\s*\.(target|testTarget|executableTarget)\(\s*$", text):
+    inside = -1  # the end of the last target's call: a match before it is nested in that call
+    for match in re.finditer(r"\.(target|testTarget|executableTarget)\(", text):
         open_at = match.end() - 1
-        while text[open_at] != "(":
-            open_at -= 1
+        if open_at < inside:
+            continue
+        line_start = text.rfind("\n", 0, match.start()) + 1
+        if "//" in text[line_start:match.start()]:
+            continue
         close_at = closing(text, open_at)
         if close_at < 0:
             continue
         name = re.search(r'name:\s*"([^"]+)"', text[open_at:close_at])
         if name:
             spans[name.group(1)] = (match.group(1), open_at, close_at)
+            inside = close_at
     return spans
 
 
@@ -340,6 +347,8 @@ def add_dependency(text: str, target: str, module: str) -> str:
     if deps is None:  # no dependencies yet: one goes right after the name (SwiftPM's argument order)
         name = re.search(r'name:\s*"[^"]+"', text[open_at:close_at])
         end = open_at + name.end()
+        if "\n" not in text[open_at:close_at]:  # a one-line call stays on its line
+            return text[:end] + f", dependencies: [{entry}]" + text[end:]
         line_start = text.rfind("\n", 0, open_at + name.start()) + 1
         indent = text[line_start:open_at + name.start()]
         if not indent.strip() == "":  # `name:` shares its line with `.target(`: indent one step past it

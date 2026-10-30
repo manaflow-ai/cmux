@@ -396,16 +396,19 @@ class FixImportsTests(unittest.TestCase):
         '        .target(name: "CmuxNextCompat"),\n'
         "        // QuartzCore's CALayerHost.\n"
         '        .target(name: "CmuxNextRemoteLayer", linkerSettings: [.linkedFramework("QuartzCore")]),\n'
-        '        .testTarget(name: "CmuxNextRemoteLayerTests", dependencies: [.target(name: "CmuxNextRemoteLayer")]),\n'
+        '        .testTarget(name: "CmuxNextRemoteLayerTests", dependencies: ["CmuxNextRemoteLayer"]),\n'
         "    ]\n"
         ")\n")
 
     def test_a_one_line_target_s_undeclared_import_is_found_and_declared(self):
         # Review of 6e507c72: a target declared on one line was never read, so its sources were never scanned and a
-        # push could add an undeclared import to it. A nested `.target(name:)` dependency is not a target.
+        # push could add an undeclared import to it.
         targets = lint.manifest_targets(self.ONE_LINE)
         self.assertEqual(sorted(targets), ["CmuxNextCompat", "CmuxNextRemoteLayer", "CmuxNextRemoteLayerTests"])
         self.assertEqual(targets["CmuxNextRemoteLayerTests"][0], "testTarget")
+        # A `.target(name:)` entry in a dependencies list is a dependency, not a declaration.
+        nested = lint.target_spans('.testTarget(name: "T", dependencies: [.target(name: "A")]),\n.target(name: "A"),\n')
+        self.assertEqual({name: kind for name, (kind, _, _) in nested.items()}, {"T": "testTarget", "A": "target"})
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "Package.swift").write_text(self.ONE_LINE, encoding="utf-8")
