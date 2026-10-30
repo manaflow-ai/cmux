@@ -2657,6 +2657,10 @@ class SideLanes(unittest.TestCase):
         self.assertEqual(target.pr_number, 26809)
         tip = self.dev_daily_completed(run_attempt=1, display_title=f"cmux-next tip Swift suite · {HEAD}")
         self.assertIsInstance(rescue.completed_target(tip, "manaflow-ai/cmux"), rescue.Target)
+        # The tip daemon suite (cmux-next-tip-swift-suite-dispatch.yml's daemon leg) too: a refused daemon
+        # test must not wait for the sweeper, or the base has no daemon-test verdict for hours.
+        daemon = self.dev_daily_completed(run_attempt=1, display_title=f"cmux-next tip daemon suite · {HEAD}")
+        self.assertIsInstance(rescue.completed_target(daemon, "manaflow-ai/cmux"), rescue.Target)
         fork = self.dev_daily_completed(event="pull_request", run_attempt=1, pull_requests=[{"number": 1}],
                                         head_repository={"full_name": "someone/cmux"})
         self.assertIsInstance(rescue.completed_target(fork, "manaflow-ai/cmux"), str)
@@ -5800,7 +5804,8 @@ class Workflow(unittest.TestCase):
         self.assertEqual(step["env"]["WATCH_RUN_ID"], "${{ inputs.run_id }}")
         self.assertIn("inputs.run_id || github.event.workflow_run.id", self.doc["concurrency"]["group"])
 
-    # A failed cmux-next DEV daily or tip Swift suite dispatch, base-branch push or same-repository pull
+    # A failed cmux-next DEV daily, tip Swift suite or tip daemon suite dispatch, base-branch push or
+    # same-repository pull
     # request run, at any attempt (completed_target()).
     COMPLETED_DEV_RUN = (
         "github.event.action == 'completed' && "
@@ -5809,7 +5814,8 @@ class Workflow(unittest.TestCase):
         "github.event.workflow_run.head_repository.full_name == github.repository && "
         "(github.event.workflow_run.event == 'workflow_dispatch' && "
         "(startsWith(github.event.workflow_run.display_title, 'cmux NEXT DEV daily') || "
-        "startsWith(github.event.workflow_run.display_title, 'cmux-next tip Swift suite')) || "
+        "startsWith(github.event.workflow_run.display_title, 'cmux-next tip Swift suite') || "
+        "startsWith(github.event.workflow_run.display_title, 'cmux-next tip daemon suite')) || "
         "github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'feat-cmux-next' || "
         "github.event.workflow_run.event == 'pull_request')")
 
