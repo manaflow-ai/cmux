@@ -11,8 +11,8 @@
 // (Leo 2026-10-21 on a tray line that showed a raw shell line: "is that a command or a
 // subagent?"), and a line that opens something ends in a chevron. A line with nothing to open is
 // a disabled button with no hover at all (subagents.css).
-import { useContext, useLayoutEffect, type ReactNode } from "react";
-import { AgentProgressContext, useAgentProgress } from "./agentProgressStore";
+import type { ReactNode } from "react";
+import { useAgentProgress } from "./agentProgressStore";
 import { AgentMark, knownMark } from "../../shared/AgentMark";
 import { Tooltip } from "../../../ui/Tooltip";
 import { waveProps } from "../../../ui/wave";
@@ -97,10 +97,6 @@ export function AgentLine({
   /// Use the running tray's fixed trailing columns; other AgentLine consumers keep their flow.
   trayColumns?: boolean;
 }) {
-  const progressStore = useContext(AgentProgressContext);
-  useLayoutEffect(() => {
-    if (progressStore && progressAgent) progressStore.updateAgent(progressAgent);
-  }, [progressStore, progressAgent]);
   const liveProgress = useAgentProgress(progressAgent);
   const progress = liveProgress ?? fallbackProgress;
   const shimmer = waveProps(wave);

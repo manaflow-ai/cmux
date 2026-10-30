@@ -4,43 +4,9 @@ import { usePaneLanguage, useT } from "../i18n";
 import type { Subagent } from "./subagentFold";
 import { subagentProgress } from "./subagentProgress";
 
-type Progress = Pick<Subagent, "agents" | "tokens" | "toolUses">;
-const EMPTY: Progress = {};
-const same = (a: Progress, b: Progress) =>
-  a.tokens === b.tokens && a.toolUses === b.toolUses &&
-  a.agents?.done === b.agents?.done && a.agents?.started === b.agents?.started &&
-  a.agents?.failed === b.agents?.failed && a.agents?.queued === b.agents?.queued;
-
-export class AgentProgressStore {
-  private values = new Map<string, Progress>();
-  private listeners = new Map<string, Set<() => void>>();
-  constructor(agents: readonly Subagent[]) { this.update(agents); }
-  get(id: string): Progress { return this.values.get(id) ?? EMPTY; }
-  subscribe(id: string, notify: () => void): () => void {
-    let listeners = this.listeners.get(id);
-    if (!listeners) this.listeners.set(id, listeners = new Set());
-    listeners.add(notify);
-    return () => {
-      listeners.delete(notify);
-      if (listeners.size === 0) this.listeners.delete(id);
-    };
-  }
-  update(agents: readonly Subagent[]): void {
-    for (const agent of agents) this.updateAgent(agent);
-  }
-  updateAgent(agent: Subagent): void {
-    if (same(this.get(agent.id), agent)) return;
-    this.values.set(agent.id, {
-      tokens: agent.tokens, toolUses: agent.toolUses,
-      agents: agent.agents ? { ...agent.agents } : undefined,
-    });
-    this.listeners.get(agent.id)?.forEach((notify) => notify());
-  }
-  remove(id: string): void {
-    if (!this.values.delete(id)) return;
-    this.listeners.get(id)?.forEach((notify) => notify());
-  }
-}
+import { AgentProgressStore } from "./agentProgressSource";
+export { AgentProgressStore } from "./agentProgressSource";
+const EMPTY = {};
 
 export const AgentProgressContext = createContext<AgentProgressStore | undefined>(undefined);
 export function useAgentProgress(agent?: Subagent): string | undefined {
@@ -53,8 +19,4 @@ export function useAgentProgress(agent?: Subagent): string | undefined {
   const t = useT();
   const language = usePaneLanguage();
   return agent ? subagentProgress(t, language, progress).join(" · ") : undefined;
-}
-export function AgentProgressText({ agent }: { agent: Subagent }) {
-  const text = useAgentProgress(agent);
-  return text ? <span className="acpmux-agent-line__progress">{text}</span> : null;
 }

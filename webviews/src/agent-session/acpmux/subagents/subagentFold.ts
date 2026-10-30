@@ -1,3 +1,4 @@
+import { AgentProgressStore } from "./agentProgressSource";
 import type { AcpmuxRow } from "../model";
 import { textFromContent } from "../direct";
 import {
@@ -130,6 +131,7 @@ type ViewRevisions = { activity: symbol; command: symbol; summary: object };
 /// between two pieces of its own text draw as one group row where the first one started; their
 /// own updates, their spawn and state events, and the tool calls that started them draw no row.
 export class SubagentFold {
+  readonly progressSource = new AgentProgressStore();
   private readonly agents = new Map<string, Subagent>();
   private readonly groupOf = new Map<string, Group>();
   private readonly spawnCalls = new Set<string>();
@@ -853,6 +855,7 @@ export class SubagentFold {
   }
 
   private touch(agent: Subagent): void {
+    this.progressSource.updateAgent(agent);
     const summaryChanged = this.settleView(agent);
     if (agent.parent !== null) {
       if (summaryChanged) this.bumpParentViews(agent.parent);

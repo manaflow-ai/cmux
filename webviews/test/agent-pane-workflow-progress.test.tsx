@@ -1,7 +1,5 @@
 // l10n-allow-file: test fixture page titles, not shipped UI.
-// A render tool call's card in the real pane (AcpmuxApp on a stand-in for the app's pane bridge, as
-// the gallery's agent pane host mounts it): Open shows the page in the side panel, as a
-// ```cmux-render fence's card does (cx-ncc.94), and a call with no title reads the page's <title>.
+// Workflow progress traverses the real App memo boundary; unchanged siblings stay untouched.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 
@@ -65,7 +63,8 @@ afterAll(() => {
 
 
 const { configureSubagentTray } = await import("../src/agent-session/acpmux/subagents/runningTray");
-const { AgentProgressStore } = await import("../src/agent-session/acpmux/subagents/agentProgressStore");
+const { AgentProgressStore, markAgentProgressSource } = await import("../src/agent-session/acpmux/subagents/agentProgressSource");
+const { SubagentFold } = await import("../src/agent-session/acpmux/subagents/subagentFold");
 type Subagent = import("../src/agent-session/acpmux/subagents/subagentFold").Subagent;
 const agents: Subagent[] = ["workflow-a", "workflow-b"].map((id) => ({
   id, name: id, parent: null, state: "running", kind: "workflow", startedAt: Date.now(),
@@ -79,7 +78,17 @@ const receive = (value: unknown) => (dom.window as unknown as {
   cmuxAcpmuxBridge?: { receive(value: unknown): void };
 }).cmuxAcpmuxBridge?.receive(value);
 
-test("App delivers usage-only snapshots to one workflow row without replacing its sibling", async () => {
+for (const producer of [false, true]) test(`App delivers usage-only snapshots to one workflow row (${producer ? "direct producer" : "bridge"})`, async () => {
+  const fold = new SubagentFold();
+  let seq = 0;
+  const publish = (items: Subagent[]) => {
+    if (!producer) return snapshot(items);
+    const update = { sessionUpdate: seq === 0 ? "subagent_spawned" : "subagent_progress" };
+    fold.reduce({ seq: ++seq, at: Date.now(), msg: { params: { _meta: { acpmux: { subagents: items } } } } }, update);
+    const next = fixtures.chat([fixtures.user("Review both modules", 2), ...fold.takeRows()], { isWorking: true });
+    markAgentProgressSource(next.rows, fold.progressSource);
+    return next;
+  };
   configureSubagentTray(true);
   (dom.window as unknown as { webkit: unknown }).webkit = {
     messageHandlers: { agentSession: { postMessage(message: { method?: string }) {
@@ -91,7 +100,7 @@ test("App delivers usage-only snapshots to one workflow row without replacing it
   const root = createRoot(dom.window.document.getElementById("root")!);
   try {
     await act(async () => root.render(<AcpmuxApp />));
-    await act(async () => receive(snapshot(structuredClone(agents))));
+    await act(async () => receive(publish(structuredClone(agents))));
     const rows = () => [...dom.window.document.querySelectorAll(".acpmux-running-tray .acpmux-agent-line")];
     expect(rows()).toHaveLength(2);
     const [first, second] = rows();
@@ -102,11 +111,13 @@ test("App delivers usage-only snapshots to one workflow row without replacing it
     const updated = structuredClone(agents);
     updated[0]!.tokens = 42000;
     updated[0]!.agents = { started: 3, done: 1, failed: 1, queued: 2 };
-    await act(async () => receive(snapshot(updated)));
+    const version = fold.progressSource.structureVersion;
+    await act(async () => receive(publish(producer ? [updated[0]!] : updated)));
+    if (producer) expect(fold.progressSource.structureVersion).toBe(version);
     observer.disconnect();
     expect(rows()[0]).toBe(first);
     expect(rows()[1]).toBe(second);
-    expect(first!.querySelector(".acpmux-agent-line__progress")?.textContent).toContain("subagents.tokens");
+    expect(first!.querySelector(".acpmux-agent-line__progress")?.textContent).toContain("42K tokens");
     expect(first!.textContent).toContain("1/3 agents");
     expect(first!.textContent).toContain("1 failed");
     expect(second!.innerHTML).toBe(before);
@@ -134,6 +145,27 @@ test("progress source notifies only the changed agent and cleans subscriptions",
   expect([a, b]).toEqual([1, 0]);
   expect(store.get(agents[1]!.id)).toBe(originalB);
   offA(); offB();
-  store.update([]);
+  store.remove(agents[0]!.id);
+  store.remove(agents[1]!.id);
   expect([a, b]).toEqual([1, 0]);
+});
+
+test("one usage event touches one source entry regardless of sibling count", () => {
+  for (const count of [10, 1000]) {
+    const fold = new SubagentFold();
+    const update = { sessionUpdate: "subagent_spawned" };
+    const entries = Array.from({ length: count }, (_, i) => ({ ...agents[0]!, id: `agent-${i}` }));
+    const event = (seq: number, items: Subagent[]) => ({ seq, at: seq, msg: { params: { _meta: { acpmux: { subagents: items } } } } });
+    fold.reduce(event(1, entries), update);
+    const source = fold.progressSource;
+    const version = source.structureVersion;
+    let touches = 0;
+    const original = source.updateAgent.bind(source);
+    source.updateAgent = (agent) => { touches++; original(agent); };
+    fold.reduce(event(2, [{ ...entries[0]!, tokens: 42000 }]), { sessionUpdate: "subagent_progress" });
+    expect(touches).toBe(1);
+    expect(source.structureVersion).toBe(version);
+    expect(source.get("agent-0").tokens).toBe(42000);
+    console.log(`progress-update agents=${count} source_entries=${touches} structural_rebuilds=${source.structureVersion - version}`);
+  }
 });
