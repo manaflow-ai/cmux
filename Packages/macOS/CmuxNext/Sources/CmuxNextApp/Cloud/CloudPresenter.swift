@@ -94,7 +94,8 @@ enum CloudPresenter {
 
     /// Confirms provider setup for the tab’s resolved Cloud VM and reports failures in its window.
     @MainActor static func recoverCredentials(chat: String, request: AgentPaneCloudCredentialTransferRequest, services: AppServices) async -> Bool {
-        guard services.cloud.configuration.linkSource == .legacy, services.cloud.isSignedIn,
+        guard AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: services.cloud.configuration.linkSource,
+                                                                isSignedIn: services.cloud.isSignedIn),
               let userID = services.cloud.auth.user?.id,
               let (tab, _) = services.locateTab(chat),
               let daemon = try? services.machines.agentDaemon(forTab: tab),
@@ -148,7 +149,7 @@ enum CloudPresenter {
                         return await presentCodexDeviceCode(prompt, in: view.map(CmuxDialogScope.tab) ?? .window(window))
                     })
             } else {
-                try await transfer.run(api: services.cloud.api,
+                try await transfer.run(api: services.cloud.machineAPI,
                                        currentTeamID: { services.cloud.auth.teamID },
                                        currentUserID: { services.cloud.auth.user?.id },
                                        confirmed: true, refresh: true)
@@ -158,7 +159,7 @@ enum CloudPresenter {
                   currentTab.agentSession?.session == request.sessionID,
                   currentTab === tab,
                   (try? services.machines.agentDaemon(forTab: currentTab)) === daemon else { return false }
-            let pinned = services.cloud.api.pinningTeam(teamID)
+            let pinned = services.cloud.machineAPI.pinningTeam(teamID)
             guard try await restartCredentialSession(request.sessionID, exec: {
                 try await pinned.exec(session.machineID, command: $0, timeoutMs: 300_000)
             }) else {
