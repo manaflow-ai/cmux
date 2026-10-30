@@ -74,8 +74,9 @@ public final class WindowMaterialView: NSView {
     let glassFeeds = NSHashTable<GlassBackdropFeed>.weakObjects()
     private let images: BackdropImageStore
     /// The app's ``ActiveLookScope``: its glass keeps the key look while the window is not key
-    /// (nil: the glass follows the key state).
-    private let activeLook: ActiveLookScope?
+    /// (nil: the glass follows the key state). A child window takes its owner's
+    /// (`NSWindow.backdropActiveLook`).
+    public let activeLook: ActiveLookScope?
     /// The desktop picture (the image store's): its color leans the tint
     /// (`appearance.wallpaperTint`), and the Desktop Wallpaper art reloads when it changes.
     private var wallpaper: DesktopWallpaperWatch { images.desktop }
@@ -100,8 +101,8 @@ public final class WindowMaterialView: NSView {
     /// - Parameter frameRect: The initial frame.
     /// - Parameter images: Where decoded backdrop images are shared.
     /// - Parameter videos: Where video wallpapers' players are shared.
-    /// - Parameter activeLook: The app's ``ActiveLookScope`` (``ThemeStore/activeLook``) for a window
-    ///   backdrop; nil for one whose glass follows the key state.
+    /// - Parameter activeLook: The app's ``ActiveLookScope`` (made once by `AppServices`) for a
+    ///   window backdrop; nil for one whose glass follows the key state.
     public init(frame frameRect: NSRect, images: BackdropImageStore, videos: BackdropVideoPlayers = .shared,
                 activeLook: ActiveLookScope? = nil) {
         self.images = images

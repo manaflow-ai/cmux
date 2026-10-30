@@ -1,7 +1,7 @@
 public import AppKit
 public import CmuxNextBrowser
 import CmuxNextCompat
-import CmuxNextDesign
+public import CmuxNextDesign
 
 /// The window of one popup page (`window.open` with window features: OAuth
 /// sign-in, payment, an extension's popup window), built like Chrome's
@@ -69,8 +69,10 @@ public final class BrowserPopupWindow: NSWindow {
     ///   - readOnlyAddress: True for a system sign-in window, whose address
     ///     can be selected and copied but not edited (navigating away would
     ///     lose the sign-in).
+    ///   - activeLook: The app's ``ActiveLookScope``: the backdrop glass keeps
+    ///     its key look while the popup is not key (nil follows the key state).
     public init(page: any BrowserTab, frame: CGRect, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(),
-                readOnlyAddress: Bool = false) {
+                readOnlyAddress: Bool = false, activeLook: ActiveLookScope?) {
         self.page = page
         locationBar = OmnibarToolbarView(suggestionEngine: suggestionEngine)
         locationBar.addressBar.isReadOnly = readOnlyAddress
@@ -88,7 +90,7 @@ public final class BrowserPopupWindow: NSWindow {
         animationBehavior = Motion.panes.animatesMovement ? .documentWindow : .none
         // Kind `.browserPopup`: the three traffic lights and the one surface
         // background; the opener's scope is adopted when it opens.
-        install(kind: .browserPopup, content: makeContent(), scope: .app)
+        install(kind: .browserPopup, content: makeContent(), scope: .app, activeLook: activeLook)
         title = Self.title(for: page.state)
         observeTitle()
         observeFullscreen()

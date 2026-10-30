@@ -162,7 +162,7 @@ struct ComputerUseSetupWindowTests {
             let services = MockOnboardingServices()
             services.computerUseSource = MockComputerUsePermissionSource()
             return OnboardingModel(services: services, step: step)
-        }, present: { _ in presented.count += 1 })
+        }, activeLook: nil, present: { _ in presented.count += 1 })
         presenter.show(step: .computerUse)
         let first = presenter.controller
         #expect(first?.model.step == .computerUse)

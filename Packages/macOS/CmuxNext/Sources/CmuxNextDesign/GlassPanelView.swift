@@ -276,9 +276,10 @@ final class ActiveLookGlassEffectView: NSGlassEffectView {
 ///    from. Every other read, and every read off the main thread, keeps AppKit's answer. Until
 ///    calibration ends the glass follows the key state.
 ///
-/// The getter hook is process-wide, so the app has one scope: its composition root makes it
-/// (`AppServices` hands it to ``ThemeStore/activeLook``), and the hook that its first
-/// ``ActiveLookGlassEffectView`` installs captures it. Tests make their own.
+/// The getter hook is process-wide, so the app has one scope: its composition root (`AppServices`)
+/// makes it and passes it to every window (`NSWindow.install(kind:content:scope:activeLook:)`).
+/// The hook is installed once per process and captures the first scope whose
+/// ``ActiveLookGlassEffectView`` installs it; a later scope (a test's) never stacks a second hook.
 @MainActor
 public final class ActiveLookScope {
     /// One calibration read: where in AppKit it was, and the return address of its caller.
@@ -350,11 +351,16 @@ public final class ActiveLookScope {
         materialSite = Self.confirm(Self.pair(in: pending), candidate: &candidate)
     }
 
-    /// Routes `NSWindow._hasActiveAppearanceIgnoringKeyFocus` through this scope, once; the hook
-    /// captures the scope.
+    /// Routes `NSWindow._hasActiveAppearanceIgnoringKeyFocus` through this scope, once per process;
+    /// the hook captures the scope. The swizzle is process-wide, so its once lives where it does, in
+    /// the runtime: a marker method on NSWindow that only the first install can add. A second hook
+    /// would wrap the first and push the reader past ``forcingDepth``.
     func install() {
         guard !installed else { return }
         installed = true
+        let marker = NSSelectorFromString("cmux_activeLookScopeInstalled") // crash-allow: our own marker selector, added with class_addMethod and never called
+        let markerBody: @convention(block) (NSWindow) -> Bool = { _ in true }
+        guard class_addMethod(NSWindow.self, marker, imp_implementationWithBlock(markerBody), "B@:") else { return }
         let selector = NSSelectorFromString("_hasActiveAppearanceIgnoringKeyFocus") // crash-allow: AppKit private getter, swizzled only when class_getInstanceMethod finds it
         guard let method = class_getInstanceMethod(NSWindow.self, selector) else { return }
         let original = unsafeBitCast(method_getImplementation(method), to: Getter.self)

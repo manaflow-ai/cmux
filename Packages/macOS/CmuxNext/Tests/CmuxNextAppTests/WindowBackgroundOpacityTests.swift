@@ -71,7 +71,7 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 200), styleMask: [.titled],
                               backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
-        let surface = WindowSurfaceView(content: NSView(), reduceTransparency: { false })
+        let surface = WindowSurfaceView(content: NSView(), activeLook: nil, reduceTransparency: { false })
         ThemeScope.app.adopt(window)
         window.contentView = surface
         surface.paintWindowSurface(of: window)

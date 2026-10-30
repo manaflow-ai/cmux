@@ -48,6 +48,8 @@ import CmuxNextTabs
 final class AppServices {
     /// The app's theme store (the one ``ThemeScope/app`` roots on), handed to the App's theme owners.
     let themeStore = ThemeScope.app.store
+    /// The one scope that keeps every window backdrop's glass in its key look (ActiveLookScope), passed to each window.
+    let activeLook = ActiveLookScope()
     /// The batch closes of selected sidebar rows under way, read by every batch close and Close Workspace.
     let selectionCloses = WorkspaceSelectionCloseFlow.Running()
     /// The recovery-draft backstop of unsaved documents (R96).
@@ -509,7 +511,7 @@ final class AppServices {
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared
         self.contextMenus = contextMenus
-        popups = BrowserPopupWindows(contextMenus: contextMenus)
+        popups = BrowserPopupWindows(contextMenus: contextMenus, activeLook: activeLook)
         self.environment = environment; self.agentPaneEnvironment = agentPaneEnvironment
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun)
         // After the run marker's handlers: Sentry calls them after its report.
@@ -644,8 +646,6 @@ final class AppServices {
             let onlyTerminalsAndAgents = self.cache.presentationChanges.changedKeys?.allSatisfy { self.cache.existingTerminal($0) != nil || self.madeAgentTabs?.existingView($0) != nil }
             if onlyTerminalsAndAgents != true { self.browserHost?.provider.refreshTabs() }
         }
-        // The one scope that keeps window backdrop glass's key look (ActiveLookScope), before any window shows.
-        themeStore.activeLook = themeStore.activeLook ?? ActiveLookScope()
         _ = resources  // built here, as before
         _ = windows  // built here, as before
         DebugTimings.markLaunch("services.windows")

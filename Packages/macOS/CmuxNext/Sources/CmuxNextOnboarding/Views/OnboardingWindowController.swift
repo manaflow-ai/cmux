@@ -8,7 +8,8 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
     public let model: OnboardingModel
     /// Called once when the window has closed.
     public var onClose: (() -> Void)?
-    public init(model: OnboardingModel) {
+    /// `activeLook`: the app's ``ActiveLookScope``, for the window's backdrop (nil follows the key state).
+    public init(model: OnboardingModel, activeLook: ActiveLookScope?) {
         self.model = model
         let size = model.step.screen.size
         let window = OnboardingWindow(
@@ -33,7 +34,7 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
         // Kind `.onboarding`: a clear window with only a close button; each
         // variant's surface draws its own glass or opaque background
         // (`OnboardingSurfaceView`).
-        window.install(kind: .onboarding, content: OnboardingHostView(model: model), scope: .app)
+        window.install(kind: .onboarding, content: OnboardingHostView(model: model), scope: .app, activeLook: activeLook)
         window.onKey = { [weak model] key in
             switch key {
             case .next: model?.next()
