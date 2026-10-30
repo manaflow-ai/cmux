@@ -738,6 +738,17 @@ pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
     Ok(listener)
 }
 
+/// How long to wait after a failed `accept`. A connection that died in the queue is gone, so the
+/// next accept can run at once; anything else (EMFILE, ENFILE, ENOBUFS) leaves the connection
+/// queued, and an immediate retry would spin a core and flood the log until descriptors free up.
+fn accept_retry_delay(error: &std::io::Error) -> std::time::Duration {
+    use std::io::ErrorKind::{ConnectionAborted, ConnectionReset, Interrupted};
+    match error.kind() {
+        ConnectionAborted | ConnectionReset | Interrupted => std::time::Duration::ZERO,
+        _ => std::time::Duration::from_millis(100),
+    }
+}
+
 #[cfg(unix)]
 pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
     loop {
@@ -745,6 +756,7 @@ pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
             Ok(s) => s,
             Err(e) => {
                 tracing::warn!("accept failed: {e}");
+                tokio::time::sleep(accept_retry_delay(&e)).await;
                 continue;
             }
         };
@@ -943,6 +955,7 @@ pub async fn serve_ws_until(
             Ok(s) => s,
             Err(e) => {
                 tracing::warn!("ws accept failed: {e}");
+                tokio::time::sleep(accept_retry_delay(&e)).await;
                 continue;
             }
         };
