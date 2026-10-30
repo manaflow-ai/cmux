@@ -410,7 +410,7 @@ pub struct QueuedAuthor {
 /// An image a queued prompt sends.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-#[schemars(transform = require_all)]
+#[schemars(transform = require_all_but_source)]
 pub struct QueuedImage {
     /// The SHA-256 of its bytes (64 lowercase hex digits): `_acpmux/attachment {sessionId, id}`
     /// reads it, and `_acpmux/queue_edit` `update` `images` keeps it.
@@ -422,6 +422,17 @@ pub struct QueuedImage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(default)]
     pub source: Option<Value>,
+}
+
+/// ``require_all`` for ``QueuedImage``, except `source`: it is left off the wire when the prompt
+/// named none, as for every image queued before acpmux kept it.
+fn require_all_but_source(schema: &mut schemars::Schema) {
+    require_all(schema);
+    if let Some(Value::Array(required)) =
+        schema.as_object_mut().and_then(|object| object.get_mut("required"))
+    {
+        required.retain(|name| name != "source");
+    }
 }
 
 /// What limits the session's agent as far as acpmux can tell.
