@@ -121,6 +121,13 @@ test("each state is the glyph's shape and the row's color, and no row says Merge
   expect(rows(container)[3]!.querySelector(".acpmux-chat-inspector-sr-only")?.textContent).toBe("Merged");
 });
 
+test("abbreviates huge comment counts before trailing checks", async () => {
+  root.render(<ChangesSection pullRequests={[open]} statuses={{ [open.url]: { comments: Number.MAX_SAFE_INTEGER } }} />);
+  await flush();
+  const comments = document.querySelector(".acpmux-chat-inspector-pr__comments");
+  expect(comments?.textContent).toBe("9QComments: 9007199254740991");
+});
+
 test("the title leads, then repo #N, the line counts, the comments, and the failing checks or a green dot", async () => {
   const container = installDom();
   const failing = pr("manaflow-ai/cmux", 22033);
