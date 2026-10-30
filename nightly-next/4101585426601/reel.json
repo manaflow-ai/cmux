@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "build": "4101585426601",
+  "notes": "notes/4101585426601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 25931,
+      "title": "ci(nightly): reuse published web bundles and repair their handoff",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27271,
+      "title": "cmux-next: the pre-push gate refuses an undeclared local import and names the fix",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26641,
+      "title": "Fix prompt rail pane anchoring and narrow-width access",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27662,
+      "title": "acpmux: session move SESSION... --host PEER|auto (move chats to fleet hosts)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
