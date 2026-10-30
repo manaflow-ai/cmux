@@ -11,13 +11,14 @@ extension WorkspaceRowView {
                         showClose: Bool, showMore: Bool) -> Bool {
         let givesWay = columnMark != nil && (showClose || showMore)
         let spot = SidebarTunables.rowCloseSpot.value
-        if spot == .even, columnMark != nil {
-            // The column's gap is `space2`, the controls' `space1`: the cluster moves right by the difference.
+        if spot == .even, let columnMark, columnMark.frame.minX < SidebarStyle.trailingColumnStart(rowWidth: rowWidth) - 0.01 {
+            // A mark wider than its slot leaves a `space2` gap, the controls `space1`: the cluster moves right by the
+            // difference. A mark in its slot already leaves the controls' gap (`trailingAfterColumnMark`).
             let dx = Metrics.space2 - Metrics.space1
             for view in [disclosureButton, closeButton, moreButton, pinButton] { view.frame = view.frame.offsetBy(dx: dx, dy: 0) }
         }
         guard spot.atEnd else { return givesWay }
-        let column = SidebarStyle.trailingColumnFrame(rowWidth: rowWidth, centerY: cy, side: control)
+        let column = SidebarStyle.rowCloseFrame(rowWidth: rowWidth, centerY: cy)
         if columnMark != nil, showClose {
             // ⋮ ⌄ ✕: the menu takes the close's place, the close the column's.
             moreButton.frame = closeButton.frame

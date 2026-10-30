@@ -59,6 +59,27 @@ struct AgentChatFontSizeShortcutTests {
         }
     }
 
+    @Test func aNonChatKeySurfaceDoesNotBorrowTheSelectedChat() async throws {
+        try await withSettings { services, settings, _ in
+            try await openChat(services)
+
+            // The pane is still selected, but a sidebar/native control owns the key event.
+            // The workspace-font action must stay on its terminal path instead of changing the
+            // selected chat's setting.
+            var invocation = ActionInvocation(origin: .user)
+            invocation.keyContext = [.rightSidebarFocused]
+            #expect(services.registry.perform("increaseWorkspaceTerminalFontSize", invocation: invocation))
+            try await Task.sleep(for: .milliseconds(50))
+            #expect(settings.fileRoot.value(at: AgentPaneDisplaySetting.fontSizePath) == nil)
+
+            invocation.keyContext = [.agentPaneFocused]
+            #expect(services.registry.perform("increaseWorkspaceTerminalFontSize", invocation: invocation))
+            try await PasswordManagerRouteTests.until({
+                settings.fileRoot.value(at: AgentPaneDisplaySetting.fontSizePath) == .number(15)
+            })
+        }
+    }
+
     @Test(arguments: [false, true]) func failedFontWritesReachTheKeyboardOrWaitingCaller(captured: Bool) async throws {
         try await withSettings { services, settings, url in
             try await openChat(services)

@@ -140,7 +140,15 @@ extension PaneHandlers {
             registry.bind(id, invoke: { invocation in
                 // The same keys change the chat's text size when its composer or transcript
                 // owns focus. The page-zoom actions remain available from the View menu/palette.
-                if let pane = ctx.scope(invocation).pane, case .agent = pane.currentContent {
+                // A selected chat is not enough to claim a keyboard shortcut: the key router
+                // records the window's actual focused surface on the invocation. Keep direct
+                // palette/menu runs (which have no key context) target-scoped, but let a sidebar
+                // or native control retain the workspace-terminal action while a chat remains
+                // selected.
+                let chatOwnsKeyboard = invocation.keyContext?.contains(.agentPaneFocused) == true
+                let targetIsChat = invocation.keyContext == nil
+                    && ctx.scope(invocation).pane.map { if case .agent = $0.currentContent { true } else { false } } == true
+                if chatOwnsKeyboard || targetIsChat {
                     changeChatFontSize(id, ctx)
                     return
                 }

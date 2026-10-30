@@ -4,7 +4,7 @@
 //! answering:
 //!
 //! 1. The peer link (`server/session_auth.rs`): a peer's chat whose link is down is
-//!    `peerUnreachable`; one whose link is up is `unknown` until this daemon asks the peer.
+//!    `peerUnreachable`.
 //! 2. The chat's bound route: with `refresh` a new probe (never of a route whose secret is in
 //!    the keychain), else its last answer at most [`PROBE_FRESH_MS`] old (`route_probe.rs`).
 //!    `auth_needed` is `routeAuthNeeded`, `unreachable` `routeUnreachable`; `rate_limited` and
@@ -15,8 +15,6 @@
 //! 4. With `refresh`, the harness's own check that reads no keychain
 //!    (`harness_health::fresh_auth`).
 //! 5. Else `unknown`, never signed out. A connection error is never a sign-in state.
-//!
-//! Asking a peer comes next; until then `initialize` does not list the feature.
 //!
 //! Never the saved harness health (checked every six hours), and never the login keychain.
 
@@ -30,6 +28,8 @@ use crate::protocol::auth::{
 use crate::{route_account, routes};
 use std::collections::BTreeMap;
 
+/// Listed in `initialize`'s features: this daemon answers `_acpmux/session/auth`.
+pub(crate) const FEATURE: &str = "sessionAuth";
 /// A route probe answer younger than this is reused (as long as `route_probe.rs` keeps one).
 pub(crate) const PROBE_FRESH_MS: u64 = crate::route_probe::KEPT_MS;
 
@@ -184,17 +184,18 @@ pub(crate) fn one_sentence(text: &str) -> String {
     // A closing quote or bracket right after the mark ends with it ("expired." Please).
     let closers = ['"', '\'', '\u{201d}', '\u{2019}', ')', ']'];
     let end = flat.match_indices(['.', '!', '?']).map(|(i, _)| i + 1).find_map(|i| {
-        let word = flat[..i].rsplit(' ').next().unwrap_or_default().to_lowercase();
+        let word =
+            flat.get(..i).unwrap_or_default().rsplit(' ').next().unwrap_or_default().to_lowercase();
         let word = word.trim_start_matches(|c: char| !c.is_alphanumeric());
         let short = word.chars().count() <= 2;
-        let rest = flat[i..].trim_start_matches(closers);
+        let rest = flat.get(i..).unwrap_or_default().trim_start_matches(closers);
         let end = flat.len() - rest.len();
         (rest.starts_with(' ')
             && !short
             && !["e.g.", "i.e.", "etc.", "vs.", "cf.", "approx."].contains(&word))
         .then_some(end)
     });
-    let sentence = end.map_or(flat.as_str(), |i| &flat[..i]);
+    let sentence = end.map_or(flat.as_str(), |i| flat.get(..i).unwrap_or(&flat));
     if sentence.chars().count() <= DETAIL_CHARS {
         return sentence.to_owned();
     }

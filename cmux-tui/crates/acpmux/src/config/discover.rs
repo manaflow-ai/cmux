@@ -91,22 +91,34 @@ pub fn add_uniichat(found: &mut BTreeMap<String, HarnessProfile>, self_argv: Opt
 pub const CMUX_ROUTER_PROFILE: &str = "cmux";
 
 /// The models the hosted cmux model router serves (backend
-/// apps/api/src/inference/catalog.ts): `(id, name)`. The first is the profile
-/// default and the Claude fallback model: DeepSeek V4 Flash is the free tier's
-/// public fallback (user, 2026-10-27). The live list is GET /v1/models through the relay.
+/// apps/api/src/inference/catalog.ts and its deployments' `INFERENCE_MODEL_ALLOWLIST`):
+/// `(id, name)`, the DeepSeek models only (user, 2026-10-28). The first is the profile
+/// default and the Claude fallback model: DeepSeek V4.1 Flash 1017, which takes images.
+/// The cmux setting `agents.modelRouter.model` picks another start model from this list
+/// (the app's Settings, palette, `cmux settings set` and MCP `settings.set` write it).
+/// The live list is GET /v1/models through the relay.
 pub const CMUX_ROUTER_MODELS: &[(&str, &str)] = &[
-    ("deepseek/deepseek-v4-flash", "DeepSeek V4 Flash"),
-    ("qwen/qwen3.7-flash", "Qwen3.7 Flash"),
-    ("z-ai/glm-5.3", "GLM-5.3"),
-    ("moonshotai/kimi-k3", "Kimi K3"),
-    ("deepseek/deepseek-v4-pro", "DeepSeek V4 Pro"),
+    ("deepseek/deepseek-v4.1-flash-1017", "DeepSeek V4.1 Flash 1017"),
     ("deepseek/deepseek-v4.1-flash", "DeepSeek V4.1 Flash"),
-    ("moonshotai/kimi-k2.7-code", "Kimi K2.7 Code"),
-    ("minimax/minimax-m3", "MiniMax M3"),
-    ("z-ai/glm-5.3-flash", "GLM-5.3 Flash"),
-    ("openai/gpt-oss-120b", "gpt-oss-120b"),
-    ("meta/llama-4-scout", "Llama 4 Scout"),
+    ("deepseek/deepseek-v4-flash", "DeepSeek V4 Flash"),
+    ("deepseek/deepseek-v4-pro", "DeepSeek V4 Pro"),
 ];
+
+/// The cmux setting that picks the cmux router profile's start model.
+pub const CMUX_ROUTER_MODEL_SETTING: &str = "agents.modelRouter.model";
+
+/// The model `agents.modelRouter.model` names in a settings document, if any.
+pub fn cmux_router_model_in(doc: &serde_json::Value) -> Option<String> {
+    crate::user_settings::value(doc, CMUX_ROUTER_MODEL_SETTING)?.as_str().map(str::to_owned)
+}
+
+/// The model `agents.modelRouter.model` names in the settings file now (blocking file IO).
+pub fn cmux_router_model_setting() -> Option<String> {
+    match crate::user_settings::read() {
+        crate::user_settings::Settings::Parsed(doc) => cmux_router_model_in(&doc),
+        _ => None,
+    }
+}
 
 /// Adds `cmux`: Claude Code (acpmux's own adapter) on the built-in `cmux`
 /// route, so it runs the cmux model router's open-source models through the
@@ -115,11 +127,27 @@ pub fn add_cmux_router(
     found: &mut BTreeMap<String, HarnessProfile>,
     which: &dyn Fn(&str) -> Option<String>,
 ) {
+    let setting = cmux_router_model_setting();
+    add_cmux_router_with(found, which, setting.as_deref());
+}
+
+/// `add_cmux_router` with the setting's value passed in. A model the router does not
+/// serve keeps the default.
+pub fn add_cmux_router_with(
+    found: &mut BTreeMap<String, HarnessProfile>,
+    which: &dyn Fn(&str) -> Option<String>,
+    setting: Option<&str>,
+) {
     if found.contains_key(CMUX_ROUTER_PROFILE) {
         return;
     }
     let Some(claude) = which("claude") else { return };
-    let default = CMUX_ROUTER_MODELS[0].0;
+    let Some(&(default, _)) = setting
+        .and_then(|m| CMUX_ROUTER_MODELS.iter().find(|(id, _)| *id == m))
+        .or_else(|| CMUX_ROUTER_MODELS.first())
+    else {
+        return;
+    };
     let env = BTreeMap::from([
         (crate::routes::PROFILE_ROUTE_KEY.to_owned(), crate::routes::CMUX_ROUTE_ID.to_owned()),
         // Claude Code's background calls name Haiku/Sonnet aliases; the
