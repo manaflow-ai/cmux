@@ -281,7 +281,7 @@ extension CaptureSceneRegistry {
         // returns: the machines stay until the next render. A failure takes them away at once.
         endAgentCloudMachines()
         var shown = false
-        defer { if !shown { endAgentCloudMachines() } }
+        defer { if !shown { endAgentCloudMachines(always: true) } }
         DesignSettings.shared.sidebarSections.groupsByComputer = true
         _ = addAgentCloudMachines()
         let done = { [self] in
@@ -331,8 +331,9 @@ extension CaptureSceneRegistry {
     /// Takes a shown cloud-agent-machines picture away: the machines, and the grouping setting it
     /// forced, back to the settings' own value. Stateless (each render is a new registry): a
     /// picture is shown while its machines are in the registry.
-    func endAgentCloudMachines() {
-        guard Self.agentMachineIDs.contains(where: { services.machines.session($0) != nil }) else { return }
+    /// `always`: the scene's own failure, which forced the setting whether or not its machines are still there.
+    func endAgentCloudMachines(always: Bool = false) {
+        guard always || Self.agentMachineIDs.contains(where: { services.machines.session($0) != nil }) else { return }
         removeAgentCloudMachines()
         DesignSettings.shared.sidebarSections.groupsByComputer = (services.settings?.snapshot.sidebarSections ?? .defaults).groupsByComputer
     }
