@@ -352,6 +352,8 @@ public final class UpdaterService {
             return
         }
         controller.actionDelegate = self
+        // A found build known pulled never downloads, even when downloads are automatic.
+        controller.refusesUpdate = { [weak self] in self?.isKnownPulled($0) ?? false }
         pulledWatch.start(controller: controller)
         controller.startUpdaterIfNeeded()
         #if DEBUG || CMUX_BENCH_HOOKS

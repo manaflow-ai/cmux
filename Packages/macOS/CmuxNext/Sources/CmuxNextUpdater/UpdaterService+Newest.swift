@@ -64,23 +64,32 @@ extension UpdaterService {
         // A found build the list now marks pulled leaves the update-found step before anything accepts it.
         if case .available = flow.phase, let found = availableBuild(), isKnownPulled(found) { return syncFlowPhase() }
         guard disabledReason == nil, newestFetch == nil, !pulledWatch.pulledBuilds.isEmpty else { return }
+        // A pulled staged build this app holds no installer for stays: a pulled running build still updates.
+        var pulledStagedKept = false
         if case .ready = flow.phase, let staged = stagedBuild(), !staged.isEmpty, pulledWatch.isPulled(staged) {
             // An install click decides for itself (``StagedUpdateRefresh/beforeInstall(updater:install:)``).
-            guard !flow.installRequested, !stagedRefresh.clickWaits, cancelStaged() else { return }
-            if droppedPulled.insert(staged).inserted {
-                log.append("staged build \(staged) was pulled: dropping it and getting the newest build")
-                startNewestCheck(.stagedPulled)
-            } else {
-                // The feed staged it again (a cached appcast): drop it and wait for the next scheduled check.
-                log.append("staged build \(staged) was pulled and staged again: dropped")
+            guard !flow.installRequested, !stagedRefresh.clickWaits else { return }
+            if cancelStaged() {
+                if droppedPulled.insert(staged).inserted {
+                    log.append("staged build \(staged) was pulled: dropping it and getting the newest build")
+                    startNewestCheck(.stagedPulled)
+                } else {
+                    // The feed staged it again (a cached appcast): drop it and wait for the next scheduled check.
+                    log.append("staged build \(staged) was pulled and staged again: dropped")
+                }
+                return
             }
-            return
+            pulledStagedKept = true
         }
         guard pulledWatch.isPulled(identity.build), !runningPulledHandled else { return }
         switch flow.phase {
         case .hidden, .note:
             runningPulledHandled = true
             log.append("running build \(identity.build) was pulled: getting the newest build")
+            startNewestCheck(.runningPulled)
+        case .ready where pulledStagedKept:
+            runningPulledHandled = true
+            log.append("running build \(identity.build) and staged build \(stagedBuild() ?? "") were pulled, and no installer was held to cancel: getting the newest build")
             startNewestCheck(.runningPulled)
         case .available:
             runningPulledHandled = true
