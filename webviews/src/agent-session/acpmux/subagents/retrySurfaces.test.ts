@@ -34,6 +34,22 @@ describe("the running tray", () => {
     expect(finishedTrayItems([], [chat])).toEqual([]);
   });
 
+  test("a sub-session's retry, kept on its own session row, shows it with the running ones", () => {
+    const [failed] = failedAgent({});
+    const agents = [{ ...failed!, child: "c" }];
+    const child = { sessionId: "c", title: "Overview", state: "failed" as const, retry: RETRY };
+    const agentIds = (items: { kind: string; id: string }[]) =>
+      items.filter((item) => item.kind === "agent").map((item) => item.id);
+    const [item] = trayItems(agents, [], [child], false);
+    expect(item?.kind === "agent" && item.agent.retry).toEqual(RETRY);
+    expect(agentIds(trayItems(agents, [], [child], false))).toEqual(["a"]);
+    expect(agentIds(finishedTrayItems(agents, [child]))).toEqual([]);
+    // Once its chat runs again, or nothing retries it, its stale retry says nothing.
+    const done = { ...child, retry: undefined };
+    expect(agentIds(trayItems(agents, [], [done], false))).toEqual([]);
+    expect(agentIds(finishedTrayItems(agents, [done]))).toEqual(["a"]);
+  });
+
   test("a failed one nothing retries is finished", () => {
     const agents = failedAgent({ retryable: true });
     expect(trayItems(agents, [], [], false)).toEqual([]);
