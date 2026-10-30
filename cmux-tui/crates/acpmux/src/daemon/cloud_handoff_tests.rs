@@ -248,6 +248,51 @@ async fn a_terminal_retry_event_for_another_turn_does_not_close_current_tracking
     assert_eq!(fake.take(), [s(9, "running", None)]);
 }
 
+/// A manual retry that finished overtakes the automatic one: the automatic retry's late skip
+/// or stop never replaces the turn's end, sent or still waiting to be sent.
+#[tokio::test(start_paused = true)]
+async fn a_late_retry_decision_keeps_a_finished_turns_end() {
+    let skipped = || Step::NoRetryFor { turn: 9, why: "Automatic retry skipped (busy).".into() };
+    // The store got the end.
+    let (mut r, fake) = reporter();
+    fake.answer([ok(9, "running"), ok(9, "running"), ok(9, "done")]);
+    r.step(S, began(9)).await;
+    r.step(S, cut_off(9)).await;
+    r.step(S, began(9)).await;
+    r.step(S, done(9, "Done.")).await;
+    r.step(S, skipped()).await;
+    r.step(S, Step::RetryRestored { turn: 9, why: "The connection was interrupted.".into() })
+        .await;
+    assert!(!r.holds(S, Some(9)));
+    assert_eq!(
+        fake.take(),
+        [s(9, "running", None), s(9, "running", None), s(9, "done", Some("Done."))]
+    );
+    // The store was away: the end waits to be sent again, and is sent done.
+    let (mut r, fake) = reporter();
+    fake.answer([ok(9, "running"), ok(9, "running"), busy(), busy(), busy()]);
+    r.step(S, began(9)).await;
+    r.step(S, cut_off(9)).await;
+    r.step(S, began(9)).await;
+    r.step(S, done(9, "Done.")).await;
+    fake.take();
+    r.step(S, skipped()).await;
+    assert!(fake.take().is_empty(), "no failure replaces the waiting end");
+    tokio::time::advance(LATER[0]).await;
+    fake.answer([ok(9, "done")]);
+    r.expire().await;
+    assert_eq!(fake.take(), [s(9, "done", Some("Done."))]);
+    assert_eq!(r.next_deadline(), None);
+    // A new attempt of the turn that fails is reported again.
+    let (mut r, fake) = reporter();
+    fake.answer([ok(9, "running"), ok(9, "done"), ok(9, "running"), ok(9, "failed")]);
+    r.step(S, began(9)).await;
+    r.step(S, done(9, "Done.")).await;
+    r.step(S, began(9)).await;
+    r.step(S, Step::Ended(failed("It broke."), Some(9))).await;
+    assert_eq!(fake.take().last(), Some(&s(9, "failed", Some("It broke."))));
+}
+
 /// Each turn reports on the turn its prompt names, never one learned from an earlier answer.
 #[tokio::test]
 async fn each_turn_reports_on_the_turn_its_prompt_names() {
