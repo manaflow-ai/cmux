@@ -41,14 +41,14 @@ use serde_json::{Value, json};
 pub const AUTOMATIONS_MAX: usize = 20;
 /// Event keys each automation remembers (oldest dropped first).
 pub const FIRED_KEPT: usize = 64;
-/// Longest automation name.
-pub const NAME_MAX: usize = 80;
+/// Longest automation name, the limit the tool schema names (chief-kernel).
+pub const NAME_MAX: usize = chief_kernel::tools::AUTOMATION_NAME_MAX;
 /// Longest automation prompt.
-pub const PROMPT_MAX: usize = 4000;
+pub const PROMPT_MAX: usize = chief_kernel::tools::AUTOMATION_PROMPT_MAX;
 /// The `automation` tool's actions.
-pub const ACTIONS: [&str; 6] = ["add", "list", "pause", "resume", "delete", "run"];
+pub const ACTIONS: [&str; 6] = chief_kernel::tools::AUTOMATION_ACTIONS;
 /// The events an automation can wait for.
-pub const EVENTS: [&str; 1] = ["agent_done"];
+pub const EVENTS: [&str; 1] = chief_kernel::tools::AUTOMATION_EVENTS;
 
 /// What starts an automation.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

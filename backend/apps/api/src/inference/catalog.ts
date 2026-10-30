@@ -11,7 +11,7 @@
  * list (2026-10-10, read with our keys); a model a provider does not list has no route there.
  */
 
-export const PROVIDERS = ["openrouter", "vercel", "workers-ai", "fireworks", "baseten", "deepinfra"] as const
+export const PROVIDERS = ["openrouter", "vercel", "workers-ai", "fireworks", "baseten", "deepinfra", "azure", "custom", "openai"] as const
 export type ProviderId = (typeof PROVIDERS)[number]
 
 /** Budget lines of the spend guard: one per provider, plus the free tier's own line. */
@@ -47,9 +47,57 @@ export interface ModelEntry {
   readonly routes: ReadonlyArray<ProviderRoute>
   /** The free tier may use this model (S3). */
   readonly free?: true
+  /**
+   * Providers a free device may reach this model through. Unset: every live route. Set: free
+   * devices get only these (DeepSeek V4 Flash: our own Vercel AI Gateway route, the public
+   * free fallback). Paid callers are never narrowed.
+   */
+  readonly freeProviders?: ReadonlyArray<ProviderId>
+  /**
+   * Image input (OpenAI `image_url` parts). Set: the most images one request may carry and the
+   * token ceiling we bill each one at before usage is known. Unset: text only.
+   */
+  readonly vision?: { readonly maxImages: number; readonly tokensPerImage: number }
 }
 
 export const MODELS: ReadonlyArray<ModelEntry> = [
+  {
+    // The deployments' allowlisted model (user, 2026-10-28: "use deepseek 1017 with image support").
+    // Vercel AI Gateway first (funded, user 2026-10-28; route.ts primaryProvider), then the others.
+    // Azure AI Foundry has no 1017 build (newest: DeepSeek-V4.1-Flash 2026-09-10); its route serves
+    // that build under our deployment name and only when the 1017 providers all fail.
+    id: "deepseek/deepseek-v4.1-flash-1017",
+    name: "DeepSeek V4.1 Flash 1017",
+    card: { input: 0.4, output: 1.5 },
+    context: 1_000_000,
+    maxOutput: 65_536,
+    defaultMaxTokens: 16_384,
+    tools: true,
+    vision: { maxImages: 8, tokensPerImage: 4_096 },
+    routes: [
+      { provider: "vercel", id: "deepseek/deepseek-v4.1-flash-1017", list: { input: 0.075, output: 0.3 } },
+      { provider: "openrouter", id: "deepseek/deepseek-v4.1-flash-1017", list: { input: 0.15, output: 0.6 } },
+      { provider: "workers-ai", id: "@cf/deepseek-ai/deepseek-v4.1-flash-1017", list: { input: 0.3, output: 1.2 } },
+      { provider: "custom", id: "deepseek/deepseek-v4.1-flash-1017" },
+      { provider: "azure", id: "deepseek-v4.1-flash" }
+    ]
+  },
+  {
+    // OpenAI's own API (user 2026-10-28: ChatGPT API credits). Not in the deployments' allowlist yet
+    // (DeepSeek only); a deployment opts in with INFERENCE_MODEL_ALLOWLIST. List prices 2026-10-28.
+    id: "openai/gpt-5.4-mini",
+    name: "GPT-5.4 mini",
+    card: { input: 0.75, output: 4.5 },
+    context: 400_000,
+    maxOutput: 128_000,
+    defaultMaxTokens: 16_384,
+    tools: true,
+    vision: { maxImages: 8, tokensPerImage: 4_096 },
+    routes: [
+      { provider: "openai", id: "gpt-5.4-mini", list: { input: 0.75, output: 4.5 } },
+      { provider: "vercel", id: "openai/gpt-5.4-mini", list: { input: 0.75, output: 4.5 } }
+    ]
+  },
   {
     id: "qwen/qwen3.7-flash",
     name: "Qwen3.7 Flash",
@@ -59,6 +107,7 @@ export const MODELS: ReadonlyArray<ModelEntry> = [
     defaultMaxTokens: 8_192,
     tools: true,
     free: true,
+    freeProviders: ["vercel"],
     routes: [
       { provider: "openrouter", id: "qwen/qwen3.7-flash", list: { input: 0.03, output: 0.13 } },
       { provider: "vercel", id: "alibaba/qwen3.7-flash", list: { input: 0.03, output: 0.13 } }
@@ -73,6 +122,7 @@ export const MODELS: ReadonlyArray<ModelEntry> = [
     defaultMaxTokens: 8_192,
     tools: true,
     free: true,
+    freeProviders: ["vercel"],
     routes: [
       { provider: "openrouter", id: "openai/gpt-oss-120b", list: { input: 0.15, output: 0.6 } },
       { provider: "vercel", id: "openai/gpt-oss-120b", list: { input: 0.1, output: 0.5 } },
@@ -104,6 +154,9 @@ export const MODELS: ReadonlyArray<ModelEntry> = [
     maxOutput: 65_536,
     defaultMaxTokens: 16_384,
     tools: true,
+    // Free fallback for signed-out Macs (user, 2026-10-27): our own Vercel AI Gateway route only.
+    free: true,
+    freeProviders: ["vercel"],
     routes: [
       { provider: "vercel", id: "deepseek/deepseek-v4-flash", list: { input: 0.13, output: 0.26 } },
       { provider: "deepinfra", id: "deepseek-ai/DeepSeek-V4-Flash", list: { input: 0.09, output: 0.18 } },

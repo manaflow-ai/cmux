@@ -27,6 +27,8 @@ extension SidebarListViewComponents {
         }
         var press = Press(key: row.key, point: point)
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let tabFold = lastTabFold
+        lastTabFold = nil
         switch row.key {
         case let .workspace(id):
             SidebarGroupKeys(list: self).setFocus(nil)
@@ -37,14 +39,14 @@ extension SidebarListViewComponents {
             }
             if event.clickCount == 2, flags.isEmpty {
                 self.press = nil
+                // The first click of the pair folded or opened the tabs: put them back, the double-click renames.
+                if tabFold == id { foldTabs(id) }
                 inlineRename.begin(row.key)
                 return
             }
             let (oldItem, oldSelection) = (model.selectedItem, model.selection)
-            if flags.contains(.command) {
-                model.toggleSelection(id)
-            } else if flags.contains(.shift) {
-                model.extendSelection(to: id, visibleOrder: visibleWorkspaceOrder)
+            if modifierSelect(id, flags: flags) {
+                // Shift: the drawn range, pinned tiles too; Cmd: toggle; Cmd-Shift: add the range.
             } else if model.selection.contains(id), model.selection.count > 1 {
                 // Keep the multi-selection so it can be dragged; collapse it
                 // on mouse-up if no drag happens.
@@ -53,6 +55,10 @@ extension SidebarListViewComponents {
                 // The multi-view prototype (#23437): a press selects nothing; the release on this row navigates.
                 press.clickOnRelease = id
             } else {
+                // Leo 2026-10-27 ("if you just directly clicked on it, that it, like, showed and hid the thing, because
+                // that's what you can do on Chrome"): a click on the row already shown folds or opens its tabs, on the
+                // release so a drag folds nothing. A click on another row only switches to it.
+                if model.activeWorkspaceID == id, let disclosure = row.tabDisclosure, disclosure != .empty { press.foldsTabs = id }
                 // A click switches at once, on the press (Lawrence 2026-10-21: a switch on the release read as lag).
                 // Leo 2026-10-21 ("MOUSE DOWN DRAGGING ... SHOULDN'T BE IMMEDIATELY FOCUSING"): if the press becomes
                 // a drag, `beginDrag` puts the shown workspace and the selection back.
@@ -96,10 +102,15 @@ extension SidebarListViewComponents {
         }
         updateDrag(windowPoint: event.locationInWindow)
     }
+    /// Folds or opens workspace `id`'s listed tabs, on the move spring: the chevron and a click on the shown row.
+    func foldTabs(_ id: WorkspaceID) {
+        model.toggleWorkspaceTabs(id)
+        reload(animated: true)
+    }
     override func mouseUp(with event: NSEvent) {
         defer { press = nil }
         if drag != nil {
-            finishDrag()
+            finishDrag(at: event.locationInWindow)
             return
         }
         guard let press, !press.cancelled else { return syncRowStates() }
@@ -119,6 +130,10 @@ extension SidebarListViewComponents {
             let (oldItem, oldSelection) = (model.selectedItem, model.selection)
             model.click(id)
             if !patchSelection(from: oldItem, oldSelection: oldSelection) { reload(animated: true) }
+            return syncRowStates()
+        case let .workspace(id) where press.foldsTabs == id:
+            foldTabs(id)
+            lastTabFold = id
             return syncRowStates()
         case .workspace:
             // Mouse-down drew the click on the old and new rows (`patchSelection`) and moved no row: no layout here
@@ -147,10 +162,9 @@ extension SidebarListViewComponents {
             model.send(.activateItem(LayoutItemID(item), opensWorkspace: event.modifierFlags.contains(.option)))
         case let .status(section):
             model.toggleStatusSection(section)
-        case let .doneFold(fold):
-            if openDoneFolds.remove(fold) == nil { openDoneFolds.insert(fold) }
-        case let .showMore(list):
-            if openShowMore.remove(list) == nil { openShowMore.insert(list) }
+        case .doneFold, .showMore:
+            _ = SidebarFoldAction(list: self).toggle(press.key)
+            return
         case let .emptyGroup(group):
             // The group's empty row makes a workspace in it, as the header's + does; the new row lays the list out.
             onGroupEditorItem?(group, "workspaceGroup.newWorkspace")
@@ -186,7 +200,7 @@ extension SidebarListViewComponents {
             if flags == [.command, .option] {
                 model.moveSelection(up ? .up : .down)
             } else if flags.isEmpty || flags == .shift {
-                model.moveActive(by: up ? -1 : 1, extending: flags == .shift, visibleOrder: visibleWorkspaceOrder)
+                model.moveActive(by: up ? -1 : 1, extending: flags == .shift, visibleOrder: selectionOrder)
             } else {
                 return super.keyDown(with: event)
             }

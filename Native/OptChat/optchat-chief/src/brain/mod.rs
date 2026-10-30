@@ -36,12 +36,14 @@ mod inbox;
 pub mod media;
 mod mux_ack;
 mod outbox;
+mod outcome_ledger;
 mod previews;
 mod prewarm;
 pub mod reaction_wake;
 mod recover;
 mod replies;
 mod reply_ledger;
+pub use outcome_ledger::UNTOLD_TAG;
 pub use reply_ledger::{MAX_REPLY_TRIES, NO_REPLY_TAG, REPLY_RETRY_WAITS};
 mod send;
 mod side;
@@ -50,6 +52,7 @@ mod steer;
 mod transcript;
 mod turns;
 mod wakes;
+mod watches;
 pub use reaction_wake::{JudgeAsk, ReactionJudge};
 pub use replies::{REACTIONS, reaction, tapback};
 pub use steer::STEER_DEADLINE;
@@ -172,6 +175,8 @@ pub enum Input {
         id: String,
         key: String,
         name: String,
+        /// Its public id (`ws_…`), when the place can name it.
+        ws: Option<String>,
     },
     /// A subagent could not start.
     SubagentFailed {
@@ -293,6 +298,13 @@ pub enum Input {
         request: AutomationsRequest,
         reply: Sender<serde_json::Value>,
     },
+    /// `watch(...)` (watches.rs): start, cancel or list watches.
+    Watch {
+        call: crate::tools::WatchCall,
+        reply: Sender<Result<String, String>>,
+    },
+    /// A watch's command ended it (watches.rs): the Chief wakes once.
+    WatchFired(Box<crate::watch::Fired>),
     /// A message from a Chief on another machine (peer_chiefs.rs), already
     /// framed as `[chief:<name>] ...`: queued as a note that wakes the Chief.
     PeerChiefNote {
@@ -690,6 +702,9 @@ pub struct Brain {
     state: HostState,
     tx: Sender<Input>,
     log: Log,
+    /// The running watches by id (watches.rs); dropping one kills its
+    /// process group, so a stopping host leaves none behind.
+    watch_runs: HashMap<String, crate::watch::Running>,
     daemon: Option<Box<dyn ConversationPort>>,
     reconnect: Option<Box<dyn Fn() + Send>>,
     summary: Option<Summary>,
@@ -713,6 +728,8 @@ pub struct Brain {
     stop_wanted: bool,
     /// The owner stopped the running turn (chief.stop): its end posts nothing.
     owner_stopped: bool,
+    /// This turn's send was refused for length once; its next send posts.
+    length_refused: bool,
     /// The running turn's interrupt (a new one per turn).
     interrupt: Arc<crate::turn::Interrupt>,
     /// The steer on its way into the running turn (`steer.rs`), and the
@@ -940,6 +957,7 @@ impl Brain {
             state,
             tx,
             log,
+            watch_runs: HashMap::new(),
             daemon: None,
             reconnect: None,
             summary: None,
@@ -954,6 +972,7 @@ impl Brain {
             last_agent_send: None,
             fatal: None,
             stop_wanted: false,
+            length_refused: false,
             owner_stopped: false,
             interrupt: Arc::new(crate::turn::Interrupt::new()),
             steering: Vec::new(),
@@ -1044,6 +1063,10 @@ impl Brain {
             steer_due: None,
             reply_waits: reply_ledger::REPLY_RETRY_WAITS.to_vec(),
         };
+        // A host can exit after sub_done persists Done but before deliver
+        // queues the report. Recover that durable outbox before accepting new
+        // work so the report reaches both Chief and Home after restart.
+        brain.redeliver_saved_reports();
         // Each cut turn runs again first, on the reference client's note;
         // its messages are in the log already and are not logged again.
         let resumes = brain.state.resumes.clone();
@@ -1105,6 +1128,14 @@ impl Brain {
     /// mark (false, the default).
     pub fn set_sub_close_on_finish(&mut self, close: bool) {
         self.sub_close_on_finish = close;
+    }
+
+    /// Moves subagent `id`'s run start back by `by` (tests of how long a run
+    /// took; no production caller).
+    pub fn backdate_sub_run(&mut self, id: &str, by: std::time::Duration) {
+        if let Some(sub) = self.state.sub_mut(id) {
+            sub.run_ms = sub.run_ms.saturating_sub(by.as_millis() as u64);
+        }
     }
 
     /// Auto-resume of subagents that stop on an error (None: off), and the
@@ -1249,6 +1280,7 @@ impl Brain {
     /// Runs until a fatal error; returns it.
     pub fn run(mut self, rx: Receiver<Input>) -> String {
         self.rearm_auto_resumes();
+        self.rearm_watches();
         loop {
             if let Some(fatal) = &self.fatal {
                 return fatal.clone();
@@ -1263,6 +1295,7 @@ impl Brain {
                 self.next_automation_due(),
                 self.next_unanswered_due(),
                 self.next_reply_due(),
+                self.next_outcome_due(),
             ]
             .into_iter()
             .flatten()
@@ -1275,6 +1308,7 @@ impl Brain {
                         self.fire_wakes_at(now_ms());
                         self.fire_automations_at(now_ms());
                         self.fire_reply_checks_at(now_ms());
+                        self.fire_outcome_checks_at(now_ms());
                         let now = (self.clock)();
                         self.deny_overdue_permissions_at(now);
                         continue;
@@ -1349,7 +1383,9 @@ impl Brain {
                 self.stop_if_cancelled(&id);
             }
             Input::SubagentTurnStarted { id, prompt_id } => self.sub_turn_started(&id, &prompt_id),
-            Input::SubagentWorkspace { id, key, name } => self.sub_workspace(&id, key, name),
+            Input::SubagentWorkspace { id, key, name, ws } => {
+                self.sub_workspace(&id, key, name, ws)
+            }
             Input::SubagentFailed { id, error } => self.sub_failed(&id, &error),
             Input::SubagentAgentKey { id, key_id } => self.sub_agent_key(&id, key_id),
             Input::AgentKeyRevoked { id } => self.agent_key_revoked(&id),
@@ -1418,6 +1454,10 @@ impl Brain {
             Input::Automations { request, reply } => {
                 let _ = reply.send(self.automations_control(request));
             }
+            Input::Watch { call, reply } => {
+                let _ = reply.send(self.watch(call));
+            }
+            Input::WatchFired(fired) => self.watch_fired(*fired),
             Input::PeerChiefNote { text } => self.queue(text, Source::Note),
             Input::EscalateAuth {
                 agent,
@@ -1690,6 +1730,30 @@ impl Brain {
             self.cloud_idle = std::time::Duration::from_secs(secs);
             (self.log)(&format!("setting {key} = {secs}"));
             return Ok(format!("{key} = {secs}"));
+        }
+        if key == crate::chief_settings::TRACE_FULL {
+            let on = parse_bool(value)?;
+            let mut next = self.chief;
+            next.trace_full = on;
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            self.trace.set_full(on);
+            (self.log)(&format!("setting {key} = {on}"));
+            return Ok(format!("{key} = {on}"));
+        }
+        if key == crate::chief_settings::REPLY_MAX_WORDS {
+            let words: usize = value
+                .trim()
+                .parse()
+                .map_err(|_| format!("{key}: a whole number of words (0: off)"))?;
+            let mut next = self.chief;
+            next.reply_max_words = words;
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            (self.log)(&format!("setting {key} = {words}"));
+            return Ok(format!("{key} = {words}"));
         }
         if key == SHOW_AFTER_REPORT {
             let on = parse_bool(value)?;

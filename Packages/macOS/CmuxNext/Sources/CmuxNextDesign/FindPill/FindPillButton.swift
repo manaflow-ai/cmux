@@ -4,7 +4,7 @@ public import CmuxNextDesignTokens
 /// A find pill's round button: borderless, ``FindPillMetrics/buttonSize`` square, with a
 /// circular hover fill (and the accent tint while a toggle is on), the way Safari's find
 /// buttons look on macOS 26.
-final class FindPillButton: NSButton {
+final class FindPillButton: ClickableButton {
     private var hovering = false {
         didSet { if hovering != oldValue { applyColors() } }
     }

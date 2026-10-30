@@ -5,11 +5,11 @@ import CmuxNextDesign
 /// workspace showed no more button and no close x on hover): the close x at the row's trailing end
 /// (`onClose`, Close Workspace) and the more button left of it (`onMore`, the tile's menu). Only a
 /// row item that names an open workspace (`SidebarItemInfo.workspace`) shows them, under the
-/// pointer, never in edit mode (its ✕ removes the item instead).
+/// pointer or while the more button's menu is open, never in edit mode (its ✕ removes the item instead).
 extension SidebarItemRowView {
     /// Whether the controls show now.
     var showsHoverActions: Bool {
-        info.workspace != nil && isHovered && !isEditing && !style.isIconOnly && style != .favorite && style != .chip
+        info.workspace != nil && (isHovered || showsMenu) && !isEditing && !style.isIconOnly && style != .favorite && style != .chip
     }
 
     /// Places the controls on hover and keeps the title and the trailing marks clear of them.
@@ -29,6 +29,8 @@ extension SidebarItemRowView {
         }
         hoverClose?.isHidden = !shown
         hoverMore?.isHidden = !shown
+        // The more button whose menu is open stays lit after the pointer leaves for the menu (Leo 2026-10-26).
+        hoverMore?.showsMenu = shown && showsMenu
         // The status mark and the count sit in the controls' place: they hide while the controls show.
         if !isEditing {
             rowBadge.alphaValue = shown ? 0 : 1

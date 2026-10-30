@@ -2401,9 +2401,16 @@ final class MacThreadFocusView: NSView {
 
     override var isFlipped: Bool { true }
 
+    /// A click off every thread bubble leaves reply mode. Thread rows span
+    /// the full transcript width, so only each row's bubble area counts as a
+    /// hit; the band beside a bubble and the timestamps are backdrop.
     override func mouseDown(with event: NSEvent) {
-        let point = content.convert(event.locationInWindow, from: nil)
-        if !content.subviews.contains(where: { $0.frame.contains(point) }) { onDismiss?() }
+        let onBubble = content.subviews.contains { view in
+            guard let container = view as? MacMessageContainerView else { return false }
+            let row = container.row
+            return row.contentFrame.contains(row.convert(event.locationInWindow, from: nil))
+        }
+        if !onBubble { onDismiss?() }
     }
 
     func show(_ placed: [(NSView, CGRect)], animated: Bool) {

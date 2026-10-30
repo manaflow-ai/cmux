@@ -1,5 +1,6 @@
 import CmuxHomeCore
 import CmuxNextActions
+import CmuxNextCloud
 import CmuxNextHome
 import CmuxNextHomeEngine
 import Foundation
@@ -36,6 +37,15 @@ extension AppActions {
                 return
             }
             runHome(services) { await services.home.invite(address) }
+        })
+        // Invite to Team: its dialog shows over the active window now (HomeTeamInviteRun).
+        let cloud = services.cloud
+        registry.bindEffect("home.inviteToTeam", unavailable: {
+            !cloud.isSignedIn ? CloudStrings.signInFirst : cloud.auth.activeTeam.team == nil ? CloudStrings.noTeams : nil
+        }, effect: { invocation in
+            guard let team = cloud.auth.activeTeam.team else { return .refused(CloudStrings.noTeams) }
+            guard let window = services.windows.active?.window else { return .refused(RefusalStrings.homeNotReady) }
+            return HomeTeamInviteRun(auth: cloud.auth, teamID: team.id, teamName: team.displayName).effect(invocation, over: window)
         })
         registry.bind("home.newChief", invoke: { invocation in
             guard let name = invocation["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {
