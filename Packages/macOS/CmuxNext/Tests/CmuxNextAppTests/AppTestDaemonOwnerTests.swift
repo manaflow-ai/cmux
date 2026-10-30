@@ -49,6 +49,15 @@ struct AppTestDaemonOwnerTests {
         }
     }
 
+
+    @Test func anUnreadableIdentityDoesNotClaimAStillRunningDaemonExited() async throws {
+        try await withChild { endpoint, identity in
+            let exited = await AppTestDaemonOwner.waitForRecordedExit(pid: identity.pid, process: identity,
+                                                                       timeout: .milliseconds(50), currentProcess: { _ in nil })
+            #expect(!exited, "an unreadable identity must keep waiting")
+        }
+    }
+
     @Test func aReusedPidDoesNotSignalTheReplacement() async throws {
         try await withChild { endpoint, identity in
             var previous = identity
