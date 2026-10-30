@@ -444,8 +444,11 @@ BLACKSMITH_DEAD_EVIDENCE_MINUTES = 6 * 60
 
 def blacksmith_dead(snapshot: Mapping[str, Any] | None, label: str, now: Any = None) -> bool:
     """Whether the queue janitor's snapshot shows `label` dead: nothing running on it, and no runner took a job
-    asking for it in the BLACKSMITH_DEAD_MINUTES before the snapshot was made (its `label_started` map,
-    queue_janitor.label_started(); a label it does not list started nothing among the in-flight runs).
+    asking for it in the BLACKSMITH_DEAD_MINUTES before the snapshot was made (its `label_started` map; a label it
+    does not list started nothing among the in-flight runs). The snapshot is the `macos-pool-load` artifact of
+    ci-queue-janitor.yml, a scheduled workflow, so it is written by the default branch's queue_janitor.py, whose
+    label_started() fills that map (this branch's copy of the janitor is not the one that runs; the 2026-10-30
+    18:37Z artifact of run 41108466754 on main carries it).
 
     The stall rule alone cannot tell a dead label from a busy one: both have a job waiting past
     BLACKSMITH_STALL_MINUTES. A snapshot without `label_started` (an older janitor), a truncated one (its listing
