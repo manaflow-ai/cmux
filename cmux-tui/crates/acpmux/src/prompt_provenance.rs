@@ -282,3 +282,143 @@ mod message_meta_tests {
         assert_eq!(recorded(&record), Some(plain));
     }
 }
+
+/// `_meta.acpmux.fromSessionId` and `fromHarness`: which session sent an agent's message and on
+/// what harness family (`claude`, `codex`, ...), so a client draws its sender's icon and opens
+/// its chat. Display only: nothing decides who may do what by them.
+///
+/// The daemon binds them; a client never names them. The session a connection proved it runs in
+/// (its caller token, `hub/person.rs`) is the sender. Over a peer link (`Origin::Peer`, a peer
+/// daemon forwarding its own proven caller's prompt, `server/peer_forward.rs`, or the mesh relay
+/// delivering a hub message, `server/mesh_relay.rs`) they are that daemon's word, taken only from
+/// a prompt it sent as its own (no `via`): a prompt it forwards for its Web, app or paired-device
+/// client names no sender. From anywhere else, or malformed, they are dropped, never refused.
+/// They are stamped on the prompt's provenance (`stamp_sender`), so its `queued` and
+/// `user_message` records and the queue list carry them, and an edit drops them with it.
+pub const FROM_SESSION_ID: &str = "fromSessionId";
+/// See [`FROM_SESSION_ID`].
+pub const FROM_HARNESS: &str = "fromHarness";
+
+/// The sending session's id and harness family, as far as the daemon bound them.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct BoundSender {
+    pub session_id: Option<String>,
+    pub harness: Option<String>,
+}
+
+impl BoundSender {
+    /// A session of this daemon: its id and its harness family (`web_modes::family_of`).
+    pub fn of_session(id: &str, meta: &crate::store::SessionMeta) -> Self {
+        Self {
+            session_id: fits(id, MAX_FIELD_BYTES).then(|| id.to_owned()),
+            harness: Some(crate::web_modes::family_of(meta)).filter(|h| harness_fits(h)),
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.session_id.is_none() && self.harness.is_none()
+    }
+
+    /// The `_meta.acpmux` fields that carry it to a peer.
+    pub fn mux_fields(&self) -> Value {
+        let mut out = Map::new();
+        if let Some(id) = &self.session_id {
+            out.insert(FROM_SESSION_ID.to_owned(), json!(id));
+        }
+        if let Some(harness) = &self.harness {
+            out.insert(FROM_HARNESS.to_owned(), json!(harness));
+        }
+        Value::Object(out)
+    }
+}
+
+fn fits(value: &str, max_bytes: usize) -> bool {
+    value.len() <= max_bytes && !value.trim().is_empty() && !value.chars().any(unshown)
+}
+
+/// A harness family as acpmux names one: 1 to 64 letters, digits, `.`, `-` or `_`.
+fn harness_fits(value: &str) -> bool {
+    (1..=MAX_NAME_CHARS).contains(&value.len())
+        && value.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+}
+
+/// The sender a peer link named for a prompt (see [`FROM_SESSION_ID`]): `None` for a prompt it
+/// forwarded for a client of its own (`_meta.acpmux.via`), and each field only when well formed.
+pub fn peer_sender(params: &Value) -> Option<BoundSender> {
+    let mux = params.pointer("/_meta/acpmux")?;
+    if mux.get("via").is_some_and(|v| !v.is_null()) {
+        return None;
+    }
+    let field = |k: &str| mux.get(k).and_then(Value::as_str);
+    let sender = BoundSender {
+        session_id: field(FROM_SESSION_ID)
+            .filter(|id| fits(id, MAX_FIELD_BYTES))
+            .map(str::to_owned),
+        harness: field(FROM_HARNESS).filter(|h| harness_fits(h)).map(str::to_owned),
+    };
+    (!sender.is_empty()).then_some(sender)
+}
+
+/// Takes `fromSessionId` and `fromHarness` out of a prompt's `_meta.acpmux`: what a client wrote
+/// never goes on to a peer as this daemon's word.
+pub fn drop_sender_fields(params: &mut Value) {
+    if let Some(mux) = params.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
+        mux.remove(FROM_SESSION_ID);
+        mux.remove(FROM_HARNESS);
+    }
+}
+
+/// `provenance` with the bound sender's fields set (replacing any it had).
+pub fn stamp_sender(mut provenance: Value, sender: Option<&BoundSender>) -> Value {
+    if let (Some(sender), Some(fields)) = (sender, provenance.as_object_mut()) {
+        for (key, value) in [(FROM_SESSION_ID, &sender.session_id), (FROM_HARNESS, &sender.harness)]
+        {
+            if let Some(value) = value {
+                fields.insert(key.to_owned(), json!(value));
+            }
+        }
+    }
+    provenance
+}
+
+/// The `fromSessionId` and `fromHarness` a prompt's provenance carries (`stamp_sender`).
+pub fn sender_of(provenance: Option<&Value>) -> (Option<String>, Option<String>) {
+    let field = |k: &str| provenance?.get(k)?.as_str().map(str::to_owned);
+    (field(FROM_SESSION_ID), field(FROM_HARNESS))
+}
+
+#[cfg(test)]
+mod sender_tests {
+    use super::*;
+
+    #[test]
+    fn a_peer_link_names_a_sender_only_for_its_own_prompt_and_only_well_formed() {
+        let sent = |mux: Value| json!({"_meta": {"acpmux": mux}});
+        let both = sent(json!({"fromSessionId": "s-1", "fromHarness": "claude"}));
+        let bound = BoundSender { session_id: Some("s-1".into()), harness: Some("claude".into()) };
+        assert_eq!(peer_sender(&both), Some(bound.clone()));
+        assert_eq!(sent(bound.mux_fields())["_meta"]["acpmux"], both["_meta"]["acpmux"]);
+        // Forwarded for the peer's own Web, app or device client: no sender.
+        let via = sent(json!({"fromSessionId": "s-1", "fromHarness": "claude", "via": "web"}));
+        assert_eq!(peer_sender(&via), None);
+        // Malformed fields are dropped one by one, never refused.
+        let odd = sent(json!({"fromSessionId": "s-1\nx", "fromHarness": "co dex"}));
+        assert_eq!(peer_sender(&odd), None);
+        let half = sent(json!({"fromSessionId": "s-2", "fromHarness": 7}));
+        assert_eq!(peer_sender(&half).and_then(|s| s.session_id).as_deref(), Some("s-2"));
+        assert_eq!(peer_sender(&json!({})), None);
+    }
+
+    #[test]
+    fn a_stamp_replaces_what_the_provenance_had_and_reads_back() {
+        let given = json!({"kind": "agent_message", "from": "fromAgent", "fromHarness": "fake"});
+        let bound = BoundSender { session_id: Some("s-1".into()), harness: Some("codex".into()) };
+        let stamped = stamp_sender(given.clone(), Some(&bound));
+        assert_eq!(sender_of(Some(&stamped)), (Some("s-1".into()), Some("codex".into())));
+        assert_eq!(stamp_sender(given.clone(), None), given);
+        assert_eq!(sender_of(None), (None, None));
+        let mut params = json!({"_meta": {"acpmux": {"fromSessionId": "x", "fromHarness": "y", "promptId": "p"}}});
+        drop_sender_fields(&mut params);
+        assert_eq!(params, json!({"_meta": {"acpmux": {"promptId": "p"}}}));
+    }
+}
