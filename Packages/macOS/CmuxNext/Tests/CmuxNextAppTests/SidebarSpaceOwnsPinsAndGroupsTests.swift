@@ -329,8 +329,8 @@ import Testing
             #expect((add["item"] as? [String: Any])?["extra"] == nil, "\(ref) stored a space: \(add)")
         }
         let app = LayoutItem(id: LayoutItemID("itm_app"), ref: LayoutItemRef(kind: LayoutItemRef.appKind, value: "acme.weather"))
-        let appAdd = try #require(try store.docOps(for: [#require(layout.pinOp(app.ref, newItem: app.id))], layout: layout)
-            .first { $0["op"] as? String == "item.add" })
+        let appPin = try #require(layout.pinOp(app.ref, newItem: app.id))
+        let appAdd = try #require(try store.docOps(for: [appPin], layout: layout).first { $0["op"] as? String == "item.add" })
         #expect(((appAdd["item"] as? [String: Any])?["extra"] as? [String: String])?["room"] == Self.work, "\(appAdd)")
 
         let records = SidebarDocRecords(sections: [
