@@ -106,3 +106,52 @@ async fn a_refused_handshake_step_ends_the_link_with_its_error() {
     assert!(!peer.link().is_ready());
     fake.abort();
 }
+
+/// A handshake whose link went down meanwhile (its epoch moved on) returns without making the
+/// link ready: the link ends then, not at the deadline.
+#[tokio::test]
+async fn a_handshake_that_ends_without_a_ready_link_ends_the_link() {
+    let (tx, _notices) = mpsc::channel(64);
+    let peer = Peer::new("big", "ws://127.0.0.1:9", None, None, tx);
+    let (ours, theirs) = tokio::io::duplex(1 << 16);
+    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+    let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+    let (asked_tx, asked) = tokio::sync::oneshot::channel::<()>();
+    let (go_tx, go) = tokio::sync::oneshot::channel::<()>();
+    // Answers `initialize` at once; holds the watch's answer until the test lets it go.
+    let fake = tokio::spawn(async move {
+        let (mut asked_tx, mut go) = (Some(asked_tx), Some(go));
+        while let Some(Ok(frame)) = server.next().await {
+            let Frame::Text(text) = frame else { continue };
+            let msg: Value = serde_json::from_str(&text).unwrap();
+            let Some(id) = msg.get("id").cloned() else { continue };
+            let result = if msg["method"] == method::MUX_WATCH {
+                let _ = asked_tx.take().map(|tx| tx.send(()));
+                if let Some(go) = go.take() {
+                    let _ = go.await;
+                }
+                json!({"sessions": []})
+            } else {
+                json!({})
+            };
+            let line = Message::ok(id, result).to_line();
+            if server.send(Frame::Text(line.trim_end().to_owned().into())).await.is_err() {
+                return;
+            }
+        }
+    });
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    let link = peer.clone();
+    let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+    tokio::time::timeout(Duration::from_secs(5), asked).await.unwrap().unwrap();
+    // The link's epoch moves on before the watch is answered.
+    peer.link_ended();
+    go_tx.send(()).unwrap();
+    let ended = tokio::time::timeout(Duration::from_secs(5), serving)
+        .await
+        .expect("the link ends when its handshake ends without a ready link")
+        .unwrap();
+    assert!(ended.is_err(), "{ended:?}");
+    assert!(!peer.link().is_ready());
+    fake.abort();
+}
