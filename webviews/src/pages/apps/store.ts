@@ -301,7 +301,11 @@ export class AppsStore {
         installed: this.snapshot.installed.map((app) => {
           const update = updatesByApp.get(app.id);
           if (!update) return app.update ? { ...app, update: undefined, failure: undefined } : app;
-          return { ...app, update: { version: update.version }, failure: update.failure ?? app.failure };
+          return {
+            ...app,
+            update: { version: update.version },
+            failure: update.failure ?? app.failure,
+          };
         }),
       });
     } catch (error) {
@@ -321,7 +325,10 @@ export class AppsStore {
 
   setTab(tab: StoreTab): void {
     if (tab !== this.snapshot.tab)
-      this.set({ tab, selection: this.snapshot.layout === "split" ? this.snapshot.selection : undefined });
+      this.set({
+        tab,
+        selection: this.snapshot.layout === "split" ? this.snapshot.selection : undefined,
+      });
   }
 
   setQuery(query: string): void {
@@ -333,7 +340,10 @@ export class AppsStore {
 
   setCategory(category: string | undefined): void {
     const next = this.snapshot.category === category ? undefined : category;
-    this.set({ category: next, visible: filterApps(this.snapshot.catalog, this.snapshot.query, next) });
+    this.set({
+      category: next,
+      visible: filterApps(this.snapshot.catalog, this.snapshot.query, next),
+    });
   }
 
   async select(app: string | undefined): Promise<void> {
@@ -399,7 +409,10 @@ export class AppsStore {
   /** Shows or hides an installed app's logs: the owner's last lines, read again on each reload. */
   async toggleLogs(app: string): Promise<void> {
     const shown = this.snapshot.logsShown === app ? undefined : app;
-    this.set({ logsShown: shown, logs: shown ? { ...this.snapshot.logs, [app]: [] } : this.snapshot.logs });
+    this.set({
+      logsShown: shown,
+      logs: shown ? { ...this.snapshot.logs, [app]: [] } : this.snapshot.logs,
+    });
     if (shown) await this.loadLogs(shown);
   }
 
