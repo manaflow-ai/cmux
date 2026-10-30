@@ -125,6 +125,9 @@ export type NewTabScreenActions = NewTabCommandActions & {
   onShell(command: string): void;
   /// `here`: an Open Tabs pick, moved into this page's pane (cx-jfo7).
   onJump(target: "tab" | "workspace" | "here" | "closed", id: string): void;
+  /// A Commands palette action row (Cmd-Shift-P's actions, `omnibar.actions`): the host runs it as
+  /// the palette would (`app.action`).
+  onAction?(id: string): void;
   onOpenSession(sessionId: string): void;
   /// A device chat card (acpmux chat index, the sidebar's All chats): the host's Open Chat path.
   onOpenChat?(key: string): void;
@@ -830,6 +833,8 @@ export function NewTabScreen(props: Props) {
         return askChat(row.harness, row.text, project, row.harness === harness ? chipModel : undefined);
       case "create":
         return row.kind === "chat" ? startChat() : create(row.kind);
+      case "action":
+        return props.onAction?.(row.id);
     }
   };
   const edit = (next: string) => {
@@ -1941,6 +1946,8 @@ function rowKey(row: ScreenRow): string {
       return `workspace:${row.id}`;
     case "create":
       return `create:${row.kind}`;
+    case "action":
+      return `action:${row.id}`;
     default:
       return row.type;
   }
@@ -1969,6 +1976,7 @@ function rowTitle(nt: NewTabTranslate, row: ScreenRow): string {
       return row.title ?? canonicalAddress(row.url);
     case "tab":
     case "workspace":
+    case "action":
       return row.title;
     case "create":
       return nt(`create.${row.kind}`);
@@ -1983,6 +1991,7 @@ function rowDetail(row: ScreenRow): string | undefined {
       return row.title ? shortHost(row.url) : undefined;
     case "tab":
     case "workspace":
+    case "action":
       return row.detail;
     case "ask":
       return row.model;
@@ -2006,5 +2015,7 @@ function rowAction(t: Translate, nt: NewTabTranslate, row: ScreenRow): string {
       return t("newTabPage.row.history");
     case "create":
       return t("newTabPage.row.open");
+    case "action":
+      return row.keycaps?.join("") ?? nt("row.run");
   }
 }

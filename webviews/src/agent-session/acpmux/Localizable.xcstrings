@@ -242445,7 +242445,8 @@
           }
         }
       }
-    }
+    },
+    "newTab.row.run": {"comment":"New Tab dropdown: a Commands palette action row's hint when the action has no shortcut","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Run"}},"ar":{"stringUnit":{"state":"translated","value":"تشغيل"}},"bs":{"stringUnit":{"state":"translated","value":"Pokreni"}},"da":{"stringUnit":{"state":"translated","value":"Kør"}},"de":{"stringUnit":{"state":"translated","value":"Ausführen"}},"es":{"stringUnit":{"state":"translated","value":"Ejecutar"}},"fr":{"stringUnit":{"state":"translated","value":"Exécuter"}},"it":{"stringUnit":{"state":"translated","value":"Esegui"}},"ja":{"stringUnit":{"state":"translated","value":"実行"}},"km":{"stringUnit":{"state":"translated","value":"ដំណើរការ"}},"ko":{"stringUnit":{"state":"translated","value":"실행"}},"nb":{"stringUnit":{"state":"translated","value":"Kjør"}},"pl":{"stringUnit":{"state":"translated","value":"Uruchom"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Executar"}},"ru":{"stringUnit":{"state":"translated","value":"Выполнить"}},"th":{"stringUnit":{"state":"translated","value":"เรียกใช้"}},"tr":{"stringUnit":{"state":"translated","value":"Çalıştır"}},"uk":{"stringUnit":{"state":"translated","value":"Виконати"}},"vi":{"stringUnit":{"state":"translated","value":"Chạy"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"运行"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"執行"}}}}
   },
   "version": "1.0"
 }
