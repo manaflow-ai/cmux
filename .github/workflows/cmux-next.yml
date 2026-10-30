@@ -105,6 +105,7 @@ on:
       - tests/test_build_web_bundles_from.sh
       - tests/test_web_bundle_key_inputs.sh
       - tests/test_web_ota_pointer.sh
+      - tests/test_web_ota_publication_contract.py
       - scripts/cmux-next/web-ota-pointer.py
       - tests/fixtures/cua-helper-signatures/**
       - scripts/whats-new/fixtures/**
@@ -199,7 +200,6 @@ on:
       - scripts/ci/reset-stale-submodules.sh
       - scripts/ci/git_fetch_retry.py
       - .github/workflows/cmux-next.yml
-      - .github/workflows/intent-familiar-review.yml
       - .github/review-bot-rules/familiar-intent.md
       - tests/test_cmux_next_checks_workflow.py
       - tests/test_cmux_next_generated_fold.py
@@ -367,6 +367,7 @@ on:
       - tests/test_build_web_bundles_from.sh
       - tests/test_web_bundle_key_inputs.sh
       - tests/test_web_ota_pointer.sh
+      - tests/test_web_ota_publication_contract.py
       - scripts/cmux-next/web-ota-pointer.py
       - tests/fixtures/cua-helper-signatures/**
       - scripts/whats-new/fixtures/**
@@ -463,7 +464,6 @@ on:
       - scripts/ci/reset-stale-submodules.sh
       - scripts/ci/git_fetch_retry.py
       - .github/workflows/cmux-next.yml
-      - .github/workflows/intent-familiar-review.yml
       - .github/review-bot-rules/familiar-intent.md
       - tests/test_cmux_next_checks_workflow.py
       - tests/test_cmux_next_generated_fold.py
@@ -561,6 +561,14 @@ on:
         required: false
         default: false
         type: boolean
+      # main's cmux-next-tip-swift-suite-dispatch.yml (its daemon suite): a feat-cmux-next push never
+      # gets daemon-test, so this run is the base verdict scripts/ci/base_red_excuse.py compares a pull
+      # request's daemon-test red with. A same-tree run it waits on carries it too (its run name).
+      tip_daemon_suite:
+        description: "Run only the live-daemon suites (daemon-test) on the feat-cmux-next tip"
+        required: false
+        default: false
+        type: boolean
       # The safety net under CI_NEXT_JOB_REUSE: a dispatch with no_reuse runs every job
       # in full, reusing no recorded pass (it still records its own). A nightly one on
       # feat-cmux-next re-checks what the day's reused results stood on.
@@ -571,7 +579,7 @@ on:
         type: boolean
 
 run-name: >-
-  ${{ inputs.dev_daily == true && format('cmux NEXT DEV daily · {0}', inputs.dev_daily_sha || github.sha) || inputs.tip_swift_suite == true && format('cmux-next tip Swift suite · {0}', github.sha) || inputs.no_reuse == true && format('cmux-next uncached · {0}', github.sha) || format('cmux-next · {0}', github.sha) }}
+  ${{ inputs.dev_daily == true && format('cmux NEXT DEV daily · {0}', inputs.dev_daily_sha || github.sha) || inputs.tip_swift_suite == true && format('cmux-next tip Swift suite · {0}', github.sha) || inputs.tip_daemon_suite == true && format('cmux-next tip daemon suite · {0}', inputs.same_tree_sha || github.sha) || inputs.no_reuse == true && format('cmux-next uncached · {0}', github.sha) || format('cmux-next · {0}', github.sha) }}
 
 permissions:
   contents: read
@@ -717,6 +725,9 @@ jobs:
       mac_release: ${{ steps.route.outputs.mac_release }}
       swift_canary_targets: ${{ steps.route.outputs.swift_canary_targets }}
       macos: ${{ steps.route.outputs.macos }}
+      # The Mac fast tier's package build and suites (cmux_next_route.py fast_tier): false for a
+      # pull request whose change none of them reads (a daemon-only Rust change, an app-host file).
+      fast_tier: ${{ steps.route.outputs.fast_tier }}
       scheme: ${{ steps.route.outputs.scheme }}
       generated: ${{ steps.route.outputs.generated }}
       swift: ${{ steps.route.outputs.swift }}
@@ -753,6 +764,7 @@ jobs:
           DEV_DAILY: ${{ inputs.dev_daily || false }}
           DEV_DAILY_SHA: ${{ inputs.dev_daily_sha }}
           TIP_SWIFT_SUITE: ${{ inputs.tip_swift_suite || false }}
+          TIP_DAEMON_SUITE: ${{ inputs.tip_daemon_suite || false }}
           SAME_TREE_SHA: ${{ inputs.same_tree_sha }}
           GH_TOKEN: ${{ github.token }}
           # The labels at the push. A re-run keeps that event, so it reads them
@@ -863,9 +875,47 @@ jobs:
               echo
               echo '- scheduled tip Swift suite: every CmuxNext Swift target on the feat-cmux-next tip.'
             } >> "$GITHUB_STEP_SUMMARY"
+          elif [[ "$EVENT_NAME" == workflow_dispatch && "$TIP_DAEMON_SUITE" == true ]]; then
+            # main's tip suite dispatcher (its daemon suite): a feat-cmux-next push never gets
+            # daemon-test (its same-tree run has origin push, and in a landing burst the tip moves
+            # before the tree publishes), so the base had no daemon-test verdict for
+            # scripts/ci/base_red_excuse.py to compare a pull request's daemon-test red with
+            # (2026-10-30, #27692). Only the daemon tier. Its tree wait marker carries tip_suite, so
+            # the same-tree run tests this exact commit even after the tip moves on.
+            [[ "$GITHUB_REF" == refs/heads/feat-cmux-next ]] || {
+              echo "error: tip_daemon_suite runs on refs/heads/feat-cmux-next, got $GITHUB_REF" >&2
+              exit 1
+            }
+            {
+              echo 'native=false'
+              echo 'swift_canary=false'
+              echo 'cmuxnext_swift=false'
+              echo 'swift_canary_targets='
+              echo 'macos=true'
+              echo 'scheme=false'
+              echo 'generated=false'
+              echo 'swift=false'
+              echo 'daemon=true'
+              echo 'full=false'
+              echo 'swift_filter='
+              echo 'swift_priority_filter='
+              echo 'swift_targets='
+            } >> "$GITHUB_OUTPUT"
+            {
+              echo '### cmux-next tiers'
+              echo
+              echo '| tier | runs |'
+              echo '| --- | --- |'
+              echo '| daemon | true |'
+              echo
+              echo '- scheduled tip daemon suite: the live-daemon suites on the feat-cmux-next tip.'
+            } >> "$GITHUB_STEP_SUMMARY"
           else
+            # --base-rev: the merge commit's first parent, so a change to this workflow that leaves
+            # every Mac job and what it needs as it was (`on:` paths, a Linux-only job) is CI-only.
+            # The router runs every tier when it cannot read or compare that base.
             python3 scripts/ci/cmux_next_route.py --event "$EVENT_NAME" --changed-files "$changed" \
-              --labels "$labels" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+              --labels "$labels" --base-rev HEAD^1 --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
           fi
           # Whether this pull request changes the cmux-tui it would test against:
           # any v2 tree-key input (cmux-tui-tree-inputs.txt), such as cmux-tui/,
@@ -945,6 +995,7 @@ jobs:
           REF_TYPE: ${{ github.ref_type }}
           DEV_DAILY: ${{ inputs.dev_daily || false }}
           DEV_DAILY_SHA: ${{ inputs.dev_daily_sha }}
+          TIP_DAEMON_SUITE: ${{ inputs.tip_daemon_suite || false }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
@@ -970,6 +1021,10 @@ jobs:
               if env["EVENT_NAME"] == "workflow_dispatch" and env["DEV_DAILY"] != "true":
                   marker.update(origin="dispatch", branch=env["BRANCH"],
                                 ref_kind="tags" if env["REF_TYPE"] == "tag" else "heads")
+                  # The tip daemon suite tests this exact commit, like the DEV daily: its same-tree run
+                  # starts after the tip moves on (scripts/ci/cmux_next_tree_notify.py is_current).
+                  if env.get("TIP_DAEMON_SUITE") == "true" and env["BRANCH"] == "feat-cmux-next":
+                      marker.update(tip_suite="daemon")
               else:
                   marker.update(origin="push", branch=env["BRANCH"])
           with open(sys.argv[1], "w", encoding="utf-8") as stream:
@@ -1233,7 +1288,7 @@ jobs:
           # FAST_LABEL, which it then takes (fast_runner).
           CASCADE_RUNS: >-
             ${{ format(' {0} {1} {2} {3} ',
-            ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) && 'fast-tier' || '',
+            ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next' && needs.path_route.outputs.fast_tier != 'false') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) && 'fast-tier' || '',
             needs.path_route.outputs.swift_canary == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) && 'swift-canary' || '',
             (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready' && contains(inputs.same_tree_tiers, 'scheme') || needs.path_route.outputs.scheme == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && contains(github.event.pull_request.labels.*.name, 'dev-build'))) && 'cmux-scheme-compile' || '',
             needs.path_route.outputs.native == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && 'release-compile' || '') }}
@@ -1654,6 +1709,7 @@ jobs:
             bash scripts/cmux-next/tests/pin-cmux-tui-run-check.test.sh
             bash scripts/cmux-next/tests/pin-cmux-tui-probe.test.sh
             bash scripts/cmux-next/tests/pin-cmux-tui-run-fetch.test.sh
+            bash scripts/cmux-next/tests/nightly-tree-at-install.test.sh
             bash scripts/cmux-next/tests/fake-clock.test.sh
             bash scripts/cmux-next/tests/preview.test.sh
             python3 tests/test_intent_familiar_warning.py
@@ -1687,6 +1743,7 @@ jobs:
             # ci-guards.yml's `ci` group runs for feat-cmux-next too (cmux-next-guards.yml).
             python3 tests/test_feat_ci_guard_group.py
             python3 tests/test_guards_new_reds.py
+            python3 tests/test_webviews_test_history.py
             python3 tests/test_app_symbol_map.py
             bash scripts/cmux-next/tests/pin-cmux-tui.test.sh
             bash scripts/cmux-next/tests/bundle-acpmux-alias.test.sh
@@ -1935,7 +1992,9 @@ jobs:
       - name: Web update pointer
         id: web-ota-pointer
         continue-on-error: true
-        run: bash tests/test_web_ota_pointer.sh
+        run: |
+          python3 tests/test_web_ota_publication_contract.py
+          bash tests/test_web_ota_pointer.sh
 
       # The companion workflows' structure: generated-files catch-up and the
       # next-batch landing queue.
@@ -2165,28 +2224,29 @@ jobs:
             fi
             failed+=("$name (${outcome:-not run})")
           done <<<"$OUTCOMES"
-          # A push compares the checks-job reds with the immediately previous tip.
-          # A failure already present there is inherited base red: warn and keep the
-          # job green. A missing/failed comparison leaves every red blocking.
+          # A push names which reds it added and which the previous tip already had, but every
+          # red keeps the job red. Turning inherited reds into warnings (0150fc73e3e) made the
+          # tip's checks job green while its checks were red: base_red_checks.py excused every red
+          # while the previous tip was still pending, which on a branch with ~100 merges a day is
+          # nearly always, so new reds landed unseen; and the PR-side comparisons
+          # (pr_red_checks_comment.py, base_red_excuse.py, next-autoland) read the green tip as
+          # "green on the base" and charged the base's reds to every open pull request
+          # (2026-10-30: 252 of 660 open PRs red on four base reds, no autoland merge in 24 h).
           if [[ "$EVENT_NAME" == push && "$BEFORE" =~ ^[0-9a-f]{40}$ && ! "$BEFORE" =~ ^0+$ && ${#failed[@]} -gt 0 ]]; then
             current="$RUNNER_TEMP/cmux-next-red-checks.txt"
             printf '%s\n' "${failed[@]}" | sed -E 's/ \((failure|timed_out|cancelled|not run)\)$//' >"$current"
             base_out="$RUNNER_TEMP/cmux-next-base-red.out"
             if python3 scripts/ci/base_red_checks.py --repo "$GITHUB_REPOSITORY" --before "$BEFORE" --current "$current" >"$base_out"; then
-              inherited=()
-              new_failed=()
               while read -r kind name; do
                 [[ -n "$kind$name" ]] || continue
                 if [[ "$kind" == BASE_RED ]]; then
-                  inherited+=("$name (base red on $BEFORE; warning-only)")
+                  echo "::notice title=cmux-next base red::$name was already red on $BEFORE (or that tip had not finished)"
                 else
-                  new_failed+=("$name (failure)")
+                  echo "::error title=cmux-next new red::$name is new in this push (green on $BEFORE): fix it first, every open pull request inherits it"
                 fi
               done <"$base_out"
-              warned+=("${inherited[@]+${inherited[@]}}")
-              failed=("${new_failed[@]+${new_failed[@]}}")
             else
-              echo "::warning title=cmux-next base-red::could not read the previous tip; current reds remain blocking"
+              echo "::warning title=cmux-next base-red::could not read the previous tip to tell new reds from inherited ones"
             fi
           fi
           for name in "${warned[@]+"${warned[@]}"}"; do
@@ -2627,16 +2687,18 @@ jobs:
   # whatever paths changed, without the gui token. Target: under 5 minutes
   # with the build. A fail-then-pass entry is FLAKY and fails the job: it is
   # never retried silently (fast-tier.py's flake policy). The registry is split
-  # by kind: this Mac job builds and runs the Swift (and script) entries, and
-  # fast-tier-cargo runs the cargo entries on Linux beside it, so the Mac no
+  # by kind: this Mac job builds and runs the Swift entries, and
+  # fast-tier-cargo runs the cargo and script entries beside it, so the Mac no
   # longer builds cmux-tui (297-422 s) after CmuxNext.
-  # A pull request the router sends to no Mac tier (only web or CI files, which
-  # no fast-tier entry builds or reads) starts no Mac fast tier: its result is
-  # the base's. The cargo half still runs, and a route with no answer (a failed
-  # path_route) runs it as before.
+  # A pull request whose change no fast-tier Swift entry builds or reads starts
+  # no Mac fast tier: its result is the base's. That is every PR the router
+  # sends to no Mac tier (only web or CI files), and one whose Mac tiers are
+  # only the daemon or scheme compile (cmux-tui Rust, the app host), which the
+  # package build cannot see (cmux_next_route.py fast_tier). The cargo half
+  # still runs, and a route with no answer (a failed path_route) runs it as before.
   fast-tier:
     needs: [macos-placement, path_route, push-head-preflight]
-    if: ${{ !cancelled() && inputs.same_tree_sha == '' && inputs.dev_daily != true && needs.push-head-preflight.outputs.current == 'true' && ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next' && needs.path_route.outputs.macos != 'false') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) }}
+    if: ${{ !cancelled() && inputs.same_tree_sha == '' && inputs.dev_daily != true && needs.push-head-preflight.outputs.current == 'true' && ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next' && needs.path_route.outputs.macos != 'false' && needs.path_route.outputs.fast_tier != 'false') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) }}
     name: cmux-next fast tier
     # The cache saves name the R2 write credentials, which live in the ci-cache-writer
     # environment (main only; tests/test_ci_pull_request_caches_are_read_only.py). This job
@@ -2819,7 +2881,7 @@ jobs:
           CMUX_FAST_SWIFT_CACHE_KEY: ${{ steps.fast-cache-key.outputs.swift-key }}
           CMUX_FAST_SWIFT_CACHE_HIT: ${{ steps.fast-cache-restore.outputs.cache-hit }}
           CMUX_FAST_CACHE_MATCHED_KEY: ${{ steps.fast-cache-restore.outputs.cache-matched-key }}
-        run: python3 -I scripts/cmux-next/fast-tier.py --kind swift --kind script --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"
+        run: python3 -I scripts/cmux-next/fast-tier.py --kind swift --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"
 
       # Also after a failure or a cancel: end the daemon of this job's home and
       # its agents (shutdown never starts one), then delete the home.
@@ -2864,9 +2926,9 @@ jobs:
           retention-days: 14
           overwrite: true
 
-  # The fast tier's cargo entries (fast-tier.py --kind cargo): cmux-tui-core and the
-  # layout reducer, built and run on a Linux runner beside the Mac job, so the
-  # Mac builds only Swift. Same gating, flake policy and quarantine list as
+  # The fast tier's cargo and portable script entries: cmux-tui-core, the
+  # layout reducer and performance completeness, run beside the Mac job, so
+  # the Mac runs only Swift. Same gating, flake policy and quarantine list as
   # fast-tier; its own check name, receipt and concurrency group.
   fast-tier-cargo:
     needs: [push-head-preflight]
@@ -2967,11 +3029,11 @@ jobs:
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         uses: ./.github/actions/ghostty-zig-packages
 
-      - name: Run the fast tier (cargo entries)
+      - name: Run the fast tier (cargo and script entries)
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         env:
           CMUX_FAST_CARGO_CACHE_HIT: ${{ steps.cargo-cache.outputs.cache-hit }}
-        run: python3 -I scripts/cmux-next/fast-tier.py --kind cargo --receipt "$RUNNER_TEMP/cmux-next-fast-tier-cargo.json"
+        run: python3 -I scripts/cmux-next/fast-tier.py --kind cargo --kind script --receipt "$RUNNER_TEMP/cmux-next-fast-tier-cargo.json"
 
       - name: Upload fast-tier timing receipt
         if: ${{ (always()) && steps.reuse.outputs.hit != 'true' }}
@@ -5336,9 +5398,13 @@ jobs:
           REUSED_FROM_RUN: ${{ steps.dev-product.outputs.hit == 'true' && steps.dev-product.outputs.source_run_id || '' }}
           REUSED_FROM_SHA: ${{ steps.dev-product.outputs.hit == 'true' && steps.dev-product.outputs.source_sha || '' }}
           COMPILED_RUN: ${{ steps.dev-product.outputs.hit == 'true' && steps.dev-product.outputs.compiled_run_id || '' }}
+          # Reporting only (the key keeps the requested mode): what `auto` resolved to, the reused source's on a hit.
+          SWIFT_MODE: ${{ steps.dev-product.outputs.hit == 'true' && steps.dev-product.outputs.swift_mode || steps.compile-cmux-next-dev-release.outputs.swift_mode }}
+          SWIFT_MODE_REQUESTED: ${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'auto' }}
         run: |
           python3 -I scripts/ci/dev_release_product_reuse.py record --key "$KEY" --sha "$SHA" --archive "$ARCHIVE" \
             --reused-from-run "$REUSED_FROM_RUN" --reused-from-sha "$REUSED_FROM_SHA" --compiled-run "$COMPILED_RUN" \
+            --swift-mode "$SWIFT_MODE" --swift-mode-requested "$SWIFT_MODE_REQUESTED" \
             --out "$RUNNER_TEMP/cmux-next-dev-product-record/manifest.json" >> "$GITHUB_OUTPUT"
 
       - name: Upload the DEV Release app record
@@ -5820,9 +5886,13 @@ jobs:
           REUSED_FROM_RUN: ${{ steps.dev-product.outputs.hit == 'true' && steps.dev-product.outputs.source_run_id || '' }}
           REUSED_FROM_SHA: ${{ steps.dev-product.outputs.hit == 'true' && steps.dev-product.outputs.source_sha || '' }}
           COMPILED_RUN: ${{ steps.dev-product.outputs.hit == 'true' && steps.dev-product.outputs.compiled_run_id || '' }}
+          # Reporting only (the key keeps the requested mode): what `auto` resolved to, the reused source's on a hit.
+          SWIFT_MODE: ${{ steps.dev-product.outputs.hit == 'true' && steps.dev-product.outputs.swift_mode || steps.compile.outputs.swift_mode }}
+          SWIFT_MODE_REQUESTED: ${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'auto' }}
         run: |
           python3 -I scripts/ci/dev_release_product_reuse.py record --key "$KEY" --sha "$GITHUB_SHA" --archive "$ARCHIVE" \
             --reused-from-run "$REUSED_FROM_RUN" --reused-from-sha "$REUSED_FROM_SHA" --compiled-run "$COMPILED_RUN" \
+            --swift-mode "$SWIFT_MODE" --swift-mode-requested "$SWIFT_MODE_REQUESTED" \
             --out "$RUNNER_TEMP/cmux-next-dev-product-record/manifest.json" >> "$GITHUB_OUTPUT"
       - name: Upload the DEV Release app record
         if: steps.dev-product-record.outcome == 'success'

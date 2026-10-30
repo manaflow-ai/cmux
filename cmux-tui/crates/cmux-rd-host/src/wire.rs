@@ -124,9 +124,8 @@ impl DatagramOut {
     }
 }
 
-#[cfg(target_os = "linux")]
-/// TCP keepalive (2 s idle, 1 s interval, 3 probes) and a 10 s user timeout, so a viewer
-/// that vanishes without a FIN ends its session quickly.
+/// TCP keepalive (2 s idle, 1 s interval, 3 probes) and, on Linux, a 10 s user timeout, so
+/// a viewer that vanishes without a FIN ends its session quickly.
 pub fn harden_tcp(s: &TcpStream) {
     use std::os::fd::AsRawFd;
     let fd = s.as_raw_fd();
@@ -143,9 +142,14 @@ pub fn harden_tcp(s: &TcpStream) {
         }
     };
     set(libc::SOL_SOCKET, libc::SO_KEEPALIVE, 1);
+    #[cfg(target_os = "linux")]
     set(libc::IPPROTO_TCP, libc::TCP_KEEPIDLE, 2);
+    // macOS names the idle time TCP_KEEPALIVE and has no user timeout.
+    #[cfg(target_os = "macos")]
+    set(libc::IPPROTO_TCP, libc::TCP_KEEPALIVE, 2);
     set(libc::IPPROTO_TCP, libc::TCP_KEEPINTVL, 1);
     set(libc::IPPROTO_TCP, libc::TCP_KEEPCNT, 3);
+    #[cfg(target_os = "linux")]
     set(libc::IPPROTO_TCP, libc::TCP_USER_TIMEOUT, 10_000);
 }
 
