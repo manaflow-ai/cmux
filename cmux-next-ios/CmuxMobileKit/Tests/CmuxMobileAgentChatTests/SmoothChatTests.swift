@@ -346,6 +346,32 @@ import UIKit
     }
 }
 
+/// A closed chat's transcript lets go of its store and surface: the list's pending
+/// observation (registered with both) holds them only weakly.
+@MainActor
+@Suite struct TranscriptListReleaseTests {
+    @Test func aClosedChatReleasesItsStoreAndSurface() {
+        weak var weakStore: AgentChatStore?
+        weak var weakSurface: AgentChatSurface?
+        weak var weakList: ChatTranscriptList?
+        autoreleasepool {
+            let store = AgentChatStore(source: SmoothChatTests.Silent())
+            store.nextFrame = nil
+            store.apply(.batch((0..<3).flatMap { SmoothChatTests.turn($0) }))
+            let surface = AgentChatSurface()
+            let list = ChatTranscriptList(store: store, surface: surface)
+            list.collectionView.frame = CGRect(x: 0, y: 0, width: 390, height: 800)
+            list.boundsMayHaveChanged()
+            weakStore = store
+            weakSurface = surface
+            weakList = list
+        }
+        #expect(weakList == nil)
+        #expect(weakStore == nil)
+        #expect(weakSurface == nil)
+    }
+}
+
 /// Native answer rows keep what the SwiftUI blocks offered: a heading is a heading to
 /// VoiceOver, and a block's long-press menu can select text, not only copy the whole message.
 @MainActor
