@@ -192,8 +192,9 @@ ws(s) loads and reports `navigator.onLine === false`.
 An element action (`click`, `dblclick`, `hover`, `focus`, `type`, `fill`,
 `check`, `uncheck`, `select`, `scroll-into-view`) whose page opens `confirm()`,
 `alert()` or `prompt()` returns OK with a `dialog` object (`type`, `message`,
-`default_text`) instead of failing: the action ran and the dialog is waiting.
-Answer it before anything else. While it is open, element actions and
+`default_text`) instead of failing: the action started and the dialog is waiting.
+Whatever the action still had to do, like the rest of a `dblclick`, runs after
+the dialog is answered, so answer it before anything else. While it is open, element actions and
 `get`/`is` queries fail at once with `dialog_pending`; `eval`, `wait`, `press`,
 `scroll` and `snapshot` still block until the JavaScript timeout:
 

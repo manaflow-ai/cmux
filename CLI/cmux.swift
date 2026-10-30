@@ -18667,6 +18667,13 @@ struct CMUXCLI {
         let subArgs = Array(args.dropFirst())
         let browserValueTextFormatter = BrowserValueTextFormatter()
 
+        // The page writes the dialog's message, so it stays on one printable line.
+        func browserDialogLine(type: String, message: String) -> String {
+            let surface = CLITerminalText.printable(surfaceRaw ?? "<surface>")
+            return "dialog: \(CLITerminalText.printable(type)) \"\(CLITerminalText.printable(message))\""
+                + " (cmux browser \(surface) dialog accept|dismiss)"
+        }
+
         // A committed navigation can spend up to 15s waiting for its delegate callback.
         // A post-action snapshot can then spend another 10s in JavaScript and 2.5s in
         // recovery. Keep transport headroom beyond that 27.5s app-side maximum when
@@ -18674,7 +18681,12 @@ struct CMUXCLI {
         func sendBrowserAutomationRequest(method: String, params: [String: Any]) throws -> [String: Any] {
             let filePreparationTimeout: TimeInterval = method == "browser.set_input_files" ? 10 : 0
             let responseTimeout: TimeInterval = ((params["snapshot_after"] as? Bool) == true ? 35 : 20) + filePreparationTimeout
-            return try client.sendV2(method: method, params: params, responseTimeout: responseTimeout)
+            do {
+                return try client.sendV2(method: method, params: params, responseTimeout: responseTimeout)
+            } catch let error as CLIError {
+                guard let dialog = error.browserDialog else { throw error }
+                throw error.appendingLine(browserDialogLine(type: dialog.type, message: dialog.message))
+            }
         }
 
         func requireSurface() throws -> String {
@@ -18696,8 +18708,7 @@ struct CMUXCLI {
             if payload["action"] != nil,
                let dialog = payload["dialog"] as? [String: Any],
                let type = dialog["type"] as? String {
-                let message = (dialog["message"] as? String) ?? ""
-                print("dialog: \(type) \"\(message)\" (answer it with `browser dialog accept` or `dismiss`)")
+                print(browserDialogLine(type: type, message: (dialog["message"] as? String) ?? ""))
             }
             if let snapshot = payload["post_action_snapshot"] as? String,
                !snapshot.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

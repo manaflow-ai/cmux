@@ -8382,6 +8382,13 @@ class TerminalController {
                             payload["value"] = v2NormalizeJSValue(resultValue)
                         }
                         v2BrowserAppendPostSnapshot(params: params, surfaceId: surfaceId, payload: &payload)
+                        // A dialog that opened after the action's script returned
+                        // blocks the snapshot, so it stands in for it here too.
+                        if payload["post_action_snapshot_error"] != nil,
+                           let dialog = v2BrowserPendingJavaScriptDialog(browserPanel) {
+                            payload["post_action_snapshot_error"] = nil
+                            payload["dialog"] = v2BrowserDialogFields(dialog)
+                        }
                         return .ok(payload)
                     }
 
