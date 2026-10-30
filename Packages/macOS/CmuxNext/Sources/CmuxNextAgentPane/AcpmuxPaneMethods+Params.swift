@@ -109,7 +109,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/app_reply": (["sessionId", "to", "replyTo", "threadId", "text", "replyId"], []),
         // `id`: the chat's tool row (`mcp:<server>`); `enabled`: on or off for this chat.
         "_acpmux/set_tools": (["sessionId", "id", "enabled"], []),
-        "acp.session.fork": (["sessionId", "throughSeq"], []),
+        // `live`: Fork Conversation's fork of the whole chat as it is now (acpmux `fork_through.rs`).
+        "acp.session.fork": (["sessionId", "throughSeq", "live"], []),
         "acp.trust.get": (["cwd", "sessionId"], []),
         "acp.trust.set": (["cwd", "level", "sessionId"], []),
         // Never `sha256`: only the relay adds it, after the native sheet's Enable.

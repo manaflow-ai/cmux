@@ -13,6 +13,13 @@ The script rejects dirty or unpushed work, verifies the exact commit in every ho
 
 `rust-toolchain.toml` is the single Rust toolchain source for hosted TUI tests, package builds, and live conformance. Change that file instead of adding a workflow-specific Rust version.
 
+## Settings in the CLI and MCP
+
+`cmux settings` and the MCP `settings_*` tools work for every key in the embedded settings schema
+(`schemas/settings/settings-schema.json`), so every app setting reaches them. Keep it that way: a change to a setting's kind, validation or value shape lands in
+`crates/cmux-config/src/schema/` in the same change, and no setting gets a CLI-only or MCP-only path. See
+"Settings on every surface" in the [root CLAUDE.md](../CLAUDE.md#settings-on-every-surface).
+
 ## Blacksmith Testbox
 
 Blacksmith Testbox gives maintainers with Blacksmith access a remote Linux box for cmux-tui Rust

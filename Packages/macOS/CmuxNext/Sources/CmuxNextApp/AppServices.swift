@@ -15,6 +15,7 @@ import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextMobileHost
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDaemonRecovery
 import CmuxNextFeed
 import CmuxNextFloating
@@ -68,6 +69,7 @@ final class AppServices {
     /// Its event batches run on the app's ``MainWorkScheduler`` (``mainWork``), which every
     /// remote machine's service shares.
     let daemon: DaemonService
+    let personalPlacements = PersonalPlacementQueue()
     /// The app's one main-thread scheduler (from the composition root), passed by init to the
     /// local daemon and to the Cloud, SSH and server services for their machines.
     let mainWork: MainWorkScheduler
@@ -92,6 +94,8 @@ final class AppServices {
     let machineAsks = SidebarAsks()
     /// Auto-archive of idle workspaces (plans/cmux-next/auto-archive-DESIGN.md); started at launch.
     private(set) lazy var autoArchive = AutoArchiveCoordinator(host: self, ledgerStore: AutoArchiveLedgerStore(defaults: .standard))
+    /// Each window's own Home (cmux#27880).
+    private(set) lazy var windowHomes = WindowHomes(host: self)
     /// Hibernates idle workspaces (plans/cmux-next/workspace-hibernation-DESIGN.md).
     private(set) lazy var workspaceHibernation = WorkspaceHibernation(host: self, keepAwake: WorkspaceKeepAwakeStore(defaults: .standard),
                                                                   deadline: DemandTimer(owner: "workspace-hibernation"))
@@ -130,8 +134,10 @@ final class AppServices {
     /// The app's latest key or mouse input and whether it was the person's (HID system): backs a consent
     /// grant made in a page. Started at launch.
     let personInput = PersonInputLedger()
+    /// Process-wide widening-switch gate shared by every Settings window.
+    let wideningGate = PageWideningGate()
     /// Settings > Machines' "Dedicated agent machine" switch on each Cloud machine (acpmux vmHost).
-    private(set) lazy var cloudVmHost = CloudVmHostStore(api: cloud.api)
+    private(set) lazy var cloudVmHost = CloudVmHostStore(api: cloud.machineAPI)
     let machineHealth = MachineHealthStore()
     let mobile = MobileHostService(displayName: { await MacName().displayName() })  // phone access; the account layer starts it
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
@@ -564,6 +570,8 @@ final class AppServices {
         wireBrowserTabMachines()
         cache.browserProfile = { [weak self] key in self?.browserProfiles.engineProfile(forTab: key) }
         cache.profileBadge = { [weak self] key in self?.browserProfiles.omnibarBadge(forTab: key) }
+        // Customize Menu… at the end of a right-click menu opens Settings > Menus on that menu.
+        registry.customizeMenu = { [weak self] context in self?.settingsWindow.showMenus(context) }
         cache.profileBadgeMenu = { [weak self] key in
             guard let self, let tab = cache.tabModel(key) else { return nil }
             let target = ActionTargetRef(kind: .browserProfile, id: browserProfiles.profileID(ofTab: tab))
@@ -695,11 +703,42 @@ final class AppServices {
         }
     }
     // MARK: Lookup
-    /// The tab with durable id (or tab resource id: links and TabMirror's wait use it) `id`
-    /// and the pane that holds it, on any machine (O(1) per daemon).
+    /// A durable or resource id without a machine is usable only when exactly one
+    /// machine holds it. Forks can preserve ids; never pick one by registry order.
     func locateTab(_ id: String) -> (TabModel, PaneModel)? {
+        var found: (TabModel, PaneModel)?
+        for daemon in machines.daemons {
+            guard let tab = daemon.store.tab(idOrResource: id), let pane = daemon.store.pane(holding: tab) else { continue }
+            guard found == nil else { return nil }
+            found = (tab, pane)
+        }
+        return found
+    }
+
+    /// Compatibility for callers whose state is still keyed by a bare tab id: the
+    /// pre-#5338 first match across machines. Do not add callers; migrate these
+    /// to machine-scoped state instead (the source guard ratchets the existing set).
+    func locateTabOnAnyMachine(_ id: String) -> (TabModel, PaneModel)? {
         for daemon in machines.daemons {
             if let tab = daemon.store.tab(idOrResource: id), let pane = daemon.store.pane(holding: tab) { return (tab, pane) }
+        }
+        return nil
+    }
+
+    /// Resolves only in the named machine; a missing machine never falls back locally.
+    func locateTab(_ id: String, onMachine machineID: String) -> (TabModel, PaneModel)? {
+        guard let daemon = machines.daemon(machine: machineID),
+              let tab = daemon.store.tab(idOrResource: id), let pane = daemon.store.pane(holding: tab) else { return nil }
+        return (tab, pane)
+    }
+
+    /// Finds this very model, not a same-id tab on another machine. A model removed
+    /// from its store (including a disconnected machine) has no current pane.
+    func locateTab(model tab: TabModel) -> (TabModel, PaneModel)? {
+        for daemon in machines.daemons {
+            guard daemon.store.tab(idOrResource: tab.id) === tab,
+                  let pane = daemon.store.pane(holding: tab) else { continue }
+            return (tab, pane)
         }
         return nil
     }
