@@ -597,17 +597,13 @@ public final class DaemonService {
     }
 
     private func showPaneNotReady(_ notReady: PaneNotReady) {
-        onPaneNotReady?(paneNotReadyText?() ?? notReady.reason)
+        onPaneNotReady?(RefusalStrings.paneStillOpening)
     }
 
-    /// ``PaneNotReady``'s text in the app's language (the app sets it; its string catalog). Nil: the English text.
-    @ObservationIgnored public var paneNotReadyText: (() -> String)?
-
-    /// The failure of command `label` as the person reads it: ``PaneNotReady`` as a typed refusal in the app's language.
+    /// The failure of command `label` as the person reads it: ``PaneNotReady`` is a typed refusal in the app's language
+    /// (``ActionWorkFailure/init(_:_:)``).
     public func workFailure(_ label: String, _ error: any Error) -> ActionWorkFailure {
-        var failure = ActionWorkFailure(label, error)
-        if error is PaneNotReady, let text = paneNotReadyText?() { failure.message = text }
-        return failure
+        ActionWorkFailure(label, error)
     }
 
     public func shutdownConnection() {

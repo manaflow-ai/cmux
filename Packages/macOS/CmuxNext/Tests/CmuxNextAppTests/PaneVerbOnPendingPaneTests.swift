@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextSettings
 import Foundation
 import Testing
@@ -30,7 +31,7 @@ struct PaneVerbOnPendingPaneTests {
                 "zoom on the pending pane showed nothing (HUD \(services.refusalHUD.shownCount), was \(shown))"
             })
             let notice = services.refusalHUD.message ?? ""
-            #expect(notice.contains(MiscHandlerStrings.paneNotReady), "the notice is not the pane-still-opening one: \(notice)")
+            #expect(notice.contains(RefusalStrings.paneStillOpening), "the notice is not the pane-still-opening one: \(notice)")
             #expect(!notice.localizedCaseInsensitiveContains("unknown pane"), "the stand-in reached the daemon: \(notice)")
             // The split confirms; nothing was zoomed.
             try await PinnedPageTests.until({ content.panes.values.allSatisfy { $0.pane.handle.rawValue < ProvisionalPane.firstHandle } },
@@ -60,7 +61,7 @@ struct PaneVerbOnPendingPaneTests {
             try await PinnedPageTests.until({ services.refusalHUD.shownCount > shown }, report: {
                 "Split Left on the pending pane showed nothing (HUD \(services.refusalHUD.shownCount), was \(shown))"
             })
-            #expect(services.refusalHUD.message?.contains(MiscHandlerStrings.paneNotReady) == true,
+            #expect(services.refusalHUD.message?.contains(RefusalStrings.paneStillOpening) == true,
                     "the notice is not the pane-still-opening one: \(services.refusalHUD.message ?? "")")
             // The first split confirms; the refused Split Left made no third pane, and the notice showed once.
             try await PinnedPageTests.until({ content.panes.values.allSatisfy { $0.pane.handle.rawValue < ProvisionalPane.firstHandle } },
@@ -86,7 +87,7 @@ struct PaneVerbOnPendingPaneTests {
                 "perform on a pane still opening showed nothing (HUD \(services.refusalHUD.shownCount), was \(shown + 1))"
             })
             #expect(services.refusalHUD.shownCount == shown + 2, "two refusals showed \(services.refusalHUD.shownCount - shown) notices")
-            #expect(services.refusalHUD.message?.contains(MiscHandlerStrings.paneNotReady) == true,
+            #expect(services.refusalHUD.message?.contains(RefusalStrings.paneStillOpening) == true,
                     "the notice is not the pane-still-opening one: \(services.refusalHUD.message ?? "")")
         }
     }
@@ -111,7 +112,7 @@ struct PaneVerbOnPendingPaneTests {
             try await PinnedPageTests.until({ services.refusalHUD.shownCount > shown }, report: {
                 "a typed new tab on the pending pane showed nothing (HUD \(services.refusalHUD.shownCount), was \(shown))"
             })
-            #expect(services.refusalHUD.message?.contains(MiscHandlerStrings.paneNotReady) == true,
+            #expect(services.refusalHUD.message?.contains(RefusalStrings.paneStillOpening) == true,
                     "the notice is not the pane-still-opening one: \(services.refusalHUD.message ?? "")")
             try await PinnedPageTests.until({ content.panes.values.allSatisfy { $0.pane.handle.rawValue < ProvisionalPane.firstHandle } },
                                             report: { "the split did not confirm" })
@@ -144,7 +145,7 @@ struct PaneVerbOnPendingPaneTests {
             try await PinnedPageTests.until({ services.refusalHUD.shownCount > shown }, report: {
                 "a person's typed command on the pending pane showed nothing (HUD \(services.refusalHUD.shownCount), was \(shown))"
             })
-            #expect(services.refusalHUD.message?.contains(MiscHandlerStrings.paneNotReady) == true,
+            #expect(services.refusalHUD.message?.contains(RefusalStrings.paneStillOpening) == true,
                     "the notice is not the pane-still-opening one: \(services.refusalHUD.message ?? "")")
             try await PinnedPageTests.until({ content.panes.values.allSatisfy { $0.pane.handle.rawValue < ProvisionalPane.firstHandle } },
                                             report: { "the split did not confirm" })

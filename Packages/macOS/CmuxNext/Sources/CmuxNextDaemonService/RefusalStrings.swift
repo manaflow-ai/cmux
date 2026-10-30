@@ -234,4 +234,8 @@ public nonisolated enum RefusalStrings {
     public static func noColumnInDirection(_ direction: String) -> String { format("handlers.refusal.noColumnInDirection", "no column to the %@", direction) }
     public static var columnAtEdge: String { text("handlers.refusal.columnAtEdge", "the column is already at the edge") }
     public static func paneHasNoDaemonHandle(_ id: String) -> String { text("handlers.refusal.paneNotReady", "That pane isn't ready yet.") }
+    /// A command on a pane still opening (`PaneNotReady`, P0 2026-10-30): it was not sent.
+    public static var paneStillOpening: String { text("handlers.misc.failed.paneNotReady", "This pane is still opening; try again in a moment.") }
+    /// A create's target was a pending pane whose own create was never made (`PendingPaneNotCreated`, P0 2026-10-30).
+    public static var pendingPaneNotCreated: String { text("handlers.misc.failed.pendingPaneNotCreated", "The pane it was for was not created.") }
 }

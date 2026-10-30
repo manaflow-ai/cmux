@@ -345,7 +345,6 @@ final class ServerReachService {
                                            mainWork: mainWork, deadlines: machines.local.deadlines, appEvents: machines.local.appEvents)
         session.daemon.workTracker = machines.local.workTracker
         session.daemon.onPaneNotReady = machines.local.onPaneNotReady
-        session.daemon.paneNotReadyText = machines.local.paneNotReadyText
         // The overlay ended: re-read the link (`link show` checks its pid
         // and socket), so a crashed link with a stale link.json falls back.
         session.onOverlayEnded = { [weak self] in self?.refresh() }

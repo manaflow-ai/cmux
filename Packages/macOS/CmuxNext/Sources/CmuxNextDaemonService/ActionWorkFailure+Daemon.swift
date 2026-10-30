@@ -14,10 +14,9 @@ extension ActionWorkFailure {
             return
         }
         // A pane verb on a pane still opening was refused before it was sent (rule a): a typed refusal, so the control
-        // socket answers `unavailable` and the HUD shows the text alone, once. `DaemonService.workFailure` puts it in the
-        // person's language; here the English text.
+        // socket answers `unavailable` and the HUD shows the text alone, once, in the person's language.
         if let notReady = error as? PaneNotReady {
-            self.init(refusal: .unavailable, reason: notReady.reason)
+            self.init(refusal: .unavailable, reason: RefusalStrings.paneStillOpening)
             shown = notReady.shown
             return
         }
@@ -39,5 +38,14 @@ extension DaemonError {
     nonisolated var isTerminalStartTimeout: Bool {
         if case .terminalStartTimedOut = self { return true }
         return false
+    }
+}
+
+    /// The failure of a person's optimistic create (Cmd-D, Ctrl-`, New Row, New Column) as the refusal HUD shows it:
+    /// ``PendingPaneNotCreated`` and ``PaneNotReady`` read in the app's language (their English text stays for the log);
+    /// other errors keep the daemon's own text, as before.
+    @MainActor public static func create(_ label: String, _ error: any Error) -> ActionWorkFailure {
+        if error is PendingPaneNotCreated { return ActionWorkFailure("\(label): \(RefusalStrings.pendingPaneNotCreated)") }
+        return ActionWorkFailure(label, error)
     }
 }

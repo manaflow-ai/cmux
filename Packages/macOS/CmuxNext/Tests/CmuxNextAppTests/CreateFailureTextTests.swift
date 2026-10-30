@@ -10,7 +10,7 @@ import Testing
 @MainActor struct CreateFailureTextTests {
     @Test func aPendingPaneThatWasNeverMadeReadsInTheAppsLanguage() {
         let failure = ActionWorkFailure.create("split", PendingPaneNotCreated())
-        #expect(failure.message.contains(MiscHandlerStrings.pendingPaneNotCreated))
+        #expect(failure.message.contains(RefusalStrings.pendingPaneNotCreated))
         #expect(!failure.message.contains(PendingPaneNotCreated().description))
     }
 
@@ -20,7 +20,7 @@ import Testing
         let services = AppServices(environment: AppEnvironment.current(["CMUX_NEXT_NO_ACTIVATE": "1"]))
         let failure = services.daemon.workFailure("zoom-pane", PaneNotReady(command: "zoom-pane", reference: "pane=4611686018427387905"))
         #expect(failure.refusal == .unavailable)
-        #expect(failure.message == MiscHandlerStrings.paneNotReady)
+        #expect(failure.message == RefusalStrings.paneStillOpening)
         #expect(!failure.message.contains("4611686018427387905"), "the stand-in id reached the person's text")
     }
 }

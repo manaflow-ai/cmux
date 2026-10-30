@@ -309,7 +309,6 @@ final class SSHService {
                                         mainWork: mainWork, deadlines: machines.local.deadlines, appEvents: machines.local.appEvents)
         session.daemon.workTracker = machines.local.workTracker
         session.daemon.onPaneNotReady = machines.local.onPaneNotReady
-        session.daemon.paneNotReadyText = machines.local.paneNotReadyText
         session.onStatusChange = { [weak self] session, status in self?.statusChanged(session, status) }
         machines.add(session)
         return session
