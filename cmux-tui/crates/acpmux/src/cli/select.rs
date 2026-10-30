@@ -76,11 +76,13 @@ pub(crate) fn tag_matches(session: &Value, tag: &str) -> bool {
 }
 
 /// Whether the session matches any of `patterns`: a session id (bare, or a peer's `host/id`), or
-/// a name glob (`*` any run, `?` one character). A pattern with a `/` matches the full
-/// `host/name` of a peer's session; one without matches the name on any host.
+/// a name glob (`*` any run, `?` one character). A pattern with a `/` is `host/glob`: it matches
+/// only a peer's session, by its full `host/name` (a session here whose own name holds a `/` is
+/// not on that host). One without matches the name on any host.
 pub(crate) fn name_matches(session: &Value, patterns: &[String]) -> bool {
     let name = session.get("name").and_then(Value::as_str).unwrap_or("");
-    let bare = match session.get("peer").and_then(Value::as_str) {
+    let peer = session.get("peer").and_then(Value::as_str);
+    let bare = match peer {
         Some(peer) => name.strip_prefix(peer).and_then(|n| n.strip_prefix('/')).unwrap_or(name),
         None => name,
     };
@@ -89,7 +91,11 @@ pub(crate) fn name_matches(session: &Value, patterns: &[String]) -> bool {
     patterns.iter().any(|pattern| {
         id == Some(pattern.as_str())
             || qualified == Some(pattern.as_str())
-            || glob(pattern, if pattern.contains('/') { name } else { bare })
+            || if pattern.contains('/') {
+                peer.is_some() && glob(pattern, name)
+            } else {
+                glob(pattern, bare)
+            }
     })
 }
 
@@ -164,6 +170,12 @@ mod tests {
         assert!(name_matches(&peer, &p(&["review-27*"])), "a bare pattern matches on any host");
         assert!(name_matches(&peer, &p(&["huge-blue/*"])));
         assert!(!name_matches(&local, &p(&["huge-blue/*"])));
+        let slashed = json!({"name": "huge-blue/notes", "sessionId": "01c3"});
+        assert!(
+            !name_matches(&slashed, &p(&["huge-blue/*"])),
+            "a local name with a / is not a peer's"
+        );
+        assert!(name_matches(&slashed, &p(&["01c3"])));
         assert!(name_matches(&local, &p(&["review-2789?"])));
         assert!(!name_matches(&local, &p(&["review"])), "a glob matches the whole name");
         assert!(name_matches(&local, &p(&["nope", "01a1"])), "an id matches exactly");
