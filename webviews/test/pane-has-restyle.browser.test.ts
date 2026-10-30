@@ -300,7 +300,7 @@ else
       >();
       const stash = w.__hasStash as Map<number, { parent: any; index: number; text: string }>;
       if (!off) {
-        for (const [key, entry] of [...stash.entries()].sort((a, b) => b[0] - a[0])) {
+        for (const [key, entry] of [...stash.entries()].sort((a, b) => a[0] - b[0])) {
           if (n !== -1 && key !== n) continue;
           entry.parent.insertRule(entry.text, entry.index);
           stash.delete(key);
@@ -367,6 +367,16 @@ else
                   without: without.elements,
                 });
             }
+            // Every :has() rule off but one: what that rule alone costs an insertion.
+            await page.evaluate(toggleHasRule, { n: -1, off: true });
+            for (let n = 0; n < rules.length; n += 1) {
+              await page.evaluate(toggleHasRule, { n, off: false });
+              const alone = await insertion(page, "button", 3);
+              await page.evaluate(toggleHasRule, { n, off: true });
+              if (alone.elements - none.elements > 50)
+                report(name, "alone-rule", { n, ...rules[n], none: none.elements, alone: alone.elements });
+            }
+            await page.evaluate(toggleHasRule, { n: -1, off: false });
           }
           expect(true).toBe(true);
         } finally {
