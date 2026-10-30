@@ -87,7 +87,9 @@ const BOILERPLATE: [&str; 4] = [
      focus.",
 ];
 
-pub(super) const INSTRUCTIONS: &str = "cmux tools run through cmux_exec scripts; its \
+pub(super) const INSTRUCTIONS: &str = "This chat runs in cmux: a terminal, tab or workspace \
+    the person asks for (\"on my right\", \"a new workspace\") is a cmux one, made and run with \
+    these tools, not your own shell. cmux tools run through cmux_exec scripts; its \
     description lists the common ones. Selectors take a public id (ws_…, pane_…, tab_…, \
     term_…), a unique prefix, <session>:<id> or an exact name; workspace, screen, pane and tab \
     also take `current` (this chat's own) or `focused` (the one the person looks at). Tools of the chat's \
@@ -133,7 +135,9 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
         "name": EXEC,
         "title": "Run a cmux script",
         "description": format!(
-            "Run JavaScript that calls cmux tools and return its result.{computer_use} An async \
+            "Run JavaScript that calls cmux tools and return its result. This chat runs in \
+             cmux: a terminal, tab or workspace the person asks for is a cmux one, made here, \
+             not in your own shell.{computer_use} An async \
              function \
              body, `await cmux.<tool>({{...}})` per call, `return` a JSON value. Do related \
              steps in one script: look up, act and check together. No file system, network or \
@@ -152,12 +156,16 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
              text: \"cmd\\n\"}} runs it there and the tab stays open with its output. Use this \
              for 'open a terminal', 'run X on my right', 'next to my logs'. With shell (or \
              argv) the tab runs only that command and closes when it exits.\n\
-             - pane_split {{pane, direction}}: only when the person says \"split\". \"Next to \
-             my logs\", \"beside X\" or \"on the right\" means a new tab in that pane: \
-             tab_create_terminal {{pane}}, or no pane for the column right of this chat.\n\
+             - pane_split {{pane, direction}}: only when the person says \"split\" or wants \
+             two terminals \"side by side\" (split the workspace's pane, then use the new \
+             value.pane_id). \"Next to my logs\", \"beside X\" or \"on the right\" means a \
+             new tab in that pane: tab_create_terminal {{pane}}, or no pane for the column \
+             right of this chat (pane: \"current\" is this chat's own pane, not the right).\n\
              - terminal_input_write {{terminal, text: \"cmd\\n\"}}; terminal_wait {{terminal, \
-             pattern, timeout_ms}} waits for text (never sleep or poll); terminal_screen_read and \
-             terminal_history_read {{terminal}} read it.\n\
+             pattern, timeout_ms}} waits for a regex on the screen (never sleep or poll). The \
+             typed command is on the screen too, so match the output line: pattern \
+             \"(?m)^DONE\" for `cmd; echo DONE`. terminal_screen_read and terminal_history_read \
+             {{terminal}} read it.\n\
              - tab_rename {{tab, name}}, tab_close {{tab}}, tab_focus {{tab}}; workspace_rename \
              {{workspace, name}}.\n\
              - Groups: tab_group_create {{tabs: [ids], name}}; workspace_group_create {{name}}, \
