@@ -813,10 +813,15 @@ impl Peer {
         if epoch.is_some_and(|e| e != self.link_epoch() || !self.open.load(Ordering::SeqCst)) {
             return Err(self.unreachable_error());
         }
-        // Only on its own link, checked just above with no await between: a request of a link
-        // gone down never takes the key of the next link's list.
+        // Only on its own link, checked again under the lock: a request of a link gone down
+        // (whose task may still run after its abort) never takes the key of the next link's
+        // list. The next handshake sets its key after the epoch moved on, under the same lock.
         if watch {
-            *self.watch_key.lock_or_recover() = Some(key.clone());
+            let mut held = self.watch_key.lock_or_recover();
+            if epoch.is_some_and(|e| e != self.link_epoch()) {
+                return Err(self.unreachable_error());
+            }
+            *held = Some(key.clone());
         }
         // One frame larger than the peer reads with would drop the link and every chat on it.
         let line = Message::request(id, m, params).bounded_line().map_err(RpcError::too_large)?;
