@@ -11,6 +11,10 @@
 version = 1
 
 [[test]]
+path = "tests/test_web_ota_publication_contract.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_stress_cli_socket_api.py"
 lane = "linux-guard"
 
@@ -450,6 +454,10 @@ path = "tests/test_ci_testbox_broker_guard.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_machine_join_e2e_workflow.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_workload_profiles.py"
 lane = "linux-guard"
 
@@ -575,6 +583,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ios_sim_runtime.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_ffi_cache.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1964,6 +1976,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_pr_perf_section_check.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_pr_design_spec_check.py"
 lane = "linux-guard"
 
 [[test]]

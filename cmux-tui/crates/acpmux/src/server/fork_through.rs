@@ -34,8 +34,15 @@ pub(super) async fn as_session_fork<'m>(
     }
     if let Some(meta) = params.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
         meta.remove("throughSeq");
+        meta.remove("startLater");
     }
     Ok(m)
+}
+
+/// Whether a `session/fork` came from `acp.session.fork` (Fork Conversation), which answers once
+/// the fork's chat is made and starts its agent after (`Hub::fork`'s `start_later`).
+pub(super) fn starts_later(params: &Value) -> bool {
+    params.pointer("/_meta/acpmux/startLater").and_then(Value::as_bool).unwrap_or(false)
 }
 
 /// The earlier turn a `session/fork` from `acp.session.fork` forks through.
@@ -68,9 +75,14 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     // A working chat of an agent that forks only at its end forks as it is now.
     if live || (working && !can_cut) {
         let mut out = json!({"sessionId": session.id});
-        if let Some(via) = params.pointer("/_meta/acpmux/via") {
-            out.set("_meta", json!({"acpmux": {"via": via}}));
+        let mut mux = serde_json::Map::new();
+        for key in ["via", "requireFullAccess"] {
+            if let Some(value) = params.pointer(&format!("/_meta/acpmux/{key}")) {
+                mux.insert(key.into(), value.clone());
+            }
         }
+        mux.insert("startLater".into(), json!(true));
+        out.set("_meta", json!({"acpmux": mux}));
         return Ok(out);
     }
     let through = params
@@ -109,15 +121,16 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     // A working chat moved past its latest finished turn: a fork through it cuts there too.
     let earlier = earlier || working;
     let mut mux = serde_json::Map::new();
-    if let Some(via) = params.pointer("/_meta/acpmux/via") {
-        mux.insert("via".into(), via.clone());
+    for key in ["via", "requireFullAccess"] {
+        if let Some(value) = params.pointer(&format!("/_meta/acpmux/{key}")) {
+            mux.insert(key.into(), value.clone());
+        }
     }
     if earlier {
         mux.insert("throughSeq".into(), json!(through));
     }
+    mux.insert("startLater".into(), json!(true));
     let mut out = json!({"sessionId": session.id});
-    if !mux.is_empty() {
-        out.set("_meta", json!({"acpmux": mux}));
-    }
+    out.set("_meta", json!({"acpmux": mux}));
     Ok(out)
 }

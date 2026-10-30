@@ -354,7 +354,22 @@ export interface MemberApproverDecision {
   decisionNonce: string;
 }
 
+/** The sender and receiver projection of a persisted session-to-session message. */
+export type MessageEvent = {
+  at: number;
+  messageId: string;
+  sender: MessageSender;
+  sessionId: string;
+  text: string;
+} & Record<string, unknown>;
+
 export type MessageRole = "agent" | "user";
+
+export type MessageSender = {
+  host?: (string | null);
+  name: string;
+  sessionId: string;
+} & Record<string, unknown>;
 
 /**
  * One person in a chat. The hub never marks the caller's own entry: a connection may carry
@@ -601,6 +616,17 @@ export type QueuedPromptSummary = {
    * app draws it as a received message waiting for the turn, not as a composer row.
    */
   fromAgent: (string | null);
+  /**
+   * That session's harness family (`claude`, `codex`, ...), bound the same way: what an app
+   * draws the sender's icon from. Null when unknown (a mesh relay carries none yet).
+   */
+  fromHarness: (string | null);
+  /**
+   * The sending session's id when the daemon bound it (its caller token, a peer daemon's word
+   * on its own proven caller, the mesh relay's sender, a lane's report), null otherwise
+   * (`prompt_provenance.rs` `FROM_SESSION_ID`). Display only, never authority.
+   */
+  fromSessionId: (string | null);
   /** Waits behind a failed turn until the queue is resumed. */
   held: boolean;
   /** The images it sends, in its order; `_acpmux/attachment` reads each by its id. */
@@ -813,6 +839,12 @@ export type SessionDetail = {
   models?: unknown;
   /** The agent's ACP session modes. */
   modes?: unknown;
+  /**
+   * Moved to another daemon (`acpmux session move`): where it runs now,
+   * `{host?, sessionId, cwd?, branch?, commit?}`. It never runs here again. Absent otherwise,
+   * and from a peer on an older acpmux.
+   */
+  movedTo?: unknown;
   /** Being moved to another daemon; it takes no prompt meanwhile. */
   moving: boolean;
   name: string;
@@ -881,7 +913,7 @@ export type SessionDetail = {
    * the tree from these links at any depth.
    */
   startedBy?: (string | null);
-  /** Effective liveness: `stuck` after three classified harness failures, else `status`. */
+  /** Effective liveness: `stopping` while a Stop waits for its turn to end, `stuck` after three classified harness failures, else `status`. */
   state?: string;
   stateSeq: number;
   /**
@@ -1016,6 +1048,12 @@ export type SessionSummary = {
    */
   mcpServers?: (McpServerSummary[] | null);
   model?: (string | null);
+  /**
+   * Moved to another daemon (`acpmux session move`): where it runs now,
+   * `{host?, sessionId, cwd?, branch?, commit?}`. It never runs here again. Absent otherwise,
+   * and from a peer on an older acpmux.
+   */
+  movedTo?: unknown;
   /** Being moved to another daemon; it takes no prompt meanwhile. */
   moving: boolean;
   name: string;
@@ -1080,7 +1118,7 @@ export type SessionSummary = {
    * the tree from these links at any depth.
    */
   startedBy?: (string | null);
-  /** Effective liveness: `stuck` after three classified harness failures, else `status`. */
+  /** Effective liveness: `stopping` while a Stop waits for its turn to end, `stuck` after three classified harness failures, else `status`. */
   state?: string;
   stateSeq: number;
   /**

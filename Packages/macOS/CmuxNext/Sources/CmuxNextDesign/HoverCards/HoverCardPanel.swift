@@ -24,7 +24,8 @@ public enum HoverCardPlacement: Sendable {
 /// card view, each reused) into it.
 ///
 /// Motion (Lawrence 2026-10-18: "the card needs proper fade in and translation animation (when
-/// hover to different consecutive cards)"): a first show fades in while the card moves the last
+/// hover to different consecutive cards)"): a sidebar row's first show is immediate after its
+/// dwell (Leo 2026-10-28, ask-067e9aa217). Other cards fade in while the card moves the last
 /// `entryOffset` points away from its target; a retarget (the next row or tab while a card
 /// shows) puts the window at the new place at once, as R131 asked (a window-frame slide trailed
 /// the pointer), and slides the card itself there inside the window (a layer translation on the
@@ -153,10 +154,11 @@ final class HoverCardPanel: NSPanel {
 
     /// Shows `body` at `anchor` (screen) as a child of `parent`. `themeAnchor`
     /// is the view the card describes; the card draws in its theme scope.
-    /// `sliding` (a retarget of a visible card) moves it in the same frame
-    /// like any other placement; every show is at full strength on the first frame.
+    /// `sliding` retargets a visible card. A sidebar row's first show is at full strength
+    /// and at rest in this frame; the coordinator has already waited for the dwell.
     func present(body newBody: NSView, anchor: CGRect, placement: HoverCardPlacement, parent: NSWindow,
-                 themeAnchor: NSView?, sliding: Bool, interactive: Bool = false, applyTheme: @escaping () -> Void) {
+                 themeAnchor: NSView?, sliding: Bool, interactive: Bool = false, cornerRadius: CGFloat? = nil,
+                 applyTheme: @escaping () -> Void) {
         let wasDismissing = isDismissing
         let wasOnScreen = isVisible && parentWindowRef === parent
         // Where the card is on screen before this show: a visible card (shown, or fading out
@@ -227,8 +229,9 @@ final class HoverCardPanel: NSPanel {
         }
         self.anchor = anchor
         self.placement = placement
-        // The density setting may have changed the floating panels' radius since the last card.
-        host?.cornerRadius = Self.cornerRadius
+        // This card's shape (a tab's card has the tab's), read on every show: the density setting
+        // may have changed the radius since the last card.
+        host?.cornerRadius = cornerRadius ?? Self.cornerRadius
         place()
         if sweeping {
             snapToRest()
@@ -238,6 +241,15 @@ final class HoverCardPanel: NSPanel {
             // fades back in from the alpha it reached).
             if !morph(from: previous) { slide(from: offset(of: previous, to: cardFrame)) }
             if wasDismissing || alphaValue < 1 { Self.motion.resume(self) }
+        } else if placement == .besideRow {
+            // Leo: "We can just have it instantly come in on the first load; the delay
+            // that we have is fine, maybe." Clear any slide left from the previous card.
+            Motion.hoverCards.transaction(nil) {
+                slideLayer?.removeAnimation(forKey: "sublayerTransform")
+                slideLayer?.sublayerTransform = CATransform3DIdentity
+            }
+            Motion.hoverCards.withoutAnimation { animator().alphaValue = 1 }
+            orderFront(nil)
         } else {
             // A first show: from clear, the card fades in while it moves the last few points
             // away from its target (`HoverCardMotion`, shared with the update card).
@@ -426,13 +438,24 @@ extension HoverCardPanel {
             origin.y = Self.origin(for: side, anchor: anchor, size: size, scale: scale).y
             if side == placement, !(placement == .below ? fitsBelow : fitsAbove) { origin.y = clampY(origin.y) }
         case .beside:
-            // Right of the row; left of it when the screen ends first. Top-aligned, kept on screen.
+            // Right of the row; left of it when the screen ends first. Top-aligned, and kept inside
+            // the parent window as well as the screen: the What's New popover beside the Update Ready
+            // card at the sidebar's foot ran off the window's bottom and covered the composer's "+"
+            // (live-qa, nightly 3a63d6d, a 1100x720 window). A card taller than the window's part of
+            // the screen keeps its top in that part and runs out of the window's bottom. The screen
+            // wins over the window: when that would push the card off the screen's bottom (a window
+            // mostly below the screen), it sits on the screen's bottom and its top rises past the
+            // window's only as far as it must; a card taller than the screen sits on its bottom too.
             if origin.x + size.width > room.maxX {
                 origin.x = ((anchor.minX - HoverCardEscapeGeometry.edgeGap(scale: scale)) * scale).rounded(.up) / scale - size.width
                 isLeading = true
             }
             origin.x = clampX(origin.x)
-            origin.y = clampY(origin.y)
+            let inWindow = window.map { room.intersection($0.insetBy(dx: margin, dy: margin)) }
+            if let inWindow, !inWindow.isNull, inWindow.height > 0 {
+                origin.y = min(max(origin.y, inWindow.minY), inWindow.maxY - size.height)
+            }
+            origin.y = max(min(origin.y, room.maxY - size.height), room.minY)
         case .besideRow:
             // Beside a sidebar row, top-aligned with it and clamped into the visible frame; left of
             // the row when the screen ends first (`HoverCardEscapeGeometry`).

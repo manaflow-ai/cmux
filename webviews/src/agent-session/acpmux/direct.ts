@@ -324,6 +324,9 @@ function strayedFrom(watch: AttachWatch, replyOf?: unknown): boolean {
 }
 /// Pages one older read takes at most (about 2 MB, more when a single record is larger).
 const OLDER_PAGES_PER_ASK = 8;
+/// Publish a bounded batch of older pages together so each prepend does not redraw the bottom stack.
+/// This keeps the reader responsive while preserving the eight-page cap for large turns.
+const OLDER_MIN_PAGES_PER_ASK = 4;
 /** How long a session list that failed to load waits before it is read once more. */
 const SESSION_REREAD_MS = 2000;
 /// How often the pane reads the peers again while a missing chat's machine is still connecting.
@@ -1357,6 +1360,10 @@ export class AcpmuxDirectClient {
   /// would never draw (Lawrence 2026-10-19). It draws first but is not history: older pages still
   /// load from `firstSeq`, and it gives way once a page brings it.
   private turnOpener?: EventRecord;
+  /// The prompt the open turn runs, by its root: acpmux's automatic continuation of a cut turn runs
+  /// `P~resume-n`, which is `P`'s (hub/auto_resume.rs). A Stop kept through a reconnect stops only
+  /// that turn (stopThroughReconnect.ts).
+  private turnPrompt?: string;
   private lastSeq = 0;
   private turnOpen = false;
   /// The open turn's agent has said nothing since its prompt, past acpmux's `silentTurnMs`
@@ -1497,6 +1504,8 @@ export class AcpmuxDirectClient {
   private opening = false;
   private hasConnected = false;
   private closed = false;
+  /// Replay clients are intentionally detached from a socket but still publish seek snapshots.
+  private replayMode = false;
   private selectionGeneration = 0;
   /// The last attach sent, and what acpmux last accepted about whether the page shows its chat.
   private attaching: Promise<unknown> = Promise.resolve();
@@ -1561,6 +1570,7 @@ export class AcpmuxDirectClient {
   static replay(sessionId: string, events: EventRecord[], listener: Listener): AcpmuxDirectClient {
     const client = new AcpmuxDirectClient({ protocolVersion: 1, transport: "acpmux-bridge", sessionId }, listener);
     client.closed = true;
+    client.replayMode = true;
     client.events = events
       .filter((event) => event.seq > 0 && (event.sessionId ?? sessionId) === sessionId)
       .sort((a, b) => a.seq - b.seq);
@@ -1647,8 +1657,13 @@ export class AcpmuxDirectClient {
     wire?: AcpWireLog,
   ): Promise<AcpmuxDirectClient> {
     const client = new AcpmuxDirectClient(host, listener, onLost, openSocket, gitRoute, wire);
-    await client.open();
-    return client;
+    try {
+      await client.open();
+      return client;
+    } catch (error) {
+      client.close();
+      throw error;
+    }
   }
 
   private async open(): Promise<void> {
@@ -1673,14 +1688,14 @@ export class AcpmuxDirectClient {
       endpoint: this.host.endpoint ? redactEndpoint(this.host.endpoint) : BRIDGE_URL,
       sessionId: this.selectedSessionId,
     });
-    await new Promise<void>((resolve, reject) => {
+    const openingSocket = await new Promise<WebSocket>((resolve, reject) => {
       const socket = this.openSocket(url);
       this.socket = socket;
       let opened = false;
       socket.onopen = () => {
         opened = true;
         this.wire.lifecycle("open");
-        resolve();
+        resolve(socket);
       };
       socket.onerror = () => {
         this.wire.lifecycle("error", { message: opened ? "WebSocket error" : "Unable to connect" });
@@ -1688,7 +1703,7 @@ export class AcpmuxDirectClient {
         reject(new Error(translate("error.connectFailed")));
       };
       socket.onclose = (event?: CloseEvent) => {
-        if (this.socket !== socket) return;
+        if (this.socket !== socket || this.closed) return;
         this.wire.lifecycle("close", {
           code: event?.code,
           reason: event?.reason || undefined,
@@ -1878,6 +1893,10 @@ export class AcpmuxDirectClient {
       } else if (this.host.adopt) {
         await this.adoptChat(this.host.adopt);
       }
+      // Permission and handoff reads tolerate their own failures. A socket lost during those
+      // reads must still fail the handshake, so the host retries instead of keeping a dead client.
+      if (this.closed || openingSocket !== this.socket || openingSocket.readyState !== WebSocket.OPEN)
+        throw new Error(translate("error.interrupted"));
       this.hasConnected = true;
       this.reconnectDelay = 250;
       this.wire.lifecycle("connected", {
@@ -1913,6 +1932,7 @@ export class AcpmuxDirectClient {
     this.stoppingEnded();
     this.events = [];
     this.turnOpener = undefined;
+    this.turnPrompt = undefined;
     this.historyExhausted = false;
     this.olderRetryAt = 0;
     // Nothing is drawn, so nothing drawn came from a kept tail: the next open says for itself.
@@ -3024,7 +3044,14 @@ export class AcpmuxDirectClient {
             );
           }, deadline)
         : undefined;
-      this.pending.set(id, { resolve, reject, timer });
+      this.pending.set(id, {
+        resolve,
+        reject: (error: unknown) => {
+          warnIfNotAllowlisted(method, error);
+          reject(error);
+        },
+        timer,
+      });
       const text = JSON.stringify({ jsonrpc: "2.0", id, method, params });
       this.wire.sent(text, method, id);
       this.socket!.send(text);
@@ -3617,6 +3644,7 @@ export class AcpmuxDirectClient {
     this.firstSeq = undefined;
     this.lastSeq = 0;
     this.turnOpen = false;
+    this.turnPrompt = undefined;
     this.silentTurn = false;
     this.turnTokens = undefined;
     this.turnTokenSplit = undefined;
@@ -4290,6 +4318,8 @@ export class AcpmuxDirectClient {
           this.setDelivery(fallbackPromptId, { state: "read", readAt: event.at }, `user-${event.seq}`);
         }
         this.stoppingOpens(event);
+        // A prompt opens its turn; a steer goes into the turn already open.
+        if (promptId && msg.steer !== true) this.turnPrompt = promptRoot(promptId);
         this.turnOpen = true;
       } else if (event.kind === "turn_silent") {
         this.silentTurn = this.turnOpen;
@@ -4297,6 +4327,8 @@ export class AcpmuxDirectClient {
         this.silentTurn = false;
       } else if (event.kind === "turn_started") {
         this.stoppingOpens(event);
+        // A turn that does not name its prompt is no known one's: never the turn before's.
+        this.turnPrompt = typeof msg.promptId === "string" && msg.promptId ? promptRoot(msg.promptId) : undefined;
         this.turnOpen = true;
         this.silentTurn = false;
         this.turnTokens = event.seq >= this.usageFromSeq ? 0 : undefined;
@@ -4327,6 +4359,7 @@ export class AcpmuxDirectClient {
         }
       } else if (event.kind === "turn_end" || event.kind === "turn_result") {
         this.turnOpen = false;
+        this.turnPrompt = undefined;
         this.silentTurn = false;
         this.turnTokens = undefined;
         this.turnTokenSplit = undefined;
@@ -4747,11 +4780,12 @@ export class AcpmuxDirectClient {
     return !this.selectedSessionId || this.drewKeptTail || this.attachedGeneration === this.selectionGeneration;
   }
 
-  private emit(connection = "connected"): void {
+  private emit(connection = this.socket?.readyState === WebSocket.OPEN ? "connected" : "disconnected"): void {
     acpmuxPerf.timed("client.emit", () => this.emitNow(connection));
   }
 
   private emitNow(connection: string): void {
+    if (this.closed && !this.replayMode) return;
     if (this.snapshotHold) {
       this.snapshotHold.connection = connection;
       // The release draws everything since: no frame-batched snapshot is left waiting.
@@ -4865,6 +4899,7 @@ export class AcpmuxDirectClient {
       isWorking: working,
       // A Stop whose turn has not ended yet (`stoppingAfterSeq`).
       ...(working && this.stoppingAfterSeq !== undefined ? { stopping: true as const } : {}),
+      ...(working && this.turnPrompt ? { turnPrompt: this.turnPrompt } : {}),
       ...(this.replayThrough === undefined && this.turnTokens ? { turnTokens: this.turnTokens } : {}),
       ...(this.replayThrough === undefined && this.turnTokens && this.turnTokenSplit
         ? { turnTokenSplit: this.turnTokenSplit }
@@ -5928,7 +5963,15 @@ export class AcpmuxDirectClient {
   /// returns unknown when no current credential evidence exists. Never use cached harness health.
   async sessionAuth(query: SessionAuthQuery, refresh = false): Promise<unknown> {
     if (!this.features.has("sessionAuth")) return UNKNOWN_AUTH;
-    return this.request("_acpmux/session/auth", { ...query, ...(refresh ? { refresh: true } : {}) });
+    try {
+      return await this.request("_acpmux/session/auth", { ...query, ...(refresh ? { refresh: true } : {}) });
+    } catch (error) {
+      // The pane's host refusing to relay the check (its allowlist, AcpmuxPaneMethods) means no
+      // answer, the same as a daemon without `sessionAuth`: unknown, never a sign-in prompt.
+      // `warnIfNotAllowlisted` already said so in the console.
+      if (error instanceof AcpmuxRpcError && refusedByHost(error)) return UNKNOWN_AUTH;
+      throw error;
+    }
   }
   /// The routes acpmux has (`_acpmux/route/list`) with `sessionId`'s active one: the composer's
   /// Account menu. Each route says whether it `serves` the session's harness family.
@@ -6644,6 +6687,19 @@ export class AcpmuxDirectClient {
     if (!this.canFork || !this.actingSessionId || this.forking) return undefined;
     this.forking = true;
     const generation = this.selectionGeneration;
+    // Fork Conversation (`stay`): the chat says "Forking…" until acpmux answers and the app opens
+    // the fork, so a slow fork never looks like nothing happened.
+    const pendingId = stay ? noticeId("notice-forking") : undefined;
+    if (pendingId) {
+      this.rows.set(pendingId, {
+        id: pendingId,
+        version: 1,
+        at: Date.now(),
+        kind: "notice",
+        text: translate("notice.forking"),
+      });
+      this.emit();
+    }
     try {
       const sessionId = from ?? this.actingSessionId;
       const result = await this.request(
@@ -6670,6 +6726,10 @@ export class AcpmuxDirectClient {
       return undefined;
     } finally {
       this.forking = false;
+      if (pendingId && this.rows.has(pendingId)) {
+        this.rows.delete(pendingId);
+        this.emit();
+      }
     }
   }
   /// Forks the open session through `throughSeq` and stays on it: New side chat's copy, which the
@@ -6833,7 +6893,7 @@ export class AcpmuxDirectClient {
     // still moves `historyFrom`, which makes the transcript ask again.
     for (
       let before = this.firstSeq, pages = 0;
-      more && pages < OLDER_PAGES_PER_ASK && !older.some(opensOlderTurn);
+      more && pages < OLDER_PAGES_PER_ASK && (pages < OLDER_MIN_PAGES_PER_ASK || !older.some(opensOlderTurn));
       pages++
     ) {
       const result = await this.typed("_acpmux/events", {
@@ -6874,6 +6934,8 @@ export class AcpmuxDirectClient {
   private foldOlder(older: EventRecord[]): void {
     const live = {
       turnOpen: this.turnOpen,
+      // The running turn's prompt is the held events', never an older page's.
+      turnPrompt: this.turnPrompt,
       silentTurn: this.silentTurn,
       turnTokens: this.turnTokens,
       turnTokenSplit: this.turnTokenSplit,
@@ -6905,6 +6967,7 @@ export class AcpmuxDirectClient {
     };
     const held = new Map(this.rows);
     this.turnOpen = false;
+    this.turnPrompt = undefined;
     this.silentTurn = false;
     this.turnTokens = undefined;
     this.turnTokenSplit = undefined;
@@ -7036,6 +7099,7 @@ export class AcpmuxDirectClient {
     // it should leave it warm for the next one. The host alone keeps it: this client is going away,
     // and a tail left in this page's map would be drawn by whatever client comes after it.
     this.rememberCurrentTail(false);
+    this.replayMode = false;
     this.closed = true;
     for (const gone of this.resendWaits.keys()) gone();
     const hold = this.snapshotHold;
@@ -7260,6 +7324,7 @@ export function catalogModel(model: any): AcpmuxSnapshot["catalog"][number]["mod
     name: typeof model?.name === "string" ? model.name : undefined,
   };
   if (typeof model?.unavailable === "string") entry.unavailable = model.unavailable;
+  for (const key of ["curated", "declared"] as const) if (typeof model?.[key] === "boolean") entry[key] = model[key];
   for (const key of ["shortName", "family", "defaultEffort"] as const)
     if (typeof model?.[key] === "string" && model[key]) entry[key] = model[key];
   if (Array.isArray(model?.efforts))
@@ -7340,12 +7405,30 @@ function catalogEntry(harness: any): AcpmuxSnapshot["catalog"][number] {
 
 /// Whether the person can see the page: WebKit reports `hidden` for a web view out of its window,
 /// hidden, or in an occluded window.
+/// The prompt a turn runs for: acpmux's continuation `P~resume-n` of a cut turn is `P`'s
+/// (hub/auto_resume.rs `SUFFIX`).
+export function promptRoot(promptId: string): string {
+  return promptId.replace(/~resume-\d+$/, "");
+}
+
 function pageShown(): boolean {
   return typeof document === "undefined" || document.visibilityState !== "hidden";
 }
 
 /// JSON-RPC's method-not-found code: a daemon that predates the method.
 const METHOD_NOT_FOUND = -32601;
+
+/// Methods the pane's host refused because they are not on its allowlist, said once each.
+const notAllowlisted = new Set<string>();
+/// A page request the host refuses as `transport.method_refused` is missing from its allowlist
+/// (AcpmuxPaneMethods.swift and cmux-agent-pane-policy policy.json): a bug, not a user error. Say
+/// so once per method in the console, so a missing entry never fails silently.
+function warnIfNotAllowlisted(method: string, error: unknown): void {
+  if (!(error instanceof AcpmuxRpcError) || !refusedByHost(error) || error.code !== "transport.method_refused") return;
+  if (notAllowlisted.has(method)) return;
+  notAllowlisted.add(method);
+  console.warn(`cmux: the host refused ${method}: it is not on the agent pane's relay allowlist`);
+}
 
 /// Whether the pane's host refused to relay a request (`data.origin: "native"`): acpmux never saw it.
 function refusedByHost(error: AcpmuxRpcError): boolean {
