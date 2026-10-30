@@ -764,15 +764,25 @@ class AwaitGateTests(unittest.TestCase):
 
         def fetch():
             looks.append(now[0])
-            now[0] += 7
+            now[0] += 3
             return self.OTHERS + (held if now[0] > hold - 1 else running)
         verdict, blocks, _ = self.mode.await_gate(fetch, "visual-gate-nightly", queue, hold,
                                                   clock=lambda: now[0],
                                                   sleep=lambda s: now.__setitem__(0, now[0] + s))
         self.assertEqual((verdict, blocks), ("fail", True))
         self.assertEqual(looks[-1], hold)
+        # A read asked for just before the budget that answers well after it holds nothing.
+        now = [0.0]
+
+        def slow():
+            now[0] += 590 if now[0] == 0 else 20
+            return self.OTHERS + (held if now[0] > hold else running)
+        verdict, blocks, why = self.mode.await_gate(slow, "visual-gate-nightly", queue, hold,
+                                                    clock=lambda: now[0], sleep=lambda s: None)
+        self.assertEqual((verdict, blocks), ("unavailable", False))
+        self.assertIn("after the 10 min budget", why)
         # A hold seen only well past the budget (a slow read, a stalled runner) holds nothing.
-        clock = iter([0.0, hold + 60, hold + 60])
+        clock = iter([0.0, hold + 60, hold + 60, hold + 60])
         verdict, blocks, why = self.mode.await_gate(lambda: self.OTHERS + held, "visual-gate-nightly", queue, hold,
                                                     clock=lambda: next(clock), sleep=lambda s: None)
         self.assertEqual((verdict, blocks), ("unavailable", False))

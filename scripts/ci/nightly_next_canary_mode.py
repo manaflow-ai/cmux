@@ -313,6 +313,8 @@ def await_gate(fetch: Callable[[], list[Mapping[str, Any]]], job_name: str, queu
             rest()
             continue
         errors = 0
+        # When the answer arrived, not when it was asked for: a read can take a while.
+        elapsed = clock() - start
         action, verdict, blocks, why = gate_action(jobs, job_name, elapsed, queue_budget_s, run_budget_s)
         if action == "done":
             if blocks and elapsed > run_budget_s + DEADLINE_SLACK_S:
