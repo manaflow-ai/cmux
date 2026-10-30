@@ -287,7 +287,7 @@ test("the shared row draws a received message too: the caller's icon, a chip tha
   const row = host.querySelector(".cv-agentmsg")!;
   expect(row.getAttribute("data-direction")).toBe("received");
   expect(row.querySelector(".cv-agentmsg__icon [data-testid=harness-mark]")).not.toBeNull();
-  expect(row.querySelector(".cv-agentmsg__line > .reply")?.textContent).toBe("Reply");
+  expect(row.querySelector(".cv-agentmsg__line > .cv-agentmsg__sentence > .reply")?.textContent).toBe("Reply");
   // First line only, its Markdown marks dropped.
   expect(row.querySelector(".cv-agentmsg__preview")?.textContent).toBe("Done: the grid fix is on cmux/grid-fix.");
   await act(async () => host.querySelector<HTMLButtonElement>("button.cv-agentmsg__name")!.click());

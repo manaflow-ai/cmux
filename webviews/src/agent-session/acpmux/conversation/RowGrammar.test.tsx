@@ -120,15 +120,21 @@ async function fourRows(): Promise<{ container: HTMLElement; rows: Record<string
 }
 
 /// The row's own columns, in order: its direct children that draw (React's text spaces aside).
-const columns = (row: HTMLElement) =>
-  [...row.children].map((child) =>
-    child.classList.contains("cv-tool__icon")
-      ? "icon"
-      : child.classList.contains("cv-tool__trail")
-        ? "trail"
-        : child.classList.contains("cv-tool__chevron")
-          ? "chevron"
-          : "sentence",
+/// A row whose open button holds the icon and sentence (the subagent line, so Restart and Retry
+/// can sit beside it rather than inside a button) counts that button's children in its place.
+const columns = (row: Element): string[] =>
+  [...row.children].flatMap((child) =>
+    child.firstElementChild?.classList.contains("cv-tool__icon")
+      ? columns(child)
+      : [
+          child.classList.contains("cv-tool__icon")
+            ? "icon"
+            : child.classList.contains("cv-tool__trail")
+              ? "trail"
+              : child.classList.contains("cv-tool__chevron")
+                ? "chevron"
+                : "sentence",
+        ],
   );
 
 test("the four row kinds share one grid: icon, sentence, trailing column, chevron last", async () => {
@@ -155,8 +161,12 @@ test("a send reads Sent to <recipient>, the recipient one chip, its status in th
     expect({ kind, chips: chips.length }).toEqual({ kind, chips: 1 });
     expect(chips[0]!.classList.contains("cv-agentmsg__name")).toBe(true);
     // The status is the trailing column's word, never part of the sentence.
-    const status = row.querySelector(".cv-tool__trail")?.textContent;
-    expect({ kind, status }).toEqual({ kind, status: "Queued" });
+    // The shell send's word is the CLI's own lowercase "queued"; .cv-row-status capitalises its
+    // first letter in CSS, so both rows draw "Queued".
+    const trail = row.querySelector(".cv-tool__trail");
+    const status = trail?.textContent?.toLowerCase();
+    expect({ kind, status }).toEqual({ kind, status: "queued" });
+    if (kind === "acpmux-send") expect(trail!.querySelector(".cv-row-status")).not.toBeNull();
     expect(row.querySelector(".cv-agentmsg__sentence")!.textContent).not.toContain("queued");
   }
   expect(rows["send-message"]!.querySelector(".cv-recipient")!.textContent).toBe("Organize the sidebar");
