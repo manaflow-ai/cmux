@@ -46,3 +46,30 @@ test("events stops at its limit even when more pages remain", async () => {
   expect(events.map((e) => e.seq)).toEqual([1]);
   expect(fake.calls.filter((c) => c.method === "_acpmux/events").length).toBe(1);
 });
+
+// A session list past acpmux's largest reply comes as its first rows and a `nextCursor`; the
+// rest is read from `_acpmux/sessions` with that cursor, so `sessions()` is the whole list.
+test("sessions reads every page of a list longer than one reply", async () => {
+  const { client, fake } = await fakeWithLog(0);
+  for (const name of ["b", "c", "d", "e"]) await client.newSession({ cwd: "/tmp", name });
+  fake.pageSessions = 2;
+  const sessions = await client.sessions();
+  expect(sessions.map((s) => s.name)).toEqual(["child", "b", "c", "d", "e"]);
+  const pages = fake.calls.filter((c) => c.method === "_acpmux/sessions");
+  expect(pages.map((c) => c.params.cursor)).toEqual([undefined, "2", "4"]);
+});
+
+test("sessions refuses a cursor that comes back instead of reading forever", async () => {
+  const { client, fake } = await fakeWithLog(0);
+  for (const name of ["b", "c", "d", "e"]) await client.newSession({ cwd: "/tmp", name });
+  fake.pageSessions = 2;
+  fake.repeatSessionsCursor = true;
+  await expect(client.sessions()).rejects.toThrow("cursor again");
+});
+
+// A watch reply with no list still means "list after watch" (host.ts): following a cursor never
+// invents an empty one.
+test("watch with no cursor answers the reply as acpmux sent it", async () => {
+  const { client } = await fakeWithLog(0);
+  expect(await client.watch()).toEqual({});
+});
