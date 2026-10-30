@@ -192,12 +192,9 @@ impl Hub {
                     });
                 }
                 Inbound::Stderr(raw, host_seq) => {
-                    let line = short_text(&raw, 4000);
+                    let line = short_text(&raw, STDERR_LINE_CAP);
                     tracing::debug!(session = %session.id, "stderr: {line}");
-                    remember_stderr(
-                        &mut session.stderr_tail.lock().unwrap(),
-                        &closed_after_cut(&raw, &line),
-                    );
+                    remember_stderr(&mut session.stderr_tail.lock().unwrap(), &raw);
                     // An agent host's stderr was logged before its ack.
                     if host_seq.is_none() {
                         self.append(&session, "mux", "stderr", json!({"text": line}));
@@ -1525,86 +1522,93 @@ pub(super) fn settle_full_access_report(session: &Session) {
             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1));
 }
 
-/// `cut`, the shortened copy of stderr line `raw`, for the stderr tail: when the cut dropped the
-/// terminator of a string control the line closes, the copy gets one, so the tail does not read the
-/// lines after it as that control's payload. A control `raw` itself leaves open stays open.
-fn closed_after_cut(raw: &str, cut: &str) -> String {
-    if crate::stderr::ends_inside_string_control(cut)
-        && !crate::stderr::ends_inside_string_control(raw)
-    {
-        format!("{cut}\x1b\\")
-    } else {
-        cut.to_owned()
-    }
-}
+/// How long a stderr line the tail keeps is (the event log keeps the same cut).
+const STDERR_LINE_CAP: usize = 4000;
 
-/// How much of an unterminated string control's payload one stderr tail entry keeps.
-const STDERR_PAYLOAD_CAP: usize = 64 * 1024;
-
-// Keep raw lines for diagnosis, but terminal resets alone must not evict an explanation.
-fn remember_stderr(tail: &mut std::collections::VecDeque<String>, line: &str) {
-    // A line inside a string control's payload (DCS, OSC, ...) joins the line that opened it, so the
-    // two are cleaned and evicted together and none of the payload reads as an explanation.
+/// Keeps stderr line `raw` in the session's tail, which explains a failed start or exit. Terminal
+/// resets alone never evict an explanation. A string control's payload (DCS, OSC, SOS, PM, APC) is
+/// never kept: it is never shown, and keeping it let a long or many-line payload grow the entry,
+/// lose its terminator to the line cut and hide every later line. So while the newest entry ends
+/// inside a control, a line without its terminator is dropped, and the one with it closes the
+/// control and its rest is kept as a line of its own. A cut line that opens or closes a control
+/// keeps that effect, so the tail's state always matches the raw stream.
+fn remember_stderr(tail: &mut std::collections::VecDeque<String>, raw: &str) {
     if let Some(last) = tail.back_mut()
         && let Some(control) = crate::stderr::open_string_control(last)
     {
-        last.push('\n');
-        if last.len() < STDERR_PAYLOAD_CAP {
-            last.push_str(line);
-        } else if let Some(end) = crate::stderr::string_control_end(line, control) {
-            // Past the cap the payload is dropped, but its end still closes the control, so the
-            // text after it is kept and the lines after it are their own again.
-            last.push_str("\x1b\\");
-            last.push_str(&line[end..]);
-        }
-        return;
+        let Some(end) = crate::stderr::string_control_end(raw, control) else { return };
+        last.push_str("\x1b\\");
+        return remember_stderr(tail, &raw[end..]);
     }
-    if crate::stderr::clean_stderr_line(line).is_empty()
-        && !crate::stderr::ends_inside_string_control(line)
+    let mut line = short_text(raw, STDERR_LINE_CAP);
+    match (crate::stderr::open_string_control(raw), crate::stderr::open_string_control(&line)) {
+        // The cut dropped the opener of a control the raw line leaves open: reopen it.
+        (Some(crate::stderr::StringControl::Osc), None) => line.push_str("\x1b]"),
+        (Some(crate::stderr::StringControl::Other), None) => line.push_str("\x1bP"),
+        // The cut dropped the terminator of a control the raw line closes: close it.
+        (None, Some(_)) => line.push_str("\x1b\\"),
+        _ => {}
+    }
+    if crate::stderr::clean_stderr_line(&line).is_empty()
+        && !crate::stderr::ends_inside_string_control(&line)
     {
         return;
     }
     if tail.len() >= 6 {
         tail.pop_front();
     }
-    tail.push_back(line.to_owned());
+    tail.push_back(line);
 }
 
 #[cfg(test)]
 mod stderr_tests {
-    #[test]
-    fn a_line_cut_before_its_terminator_still_closes_its_control() {
-        let raw = format!("\x1b]8;;{}\x07link text", "x".repeat(5000));
-        let cut = crate::hub::session::short_text(&raw, 4000);
-        let mut tail = std::collections::VecDeque::new();
-        super::remember_stderr(&mut tail, &super::closed_after_cut(&raw, &cut));
-        super::remember_stderr(&mut tail, "error: request timed out");
-        let cleaned: Vec<String> = crate::stderr::clean_stderr_tail(tail.iter())
+    fn cleaned(tail: &std::collections::VecDeque<String>) -> Vec<String> {
+        crate::stderr::clean_stderr_tail(tail.iter())
             .into_iter()
-            .filter(|line| !line.is_empty())
-            .collect();
-        assert_eq!(cleaned, vec!["error: request timed out"]);
-        // A control the raw line leaves open stays open: its next line is still payload.
-        let open = "\x1bPsecret";
-        assert_eq!(super::closed_after_cut(open, open), open);
+            .filter(|l| !l.is_empty())
+            .collect()
     }
 
     #[test]
-    fn a_payload_past_the_cap_still_ends_at_its_terminator() {
+    fn a_long_payload_neither_grows_the_tail_nor_hides_later_lines() {
         let mut tail = std::collections::VecDeque::new();
-        super::remember_stderr(&mut tail, "\x1b_G");
-        let chunk = "A".repeat(4096);
-        for _ in 0..(super::STDERR_PAYLOAD_CAP / chunk.len() + 4) {
-            super::remember_stderr(&mut tail, &chunk);
+        super::remember_stderr(&mut tail, "\x1bPstart");
+        for _ in 0..1000 {
+            super::remember_stderr(&mut tail, &"A".repeat(4096));
         }
-        super::remember_stderr(&mut tail, "AAAA\x1b\\ after");
+        // The terminator sits past the line cut.
+        super::remember_stderr(&mut tail, &format!("{}\x1b\\", "B".repeat(5000)));
         super::remember_stderr(&mut tail, "error: request timed out");
-        assert!(tail.iter().all(|line| line.len() <= super::STDERR_PAYLOAD_CAP + chunk.len() + 64));
-        let cleaned: Vec<String> = crate::stderr::clean_stderr_tail(tail.iter())
-            .into_iter()
-            .filter(|line| !line.is_empty())
-            .collect();
-        assert_eq!(cleaned, vec!["after", "error: request timed out"]);
+        assert!(
+            tail.iter().all(|line| line.len() < 64),
+            "{:?}",
+            tail.iter().map(String::len).collect::<Vec<_>>()
+        );
+        assert_eq!(cleaned(&tail), vec!["error: request timed out"]);
+    }
+
+    #[test]
+    fn a_cut_line_keeps_the_control_it_opens_or_closes() {
+        // The opener sits past the cut: the lines after it are still payload.
+        let mut tail = std::collections::VecDeque::new();
+        super::remember_stderr(&mut tail, &format!("{} \x1b]8;;https://x", "w".repeat(4100)));
+        super::remember_stderr(&mut tail, "leaked payload");
+        super::remember_stderr(&mut tail, "end\x07error: request timed out");
+        assert!(cleaned(&tail).iter().all(|line| !line.contains("leaked")), "{tail:?}");
+        assert_eq!(cleaned(&tail).last().map(String::as_str), Some("error: request timed out"));
+        // The terminator sits past the cut: the next line is a line of its own.
+        let mut tail = std::collections::VecDeque::new();
+        super::remember_stderr(&mut tail, &format!("\x1b]8;;{}\x07link text", "x".repeat(5000)));
+        super::remember_stderr(&mut tail, "error: request timed out");
+        assert_eq!(cleaned(&tail), vec!["error: request timed out"]);
+    }
+
+    #[test]
+    fn text_after_a_terminator_on_its_line_is_kept() {
+        let mut tail = std::collections::VecDeque::new();
+        super::remember_stderr(&mut tail, "\x1bPsecret");
+        super::remember_stderr(&mut tail, "more\x1b\\ error: request timed out");
+        assert_eq!(cleaned(&tail), vec!["error: request timed out"]);
     }
 
     #[test]
@@ -1615,6 +1619,7 @@ mod stderr_tests {
         super::remember_stderr(&mut tail, "more\x1b\\");
         super::remember_stderr(&mut tail, "error: request timed out");
         assert_eq!(tail.len(), 2, "{tail:?}");
+        assert!(!tail.iter().any(|line| line.contains("leaked")), "the payload was kept: {tail:?}");
         let cleaned: Vec<String> = crate::stderr::clean_stderr_tail(tail.iter())
             .into_iter()
             .filter(|line| !line.is_empty())
