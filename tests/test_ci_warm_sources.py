@@ -107,7 +107,7 @@ def compile_reasons(job: dict) -> list[str]:
     """Why a job counts as a compile, build or test job; empty when it does not."""
     if not isinstance(job, dict) or "uses" in job:  # a reusable-workflow call: its callee's jobs count
         return []
-    text = job_steps_text(job)
+    text = uncommented(job_steps_text(job))  # a comment about xcodebuild is not a compile
     reasons = [name for name, pattern in COMPILE_COMMANDS.items() if pattern.search(text)]
     if MAC_RUNS_ON.search(runs_on_text(job)) or XCODE_STEP.search(text):
         reasons.append("mac-runner")
@@ -385,7 +385,8 @@ class Detector(unittest.TestCase):
                         "echo build-something", "gh run list", "bash tests/test_build_names.sh",
                         "bash scripts/cmux-next/tests/release-compile-derived-data.test.sh",
                         "case $f in scripts/ci/compile-app-host-test-product.sh|scripts/x.sh) ;; esac",
-                        "python3 scripts/ci/build_input_fingerprint.py"):
+                        "python3 scripts/ci/build_input_fingerprint.py",
+                        "  # One xcodebuild invocation runs one scheme.\npython3 plan.py"):
             with self.subTest(command=command):
                 self.assertEqual(compile_reasons(job(command)), [])
 
