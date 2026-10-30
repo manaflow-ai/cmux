@@ -62,7 +62,7 @@ struct HomeDiff: Equatable {
         if !page.isEmpty { d.actions.append(.prependPage(page.map(msg))) }
 
         let added = new.dropFirst(head).filter { oldIndex[$0.key] == nil && aliases[$0.key] == nil }
-        if added.count > bulk { d.rebuild = true; return d }
+        if added.count > bulk || added.contains(where: \.isReadOnly) { d.rebuild = true; return d }
         // The order the projection will have after these actions: the page, the rows it shows, my
         // sends flying in it (appended at the press), then each `.receive` appended in turn, with the
         // posted replies of running streams all where the first of them is (`handOffAt`). Any other
