@@ -63,10 +63,19 @@ ACTION_EXPORTS = ("plans/cmux-next/action-surfaces.json", "plans/cmux-next/actio
 OID = re.compile(r"^[0-9a-f]{40}$")
 MAX_JSON_BYTES = 8 * 1024**2
 MAX_PACK_BYTES = 64 * 1024**2
-# Commits between the run's own and the tip whose packs are looked up (newest first), besides its own.
+# cmux-next.yml's base tier dispatch (cmux-next-base-tier-kick.yml): a feat-cmux-next push leaves its
+# generated files and daemon tests to one such run on the tip at most every 15 minutes, named after the
+# commit it tests (a same-tree rerun keeps the name; its head is the newer tip).
+BASE_TIER_TITLE = re.compile(r"^cmux-next base tier · ([0-9a-f]{40})$")
+BASE_TIER_KICK = ".github/workflows/cmux-next-base-tier-kick.yml"
+# Commits between the run's own and the tip whose packs the first look takes (newest first), besides its own.
 NEWER_CANDIDATES = 8
 # How far back the tip's first-parent history is read to find the run's commit.
-HISTORY_DEPTH = 60
+HISTORY_DEPTH = 80
+# The newest cmux-next.yml runs on the branch read a poll (about an hour of pushes and dispatches),
+# and the unfinished ones among them whose jobs are read.
+RUNS_LISTED = 50
+RUNS_WATCHED = 4
 
 
 class Miss(Exception):
@@ -176,17 +185,29 @@ def trusted_packs(artifacts: list[dict], tree: str, repository_id: str) -> list[
     return sorted(packs, key=lambda item: item.get("created_at") or "", reverse=True)
 
 
-def check_run(run: dict, repo: str) -> None:
-    """A push run of cmux-next.yml on feat-cmux-next in this repository: merged code only."""
-    if run.get("event") != "push":
-        raise Miss(f"run {run.get('id')} is a {run.get('event')} run, not a push")
+def check_run(run: dict, repo: str) -> str:
+    """The commit a pack of this run was made at, when the run is this repository's own cmux-next.yml
+    on feat-cmux-next: a push (its head), or a base tier dispatch (the commit its name gives). Merged
+    code only: a pull request or any other dispatch is a Miss."""
     if run.get("path") != WORKFLOW_PATH or run.get("head_branch") != BRANCH:
         raise Miss(f"run {run.get('id')} is {run.get('path')} on {run.get('head_branch')}, not {WORKFLOW_PATH} on {BRANCH}")
     if (run.get("repository") or {}).get("full_name") != repo or (run.get("head_repository") or {}).get("full_name") != repo:
         raise Miss(f"run {run.get('id')} is not this repository's own")
+    if run.get("event") == "push":
+        commit = str(run.get("head_sha") or "")
+    elif run.get("event") == "workflow_dispatch":
+        title = BASE_TIER_TITLE.match(str(run.get("display_title") or ""))
+        if not title:
+            raise Miss(f"run {run.get('id')} is a dispatch but not a base tier run")
+        commit = title.group(1)
+    else:
+        raise Miss(f"run {run.get('id')} is a {run.get('event')} run, not a push or a base tier dispatch")
+    if not OID.match(commit):
+        raise Miss(f"run {run.get('id')} names no commit")
+    return commit
 
 
-def unpack_verified(bundle: Path, tree: str, run: dict, names: list[str], into: Path) -> dict:
+def unpack_verified(bundle: Path, tree: str, run: dict, commit: str, names: list[str], into: Path) -> dict:
     """Extract a downloaded pack into `into`, checking its manifest and every file's SHA-256."""
     try:
         with zipfile.ZipFile(bundle) as archive:
@@ -197,8 +218,8 @@ def unpack_verified(bundle: Path, tree: str, run: dict, names: list[str], into: 
                 raise Miss("the pack's manifest names another tree")
             if manifest.get("run_id") != run.get("id"):
                 raise Miss("the pack's manifest names another run than the one that uploaded it")
-            if not OID.match(str(manifest.get("source_sha", ""))) or manifest.get("source_sha") != run.get("head_sha"):
-                raise Miss("the pack's commit is not the head of the run that uploaded it")
+            if not OID.match(str(manifest.get("source_sha", ""))) or manifest.get("source_sha") != commit:
+                raise Miss("the pack's commit is not the commit of the run that uploaded it")
             files = manifest.get("files")
             if not isinstance(files, dict) or sorted(files) != sorted(names):
                 raise Miss("the pack does not hold exactly the exports this checkout lists")
@@ -229,60 +250,62 @@ def take_pack(api: Api, tree: str, env: dict[str, str], names: list[str], into: 
             run_id = (item.get("workflow_run") or {}).get("id")
             try:
                 run = api.json(f"actions/runs/{int(run_id)}")
-                check_run(run, env["GITHUB_REPOSITORY"])
+                commit = check_run(run, env["GITHUB_REPOSITORY"])
                 bundle = Path(scratch) / f"pack-{item.get('id')}.zip"
                 api.download(item["archive_download_url"], bundle)
-                return unpack_verified(bundle, tree, run, names, into)
+                return unpack_verified(bundle, tree, run, commit, names, into)
             except (Miss, KeyError, TypeError, ValueError) as why:
                 reasons.append(f"tree {tree[:12]} run {run_id}: {why}")
     return None
 
 
-def producer_runs(api: Api, sha: str) -> list[dict]:
-    """The unfinished cmux-next push runs of `sha` (a run's jobs list only once it started)."""
-    query = urllib.parse.urlencode({"event": "push", "branch": BRANCH, "head_sha": sha, "per_page": 10})
-    runs = api.json(f"actions/workflows/{WORKFLOW_FILE}/runs?{query}").get("workflow_runs", [])
-    return [run for run in runs if run.get("head_sha") == sha and run.get("status") != "completed"]
-
-
 def job_pending(jobs: list[dict]) -> str:
-    """'' when no job of a run can still upload a pack, else what is still running. A pack is
-    uploaded mid-job (daemon-test runs its tests after it), so a job whose upload step finished
-    counts as done."""
-    def state(name: str) -> list[dict]:
-        return [job for job in jobs if job.get("name") == name]
-
-    def uploading(job: dict) -> bool:
+    """'' when no job of an unfinished run can still upload a pack, else what is still running. A pack
+    is uploaded mid-job (daemon-test runs its tests after it), so a job whose upload step finished
+    counts as done. A job not listed yet may still run (jobs list once their needs finish)."""
+    def state(name: str) -> str:
+        found = [job for job in jobs if job.get("name") == name]
+        if not found:
+            return "absent"
+        job = found[0]
         if job.get("status") == "completed":
-            return False
+            return "skipped" if job.get("conclusion") in ("skipped", None) else "done"
         steps = [step for step in job.get("steps") or [] if step.get("name") == UPLOAD_STEP]
-        return not any(step.get("status") == "completed" for step in steps)
+        return "done" if any(step.get("status") == "completed" for step in steps) else job.get("status") or "queued"
 
     generated, daemon = state(GENERATED_JOB), state(DAEMON_JOB)
-    # Before path routing a run may not list its jobs yet: one can still make a pack.
-    if not generated and not daemon:
-        return "its jobs are not listed yet"
-    if any(uploading(job) for job in generated):
-        return f"its {GENERATED_JOB} job is {generated[0].get('status')}"
-    # A generated-files job that ran was the pack's producer: daemon-test does not pack then.
-    if any(job.get("conclusion") not in (None, "skipped") for job in generated):
+    # Only one of them packs a run (path_route's generated_host): one that finished packing ends the wait.
+    if "done" in (generated, daemon):
         return ""
-    if any(uploading(job) for job in daemon):
-        return f"its {DAEMON_JOB} job (which checks the generated files on a folded push) is {daemon[0].get('status')}"
+    for name, value in ((GENERATED_JOB, generated), (DAEMON_JOB, daemon)):
+        if value == "absent":
+            return f"its {name} job is not listed yet"
+        if value != "skipped":
+            return f"its {name} job is {value}"
     return ""
 
 
-def producer_pending(api: Api, sha: str, known: dict[str, int]) -> str:
-    """'' when no cmux-next push run of `sha` can still make a pack, else what is still running.
-    `known` keeps the run id between calls, so a poll costs one jobs read."""
-    if "run" not in known:
-        runs = producer_runs(api, sha)
-        if not runs:
-            return ""
-        known["run"] = int(runs[0]["id"])
-    jobs = api.json(f"actions/runs/{known['run']}/jobs?filter=latest&per_page=100").get("jobs", [])
-    pending = job_pending(jobs)
-    return f"run {known['run']}: {pending}" if pending else ""
+def window_of(history: list[tuple[str, str]], sha: str, tree: str) -> dict[str, str]:
+    """commit -> tree of `sha` and every newer commit on the tip's first-parent line (newest first)."""
+    shas = [commit for commit, _ in history]
+    if sha not in shas:
+        return {sha: tree}
+    return dict(history[:shas.index(sha) + 1])
+
+
+def producers(api: Api, window: dict[str, str], repo: str) -> list[tuple[dict, str]]:
+    """(run, commit) of the newest cmux-next.yml runs on the branch whose packs would be made at a
+    commit in `window`: pushes, and base tier dispatches (cmux-next-base-tier-kick.yml)."""
+    query = urllib.parse.urlencode({"branch": BRANCH, "per_page": RUNS_LISTED})
+    found = []
+    for run in api.json(f"actions/workflows/{WORKFLOW_FILE}/runs?{query}").get("workflow_runs", []):
+        try:
+            commit = check_run(run, repo)
+        except Miss:
+            continue
+        if commit in window:
+            found.append((run, commit))
+    return found
 
 
 def candidates(history: list[tuple[str, str]], sha: str, tree: str) -> list[tuple[str, str]]:
@@ -307,30 +330,63 @@ def sweep(api: Api, history: list[tuple[str, str]], sha: str, tree: str, env: di
 
 
 def lookup(api: Api, read_history, sha: str, tree: str, env: dict[str, str], names: list[str], into: Path,
-           poll: float, first_run_grace: float) -> dict[str, str]:
-    """Take the newest pack at or after `sha`. While this push's own run can still make one, wait for
-    it (one jobs read a poll), take it once its upload step is done, and give up at the deadline."""
+           poll: float, first_run_grace: float, expect_base_tier: bool = False) -> dict[str, str]:
+    """Take the newest pack at or after `sha`. While a cmux-next run on `sha` or a newer commit can
+    still make one (this push's own, a newer push, or the base tier run that covers it), wait, take the
+    pack of each producer as its upload finishes, and give up at the deadline. With `expect_base_tier`
+    (pushes leave the generated files to the base tier) it also waits for that run to be dispatched."""
     if not OID.match(sha) or not OID.match(tree):
         raise Miss(f"no commit ({sha!r}) or tree ({tree!r})")
     if not env.get("GITHUB_REPOSITORY_ID", "").strip() or not env.get("GITHUB_REPOSITORY"):
         raise Miss("GITHUB_REPOSITORY_ID is not set, so no pack can be trusted")
+    repo = env["GITHUB_REPOSITORY"]
     budget = api.left()
     reasons: list[str] = []
-    known: dict[str, int] = {}
     hit = sweep(api, read_history(), sha, tree, env, names, into, reasons)
+    # A pack is looked up at most twice once its producer is done (an upload can list a moment late).
+    tried: dict[str, int] = {}
     while not hit:
-        pending = producer_pending(api, sha, known)
+        window = window_of(read_history(), sha, tree)
+        runs = producers(api, window, repo)
+        pending, ready = [], []
+        watched = 0
+        for run, commit in runs:
+            if run.get("status") == "completed":
+                ready.append(commit)
+                continue
+            if watched >= RUNS_WATCHED:
+                pending.append(f"run {run.get('id')} at {commit[:12]} is {run.get('status')}")
+                continue
+            watched += 1
+            jobs = api.json(f"actions/runs/{int(run['id'])}/jobs?filter=latest&per_page=100").get("jobs", [])
+            why = job_pending(jobs)
+            if why:
+                pending.append(f"run {run['id']} at {commit[:12]}: {why}")
+            else:
+                ready.append(commit)
+        # Each producer's pack is looked up once, as soon as nothing more can come of it (newest first).
+        for commit in [c for c in window if c in ready and tried.get(window[c], 0) < 2]:
+            tried[window[commit]] = tried.get(window[commit], 0) + 1
+            manifest = take_pack(api, window[commit], env, names, into, reasons)
+            if manifest:
+                hit = {"hit": "true", "made_at": commit, "source_run_id": str(manifest["run_id"]),
+                       "source_sha": manifest["source_sha"]}
+                break
+        if hit:
+            break
+        if not pending and expect_base_tier and not any(BASE_TIER_TITLE.match(str(run.get("display_title") or ""))
+                                                        for run, _ in runs):
+            pending = ["no base tier run on this commit or a newer one yet (the kick starts one within 15 minutes of a landing)"]
         # cmux-next.yml's push run of this commit starts within seconds of this workflow's; until it
         # lists, give it a grace before reading "no run" as "no pack coming".
-        if not pending and "run" not in known and budget - api.left() < first_run_grace:
-            pending = "no cmux-next push run of this commit is listed yet"
+        if not pending and not runs and budget - api.left() < first_run_grace:
+            pending = ["no cmux-next run of this commit is listed yet"]
         if pending:
             if api.left() <= poll:
-                raise Miss("; ".join([f"no pack within the wait ({pending})", *reasons[-4:]]))
+                raise Miss("; ".join([f"no pack within the wait ({pending[0]})", *reasons[-4:]]))
             api.sleep(poll)
             continue
-        # Nothing can upload any more (the producer uploaded, finished without a pack, or never ran):
-        # one last look, at the tip as it is now.
+        # Nothing can upload any more: one last look, at the tip as it is now.
         reasons = []
         hit = sweep(api, read_history(), sha, tree, env, names, into, reasons)
         if not hit:
@@ -378,9 +434,11 @@ def main(argv: list[str] | None = None) -> int:
     m.add_argument("--sha", required=True)
     f = sub.add_parser("lookup", help="print hit=, reason=, exports= and made_at= for $GITHUB_OUTPUT")
     f.add_argument("--out", required=True, help="the action-exports directory: changed exports at their paths")
-    f.add_argument("--wait", type=float, default=1800, help="seconds to wait for this push's pack")
-    f.add_argument("--poll", type=float, default=60)
+    f.add_argument("--wait", type=float, default=2700, help="seconds to wait for a pack at or after this commit")
+    f.add_argument("--poll", type=float, default=90)
     f.add_argument("--first-run-grace", type=float, default=180)
+    f.add_argument("--base-tier", choices=("auto", "off"), default="auto",
+                   help="auto: wait for the base tier run when the checkout has its kick (off: vars.CMUX_NEXT_BASE_TIER_COALESCE is 0)")
     f.add_argument("--skip", default="", help="a reason not to look (switched off)")
     f.add_argument("--summary", default=os.environ.get("GITHUB_STEP_SUMMARY"))
     args = parser.parse_args(argv)
@@ -406,8 +464,9 @@ def main(argv: list[str] | None = None) -> int:
         names = exports(root)
         with tempfile.TemporaryDirectory(prefix="cmux-base-exports-staged-") as scratch:
             staged = Path(scratch) / "staged"
+            expect_base_tier = args.base_tier == "auto" and (root / BASE_TIER_KICK).is_file()
             outputs = lookup(api, lambda: remote_history(remote, BRANCH, Path(scratch)), sha, tree, env, names,
-                             staged, args.poll, args.first_run_grace)
+                             staged, args.poll, args.first_run_grace, expect_base_tier)
             changed = changed_exports(root, staged, names, Path(args.out))
         outputs["exports"] = "true" if changed else "false"
         for rel in changed:

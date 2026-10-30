@@ -3871,17 +3871,23 @@ jobs:
         continue-on-error: true
         run: scripts/cmux-next/check-settings-exports.sh
 
-      # The base autofix's exports, on a push whose generated files this job checks (the
-      # generated-files job's step of the same name, which this push skips).
+      # The base autofix's exports, on a push or base tier run whose generated files this job checks
+      # (the generated-files job's step of the same name, which that run skips).
       - name: Pack the exports for the base autofix
         id: base-exports
-        if: ${{ env.CMUX_NEXT_FOLD_GENERATED == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && format('{0}', vars.CMUX_NEXT_BASE_EXPORTS_PACK) != '0' }}
+        if: ${{ env.CMUX_NEXT_FOLD_GENERATED == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' && format('{0}', vars.CMUX_NEXT_BASE_EXPORTS_PACK) != '0' }}
         continue-on-error: true
         timeout-minutes: 10
         env:
           CMUX_STRINGS_BEST_EFFORT: "1"
         run: |
           set -euo pipefail
+          # A dispatch packs only as the base tier run (its base_tier input, read from the event so this
+          # step needs no input the workflow may not declare).
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]] && [[ "$(python3 -I -c 'import json, os; print(str((json.load(open(os.environ["GITHUB_EVENT_PATH"])).get("inputs") or {}).get("base_tier", "")).lower())')" != true ]]; then
+            echo "not a base tier dispatch: no pack"
+            exit 0
+          fi
           scripts/cmux-next/base-autofix-exports-pack.sh "$RUNNER_TEMP/base-exports" | tee -a "$GITHUB_OUTPUT"
 
       - name: Upload the exports for the base autofix
@@ -4321,19 +4327,26 @@ jobs:
       # The base autofix's action and settings exports, made on this build instead of a second Mac
       # build of the same push (cmuxterm-hq#5424): every export regenerated, packed under this commit's
       # tree (scripts/cmux-next/base_autofix_pushed_exports.py), and uploaded for
-      # cmux-next-base-autofix.yml's pushed-exports job. Pushes of feat-cmux-next only, so a pack is
-      # only ever this repository's merged code. It puts the checkout's exports back as they were, so
+      # cmux-next-base-autofix.yml's pushed-exports job. Pushes of feat-cmux-next and its base tier
+      # dispatches (cmux-next-base-tier-kick.yml, which these checks move to) only, so a pack is only
+      # ever this repository's merged code. It puts the checkout's exports back as they were, so
       # the steps below see what the checks left; a failure makes no pack (the autofix's Mac job then
       # regenerates them) and never fails this job. vars.CMUX_NEXT_BASE_EXPORTS_PACK=0 turns it off.
       - name: Pack the exports for the base autofix
         id: base-exports
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.reuse.outputs.hit != 'true' && format('{0}', vars.CMUX_NEXT_BASE_EXPORTS_PACK) != '0' }}
+        if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' && steps.reuse.outputs.hit != 'true' && format('{0}', vars.CMUX_NEXT_BASE_EXPORTS_PACK) != '0' }}
         continue-on-error: true
         timeout-minutes: 10
         env:
           CMUX_STRINGS_BEST_EFFORT: "1"
         run: |
           set -euo pipefail
+          # A dispatch packs only as the base tier run (its base_tier input, read from the event so this
+          # step needs no input the workflow may not declare).
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]] && [[ "$(python3 -I -c 'import json, os; print(str((json.load(open(os.environ["GITHUB_EVENT_PATH"])).get("inputs") or {}).get("base_tier", "")).lower())')" != true ]]; then
+            echo "not a base tier dispatch: no pack"
+            exit 0
+          fi
           scripts/cmux-next/base-autofix-exports-pack.sh "$RUNNER_TEMP/base-exports" | tee -a "$GITHUB_OUTPUT"
 
       - name: Upload the exports for the base autofix

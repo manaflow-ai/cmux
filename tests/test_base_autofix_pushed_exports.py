@@ -67,17 +67,25 @@ def artifact(tree: str, run_id: int, ident: int, *, repo_id: str = REPO_ID, bran
 
 def push_run(run_id: int, head: str, **overrides) -> dict:
     run = {"id": run_id, "event": "push", "path": px.WORKFLOW_PATH, "head_branch": px.BRANCH, "head_sha": head,
-           "status": "completed", "repository": {"full_name": REPO}, "head_repository": {"full_name": REPO}}
+           "display_title": f"cmux-next · {head}", "status": "completed", "repository": {"full_name": REPO},
+           "head_repository": {"full_name": REPO}}
     run.update(overrides)
     return run
+
+
+def base_tier_run(run_id: int, commit: str, head: str | None = None, **overrides) -> dict:
+    """cmux-next-base-tier-kick.yml's dispatch; a same-tree rerun's head is the newer tip."""
+    return push_run(run_id, head or commit, event="workflow_dispatch", display_title=f"cmux-next base tier · {commit}",
+                    **overrides)
 
 
 class FakeApi(px.Api):
     """Artifacts by tree, runs by id, cmux-next push runs (with their jobs) by head commit, and a clock."""
 
-    def __init__(self, *, packs=None, blobs=None, runs=None, pushes=None, jobs=None, wait=600.0):
+    def __init__(self, *, packs=None, blobs=None, runs=None, listed=None, jobs=None, wait=600.0):
         self.packs, self.blobs, self.runs = packs or {}, blobs or {}, runs or {}
-        self.pushes, self.jobs = pushes or {}, jobs or {}
+        # The branch's cmux-next.yml runs, newest first (actions/workflows/cmux-next.yml/runs).
+        self.listed, self.jobs = listed or [], jobs or {}
         self.now, self.deadline = 0.0, wait
         self.calls: list[str] = []
         self.on_sleep = None
@@ -96,8 +104,8 @@ class FakeApi(px.Api):
             name = path.split("name=")[1].split("&")[0]
             return {"artifacts": [a for tree, items in self.packs.items() for a in items if px.pack_name(tree) == name]}
         if path.startswith("actions/workflows/"):
-            head = path.split("head_sha=")[1].split("&")[0]
-            return {"workflow_runs": self.pushes.get(head, [])}
+            assert f"branch={px.BRANCH}" in path
+            return {"workflow_runs": self.listed}
         run_id = int(path.split("/")[2].split("?")[0])
         if "/jobs" in path:
             return {"jobs": self.jobs.get(run_id, [])}
@@ -161,7 +169,7 @@ class TakesOnlyTrustedIntactPacks(unittest.TestCase):
         self.assert_miss(self.api_with(pack_zip(self.tree, 8, self.sha)), "another run")
 
     def test_a_pack_whose_commit_is_not_its_runs_head_is_refused(self):
-        self.assert_miss(self.api_with(pack_zip(self.tree, 7, oid(2))), "not the head of the run")
+        self.assert_miss(self.api_with(pack_zip(self.tree, 7, oid(2))), "not the commit of the run")
 
     def test_only_push_runs_of_cmux_next_on_the_branch_in_this_repository(self):
         blob = pack_zip(self.tree, 7, self.sha)
@@ -234,13 +242,10 @@ class WaitsABoundedTimeThenFallsBack(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def running(self, jobs):
-        return {self.sha: [push_run(7, self.sha, status="in_progress")]}, {7: jobs}
-
     def test_it_waits_for_this_pushs_generated_files_job_and_takes_its_pack(self):
-        pushes, jobs = self.running([{"name": px.GENERATED_JOB, "status": "in_progress"}])
-        api = FakeApi(pushes=pushes, jobs=jobs, runs={7: push_run(7, self.sha)}, blobs={70: pack_zip(self.tree, 7, self.sha)},
-                      wait=1800)
+        run = push_run(7, self.sha, status="in_progress")
+        api = FakeApi(listed=[run], jobs={7: [{"name": px.GENERATED_JOB, "status": "in_progress"}]},
+                      runs={7: push_run(7, self.sha)}, blobs={70: pack_zip(self.tree, 7, self.sha)}, wait=2700)
 
         def finish(fake):
             if fake.now >= 600:  # the job finishes and uploads ten minutes in
@@ -249,17 +254,16 @@ class WaitsABoundedTimeThenFallsBack(unittest.TestCase):
         api.on_sleep = finish
         hit = lookup(api, self.history, self.sha, self.tree, self.into)
         self.assertEqual(hit["hit"], "true")
-        self.assertLessEqual(api.now, 660)
-        # Each poll reads one jobs list; artifacts are read only before and after the wait.
+        self.assertLessEqual(api.now, 600 + 90)
+        # A poll reads the run list and one jobs list; artifacts only once the producer is done.
         self.assertEqual(len([c for c in api.calls if c.startswith("actions/artifacts?")]), 2)
-        self.assertEqual(len([c for c in api.calls if c.startswith("actions/workflows/")]), 1)
 
     def test_a_folded_daemon_test_pack_is_taken_once_its_upload_step_is_done(self):
         upload = {"name": px.UPLOAD_STEP, "status": "queued"}
-        pushes, jobs = self.running([{"name": px.GENERATED_JOB, "status": "completed", "conclusion": "skipped"},
-                                     {"name": px.DAEMON_JOB, "status": "in_progress", "steps": [upload]}])
-        api = FakeApi(pushes=pushes, jobs=jobs, runs={7: push_run(7, self.sha)}, blobs={70: pack_zip(self.tree, 7, self.sha)},
-                      wait=1800)
+        api = FakeApi(listed=[push_run(7, self.sha, status="in_progress")],
+                      jobs={7: [{"name": px.GENERATED_JOB, "status": "completed", "conclusion": "skipped"},
+                                {"name": px.DAEMON_JOB, "status": "in_progress", "steps": [upload]}]},
+                      runs={7: push_run(7, self.sha)}, blobs={70: pack_zip(self.tree, 7, self.sha)}, wait=2700)
 
         def upload_done(fake):
             if fake.now >= 300:  # the daemon tests go on for another 20 minutes after this
@@ -268,42 +272,101 @@ class WaitsABoundedTimeThenFallsBack(unittest.TestCase):
         api.on_sleep = upload_done
         hit = lookup(api, self.history, self.sha, self.tree, self.into)
         self.assertEqual(hit["hit"], "true")
-        self.assertLessEqual(api.now, 360)
+        self.assertLessEqual(api.now, 300 + 90)
 
-    def test_daemon_test_is_not_waited_for_when_generated_files_ran(self):
-        jobs = [{"name": px.GENERATED_JOB, "status": "completed", "conclusion": "failure"},
-                {"name": px.DAEMON_JOB, "status": "in_progress", "steps": [{"name": px.UPLOAD_STEP, "status": "queued"}]}]
-        self.assertEqual(px.job_pending(jobs), "")
-        self.assertIn(px.DAEMON_JOB, px.job_pending([{**jobs[0], "conclusion": "skipped"}, jobs[1]]))
-        self.assertIn(px.GENERATED_JOB, px.job_pending([{"name": px.GENERATED_JOB, "status": "queued"}, jobs[1]]))
+    def test_the_base_tier_runs_pack_of_a_newer_commit_is_taken(self):
+        # Pushes leave the generated files to the base tier: this push's run packs nothing, and the
+        # kick dispatches `cmux-next base tier · <tip>` up to 15 minutes later, on a newer commit.
+        history = [(oid(5), oid(105)), (oid(3), oid(103)), (self.sha, self.tree)]
+        own = push_run(7, self.sha, status="in_progress")
+        skipped = [{"name": px.GENERATED_JOB, "status": "completed", "conclusion": "skipped"},
+                   {"name": px.DAEMON_JOB, "status": "completed", "conclusion": "skipped"}]
+        api = FakeApi(listed=[own], jobs={7: skipped}, wait=2700,
+                      runs={9: base_tier_run(9, oid(5))}, blobs={90: pack_zip(oid(105), 9, oid(5))})
+
+        def kick(fake):
+            if fake.now >= 900 and len(fake.listed) == 1:
+                fake.listed.insert(0, base_tier_run(9, oid(5), status="in_progress"))
+                fake.jobs[9] = [{"name": px.GENERATED_JOB, "status": "in_progress"}]
+            if fake.now >= 1700:
+                fake.jobs[9] = [{"name": px.GENERATED_JOB, "status": "completed", "conclusion": "failure"}]
+                fake.packs[oid(105)] = [artifact(oid(105), 9, 90)]
+        api.on_sleep = kick
+        hit = px.lookup(api, lambda: history, self.sha, self.tree, ENV, NAMES, self.into, 90, 0, expect_base_tier=True)
+        self.assertEqual(hit["made_at"], oid(5))
+        self.assertEqual(hit["source_run_id"], "9")
+        self.assertLessEqual(api.now, 1700 + 90)
+
+    def test_a_same_tree_base_tier_run_is_named_after_its_commit_not_its_head(self):
+        self.assertEqual(px.check_run(base_tier_run(9, oid(3), head=oid(5)), REPO), oid(3))
+        self.assertEqual(px.check_run(push_run(7, oid(3)), REPO), oid(3))
+        for run in (push_run(9, oid(3), event="workflow_dispatch", display_title=f"cmux NEXT DEV daily · {oid(3)}"),
+                    base_tier_run(9, oid(3), head_branch="main"),
+                    base_tier_run(9, oid(3), head_repository={"full_name": "fork/cmux"})):
+            with self.subTest(run=run["display_title"]), self.assertRaises(px.Miss):
+                px.check_run(run, REPO)
+
+    def test_a_base_tier_pack_whose_manifest_names_the_newer_head_is_refused(self):
+        tree = oid(103)
+        api = FakeApi(packs={tree: [artifact(tree, 9, 90)]}, blobs={90: pack_zip(tree, 9, oid(5))},
+                      runs={9: base_tier_run(9, oid(3), head=oid(5))})
+        with self.assertRaises(px.Miss) as caught:
+            lookup(api, [(oid(3), tree)], oid(3), tree, self.into)
+        self.assertIn("not the commit of the run", str(caught.exception))
+
+    def test_with_the_base_tier_on_it_waits_for_the_kick_then_gives_up_at_the_deadline(self):
+        skipped = [{"name": px.GENERATED_JOB, "status": "completed", "conclusion": "skipped"},
+                   {"name": px.DAEMON_JOB, "status": "completed", "conclusion": "skipped"}]
+        api = FakeApi(listed=[push_run(7, self.sha)], jobs={7: skipped}, wait=2700)
+        with self.assertRaises(px.Miss) as caught:
+            px.lookup(api, lambda: self.history, self.sha, self.tree, ENV, NAMES, self.into, 90, 0, expect_base_tier=True)
+        self.assertIn("no base tier run", str(caught.exception))
+        self.assertLessEqual(api.now, 2700)
+        self.assertGreater(api.now, 2500)
+
+    def test_daemon_test_is_not_waited_for_when_generated_files_packed(self):
+        upload = {"name": px.UPLOAD_STEP, "status": "queued"}
+        done = {"name": px.GENERATED_JOB, "status": "completed", "conclusion": "failure"}
+        daemon = {"name": px.DAEMON_JOB, "status": "in_progress", "steps": [upload]}
+        self.assertEqual(px.job_pending([done, daemon]), "")
+        self.assertIn(px.DAEMON_JOB, px.job_pending([{**done, "conclusion": "skipped"}, daemon]))
+        self.assertIn(px.DAEMON_JOB, px.job_pending([{**done, "conclusion": "skipped"}]))  # not listed yet
+        self.assertIn(px.GENERATED_JOB, px.job_pending([{"name": px.GENERATED_JOB, "status": "queued"}, daemon]))
+        self.assertIn("not listed yet", px.job_pending([]))
 
     def test_it_gives_up_at_the_deadline_while_the_job_still_runs(self):
-        pushes, jobs = self.running([{"name": px.GENERATED_JOB, "status": "queued"}])
-        api = FakeApi(pushes=pushes, jobs=jobs, wait=1800)
+        api = FakeApi(listed=[push_run(7, self.sha, status="in_progress")],
+                      jobs={7: [{"name": px.GENERATED_JOB, "status": "queued"}]}, wait=2700)
         with self.assertRaises(px.Miss) as caught:
             lookup(api, self.history, self.sha, self.tree, self.into)
         self.assertIn("no pack within the wait", str(caught.exception))
-        self.assertLessEqual(api.now, 1800)
+        self.assertLessEqual(api.now, 2700)
 
     def test_it_does_not_wait_when_no_pack_is_coming(self):
-        # Both producers skipped (path routing ran neither): miss at once.
-        pushes, jobs = self.running([{"name": px.GENERATED_JOB, "status": "completed", "conclusion": "skipped"},
-                                     {"name": px.DAEMON_JOB, "status": "completed", "conclusion": "skipped"}])
-        api = FakeApi(pushes=pushes, jobs=jobs)
+        # Both producers skipped and the base tier off: miss at once.
+        api = FakeApi(listed=[push_run(7, self.sha, status="in_progress")],
+                      jobs={7: [{"name": px.GENERATED_JOB, "status": "completed", "conclusion": "skipped"},
+                                {"name": px.DAEMON_JOB, "status": "completed", "conclusion": "skipped"}]})
         with self.assertRaises(px.Miss) as caught:
             lookup(api, self.history, self.sha, self.tree, self.into)
         self.assertIn("none is coming", str(caught.exception))
         self.assertEqual(api.now, 0)
 
     def test_a_run_not_listed_yet_gets_a_grace_then_misses(self):
-        api = FakeApi(wait=1800)
+        api = FakeApi(wait=2700)
         with self.assertRaises(px.Miss):
             lookup(api, self.history, self.sha, self.tree, self.into, grace=180)
         self.assertGreaterEqual(api.now, 180)
         self.assertLess(api.now, 400)
 
-    def test_jobs_not_listed_yet_count_as_pending(self):
-        self.assertIn("not listed yet", px.job_pending([]))
+    def test_runs_of_older_commits_pull_requests_and_other_dispatches_are_not_watched(self):
+        history = [(oid(3), oid(103)), (self.sha, self.tree), (oid(0), oid(100))]
+        listed = [push_run(8, oid(0), status="in_progress"),
+                  push_run(6, oid(3), status="in_progress", event="pull_request"),
+                  push_run(5, oid(3), status="in_progress", event="workflow_dispatch", display_title="cmux-next · x")]
+        api = FakeApi(listed=listed)
+        self.assertEqual(px.producers(api, px.window_of(history, self.sha, self.tree), REPO), [])
+        self.assertEqual(list(px.window_of(history, self.sha, self.tree)), [oid(3), self.sha])
 
 
 class ChangedExports(unittest.TestCase):
@@ -392,6 +455,28 @@ class PackScript(unittest.TestCase):
 
 
 class Wiring(unittest.TestCase):
+    def pack_step_on(self, event: str, payload: dict) -> str:
+        """Run the producer step's dispatch gate with a fake event and a fake pack script."""
+        step = next(s for s in NEXT["jobs"]["generated-files"]["steps"] if s.get("id") == "base-exports")
+        with tempfile.TemporaryDirectory() as tmp:
+            event_path, script = Path(tmp) / "event.json", Path(tmp) / "scripts/cmux-next/base-autofix-exports-pack.sh"
+            event_path.write_text(json.dumps(payload))
+            script.parent.mkdir(parents=True)
+            script.write_text("#!/usr/bin/env bash\necho name=packed\n")
+            script.chmod(0o755)
+            out = Path(tmp) / "out"
+            env = {**os.environ, "GITHUB_EVENT_NAME": event, "GITHUB_EVENT_PATH": str(event_path),
+                   "GITHUB_OUTPUT": str(out), "RUNNER_TEMP": tmp}
+            result = subprocess.run(["bash", "-c", step["run"]], cwd=tmp, env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return out.read_text() if out.exists() else ""
+
+    def test_the_producer_packs_on_a_push_and_a_base_tier_dispatch_only(self):
+        self.assertIn("name=packed", self.pack_step_on("push", {}))
+        self.assertIn("name=packed", self.pack_step_on("workflow_dispatch", {"inputs": {"base_tier": "true"}}))
+        self.assertNotIn("name=", self.pack_step_on("workflow_dispatch", {"inputs": {"dev_daily": "true"}}))
+        self.assertNotIn("name=", self.pack_step_on("workflow_dispatch", {"inputs": {"base_tier": "false"}}))
+
     def test_the_mac_job_runs_only_without_a_pack(self):
         mac = AUTOFIX["jobs"]["action-exports"]
         self.assertIn("pushed-exports", mac["needs"])
@@ -408,8 +493,10 @@ class Wiring(unittest.TestCase):
         mint = next(s for s in job["steps"] if s.get("id") == "read-token")
         self.assertEqual(mint["with"]["permission-actions"], "read")
         self.assertTrue(step["continue-on-error"])
-        self.assertIn("--wait 1800", step["run"])
-        self.assertLess(1800 / 60, step["timeout-minutes"])
+        self.assertIn("--wait 2700", step["run"])
+        self.assertIn('--base-tier "$BASE_TIER"', step["run"])
+        self.assertIn("CMUX_NEXT_BASE_TIER_COALESCE", step["env"]["BASE_TIER"])
+        self.assertLess(2700 / 60, step["timeout-minutes"])
         self.assertLess(step["timeout-minutes"], job["timeout-minutes"])
         self.assertNotIn("runs-on: macos", json.dumps(job))
         self.assertIn("ubuntu", job["runs-on"])
@@ -425,7 +512,9 @@ class Wiring(unittest.TestCase):
     def test_the_producer_runs_on_branch_pushes_only_and_never_fails_its_job(self):
         steps = NEXT["jobs"]["generated-files"]["steps"]
         pack = next(s for s in steps if s.get("id") == "base-exports")
-        self.assertIn("github.event_name == 'push'", pack["if"])
+        # Both trigger shapes: a push, and the base tier dispatch pushes leave these checks to.
+        self.assertIn("(github.event_name == 'push' || github.event_name == 'workflow_dispatch')", pack["if"])
+        self.assertIn('.get("base_tier", "")', pack["run"])
         self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", pack["if"])
         self.assertTrue(pack["continue-on-error"])
         self.assertIn("base-autofix-exports-pack.sh", pack["run"])
@@ -442,6 +531,8 @@ class Wiring(unittest.TestCase):
         names = [s.get("name") for s in steps]
         pack = next(s for s in steps if s.get("id") == "base-exports")
         self.assertIn("env.CMUX_NEXT_FOLD_GENERATED == 'true'", pack["if"])
+        self.assertIn("github.event_name == 'workflow_dispatch'", pack["if"])
+        self.assertIn('.get("base_tier", "")', pack["run"])
         self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", pack["if"])
         self.assertTrue(pack["continue-on-error"])
         self.assertLess(names.index("Check the settings exports"), names.index(pack["name"]))
