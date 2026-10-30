@@ -37,6 +37,8 @@ export interface LedgerHost {
   readonly state: () => ConnectionsState
   /** Asks the install's UserDO to call closeInstall here when the install is revoked; false: it is not active. */
   readonly register: (p: Principal, expiresAt: number) => Promise<boolean>
+  /** Whether the install and its grant are still live (UserDO); checked again after an await, as the mint's register is. */
+  readonly installActive: (p: Principal) => Promise<boolean>
   readonly audit: (record: Record<string, unknown>) => void
   readonly needsReauth: (c: Connection, detail: string) => void
   readonly buckets: Map<string, { tokens: number; at: number }>
@@ -144,7 +146,7 @@ const decodeRepoCursor = (value: string): RepoCursor | TokenFail => {
 
 /** Lists one bounded upstream page at a time; the cursor carries installation and page. */
 export const githubRepos = async (
-  h: { readonly env: Env; readonly http: Http; readonly state: () => ConnectionsState; readonly needsReauth: LedgerHost["needsReauth"] },
+  h: { readonly env: Env; readonly http: Http; readonly state: () => ConnectionsState; readonly needsReauth: LedgerHost["needsReauth"]; readonly installActive: LedgerHost["installActive"] },
   p: Principal,
   query: { readonly query?: string; readonly cursor?: string },
 ): Promise<RepoListReply> => {
@@ -199,7 +201,13 @@ export const githubRepos = async (
     }
     const response = listed.response
     if (!response) return fail(503, "integration.unavailable", "GitHub did not answer; retry")
-    if (!response.ok) return fail(503, "integration.unavailable", "GitHub repository listing failed")
+    if (!response.ok) {
+      // As the token mint: a rate limit keeps GitHub's wait, and a refusal is not an outage.
+      if (response.status === 429 || (response.status === 403 && (response.headers.get("x-ratelimit-remaining") === "0" || response.headers.has("retry-after"))))
+        return fail(429, "rate_limited", "GitHub is rate limiting this installation", retryAfter(response, Date.now()))
+      if (response.status === 403) return fail(403, "policy.denied", "GitHub refused to list this installation's repositories")
+      return fail(503, "integration.unavailable", "GitHub repository listing failed")
+    }
     const body = (await response.json().catch(() => undefined)) as { repositories?: unknown; total_count?: unknown } | undefined
     if (!body || !Array.isArray(body.repositories)) return fail(503, "integration.unavailable", "GitHub returned an invalid repository list")
     const repos = body.repositories.flatMap((entry) => {
@@ -216,6 +224,12 @@ export const githubRepos = async (
       : at + 1 < connections.length
         ? { connection: connections[at + 1]!.id, page: 1 }
         : null
+    // An install revoked while GitHub answered gets no repository names (the mint checks the same after its awaits).
+    if (p.kind === "install") {
+      const active = await h.installActive(p).catch(() => null)
+      if (active === null) return fail(503, "integration.unavailable", "the install could not be checked; retry")
+      if (!active) return fail(401, "auth.required", "this install was revoked")
+    }
     const current = h.state()
     if (!providerAllowed(policyOf(current), "github")) return fail(403, "policy.denied", "the team policy does not allow GitHub")
     const stillAllowed = Object.values(current.connections).some(
