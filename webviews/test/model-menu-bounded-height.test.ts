@@ -166,7 +166,10 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
             searchPresent: search !== null,
             footerPresent: footer !== null,
           },
-          profiles: lists(menu) ? Math.max(0, menu.querySelectorAll('[role^="menuitem"]').length - 1) : 0,
+          // A launch variant's Fork row sits under the profiles in the same submenu; it is not one.
+          profiles: lists(menu)
+            ? Math.max(0, menu.querySelectorAll('[role^="menuitem"]:not(.acpmux-quick-variant)').length - 1)
+            : 0,
         };
       });
       return menus.map((menu, index) => {
@@ -184,7 +187,9 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
             const rows = [...scroller.querySelectorAll<HTMLElement>('[role^="menuitem"]')].filter(
               (row) => own(menu, row) && !row.closest("[inert]") && box(row).height > 0,
             );
-            const profileRows = lists(menu) ? rows.slice(1) : [];
+            const profileRows = lists(menu)
+              ? rows.filter((row) => !row.classList.contains("acpmux-quick-variant")).slice(1)
+              : [];
             const area = box(scroller);
             const shown = box(rows.at(-1)!);
             const lastProfile = profileRows.at(-1);
