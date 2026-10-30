@@ -99,6 +99,26 @@ class PublishedInTests(unittest.TestCase):
         self.assertIn(old, calls[1][2]["body"])
         self.assertIn(new, calls[1][2]["body"])
 
+    def test_duplicate_status_sections_are_kept_lossless(self):
+        old = module.build_line("v1", "https://x/v1", "a" * 40)
+        new = module.build_line("v2", "https://x/v2", "b" * 40)
+        comments = [
+            {"id": 1, "body": module.pr_status.render({"published": "Shipped in:\n" + old}),
+             "user": {"login": "github-actions[bot]"}},
+            {"id": 2, "body": module.pr_status.render({"tour": "x" * 64800}),
+             "user": {"login": "github-actions[bot]"}},
+        ]
+        calls = []
+        def api(method, path, payload=None):
+            calls.append((method, path, payload))
+            if method == "GET":
+                return comments
+        with patch.object(module, "status_api", api), patch.object(module.time, "sleep"):
+            self.assertEqual(module.publish("o/r", 7, new, comments, 0), "written")
+        self.assertEqual(calls[1][0], "POST")
+        self.assertIn(new, calls[1][2]["body"])
+        self.assertNotIn("/comments/2", "".join(call[1] for call in calls))
+
     def test_near_limit_other_section_uses_lossless_legacy_fallback(self):
         old = module.build_line("v1", "https://x/v1", "a" * 40)
         new = module.build_line("v2", "https://x/v2", "b" * 40)

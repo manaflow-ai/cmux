@@ -103,7 +103,9 @@ def publish(repo: str, number: int, line: str, comments: list[dict], pause: floa
             if content_writes:
                 rendered = content_writes[0][1].get("body", "")
                 old_status = pr_status.bot_comments(snapshot, pr_status.MARKER)
-                old_sections = pr_status.parse(old_status[0]["body"]) if old_status else {}
+                old_sections: dict[str, str] = {}
+                for status_comment in reversed(old_status):
+                    old_sections.update(pr_status.parse(status_comment["body"]))
                 rendered_sections = pr_status.parse(rendered)
                 publication_lost = any(item not in rendered for item in publication_lines)
                 other_section_lost = any(rendered_sections.get(key) != value
