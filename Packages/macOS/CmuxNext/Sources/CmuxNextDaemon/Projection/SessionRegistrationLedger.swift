@@ -45,12 +45,15 @@ public struct SessionRegistrationLedger<Record: Hashable & Sendable>: Sendable {
         var connection: AnyHashable
         var state: State
         var pacer: RetryPacer
+        /// The send in flight or last answered; an answer with another token is stale.
+        var token: UInt64
     }
 
     private let policy: RetryPolicy
     private var entries: [String: Entry] = [:]
     /// The refusals already shown, per session (the reason shows once per refused record).
     private var shownRefusals: [String: Record] = [:]
+    private var nextToken: UInt64 = 0
 
     public init(policy: RetryPolicy = .sessionRegistration) {
         self.policy = policy
@@ -58,39 +61,49 @@ public struct SessionRegistrationLedger<Record: Hashable & Sendable>: Sendable {
 
     /// Whether `record` must be sent for `session` on `connection` now; when true it counts as in flight.
     public mutating func shouldSend(session: String, record: Record, connection: AnyHashable) -> Bool {
+        begin(session: session, record: record, connection: connection) != nil
+    }
+
+    /// ``shouldSend(session:record:connection:)`` that returns the send's token, or nil when nothing is
+    /// sent. `connection` identifies the home connection (the owner's generation counter): a new one
+    /// sends every record again.
+    public mutating func begin(session: String, record: Record, connection: AnyHashable) -> UInt64? {
+        nextToken &+= 1
         if var entry = entries[session], entry.record == record, entry.connection == connection {
             switch entry.state {
-            case .inFlight, .recorded, .refused, .backingOff: return false
+            case .inFlight, .recorded, .refused, .backingOff: return nil
             case .due:
                 entry.state = .inFlight
+                entry.token = nextToken
                 entries[session] = entry
-                return true
+                return nextToken
             }
         }
         // A new or changed record, or a new connection (the daemon restarted): send it, with a new backoff.
-        entries[session] = Entry(record: record, connection: connection, state: .inFlight, pacer: RetryPacer(policy))
-        return true
+        entries[session] = Entry(record: record, connection: connection, state: .inFlight, pacer: RetryPacer(policy),
+                                 token: nextToken)
+        return nextToken
     }
 
-    /// ``shouldSend(session:record:connection:)`` that returns the send's token, or nil when nothing is sent.
-    public mutating func begin(session: String, record: Record, connection: AnyHashable) -> UInt64? {
-        shouldSend(session: session, record: record, connection: connection) ? 0 : nil
-    }
-
-    /// The daemon recorded the send `token`.
+    /// The daemon recorded the send `token`; an answer to an older send changes nothing.
     public mutating func succeeded(session: String, token: UInt64) {
-        guard let record = entries[session]?.record else { return }
-        succeeded(session: session, record: record)
+        guard let entry = entries[session], entry.token == token, case .inFlight = entry.state else { return }
+        succeeded(session: session, record: entry.record)
     }
 
-    /// The daemon did not record the send `token`.
+    /// The daemon did not record the send `token`; an answer to an older send changes nothing.
     public mutating func failed(session: String, token: UInt64, failure: Failure) -> Outcome {
-        guard let record = entries[session]?.record else { return Outcome(refusal: nil, retryAfter: nil) }
-        return failed(session: session, record: record, failure: failure)
+        guard let entry = entries[session], entry.token == token, case .inFlight = entry.state else {
+            return Outcome(refusal: nil, retryAfter: nil)
+        }
+        return failed(session: session, record: entry.record, failure: failure)
     }
 
-    /// Forgets every session not in `sessions` (gone from the machine list).
-    public mutating func retain(sessions: Set<String>) {}
+    /// Forgets every session not in `sessions` (gone from the machine list): a session that comes back
+    /// is sent once again. The refusals already shown are kept, so the same one is not shown twice.
+    public mutating func retain(sessions: Set<String>) {
+        entries = entries.filter { sessions.contains($0.key) }
+    }
 
     /// The daemon recorded `record`.
     public mutating func succeeded(session: String, record: Record) {
@@ -137,13 +150,18 @@ public struct SessionRegistrationLedger<Record: Hashable & Sendable>: Sendable {
         return false
     }
 
-    /// A refusal the same request gets again, or a failure that may pass on a later attempt.
+    /// A refusal the same request gets again, or a failure that may pass on a later attempt. The daemon
+    /// answers a request it refuses as invalid with a `bad request:` message and no code (cmux-tui
+    /// `send_bad_request`, `validate_*`); any other `ok:false` (a store or I/O error) can pass later.
     public static func classify(_ error: any Error) -> Failure {
-        if case .command(_, let message, _, _, let retryable) = error as? DaemonError, retryable != true {
+        if case .command(_, let message, _, _, let retryable) = error as? DaemonError, retryable != true,
+           message.hasPrefix(Self.invalidRequestPrefix) {
             return .refused(message)
         }
         return .unreachable
     }
+
+    static var invalidRequestPrefix: String { "bad request" }
 }
 
 extension RetryPolicy {

@@ -23,7 +23,7 @@ final class SessionRegistrar {
     private var computerName: String?
 
 
-    init(machines: MachineRegistry, notice: @escaping @MainActor (String) -> Void) {
+    init(machines: MachineRegistry, notice: @escaping @MainActor (_ session: String, _ message: String) -> Bool) {
         self.machines = machines
         registration = SessionRegistration<SessionRegistrationRecord>(policy: .sessionRegistration, notice: notice)
         registration.onRetryDue = { [weak self] in self?.sync() }
@@ -61,13 +61,17 @@ final class SessionRegistrar {
     private func sync() {
         let home = machines.local
         guard home.store.personal.isLoaded, !home.store.isProvisional, let connection = home.connection else { return }
+        var present = Set<String>()
         for daemon in machines.daemons where daemon.store.isLoaded {
             guard let session = daemon.store.registryID, let identity = daemon.store.identity else { continue }
-            let snapshot = SessionRegistrationRecord(sessionName: identity.session, capabilities: identity.capabilities.sorted(),
-                                           transport: transport(daemon))
-            let request = PutSessionRequest(sessionID: session, machineName: machineName(daemon), sessionName: identity.session,
+            present.insert(session)
+            let name = machineName(daemon)
+            // Unique and sorted: the daemon refuses a list that names a capability twice.
+            let snapshot = SessionRegistrationRecord(machineName: name, sessionName: identity.session,
+                                                     capabilities: Set(identity.capabilities).sorted(), transport: transport(daemon))
+            let request = PutSessionRequest(sessionID: session, machineName: name, sessionName: identity.session,
                                             transport: snapshot.transport, capabilities: snapshot.capabilities)
-            registration.submit(session: session, record: snapshot, machine: machineName(daemon) ?? identity.session,
+            registration.submit(session: session, record: snapshot, machine: name ?? identity.session,
                                 connection: connection) { _ = try await $0.putSession(request) }
             let record = home.store.personal.session(session)
             if daemon !== home, record?.migrated == false, !importing.contains(session) {
@@ -79,6 +83,7 @@ final class SessionRegistrar {
                 }
             }
         }
+        registration.retain(sessions: present)
     }
 
     /// A remote daemon's shared groups and sidebar order, as the one-time
