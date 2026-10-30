@@ -942,6 +942,12 @@ async function railAway(page: Page): Promise<void> {
  *  middle of the rail's view, clear of its fades. */
 async function railRestTick(page: Page, above = 0): Promise<RailTick> {
   try {
+    // The flows fixture opens Session Info. On older builds the rail stepped aside for it; closed,
+    // every build draws the rail beside the text, so every arm measures the same rail.
+    if (await page.$("aside.acpmux-chat-inspector")) {
+      await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("toggleSessionInfo"));
+      await page.waitForSelector("aside.acpmux-chat-inspector", { state: "detached", timeout: 5_000 });
+    }
     await page.waitForSelector(RAIL_LIST, { state: "attached", timeout: 10_000 });
     await page.evaluate((selector) => {
       const transcript = document.querySelector<HTMLElement>(".acpmux-scroll")!;
