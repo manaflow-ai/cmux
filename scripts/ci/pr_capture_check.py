@@ -87,7 +87,9 @@ def visual_judgment(body: str) -> bool:
     value = verdict.group("verdict").strip()
     if value.casefold() == VERDICT_PLACEHOLDER.casefold():
         return False
-    return len(re.findall(r"\b[\w']+\b", value)) >= 2 and value[-1] in ".!?"
+    return (len(re.findall(r"\b[\w']+\b", value)) >= 2
+            and value[-1] in ".!?"
+            and not any(mark in value[:-1] for mark in ".!?"))
 
 
 def main(argv: list[str] | None = None) -> int:

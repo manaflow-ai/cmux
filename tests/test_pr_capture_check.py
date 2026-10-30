@@ -68,6 +68,8 @@ class CaptureCheckTests(unittest.TestCase):
                                         "Visual verdict: <one sentence: would Leo accept this next to ChatGPT/Claude?>\n",
                                         [SWIFT])[0], 1)
         self.assertEqual(self.run_check(CAPTURE + "Viewed after image: yes\nVisual verdict: Looks good.\n", [SWIFT])[0], 0)
+        self.assertEqual(self.run_check(CAPTURE + "Viewed after image: yes\n"
+                                        "Visual verdict: Looks polished. Ship it.\n", [SWIFT])[0], 1)
         self.assertEqual(self.run_check(CAPTURE + REVIEW, [SWIFT])[0], 0)
 
     def test_review_proof_is_not_accepted_from_comments_or_code(self):
