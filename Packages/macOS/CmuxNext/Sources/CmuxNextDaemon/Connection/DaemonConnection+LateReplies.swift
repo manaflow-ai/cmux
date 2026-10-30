@@ -9,54 +9,76 @@ import os
 extension DaemonConnection {
     private static let lateReplyLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon")
 
+    /// When a change that starts now stops asking again: one budget for every step of it (Cmd-N's
+    /// pin, create and first tab share one), so a daemon that never answers holds the window's
+    /// create lane about this long, not this long per step.
+    public static func lateReplyDeadline() -> ContinuousClock.Instant {
+        ContinuousClock.now + NewFrontendBrowserTabRequest.lateReplyBudget
+    }
+
     /// Runs `send` again while it misses its reply deadline (`DaemonError.timedOut`), until
-    /// ``NewFrontendBrowserTabRequest/lateReplyBudget`` passes, and returns its first answer.
+    /// `giveUp` (default: ``lateReplyDeadline()`` from now), and returns its first answer.
     /// `send` must repeat one change: a request with a fixed mutation identity (the daemon replays
     /// it), or one whose effect repeats harmlessly (a pin). Any other error, and a timeout past the
     /// budget, is thrown. Each pass waits out a whole deadline, so it never spins.
-    public static func retryingLateReplies<T>(_ what: String, _ send: () async throws -> T) async throws -> T {
-        let giveUp = ContinuousClock.now + NewFrontendBrowserTabRequest.lateReplyBudget
-        // wakeup-allow: bounded: each pass waits for one reply or its deadline; the retry ends at the budget, on a reply, or on another error
+    public static func retryingLateReplies<T>(_ what: String, until giveUp: ContinuousClock.Instant? = nil,
+                                              _ send: () async throws -> T) async throws -> T {
+        let giveUp = giveUp ?? lateReplyDeadline()
+        // wakeup-allow: each pass waits for one reply or its deadline; the retry ends at the budget, on a reply, or on another error
         while true {
             do {
                 return try await send()
             } catch DaemonError.timedOut(let request) where ContinuousClock.now < giveUp && !Task.isCancelled {
-                lateReplyLogger.info("\(what, privacy: .public): \(request, privacy: .public) timed out; asking again with its mutation id")
+                lateReplyLogger.info("\(what, privacy: .public): \(request, privacy: .public) timed out; asking again")
             }
         }
     }
 
-    /// How long a create waits for a terminal a busy host starts late (``createTerminalWaitingForStart(in:cwd:)``).
-    /// Each pass waits for the daemon's reply up to the start deadline; on a loaded host a start can
-    /// take far longer than one deadline (Leo, 2026-10-21), and the daemon replays the start that
-    /// lands, so the budget only bounds a daemon that never answers.
-    public static let lateTerminalStartBudget: Duration = .seconds(120)
-
     /// `create-terminal` in workspace `key` that waits for the terminal on a loaded host: sent again
     /// under one terminal id and mutation identity while it misses its start deadline
     /// (`DaemonError.terminalStartTimedOut`), so the terminal the daemon starts late is the one
-    /// returned and none is started twice. A refusal is thrown at once; a start still late after
-    /// ``lateTerminalStartBudget`` is thrown as the timeout.
+    /// returned and none is started twice (``requestWaitingForStart(_:)``).
     @discardableResult
     public func createTerminalWaitingForStart(in key: WorkspaceKey, cwd: String?) async throws -> CreateTerminalResult {
-        let request = await createTerminalRequest(in: key, cwd: cwd)
-        let giveUp = ContinuousClock.now + Self.lateTerminalStartBudget
-        // wakeup-allow: bounded: each pass waits for one reply or its start deadline; the retry ends at the budget, on a reply, or on another error
+        try await requestWaitingForStart(await createTerminalRequest(in: key, cwd: cwd))
+    }
+
+    /// Sends `request`, a terminal start cmux-tui replays (a keyed `create-terminal`, or a `split`,
+    /// `new-pane`, `new-pane-right` or `new-row` under its client-minted ids), again while it misses its
+    /// start deadline, so the terminal a loaded host starts late is the one returned and none is started
+    /// twice. Each pass waits out one whole deadline, and a pass sent again is the same keyed creation, so
+    /// a re-send changes nothing on the daemon. It ends on the reply, the daemon's refusal, the
+    /// connection's end (`notConnected`, `connectionClosed`) or the task's cancellation
+    /// (`CancellationError`), never on a client clock: a give-up after a fixed budget took back a pane the
+    /// window showed while the daemon still made it (P0 2026-10-30, principled-audit R5, R-L5).
+    func requestWaitingForStart<R: TerminalSpawningRequest>(_ request: R) async throws -> R.Response {
+        // wakeup-allow: each pass waits for one reply or its start deadline; it ends on a reply, a refusal, the connection's end or cancellation
         while true {
             do {
                 return try await self.request(request)
-            } catch let error as DaemonError where error.isLateStart && ContinuousClock.now < giveUp && !Task.isCancelled {
-                Self.lateReplyLogger.info("create-terminal in \(key.rawValue, privacy: .public): \(String(describing: error), privacy: .public); waiting with its mutation id")
+            } catch let error as DaemonError where error.isLateStart {
+                try Task.checkCancellation()
+                Self.lateReplyLogger.info("\(R.command, privacy: .public): \(String(describing: error), privacy: .public); waiting with its client ids")
             }
         }
+    }
+
+    /// A pane creation (`split`, `new-pane`, `new-pane-right`, `new-row`) with its client-minted ids: waited
+    /// for through a late start where the daemon replays a creation sent again with them (`keys`:
+    /// `split-client-keys-v1`, or `row-client-keys-v1` for a row), sent once on an older daemon, which
+    /// would make a second pane.
+    func requestPaneCreation<R: TerminalSpawningRequest>(_ request: R, keys: DaemonCapability = .splitClientKeys) async throws -> R.Response {
+        guard identity?.supports(keys.rawValue) == true else { return try await self.request(request) }
+        return try await requestWaitingForStart(request)
     }
 
     /// `create-workspace` for workspace `key`, sent again on a late reply under one mutation
     /// identity (the daemon replays a create that committed after the deadline).
     @discardableResult
-    public func createWorkspaceRetryingLateReplies(name: String? = nil, key: WorkspaceKey) async throws -> WorkspaceMutationResult {
+    public func createWorkspaceRetryingLateReplies(name: String? = nil, key: WorkspaceKey,
+                                                   until giveUp: ContinuousClock.Instant? = nil) async throws -> WorkspaceMutationResult {
         let request = CreateWorkspaceRequest(name: name, key: key, mutation: mutation())
-        return try await Self.retryingLateReplies(CreateWorkspaceRequest.command) { try await self.request(request) }
+        return try await Self.retryingLateReplies(CreateWorkspaceRequest.command, until: giveUp) { try await self.request(request) }
     }
 }
 
