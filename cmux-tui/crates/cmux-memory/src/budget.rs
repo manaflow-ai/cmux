@@ -114,7 +114,7 @@ impl Default for DaemonBudget {
 #[cfg(target_os = "macos")]
 pub fn installed_memory_bytes() -> Option<u64> {
     let mut bytes = 0u64;
-    let mut len = std::mem::size_of::<u64>();
+    let mut len = size_of::<u64>();
     // SAFETY: a NUL-terminated name and a writable u64 with its length; no
     // new value is written.
     let rc = unsafe {

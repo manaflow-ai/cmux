@@ -832,10 +832,8 @@ mod tests {
 
         assert_eq!(resolver.resolve_fg(ColorSpec::Default), Color::Reset);
         assert_eq!(resolver.resolve_bg(ColorSpec::Default), Color::Reset);
-        assert_eq!(
-            resolver.blank_style(),
-            Style::default().fg(Color::Rgb(0x11, 0x22, 0x33)).bg(Color::Reset)
-        );
+        // A blank cell keeps the host's own foreground too, as a default-fg cell does.
+        assert_eq!(resolver.blank_style(), Style::default().fg(Color::Reset).bg(Color::Reset));
     }
 
     #[test]

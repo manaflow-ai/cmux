@@ -142,7 +142,7 @@ public final class InputTurnHopRecorder: Sendable {
     /// A background fold is queued and has not started.
     private let foldQueued = Atomic<Bool>(false)
     private let foldQueue: DispatchQueue?
-    // concurrency-allow: the fold's site tables (lock carve-out: the main thread never takes it; it is held to fold at most `pendingLimit` records or to copy a snapshot, no I/O under it).
+    /// The fold's site tables (the reason for the lock is at its construction in `init`).
     private let folded: Mutex<HopSites>
 
     /// - Parameter folding: Where the fold runs (default: in the background).
@@ -155,6 +155,11 @@ public final class InputTurnHopRecorder: Sendable {
     ///   - entry: The image that calls ``recordEnqueue(turn:origin:priority:)``'s caller (the hook's
     ///     caller, libswift_Concurrency; tests: libdispatch, through `DispatchQueue.sync`).
     init(folding: Folding, entry: String) {
+        // concurrency-allow: CmuxNextCompat's Mutex, the repo's lock primitive; never taken on the main thread (fold on
+        // `foldQueue`, snapshot through @concurrent `resolvedSnapshot`, reset on the control socket's async lane), and
+        // never by a producer (`push` writes the lock-free ring). Held only to drain the ring (`pendingLimit` slots, refilled
+        // meanwhile only by the main run loop's callout timer and main-actor enqueues) into the tables or to copy them: no
+        // await and no I/O under it, only `dladdr`'s brief dyld lock while a new return address resolves.
         folded = Mutex(HopSites(entry: entry))
         switch folding {
         case .background: foldQueue = DispatchQueue.global(qos: .utility)

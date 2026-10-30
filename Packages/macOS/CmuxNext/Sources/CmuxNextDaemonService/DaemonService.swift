@@ -57,6 +57,10 @@ public final class DaemonService {
     @ObservationIgnored public var connectionPresence: ConnectionPresence? {
         didSet { if let connectionPresence, let connection { connection.heartbeat.follow(connectionPresence) } }
     }
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The first-keys proof's slow create reply (``DebugSlowCreateReply``): none until the composition root sets it.
+    @ObservationIgnored public var slowCreateReply = DebugSlowCreateReply(nil)
+    #endif
     /// The app's Energy Saver the local daemon follows (DaemonService+Energy); nil until `follow(_:on:)`.
     @ObservationIgnored var energyFollow: DaemonEnergyFollow?
     /// Tells the local daemon which tabs this app shows (FrontendVisibilityReporter); nil until `reportFrontendVisibility(on:)`.

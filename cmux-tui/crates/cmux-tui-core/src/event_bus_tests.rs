@@ -31,6 +31,7 @@ fn delta(kind: TreeDeltaKind, workspace: u64, screen: u64, pane: u64, surface: u
         index: None,
         entity: Value::Null,
         workspace_revision: None,
+        registry_event: None,
         transaction: None,
     })
 }

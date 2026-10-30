@@ -156,7 +156,7 @@ extension ChromiumPageHostBridge {
     ///   - handlers: Handler names every cmux page gets at document start; a page view adds its
     ///     own at commit (``rebind()``).
     ///   - documentScripts: Scripts every cmux page runs at document start
-    ///     (``PageChromiumDocumentScripts/shared``).
+    ///     (``PageChromiumDocumentScripts/everyPage``).
     ///   - channelEvent: The DOM event the runtime's page host relay sends on the page channel.
     public static func rendererScript(handlers: [String], documentScripts: [String], channelEvent: String) -> String {
         """

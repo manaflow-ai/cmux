@@ -59,8 +59,11 @@ struct PageScriptPipelineBatchTests {
         }
 
         /// The envelopes `scripts[index]` delivers, in order.
+        /// Script `index`'s envelopes; none when the page got no such script (an expectation on the count
+        /// reports that), so a missing script fails its test instead of trapping the test process.
         func envelopes(_ index: Int) -> [JSONValue] {
-            PageScriptPipelineBatchTests.envelopes(in: scripts[index])
+            guard scripts.indices.contains(index) else { return [] }
+            return PageScriptPipelineBatchTests.envelopes(in: scripts[index])
         }
     }
 
