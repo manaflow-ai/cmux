@@ -838,6 +838,51 @@ test("an authoritative child sender moves an existing worker and refuses an ance
   expect(fold.all().find(({ id }) => id === "b")?.parent).toBe("c");
 });
 
+for (const move of ["pending-agent", "pending-root", "known-agent", "known-root", "phantom"] as const) {
+  test(`removing a spawn rebuilds its rendered parent view: ${move}`, () => {
+    const fold = new SubagentFold();
+    fold.setRoot("root-native");
+    feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null }] });
+    if (move === "known-agent")
+      feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "c", parent: null }] });
+    feed(fold, say("Before."), { subagent: "a" });
+    const update = {
+      sessionUpdate: "subagent_spawned",
+      _meta: { codex: { collaboration: { tool: "spawnAgent", senderThreadId: "c" } } },
+    };
+    const pending = move === "pending-agent" || move === "pending-root";
+    feed(fold, pending ? update : { sessionUpdate: "subagent_spawned" }, {
+      subagents: [{ id: "b", parent: "a" }],
+    });
+    feed(fold, say("After."), { subagent: "a" });
+    expect(fold.views().a?.flatMap((row) => row.subagents ?? []).map(({ id }) => id)).toEqual(["b"]);
+
+    if (move === "pending-agent")
+      feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "c", parent: null }] });
+    else if (move === "pending-root") fold.setRoot("c");
+    else if (move === "phantom") fold.setRoot("b");
+    else {
+      const senderThreadId = move === "known-agent" ? "c" : "root-native";
+      feed(fold, {
+        ...update,
+        _meta: { codex: { collaboration: { tool: "spawnAgent", senderThreadId } } },
+      }, { subagents: [{ id: "b", parent: null }] });
+    }
+
+    const views = fold.views();
+    expect(views.a?.flatMap((row) => row.subagents ?? []).map(({ id }) => id)).toEqual([]);
+    expect(views.a?.filter((row) => row.kind === "assistant").map((row) => row.text).join("")).toBe("Before.After.");
+    if (move === "pending-agent" || move === "known-agent")
+      expect(views.c?.flatMap((row) => row.subagents ?? []).map(({ id }) => id)).toEqual(["b"]);
+    else if (move === "phantom") expect(fold.all().some(({ id }) => id === "b")).toBe(false);
+    else expect(fold.takeRows().flatMap((row) => row.subagents ?? []).filter(({ id }) => id === "b")).toHaveLength(1);
+    feed(fold, say("More."), { subagent: "a" });
+    expect(fold.views().a?.filter((row) => row.kind === "assistant").map((row) => row.text).join("")).toBe(
+      "Before.After.More.",
+    );
+  });
+}
+
 test("late root seeding removes a phantom and promotes its children", () => {
   const fold = new SubagentFold();
   feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "root-native", parent: "child" }] });
