@@ -8,7 +8,7 @@ import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { tool } from "../../../gallery/fixtures/acpmux";
-import { CardCopyLookContext, type CardCopyLook } from "./CardCopy";
+import { CardCopyLookContext, CardCopyWriterContext, type CardCopyLook } from "./CardCopy";
 import { IncomingMessageLine } from "./IncomingMessageCard";
 import { SubsessionCallCard } from "./SubsessionCallCard";
 import { subsessionCall } from "./subsessionCalls";
@@ -40,10 +40,14 @@ const START = START_ACTIVITY.tool as Tool;
 
 const DISCLOSURE = "gallery-card-copy";
 
+/// A headless capture has no clipboard to write: the stage's stand-in takes every copy.
+const writeCopy = async () => true;
+
 function Stage({ look, card }: Props) {
   useState(() => resetTranscriptDisclosure(DISCLOSURE));
   return (
     <TranscriptDisclosureProvider sessionId={DISCLOSURE}>
+      <CardCopyWriterContext.Provider value={writeCopy}>
       <CardCopyLookContext.Provider value={look}>
         <div className="acpmux-shell" style={{ padding: 16, maxWidth: 640 }}>
           {card === "prompt" ? (
@@ -57,6 +61,7 @@ function Stage({ look, card }: Props) {
           )}
         </div>
       </CardCopyLookContext.Provider>
+      </CardCopyWriterContext.Provider>
     </TranscriptDisclosureProvider>
   );
 }

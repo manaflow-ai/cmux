@@ -28,7 +28,7 @@
   box-sizing: border-box;
   min-width: var(--cv-context-copy);
   height: var(--cv-context-copy);
-  padding: 0 3px;
+  padding: 0 var(--ds-space-1);
   border-radius: 6px;
   cursor: pointer;
   font-size: var(--text-detail);

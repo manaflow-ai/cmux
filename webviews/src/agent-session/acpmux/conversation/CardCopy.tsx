@@ -17,10 +17,12 @@ import "./CardCopy.css";
 /// `quiet`, a 12px glyph at 30%; `word`, the default glyph that says "Copied" beside its check.
 export type CardCopyLook = "faint" | "quiet" | "word";
 export const CardCopyLookContext = createContext<CardCopyLook>("faint");
+/// What puts the text on the clipboard: the page's clipboard, or a gallery stage's stand-in.
+export const CardCopyWriterContext = createContext<(text: string) => Promise<boolean>>(copyTextResult);
 
 export function CardCopy({
   text,
-  copy = copyTextResult,
+  copy,
 }: {
   /// The card's raw text: a prompt's Markdown source, a message's words.
   text: string;
@@ -28,6 +30,7 @@ export function CardCopy({
 }) {
   const t = useT();
   const look = useContext(CardCopyLookContext);
+  const writer = useContext(CardCopyWriterContext);
   if (!text.trim()) return null;
   return (
     <span className="cv-card-copy" data-look={look} data-find-skip="">
@@ -35,7 +38,7 @@ export function CardCopy({
         text={text}
         label={t("turn.copy")}
         className="cv-card-copy__button"
-        copy={copy}
+        copy={copy ?? writer}
         size={look === "quiet" ? 12 : 14}
         copiedWord={look === "word"}
       />
