@@ -49,7 +49,9 @@ extension LiveCoordinator {
             }
             var fields: [String: Any] = [:]
             for (key, value) in params { fields[key] = value }
-            return try await client.request(command, params: fields)
+            return try await client.request(command, params: fields,
+                                            deadline: session.terminalFeed.requestDeadline,
+                                            clock: session.terminalFeed.clock)
         }
         session.terminalFeed.type = { [weak session] surface, bytes, connection in
             guard let session, session.workspaces.connectionSerial == connection, let client = session.workspaces.daemon else {

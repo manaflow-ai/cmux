@@ -185,7 +185,7 @@ pub enum Command {
     #[command(
         alias = "prompt",
         alias = "send-keys",
-        after_help = "Examples:\n  acpmux send review \"ship it\"         the one live `review`, here or on a peer\n  acpmux send hb/review \"ship it\"      `review` on peer hb\n  acpmux send 0199aaaa \"ship it\"       by id prefix\nA name several live sessions share is refused with the exact command for each."
+        after_help = "A name several live sessions share is refused with the exact command for each."
     )]
     Send {
         /// The session: a name, `HOST/NAME`, an id or an id prefix. A bare name or prefix names
