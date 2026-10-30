@@ -71,7 +71,7 @@
   align-items: center;
   /* Keep the folder/computer pair and the optional branch on one optical rhythm.  The
      controls already carry their own hit-area insets; this is the only inter-control gap. */
-  gap: var(--acpmux-location-gap, 6px);
+  gap: var(--acpmux-location-gap, 4px);
   min-width: 0;
   height: 100%;
   margin: 0;
@@ -80,7 +80,7 @@
 }
 /* Folder and computer share the same small inter-control gap, told apart by their icons; no "·"
    floats between them against the folder's chevron. */
-.acpmux-composer-context > .acpmux-location-leading { display: flex; align-items: center; gap: var(--acpmux-location-gap, 6px); min-width: 0; flex: 1 1 0; }
+.acpmux-composer-context > .acpmux-location-leading { display: flex; align-items: center; gap: var(--acpmux-location-gap, 4px); min-width: 0; flex: 1 1 0; }
 .acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker,
 .acpmux-composer-context > .acpmux-location-picker { flex: 0 1 auto; min-width: 0; }
 /* The folder gives up width before the computer: the computer never shrinks (even a fraction of a

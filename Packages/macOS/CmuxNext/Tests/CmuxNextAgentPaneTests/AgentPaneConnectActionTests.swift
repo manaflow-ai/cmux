@@ -34,6 +34,28 @@ struct AgentPaneConnectActionTests {
         #expect(arguments == [[:]])
     }
 
+    /// Picking the strip's red machine reconnects it: the header's own Reconnect, on a gesture only
+    /// (the host resolves the tab's machine; the page names none).
+    @Test func machineReconnectRunsOnAGesture() async {
+        let model = AgentPaneModel(host: NoHost())
+        var ran: [String] = []
+        model.onRunAction = { id, args in ran.append(id); #expect(args.isEmpty); return true }
+        #expect(await model.respond(to: .runAction("machine.reconnect"))["ok"] as? Bool != true)
+        model.transport.gestures.record()
+        #expect(await model.respond(to: .runAction("machine.reconnect"))["ok"] as? Bool == true)
+        #expect(ran == ["machine.reconnect"])
+    }
+
+    @Test func refusedCloudCreationDoesNotLoseIntentToStandaloneSignIn() async {
+        let model = AgentPaneModel(host: NoHost())
+        var ran: [String] = []
+        model.onRunAction = { id, _ in ran.append(id); return false }
+        model.transport.gestures.record()
+        let reply = await model.respond(to: .runAction("newCloudMachine"))
+        #expect(reply["ok"] as? Bool != true)
+        #expect(ran == ["newCloudMachine"])
+    }
+
     /// Connect Phone… opens the Mobile Pairing page, on the person's gesture only.
     @Test func connectPhoneOpensMobilePairingOnAGesture() async {
         let model = AgentPaneModel(host: NoHost())

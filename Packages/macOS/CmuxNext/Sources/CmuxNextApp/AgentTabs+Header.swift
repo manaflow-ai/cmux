@@ -84,6 +84,7 @@ extension AgentTabStore {
     /// once its strip column is there, it is the chat's right side and the same lower split applies.
     @discardableResult
     func openOnRight(_ decision: RightColumnPlacement.Decision<String>, of provisional: String, origin: ActionOrigin = .user, open: (PaneID, DaemonService) throws -> AgentTabPending, created: (@MainActor (String) -> Void)? = nil, finished: (@MainActor (_ moved: Bool) -> Void)? = nil) -> Bool {
+        // Nothing on the right (a split right, or a chat too narrow to split: #27789's review at 84718cf2): main pane layout decides first.
         let rightIsEmpty = switch decision { case .splitRight, .tab(nil): true; case .splitBelow, .tab(.some): false }
         if rightIsEmpty, let placed = openInMainPane(resolve(provisional), origin == .user, open, created, finished) { return placed }
         switch decision {

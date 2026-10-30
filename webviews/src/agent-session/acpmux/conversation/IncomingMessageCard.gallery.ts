@@ -256,6 +256,29 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".cv-received .cv-disclosure__icon img.cv-agent-avatar"));
       },
     },
+    chief: {
+      note: "A Chief's message to this chat (acpmux `fromChief`): the line and its From: line name the Chief and draw its avatar as the sidebar does, never the turn's session name (optchat-…) with a robot (manaflow-ai/cmux#27914).",
+      snapshot: chat([
+        user("Ship the sidebar fix and tell the Chief when CI is green.", 9),
+        assistant("On it.", 8.5),
+        summary(8.5, { status: "completed" }),
+        user(chiefReport, 6, {
+          incoming: {
+            kind: "message",
+            message: { name: "optchat-b902d10e-2991", chief: "agent_ops", text: chiefReport, raw: chiefReport },
+          },
+          untyped: true,
+        }),
+      ]),
+      native: { "chief.face": { name: "Ops Chief", src: UPLOADED_AVATAR } },
+      play: async (ctx) => {
+        for (const toggle of ctx.document.querySelectorAll<HTMLButtonElement>(RECEIVED_LINE)) toggle.click();
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-received .cv-disclosure__icon img.cv-agent-avatar"));
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(".cv-received__from-line")?.textContent?.includes("Ops Chief"),
+        );
+      },
+    },
     links: {
       note: "A message's line; opened, its panel shows its PR, HQ and commit references as links.",
       snapshot: chat([

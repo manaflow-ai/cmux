@@ -1,10 +1,13 @@
 name: nightly-next launch smoke
 
-# The cmux NEXT post-publish launch smoke. It is not a publish gate: nightly.yml
-# publishes without waiting on it, and nothing reads its result before a
-# publish. After a build is on the feed, it launches that build's app the way a
-# first install does (an empty home, no defaults; scripts/ci/fresh_home_launch_smoke.py)
-# and needs it to stay up 30 s with Home rendered.
+# The cmux NEXT post-publish launch smoke, the backstop. nightly.yml smokes the
+# DMG it would publish before any appcast names it (scripts/ci/nightly-steps/
+# launch-smoke-gate.sh in its verify jobs: a crash there publishes nothing), and
+# publishes a build its gate could not smoke. This workflow gates nothing: nothing
+# waits on it or reads its result before a publish. After a build is on the feed,
+# it launches that build's app the way a first install does (an empty home, no
+# defaults; scripts/ci/fresh_home_launch_smoke.py) and needs it to stay up 30 s
+# with Home rendered.
 #
 #   pass        nothing happens.
 #   cannot-run  nothing happens (no Mac, no GUI session, a download, harness or

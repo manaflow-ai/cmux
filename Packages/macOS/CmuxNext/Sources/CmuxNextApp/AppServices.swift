@@ -94,6 +94,8 @@ final class AppServices {
     let machineAsks = SidebarAsks()
     /// Auto-archive of idle workspaces (plans/cmux-next/auto-archive-DESIGN.md); started at launch.
     private(set) lazy var autoArchive = AutoArchiveCoordinator(host: self, ledgerStore: AutoArchiveLedgerStore(defaults: .standard))
+    /// Each window's own Home (cmux#27880).
+    private(set) lazy var windowHomes = WindowHomes(host: self)
     /// Hibernates idle workspaces (plans/cmux-next/workspace-hibernation-DESIGN.md).
     private(set) lazy var workspaceHibernation = WorkspaceHibernation(host: self, keepAwake: WorkspaceKeepAwakeStore(defaults: .standard),
                                                                   deadline: DemandTimer(owner: "workspace-hibernation"))

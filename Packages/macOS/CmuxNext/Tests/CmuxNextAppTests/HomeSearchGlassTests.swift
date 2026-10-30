@@ -99,4 +99,56 @@ struct HomeSearchGlassTests {
         #expect(h.search.height == HomeSidebarHeaderLayout.side)
         #expect(h.search.minY >= h.filter.maxY, "the search capsule overlaps the filter's row at \(width)")
     }
+
+    /// The user, 2026-10-29 ("search is not centered", 8:41 PM shot): the "Search" placeholder sat
+    /// 3 pt above the magnifier and the capsule's middle (AppKit draws an unbezeled field's text at
+    /// its frame's top). As in Messages, the magnifier's ink and the placeholder's ink are centred on
+    /// the capsule, at every width, and the text being typed sits on the same line.
+    @Test(arguments: [180, 320, 480] as [CGFloat])
+    func theMagnifierAndPlaceholderAreCentredInTheCapsule(_ width: CGFloat) throws {
+        let home = Self.home(width: width)
+        let field = home.list.searchField
+        field.placeholderAttributedString = NSAttributedString(string: CmuxSidebarView.searchTitle, attributes: [
+            .foregroundColor: NSColor.black, .font: field.font ?? .systemFont(ofSize: NSFont.systemFontSize),
+        ])
+        let capsule = home.searchCapsule.frame
+        let fieldFrame = field.frame
+        #expect(abs(fieldFrame.midY - capsule.midY) <= 0.5)
+        let rep = try #require(field.bitmapImageRepForCachingDisplay(in: field.bounds))
+        field.cacheDisplay(in: field.bounds, to: rep)
+        let scale = CGFloat(rep.pixelsWide) / field.bounds.width
+        let iconSlot = (field.cell as? NSSearchFieldCell)?.searchButtonRect(forBounds: field.bounds) ?? .zero
+        let icon = try #require(Self.inkRows(rep, from: 0, to: Int(iconSlot.maxX * scale)), "no magnifier drawn")
+        let text = try #require(Self.inkRows(rep, from: Int((iconSlot.maxX + 1) * scale), to: rep.pixelsWide), "no placeholder drawn")
+        let middle = CGFloat(rep.pixelsHigh) / 2
+        // Within one point of the field's (and so the capsule's) middle; before the fix the
+        // placeholder's ink centre sat 3 pt high.
+        #expect(abs(icon - middle) / scale <= 1, "the magnifier is \((icon - middle) / scale) pt off centre at \(width)")
+        #expect(abs(text - middle) / scale <= 1, "the placeholder is \((text - middle) / scale) pt off centre at \(width)")
+    }
+
+    /// The text typed in the field sits on the placeholder's line: the field editor is centred too.
+    @Test func theTypedTextIsCentredInTheCapsule() throws {
+        let home = Self.home()
+        let window = NSWindow(contentRect: home.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = home
+        home.layoutSubtreeIfNeeded()
+        let field = home.list.searchField
+        #expect(window.makeFirstResponder(field))
+        let editor = try #require(field.currentEditor() as? NSTextView)
+        let box = field.convert(editor.convert(editor.bounds, to: nil), from: nil)
+        #expect(abs(box.midY - field.bounds.midY) <= 1, "the field editor is \(box.midY - field.bounds.midY) pt off centre")
+        window.makeFirstResponder(nil)
+    }
+
+    /// The middle (in pixel rows) of the drawn ink between columns `x0` and `x1`; nil when none.
+    private static func inkRows(_ rep: NSBitmapImageRep, from x0: Int, to x1: Int) -> CGFloat? {
+        var low = Int.max, high = Int.min
+        for y in 0..<rep.pixelsHigh {
+            for x in max(0, x0)..<min(x1, rep.pixelsWide) where (rep.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.3 {
+                low = min(low, y); high = max(high, y)
+            }
+        }
+        return low <= high ? CGFloat(low + high + 1) / 2 : nil
+    }
 }
