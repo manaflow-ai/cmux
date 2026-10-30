@@ -96,6 +96,19 @@ async function openEffortSubmenu(ctx: PlayContext): Promise<HTMLElement> {
 }
 
 const working = [user("Add retries", 1), assistant("Reading the helper…", 0.5, { streaming: true })];
+const historyPageB = user("B: update the retry helper", 6);
+const historyPageC = user("C: add the 429 test", 3);
+const historyPageRows = [
+  historyPageB,
+  assistant("Updated the helper.", 5),
+  historyPageC,
+  assistant("Added the test.", 2),
+];
+const historyPageOlderRows = [
+  user("A: inspect the backoff path", 9),
+  assistant("Inspected the path.", 8),
+  ...historyPageRows,
+];
 // Three prompts waiting for the running turn.
 const waiting = [
   { id: "q1", prompt: "Then add a test for the 429 path" },
@@ -1420,6 +1433,29 @@ export default agentPaneEntry({
         await ctx.type("draft");
         await ctx.press("ArrowUp");
         await ctx.waitFor(() => prompt() === "draft");
+      },
+    },
+    "history-recall-older-page": {
+      note: "Play: recall C, then an older page arrives while the field still shows it; ↑ continues with B instead of jumping to A.",
+      snapshot: chat(historyPageRows),
+      play: async (ctx) => {
+        const prompt = () =>
+          ctx.document.querySelector(".acpmux-composer-prompt .acpmux-md-root")?.textContent?.trim() ?? "";
+        await ctx.click({ selector: ".acpmux-composer-prompt" });
+        await ctx.press("ArrowUp");
+        await ctx.waitFor(() => prompt() === "C: add the 429 test");
+        // Model the transcript page arriving after the user has started browsing. Row ids for B and
+        // C are kept from the mounted snapshot; only the older A turn is prepended.
+        await new Promise((resolve) => setTimeout(resolve, 120));
+        const bridge = (
+          ctx.document.defaultView as unknown as {
+            cmuxAcpmuxBridge?: { receive(snapshot: AcpmuxSnapshot): void };
+          }
+        ).cmuxAcpmuxBridge;
+        if (!bridge) throw new Error("gallery pane bridge is unavailable");
+        bridge.receive(chat(historyPageOlderRows));
+        await ctx.press("ArrowUp");
+        await ctx.waitFor(() => prompt() === "B: update the retry helper");
       },
     },
     "queued-steering": {

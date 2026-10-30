@@ -11,6 +11,10 @@
 version = 1
 
 [[test]]
+path = "tests/test_web_ota_publication_contract.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_stress_cli_socket_api.py"
 lane = "linux-guard"
 
@@ -447,6 +451,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_testbox_broker_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_machine_join_e2e_workflow.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1155,6 +1163,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_prepush_gate.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_attachment_caps_guard.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2048,6 +2060,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_check_concurrency_generic_deinit.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_check_concurrency_pipe_reads.py"
 lane = "linux-guard"
 
 [[test]]

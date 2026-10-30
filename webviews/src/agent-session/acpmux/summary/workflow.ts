@@ -7,6 +7,8 @@ export type WorkflowAgent = {
   index?: number;
   agentId?: string;
   lastProgressAt?: number;
+  /// Monotonic folded event sequence, including progress events that only update usage.
+  progressVersion?: number;
   retryReason?: string;
   cached?: boolean;
   doing?: string;
