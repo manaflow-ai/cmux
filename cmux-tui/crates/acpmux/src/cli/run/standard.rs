@@ -337,8 +337,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 return Ok(());
             }
             println!(
-                "{:<24} {:<8} {:<13} {:>5} {:<6} LAST",
-                "NAME", "AGENT", "STATUS", "TURNS", "AGE"
+                "{:<24} {:<8} {:<13} {:>5} {:<6} {:>6} {:>7} {:>4} LAST",
+                "NAME", "AGENT", "STATUS", "TURNS", "AGE", "CTX", "$24H", "SUBS"
             );
             for s in sessions {
                 let g = |k: &str| s.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
@@ -347,13 +347,17 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 if s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0 {
                     status = "waiting!".into();
                 }
+                let [context, cost, subagents] = usage_cells(&s);
                 println!(
-                    "{:<24} {:<8} {:<13} {:>5} {:<6} {}",
+                    "{:<24} {:<8} {:<13} {:>5} {:<6} {:>6} {:>7} {:>4} {}",
                     short(&g("name"), 24),
                     short(&g("harness"), 8),
                     status,
                     s.get("turnCount").and_then(Value::as_u64).unwrap_or(0),
                     age(s.get("updatedAt").and_then(Value::as_u64).unwrap_or(0)),
+                    context,
+                    cost,
+                    subagents,
                     short(s.get("lastPrompt").and_then(Value::as_str).unwrap_or(""), 50)
                 );
             }

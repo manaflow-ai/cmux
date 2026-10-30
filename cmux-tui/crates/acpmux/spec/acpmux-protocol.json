@@ -4143,6 +4143,17 @@
           "type": "integer"
         },
         "usage": true,
+        "usageStats": {
+          "anyOf": [
+            {
+              "$ref": "#/types/UsageStats"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What its harness spends and holds, from the harness's own records\n(`usage_stats.rs`); absent until a Claude Code or Codex chat's records\nare found, for any other harness, and from a peer on an older acpmux."
+        },
         "waitingOn": {
           "description": "What it waits on the person for: `question` (an agent question) or\n`permission`; null while nothing is pending. Only the person allows a permission.",
           "type": [
@@ -4656,6 +4667,17 @@
           "minimum": 0,
           "type": "integer"
         },
+        "usageStats": {
+          "anyOf": [
+            {
+              "$ref": "#/types/UsageStats"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What its harness spends and holds, from the harness's own records\n(`usage_stats.rs`); absent until a Claude Code or Codex chat's records\nare found, for any other harness, and from a peer on an older acpmux."
+        },
         "waitingOn": {
           "description": "What it waits on the person for: `question` (an agent question) or\n`permission`; null while nothing is pending. Only the person allows a permission.",
           "type": [
@@ -4933,6 +4955,103 @@
       "required": [
         "sessionId",
         "on"
+      ],
+      "type": "object"
+    },
+    "UsageStats": {
+      "description": "A chat's spend and context as its harness recorded them (`usage_stats.rs`):\nClaude Code's transcript and its subagents' (their spend is the chat's), or\nCodex's rollout. Read again on a session list or info read, at most every\nfew seconds, from where the last read ended.",
+      "properties": {
+        "autocompactCap": {
+          "description": "The context size at which the harness compacts, when something caps it\n(Claude Code's `--autocompact`, `CLAUDE_CODE_AUTO_COMPACT_WINDOW`,\n`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` or `autoCompactWindow`; Codex's\n`model_auto_compact_token_limit`); null when nothing caps it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "compactions24h": {
+          "description": "Compactions in the last 24 hours.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "contextTokens": {
+          "description": "The last call's context: its input, cache read and cache write tokens.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "contextWindow": {
+          "description": "The model's context window, as the harness reported it, else the catalog's.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "costUsd24h": {
+          "description": "Those tokens at the model catalog's list prices, USD; null when no model\nthey ran on has a price.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "launcher": {
+          "description": "The executable its harness runs, by file name (`claude`, `claude-sr2`,\n`codex-acp`); `harness` is the profile.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "subagents1h": {
+          "description": "Subagents started in the last hour.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "subagents24h": {
+          "description": "Subagents started in the last 24 hours.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "subagentsLive": {
+          "description": "Subagents that run now.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tokens24h": {
+          "description": "Tokens of the last 24 hours, subagents' included: input, output, cache\nread and cache write.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "updatedAt": {
+          "description": "Unix ms of the read these come from.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "autocompactCap",
+        "compactions24h",
+        "contextTokens",
+        "contextWindow",
+        "costUsd24h",
+        "launcher",
+        "subagents1h",
+        "subagents24h",
+        "subagentsLive",
+        "tokens24h",
+        "updatedAt"
       ],
       "type": "object"
     },

@@ -293,6 +293,25 @@ pub(crate) fn age(ms: u64) -> String {
     }
 }
 
+/// The `acpmux ls` usage cells of a session row (`usageStats`): the last call's context,
+/// the last day's cost at list prices, and the subagents that run now; `-` when unknown.
+pub(crate) fn usage_cells(row: &Value) -> [String; 3] {
+    let stats = &row["usageStats"];
+    let tokens = |n: u64| match n {
+        n if n >= 999_500 => format!("{:.1}M", n as f64 / 1e6),
+        n if n >= 1_000 => format!("{}k", (n + 500) / 1000),
+        n => n.to_string(),
+    };
+    let context = stats["contextTokens"].as_u64().map_or_else(|| "-".to_owned(), tokens);
+    let cost = match stats["costUsd24h"].as_f64() {
+        Some(c) if c >= 10.0 => format!("${c:.0}"),
+        Some(c) => format!("${c:.2}"),
+        None => "-".to_owned(),
+    };
+    let live = stats["subagentsLive"].as_u64().map_or_else(|| "-".to_owned(), |n| n.to_string());
+    [context, cost, live]
+}
+
 /// Send a prompt and print the reply as it streams.
 /// Did this notification come from the agent, not from acpmux's own
 /// bookkeeping? Only agent activity resets the stall timer.

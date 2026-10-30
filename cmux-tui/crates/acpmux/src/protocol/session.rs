@@ -178,6 +178,53 @@ pub struct SessionSummary {
     /// The peer daemon a remote session runs on; absent for this daemon's own.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub peer: Option<String>,
+    /// What its harness spends and holds, from the harness's own records
+    /// (`usage_stats.rs`); absent until a Claude Code or Codex chat's records
+    /// are found, for any other harness, and from a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage_stats: Option<UsageStats>,
+}
+
+/// A chat's spend and context as its harness recorded them (`usage_stats.rs`):
+/// Claude Code's transcript and its subagents' (their spend is the chat's), or
+/// Codex's rollout. Read again on a session list or info read, at most every
+/// few seconds, from where the last read ended.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(transform = require_all)]
+pub struct UsageStats {
+    /// The executable its harness runs, by file name (`claude`, `claude-sr2`,
+    /// `codex-acp`); `harness` is the profile.
+    pub launcher: Option<String>,
+    /// The context size at which the harness compacts, when something caps it
+    /// (Claude Code's `--autocompact`, `CLAUDE_CODE_AUTO_COMPACT_WINDOW`,
+    /// `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` or `autoCompactWindow`; Codex's
+    /// `model_auto_compact_token_limit`); null when nothing caps it.
+    pub autocompact_cap: Option<u64>,
+    /// The last call's context: its input, cache read and cache write tokens.
+    pub context_tokens: Option<u64>,
+    /// The model's context window, as the harness reported it, else the catalog's.
+    pub context_window: Option<u64>,
+    /// Compactions in the last 24 hours.
+    pub compactions24h: u64,
+    /// Subagents that run now.
+    pub subagents_live: u64,
+    /// Subagents started in the last hour.
+    #[serde(rename = "subagents1h")]
+    pub subagents1h: u64,
+    /// Subagents started in the last 24 hours.
+    #[serde(rename = "subagents24h")]
+    pub subagents24h: u64,
+    /// Tokens of the last 24 hours, subagents' included: input, output, cache
+    /// read and cache write.
+    #[serde(rename = "tokens24h")]
+    pub tokens24h: u64,
+    /// Those tokens at the model catalog's list prices, USD; null when no model
+    /// they ran on has a price.
+    #[serde(rename = "costUsd24h")]
+    pub cost_usd24h: Option<f64>,
+    /// Unix ms of the read these come from.
+    pub updated_at: u64,
 }
 
 /// A durable lifecycle fact supplied by an explicit producer. This contract
