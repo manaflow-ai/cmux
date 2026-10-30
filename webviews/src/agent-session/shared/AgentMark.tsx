@@ -26,17 +26,6 @@ export function knownMark(...candidates: (string | undefined)[]): string | undef
   return candidates.find((candidate) => hasAgentMark(candidate)) ?? candidates.filter(Boolean).at(-1);
 }
 
-/// How marks color: each vendor's own colors (the default), or white on dark themes
-/// and black on light ones.
-export type AgentMarkStyle = "brand" | "mono";
-
-/// Sets the mark style for every mark on the page.
-export function setAgentMarkStyle(style: AgentMarkStyle) {
-  if (typeof document === "undefined") return;
-  if (style === "mono") document.documentElement.dataset.agentMarks = "mono";
-  else delete document.documentElement.dataset.agentMarks;
-}
-
 // The root attributes marks follow: data-theme, which applyAgentTheme sets from the
 // background-against-text luminance, and data-agent-marks. One observer for every mark.
 const listeners = new Set<() => void>();
@@ -60,8 +49,6 @@ function subscribe(listener: () => void) {
     }
   };
 }
-/// Whether the shared root observer is live. @internal, for tests.
-export const agentMarkObserving = () => observer !== undefined;
 // The pane is dark, in brand color, until told otherwise.
 const appearance = () => {
   if (typeof document === "undefined") return "dark brand";

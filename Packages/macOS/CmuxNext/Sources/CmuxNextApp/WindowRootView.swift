@@ -81,6 +81,8 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             toolbarBand.showSidebarState(hidden: sidebarHidden)
             collapsedBand.setSidebarHidden(sidebarHidden)
             applyTitlebarButtonsMode()
+            // With tab bars at the bottom the card's top follows who holds the lights (`mainPaneTopInset`).
+            if sidebarHidden != oldValue { needsLayout = true }
         }
     }
     /// Opens the collapsed band while the top-left corner is hovered.
@@ -174,7 +176,8 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         tokenObservation = Task { [weak self] in
             for await _ in ObservationStream({ [Metrics.titlebarHeight, Metrics.tabStripHeight, DesignSettings.shared.titlebar == .minimal ? 1 : 0,
                                            DesignSettings.shared.titlebarButtons == .hover ? 1 : 0,
-                                           DesignSettings.shared.sidebarSections.controlsOnHover ? 1 : 0] }) {
+                                           DesignSettings.shared.sidebarSections.controlsOnHover ? 1 : 0,
+                                           DesignSettings.shared.tabBarPosition == .bottom ? 1 : 0] }) {
                 self?.applyTokens()
                 self?.applyTitlebarButtonsMode()
             }
@@ -265,13 +268,16 @@ final class WindowRootView: NSView, WindowSurfacePainting {
 
     override func layout() {
         defer { onHintGeometryChange?() }
+        // Before the pass solves the constraints: the traffic lights' frame does not depend on it,
+        // and a top set after `super.layout()` showed only on the next pass (bottom tab bars' card
+        // sat under the lights until something else relaid the window).
+        updateMainPaneTopInset()
         super.layout()
         // Inside the window's layout pass the cursor order and the sidebar
         // occluder wait for its end (`windowDidLayout`): both change other
         // windows (overlay panel, pages) or this view's subviews.
         if (window as? ShellWindow)?.isInLayoutPass != true { windowDidLayout() }
         TitlebarDragPolicy.layoutBandBlocker(titlebarBandBlocker, in: self)
-        updateMainPaneTopInset()
         // Every frame is final here: the shade follows the card even when the
         // shade's own autoresizing landed after the card's frame change.
         updateMainPaneShade()

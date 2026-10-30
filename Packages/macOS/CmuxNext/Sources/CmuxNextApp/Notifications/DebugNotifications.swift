@@ -73,7 +73,9 @@ enum DebugNotifications {
             "log": .array(center.log.map(JSONValue.string)),
             "feed_log": .array((center.feedDriver?.log ?? []).map(JSONValue.string)),
             "dock_badge": center.dockBadge.label.map(JSONValue.string) ?? .null,
-            "dismissed_highlights": .object(center.dismissedHighlights.mapValues { .number(Double($0)) }),
+            "dismissed_highlights": .object(Dictionary(uniqueKeysWithValues: center.dismissedHighlights.map { key, value in
+                ("\(key.machine):\(key.session ?? ""):\(key.id)", .number(Double(value)))
+            })),
             "highlight_look": .string(AttentionHighlightLook.tunable.value.rawValue),
             "preferences": [
                 "dismissal": .string(prefs.dismissal.rawValue), "desktop": .string(prefs.desktop.rawValue),

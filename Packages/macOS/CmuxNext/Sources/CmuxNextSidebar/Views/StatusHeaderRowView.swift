@@ -46,7 +46,8 @@ final class StatusHeaderRowView: SidebarRowView {
         let namePadding = name.naturalSize.width - name.intrinsicContentSize.width
         count.frame = NSRect(x: name.frame.maxX - namePadding + Metrics.space1, y: name.frame.minY,
                              width: ceil(count.naturalSize.width), height: h)
-        chevron.frame = NSRect(x: b.maxX - Metrics.space2 - side, y: (b.height - side) / 2, width: side, height: side)
+        // On the trailing column every row's mark and the group header's chevron share (Leo 2026-10-28: "the alignment").
+        chevron.frame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.midY, side: side).offsetBy(dx: b.minX, dy: 0)
         needsDisplay = true
     }
 

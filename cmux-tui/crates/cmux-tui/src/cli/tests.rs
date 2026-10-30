@@ -11,6 +11,28 @@ fn strings(values: &[&str]) -> Vec<String> {
 }
 
 #[cfg(unix)]
+#[test]
+fn settings_separator_keeps_literal_confirm_with_daemon() {
+    let literal = strings(&["settings", "set", "--", "custom.label", "--confirm"]);
+    assert!(daemon_settings_scope(&literal));
+
+    let confirmed = strings(&["settings", "set", "custom.label", "value", "--confirm"]);
+    assert!(!daemon_settings_scope(&confirmed));
+}
+
+#[cfg(unix)]
+#[test]
+fn settings_crud_help_stays_on_the_app_help_scope() {
+    for args in [
+        strings(&["settings", "get", "--help"]),
+        strings(&["config", "set", "custom.label", "value", "--help"]),
+    ] {
+        assert!(has_help_option(&args));
+        assert!(!daemon_settings_scope(&args));
+    }
+}
+
+#[cfg(unix)]
 mod remote_cli_docs {
     use super::*;
     use std::collections::HashSet;
@@ -229,7 +251,7 @@ mod remote_cli_docs {
         let missing = action_names()
             .into_iter()
             .filter_map(|name| name.strip_prefix("cloud ").map(str::to_owned))
-            .filter(|name| !CLOUD_HELP.contains(name))
+            .filter(|name| !cloud_help::overview(false).contains(name))
             .collect::<Vec<_>>();
         assert!(missing.is_empty(), "cloud help omitted catalog actions: {missing:?}");
     }
@@ -241,7 +263,7 @@ mod remote_cli_docs {
         let args =
             strings(&["cloud", "exec", "--target", "machine:builder", "--arg", "command=uname -a"]);
         assert!(app::parse(&args).is_ok());
-        assert!(CLOUD_HELP.contains("cloud <action>"));
+        assert!(cloud_help::overview(false).contains("cloud <action>"));
         assert!(AGENT_HELP.contains("agent open-tab"));
         assert!(AGENT_HELP.contains("agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--focus]"));
     }

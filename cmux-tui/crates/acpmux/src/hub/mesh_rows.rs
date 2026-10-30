@@ -15,7 +15,9 @@ impl Hub {
     /// The sessions here a heartbeat lists: every one but a closed one, at most
     /// [`MAX_HEARTBEAT_SESSIONS`], working ones first, then the most recently changed. Read under
     /// each one's meta lock (no clone of a meta).
-    pub fn mesh_rows(&self) -> Vec<SessionRow> {
+    pub async fn mesh_rows(&self) -> Vec<SessionRow> {
+        let team_enabled =
+            self.config.read().await.mesh_relay.as_ref().is_some_and(|relay| relay.team_messaging);
         let sessions: Vec<Arc<Session>> = self
             .sessions
             .lock()
@@ -39,6 +41,20 @@ impl Hub {
                         harness: m.harness.clone(),
                         state: m.status.to_string(),
                         stuck_reason: None,
+                        team_address: team_enabled
+                            .then(|| {
+                                m.tags
+                                    .get("teamAddress")
+                                    .filter(|tag| {
+                                        crate::mesh::valid_team_suffix(&tag.value)
+                                            && tag
+                                                .expires_at
+                                                .map(|at| at > crate::store::now_ms())
+                                                .unwrap_or(true)
+                                    })
+                                    .map(|tag| tag.value.clone())
+                            })
+                            .flatten(),
                     };
                     (rank(m.status), m.updated_at, row)
                 })
@@ -54,6 +70,16 @@ impl Hub {
             .filter(|row| seen.insert(row.name.clone()))
             .take(MAX_HEARTBEAT_SESSIONS)
             .collect()
+    }
+
+    /// Whether a send to `target` may go to the mesh hub: nothing here or on a peer names it. Not
+    /// a session here (one or several), not one or several that a peer lists, not one on a peer
+    /// that is down now. An ambiguous name stays this daemon's refusal; the hub is never asked to
+    /// pick.
+    pub fn mesh_may_route(&self, target: &str) -> bool {
+        self.resolve(target).is_err_and(|e| e.code == RpcError::not_found("").code)
+            && self.remote_matches(target) == 0
+            && self.peer_down_for(target).is_none()
     }
 
     /// Whether a relayed message is for this daemon: refused when it names another host, or a
@@ -88,8 +114,34 @@ impl Hub {
         if let Some(id) = to.session_id.as_deref().filter(|id| !id.is_empty()) {
             return sessions.get(id).cloned().ok_or_else(|| format!("no session {id:?} here"));
         }
-        let key =
-            to.name.as_deref().filter(|n| !n.is_empty()).ok_or("the message names no session")?;
+        let key = to
+            .name
+            .as_deref()
+            .filter(|n| !n.is_empty())
+            .or_else(|| to.team_address.as_deref().filter(|a| !a.is_empty()))
+            .ok_or("the message names no session")?;
+        if to.name.is_none() {
+            let mut addressed: Vec<_> = sessions
+                .values()
+                .filter(|s| {
+                    s.meta
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .tags
+                        .get("teamAddress")
+                        .is_some_and(|tag| {
+                            tag.expires_at.map(|at| at > crate::store::now_ms()).unwrap_or(true)
+                                && tag.value.trim_start_matches('@') == key.trim_start_matches('@')
+                        })
+                })
+                .cloned()
+                .collect();
+            return match addressed.len() {
+                1 => Ok(addressed.remove(0)),
+                0 => Err(format!("no session {key:?} here")),
+                n => Err(format!("{key:?} names {n} sessions here; send to its session id")),
+            };
+        }
         let name = match key.split_once('/') {
             Some((host, rest)) if !rest.is_empty() && is_own_host(host) => rest,
             _ => key,
@@ -113,4 +165,43 @@ impl Hub {
 fn is_own_host(host: &str) -> bool {
     let own = crate::pairing::machine_name();
     own != "host" && host.eq_ignore_ascii_case(&own)
+}
+
+#[cfg(test)]
+mod mesh_route_tests {
+    use super::*;
+    use crate::config::{Config, StoreMode};
+    use crate::session_identity::SessionReceipt;
+    use serde_json::json;
+
+    fn row(peer: &str, id: &str, name: &str) -> RemoteSession {
+        RemoteSession {
+            peer: peer.into(),
+            summary: json!({"sessionId": id, "name": name}),
+            receipt: SessionReceipt {
+                host_id: peer.into(),
+                mux_session_id: id.into(),
+                agent_session_id: None,
+                generation: 1,
+            },
+        }
+    }
+
+    /// A name two peers list is ambiguous: it is never sent to the hub to pick one.
+    #[tokio::test]
+    async fn a_name_one_or_several_peers_list_never_goes_to_the_mesh_hub() {
+        let mut config: Config = serde_json::from_value(json!({})).expect("config");
+        config.store.mode = StoreMode::Memory;
+        let store =
+            crate::store::open(&config.store, std::path::Path::new("/nonexistent")).expect("store");
+        let hub = Hub::new(config, store);
+        assert!(hub.mesh_may_route("dep-land"));
+        hub.remote_sessions.lock().unwrap().insert("p1/s1".into(), row("p1", "s1", "dep-land"));
+        assert!(!hub.mesh_may_route("dep-land"), "one peer lists it");
+        hub.remote_sessions.lock().unwrap().insert("p2/s2".into(), row("p2", "s2", "dep-land"));
+        assert_eq!(hub.remote_matches("dep-land"), 2);
+        assert!(hub.resolve_remote("dep-land").is_none(), "ambiguous");
+        assert!(!hub.mesh_may_route("dep-land"), "two peers list it");
+        assert!(hub.mesh_may_route("other"));
+    }
 }
