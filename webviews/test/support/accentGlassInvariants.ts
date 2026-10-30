@@ -63,7 +63,7 @@ export async function accentGlassInvariants({ file, part, parts, viteConfig }: A
     ) as { allowed: { name: string; themes: string[] }[] };
     const themes: (string | undefined)[] = [undefined, ...allowlist.allowed.map((entry) => entry.themes[0]!)];
     const orangeThemes = new Set(allowlist.allowed.flatMap((entry) => entry.themes));
-    const stages = (await loadEntrySources())
+    const everyStage = (await loadEntrySources())
       .filter(({ entry }) => entry.host !== "native")
       .flatMap(({ entry, path: source }) =>
         Object.keys(entry.variants).flatMap((variant, index) =>
@@ -73,10 +73,17 @@ export async function accentGlassInvariants({ file, part, parts, viteConfig }: A
             .map((theme) => ({ entry: entry.id, variant, source, theme })),
         ),
       )
-      .sort((a, b) => stageName(a).localeCompare(stageName(b)))
-      // This part's share: every `parts`-th stage of the sorted list, so each part gets a mix of entries.
-      .filter((_, index) => index % parts === part - 1);
+      .sort((a, b) => stageName(a).localeCompare(stageName(b)));
+    // This part's share: every `parts`-th stage of the sorted list, so each part gets a mix of entries.
+    const stages = everyStage.filter((_, index) => index % parts === part - 1);
     const mine = new Set(stages.map(stageName));
+    // A baseline key is `<stage> <rule> <element>`, and a stage name may hold spaces (a theme such as `Clay Orange`):
+    // its stage is the longest stage name it starts with. A key no stage has any more is part 1's to report.
+    const names = everyStage.map(stageName).sort((a, b) => b.length - a.length);
+    const ownedHere = (key: string): boolean => {
+      const stage = names.find((name) => key.startsWith(`${name} `));
+      return stage === undefined ? part === 1 : mine.has(stage);
+    };
 
     const { createServer } = await import("vite");
     let vite: Awaited<ReturnType<typeof createServer>> | undefined;
@@ -169,9 +176,9 @@ export async function accentGlassInvariants({ file, part, parts, viteConfig }: A
           fresh.push(`${key}  (${finding.detail})`);
         }
       }
-      // A baseline line belongs to the part that scans its stage (a key starts with its stage's name).
+      // A baseline line belongs to the part that scans its stage.
       for (const key of baseline)
-        if (mine.has(key.split(" ", 1)[0]!) && !reported.has(key))
+        if (ownedHere(key) && !reported.has(key))
           console.warn(`accent-glass: baseline line no longer found, drop it: ${key}`);
       console.log(
         `accent-glass: scanned ${results.filter((result) => !("error" in result)).length} of ${stages.length} stages, ${reported.size} findings, ${fresh.length} new`,
