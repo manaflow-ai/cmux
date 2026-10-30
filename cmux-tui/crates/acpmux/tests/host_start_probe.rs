@@ -1,49 +1,25 @@
-//! SCRATCH probe (pa-b10, not for landing): where the time of an agent host
-//! start goes when a wave of chats opens at once on a busy Mac. Prints a table
-//! (the test fails on purpose so the runner shows it).
-#![cfg(unix)]
+//! SCRATCH probe (pa-b10, not for landing): how long a harness spawn takes on a
+//! busy Mac by the way its CPU class is set, and whether a class set on a
+//! running process is inherited by what it starts later. Prints a table (the
+//! test fails on purpose so the runner shows it).
+#![cfg(target_os = "macos")]
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
-use acpmux::agent_host::link::{self, HostLauncher};
-use acpmux::agent_host::{self, SpawnSpec};
-use acpmux::cpu_class::CpuClass;
+use std::ffi::CString;
 use std::fmt::Write as _;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+const PRIO_DARWIN_PROCESS: libc::c_int = 4;
+const PRIO_DARWIN_BG: libc::c_int = 0x1000;
 
-fn scratch(tag: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("ahp-{tag}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-fn launcher() -> HostLauncher {
-    HostLauncher { exe: daemon_env::bin().into(), prefix: Vec::new() }
-}
-
-fn spec(dir: &Path, session: &str, program: &str, class: CpuClass) -> SpawnSpec {
-    let hosts = dir.join("hosts");
-    SpawnSpec {
-        session_id: session.into(),
-        program: program.into(),
-        args: vec![FAKE.into()],
-        env: daemon_env::vars(dir, daemon_env::Agents::StandIn, &[]),
-        cwd: dir.to_path_buf(),
-        translator: None,
-        codex_bridge: false,
-        socket: agent_host::socket_path(&hosts, session),
-        hosts_dir: hosts,
-        buffer_cap: agent_host::DEFAULT_BUFFER_CAP,
-        router_owner_fifo: None,
-        cwd_pin: None,
-        cpu_class: class,
-    }
+fn python() -> String {
+    std::env::var("ACPMUX_TEST_PYTHON").unwrap_or_else(|_| "python3".into())
 }
 
 fn loadavg() -> f64 {
@@ -61,56 +37,120 @@ fn sysctl(name: &str) -> String {
         .unwrap_or_default()
 }
 
-async fn wave(tag: &str, n: usize, program: &str, class: CpuClass) -> String {
-    wave_gated(tag, n, program, class, 0).await
+#[derive(Clone, Copy, Debug)]
+enum How {
+    Normal,
+    PreExecBg,
+    DemoteAfter,
+    ClampUtility,
+    ClampBackground,
 }
 
-async fn wave_gated(tag: &str, n: usize, program: &str, class: CpuClass, gate: usize) -> String {
-    let gate =
-        std::sync::Arc::new(tokio::sync::Semaphore::new(if gate == 0 { 10_000 } else { gate }));
-    let dir = scratch(tag);
-    let python = std::env::var("ACPMUX_TEST_PYTHON").unwrap_or_else(|_| "python3".into());
-    let program = if program == "python3" { python } else { program.to_owned() };
-    let mut set = tokio::task::JoinSet::new();
-    let begin = Instant::now();
-    for i in 0..n {
-        let spec = spec(&dir, &format!("s{i}"), &program, class);
-        let gate = gate.clone();
-        set.spawn(async move {
-            let t = Instant::now();
-            let _slot = gate.acquire_owned().await.unwrap();
-            let r = link::spawn_within(&launcher(), &spec, Duration::from_secs(180)).await;
-            (t.elapsed(), r)
-        });
-    }
-    let mut times = Vec::new();
-    let mut ok = 0;
-    let mut errs = std::collections::BTreeMap::<String, usize>::new();
-    while let Some(Ok((took, r))) = set.join_next().await {
-        times.push(took.as_secs_f64() * 1000.0);
-        match r {
-            Ok(record) => {
-                ok += 1;
-                if let Some(pg) = record.harness_pid {
-                    // SAFETY: the harness leads its own group.
-                    unsafe { libc::killpg(pg as i32, libc::SIGKILL) };
+type ClampFn = unsafe extern "C" fn(*mut libc::posix_spawnattr_t, u64) -> libc::c_int;
+
+fn clamp_fn() -> ClampFn {
+    // SAFETY: dlsym of a NUL-terminated name.
+    let sym =
+        unsafe { libc::dlsym(libc::RTLD_DEFAULT, c"posix_spawnattr_set_qos_clamp_np".as_ptr()) };
+    assert!(!sym.is_null());
+    // SAFETY: that function's signature.
+    unsafe { std::mem::transmute::<*mut libc::c_void, ClampFn>(sym) }
+}
+
+/// Starts `argv` the way `how` says; returns the pid once the spawn returned.
+fn start(how: How, argv: &[String]) -> libc::pid_t {
+    match how {
+        How::Normal | How::PreExecBg | How::DemoteAfter => {
+            let mut cmd = std::process::Command::new(&argv[0]);
+            cmd.args(&argv[1..])
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null());
+            if matches!(how, How::PreExecBg) {
+                // SAFETY: one async-signal-safe syscall in the child.
+                unsafe {
+                    cmd.pre_exec(|| {
+                        libc::setpriority(PRIO_DARWIN_PROCESS, 0, PRIO_DARWIN_BG);
+                        Ok(())
+                    });
                 }
-                // SAFETY: the host this probe started.
-                unsafe { libc::kill(record.host_pid as i32, libc::SIGKILL) };
             }
-            Err(e) => {
-                let m = format!("{e:#}");
-                *errs.entry(m.chars().take(60).collect()).or_default() += 1;
+            let child = cmd.spawn().unwrap();
+            let pid = child.id() as libc::pid_t;
+            std::mem::forget(child);
+            if matches!(how, How::DemoteAfter) {
+                // SAFETY: our child.
+                unsafe { libc::setpriority(PRIO_DARWIN_PROCESS, pid as _, PRIO_DARWIN_BG) };
+            }
+            pid
+        }
+        How::ClampUtility | How::ClampBackground => {
+            let clamp = if matches!(how, How::ClampUtility) { 1 } else { 2 };
+            let args: Vec<CString> =
+                argv.iter().map(|a| CString::new(a.as_str()).unwrap()).collect();
+            let mut ptrs: Vec<*mut libc::c_char> =
+                args.iter().map(|a| a.as_ptr().cast_mut()).chain([std::ptr::null_mut()]).collect();
+            let env: Vec<CString> =
+                std::env::vars().map(|(k, v)| CString::new(format!("{k}={v}")).unwrap()).collect();
+            let mut envp: Vec<*mut libc::c_char> =
+                env.iter().map(|a| a.as_ptr().cast_mut()).chain([std::ptr::null_mut()]).collect();
+            // SAFETY: attr initialized and destroyed; vectors NUL-terminated.
+            unsafe {
+                let mut attr: libc::posix_spawnattr_t = std::ptr::null_mut();
+                assert_eq!(libc::posix_spawnattr_init(&mut attr), 0);
+                assert_eq!(clamp_fn()(&mut attr, clamp), 0);
+                let mut pid = 0;
+                let rc = libc::posix_spawn(
+                    &mut pid,
+                    args[0].as_ptr(),
+                    std::ptr::null(),
+                    &attr,
+                    ptrs.as_mut_ptr(),
+                    envp.as_mut_ptr(),
+                );
+                libc::posix_spawnattr_destroy(&mut attr);
+                assert_eq!(rc, 0);
+                pid
             }
         }
     }
+}
+
+fn reap(pid: libc::pid_t) {
+    // SAFETY: our child.
+    unsafe {
+        libc::kill(pid, libc::SIGKILL);
+        let mut status = 0;
+        libc::waitpid(pid, &mut status, 0);
+    }
+}
+
+async fn wave(tag: &str, n: usize, how: How) -> String {
+    let argv = vec![python(), FAKE.to_owned()];
+    let mut set = tokio::task::JoinSet::new();
+    let begin = Instant::now();
+    for _ in 0..n {
+        let argv = argv.clone();
+        set.spawn_blocking(move || {
+            let t = Instant::now();
+            let pid = start(how, &argv);
+            (t.elapsed().as_secs_f64() * 1000.0, pid)
+        });
+    }
+    let mut times = Vec::new();
+    let mut pids = Vec::new();
+    while let Some(Ok((t, pid))) = set.join_next().await {
+        times.push(t);
+        pids.push(pid);
+    }
     let wall = begin.elapsed().as_secs_f64() * 1000.0;
+    for pid in pids {
+        reap(pid);
+    }
     times.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let q = |p: f64| times[((times.len() - 1) as f64 * p).round() as usize];
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    let _ = std::fs::remove_dir_all(&dir);
     format!(
-        "{tag:<34} n={n:<3} ok={ok:<3} min={:>7.0} p50={:>7.0} p90={:>7.0} max={:>7.0} wall={wall:>7.0} load1={:.0} errs={errs:?}",
+        "{tag:<28} {how:<16?} n={n:<3} min={:>6.0} p50={:>6.0} p90={:>6.0} max={:>6.0} wall={wall:>6.0} load1={:.0}",
         q(0.0),
         q(0.5),
         q(0.9),
@@ -119,9 +159,28 @@ async fn wave_gated(tag: &str, n: usize, program: &str, class: CpuClass, gate: u
     )
 }
 
+/// Whether a process `how` started passes its class on to a child it starts
+/// later (after the demotion), as read by that child.
+fn inheritance(how: How, dir: &Path) -> String {
+    let out = dir.join(format!("inherit-{how:?}"));
+    let script = format!(
+        "sleep 1; {py} -c 'import ctypes,os; l=ctypes.CDLL(None); open(\"{out}\",\"w\").write(str(l.getpriority(4,0)))'",
+        py = python(),
+        out = out.display()
+    );
+    let pid = start(how, &["/bin/sh".into(), "-c".into(), script]);
+    // SAFETY: read our child's class now.
+    let own = unsafe { libc::getpriority(PRIO_DARWIN_PROCESS, pid as _) };
+    let mut status = 0;
+    // SAFETY: our child.
+    unsafe { libc::waitpid(pid, &mut status, 0) };
+    let child = std::fs::read_to_string(&out).unwrap_or_else(|e| format!("({e})"));
+    format!("inherit {how:<16?} started-process darwin-bg={own} its-later-child darwin-bg={child}")
+}
+
 struct Load(Vec<std::process::Child>);
 impl Load {
-    fn start(n: usize) -> Self {
+    fn cpu(n: usize) -> Self {
         Self(
             (0..n)
                 .map(|_| {
@@ -133,17 +192,15 @@ impl Load {
                 .collect(),
         )
     }
-    /// `n` writers that write 4 MiB and fsync, in a loop (a busy disk).
     fn disk(n: usize, dir: &Path) -> Self {
         Self(
             (0..n)
                 .map(|i| {
-                    let f = dir.join(format!("disk-{i}"));
                     std::process::Command::new("/bin/sh")
                         .arg("-c")
                         .arg(format!(
                             "while :; do dd if=/dev/zero of={} bs=1m count=4 2>/dev/null; sync; done",
-                            f.display()
+                            dir.join(format!("disk-{i}")).display()
                         ))
                         .spawn()
                         .unwrap()
@@ -151,32 +208,6 @@ impl Load {
                 .collect(),
         )
     }
-}
-
-/// The host's record write (write, F_FULLFSYNC, rename) done 25 at once, as 25
-/// hosts of a wave do, from this process at its current I/O policy.
-async fn fsync_wave(tag: &str, dir: &Path) -> String {
-    let mut set = tokio::task::JoinSet::new();
-    for i in 0..25 {
-        let path = dir.join(format!("rec-{i}.json"));
-        set.spawn_blocking(move || {
-            use std::io::Write;
-            let t = Instant::now();
-            let mut f = std::fs::File::create(&path).unwrap();
-            f.write_all(&[b'x'; 512]).unwrap();
-            f.sync_all().unwrap();
-            t.elapsed().as_secs_f64() * 1000.0
-        });
-    }
-    let mut times = Vec::new();
-    while let Some(Ok(t)) = set.join_next().await {
-        times.push(t);
-    }
-    times.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    format!(
-        "{tag:<34} fsync x25 min={:>7.0} p50={:>7.0} max={:>7.0}",
-        times[0], times[12], times[24]
-    )
 }
 impl Drop for Load {
     fn drop(&mut self) {
@@ -190,12 +221,11 @@ impl Drop for Load {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn host_start_probe_measure() {
     let ncpu: usize = sysctl("hw.ncpu").parse().unwrap_or(8);
-    let disk_dir = scratch("disk");
+    let dir: PathBuf = std::env::temp_dir().join(format!("ahp-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
     let mut out = format!(
-        "\nncpu={ncpu} perf0={} perf1={} mem={} os={} load1-at-start={:.0}\n",
-        sysctl("hw.perflevel0.physicalcpu"),
-        sysctl("hw.perflevel1.physicalcpu"),
-        sysctl("hw.memsize"),
+        "\nncpu={ncpu} os={} load1-at-start={:.0}\n",
         sysctl("kern.osproductversion"),
         loadavg()
     );
@@ -203,31 +233,24 @@ async fn host_start_probe_measure() {
         eprintln!("{line}");
         writeln!(out, "{line}").unwrap();
     };
-    let normal = CpuClass::Normal;
-    for qos in ["default", "off"] {
-        if qos == "off" {
-            // SAFETY: set before any host of this pass starts.
-            unsafe { std::env::set_var("ACPMUX_QOS", "off") };
-        }
-        say(wave(&format!("idle qos={qos} host"), 25, "/nonexistent/x", normal).await);
-        say(fsync_wave(&format!("idle qos={qos}"), &disk_dir).await);
-        for (load, cpu, disk) in [("cpu", ncpu * 10, 0), ("disk", 0, 8), ("cpu+disk", ncpu * 10, 8)]
-        {
-            let _cpu = Load::start(cpu);
-            let _disk = Load::disk(disk, &disk_dir);
-            tokio::time::sleep(Duration::from_secs(5)).await;
-            let tag = format!("{load} qos={qos}");
-            say(wave(&format!("{tag} host n=1"), 1, "/nonexistent/x", normal).await);
-            say(wave(&format!("{tag} host"), 25, "/nonexistent/x", normal).await);
-            say(wave_gated(&format!("{tag} host gate={ncpu}"), 25, "/nonexistent/x", normal, ncpu)
-                .await);
-            say(wave(&format!("{tag} harness"), 25, "python3", normal).await);
-            say(wave_gated(&format!("{tag} harness gate={ncpu}"), 25, "python3", normal, ncpu)
-                .await);
-            say(fsync_wave(&tag, &disk_dir).await);
-        }
-        tokio::time::sleep(Duration::from_secs(2)).await;
+    let all =
+        [How::Normal, How::PreExecBg, How::DemoteAfter, How::ClampUtility, How::ClampBackground];
+    for how in all {
+        say(inheritance(how, &dir));
     }
-    let _ = std::fs::remove_dir_all(&disk_dir);
+    for how in all {
+        say(wave("idle", 25, how).await);
+    }
+    for (load, cpu, disk) in [("cpu", ncpu * 10, 0), ("cpu+disk", ncpu * 10, 8)] {
+        let _cpu = Load::cpu(cpu);
+        let _disk = Load::disk(disk, &dir);
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        for round in 0..2 {
+            for how in all {
+                say(wave(&format!("{load} r{round}"), 25, how).await);
+            }
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
     panic!("PROBE TABLE (ms):{out}");
 }
