@@ -158,6 +158,15 @@ class PrStatusTests(unittest.TestCase):
         self.assertEqual(sections["published"], published)
         self.assertIn("cut to fit", sections["tour"])
 
+    def test_successive_updates_retrim_the_existing_cut_section(self):
+        first = pr_status.render({"tour": "x" * 70000, "bead": "Bead: cx-abc1"})
+        sections = pr_status.parse(first)
+        sections["receipt"] = "r" * 258
+        second = pr_status.parse(pr_status.render(sections))
+        self.assertEqual(second["bead"], "Bead: cx-abc1")
+        self.assertEqual(second["receipt"], "r" * 258)
+        self.assertIn("cut to fit", second["tour"])
+
     def test_dispatched_fields_accept_only_valid_values(self):
         self.assertEqual(pr_status.field_text("cx-bi1nt", None), ("bead", "Bead: `cx-bi1nt`"))
         key, text = pr_status.field_text(None, "a" * 40)
