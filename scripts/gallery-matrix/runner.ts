@@ -202,17 +202,18 @@ async function serveDirectory(root: string): Promise<{ baseUrl: string; close: (
  * without a named surface. Coordinates are CSS pixels and Playwright applies the 2x scale. */
 export async function captureClip(page: Page): Promise<{ x: number; y: number; width: number; height: number } | undefined> {
   const selector = process.env.CMUX_GALLERY_CAPTURE_SELECTOR || DEFAULT_CAPTURE_SELECTOR;
-  const clip = await page.evaluate(({ selector, padding }) => {
+  const measured = await page.evaluate(({ selector }) => {
     const element = document.querySelector(selector);
     if (!element) return null;
     const rect = element.getBoundingClientRect();
-    const x = Math.max(0, rect.left + window.scrollX - padding);
-    const y = Math.max(0, rect.top + window.scrollY - padding);
-    const right = Math.min(Math.max(document.documentElement.scrollWidth, window.innerWidth), rect.right + window.scrollX + padding);
-    const bottom = Math.min(Math.max(document.documentElement.scrollHeight, window.innerHeight), rect.bottom + window.scrollY + padding);
-    return { x, y, width: Math.max(1, right - x), height: Math.max(1, bottom - y) };
-  }, { selector, padding: DEFAULT_CAPTURE_CONTEXT });
-  return clip ?? undefined;
+    return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, viewportWidth: window.innerWidth, viewportHeight: window.innerHeight };
+  }, { selector });
+  if (!measured) return undefined;
+  const left = Math.max(0, measured.left - DEFAULT_CAPTURE_CONTEXT);
+  const top = Math.max(0, measured.top - DEFAULT_CAPTURE_CONTEXT);
+  const right = Math.min(measured.viewportWidth, measured.right + DEFAULT_CAPTURE_CONTEXT);
+  const bottom = Math.min(measured.viewportHeight, measured.bottom + DEFAULT_CAPTURE_CONTEXT);
+  return right > left && bottom > top ? { x: left, y: top, width: right - left, height: bottom - top } : undefined;
 }
 async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, outputDir: string, baselineDir: string | undefined, threshold: number, browser: Browser): Promise<Record<string, unknown>> {
   const params = item.params ?? {};
@@ -240,7 +241,8 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     await page.exposeFunction("cmuxGalleryStep", async (step: { index: number; step: string }) => {
       const started = Date.now();
       const name = `${safeFilePart(item.id)}-${engine}--step-${String(step.index + 1).padStart(2, "0")}.png`;
-      await page.screenshot({ path: join(outputDir, name), clip: await captureClip(page) });
+      const clip = await captureClip(page);
+      await page.screenshot({ path: join(outputDir, name), ...(clip ? { clip } : { fullPage: true }) });
       stills.push({ index: step.index, step: String(step.step).slice(0, 200), screenshot: name });
       stillsMs += Date.now() - started;
     });
@@ -285,7 +287,8 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     const geometrySelections: GeometrySelection[] | undefined = process.env.CMUX_GEOMETRY_SELECTORS
       ? JSON.parse(readFileSync(process.env.CMUX_GEOMETRY_SELECTORS, "utf8"))[item.id] : undefined;
     if (geometrySelections) await page.evaluate(() => document.getAnimations().forEach((animation) => animation.pause()));
-    await page.screenshot({ path: join(outputDir, `${safeFilePart(item.id)}-${engine}.png`), clip: await captureClip(page) });
+    const clip = await captureClip(page);
+    await page.screenshot({ path: join(outputDir, `${safeFilePart(item.id)}-${engine}.png`), ...(clip ? { clip } : { fullPage: true }) });
     const screenshotName = `${safeFilePart(item.id)}-${engine}.png`;
     const screenshotPath = join(outputDir, screenshotName);
     const result: Record<string, unknown> = { id: item.id, engine, screenshot: screenshotName, params, ready, readyMs, revision, play, ...(experiment ? { experiment } : {}) };

@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { PNG } from "pngjs";
+import { chromium } from "playwright";
 import { captureClip, deleteLedgerIds, diffPng, parseManifest, pauseLedgerIds, renderIndex, settleSummary, shardCases, undeletedLedgerIds, withTimeout, writeLedger } from "./runner";
 
 test("summarizes settled interaction latency and ignores missing samples", () => {
@@ -22,9 +23,28 @@ test("motion review cards include an opt-in video", () => {
   expect(html).toContain("motion.webm");
 });
 
-test("capture clip uses the named element with context", async () => {
-  const page = { evaluate: async () => ({ x: 4, y: 8, width: 120, height: 64 }) } as never;
-  await expect(captureClip(page)).resolves.toEqual({ x: 4, y: 8, width: 120, height: 64 });
+test("capture clips stay in the viewport after scroll and handle offscreen or missing targets", async () => {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage({ viewport: { width: 400, height: 300 } });
+    await page.setContent('<style>body{margin:0;height:1600px}#root{position:absolute;left:80px;top:600px;width:100px;height:80px;background:red}</style><div id="root"></div>');
+    await page.evaluate(() => window.scrollTo(0, 500));
+    expect(await page.evaluate(() => window.scrollY)).toBe(500);
+    const clip = await captureClip(page);
+    expect(clip).toEqual({ x: 48, y: 68, width: 164, height: 144 });
+    const pixels = PNG.sync.read(await page.screenshot({ clip }));
+    const pixel = (50 * pixels.width + 50) * 4;
+    expect([...pixels.data.subarray(pixel, pixel + 3)]).toEqual([255, 0, 0]);
+    // A partially visible target retains only its visible portion plus context.
+    await page.evaluate(() => Object.assign(document.getElementById("root")!.style, { left: "-40px", top: "750px", width: "500px", height: "100px" }));
+    expect(await captureClip(page)).toEqual({ x: 0, y: 218, width: 400, height: 82 });
+    for (const [left, top] of [[500, 600], [-500, 600], [80, 0], [80, 1200]]) {
+      await page.evaluate(({ left, top }) => Object.assign(document.getElementById("root")!.style, { left: `${left}px`, top: `${top}px`, width: "100px", height: "80px" }), { left, top });
+      expect(await captureClip(page)).toBeUndefined();
+    }
+    await page.evaluate(() => document.getElementById("root")!.remove());
+    expect(await captureClip(page)).toBeUndefined();
+  } finally { await browser.close(); }
 });
 
 test("parses and validates a manifest", () => {
@@ -101,6 +121,8 @@ test("a matrix reuses its browser while isolating and closing every case context
   ]));
   let launches = 0; let contexts = 0; let closedContexts = 0; let closedBrowsers = 0;
   const navigationWaits: unknown[] = [];
+  const screenshots: { fullPage?: boolean; clip?: unknown }[] = [];
+  let captureStep: ((step: { index: number; step: string }) => Promise<void>) | undefined;
   const browserTypes = { chromium: { launch: async () => {
     launches++;
     return {
@@ -108,9 +130,9 @@ test("a matrix reuses its browser while isolating and closing every case context
         contexts++;
         return {
           newPage: async () => ({
-            exposeFunction: async () => {}, addInitScript: async () => {}, goto: async (_url: string, options: unknown) => { navigationWaits.push(options); }, waitForFunction: async () => {},
+            exposeFunction: async (name: string, callback: typeof captureStep) => { if (name === "cmuxGalleryStep") captureStep = callback; }, addInitScript: async () => {}, goto: async (_url: string, options: unknown) => { navigationWaits.push(options); await captureStep?.({ index: 0, step: "fixture" }); }, waitForFunction: async () => {},
             evaluate: async () => null,
-            screenshot: async ({ path }: { path: string }) => writeFileSync(path, "fixture screenshot"),
+            screenshot: async ({ path, ...options }: { path: string; fullPage?: boolean; clip?: unknown }) => { screenshots.push(options); writeFileSync(path, "fixture screenshot"); },
           }),
           close: async () => { closedContexts++; },
         };
@@ -121,6 +143,7 @@ test("a matrix reuses its browser while isolating and closing every case context
   try {
     const results = await runLocal({ manifest, galleryDir: dir, outputDir: dir, threshold: 0, engines: ["chromium"], shardCount: 1, shardIndex: 0 }, browserTypes as never);
     expect(results.map((r) => r.id)).toEqual(["first", "second"]);
+    expect(screenshots).toEqual(Array.from({ length: 4 }, () => ({ fullPage: true })));
     expect(launches).toBe(1);
     expect(contexts).toBe(2);
     expect(closedContexts).toBe(2);
