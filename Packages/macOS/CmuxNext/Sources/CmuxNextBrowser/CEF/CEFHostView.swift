@@ -300,6 +300,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     override func viewDidHide() {
         super.viewDidHide()
         dropHold()
+        refreshSyncedDrag()
         tab?.contentDidDisappear()
     }
 
@@ -307,6 +308,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     override func viewDidUnhide() {
         super.viewDidUnhide()
         guard let tab, window != nil, !isHiddenOrHasHiddenAncestor else { return }
+        refreshSyncedDrag()
         tab.pageThemeDidChange()
         tab.contentDidAppear(in: self)
     }
@@ -324,6 +326,8 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     /// The page (the pane's shared `CEFHostView` and the snapshot) takes
     /// the page frame; a docked DevTools and its divider take the rest.
     func layoutContent() {
+        // DevTools can open, close or change dock while the drag is already active.
+        refreshSyncedDrag()
         // DevTools docked, a side panel or a device fit came up mid-drag: they lay out as before.
         if heldPageSize != nil, !pageCanHold { dropHold() }
         let frames = tab?.devToolsController.frames(in: bounds)
@@ -418,10 +422,25 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     private func startSyncedDrag() {
         guard syncedDragHostings.isEmpty, window != nil, let tab else { return }
         syncedDragHostings = [tab.host.hostView.layerHosting]
-        if !isHiddenOrHasHiddenAncestor, let devTools = tab.devToolsController.views?.host.layerHosting {
-            syncedDragHostings.append(devTools)
+        tab.host.hostView.layerHosting.paneResizeDrag(active: true)
+        refreshSyncedDrag()
+    }
+
+    /// Keeps the shared page's drag share, and lends a share only to DevTools currently docked over
+    /// this visible container. Reconcile before layout so newly shown DevTools waits at its first size.
+    private func refreshSyncedDrag() {
+        guard let page = syncedDragHostings.first else { return }
+        var hostings = [page]
+        if !isHiddenOrHasHiddenAncestor, let host = tab?.devToolsController.views?.host, host.superview === self {
+            hostings.append(host.layerHosting)
         }
-        for hosting in syncedDragHostings { hosting.paneResizeDrag(active: true) }
+        for hosting in syncedDragHostings where !hostings.contains(where: { $0 === hosting }) {
+            hosting.paneResizeDrag(active: false)
+        }
+        for hosting in hostings where !syncedDragHostings.contains(where: { $0 === hosting }) {
+            hosting.paneResizeDrag(active: true)
+        }
+        syncedDragHostings = hostings
     }
 
     /// Hands back this container's share of a resize-sync drag.
