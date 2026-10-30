@@ -34,6 +34,31 @@ import Testing
         #expect(encodes.onMain == [false], "the marker's bytes were made on the main thread")
     }
 
+    /// Quit's close waits for at most one disk write, never for bytes being made (their footprint read can wait for
+    /// the kernel), and nothing is written after it. The encode here holds until the close has returned: a close
+    /// that waited for it never returns, and the suite's time limit fails the test.
+    @Test func closeDoesNotWaitForBytesBeingMade() async {
+        let gate = DispatchSemaphore(value: 0)
+        let writes = Encodes()
+        let directory = URL(fileURLWithPath: "/nonexistent-run-marker-test", isDirectory: true)
+        let file = RunMarkerFile(url: directory.appending(path: "run.json"), signalURL: directory.appending(path: "run.signal"),
+                                 writer: { _, _ in writes.note(onMain: false) })
+        let (started, began) = AsyncStream<Void>.makeStream()
+        let ticket = file.submit(encoding: {
+            began.yield()
+            gate.wait()
+            return Data("{}".utf8)
+        })
+        var iterator = started.makeAsyncIterator()
+        _ = await iterator.next()
+        await Task.detached { file.close() }.value
+        gate.signal()
+        await file.drained()
+        #expect(await file.written(ticket, timeout: .seconds(30)), "a closed file answers true")
+        #expect(writes.onMain.isEmpty, "nothing is written after close")
+        #expect(file.writeCount == 0)
+    }
+
     /// The bytes carry the footprint read when they are made, not the snapshot's.
     @Test func theEncodingReadsTheFootprintWhenItRuns() throws {
         var run = PreviousRun(pid: 4242, launched: Date(timeIntervalSince1970: 1_000), recovery: false, survived: false, signal: nil)

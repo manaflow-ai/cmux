@@ -21,9 +21,10 @@ import Darwin
 ///   every mode's timers with their interval and callout, sources and observers. An idle bench reads
 ///   the repeating timers from it to name what wakes the main thread outside the ledger.
 enum DebugWakeups {
-    static func report(_ params: [String: JSONValue], budgeted: FrameScheduler, work: BackgroundWork) async -> JSONValue {
+    static func report(_ params: [String: JSONValue], budgeted: FrameScheduler, work: BackgroundWork) async throws -> JSONValue {
         var object = mainActorPart(params, budgeted: budgeted)
-        let processes = (try? await work.run(.bestEffort, mayBlock: .system) { AppProcesses.sample() }) ?? []
+        // A cancelled sample throws: an empty list would read as every process gone (bench-idle.py diffs two calls).
+        let processes = try await work.run(.bestEffort, mayBlock: .system) { AppProcesses.sample() }
         object["processes"] = .array(processes.map(\.json))
         return .object(object)
     }

@@ -201,7 +201,7 @@ public final class BusyWatchdog: Sendable {
         // A wake between the exchange and the store found the watch still on and opened nothing: open for it.
         if awakeDuringWindow.exchange(false, ordering: .relaxed),
            measuring.compareExchange(expected: false, desired: true, ordering: .acquiringAndReleasing).exchanged {
-            openWindow(activity: activity.total)
+            openWindow(activity: activityAtEnd)
         }
     }
 

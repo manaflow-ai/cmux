@@ -55,7 +55,8 @@ enum DebugCEF {
         let fields = object
         return .followUp { [work = services.work] in
             var fields = fields
-            fields["footprint_mb"] = .number((try? await work.run(.bestEffort, mayBlock: .system) { footprintMegabytes() }) ?? 0)
+            // Unread (cancelled, shutting down) is null, never a footprint of 0.
+            fields["footprint_mb"] = (try? await work.run(.bestEffort, mayBlock: .system) { footprintMegabytes() }).map(JSONValue.number) ?? .null
             return .object(fields)
         }
     }

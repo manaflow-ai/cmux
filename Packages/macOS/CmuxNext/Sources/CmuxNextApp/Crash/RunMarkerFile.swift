@@ -31,6 +31,10 @@ nonisolated final class RunMarkerFile: Sendable {
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.run-marker", qos: .utility)
     private let writer: Writer
     private let state = Mutex(State())
+    /// Held for one disk write and for close's unlinks, never while bytes are made: close waits for at most one
+    /// in-flight write, never for an encode (which reads the kernel), and no write lands after the unlinks.
+    // concurrency-allow: held only for one write of about 100 bytes (no fsync) or two unlinks, at exit.
+    private let fileLock = Mutex(())
 
     private struct Waiter {
         var id: UInt64
@@ -109,8 +113,8 @@ nonisolated final class RunMarkerFile: Sendable {
             return state.waiters
         }
         for waiter in waiters { waiter.continuation.resume(returning: true) }
-        // concurrency-allow: at exit only; waits for at most one in-flight write (no fsync) before two unlinks.
-        queue.sync {
+        // At exit only: waits for at most one in-flight write (no fsync), never for bytes being made.
+        fileLock.withLock { _ in
             unlink(url.path)
             unlink(signalURL.path)
         }
@@ -119,29 +123,43 @@ nonisolated final class RunMarkerFile: Sendable {
     /// Disk writes done so far (tests).
     var writeCount: Int { state.withLock { $0.writes } }
 
+    /// Returns once every drain queued before the call has run (tests).
+    func drained() async {
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in queue.async { done.resume() } }
+    }
+
     private func drain() {
         let job: (Encode, UInt64)? = state.withLock { state in
             guard !state.closed, let latest = state.latest else { return nil }
             state.latest = nil
             return (latest, state.latestTicket)
         }
-        // Made outside the lock: a submit while they are made queues the next drain.
-        guard let (encode, ticket) = job, let data = encode() else { return resumeFinished() }
+        guard let (encode, ticket) = job else { return resumeFinished() }
+        // Made outside both locks: a submit while they are made queues the next drain.
+        guard let data = encode() else {
+            // Nothing to write for this ticket (the encode failed and logged): its waiter does not wait it out.
+            state.withLock { complete(&$0, ticket: ticket) }
+            return resumeFinished()
+        }
         let unchanged = state.withLock { state in
             guard data == state.written else { return false }
             complete(&state, ticket: ticket)
             return true
         }
         guard !unchanged else { return resumeFinished() }
-        do {
-            try writer(data, url)
-            state.withLock { state in
-                state.written = data
-                state.writes += 1
-                complete(&state, ticket: ticket)
+        fileLock.withLock { _ in
+            // Closed while the bytes were made: the file is gone on purpose; write nothing.
+            guard !state.withLock({ $0.closed }) else { return }
+            do {
+                try writer(data, url)
+                state.withLock { state in
+                    state.written = data
+                    state.writes += 1
+                    complete(&state, ticket: ticket)
+                }
+            } catch {
+                // The next submit tries again; a waiter gets its deadline.
             }
-        } catch {
-            // The next submit tries again; a waiter gets its deadline.
         }
         resumeFinished()
     }
