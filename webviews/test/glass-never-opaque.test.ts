@@ -214,6 +214,9 @@ test("a solid popover, a near-opaque card and the card material fail as overlays
     ".demo-toast { background: color-mix(in srgb, var(--page-elevated) 92%, transparent); }",
     ".demo-pill-menu { background: var(--cmux-card-tint, Canvas); }",
     ".demo-sheet--wide { background-color: #ffffffee; }",
+    ":root { --demo-dense: color-mix(in srgb, Canvas 90%, CanvasText 5%); }",
+    ".demo-picker { background: var(--demo-dense); }",
+    ".demo-palette { background: rgb(20 20 20); }",
   ]);
   try {
     expect(glass).toEqual([]);
@@ -223,6 +226,8 @@ test("a solid popover, a near-opaque card and the card material fail as overlays
       "fixture.css:4: .demo-toast { background: color-mix(in srgb, var(--page-elevated) 92%, transparent) }",
       "fixture.css:5: .demo-pill-menu { background: var(--cmux-card-tint, Canvas) }",
       "fixture.css:6: .demo-sheet--wide { background-color: #ffffffee }",
+      "fixture.css:8: .demo-picker { background: var(--demo-dense) }",
+      "fixture.css:9: .demo-palette { background: rgb(20 20 20) }",
     ]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -247,8 +252,10 @@ test("glass tints, rows inside a menu, Reduce Transparency and a written reason 
     ":root { --surface-popup: var(--cmux-popup-surface); }",
     ".demo-popover { background: color-mix(in srgb, Canvas 60%, transparent); backdrop-filter: blur(20px); }",
     ".demo-card { background: color-mix(in srgb, CanvasText 13%, transparent); }",
-    // Two opaque colors whose shares add up to 88%: the rest is transparent.
+    // Two opaque colors whose shares add up to 88%: the rest is transparent, written out or in a token.
     ".demo-hovercard { background: color-mix(in srgb, Canvas 82%, CanvasText 6%); }",
+    ":root { --demo-card-fill: color-mix(in srgb, Canvas 82%, CanvasText 6%); }",
+    ".demo-bubble { background: var(--demo-card-fill); }",
     ".ui-menu-item[data-highlighted] { background: Canvas; }",
     ".demo-menu .demo-menu-row { background: Canvas; }",
     "@media (prefers-reduced-transparency: reduce) { .demo-popover { background: var(--surface-popup); } }",

@@ -568,18 +568,19 @@ export function fillAlpha(raw: string, seen = new Set<string>()): number | null 
     }
     return known ? 1 - clear : null;
   }
-  // classify calls a mix of two opaque colors opaque whatever their shares; shares under 100% leave
-  // the rest transparent, so a color-mix is measured below instead.
-  if (call(value)?.name !== "color-mix" && classify(value, seen) === "opaque") return 1;
+  const fn = call(value);
+  // A literal (a hex or named color) classify can call opaque. A function is measured below: classify
+  // calls a mix of two opaque colors opaque whatever its shares, also through a token, and shares
+  // under 100% leave the rest transparent.
+  if (!fn && classify(value, seen) === "opaque") return 1;
   if (/^#[0-9a-f]{4}$/i.test(value)) return Number.parseInt(value.slice(4), 16) / 15;
   if (/^#[0-9a-f]{8}$/i.test(value)) return Number.parseInt(value.slice(7), 16) / 255;
-  const fn = call(value);
   if (!fn) return null;
   if (fn.name === "var") {
     const [name = "", ...rest] = fn.args;
     const defs = tokens.get(name);
     if (!defs) {
-      const host = HOST_ALPHA.get(name);
+      const host = HOST_ALPHA.get(name) ?? (HOST_SOLID.test(name) ? 1 : undefined);
       if (host !== undefined) return host;
       return rest.length ? fillAlpha(rest.join(","), seen) : null;
     }
@@ -595,7 +596,9 @@ export function fillAlpha(raw: string, seen = new Set<string>()): number | null 
   if (/^(rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)$/.test(fn.name)) {
     const legacy = fn.args.length === 4 ? Number.parseFloat(fn.args[3] ?? "") : null;
     const alpha = legacy !== null ? legacy / ((fn.args[3] ?? "").endsWith("%") ? 100 : 1) : alphaOf(fn.args.join(" "));
-    return alpha === null || Number.isNaN(alpha) ? null : alpha;
+    // No alpha: opaque, unless a token may carry one.
+    if (alpha === null) return value.includes("var(") ? null : 1;
+    return Number.isNaN(alpha) ? null : alpha;
   }
   if (fn.name === "color-mix") {
     const parts = fn.args.slice(1).map((arg) => {
