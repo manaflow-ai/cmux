@@ -787,6 +787,17 @@ remote chains build their settings from scratch, so it never starts a session wi
 changes or clears a preset that carries `args` or a `systemPrompt`, and a session it created
 never spawns with one later.
 
+A session that takes over another's work keeps that session's harness. `acpmux new` and
+`acpmux ensure` find the predecessor from a `succeeds=P` tag, `--report-to P` or the starting
+session when its name is of the same family, a `NAME-N` name (the newest other `NAME` or
+`NAME-K`), or an `area=A` tag (the newest other session of that area, live or changed in the
+last week). When the new session's profile, launcher, model, effort or autocompact cap differs
+from P's, it prints one warning line naming both. A start with no `-m` or `-p` that would land
+on the default harness where P ran a named profile (`claude-sr2`, not what `claude` resolves to)
+is refused, except when only the area matches (a coordinator's helpers share an area; the same
+`role=` tag too refuses). `--harness-from P` starts on exactly P's profile, preset, model and effort; `-m`
+starts on another harness on purpose.
+
 On Claude Code harnesses, a text block's `cache_control` in `session/prompt` reaches Claude
 Code's stream-json input unchanged (other extra block fields are dropped), so a client can
 place its own cache breakpoint. Claude Code adds up to three breakpoints of its own and the API
