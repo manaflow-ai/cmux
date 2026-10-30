@@ -36,6 +36,10 @@ import CmuxNextWakeupsTestSupport
         list.frame = NSRect(x: 0, y: 0, width: 240, height: 400)
         window.orderFrontRegardless()
         list.reload(animated: false)
+        // With no scroll view the list sizes itself to its rows at the window's bottom, where a card
+        // under the third row runs past the window and is clamped up off the row's top. Keep the
+        // rows at the window's top so every row's card has room below it.
+        list.setFrameOrigin(NSPoint(x: 0, y: 400 - list.frame.height))
         let rows = list.displayed.rows.filter { if case .workspace = $0.key { true } else { false } }
         return (list, window, coordinator, rows)
     }
