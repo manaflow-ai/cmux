@@ -1,3 +1,5 @@
+import CmuxNextBridge
+@testable import CmuxNextDaemon
 @testable import CmuxNextSidebar
 import CmuxNextDesign
 import Foundation
@@ -260,5 +262,55 @@ import Testing
         let updated = sent.contains { $0["op"] as? String == "item.update" && $0["id"] as? String == "itm_l" }
         #expect(sent.contains { $0["op"] as? String == "move" } && updated,
                 "the move and its update go in one change: applied \(remote.applied), moved \(remote.moved)")
+    }
+
+    /// This Mac's section: `itm_mp` (no space stored, no workspace of its own) holds `itm_mc` (Work's, workspace `ws-5`
+    /// live here) and `itm_me` (Work's, empty); `itm_mo` (Default's, empty) holds `itm_mk` (Work's, empty).
+    static func machineGroups() -> SidebarDocProjection {
+        let records = SidebarDocRecords(sections: [
+            machine: SidebarDocSection(id: machine, kind: .machine(session: session)),
+        ], items: [
+            "itm_mp": group("itm_mp", machine, room: nil),
+            "itm_mc": SidebarDocItem(id: "itm_mc", section: machine, parent: "itm_mp",
+                                     body: .group(name: "itm_mc", color: nil, icon: nil, collapsed: false), room: work),
+            "itm_5": SidebarDocItem(id: "itm_5", section: machine, parent: "itm_mc", body: .workspace(ref("ws-5"))),
+            "itm_me": SidebarDocItem(id: "itm_me", section: machine, parent: "itm_mp",
+                                     body: .group(name: "itm_me", color: nil, icon: nil, collapsed: false), room: work),
+            "itm_mo": group("itm_mo", machine, room: home),
+            "itm_mk": SidebarDocItem(id: "itm_mk", section: machine, parent: "itm_mo",
+                                     body: .group(name: "itm_mk", color: nil, icon: nil, collapsed: false), room: work),
+        ])
+        let rows = [
+            SidebarDocRow(key: "itm_mp", kind: "group", section: machine, item: "itm_mp"),
+            SidebarDocRow(key: "itm_mc", kind: "group", section: machine, parent: "itm_mp", depth: 1, item: "itm_mc"),
+            SidebarDocRow(key: "itm_5", kind: "item", section: machine, parent: "itm_mc", depth: 2, item: "itm_5", ref: ref("ws-5")),
+            SidebarDocRow(key: "itm_me", kind: "group", section: machine, parent: "itm_mp", depth: 1, item: "itm_me"),
+            SidebarDocRow(key: "itm_mo", kind: "group", section: machine, item: "itm_mo"),
+            SidebarDocRow(key: "itm_mk", kind: "group", section: machine, parent: "itm_mo", depth: 1, item: "itm_mk"),
+        ]
+        return SidebarDocProjection(rows: rows, records: records, revision: 1)
+    }
+
+    /// The machine section's groups a window on `room` lists, each with its parent.
+    static func machineGroupRows(room: String) -> [String: String?] {
+        let store = DaemonStore()
+        store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: nil,
+                                                                        resourceID: ResourceID(rawValue: "ws-5"), name: "ws-5")]))
+        let sections = SidebarDocSections().sections(machineGroups(), session: session, workspaces: store.workspaces, room: room)
+        return Dictionary(sections.compactMap { section in section.group.map { ($0.id.rawValue, $0.parent?.rawValue) } },
+                          uniquingKeysWith: { first, _ in first })
+    }
+
+    /// A machine section never lists a group without its parent: a parent with no space stored lists where a group
+    /// under it lists a workspace, and an empty group of this space under another space's group leaves with it.
+    @Test func aMachineSectionGroupListsWithItsParent() {
+        let work = Self.machineGroupRows(room: Self.work)
+        for (id, parent) in work { if let parent { #expect(work[parent] != nil, "\(id) lists without its parent \(parent): \(work)") } }
+        #expect(work["itm_mc"] != nil, "Work's group with a workspace here lists in Work: \(work)")
+        #expect(work["itm_mk"] == nil, "a Work group under Default's group leaves with it: \(work)")
+
+        let home = Self.machineGroupRows(room: Self.home)
+        for (id, parent) in home { if let parent { #expect(home[parent] != nil, "\(id) lists without its parent \(parent): \(home)") } }
+        #expect(home["itm_mo"] != nil && home["itm_mk"] == nil && home["itm_me"] == nil, "\(home)")
     }
 }
