@@ -149,7 +149,7 @@ public final class CloudMachineChanges {
         }
         outstanding.removeAll { mutation in
             guard let returnedRead = mutation.requestReturnedRead else { return false }
-            let readIsAfterAcceptance = read == nil || read! > returnedRead
+            let readIsAfterAcceptance = read.map { $0 > returnedRead } ?? true
             let isNewerServerRevision: Bool = {
                 guard let recordRevision = record.updatedAt else { return false }
                 guard let baseline = mutation.baselineUpdatedAt else { return true }
