@@ -23,12 +23,16 @@ pub(super) fn action(command_args: &[String]) -> Option<Result<(String, Vec<Stri
     };
     let positional = rest.iter().take(names.len()).take_while(|arg| !is_flag(arg)).count();
     let all_positional = positional == names.len();
-    let flags = if all_positional { &rest[positional..] } else { rest };
+    let (ids, after) = rest.split_at(positional);
+    let flags = if all_positional { after } else { rest };
     let keys = argument_keys(flags);
     for name in names {
         let key = argument_key(name);
-        let given =
-            keys.iter().filter(|given| **given == key).count() + usize::from(all_positional);
+        let given = keys
+            .iter()
+            .filter(|given| **given == key)
+            .count()
+            .saturating_add(usize::from(all_positional));
         if given > 1 {
             return Some(Err(format!("share {verb}: {name} is given more than once")));
         }
@@ -39,7 +43,7 @@ pub(super) fn action(command_args: &[String]) -> Option<Result<(String, Vec<Stri
     // `--share-id=ID`, not `--share-id ID`: the action parser reads a following word that starts
     // with `--` as the next flag, and an id may.
     let mut args: Vec<String> =
-        names.iter().zip(&rest[..positional]).map(|(name, id)| format!("{name}={id}")).collect();
+        names.iter().zip(ids).map(|(name, id)| format!("{name}={id}")).collect();
     args.extend(flags.iter().cloned());
     Some(Ok((format!("share {verb}"), args)))
 }
