@@ -70,7 +70,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         "process",
         &[
             ("List background processes agents started", "acpmux process list"),
-            ("Follow a background process's output", "acpmux process show coord/b7x2k1q -f"),
+            (
+                "Follow a Claude Code background process's output",
+                "acpmux process show coord/b7x2k1q -f",
+            ),
             ("Stop a background process", "acpmux process kill coord/b7x2k1q"),
         ],
     ),
@@ -84,10 +87,13 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     (
         "process show",
         &[
-            ("Print everything a process printed", "acpmux process show coord/b7x2k1q"),
-            ("Keep printing until the process ends", "acpmux process show coord/b7x2k1q --follow"),
+            ("Print everything a Claude Code process printed", "acpmux process show coord/b7x2k1q"),
             (
-                "Find the process a tool call started",
+                "Keep printing until a Claude Code process ends",
+                "acpmux process show coord/b7x2k1q --follow",
+            ),
+            (
+                "Show the Claude Code process a tool call started",
                 "acpmux process show --session coord --tool-call toolu_01HqX9mZ",
             ),
         ],
@@ -99,9 +105,12 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     (
         "process background",
         &[
-            ("Move coord's running commands to the background", "acpmux process background coord"),
             (
-                "Move only the command one tool call started",
+                "Move a Claude Code chat's running commands to the background",
+                "acpmux process background coord",
+            ),
+            (
+                "Move only the command one Claude Code tool call started",
                 "acpmux process background coord --tool-call toolu_01HqX9mZ",
             ),
         ],
