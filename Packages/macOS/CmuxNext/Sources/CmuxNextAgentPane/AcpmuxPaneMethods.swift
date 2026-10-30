@@ -164,6 +164,11 @@ nonisolated enum AcpmuxPaneMethods {
         switch decideFrame(text, isFirst: isFirst) {
         case .failure(let refusal): return refusal.decision
         case .success(let page):
+            // Keep the public relay decision in lockstep with the transport's off-main
+            // check. Direct callers must not bypass the method parameter allowlist.
+            if breaksParamsRule(page, modeFields: nil) {
+                return .refuse(.intentInvalid, method: page["method"] as? String, requestID: page["id"].flatMap(rawID))
+            }
             guard isFirst, let localAppToken else { return .send(text) }
             let object = withLocalAppToken(page, localAppToken)
             guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.withoutEscapingSlashes]) else {
