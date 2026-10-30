@@ -83,6 +83,19 @@ import Testing
         #expect(invoked?.1 == "move")
     }
 
+    @Test func nativeContextMenuHoldsToolbarRevealOpen() throws {
+        let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 200, height: 30))
+        let tool = PaneTabRowTool(id: "terminal", symbol: "terminal", label: "Terminal",
+                                  contextMenu: [PaneTabRowMenuItem(id: "move", label: "Move right")])
+        view.show(more: false, lit: false, nativeItems: [tool])
+        let button = try #require(view.nativeButtons.first)
+        #expect(button.onMenuOpenChange != nil, "context-only tools use the same held-menu path")
+        button.onMenuOpenChange?(true)
+        #expect(view.reveal.state.holds == 1)
+        button.onMenuOpenChange?(false)
+        #expect(view.reveal.state.holds == 0)
+    }
+
     @Test func overflowValidationPreservesDisabledToolsAndAncestors() throws {
         let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 1, height: 30))
         let child = PaneTabRowMenuItem(id: "child", label: "Child")

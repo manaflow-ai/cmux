@@ -15,7 +15,10 @@ test("native chat rows retain groups, children and disabled selection", () => {
       key: "continue",
       label: "Continue In",
       icon: "next",
-      children: [{ key: "claude", label: "Claude Code", onSelect: () => invoked.push("claude") }],
+      children: [
+        { key: "claude", label: "Claude Code", onSelect: () => invoked.push("claude") },
+        { key: "disabled", label: "Disabled child", disabled: true, onSelect: () => invoked.push("child") },
+      ],
     },
     { key: "disabled", label: "Disabled", icon: "x", disabled: true, onSelect: () => invoked.push("disabled") },
   ])!;
@@ -23,6 +26,7 @@ test("native chat rows retain groups, children and disabled selection", () => {
   expect(menu.items[1].children?.[0].label).toBe("Claude Code");
   menu.invoke("rename");
   menu.invoke("continue/claude");
+  menu.invoke("continue/disabled");
   menu.invoke("disabled");
   menu.invoke("unknown");
   expect(invoked).toEqual(["rename", "claude"]);

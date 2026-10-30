@@ -8,7 +8,10 @@ import { HEADER_ACTIONS } from "../src/agent-session/acpmux/header/headerActions
 import { headerQuickTools, type HeaderQuickToolsInput } from "../src/agent-session/acpmux/header/headerQuickTools";
 import { headerState, setHeaderState } from "../src/agent-session/acpmux/header/headerState";
 import {
+  boundedNativeText,
   dispatchNativeRowTool,
+  fitNativeRowMenus,
+  NATIVE_MAX_TOTAL_MENU_ITEMS,
   nativeRowToolBindings,
   type NativeRowTool,
 } from "../src/agent-session/acpmux/header/nativeRowTools";
@@ -145,6 +148,62 @@ test("conditional quick actions and Browser's preview delegation keep the web be
   expect(nativeRowToolBindings(browser)[0]!.tool.toggled).toBe(true);
   dispatchNativeRowTool({ id: "browser" }, nativeRowToolBindings(browser));
   expect(calls).toEqual(["preview:toggle:http://localhost:5173/"]);
+});
+
+test("native row menus normalize labels and share one aggregate budget", () => {
+  const rows = (prefix: string, count: number, children = 0) =>
+    Array.from({ length: count }, (_, index) => ({
+      id: `${prefix}-${index}`,
+      label: index === 0 ? "" : `${prefix}-${index}`,
+      enabled: true,
+      ...(children
+        ? {
+            children: Array.from({ length: children }, (_, child) => ({
+              id: `${prefix}-${index}-child-${child}`,
+              label: `${prefix}-child-${child}`,
+              enabled: true,
+            })),
+          }
+        : {}),
+    }));
+  const bindings = fitNativeRowMenus([
+    {
+      tool: {
+        id: "fixed",
+        symbol: "checkmark",
+        label: "Fixed",
+        enabled: true,
+        toggled: false,
+        menu: rows("fixed", 32),
+      },
+      menuPriority: "fixed",
+    },
+    {
+      tool: {
+        id: "variable",
+        symbol: "checkmark",
+        label: "Variable",
+        enabled: true,
+        toggled: false,
+        menu: rows("variable", 32, 4),
+        contextMenu: rows("context", 32, 4),
+      },
+    },
+  ]);
+  const count = (items: readonly { children?: readonly any[] }[]): number =>
+    items.reduce((total, item) => total + 1 + (item.children ? count(item.children) : 0), 0);
+  const total = bindings.reduce((sum, { tool }) => sum + count(tool.menu ?? []) + count(tool.contextMenu ?? []), 0);
+  expect(total).toBeLessThanOrEqual(NATIVE_MAX_TOTAL_MENU_ITEMS);
+  expect(bindings[0]!.tool.menu).toHaveLength(32);
+  expect(bindings[1]!.tool.menu!.length + bindings[1]!.tool.contextMenu!.length).toBeLessThan(64);
+  expect(bindings[0]!.tool.menu![0]!.label).toBe("…");
+  for (const { tool } of bindings) {
+    expect(boundedNativeText(tool.label)).toBe(tool.label);
+    for (const item of [...(tool.menu ?? []), ...(tool.contextMenu ?? [])]) {
+      expect(item.label.length).toBeGreaterThan(0);
+      expect(new TextEncoder().encode(item.label).byteLength).toBeLessThanOrEqual(256);
+    }
+  }
 });
 
 let dom: JSDOM | undefined;

@@ -163,15 +163,21 @@ public final class PaneToolbarView: NSView {
                 button.target = self
                 button.action = #selector(pressNative(_:))
                 button.pressMenu = { [weak self] in self?.menu(for: item) }
-                let present = button.presentMenu
-                button.presentMenu = { [weak self] menu, source in
-                    let hold = self?.reveal.hold()
-                    present(menu, source)
-                    hold?.release()
-                }
             }
             if !item.contextMenu.isEmpty {
                 button.menuProvider = { [weak self] in self?.contextMenu(for: item) }
+            }
+            if !item.menu.isEmpty || !item.contextMenu.isEmpty {
+                var menuHold: HoverReveal.Hold?
+                button.onMenuOpenChange = { [weak self] open in
+                    guard let self else { return }
+                    if open {
+                        menuHold = self.reveal.hold()
+                    } else {
+                        menuHold?.release()
+                        menuHold = nil
+                    }
+                }
             }
             addSubview(button)
             reveal.add(button)

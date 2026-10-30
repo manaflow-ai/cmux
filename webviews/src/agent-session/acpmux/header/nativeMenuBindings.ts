@@ -1,24 +1,15 @@
 import type { ContextMenuItem } from "../../../ui/ContextMenu";
 import type { ChatMenuItem } from "./ChatHeaderTools";
-import type { NativeRowMenuItem } from "./nativeRowTools";
+import { boundedNativeText, type NativeRowMenuItem } from "./nativeRowTools";
 
 export interface NativeMenuBinding {
   items: NativeRowMenuItem[];
   invoke(id: string): void;
 }
 
-const encoder = new TextEncoder();
-const characters = new Intl.Segmenter(undefined, { granularity: "grapheme" });
-
 /** Native fields are at most 64 graphemes and 256 UTF-8 bytes, including combining marks. */
 export function nativeMenuText(text: string): string {
-  let result = "";
-  let count = 0;
-  for (const { segment } of characters.segment(text)) {
-    if (++count > 64 || encoder.encode(result + segment).length > 256) break;
-    result += segment;
-  }
-  return result || (text ? "…" : "");
+  return boundedNativeText(text);
 }
 
 /** Publish a complete menu or retain its DOM fallback; never silently lose overflowed rows. */
@@ -47,8 +38,8 @@ export function nativeChatMenu(rows: readonly ChatMenuItem[]): NativeMenuBinding
       if (row.children.some((child) => !validId(`${id}/${child.key}`))) return;
       item.children = row.children.map((child) => {
         const childId = `${id}/${child.key}`;
-        if (!row.disabled) callbacks.set(childId, child.onSelect);
-        return { id: childId, label: nativeMenuText(child.label), enabled: !row.disabled };
+        if (!row.disabled && child.disabled !== true) callbacks.set(childId, child.onSelect);
+        return { id: childId, label: nativeMenuText(child.label), enabled: !row.disabled && child.disabled !== true };
       });
     } else if (!row.disabled && row.onSelect) {
       callbacks.set(id, () => row.onSelect?.());

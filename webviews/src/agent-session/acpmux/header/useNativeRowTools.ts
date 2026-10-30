@@ -3,6 +3,7 @@ import type { NativeMenuBinding } from "./nativeMenuBindings";
 import type { HeaderQuickTool } from "./headerQuickTools";
 import {
   dispatchNativeRowTool,
+  fitNativeRowMenus,
   nativeRowToolBindings,
   onNativeRowToolInvocation,
   type NativeRowPanel,
@@ -38,10 +39,10 @@ export function useNativeRowTools(
   const extraBindings = (menus?.extra ?? []).slice(0, 16);
   // Reserve room for host-owned controls such as the chat menu so the 16-tool protocol cap
   // cannot silently discard the extra that supplies the native overflow button.
-  const bindings: RowToolBinding[] = [
+  const bindings: RowToolBinding[] = fitNativeRowMenus([
     ...baseBindings.slice(0, Math.max(0, 16 - extraBindings.length)),
     ...extraBindings,
-  ];
+  ]);
   const current = useRef(bindings);
   current.current = bindings;
   const payload = JSON.stringify({ tools: bindings.map(({ tool }) => tool) });

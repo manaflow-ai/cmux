@@ -218,6 +218,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         if let agent = content as? AgentPaneView, !hostsContent, agent.superview == nil {
             // Reparenting invokes this refresh on the old pane before the new pane binds its callback.
             agent.onNativeToolOwnerChange = nil
+            agent.onNativeToolMenuRequested = nil
         }
         nativeToolOwner.model = displayedAgentPaneView?.model
         toolbar?.refresh()
@@ -335,11 +336,17 @@ final class PaneContentView: NSView, PaneContentChrome {
         if let previous, previous !== view, previous.superview == nil {
             (previous as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
             (previous as? AgentPaneView)?.onNativeToolOwnerChange = nil
+            (previous as? AgentPaneView)?.onNativeToolMenuRequested = nil
         }
         if let agent = view as? AgentPaneView {
-            agent.onNativeToolOwnerChange = { [weak self] in self?.refreshNativeToolOwner() }
-            agent.onNativeToolMenuRequested = { [weak self] id, menuItemID in
-                self?.toolbar?.view.presentNativeMenu(toolID: id, menuItemID: menuItemID)
+            let ownerModel = agent.model
+            agent.onNativeToolOwnerChange = { [weak self, weak agent] in
+                guard let self, let agent, self.content === agent, self.nativeToolOwner.model === ownerModel else { return }
+                self.refreshNativeToolOwner()
+            }
+            agent.onNativeToolMenuRequested = { [weak self, weak agent] id, menuItemID in
+                guard let self, let agent, self.content === agent, self.nativeToolOwner.model === ownerModel else { return }
+                self.toolbar?.view.presentNativeMenu(toolID: id, menuItemID: menuItemID)
             }
         }
         content = view

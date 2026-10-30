@@ -152,6 +152,38 @@ import Testing
         #expect(secondPane.nativeToolOwner.model == nil, "the preserved hook clears the adopting pane when the page leaves")
     }
 
+    @Test func nativeMenuRequestsStayWithTheSelectedPageDuringAPaintHold() throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "native-tool-menu-hold-(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: "index.html")
+        try Data("<html><body>Chat</body></html>".utf8).write(to: file)
+        let first = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file)))
+        let second = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file)))
+        defer { first.close(); second.close() }
+        first.model.markPainted()
+        let tool = PaneTabRowTool(id: "chat-menu", symbol: "ellipsis", label: "Chat menu",
+                                  menu: [PaneTabRowMenuItem(id: "rename", label: "Rename")])
+        first.model.setTabRowTools([tool])
+        second.model.setTabRowTools([tool])
+        let pane = PaneContentView(stripModel: TabStripModel(tabs: []), reveal: LaunchReveal(deadline: .zero))
+        let toolbar = PaneToolbar(registry: { ActionRegistry.standard() }, newTabMenu: { nil })
+        pane.toolbar = toolbar
+        pane.show(first)
+        toolbar.view.show(more: false, lit: false, nativeItems: [tool])
+        var presentations = 0
+        toolbar.view.moreButton.presentMenu = { _, _ in presentations += 1 }
+        let oldRequest = try #require(first.onNativeToolMenuRequested)
+
+        pane.show(second)
+        try #require(pane.paintHold.kept === first)
+        oldRequest("chat-menu", nil)
+        #expect(presentations == 0, "the outgoing page cannot open the incoming page's menu")
+        let incomingRequest = try #require(second.onNativeToolMenuRequested)
+        incomingRequest("chat-menu", nil)
+        #expect(presentations == 1, "the selected page can open its native menu during the hold")
+    }
+
     @Test func closingShownViewClearsOwnerHookWithoutRebindingPane() throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "closed-native-tool-owner-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
