@@ -153,6 +153,7 @@ extension PaneController {
                 then?(created.surface)
                 return nil
             } catch {
+                OutboundTab.cancelLatest(in: self)
                 daemon.logger.error("new-tab failed: \(String(describing: error), privacy: .public)")
                 return ActionWorkFailure("new-tab", error)
             }
@@ -187,8 +188,10 @@ extension PaneController {
                 then?(created.surface)
                 return nil
             } catch is NewTerminalTabCancelled {
+                OutboundTab.cancelLatest(in: self)
                 return nil // the person closed the stand-in first
             } catch {
+                OutboundTab.cancelLatest(in: self)
                 daemon.logger.error("new-tab failed: \(String(describing: error), privacy: .public)")
                 return ActionWorkFailure("new-tab", error)
             }
