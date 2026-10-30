@@ -245,7 +245,12 @@ export function SubagentsSection({
           <span className="acpmux-agent-card">
             <span className="acpmux-agent-card__name">{item.name}</span>
             <span className="acpmux-agent-card__state" data-status={item.status}>
-              {[item.state, item.time, item.progress, item.status === "running" || item.status === "waiting" ? item.detail : undefined]
+              {[
+                item.state,
+                item.time,
+                item.progress,
+                item.status === "running" || item.status === "waiting" ? item.detail : undefined,
+              ]
                 .filter(Boolean)
                 .join(" · ")}
             </span>

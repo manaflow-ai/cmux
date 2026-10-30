@@ -314,14 +314,21 @@ export default agentPaneEntry({
       snapshot: chat(
         [
           user("Review the changes across all modules", 2),
-          group([agent("Review modules", 1.8, "running", {
-            kind: "workflow",
-            action: "Review",
-            agents: { done: 37, started: 101, failed: 2, queued: 4 },
-            tokens: 1_200_000,
-            phases: [{ index: 0, title: "Review" }],
-            workflowAgents: new Map([[0, { index: 0, label: "Review module", phaseIndex: 0, state: "running", tokens: 12_000 }]]),
-          })], 1.8),
+          group(
+            [
+              agent("Review modules", 1.8, "running", {
+                kind: "workflow",
+                action: "Review",
+                agents: { done: 37, started: 101, failed: 2, queued: 4 },
+                tokens: 1_200_000,
+                phases: [{ index: 0, title: "Review" }],
+                workflowAgents: new Map([
+                  [0, { index: 0, label: "Review module", phaseIndex: 0, state: "running", tokens: 12_000 }],
+                ]),
+              }),
+            ],
+            1.8,
+          ),
         ],
         { isWorking: true },
       ),
