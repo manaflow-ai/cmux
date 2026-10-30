@@ -213,8 +213,9 @@ async function openEffort() {
   const opened = menus()[0]!;
   const current = opened.querySelector<HTMLElement>('.acpmux-quick-item[role="menuitemradio"][aria-checked="true"]');
   // The running model's effort item opens its levels as a side dropdown beside the row.
-  const trigger = (current?.closest(".acpmux-quick-model-effort") ?? opened.querySelector(".acpmux-quick-model-effort[data-running]"))
-    ?.querySelector<HTMLElement>(".acpmux-quick-effort-trigger");
+  const trigger = (
+    current?.closest(".acpmux-quick-model-effort") ?? opened.querySelector(".acpmux-quick-model-effort[data-running]")
+  )?.querySelector<HTMLElement>(".acpmux-quick-effort-trigger");
   if (trigger) {
     await act(async () => trigger.click());
     await settle();
@@ -235,7 +236,9 @@ const checked = (popup: HTMLElement) =>
 /// trigger), else the Effort row's value.
 const shownEffort = (popup: HTMLElement) => {
   if (popup.matches(".acpmux-quick-effort-menu")) {
-    const now = doc().querySelector<HTMLElement>(".acpmux-quick-effort-trigger[data-popup-open] .acpmux-quick-effort-now");
+    const now = doc().querySelector<HTMLElement>(
+      ".acpmux-quick-effort-trigger[data-popup-open] .acpmux-quick-effort-now",
+    );
     const text = [...(now?.childNodes ?? [])]
       .filter((node) => !(node instanceof dom.window.HTMLElement && node.classList.contains("sr-only")))
       .map((node) => node.textContent)

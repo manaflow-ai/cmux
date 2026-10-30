@@ -247,7 +247,9 @@ const modelNames = (popup: HTMLElement) =>
 /// (a submenu of their own), one per line.
 const currentEffortSegments = async (popup: HTMLElement) => {
   const row = modelRows(popup).find((item) => item.querySelector(".acpmux-menu-label")?.textContent === "Opus 5.5");
-  const trigger = row?.closest<HTMLElement>(".acpmux-quick-model-effort")?.querySelector<HTMLElement>(".acpmux-quick-effort-trigger");
+  const trigger = row
+    ?.closest<HTMLElement>(".acpmux-quick-model-effort")
+    ?.querySelector<HTMLElement>(".acpmux-quick-effort-trigger");
   if (!trigger) return [];
   if (!trigger.hasAttribute("data-popup-open")) {
     await act(async () => trigger.click());
@@ -307,7 +309,11 @@ test("the compact chip names the model and its effort, and a click opens the sho
   expect(doc().querySelector(".acpmux-mp")).toBeNull();
   const rows = itemsOf(menu()!);
   const segments = await currentEffortSegments(menu()!);
-  expect(segments.map((segment) => (segment.querySelector(".acpmux-menu-label")?.textContent ?? segment.textContent)?.replace(/^✓/, "").trim())).toEqual(["Low", "Medium", "High"]);
+  expect(
+    segments.map((segment) =>
+      (segment.querySelector(".acpmux-menu-label")?.textContent ?? segment.textContent)?.replace(/^✓/, "").trim(),
+    ),
+  ).toEqual(["Low", "Medium", "High"]);
   expect(segments.find((segment) => segment.getAttribute("aria-checked") === "true")?.textContent).toContain("Medium");
   expect(rows.some((row) => row?.startsWith("Account"))).toBe(true);
   // Claude Code's order: the models (with inline effort), More models, then Account last.
@@ -350,12 +356,15 @@ test("Effort lists the model's levels and a pick sends it", async () => {
   const { sent } = await mount({ routes: [] });
   await open();
   const effort = menu()!;
-  expect((await currentEffortSegments(effort)).map((item) => (item.querySelector(".acpmux-menu-label")?.textContent ?? item.textContent)?.replace(/^✓/, "").trim())).toEqual([
-    "Low",
-    "Medium",
-    "High",
-  ]);
-  const high = (await currentEffortSegments(effort)).find((item) => (item.querySelector(".acpmux-menu-label")?.textContent ?? item.textContent)?.replace(/^✓/, "").trim() === "High")!;
+  expect(
+    (await currentEffortSegments(effort)).map((item) =>
+      (item.querySelector(".acpmux-menu-label")?.textContent ?? item.textContent)?.replace(/^✓/, "").trim(),
+    ),
+  ).toEqual(["Low", "Medium", "High"]);
+  const high = (await currentEffortSegments(effort)).find(
+    (item) =>
+      (item.querySelector(".acpmux-menu-label")?.textContent ?? item.textContent)?.replace(/^✓/, "").trim() === "High",
+  )!;
   await act(async () => high.click());
   await settle();
   expect(sent).toEqual([{ method: "effort", value: "high" }]);
@@ -743,11 +752,11 @@ test("Fast mode is a checkbox row after Account, checked from the session, and a
   const fast = () => menu()!.querySelector<HTMLElement>('.acpmux-quick-fast[role="menuitemcheckbox"]')!;
   expect(fast()).not.toBeNull();
   expect(fast().getAttribute("aria-checked")).toBe("false");
-  expect((await currentEffortSegments(menu()!)).map((item) => (item.querySelector(".acpmux-menu-label")?.textContent ?? item.textContent)?.replace(/^✓/, "").trim())).toEqual([
-    "Low",
-    "Medium",
-    "High",
-  ]);
+  expect(
+    (await currentEffortSegments(menu()!)).map((item) =>
+      (item.querySelector(".acpmux-menu-label")?.textContent ?? item.textContent)?.replace(/^✓/, "").trim(),
+    ),
+  ).toEqual(["Low", "Medium", "High"]);
   await act(async () => fast().click());
   await settle();
   expect(sent).toEqual([{ method: "effort", value: "on" }]);

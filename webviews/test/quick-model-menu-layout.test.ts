@@ -128,7 +128,10 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
   test("inline effort controls keep a narrow railed menu inside the viewport when switching harnesses", async () => {
     const page = await open("claude-many-harnesses-inline-effort", 320, 560);
     try {
-      await page.locator(".acpmux-quick-model-effort .acpmux-quick-effort-trigger").first().waitFor({ state: "attached" });
+      await page
+        .locator(".acpmux-quick-model-effort .acpmux-quick-effort-trigger")
+        .first()
+        .waitFor({ state: "attached" });
       const menu = await bounds(page, ".acpmux-quick-menu");
       const rail = await bounds(page, ".acpmux-quick-rail");
       await page.getByRole("button", { name: "Codex", exact: true }).click();
@@ -136,7 +139,10 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
         () =>
           document.querySelector(".acpmux-quick-rail-tab[aria-pressed=true]")?.getAttribute("aria-label") === "Codex",
       );
-      await page.locator(".acpmux-quick-model-effort .acpmux-quick-effort-trigger").first().waitFor({ state: "attached" });
+      await page
+        .locator(".acpmux-quick-model-effort .acpmux-quick-effort-trigger")
+        .first()
+        .waitFor({ state: "attached" });
       const switched = await bounds(page, ".acpmux-quick-menu");
       const switchedRail = await bounds(page, ".acpmux-quick-rail");
       expect(switched.width).toBeLessThanOrEqual(296);
@@ -254,8 +260,13 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
           .locator(".acpmux-quick-model-effort")
           .evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().height)));
         expect(rows.length).toBeGreaterThan(1);
-        expect(rows.every((height) => height === 28), `row heights ${rows.join(",")}`).toBe(true);
-        expect(await page.locator(".acpmux-quick-menu:not(.acpmux-quick-effort-menu) .acpmux-quick-effort-segment").count()).toBe(0);
+        expect(
+          rows.every((height) => height === 28),
+          `row heights ${rows.join(",")}`,
+        ).toBe(true);
+        expect(
+          await page.locator(".acpmux-quick-menu:not(.acpmux-quick-effort-menu) .acpmux-quick-effort-segment").count(),
+        ).toBe(0);
         // The keyboard reaches it: from the running model, Right on its effort item opens the levels.
         const row = page.locator(".acpmux-quick-model-effort[data-running]").first();
         const trigger = row.locator(".acpmux-quick-effort-trigger");
@@ -277,9 +288,10 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
         // Beside the row whenever the window has room on that side; a narrow window shifts it, as
         // every submenu of this menu (the shared Submenu's collision handling), and it stays whole.
         if (viewport.width - (rowBox.x + rowBox.width) >= menuBox.width)
-          expect(menuBox.x, `${variant}: row ${JSON.stringify(rowBox)} dropdown ${JSON.stringify(menuBox)}`).toBeGreaterThanOrEqual(
-            rowBox.x + rowBox.width - 8,
-          );
+          expect(
+            menuBox.x,
+            `${variant}: row ${JSON.stringify(rowBox)} dropdown ${JSON.stringify(menuBox)}`,
+          ).toBeGreaterThanOrEqual(rowBox.x + rowBox.width - 8);
         expect(menuBox.x).toBeGreaterThanOrEqual(0);
         expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(viewport.width);
         expect(menuBox.y).toBeGreaterThanOrEqual(0);
@@ -297,14 +309,17 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
         );
         expect(lines.every(Boolean), `levels with a part outside their row: ${lines.join(",")}`).toBe(true);
         if (entry === "agent-pane.inline-model-effort")
-          expect(await dropdown.locator(".acpmux-quick-effort-badge").count(), "the fixture's recommended level shows its badge").toBe(1);
+          expect(
+            await dropdown.locator(".acpmux-quick-effort-badge").count(),
+            "the fixture's recommended level shows its badge",
+          ).toBe(1);
         // The last level takes a click at its centre: nothing covers it.
         const last = boxes.at(-1)!;
         expect(
-          await page.evaluate(
-            ([x, y]) => !!document.elementFromPoint(x, y)?.closest(".acpmux-quick-effort-menu"),
-            [last.x + last.width / 2, last.y + last.height / 2] as const,
-          ),
+          await page.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest(".acpmux-quick-effort-menu"), [
+            last.x + last.width / 2,
+            last.y + last.height / 2,
+          ] as const),
         ).toBe(true);
       } finally {
         await page.close();

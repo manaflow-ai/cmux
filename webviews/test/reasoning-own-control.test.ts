@@ -99,7 +99,10 @@ await requireBrowserLane("reasoning-own-control.test.ts", async () => {
         const side = page.locator(".acpmux-quick-model-effort[data-running] .acpmux-quick-effort-trigger");
         const effortRow = page.getByRole("menuitem", { name: /^Effort/ });
         expect((await side.count()) + (await effortRow.count())).toBe(1);
-        expect(await side.count(), `${where}: the side dropdown is offered exactly where model and effort are picked together`).toBe(inline ? 1 : 0);
+        expect(
+          await side.count(),
+          `${where}: the side dropdown is offered exactly where model and effort are picked together`,
+        ).toBe(inline ? 1 : 0);
         await ((await side.count()) ? side : effortRow).click();
         await page.waitForFunction(() => document.querySelectorAll(".acpmux-quick-menu").length >= 2);
         const levels = page.locator(".acpmux-quick-menu").last().locator('[role="menuitemradio"]');

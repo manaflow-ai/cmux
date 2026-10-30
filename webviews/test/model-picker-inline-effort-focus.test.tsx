@@ -158,9 +158,7 @@ test.each([
 ])("ModelPicker preserves $capability efforts with inline=$inline", async ({ capability, inline }) => {
   await openPicker(capability === "empty" ? [] : undefined, inline, [], capability === "empty");
   expect(document.querySelector(".acpmux-quick-menu")).not.toBeNull();
-  expect(await openEffort(document)).toHaveLength(
-    capability === "absent" && inline ? 3 : 0,
-  );
+  expect(await openEffort(document)).toHaveLength(capability === "absent" && inline ? 3 : 0);
   const effortSubmenu = [...document.querySelectorAll(".acpmux-quick-sub")].find((row) =>
     row.textContent?.startsWith("Effort"),
   );
