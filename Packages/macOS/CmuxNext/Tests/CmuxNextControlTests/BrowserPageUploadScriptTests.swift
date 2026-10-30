@@ -114,6 +114,29 @@ import WebKit
         #expect(try await page.read("document.getElementById('upload').__cmuxUploads.size") == 0)
     }
 
+    /// An upload id names one upload on the page. Starting a second upload with an id that is still
+    /// active is refused, so it can never take over the first upload's input and corrupt both.
+    @Test func aSecondUploadCannotReuseAnActiveID() async throws {
+        let page = BrowserPageSnapshotTests.Page()
+        await page.load()
+        // A window made in code is released by close() unless told not to (see above).
+        defer { page.window.isReleasedWhenClosed = false; page.window.close() }
+        _ = try await page.read("(() => { document.body.innerHTML = '<input id=\"a\" type=\"file\"><input id=\"b\" type=\"file\">'; return true; })()")
+
+        let first = try await page.read(BrowserPageScripts.startUpload("#a", id: "X", files: [("a.txt", "text/plain")]))
+        #expect(first["error"] == nil, "page script failed: \(first)")
+        let second = try await page.read(BrowserPageScripts.startUpload("#b", id: "X", files: [("b.txt", "text/plain")]))
+        #expect(second["code"] == "upload_id_in_use", "a reused active id was accepted: \(second)")
+        #expect(try await page.read("document.getElementById('b').__cmuxUploads === undefined") == true,
+                "the refused upload left state on the other input")
+
+        _ = try await page.read(BrowserPageScripts.uploadChunk("#a", id: "X", index: 0, base64: Data("mine".utf8).base64EncodedString()))
+        let done = try await page.read(BrowserPageScripts.finishUpload("#a", id: "X"))
+        #expect(done["error"] == nil, "page script failed: \(done)")
+        #expect(try await page.read("document.getElementById('a').files[0].name") == "a.txt", "the first upload lost its input")
+        #expect(try await page.read("document.getElementById('b').files.length") == 0, "the other input got the first upload's file")
+    }
+
     /// A snapshot can move an `eN` ref to another element mid-upload. The upload keeps its own input:
     /// later chunks and the cleanup reach the input it started on, and the other input is untouched.
     @Test func anUploadKeepsItsInputWhenItsRefMovesToAnother() async throws {
