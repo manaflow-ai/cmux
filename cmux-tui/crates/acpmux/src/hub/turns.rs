@@ -1148,12 +1148,16 @@ impl Hub {
         // no agent starts after it, so the lane reports nothing (`lane_reports.rs`). A restart
         // handed it to the next daemon, which continues it: its end is that daemon's to write.
         if self.settled_by_shutdown.lock().unwrap().contains(turn_id) {
+            if self.hands_off(session) {
+                super::digest::forget_joined(joined);
+            }
             return result;
         }
         // The agent's end came with a shutdown that hands the chat to the next daemon, or after
         // it began: the turn is cut, not ended, and that daemon continues it. Nothing here writes
         // its end, puts its messages back or holds the queue, whoever took the turn first.
         if result.is_err() && self.hands_off(session) {
+            super::digest::forget_joined(joined);
             return result;
         }
         // acpmux ended a turn whose model said nothing for `stalledTurnEndMs`: it failed.
