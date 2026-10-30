@@ -68,25 +68,24 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
     );
     await page.setContent(`<!doctype html><html><head><style>
       /* This models WebTheme's document-start bootstrap. The shipped tab-row rule must override
-         the normal page surface while leaving the body itself transparent for the native underlay. */
+         the normal page surface while leaving the body transparent for native compositing. */
       html { width: 100%; height: 100%; background: rgb(10, 20, 30) !important; }
       body { width: 100%; height: 100%; margin: 0; background: transparent; }
       ${shellCss}
     </style></head><body>
-      <div id="native-underlay" style="position:fixed;inset:0;background:rgb(10,20,30);z-index:0"></div>
       <section class="acpmux-shell" data-tab-row
         style="--acpmux-tab-row-height:40px;--agent-page-bg:rgb(200,10,20)">
         <header class="acpmux-header" data-tab-row><div id="tools"></div></header>
       </section>
     </body></html>`);
-    const shot = PNG.sync.read(await page.screenshot());
+    const shot = PNG.sync.read(await page.screenshot({ omitBackground: true }));
     const pixel = (x: number, y: number) => {
       const offset = (y * shot.width + x) * 4;
       return Array.from(shot.data.subarray(offset, offset + 4));
     };
-    // Every pixel in the offered row, including its bottom edge, is the native strip beneath it.
-    expect(pixel(20, 8)).toEqual([10, 20, 30, 255]);
-    expect(pixel(20, 39)).toEqual([10, 20, 30, 255]);
+    // The offered row, including its bottom edge, contributes no opaque pixels over native chrome.
+    expect(pixel(20, 8)[3]).toBe(0);
+    expect(pixel(20, 39)[3]).toBe(0);
     expect(await page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor)).toBe(
       "rgba(0, 0, 0, 0)",
     );
