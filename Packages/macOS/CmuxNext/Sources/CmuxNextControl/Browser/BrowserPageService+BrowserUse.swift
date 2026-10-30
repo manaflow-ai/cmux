@@ -187,6 +187,13 @@ extension BrowserPageService {
             guard path.hasPrefix("/"), FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), !isDirectory.boolValue else {
                 throw ControlError(code: "not_found", message: ControlStrings.format("control.error.uploadFileMissing", "No file to upload at %@", path))
             }
+            // A FIFO can block the open beyond cancellation's reach and a device like /dev/zero never
+            // ends, so only a regular file (after its links resolve) is streamed.
+            let attributes = try? FileManager.default.attributesOfItem(atPath: url.resolvingSymlinksInPath().path)
+            guard attributes?[.type] as? FileAttributeType == .typeRegular else {
+                throw ControlError(code: "not_regular_file",
+                                   message: ControlStrings.format("control.error.uploadNotRegularFile", "Only regular files can be uploaded: %@", path))
+            }
             return (url, url.lastPathComponent, mimeType(url.pathExtension))
         }
     }
