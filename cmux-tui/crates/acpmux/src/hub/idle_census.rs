@@ -161,7 +161,8 @@ pub(crate) async fn host_census(
     let found = tokio::task::spawn_blocking(move || {
         servers.extend(resolved(from_json(given.as_ref()), &path, &cwd));
         let found = crate::agent_host::tree::under(pid)?;
-        let census = classify(&found, pid, &servers, Some(&path), crate::agent_host::tree::identity);
+        let census =
+            classify(&found, pid, &servers, Some(&path), crate::agent_host::tree::identity);
         Some(matches!(census, Census::Clear))
     });
     matches!(tokio::time::timeout(CENSUS_BUDGET, found).await, Ok(Ok(Some(true))))

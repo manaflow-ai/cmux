@@ -39,7 +39,9 @@ pub(super) fn session_change_kind(record_kind: &str) -> Option<&str> {
         // A turn the row showed `retryDeciding` for gets no retry.
         | "auto_resume_settled"
         // Work the session started runs past its turn, or ended (`hub/work_below.rs`).
-        | "subagents_working" => record_kind,
+        | "subagents_working"
+        // What its harness spent and holds, read after a turn (`hub/usage_view.rs`).
+        | "usage_stats" => record_kind,
         // A Stop's turn reads `stopping`, or a stuck chat works again: the row's `state`.
         "stopping" | "stop_escalated" | "stop_restarted" | "unstuck" => "status",
         k if k == "dequeued" || k.starts_with("queue") => "queue",

@@ -124,7 +124,7 @@ import SwiftUI
         #expect(source.pendingTabTitle == nil)
         #expect(source.openedTab == nil)
         #expect(source.tabs.map { [$0.id, $0.title, $0.subtitle ?? ""] } == before)
-        #expect(source.toastText?.hasSuffix("doesn't allow agent chats in this folder from your iPhone yet.") == true)
+        #expect(source.toastText?.hasSuffix("doesn't allow agent chats in this folder from your iPhone.") == true)
     }
 
     /// User report 2026-10-14: GUI sessions must open model-agnostic, as the Mac's New Agent
@@ -175,7 +175,7 @@ import SwiftUI
         #expect(source.toastText?.contains("your Mac") == false)
         // Agents not connected yet: the entry stays, the chooser does not.
         older.kinds = [.terminal]
-        older.unavailable = [(.agentChat, "Agents on this Mac aren't connected yet. Try again in a moment.")]
+        older.unavailable = [(.agentChat, "Agents on this Mac aren't connected. Try again in a moment.")]
         #expect(source.newTabOptions.map(\.title) == ["New Terminal", "New Agent Chat"])
     }
 

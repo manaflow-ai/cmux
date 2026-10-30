@@ -418,6 +418,14 @@ final class CloudService {
     /// after the account's machines were dropped (sign-out, another account),
     /// or after this app added or removed a machine, is stale.
     @ObservationIgnored private var listGeneration = 0
+    /// Orders every read of machine records (a list, Machine Status's one record) by when it was asked.
+    @ObservationIgnored private var recordReads = 0
+    /// Per machine, the read whose record it holds: an older read's answer that lands later changes nothing.
+    @ObservationIgnored private var recordReadApplied: [String: Int] = [:]
+    /// Only one-record reads protect their own machine from an older list's removal.
+    @ObservationIgnored private(set) var recordReadsOutstanding: [Int: String] = [:]
+    /// Omitted machines awaiting a newer status read; retired as soon as that read finishes.
+    @ObservationIgnored private var deferredRecordRemovals: [String: Int] = [:]
 
     /// Fetches `/api/vm` and reconciles sessions: new live machines connect,
     /// gone machines disconnect, records update in place. A stale list (see
@@ -434,6 +442,8 @@ final class CloudService {
         lastRefresh = .now
         listGeneration += 1
         let generation = listGeneration
+        let read = beginRecordRead()
+        defer { finishRecordRead(read) }
         let account = listAccount
         do {
             let list: [CloudMachine]
@@ -450,7 +460,8 @@ final class CloudService {
             machines.cloudLimits = limits
             if let limits { planObserved(limits.planId) }
             lastError = nil
-            reconcile(list); changes.listed(list) { [weak self] in _ = await self?.refresh() }
+            reconcile(list, read: read)
+            changes.listed(machines.cloud.map(\.machine)) { [weak self] in _ = await self?.refresh() }
             hasLoadedMachines = true
             loadedAccount = account
             listLoadedAt = .now
@@ -486,43 +497,99 @@ final class CloudService {
         Self.listIsCurrent(loadedAt: hasLoadedMachines ? listLoadedAt : nil, loadedFor: loadedAccount, account: listAccount, now: .now, within: age)
     }
 
-    private func reconcile(_ list: [CloudMachine]) {
+    /// Takes a read ticket before sending. A one-record request names its machine; a list does not.
+    func beginRecordRead(machineID: String? = nil) -> Int {
+        recordReads += 1
+        // Lists need ordering only; they must never acquire an outstanding status entry.
+        if let machineID { recordReadsOutstanding[recordReads] = machineID }
+        return recordReads
+    }
+
+    /// Retires a completed or superseded status read; an ordering-only list ticket is a no-op.
+    func finishRecordRead(_ read: Int) {
+        guard recordReadsOutstanding.removeValue(forKey: read) != nil else { return }
+        processDeferredRecordRemovals()
+    }
+
+    func reconcile(_ list: [CloudMachine], read: Int) {
         // A list that arrives after Cloud was turned off connects nothing.
         guard !policyDisabled else { return }
         let visible = list.filter { $0.status != .destroyed }
         for machine in visible {
             if let session = machines.session(machine.id) {
-                applyRecord(machine, to: session)
+                apply(machine, to: session, read: read)
             } else {
+                // Do not resurrect a machine removed by a newer detail/list response.
+                guard read > recordReadApplied[machine.id, default: 0] else { continue }
+                // The machine's record now comes from this list: older reads land behind it.
+                recordReadApplied[machine.id] = read
                 addSession(changes.applyingPending(to: machine))
             }
         }
         let ids = Set(visible.map(\.id))
         for session in machines.cloud where !ids.contains(session.machineID) {
-            changes.removed(session.machineID)
-            if let user = auth.user {
-                let scope = CloudCodexBrokerScope(userID: user.id, teamID: auth.teamID)
-                let machineID = session.machineID
-                // The authoritative list confirmed removal (or a destroyed tombstone).
-                // Only now may failed credential cleanup be discarded: delete acknowledgement
-                // alone can still be followed by a provider failure and a running record.
-                // task-owner: confirmed removal stops renewal, then discards the deleted target.
-                Task {
-                    try? await codexBroker.revoke(machineID: machineID, scope: scope)
-                    await codexBroker.machineWasDeleted(machineID, scope: scope)
-                }
+            deferredRecordRemovals[session.machineID] = max(read, deferredRecordRemovals[session.machineID, default: 0])
+        }
+        processDeferredRecordRemovals()
+    }
+
+    private func processDeferredRecordRemovals() {
+        guard !policyDisabled else { return }
+        for (machineID, read) in deferredRecordRemovals {
+            // A later successful read saw this machine, superseding the omission.
+            if recordReadApplied[machineID, default: 0] >= read {
+                deferredRecordRemovals[machineID] = nil
+                continue
             }
-            creations.machineRemoved(session.machineID)
-            machines.remove(session.machineID)?.disconnect()
+            // A status request for another machine cannot delay this removal.
+            guard !recordReadsOutstanding.contains(where: { $0.key > read && $0.value == machineID }) else { continue }
+            deferredRecordRemovals[machineID] = nil
+            recordReadApplied[machineID] = max(read, recordReadApplied[machineID, default: 0])
+            // A list omission is not proof that the provider VM was destroyed: retired
+            // provider rows can be filtered while the VM still exists. Revoke delivered
+            // access, but retain the broker target/auth mode unless destruction is explicit.
+            removeConfirmedMachine(machineID, destructionConfirmed: false)
         }
     }
 
-    /// List and palette status reads share the mutation overlay and transport reconciliation.
-    /// A response for a removed session or disabled account must not restart its connection.
-    func applyRecord(_ record: CloudMachine, to session: CloudMachineSession) {
-        guard !policyDisabled, record.id == session.machineID,
-              machines.session(record.id) === session else { return }
-        session.applyRecord(changes.applyingPending(to: record))
+    /// Remove the app session after an authoritative omission or destroyed detail. Only a
+    /// destroyed detail may discard the broker's target/auth metadata; an omission may be a
+    /// filtered retired-provider row while the VM survives.
+    private func removeConfirmedMachine(_ machineID: String, destructionConfirmed: Bool) {
+        deferredRecordRemovals[machineID] = nil
+        guard machines.session(machineID) != nil else { return }
+        changes.removed(machineID)
+        if let user = auth.user {
+            let scope = CloudCodexBrokerScope(userID: user.id, teamID: auth.teamID)
+            // task-owner: confirmed removal stops renewal, then discards the deleted target.
+            Task {
+                try? await codexBroker.revoke(machineID: machineID, scope: scope)
+                if destructionConfirmed {
+                    await codexBroker.machineWasDeleted(machineID, scope: scope)
+                }
+            }
+        }
+        creations.machineRemoved(machineID)
+        machines.remove(machineID)?.disconnect()
+    }
+
+    /// A fresh record for `session` (a list refresh, or Machine Status reading one machine): a
+    /// machine that stopped being live suspends its link, and one that turned live connects.
+    /// `read` (``beginRecordRead(machineID:)``): a record from a read asked before the one the session
+    /// holds changes nothing, so answers that land out of order run no stale transition.
+    func apply(_ machine: CloudMachine, to session: CloudMachineSession, read: Int) {
+        // Apply the newer record before releasing any removal it was protecting.
+        defer { finishRecordRead(read) }
+        guard !policyDisabled, machine.id == session.machineID,
+              read > recordReadApplied[machine.id, default: 0], machines.session(machine.id) === session else { return }
+        recordReadApplied[machine.id] = read
+        if machine.status == .destroyed {
+            removeConfirmedMachine(machine.id, destructionConfirmed: true)
+            return
+        }
+        // Read ordering admits the record; mutation tracking supplies presentation until the
+        // matching operation settles, so an in-flight status read cannot reopen action gates.
+        session.applyRecord(changes.applyingPending(to: machine))
     }
 
     @discardableResult
@@ -562,6 +629,9 @@ final class CloudService {
         listGeneration += 1
         for creation in creations.all { creations.end(creation) }
         for session in machines.cloud { machines.remove(session.machineID)?.disconnect() }
+        recordReadApplied = [:]
+        recordReadsOutstanding = [:]
+        deferredRecordRemovals = [:]
         machines.cloudLimits = nil
         hasLoadedMachines = false
         listLoadedAt = nil

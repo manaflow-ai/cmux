@@ -125,6 +125,10 @@
 .acpmux-menu-section+.acpmux-menu-section{margin-top:6px;padding-top:6px;box-shadow:inset 0 .5px 0 var(--acpmux-composer-edge)}
 .acpmux-menu-header{display:flex;align-items:center;min-height:24px;padding:0 8px;color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-composer-plus .acpmux-menu-header{background-image:linear-gradient(var(--surface-popup),var(--surface-popup))}
+/* The + menu holds Add plus its Search section (files, chats, pages): it takes the room the pane has
+   above or below +, not half the window, so a short pane shows every row whole instead of clipping
+   the last one under a scroll (useUiAnchor still caps it to the room it has). */
+.acpmux-composer-plus .acpmux-menu{max-height:min(520px,calc(100vh - 16px))}
 .acpmux-menu-item{display:flex;align-items:center;gap:8px;min-height:var(--ui-row-height);padding:5px var(--ui-row-padding-inline);box-sizing:border-box;border-radius:var(--ui-row-radius)}
 .acpmux-project-browse{width:100%;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .ui-menu-check{flex:none;display:inline-flex;align-items:center;justify-content:center;line-height:1}
@@ -406,7 +410,7 @@
 .acpmux-home-dot{flex:none;width:8px;height:8px;margin:0 4px;border-radius:50%;background:var(--acpmux-needs-you-mark)}
 .acpmux-home-title{flex:none;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-home-detail{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted)}
-.acpmux-home-meta{flex:none;color:var(--agent-muted);font-size:13px}
+.acpmux-home-meta,.acpmux-home-inbox-count{flex:none;color:var(--agent-muted);font-size:13px;font-variant-numeric:tabular-nums}
 .acpmux-home-title+.acpmux-home-meta{margin-left:auto}
 /* The inbox (HomeInbox.tsx): each ask, the chat it is in under it, and its answers in place. */
 .acpmux-home-inbox .acpmux-home-label{display:flex;align-items:baseline;gap:4px}

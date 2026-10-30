@@ -285,15 +285,21 @@ struct CloudMachineChangeStateTests {
         session.machine.status = change == .starting ? .paused : .running
         var stale = session.machine
         stale.displayName = "Updated by status read"
+        AppActions.bind(services)
+        let invocation = ActionInvocation(target: ActionTargetRef(kind: .machine, id: session.machineID), origin: .user)
+        let read = cloud.beginRecordRead(machineID: session.machineID)
         try await cloud.changes.run(change, machineID: session.machineID, of: { session }) {
-            cloud.applyRecord(stale, to: session)
+            cloud.apply(stale, to: session, read: read)
+            for id: ActionID in ["cloudPauseMachine", "cloudResumeMachine", "cloudKillMachine"] {
+                #expect(services.registry.action(for: id)?.targetUnavailableReason?(invocation) == CloudStrings.machineChanging(change))
+            }
             #expect(session.machine.pendingChange == change)
             #expect(session.machine.shownStatus == change)
             #expect(session.machine.displayName == stale.displayName)
             #expect(!CloudHandlers.attachable(session))
         }
         // An acknowledged request still waits for the provider's terminal record.
-        cloud.applyRecord(stale, to: session)
+        cloud.apply(stale, to: session, read: cloud.beginRecordRead(machineID: session.machineID))
         #expect(session.machine.pendingChange == change)
         #expect(!CloudHandlers.attachable(session))
         cloud.changes.stop()
@@ -496,9 +502,8 @@ struct CloudMachineChangeStateTests {
             #expect(status.blocks(.resume), "\(status)")
             #expect(CloudStrings.machineChanging(status) != nil, "\(status)")
         }
-        // A machine stuck pausing or resuming can still be killed; one being deleted cannot.
-        #expect(!CloudMachine.Status.pausing.blocks(.kill))
-        #expect(!CloudMachine.Status.starting.blocks(.kill))
+        #expect(CloudMachine.Status.pausing.blocks(.kill))
+        #expect(CloudMachine.Status.starting.blocks(.kill))
         #expect(CloudMachine.Status.deleting.blocks(.kill))
         for status: CloudMachine.Status in [.running, .paused, .failed, .provisioning, .unknown] {
             for action: CloudMachine.PowerAction in [.pause, .resume, .kill] { #expect(!status.blocks(action), "\(action) \(status)") }
@@ -515,7 +520,7 @@ struct CloudMachineChangeStateTests {
         session.machine.status = .pausing
         #expect(reason("cloudPauseMachine") == CloudStrings.machineChanging(.pausing))
         #expect(reason("cloudResumeMachine") == CloudStrings.machineChanging(.pausing))
-        #expect(reason("cloudKillMachine") == nil)
+        #expect(reason("cloudKillMachine") == CloudStrings.machineChanging(.pausing))
         session.machine.status = .deleting
         #expect(reason("cloudKillMachine") == CloudStrings.machineChanging(.deleting))
         session.disconnect()

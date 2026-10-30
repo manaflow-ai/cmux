@@ -23,9 +23,8 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         /// A pause, resume or delete is on its way.
         public var isChanging: Bool { self == .pausing || self == .starting || self == .deleting }
 
-        /// Whether `action` waits for this status to land: Pause and Resume wait for any change on
-        /// its way; Kill only for a delete, so a machine stuck pausing or resuming can still be killed.
-        public func blocks(_ action: PowerAction) -> Bool { action == .kill ? self == .deleting : isChanging }
+        /// Power actions wait until the current transition reaches its terminal state.
+        public func blocks(_ action: PowerAction) -> Bool { isChanging }
     }
 
     /// Pause, Resume and Kill Machine.
