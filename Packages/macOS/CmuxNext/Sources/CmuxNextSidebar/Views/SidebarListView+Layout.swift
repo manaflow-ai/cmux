@@ -348,7 +348,7 @@ extension SidebarListViewComponents {
         case let (.folder(_, folder), view as FolderHeaderRowView): view.configure(folder: folder)
         case let (.status, view as StatusHeaderRowView): view.configure(row)
         case (.doneFold, let view as SidebarDoneFoldRowView), (.showMore, let view as SidebarDoneFoldRowView):
-            view.isKeyboardFocused = focusedFold == row.key
+            view.isKeyboardFocused = showsFocusRing && focusedFold == row.key
             view.configure(row)
         default:
             break

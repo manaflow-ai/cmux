@@ -85,7 +85,11 @@ extension SidebarListViewComponents {
                 press.activatedOnPress = true
                 model.send(.activateItem(id, opensWorkspace: event.modifierFlags.contains(.option)))
             }
-        case .section, .emptySection, .emptyGroup, .folder, .block, .doneFold, .showMore, .status:
+        case .doneFold, .showMore:
+            // Keyboard focus moves to the clicked disclosure (no ring), so a ring left on another one cannot take
+            // the next Space or Return; the release toggles it.
+            SidebarGroupKeys(list: self).focusFold(row.key, ring: false)
+        case .section, .emptySection, .emptyGroup, .folder, .block, .status:
             break
         }
         self.press = press

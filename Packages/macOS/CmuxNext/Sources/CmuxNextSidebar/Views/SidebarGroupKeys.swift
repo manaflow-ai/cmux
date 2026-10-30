@@ -101,9 +101,7 @@ import AppKit
         case let .group(group):
             setFocus(group)
         case let .fold(key):
-            setFocus(nil)
-            list.focusedFold = key
-            (list.rowViews[key] as? SidebarDoneFoldRowView)?.isKeyboardFocused = true
+            focusFold(key, ring: true)
         case let .workspace(id):
             setFocus(nil)
             model.activeWorkspaceID = id
@@ -113,6 +111,15 @@ import AppKit
         if case let .fold(key) = stop, let row = list.displayed.row(for: key) {
             list.scrollToVisible(list.frame(for: row))
         }
+    }
+
+    /// Moves keyboard focus to the disclosure `key`, with its ring when the keyboard moved it (`ring`); a click
+    /// focuses it without one, so Space, Return and the arrows continue from the row clicked last.
+    func focusFold(_ key: SidebarRowKey, ring: Bool) {
+        setFocus(nil)
+        list.focusedFold = key
+        list.showsFocusRing = ring
+        (list.rowViews[key] as? SidebarDoneFoldRowView)?.isKeyboardFocused = ring
     }
 
     /// Moves keyboard focus to `group` (nil: back to the workspaces) and
