@@ -28,8 +28,8 @@ struct AgentPaneDraftGenerationRelayTests {
     func unknownDraftWriteFieldsRemainRefused(_ params: String) throws {
         let text = Self.frame(params)
         let object = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
-        #expect(AcpmuxPaneMethods.breaksParamsRule(object, modeFields: []), params)
-        guard case .intentInvalid = AcpmuxPaneMethods.decide(text, isFirst: false, localAppToken: nil) else {
+        #expect(AcpmuxPaneMethods.breaksParamsRule(object, modeFields: []), Comment(rawValue: params))
+        guard case .refuse(.intentInvalid, _, _) = AcpmuxPaneMethods.decide(text, isFirst: false, localAppToken: nil) else {
             Issue.record("unknown draft_set field escaped the native relay: \(params)")
             return
         }
