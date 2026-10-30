@@ -363,9 +363,7 @@ describe("the inline player", () => {
     await act(async () => void jest.advanceTimersByTime(MEDIA_PREVIEW_DWELL));
     expect(video.dataset.played).toBe("muted");
     jest.useRealTimers();
-    await act(async () =>
-      container.querySelector<HTMLButtonElement>("button.cv-media__expand")!.click(),
-    );
+    await act(async () => container.querySelector<HTMLButtonElement>("button.cv-media__expand")!.click());
     const stage = dom!.window.document.querySelector(".cv-media-stage");
     expect(stage).not.toBeNull();
     const large = stage!.querySelector("video")!;
@@ -386,9 +384,7 @@ describe("the inline player", () => {
     };
     await act(async () => container.querySelector<HTMLButtonElement>("button.cv-media__poster")!.click());
     video.currentTime = 12;
-    await act(async () =>
-      container.querySelector<HTMLButtonElement>("button.cv-media__expand")!.click(),
-    );
+    await act(async () => container.querySelector<HTMLButtonElement>("button.cv-media__expand")!.click());
     const stage = dom!.window.document.querySelector(".cv-media-stage")!;
     const large = stage.querySelector<HTMLVideoElement>("video")!;
     await act(async () => stage.querySelector<HTMLButtonElement>("button.cv-media__poster")!.click());
