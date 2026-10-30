@@ -24,9 +24,18 @@ async function fixture(origin: string | undefined, supported = true, holdPeers =
   let status: Record<string, unknown>[] = [
     { name: "studio-mac", transport: "ssh", connected: true, state: "connected", lastSeen: 99 },
   ];
-  // A held `_acpmux/peers` answers only once released (`releasePeers`).
-  let held: (() => void) | undefined;
-  const peersHeld = holdPeers ? new Promise<void>((resolve) => (held = resolve)) : undefined;
+  // A held read answers only once released, with what the daemon says then (`hold`, `release`).
+  const gates: Record<string, { open: Promise<void>; release: () => void } | undefined> = {};
+  const hold = (method: string) => {
+    let release = () => {};
+    const open = new Promise<void>((resolve) => (release = resolve));
+    gates[method] = { open, release };
+  };
+  const release = (method: string) => {
+    gates[method]?.release();
+    gates[method] = undefined;
+  };
+  if (holdPeers) hold("_acpmux/peers");
   let socket: InstanceType<typeof MockAcpmuxSocket>;
   let onSnapshot: ((snapshot: AcpmuxSnapshot) => void) | undefined;
   const openSocket = () => {
@@ -37,9 +46,12 @@ async function fixture(origin: string | undefined, supported = true, holdPeers =
       requests.push(method);
       if (method === "initialize")
         return { protocolVersion: 1, _meta: { acpmux: { origin, features: supported ? ["peerStateEvents"] : [] } } };
-      if (method === "_acpmux/status") return { peers: status };
+      if (method === "_acpmux/status") {
+        await gates[method]?.open;
+        return { peers: status };
+      }
       if (method === "_acpmux/peers") {
-        await peersHeld;
+        await gates[method]?.open;
         return { peers };
       }
       return answer(method, params);
@@ -82,7 +94,13 @@ async function fixture(origin: string | undefined, supported = true, holdPeers =
     status: (value: Record<string, unknown>[]) => {
       status = value;
     },
-    releasePeers: () => held?.(),
+    releasePeers: () => release("_acpmux/peers"),
+    hold,
+    release,
+    /// What the client holds now, drawn or not.
+    peerStates: () => (client as unknown as { peerStates: Record<string, string> }).peerStates,
+    /// The client's own `_acpmux/peers` read, awaited (what a lag notice or a reconnect starts).
+    readSnapshot: () => (client as unknown as { refreshPeerStates(): Promise<boolean> }).refreshPeerStates(),
   };
   // The initial snapshot lands after the first frame: settle it, unless the test holds it.
   if (origin === "local" && supported && !holdPeers) await f.waitForState("connecting");
@@ -252,6 +270,40 @@ test("a later status read replaces a restarting state no note has updated since"
     await f.client.refreshPeers();
     expect(f.latest().peerStates?.["studio-mac"]).toBe("reconnecting");
     expect(f.latest().peerConnected?.["studio-mac"]).toBe(false);
+  } finally {
+    f.client.close();
+  }
+});
+
+test("an older snapshot that lands after a newer status read never brings back its state", async () => {
+  const f = await fixture("local");
+  try {
+    f.peers([{ name: "studio-mac", state: "restarting", lastSeen: 5, error: null }]);
+    f.hold("_acpmux/peers");
+    const snapshot = f.readSnapshot();
+    // Started after the snapshot and answered first: the restart failed meanwhile.
+    f.status([{ name: "studio-mac", transport: "ssh", connected: false, state: "reconnecting", lastSeen: 5 }]);
+    await f.client.refreshPeers();
+    f.release("_acpmux/peers");
+    await snapshot;
+    expect(f.peerStates()["studio-mac"]).toBe("reconnecting");
+  } finally {
+    f.client.close();
+  }
+});
+
+test("an older status read that lands after a newer snapshot never erases it", async () => {
+  const f = await fixture("local");
+  try {
+    f.hold("_acpmux/status");
+    const status = f.client.refreshPeers();
+    // Started after the status read and answered first.
+    f.peers([{ name: "studio-mac", state: "restarting", lastSeen: 5, error: null }]);
+    await f.readSnapshot();
+    f.status([{ name: "studio-mac", transport: "ssh", connected: false, state: "reconnecting", lastSeen: 5 }]);
+    f.release("_acpmux/status");
+    await status;
+    expect(f.peerStates()["studio-mac"]).toBe("restarting");
   } finally {
     f.client.close();
   }
