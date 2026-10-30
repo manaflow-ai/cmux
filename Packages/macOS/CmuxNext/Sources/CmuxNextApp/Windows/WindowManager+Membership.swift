@@ -150,6 +150,16 @@ extension WindowManager {
         show(workspaceID: workspaceID, in: state, from: .thisWindow)
     }
 
+    /// Records that a person explicitly opened a Cloud machine. A workspace key can be
+    /// shared by a snapshot clone, so inferring ownership from the first daemon that reports
+    /// the key is not sufficient; the explicit machine action is authoritative.
+    func markMachineOpened(_ machineID: String) {
+        guard let daemon = services.machines.daemon(machine: machineID) else { return }
+        for workspaceID in Self.orderedIDs(of: daemon, machines: services.machines) {
+            seenMachine[workspaceID] = machineID
+        }
+    }
+
     /// Each registered window's workspaces, by window id.
     var membersByWindow: [String: [String]] {
         Dictionary(registry.value.windows.map { ($0.id, $0.workspaceIDs) }, uniquingKeysWith: { first, _ in first })

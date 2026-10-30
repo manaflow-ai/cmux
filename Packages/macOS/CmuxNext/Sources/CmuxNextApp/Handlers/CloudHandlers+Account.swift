@@ -18,7 +18,7 @@ extension CloudHandlers {
         bindMachineCreation(into: registry, context: context, reason: reason)
         bind("newCloudWorkspace", registry, reason: { reason() ?? (cloud.isSignedIn ? nil : CloudStrings.signInFirst) }) { invocation in
             let target = try workspaceMachine(invocation, context)
-            let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
+            let window = CloudHandlers.viewChange(invocation) ? context.services.windows.active?.state : nil
             guard let session = target, session.daemon.connection != nil else {
                 if target == nil, origin(of: invocation) == .user, window != nil {
                     beginWorkspaceSetup(context, window: window, askedBy: invocation.callerAgentSession)
@@ -29,7 +29,7 @@ extension CloudHandlers {
                 // a paused machine resumes (idle auto-pause).
                 target?.attach(origin: connectOrigin(for: invocation))
                 creationFlow(context, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession,
-                             reveals: invocation.allowsViewChange).start(in: window, existing: target)
+                             reveals: CloudHandlers.viewChange(invocation)).start(in: window, existing: target)
                 // A CLI or agent hears that the workspace comes later: its machine is starting or connecting.
                 result("new cloud workspace", context) {
                     (target.map { machineFields($0.machineID) } ?? [:]).merging(["pending": .bool(true), "status": .string(target == nil ? "creating" : "connecting")]) { field, _ in field }
@@ -366,6 +366,9 @@ extension CloudHandlers {
             show: { id, creation in
                 let after = creation.readyAfter.map { String(format: "%.1f s", Double($0.components.seconds) + Double($0.components.attoseconds) / 1e18) } ?? "?"
                 cloud.logger.info("new cloud workspace \(id, privacy: .public) on \(creation.session?.machineID ?? "?", privacy: .public) ready after \(after, privacy: .public)")
+                if (startedByPerson || reveals), let machineID = creation.session?.machineID {
+                    windows.markMachineOpened(machineID)
+                }
                 // The window that still shows the creation shows its
                 // workspace; one that moved on gets it filed quietly. A
                 // machine an agent or the CLI made without focus stays out

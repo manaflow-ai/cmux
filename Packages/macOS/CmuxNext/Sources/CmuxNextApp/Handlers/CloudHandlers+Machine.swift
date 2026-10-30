@@ -19,6 +19,7 @@ extension CloudHandlers {
             // only for the user's own gesture. A paused machine resumes first.
             run("open machine", context) {
                 try await attached(session, invocation)
+                context.services.windows.markMachineOpened(session.machineID)
                 show(try await firstWorkspace(on: session, context), context)
             }
         }
@@ -373,6 +374,9 @@ extension CloudHandlers {
             return try await newTerminalTab(on: session, at: try await machineWorkspace(workspace, on: session), invocation, context)
         }
         guard let id = await context.services.windows.createWorkspace(on: daemon) else { throw ActionFailure(message: CloudStrings.notConnected) }
+        if CloudHandlers.viewChange(invocation) {
+            context.services.windows.markMachineOpened(session.machineID)
+        }
         if invocation.allowsViewChange { show(id, context) }
         var fields: [String: ActionResultValue] = ["machine_id": .string(session.machineID), "workspace_id": .string(id)]
         // Its terminal's ids, only once the store holds the create's events (a person's run reads

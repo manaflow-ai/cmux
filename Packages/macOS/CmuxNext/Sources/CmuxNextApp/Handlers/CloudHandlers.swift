@@ -46,7 +46,7 @@ enum CloudHandlers {
         let bound = registry.bindEffect("newCloudMachine", requires: nil, unavailable: reason) { invocation in
             let request = try CloudHandlers.newMachineRequest(invocation)
             let actionOrigin = CloudHandlers.origin(of: invocation)
-            let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
+            let window = CloudHandlers.viewChange(invocation) ? context.services.windows.active?.state : nil
             // The chat the person asked from, read now: sign-in may finish after focus moved.
             let chat = CloudChatPick.chatTab(invocation, context.services)
             let start: @MainActor () -> ActionWorkFailure? = {
@@ -60,7 +60,7 @@ enum CloudHandlers {
                     return nil
                 }
                 let flow = CloudHandlers.creationFlow(context, startedByPerson: actionOrigin == .user,
-                                         askedBy: invocation.callerAgentSession, reveals: invocation.allowsViewChange)
+                                         askedBy: invocation.callerAgentSession, reveals: CloudHandlers.viewChange(invocation))
                 guard request.isDefault else {
                     CloudHandlers.createRequested(request, flow: flow, window: window, context)
                     return nil
