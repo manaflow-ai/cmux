@@ -33,6 +33,7 @@ final class SidebarListDrag {
     var target: DropTarget? {
         didSet { if case let .position(position)? = target { lastPosition = position } }
     }
+    var refusedAtBegin = false
     /// The last slot: while the card is over a row's middle
     /// (`ontoWorkspace`), the list keeps showing it, so nothing moves.
     private(set) var lastPosition: DropPosition?

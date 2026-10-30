@@ -159,6 +159,14 @@ nonisolated extension SidebarLayout {
         layout.rowSpacing = rowSpacing
         layout.pinnedChatsY = movedPinnedY
         layout.earlierChatsY = movedEarlierY
+        if !result.contains(where: { if case .sessionHost = $0.key { true } else { false } }) {
+            var base = SidebarLayout(rows: rows, totalHeight: totalHeight, gapY: gapY,
+                                     gapHeight: gapHeight, gapShift: gapShift)
+            base.rowSpacing = rowSpacing
+            base.pinnedChatsY = pinnedChatsY
+            base.earlierChatsY = earlierChatsY
+            return base
+        }
         return layout
     }
 }

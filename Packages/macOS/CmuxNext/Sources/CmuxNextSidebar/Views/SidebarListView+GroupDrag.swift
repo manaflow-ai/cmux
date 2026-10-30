@@ -26,7 +26,7 @@ extension SidebarListViewComponents {
 
     /// A pointer move of a held group drag: the slot under the card's centre; the rows move only when it changes.
     func updateGroupDrag(_ drag: Drag) {
-        if displayed.hostHeadersShowing {
+        if drag.refusedAtBegin {
             drag.target = nil
             drag.docTarget = nil
             if var group = drag.group {
