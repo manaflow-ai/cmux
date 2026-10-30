@@ -15,34 +15,7 @@ pub(super) fn harness_state_lock() -> std::sync::MutexGuard<'static, ()> {
     HARNESS_STATE_LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-pub(super) fn write_json_atomic(path: &Path, value: &Value) -> Result<()> {
-    let tmp = path.with_extension(format!(
-        "{}.importing",
-        path.extension().and_then(|e| e.to_str()).unwrap_or("json")
-    ));
-    if std::fs::symlink_metadata(&tmp).is_ok() {
-        return Err(anyhow::anyhow!("transaction marker temporary path is occupied"));
-    }
-    let bytes = serde_json::to_vec(value)?;
-    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
-    // The temporary file is this call's own (`create_new`): a failure before the rename takes it
-    // away, so the next write of `path` is not refused as occupied.
-    let written = (|| -> std::io::Result<()> {
-        use std::io::Write;
-        file.write_all(&bytes)?;
-        file.sync_all()?;
-        drop(file);
-        std::fs::rename(&tmp, path)
-    })();
-    if let Err(e) = written {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(e.into());
-    }
-    if let Some(parent) = path.parent() {
-        std::fs::File::open(parent)?.sync_all()?;
-    }
-    Ok(())
-}
+pub(super) use super::atomic_json::write_json_atomic;
 
 /// Whether the durable marker at `marker` stands for the chat `outer_id`.
 fn marker_names(marker: &Path, outer_id: &str) -> bool {
@@ -265,6 +238,9 @@ impl Hub {
         };
         // Made once nothing can fail: a failed import leaves nothing in the child index.
         let session = self.make_session(meta.clone());
+        // Its copied log may hold the source's move: unknown until its own `imported` receipt
+        // is logged (`transfer_authority.rs`), so a failed receipt never reads as local.
+        *session.transfer_authority.lock().unwrap_or_else(|e| e.into_inner()) = None;
         session.seq.store(last, Ordering::SeqCst);
         session.meta.lock().unwrap().last_seq = last;
         if live {
@@ -278,12 +254,21 @@ impl Hub {
         // Indexed again once published: a lookup before that found no session and dropped it.
         self.child_tags.note(&session);
         self.offers.forget(&meta.id);
-        self.append(
+        let (_, logged) = self.append_at(
             &session,
             "mux",
             "imported",
             json!({"from": bundle, "nativeRestored": restored}),
+            None,
+            None,
         );
+        // Without its own receipt the copied records would decide its transfer state after a
+        // restart (`transfer_authority.rs`): the import fails and leaves no chat.
+        if !logged {
+            self.recover_staged_replacements();
+            let _ = self.kill(&session, true).await;
+            return Err(RpcError::internal("import: could not durably record imported"));
+        }
         self.save_meta(&session);
         if !defer_finalize && let Err(error) = self.finalize_harness_state(&session.meta()) {
             self.recover_staged_replacements();

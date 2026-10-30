@@ -17,6 +17,8 @@ use std::sync::Mutex;
 
 mod compact;
 pub use compact::{CompactMode, Compaction, Staged};
+mod superseded;
+pub use superseded::{Superseded, starts_prompt};
 
 /// One line in the session event log.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -372,6 +374,11 @@ pub struct SessionMeta {
     /// adopts gets no second one. Never copied to a fork.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn_cap_noticed: Option<String>,
+    /// The session that first gave this chat work (`hub/inbox.rs`): the sender of the first
+    /// message to it before it ran a turn. Its actions wake the idle chat, as its lineage
+    /// parent's do. Never copied to a fork.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delegator: Option<String>,
 }
 
 /// Where a session sits in the tree of sessions that started each other

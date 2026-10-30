@@ -1231,6 +1231,11 @@ impl Hub {
                         if s.route_switch.swap(false, Ordering::SeqCst) {
                             hub.detach_child(&s).await;
                         }
+                        // A Stop ended its agent (`cancel.rs`). Not started again here, for the
+                        // reason above, nor on a task of its own: that start would run inside
+                        // this adoption's future (not `Send`). The next prompt starts it, on the
+                        // same conversation, as after any agent exit.
+                        s.stop_respawn.store(0, Ordering::SeqCst);
                         drop(guard);
                     });
                 }

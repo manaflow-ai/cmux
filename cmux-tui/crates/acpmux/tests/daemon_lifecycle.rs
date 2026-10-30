@@ -840,7 +840,8 @@ async fn a_home_replaced_after_lock_acquisition_receives_no_startup_writes() {
 
 /// A command whose `ACPMUX_SOCKET` is not the socket its home's running daemon serves fails at
 /// once, naming the one it serves, instead of starting a daemon that waits out the handover
-/// budget on the lock that daemon holds.
+/// budget on the lock that daemon holds. A listing, which never starts one, fails as fast instead of waiting out
+/// the budget for a socket that daemon will never serve.
 #[tokio::test]
 async fn a_socket_the_homes_daemon_does_not_serve_fails_fast() {
     let dir = scratch("other");
@@ -897,12 +898,13 @@ async fn a_socket_the_homes_daemon_does_not_serve_fails_fast() {
 /// A command whose `ACPMUX_HOME` is missing (a test's removed temporary home) starts no daemon
 /// and does not make the folder again: a daemon there would run beside the one still on the
 /// removed files.
+/// (`chats list` starts a daemon when none runs; a listing, `ls`, never does.)
 #[test]
 fn a_command_in_a_missing_home_starts_no_daemon() {
     let dir = scratch("nohome");
     let home = dir.join("tmp7uxt3tq_/.acpmux");
     let out = daemon_env::acpmux(&dir)
-        .args(["ls"])
+        .args(["chats", "list"])
         .env("ACPMUX_HOME", &home)
         .env("ACPMUX_SOCKET", home.join("acpmux.sock"))
         .env("ACPMUX_LOGIN_ENV", "0")
@@ -937,7 +939,7 @@ fn a_command_in_a_missing_home_starts_no_systemd_unit() {
     std::fs::set_permissions(&systemctl, std::fs::Permissions::from_mode(0o755)).unwrap();
     let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
     let out = daemon_env::acpmux(&dir)
-        .args(["ls"])
+        .args(["chats", "list"])
         .env("PATH", path)
         .env("ACPMUX_HOME", &home)
         .env("ACPMUX_SOCKET", home.join("acpmux.sock"))
@@ -963,7 +965,7 @@ fn a_socket_without_its_home_starts_no_daemon() {
     std::fs::create_dir(&elsewhere).unwrap();
     let socket = elsewhere.join("acpmux.sock");
     let out = daemon_env::acpmux(&dir)
-        .args(["ls"])
+        .args(["chats", "list"])
         .env("ACPMUX_SOCKET", &socket)
         .env("ACPMUX_LOGIN_ENV", "0")
         .stdin(std::process::Stdio::null())

@@ -52,6 +52,8 @@ const CLOUD_STAGE_LABELS: Record<string, StringKey> = {
   creating: "composer.envStarting",
   booting: "composer.envStarting",
   connecting: "composer.envStarting",
+  // A machine that failed to start says so, never "Not connected", which reads as a link to fix.
+  failed: "switch.failedShort",
 };
 function cloudMachineLabel(machine: CloudMachine): string {
   return t(CLOUD_STAGE_LABELS[machine.stage] ?? "composer.envNotConnected");
@@ -140,7 +142,7 @@ export function EnvironmentPicker({
   const [query, setQuery] = useState("");
   const trigger = useRef<HTMLButtonElement>(null);
   const escaped = useRef(false);
-  const { control, anchor, open, setOpen, side } = useLocationPopover();
+  const { control, anchor, open, setOpen, side, flip } = useLocationPopover();
   const reset = () => {
     setQuery("");
   };
@@ -538,7 +540,7 @@ export function EnvironmentPicker({
         label={label}
         className="acpmux-menu acpmux-location-menu acpmux-folder-popover acpmux-env-popover"
         side={side}
-        flip={false}
+        flip={flip}
         finalFocus={false}
       >
         <Combobox

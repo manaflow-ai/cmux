@@ -442,7 +442,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // supplies `AccountsServices`.
         .target(
             name: "CmuxNextAccounts",
-            dependencies: ["CmuxNextCloud", "CmuxNextCodeRouter", "CmuxNextDesign", "CmuxNextIcons", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
+            dependencies: ["CmuxNextCloud", "CmuxNextCodeRouter", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
                            .product(name: "CMUXAuthCore", package: "CMUXAuthCore")],
             resources: [
                 .process("Localizable.xcstrings"),
@@ -1719,6 +1719,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextRemoteLocalhostService",
                 "CmuxNextRemoteViewSessions",
                 "CmuxNextScreenshots",
+                "CmuxNextServer",
                 "CmuxNextSessionTransfer",
                 "CmuxNextSettings",
                 "CmuxNextSidebar",
@@ -1774,7 +1775,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextMobileHost",
             dependencies: [
                 "CmuxNextAgentPane", "CmuxNextCloud", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDaemonService",
-                "CmuxNextDesign", "CmuxNextMobile", "CmuxNextPages", "CmuxNextRemoteBrowser", "CmuxNextSettings",
+                "CmuxNextDesign", "CmuxNextKeepAwake", "CmuxNextMobile", "CmuxNextPages", "CmuxNextRemoteBrowser", "CmuxNextSettings",
                 "CmuxNextWakeups",
             ],
             resources: [

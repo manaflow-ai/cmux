@@ -86,6 +86,18 @@ public actor CloudLinkSession {
         }
     }
 
+    /// The current connect's id while its link is up and its answer said the signed-in caller owns
+    /// the machine (``CloudLinkSocket/callerOwnsVM``), else nil. A chat start or a trust call reads
+    /// it before it connects and again as it sends: a different answer means the link ended or a
+    /// new connect asked the Cloud API again, so an owner answer never carries over to another link
+    /// (as ``CloudMachineLink/ownerLink`` on the legacy link).
+    public var ownerLink: Int? {
+        switch state {
+        case .ready(let socket), .attached(let socket): socket.callerOwnsVM ? Int(truncatingIfNeeded: attempt) : nil
+        case .idle, .connecting, .ended: nil
+        }
+    }
+
     /// The daemon connection's endpoint: the ticket's socket, once. Throws
     /// ``CloudLinkError`` otherwise; a current ticket's second call ends the
     /// link, an old ticket changes nothing.

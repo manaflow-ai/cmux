@@ -141,15 +141,15 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         argv[at] = "skill".into();
     }
     // `acpmux stop NAME` stops that session (`session stop`), never the daemon (`daemon stop`).
-    if argv.get(at).is_some_and(|a| a == "stop") {
-        argv[at] = "session".into();
+    if let Some(word) = argv.get_mut(at).filter(|a| *a == "stop") {
+        *word = "session".into();
         argv.insert(at + 1, "stop".into());
     }
     let run_alias = argv.get(at).map(|a| a == "run" || a == "exec").unwrap_or(false);
     let exec_alias = argv.get(at).map(|a| a == "exec").unwrap_or(false);
     // clap keeps command names as `&'static str`; one per process.
     let name: &'static str = Box::leak(invocation.display_name.clone().into_boxed_str());
-    let mut grammar = Cli::command().name(name).bin_name(name);
+    let mut grammar = crate::cli::help_examples::attach(Cli::command()).name(name).bin_name(name);
     let json_out = argv.iter().take_while(|a| *a != "--").any(|a| a == "--json");
     let matches = match grammar.try_get_matches_from_mut(argv.clone()) {
         Ok(matches) => matches,
