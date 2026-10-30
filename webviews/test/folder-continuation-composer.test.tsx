@@ -139,19 +139,29 @@ test("text and attachment arrive once despite a delayed empty destination read",
 });
 test("a cancelled transfer preserves the source without restore or duplication", async () => {
   const f = await fixture();
-  act(() => {
-    const transfer = f.handle.current!.prepareDraftTransfer("destination");
-    transfer.cancel();
-  });
+  const transfer = f.handle.current!.prepareDraftTransfer("destination");
+  await transfer.ready;
+  act(() => transfer.cancel());
   expect(f.handle.current!.draftState()).toEqual({ text: "held draft", attachments: [attachment] });
+  await f.draw("other");
+  expect(f.handle.current!.draftState()).toEqual({ text: "", attachments: [] });
   expect(readPersistedDraft("source")).toBe("held draft");
   expect(f.sent).toHaveLength(0);
 });
 test("a different selected session never receives a pending transfer", async () => {
-  const f = await fixture();
-  act(() => {
-    f.handle.current!.prepareDraftTransfer("destination");
+  let resolve!: () => void;
+  const f = await fixture({
+    delay: new Promise<void>((yes) => {
+      resolve = yes;
+    }),
   });
+  const transfer = f.handle.current!.prepareDraftTransfer("destination");
+  const outcome = transfer.ready.catch((error) => error);
+  await f.draw("other");
+  resolve();
+  expect((await outcome).message).toBe("draft changed during recovery");
+  transfer.cancel();
+  expect(f.handle.current!.draftState()).toEqual({ text: "", attachments: [] });
   expect(readPersistedDraft("source")).toBe("held draft");
 });
 
