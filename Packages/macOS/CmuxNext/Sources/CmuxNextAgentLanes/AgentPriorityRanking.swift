@@ -83,15 +83,6 @@ public nonisolated struct AgentPriorityRanking: Sendable {
         }
     }
 
-    /// Chats whose agent turn has settled and can be archived as a batch. A
-    /// working chat or one waiting for the person stays visible.
-    public static func isFinished(_ state: SidebarPriorityEntry.State) -> Bool {
-        switch state {
-        case .done, .failed, .lost: true
-        case .needsYou, .ciFailing, .working, .idle: false
-        }
-    }
-
     /// The failed turn's error, else what the chat is doing or last said. Both come masked from acpmux.
     static func preview(_ lane: AgentActivityLane) -> String? {
         if lane.state == .failed || lane.state == .lost, let error = lane.error { return error }

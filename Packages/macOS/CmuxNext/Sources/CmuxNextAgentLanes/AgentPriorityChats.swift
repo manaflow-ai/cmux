@@ -169,15 +169,4 @@ public final class AgentPriorityChats {
         }
         return true
     }
-
-    /// Archives every finished local chat in one user action. The rows hide
-    /// immediately through the same marks as an individual Archive Chat; each
-    /// acpmux request then runs independently and restores its row if refused.
-    @discardableResult
-    public func archiveFinished(now: Date = Date()) -> Int {
-        let ids = entries(now: now).filter { AgentPriorityRanking.isFinished($0.state) }.map(\.id)
-        return ids.reduce(into: 0) { count, id in
-            if archive(id) { count += 1 }
-        }
-    }
 }

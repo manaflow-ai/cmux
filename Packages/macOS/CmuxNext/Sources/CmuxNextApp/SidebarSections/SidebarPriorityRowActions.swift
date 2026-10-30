@@ -22,7 +22,6 @@ extension AgentPriorityChats {
 /// `AgentPriorityChats`.
 @MainActor
 struct SidebarPriorityRowActions {
-    static let archiveFinished: ActionID = "sidebar.priority.archiveFinished"
     static let markRead: ActionID = "sidebar.priority.markRead"
     static let togglePin: ActionID = "sidebar.priority.togglePin"
     static let snooze: ActionID = "sidebar.priority.snooze"
@@ -81,16 +80,6 @@ struct SidebarPriorityRowActions {
         ActionTargetTitles.set(Self.togglePin, in: registry) { invocation in
             Self.chat(invocation).flatMap { chats.entry($0) }?.pinTitle
         }
-    }
-
-    /// Binds the sidebar background action that archives all settled chats in
-    /// one pass. It shares the same Priority view availability reason as row
-    /// actions, so a hidden view never performs a bulk mutation.
-    func bindArchiveFinished(into registry: ActionRegistry) {
-        let chats = chats, unavailable = unavailable
-        registry.bind(Self.archiveFinished, unavailable: unavailable, run: { _ in
-            _ = chats.archiveFinished()
-        })
     }
 
     /// Binds Archive Chat: a row's chat archives here (hidden at once, then archived in its acpmux)

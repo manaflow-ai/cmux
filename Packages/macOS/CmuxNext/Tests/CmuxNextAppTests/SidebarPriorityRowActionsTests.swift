@@ -76,7 +76,6 @@ struct SidebarPriorityRowActionsTests {
             let actions = SidebarPriorityRowActions(chats: chats)
             actions.bind(into: registry)
             actions.bindArchive(into: registry) { _ in Issue.record("a Priority row's archive ran the focused chat's") }
-            actions.bindArchiveFinished(into: registry)
         }
 
         var marks: AgentPriorityMarks.State { chats.marks.state }
@@ -209,15 +208,6 @@ struct SidebarPriorityRowActionsTests {
             fixture.registry.perform(row.actionID, invocation: ActionInvocation(target: ActionTargetRef(kind: .agentChat, id: "gone")))
         }
         #expect(fixture.marks == AgentPriorityMarks.State())
-    }
-
-    @Test func archiveFinishedArchivesSettledRowsAndLeavesQuestionsVisible() async throws {
-        let fixture = Fixture()
-        #expect(fixture.registry.perform(SidebarPriorityRowActions.archiveFinished, invocation: ActionInvocation()))
-        #expect(fixture.marks.archived == ["done"])
-        var requests = fixture.requests.makeAsyncIterator()
-        #expect(await requests.next() == "\(Self.socket) done")
-        #expect(fixture.chats.entry("asks") != nil)
     }
 
     private func feed(_ fixture: Fixture) -> SidebarPriorityFeed {

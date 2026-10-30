@@ -37,12 +37,6 @@ nonisolated enum SidebarPriorityActionCatalog: ActionCatalogGroup {
                 arguments: [chatArgument], targets: chat,
                 surfacePlan: rowPlan(.identity, 20, label: t("menu.sidebar.priority.snooze", "Snooze for 1 Hour"))
             ),
-            ActionDescriptor(
-                id: "sidebar.priority.archiveFinished", title: t("action.sidebar.priority.archiveFinished", "Archive Finished Chats"),
-                keywords: ["sidebar", "priority", "chat", "agent", "archive", "finished", "done", "cleanup"],
-                category: .sidebar, symbol: "archivebox", surfaces: [.palette, .contextMenu],
-                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenus: [ContextMenuPlacement(.sidebarBackground, .organize, 112, folder: .group)])
-            ),
         ]
     }
 

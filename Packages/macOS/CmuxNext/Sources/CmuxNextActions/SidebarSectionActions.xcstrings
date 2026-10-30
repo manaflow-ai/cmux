@@ -525,17 +525,6 @@
         }
       }
     },
-    "action.sidebar.priority.archiveFinished": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Archive Finished Chats"
-          }
-        }
-      }
-    },
     "menu.sidebar.priority.markRead": {
       "extractionState": "manual",
       "localizations": {

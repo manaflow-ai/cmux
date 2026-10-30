@@ -45,7 +45,5 @@ extension SidebarPriorityFeed {
                                                 local: { nil })
         SidebarPriorityRowActions(chats: .app, unavailable: { preferences().priorityViewEnabled ? nil : SidebarPriorityPanel.unavailableReason })
             .bind(into: registry)
-        SidebarPriorityRowActions(chats: .app, unavailable: { preferences().priorityViewEnabled ? nil : SidebarPriorityPanel.unavailableReason })
-            .bindArchiveFinished(into: registry)
     }
 }

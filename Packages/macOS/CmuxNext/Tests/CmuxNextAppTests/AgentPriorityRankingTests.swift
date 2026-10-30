@@ -135,14 +135,4 @@ struct AgentPriorityRankingTests {
         #expect(SidebarPriorityPanel(entries: entries, shown: false).bellDot)
         #expect(!SidebarPriorityPanel(entries: entries.filter { !$0.needsAttention }, shown: false).bellDot)
     }
-
-    @Test func settledStatesAreTheOnlyStatesEligibleForFinishedArchive() {
-        #expect(AgentPriorityRanking.isFinished(.done))
-        #expect(AgentPriorityRanking.isFinished(.failed))
-        #expect(AgentPriorityRanking.isFinished(.lost))
-        #expect(!AgentPriorityRanking.isFinished(.needsYou))
-        #expect(!AgentPriorityRanking.isFinished(.ciFailing))
-        #expect(!AgentPriorityRanking.isFinished(.working(since: Self.now)))
-        #expect(!AgentPriorityRanking.isFinished(.idle))
-    }
 }
