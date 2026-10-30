@@ -191,9 +191,10 @@ Rules that keep it frozen:
 
 Today's `__terminal-host` (protocol 4) keeps working: the daemon keeps its
 client for v1..v4 hosts until no live host of that kind remains in telemetry
-for one release cycle. Since holder item 5 (2026-10-23) new terminals run on the holder by
-default; `CMUX_TUI_TERMINAL_HOST_MODEL=hosts` starts hosts for one more
-release. New terminals use `cmux-holder` once it lands; the VT
+for one release cycle. Holder item 5 (2026-10-23) made the holder the default; since
+2026-10-30 it is off by default again (slice 1 of the landing turns on no switch that
+feat-cmux-next lacks), and `CMUX_TUI_TERMINAL_HOST_MODEL=holder` or
+`CMUX_ENABLE_FEATURES=terminalHolder` opts in. New terminals use `cmux-holder` once it lands; the VT
 parser and smart-renderer ring move to the daemon (the daemon already runs a
 replica). Agent hosts move the same way: new agents start under
 `cmux-holder --pipes`, old `agent-host/1` hosts keep their client.

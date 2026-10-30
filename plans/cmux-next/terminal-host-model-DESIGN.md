@@ -241,6 +241,11 @@ processes and ~2,000 threads fewer.
    screen as its prologue and journals `screen_cleared`, else a restart brought the history back.
    Suites that test a host process itself (`terminal_host_recovery`, the host's session and
    descriptors, a held host adoption) ask for `hosts`; the others run the default.
+   Turned off again 2026-10-30 (cmux-ad, land-faster.md item 2: slice 1 of the landing turns on no
+   switch that feat-cmux-next lacks): `terminalHolder` is off on every channel, as on feat-cmux-next,
+   and new terminals get a terminal host process each unless the feature is enabled
+   (`CMUX_ENABLE_FEATURES=terminalHolder`) or `CMUX_TUI_TERMINAL_HOST_MODEL=holder`. The
+   chrome-parity dogfood builds turn it on through their switch set (`FeatureDogfoodSet`).
 
 ## 7. Durability of replies (decided 2026-10-23, perf lead)
 
