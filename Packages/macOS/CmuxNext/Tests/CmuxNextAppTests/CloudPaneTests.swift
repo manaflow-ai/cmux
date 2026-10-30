@@ -13,6 +13,25 @@ import Testing
 /// server instead of answering "not available yet".
 @MainActor @Suite(.serialized)
 struct CloudPaneTests {
+    /// A person opening Cloud from the palette should see the page in the pane that receives its
+    /// new tab. The tab is created through the same internal-page path used by the Window menu.
+    @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+    func openCloudAsPaneSelectsTheCloudTab() async throws {
+        try await PasswordManagerRouteTests.withApp { services, _ in
+            let window = try #require(services.windows.active)
+            let pane = try #require(window.focusedPane)
+            let terminal = try #require(pane.stripModel.selectedID?.rawValue)
+            #expect(services.registry.perform("palette.openCloudPane", invocation: ActionInvocation(origin: .user)))
+
+            try await PasswordManagerRouteTests.until({
+                pane.pane.tabs.contains { $0.page == InternalPageID.cloud.rawValue }
+            }, report: { WindowStateReport.describe(services, page: .cloud) })
+            let cloud = try #require(pane.pane.tabs.first { $0.page == InternalPageID.cloud.rawValue })
+            #expect(pane.stripModel.selectedID?.rawValue == cloud.id,
+                    "Cloud was added after \(terminal) but the terminal stayed selected")
+        }
+    }
+
     /// One Cloud app server op as the provider sent it.
     struct SentOp: Equatable, Sendable {
         var op: String
