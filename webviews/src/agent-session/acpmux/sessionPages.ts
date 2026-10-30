@@ -3,7 +3,7 @@
 // The first page draws the pane and opens its chat; the rest arrive behind it, so a long list on
 // a remote link never holds up the transcript. Search, project groups and pinned rows need every
 // session, so the list is always read to the end. A daemon that ignores `limit` answers the whole
-// list with no cursor, as before.
+// list with no cursor, as before, or (past its largest reply) its first rows and a cursor.
 
 /** Sessions in one reply: the first page, and each later one. */
 export const SESSION_PAGE = 200;
@@ -50,11 +50,21 @@ export class SessionPager<S extends Summary> {
   }
 
   /**
-   * The whole list in one reply, for a decision that cannot wait for the pages: watch without a
-   * `limit`, as every host answers it (a remote pane's host never pages).
+   * The whole list, for a decision that cannot wait for the pages: watch without a `limit`, as
+   * every host answers it (a remote pane's host never pages). A list past acpmux's largest reply
+   * comes as its first rows and a `nextCursor`; the rest is read by `_acpmux/sessions` from it.
    */
   async whole(): Promise<S[]> {
-    return pageOf<S>(await this.request("_acpmux/watch", { enabled: true })).sessions;
+    let page = pageOf<S>(await this.request("_acpmux/watch", { enabled: true }));
+    const sessions = page.sessions;
+    const seen = new Set<string>();
+    while (page.next) {
+      if (seen.has(page.next)) throw new Error("acpmux sent a session list cursor again");
+      seen.add(page.next);
+      page = pageOf<S>(await this.request("_acpmux/sessions", { cursor: page.next }));
+      for (const session of page.sessions) sessions.push(session);
+    }
+    return sessions;
   }
 
   /** A `session_changed` seen while the list loads. */
@@ -81,7 +91,7 @@ export class SessionPager<S extends Summary> {
   /**
    * Reads every page after `first`, handing `add` the sessions the pane lacks. Answers false when
    * a newer list replaced the one `first` started. A page that fails, a cursor that comes back,
-   * or a list past `MAX_PAGES` falls back to the whole list at once; when that fails too, it throws.
+   * or a list past `MAX_PAGES` falls back to the whole list (`whole`); when that fails too, it throws.
    */
   async rest(first: SessionPage<S>, held: () => S[], add: (sessions: S[]) => void): Promise<boolean> {
     const run = first.run;

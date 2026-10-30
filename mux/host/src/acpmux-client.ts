@@ -70,6 +70,8 @@ export class AcpmuxError extends Error {
 /** The connection closed before the answer (not a refusal by acpmux). */
 export class AcpmuxClosedError extends AcpmuxError {}
 
+/** `_acpmux/sessions` and `_acpmux/watch`'s reply: a page of the list, and its cursor when more follow. */
+type SessionList = { sessions?: SessionSummary[]; nextCursor?: unknown };
 type Pending = { method: string; resolve: (value: unknown) => void; reject: (error: Error) => void };
 
 export class AcpmuxClient {
@@ -136,11 +138,34 @@ export class AcpmuxClient {
   }
 
   sessions(): Promise<SessionSummary[]> {
-    return this.request<{ sessions: SessionSummary[] }>("_acpmux/sessions").then((r) => r.sessions);
+    return this.wholeList("_acpmux/sessions", {}).then((r) => r.sessions ?? []);
   }
 
   watch(enabled = true): Promise<unknown> {
-    return this.request("_acpmux/watch", { enabled });
+    return this.wholeList("_acpmux/watch", { enabled });
+  }
+
+  /** A list asked without `limit`, whole: past acpmux's largest reply it answers its first rows
+   * and a `nextCursor`, and the rest comes from `_acpmux/sessions` with that cursor and the same
+   * params but `enabled`. A list that fits (and any older daemon) answers one reply, no cursor. */
+  private async wholeList(method: string, params: Record<string, unknown>): Promise<SessionList> {
+    const reply = await this.request<SessionList>(method, params);
+    const rest = { ...params };
+    delete rest.enabled;
+    const seen = new Set<string>();
+    let next = reply.nextCursor;
+    while (typeof next === "string") {
+      // A cursor that comes back would repeat forever; a partial list is no whole one.
+      if (seen.has(next)) throw new Error("acpmux sent a session list cursor again");
+      seen.add(next);
+      const page = await this.request<SessionList>("_acpmux/sessions", { ...rest, cursor: next });
+      // Only a paged reply gets a list: a watch reply with none still means "list after watch".
+      const sessions = (reply.sessions ??= []);
+      for (const session of page.sessions ?? []) sessions.push(session);
+      next = page.nextCursor;
+    }
+    delete reply.nextCursor;
+    return reply;
   }
 
   attach(sessionId: string, afterSeq = 0, limit = 1_000_000): Promise<{ session: SessionSummary; events: AcpmuxEvent[] }> {
