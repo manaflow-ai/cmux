@@ -81,3 +81,40 @@ test("hiding the page writes the latest snapshot at once", () => {
   dom.window.dispatchEvent(new dom.window.Event("pagehide"));
   expect(writes.length).toBe(1);
 });
+
+// Every pane's snapshot carries acpmux's whole session list: 3,055 chats on Leo's Mac
+// (cmuxterm-hq#4878). Serialized whole on every write it went past sessionStorage's 5 MB, so the
+// reload copy was lost after the work was done. The copy keeps the newest chats and the shown
+// chat's own family; the live list replaces it once the watch reads it.
+test("the reload copy keeps the newest chats and the shown chat's family, not the whole list", () => {
+  writes.length = 0;
+  const id = (n: number) => `0190a000-0000-7000-8000-${n.toString(16).padStart(12, "0")}`;
+  const chat = (n: number, extra: Record<string, unknown> = {}) => ({
+    sessionId: id(n),
+    title: `Chat ${n} ${"about something long enough to look like a real title ".repeat(2)}`,
+    cwd: `/Users/someone/Projects/repo-${n % 40}`,
+    harness: "claude",
+    status: "idle",
+    activityAt: 1_000_000 + n,
+    preview: "a line of the latest reply ".repeat(8),
+    ...extra,
+  });
+  const sessions = Array.from({ length: 3055 }, (_, n) => chat(n));
+  const shown = 7;
+  sessions[shown] = chat(shown, { parentId: id(3) });
+  sessions[11] = chat(11, { startedBy: id(shown) });
+  sessions[12] = chat(12, { parentId: id(shown), side: true });
+  saveSnapshot({ ...snapshot("a reply"), sessionId: id(shown), sessions } as unknown as AcpmuxSnapshot);
+  dom.window.dispatchEvent(new dom.window.Event("pagehide"));
+  expect(writes.length).toBe(1);
+  const kept = JSON.parse(writes[0]!).sessions as { sessionId: string }[];
+  const ids = new Set(kept.map((entry) => entry.sessionId));
+  // The newest 200, plus the shown chat, its parent, its sub-session and its side chat.
+  expect(kept.length).toBe(204);
+  for (const n of [shown, 3, 11, 12, 3054, 2855]) expect(ids.has(id(n))).toBe(true);
+  expect(ids.has(id(2854))).toBe(false);
+  // The list keeps its order.
+  expect(kept[0]!.sessionId).toBe(id(3));
+  console.log(`reload copy: ${writes[0]!.length} bytes for ${sessions.length} chats`);
+  expect(writes[0]!.length).toBeLessThan(400_000);
+});
