@@ -169,6 +169,9 @@ enum Reply {
     Reject,
     /// Close the connection without an answer.
     Close,
+    /// Keep the connection open and never answer (a handler that hung or
+    /// panicked while the connection stays registered).
+    Silent,
 }
 
 /// A daemon that serves each connection on its own thread, many lines per
@@ -256,6 +259,14 @@ impl Daemon {
                                     })
                                 ),
                                 Reply::Close => return,
+                                Reply::Silent => {
+                                    // Read on until the client hangs up.
+                                    let mut rest = String::new();
+                                    while reader.read_line(&mut rest).unwrap_or(0) > 0 {
+                                        rest.clear();
+                                    }
+                                    return;
+                                }
                             };
                             if writer.write_all(answer.as_bytes()).is_err() {
                                 return;
@@ -471,7 +482,7 @@ fn queue_files(socket: &Path) -> Vec<String> {
             entries.map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned()).collect()
         })
         .unwrap_or_default();
-    names.retain(|name| name != "reset-dropped-events");
+    names.retain(|name| name != "reset-dropped-events" && name != "undeliverable-events");
     names.sort();
     names
 }
@@ -715,4 +726,61 @@ fn the_next_owner_sends_the_queues_a_stop_left() {
     let fresh = tempfile::tempdir().unwrap();
     send_session_queues(&fresh.path().join("new.sock"));
     assert!(!spool_dir(&fresh.path().join("new.sock")).exists(), "a queue directory was made");
+}
+
+/// The count of hook events no daemon would ever answer, beside `socket`.
+fn undeliverable_events(socket: &Path) -> Option<String> {
+    std::fs::read_to_string(spool_dir(socket).join("undeliverable-events")).ok()
+}
+
+/// A line the live daemon takes and never answers (it closes on it, or its
+/// handler hangs) must not hold back every later event of its agent, and
+/// its loss must show (R-L4: a budget, R-L5: the loss is counted). The old
+/// sender retried such a line forever, and each new owner got it first again.
+#[test]
+fn a_line_the_daemon_never_answers_is_counted_and_does_not_block_the_agent() {
+    for unanswered in [Reply::Close, Reply::Silent] {
+        let root = tempfile::tempdir().unwrap();
+        let socket = root.path().join("s.sock");
+        let (bad_id, bad) = hook_request_in("terminal_stuck");
+        let (next_id, next) = hook_request_in("terminal_stuck");
+        let policy = {
+            let bad_id = bad_id.clone();
+            move |id: &str, _: usize, _: Duration| {
+                if id == bad_id { unanswered } else { Reply::Receipt }
+            }
+        };
+        leave_queue(&socket, "s.sock", "terminal_stuck", &[bad.clone(), next.clone()]);
+        let daemon = Daemon::start(&socket, None, Arc::new(policy));
+
+        let (id, encoded) = hook_request_in("terminal_stuck");
+        // The old sender waited on a silent daemon forever: bound the test's
+        // own wait so a regression fails here instead of hanging the run.
+        let (done, finished) = std::sync::mpsc::channel();
+        {
+            let (socket, id) = (socket.clone(), id.clone());
+            std::thread::spawn(move || {
+                let _ = done.send(
+                    append_with_receipt(&socket, &id, &encoded, &|| {})
+                        .map_err(|error| format!("{error:#}")),
+                );
+            });
+        }
+        let result = finished.recv_timeout(Duration::from_secs(20));
+        let (_, admitted) = daemon.stop();
+
+        let result = result.unwrap_or_else(|_| panic!("{unanswered:?}: the sender never finished"));
+        result.unwrap();
+        assert_eq!(
+            admitted,
+            vec![next_id, id],
+            "{unanswered:?}: the agent's later events were held back"
+        );
+        assert_eq!(
+            undeliverable_events(&socket).as_deref().map(str::trim),
+            Some("1"),
+            "{unanswered:?}: the unanswered event was not counted"
+        );
+        assert_eq!(queue_files(&socket), Vec::<String>::new());
+    }
 }
