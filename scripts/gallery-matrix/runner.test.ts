@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { PNG } from "pngjs";
-import { deleteLedgerIds, diffPng, parseManifest, pauseLedgerIds, renderIndex, settleSummary, shardCases, undeletedLedgerIds, withTimeout, writeLedger } from "./runner";
+import { captureClip, deleteLedgerIds, diffPng, parseManifest, pauseLedgerIds, renderIndex, settleSummary, shardCases, undeletedLedgerIds, withTimeout, writeLedger } from "./runner";
 
 test("summarizes settled interaction latency and ignores missing samples", () => {
   expect(settleSummary([30, 10, 20, null, "slow", Number.NaN])).toEqual({ count: 3, p50: 20, p95: 30, max: 30 });
@@ -20,6 +20,11 @@ test("motion review cards include an opt-in video", () => {
   const html = renderIndex([{ id: "motion", engine: "webkit", screenshot: "motion.png", video: "motion.webm" }]);
   expect(html).toContain("r.video");
   expect(html).toContain("motion.webm");
+});
+
+test("capture clip uses the named element with context", async () => {
+  const page = { evaluate: async () => ({ x: 4, y: 8, width: 120, height: 64 }) } as never;
+  await expect(captureClip(page)).resolves.toEqual({ x: 4, y: 8, width: 120, height: 64 });
 });
 
 test("parses and validates a manifest", () => {
