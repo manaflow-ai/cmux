@@ -119,4 +119,53 @@ struct SidebarPriorityDragTests {
         #expect(passed.minY >= shownAtStart.maxY, "dropped at slot \(slot), within the rows shown at the start")
         #expect(!panel.autoscrollFrame(elapsed: 1.0 / 30), "an autoscroll frame ran with no drag")
     }
+
+    /// A feed update while a row is held still mid-drag (away from the edges) re-ranks the others, but the
+    /// dragged row stays under the pointer, and the drop reads the slot from the updated feed.
+    @Test func aFeedUpdateMidDragKeepsTheDraggedRowUnderThePointer() throws {
+        let harness = Harness()
+        let panel = harness.panel
+        let row = try #require(panel.rows["a"])
+        let height = row.frame.height
+        let start = row.convert(NSPoint(x: 10, y: row.bounds.midY), to: nil)
+        let held = NSPoint(x: start.x, y: start.y - height * 1.1)
+        row.mouseDown(with: try harness.event(.leftMouseDown, at: start))
+        row.mouseDragged(with: try harness.event(.leftMouseDragged, at: NSPoint(x: start.x, y: start.y - height * 0.4)))
+        row.mouseDragged(with: try harness.event(.leftMouseDragged, at: held))
+        let draggedFrame = row.frame
+        #expect(abs(draggedFrame.minY - height * 1.1) < 0.5, "the row does not follow the pointer: \(draggedFrame)")
+
+        let byID = Dictionary(uniqueKeysWithValues: Self.entries.map { ($0.id, $0) })
+        panel.show(SidebarPriorityPanel(entries: ["a", "c", "b"].compactMap { byID[$0] }))
+        #expect(row.frame == draggedFrame, "a feed update moved the held row from \(draggedFrame) to \(row.frame)")
+
+        // Its middle is past c's (now second) middle and short of b's: it drops second.
+        row.mouseUp(with: try harness.event(.leftMouseUp, at: held))
+        #expect(harness.actions == [.place("a", order: ["c", "a", "b"])])
+    }
+
+    /// The dragged chat leaves the feed mid-drag (autoscroll running): the drag ends there, the autoscroll
+    /// stops, and the release asks for nothing.
+    @Test func theDraggedChatLeavingTheFeedCancelsTheDrag() throws {
+        let entries = (0..<30).map { SidebarPriorityEntry(id: "r\($0)", title: "r\($0)", state: .idle) }
+        let harness = Harness(entries: entries, height: 200)
+        let panel = harness.panel
+        let row = try #require(panel.rows["r0"])
+        let clip = try #require(row.enclosingScrollView?.contentView)
+        let start = row.convert(NSPoint(x: 10, y: row.bounds.midY), to: nil)
+        let edge = clip.convert(NSPoint(x: 10, y: clip.bounds.maxY - 2), to: nil)
+        row.mouseDown(with: try harness.event(.leftMouseDown, at: start))
+        row.mouseDragged(with: try harness.event(.leftMouseDragged, at: NSPoint(x: start.x, y: start.y - 12)))
+        row.mouseDragged(with: try harness.event(.leftMouseDragged, at: edge))
+        try #require(panel.autoscroll.isActive, "holding the row at the bottom edge started no autoscroll")
+
+        panel.show(SidebarPriorityPanel(entries: Array(entries.dropFirst())))
+        #expect(panel.rows["r0"] == nil)
+        #expect(!panel.autoscroll.isActive, "autoscroll kept running for a chat that left")
+        #expect(!panel.autoscrollFrame(elapsed: 1.0 / 30), "an autoscroll frame ran after the drag ended")
+        row.mouseDragged(with: try harness.event(.leftMouseDragged, at: edge))
+        row.mouseUp(with: try harness.event(.leftMouseUp, at: edge))
+        #expect(harness.actions.isEmpty, "the release of a chat that left asked for \(harness.actions)")
+        #expect(!panel.autoscroll.isActive)
+    }
 }

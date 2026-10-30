@@ -145,6 +145,10 @@ final class SidebarPriorityPanelView: NSView {
             y += height
         }
         document.frame = NSRect(x: 0, y: 0, width: width, height: y)
+        // A row being dragged stays under the pointer: the others take their places around it, and it
+        // is laid out as a pointer move would lay it out (`holdDraggedRow`), in document points.
+        if let held = rowDrag?.row { targets.removeAll { $0.0 === held } }
+        defer { holdDraggedRow() }
         guard animated, Motion.sidebar.animatesMovement else {
             // Each row at its place, whole. Set through the animator, the frame replaces a move still in
             // flight (as `RowMotion` does), which a plain set would not stop.
@@ -258,7 +262,18 @@ final class SidebarPriorityPanelView: NSView {
         }
     }
 
+    /// After the rows were placed (a feed update mid-drag), the dragged row goes back under the
+    /// pointer's last point, as the next pointer move would put it.
+    private func holdDraggedRow() {
+        guard let drag = rowDrag else { return }
+        guard let from = panel.entries.firstIndex(where: { $0.id == drag.row.entry.id }) else { return endRowDrag() }
+        moveDraggedRow(from: from)
+    }
+
+    /// Ends the drag (a drop, or its chat left the feed): the row drops back to its layer and the
+    /// autoscroll stops.
     private func endRowDrag() {
+        rowDrag?.row.layer?.zPosition = 0
         rowDrag = nil
         autoscroll.deactivate()
     }
