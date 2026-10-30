@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
+import type { NativeMenuBinding } from "./nativeMenuBindings";
 import type { HeaderQuickTool } from "./headerQuickTools";
 import {
   dispatchNativeRowTool,
   nativeRowToolBindings,
   onNativeRowToolInvocation,
   type NativeRowPanel,
+  type RowToolBinding,
 } from "./nativeRowTools";
 
 export interface NativeRowToolsHost {
@@ -15,10 +17,27 @@ export interface NativeRowToolsHost {
 
 /// Publish only changed values. Callback identities can change with a render without sending tools
 /// again; invocation always uses the current handlers. Hidden headers/unmount clear the native list.
-export function useNativeRowTools(host: NativeRowToolsHost | undefined, quick: readonly HeaderQuickTool[]): boolean {
+export interface NativeRowMenus {
+  customize?: ReadonlyMap<string, NativeMenuBinding>;
+  extra?: readonly RowToolBinding[];
+}
+
+export function useNativeRowTools(
+  host: NativeRowToolsHost | undefined,
+  quick: readonly HeaderQuickTool[],
+  menus?: NativeRowMenus,
+): boolean {
   const enabled = host?.enabled === true;
   const callNative = host?.callNative;
-  const bindings = nativeRowToolBindings(quick, host?.panel);
+  const bindings: RowToolBinding[] = [
+    ...nativeRowToolBindings(quick, host?.panel).map((binding) => {
+      const context = menus?.customize?.get(binding.tool.id);
+      return context
+        ? { ...binding, tool: { ...binding.tool, contextMenu: context.items }, runMenu: context.invoke }
+        : binding;
+    }),
+    ...(menus?.extra ?? []),
+  ].slice(0, 16);
   const current = useRef(bindings);
   current.current = bindings;
   const payload = JSON.stringify({ tools: bindings.map(({ tool }) => tool) });

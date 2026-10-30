@@ -9,6 +9,7 @@ export interface NativeRowTool {
   toggled: boolean;
   badge?: string;
   menu?: NativeRowMenuItem[];
+  contextMenu?: NativeRowMenuItem[];
 }
 export interface NativeRowMenuItem {
   id: string;
@@ -17,6 +18,7 @@ export interface NativeRowMenuItem {
   checked?: boolean;
   role?: "destructive";
   children?: NativeRowMenuItem[];
+  separatorBefore?: boolean;
 }
 export interface NativeRowPanel {
   id: "inspector" | "summary";
@@ -27,6 +29,7 @@ export interface NativeRowPanel {
 export interface RowToolBinding {
   tool: NativeRowTool;
   run?: () => void;
+  runMenu?: (id: string) => void;
 }
 
 const characters = new Intl.Segmenter(undefined, { granularity: "grapheme" });
@@ -69,10 +72,14 @@ export function nativeRowToolBindings(quick: readonly HeaderQuickTool[], panel?:
 export function dispatchNativeRowTool(value: unknown, bindings: readonly RowToolBinding[]): void {
   if (!value || typeof value !== "object") return;
   const event = value as { id?: unknown; menuItemId?: unknown };
-  // No migrated button has a menu in this step. Never turn an unknown menu item into a button click.
-  if (typeof event.id !== "string" || event.menuItemId !== undefined) return;
+  if (typeof event.id !== "string") return;
   const binding = bindings.find(({ tool }) => tool.id === event.id);
-  if (binding?.tool.enabled) binding.run?.();
+  if (!binding?.tool.enabled) return;
+  if (typeof event.menuItemId === "string") {
+    binding.runMenu?.(event.menuItemId);
+  } else if (event.menuItemId === undefined) {
+    binding.run?.();
+  }
 }
 
 const listeners = new Set<(value: unknown) => void>();

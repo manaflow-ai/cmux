@@ -252,11 +252,11 @@ test("native header hides migrated buttons only, deduplicates values, and invoke
   await render(true, "first");
   expect(sent).toHaveLength(1);
   expect(sent[0]!.method).toBe("pane.tabRowTools.set");
-  expect(sent[0]!.tools.map(({ id }) => id)).toEqual(["summary", "terminal", "browser"]);
+  expect(sent[0]!.tools.map(({ id }) => id)).toEqual(["summary", "terminal", "browser", "chat-menu"]);
   expect(container.querySelectorAll("[data-quick-action]")).toHaveLength(0);
   expect(container.querySelector(".acpmux-summary-button")).toBeNull();
   expect(container.querySelector(".acpmux-needs-you-button")).not.toBeNull();
-  expect(container.querySelector('button[aria-label="Chat actions"]')).not.toBeNull();
+  expect(container.querySelector('button[aria-label="Chat actions"]')).toBeNull();
   await render(true, "latest");
   expect(sent).toHaveLength(1);
   act(() => {
@@ -276,7 +276,7 @@ test("native header hides migrated buttons only, deduplicates values, and invoke
   await render(false, "still-hidden");
   expect(sent).toHaveLength(count);
   await render(true, "shown");
-  expect(sent.at(-1)!.tools).toHaveLength(3);
+  expect(sent.at(-1)!.tools).toHaveLength(4);
   await act(async () => root!.unmount());
   root = undefined;
   expect(sent.at(-1)!.tools).toEqual([]);
@@ -313,7 +313,7 @@ test("a failed native set restores web buttons and recovers on changed state", a
       />,
     ),
   );
-  expect(sent[0]).toHaveLength(3);
+  expect(sent[0]).toHaveLength(4);
   expect(sent.at(-1)).toEqual([]);
   expect(container.querySelectorAll("[data-quick-action]")).toHaveLength(2);
   expect(container.querySelector("[data-summary-fixture]")).not.toBeNull();
@@ -370,4 +370,73 @@ test("tab-row native opt-in requires a true flag and an offered positive height"
   await act(async () => applyHostEvent({ kind: "tabRow", value: { height: 40 } }));
   expect(container.querySelector("[data-native]")?.getAttribute("data-native")).toBe("false");
   expect(sent.at(-1)).toEqual([]);
+});
+
+test("native chat menus publish current state, customize shared actions, and expand from the palette", async () => {
+  const container = mount();
+  const sent: { method: string; params: Record<string, unknown> }[] = [];
+  const invoked: string[] = [];
+  let refreshed = 0;
+  let expanded = 0;
+  const callNative = async (method: string, params: Record<string, unknown>) => {
+    sent.push({ method, params });
+    return { ran: true };
+  };
+  const render = (expand?: string) =>
+    root!.render(
+      <ChatHeaderTools
+        onTerminal={() => {}}
+        onBrowser={() => {}}
+        summary={null}
+        nativeRowTools={{ enabled: true, callNative }}
+        onCustomize={(actions) => invoked.push(actions.map(({ id, mode }) => `${id}:${mode}`).join(" "))}
+        onMenuOpen={async () => {
+          refreshed++;
+        }}
+        expand={expand}
+        onExpanded={() => {
+          expanded++;
+        }}
+        menu={() => [
+          {
+            key: "pin",
+            label: headerState().pinned ? "Unpin" : "Pin",
+            icon: "pin",
+            onSelect: () => invoked.push("pin"),
+          },
+          {
+            key: "continue",
+            label: "Continue In",
+            icon: "next",
+            children: [{ key: "codex", label: "Codex", onSelect: () => invoked.push("codex") }],
+          },
+        ]}
+      />,
+    );
+  await act(async () => render());
+  const published = () =>
+    sent.filter(({ method }) => method === "pane.tabRowTools.set").at(-1)!.params.tools as NativeRowTool[];
+  expect(published().find(({ id }) => id === "chat-menu")!.menu![0].label).toBe("Pin");
+  await act(async () => setHeaderState({ pinned: true }));
+  expect(published().find(({ id }) => id === "chat-menu")!.menu![0].label).toBe("Unpin");
+  expect(
+    published()
+      .find(({ id }) => id === "terminal")!
+      .contextMenu!.some(({ id }) => id === "context:open"),
+  ).toBe(true);
+  act(() => {
+    applyHostEvent({ kind: "tabRowToolInvoked", value: { id: "chat-menu", menuItemId: "continue/codex" } });
+    applyHostEvent({ kind: "tabRowToolInvoked", value: { id: "terminal", menuItemId: "context:open" } });
+  });
+  expect(invoked).toEqual(["codex", "terminal:open browser:toggle"]);
+  await act(async () => render("continue"));
+  expect(sent.at(-1)).toEqual({
+    method: "pane.tabRowTools.openMenu",
+    params: { id: "chat-menu", menuItemId: "continue" },
+  });
+  expect(expanded).toBe(1);
+  expect(refreshed).toBe(0);
+  expect(container.querySelector('button[aria-label="Chat actions"]')).toBeNull();
+  act(() => expect(openPicker(translate("chatMenu.open"))).toBe(true));
+  expect(sent.at(-1)).toEqual({ method: "pane.tabRowTools.openMenu", params: { id: "chat-menu" } });
 });

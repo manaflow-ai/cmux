@@ -13,6 +13,8 @@ import { Icon } from "../icons/Icon";
 import { HeaderIcon } from "./HeaderIcon";
 import { HEADER_ACTIONS } from "./headerActions";
 import { headerQuickTools } from "./headerQuickTools";
+import { nativeChatMenu, nativeCustomizeMenu } from "./nativeMenuBindings";
+import { HEADER_SYMBOLS } from "./headerSymbols";
 import { useNativeRowTools, type NativeRowToolsHost } from "./useNativeRowTools";
 import { tooltipProps, useShortcut } from "../shortcuts";
 import { registerPicker } from "../pickerOpeners";
@@ -271,7 +273,29 @@ export function ChatHeaderTools({
     onSideTabs,
     t,
   });
-  const native = useNativeRowTools(nativeRowTools, tools);
+  const customize = onCustomize
+    ? new Map(tools.map(({ id }) => [id, nativeCustomizeMenu(customizeItems(actions, id, onCustomize, t, true))]))
+    : undefined;
+  const chatRows = rows();
+  const chatMenu = nativeChatMenu(chatRows);
+  const native = useNativeRowTools(nativeRowTools, tools, {
+    customize,
+    extra: chatMenu
+      ? [
+          {
+            tool: {
+              id: "chat-menu",
+              symbol: HEADER_SYMBOLS["action.more.vertical"]!,
+              label: t("chatMenu.open"),
+              enabled: chatMenu.items.length > 0,
+              toggled: false,
+              menu: chatMenu.items,
+            },
+            runMenu: chatMenu.invoke,
+          },
+        ]
+      : [],
+  });
   const shortcuts: Partial<Record<QuickActionId, string | undefined>> = {
     terminal: terminalKey,
     splitDown: splitDownKey,
@@ -335,7 +359,16 @@ export function ChatHeaderTools({
       ) : null}
       <ChatMenu
         items={rows}
-        disabled={rows().length === 0}
+        disabled={chatRows.length === 0}
+        nativeOpen={
+          native && chatMenu
+            ? (row) =>
+                nativeRowTools!.callNative("pane.tabRowTools.openMenu", {
+                  id: "chat-menu",
+                  ...(row ? { menuItemId: row } : {}),
+                })
+            : undefined
+        }
         onOpen={onMenuOpen}
         expand={expand}
         onExpanded={onExpanded}
@@ -367,6 +400,7 @@ function customizeItems(
   target: QuickActionId | undefined,
   save: (list: readonly QuickAction[]) => void,
   t: ReturnType<typeof useT>,
+  native = false,
 ): ContextMenuItem[] {
   const items: ContextMenuItem[] = [];
   const index = target ? list.findIndex((action) => action.id === target) : -1;
@@ -402,8 +436,9 @@ function customizeItems(
       for (const [value, key] of modes) {
         items.push({
           id: value,
-          label: check(mode === value, t(key)),
+          label: native ? t(key) : check(mode === value, t(key)),
           ariaLabel: t(key),
+          ...(native ? { checked: mode === value } : {}),
           separatorBefore: value === "toggle",
           onSelect: () => save(withMode(list, target, value)),
         });
@@ -415,8 +450,9 @@ function customizeItems(
     const name = t(QUICK_ACTION_NAMES[id]);
     items.push({
       id: `show-${id}`,
-      label: check(shown, name),
+      label: native ? name : check(shown, name),
       ariaLabel: t(shown ? "header.quickActions.hide" : "header.quickActions.show", { name }),
+      ...(native ? { checked: shown } : {}),
       disabled: shown && !withShown(list, id, false).some((action) => ALWAYS_SHOWN.has(action.id)),
       separatorBefore: items.length > 0 && id === QUICK_ACTION_IDS[0],
       onSelect: () => save(withShown(list, id, !shown)),
@@ -438,6 +474,7 @@ function ChatMenu({
   onOpen,
   expand,
   onExpanded,
+  nativeOpen,
 }: {
   items: () => ChatMenuItem[];
   /// No rows yet (Quick Chat before its session): the button stays, disabled.
@@ -445,9 +482,11 @@ function ChatMenu({
   onOpen?: () => Promise<unknown>;
   expand?: string;
   onExpanded?: () => void;
+  nativeOpen?: (row?: string) => Promise<unknown>;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  const [nativeFailed, setNativeFailed] = useState(false);
   const [rows, setRows] = useState<ChatMenuItem[]>([]);
   // Set when the palette asks for one row's children (Continue In…): the menu lists only those.
   const [only, setOnly] = useState<string>();
@@ -460,6 +499,14 @@ function ChatMenu({
       setOnly(row);
       setOpen(true);
     };
+    if (nativeOpen && !nativeFailed) {
+      void nativeOpen(row).catch(() => {
+        if (generation !== opening.current) return;
+        setNativeFailed(true);
+        ready();
+      });
+      return;
+    }
     if (!onOpen) return ready();
     // The menu's labels read the tab's state; a host that does not answer quickly gets the rows anyway.
     const timeout = new Promise((resolve) => window.setTimeout(resolve, 150));
@@ -482,6 +529,7 @@ function ChatMenu({
   };
   const focused = only ? rows.find((row) => row !== "separator" && row.key === only) : undefined;
   const children = focused && focused !== "separator" ? focused.children : undefined;
+  if (nativeOpen && !nativeFailed) return null;
   return (
     <Menu open={open} onOpenChange={onOpenChange}>
       <MenuButton className="acpmux-header-tool" label={label} disabled={disabled}>
