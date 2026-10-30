@@ -83,6 +83,7 @@ import {
   readPersistedDraft,
   readPersistedDraftGeneration,
   readPersistedDraftVersion,
+  readPersistedDraftState,
   settlePendingDraftWrites,
   useDraftActionsVersion,
   writePersistedDraft,
@@ -469,11 +470,21 @@ export function Composer({
   const importInput = useRef<HTMLInputElement>(null);
   // Seed from the handshake before the editor mounts. The relaunch draft and the local cache can
   // arrive in the same render; preferring the host value keeps it visible through initialization.
-  const generation = useRef(Math.max(validDraftGeneration(draftGeneration), readPersistedDraftGeneration(sessionId)));
-  const generationKnown = useRef(draftGeneration !== undefined || readPersistedDraftVersion(sessionId).known);
-  const [text, setText] = useState(() => mergedDraft(
-    readPersistedDraft(sessionId) ?? "", draft, readPersistedDraftGeneration(sessionId), validDraftGeneration(draftGeneration),
-  ));
+  const [initialDraft] = useState(() => {
+    const local = readPersistedDraftState(sessionId);
+    const seededGeneration = validDraftGeneration(draftGeneration);
+    return {
+      generation: Math.max(local.generation, seededGeneration + (local.pendingReplacement ? 1 : 0)),
+      known: local.known || draftGeneration !== undefined,
+      pendingReplacement: local.pendingReplacement,
+      text: local.pendingReplacement ? local.text : mergedDraft(
+        local.text, draft, local.known ? local.generation : seededGeneration, seededGeneration,
+      ),
+    };
+  });
+  const generation = useRef(initialDraft.generation);
+  const generationKnown = useRef(initialDraft.known);
+  const [text, setText] = useState(initialDraft.text);
   const textRef = useRef(text);
   textRef.current = text;
   /// Shell mode: the prompt is a plain monospace field whose Enter runs a command. The markdown
@@ -562,7 +573,7 @@ export function Composer({
   const hydratedSession = useRef<string | undefined>(undefined);
   const restoringSession = useRef(false);
   // An intentional boundary while offline must also supersede the first eventual durable read.
-  const pendingReplacement = useRef(readPersistedDraftVersion(sessionId).pendingReplacement);
+  const pendingReplacement = useRef(initialDraft.pendingReplacement);
   const versionKnowledge = () => ({ known: generationKnown.current, pendingReplacement: pendingReplacement.current });
   const advanceGeneration = (replacement: string) => {
     generation.current = Math.max(generation.current, readPersistedDraftGeneration(persistedSession.current)) + 1;
@@ -765,6 +776,7 @@ export function Composer({
         let readAnswered = !session || draftWasRead(session);
         if (session && hydratedSession.current !== session && editedBeforeHydration.current && !readAnswered) {
           const saved = await readDurableDraftState(session);
+          if (persistedSession.current !== session) return;
           if (!saved) {
             // A failed read is not an empty draft. Keep the latest text in the remount cache and
             // wait for a successful read before sending anything to acpmux, so reconnect cannot
@@ -925,7 +937,11 @@ export function Composer({
       const incomingGeneration = state?.generation ?? 0;
       const replaced = pendingReplacement.current;
       const localGeneration = generationKnown.current ? generation.current : incomingGeneration;
-      const merged = state ? mergeDurable(currentText, state) : currentText;
+      const merged = replaced && state ? mergeDurable(currentText, state) : currentText;
+      if (!replaced && state) {
+        generation.current = Math.max(localGeneration, incomingGeneration);
+        generationKnown.current = true;
+      }
       const next = replaced
         ? { text: merged, shown: merged !== currentText, write: true }
         : hydratedDraft({
@@ -1588,7 +1604,7 @@ export function Composer({
 
   promptBeforeInput.current = (data, state) => {
     typedAt.current = performance.now();
-    if (state.paste && state.empty) advanceGeneration("");
+    if (state.paste) advanceGeneration(textRef.current);
     // `!` first: shell mode, in place. A pasted `!cmd` keeps what follows the `!`.
     if (!onShell || state.composing || !state.empty || !data.startsWith("!")) return false;
     enterShell(data.slice(1));

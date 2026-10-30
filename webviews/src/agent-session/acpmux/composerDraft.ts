@@ -287,7 +287,7 @@ export function draftGeneration(value: unknown): number {
 }
 
 export type DraftVersionKnowledge = { known: boolean; pendingReplacement: boolean };
-function persistedDraftState(sessionId: string | undefined): { text: string; generation: number } & DraftVersionKnowledge {
+export function readPersistedDraftState(sessionId: string | undefined): { text: string; generation: number } & DraftVersionKnowledge {
   const key = persistedDraftKey(sessionId);
   if (!key) return { text: "", generation: 0, known: false, pendingReplacement: false };
   try {
@@ -304,17 +304,17 @@ function persistedDraftState(sessionId: string | undefined): { text: string; gen
 }
 
 export function readPersistedDraftVersion(sessionId: string | undefined): DraftVersionKnowledge {
-  const { known, pendingReplacement } = persistedDraftState(sessionId);
+  const { known, pendingReplacement } = readPersistedDraftState(sessionId);
   return { known, pendingReplacement };
 }
 
 export function readPersistedDraftGeneration(sessionId: string | undefined): number {
-  return persistedDraftState(sessionId).generation;
+  return readPersistedDraftState(sessionId).generation;
 }
 
 /// Reads the last unsent prompt from the page's synchronous remount cache.
 export function readPersistedDraft(sessionId: string | undefined): string | undefined {
-  return composerDraft(persistedDraftState(sessionId).text);
+  return composerDraft(readPersistedDraftState(sessionId).text);
 }
 
 /// Text and generation commit atomically, including empty tombstones after a clear or send.
