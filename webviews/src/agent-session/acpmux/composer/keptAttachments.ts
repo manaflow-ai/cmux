@@ -40,6 +40,7 @@ export function useKeptAttachments(
   setAttachments: (update: (current: ComposerAttachment[]) => ComposerAttachment[]) => void,
   store: KeptAttachments | undefined,
   carrying: () => boolean,
+  moving: () => { source?: string } | undefined = () => undefined,
 ): void {
   const [readFor, setReadFor] = useState<string>();
   /// The chips' ids the host holds for the chat as last written, and which of them it has contents for.
@@ -109,7 +110,12 @@ export function useKeptAttachments(
   useEffect(() => {
     if (!sessionId || !store) return;
     // The last chat's chips reach the host before this chat's are read.
-    flush();
+    const transfer = moving();
+    if (transfer) {
+      if (pending.current) clearTimeout(pending.current.timer);
+      pending.current = undefined;
+      if (transfer.source) write(transfer.source, [], [], false);
+    } else flush();
     const keepHeld = carry.current();
     let current = true;
     void store

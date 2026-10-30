@@ -198,8 +198,8 @@ export type ComposerHandle = {
   restore(text: string, attachments: ComposerAttachment[]): void;
   /// Reads the current unsent draft and attachments before moving this composer to another chat.
   draftState(): { text: string; attachments: ComposerAttachment[] };
-  /// Marks the next chat switch as a carried prompt, so its draft and chips move exactly once.
-  prepareDraftTransfer(): { text: string; attachments: ComposerAttachment[] };
+  /// Carries the prompt only to this newly created session; returns a cancellation on failed selection.
+  prepareDraftTransfer(sessionId: string): () => void;
   /// Adds a chip after the ones held, leaving the prompt as typed (the floating chat's Include
   /// focused tab); one with the same id is replaced. Nothing changes when it holds the most it can.
   attach(attachment: ComposerAttachment): void;
@@ -561,6 +561,7 @@ export function Composer({
   const restoringSession = useRef(false);
   /// Set while a switch runs and kept until the session change it brings (Lucas 2026-10-19).
   const carryPrompt = useRef(false);
+  const draftTransfer = useRef<{ source?: string; target: string } | undefined>(undefined);
   // Once a new chat has shown its location strip, keep its layout slot through the first send.
   // Resetting on a session key prevents a reopened chat from inheriting that reserved space.
   const locationSlotSession = useRef<string | undefined>(undefined);
@@ -678,12 +679,12 @@ export function Composer({
       draftState() {
         return { text: field.current?.value() ?? textRef.current, attachments: attachmentsRef.current.filter((chip) => !chip.shellRun) };
       },
-      prepareDraftTransfer() {
-        const state = { text: field.current?.value() ?? textRef.current, attachments: attachmentsRef.current.filter((chip) => !chip.shellRun) };
-        carryPrompt.current = true;
-        // Leave the source intact until the new session renders. The composer switch consumes this
-        // carried state exactly once; a failed start leaves the original draft available to retry.
-        return state;
+      prepareDraftTransfer(target) {
+        const transfer = { source: persistedSession.current, target };
+        draftTransfer.current = transfer;
+        return () => {
+          if (draftTransfer.current === transfer) draftTransfer.current = undefined;
+        };
       },
       restore(restoredText, restoredAttachments) {
         // Put back, not typed: the Enter that sent it says nothing about this change.
@@ -785,9 +786,12 @@ export function Composer({
   useEffect(() => {
     if (persistedSession.current === sessionId) return;
     // A switch's new session has no draft yet: the prompt typed before the pick moves to it.
-    const carried = carryPrompt.current ? (field.current?.value() ?? text) : "";
+    const moving = !!draftTransfer.current && draftTransfer.current.target === sessionId;
+    const carried = moving || carryPrompt.current ? (field.current?.value() ?? text) : "";
     const previous = persistedSession.current;
-    if (previous && hydratedSession.current === previous) writePersistedDraft(previous, field.current?.value() ?? text);
+    if (previous && (moving || hydratedSession.current === previous))
+      writePersistedDraft(previous, moving ? "" : (field.current?.value() ?? text));
+    if (moving && !previous) unsentDraft.current?.push("");
     // This composer leaves that chat: only a quit compares its queued text, and only for the chat shown.
     forgetQueuedDraft(previous);
     persistedSession.current = sessionId;
@@ -810,7 +814,13 @@ export function Composer({
   // The pane closes: what it queued for its chat still goes to acpmux, but no quit compares it again.
   useEffect(() => () => forgetQueuedDraft(persistedSession.current), []);
   // The chat's own chips come back with its prompt; a switch carries the ones held (keptAttachments.ts).
-  useKeptAttachments(sessionId, attachments, setAttachments, keptAttachments, () => carryPrompt.current);
+  useKeptAttachments(sessionId, attachments, setAttachments, keptAttachments,
+    () => carryPrompt.current || (!!draftTransfer.current && draftTransfer.current.target === sessionId),
+    () => draftTransfer.current?.target === sessionId ? draftTransfer.current : undefined);
+  useEffect(() => {
+    // Both text and attachment effects have consumed the transfer on this render.
+    if (draftTransfer.current && draftTransfer.current.source !== sessionId) draftTransfer.current = undefined;
+  }, [sessionId]);
   // WEB-SWAP: a web update reloads the page only when the prompt comes back as it is: text and
   // chips kept with the chat (composerDraft.ts, keptAttachments.ts), nothing being sent, read or
   // dictated, no shell mode (pages/shared/webSwap.ts).

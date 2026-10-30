@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { projectName } from "./EmptyState";
 import { type Translate, useT } from "./i18n";
 import { isAgentHome } from "./sessionList";
@@ -64,6 +64,8 @@ export function TrustAsk({
 }) {
   const t = useT();
   const [continuing, setContinuing] = useState(false);
+  const continuingRef = useRef(false);
+  const [continueError, setContinueError] = useState(false);
   // A workspace's new chat starts in its private folder under Application Support: named in words.
   const owned = isAgentHome(ask.cwd);
   const subject = trustSubject(ask);
@@ -88,6 +90,7 @@ export function TrustAsk({
                 ? t("trust.notTrustedRepo", { agent, repo })
                 : t("trust.notTrusted", { agent, folder: subject.viaFolder ?? folder })}
           </span>
+          {continueError && <span role="alert">{t("trust.failed")}</span>}
           <span className="acpmux-trust-ask-actions">
             {!answers ? null : retrustsRepo ? (
               <button type="button" className="acpmux-trust-ask-action acpmux-trust-ask-primary" onClick={onTrustRepo}>
@@ -106,9 +109,14 @@ export function TrustAsk({
                     className="acpmux-trust-ask-action"
                     disabled={continuing}
                     onClick={() => {
-                      if (continuing) return;
+                      if (continuingRef.current) return;
+                      continuingRef.current = true;
                       setContinuing(true);
-                      void Promise.resolve(onContinueWithoutFolder()).finally(() => setContinuing(false));
+                      setContinueError(false);
+                      void Promise.resolve().then(onContinueWithoutFolder).catch(() => setContinueError(true)).finally(() => {
+                        continuingRef.current = false;
+                        setContinuing(false);
+                      });
                     }}
                   >
                     {t("trust.continueWithoutFolder")}

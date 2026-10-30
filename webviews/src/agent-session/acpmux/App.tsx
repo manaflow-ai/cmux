@@ -143,6 +143,7 @@ import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { createScrollPacer, type ScrollFrame } from "./scrollPacer";
 import { remoteComposer } from "./remoteEditing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
+import { FolderContinuation, folderContinuationRequest } from "./folderContinuation";
 import { restoreComposerDraft } from "./composerRestore";
 import {
   linkAttachment,
@@ -5834,6 +5835,18 @@ function AcpmuxPane() {
   // The Inspector's Background tasks and Servers read acpmux's process registry through the pane's
   // client. A reconnect makes a new client, so the source changes with it and they list again.
   const [clientEpoch, setClientEpoch] = useState(0);
+  const [folderContinuation] = useState(() => new FolderContinuation());
+  const continuationProject = useRef(projectDraft);
+  const continuationProjectGeneration = useRef(0);
+  useLayoutEffect(() => {
+    if (continuationProject.current !== projectDraft) continuationProjectGeneration.current += 1;
+    continuationProject.current = projectDraft;
+  }, [projectDraft]);
+  useLayoutEffect(() => {
+    folderContinuation.invalidate();
+    return () => folderContinuation.invalidate();
+  }, [folderContinuation, projectDraft, snapshot.sessionId, clientEpoch]);
+
   const processSource = useMemo<ProcessSource>(
     () => ({
       listProcesses: (sessionId) => directClient.current?.listProcesses(sessionId) ?? Promise.reject(new Error()),
@@ -7463,6 +7476,8 @@ function AcpmuxPane() {
   const pickedProject = useRef<string | undefined>(undefined);
   const chooseProject = useCallback(
     (cwd: string, peer?: string) => {
+      folderContinuation.invalidate();
+      continuationProjectGeneration.current += 1;
       pickedProject.current = undefined;
       // Another computer's folder is that computer's to check.
       if (peer) {
@@ -8408,7 +8423,29 @@ function AcpmuxPane() {
           // A pick of another harness is a switch: drawn now, started behind it.
           // A new chat without a folder starts in the chat's start folder (startFolder.tsx);
           // a chat with no project (`noProject`) or for a peer gets no start folder.
-          "chat.new": async ({ harness, cwd, peer, deferred, noProject, model, options }) => {
+          "chat.new": async ({ harness, cwd, peer, deferred, noProject, model, options, continueWithoutFolder }) => {
+            if (noProject === true && continueWithoutFolder === true) {
+              const generation = client.trustGeneration;
+              const projectGeneration = continuationProjectGeneration.current;
+              const holder = composerHandle.current;
+              const summary = snapshotRef.current?.summary;
+              return folderContinuation.run({
+                start: () => client.startSession(summary?.harness, undefined, undefined, undefined, true, summary?.model),
+                current: () => directClient.current === client && client.trustGeneration === generation &&
+                  composerHandle.current === holder,
+                transfer: (id) => holder?.prepareDraftTransfer(id) ?? (() => {}),
+                clearFolder: () => setProjectDraft(undefined),
+                select: async (id) => {
+                  const selected = await client.select(id);
+                  if (selected !== id || client.selectedSession !== id ||
+                      directClient.current !== client || continuationProjectGeneration.current !== projectGeneration)
+                    return false;
+                  void persistSession(selected);
+                  return true;
+                },
+              });
+            }
+            folderContinuation.invalidate();
             const folder = cwd ? String(cwd) : peer || noProject === true ? undefined : startFolderRef.current;
             if (harness && !peer && noProject !== true) {
               // A new chat starts on its pick, else on acpmux's saved default, else on the model last
@@ -9986,27 +10023,8 @@ function AcpmuxPane() {
   // trust), permission and secret cards stay out of the tree so the user never has two different
   // asks competing for the same answer. A read in flight asks nothing and holds nothing: the cards
   // keep their place (no blink on a chat switch). A trusted receipt can sit above the next ask.
-  const continuationInFlight = useRef(false);
-  const continuationGeneration = useRef(0);
-  const continueWithoutFolder = useCallback(() => {
-    if (continuationInFlight.current) return Promise.resolve();
-    continuationInFlight.current = true;
-    const generation = ++continuationGeneration.current;
-    // Mark the composer as carried before starting the private no-project chat. The switch then
-    // moves its draft and chips exactly once; no restore runs after a successful switch.
-    const held = composerHandle.current?.prepareDraftTransfer();
-    return callNative("chat.new", { noProject: true }).then(
-      () => {
-        if (generation === continuationGeneration.current) setProjectDraft(undefined);
-      },
-      (error) => {
-        // The source composer was left intact, so a failed start needs no restore.
-        throw error;
-      },
-    ).finally(() => {
-      if (generation === continuationGeneration.current) continuationInFlight.current = false;
-    });
-  }, []);
+  const continueWithoutFolder = useCallback(() =>
+    callNative<void>("chat.new", folderContinuationRequest), []);
   const trustPending = trustAsk.holdsAsks;
   // A secret is the one ask held while the trust read is in flight: a value typed into it must
   // never go before the folder is known to need no trust answer first.
@@ -10089,7 +10107,8 @@ function AcpmuxPane() {
           onDistrust={trustAsk.distrust}
           onUndo={trustAsk.undo}
           onContinueWithoutFolder={
-            trustAsk.ask?.state === "decided" && trustAsk.ask.level === "untrusted"
+            healthLocal && !remoteChat && !directClient.current?.startsOnSend &&
+            trustAsk.ask?.state === "decided" && trustAsk.ask.level === "untrusted" && !isAgentHome(trustAsk.ask.cwd)
               ? continueWithoutFolder
               : undefined
           }
