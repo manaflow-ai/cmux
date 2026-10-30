@@ -319,6 +319,10 @@ type Props = NewTabCommandActions & {
   onEditShortcut?(kind: TabKind): void;
   /// Choose Folder…: the host's folder panel; resolves to the picked folder.
   onBrowseProject?(): Promise<string | undefined>;
+  /// The page goes with typed text or staged attachments (a host failure's error card takes its place).
+  onLeaveDraft?(text: string, attachments: ComposerAttachment[]): void;
+  /// The draft a page of this tab left (`onLeaveDraft`), read once when the page mounts.
+  takeDraft?(): { text: string; attachments: ComposerAttachment[] } | undefined;
   now?: number;
 };
 
@@ -351,6 +355,8 @@ export function NewTabPage({
   onBrowseProject,
   inputToken,
   onInputReady,
+  onLeaveDraft,
+  takeDraft,
 }: Props) {
   const t = useT();
   const { plainFooter, spellChecking } = useComposerSettings();
@@ -384,7 +390,8 @@ export function NewTabPage({
     [snapshot, lastAgent, projectCwd, remembered, harnessesListed],
   );
   const chipModel = useNewTabChipModel(chipSnapshot);
-  const [text, setText] = useState(location ?? "");
+  const [carried] = useState(() => takeDraft?.());
+  const [text, setText] = useState(carried?.text || (location ?? ""));
   /// The last open was refused (the host made no tab): a note under the field until the next edit.
   const [openFailed, setOpenFailed] = useState(false);
   const attachmentRef = useRef<ComposerAttachment[]>([]);
@@ -402,7 +409,7 @@ export function NewTabPage({
       });
   };
   // The location stays a suggestion until edited: the rows are the empty bar's.
-  const [touched, setTouched] = useState(false);
+  const [touched, setTouched] = useState(Boolean(carried?.text));
   const query = touched ? text : "";
   const [selected, setSelected] = useState(-1);
   // The field was wholly selected before this edit, so a typed prefix starts it over.
@@ -442,6 +449,20 @@ export function NewTabPage({
     },
   );
   attachmentRef.current = attachments;
+  useEffect(() => {
+    if (carried?.attachments.length) setAttachments(carried.attachments);
+  }, [carried, setAttachments]);
+  // The draft as it is now, for `onLeaveDraft` when the page goes.
+  const leaving = useRef({ text, attachments, typed: false, onLeaveDraft });
+  leaving.current = { text, attachments, typed: text !== (location ?? ""), onLeaveDraft };
+  useEffect(
+    () => () => {
+      const draft = leaving.current;
+      if ((draft.typed && draft.text.trim()) || draft.attachments.length)
+        draft.onLeaveDraft?.(draft.text, draft.attachments);
+    },
+    [],
+  );
   // WEB-SWAP: a web update's reload would lose what this page holds only in its state: a typed
   // query (the location comes back with the page), staged attachments, and a kind or folder picked
   // (pages/shared/webSwap.ts).

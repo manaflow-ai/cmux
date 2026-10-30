@@ -13,7 +13,7 @@ import os
 /// set aside, never replaced by an empty or a partial one.
 public final class AgentUnsentDrafts {
     public static let fileName = "agent-unsent-drafts.json"
-    /// A longer text is not kept (acpmux's own draft limit).
+    /// A longer text keeps only its first this many characters (acpmux's own draft limit).
     static let maximumCharacters = 1_000_000
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.unsent-drafts")
@@ -98,10 +98,10 @@ public final class AgentUnsentDrafts {
     }
 
     /// Keeps `text` as tab `key`'s draft; blank text forgets it (the tab's chat started or closed,
-    /// or its page cleared a draft it had).
+    /// or its page cleared a draft it had). A text over the limit keeps its first
+    /// ``maximumCharacters``: a draft is never dropped for its length (a merge can pass the limit).
     public func set(_ text: String, for key: String) {
-        let keep = !Self.isBlank(text) && text.count <= Self.maximumCharacters
-        let value = keep ? text : nil
+        let value = Self.isBlank(text) ? nil : Self.capped(text)
         guard drafts[key] != value else { return }
         drafts[key] = value
         if value == nil { undelivered.remove(key) }
@@ -124,6 +124,11 @@ public final class AgentUnsentDrafts {
         return kept + "\n\n" + typed
     }
 
+    /// `text`, or its first ``maximumCharacters`` when it is longer.
+    static func capped(_ text: String) -> String {
+        text.count <= maximumCharacters ? text : String(text.prefix(maximumCharacters))
+    }
+
     private static func isBlank(_ text: String) -> Bool {
         text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -133,15 +138,13 @@ public final class AgentUnsentDrafts {
         if unreadable {
             // Kept beside it, so whatever it held can still be recovered; never overwritten. No
             // save of this store was queued before this one, so the rename runs ahead of every save.
-            // concurrency-allow: one rename, only on the first save after an unreadable file was found
+            // A set-aside that fails writes nothing and is tried again on the next save.
+            // concurrency-allow: one existence check, only on the first save after an unreadable file was found
             if FileManager.default.fileExists(atPath: file.path) {
-                let aside = file.deletingPathExtension()
-                    .appendingPathExtension("unreadable-\(Int(Date().timeIntervalSince1970))")
-                    .appendingPathExtension(file.pathExtension)
                 do {
-                    try FileManager.default.moveItem(at: file, to: aside)
+                    _ = try UnreadableStateFile.setAside(file)
                 } catch {
-                    Self.logger.error("unsent drafts not saved: the unreadable file could not be set aside")
+                    Self.logger.error("unsent drafts not saved: the unreadable file could not be set aside: \(String(describing: error), privacy: .public)")
                     return
                 }
             }

@@ -9469,6 +9469,31 @@ function AcpmuxPane() {
     (sessionSelection?.state === "pending" || !snapshot.sessionId) &&
     snapshot.rows.length === 0 &&
     (handshaken || hostError === undefined);
+  // A host failure before the handshake takes the New Tab page (the error card shows in its place),
+  // and the retry that answers mounts it again: the page hands its draft (text and attachments) here
+  // as it goes, and the page mounted again takes it back. Leo (10-28): "when I updated, it removed
+  // my draft in one of the composer things".
+  const newTabHostFailureDraft = useRef<{ generation: number; text: string; attachments: ComposerAttachment[] }>(
+    undefined,
+  );
+  const newTabLeavesForHostFailure = useRef(false);
+  newTabLeavesForHostFailure.current = newTab !== undefined && !handshaken && hostError !== undefined;
+  const keepNewTabDraft = (text: string, attachments: ComposerAttachment[]) => {
+    if (!newTabLeavesForHostFailure.current) return false;
+    newTabHostFailureDraft.current = { generation: newTabGeneration, text, attachments };
+    return true;
+  };
+  // Read (not taken) while the page mounts, so a strict-mode second render reads it too; it goes
+  // once the page shows.
+  const takeNewTabDraft = () => {
+    const kept = newTabHostFailureDraft.current;
+    return kept && kept.generation === newTabGeneration
+      ? { text: kept.text, attachments: kept.attachments }
+      : undefined;
+  };
+  useEffect(() => {
+    if (showNewTab) newTabHostFailureDraft.current = undefined;
+  }, [showNewTab]);
   // Activity disconnects the hidden page's draft/attachment/choice holds during setup. Keep
   // the reload hold in the parent until the page is visible and its own effects reconnect.
   useWebSwapHold(showNewTab && harnessesOpen ? "newtab.setup" : null);
@@ -10895,8 +10920,11 @@ function AcpmuxPane() {
                   }}
                   key={newTabGeneration}
                   environments={preview}
-                  // The tab's run, found by a read, takes the chat view: the page's draft goes to its composer.
+                  // A host failure keeps the page's draft for the page the retry mounts. The tab's run,
+                  // found by a read, takes the chat view: the page's draft goes to its composer.
+                  takeDraft={takeNewTabDraft}
                   onLeaveDraft={(text, attachments) => {
+                    if (keepNewTabDraft(text, attachments)) return;
                     // A Sandboxed send from the page already took its prompt (or held it back).
                     const handed = newTabSandboxSent.current;
                     newTabSandboxSent.current = false;
@@ -11018,6 +11046,8 @@ function AcpmuxPane() {
               importError={importError}
               importSandboxed={sandbox.mode === "sandboxed"}
               key={newTabGeneration}
+              takeDraft={takeNewTabDraft}
+              onLeaveDraft={keepNewTabDraft}
               snapshot={newTabSnapshot}
               hotkeys={newTab.hotkeys}
               initialKind={newTab.initialKind}

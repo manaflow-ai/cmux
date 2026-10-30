@@ -111,6 +111,25 @@ struct UnsentDraftTests {
         #expect(AgentUnsentDrafts(file: file).draft(for: "tab-2") == "new text")
     }
 
+    /// A draft is never dropped for its length: a merge that passes the limit keeps the kept text
+    /// and as much typed text as fits (before, the over-long merge stored nothing and deleted it).
+    @Test func aMergePastTheLimitKeepsTheDraft() throws {
+        let directory = try Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: AgentUnsentDrafts.fileName)
+        AgentUnsentDrafts(file: file).set("compare the two retry policies", for: "tab-1")
+
+        let relaunched = AgentUnsentDrafts(file: file)
+        relaunched.typed(String(repeating: "x", count: 1_000_000), for: "tab-1")
+        let kept = try #require(relaunched.draft(for: "tab-1"))
+        #expect(kept.hasPrefix("compare the two retry policies\n\nxxx"))
+        #expect(kept.count == 1_000_000)
+        #expect(AgentUnsentDrafts(file: file).draft(for: "tab-1") == kept)
+
+        relaunched.set(String(repeating: "y", count: 1_000_001), for: "tab-1")
+        #expect(relaunched.draft(for: "tab-1")?.count == 1_000_000)
+    }
+
     /// The merge keeps both texts once, and leaves a text that already holds the other as it is.
     @Test func theMergeKeepsBothOnce() {
         #expect(AgentUnsentDrafts.merged(typed: "b", kept: "a") == "a\n\nb")

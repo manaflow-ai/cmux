@@ -106,6 +106,8 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     private let state = Mutex(State())
     /// The newest generation on disk; a write of an older one is skipped.
     private let written = Mutex(0)
+    /// The file was unreadable and could not be set aside: this run writes nothing over it.
+    private let keepsFile = Mutex(false)
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.prompt-journal", qos: .utility)
 
     public init(url: URL, now: @escaping @Sendable () -> Date = { Date() }) {
@@ -291,12 +293,15 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         state.loaded = true
         guard let data = try? Data(contentsOf: url) else { return }
         guard let document = try? Self.decoder.decode(Document.self, from: data) else {
-            // Set aside, never overwritten: the next write would replace what it holds.
-            let aside = url.deletingPathExtension()
-                .appendingPathExtension("unreadable-\(Int(now().timeIntervalSince1970))")
-                .appendingPathExtension(url.pathExtension)
-            try? FileManager.default.moveItem(at: url, to: aside)
-            Self.logger.error("agent pane prompt journal unreadable; set aside, starting empty")
+            // Set aside, never overwritten: the next write would replace what it holds. A file that
+            // cannot be moved stays where it is, and this run writes nothing over it.
+            do {
+                _ = try UnreadableStateFile.setAside(url, now: now())
+                Self.logger.error("agent pane prompt journal unreadable; set aside, starting empty")
+            } catch {
+                keepsFile.withLock { $0 = true }
+                Self.logger.error("agent pane prompt journal unreadable and not set aside; not written this run: \(String(describing: error), privacy: .public)")
+            }
             return
         }
         state.entries = Array(document.entries.suffix(Self.maximumEntries))
@@ -307,6 +312,10 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     private func write(_ entries: [Entry], pendingTrust: [PendingTrust], generation: Int) -> Bool {
         written.withLock { last in
             guard generation > last else { return true }
+            guard !keepsFile.withLock({ $0 }) else {
+                Self.logger.error("agent pane prompt journal not written: its unreadable file is kept in place")
+                return false
+            }
             do {
                 let data = try Self.encoder.encode(Document(entries: entries, pendingTrust: pendingTrust))
                 try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
