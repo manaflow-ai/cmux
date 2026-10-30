@@ -133,7 +133,7 @@ class Daemon {
   /// Runs once at the first request after an attach was answered (the reads that follow it).
   afterAttach: (() => void) | undefined;
   private attachAnswered = false;
-  /// Whether the pane asked for the chat list yet.
+  /// Whether the chat list was answered yet.
   private listed = false;
   readonly asked: Message[] = [];
 
@@ -150,7 +150,6 @@ class Daemon {
     // An attach the pane asks with the chat list, before it knows the chat runs on a machine
     // (direct.ts `askEarly`): the open drops it for a peer chat and attaches as these tests script.
     if (message.method === "_acpmux/attach" && !this.listed) message.beforeList = true;
-    else if (message.method === "_acpmux/watch") this.listed = true;
     this.asked.push(message);
     const commandRead =
       message.method === "_acpmux/events" &&
@@ -262,6 +261,7 @@ class Daemon {
       return this.reply(message.id, {
         result: { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } },
       });
+    if (message.method === "_acpmux/watch") this.listed = true;
     if (message.method === "_acpmux/watch")
       return this.reply(message.id, {
         result: { sessions: [this.summary(), ...(this.other ? [this.otherSummary()] : [])] },
