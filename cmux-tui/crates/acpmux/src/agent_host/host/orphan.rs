@@ -81,12 +81,14 @@ pub(super) struct Orphan {
     /// The census said clear, and its answer went round the event queue once more, so every
     /// event any task sent before it (a line, a connection) is handled before the end.
     confirming: bool,
-    /// Hellos that came while the harness ends, answered once its exit is in: no daemon starts a
-    /// turn on a harness that is ending, and every one is told it exited.
+    /// Hellos that came while the harness ends, answered once it is reaped: no daemon starts a
+    /// turn on a harness that is ending.
     held: Vec<(u64, ControllerFrame)>,
-    /// The harness ended with connections that have not said hello yet: whether their wait
-    /// ([`HELLO_LINGER`]) is over (None: not started).
-    linger: Option<bool>,
+    /// When the end gives up waiting for the harness's exit entry (output held back by the
+    /// buffer cap with no daemon to drain it can keep it out for good).
+    end_by: Option<std::time::Instant>,
+    /// Once the exit is in: until when the host waits for a daemon to log what is left.
+    linger_until: Option<std::time::Instant>,
     /// Requests the controller sent the harness with no answer yet, by id (its JSON text).
     open: HashSet<String>,
     /// Fenced lines queued for the harness whose receipt is not logged yet.
@@ -97,15 +99,15 @@ pub(super) struct Orphan {
 }
 
 impl Orphan {
-    /// Holds connection `id`'s hello `frame` while the harness ends (`exit_pending`): true when
-    /// it is held, to be answered once the exit is in.
+    /// Holds connection `id`'s hello `frame` while the harness ends (`alive`: its leader is not
+    /// reaped yet): true when it is held, to be answered once it is.
     pub(super) fn hold_hello(
         &mut self,
         id: u64,
         frame: &ControllerFrame,
-        exit_pending: bool,
+        alive: &std::sync::atomic::AtomicBool,
     ) -> bool {
-        let held = self.ending && exit_pending;
+        let held = self.ending && alive.load(std::sync::atomic::Ordering::SeqCst);
         if held {
             self.held.push((id, frame.clone()));
         }
@@ -183,33 +185,42 @@ impl State {
     /// As the host starts serving and after every event: a controller's hello ends the wait (its
     /// generation moves on); its absence starts one ([`OrphanExit`]). True once the host's own
     /// end is done: the harness exited and no controller is there to log it. A daemon that
-    /// connected while the harness ended is answered once the exit is in (`hold_hello`): it
-    /// logs the exit, as of a harness that crashed, and the host then ends as every host does
-    /// (`finished`). A connection that has not said hello yet gets [`HELLO_LINGER`]; what the
-    /// harness wrote as it ended that a next daemon needs gets the whole wait again, for a
-    /// daemon to come and log it, and is then let go: the host never runs on for good.
+    /// connected while the harness ended is answered once it is reaped (`hold_hello`): it logs
+    /// the rest and the exit, as of a harness that crashed, and the host then ends as every host
+    /// does (`finished`). A connection that has not said hello yet gets [`HELLO_LINGER`]; what
+    /// the harness wrote as it ended that a next daemon needs gets the whole wait again, for a
+    /// daemon to come and log it, and is then let go. An exit entry that never comes (output
+    /// the buffer cap holds back) is waited for as long (`end_by`): the host never runs on for
+    /// good.
     pub(super) async fn orphan_follow(&mut self, events: &mpsc::Sender<Event>) -> bool {
-        if self.orphan.ending && self.exit_h.is_some() {
-            for (id, hello) in std::mem::take(&mut self.orphan.held) {
-                self.on_frame(id, Some(hello)).await;
+        if self.orphan.ending {
+            let reaped = !self.leader_alive.load(std::sync::atomic::Ordering::SeqCst);
+            if reaped || self.exit_h.is_some() {
+                for (id, hello) in std::mem::take(&mut self.orphan.held) {
+                    self.on_frame(id, Some(hello)).await;
+                }
             }
             if self.controller.is_some() {
                 return false;
             }
+            let now = std::time::Instant::now();
+            if self.exit_h.is_none() {
+                return self.orphan.end_by.is_some_and(|by| now >= by);
+            }
             let unlogged = self.entries.iter().any(|(_, e, _)| needs_a_daemon(e));
-            if (self.pending_conns.is_empty() && !unlogged) || self.orphan.linger == Some(true) {
+            if self.pending_conns.is_empty() && !unlogged {
                 return true;
             }
-            if self.orphan.linger.is_none() {
-                self.orphan.linger = Some(false);
-                let idle = self.spec.orphan_exit.as_ref().map_or(0, |e| e.idle_ms);
-                let wait = std::time::Duration::from_millis(idle);
-                self.orphan_wait(
-                    events,
-                    if unlogged { wait.max(HELLO_LINGER) } else { HELLO_LINGER },
-                );
-            }
-            return false;
+            let until = match self.orphan.linger_until {
+                Some(until) => until,
+                None => {
+                    let after =
+                        if unlogged { self.orphan_idle().max(HELLO_LINGER) } else { HELLO_LINGER };
+                    self.orphan_wait(events, after);
+                    *self.orphan.linger_until.insert(now + after)
+                }
+            };
+            return now >= until;
         }
         let Some(exit) = &self.spec.orphan_exit else { return false };
         if self.controller.is_some() {
@@ -247,11 +258,8 @@ impl State {
         let (Some(exit), Some(since)) = (self.spec.orphan_exit.clone(), self.orphan.since) else {
             return;
         };
+        // While the end runs a wait only wakes the loop: `orphan_follow` reads its deadlines.
         if self.orphan.ending {
-            // The end's wait for a connection's hello is over (`orphan_follow`).
-            if generation == self.orphan.generation && census.is_none() {
-                self.orphan.linger = self.orphan.linger.map(|_| true);
-            }
             return;
         }
         if generation != self.orphan.generation || self.controller.is_some() {
@@ -271,8 +279,8 @@ impl State {
         let leader = self.leader_alive.load(std::sync::atomic::Ordering::SeqCst);
         match (census, self.record.harness_pid) {
             // Nothing runs that a census could find: the harness already ended.
-            _ if !leader => self.orphan_end().await,
-            (Some(true), _) if self.orphan.confirming => self.orphan_end().await,
+            _ if !leader => self.orphan_end(events).await,
+            (Some(true), _) if self.orphan.confirming => self.orphan_end(events).await,
             // Other tasks' events sent before the census's answer may wait behind it (tokio's
             // queue orders each sender, not all of them): one more round lets them in first.
             (Some(true), _) => {
@@ -300,10 +308,18 @@ impl State {
 
     /// No daemon controlled this host for its wait and its agent is idle: end the harness
     /// group as `Terminate` does; the host ends once its exit is in (`serve`).
-    async fn orphan_end(&mut self) {
+    async fn orphan_end(&mut self, events: &mpsc::Sender<Event>) {
         tracing::info!("no daemon came back for this host's wait and its agent is idle; ending it");
         self.orphan.ending = true;
+        let by = ORPHAN_END_GRACE + self.orphan_idle().max(HELLO_LINGER);
+        self.orphan.end_by = Some(std::time::Instant::now() + by);
+        self.orphan_wait(events, by);
         self.terminate_group(ORPHAN_END_GRACE).await;
+    }
+
+    /// The host's wait with no controller ([`OrphanExit`]).
+    fn orphan_idle(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(self.spec.orphan_exit.as_ref().map_or(0, |e| e.idle_ms))
     }
 }
 

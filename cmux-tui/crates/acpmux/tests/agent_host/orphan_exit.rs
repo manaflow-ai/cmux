@@ -212,3 +212,32 @@ async fn what_the_harness_writes_as_it_ends_waits_for_a_daemon() {
     wait_dead(lock).await;
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// What the harness writes as it ends can be more than the buffer cap holds with no daemon to
+/// read it: the exit entry then never comes, and the host ends at the end's own deadline
+/// instead of running on for good (review 6).
+#[tokio::test]
+async fn an_end_whose_output_the_buffer_cap_holds_back_still_ends() {
+    let dir = scratch("orph-cap");
+    let agent = dir.join("agent");
+    write_executable(
+        &agent,
+        "#!/usr/bin/env python3\nimport signal, sys\n\
+         def last(*_):\n    \
+         for i in range(400):\n        \
+         print('{\"jsonrpc\":\"2.0\",\"method\":\"note\",\"params\":{\"text\":\"%s\"}}' % ('x' * 64), flush=True)\n    \
+         sys.exit(0)\n\
+         signal.signal(signal.SIGTERM, last)\n\
+         while True: signal.pause()\n",
+    );
+    let mut launch = orphan_spec(&dir, "s-orph-cap");
+    launch.program = agent.to_string_lossy().into_owned();
+    launch.args.clear();
+    launch.buffer_cap = 4096;
+    let record = link::spawn(&launcher(), &launch).await.unwrap();
+    assert!(
+        ends_within(&dir, &record, Duration::from_secs(20)).await,
+        "a host whose last output the buffer cap held back outlived its end"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
