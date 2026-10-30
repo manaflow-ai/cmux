@@ -4340,8 +4340,14 @@ export class AcpmuxDirectClient {
       const ambiguous =
         this.compactionFenceSeq !== undefined &&
         (terminalTurnId === undefined || terminalTurnId !== this.runningTurnId);
+      // An end naming another turn than the running one is that turn's, late. That includes the stopped
+      // turn's own end once a newer turn that names none has opened (stopSuperseded). An end naming no
+      // turn while an unnamed turn runs cannot be told apart, and ends what runs, as before.
       const stale =
-        terminalTurnId !== undefined && this.runningTurnId !== undefined && terminalTurnId !== this.runningTurnId;
+        terminalTurnId !== undefined &&
+        (this.runningTurnId !== undefined
+          ? terminalTurnId !== this.runningTurnId
+          : this.stopSuperseded && terminalTurnId === this.stopTurnId);
       if (ambiguous || stale) {
         // The old Stop can be acknowledged independently, before any turn-scoped side effects
         // (including foreground subagents) see a result that belongs to a different turn.
