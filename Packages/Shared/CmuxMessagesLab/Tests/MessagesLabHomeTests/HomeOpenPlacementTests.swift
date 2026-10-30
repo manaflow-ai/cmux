@@ -29,8 +29,14 @@ import Testing
     }
 
     /// The place a closing view keeps: the newest message on screen and its bottom's distance from the field.
-    private func place(_ view: MessagesLabHomeView) throws -> (message: String, offset: CGFloat) {
-        try #require(view.controller.demo?.readingPlace(keeps: { _ in true }))
+    /// Nil (recorded as an issue, with the view's state) when the view shows its newest message.
+    private func place(_ view: MessagesLabHomeView, _ which: String) -> (message: String, offset: CGFloat)? {
+        let place = view.controller.demo?.readingPlace(keeps: { _ in true })
+        if place == nil {
+            let pinned = view.controller.store?.state.ui.scroll.pinnedToBottom == true
+            Issue.record("\(which): no place; pinned \(pinned), placed \(!view.projection.placesOnOpen)")
+        }
+        return place
     }
 
     /// The chat's view closes, as Home drops it for another Chief's (its pane stays in the window).
@@ -109,14 +115,16 @@ import Testing
 
         let first = try await open(rig)
         try scrollUp(first, by: 2400)
-        let left = try place(first)
-        #expect(first.controller.store?.state.ui.scroll.pinnedToBottom == false)
+        #expect(!first.projection.placesOnOpen, "the first view was placed")
+        guard let left = place(first, "scrolled up") else { return }
         close(first, in: rig)
+        let kept = rig.store.scrollAnchor(for: HomeChatRig.conversation)
+        #expect(kept != nil, "the closed view kept its place")
 
         // The same pane, or a taller one (the window grew meanwhile): the message keeps its distance from the field.
         let again = try await open(rig, height: reopenHeight)
         defer { again.stop() }
-        let back = try place(again)
+        guard let back = place(again, "reopened with \(String(describing: kept))") else { return }
         #expect(back.message == left.message, "opened at message \(back.message), left at \(left.message)")
         #expect(abs(back.offset - left.offset) < 1, "its bubble ends \(back.offset) pt above the field, was \(left.offset)")
         #expect(again.controller.store?.state.ui.scroll.pinnedToBottom == false)
