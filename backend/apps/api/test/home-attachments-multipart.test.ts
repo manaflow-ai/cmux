@@ -918,3 +918,40 @@ describe("Home attachments: a completion retry that fails never undoes another t
     expect(sha(await downloaded(alice, id, sha(body)))).toBe(sha(body))
   })
 })
+
+describe("Home attachments: a multipart intent that failed before any upload lives keeps no reservation", { timeout: 120_000 }, () => {
+  const usage = (user: string) =>
+    runInDurableObject(testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user)), async (_i, state) => (state.storage.sql.exec("SELECT key FROM home_attachment_usage").toArray() as Array<{ key: string }>).map((r) => r.key))
+  const slots = (conversation: string) =>
+    runInDurableObject(testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(conversation)), async (_i, state) => state.storage.sql.exec("SELECT id FROM home_attachment_slots").toArray())
+  const intentWith = async (who: Who, conversation: string, env: TestEnv, seed: number) => {
+    const { handleAttachmentIntent } = await import("../src/home-attachments.ts")
+    const body = JSON.stringify({ conversation, sha256: sha(new Uint8Array([seed])), byte_count: 40_000_000, mime_type: "application/octet-stream", name: "a.bin", multipart: true })
+    return handleAttachmentIntent(new Request("https://api.test/v1/home/attachments/intent", { method: "POST", headers: { authorization: `Bearer ${who.token}`, "content-type": "application/json" }, body }), env)
+  }
+
+  it("R2 could not create the upload: the slot is dropped and its bytes refunded", async () => {
+    const alice = await signIn("att-intent-create-fails")
+    const { id } = await group(alice)
+    const bucket = testEnv.HOME_ATTACHMENTS
+    const failing = new Proxy(bucket, {
+      get(t, p) {
+        if (p === "createMultipartUpload") return async () => { throw new Error("createMultipartUpload: We encountered an internal error. Please try again. (10001)") }
+        const v = Reflect.get(t, p)
+        return typeof v === "function" ? v.bind(t) : v
+      }
+    })
+    await expect(intentWith(alice, id, { ...testEnv, HOME_ATTACHMENTS: failing }, 11)).rejects.toThrow()
+    expect(await slots(id)).toEqual([])
+    expect(await usage(alice.user)).toEqual([])
+  })
+
+  it("the owner call that records the upload failed and the abort succeeded: the slot is dropped and its bytes refunded", async () => {
+    const alice = await signIn("att-intent-record-fails")
+    const { id } = await group(alice)
+    const env = ownerWith({ setMultipartUpload: async () => { throw new Error("owner call lost") } })
+    await expect(intentWith(alice, id, env, 12)).rejects.toThrow("owner call lost")
+    expect(await slots(id)).toEqual([])
+    expect(await usage(alice.user)).toEqual([])
+  })
+})
