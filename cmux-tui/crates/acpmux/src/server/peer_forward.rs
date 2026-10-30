@@ -3,7 +3,6 @@
 //! request handler (`requests.rs`).
 
 use super::*;
-use cmux_json::JsonSet as _;
 
 /// Methods that name no session, or that this daemon answers itself even
 /// for a peer's session.
