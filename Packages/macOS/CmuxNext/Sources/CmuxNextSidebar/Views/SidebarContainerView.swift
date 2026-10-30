@@ -34,15 +34,20 @@ public final class SidebarContainerView: NSView {
 
     /// The Card surface reaches beyond the container's logical width. AppKit's hit-test walk
     /// stops at a view's bounds, so forward points in the visual reach to the extended panel.
+    /// AppKit supplies `point` in this view's superview coordinates (the same convention used by
+    /// the row hit-test overrides), so convert once before testing the local bounds. This matters
+    /// for a right-hand sidebar: treating the superview point as local shifts the reach across the
+    /// pane and lets the sidebar claim clicks that belong to the card.
     override public func hitTest(_ point: NSPoint) -> NSView? {
-        if let hit = super.hitTest(point) { return hit }
+        let local = convert(point, from: superview)
+        if let hit = super.hitTest(local) { return hit }
         guard visualPaneReach > 0 else { return nil }
         var expanded = bounds
         if side == .left { expanded.size.width += visualPaneReach }
         else { expanded.origin.x -= visualPaneReach; expanded.size.width += visualPaneReach }
-        guard expanded.contains(point) else { return nil }
+        guard expanded.contains(local) else { return nil }
         for child in subviews.reversed() {
-            let childPoint = child.convert(point, from: self)
+            let childPoint = child.convert(local, from: self)
             if let hit = child.hitTest(childPoint) { return hit }
         }
         return self

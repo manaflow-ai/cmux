@@ -285,8 +285,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             // Root siblings such as the resize handle keep their z-order. Only an otherwise
             // unclaimed point in the added band is forwarded into the sidebar's extended panel.
             if normalHit === self, expanded.contains(point), !sidebarFrame.contains(point) {
-                let sidebarPoint = sidebar.convert(point, from: self)
-                if let hit = sidebar.hitTest(sidebarPoint) { return hit }
+                if let hit = sidebar.hitTest(point) { return hit }
             }
         }
         return normalHit
