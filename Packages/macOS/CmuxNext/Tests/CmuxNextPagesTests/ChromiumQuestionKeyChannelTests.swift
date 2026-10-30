@@ -434,6 +434,10 @@ struct ChromiumQuestionKeyChannelTests {
             }
         }
         let descriptor = PageDescriptor(id: "cmux.agent", resource: "agent", namespaces: [])
+        // `cmux.agent` is reserved: the page host serves it only from its bundled root or an allowed fixture.
+        #if DEBUG
+        PageID.allowFixtureRoot(root, for: descriptor.id)
+        #endif
         let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [],
                                            options: PageEngineOptions(chromiumAgentChat: true), chromium: hosting))
         view.chromiumClock = PageTestClock.never
