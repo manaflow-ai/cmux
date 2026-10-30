@@ -323,7 +323,8 @@ extension ConversationViewController {
         store.messages.filter { $0.id == rootID || $0.replyToID == rootID }
     }
 
-    private func populate(_ overlay: ReplyThreadOverlay, rootID: String) {
+    /// `followsBottom` false keeps the thread where the reader scrolled it.
+    private func populate(_ overlay: ReplyThreadOverlay, rootID: String, followsBottom: Bool = true) {
         overlay.content.subviews.forEach { $0.removeFromSuperview() }
         let thread = threadMessages(rootID: rootID)
         overlay.messages = thread
@@ -371,7 +372,7 @@ extension ConversationViewController {
             y += cellLayout.height
         }
         overlay.contentHeight = y
-        layoutReplyOverlay()
+        layoutReplyOverlay(followsBottom: followsBottom)
     }
 
     /// Thread rows sit as they would in a transcript: a run from one sender
@@ -385,7 +386,9 @@ extension ConversationViewController {
     /// each line added to or removed from the draft in the same frame as
     /// the field, keeping the bottom bubble 16.7 pt above it, and jumps it
     /// to the risen keyboard's layout at once (iOS 26.5 and 27.0).
-    func layoutReplyOverlay() {
+    /// `followsBottom` false keeps the reader's scroll position (a status or
+    /// tapback landing while they read further up).
+    func layoutReplyOverlay(followsBottom: Bool = true) {
         guard let overlay = replyOverlay else { return }
         overlay.frame = view.bounds
         overlay.blur.frame = overlay.bounds
@@ -403,7 +406,9 @@ extension ConversationViewController {
             overlay.content.contentSize = CGSize(width: width, height: y)
             let inset = max(0, available - y)
             overlay.content.contentInset = UIEdgeInsets(top: inset, left: 0, bottom: 0, right: 0)
-            overlay.content.contentOffset = CGPoint(x: 0, y: max(-inset, y - available))
+            let bottom = max(-inset, y - available)
+            let offset = followsBottom ? bottom : min(max(-inset, overlay.content.contentOffset.y), bottom)
+            overlay.content.contentOffset = CGPoint(x: 0, y: offset)
         }
         let after = overlay.content.frame.minY - overlay.content.contentOffset.y
         overlay.motion?.containerMoved(by: after - before)
@@ -451,15 +456,33 @@ extension ConversationViewController {
     /// the composer still in reply mode (iOS 27.0). An incoming reply or a
     /// delivery status lands the same way.
     func refreshReplyThread() {
-        guard let overlay = replyOverlay, overlay.isUserInteractionEnabled, let rootID = overlay.rootID,
-              store.messages.contains(where: { $0.id == rootID }),
-              threadMessages(rootID: rootID) != overlay.messages else { return }
+        guard let overlay = replyOverlay, overlay.isUserInteractionEnabled, let rootID = overlay.rootID else { return }
+        guard store.messages.contains(where: { $0.id == rootID }) else {
+            // The root was unsent or left the loaded window: nothing to reply to.
+            exitReplyMode()
+            return
+        }
+        let thread = threadMessages(rootID: rootID)
+        guard thread != overlay.messages else { return }
         let fieldFrame = composer.fieldFrame(in: view)
         let before = threadScreenTops(in: overlay)
+        // A swiped bubble still unwinding keeps its swing through the refresh.
+        var swings: [String: CGFloat] = [:]
+        for item in overlay.motion?.items ?? [] {
+            if let id = (item.view as? MessageCell)?.model?.message.id, item.trip.offsetX != 0 { swings[id] = item.trip.offsetX }
+        }
         overlay.motion?.stop()
-        populate(overlay, rootID: rootID)
+        // The thread follows a reply of mine, or a reader already at its end;
+        // a status or tapback landing while they read further up leaves them there.
+        let known = Set(overlay.messages.map(\.id))
+        let sentByMe = thread.contains { !known.contains($0.id) && $0.senderID == store.meID }
+        let content = overlay.content
+        let atBottom = content.contentOffset.y >= content.contentSize.height - content.bounds.height - 1
+        populate(overlay, rootID: rootID, followsBottom: sentByMe || atBottom)
         overlay.hiddenMessageIDs = Set(overlay.content.subviews.compactMap { ($0 as? MessageCell)?.model?.message.id })
         refreshReplyBacking(hiddenOnly: true)
+        // The rows were rebuilt: VoiceOver finds its place again.
+        UIAccessibility.post(notification: .layoutChanged, argument: nil)
         guard !UIAccessibility.isReduceMotionEnabled else { return }
         let fieldTop = overlay.content.convert(CGPoint(x: 0, y: fieldFrame.minY), from: view).y
         let rows = overlay.content.subviews.compactMap { view -> ReplyThreadRow? in
@@ -475,7 +498,8 @@ extension ConversationViewController {
                 let bubbleTop = (view as? MessageCell)?.cellLayout?.contentFrame.minY ?? 0
                 start = max(target, fieldTop - bubbleTop)
             }
-            return (view: view, baseY: target, startY: start, targetY: target, initialOffsetX: 0)
+            let swing = (view as? MessageCell)?.model.flatMap { swings[$0.message.id] } ?? 0
+            return (view: view, baseY: target, startY: start, targetY: target, initialOffsetX: swing)
         }
         let motion = ReplyThreadMotion(rows: rows, animatingOut: false, viewHeight: view.bounds.height, scale: traitCollection.displayScale)
         overlay.motion = motion

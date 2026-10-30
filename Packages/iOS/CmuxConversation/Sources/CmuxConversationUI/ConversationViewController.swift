@@ -734,6 +734,9 @@ public final class ConversationViewController: UIViewController {
             // it starts inside a scroll frame: skip the full rebuild.
             return
         default:
+            // The open reply thread reads the store itself, so it follows
+            // even a change the live gate holds back from the transcript.
+            defer { refreshReplyThread() }
             if pendingFlight != nil, case let .live(insertedRowIDs, sentByMe: true) = change {
                 pendingFlightRowIDs = Set(insertedRowIDs)
             }
@@ -753,7 +756,6 @@ public final class ConversationViewController: UIViewController {
             liveGate.endPageHold()
             applyTranscriptChange(change)
         }
-        refreshReplyThread()
     }
 
     /// Applies a transcript change, after what the live gate held.
