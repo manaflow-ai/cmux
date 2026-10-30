@@ -17,20 +17,15 @@ final class SessionRegistrar {
     private var observation: Task<Void, Never>?
     /// Sends each record and acts on the answer (`SessionRegistration`): a refusal is shown once
     /// through `notice` and not sent again unchanged; a failure with no answer backs off.
-    private let registration: SessionRegistration<SessionSnapshot>
+    private let registration: SessionRegistration<SessionRegistrationRecord>
     private var importing: Set<String> = []
     /// This Mac's name, resolved off the main actor (`MacName`).
     private var computerName: String?
 
-    struct SessionSnapshot: Hashable {
-        var sessionName: String?
-        var capabilities: [String]
-        var transport: JSONValue
-    }
 
     init(machines: MachineRegistry, notice: @escaping @MainActor (String) -> Void) {
         self.machines = machines
-        registration = SessionRegistration(policy: .sessionRegistration, notice: notice)
+        registration = SessionRegistration<SessionRegistrationRecord>(policy: .sessionRegistration, notice: notice)
         registration.onRetryDue = { [weak self] in self?.sync() }
     }
 
@@ -44,12 +39,14 @@ final class SessionRegistrar {
         let machines = machines
         observation = Task { [weak self] in
             for await _ in ObservationStream({ () -> [String] in
-                [String(machines.local.store.personal.revision), String(machines.local.store.personal.isLoaded),
-                 String(machines.local.store.isProvisional),
-                 machines.local.connection.map { String(describing: ObjectIdentifier($0)) } ?? ""]
-                    + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded):\($0.store.registryID ?? "")" }
-                    + machines.ssh.map { "\($0.machineID):\($0.autoConnect)" }
-                    + machines.servers.map { "\($0.machineID):\($0.autoConnect)" }
+                let store = machines.local.store
+                let link: String = machines.local.connection.map { String(describing: ObjectIdentifier($0)) } ?? ""
+                let home: [String] = [String(store.personal.revision), String(store.personal.isLoaded),
+                                      String(store.isProvisional), link]
+                let daemons: [String] = machines.daemons.map { "\($0.machineID):\($0.store.isLoaded):\($0.store.registryID ?? "")" }
+                let ssh: [String] = machines.ssh.map { "\($0.machineID):\($0.autoConnect)" }
+                let servers: [String] = machines.servers.map { "\($0.machineID):\($0.autoConnect)" }
+                return home + daemons + ssh + servers
             }) {
                 self?.sync()
             }
@@ -66,7 +63,7 @@ final class SessionRegistrar {
         guard home.store.personal.isLoaded, !home.store.isProvisional, let connection = home.connection else { return }
         for daemon in machines.daemons where daemon.store.isLoaded {
             guard let session = daemon.store.registryID, let identity = daemon.store.identity else { continue }
-            let snapshot = SessionSnapshot(sessionName: identity.session, capabilities: identity.capabilities.sorted(),
+            let snapshot = SessionRegistrationRecord(sessionName: identity.session, capabilities: identity.capabilities.sorted(),
                                            transport: transport(daemon))
             let request = PutSessionRequest(sessionID: session, machineName: machineName(daemon), sessionName: identity.session,
                                             transport: snapshot.transport, capabilities: snapshot.capabilities)

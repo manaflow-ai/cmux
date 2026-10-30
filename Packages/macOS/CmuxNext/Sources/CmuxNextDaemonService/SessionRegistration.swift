@@ -77,3 +77,17 @@ public final class SessionRegistration<Record: Hashable & Sendable> {
                                      table: "SessionRegistration", bundle: .module), machine, reason)
     }
 }
+
+/// What the app sends for one session (`put-session`): its name, sorted capabilities and transport.
+/// A plain value, compared by the ledger.
+nonisolated public struct SessionRegistrationRecord: Hashable, Sendable {
+    public var sessionName: String?
+    public var capabilities: [String]
+    public var transport: JSONValue
+
+    public init(sessionName: String?, capabilities: [String], transport: JSONValue) {
+        self.sessionName = sessionName
+        self.capabilities = capabilities
+        self.transport = transport
+    }
+}
