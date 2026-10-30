@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1227,
+    "entries": 1226,
     "shortcuts": 189
   },
   "sections": [
@@ -6866,12 +6866,6 @@
           "title": "Installed Apps",
           "shortcut": null,
           "command": null
-        },
-        {
-          "id": "team.invite",
-          "title": "Invite to Team…",
-          "shortcut": null,
-          "command": "cmux team invite"
         },
         {
           "id": "help.discord",
