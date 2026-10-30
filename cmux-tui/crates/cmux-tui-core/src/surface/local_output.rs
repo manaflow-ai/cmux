@@ -159,7 +159,7 @@ impl LocalOutput {
         if let (Some(journal_target), Some((journal_output, history))) =
             (journal_target, journal_output)
         {
-            pty.record_output(journal_target, journal_output.as_ref(), Some(history));
+            pty.record_output(journal_target, journal_output.as_ref(), history);
         }
         drop(journal_update);
         self.pending.push(ParsedOutput {

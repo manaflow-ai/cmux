@@ -22,11 +22,15 @@
 //! `scrollback-limit` took the daemon to 2.25 GB against this 256 MiB budget
 //! before the pass cut it back.
 //!
-//! Owner: the output store (PL-daemon). The bound is the budget, plus up to
-//! 1/16 of each terminal's history that grew since its last measurement,
-//! plus what prints during one pass on the writer thread. When every terminal
-//! is at its 1 MiB floor the total can stay over it; the next pass then waits
-//! for growth past where the last one left it.
+//! Owner: the output store (PL-daemon). The bound is the budget, plus per
+//! terminal the history grown since its last measurement (up to
+//! max(1/16 of its measured history rows, one screen of rows)), plus what
+//! prints during one pass on the writer thread. When every terminal is at
+//! its 1 MiB floor the total can stay over it; the next pass then waits for
+//! growth past where the last one left it. Not covered: the alternate
+//! screen's pages (as before), terminals with no journal capture (they keep
+//! no output log), and the terminal hosts' own copies (each capped at
+//! `HostLaunch::host_scrollback`).
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -95,8 +99,7 @@ pub(super) fn measure_due(mux: &Mux, store: &OutputStore, budget: u64) {
         let measured = mux
             .terminal_resource_surface(&log.terminal_id)
             .and_then(|surface| surface.try_with_terminal(measure).ok().flatten());
-        let (resident, rows) =
-            measured.map_or((0, None), |(resident, rows)| (resident, Some(rows)));
+        let (resident, rows) = measured.unwrap_or((0, None));
         store.set_resident(log, resident, rows);
     }
     if store.resident_over_trigger() {
@@ -104,10 +107,14 @@ pub(super) fn measure_due(mux: &Mux, store: &OutputStore, budget: u64) {
     }
 }
 
-/// A terminal's primary-screen resident bytes and its history rows.
-fn measure(terminal: &mut ghostty_vt::Terminal) -> Option<(u64, u64)> {
-    let resident = terminal.primary_resident_bytes()?;
-    Some((resident, u64::try_from(terminal.scrollback_rows()).unwrap_or(u64::MAX)))
+/// A terminal's primary-screen resident bytes (0 when libghostty-vt cannot
+/// report them) and its history rows (`None` on the alternate screen, which
+/// keeps the last primary measurement's rows as the next step's base).
+/// Returning the rows even when the bytes are unknown keeps such a terminal
+/// from asking for a measurement on every read.
+fn measure(terminal: &mut ghostty_vt::Terminal) -> Option<(u64, Option<u64>)> {
+    let rows = crate::output_store::HistoryRows::of(terminal).map(|history| history.rows);
+    Some((terminal.primary_resident_bytes().unwrap_or(0), rows))
 }
 
 /// Keep the terminals' scrollback RAM under `budget` bytes, then record the
@@ -131,6 +138,8 @@ fn shrink_or_restore(mux: &Mux, store: &OutputStore, budget: u64) -> u64 {
     let mut entries = logs
         .into_iter()
         .filter_map(|log| {
+            // Cleared before the read: an append after it asks again.
+            log.state.lock().unwrap_or_else(PoisonError::into_inner).measure_due = false;
             let measured = mux.terminal_resource_surface(&log.terminal_id).and_then(|surface| {
                 let measured = surface.try_with_terminal(measure).ok().flatten()?;
                 Some((surface, measured))
@@ -139,7 +148,7 @@ fn shrink_or_restore(mux: &Mux, store: &OutputStore, budget: u64) -> u64 {
                 store.set_resident(&log, 0, None);
                 return None;
             };
-            store.set_resident(&log, resident, Some(rows));
+            store.set_resident(&log, resident, rows);
             let last_output = log.state.lock().unwrap_or_else(PoisonError::into_inner).last_output;
             Some(Entry { log, surface, resident, last_output })
         })
@@ -174,7 +183,7 @@ fn shrink_or_restore(mux: &Mux, store: &OutputStore, budget: u64) -> u64 {
                 .flatten();
             let Some((after, rows)) = after else { continue };
             total = total.saturating_sub(entry.resident.saturating_sub(after));
-            store.set_resident(&entry.log, after, Some(rows));
+            store.set_resident(&entry.log, after, rows);
             limited.insert(entry.log.terminal_id.clone(), (configured, keep));
         }
         let over = total > budget;

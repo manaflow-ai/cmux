@@ -237,7 +237,7 @@ pub(crate) struct TerminalLog {
 /// growth signal of the scrollback budget (`memory_budget.rs`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct HistoryRows {
-    /// Rows in the active screen's scrollback.
+    /// Rows in the primary screen's scrollback.
     pub(crate) rows: u64,
     /// Rows on the screen (the smallest re-measure step).
     pub(crate) screen_rows: u64,
@@ -251,11 +251,14 @@ impl HistoryRows {
     /// a terminal growing from empty to its limit is measured O(log) times.
     const STEP_DIVISOR: u64 = 16;
 
-    pub(crate) fn of(terminal: &ghostty_vt::Terminal) -> Self {
-        Self {
+    /// `None` on the alternate screen: its rows are not the primary
+    /// screen's history the budget measures (and a full-screen program does
+    /// not grow history), so it never asks for a measurement.
+    pub(crate) fn of(terminal: &ghostty_vt::Terminal) -> Option<Self> {
+        (terminal.active_screen() != ghostty_vt::Screen::Alternate).then(|| Self {
             rows: u64::try_from(terminal.scrollback_rows()).unwrap_or(u64::MAX),
             screen_rows: u64::from(terminal.rows()),
-        }
+        })
     }
 
     fn moved_past_step(self, measured: Option<u64>) -> bool {
@@ -648,7 +651,9 @@ impl OutputStore {
     }
 
     /// Record `log`'s measured resident bytes (`rows`: its history rows at
-    /// the measurement) and move its share of [`Self::resident_total`].
+    /// the measurement, `None` on the alternate screen or when the terminal
+    /// is gone) and move its share
+    /// of [`Self::resident_total`].
     /// Nothing changes for a forgotten log: its share already left the total.
     fn set_resident(&self, log: &TerminalLog, resident: u64, rows: Option<u64>) {
         let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
@@ -656,9 +661,13 @@ impl OutputStore {
             return;
         }
         let previous = std::mem::replace(&mut state.resident, resident);
-        state.measured_rows = rows;
-        // Measured now: the next growth step asks again.
-        state.measure_due = false;
+        // `measure_due` is cleared before the measurement read (by its
+        // caller), never here: an append that raced the read keeps its ask.
+        // No rows (the alternate screen, or the terminal is gone): the last
+        // primary measurement stays the next growth step's base.
+        if rows.is_some() {
+            state.measured_rows = rows;
+        }
         self.account_resident(previous, resident);
     }
 
