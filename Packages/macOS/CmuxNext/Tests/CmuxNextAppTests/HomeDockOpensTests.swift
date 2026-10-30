@@ -100,6 +100,35 @@ struct HomeDockOpensTests {
         }
     }
 
+    /// A browser creator that delegates Home placement through `then` must not select its daemon
+    /// tab after that callback starts: OutboundTab owns the hold until the move lands.
+    @Test func aBrowserPlacementCallbackKeepsTheHomeStripHiddenBeforeTheMove() async throws {
+        try await PasswordManagerRouteTests.withApp { services, homeConnection in
+            let (window, home, dock) = try await Self.openHome(services, homeConnection)
+            dock.syncStripFromStore()
+            guard let homeTab = dock.stripModel.selectedID else {
+                Issue.record("Home did not have a selected page before browser placement")
+                return
+            }
+            var callbackSawHiddenStrip = false
+            guard let placed = HomeDockOpens.placing(dock.pane, services: services, focus: true, then: { _ in
+                dock.syncStripFromStore()
+                #expect(dock.stripModel.tabs.map(\.id) == [homeTab], "browser selected itself before placement")
+                #expect(dock.stripModel.selectedID == homeTab, "browser selection released Home's outbound hold")
+                callbackSawHiddenStrip = true
+            }) else {
+                Issue.record("Home did not provide a browser placement callback")
+                return
+            }
+            #expect(dock.newBrowserTab(url: URL(string: "https://example.com/"), then: placed))
+            let right = try await Self.untilBeside(home, dock.pane, "browser placement callback")
+            #expect(callbackSawHiddenStrip)
+            #expect(right.tabs.contains { $0.kind == .browser })
+            #expect(dock.view.hidesStrip)
+            #expect(window.focusedPane === right)
+        }
+    }
+
     /// A foreground creator must not select either its stand-in or its real tab in Home before
     /// placement. OutboundTab deliberately releases selected tabs (a person's explicit selection).
     @Test(arguments: ["optimistic terminal", "typed terminal", "page"])
