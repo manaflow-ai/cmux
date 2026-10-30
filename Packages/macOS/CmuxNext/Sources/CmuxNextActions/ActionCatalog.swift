@@ -164,7 +164,6 @@ public nonisolated enum ActionCatalog {
         FilesPaneActionCatalog.self,
         LinkActionCatalog.self,
         ShareActionCatalog.self,
-        TeamActionCatalog.self,
         ServerActionCatalog.self,
         MarkdownPageActionCatalog.self,
         ListActionCatalog.self,
