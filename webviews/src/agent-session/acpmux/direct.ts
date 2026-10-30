@@ -4211,6 +4211,10 @@ export class AcpmuxDirectClient {
         const promptId = typeof msg.promptId === "string" ? msg.promptId : undefined;
         if (msg.steer !== true) {
           this.runningTurnId = typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
+          // The fence covers the turn the forced Stop's next prompt started. A later explicit prompt
+          // starts a turn whose unscoped boundaries are its own again, so its compactions can end.
+          if (this.compactionFenceSeq !== undefined && event.seq > this.compactionFenceSeq)
+            this.compactionFenceSeq = undefined;
           // A forced compaction result can follow the next prompt's echo. Retire the old inferred
           // row before that prompt so the delayed boundary cannot complete it or close the new turn.
           if (this.retiredCompactionTurnId !== undefined) {
