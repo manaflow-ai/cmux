@@ -1810,10 +1810,15 @@ class GitHub:
         return found
 
     def nightly_reruns(self, count: int) -> list[tuple[int, int]]:
-        """(run id, attempt) of unfinished nightly-next re-runs through SIGN_RESCUE_LAST_ATTEMPT. Only a re-run whose
-        build picker chose an owned Mac leaves a marker, so a re-run on Blacksmith (a re-run of failed jobs, or a
-        full one the picker placed there) is found here, for its signing jobs' stalls (signing_stall()). Main's
-        nightly is rescued on attempt 1 only (its workflow_run watch): a full re-run there builds the app again."""
+        """(run id, attempt) of unfinished nightly-next re-runs, every attempt from 2 on. Only a re-run whose build
+        picker chose an owned Mac leaves a marker, so a re-run on Blacksmith (a re-run of failed jobs, or a full one
+        the picker placed there) is found here, for its signing jobs' stalls (signing_stall(), which watch() still
+        acts on through SIGN_RESCUE_LAST_ATTEMPT only). An owned pick's marker on a later attempt is no help either:
+        the marker listing adopts a run id once (`seen`). So every attempt is listed: while every Blacksmith label
+        stalls, the picker queues each attempt's build on a busy or offline owned pool, and the rescue's timed hold
+        re-runs the picker (rerun_failed_or_repick()), attempt after attempt; attempt 4 and later were never
+        watched, so such a build could wait unwatched with no limit (review P1 on #26614). Main's nightly is
+        rescued on attempt 1 only (its workflow_run watch): a full re-run there builds the app again."""
         name = NIGHTLY_WORKFLOW_PATH.rsplit("/", 1)[-1]
         found: list[tuple[int, int]] = []
         for status in ("queued", "in_progress"):
@@ -1821,7 +1826,7 @@ class GitHub:
                                        f"&per_page={count}")
             found += [(int(run["id"]), int(run["run_attempt"])) for run in (data or {}).get("workflow_runs") or []
                       if isinstance(run, Mapping) and run.get("id") and run.get("head_branch") == "nightly-next"
-                      and 1 < int(run.get("run_attempt") or 0) <= SIGN_RESCUE_LAST_ATTEMPT]
+                      and int(run.get("run_attempt") or 0) > 1]
         return found
 
     def failed_runs(self, count: int, oldest: dt.datetime, since: dt.datetime | None = None,
@@ -2344,6 +2349,12 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
             if any(job_pool(job) for job in jobs):
                 on_persistent = True
                 log("a side-lane job asked for a persistent pool")
+            elif target.late_owned_jobs and target.attempt > SIGN_RESCUE_LAST_ATTEMPT and nightly_build_off_owned(
+                    jobs, target.attempt_started_at):
+                # Nothing left to rescue on this attempt: its signing stalls are not rescued past
+                # SIGN_RESCUE_LAST_ATTEMPT, and no job of it can take an owned pool (nightly_reruns() lists every
+                # attempt).
+                return "stop", f"no job of attempt {target.attempt} can take a persistent pool"
             elif run_finished(jobs) and not (target.signs_late and read(
                     lambda: api.run(target.run_id), sleep, log).get("status") != "completed"):
                 # A nightly's signing jobs appear only once the jobs they need finish (signing_stall()), so
@@ -2544,7 +2555,7 @@ def hold_for_destination(client: GitHub, target: Target, outcome: str, reason: s
             names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in turned_away))
             return "refused", f"{names} refused by {job_pool(turned_away[0])} at job start", held
         if held and now() >= deadline:
-            if target.nightly:
+            if nightly_moves(target):
                 # NIGHTLY_HOLD_SECONDS: a held nightly job is moved at the watch limit, never left queued.
                 log(f"moving the held nightly job at the watch limit: {held}")
                 break
@@ -2554,7 +2565,7 @@ def hold_for_destination(client: GitHub, target: Target, outcome: str, reason: s
         verdict, label = move_verdict(client, target, now=now(), sleep=sleep, log=log)
         if verdict == "free" or verdict == "busy" and floor is not None and floor >= OWNED_WAIT_FLOOR_SECONDS:
             break
-        if verdict == "stalled" and target.nightly:
+        if verdict == "stalled" and nightly_moves(target):
             held_since = held_since or now()
             if now() - held_since >= dt.timedelta(seconds=NIGHTLY_HOLD_SECONDS):
                 log(f"moving the held nightly job: no mini took it in {NIGHTLY_HOLD_SECONDS}s past its budget, "
@@ -2696,6 +2707,31 @@ NIGHTLY_RETRY_LINE = re.compile(r"nightly (?:build|sign) runner: ")
 # DEV and side job"; the routing order ends at Blacksmith). The same holds at the watch limit: a held nightly
 # job is moved, not left queued.
 NIGHTLY_HOLD_SECONDS = 2 * OWNED_WAIT_FLOOR_SECONDS
+# The last nightly attempt the stall hold moves off its owned pool (nightly_moves()). Each move re-runs the build
+# picker (rerun_failed_or_repick()), which, while every Blacksmith label stays stalled, queues the next attempt on
+# the owned pool again. From this attempt on a nightly waits there the way other targets do: held while the label
+# its re-run takes is stalled, moved once it has room, and otherwise left queued on its owned pool at the watch
+# limit, where a mini takes it. That bounds the re-runs (review on #28019) without sending it to a stalled label.
+NIGHTLY_LAST_MOVE_ATTEMPT = 5
+
+
+# nightly-next's picker jobs. Every owned runs-on in nightly.yml takes a picker's `owned` (or `sign_owned`) only
+# when that picker ran on the run's own attempt (`outputs.attempt == github.run_attempt`, or attempt 1).
+NIGHTLY_PICKER_JOBS = ("pick-nightly-build-runner", "pick-nightly-sign-runner")
+
+
+def nightly_build_off_owned(jobs: Sequence[Mapping[str, Any]], attempt_started: dt.datetime | None) -> bool:
+    """Whether no job of this nightly-next attempt can ask for an owned pool: both picker jobs are listed and both
+    were kept from an earlier attempt (a re-run of failed jobs), so every owned runs-on falls through to its
+    Blacksmith label. A picker that runs on this attempt, or one not listed yet, keeps the watch going: the jobs
+    after it (the app build, prepare and verify jobs) may still take an owned pool once they appear."""
+    pickers = {name: [job for job in jobs if job.get("name") == name] for name in NIGHTLY_PICKER_JOBS}
+    return all(found and all(carried(job, attempt_started) for job in found) for found in pickers.values())
+
+
+def nightly_moves(target: "Target") -> bool:
+    """Whether the stall hold moves this nightly after NIGHTLY_HOLD_SECONDS or at the watch limit."""
+    return target.nightly and target.attempt < NIGHTLY_LAST_MOVE_ATTEMPT
 
 
 def nightly_retry_destinations(api: GitHub, target: Target, sleep: Callable[[float], None],
@@ -4027,6 +4063,8 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
                 jobs = read(lambda: client.jobs(run_id, int(run["run_attempt"])), wait, log)
             except READ_ERRORS as error:
                 seen.discard(run_id)
+                # The re-run listing skips a pair in rerun_seen: forget it too, so the next tick adopts it.
+                rerun_seen.discard((run_id, int(run.get("run_attempt") or 0)))
                 log(f"[run {run_id}] could not read attempt {run['run_attempt']} ({error})")
                 return False
             picker = E2E_PICKER_JOB if run.get("path") in DISPATCH_WORKFLOW_PATHS else PICKER_JOB
