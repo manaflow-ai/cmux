@@ -15,8 +15,7 @@ type Styled = { recalcs: number; elements: number[]; ms: number[] };
 
 // A measurement, not a gate: it runs only when asked (PANE_HAS_MEASURE=1), through cmux-ci.
 const measuring = process.env.PANE_HAS_MEASURE === "1";
-if (!measuring)
-  describe.skip("pane :has restyle (PANE_HAS_MEASURE=1)", () => test("chromium", () => {}));
+if (!measuring) describe.skip("pane :has restyle (PANE_HAS_MEASURE=1)", () => test("chromium", () => {}));
 else
   await requireBrowserLane("pane-has-restyle.browser.test.ts", async () => {
     setDefaultTimeout(300_000);
@@ -102,17 +101,11 @@ else
 
     async function openFlows(query: string): Promise<Page> {
       const page = await browser!.newPage({ viewport: { width: 1100, height: 800 } });
-      page.on("pageerror", (error) =>
-        console.warn(`pane-has-restyle page error: ${error.message}`),
-      );
+      page.on("pageerror", (error) => console.warn(`pane-has-restyle page error: ${error.message}`));
       await page.goto(`${base}/test/latency/flows.html?${query}`);
-      await page.waitForFunction(
-        () => document.documentElement.dataset.latencyFlowsReady === "true",
-        undefined,
-        {
-          timeout: 200_000,
-        },
-      );
+      await page.waitForFunction(() => document.documentElement.dataset.latencyFlowsReady === "true", undefined, {
+        timeout: 200_000,
+      });
       await page.evaluate(() => {
         const scroll = document.querySelector<HTMLElement>(".acpmux-scroll")!;
         scroll.scrollTop = scroll.scrollHeight;
@@ -139,9 +132,7 @@ else
           { tag, frames: twoFrames },
         ),
       );
-      await page.evaluate(() =>
-        document.querySelectorAll("[data-has-probe]").forEach((node) => node.remove()),
-      );
+      await page.evaluate(() => document.querySelectorAll("[data-has-probe]").forEach((node) => node.remove()));
       await page.evaluate(twoFrames);
       return styled;
     }
@@ -244,9 +235,7 @@ else
         runs.push(
           await traced(page, async () => {
             await page.keyboard.type("/");
-            await page
-              .waitForSelector(".acpmux-slash-menu", { timeout: 10_000 })
-              .catch(() => undefined);
+            await page.waitForSelector(".acpmux-slash-menu", { timeout: 10_000 }).catch(() => undefined);
             await page.evaluate(twoFrames);
           }),
         );
@@ -276,8 +265,7 @@ else
           if (rule instanceof CSSStyleRule && rule.selectorText.includes(":has(")) {
             found.push({ selector: rule.selectorText, sheet });
           }
-          if ("cssRules" in rule && (rule as CSSGroupingRule).cssRules)
-            walk((rule as CSSGroupingRule).cssRules, sheet);
+          if ("cssRules" in rule && (rule as CSSGroupingRule).cssRules) walk((rule as CSSGroupingRule).cssRules, sheet);
         }
       };
       for (const sheet of Array.from(document.styleSheets)) {
@@ -376,8 +364,7 @@ else
           nodes.set(name, (nodes.get(name) ?? 0) + 1);
         }
       }
-      const top = (map: Map<string, number>) =>
-        [...map.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12);
+      const top = (map: Map<string, number>) => [...map.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12);
       return { kinds: top(kinds), nodes: top(nodes) };
     }
 
@@ -388,8 +375,7 @@ else
       test(`${name}: restyle per insertion, streamed delta, rail wheel step and menu open`, async () => {
         const page = await openFlows(query);
         try {
-          for (const tag of ["div", "p", "button"])
-            report(name, `insert-${tag}`, await insertion(page, tag));
+          for (const tag of ["div", "p", "button"]) report(name, `insert-${tag}`, await insertion(page, tag));
           report(name, "rail-wheel", { result: await railWheel(page) });
           report(name, "slash-menu", await slashMenu(page));
           report(name, "stream", await stream(page));
@@ -422,6 +408,72 @@ else
             for (const n of costly) await page.evaluate(toggleHasRule, { n, off: true });
             report(name, "without-costly", { costly: costly.length, ...(await insertion(page, "button", 3)) });
             await page.evaluate(toggleHasRule, { n: -1, off: false });
+          }
+
+          // Candidate rewrites of a rule, each measured in place of it: the rule is taken out
+          // and the candidate's CSS added in a sheet of its own.
+          if (process.env.PANE_HAS_CANDIDATES === "1") {
+            const rules = (await page.evaluate(listHasRules)) as { selector: string; sheet: string }[];
+            const find = (start: string) => rules.findIndex((rule) => rule.selector.startsWith(start));
+            const candidates: [string, string, string][] = [
+              [":where(button", "removed", ""],
+              [
+                ":where(button",
+                "scope",
+                '@scope (label:has(input[type="checkbox"], input[type="radio"])) { :where(:scope *) { cursor: inherit; } }',
+              ],
+              [
+                ":where(button",
+                "child-arg",
+                ':where(label:has(> input[type="checkbox"], > input[type="radio"])) * { cursor: inherit; }',
+              ],
+              [
+                ":where(button",
+                "is-ancestor",
+                ':where(*):is(label:has(input[type="checkbox"], input[type="radio"]) *) { cursor: inherit; }',
+              ],
+              ["[inert]", "removed", ""],
+              [
+                "[inert]",
+                "subject-only",
+                'label:not([for]):has(:is(input, select, textarea):disabled):not(:has(:is(input:not([type="hidden"]), select, textarea):enabled)) { cursor: default !important; }',
+              ],
+              [".cv-codeblock__header:has(", "removed", ""],
+              [
+                ".cv-codeblock__header:has(",
+                "class-rightmost",
+                ".cv-codeblock__header:has(.acpmux-pr-dock) > .cv-codeblock__label { min-width: 0; }",
+              ],
+              [
+                ".acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) > .acpmux-composer-field-menu > *",
+                "class-rightmost",
+                ".acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) > .acpmux-composer-field-menu > .acpmux-md-field { grid-column: 2; }",
+              ],
+            ];
+            const before = await insertion(page, "button", 3);
+            for (const [start, label, css] of candidates) {
+              const n = find(start);
+              if (n < 0) {
+                report(name, "candidate", { start, label, missing: true });
+                continue;
+              }
+              await page.evaluate(toggleHasRule, { n, off: true });
+              await page.evaluate((css) => {
+                const style = document.createElement("style");
+                style.id = "pane-has-candidate";
+                style.textContent = css;
+                document.head.append(style);
+              }, css);
+              const after = await insertion(page, "button", 3);
+              await page.evaluate(() => document.getElementById("pane-has-candidate")?.remove());
+              await page.evaluate(toggleHasRule, { n, off: false });
+              report(name, "candidate", {
+                start: start.slice(0, 40),
+                label,
+                before: before.elements,
+                after: after.elements,
+              });
+            }
           }
           expect(true).toBe(true);
         } finally {

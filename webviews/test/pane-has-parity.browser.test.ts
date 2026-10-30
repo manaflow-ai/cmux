@@ -24,11 +24,19 @@ const STATES: State[] = [
   { entry: "agent-pane.composer", variant: "image-attached", width: 760, height: 420 },
   { entry: "agent-pane.composer", variant: "working-queue", width: 760, height: 420 },
   { entry: "agent-pane.composer", variant: "footer-harness-codex", width: 760, height: 420 },
+  { entry: "agent-pane.composer-look", variant: "claude-chat", width: 760, height: 420 },
+  { entry: "agent-pane.composer-look", variant: "codex-chat", width: 760, height: 420 },
   { entry: "agent-pane.composer-scrollbar", variant: "edge", width: 760, height: 420 },
   { entry: "agent-pane.composer-scrollbar", variant: "lane", width: 760, height: 420 },
   { entry: "agent-pane.composer-scrollbar", variant: "outside", width: 760, height: 420 },
   { entry: "agent-pane.pr-dock", variant: "inline-pills", width: 760, height: 420 },
-  { entry: "agent-pane.pr-dock", variant: "inline-pills", width: 760, height: 420, hover: ".acpmux-turnSummary" },
+  {
+    entry: "agent-pane.pr-dock",
+    variant: "inline-pills",
+    width: 760,
+    height: 420,
+    hover: ".acpmux-turnSummary",
+  },
   { entry: "agent-pane.pr-dock", variant: "one-first", width: 760, height: 420 },
   { entry: "agent-pane.pr-dock", variant: "no-footer", width: 760, height: 420 },
   { entry: "agent-pane.pr-dock", variant: "code-tail", width: 760, height: 420 },
@@ -56,7 +64,10 @@ else
       await vite.listen();
       browser = await chromium.launch({ headless: true });
       for (const entry of new Set(STATES.map((state) => state.entry)))
-        await warmGalleryFrame(vite, entry, { browser, params: { variant: STATES.find((s) => s.entry === entry)!.variant } });
+        await warmGalleryFrame(vite, entry, {
+          browser,
+          params: { variant: STATES.find((s) => s.entry === entry)!.variant },
+        });
     }, 280_000);
     afterAll(async () => {
       await browser?.close();
@@ -84,7 +95,9 @@ else
         const name = `${state.entry}.${state.variant}${state.hover ? ".hover" : ""}.${colorScheme}`;
         test(name, async () => {
           const port = (vite!.httpServer!.address() as { port: number }).port;
-          const page = await browser!.newPage({ viewport: { width: state.width, height: state.height } });
+          const page = await browser!.newPage({
+            viewport: { width: state.width, height: state.height },
+          });
           try {
             await page.goto(
               `http://127.0.0.1:${port}${galleryFrame(state.entry, { variant: state.variant, colorScheme, reducedMotion: "true" })}`,
@@ -94,7 +107,10 @@ else
             await page.evaluate(
               () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
             );
-            const digest = createHash("sha256").update(await styleDigest(page)).digest("hex").slice(0, 16);
+            const digest = createHash("sha256")
+              .update(await styleDigest(page))
+              .digest("hex")
+              .slice(0, 16);
             const png = await page.screenshot({ animations: "disabled", caret: "hide" });
             const pixels = createHash("sha256").update(png).digest("hex").slice(0, 16);
             if (out) fs.writeFileSync(path.join(out, `${name}.png`), png);
