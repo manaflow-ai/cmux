@@ -42,7 +42,7 @@ await requireBrowserLane("picker-row-geometry.test.ts", async () => {
       section: ".ui-combobox-pinned, .ui-combobox-scroll",
       // Local, SSH and Cloud: a section's name is drawn above its first row.
       sectionStart: ":has(> .acpmux-env-row[data-section])",
-      level: "warn",
+      level: "fail",
     },
     {
       name: "model picker",
@@ -52,7 +52,7 @@ await requireBrowserLane("picker-row-geometry.test.ts", async () => {
       row: ".acpmux-quick-item:not(.acpmux-quick-effort-segment)",
       icon: ".acpmux-quick-icon, .acpmux-harness-icon, svg",
       title: ".acpmux-menu-label, .acpmux-quick-label",
-      level: "warn",
+      level: "fail",
     },
     {
       name: "mode picker",
@@ -66,7 +66,7 @@ await requireBrowserLane("picker-row-geometry.test.ts", async () => {
       row: ".acpmux-access-item",
       icon: ".acpmux-access-item-icon",
       title: ".acpmux-menu-label",
-      level: "warn",
+      level: "fail",
     },
   ];
 
@@ -104,7 +104,9 @@ await requireBrowserLane("picker-row-geometry.test.ts", async () => {
         const page = await browser.newPage({ viewport: { width: 760, height: 640 } });
         try {
           const port = (vite!.httpServer!.address() as { port: number }).port;
-          await page.goto(`http://127.0.0.1:${port}${galleryFrame(item.entry, { variant: item.variant, width: 560, theme })}`);
+          await page.goto(
+            `http://127.0.0.1:${port}${galleryFrame(item.entry, { variant: item.variant, width: 560, theme })}`,
+          );
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
             timeout: 120_000,
           });

@@ -57,7 +57,10 @@ export type PickerBoundary = { after: number; gap: number; separator: boolean };
 export type PickerGeometry = { rows: PickerRow[]; boundaries: PickerBoundary[] };
 
 /** Reads the open picker's rows. */
-export async function measurePickerRows(page: Page, { open: _open, ...selectors }: PickerRowCase): Promise<PickerGeometry> {
+export async function measurePickerRows(
+  page: Page,
+  { open: _open, ...selectors }: PickerRowCase,
+): Promise<PickerGeometry> {
   // Only plain values cross into the page; `open` runs on this side.
   return page.evaluate((item) => {
     const menu = document.querySelector<HTMLElement>(item.menu);
@@ -127,7 +130,7 @@ export async function measurePickerRows(page: Page, { open: _open, ...selectors 
         subtitle: subtitleText,
       };
     });
-    const boundaries = [];
+    const boundaries: { after: number; gap: number; separator: boolean }[] = [];
     for (let index = 1; index < rows.length; index += 1) {
       if (measured[index]!.section === measured[index - 1]!.section) continue;
       const a = rows[index - 1]!;
@@ -136,7 +139,9 @@ export async function measurePickerRows(page: Page, { open: _open, ...selectors 
       const inBetween = between(a, b);
       const separator =
         (item.sectionStart ? b.matches(item.sectionStart) : false) ||
-        inBetween.some((element) => element.getBoundingClientRect().height <= 2 || ruled(element, "top") || ruled(element, "bottom")) ||
+        inBetween.some(
+          (element) => element.getBoundingClientRect().height <= 2 || ruled(element, "top") || ruled(element, "bottom"),
+        ) ||
         ruled(container(a), "bottom") ||
         ruled(container(b), "top");
       boundaries.push({ after: index - 1, gap: measured[index]!.top - measured[index - 1]!.bottom, separator });
@@ -161,7 +166,9 @@ export function pickerRowProblems(geometry: PickerGeometry, tolerance = 0.5): st
   if (lead)
     for (const row of withIcon.slice(1)) {
       if (!near(row.iconLeft!, lead.iconLeft!))
-        problems.push(`"${row.label}" icon box starts at ${px(row.iconLeft!)}, "${lead.label}" at ${px(lead.iconLeft!)}`);
+        problems.push(
+          `"${row.label}" icon box starts at ${px(row.iconLeft!)}, "${lead.label}" at ${px(lead.iconLeft!)}`,
+        );
       if (!near(row.iconWidth!, lead.iconWidth!))
         problems.push(`"${row.label}" icon box is ${px(row.iconWidth!)} wide, "${lead.label}" ${px(lead.iconWidth!)}`);
     }
