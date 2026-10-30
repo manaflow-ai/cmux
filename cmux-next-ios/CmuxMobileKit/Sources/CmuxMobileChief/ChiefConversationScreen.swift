@@ -79,7 +79,6 @@ public struct ChiefConversationScreen: View {
             .id(ObjectIdentifier(session.store))
             .ignoresSafeArea()
             .toolbar(.hidden, for: .navigationBar)
-            .toolbar(.hidden, for: .tabBar)
             .navigationBarBackButtonHidden()
             .navigationDestination(isPresented: $showsInfo) {
                 // Message: back to the conversation with the keyboard up.
