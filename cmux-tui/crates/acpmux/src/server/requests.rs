@@ -5,6 +5,7 @@ use crate::no_panic::JsonExt;
 use crate::no_panic::LockExt;
 
 mod briefs;
+mod cancel_refused;
 mod composer;
 mod events;
 mod info;
@@ -133,9 +134,9 @@ pub(super) async fn handle_notification(
             // the same origin/ownership boundary as request-form cancels,
             // the VM boundary's owner rule included (`hub/vm_boundary.rs`).
             let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
+            let sent = params.get("sessionId").cloned().unwrap_or(Value::Null);
             if let Err(e) = hub.refuse_at_vm_boundary(conn.auth, control, m, &mut params) {
-                tracing::debug!(conn = %conn.id, "cancel refused: {e}");
-                return;
+                return cancel_refused::tell(conn, &sent, &e);
             }
             let device = super::remote_guard::full_access_device(hub, conn, &params);
             if conn.origin != Origin::Local
@@ -150,13 +151,11 @@ pub(super) async fn handle_notification(
                 )
                 .await
             {
-                tracing::debug!(conn = %conn.id, "cancel refused: {e}");
-                return;
+                return cancel_refused::tell(conn, &sent, &e);
             }
             // Again after the guard's awaits (`hub/vm_boundary.rs`).
             if let Err(e) = hub.refuse_at_vm_boundary(conn.auth, control, m, &mut params) {
-                tracing::debug!(conn = %conn.id, "cancel refused: {e}");
-                return;
+                return cancel_refused::tell(conn, &sent, &e);
             }
             if let Ok(key) = session_key(&params) {
                 if let Ok(s) = hub.resolve(key) {
@@ -174,7 +173,7 @@ pub(super) async fn handle_notification(
                         &mut forwarded,
                     );
                     person_stop::mark(conn, &params, &peer, &mut forwarded);
-                    let _ = peer.notify(method::SESSION_CANCEL, forwarded).await;
+                    cancel_refused::forward(conn, peer, key, forwarded).await;
                 }
             }
         }

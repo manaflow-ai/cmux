@@ -72,6 +72,7 @@ pub use media_read::FEATURE as MEDIA_READ_FEATURE;
 pub use subagent_transcript::FEATURE as SUBAGENT_TRANSCRIPT_FEATURE;
 mod hosts;
 mod lifecycle;
+mod log_deferral;
 mod log_load;
 mod retention;
 pub use retention::RetentionRequest;
@@ -205,6 +206,9 @@ pub(crate) use usage_view::READ_WAIT as USAGE_READ_WAIT;
 mod turns;
 #[cfg(test)]
 mod turns_copy_stop_tests;
+pub(crate) mod usage_warnings;
+#[cfg(test)]
+mod usage_warnings_tests;
 pub(crate) mod views;
 mod warm;
 mod watch_events;
@@ -482,6 +486,10 @@ pub struct Hub {
     /// Moves on with each `peer_add` (under the config lock): a reload whose file read began
     /// before one leaves the saved peers' boundaries and GitHub lending as that add left them.
     pub(super) peer_config_gen: std::sync::atomic::AtomicU64,
+    /// The config's `usageWarnings` thresholds, set at start and on each reload
+    /// (`catalog_reload.rs`): a summary reads them here, so a writer holding the config lock never
+    /// swaps the configured rules for the defaults (`usage_warnings.rs`).
+    pub(super) usage_limits: StdMutex<crate::config::UsageLimits>,
     /// The links of Macs that lend this machine their GitHub login (`github_owner.rs`).
     pub(super) github_owners: github_owner::Owners,
     /// The cmux sign-in the app lends for App tokens (`github_app_token.rs`).
@@ -714,8 +722,10 @@ impl Hub {
         let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
+        let usage_limits = StdMutex::new(config.usage_warnings.limits());
         let hub = Arc::new(Self {
             config: RwLock::new(config),
+            usage_limits,
             wireguard,
             store,
             mailbox,
@@ -1094,6 +1104,7 @@ impl Hub {
             idle_refusal_logged: AtomicU64::new(0),
             append_lock: StdMutex::new(()),
             message_ids: StdMutex::new(None),
+            log_deferral: StdMutex::new(Default::default()),
             loading: AtomicBool::new(false),
             replaying: StdMutex::new(Vec::new()),
             caught_up: AtomicBool::new(true),
@@ -1550,10 +1561,11 @@ impl Hub {
         self.append_at_locked(session, dir, kind, msg, host_seq, at, false)
     }
 
-    /// `stored_only`: a record the store refused is neither counted nor published (its caller
-    /// appends it again), so no client or peer hears a copy the journal does not hold.
+    /// [`Hub::append_at_locked`] of one record. `stored_only`: a record the store refused is
+    /// neither counted nor published (its caller appends it again), so no client or peer hears a
+    /// copy the journal does not hold. `kept`: what the log stores for it.
     #[allow(clippy::too_many_arguments)]
-    fn append_at_locked(
+    fn append_record_locked(
         &self,
         session: &Session,
         dir: &str,
@@ -1562,6 +1574,7 @@ impl Hub {
         host_seq: Option<u64>,
         at: Option<u64>,
         stored_only: bool,
+        kept: log_deferral::Kept,
     ) -> (EventRecord, bool) {
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let at = at.unwrap_or_else(now_ms);
@@ -1594,7 +1607,15 @@ impl Hub {
         if !(dir == "mux" && kind == usage_view::RECORD_KIND) {
             self.touch(session);
         }
-        let stored = match self.store.append(&session.id, &record) {
+        let appended = match kept {
+            // A fenced record keeps its receipt.
+            log_deferral::Kept::Stub(msg) if !fenced => self.store.append(
+                &session.id,
+                &EventRecord { msg, dir: record.dir.clone(), kind: record.kind.clone(), ..record },
+            ),
+            _ => self.store.append(&session.id, &record),
+        };
+        let stored = match appended {
             Ok(()) => true,
             Err(e) => {
                 session.append_errors.fetch_add(1, Ordering::SeqCst);
