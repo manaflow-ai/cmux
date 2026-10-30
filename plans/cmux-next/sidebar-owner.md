@@ -9,7 +9,8 @@
   label; the description in the hover card; an expanded row keeps its own meta line (computer, stage,
   pull request). Nothing else about rows changes. Regression: `SidebarNoSecondLineTests`.
   The comments that described the old line (`SidebarWorkspace.workspaceDescription`,
-  `SidebarLayoutOptions.flattensMachines`) say where the description and the computer show now.
+  `SidebarLayoutOptions.flattensMachines`) say where the description and the computer show now
+  (653053e21f7, comments only, logged here: no visual change of its own).
 
 - 2026-10-30: the "cmux Updated!" card is glass again. Leo: "I don't like the non-glassness". The card is a
   React page over the sidebar whose own CSS glass could not see the sidebar (a flat fill; solid in an opaque
