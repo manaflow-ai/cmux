@@ -37,7 +37,7 @@ function TranscriptGridCards() {
             open
             onToggle={() => {}}
             body="The full report uses the shared text column."
-            under={<span>Delivered</span>}
+            under={<div className="cv-agentmsg__under">Delivered</div>}
           />
           <DisclosureRow icon={<OpenBook />} label="Started sub-session" defaultOpen>
             <div className="cv-subsession__under">One nested body uses the shared text column.</div>

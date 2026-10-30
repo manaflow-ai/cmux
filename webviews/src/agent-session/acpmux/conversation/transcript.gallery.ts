@@ -1244,6 +1244,24 @@ const gridRhythmSnapshot = chat(
   { isWorking: true },
 );
 
+const gridHistory = assistant(
+  Array.from({ length: 32 }, (_, i) => `Earlier verification result ${i + 1}.`).join("\n\n"),
+  5,
+  { id: "grid-history" },
+);
+// A sent prompt with no output yet: the working indicator alone between it and the composer.
+const gridWaitingSnapshot = chat(
+  [gridHistory, user("Check the verification and report the result.", 0.2, { id: "grid-prompt" })],
+  { isWorking: true },
+);
+// A settled reply as the last element: the composer gap after a message keeps room for its actions.
+const gridSettledSnapshot = chat([
+  gridHistory,
+  user("Check the verification and report the result.", 1, { id: "grid-prompt" }),
+  assistant("The verification passed on every check.", 0.5, { id: "grid-message" }),
+  summary(0.4, { id: "grid-summary", status: "completed", durationMs: 9_000 }),
+]);
+
 export default agentPaneEntry({
   id: "agent-pane.transcript",
   title: "Transcript rows",
@@ -1307,6 +1325,16 @@ export default agentPaneEntry({
       height: 900,
       note: "One received header, a two-paragraph reply, two completed commands and a live command above the composer. Synthetic grid measurement fixture.",
       snapshot: gridRhythmSnapshot,
+    },
+    "grid-waiting": {
+      height: 900,
+      note: "A prompt waiting for its first output: the working indicator sits centred, the block gap above and below it.",
+      snapshot: gridWaitingSnapshot,
+    },
+    "grid-settled": {
+      height: 900,
+      note: "A settled reply above the composer: the composer gap after a message is the block gap, so its hover row fits.",
+      snapshot: gridSettledSnapshot,
     },
     "grid-rhythm-hover": {
       height: 900,

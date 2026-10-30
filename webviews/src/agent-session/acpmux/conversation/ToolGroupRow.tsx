@@ -120,6 +120,7 @@ export function ToolGroupRow({
           ) : (
             <>
               <ToolLabel
+                tight
                 text={toolGroupLabel(
                   t,
                   kind,

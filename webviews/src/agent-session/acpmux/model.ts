@@ -1,4 +1,11 @@
-import { gridLength, TRANSCRIPT_BLOCK_GAP, TRANSCRIPT_INNER_GAP, TRANSCRIPT_TURN_GAP } from "./transcriptGrid";
+import {
+  gridLength,
+  rowMark,
+  tailGap,
+  TRANSCRIPT_BLOCK_GAP,
+  TRANSCRIPT_INNER_GAP,
+  transcriptGap,
+} from "./transcriptGrid";
 import type { VideoInfo } from "./composer/videoAttachments";
 import type { HarnessIconSpec } from "../shared/harnessIcons";
 import type { ChatUnavailable } from "./chatUnavailable";
@@ -837,8 +844,11 @@ export type ConversationLayout = {
   totalHeight: number;
   /// Container-owned space before each content row; hover-only footers own no space.
   gaps?: Float64Array;
-  /// Real user prompts distinguish turn boundaries after DOM-empty rows are skipped.
-  prompts?: Uint8Array;
+  /// Each row's kind for the gap rules (transcriptGrid.ts rowMark): prompts, messages and the live
+  /// line, so placement after DOM-empty rows are skipped picks the same gaps.
+  marks?: Uint8Array;
+  /// The composer gap under the last drawn row (transcriptGrid.ts tailGap).
+  tailGap?: number;
 };
 
 /// Metrics of conversation/conversation.css (`--cv-font-size`, `--cv-line-height`, `.cv-*`): the
@@ -1395,7 +1405,7 @@ function measuredRowHeight(
     return isEmptyFooter(row) ? Math.max(META_ROW, gap) : META_ROW + gap;
   }
   // The live activity line under a plan has a label, but its row still reserves the footer slot.
-  if (row.kind === ACTIVITY_LINE && row.below) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
+  if (row.kind === ACTIVITY_LINE) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
   // A task notification from another agent is a tool row's line under `.cv-tools`' 2px margin
   // (conversation/IncomingMessageCard.tsx), with the row's message gap.
   if (row.incoming?.kind === "message") {
@@ -1482,7 +1492,7 @@ export function layoutConversation(
   sessionId?: string,
 ): ConversationLayout {
   const gaps = new Float64Array(rows.length);
-  const prompts = new Uint8Array(rows.length);
+  const marks = new Uint8Array(rows.length);
   const tops = new Float64Array(rows.length);
   const heights = new Float64Array(rows.length);
   const messages = new MessagePlacement(rows, previous?.layout);
@@ -1500,20 +1510,21 @@ export function layoutConversation(
     )
       start = drawn;
     if (previous.layout.gaps) gaps.set(previous.layout.gaps.subarray(0, start));
-    if (previous.layout.prompts) prompts.set(previous.layout.prompts.subarray(0, start));
+    if (previous.layout.marks) marks.set(previous.layout.marks.subarray(0, start));
     tops.set(previous.layout.tops.subarray(0, start));
     heights.set(previous.layout.heights.subarray(0, start));
   }
   let top = start > 0 ? tops[start - 1]! + heights[start - 1]! : 0;
   let previousContent = start - 1;
   while (previousContent >= 0 && heights[previousContent] === 0) previousContent -= 1;
-  const prompt = (row: AcpmuxRow) => row.kind === "user" && !row.incoming && !row.received;
+  let beforeContent = previousContent - 1;
+  while (beforeContent >= 0 && heights[beforeContent] === 0) beforeContent -= 1;
   // Hidden bookkeeping can span many rows. Keep the next drawn row for the whole
   // pass: searching anew for every hidden row makes one run quadratic.
   let nextDrawn = start;
   for (let index = start; index < rows.length; index += 1) {
     const row = rows[index]!;
-    prompts[index] = prompt(row) ? 1 : 0;
+    marks[index] = rowMark(row);
     messages.visit(row, index, previous?.rows[index]);
     if (nextDrawn <= index) {
       nextDrawn = index + 1;
@@ -1541,16 +1552,23 @@ export function layoutConversation(
       known?.set(row, { width, height, edge });
     }
     if (height > 0) {
-      if (previousContent >= 0)
-        gaps[index] = prompt(row) || prompt(rows[previousContent]!) ? TRANSCRIPT_TURN_GAP : TRANSCRIPT_BLOCK_GAP;
+      if (previousContent >= 0) gaps[index] = transcriptGap(marks[previousContent]!, marks[index]!);
       top += gaps[index]!;
+      beforeContent = previousContent;
       previousContent = index;
     }
     tops[index] = top;
     heights[index] = height;
     top += height;
   }
-  const layout = { tops, heights, gaps, prompts, totalHeight: top };
+  const layout = {
+    tops,
+    heights,
+    gaps,
+    marks,
+    tailGap: tailGap(marks[previousContent] ?? 0, marks[beforeContent] ?? 0),
+    totalHeight: top,
+  };
   messages.finish(rows, layout);
   return layout;
 }
@@ -1574,24 +1592,31 @@ export function placeRows(
   let top = kept > 0 ? tops[kept - 1]! + heights[kept - 1]! : 0;
   let previousContent = kept - 1;
   while (previousContent >= 0 && heights[previousContent] === 0) previousContent -= 1;
+  let beforeContent = previousContent - 1;
+  while (beforeContent >= 0 && heights[beforeContent] === 0) beforeContent -= 1;
+  const marks = estimate.marks;
   for (let index = kept; index < heights.length; index += 1) {
     // A drawn 0 is a row that draws nothing (App.tsx drawnHeightOf): it takes no room.
     const known = heightAt(index);
     const height = known !== undefined && known >= 0 ? known : estimate.heights[index];
     if (height > 0) {
       if (previousContent >= 0)
-        top += estimate.prompts
-          ? estimate.prompts[index] || estimate.prompts[previousContent]
-            ? TRANSCRIPT_TURN_GAP
-            : TRANSCRIPT_BLOCK_GAP
-          : (estimate.gaps?.[index] ?? 0);
+        top += marks ? transcriptGap(marks[previousContent]!, marks[index]!) : (estimate.gaps?.[index] ?? 0);
+      beforeContent = previousContent;
       previousContent = index;
     }
     tops[index] = top;
     heights[index] = height;
     top += height;
   }
-  return { tops, heights, gaps: estimate.gaps, prompts: estimate.prompts, totalHeight: top };
+  return {
+    tops,
+    heights,
+    gaps: estimate.gaps,
+    marks,
+    tailGap: marks ? tailGap(marks[previousContent] ?? 0, marks[beforeContent] ?? 0) : estimate.tailGap,
+    totalHeight: top,
+  };
 }
 
 function upperBound(values: Float64Array, target: number): number {
