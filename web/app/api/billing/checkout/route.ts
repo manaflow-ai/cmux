@@ -54,7 +54,7 @@ import {
 } from "../../../../services/analytics/checkoutAttribution";
 import { parseNativeStackTokens, verifyRequest } from "../../../../services/vms/auth";
 import { personalPortalSession } from "../../../../services/billing/personalPortal";
-import { isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
+import { isWebPlusPlanEnabled as isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
 import { vaultSignInHref } from "../../../lib/vault-auth";
 import { captureServerEvent } from "../../../../services/analytics/serverEvents";
 import { checkoutAttributionProperties } from "../../../../services/analytics/checkoutAttribution";

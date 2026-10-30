@@ -150,25 +150,51 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                 self.assertNotRegex(runs_on, SHARED_RUNNER_VARIABLES)
 
     @unittest.skipUnless((WORKFLOWS / "cmux-next.yml").exists(), "no cmux-next on this branch")
-    def test_the_thirty_minute_tick_is_the_nightly_next_cadence(self) -> None:
-        """nightly-next is promoted on a 30-minute tick, not on every landing.
+    def test_the_tick_runs_at_landing_under_the_rolling_rule(self) -> None:
+        """nightly-next is asked for at landing, but promoted under the rolling rule.
 
-        Until 2026-10-28 the tick also ran whenever a cmux-next or cmux-tui
-        artifacts push run on feat-cmux-next completed (workflow_run), so each
-        landing promoted and started a full nightly build: six ran at once.
-        Leo: "every 30 mins or so you do it / within 30min you replace". It
-        runs on its cron and by hand only. A schedule runs only from the
-        default branch, so the file must exist on main.
+        Until 2026-10-28 the tick promoted whenever a cmux-next or cmux-tui
+        artifacts push run on feat-cmux-next completed, so each landing
+        started a full nightly build: six ran at once. Leo: "every 30 mins or
+        so you do it / within 30min you replace". A 30-minute cron alone then
+        kept the feed 45-50 minutes behind. The landing events now run the
+        rolling rule (scripts/ci/nightly_next_rolling.py) before the request,
+        with a 5-minute backstop cron. A schedule runs only from the default
+        branch, so the file must exist on main.
         """
         path = WORKFLOWS / "nightly-next-tick.yml"
         self.assertTrue(path.exists(), "nightly-next-tick.yml must exist")
         text = path.read_text(encoding="utf-8")
         self.assertRegex(text, r"(?m)^\s+schedule:\s*$")
-        self.assertRegex(text, r'(?m)^\s+- cron: "7,37 \* \* \* \*"$')
-        self.assertNotIn("workflow_run:", text)
+        self.assertRegex(text, r'(?m)^\s+- cron: "4-59/5 \* \* \* \*"$')
+        self.assertIn("workflow_run:", text)
+        self.assertIn("scripts/ci/nightly_next_rolling.py", text)
         self.assertIn("workflow_dispatch:", text)
         self.assertIn("scripts/cmux-next/request-nightly-next.sh --tree-ready", text)
         self.assertIn("cancel-in-progress: false", text)
+
+    def test_control_jobs_can_leave_blacksmith_linux_with_one_variable(self) -> None:
+        """CI_CONTROL_RUNNER moves the tick and the feed watch off Blacksmith Linux.
+
+        2026-10-28: every Blacksmith Linux size stopped starting jobs for over an
+        hour while Blacksmith macOS served; these light jobs had nowhere else to go.
+        Unset, they keep their Blacksmith Linux default.
+        """
+        for name, job in (("nightly-next-tick.yml", "request"), ("nightly-next-feed-watch.yml", "watch")):
+            text = (WORKFLOWS / name).read_text(encoding="utf-8")
+            body = text[text.index(f"\n  {job}:\n"):]
+            runs_on = re.search(r"^    runs-on: (.+)$", body, re.MULTILINE).group(1)
+            with self.subTest(workflow=name):
+                self.assertEqual(runs_on, "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                                          "vars.CI_CONTROL_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}")
+
+    def test_the_tick_hashes_without_gnu_coreutils(self) -> None:
+        """The tick may run on macOS (CI_CONTROL_RUNNER), where sha256sum is not guaranteed."""
+        text = (WORKFLOWS / "nightly-next-tick.yml").read_text(encoding="utf-8")
+        for line in text.splitlines():
+            if "sha256sum" in line and not line.lstrip().startswith("#"):
+                with self.subTest(line=line.strip()):
+                    self.assertIn("shasum -a 256", line)
 
     def test_no_workflow_reads_the_retired_decide_runner_variable(self) -> None:
         """CI_NIGHTLY_DECIDE_RUNNER named a Blacksmith pool and is deleted."""

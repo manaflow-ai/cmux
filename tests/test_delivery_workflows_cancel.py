@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -62,10 +63,18 @@ def history(edges):
                                          if descendant in edges else None)
 
 
+def building(attempt=None):
+    """A newer run's jobs with its app build running."""
+    return [*gates(attempt)[:-1], job("build-nightly-app", "in_progress", labels=(MAC,), attempt=attempt)]
+
+
+NOW = dw._time("2026-10-28T05:00:00Z")
+
+
 class PickerAndAttemptTests(unittest.TestCase):
     def judge(self, old, jobs):
         new = run(sha("b"), created="2026-10-28T04:00:00Z", ident=2)
-        return dw.superseded_unstarted(old, jobs, [old, new], lambda other: gates())
+        return dw.superseded_unstarted(old, jobs, [old, new], lambda other: building(), now=NOW, tip_sha=sha("b"))
 
     def test_a_picker_job_that_ran_is_not_the_build(self):
         self.assertFalse(dw.is_build_job(job("pick-nightly-app-runner")))
@@ -250,6 +259,196 @@ class LiveReplayTests(unittest.TestCase):
                                              jobs_of=lambda other: [{**j, "status": "completed", "conclusion": "success"}
                                                                     for j in gates()])
                 self.assertTrue(ok, why)
+
+
+# Build, sign and publish work in a job's steps: a light job (LIGHT_JOBS) has none.
+BUILD_WORK = re.compile(r"xcodebuild|\bswift build\b|\bcargo build\b|\bcodesign\b|notarytool|rcodesign|\bstapler\b"
+                        r"|\bgh release (?:create|upload|edit)\b|\bgit push\b")
+
+
+def workflow_jobs(text: str) -> dict[str, list[str]]:
+    """Each top-level job id of a workflow file and its lines, comments dropped."""
+    out: dict[str, list[str]] = {}
+    current, inside = None, False
+    for line in text.splitlines():
+        if re.match(r"^jobs:\s*$", line):
+            inside = True
+            continue
+        if inside and re.match(r"^\S", line):
+            inside, current = False, None
+        if not inside:
+            continue
+        found = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", line)
+        if found:
+            current = found.group(1)
+            out[current] = []
+        elif current and not line.strip().startswith("#"):
+            out[current].append(line)
+    return out
+
+
+def at(minute: int) -> str:
+    """2026-10-28T19:MM:00Z (minutes past 19:00; may run past 59)."""
+    return (dw._time("2026-10-28T19:00:00Z") + dw._dt.timedelta(minutes=minute)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def replay_40752120475(*, signer=True):
+    """Run 40752120475 (nightly-next push, created 19:11:58Z) as GitHub listed it when the guard refused its cancel
+    at 19:54:57Z: decide ran on a Blacksmith Mac, signer-build ran on Linux, and the two control jobs after decide
+    waited on blacksmith-6vcpu-macos-26 from 19:30:53Z with no runner; the build jobs were not listed yet."""
+    mac, linux = "blacksmith-6vcpu-macos-26", "blacksmith-8vcpu-ubuntu-2404"
+    jobs = [job("decide", labels=(mac,), start="2026-10-28T19:29:50Z", end="2026-10-28T19:30:52Z"),
+            job("promote-nightly-next", "completed", "skipped", start="2026-10-28T19:11:59Z", end="2026-10-28T19:11:59Z"),
+            job("probe-nightly-tag-permission", "completed", "skipped", labels=(), start="2026-10-28T19:11:59Z", end="2026-10-28T19:11:59Z"),
+            job("find-nightly-next-recovery", "queued", labels=(mac,), start="2026-10-28T19:30:53Z"),
+            job("resolve-nightly-cmux-tui-client", "queued", labels=(mac,), start="2026-10-28T19:30:53Z"),
+            job("refresh-test-compilation-cache", "completed", "skipped", labels=(), start="2026-10-28T19:30:53Z", end="2026-10-28T19:30:53Z"),
+            job("refresh-compilation-cache", "completed", "skipped", labels=(mac,), start="2026-10-28T19:30:53Z", end="2026-10-28T19:30:53Z")]
+    if signer:
+        jobs.append(job("signer-build", labels=(linux,), start="2026-10-28T19:32:16Z", end="2026-10-28T19:34:02Z"))
+    return run("14b20f800934bc61c9b162e76df164693b795fe3", created="2026-10-28T19:11:58Z", ident=40752120475), jobs
+
+
+class StaleRuleTests(unittest.TestCase):
+    """sr2, 2026-10-28: "count a nightly, dev or promote run as stale, and so cancellable, only when all of these
+    hold: 1. every job except light control jobs and decide jobs is still queued for a runner; 2. it has waited at
+    least 20 min; 3. a newer tip run is already building. A run with any build, sign or publish job started stays
+    protected. So does the 25-min freshness rule"."""
+
+    def stale(self, *, jobs=None, newer_jobs=None, now=at(60), newer=True, tip=sha("b"), old=None):
+        old = old or run(sha("a"), created=at(0), ident=1)
+        new = run(sha("b"), status="in_progress", created=at(10), ident=2)
+        jobs = jobs if jobs is not None else [
+            job("decide", labels=("blacksmith-6vcpu-macos-26",), start=at(1), end=at(2)),
+            job("resolve-nightly-cmux-tui-client", start=at(2), end=at(4)),
+            job("pick-nightly-build-runner", start=at(4), end=at(5)),
+            job("build-nightly-app", "queued", labels=(MAC,), start=at(5)),
+            job("signer-build", "queued", start=at(2))]
+        theirs = newer_jobs if newer_jobs is not None else [
+            job("decide", start=at(11), end=at(12)), job("resolve-nightly-cmux-tui-client", start=at(12), end=at(13)),
+            job("pick-nightly-build-runner", start=at(13), end=at(14)),
+            job("build-nightly-app", "in_progress", labels=(MAC,), start=at(14)),
+            job("signer-build", start=at(12), end=at(14))]
+        return dw.superseded_unstarted(old, jobs, [old, new] if newer else [old], lambda other: theirs,
+                                       now=dw._time(now), tip_sha=tip)
+
+    def test_only_control_and_decide_done_long_queued_and_a_newer_tip_building_is_stale(self):
+        ok, why = self.stale()
+        self.assertTrue(ok, why)
+        for part in ("(1)", "(2) it has waited 55 min", "(3) run 2 is building the tip"):
+            self.assertIn(part, why)
+
+    def test_an_unread_or_moved_tip_is_protected(self):
+        for tip in (None, ""):
+            ok, why = self.stale(tip=tip)
+            self.assertFalse(ok)
+            self.assertIn("tip of nightly-next could not be read", why)
+        # A newer run that is not at the tip does not count: the tip itself must be building.
+        ok, why = self.stale(tip=sha("d"))
+        self.assertFalse(ok)
+        self.assertIn("condition 3 fails: no newer head of nightly-next at its tip", why)
+
+    def test_a_job_without_a_readable_start_is_unread(self):
+        jobs = [job("decide", start=at(1), end=at(2)), job("build-nightly-app", "queued", labels=(MAC,), start=None)]
+        ok, why = self.stale(jobs=jobs)
+        self.assertFalse(ok)
+        self.assertIn("how long it has waited could not be read", why)
+
+    def test_the_default_wait_is_20_minutes(self):
+        self.assertEqual(dw.STALE_WAIT, dw._dt.timedelta(minutes=20))
+        self.assertTrue(self.stale(now=at(25))[0])
+        ok, why = self.stale(now=at(24))
+        self.assertFalse(ok)
+        self.assertIn("condition 2 fails: it has waited 19 min", why)
+
+    def test_a_started_build_sign_or_publish_job_is_protected(self):
+        for started in (job("build-nightly-app", "in_progress", labels=(MAC,), start=at(5)),
+                        job("build-nightly-app", "queued", labels=(MAC,), start=at(5)) | {"runner_name": "mini-1"},
+                        job("signer-build", start=at(2), end=at(4)),
+                        job("build-sign-notarize-nightly", "in_progress", labels=(MAC,), start=at(5)),
+                        job("publish-nightly", "completed", "failure", start=at(5), end=at(6)),
+                        job("build nightly inputs", start=at(2), end=at(3))):
+            with self.subTest(job=started["name"], status=started["status"]):
+                jobs = [job("decide", start=at(1), end=at(2)), started]
+                ok, why = self.stale(jobs=jobs)
+                self.assertFalse(ok)
+                self.assertIn("condition 1 fails", why)
+                self.assertIn(started["name"], why)
+
+    def test_no_newer_tip_building_is_protected(self):
+        queued = [job("decide", start=at(11), end=at(12)), job("build-nightly-app", "queued", labels=(MAC,), start=at(12))]
+        failed = [job("decide", start=at(11), end=at(12)),
+                  job("build-nightly-app", "completed", "failure", labels=(MAC,), start=at(12), end=at(20))]
+        cache_only = [job("decide", start=at(11), end=at(12)),
+                      job("refresh-compilation-cache", "in_progress", labels=(MAC,), start=at(12)),
+                      job("build-nightly-app", "completed", "skipped", labels=(MAC,), start=at(12), end=at(12))]
+        # An old run with only decide done is not replaced by a tip that only refreshes a cache on a Mac.
+        only_decide = [job("decide", start=at(1), end=at(2))]
+        ok, why = self.stale(jobs=only_decide, newer_jobs=cache_only)
+        self.assertFalse(ok)
+        self.assertIn("no build job of it is running or has run", why)
+        for label, kwargs in {"no newer run": dict(newer=False), "the newer run is queued too": dict(newer_jobs=queued),
+                              "the newer run's build failed": dict(newer_jobs=failed),
+                              "the newer run only refreshes a cache": dict(newer_jobs=cache_only)}.items():
+            with self.subTest(label):
+                ok, why = self.stale(**kwargs)
+                self.assertFalse(ok)
+                self.assertIn("condition 3 fails", why)
+
+    def test_the_newest_tip_is_protected_by_the_freshness_rule(self):
+        ok, why = self.stale(tip=sha("a"))
+        self.assertFalse(ok)
+        self.assertIn("freshness rule", why)
+        # The newest head's own run, at the tip, is never stale either.
+        newest = run(sha("b"), status="in_progress", created=at(10), ident=2)
+        ok, why = dw.superseded_unstarted(newest, [job("decide", start=at(11), end=at(12))], [newest],
+                                          lambda other: [], now=dw._time(at(60)), tip_sha=sha("b"))
+        self.assertFalse(ok)
+        self.assertIn("freshness rule", why)
+
+    def test_light_jobs_are_declared_once_and_match_patterns(self):
+        for name in ("decide", "pick-nightly-app-runner", "pick-nightly-sign-runner (primary)",
+                     "resolve-nightly-cmux-tui-client", "find-nightly-next-recovery", "probe-nightly-tag-permission"):
+            self.assertTrue(dw.is_light_job(name), name)
+        # Exact names only: a new job that merely looks like a control job is not light until it is listed.
+        for name in ("build-nightly-app", "signer-build", "build nightly inputs", "publish-nightly",
+                     "build-sign-notarize-nightly", "promote-nightly-next", "refresh-compilation-cache",
+                     "resolve-signing-artifact", "probe-and-publish", "pick-up-signed-app", "decide-and-sign"):
+            self.assertFalse(dw.is_light_job(name), name)
+            self.assertIsNotNone(dw.build_started([job(name, "in_progress")]), name)
+
+    def test_light_jobs_do_no_build_sign_or_publish_work_in_any_delivery_workflow(self):
+        seen = set()
+        for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
+            if not dw.is_delivery_workflow(path.name):
+                continue
+            for ident, lines in workflow_jobs(path.read_text()).items():
+                if not dw.is_light_job(ident):
+                    continue
+                seen.add(ident)
+                work = [line.strip() for line in lines if BUILD_WORK.search(line)]
+                self.assertEqual(work, [], f"{path.name} job {ident} matches LIGHT_JOBS but builds, signs or publishes")
+        self.assertIn("decide", seen)
+
+    def test_replay_40752120475(self):
+        # As refused (19:54:57Z): signer-build, a build job, had run, so the run stays protected, now for that
+        # reason and not for decide's Mac.
+        old, jobs = replay_40752120475()
+        new = run(sha("c"), status="in_progress", created="2026-10-28T19:40:00Z", ident=2)
+        theirs = [job("decide", start=at(41), end=at(42)), job("find-nightly-next-recovery", start=at(42), end=at(43)),
+                  job("resolve-nightly-cmux-tui-client", start=at(42), end=at(44)),
+                  job("signer-build", start=at(42), end=at(44)),
+                  job("build-nightly-app", "in_progress", labels=(MAC,), start=at(45))]
+        when = dw._time("2026-10-28T19:54:57Z")
+        ok, why = dw.superseded_unstarted(old, jobs, [old, new], lambda other: theirs, now=when, tip_sha=sha("c"))
+        self.assertFalse(ok)
+        self.assertIn("'signer-build'", why)
+        self.assertNotIn("Mac", why)
+        # Without signer-build: only decide (on a Mac) and the control jobs, queued 24 min, a newer run building.
+        old, jobs = replay_40752120475(signer=False)
+        ok, why = dw.superseded_unstarted(old, jobs, [old, new], lambda other: theirs, now=when, tip_sha=sha("c"))
+        self.assertTrue(ok, why)
+        self.assertIn("waited 24 min", why)
 
 
 if __name__ == "__main__":

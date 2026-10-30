@@ -37,6 +37,8 @@ const enrollVmTunnel = mock(() => ({ workflow: "enroll-tunnel" }));
 const readVmTunnel = mock(() => ({ workflow: "read-tunnel" }));
 const openBaseVm = mock(() => ({ workflow: "base.open" }));
 const resetBaseVm = mock(() => ({ workflow: "base.reset" }));
+let savedVmCountFixture = 0;
+const savedCountWorkflow = Symbol("savedCount");
 const listUserVms = mock(() => ({ workflow: "list" }));
 const getVm = mock(() => ({ workflow: "get" }));
 const destroyVm = mock(() => ({ workflow: "destroy" }));
@@ -134,6 +136,8 @@ mock.module("../app/lib/stack", () => ({
 
 mock.module("../services/vms/workflows", () => ({
   ...workflowsModule,
+  countSavedUserVms: (...args: Parameters<typeof workflowsModule.countSavedUserVms>) =>
+    useWorkflowStubs ? savedCountWorkflow : workflowsModule.countSavedUserVms(...args),
   enrollVmTunnel: ((...args: Parameters<typeof realEnrollVmTunnel>) =>
     useWorkflowStubs ? callMock(enrollVmTunnel, args) : realEnrollVmTunnel(...args)) as typeof realEnrollVmTunnel,
   readVmTunnel: ((...args: Parameters<typeof realReadVmTunnel>) =>
@@ -170,6 +174,7 @@ mock.module("../services/vms/workflows", () => ({
   runVmWorkflowExit: (async (...args: Parameters<typeof realRunVmWorkflowExit>) => {
     if (!useWorkflowStubs) return realRunVmWorkflowExit(...args);
     try {
+      if (useWorkflowStubs && args[0] === (savedCountWorkflow as unknown)) return Exit.succeed(savedVmCountFixture);
       return Exit.succeed(await callMock(runVmWorkflow, args));
     } catch (error) {
       return isVmWorkflowError(error) ? Exit.fail(error) : Exit.die(error);
@@ -266,6 +271,7 @@ beforeEach(() => {
   getUser.mockClear();
   getUser.mockResolvedValue(null);
   authTombstoneRows = [];
+  savedVmCountFixture = 0;
   runVmWorkflow.mockClear();
   (runVmWorkflow as unknown as { mockImplementation(next: () => Promise<never>): void }).mockImplementation(
     async () => {
@@ -552,6 +558,35 @@ describe("VM REST auth", () => {
     expect(runVmWorkflow).toHaveBeenCalled();
   });
 
+  test("publishes Plus's one-machine allowance without an hourly cap in VM list limits", async () => {
+    getUser.mockResolvedValue({
+      ...authedStackUser(),
+      selectedTeam: null,
+      clientReadOnlyMetadata: { cmuxPlan: "go" },
+      listTeams: async () => [],
+    });
+    savedVmCountFixture = 1;
+    runVmWorkflow.mockResolvedValue([]);
+
+    const response = await GET(new Request("https://cmux.test/api/vm"));
+
+    expect(response.status).toBe(200);
+    const { limits } = await response.json();
+    expect(limits).not.toHaveProperty("vmHoursIncluded");
+    expect(limits).not.toHaveProperty("vmHoursUsed");
+    expect(limits).toMatchObject({
+      planId: "go",
+      maxActiveVms: 1,
+      savedVmLimit: 1,
+      activeVmCount: 1,
+      savedVmCount: 1,
+      memoryOptionsMb: [4096, 8192, 16384],
+      maxVcpus: 8,
+      maxMemoryMb: 16384,
+      maxDiskMb: 131072,
+    });
+  });
+
   test.each(["cookie", "native"])("hydrates an ID-only selected team for paid VM list limits (%s)", async (auth) => {
     const listTeams = mock(async () => [
       { id: "team-other", clientReadOnlyMetadata: { cmuxVmPlan: "free" } },
@@ -563,6 +598,7 @@ describe("VM REST auth", () => {
       selectedTeam: { id: "team-1" },
       listTeams,
     });
+    savedVmCountFixture = 3;
     runVmWorkflow.mockResolvedValue([{
       providerVmId: "provider-vm-team-1", provider: "freestyle",
       image: "snapshot-test", status: "running", createdAt: 1_777_000_000_000,
@@ -590,7 +626,7 @@ describe("VM REST auth", () => {
       // the paused machine does not count. That fallback is pool accounting,
       // not a current-size marker for clients.
       limits: {
-        planId: "team", maxActiveVms: 20, activeVmCount: 2, freeAccessWindowDays: 0, freeAccessExpiresAt: null,
+        planId: "team", maxActiveVms: 20, activeVmCount: 3, freeAccessWindowDays: 0, freeAccessExpiresAt: null,
         poolVcpus: 80, poolMemoryMb: 163840, usedVcpus: 48, usedMemoryMb: 98304,
         maxDiskMb: 131072, maxMemoryMb: 16384, maxVcpus: 8,
       },

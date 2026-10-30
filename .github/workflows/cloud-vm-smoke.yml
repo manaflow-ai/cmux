@@ -38,7 +38,7 @@ concurrency:
 
 jobs:
   smoke:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     environment: cloud-vm-${{ inputs.target }}
     defaults:
       run:
@@ -78,6 +78,7 @@ jobs:
           fi
 
       - name: Smoke target
+        id: smoke
         run: |
           set -euo pipefail
           args=("${{ inputs.target }}")
@@ -85,3 +86,11 @@ jobs:
             args+=("--create" "--provider" "${{ inputs.provider }}")
           fi
           bun run cloud-vm:smoke -- "${args[@]}"
+
+      # The smoke deletes its own machine, but not when the run is cancelled
+      # or killed mid-flight. This step runs then too: it deletes the smoke
+      # users this run created and every VM they still own, and fails if one
+      # cannot be deleted.
+      - name: Delete this run's smoke users and machines
+        if: always() && steps.smoke.outcome != 'skipped'
+        run: bun run cloud-vm:smoke -- "${{ inputs.target }}" --sweep-this-run
