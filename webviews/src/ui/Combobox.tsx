@@ -8,6 +8,9 @@ import { usePopupHost, usePortalContainer } from "./UiProvider";
 import { useEscapingPopup } from "./popupHost";
 import { cx } from "./cx";
 import { ScrollArea } from "./ScrollArea";
+import { useNativePopup, type NativePopupDescription } from "./nativePopup";
+import type { NativePopupEvent } from "./generated/popupProtocol";
+import { popupAction, popupActionByValue, popupSearchId } from "./popupDescriptors";
 
 type BaseUIKeyEvent = KeyboardEvent<HTMLInputElement> & { preventBaseUIHandler?: () => void };
 
@@ -59,6 +62,13 @@ export interface ComboboxProps {
    * ("keyboard") or the pointer ("pointer") moved it, so a caller can treat a passing pointer as
    * less deliberate than a key press. */
   onHighlight?(value: string | undefined, by: "keyboard" | "pointer" | "none"): void;
+  /** Declarative native rows. When the host is available the web list is not mounted. */
+  native?: {
+    model: NativePopupDescription;
+    anchor?: () => HTMLElement | null;
+    onEvent?(event: NativePopupEvent): void;
+    onDismiss?(): void;
+  };
 }
 
 export function Combobox({
@@ -86,6 +96,7 @@ export function Combobox({
   isItemCurrent,
   completionText,
   onHighlight,
+  native,
 }: ComboboxProps) {
   const container = usePortalContainer();
   // A popup list with no room above or below its field: past the window's edge (popupHost.ts).
@@ -93,6 +104,82 @@ export function Combobox({
   const host = usePopupHost();
   const [field, setField] = useState<HTMLInputElement | null>(null);
   const [popup, setPopup] = useState<HTMLElement | null>(null);
+  const [value, setValue] = useState(defaultValue);
+  const [nativeSessionOpen, setNativeSessionOpen] = useState(true);
+  const nativeModel: NativePopupDescription | undefined = native && {
+    ...native.model,
+    search: {
+      ...(native.model.search ?? { id: popupSearchId(native.model), placeholder: placeholder ?? label }),
+      value,
+      submitOnReturn: true,
+      autoHighlight:
+        autoHighlight === "always" ? ("always" as const) : autoHighlight ? ("first" as const) : ("none" as const),
+    },
+  };
+  const cancel = () => {
+    if (native) setNativeSessionOpen(false);
+    onCancel();
+  };
+  const nativePopup = useNativePopup({
+    open:
+      native !== undefined &&
+      nativeSessionOpen &&
+      (inline || suggestions.length > 0) &&
+      (native.anchor !== undefined || field !== null),
+    model: nativeModel ?? { side: "bottom", align: "start", width: 0, rows: [] },
+    anchor: native?.anchor ?? (() => field),
+    onEvent: (event) => {
+      const action = nativeModel && popupAction(nativeModel, event.id);
+      // Suggestions carry an explicit domain value. Auxiliary action IDs are protocol
+      // identities and may spell the same word without selecting that suggestion.
+      const suggestion = action?.value;
+      const query = nativeModel?.search;
+      if (event.type === "submit") {
+        if (!query?.submitOnReturn || query.disabled || event.value === undefined) return;
+        if (action && (suggestion === undefined || !suggestions.includes(suggestion))) {
+          // Search owns Return in the native host. A selected auxiliary action still
+          // activates through the same pick callback as its pointer counterpart.
+          native?.onEvent?.({ ...event, type: "pick", value: undefined, reason: undefined });
+          if (!action.keepOpen) setNativeSessionOpen(false);
+          return;
+        }
+        native?.onEvent?.(event);
+        if (event.id !== undefined && (suggestion === undefined || !enabledSuggestions.includes(suggestion))) return;
+        submit(resolveSubmission(event.value, suggestion, event.reason === "keyboard" || event.reason === "pointer"));
+        return;
+      }
+      native?.onEvent?.(event);
+      if (event.type === "pick" && action && !action.keepOpen) setNativeSessionOpen(false);
+      if (
+        (event.type === "search" || event.type === "change") &&
+        query &&
+        !query.disabled &&
+        event.id === query.id &&
+        event.value !== undefined
+      )
+        changeQuery(event.value);
+      else if (suggestion !== undefined && suggestions.includes(suggestion) && !isItemDisabled?.(suggestion)) {
+        if (event.type === "pick") {
+          onSubmit(suggestion);
+        } else if (event.type === "highlight") {
+          highlightedRef.current = suggestion;
+          deliberatelyHighlighted.current = event.reason !== "none";
+          onHighlight?.(
+            suggestion,
+            event.reason === "keyboard" ? "keyboard" : event.reason === "none" ? "none" : "pointer",
+          );
+        }
+      } else if (event.type === "highlight" && event.id === undefined) {
+        highlightedRef.current = undefined;
+        deliberatelyHighlighted.current = false;
+        onHighlight?.(undefined, "none");
+      }
+    },
+    onDismiss: () => {
+      native?.onDismiss?.();
+      cancel();
+    },
+  });
   const attachField = useCallback(
     (node: HTMLInputElement | null) => {
       if (typeof inputRef === "function") inputRef(node);
@@ -110,7 +197,6 @@ export function Combobox({
     pick: "click",
     shell: "parent",
   });
-  const [value, setValue] = useState(defaultValue);
   // Only Return and Tab read the highlighted row, so it is a ref, not state: a highlight change
   // (every row the pointer crosses) must not re-render the whole list. Base UI marks the row
   // itself (data-highlighted).
@@ -156,6 +242,12 @@ export function Combobox({
   const held = keep && tallest > 0;
   const hasPinned = Boolean(pinnedSuggestions?.length);
   const deliberatelyHighlighted = useRef(false);
+  const changeQuery = (next: string) => {
+    if (native) setNativeSessionOpen(true);
+    if (completionRef.current?.text !== next) completionRef.current = undefined;
+    deliberatelyHighlighted.current = false;
+    update(next);
+  };
   const availableSuggestions = suggestions.filter((item) => !isItemDisabled?.(item));
   // Base UI highlights item zero for an empty query too. Put destinations first in its collection
   // while the pinned actions remain visually fixed above the scrolling results.
@@ -172,40 +264,50 @@ export function Combobox({
     setValue(next);
     onQuery(next);
   };
+  const submit = (next: string) => {
+    if (isItemDisabled?.(next)) return;
+    if (native && !popupActionByValue(native.model, next)?.keepOpen) setNativeSessionOpen(false);
+    onSubmit(next);
+  };
+  const resolveSubmission = (typed: string, highlighted: string | undefined, deliberate: boolean) => {
+    const completed = completionRef.current;
+    const completedKey =
+      completed?.text === typed && completed.key && enabledSuggestions.includes(completed.key)
+        ? completed.key
+        : undefined;
+    const matchingCurrent =
+      completed?.text === typed ? enabledSuggestions.find((item) => completionText?.(item) === typed) : undefined;
+    // An unmatched query must not submit an automatically highlighted pinned action.
+    const active = highlighted && enabledSuggestions.includes(highlighted) ? highlighted : undefined;
+    const selected =
+      typed.trim() && hasPinned && active && pinnedSuggestions?.includes(active) && !deliberate ? undefined : active;
+    const firstMatch =
+      !active && typed.trim() && hasPinned
+        ? enabledSuggestions.find((item) => !pinnedSuggestions?.includes(item))
+        : undefined;
+    return selected ?? completedKey ?? matchingCurrent ?? firstMatch ?? typed;
+  };
   const onKeyDown = (event: BaseUIKeyEvent) => {
     onCommand?.(event);
     if (event.defaultPrevented) return;
+    if (
+      native &&
+      (event.key === "ArrowDown" ||
+        event.key === "ArrowUp" ||
+        (event.ctrlKey && (event.key === "n" || event.key === "p")))
+    )
+      setNativeSessionOpen(true);
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     const typed = event.currentTarget.value;
     if (event.key === "Enter") {
       event.preventDefault();
       event.preventBaseUIHandler?.();
-      const highlighted = highlightedRef.current;
-      const completed = completionRef.current;
-      const completedKey =
-        completed?.text === typed && completed.key && enabledSuggestions.includes(completed.key)
-          ? completed.key
-          : undefined;
-      const matchingCurrent =
-        completed?.text === typed ? enabledSuggestions.find((item) => completionText?.(item) === typed) : undefined;
-      // An unmatched query must not submit an automatically highlighted action.
-      // Explicit arrow or pointer highlight still makes that pinned action selectable.
-      const active = highlighted && enabledSuggestions.includes(highlighted) ? highlighted : undefined;
-      const selected =
-        typed.trim() && hasPinned && active && pinnedSuggestions?.includes(active) && !deliberatelyHighlighted.current
-          ? undefined
-          : active;
-      const firstMatch =
-        !active && typed.trim() && hasPinned
-          ? enabledSuggestions.find((item) => !pinnedSuggestions?.includes(item))
-          : undefined;
-      const next = selected ?? completedKey ?? matchingCurrent ?? firstMatch ?? typed;
-      if (!isItemDisabled?.(next)) onSubmit(next);
+      submit(resolveSubmission(typed, highlightedRef.current, deliberatelyHighlighted.current));
     } else if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
       event.preventBaseUIHandler?.();
-      onCancel();
+      cancel();
     } else if (event.key === "Tab" && !event.shiftKey && enabledSuggestions.length) {
       const highlighted = highlightedRef.current;
       const next = highlighted && enabledSuggestions.includes(highlighted) ? highlighted : enabledSuggestions[0]!;
@@ -239,7 +341,7 @@ export function Combobox({
         if (isItemDisabled?.(item)) return;
         event.preventDefault();
         pressActivatedRef.current = item;
-        onSubmit(item);
+        submit(item);
       }}
       onClick={(event) => {
         // A real mouse click follows the primary press and must not submit twice. Keyboard and
@@ -249,7 +351,7 @@ export function Combobox({
         if (pressed === item && event.detail > 0) return;
         // Base UI cancels pointerdown to retain input focus. Browsers then omit the
         // compatibility mousedown, so a primary click must also activate on its own.
-        if (event.button === 0 && !isItemDisabled?.(item)) onSubmit(item);
+        if (event.button === 0) submit(item);
       }}
     >
       {renderItemContent(item)}
@@ -296,17 +398,14 @@ export function Combobox({
       ))}
     </Autocomplete.List>
   );
+  const nativeOnly = nativePopup.available && native !== undefined;
   const root = (
     <Autocomplete.Root
       items={enabledSuggestions as string[]}
       filter={null}
       value={value}
-      onValueChange={(next) => {
-        if (completionRef.current?.text !== next) completionRef.current = undefined;
-        deliberatelyHighlighted.current = false;
-        update(next);
-      }}
-      open={inline || enabledSuggestions.length > 0}
+      onValueChange={changeQuery}
+      open={(!nativeOnly || nativeSessionOpen) && (inline || enabledSuggestions.length > 0)}
       inline={inline}
       autoHighlight={autoHighlight}
       onItemHighlighted={(item, details) => {
@@ -321,24 +420,28 @@ export function Combobox({
         aria-label={label}
         placeholder={placeholder}
         spellCheck={false}
+        onPointerDown={() => {
+          if (native) setNativeSessionOpen(true);
+        }}
         onKeyDown={onKeyDown}
         // A press on a suggestion keeps focus in the field (Base UI items are not focusable).
         onBlur={(event) => {
           if (cancelOnBlur && !pressingList.current && !listRef.current?.contains(event.relatedTarget as Node | null))
-            onCancel();
+            cancel();
         }}
       />
-      {inline ? (
-        list
-      ) : (
-        <Autocomplete.Portal container={container}>
-          <Autocomplete.Positioner className="ui-positioner" sideOffset={2} align="start">
-            <Autocomplete.Popup ref={host ? setPopup : undefined} className="ui-popup ui-glass ui-combobox-popup">
-              {list}
-            </Autocomplete.Popup>
-          </Autocomplete.Positioner>
-        </Autocomplete.Portal>
-      )}
+      {!nativeOnly &&
+        (inline ? (
+          list
+        ) : (
+          <Autocomplete.Portal container={container}>
+            <Autocomplete.Positioner className="ui-positioner" sideOffset={2} align="start">
+              <Autocomplete.Popup ref={host ? setPopup : undefined} className="ui-popup ui-glass ui-combobox-popup">
+                {list}
+              </Autocomplete.Popup>
+            </Autocomplete.Positioner>
+          </Autocomplete.Portal>
+        ))}
     </Autocomplete.Root>
   );
   return rootClassName ? <div className={rootClassName}>{root}</div> : root;
