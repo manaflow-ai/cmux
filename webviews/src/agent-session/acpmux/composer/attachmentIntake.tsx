@@ -342,7 +342,10 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         {
           ready,
           failed,
-          uploading: (index) => {
+          uploading: function uploading(index) {
+            // In order behind its chip, which may be waiting for its source: until then its tile
+            // still holds a send.
+            if (!answered) return void answer.then(() => uploading(index));
             const id = shown[index]!.id;
             setPending((chips) => chips.map((chip) => (chip.id === id ? { ...chip, uploading: true } : chip)));
           },
