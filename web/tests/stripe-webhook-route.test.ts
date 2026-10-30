@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { makeStripeWebhookHandler } from "../app/api/stripe/webhook/route";
+import { STRIPE_WEBHOOK_EVENT_TYPES } from "../services/billing/stripeWebhook";
 import { AccountDeletionUserMutationInProgressError } from "../services/account/deletionLock";
 
 let currentEvent: Record<string, unknown>;
@@ -852,6 +853,152 @@ describe("Stripe billing webhook route", () => {
 
       expect((await POST(webhookRequest())).status).toBe(200);
       expect(applySubscriptionUpdate).toHaveBeenCalledWith(retrievedSubscription, { markTeamSeatsDirty });
+    }
+  });
+
+  test("queues Team seat reconciliation when a pending quantity update applies", async () => {
+    currentEvent = {
+      id: "evt_pending_applied",
+      type: "customer.subscription.pending_update_applied",
+      data: { object: { id: "sub_team" } },
+    };
+    applySubscriptionUpdateResult = { scope: "team", stackTeamId: "team_1", isActive: true };
+
+    expect((await POST(webhookRequest())).status).toBe(200);
+    expect(applySubscriptionUpdate).toHaveBeenCalledWith(retrievedSubscription, { markTeamSeatsDirty });
+  });
+
+  test("does not queue seat reconciliation for lifecycle events that keep the quantity", async () => {
+    for (const type of ["customer.subscription.paused", "customer.subscription.resumed", "invoice.paid"]) {
+      applySubscriptionUpdate.mockClear();
+      currentEvent = {
+        id: `evt_${type}`,
+        type,
+        data: { object: { id: "sub_1", subscription: "sub_1" } },
+      };
+
+      expect((await POST(webhookRequest())).status).toBe(200);
+      expect(applySubscriptionUpdate).toHaveBeenCalledWith(retrievedSubscription, { markTeamSeatsDirty: false });
+    }
+  });
+
+  test("revokes access when a subscription pauses", async () => {
+    currentEvent = {
+      id: "evt_paused",
+      type: "customer.subscription.paused",
+      data: { object: { id: "sub_1", status: "paused" } },
+    };
+    retrievedSubscription = { ...retrievedSubscription, status: "paused" };
+    applySubscriptionUpdateResult = { scope: "user", stackUserId: "user_1", isActive: false };
+
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ processed: "customer.subscription.paused" });
+    expect(retrieveSubscription).toHaveBeenCalledWith("sub_1");
+    expect(revokeCoderouterRouteTokens).toHaveBeenCalledWith("user_1");
+  });
+
+  test("restores access from Stripe's current state when a subscription resumes", async () => {
+    currentEvent = {
+      id: "evt_resumed",
+      type: "customer.subscription.resumed",
+      data: { object: { id: "sub_1", status: "active" } },
+    };
+
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    expect(applySubscriptionUpdate).toHaveBeenCalledTimes(1);
+    expect(revokeCoderouterRouteTokens).not.toHaveBeenCalled();
+  });
+
+  test("applies the subscription state when an invoice needs customer action", async () => {
+    for (const type of ["invoice.payment_action_required", "invoice.marked_uncollectible"]) {
+      retrieveSubscription.mockClear();
+      revokeCoderouterRouteTokens.mockClear();
+      currentEvent = {
+        id: `evt_${type}`,
+        type,
+        data: { object: { id: "in_1", parent: { subscription_details: { subscription: "sub_1" } } } },
+      };
+      applySubscriptionUpdateResult = { scope: "user", stackUserId: "user_1", isActive: false };
+
+      const response = await POST(webhookRequest());
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ processed: type });
+      expect(retrieveSubscription).toHaveBeenCalledWith("sub_1");
+      expect(revokeCoderouterRouteTokens).toHaveBeenCalledWith("user_1");
+    }
+  });
+
+  test("applies the subscription's state when a delayed checkout payment fails", async () => {
+    currentEvent = {
+      id: "evt_async_failed",
+      type: "checkout.session.async_payment_failed",
+      data: {
+        object: {
+          id: "cs_1",
+          payment_status: "unpaid",
+          metadata: { app: "cmux", plan: "pro" },
+          subscription: "sub_1",
+        },
+      },
+    };
+    retrievedSubscription = { ...retrievedSubscription, status: "incomplete_expired" };
+    applySubscriptionUpdateResult = { scope: "user", stackUserId: "user_1", isActive: false };
+
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ processed: "checkout.session.async_payment_failed" });
+    expect(recordCheckoutCompletion).not.toHaveBeenCalled();
+    expect(sendProSignupWelcome).not.toHaveBeenCalled();
+    expect(retrieveSubscription).toHaveBeenCalledWith("sub_1");
+    expect(revokeCoderouterRouteTokens).toHaveBeenCalledWith("user_1");
+  });
+
+  test("skips a failed delayed payment for a checkout without a subscription", async () => {
+    currentEvent = {
+      id: "evt_async_failed_payment",
+      type: "checkout.session.async_payment_failed",
+      data: {
+        object: {
+          id: "cs_founder",
+          payment_status: "unpaid",
+          metadata: { founders_edition: "true" },
+          subscription: null,
+        },
+      },
+    };
+
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ skipped: "checkout_without_subscription" });
+    expect(recordFoundersCheckoutCompletion).not.toHaveBeenCalled();
+    expect(applySubscriptionUpdate).not.toHaveBeenCalled();
+  });
+
+  test("acts on every event type the endpoint subscribes to", async () => {
+    for (const type of STRIPE_WEBHOOK_EVENT_TYPES) {
+      currentEvent = {
+        id: `evt_${type}`,
+        type,
+        data: {
+          object: {
+            id: type.startsWith("charge.") ? "ch_1" : type.startsWith("invoice.") ? "in_1" : "obj_1",
+            metadata: { app: "cmux", plan: "pro" },
+            subscription: "sub_1",
+            invoice: "in_1",
+          },
+        },
+      };
+
+      const response = await POST(webhookRequest());
+
+      expect(await response.json()).not.toMatchObject({ skipped: "event_type" });
     }
   });
 });
