@@ -21,6 +21,9 @@ export const NATIVE_MAX_TOTAL_MENU_ITEMS = 256;
 export const NATIVE_MAX_DEPTH = 2;
 export const NATIVE_MAX_TEXT_GRAPHEMES = 64;
 export const NATIVE_MAX_TEXT_BYTES = 256;
+export const NATIVE_MAX_VISIBLE_TEXT_GRAPHEMES = 32;
+export const NATIVE_MAX_VISIBLE_TEXT_BYTES = 128;
+export const NATIVE_MAX_URL_BYTES = 2048;
 
 export interface NativeRowTool {
   id: string;
@@ -29,6 +32,7 @@ export interface NativeRowTool {
   enabled: boolean;
   toggled: boolean;
   badge?: string;
+  text?: string;
   menu?: NativeRowMenuItem[];
 }
 export interface NativeRowMenuItem {
@@ -36,6 +40,7 @@ export interface NativeRowMenuItem {
   label: string;
   enabled: boolean;
   checked?: boolean;
+  url?: string;
   role?: "destructive";
   children?: NativeRowMenuItem[];
 }
@@ -89,20 +94,41 @@ export function boundedNativeText(value: string, fallback = "…"): string {
       .join("") || "…";
   return encoder.encode(safeFallback).byteLength <= NATIVE_MAX_TEXT_BYTES ? safeFallback : "…";
 }
-function middleBounded(value: string, fallback = "…"): string {
-  const parts = Array.from(characters.segment(value.trim()), (part) => part.segment);
-  if (!parts.length) return boundedNativeText(fallback);
+/// Visible text has a tighter budget than accessibility/menu labels. Keep both ends of branch names.
+export function nativeVisibleText(value: string, fallback = "…"): string {
+  const clean = (value || fallback).replace(/[\r\n\v\f\u0085\u2028\u2029]/g, " ").trim() || "…";
+  const parts = Array.from(characters.segment(clean), (part) => part.segment);
   let left = Math.ceil(parts.length / 2),
     right = Math.floor(parts.length / 2);
-  if (parts.length <= NATIVE_MAX_TEXT_GRAPHEMES && encoder.encode(value).byteLength <= NATIVE_MAX_TEXT_BYTES)
-    return value;
+  if (
+    parts.length <= NATIVE_MAX_VISIBLE_TEXT_GRAPHEMES &&
+    encoder.encode(clean).byteLength <= NATIVE_MAX_VISIBLE_TEXT_BYTES
+  )
+    return clean;
   let result = "";
   do {
     if (left >= right) left--;
     else right--;
     result = parts.slice(0, left).join("") + "…" + (right ? parts.slice(-right).join("") : "");
-  } while (left + right + 1 > NATIVE_MAX_TEXT_GRAPHEMES || encoder.encode(result).byteLength > NATIVE_MAX_TEXT_BYTES);
+  } while (
+    left + right + 1 > NATIVE_MAX_VISIBLE_TEXT_GRAPHEMES ||
+    encoder.encode(result).byteLength > NATIVE_MAX_VISIBLE_TEXT_BYTES
+  );
   return result;
+}
+/// The host owns navigation; omit unsupported links rather than sending a descriptor it refuses.
+function nativeMenuURL(value: string | undefined): string | undefined {
+  if (!value || encoder.encode(value).byteLength > NATIVE_MAX_URL_BYTES) return;
+  try {
+    const url = new URL(value);
+    if (
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      encoder.encode(url.href).byteLength <= NATIVE_MAX_URL_BYTES
+    )
+      return url.href;
+  } catch {
+    // Invalid URL: keep the row as information, without a link action.
+  }
 }
 const stableMenuKey = (value: string): string => {
   let hash = 2166136261;
@@ -190,7 +216,7 @@ function worktreeBinding(extra: NonNullable<NativeRowExtras["worktree"]>, t: Tra
       id: "worktree",
       symbol: HEADER_SYMBOLS["git.worktree"]!,
       label: boundedNativeText(value.branch, "Worktree"),
-      badge: middleBounded(value.branch, "Worktree"),
+      text: nativeVisibleText(value.branch, "Worktree"),
       enabled: true,
       toggled: false,
       menu,
@@ -205,9 +231,12 @@ function pullRequestBinding(extra: NonNullable<NativeRowExtras["pullRequest"]>, 
   const menu: NativeRowMenuItem[] = [],
     runs = new Map<string, () => void>();
   const openId = `pullRequest.open:${identity}`;
-  menu.push({ id: openId, label: menuLabel(value.title || `#${value.number}`), enabled: true });
-  runs.set(openId, () => {
-    if (typeof window !== "undefined") window.open(value.url, "_blank", "noopener,noreferrer");
+  const url = nativeMenuURL(value.url);
+  menu.push({
+    id: openId,
+    label: menuLabel(value.title || `#${value.number}`),
+    enabled: !!url,
+    ...(url ? { url } : {}),
   });
   addAction(menu, runs, `pullRequest.merge:${identity}`, ops.start);
   addAction(menu, runs, `pullRequest.confirm:${identity}`, ops.confirm);
@@ -215,11 +244,8 @@ function pullRequestBinding(extra: NonNullable<NativeRowExtras["pullRequest"]>, 
   addMessages(menu, "pullRequest", ops.question ? [ops.question, ...ops.messages] : ops.messages);
   const variableMenu = value.checkList.map((check, index) => {
     const id = `pullRequest.check:${identity}:${revision}:${index}`;
-    if (check.url)
-      runs.set(id, () => {
-        window.open(check.url!, "_blank", "noopener,noreferrer");
-      });
-    return { id, label: menuLabel(checkPresentation(check, t)), enabled: !!check.url };
+    const url = nativeMenuURL(check.url);
+    return { id, label: menuLabel(checkPresentation(check, t)), enabled: !!url, ...(url ? { url } : {}) };
   });
   const status = pullRequestStatus(value, t);
   return {
@@ -227,7 +253,7 @@ function pullRequestBinding(extra: NonNullable<NativeRowExtras["pullRequest"]>, 
       id: "pullRequest",
       symbol: HEADER_SYMBOLS["git.pullrequest"]!,
       label: boundedNativeText(status.label),
-      badge: boundedNativeText(status.badge),
+      text: nativeVisibleText(status.badge),
       enabled: true,
       toggled: value.state === "open",
       menu,

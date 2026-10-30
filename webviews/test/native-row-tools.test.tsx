@@ -14,6 +14,10 @@ import {
   dispatchNativeRowTool,
   nativeRowToolBindings,
   boundedNativeText,
+  nativeVisibleText,
+  NATIVE_MAX_VISIBLE_TEXT_GRAPHEMES,
+  NATIVE_MAX_VISIBLE_TEXT_BYTES,
+  NATIVE_MAX_URL_BYTES,
   NATIVE_MAX_TOOLS,
   NATIVE_MAX_MENU_ITEMS,
   NATIVE_MAX_DEPTH,
@@ -124,6 +128,84 @@ test("a native worktree without mutation handlers opens its informational menu",
   expect(tool.menu!.every((item) => !item.enabled)).toBe(true);
 });
 
+test("native worktree and PR visible text use the text track, leaving count badges free", async () => {
+  const h = nativeHarness();
+  await act(async () => setHeaderState({ pullRequest: request(7) }));
+  await h.render({
+    folder: "/worktrees/text",
+    readStatus: async () => ({ branch: "feature/login", worktree: { main_root: "/repo" } }),
+  });
+  expect(h.tool("worktree").text).toBe("feature/login");
+  expect(h.tool("pullRequest").text).toBe("#7 ✓2/2");
+  expect(h.tool("worktree").badge).toBeUndefined();
+  expect(h.tool("pullRequest").badge).toBeUndefined();
+  const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+  for (const input of [
+    "",
+    "x".repeat(33),
+    "feature/" + "x".repeat(64) + "/login",
+    "👨‍👩‍👧‍👦".repeat(32),
+    "branch\nname\rwith\u2028break",
+  ]) {
+    const text = nativeVisibleText(input);
+    expect(text.length).toBeGreaterThan(0);
+    expect(Array.from(segmenter.segment(text)).length).toBeLessThanOrEqual(32);
+    expect(new TextEncoder().encode(text).length).toBeLessThanOrEqual(128);
+    expect(text).not.toMatch(/[\r\n\v\f\u0085\u2028\u2029]/);
+  }
+  expect(nativeVisibleText("x".repeat(32))).toBe("x".repeat(32));
+  expect(nativeVisibleText("feature/" + "x".repeat(64) + "/login")).toMatch(/^feature\/.*….*\/login$/);
+});
+
+test("native PR links are host-owned URLs; host invocation never opens them again in the page", async () => {
+  const h = nativeHarness();
+  const opened: string[] = [];
+  dom!.window.open = ((url: string) => {
+    opened.push(url);
+    return null;
+  }) as Window["open"];
+  const valid = [
+    "https://example.test/pr/7",
+    "https://example.test/" + "a".repeat(NATIVE_MAX_URL_BYTES - "https://example.test/".length),
+  ];
+  const invalid = [
+    "javascript:alert(1)",
+    "file:///tmp/a",
+    "not a URL",
+    "https://example.test/" + "a".repeat(NATIVE_MAX_URL_BYTES),
+  ];
+  for (const url of ["http://example.test/check", ...valid, ...invalid]) {
+    const [binding] = nativeRowToolBindings([], undefined, {
+      pullRequest: {
+        value: { ...request(7), url, checkList: [{ name: "Build", state: "passed", url }] },
+        ops: { identity: "pr", merging: { step: "idle" }, messages: [] },
+      },
+    });
+    for (const row of binding!.tool.menu!) {
+      expect(row.url).toBe(invalid.includes(url) ? undefined : url);
+      expect(row.enabled).toBe(!invalid.includes(url));
+      expect(binding!.menuRuns?.has(row.id)).toBe(false);
+    }
+  }
+  for (const url of [...valid, ...invalid]) {
+    const prURL = valid.includes(url) ? url : request(7).url;
+    await act(async () =>
+      setHeaderState({
+        pullRequest: { ...request(7), url: prURL, checkList: [{ name: "Build", state: "passed", url }] },
+      }),
+    );
+    await h.render();
+    for (const prefix of ["pullRequest.open:", "pullRequest.check:"]) {
+      const row = h.row("pullRequest", prefix);
+      const expected = prefix === "pullRequest.open:" ? prURL : valid.includes(url) ? url : undefined;
+      expect(row.enabled).toBe(!!expected);
+      expect(row.url).toBe(expected);
+      await act(async () => h.invoke("pullRequest", row.id));
+    }
+  }
+  expect(opened).toEqual([]);
+});
+
 test("native and DOM PR labels retain aggregate failure and pending state without failed check rows", async () => {
   const h = nativeHarness();
   await h.render();
@@ -162,7 +244,7 @@ test("native worktree uses the DOM refusal, retry, exclusion and removed state m
     },
   };
   await h.render(props);
-  expect(h.tool("worktree").badge).toBe("feature");
+  expect(h.tool("worktree").text).toBe("feature");
   const applyId = h.row("worktree", "worktree.apply:").id;
   await act(async () => {
     h.invoke("worktree", h.row("worktree", "worktree.remove:").id);
@@ -321,7 +403,7 @@ test("native PR status uses aggregate checks, preserves Merge and rejects replac
       },
     }),
   );
-  expect(h.tool("pullRequest").badge).not.toContain("✓");
+  expect(h.tool("pullRequest").text).not.toContain("✓");
   expect(h.row("pullRequest", "pullRequest.check:").enabled).toBe(false);
   await act(async () => h.invoke("pullRequest", oldId));
   expect(opened).toEqual([]);
@@ -334,15 +416,15 @@ test("native PR status uses aggregate checks, preserves Merge and rejects replac
       },
     }),
   );
-  expect(h.tool("pullRequest").badge).not.toContain("✓");
-  expect(h.tool("pullRequest").badge).toContain("30/31");
+  expect(h.tool("pullRequest").text).not.toContain("✓");
+  expect(h.tool("pullRequest").text).toContain("30/31");
   expect(h.row("pullRequest", "pullRequest.check:").label).toContain(translate("header.prCheckOnBase"));
   for (const state of ["failing", "pending"]) {
     await act(async () =>
       setHeaderState({ pullRequest: { ...pr, checks: { state, passed: 2, total: 2 }, checkList: [] } }),
     );
-    expect(h.tool("pullRequest").badge).not.toContain("✓");
-    expect(h.tool("pullRequest").badge).toContain("2/2");
+    expect(h.tool("pullRequest").text).not.toContain("✓");
+    expect(h.tool("pullRequest").text).toContain("2/2");
   }
 });
 
@@ -468,7 +550,12 @@ test("component descriptors meet the Swift decoder's text and global menu limits
   };
   for (const id of ["worktree", "pullRequest", "needsYou"]) {
     const tool = h.tool(id);
-    for (const value of [tool.id, tool.symbol, tool.label, tool.badge!]) checkText(value);
+    for (const value of [tool.id, tool.symbol, tool.label, ...(tool.badge ? [tool.badge] : [])]) checkText(value);
+    if (tool.text) {
+      expect(Array.from(segmenter.segment(tool.text)).length).toBeLessThanOrEqual(NATIVE_MAX_VISIBLE_TEXT_GRAPHEMES);
+      expect(new TextEncoder().encode(tool.text).length).toBeLessThanOrEqual(NATIVE_MAX_VISIBLE_TEXT_BYTES);
+      expect(tool.badge).toBeUndefined();
+    }
     checkMenu(tool.menu!);
   }
   expect(total).toBeLessThanOrEqual(limit("maximumTotalMenuItems"));
