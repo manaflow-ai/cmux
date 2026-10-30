@@ -148,9 +148,13 @@ try:
 
     opened = rpc("debug.external_open", {"url": URL})
     check("debug.external_open accepts the link", opened is True or opened == {"value": True}, opened)
-    browser = lambda w: any(t.endswith(":browser") for p in w.get("topology") or [] for t in p.get("tabs") or [])
+    browser = lambda w: sum(t.endswith(":browser") for p in w.get("topology") or [] for t in p.get("tabs") or [])
     moved = poll(lambda: (lambda w: w if w.get("workspace") not in (None, home) and browser(w) else None)(window()), 60)
     check("the link opens in a browser tab of a workspace other than Home", bool(moved), {"home": home, "window": window()})
+    if moved:
+        time.sleep(2)  # test harness wait: a second delivery would land by now
+        check("the link opens once", window().get("workspace") == moved.get("workspace") and browser(window()) == browser(moved),
+              window().get("topology"))
     shot("2-after-open")
 
     run("home.show")
