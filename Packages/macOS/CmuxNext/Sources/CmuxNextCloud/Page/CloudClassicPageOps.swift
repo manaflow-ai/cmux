@@ -81,10 +81,13 @@ public final class CloudClassicPageOps {
     public nonisolated struct Refusal: Error, Equatable, Sendable {
         public var code: String
         public var message: String
+        /// The refusal's details the page reads (a plan refusal's `plan`).
+        public var details: [String: String]
 
-        public init(code: String, message: String) {
+        public init(code: String, message: String, details: [String: String] = [:]) {
             self.code = code
             self.message = message
+            self.details = details
         }
     }
 

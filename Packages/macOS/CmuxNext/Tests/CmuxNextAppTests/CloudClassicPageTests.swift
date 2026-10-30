@@ -140,6 +140,13 @@ struct CloudClassicPageTests {
         #expect(seen.items.last?["type"]?.stringValue == "removed")
         #expect(seen.items.last?["id"]?.stringValue == "vm-1")
 
+        // A page mutation reaches the stream once: the feed sends it, the provider does not announce it again.
+        let before = seen.items.count
+        _ = try await provider.call("cmux.cloud.machine.pause", params: ["machine": .string("vm-2")], context: Self.page)
+        await Self.settle { false }
+        #expect(seen.items.count == before + 1)
+        #expect(seen.items.last?["machine"]?["status"]?.stringValue == "paused")
+
         subscription.cancel()
         #expect(ops.listenerCount == 0)
         let count = seen.items.count
@@ -249,5 +256,17 @@ struct CloudClassicPageTests {
                 #expect(error.code == "cmux.cloud.unsupported")
             }
         }
+    }
+
+    /// A classic call's error keeps the codes the page acts on: a plan refusal with its plan, a
+    /// machine already gone, a lapsed sign-in.
+    @Test func classicErrorsKeepThePagesCodes() {
+        let plan = CloudClassicPageOps.Backend.classicRefusal(CloudAPIError.planRequired(message: "Needs Max", upgradeURL: nil, plan: "max"))
+        #expect(plan.code == "cmux.cloud.plan_required")
+        #expect(plan.details["plan"] == "max")
+        #expect(CloudClassicPageOps.Backend.classicRefusal(CloudAPIError.http(status: 404, code: nil, message: "gone")).code == "cmux.cloud.not_found")
+        #expect(CloudClassicPageOps.Backend.classicRefusal(CloudAPIError.http(status: 409, code: "vm_not_found", message: nil)).code == "cmux.cloud.not_found")
+        #expect(CloudClassicPageOps.Backend.classicRefusal(CloudAPIError.notSignedIn).code == "cmux.cloud.auth_required")
+        #expect(CloudClassicPageOps.Backend.classicRefusal(CloudAPIError.http(status: 500, code: nil, message: "boom")).code == "cmux.cloud.failed")
     }
 }

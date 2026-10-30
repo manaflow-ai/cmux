@@ -104,7 +104,8 @@ extension CloudAppLinks {
                 let answer = try await classic.run(op, args: parsed, byPerson: origin == .user)
                 return try recode(answer, as: JSONValue.self)
             } catch let refusal as CloudClassicPageOps.Refusal {
-                throw CloudAppOpFailure(code: refusal.code, message: refusal.message)
+                let details = refusal.details.isEmpty ? nil : JSONValue.object(refusal.details.mapValues { .string($0) })
+                throw CloudAppOpFailure(code: refusal.code, message: refusal.message, details: details)
             }
         }
     }
@@ -141,8 +142,25 @@ extension CloudClassicPageOps.Backend {
             pause: { [weak cloud] id in try await cloud?.pauseMachine(id) },
             rename: { [weak cloud] id, name in try await cloud?.renameMachine(id, to: name) },
             delete: { [weak cloud] id in try await cloud?.deleteMachine(id) },
-            refusal: { .init(code: "cmux.cloud.failed", message: CloudStrings.errorText($0)) },
+            refusal: classicRefusal,
             signInFirst: CloudStrings.signInFirst
         )
+    }
+
+    /// A classic `/api/vm` call's error as the page's refusal, keeping the codes the page acts on:
+    /// a plan refusal (its "See plans", with the plan that lifts it), a machine already gone (the
+    /// outcome the person asked for) and a lapsed sign-in; anything else fails with its text.
+    @MainActor static func classicRefusal(_ error: any Error) -> CloudClassicPageOps.Refusal {
+        let text = CloudStrings.errorText(error)
+        switch error as? CloudAPIError {
+        case let .planRequired(_, _, plan)?:
+            return .init(code: CloudAppOpFailure.planRequired, message: text, details: ["plan": plan])
+        case let .http(status, code, _, _, _)? where status == 404 || code?.hasSuffix("not_found") == true:
+            return .init(code: "cmux.cloud.not_found", message: text)
+        case .notSignedIn?:
+            return .init(code: "cmux.cloud.auth_required", message: text)
+        default:
+            return .init(code: "cmux.cloud.failed", message: text)
+        }
     }
 }

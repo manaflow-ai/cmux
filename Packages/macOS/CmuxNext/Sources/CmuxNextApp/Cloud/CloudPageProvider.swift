@@ -71,7 +71,9 @@ final class CloudPageProvider: PageProvider {
         var members = params.objectValue ?? [:]
         let key = members.removeValue(forKey: "idempotency_key")?.stringValue
         let answer = try await run(server, args: .object(members), key: key, context: context)
-        await announce(server, args: members, answer: answer, context: context)
+        // A feed already sends each change it makes (the classic ops): announcing it again would
+        // send every mutation twice.
+        if feed == nil { await announce(server, args: members, answer: answer, context: context) }
         return answer
     }
 
