@@ -53,6 +53,7 @@ VISUAL_VERDICT = re.compile(
     r"^\s*(?:>\s*)*(?:[-*]\s+)?(?:\*\*)?Visual verdict(?:\*\*)?[ \t]*:[ \t]*(?P<verdict>\S(?:.*\S)?)[ \t]*$",
     re.IGNORECASE | re.MULTILINE,
 )
+VERDICT_PLACEHOLDER = "<one sentence: would Leo accept this next to ChatGPT/Claude?>"
 
 
 def ui_tours(paths: list[str]) -> list[str]:
@@ -80,7 +81,13 @@ def visual_judgment(body: str) -> bool:
     """Whether the body records that its after image was viewed and judged."""
     text = FENCE.sub("", body or "")
     text = COMMENT.sub("", text)
-    return bool(VIEWED_AFTER.search(text) and VISUAL_VERDICT.search(text))
+    verdict = VISUAL_VERDICT.search(text)
+    if not VIEWED_AFTER.search(text) or not verdict:
+        return False
+    value = verdict.group("verdict").strip()
+    if value.casefold() == VERDICT_PLACEHOLDER.casefold():
+        return False
+    return len(re.findall(r"\b[\w']+\b", value)) >= 2 and value[-1] in ".!?"
 
 
 def main(argv: list[str] | None = None) -> int:
