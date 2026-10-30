@@ -195,7 +195,7 @@ enum Event {
     DrainOver(u64),
     /// [`POOLED_OWNER_WAIT`] passed since the host started serving.
     OwnerWaitOver,
-    /// The output held after a carry (its hold's number) is read now, its prompt or not
+    /// The output held after a carry (its carry's number) is read now, its prompt or not
     /// (`claude_stdio/carry.rs`).
     HoldOver(u64),
 }
@@ -282,8 +282,11 @@ struct State {
     /// Claude's output lines after a carry, read once the next turn's prompt came
     /// (`claude_stdio/carry.rs` `holding`), oldest first.
     held: VecDeque<String>,
-    /// The current hold's number, and whether its bound passed.
+    /// The carry that holds the output now (its number, `claude_stdio/carry.rs` `holding`), and
+    /// whether its bound passed: each carry holds once, with a bound of its own.
     hold: (u64, bool),
+    /// The output ended: what a carry held is read, and no carry holds more.
+    read_all: bool,
 }
 
 /// The debug builds' hello-stall seam's variable ([`claim_hello_stall`]):
@@ -492,6 +495,7 @@ impl Started {
             stall_hello: claim_hello_stall(),
             held: VecDeque::new(),
             hold: (0, false),
+            read_all: false,
         };
         // The app-server's initialize goes out at spawn, before the hub's.
         if let Some(cx) = state.codex.clone() {
@@ -535,7 +539,7 @@ impl Started {
                 Event::Stdout(None) => {
                     permit_out = false;
                     // What a carry held is read before the output's end.
-                    state.hold.1 = true;
+                    state.read_all = true;
                     state.read_held(&events_tx).await;
                     if state.exit_h.is_none() {
                         state.end_background_shells().await;
@@ -755,28 +759,29 @@ impl State {
     }
 
     /// Reads the held output lines in order, until a carry holds the rest (`claude_stdio/carry.rs`
-    /// `holding`): a hold starts its bound ([`crate::claude_stdio::CARRY_HOLD_MAX`]).
+    /// `holding`): each carry's hold starts its own bound ([`crate::claude_stdio::CARRY_HOLD_MAX`]),
+    /// also one made while an earlier carry still holds.
     async fn read_held(&mut self, events: &mpsc::Sender<Event>) {
-        loop {
-            let holding = self.translator.as_ref().is_some_and(|tr| tr.holding());
-            if !holding {
-                self.hold.1 = false;
-            } else if !self.hold.1 {
-                return;
-            }
+        while !self.holds(events) {
             let Some(line) = self.held.pop_front() else { return };
             self.on_stdout(line).await;
-            let held_now = self.translator.as_ref().is_some_and(|tr| tr.holding());
-            if held_now && !holding {
-                self.hold = (self.hold.0 + 1, false);
-                let (events, hold) = (events.clone(), self.hold.0);
-                // task-owner: one bounded wait; the runtime ends it with the host.
-                tokio::spawn(async move {
-                    tokio::time::sleep(crate::claude_stdio::CARRY_HOLD_MAX).await;
-                    let _ = events.send(Event::HoldOver(hold)).await;
-                });
-            }
         }
+    }
+
+    /// Whether a carry holds the output now: one that holds anew starts its bound.
+    fn holds(&mut self, events: &mpsc::Sender<Event>) -> bool {
+        let carry = self.translator.as_ref().and_then(|tr| tr.holding());
+        let Some(carry) = carry.filter(|_| !self.read_all) else { return false };
+        if self.hold.0 != carry {
+            self.hold = (carry, false);
+            let events = events.clone();
+            // task-owner: one bounded wait; the runtime ends it with the host.
+            tokio::spawn(async move {
+                tokio::time::sleep(crate::claude_stdio::CARRY_HOLD_MAX).await;
+                let _ = events.send(Event::HoldOver(carry)).await;
+            });
+        }
+        !self.hold.1
     }
 
     async fn on_stdout(&mut self, line: String) {

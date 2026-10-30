@@ -385,5 +385,70 @@ class OwnedVerify(unittest.TestCase):
         self.assertTrue(all("timeout-minutes" in s for s in job["steps"] if s.get("id")))
         self.assertGreaterEqual(int(job["timeout-minutes"]), budget + 2)
 
+
+class SnapshotReadToken(unittest.TestCase):
+    """The two nightly pickers read the pool snapshot with the routing App's own budget.
+
+    Run 41051244674 (2026-10-30, pick-nightly-sign-runner): with SNAPSHOT_TOKEN set to GITHUB_TOKEN,
+    every snapshot read got "HTTP 403 X-RateLimit-Remaining=0 ... API rate limit exceeded for
+    installation", the repo-wide GITHUB_TOKEN budget. The sign pick fell to "placement unverified",
+    signing_runner.py offered no owned Mac, and signing queued behind PR overflow on Blacksmith. The
+    pickers already mint GLAEDA_ROUTE_APP_KEY in ci-routing-agent, so each also mints an actions: read
+    token from it, as cmux-next.yml's macos-placement does, and falls back to GITHUB_TOKEN.
+    """
+
+    PICKERS = ("pick-nightly-build-runner", "pick-nightly-sign-runner")
+    READ = "${{ steps.snapshot-read-token.outputs.token || github.token }}"
+    KEY = "secrets.GLAEDA_ROUTE_APP_KEY"
+    # The jobs that read the routing App key; no other job gains it (find-nightly-next-recovery and
+    # legacy-identity-target keep reading the snapshot with GITHUB_TOKEN).
+    KEYED_JOBS = {"pick-nightly-build-runner", "pick-nightly-sign-runner"}
+
+    def test_each_snapshot_read_uses_the_read_token_with_the_github_token_fallback(self) -> None:
+        for name in self.PICKERS:
+            job = WORKFLOW["jobs"][name]
+            steps = job["steps"]
+            ids = [step.get("id") for step in steps]
+            readers = [index for index, step in enumerate(steps) if "SNAPSHOT_TOKEN" in (step.get("env") or {})]
+            with self.subTest(job=name):
+                self.assertTrue(readers)
+                mint_at = ids.index("snapshot-read-token")
+                self.assertLess(mint_at, min(readers))
+                for index in readers:
+                    self.assertEqual(steps[index]["env"]["SNAPSHOT_TOKEN"], self.READ, steps[index].get("name"))
+
+    def test_the_read_mint_asks_only_actions_read_of_the_routing_app(self) -> None:
+        for name in self.PICKERS:
+            job = WORKFLOW["jobs"][name]
+            mint = next(step for step in job["steps"] if step.get("id") == "snapshot-read-token")
+            route = next(step for step in job["steps"] if step.get("id") == "route-token")
+            with self.subTest(job=name):
+                self.assertEqual(mint["uses"], route["uses"])
+                self.assertTrue(mint["uses"].startswith("actions/create-github-app-token@"))
+                self.assertEqual(mint["with"]["app-id"], "${{ vars.GLAEDA_ROUTE_APP_ID }}")
+                self.assertEqual(mint["with"]["private-key"], "${{ secrets.GLAEDA_ROUTE_APP_KEY }}")
+                self.assertEqual({key: value for key, value in mint["with"].items() if key.startswith("permission-")},
+                                 {"permission-actions": "read"})
+                # A failed mint never blocks the pick: the reads fall back to GITHUB_TOKEN.
+                self.assertTrue(mint["continue-on-error"])
+                self.assertEqual(int(mint["timeout-minutes"]), 1)
+                # Minted only where the routing token already is (nightly-next push and dispatch).
+                self.assertEqual(mint["if"], route["if"])
+                # No widening: the job keeps actions: read and contents: read, in the routing environment.
+                self.assertEqual(job["permissions"], {"actions": "read", "contents": "read"})
+                self.assertEqual(job["environment"], "ci-routing-agent")
+                budget = sum(int(step.get("timeout-minutes", 0)) for step in job["steps"])
+                self.assertGreaterEqual(int(job["timeout-minutes"]), budget)
+
+    def test_no_other_job_gains_the_routing_app_key(self) -> None:
+        keyed = {name for name, job in WORKFLOW["jobs"].items() if self.KEY in yaml.safe_dump(job)}
+        self.assertEqual(keyed, self.KEYED_JOBS)
+        for name, job in WORKFLOW["jobs"].items():
+            if name in self.KEYED_JOBS:
+                continue
+            with self.subTest(job=name):
+                self.assertNotIn("snapshot-read-token", yaml.safe_dump(job))
+
+
 if __name__ == "__main__":
     unittest.main()
