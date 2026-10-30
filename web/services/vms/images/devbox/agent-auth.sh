@@ -261,8 +261,8 @@ cmux_codex_apply_auth_mode() {
     # cmux-owned trusted hashes across; dropping them makes every file hook
     # show "needs review" even though the bake trusted it. Serialize the
     # complete rewrite: two panes can launch at once during image verify.
-    # A default config that cannot be read keeps the hashes this home already
-    # has (a trusted_hash is the hook's content hash, so a kept one never
+    # A default config that is missing or cannot be read keeps the hashes
+    # this home already has (a trusted_hash is the hook's content hash, so a kept one never
     # trusts a hook that changed since) and logs it on stderr. In a config
     # that reads, an entry without a string trusted_hash is a hook the user
     # has not approved (or revoked): it is logged and left untrusted here too.
@@ -278,12 +278,14 @@ base_url = sys.argv[4]
 prefix = str(hooks) + ":"
 
 
-def trust_table(path):
-    """path's hooks.state table ({} when the file is absent)."""
+def trust_table(path, missing_ok):
+    """path's hooks.state table ({} when the file is absent and missing_ok)."""
     try:
         document = tomllib.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return {}
+        if missing_ok:
+            return {}
+        raise
     hooks_table = document.get("hooks", {})
     state = hooks_table.get("state", {}) if isinstance(hooks_table, dict) else None
     if not isinstance(state, dict):
@@ -296,14 +298,15 @@ def log(message):
 
 
 try:
-    state = trust_table(source)
+    state = trust_table(source, missing_ok=False)
 except (OSError, ValueError, UnicodeError) as error:
-    log(f"cannot read Codex hook trust from {source} ({error}); keeping the trust this home has")
     try:
-        trusted = {key: entry["trusted_hash"] for key, entry in trust_table(target).items()
+        trusted = {key: entry["trusted_hash"] for key, entry in trust_table(target, missing_ok=True).items()
                    if key.startswith(prefix) and isinstance(entry, dict) and isinstance(entry.get("trusted_hash"), str)}
     except (OSError, ValueError, UnicodeError):
         trusted = {}
+    if trusted:
+        log(f"cannot read Codex hook trust from {source} ({error}); keeping the trust this home has")
 else:
     trusted = {}
     for key, entry in state.items():
