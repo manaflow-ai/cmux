@@ -4,14 +4,15 @@
 //! whose home, socket or lock is gone already stops (`home_watch.rs`); this is the one whose
 //! home still exists but that no app, command or agent uses any more.
 //!
-//! The rule: a daemon on a home of its own (any home but the shared `~/.acpmux`, which NIGHTLY,
-//! the CLI and every peer expect to answer) and not run by acpmux's own service unit stops
-//! normally once it has had no client for [`GRACE`] and, at the end of it, nothing else keeps it
-//! ([`crate::hub::Hub::in_use`]): no running agent, no turn or anything one waits on, no
-//! background task, no undelivered message or watch, and no listener another machine reaches it
-//! by (the mesh relay, WireGuard, the tailnet, a WebSocket listener off loopback). The stop is the
-//! one `_acpmux/shutdown` makes, not a restart handoff; with no agent there is none to keep. An
-//! app or command that wants it again starts it again, as after any stop.
+//! The rule: a daemon on a home of its own (any home but the shared `~/.acpmux`, which NIGHTLY, the
+//! CLI and every peer expect to answer) and not run by acpmux's own service unit stops normally
+//! once it has had no client for [`GRACE`] and, at the end of it, nothing else keeps it
+//! ([`crate::hub::Hub::in_use`]): its startup and adoption done, no running agent or agent host
+//! (adopted or not), no turn or anything one waits on, no background task, no undelivered message
+//! or watch, no peer link, and no listener another machine reaches it by (the mesh relay,
+//! WireGuard, the tailnet, a WebSocket listener off loopback); and no client arrived meanwhile. The
+//! stop is the one `_acpmux/shutdown` makes, not a restart handoff; with no agent there is none to
+//! keep. An app or command that wants it again starts it again, as after any stop.
 //!
 //! A client is any authenticated connection the daemon serves (`server::serve_connection_from`):
 //! the app's watch and panes, a command, an agent's MCP bridge, an in-process relay. Every
@@ -111,7 +112,13 @@ where
         if arrived {
             continue;
         }
-        match in_use().await {
+        let kept = in_use().await;
+        // A client that arrived while the census ran (or as the grace ended) keeps it.
+        let now = *clients.borrow();
+        if now.clients > 0 || now.arrivals != seen {
+            continue;
+        }
+        match kept {
             None => {
                 return format!("unused for {}s: no client, agent, turn or task", grace.as_secs());
             }
@@ -175,6 +182,23 @@ mod tests {
         drop(arrive(clients));
         task.await.unwrap();
         assert_eq!(start.elapsed(), G / 2 + G);
+    }
+
+    /// A client that arrived while the census ran keeps it, though nothing else did.
+    #[tokio::test(start_paused = true)]
+    async fn a_client_arriving_during_the_census_keeps_it() {
+        let clients = sender();
+        let asked = AtomicUsize::new(0);
+        let start = tokio::time::Instant::now();
+        let in_use = || {
+            if asked.fetch_add(1, Ordering::SeqCst) == 0 {
+                drop(arrive(clients));
+            }
+            std::future::ready(None)
+        };
+        unused_for(clients.subscribe(), G, in_use).await;
+        assert_eq!(asked.load(Ordering::SeqCst), 2);
+        assert_eq!(start.elapsed(), G * 2);
     }
 
     #[tokio::test(start_paused = true)]

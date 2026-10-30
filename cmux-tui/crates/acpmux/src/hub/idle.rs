@@ -374,11 +374,20 @@ impl Hub {
         });
     }
 
-    /// What keeps this daemon in use with no client (`daemon/unused_exit.rs`), or None: a
-    /// listener another machine reaches it by (the mesh relay, WireGuard, the tailnet, a
-    /// WebSocket listener off loopback), an undelivered message or a watch, a running agent, a
-    /// turn or anything one waits on, or a background task.
+    /// What keeps this daemon in use with no client (`daemon/unused_exit.rs`), or None: its
+    /// startup or adoption still running, a peer link, a listener another machine reaches it by
+    /// (the mesh relay, WireGuard, the tailnet, a WebSocket listener off loopback), an
+    /// undelivered message or a watch, a running agent or agent host (adopted or not), a turn or
+    /// anything one waits on, or a background task.
     pub(crate) async fn in_use(&self) -> Option<&'static str> {
+        if !*self.startup_ready.borrow() || !*self.adoption_ready.borrow() {
+            return Some("its startup");
+        }
+        // A link this daemon keeps to a peer may carry work for that peer's agents (the GitHub
+        // broker, a relay): it never passes through `serve_connection_from` here.
+        if !self.connected_peers().is_empty() {
+            return Some("a peer link");
+        }
         if self.mesh.get().is_some() {
             return Some("the mesh relay");
         }
@@ -417,6 +426,12 @@ impl Hub {
             if self.bg_running(&session) {
                 return Some("a background task");
             }
+        }
+        // An agent host still running, adopted or not, would lose its daemon; records that
+        // cannot be read may hide one.
+        let live = tokio::task::spawn_blocking(Self::read_live_host_sessions).await.ok().flatten();
+        if live.is_none_or(|live| !live.is_empty()) {
+            return Some("an agent host");
         }
         None
     }
