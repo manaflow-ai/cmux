@@ -511,3 +511,15 @@ test("an explicitly requested -N name with no competing base name pairs with its
   expect(fold.isRun("shell")).toBe(true);
   expect(fold.all()[0]).toMatchObject({ session: "fix-2", child: "child-1" });
 });
+
+test("an ended unnamed and unprompted parent run leaves no tombstone that blocks later starts", () => {
+  // A `--prompt-file` run says neither name nor prompt: its identity overlaps nothing it can prove.
+  const { fold, send } = folder();
+  send(call("file", `acpmux run --parent chat-1 --prompt-file /tmp/task.md`));
+  send({ sessionUpdate: "tool_call_update", toolCallId: "file", status: "failed" });
+  send(call("shell", PARENT_RUN));
+  expect(
+    child(fold, 5, { event: "started", shortName: "fix", prompt: "Fix the flaky test", harness: "codex" }),
+  ).toBe("shell");
+  expect(fold.isRun("shell")).toBe(true);
+});
