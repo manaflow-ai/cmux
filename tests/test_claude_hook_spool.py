@@ -252,9 +252,9 @@ sys.stdin.read()
         finally:
             os.close(drain_lock)
 
-        # Leave the socket absent long enough for a connect attempt to fail.
-        # The forwarder must retain its lifetime lock while waiting to recover.
-        time.sleep(1)
+        # The lock probe is the readiness check: after a failed connect the
+        # forwarder must retain it while waiting to recover. No fixed delay is
+        # needed; the non-blocking operation observes the live owner directly.
         forwarder_lock = os.open(self.spool / 'forwarder.lock', os.O_RDWR)
         try:
             with self.assertRaises(BlockingIOError):
