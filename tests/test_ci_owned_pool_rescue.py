@@ -3220,24 +3220,31 @@ class NightlyRetryDestination(unittest.TestCase):
     def test_a_late_attempt_whose_build_is_off_the_owned_pools_is_not_watched_on(self):
         started = START + dt.timedelta(minutes=10)
         before, after = (START + dt.timedelta(minutes=1)).isoformat(), (START + dt.timedelta(minutes=12)).isoformat()
-        picker_kept = {**job("pick-nightly-build-runner", status="completed", runner="linux"), "started_at": before}
-        picker_new = {**picker_kept, "started_at": after}
+
+        def picker(name, at):
+            return {**job(name, status="completed", runner="linux"), "started_at": at}
+        build_kept, sign_kept = picker("pick-nightly-build-runner", before), picker("pick-nightly-sign-runner", before)
         build_bs = {**job("build-nightly-app", labels=[self.LARGE]), "started_at": None}
-        build_owned = {**job("build-nightly-app", labels=[self.SIDE]), "started_at": None}
-        self.assertTrue(rescue.nightly_build_off_owned([picker_kept, build_bs], started))
-        self.assertTrue(rescue.nightly_build_off_owned([picker_new, build_bs], started))
-        self.assertFalse(rescue.nightly_build_off_owned([picker_new, build_owned], started))
-        self.assertFalse(rescue.nightly_build_off_owned([picker_new], started))  # the build is not listed yet
+        picker_kept = build_kept
+        # Both pickers kept from an earlier attempt: every owned runs-on falls through to Blacksmith.
+        self.assertTrue(rescue.nightly_build_off_owned([build_kept, sign_kept, build_bs], started))
+        # A picker that ran on this attempt, or one not listed yet, may still place a later job on an owned pool
+        # (review on #28019: a queued Blacksmith build ended the watch before its owned verify jobs appeared).
+        self.assertFalse(rescue.nightly_build_off_owned([picker("pick-nightly-build-runner", after), sign_kept,
+                                                         build_bs], started))
+        self.assertFalse(rescue.nightly_build_off_owned([build_kept, picker("pick-nightly-sign-runner", after),
+                                                         build_bs], started))
+        self.assertFalse(rescue.nightly_build_off_owned([build_kept, build_bs], started))
         self.assertFalse(rescue.nightly_build_off_owned([], started))
         # watch() ends such an attempt at once past SIGN_RESCUE_LAST_ATTEMPT; up to it, its signing stalls keep it.
         clock = Clock()
         api = self.api([], {}, None)
-        api.attempt, api.rerun_jobs = rescue.SIGN_RESCUE_LAST_ATTEMPT + 1, lambda s: [picker_kept, build_bs]
+        api.attempt, api.rerun_jobs = rescue.SIGN_RESCUE_LAST_ATTEMPT + 1, lambda s: [picker_kept, sign_kept, build_bs]
         target = dataclasses.replace(self.TARGET, attempt=rescue.SIGN_RESCUE_LAST_ATTEMPT + 1,
                                      attempt_started_at=started)
         outcome, reason = rescue.watch(api, target, budget_seconds=600, deadline=START + dt.timedelta(hours=2),
                                        now=clock.now, sleep=clock.sleep, log=lambda _: None)[:2]
-        self.assertEqual((outcome, reason), ("stop", f"attempt {target.attempt}'s build is not on a persistent pool"))
+        self.assertEqual((outcome, reason), ("stop", f"no job of attempt {target.attempt} can take a persistent pool"))
         self.assertEqual(clock.seconds, rescue.FIRST_LOOK_SECONDS)  # its first look
 
 class Nightly(unittest.TestCase):

@@ -2352,8 +2352,9 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
             elif target.late_owned_jobs and target.attempt > SIGN_RESCUE_LAST_ATTEMPT and nightly_build_off_owned(
                     jobs, target.attempt_started_at):
                 # Nothing left to rescue on this attempt: its signing stalls are not rescued past
-                # SIGN_RESCUE_LAST_ATTEMPT, and its build took Blacksmith (nightly_reruns() lists every attempt).
-                return "stop", f"attempt {target.attempt}'s build is not on a persistent pool"
+                # SIGN_RESCUE_LAST_ATTEMPT, and no job of it can take an owned pool (nightly_reruns() lists every
+                # attempt).
+                return "stop", f"no job of attempt {target.attempt} can take a persistent pool"
             elif run_finished(jobs) and not (target.signs_late and read(
                     lambda: api.run(target.run_id), sleep, log).get("status") != "completed"):
                 # A nightly's signing jobs appear only once the jobs they need finish (signing_stall()), so
@@ -2714,19 +2715,18 @@ NIGHTLY_HOLD_SECONDS = 2 * OWNED_WAIT_FLOOR_SECONDS
 NIGHTLY_LAST_MOVE_ATTEMPT = 5
 
 
+# nightly-next's picker jobs. Every owned runs-on in nightly.yml takes a picker's `owned` (or `sign_owned`) only
+# when that picker ran on the run's own attempt (`outputs.attempt == github.run_attempt`, or attempt 1).
+NIGHTLY_PICKER_JOBS = ("pick-nightly-build-runner", "pick-nightly-sign-runner")
+
+
 def nightly_build_off_owned(jobs: Sequence[Mapping[str, Any]], attempt_started: dt.datetime | None) -> bool:
-    """Whether a nightly-next attempt's app build is known to be off the owned pools: the attempt kept an earlier
-    attempt's build picker (a re-run of failed jobs, whose runs-on ignores that pick's `owned`), or its own
-    build-nightly-app is listed without asking for an owned pool."""
-    if not jobs:
-        return False
-    pickers = [job for job in jobs if job.get("name") == NIGHTLY_BUILD_PICKER]
-    if pickers and all(carried(job, attempt_started) for job in pickers):
-        return True
-    builds = [job for job in jobs if (str(job.get("name") or "") == NIGHTLY_APP_BUILD
-                                      or str(job.get("name") or "").startswith(NIGHTLY_APP_BUILD + " ("))
-              and not carried(job, attempt_started)]
-    return bool(builds) and not any(job_pool(job) for job in builds)
+    """Whether no job of this nightly-next attempt can ask for an owned pool: both picker jobs are listed and both
+    were kept from an earlier attempt (a re-run of failed jobs), so every owned runs-on falls through to its
+    Blacksmith label. A picker that runs on this attempt, or one not listed yet, keeps the watch going: the jobs
+    after it (the app build, prepare and verify jobs) may still take an owned pool once they appear."""
+    pickers = {name: [job for job in jobs if job.get("name") == name] for name in NIGHTLY_PICKER_JOBS}
+    return all(found and all(carried(job, attempt_started) for job in found) for found in pickers.values())
 
 
 def nightly_moves(target: "Target") -> bool:
