@@ -133,7 +133,20 @@ export function listOrder(a: ActivitySession, b: ActivitySession): number {
   return a.id.localeCompare(b.id);
 }
 
+let lastGroups: { inputs: unknown[]; result: ActivityGroup[] } | undefined;
+
+/** The grouped, filtered, ordered session list. One render asks for it from several places (the
+ * follow subscription, then the layout), and a frame event changes none of its inputs, so the last
+ * projection is reused while the inputs are the same values. Callers treat the result as read-only. */
 export function groups(state: ActivityState): ActivityGroup[] {
+  const inputs = [state.sessionsByMachine, state.machineNames, state.connections, state.filter, state.strings.thisMac];
+  if (lastGroups && inputs.every((input, index) => input === lastGroups!.inputs[index])) return lastGroups.result;
+  const result = projectGroups(state);
+  lastGroups = { inputs, result };
+  return result;
+}
+
+function projectGroups(state: ActivityState): ActivityGroup[] {
   const needle = normalizeFilter(state.filter);
   const machines = new Set([...Object.keys(state.sessionsByMachine), ...Object.keys(state.connections)]);
   return [...machines]
