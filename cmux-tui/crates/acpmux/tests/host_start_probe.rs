@@ -1,22 +1,23 @@
-//! SCRATCH probe (pa-b10, not for landing): how long a harness spawn takes on a
-//! busy Mac by the way its CPU class is set, and whether a class set on a
-//! running process is inherited by what it starts later. Prints a table (the
-//! test fails on purpose so the runner shows it).
+//! SCRATCH probe v4 (pa-b10, not for landing): for each way to start a harness
+//! at background class, how long until the spawn call returns and until the
+//! harness is up (its first stdout line), 25 at once on an idle and a busy
+//! Mac, and the class the harness and a tool it starts run at (`ps -o pri=`).
+//! The test fails on purpose so the runner shows the table.
 #![cfg(target_os = "macos")]
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
-use std::ffi::CString;
 use std::fmt::Write as _;
+use std::io::BufRead;
 use std::os::unix::process::CommandExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{Duration, Instant};
 
-const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 const PRIO_DARWIN_PROCESS: libc::c_int = 4;
 const PRIO_DARWIN_BG: libc::c_int = 0x1000;
+const SCRIPT: &str = "import subprocess,sys; p=subprocess.Popen(['/bin/sleep','60']); print(p.pid, flush=True); sys.stdin.read()";
 
 fn python() -> String {
     std::env::var("ACPMUX_TEST_PYTHON").unwrap_or_else(|_| "python3".into())
@@ -37,145 +38,83 @@ fn sysctl(name: &str) -> String {
         .unwrap_or_default()
 }
 
+fn pri(pid: u32) -> String {
+    std::process::Command::new("/bin/ps")
+        .args(["-o", "pri=", "-p", &pid.to_string()])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
+        .unwrap_or_default()
+}
+
 #[derive(Clone, Copy, Debug)]
 enum How {
     Normal,
     PreExecBg,
-    DemoteAfter,
-    ClampUtility,
-    ClampBackground,
+    TaskpolicyBg,
 }
 
-type ClampFn = unsafe extern "C" fn(*mut libc::posix_spawnattr_t, u64) -> libc::c_int;
-
-fn clamp_fn() -> ClampFn {
-    // SAFETY: dlsym of a NUL-terminated name.
-    let sym =
-        unsafe { libc::dlsym(libc::RTLD_DEFAULT, c"posix_spawnattr_set_qos_clamp_np".as_ptr()) };
-    assert!(!sym.is_null());
-    // SAFETY: that function's signature.
-    unsafe { std::mem::transmute::<*mut libc::c_void, ClampFn>(sym) }
-}
-
-/// Starts `argv` the way `how` says; returns the pid once the spawn returned.
-fn start(how: How, argv: &[String]) -> libc::pid_t {
-    match how {
-        How::Normal | How::PreExecBg | How::DemoteAfter => {
-            let mut cmd = std::process::Command::new(&argv[0]);
-            cmd.args(&argv[1..])
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null());
-            if matches!(how, How::PreExecBg) {
-                // SAFETY: one async-signal-safe syscall in the child.
-                unsafe {
-                    cmd.pre_exec(|| {
-                        libc::setpriority(PRIO_DARWIN_PROCESS, 0, PRIO_DARWIN_BG);
-                        Ok(())
-                    });
-                }
-            }
-            let child = cmd.spawn().unwrap();
-            let pid = child.id() as libc::pid_t;
-            std::mem::forget(child);
-            if matches!(how, How::DemoteAfter) {
-                // SAFETY: our child.
-                unsafe { libc::setpriority(PRIO_DARWIN_PROCESS, pid as _, PRIO_DARWIN_BG) };
-            }
-            pid
+/// One harness: (spawn returned ms, up ms, harness pri, tool pri).
+fn one(how: How) -> (f64, f64, String, String) {
+    let mut cmd = match how {
+        How::TaskpolicyBg => {
+            let mut c = std::process::Command::new("/usr/sbin/taskpolicy");
+            c.args(["-c", "background", "--"]).arg(python());
+            c
         }
-        How::ClampUtility | How::ClampBackground => {
-            let clamp = if matches!(how, How::ClampUtility) { 1 } else { 2 };
-            let args: Vec<CString> =
-                argv.iter().map(|a| CString::new(a.as_str()).unwrap()).collect();
-            let mut ptrs: Vec<*mut libc::c_char> =
-                args.iter().map(|a| a.as_ptr().cast_mut()).chain([std::ptr::null_mut()]).collect();
-            let env: Vec<CString> =
-                std::env::vars().map(|(k, v)| CString::new(format!("{k}={v}")).unwrap()).collect();
-            let mut envp: Vec<*mut libc::c_char> =
-                env.iter().map(|a| a.as_ptr().cast_mut()).chain([std::ptr::null_mut()]).collect();
-            // SAFETY: attr initialized and destroyed; vectors NUL-terminated.
-            unsafe {
-                let mut attr: libc::posix_spawnattr_t = std::ptr::null_mut();
-                assert_eq!(libc::posix_spawnattr_init(&mut attr), 0);
-                assert_eq!(clamp_fn()(&mut attr, clamp), 0);
-                let mut pid = 0;
-                let rc = libc::posix_spawn(
-                    &mut pid,
-                    args[0].as_ptr(),
-                    std::ptr::null(),
-                    &attr,
-                    ptrs.as_mut_ptr(),
-                    envp.as_mut_ptr(),
-                );
-                libc::posix_spawnattr_destroy(&mut attr);
-                assert_eq!(rc, 0);
-                pid
-            }
+        _ => std::process::Command::new(python()),
+    };
+    cmd.args(["-c", SCRIPT])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .process_group(0);
+    if matches!(how, How::PreExecBg) {
+        // SAFETY: one async-signal-safe syscall in the child.
+        unsafe {
+            cmd.pre_exec(|| {
+                libc::setpriority(PRIO_DARWIN_PROCESS, 0, PRIO_DARWIN_BG);
+                Ok(())
+            });
         }
     }
-}
-
-fn reap(pid: libc::pid_t) {
-    // SAFETY: our child.
-    unsafe {
-        libc::kill(pid, libc::SIGKILL);
-        let mut status = 0;
-        libc::waitpid(pid, &mut status, 0);
-    }
+    let t = Instant::now();
+    let mut child = cmd.spawn().unwrap();
+    let spawned = t.elapsed().as_secs_f64() * 1000.0;
+    let mut line = String::new();
+    std::io::BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
+    let up = t.elapsed().as_secs_f64() * 1000.0;
+    let tool: u32 = line.trim().parse().unwrap_or(0);
+    let (hp, tp) = (pri(child.id()), pri(tool));
+    // SAFETY: the group this probe started.
+    unsafe { libc::killpg(child.id() as i32, libc::SIGKILL) };
+    let _ = child.wait();
+    (spawned, up, hp, tp)
 }
 
 async fn wave(tag: &str, n: usize, how: How) -> String {
-    let argv = vec![python(), FAKE.to_owned()];
     let mut set = tokio::task::JoinSet::new();
-    let begin = Instant::now();
     for _ in 0..n {
-        let argv = argv.clone();
-        set.spawn_blocking(move || {
-            let t = Instant::now();
-            let pid = start(how, &argv);
-            (t.elapsed().as_secs_f64() * 1000.0, pid)
-        });
+        set.spawn_blocking(move || one(how));
     }
-    let mut times = Vec::new();
-    let mut pids = Vec::new();
-    while let Some(Ok((t, pid))) = set.join_next().await {
-        times.push(t);
-        pids.push(pid);
+    let (mut sp, mut up, mut pris) = (Vec::new(), Vec::new(), std::collections::BTreeSet::new());
+    while let Some(Ok((s, u, hp, tp))) = set.join_next().await {
+        sp.push(s);
+        up.push(u);
+        pris.insert(format!("{hp}/{tp}"));
     }
-    let wall = begin.elapsed().as_secs_f64() * 1000.0;
-    for pid in pids {
-        reap(pid);
-    }
-    times.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    let q = |p: f64| times[((times.len() - 1) as f64 * p).round() as usize];
+    let q = |v: &mut Vec<f64>, p: f64| {
+        v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        v[((v.len() - 1) as f64 * p).round() as usize]
+    };
     format!(
-        "{tag:<28} {how:<16?} n={n:<3} min={:>6.0} p50={:>6.0} p90={:>6.0} max={:>6.0} wall={wall:>6.0} load1={:.0}",
-        q(0.0),
-        q(0.5),
-        q(0.9),
-        q(1.0),
+        "{tag:<12} {how:<13?} n={n:<3} spawn p50={:>6.0} max={:>6.0} | up p50={:>6.0} p90={:>6.0} max={:>6.0} | pri harness/tool {pris:?} load1={:.0}",
+        q(&mut sp, 0.5),
+        q(&mut sp, 1.0),
+        q(&mut up, 0.5),
+        q(&mut up, 0.9),
+        q(&mut up, 1.0),
         loadavg()
     )
-}
-
-/// Whether a process `how` started passes its class on to a child it starts
-/// later (after the demotion), as read by that child.
-fn inheritance(how: How, dir: &Path) -> String {
-    let out = dir.join(format!("inherit-{how:?}"));
-    let script = format!(
-        "sleep 1; {py} -c 'import ctypes,os; l=ctypes.CDLL(None); open(\"{out}\",\"w\").write(str(l.getpriority(4,0)))'",
-        py = python(),
-        out = out.display()
-    );
-    let pid = start(how, &["/bin/sh".into(), "-c".into(), script]);
-    // SAFETY: read our child's class now.
-    let own = unsafe { libc::getpriority(PRIO_DARWIN_PROCESS, pid as _) };
-    let mut status = 0;
-    // SAFETY: our child.
-    unsafe { libc::waitpid(pid, &mut status, 0) };
-    let child = std::fs::read_to_string(&out).unwrap_or_else(|e| format!("({e})"));
-    format!("inherit {how:<16?} started-process darwin-bg={own} its-later-child darwin-bg={child}")
 }
 
 struct Load(Vec<std::process::Child>);
@@ -221,7 +160,7 @@ impl Drop for Load {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn host_start_probe_measure() {
     let ncpu: usize = sysctl("hw.ncpu").parse().unwrap_or(8);
-    let dir: PathBuf = std::env::temp_dir().join(format!("ahp-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("ahp-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let mut out = format!(
@@ -233,11 +172,7 @@ async fn host_start_probe_measure() {
         eprintln!("{line}");
         writeln!(out, "{line}").unwrap();
     };
-    let all =
-        [How::Normal, How::PreExecBg, How::DemoteAfter, How::ClampUtility, How::ClampBackground];
-    for how in all {
-        say(inheritance(how, &dir));
-    }
+    let all = [How::Normal, How::PreExecBg, How::TaskpolicyBg];
     for how in all {
         say(wave("idle", 25, how).await);
     }
@@ -245,7 +180,7 @@ async fn host_start_probe_measure() {
         let _cpu = Load::cpu(cpu);
         let _disk = Load::disk(disk, &dir);
         tokio::time::sleep(Duration::from_secs(5)).await;
-        for round in 0..2 {
+        for round in 0..3 {
             for how in all {
                 say(wave(&format!("{load} r{round}"), 25, how).await);
             }
