@@ -585,7 +585,8 @@ control-socket admission. Counters accumulate since daemon start. The command
 reads atomics and never touches SQLite or the journal, so it is safe to poll.
 
 Params: `{include?: array<string>|null}`. `include` names optional result
-sections: `resource_projection` and `write_path`; unknown names are ignored.
+sections: `resource_projection`, `write_path` and `hook_queue`; unknown names
+are ignored.
 An optional section is absent unless requested, because SDK decoders refuse
 unknown result fields.
 
@@ -623,7 +624,8 @@ object{
     effect_intents:uint64, effect_intent_failures:uint64,
     effect_intent_batches:uint64, request_effect_commits:uint64,
     writer_registry_locks:uint64
-  }
+  },
+  hook_queue?:object{ended_session_events:uint64}
 }
 histogram = object{count:uint64,mean:uint64,max:uint64,p50:uint64,p90:uint64,p99:uint64}
 ```
@@ -664,6 +666,15 @@ registry lock, registry connection or mux state lock acquisitions on a
 journal writer thread. It is always `0`: a request thread holds the registry
 lock (and may hold state) while it waits for its writer receipt, so the
 writer never takes either.
+
+`hook_queue` shows agent hook events lost with their session. The hook
+helper keeps each agent's hook events in a queue on disk (`hook-spool/`
+beside the session socket) until the daemon answers them. When a session
+ends (its daemon removes its socket), the next hook child drops that
+session's remaining queued events and adds them to
+`hook-spool/ended-session-events`; `ended_session_events` reports that count
+for the directory of this session's socket. It is present only when the
+session serves a socket.
 
 `schema` is `1`. Latency histograms are in microseconds; `batch_size` counts
 events. Percentiles are log-linear bucket upper bounds and overestimate by at

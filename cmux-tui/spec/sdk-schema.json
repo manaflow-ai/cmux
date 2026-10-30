@@ -6034,6 +6034,14 @@
      },
      "presence": "optional",
      "nullable": false
+    },
+    "hook_queue": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHookQueue"
+     },
+     "presence": "optional",
+     "nullable": false
     }
    },
    "additional_properties": false,
@@ -6042,7 +6050,25 @@
     "journal_writer is null for ephemeral sessions without a durable journal.",
     "Counters accumulate since daemon start; reading them never touches SQLite or the journal.",
     "resource_projection is present only when the request names it in include.",
-    "write_path is present only when the request names it in include."
+    "write_path is present only when the request names it in include.",
+    "hook_queue is present only when the request names it in include and the session serves a socket."
+   ]
+  },
+  "ServerStatsHookQueue": {
+   "kind": "object",
+   "fields": {
+    "ended_session_events": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "ended_session_events counts agent hook events that were still queued when their session ended (its daemon removed its socket), so no daemon took them. The hook children that dropped them count them in hook-spool/ended-session-events beside the socket, for every session whose socket shares this one's directory."
    ]
   },
   "ServerStatsResourceProjection": {
@@ -16639,7 +16665,7 @@
    "stream": null,
    "constraints": [
     "Owner-only diagnostics; never journaled and safe to poll.",
-    "include names optional result sections (resource_projection, write_path); unknown names are ignored."
+    "include names optional result sections (resource_projection, write_path, hook_queue); unknown names are ignored."
    ]
   },
   "paste-image": {

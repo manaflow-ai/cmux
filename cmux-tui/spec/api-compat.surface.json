@@ -19036,6 +19036,13 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/hook_queue": {
+        "ty": "object"
+      },
+      "/data/hook_queue/ended_session_events": {
+        "ty": "uint64",
+        "required": true
+      },
       "/data/journal_writer": {
         "ty": "object",
         "required": true,

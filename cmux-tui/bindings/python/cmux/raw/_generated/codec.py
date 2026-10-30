@@ -131,6 +131,7 @@ MODEL_BY_PATH = {
     'types/SendExpectAgent': models.SendExpectAgent,
     'types/ServerStatsConnections': models.ServerStatsConnections,
     'types/ServerStatsHistogram': models.ServerStatsHistogram,
+    'types/ServerStatsHookQueue': models.ServerStatsHookQueue,
     'types/ServerStatsJournalWriter': models.ServerStatsJournalWriter,
     'types/ServerStatsLockHolder': models.ServerStatsLockHolder,
     'types/ServerStatsLockSite': models.ServerStatsLockSite,
