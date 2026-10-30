@@ -1,4 +1,5 @@
 import {
+  footerAfter,
   gridLength,
   rowMark,
   tailGap,
@@ -1566,7 +1567,7 @@ export function layoutConversation(
     heights,
     gaps,
     marks,
-    tailGap: tailGap(marks[previousContent] ?? 0, marks[beforeContent] ?? 0),
+    tailGap: tailGap(marks[previousContent] ?? 0, marks[beforeContent] ?? 0, footerAfter(marks, heights)),
     totalHeight: top,
   };
   messages.finish(rows, layout);
@@ -1614,7 +1615,9 @@ export function placeRows(
     heights,
     gaps: estimate.gaps,
     marks,
-    tailGap: marks ? tailGap(marks[previousContent] ?? 0, marks[beforeContent] ?? 0) : estimate.tailGap,
+    tailGap: marks
+      ? tailGap(marks[previousContent] ?? 0, marks[beforeContent] ?? 0, footerAfter(marks, heights))
+      : estimate.tailGap,
     totalHeight: top,
   };
 }

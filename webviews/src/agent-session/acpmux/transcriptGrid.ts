@@ -17,6 +17,8 @@ export const MARK_OTHER = 0;
 export const MARK_PROMPT = 1;
 export const MARK_MESSAGE = 2;
 export const MARK_INDICATOR = 3;
+/// A settled turn's footer: no height of its own, its action row laid in the gap under the reply.
+export const MARK_FOOTER = 4;
 
 type MarkedRow = { kind: string; incoming?: unknown; received?: unknown; text?: string };
 export function rowMark(row: MarkedRow): number {
@@ -24,6 +26,7 @@ export function rowMark(row: MarkedRow): number {
   if (row.kind === "assistant" && (row.text?.length ?? 0) > 0) return MARK_MESSAGE;
   // The live line (turns.ts WORKING and THINKING, by value: this module stays import-free).
   if (row.kind === "working" || row.kind === "thinking") return MARK_INDICATOR;
+  if (row.kind === "turnSummary") return MARK_FOOTER;
   return MARK_OTHER;
 }
 
@@ -38,9 +41,19 @@ export function transcriptGap(previous: number, next: number): number {
 
 /// The gap between the last drawn row and the top of the bottom stack. The waiting indicator sits
 /// centred between its prompt and the stack (block gap on both sides); a message keeps the block
-/// gap under it for its hover action row; anything else takes the composer gap.
-export function tailGap(last: number, beforeLast: number): number {
+/// gap under it for its hover action row, as does any element whose turn footer (no height, its
+/// action row in the gap) follows it; anything else takes the composer gap.
+export function tailGap(last: number, beforeLast: number, footerAfter = false): number {
+  if (footerAfter) return TRANSCRIPT_BLOCK_GAP;
   if (last === MARK_INDICATOR && beforeLast === MARK_PROMPT) return TRANSCRIPT_BLOCK_GAP;
   if (last === MARK_PROMPT || last === MARK_MESSAGE) return TRANSCRIPT_BLOCK_GAP;
   return TRANSCRIPT_COMPOSER_GAP;
+}
+
+/// Whether a turn footer follows the last drawn row: only the trailing rows that draw nothing.
+export function footerAfter(marks: Uint8Array | undefined, heights: Float64Array): boolean {
+  if (!marks) return false;
+  for (let index = heights.length - 1; index >= 0 && heights[index] === 0; index -= 1)
+    if (marks[index] === MARK_FOOTER) return true;
+  return false;
 }

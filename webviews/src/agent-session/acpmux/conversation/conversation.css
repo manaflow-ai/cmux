@@ -4185,10 +4185,8 @@ article.acpmux-turnSummary:not(:has(.cv-turn-actions--failed, .cv-turn-actions--
   inset-inline: calc(-1 * var(--cv-action-overhang));
   top: calc((var(--grid-gap-block) - var(--cv-meta-row)) / 2);
 }
-/* The final gap is 16; overlay the control box upward so its glyph stays inside that gap. */
-.acpmux-turnSummary.acpmux-row--last-footer .cv-turn-actions {
-  top: calc((var(--grid-gap-composer) - var(--cv-meta-row)) / 2);
-}
+/* The last footer's gap to the composer is the block gap too (transcriptGrid.ts tailGap), so its
+   glyphs keep the same 4 under the message as every other footer. */
 
 /* An unread steer shows only Send now and remove, with the same quiet height as hover actions. */
 .cv-user__pending {

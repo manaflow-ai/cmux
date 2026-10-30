@@ -192,13 +192,35 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
           const message = await rectOf(page, '[data-row-id="grid-message"] .cv-md');
           const composer = await rectOf(page, ".acpmux-composer-box");
           await page.locator('[data-row-id="grid-message"] .cv-md').hover();
-          await page.waitForFunction(() => {
-            const actions = document.querySelector('[data-row-id="grid-message"] .cv-reply-actions, .cv-turn-actions');
-            return actions && getComputedStyle(actions).opacity === "1";
-          });
+          const shown = await page
+            .waitForFunction(
+              () =>
+                [...document.querySelectorAll(".cv-reply-actions, .cv-turn-actions")].some(
+                  (el) => getComputedStyle(el).opacity === "1",
+                ),
+              undefined,
+              { timeout: 5_000 },
+            )
+            .then(() => true)
+            .catch(() => false);
+          if (!shown)
+            throw new Error(
+              `No action row shown: ${await page.evaluate(() =>
+                JSON.stringify(
+                  [...document.querySelectorAll(".acpmux-row")].map((row) => ({
+                    id: row.getAttribute("data-row-id"),
+                    cls: row.className,
+                    revealed: row.hasAttribute("data-turn-revealed"),
+                    actions: [...row.querySelectorAll(".cv-reply-actions, .cv-turn-actions")].map(
+                      (el) => getComputedStyle(el).opacity,
+                    ),
+                  })),
+                ),
+              )}`,
+            );
           const glyph = await rectOf(
             page,
-            '[data-row-id="grid-message"] .cv-reply-actions .cv-iconbtn svg, .acpmux-turnSummary .cv-turn-actions .cv-iconbtn svg',
+            ':is([data-row-id="grid-message"] .cv-reply-actions, .acpmux-turnSummary .cv-turn-actions) svg',
           );
           const after = await rectOf(page, '[data-row-id="grid-message"] .cv-md');
           const gap = composer.top - message.bottom;
