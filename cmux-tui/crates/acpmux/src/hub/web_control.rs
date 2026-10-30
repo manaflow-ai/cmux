@@ -131,18 +131,22 @@ impl Hub {
             for w in writes {
                 match w {
                     ModeWrite::Modes(v) => m.modes = Some(v),
-                    ModeWrite::CurrentMode(v) => match m.modes.as_mut() {
-                        Some(modes) => modes["currentModeId"] = v,
+                    ModeWrite::CurrentMode(v) => {
+                        let written =
+                            m.modes.as_mut().is_some_and(|modes| modes.set("currentModeId", v.clone()));
                         // A harness that declared no modes reports one: kept
                         // apart (clients read `modes`), for the asking check.
-                        None => {
+                        // Modes that are not an object (a harness's `session/new` answer is not
+                        // checked) hold nothing to write into, so they count as no modes: an
+                        // `IndexMut` write there panicked under this meta lock and poisoned it.
+                        if !written {
                             *session
                                 .floor
                                 .undeclared_mode
                                 .lock()
                                 .unwrap_or_else(|e| e.into_inner()) = v.as_str().map(str::to_owned);
                         }
-                    },
+                    }
                     ModeWrite::ConfigOptions(v) => m.config_options = Some(v),
                 }
             }
