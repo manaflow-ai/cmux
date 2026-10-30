@@ -20,7 +20,8 @@ extension SidebarListViewComponents {
         groupSubtrees = [:]
         sections = [:]
         listItems = [:]
-        for section in listSections {
+        // The sections the layout draws: a workspace id two machines list is the first one's row, content and place alike.
+        for section in SidebarLayout.listingEachWorkspaceOnce(listSections) {
             sections[section.id] = section
             for node in section.nodes {
                 switch node {
