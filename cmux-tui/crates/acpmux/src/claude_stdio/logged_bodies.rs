@@ -34,18 +34,18 @@ pub fn leave_out_bodies(kind: &str, line: &mut Value) {
         return;
     }
     let Some(fields) = line.as_object_mut() else { return };
-    let mut left_out = 0;
+    let mut left_out: usize = 0;
     for key in COPIES {
-        left_out += fields.remove(key).map_or(0, |v| bytes(&v));
+        left_out = left_out.saturating_add(fields.remove(key).map_or(0, |v| bytes(&v)));
     }
     if let Some(content) = fields.get_mut("message").and_then(|m| m.get_mut("content")) {
         match content {
             Value::String(text) if !text.is_empty() => {
-                left_out += bytes(&Value::String(std::mem::take(text)));
+                left_out = left_out.saturating_add(bytes(&Value::String(std::mem::take(text))));
             }
             Value::Array(blocks) => {
                 for block in blocks.iter_mut().filter_map(Value::as_object_mut) {
-                    left_out += keep_only(block);
+                    left_out = left_out.saturating_add(keep_only(block));
                 }
             }
             _ => {}
@@ -61,11 +61,11 @@ pub fn leave_out_bodies(kind: &str, line: &mut Value) {
 
 /// Removes every field of `block` but [`BLOCK_KEEPS`]; the bytes removed.
 fn keep_only(block: &mut Map<String, Value>) -> usize {
-    let mut removed = 0;
+    let mut removed: usize = 0;
     block.retain(|key, value| {
         let keep = BLOCK_KEEPS.contains(&key.as_str());
         if !keep {
-            removed += key.len() + bytes(value);
+            removed = removed.saturating_add(key.len()).saturating_add(bytes(value));
         }
         keep
     });
