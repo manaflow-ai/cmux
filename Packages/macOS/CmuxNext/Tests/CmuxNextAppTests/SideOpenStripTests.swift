@@ -163,6 +163,10 @@ import Testing
             defer { withExtendedLifetime(state) { pane.teardown() } }
             let outbound = OutboundTab.begin(in: pane, holdSelectionUntilLanded: true)
             for event in events {
+                let showsFailedOpen = switch event {
+                case .fails, .cancels, .pageRejected, .timeout: true
+                default: false
+                }
                 switch event {
                 case .sourceListsTab:
                     services.daemon.store.apply(snapshot: Self.homeDock([Self.home, Self.link]))
@@ -178,7 +182,8 @@ import Testing
                     try await Task.sleep(for: .seconds(2.1))
                     _ = Self.listed(pane)
                 }
-                #expect(Self.listed(pane).allSatisfy { $0 == Self.home }, "\(name): outbound tab appeared before the move completed")
+                let expected = showsFailedOpen ? [Self.home, Self.link] : [Self.home]
+                #expect(Self.listed(pane) == expected, "\(name): unexpected strip state after \(String(describing: event))")
             }
             if events.contains(where: { if case .sourceDropsTab = $0 { true } else { false } }) {
                 #expect(OutboundTab.count(in: pane) == 0, "\(name): source drop did not release the hold")
