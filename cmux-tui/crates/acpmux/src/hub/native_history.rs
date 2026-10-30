@@ -222,14 +222,46 @@ pub(crate) async fn handle(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcE
     if before >= MAX_BEFORE {
         return Err(RpcError::invalid_params("before is past the 16 GiB a cursor can name"));
     }
+    // Before cursor marks shipped, the daemon persisted only `{before}`. Upgrade only an exact
+    // cursor emitted by this chat's own native_history seed; an arbitrary unmarked number remains
+    // refused. Legacy cursors cannot prove file identity, so the boundary is marked now and the
+    // normal bounded validation applies to subsequent pages.
+    let mark = match params.get("mark") {
+        Some(Value::String(mark)) if !mark.is_empty() => Some(mark.clone()),
+        Some(Value::Null) | None => None,
+        Some(_) => return Err(stale()),
+    };
     let file = transcript(hub, &session)
         .await
         .ok_or_else(|| RpcError::invalid_params("the chat has no Claude Code transcript"))?;
     let _turn = READS.acquire().await.map_err(|e| RpcError::internal(e.to_string()))?;
-    let mark = params.get("mark").and_then(Value::as_str).map(str::to_owned).ok_or_else(stale)?;
     let session = session.clone();
+    let hub = hub.clone();
     tokio::task::spawn_blocking(move || {
         let mut input = std::fs::File::open(&file).map_err(|_| stale())?;
+        let mark = match mark {
+            Some(mark) => mark,
+            None => {
+                let mut issued = false;
+                hub.store
+                    .scan_kinds(&session.id, &["native_history"], &mut |event| {
+                        if event.dir == "mux"
+                            && event.msg.get("before").and_then(Value::as_u64) == Some(before)
+                            && event.msg.get("mark").is_none_or(Value::is_null)
+                        {
+                            issued = true;
+                            false
+                        } else {
+                            true
+                        }
+                    })
+                    .map_err(|_| stale())?;
+                if !issued {
+                    return Err(stale());
+                }
+                self::mark(&mut input, before).ok_or_else(stale)?
+            }
+        };
         if !mark_holds(&mut input, before, &mark) {
             return Err(stale());
         }

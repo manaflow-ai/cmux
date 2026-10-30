@@ -45,8 +45,7 @@ pub enum EventKinds {
 #[schemars(deny_unknown_fields)]
 pub struct AttachParams {
     pub session_id: String,
-    /// Answer the page from the store while restart-time log restoration runs. The session detail
-    /// can be stale until that load finishes; the event stream carries the updates.
+    /// Wait for restart-time log restoration before answering; false serves the page immediately.
     pub wait_logs: Option<bool>,
     pub kinds: Option<EventKinds>,
     /// Send every matching record as `_acpmux/event`; else the agent's

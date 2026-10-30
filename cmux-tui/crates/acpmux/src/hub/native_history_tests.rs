@@ -240,6 +240,60 @@ async fn a_cursor_into_a_replaced_transcript_is_refused() {
     let _ = std::fs::remove_dir_all(home);
 }
 
+/// The pre-mark daemon persisted only a byte cursor. Opening that chat after upgrading must
+/// still reach its older turns, and the first reply upgrades subsequent reads to marked cursors.
+#[tokio::test]
+async fn a_persisted_legacy_seed_pages_and_returns_a_mark() {
+    let home = home("legacy");
+    let hub = hub(&home);
+    let file = home.join("projects/-work/s1.jsonl");
+    transcript(&file, 700, 16);
+    let session = hub.resolve("chat").unwrap();
+    let before =
+        crate::adopt_replay::newest_claude_page(&file, crate::adopt_replay::PAGE_TURNS).start;
+    hub.append(&session, "mux", "native_history", json!({"family": "claude", "before": before}));
+    for params in [
+        json!({"sessionId": "chat", "before": before}),
+        json!({"sessionId": "chat", "before": before, "mark": null}),
+    ] {
+        let reply = handle(&hub, &params).await.unwrap();
+        let prompts = prompts_of(reply["events"].as_array().unwrap());
+        assert_eq!(prompts.first().map(String::as_str), Some("prompt 300"));
+        assert_eq!(prompts.last().map(String::as_str), Some("prompt 499"));
+        let cursor = next(&reply);
+        assert!(cursor.0 > 0 && !cursor.1.is_empty());
+        let older = page(&hub, &cursor).await;
+        assert!(older["before"].as_u64().unwrap() < cursor.0);
+        // Only the persisted unmarked seed is eligible, not a page's newly issued cursor.
+        assert!(handle(&hub, &json!({"sessionId": "chat", "before": cursor.0})).await.is_err());
+    }
+    for params in [
+        json!({"sessionId": "chat", "before": before - 1}),
+        json!({"sessionId": "chat", "before": before, "mark": 42}),
+        json!({"sessionId": "chat", "before": before, "mark": ""}),
+        json!({"sessionId": "chat", "before": before, "mark": "invalid"}),
+    ] {
+        let refused = handle(&hub, &params).await.unwrap_err();
+        assert_eq!(refused.data.as_ref().unwrap()["reason"], "transcriptRead.stale");
+    }
+    let _ = std::fs::remove_dir_all(home);
+}
+
+#[tokio::test]
+async fn a_marked_seed_cannot_be_downgraded_to_an_unmarked_cursor() {
+    let home = home("legacy-downgrade");
+    let hub = hub(&home);
+    let file = home.join("projects/-work/s1.jsonl");
+    transcript(&file, 260, 16);
+    let session = hub.resolve("chat").unwrap();
+    hub.replay_adopted(&session, "claude", file).await;
+    let (_, cursor) = seeded(&hub);
+    let refused =
+        handle(&hub, &json!({"sessionId": "chat", "before": cursor.0})).await.unwrap_err();
+    assert_eq!(refused.data.as_ref().unwrap()["reason"], "transcriptRead.stale");
+    let _ = std::fs::remove_dir_all(home);
+}
+
 /// The PR's harness (run with `--ignored --nocapture`): a ~400 MB synthetic Claude Code
 /// transcript of tool-heavy turns, adopted, then its older pages read one after another; each
 /// page is timed from the request to its reply.
