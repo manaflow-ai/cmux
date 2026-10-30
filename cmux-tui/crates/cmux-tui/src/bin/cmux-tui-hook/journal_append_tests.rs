@@ -165,6 +165,8 @@ fn hooks_refused_at_once_do_not_retry_in_lockstep() {
 enum Reply {
     Receipt,
     Busy,
+    /// The live daemon's own busy line: no `retry_after_ms`.
+    BusyBare,
     /// A durable rejection (`ok: false`, not retryable).
     Reject,
     /// Close the connection without an answer.
@@ -248,6 +250,15 @@ impl Daemon {
                                     receipt_line(&id)
                                 }
                                 Reply::Busy => refused_line(RETRY_AFTER_MS),
+                                Reply::BusyBare => format!(
+                                    "{}\n",
+                                    json!({
+                                        "protocol": "cmux.protocol/2",
+                                        "type": "refused",
+                                        "code": "server.busy",
+                                        "message": "the session is at its connection limit; retry",
+                                    })
+                                ),
                                 Reply::Reject => format!(
                                     "{}\n",
                                     json!({
@@ -271,7 +282,7 @@ impl Daemon {
                             if writer.write_all(answer.as_bytes()).is_err() {
                                 return;
                             }
-                            if matches!(reply, Reply::Busy) {
+                            if matches!(reply, Reply::Busy | Reply::BusyBare) {
                                 // The live daemon closes a refused connection.
                                 return;
                             }
@@ -411,7 +422,7 @@ fn busy_refusals_are_retried_with_backoff_not_a_spin() {
     let socket = root.path().join("d.sock");
     let refusing_for = Duration::from_millis(400);
     let policy = move |_: &str, _: usize, since: Duration| {
-        if since < refusing_for { Reply::Busy } else { Reply::Receipt }
+        if since < refusing_for { Reply::BusyBare } else { Reply::Receipt }
     };
     let daemon = Daemon::start(&socket, None, Arc::new(policy));
     let (id, encoded) = hook_request_in("terminal_drop");

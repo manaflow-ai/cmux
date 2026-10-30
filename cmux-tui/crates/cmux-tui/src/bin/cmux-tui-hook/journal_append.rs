@@ -292,8 +292,11 @@ impl Sender {
             })?),
         };
         // Set while the peer surely still holds the connection: once a daemon
-        // has answered and closed, macOS refuses the option.
+        // has answered and closed, macOS refuses the option. The write gets
+        // the same bound: a daemon that never reads a large line (a long
+        // `live_prompt`) is one that never answers it.
         let _ = connection.get_ref().set_read_timeout(Some(RECEIPT_WAIT));
+        let _ = connection.get_mut().set_write_timeout(Some(RECEIPT_WAIT));
         let outcome = exchange(&mut connection, line, request_id, on_written);
         if !matches!(outcome, Err(Try::Again(_) | Try::Unanswered(_))) {
             // The daemon answered on it: the next line goes on the same one.
@@ -314,6 +317,12 @@ fn exchange(
     if let Err(error) = written {
         // A daemon at its limit writes its busy line and closes at once, so
         // the write can fail while the busy line waits to be read.
+        let stalled = matches!(error.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut);
+        if stalled {
+            return Err(Try::Unanswered(
+                anyhow!(error).context("the daemon did not read the hook event"),
+            ));
+        }
         let closed =
             matches!(error.kind(), io::ErrorKind::BrokenPipe | io::ErrorKind::ConnectionReset);
         let busy = closed.then(|| read_reply(connection).ok().flatten()).flatten();

@@ -21,7 +21,9 @@ use crate::mux::Mux;
 use crate::platform::transport;
 
 /// Connections parked while the owner restores. At the cap the oldest one is
-/// closed: it is almost always a `server ensure` probe that already gave up
+/// refused with the busy line (`listen::refuse_busy`), so a client that
+/// already wrote a request knows to retry it: it is almost always a
+/// `server ensure` probe that already gave up
 /// (each probe parks one connection per ~2 s identify timeout), and the
 /// newest probe must stay parked to read as a live owner. Half the server's
 /// connection permits, so attach can serve every parked one.
@@ -48,17 +50,25 @@ impl SessionSlot {
         &self,
         stream: Box<dyn transport::Stream>,
     ) -> Option<(ServedSession, Box<dyn transport::Stream>)> {
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        match &mut *state {
-            SlotState::Served(session) => Some((session.clone(), stream)),
-            SlotState::Restoring(parked) => {
-                if parked.len() >= MAX_PARKED_CONNECTIONS {
-                    drop(parked.pop_front());
+        let evicted = {
+            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            match &mut *state {
+                SlotState::Served(session) => return Some((session.clone(), stream)),
+                SlotState::Restoring(parked) => {
+                    let evicted = (parked.len() >= MAX_PARKED_CONNECTIONS)
+                        .then(|| parked.pop_front())
+                        .flatten();
+                    parked.push_back(stream);
+                    evicted
                 }
-                parked.push_back(stream);
-                None
             }
+        };
+        // Outside the slot lock: the busy line's write is bounded, but the
+        // accept loop must not hold the lock while it waits on a client.
+        if let Some(evicted) = evicted {
+            super::listen::refuse_busy(evicted);
         }
+        None
     }
 
     /// Attach the session and serve every parked connection.
