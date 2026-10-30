@@ -343,6 +343,8 @@ type Props = {
   environments?: boolean;
   /// A started chat's folder menu: a new chat in `cwd`, in a tab of its own.
   onNewChat?(cwd: string): void;
+  /// A trust question takes precedence over an open destination picker.
+  closeOnTrustAsk?: boolean;
   /// Shell mode (`!` first): runs `command` on the chat's machine in its folder, its block in the
   /// transcript; returns the run, which the next prompt carries as a removable chip. Unset, `!` is
   /// plain text.
@@ -424,6 +426,7 @@ export function Composer({
   localName,
   environments,
   onNewChat,
+  closeOnTrustAsk = false,
   onShell,
   onShellInterrupt,
   onMode,
@@ -1756,6 +1759,7 @@ export function Composer({
       }
       localName={localName}
       onNewChat={onNewChat}
+      closeOnTrustAsk={closeOnTrustAsk}
     />
   ) : keepLocationSlot ? (
     <div className="acpmux-composer-strip-placeholder" aria-hidden="true" />
