@@ -205,10 +205,12 @@ class PartialOutageTests(unittest.TestCase):
     started) still make the run release health unknown once a read used every
     retry: a failed tip-time read could otherwise let the guard call a stale feed fresh."""
 
-    def main_with(self, failing, guard):
+    def main_with(self, failing, guard, status=502, body=None):
         def urlopen(request, timeout=None):
             if any(fragment in request.full_url for fragment in failing):
-                raise urllib.error.HTTPError(request.full_url, 502, "Bad Gateway", {}, None)
+                if body is not None:
+                    return Response(body)
+                raise urllib.error.HTTPError(request.full_url, status, "error", {}, None)
             if "/git/ref/heads/" in request.full_url:
                 return Response(json.dumps({"object": {"sha": "b" * 40}}).encode())
             if "/releases/tags/" in request.full_url:
@@ -254,6 +256,29 @@ class PartialOutageTests(unittest.TestCase):
         code, summary = self.main_with(["/actions/runs/9/jobs"], guard)
         self.assertEqual(code, watch.RELEASE_HEALTH_UNKNOWN)
         self.assertIn("/actions/runs/9/jobs", summary)
+
+
+    def test_a_denied_or_hidden_release_read_is_unknown(self):
+        # A 401, or the 404 GitHub returns for a resource the token cannot see, is not
+        # retried; published_commit swallows it, so it must still be recorded.
+        for status in (401, 404):
+            with self.subTest(status=status):
+                code, summary = self.main_with(["/releases/tags/nightly-next"], lambda gh: "fresh", status=status)
+                self.assertEqual(code, watch.RELEASE_HEALTH_UNKNOWN)
+                self.assertIn(f"HTTP Error {status}", summary)
+
+    def test_a_malformed_release_response_is_unknown(self):
+        code, summary = self.main_with(["/releases/tags/nightly-next"], lambda gh: "fresh", body=b"<html>")
+        self.assertEqual(code, watch.RELEASE_HEALTH_UNKNOWN)
+        self.assertIn("/releases/tags/nightly-next", summary)
+
+    def test_a_compare_404_is_an_answer_not_an_outage(self):
+        # The compare API 404s for a head it cannot compare; next_carries_tip reads that as
+        # "does not carry the tip" and the guard goes on, so health is still known.
+        def guard(gh):
+            self.assertFalse(watch.next_carries_tip(gh, {"head_sha": "c" * 40}, "b" * 40))
+            return "dispatched"
+        self.assertEqual(self.main_with(["/compare/"], guard, status=404), (0, ""))
 
 
 class RetryTests(unittest.TestCase):
