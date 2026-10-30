@@ -26,6 +26,17 @@ extension SidebarListViewComponents {
 
     /// A pointer move of a held group drag: the slot under the card's centre; the rows move only when it changes.
     func updateGroupDrag(_ drag: Drag) {
+        if displayed.hostHeadersShowing {
+            drag.target = nil
+            drag.docTarget = nil
+            if var group = drag.group {
+                group.slot = group.plan.origin
+                drag.group = group
+            }
+            drag.lift.setRefused(true)
+            showDragLayout()
+            return
+        }
         if drag.group.map({ $0.revision != model.sectionsRevision }) == true { rebaseGroupDrag(drag) }
         guard let group = drag.group else { return }
         let slot = group.plan.slot(cardCentre: groupCardCentre(drag, group))
