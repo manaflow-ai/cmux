@@ -83,6 +83,29 @@ pub(crate) fn home_lost() -> bool {
     HOME_LOST.load(std::sync::atomic::Ordering::SeqCst)
 }
 
+/// The home this daemon holds, as the folder it locked: its device and inode (`daemon.rs`).
+static HELD_HOME: std::sync::OnceLock<(u64, u64)> = std::sync::OnceLock::new();
+
+/// The device and inode of `path` itself (never a link's target).
+#[cfg(unix)]
+fn folder_identity(path: &Path) -> Option<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::symlink_metadata(path).ok().map(|m| (m.dev(), m.ino()))
+}
+
+#[cfg(not(unix))]
+fn folder_identity(_path: &Path) -> Option<(u64, u64)> {
+    None
+}
+
+/// Records [`home`] as the folder this daemon holds, once it holds its lock. A process that
+/// never calls it (a CLI command) checks no identity.
+pub fn hold_home() {
+    if let Some(identity) = folder_identity(&home()) {
+        let _ = HELD_HOME.set(identity);
+    }
+}
+
 /// Refuses a write under a lost home ([`mark_home_lost`]): a shutdown's last saves would
 /// otherwise make a removed home again, or write this daemon's state into its replacement.
 pub(crate) fn refuse_lost_home(path: &Path) -> Result<()> {
