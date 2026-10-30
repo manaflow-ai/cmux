@@ -1,7 +1,4 @@
-@testable import CmuxNextApp
 @testable import CmuxNextCloud
-import CmuxNextDaemon
-import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -58,16 +55,5 @@ struct CloudAppLinkOwnerAnswerTests {
         let link = CloudLinkSession(key: Self.key, resolver: Self.resolver(nil))
         _ = try await link.connect(origin: .user)
         #expect(await link.ownerLink == nil)
-    }
-
-    @Test func theAppLinkSessionAnswersForItsOwnLink() async throws {
-        let appLink = CloudLinkSession(key: Self.key, resolver: Self.resolver("owner"))
-        let session = CloudMachineSession(machine: CloudMachine(id: Self.key.machine, displayName: "App VM"), appLink: appLink,
-                                          localIdentity: { nil }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
-        let ownerLink = session.ownerLink
-        #expect(await ownerLink() == nil, "not connected")
-        _ = try await appLink.connect(origin: .user)
-        #expect(await ownerLink() == (await appLink.ownerLink))
-        #expect(await ownerLink() != nil)
     }
 }

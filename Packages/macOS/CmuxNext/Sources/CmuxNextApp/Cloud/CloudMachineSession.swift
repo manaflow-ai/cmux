@@ -86,15 +86,6 @@ final class CloudMachineSession {
         emptyWorkspaces = EmptyWorkspaceRepair(daemon: daemon)
     }
 
-    /// The Cloud API's owner answer on the link a call goes over (the legacy link's or the app
-    /// link's own, never the guest's): an app-started chat and a folder-trust call there carry the
-    /// owner word only while it gives the same id before the connection and as the call is sent.
-    var ownerLink: AgentSessionAttachClient.OwnerLink {
-        if let appLink { return { await appLink.ownerLink } }
-        let link = link
-        return { await link?.ownerLink }
-    }
-
     /// Connects (a click passes origin `user`; launch and a resumed machine
     /// connect as `script`). Serializes lifecycle hops so a late pause cannot
     /// kill a resumed link. An app link connects only when it is not up: a
