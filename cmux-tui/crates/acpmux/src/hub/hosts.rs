@@ -1241,9 +1241,8 @@ impl Hub {
                         // during the turn (route_switch.rs): the process ends
                         // now and the next prompt starts it again, resuming
                         // the chat. Not started here: this task runs inside
-                        // the adoption a start itself may run. Not once a
-                        // shutdown began: the agent is the next daemon's.
-                        if !hub.shutting_down() && s.route_switch.swap(false, Ordering::SeqCst) {
+                        // the adoption a start itself may run.
+                        if s.route_switch.swap(false, Ordering::SeqCst) {
                             hub.detach_child(&s).await;
                         }
                         // A Stop ended its agent (`cancel.rs`). Not started again here, for the

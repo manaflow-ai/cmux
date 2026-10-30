@@ -62,6 +62,13 @@ impl Hub {
         // Pooled sessions are hidden, never user sessions: they end with the
         // daemon, alongside the sessions below.
         let ((), kept) = tokio::join!(self.stop_pool(), self.shutdown_sessions());
+        // Nothing this daemon does from here on reaches the log: the next daemon may read it
+        // before this process exits, and finds a turn whose end came later cut, not ended, and
+        // continues it (`restart_resume.rs`). Synced again for what came in after the flush.
+        self.store.seal();
+        if let Err(e) = self.store.flush() {
+            tracing::warn!("store flush failed: {e}");
+        }
         kept
     }
 
