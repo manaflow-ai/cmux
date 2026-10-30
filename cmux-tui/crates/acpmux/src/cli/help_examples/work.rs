@@ -9,7 +9,7 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[
             ("Give review-27310 a task", "acpmux task new review-27310 \"Review #27310\""),
             ("End your task as done", "acpmux task done t-3f9a2c1d --summary \"Merged #27310\""),
-            ("List the tasks this chat gave", "acpmux task ls"),
+            ("List the tasks coord gave", "acpmux task ls --from coord"),
         ],
     ),
     (
@@ -61,8 +61,9 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     (
         "task ls",
         &[
-            ("List the tasks this chat gave", "acpmux task ls"),
-            ("List only the tasks still running", "acpmux task ls --open"),
+            ("From an agent session, list the tasks it gave", "acpmux task ls"),
+            ("From an agent session, list its tasks still running", "acpmux task ls --open"),
+            ("List every task on this daemon", "acpmux task ls --all"),
             ("List the tasks coord gave", "acpmux task ls --from coord"),
         ],
     ),

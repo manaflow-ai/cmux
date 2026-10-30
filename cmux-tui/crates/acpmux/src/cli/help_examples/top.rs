@@ -111,8 +111,9 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                  --checkpoint lane/fix-27310 --attest",
             ),
             (
-                "Start the handoff: send its first message",
-                "acpmux continue --handoff 019a3c2e-7f41-7a2b-9c3d-5e6f7a8b9c0d --start",
+                "Start the handoff at a checked checkpoint: send its first message",
+                "acpmux continue --handoff 019a3c2e-7f41-7a2b-9c3d-5e6f7a8b9c0d \
+                 --checkpoint lane/fix-27310 --attest --start",
             ),
         ],
     ),

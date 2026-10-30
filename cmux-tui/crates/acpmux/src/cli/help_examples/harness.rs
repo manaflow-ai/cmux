@@ -91,10 +91,7 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         "harness run",
         &[
             ("Run a terminal harness here", "acpmux harness run aider"),
-            (
-                "Run it in a repo with another model",
-                "acpmux harness run aider --cwd ~/src/app --model gpt-5",
-            ),
+            ("Run it in a repo", "acpmux harness run aider --cwd ~/src/app"),
         ],
     ),
     (
