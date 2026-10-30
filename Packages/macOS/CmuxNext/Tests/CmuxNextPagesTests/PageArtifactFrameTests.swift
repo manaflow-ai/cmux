@@ -91,8 +91,9 @@ struct PagePassiveFrameNavigationTests {
         let srcdoc = try #require(URL(string: "about:srcdoc"))
         let pageURL = try #require(URL(string: "cmux-page://cmux.artifacts/"))
         let otherPage = try #require(URL(string: "cmux-page://cmux.settings/"))
-        for text in ["https://attacker.example/", "http://127.0.0.1:8080/leak", "file:///tmp/private",
-                     "cmux-page://cmux.artifacts/index.html", "about:blank", "data:text/html,hi"] {
+        let targets: [String] = ["https://attacker.example/", "http://127.0.0.1:8080/leak", "file:///tmp/private",
+                                 "cmux-page://cmux.artifacts/index.html", "about:blank", "data:text/html,hi"]
+        for text in targets {
             let target = try #require(URL(string: text))
             // A link the person clicked inside the saved document, or a meta refresh.
             #expect(PageNavigation.policy(for: target, page: page, userClicked: true, mainFrame: false,

@@ -31,16 +31,20 @@ struct ArtifactsPageProviderTests {
         let provider = Self.provider(log) { _ in ArtifactsReply(status: 200, body: Data(Self.tree.utf8)) }
         _ = try await provider.call("cmux.artifacts.tree", params: ["path": "memory/claude"], context: Self.context)
         _ = try await provider.call("cmux.artifacts.tree", params: [:], context: Self.context)
-        _ = try await provider.call("cmux.artifacts.history", params: ["path": "notes/a.md", "limit": 50], context: Self.context)
-        _ = try await provider.call("cmux.artifacts.file", params: ["path": "notes/a.md", "ref": "abc"], context: Self.context)
-        #expect(await log.reads == [
+        let historyParams: JSONValue = .object(["path": .string("notes/a.md"), "limit": .number(50)])
+        let fileParams: JSONValue = .object(["path": .string("notes/a.md"), "ref": .string("abc")])
+        _ = try await provider.call("cmux.artifacts.history", params: historyParams, context: Self.context)
+        _ = try await provider.call("cmux.artifacts.file", params: fileParams, context: Self.context)
+        let history: [URLQueryItem] = [URLQueryItem(name: "path", value: "notes/a.md"), URLQueryItem(name: "limit", value: "50")]
+        let file: [URLQueryItem] = [URLQueryItem(name: "ref", value: "abc"), URLQueryItem(name: "path", value: "notes/a.md")]
+        let expected: [ArtifactsRead] = [
             ArtifactsRead(path: "/v1/artifacts/tree", query: [URLQueryItem(name: "path", value: "memory/claude")]),
             ArtifactsRead(path: "/v1/artifacts/tree", query: []),
-            ArtifactsRead(path: "/v1/artifacts/history", query: [URLQueryItem(name: "path", value: "notes/a.md"),
-                                                                 URLQueryItem(name: "limit", value: "50")]),
-            ArtifactsRead(path: "/v1/artifacts/file", query: [URLQueryItem(name: "ref", value: "abc"),
-                                                              URLQueryItem(name: "path", value: "notes/a.md")]),
-        ])
+            ArtifactsRead(path: "/v1/artifacts/history", query: history),
+            ArtifactsRead(path: "/v1/artifacts/file", query: file),
+        ]
+        let reads = await log.reads
+        #expect(reads == expected)
     }
 
     @Test func treeAnswerGoesBackAsIs() async throws {
@@ -56,7 +60,11 @@ struct ArtifactsPageProviderTests {
             ArtifactsReply(status: 200, body: Data("# Notes\n".utf8), contentType: "text/markdown", commit: "abc")
         }
         let file = try await provider.call("cmux.artifacts.file", params: ["path": "notes/a.md"], context: Self.context)
-        #expect(file == ["path": "notes/a.md", "size": 8, "contentType": "text/markdown", "commit": "abc", "content": "# Notes\n"])
+        let expected: JSONValue = .object([
+            "path": .string("notes/a.md"), "size": .number(8), "contentType": .string("text/markdown"),
+            "commit": .string("abc"), "content": .string("# Notes\n"),
+        ])
+        #expect(file == expected)
     }
 
     @Test func bytesThatAreNotTextComeBackAsBase64() async throws {
@@ -64,7 +72,7 @@ struct ArtifactsPageProviderTests {
         let bytes = Data([0xFF, 0xD8, 0xFF, 0x00])
         let provider = Self.provider(log) { _ in ArtifactsReply(status: 200, body: bytes, contentType: "image/jpeg", commit: "abc") }
         let file = try await provider.call("cmux.artifacts.file", params: ["path": "a.jpg"], context: Self.context)
-        #expect(file["encoding"] == "base64")
+        #expect(file["encoding"] == JSONValue.string("base64"))
         #expect(file["content"]?.stringValue == bytes.base64EncodedString())
     }
 
@@ -73,21 +81,27 @@ struct ArtifactsPageProviderTests {
         let body = Data(count: ArtifactsPageProvider.previewLimit + 1)
         let provider = Self.provider(log) { _ in ArtifactsReply(status: 200, body: body) }
         let file = try await provider.call("cmux.artifacts.file", params: ["path": "big.bin"], context: Self.context)
-        #expect(file["tooLarge"] == true)
+        #expect(file["tooLarge"] == JSONValue.bool(true))
         #expect(file.objectValue?.keys.contains("content") == false)
     }
 
-    @Test(arguments: [
-        ("cmux.artifacts.file", [:] as JSONValue),
-        ("cmux.artifacts.file", ["path": ""]),
-        ("cmux.artifacts.tree", ["path": 7]),
-        ("cmux.artifacts.tree", ["ref": "main\nHost: evil"]),
-        ("cmux.artifacts.history", ["limit": 0]),
-        ("cmux.artifacts.history", ["limit": 101]),
-        ("cmux.artifacts.history", ["limit": 1.5]),
-        ("cmux.artifacts.tree", ["path": .string(String(repeating: "a", count: 4097))]),
-    ])
-    func badParamsReadNothing(op: String, params: JSONValue) async throws {
+    /// Each op with params it refuses. Spelled as explicit cases: a literal list of mixed
+    /// `JSONValue` literals is too slow for the type checker.
+    nonisolated static let badParams: [BadParams] = [
+        BadParams(op: "cmux.artifacts.file", params: .object([:])),
+        BadParams(op: "cmux.artifacts.file", params: .object(["path": .string("")])),
+        BadParams(op: "cmux.artifacts.tree", params: .object(["path": .number(7)])),
+        BadParams(op: "cmux.artifacts.tree", params: .object(["ref": .string("main\nHost: evil")])),
+        BadParams(op: "cmux.artifacts.history", params: .object(["limit": .number(0)])),
+        BadParams(op: "cmux.artifacts.history", params: .object(["limit": .number(101)])),
+        BadParams(op: "cmux.artifacts.history", params: .object(["limit": .number(1.5)])),
+        BadParams(op: "cmux.artifacts.tree", params: .object(["path": .string(String(repeating: "a", count: 4097))])),
+    ]
+
+    @Test(arguments: badParams)
+    func badParamsReadNothing(_ bad: BadParams) async throws {
+        let op = bad.op
+        let params = bad.params
         let log = ReadLog()
         let provider = Self.provider(log) { _ in ArtifactsReply(status: 200, body: Data(Self.tree.utf8)) }
         let error = await #expect(throws: PageError.self) {
@@ -118,13 +132,15 @@ struct ArtifactsPageProviderTests {
         #expect(await log.reads.isEmpty)
     }
 
-    @Test(arguments: [
+    nonisolated static let refusals: [(Int, String)] = [
         (401, "cmux.artifacts.signed_out"),
         (403, "cmux.artifacts.signed_out"),
         (404, "cmux.artifacts.not_found"),
         (409, "cmux.artifacts.failed"),
         (500, "cmux.artifacts.failed"),
-    ])
+    ]
+
+    @Test(arguments: refusals)
     func refusalsBecomeTheAppsCodes(status: Int, code: String) async throws {
         let log = ReadLog()
         let provider = Self.provider(log) { _ in ArtifactsReply(status: status, body: Data(#"{"secret":"x"}"#.utf8)) }
@@ -157,18 +173,21 @@ struct ArtifactsPageProviderTests {
 
 /// The bearer only ever goes to a platform deployment: an override elsewhere is ignored.
 struct ArtifactsAPIBaseTests {
-    @Test(arguments: [
+    nonisolated static let platformOverrides: [String] = [
         "https://cmux-platform-development.debussy.workers.dev",
         "https://cmux-platform-staging.debussy.workers.dev/",
         "http://localhost:8787",
         "http://127.0.0.1:8787",
-    ])
+    ]
+
+    @Test(arguments: platformOverrides)
     func platformOverridesApply(text: String) throws {
         let url = try #require(URL(string: text))
-        #expect(ArtifactsPageProvider.apiBaseURL(environment: ["CMUX_NEXT_ARTIFACTS_API_URL": text]) == url)
+        let base = ArtifactsPageProvider.apiBaseURL(environment: ["CMUX_NEXT_ARTIFACTS_API_URL": text])
+        #expect(base == url)
     }
 
-    @Test(arguments: [
+    nonisolated static let otherOverrides: [String] = [
         "https://evil.example",
         "http://cmux-platform-development.debussy.workers.dev",
         "https://debussy.workers.dev.evil.example",
@@ -178,9 +197,12 @@ struct ArtifactsAPIBaseTests {
         "http://192.168.1.4:8787",
         "file:///tmp/x",
         "not a url",
-    ])
+    ]
+
+    @Test(arguments: otherOverrides)
     func otherOverridesFallBackToDevelopment(text: String) {
-        #expect(ArtifactsPageProvider.apiBaseURL(environment: ["CMUX_NEXT_ARTIFACTS_API_URL": text]) == ArtifactsPageProvider.developmentAPI)
+        let base = ArtifactsPageProvider.apiBaseURL(environment: ["CMUX_NEXT_ARTIFACTS_API_URL": text])
+        #expect(base == ArtifactsPageProvider.developmentAPI)
     }
 
     @Test func noOverrideIsDevelopment() {
@@ -195,6 +217,14 @@ struct ArtifactsAPIBaseTests {
         let injected = ArtifactsRead(path: "/v1/artifacts/tree", query: [URLQueryItem(name: "path", value: "x&ref=evil#y")])
         let other = try #require(ArtifactsPageProvider.url(injected, base: base))
         let items = try #require(URLComponents(url: other, resolvingAgainstBaseURL: false)?.queryItems)
-        #expect(items == [URLQueryItem(name: "path", value: "x&ref=evil#y")])
+        let expected: [URLQueryItem] = [URLQueryItem(name: "path", value: "x&ref=evil#y")]
+        #expect(items == expected)
     }
+}
+
+/// One refused call for ``ArtifactsPageProviderTests/badParamsReadNothing(_:)``.
+nonisolated struct BadParams: Sendable, CustomTestStringConvertible {
+    let op: String
+    let params: JSONValue
+    var testDescription: String { "\(op) \(params.compactText.prefix(60))" }
 }
