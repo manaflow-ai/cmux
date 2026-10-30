@@ -10,3 +10,5 @@
 c545d58594c87be15a1d881790a4d6ee6a3f13d0068ce55141038a8cb779fc5c glaeda #1740, the simulator-step hook (minis run it since 2026-10-29)
 f3e62a201f4c12b13424463044a973780d0347cd9387b8c9cd5d4b316ed4b1eb glaeda #1743, a nightly signing job on the nightly slot drains a busy mini (SIGNING_DRAIN_WAIT_S)
 945eed37edb1666b505d9ab2520892650b58a3447386d4ccc51ee49d8fee3667 glaeda #1745, session runners listen through CPU saturation (drain hook pin regenerated)
+8b5820df6b0f6d49d13a7e3c09e113900630294f7ee7e53a94e5c5837b073d58 glaeda 3e6e184f: runner-hook: SESSION_FIRST, a waiting session job goes first on its mini for 20 minutes (#1746)
+38c7ea11d63f3be3d6b35232da42c1ecc74e8e9dc38d4b038fdfad33caef3f52 glaeda 77b660b7: runner-hook: main's nightly-next canary and launch smoke are nightly jobs (#1747)
