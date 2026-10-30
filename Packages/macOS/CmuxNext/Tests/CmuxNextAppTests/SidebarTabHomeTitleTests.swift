@@ -11,12 +11,15 @@ import Testing
 struct SidebarTabHomeTitleTests {
     /// One workspace whose one terminal tab sits in `cwd`, titled `title` (empty: untitled, as a fresh shell is).
     /// `name` is the person's own name for the tab (a rename).
-    private static func tab(cwd: String, title: String = "", name: String? = nil, machine: MachineID) -> SidebarTab? {
+    /// `agent`: a terminal agent (Claude Code, Codex in a shell) its hooks report on the tab.
+    private static func tab(cwd: String, title: String = "", name: String? = nil, agent: String? = nil,
+                            machine: MachineID) -> SidebarTab? {
         let store = DaemonStore()
         let pane = PaneSnapshot(id: 1, focusedAt: 1, tabs: [TabSnapshot(surface: 1, name: name, title: title, cwd: cwd)])
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
         store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "dev", screens: [screen])]))
         guard let workspace = store.workspaces.first else { return nil }
+        if let agent { workspace.screens.flatMap(\.panes).flatMap(\.tabs).first?.setAgent(AgentStatus(surface: 1, state: .working, agent: agent)) }
         return SidebarMapping.shared.row(workspace, machine: machine,
                                          tabTitle: { TabItemMapping.shared.title($0, fallbackTitle: "Terminal") }).tabs.first
     }
@@ -67,5 +70,11 @@ struct SidebarTabHomeTitleTests {
     @Test func aRenamedTabKeepsItsName() {
         #expect(Self.tab(cwd: "/home/cmux/other", name: "/home/cmux/project", machine: Self.cloud)?.title == "/home/cmux/project")
         #expect(Self.tab(cwd: "/home/cmux", name: "/home/cmux", machine: Self.cloud)?.title == "/home/cmux")
+    }
+
+    /// A terminal running an agent is the agent's tab, whatever its shell titled it: it keeps its title.
+    @Test func aTerminalAgentsTabKeepsItsTitle() {
+        #expect(Self.tab(cwd: "/home/cmux", title: "/home/cmux", agent: "claude", machine: Self.cloud)?.title == "/home/cmux")
+        #expect(Self.tab(cwd: "/home/cmux/app", agent: "codex", machine: Self.cloud)?.title == "/home/cmux/app")
     }
 }
