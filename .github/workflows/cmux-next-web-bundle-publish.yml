@@ -86,28 +86,31 @@ jobs:
           echo "key=$key" >> "$GITHUB_OUTPUT"
           manifest="$RUNNER_TEMP/web-bundle-manifest.json"
           code="$(curl -sS -o "$manifest" -w '%{http_code}' --retry 3 --max-time 60 "https://files.cmux.com/cmux-next-web/$key/manifest.json?verify=$GITHUB_RUN_ID" || true)"
-          if [[ "$code" == 200 ]] && python3 - "$manifest" <<'PY'
+          if [[ "$code" != 200 ]]; then
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          elif python3 - "$manifest" <<'PY'
           import json, sys
           import runpy
+          import os
           manifest = json.load(open(sys.argv[1]))
           key = runpy.run_path("scripts/cmux-next/web-bundle-key.py")
-          raise SystemExit(0 if key["manifest_matches_toolchain"](manifest, "1.4.4", "24.22.1") else 1)
+          raise SystemExit(0 if key["manifest_matches_toolchain"](
+              manifest, os.environ["CMUX_WEB_BUN_VERSION"], os.environ["CMUX_WEB_NODE_VERSION"]
+          ) else 1)
           PY
           then
             echo "published=true" >> "$GITHUB_OUTPUT"
             echo "web bundles for $key are already published with the pinned Bun/Node toolchain" | tee -a "$GITHUB_STEP_SUMMARY"
           else
-            echo "published=false" >> "$GITHUB_OUTPUT"
-            if [[ "$code" == 200 ]]; then
-              echo "the existing manifest for $key has a different toolchain; rebuilding" | tee -a "$GITHUB_STEP_SUMMARY"
-            fi
+            echo "::error::the existing manifest for $key has a different Bun/Node toolchain; refusing immutable-key publication"
+            exit 1
           fi
 
       - name: Setup Bun
         if: steps.key.outputs.published != 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.4"
+          bun-version: ${{ env.CMUX_WEB_BUN_VERSION }}
 
       - name: Give this job its own bun
         if: steps.key.outputs.published != 'true'
@@ -118,7 +121,7 @@ jobs:
         if: steps.key.outputs.published != 'true'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "24.22.1"
+          node-version: ${{ env.CMUX_WEB_NODE_VERSION }}
 
       - name: Build the web bundles
         if: steps.key.outputs.published != 'true'

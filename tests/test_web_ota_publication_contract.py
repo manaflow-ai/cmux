@@ -92,9 +92,16 @@ class WebOTAPublicationContractTests(unittest.TestCase):
         workflow = WORKFLOW.read_text()
         self.assertIn('CMUX_WEB_BUN_VERSION: "1.4.4"', workflow)
         self.assertIn('CMUX_WEB_NODE_VERSION: "24.22.1"', workflow)
+        self.assertIn('bun-version: ${{ env.CMUX_WEB_BUN_VERSION }}', workflow)
+        self.assertIn('node-version: ${{ env.CMUX_WEB_NODE_VERSION }}', workflow)
         self.assertIn('"bun": normalize(subprocess.run(["bun", "--version"]', workflow)
         self.assertIn('"node": normalize(subprocess.run(["node", "--version"]', workflow)
         self.assertIn('manifest_matches_toolchain"]', workflow)
+
+    def test_toolchain_mismatch_fails_immutable_manifest_reuse(self):
+        workflow = WORKFLOW.read_text()
+        self.assertIn('different Bun/Node toolchain; refusing immutable-key publication', workflow)
+        self.assertIn('exit 1', workflow)
 
 
 if __name__ == "__main__":
