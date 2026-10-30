@@ -42,13 +42,18 @@ final class WindowManager {
     var membershipObservation: Task<Void, Never>?
     /// Records connected sessions in the home session (rooms, data-model.md 1.1).
     /// A refused record shows once as a toast on the front window (the machine is not saved for restore).
-    private(set) lazy var sessionRegistrar = SessionRegistrar(machines: services.machines) { [weak self] session, message in
+    private(set) lazy var sessionRegistrar = SessionRegistrar(machines: services.machines, notice: { [weak self] session, message in
         guard let window = self?.active?.window ?? NSApp.mainWindow else { return false }
-        // Until closed: it is the person's only sign that this machine will not be restored.
-        CmuxToastCenter.shared.show(CmuxToast(id: "session-registration.not-saved.\(session)", message: message,
-                                              duration: CmuxToast.untilClosed), in: window)
+        // Until closed or taken back: it is the person's only sign that this machine will not be restored.
+        let handle = CmuxToastCenter.shared.show(CmuxToast(id: "session-registration.not-saved.\(session)", message: message,
+                                                           duration: CmuxToast.untilClosed), in: window)
+        self?.notSavedToasts[session] = handle
         return true
-    }
+    }, withdraw: { [weak self] session in
+        self?.notSavedToasts.removeValue(forKey: session)?.dismiss()
+    })
+    /// The "not saved for restore" toast shown for each session, so it can be taken back.
+    private var notSavedToasts: [String: CmuxToastHandle] = [:]
     /// New workspaces a window asked for before the daemon reported them:
     /// reconcile places each in that window (opening it when it is not
     /// registered yet) and selects it.

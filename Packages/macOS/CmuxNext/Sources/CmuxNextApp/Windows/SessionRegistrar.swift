@@ -23,9 +23,11 @@ final class SessionRegistrar {
     private var computerName: String?
 
 
-    init(machines: MachineRegistry, notice: @escaping @MainActor (_ session: String, _ message: String) -> Bool) {
+    init(machines: MachineRegistry, notice: @escaping @MainActor (_ session: String, _ message: String) -> Bool,
+         withdraw: @escaping @MainActor (_ session: String) -> Void) {
         self.machines = machines
-        registration = SessionRegistration<SessionRegistrationRecord>(policy: .sessionRegistration, notice: notice)
+        registration = SessionRegistration<SessionRegistrationRecord>(policy: .sessionRegistration, notice: notice,
+                                                                      withdraw: withdraw)
         registration.onRetryDue = { [weak self] in self?.sync() }
     }
 
@@ -41,7 +43,7 @@ final class SessionRegistrar {
             for await _ in ObservationStream({ () -> [String] in
                 let store = machines.local.store
                 // connectionState changes on each reconnect; sync reads the connection epoch.
-                let link: String = String(describing: store.connectionState)
+                let link: String = Self.homeKey(store.connectionState)
                 let home: [String] = [String(store.personal.revision), String(store.personal.isLoaded),
                                       String(store.isProvisional), link]
                 let daemons: [String] = machines.daemons.map { "\($0.machineID):\($0.store.isLoaded):\($0.store.registryID ?? "")" }
@@ -54,6 +56,17 @@ final class SessionRegistrar {
         }
     }
 
+    /// The home connection's part of the observation key: it changes on each reconnect.
+    static func homeKey(_ state: DaemonConnectionState) -> String {
+        String(describing: state)
+    }
+
+    /// Whether records can be sent to home now.
+    static func canRegister(_ state: DaemonConnectionState) -> Bool {
+        if case .connected = state { return true }
+        return false
+    }
+
     /// Shows the refusal notices no window could show yet (a window became key).
     func showPendingNotices() { registration.showPendingNotices() }
 
@@ -64,7 +77,7 @@ final class SessionRegistrar {
 
     private func sync() {
         let home = machines.local
-        guard home.store.personal.isLoaded, !home.store.isProvisional, case .connected = home.store.connectionState,
+        guard home.store.personal.isLoaded, !home.store.isProvisional, Self.canRegister(home.store.connectionState),
               let connection = home.connection else { return }
         var present = Set<String>()
         for daemon in machines.daemons where daemon.store.isLoaded {

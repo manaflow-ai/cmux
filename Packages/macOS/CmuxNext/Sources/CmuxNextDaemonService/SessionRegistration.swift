@@ -16,6 +16,8 @@ public final class SessionRegistration<Record: Hashable & Sendable> {
     private var retries: [String: DemandTimer] = [:]
     /// Shows one localized message for `session`; false when nothing could show it (no window).
     private let notice: @MainActor (_ session: String, _ message: String) -> Bool
+    /// Takes back the notice shown for a session (its record was recorded, or the session is gone).
+    private let withdraw: @MainActor (_ session: String) -> Void
     /// Refusal notices not shown yet (no window), per session: shown at the next submit.
     private var pendingNotices: [String: String] = [:]
     private var stopped = false
@@ -26,9 +28,11 @@ public final class SessionRegistration<Record: Hashable & Sendable> {
     /// `policy` spaces the retries of a send with no answer (the app passes
     /// `RetryPolicy.sessionRegistration`); `notice` shows one localized message (a toast) for a refused
     /// record of a session and returns whether it was shown.
-    public init(policy: RetryPolicy, notice: @escaping @MainActor (_ session: String, _ message: String) -> Bool) {
+    public init(policy: RetryPolicy, notice: @escaping @MainActor (_ session: String, _ message: String) -> Bool,
+                withdraw: @escaping @MainActor (_ session: String) -> Void) {
         ledger = SessionRegistrationLedger(policy: policy)
         self.notice = notice
+        self.withdraw = withdraw
     }
 
     /// The DemandTimers cancel themselves when released; an isolated deinit of a generic main-actor

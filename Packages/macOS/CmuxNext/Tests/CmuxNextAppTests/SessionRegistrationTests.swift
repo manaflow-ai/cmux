@@ -12,6 +12,7 @@ import Testing
 @Suite struct SessionRegistrationTests {
     private final class Notices {
         var shown: [String] = []
+        var withdrawn: [String] = []
         var windowShows = true
     }
 
@@ -19,12 +20,15 @@ import Testing
                                               code: nil)
 
     private func registration(_ notices: Notices, timedRetries: Int = 8) -> SessionRegistration<String> {
-        SessionRegistration<String>(policy: RetryPolicy(initial: .milliseconds(250), maximum: .seconds(30), timedRetries: timedRetries)) {
+        SessionRegistration<String>(policy: RetryPolicy(initial: .milliseconds(250), maximum: .seconds(30), timedRetries: timedRetries),
+                                    notice: {
             _, message in
             guard notices.windowShows else { return false }
             notices.shown.append(message)
             return true
-        }
+        }, withdraw: { session in
+            notices.withdrawn.append(session)
+        })
     }
 
     @Test func aRefusedRecordIsSentAgainAfterTheHomeDaemonReconnects() async {
@@ -74,5 +78,47 @@ import Testing
         #expect(notices.shown.count == 1, "the notice from before the first window does not show when it appears")
         registration.showPendingNotices()
         #expect(notices.shown.count == 1, "the notice shows twice")
+    }
+
+    /// Review 4: the toast stays until closed, so it must be taken back when it is no longer true.
+    @Test func aShownNoticeIsTakenBackWhenTheRecordIsRecordedOrTheSessionIsGone() async {
+        let notices = Notices()
+        let registration = registration(notices)
+        let refusal = refusal
+        await registration.submit(session: "remote-1", record: "a", machine: "build-box", epoch: 1) { throw refusal }?.value
+        await registration.submit(session: "remote-2", record: "c", machine: "other", epoch: 1) { throw refusal }?.value
+        #expect(notices.shown.count == 2)
+        await registration.submit(session: "remote-1", record: "b", machine: "build-box", epoch: 1) {}?.value
+        #expect(notices.withdrawn == ["remote-1"], "the notice still says not saved after the record was recorded")
+        registration.retain(sessions: ["remote-1"])
+        #expect(notices.withdrawn == ["remote-1", "remote-2"], "the notice of a session that is gone stays")
+    }
+
+    /// Review 4: a pending notice of an older record does not show while a newer send is in flight.
+    @Test func aNewSendDropsTheOlderPendingNotice() async {
+        let notices = Notices()
+        notices.windowShows = false
+        let registration = registration(notices)
+        let refusal = refusal
+        await registration.submit(session: "remote-1", record: "a", machine: "build-box", epoch: 1) { throw refusal }?.value
+        let gate = AsyncStream<Void>.makeStream()
+        let inFlight = registration.submit(session: "remote-1", record: "b", machine: "build-box", epoch: 1) {
+            for await _ in gate.stream { break }
+        }
+        notices.windowShows = true
+        registration.showPendingNotices()
+        #expect(notices.shown.isEmpty, "the older record's notice shows while a newer send is in flight")
+        gate.continuation.yield()
+        await inFlight?.value
+    }
+
+    /// Review 4: the notice reason is localized; the raw daemon text goes only to the log.
+    @Test func theNoticeShowsALocalizedReasonNotTheDaemonText() async {
+        let notices = Notices()
+        let registration = registration(notices)
+        let refusal = refusal
+        await registration.submit(session: "remote-1", record: "a", machine: "build-box", epoch: 1) { throw refusal }?.value
+        #expect(notices.shown.count == 1)
+        #expect(notices.shown.first?.contains("bad request") == false, "the notice shows the daemon's raw text: \(notices.shown)")
     }
 }
