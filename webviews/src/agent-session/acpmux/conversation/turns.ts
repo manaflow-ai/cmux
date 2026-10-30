@@ -552,6 +552,9 @@ function shapeTurn(
             ...endedPlan(row),
             id: isEdit(row) ? `${row.id}${FOLDED}` : row.id,
             settled: true,
+            // A finished turn's earlier replies fold here too; each keeps its action row, while a
+            // short note stays quiet (Leo, 2026-10-29: replies keep their action row).
+            ...(isTakeaway(row) && { foldedReply: true }),
             // A folded run draws otherwise, so its version moves (memos compare versions).
             ...(liveRuns && row.kind === "activity" && { foldRun: true, version: row.version * RUN_STATES + 3 }),
           })),
