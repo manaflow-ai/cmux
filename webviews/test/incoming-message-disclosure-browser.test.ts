@@ -20,6 +20,7 @@ import path from "node:path";
 import { chromium, type Browser, type Locator, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { agentPaneTheme, themeTokens, webThemePayload } from "../src/gallery/theme/web";
 
 await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -122,7 +123,20 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       case "initialize":
         return { result: { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [] } } } };
       case "_acpmux/watch":
-        return { result: { sessions: [summary()] } };
+        return {
+          result: {
+            sessions: [
+              summary(),
+              {
+                sessionId: "fixture-review",
+                name: "review-box/design-check",
+                peer: "review-box",
+                harness: "codex",
+                status: "idle",
+              },
+            ],
+          },
+        };
       case "_acpmux/attach":
         if (params.sessionId !== SESSION)
           return { result: { session: { ...summary(), sessionId: params.sessionId }, lastSeq: seq, events: [] } };
@@ -175,17 +189,37 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
     waitText: string,
     running = false,
     queued: { promptId: string; prompt: string }[] = [],
+    colorScheme?: "light" | "dark",
   ): Promise<Page> {
     seq = 0;
     status = running ? "running" : "idle";
     queue = queued;
     history = records;
-    const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+    const page = await browser!.newPage({ viewport: { width: 900, height: 700 }, colorScheme });
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
     // The file's first page loads the pane's modules cold; on a busy runner that took over 10 s.
     await page.getByText(waitText).first().waitFor({ timeout: 60_000 });
+    if (colorScheme) {
+      // The pane receives native theme payloads; browser media alone leaves its dark fallback.
+      const tokens = themeTokens({
+        name: colorScheme,
+        background: colorScheme === "light" ? "#ffffff" : "#111111",
+        foreground: colorScheme === "light" ? "#222222" : "#eeeeee",
+        palette: [],
+      });
+      await page.evaluate(
+        ({ web, agent }) => {
+          for (const [name, value] of Object.entries(web.variables))
+            document.documentElement.style.setProperty(name, value);
+          document.documentElement.style.colorScheme = web.colorScheme;
+          window.cmuxAcpmuxBridge!.applyTheme(agent);
+        },
+        { web: webThemePayload(tokens), agent: agentPaneTheme(tokens, true) },
+      );
+      expect(await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme)).toBe(colorScheme);
+    }
     return page;
   }
   /// Resolves once every finite animation in the transcript has finished, and two frames painted.
@@ -459,4 +493,39 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       await page.close();
     }
   });
+  for (const scheme of ["light", "dark"] as const) {
+    test(`qualified sender identity stays canonical in the ${scheme} disclosure`, async () => {
+      const page = await openChat(
+        [
+          ...turn(1),
+          fromAgent(
+            "Synthetic review complete. The layout and keyboard checks passed.",
+            "review-box/design-check",
+            "fixture-review",
+            "sender-fixture",
+          ),
+        ],
+        "Synthetic review complete.",
+        false,
+        [],
+        scheme,
+      );
+      try {
+        const line = page.locator(".cv-received").last();
+        await line.locator(".cv-disclosure__toggle").click();
+        await rest(page);
+        if (process.env.SENDER_IDENTITY_CAPTURE)
+          await page.screenshot({ path: `${process.env.SENDER_IDENTITY_CAPTURE}-${scheme}.png` });
+        expect(await line.locator(".acpmux-sender__name").allInnerTexts()).toEqual(["design-check"]);
+        expect(await line.locator(".acpmux-sender__host").allInnerTexts()).toEqual(["review-box"]);
+        expect(await line.locator(".cv-disclosure__toggle").getAttribute("aria-label")).toBe(
+          "Message from design-check: Synthetic review complete. The layout and keyboard checks passed.",
+        );
+        expect(await line.locator(".cv-disclosure__open").getAttribute("title")).toBe("Open design-check (review-box)");
+        expect(await line.locator(".cv-received__text").innerText()).toContain("keyboard checks passed.");
+      } finally {
+        await page.close();
+      }
+    });
+  }
 });

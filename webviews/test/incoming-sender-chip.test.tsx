@@ -9,6 +9,7 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
+import type { IncomingMessage } from "../src/agent-session/acpmux/conversation/incomingMessage";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -58,6 +59,7 @@ afterAll(() => {
 const { createRoot } = await import("react-dom/client");
 const { IncomingMessageLine } = await import("../src/agent-session/acpmux/conversation/IncomingMessageCard");
 const { SubsessionContext, SubsessionStore } = await import("../src/agent-session/acpmux/subagents/subsessions");
+const { PromptMarksSession } = await import("../src/agent-session/acpmux/threadMinimap/promptMarks");
 
 const t = translatorFor("en");
 const entry = (fields: Partial<AcpmuxSessionEntry> & { sessionId: string }) =>
@@ -68,20 +70,28 @@ const sessions = [
   entry({ sessionId: "mux-deputy", name: "coord-deputy", hostKind: "local" }),
 ];
 
-async function line(message: { name: string; sessionId?: string }) {
+let nextMessageId = 0;
+
+async function line(
+  message: Pick<IncomingMessage, "name" | "sessionId" | "relation">,
+  entries = sessions,
+  viewer = "viewer",
+) {
   const store = new SubsessionStore();
-  store.set(sessions);
+  store.set(entries);
   const opened: string[] = [];
   const text = "Rebased; ready for review.";
   root = createRoot(host);
   await act(async () =>
     root!.render(
       <SubsessionContext.Provider value={{ store, open: () => undefined }}>
-        <IncomingMessageLine
-          id="row-1"
-          message={{ ...message, text, raw: text }}
-          onOpen={(id) => void opened.push(id)}
-        />
+        <PromptMarksSession.Provider value={viewer}>
+          <IncomingMessageLine
+            id={`row-${++nextMessageId}`}
+            message={{ ...message, text, raw: text }}
+            onOpen={(id) => void opened.push(id)}
+          />
+        </PromptMarksSession.Provider>
       </SubsessionContext.Provider>,
     ),
   );
@@ -96,7 +106,7 @@ async function line(message: { name: string; sessionId?: string }) {
 test("a peer lane, found by its bare name, opens from Open chat; its name is plain text on the toggle", async () => {
   const { open, from, toggle, opened } = await line({ name: "chief-ui" });
   expect(open?.textContent).toBe(t("subsession.openChat"));
-  expect(from?.textContent).toBe("chief-ui");
+  expect(from?.querySelector(".acpmux-sender__name")?.textContent).toBe("chief-ui");
   expect(from?.closest("button")).toBe(toggle);
   expect(host.querySelector(".cv-received__name")).toBeNull();
   await act(async () => open!.click());
@@ -118,4 +128,75 @@ test("a sender no list names has no Open chat: its line only opens the message",
   await act(async () => toggle.click());
   expect(host.querySelector(".cv-received")?.getAttribute("data-open")).toBe("true");
   expect(opened).toEqual([]);
+});
+
+const remote = entry({
+  sessionId: "remote-review",
+  name: "gcp-codex-lane-10/pr-row",
+  peer: "gcp-codex-lane-10",
+  harness: "codex",
+  startedBy: "viewer",
+});
+
+test("a qualified remote sender uses its session headline in the disclosure, relation label and tooltip", async () => {
+  const { open, from, toggle, opened } = await line(
+    { name: remote.name!, sessionId: remote.sessionId, relation: "parent" },
+    [remote],
+  );
+  expect(from?.querySelector(".acpmux-sender__name")?.textContent).toBe("Parent · pr-row");
+  expect(from?.querySelector(".acpmux-sender__host")?.textContent).toBe("gcp-codex-lane-10");
+  expect(open?.title).toBe("Open pr-row (gcp-codex-lane-10)");
+  expect(toggle.getAttribute("aria-label")).toBe(
+    t("message.collapsedLabel", { from: "Parent · pr-row", preview: "Rebased; ready for review." }),
+  );
+  await act(async () => toggle.click());
+  expect(host.querySelector(".cv-received__from-line")?.textContent).toBe(
+    t("message.fromHeader", { name: "Parent · pr-row" }),
+  );
+  await act(async () => open!.click());
+  expect(opened).toEqual([remote.sessionId]);
+});
+
+test("a sender found only by its name gains no child relationship", async () => {
+  const { open, from } = await line({ name: remote.name! }, [remote]);
+  expect(from?.querySelector(".acpmux-sender__name")?.textContent).toBe("pr-row");
+  expect(from?.textContent).not.toContain("Sub-session");
+  expect(open?.title).toBe("Open pr-row (gcp-codex-lane-10)");
+});
+
+test("consecutive peer messages keep independent disclosures with canonical senders and secondary hosts", async () => {
+  const store = new SubsessionStore();
+  store.set([remote]);
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <SubsessionContext.Provider value={{ store, open: () => undefined }}>
+        {[1, 2].map((index) => (
+          <IncomingMessageLine
+            key={index}
+            id={`received-${index}`}
+            message={{
+              name: remote.name!,
+              sessionId: remote.sessionId,
+              text: `Report ${index}`,
+              raw: `Report ${index}`,
+            }}
+            onOpen={() => undefined}
+          />
+        ))}
+      </SubsessionContext.Provider>,
+    ),
+  );
+  expect(host.querySelectorAll(".cv-received")).toHaveLength(2);
+  expect(
+    Array.from(host.querySelectorAll(".cv-received__from .acpmux-sender__name"), (node) => node.textContent),
+  ).toEqual(["pr-row", "pr-row"]);
+  expect(
+    Array.from(host.querySelectorAll(".cv-received__from .acpmux-sender__host"), (node) => node.textContent),
+  ).toEqual(["gcp-codex-lane-10", "gcp-codex-lane-10"]);
+  const toggles = host.querySelectorAll<HTMLButtonElement>(".cv-disclosure__toggle");
+  await act(async () => toggles[1]!.click());
+  expect(toggles[0]!.getAttribute("aria-expanded")).toBe("false");
+  expect(toggles[1]!.getAttribute("aria-expanded")).toBe("true");
+  expect(host.querySelector(".cv-received__text")?.textContent).toBe("Report 2");
 });

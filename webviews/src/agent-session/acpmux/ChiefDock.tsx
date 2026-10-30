@@ -3,6 +3,8 @@ import { Icon } from "./icons/Icon";
 import { type StringKey, useT } from "./i18n";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { KeyboardScope } from "../../ui/KeyboardScope";
+import { SenderIdentityLabel } from "./SenderIdentityLabel";
+import { resolveSenderIdentity } from "./senderIdentity";
 import {
   activityTime,
   listed,
@@ -212,7 +214,12 @@ export function ChiefDock({
                               )}
                             </span>
                           )}
-                          <span className="acpmux-chief-card-title">{title}</span>
+                          <span className="acpmux-chief-card-title">
+                            <SenderIdentityLabel
+                              identity={{ ...resolveSenderIdentity({ name: title }, session, currentId), name: title }}
+                              describe={false}
+                            />
+                          </span>
                         </strong>
                         <small>{session.preview || session.branch || session.cwd || t("sidebar.sessions")}</small>
                       </span>

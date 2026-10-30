@@ -262,7 +262,7 @@ export function incomingPrompt(
     return {
       kind: "message",
       message: {
-        name: signed?.name ?? name,
+        name,
         ...(sessionId && { sessionId }),
         ...(relation && { relation }),
         ...remote,
@@ -307,7 +307,7 @@ export function incomingPrompt(
     return {
       kind: "message",
       message: {
-        name: signed?.name ?? name,
+        name,
         ...(sessionId && { sessionId }),
         ...id("msgId"),
         ...id("threadId"),

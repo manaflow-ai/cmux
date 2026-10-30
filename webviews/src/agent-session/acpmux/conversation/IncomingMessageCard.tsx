@@ -33,7 +33,8 @@ import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { Bot, ChevronRight, TerminalSquare } from "./icons";
 import { Markdown } from "./Markdown";
 import { AgentMark } from "../../shared/AgentMark";
-import { useSenderChat, useSenderPlace } from "../subagents/subsessions";
+import { useSenderIdentity, useSenderPlace } from "../subagents/subsessions";
+import { SenderIdentityLabel } from "../SenderIdentityLabel";
 import { useAgentAvatar } from "../agentAvatar";
 import { DisclosureRow } from "../subagents/DisclosureRow";
 import "../subagents/AgentCard.css";
@@ -117,7 +118,7 @@ export function IncomingMessageLine({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new match opens, not a new callback
   }, [inText, inRaw, reveal]);
   const raw = message.raw.trim() === message.text ? undefined : message.raw;
-  const sender = useSenderChat(message.name, message.sessionId);
+  const sender = useSenderIdentity(message, session);
   const sessionId = sender.sessionId;
   const place = useSenderPlace(sessionId);
   const avatar = useAgentAvatar(sessionId);
@@ -132,10 +133,10 @@ export function IncomingMessageLine({
   const preview = useMemo(() => messagePreview(body), [body]);
   // "Open chief-ui (huge-blue)": the chat Open chat opens, and the other machine it runs on.
   const openTitle = sender.host
-    ? t("subagents.openOnHost", { name: message.name, host: sender.host })
-    : t("subagents.open", { name: message.name });
+    ? t("subagents.openOnHost", { name: sender.name, host: sender.host })
+    : t("subagents.open", { name: sender.name });
   // A sub-session family's sender says who it is to this chat.
-  const from = message.relation ? t(RELATION_LABEL[message.relation], { name: message.name }) : message.name;
+  const from = sender.relation ? t(RELATION_LABEL[sender.relation], { name: sender.name }) : sender.name;
   // A reply needs a chat to go to and the message's id to answer: acpmux's `agent_message`.
   const replies = onReply !== undefined && message.sessionId !== undefined && message.msgId !== undefined;
   const [reply, setReplyState] = useState<"closed" | "open" | "sent" | "failed">(() =>
@@ -183,7 +184,9 @@ export function IncomingMessageLine({
       toggleLabel={t("message.collapsedLabel", { from, preview: preview || t("message.noText") })}
       label={
         <>
-          <span className="cv-received__from">{from}</span>
+          <span className="cv-received__from">
+            <SenderIdentityLabel identity={{ ...sender, name: from }} mark={false} describe={false} />
+          </span>
           {/* Find counts the panel's whole text, not the line's first-line copy of it. */}
           <span className="cv-received__preview" data-find-skip="">
             {preview || t("message.noText")}
@@ -258,7 +261,7 @@ export function IncomingMessageLine({
           <PromptEditor
             initial={replyDrafts.get(key) ?? ""}
             canSend
-            label={t("message.replyTo", { name: message.name })}
+            label={t("message.replyTo", { name: sender.name })}
             // UserBubble's own prop, which takes focus through a ref when the editor mounts, not
             // the DOM attribute the rule is about: the reader opened this reply editor with a
             // click and types into it next.
