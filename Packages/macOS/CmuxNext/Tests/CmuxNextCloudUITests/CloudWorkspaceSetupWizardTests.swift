@@ -99,12 +99,13 @@ struct CloudWorkspaceSetupWizardTests {
     }
 
     @MainActor
-    @Test func explicitConsentTransfersOnlyTheSelectedProvider() async throws {
+    @Test(arguments: [CloudWorkspaceSetupWizard.Provider.claude, .codex])
+    func explicitConsentTransfersOnlyTheSelectedProvider(provider: CloudWorkspaceSetupWizard.Provider) async throws {
         var moved: [CloudWorkspaceSetupWizard.Provider] = []
         try await CloudWorkspaceSetupWizard().offerCredentialSetup(machine: "paint", account: "Personal account",
-            present: { _ in CmuxDialogAnswer(button: "transfer", role: .normal, values: ["claude": .bool(true)]) },
+            present: { _ in CmuxDialogAnswer(button: "transfer", role: .normal, values: [provider == .claude ? "claude" : "codex": .bool(true)]) },
             transfer: { moved.append($0) })
-        #expect(moved == [.claude])
+        #expect(moved == [provider])
     }
 
 

@@ -39,11 +39,6 @@ ARTIFACT_SECRETS = {
     "CMUX_CEF_R2_SECRET_ACCESS_KEY",
     "CMUX_CEF_R2_ACCOUNT_ID",
 }
-# The release App's credentials, for the attestation token of the cmux-tui
-# publish passes only (their own installation rate budget); no other
-# artifacts job.
-ARTIFACT_APP_SECRETS = {"CMUX_RELEASE_APP_ID", "CMUX_RELEASE_APP_KEY"}
-ARTIFACT_APP_JOBS = {("cmux-tui-artifacts.yml", "publish"), ("cmux-tui-artifacts.yml", "publish-windows")}
 
 NIGHTLY_TRACK_ENVIRONMENT = "${{ needs.decide.outputs.environment }}"
 NIGHTLY_TRACK_ENVIRONMENT_RULE = "core.setOutput('environment', isNextRef ? 'release-next' : 'release');"
@@ -100,8 +95,7 @@ def main():
             definition = document["jobs"].get(job, {})
             _check(definition.get("environment") == "artifacts", f"{name} {job} runs in the artifacts environment")
             used = set(re.findall(r"secrets\.([A-Za-z0-9_]+)", yaml.dump(definition)))
-            allowed = ARTIFACT_SECRETS | (ARTIFACT_APP_SECRETS if (name, job) in ARTIFACT_APP_JOBS else set())
-            _check(used <= allowed, f"{name} {job} uses only R2 upload secrets (found {sorted(used)})")
+            _check(used <= ARTIFACT_SECRETS, f"{name} {job} uses only R2 upload secrets (found {sorted(used)})")
     if FAILURES:
         print(f"\n{len(FAILURES)} failure(s)")
         sys.exit(1)

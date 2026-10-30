@@ -330,7 +330,7 @@ public struct WelcomeView: View {
 
     /// The legal line, its links underlined.
     private static let legalText: AttributedString = {
-        var text = (try? AttributedString(markdown: String(localized: "By continuing, you agree to the [Terms](https://cmux.com/terms) and [Privacy Policy](https://cmux.com/privacy)."))) ?? AttributedString()
+        var text = (try? AttributedString(markdown: String(localized: "By continuing, you agree to the [Terms](https://cmux.com/terms-of-service) and [Privacy Policy](https://cmux.com/privacy-policy)."))) ?? AttributedString()
         for run in text.runs where run.link != nil {
             text[run.range].underlineStyle = .single
         }

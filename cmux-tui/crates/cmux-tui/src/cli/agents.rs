@@ -15,6 +15,7 @@ use super::app_focus;
 use super::command::{CommandPlan, RequestPlan, Resolve, ResponseView, WireOperation};
 use super::mcp::{self, Backend, CallFailure, FailureKind};
 use super::{GlobalArgs, OutputMode, Surface, UsageError, parse_globals, wire};
+use cmux_json::JsonSet as _;
 
 pub(super) const SNAPSHOT_TOOL: &str = "agents_snapshot";
 pub(super) const DEFAULT_SNAPSHOT_LIMIT: usize = 100;
@@ -502,7 +503,7 @@ fn receipt<B: Backend>(
     let mut receipt =
         json!({"schema_version": 1, "action": action, "result": result, "state": state});
     if let Some(key) = idempotency_key {
-        receipt["idempotency_key"] = Value::String(key);
+        receipt.set("idempotency_key", Value::String(key));
     }
     receipt
 }
@@ -642,12 +643,12 @@ fn scoped_windows(topology: Option<&Value>, workspace_ids: Option<&HashSet<Strin
                     return None;
                 }
                 let mut window = window.clone();
-                window["workspaces"] = Value::Array(selected);
+                window.set("workspaces", Value::Array(selected));
                 if let Some(workspace) = window.get("workspace").cloned() {
                     let workspace_id =
                         workspace.as_str().or_else(|| workspace.get("id").and_then(Value::as_str));
                     if workspace_id.is_none_or(|id| !workspace_ids.contains(id)) {
-                        window["workspace"] = window["workspaces"][0].clone();
+                        window.set("workspace", window["workspaces"][0].clone());
                     }
                 }
                 Some(window)
@@ -777,13 +778,13 @@ pub(super) fn snapshot_page(mut snapshot: Value, offset: usize, limit: usize) ->
     }
     let returned = items.len();
     let next = offset.saturating_add(returned);
-    snapshot["items"] = Value::Array(items);
-    snapshot["offset"] = json!(offset);
-    snapshot["limit"] = json!(limit);
-    snapshot["total"] = json!(total);
-    snapshot["returned"] = json!(returned);
-    snapshot["next_offset"] = if next < total { json!(next) } else { Value::Null };
-    snapshot["truncated"] = json!(offset > 0 || next < total);
+    snapshot.set("items", Value::Array(items));
+    snapshot.set("offset", json!(offset));
+    snapshot.set("limit", json!(limit));
+    snapshot.set("total", json!(total));
+    snapshot.set("returned", json!(returned));
+    snapshot.set("next_offset", if next < total { json!(next) } else { Value::Null });
+    snapshot.set("truncated", json!(offset > 0 || next < total));
     snapshot
 }
 

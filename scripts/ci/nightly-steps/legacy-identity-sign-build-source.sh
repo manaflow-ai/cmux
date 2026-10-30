@@ -17,7 +17,10 @@ case "$rc" in
      : > "$RUNNER_TEMP/legacy-requirement-refused"; exit 1 ;;
   *) echo "could not check the build commit $sha's required commits ($check)" >&2; exit 1 ;;
 esac
-git fetch --no-tags --depth=1 origin "$sha"
+# A depth flag only in an already-shallow checkout: in a full clone it would make every worktree shallow.
+depth=()
+[[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
+git fetch --no-tags ${depth[@]+"${depth[@]}"} origin "$sha"
 git worktree add --detach "$RUNNER_TEMP/build-src" "$sha"
 (cd "$RUNNER_TEMP/build-src" && bash scripts/ci/init-submodule.sh ghostty-next)
 echo "CMUX_VERIFY_LICENSES_TOOL=$RUNNER_TEMP/build-src/scripts/verify-app-bundle-licenses.sh" >> "$GITHUB_ENV"

@@ -90,10 +90,12 @@ final class TabContentCache {
     private var framedStandIns: Set<String> = [] // stand-in tabs whose page waited for their first frame
     /// Runs work after the current pass's frame committed (`AfterFrameCommit`); tests pass their own.
     private let afterFrame: (@escaping @MainActor () -> Void) -> Void
-    /// Restored browser tabs start as `DeferredBrowserTab` (nothing loads)
-    /// until the user reloads one: set after cmux quit unexpectedly twice in
-    /// a row (`LaunchRecovery.restartedSafely`).
-    var defersRestoredPages = false
+    /// Restored tabs whose page waits for Reload (`DeferredBrowserTab`, one notice on that tab):
+    /// the pages a run that ended early in a restart loop had started (`LaunchRecovery.crashedPages`).
+    /// Every other restored tab loads when it shows.
+    var crashedPages: Set<String> = []
+    /// A restored tab (not opened in this run) started its page (`AppRunMarker.notePageStarted`).
+    var onRestoredPageStart: ((String) -> Void)?
     /// Tabs whose deferred page the user started.
     var startedDeferred: Set<String> = []
     /// Agent marks of tabs (`TabContentCache+AgentDriven`); kept across hibernation and restarts of the page.
@@ -262,8 +264,9 @@ final class TabContentCache {
             return nil
         }
         if let page = appPage(for: tab, url: url) { return page }
-        if defersRestoredPages, !startedDeferred.contains(key), !browserTabs.wasOpenedHere(tab) {
-            return deferred(tab, url: url)
+        if !browserTabs.wasOpenedHere(tab) {
+            if crashedPages.contains(key), !startedDeferred.contains(key) { return deferred(tab, url: url) }
+            onRestoredPageStart?(key)
         }
         guard tab.browserEngine == BrowserEngineTag.cef.rawValue else { return tracked(browserTabs.historyStarts.page(tab, url: url, cache: self) ?? browser(for: key, url: url), tab) }
         if let reason = browserTabs.cefUnavailable() { return chromiumUnavailable(tab, url: url, reason: reason) }

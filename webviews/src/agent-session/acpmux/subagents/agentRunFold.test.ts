@@ -5,6 +5,7 @@
 // of a background run's output file.
 import { expect, test } from "bun:test";
 import { SubagentFold } from "./subagentFold";
+import { subagentRetry } from "./retryState";
 
 const REVIEW = `codex exec --sandbox read-only -m gpt-6-astra -c model_reasoning_effort=xhigh "Re-review hq#4038"`;
 const text = (said: string) => [{ type: "content", content: { type: "text", text: said } }];
@@ -38,6 +39,7 @@ test("a codex exec call is a running Codex subagent, then done with its final me
     kind: "Codex · gpt-6-astra xhigh",
     harness: "codex",
     model: "gpt-6-astra xhigh",
+    effort: "xhigh",
     state: "running",
     command: REVIEW,
   });
@@ -53,6 +55,7 @@ test("a codex exec call is a running Codex subagent, then done with its final me
   expect(fold.takeRows()[0]!.subagents![0]).toMatchObject({
     state: "completed",
     result: "VERDICT: SHIP",
+    lastMessage: "VERDICT: SHIP",
     endedAt: 2000,
   });
   // Its own view is the call: the command and all it printed.
@@ -158,6 +161,7 @@ test("an acpmux run --parent call is the child acpmux records, with its harness,
   const started = {
     event: "started",
     shortName: "fix",
+    startedBy: "chat-1",
     harness: "codex",
     model: "gpt-6-astra",
     effort: "xhigh",
@@ -171,13 +175,22 @@ test("an acpmux run --parent call is the child acpmux records, with its harness,
     kind: "Codex · gpt-6-astra xhigh",
     harness: "codex",
     child: "child-1",
+    parent: null,
+    startedBySession: "chat-1",
     session: "fix",
     state: "running",
     startedAt: 1000,
   });
+  // A direct --parent child remains a top-level run: it can retry, and its running row is eligible
+  // for the pane's automatic-open rule (`parent === null && state === "running"`).
+  expect(subagentRetry(fold.all()[0]!)).toEqual({ kind: "none" });
+  expect(fold.all()[0]!.parent).toBeNull();
+  expect(fold.all()[0]!.state).toBe("running");
+  expect(fold.all()[0]!.parent === null && fold.all()[0]!.state === "running").toBe(true);
   const reply = "Fixed: the test waits for the socket.";
   expect(child(fold, 3, { event: "turn_ended", state: "done", result: { state: "done", reply } })).toBeUndefined();
   expect(fold.all()[0]).toMatchObject({ state: "completed", result: reply, endedAt: 3000 });
+  expect(fold.all()[0]!.lastMessage).toBe(reply);
   // What the shell printed after is not its reply: acpmux's record is.
   const end = { sessionUpdate: "tool_call_update", toolCallId: "c1", status: "completed", content: text("Fixed…") };
   expect(send(end)).toBe(true);
@@ -185,10 +198,37 @@ test("an acpmux run --parent call is the child acpmux records, with its harness,
   // A later turn that failed says so.
   child(fold, 5, { event: "turn_ended", state: "failed", result: { state: "failed", error: "model at capacity" } });
   expect(fold.all()[0]).toMatchObject({ state: "failed", result: "model at capacity" });
+  expect(subagentRetry({ ...fold.all()[0]!, retryable: true })).toEqual({ kind: "failed", action: "daemon" });
   // A turn that said nothing has no reply.
   child(fold, 6, { event: "turn_ended", state: "cancelled", result: { state: "cancelled" } });
   expect(fold.all()[0]!.state).toBe("cancelled");
   expect(fold.all()[0]!.result).toBeUndefined();
+});
+
+test("a child turn end refreshes its model and effort", () => {
+  const { fold, send } = folder();
+  expect(send(call("c1", PARENT_RUN))).toBe(false);
+  expect(
+    child(fold, 2, {
+      event: "started",
+      shortName: "fix",
+      startedBy: "chat-1",
+      harness: "codex",
+      model: "model-a",
+      prompt: "Fix the flaky test",
+      state: "running",
+    }),
+  ).toBe("c1");
+  expect(fold.all()[0]!.model).toBe("model-a");
+  expect(fold.all()[0]!.effort).toBeUndefined();
+  child(fold, 3, {
+    event: "turn_ended",
+    state: "done",
+    model: "model-b",
+    effort: "high",
+    result: { state: "done", reply: "Updated." },
+  });
+  expect(fold.all()[0]).toMatchObject({ model: "model-b", effort: "high" });
 });
 
 test("a child of the chat's own family, or one no call of the chat started, is not a run", () => {

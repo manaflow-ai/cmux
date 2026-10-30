@@ -65,6 +65,43 @@ import Testing
         #expect(!bar.intents.contains { if case .switchProfile = $0 { true } else { false } }, "the drag also switched the space: \(bar.intents)")
     }
 
+    /// The bug Lawrence hit (2026-10-27): no drag put a space first. The dragged dot stops at the
+    /// first dot's center, and a dot only passed another once it went strictly beyond its center,
+    /// so the first slot was out of reach.
+    @Test(arguments: [1, 2])
+    func aDotDraggedPastTheFirstDotMovesItsSpaceToTheStart(_ index: Int) {
+        let bar = Bar()
+        defer { bar.window.orderOut(nil) }
+        let first = bar.center(0)
+        bar.drag(index, through: [NSPoint(x: bar.center(index).x - 6, y: first.y), NSPoint(x: first.x - 40, y: first.y)])
+        #expect(bar.reorders == [.reorderProfile(Self.keys[index], index: 0)], "\(bar.intents)")
+        #expect(bar.order.first == Self.keys[index], "\(bar.order)")
+    }
+
+    /// The one `move-profile` index rule the drag and Move Left/Right/to Start/to End/to Position
+    /// send (`ProfileBarLogic.moveInsertion`), over four spaces.
+    @Test func everyReorderSendsTheSameInsertionIndex() {
+        #expect(ProfileBarLogic.moveInsertion(from: 2, to: 0, count: 4) == 0) // to start
+        #expect(ProfileBarLogic.moveInsertion(from: 1, to: 3, count: 4) == 4) // to end
+        #expect(ProfileBarLogic.moveInsertion(from: 2, to: 1, count: 4) == 1) // left
+        #expect(ProfileBarLogic.moveInsertion(from: 1, to: 2, count: 4) == 3) // right
+        #expect(ProfileBarLogic.moveInsertion(from: 0, to: 0, count: 4) == nil, "already first: refused")
+        #expect(ProfileBarLogic.moveInsertion(from: 0, to: 0, count: 4, allowsStay: true) == 0, "to position 1 when first: no-op")
+        #expect(ProfileBarLogic.moveInsertion(from: 3, to: 4, count: 4) == nil, "past the end")
+        #expect(ProfileBarLogic.moveInsertion(from: 0, to: -1, count: 4) == nil, "before the start")
+    }
+
+    /// While the dot sits on the first slot, the strip already shows it first.
+    @Test func theStripPreviewsTheFirstSlotWhileTheDotIsThere() {
+        let bar = Bar()
+        defer { bar.window.orderOut(nil) }
+        let first = bar.center(0)
+        bar.view.mouseDown(with: bar.event(.leftMouseDown, bar.center(2)))
+        bar.view.mouseDragged(with: bar.event(.leftMouseDragged, NSPoint(x: first.x - 40, y: first.y)))
+        #expect(bar.view.previewOrder == [Self.keys[2], Self.keys[0], Self.keys[1]])
+        bar.view.mouseUp(with: bar.event(.leftMouseUp, NSPoint(x: first.x - 40, y: first.y)))
+    }
+
     @Test func aDotDraggedLeftOneSlotMovesItsSpaceLeftLikeMoveLeft() {
         let bar = Bar()
         defer { bar.window.orderOut(nil) }

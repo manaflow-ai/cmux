@@ -8,13 +8,6 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-use crate::prompt::{
-    CLOUD_WORKSPACE_DESCRIPTION, CONTROL_DESCRIPTION, DATE_DESCRIPTION, ESCALATE_AUTH_DESCRIPTION,
-    PEER_TELL_DESCRIPTION, PEERS_DESCRIPTION, REACT_DESCRIPTION, REMEMBER_DESCRIPTION,
-    REPLY_DESCRIPTION, SEND_DESCRIPTION, SLEEP_DESCRIPTION, SPAWN_CWD_DESCRIPTION,
-    SPAWN_DESCRIPTION, STOP_DESCRIPTION, TELL_DESCRIPTION, TRANSCRIPT_DESCRIPTION,
-    VERSION_DESCRIPTION, ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
-};
 use crate::tools::{self, Call};
 
 /// The MCP revision this server speaks when the client names none it knows.
@@ -35,101 +28,7 @@ pub fn tools_for(subagent: bool) -> Value {
 /// zoom and date always, then spawn, tell, profile and chiefs when granted,
 /// then react and reply (a Chief's own conversation, always).
 pub fn tools_granted(subagent: bool, grant: &crate::chief_profile::Grant) -> Value {
-    let int = json!({"type": "integer", "minimum": 0});
-    let text = json!({"type": "string", "minLength": 1});
-    let mut list = vec![
-        json!({"name": "zoom", "description": format!("{ZOOM_DESCRIPTION}{ZOOM_AGENT_DESCRIPTION}"),
-         "inputSchema": {"type": "object", "properties": {"id": {"type": ["integer", "string"]}, "n": int, "at": int}, "required": ["id"], "additionalProperties": false}}),
-        json!({"name": "date", "description": DATE_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {"id": int}, "required": ["id"], "additionalProperties": false}}),
-    ];
-    // A subagent asks its Chief to drive a sign-in, lists the other
-    // subagents and tells one (acp-chief-issues.md #11).
-    if subagent {
-        list.push(json!({"name": "escalate_auth", "description": ESCALATE_AUTH_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {
-            "site": {"type": "string", "minLength": 1, "description": "The site's host name, for example npmjs.com."},
-            "url": {"type": "string", "minLength": 1, "description": "The http(s) page where the sign-in starts."},
-            "reason": {"type": "string", "minLength": 1, "description": "One line: what you need the sign-in for."},
-            "kind": {"type": "string", "enum": crate::tools::AUTH_KINDS, "description": "password, passkey, 2fa (a code or security key after the password) or oauth (a Sign in with ... page)."}},
-          "required": ["site", "url", "reason", "kind"], "additionalProperties": false}}));
-        list.push(json!({"name": "peers", "description": PEERS_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false}}));
-        list.push(json!({"name": "tell", "description": PEER_TELL_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {"id": text, "message": text, "key": {"type": "string", "minLength": 1, "description": "Optional idempotency key: a repeat with the same key is not sent again."}}, "required": ["id", "message"], "additionalProperties": false}}));
-    }
-    if !subagent && grant.allows("spawn") {
-        list.push(json!({"name": "spawn", "description": SPAWN_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {"tasks": {"type": "array", "items": text, "minItems": 1}, "cwd": {"type": "string", "minLength": 1, "description": SPAWN_CWD_DESCRIPTION}, "effort": {"type": "string", "enum": crate::tools::EFFORTS, "description": "How hard they think; by default, as hard as you."}, "place": {"type": "string", "enum": crate::tools::PLACES, "description": "cloud: in the cloud (with `control cloud freestyle` its own Freestyle VM; cloud:small for design/docs/edits, cloud:medium for bun/node/go tests, cloud:large only when asked; Swift/Rust/app builds go to the Mac-mini fleet); local: on this Mac (its app, UI, screenshots, computer use, sign-ins). By default: the `control cloud` setting, and a task that needs the Mac stays here."}}, "required": ["tasks"], "additionalProperties": false}}));
-    }
-    if !subagent && grant.allows("tell") {
-        list.push(json!({"name": "tell", "description": TELL_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {"id": text, "message": text, "key": {"type": "string", "minLength": 1, "description": "Optional idempotency key: a repeat with the same key is not sent again."}, "queue": {"type": "boolean", "description": "true: a low-priority FYI that waits for the running turn to end. Default false: it is steered in, else the turn is interrupted and this is its next prompt."}}, "required": ["id", "message"], "additionalProperties": false}}));
-        list.push(json!({"name": "control", "description": CONTROL_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {
-            "action": {"type": "string", "enum": crate::tools::CONTROL_ACTIONS},
-            "id": {"type": "string", "minLength": 1, "description": "The subagent (a<N>); status without it shows all."},
-            "message": {"type": "string", "minLength": 1, "description": "interrupt/restart/resume: the prompt sent once it has stopped."},
-            "option": {"type": "string", "minLength": 1, "description": "answer: deny (only the user can allow, in the app)."},
-            "n": {"type": "integer", "minimum": 0, "description": "cap: subagents at work at once; 0 is no cap."},
-            "peer": {"type": "string", "minLength": 1, "description": "cloud: the acpmux peers (acpmux host ls, comma-separated) new subagents run on by default, each on the least busy, or off; without it, shows the setting."}},
-          "required": ["action"], "additionalProperties": false}}));
-    }
-    // A Cloud machine and its workspace for a task: on the spawn grant.
-    if !subagent && grant.allows("spawn") {
-        list.push(json!({"name": "cloud_workspace", "description": CLOUD_WORKSPACE_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {
-            "title": {"type": "string", "minLength": 1, "description": "The task in 2-5 words: the machine's name (lowercased, with dashes) and its sidebar group."},
-            "size": {"type": "string", "enum": crate::cloud_workspace::SIZES, "description": "The machine's size; by default the app's. small for docs and edits, medium for builds and tests; large or xlarge only when asked."},
-            "machine": {"type": "string", "minLength": 1, "description": "An existing Cloud machine (machine:<id> from `cmux cloud list-machines`): open another workspace on it instead of making a machine."}},
-          "required": ["title"], "additionalProperties": false}}));
-    }
-    if !subagent && grant.allows("profile") {
-        list.push(crate::chief_profile::profile_tool());
-    }
-    if !subagent && grant.allows("chiefs") {
-        list.push(crate::chief_profile::chiefs_tool());
-    }
-    // Read-only, for the Chief and its subagents: never a grant to withhold.
-    list.push(
-        json!({"name": "version", "description": VERSION_DESCRIPTION,
-     "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false}}),
-    );
-    // Moving itself to another machine (migrate.rs): the Chief's own home.
-    if !subagent {
-        list.push(move_tool());
-    }
-    // The Chief's own words in its conversation: never a grant to withhold.
-    if !subagent {
-        list.push(json!({"name": "react", "description": REACT_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {"id": int, "reaction": {"type": "string", "description": crate::prompt::REACT_REACTION_DESCRIPTION}}, "required": ["id", "reaction"], "additionalProperties": false}}));
-        list.push(json!({"name": "reply", "description": REPLY_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {"id": int, "text": text}, "required": ["id", "text"], "additionalProperties": false}}));
-        list.push(json!({"name": "send", "description": SEND_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {
-            "text": {"type": "string", "description": "The message, in Markdown."},
-            "attachments": {"type": "array", "items": text, "maxItems": crate::tools::MAX_SEND_ATTACHMENTS, "description": "Files to attach: local paths (/abs, ~/rel, file://; images and videos show inline, any other file as a file, up to 50 MB each) or http(s) URLs (a link card)."},
-            "reply_to": {"type": "integer", "minimum": 0, "description": "A user message's line id: the message goes into its thread. Without it: the top level."}},
-          "additionalProperties": false}}));
-        list.push(json!({"name": "transcript", "description": TRANSCRIPT_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {
-            "n": {"type": "integer", "minimum": 1, "maximum": crate::brain::TRANSCRIPT_MAX, "description": "How many messages, newest last (default 20)."},
-            "before": {"type": "integer", "minimum": 1, "description": "A message's #seq: only messages older than it (to page back)."}},
-          "additionalProperties": false}}));
-        list.push(json!({"name": "stop", "description": STOP_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false}}));
-        list.push(json!({"name": "sleep", "description": SLEEP_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {
-            "seconds": {"type": "integer", "minimum": 0, "maximum": crate::tools::SLEEP_MAX_SECONDS, "description": "30 to 86400 seconds until the wake; 0 clears every pending wake."},
-            "note": {"type": "string", "description": "What to do when you wake: shown to you in the wake message."},
-            "until": {"type": "string", "enum": ["time", "event"], "description": "time (default): wake at the time whatever happens. event: a user message or subagent report that comes first replaces the wake."}},
-          "required": ["seconds"], "additionalProperties": false}}));
-        list.push(json!({"name": "remember", "description": REMEMBER_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {
-            "text": {"type": "string", "minLength": 1, "maxLength": crate::remember::REMEMBER_MAX, "description": "The preference as one short rule in the person's own terms, e.g. \"Reply in one short bullet list.\""}},
-          "required": ["text"], "additionalProperties": false}}));
-    }
-    Value::Array(list)
+    chief_kernel::tools::tool_list(subagent, &|tool| grant.allows(tool))
 }
 
 /// How a tool call reaches the memory: the host socket, or a test memory.
@@ -299,21 +198,7 @@ pub fn run(socket: &Path, subagent: bool) -> std::io::Result<()> {
 /// to end, stops the host, and writes its report to `state/move.json`.
 /// `status` reads that report, `reach` probes what this home reached before
 /// a move, `rollback` lets the old copy answer again.
-pub const MOVE_DESCRIPTION: &str = "Move yourself (your memory, conversations, settings, subagent transcripts and grants) to another machine, or back. action move (default): to = ssh:HOST[:DIR] (a Mac mini or a Linux VM you reach over SSH), local:DIR, or cloud / cloud:staging (the hosted Cloud Chief; needs the person's cloud session token file). Run dry_run true first and tell the person what it found; a real move starts when this turn ends, stops you here and keeps this copy for rollback, so say goodbye in this turn. status: the last move's report. reach: after a move, which SSH hosts, tailnet, fleet and model route answer from this machine. rollback: the old copy answers again. Keys and tokens are never copied: missing ones come back as blockers to give the person.";
-
-/// The move tool's schema.
-pub fn move_tool() -> Value {
-    json!({"name": "move", "description": MOVE_DESCRIPTION,
-     "inputSchema": {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["move", "status", "reach", "rollback"]},
-        "to": {"type": "string", "minLength": 1},
-        "dry_run": {"type": "boolean"},
-        "without_transcripts": {"type": "boolean", "description": "Leave subagent transcripts behind (smaller move)."},
-        "remote_bin": {"type": "string", "minLength": 1, "description": "The target's optchat-chief, when it is not on its PATH and the target's OS differs from this one."},
-        "session_token_file": {"type": "string", "minLength": 1, "description": "cloud: the person's session token file (0600); never read it aloud."},
-        "name": {"type": "string", "minLength": 1, "description": "cloud: the hosted Chief's name (default Chief)."}},
-      "additionalProperties": false}})
-}
+pub use chief_kernel::tools::{MOVE_DESCRIPTION, move_tool};
 
 /// Runs the move tool for the Chief of `home` with this binary.
 pub fn move_call(home: &Path, args: &Value) -> Result<String, String> {

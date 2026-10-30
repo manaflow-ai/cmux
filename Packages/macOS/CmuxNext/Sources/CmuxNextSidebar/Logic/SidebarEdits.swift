@@ -17,7 +17,7 @@ public nonisolated enum SidebarEdits {
     @discardableResult
     public static func apply(_ intent: SidebarIntent, to sections: inout [SidebarSection]) -> Bool {
         switch intent {
-        case .select, .selectTab, .moveTab, .newWorkspace, .openGroup, .switchProfile, .newProfile, .reorderProfile, .activateItem, .installUpdate, .downloadUpdate, .setAutomaticUpdates,
+        case .select, .selectTab, .moveTab, .closeTab, .newWorkspace, .openGroup, .switchProfile, .newProfile, .reorderProfile, .openProfileInNewWindow, .activateItem, .installUpdate, .downloadUpdate, .setAutomaticUpdates,
              .openUpdateLink, .openUpdateChanges, .noticeAction, .dismissNotice, .openWhatsNew, .dismissUpdated, .nowPlaying, .hideNowPlayingCard, .layout, .toggleLayoutSection,
              .dropOnLayoutSection, .groupEditorEnded, .toggleWorkspaceAudio, .addItems:
             return false

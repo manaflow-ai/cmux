@@ -5,7 +5,7 @@
 //! through `agent-session-attach-v1` (the parent module); no acpmux port is
 //! opened.
 //!
-//! `agent-session-start {surface, harness?, cwd?}` answers
+//! `agent-session-start {surface, harness?, model?, cwd?}` answers
 //! `{surface, session, conversation}` once acpmux made the session and the
 //! store recorded it on the tab (`bind-conversation-tab-session` with
 //! expected null, this daemon being the writer).
@@ -14,7 +14,7 @@
 //! session yet, whose record names this store as its host
 //! (`registry:<identify.session_id>`), so a tab recorded for another
 //! machine never starts here. The client names only an agent kind
-//! (`harness`, resolved by acpmux from its own config) and a folder (`cwd`,
+//! (`harness`, resolved by acpmux from its own config), an optional model (`model`), and a folder (`cwd`,
 //! absolute; acpmux checks it). No command, env, policy, mode, peer, preset,
 //! workspace or MCP server param exists (unknown fields are a bad request).
 //! The daemon itself names the tab's workspace to acpmux on `session/new`
@@ -63,6 +63,8 @@ pub const AGENT_SESSION_START_KEYED_REASON_CAPABILITY: &str = "agent-session-sta
 /// knows this machine is a Cloud VM it does not own: refused on any host, as
 /// a guest's root can remove every sign of a Cloud VM here.
 pub const AGENT_SESSION_START_VM_KIND_CAPABILITY: &str = "agent-session-start-vm-kind-v1";
+/// `model` on `agent-session-start` is relayed to acpmux's first `session/new`.
+pub const AGENT_SESSION_START_MODEL_CAPABILITY: &str = "agent-session-start-model-v1";
 
 /// Starts the binary's acpmux daemon (blocking; acpmux bounds its own start).
 pub type AcpmuxStarter = Arc<dyn Fn() -> Result<(), String> + Send + Sync>;
@@ -169,6 +171,8 @@ pub(super) struct StartParams {
     surface: SurfaceId,
     #[serde(default)]
     harness: Option<String>,
+    #[serde(default)]
+    model: Option<String>,
     cwd: String,
     /// The person chose the home folder as the chat's folder (`agent-session-trust`'s rule).
     #[serde(default)]
@@ -204,7 +208,13 @@ impl StartParams {
             (1..=128).contains(&instance.len())
                 && instance.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.:-".contains(&b))
         });
-        harness_ok && cwd_ok && instance_ok
+        let model_ok = self.model.as_deref().is_none_or(|model| {
+            (1..=200).contains(&model.len())
+                && !model.starts_with('-')
+                && !model.chars().any(|c| c.is_whitespace() || c.is_control())
+                && !model.contains(['{', '}', '$', '"', '\\', '\''])
+        });
+        harness_ok && cwd_ok && instance_ok && model_ok
     }
 }
 
@@ -434,6 +444,9 @@ fn start_and_bind(
     let mut meta = json!({"policy": "ask"});
     if let Some(harness) = &params.harness {
         meta.insert("harness", json!(harness));
+    }
+    if let Some(model) = &params.model {
+        meta.insert("model", json!(model));
     }
     // The workspace of the tab, read here and never taken from the client:
     // acpmux gives the session that workspace's display (none without it).

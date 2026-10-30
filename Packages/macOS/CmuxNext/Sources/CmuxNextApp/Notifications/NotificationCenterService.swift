@@ -86,8 +86,8 @@ final class NotificationCenterService {
     /// The Chief pet's notices (`NotificationCenterService+ChiefPet`); nil while it is off.
     @ObservationIgnored var chiefPet: ChiefPetController?
     @ObservationIgnored private var lastSeen: UInt64 = 0
-    /// The Dock badge this service set last (nil: none).
-    @ObservationIgnored var dockBadgeLabel: String?
+    /// The Dock icon's unread badge (`notifications.dockBadge`), shown again when the icon returns.
+    @ObservationIgnored let dockBadge = DockBadge(tile: AppDockTile())
     /// `notifications.dockBounce`: the running bounce, ended when nothing is unread.
     @ObservationIgnored let dockAttention = DockAttention()
     /// Hands the daemon's local feed items to the cloud owner (feed.md 9.1).
@@ -128,6 +128,13 @@ final class NotificationCenterService {
     }
     private static let logLimit = 64
 
+    // The Dock badge watcher owns an NSRunningApplication KVO token. Cancel
+    // every watcher before this service goes away so AsyncStream terminates
+    // and invalidates that token while the observed application still exists.
+    nonisolated deinit {
+        tasks.forEach { $0.cancel() }
+    }
+
     func start(services: AppServices) {
         self.services = services
         AgentTurnStateStore.shared.onTurnEnded = { [weak self] session in self?.agentTurnEnded(session: session) }
@@ -151,6 +158,7 @@ final class NotificationCenterService {
         desktop.onOpen = { [weak self] id, surface in
             if id == IPhonePairNotices.id { try? self?.services?.settingsWindow.show(section: nil, route: IPhonePairNotices.settingsRoute); return }
             if let request = AppBrowserPasskeyHost.requestID(banner: id) { self?.onPasskeyBanner?(request); return }
+            if self?.services?.agentTabs.pageChats.openNotice(banner: id) == true { return }
             self?.open(surface: surface.map(SurfaceID.init(rawValue:)))
             self?.webNotificationClicks.run(bannerID: id)
         }
@@ -181,6 +189,8 @@ final class NotificationCenterService {
                 self?.dropReadChiefPetNotices()
             }
         })
+        // The Dock drops the badge while cmux runs windowless with no Dock icon; it comes back with the icon.
+        tasks.append(Task { [dockBadge] in await dockBadge.follow(DockBadge.activationPolicies()) })
     }
 
     /// Follows `notifications.*` in every loaded snapshot.
@@ -470,6 +480,8 @@ final class NotificationCenterService {
             return
         }
         if decision.acknowledge {
+            // Read on sight: under `sounds.when = always` it still sounds (no banner shows for it).
+            soundGate.playSeen(decision, sounds: preferences.sounds)
             acknowledge(located.tab)
             return
         }

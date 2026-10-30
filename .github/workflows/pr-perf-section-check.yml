@@ -1,0 +1,77 @@
+name: PR perf section check
+
+# A performance pull request records its before/after deltas in its description, so we can look
+# back on them: a `## Performance` section with a metric | before | after | delta | harness or run
+# link table (or a `No perf numbers: <why>` line). A PR is a performance change when it has the
+# `perf` label or a perf word in its title or description; docs-only changes are exempt.
+# scripts/ci/pr_perf_section_check.py decides; it runs from the base branch, never the pull
+# request's code. Editing the description re-runs it. Not a required check: its red is the PR's
+# own red under the landing rules.
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled, ready_for_review]
+
+permissions: {}
+
+concurrency:
+  group: pr-perf-section-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  perf-section:
+    name: pr-perf-section-check
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout the check from the base branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/pr_perf_section_check.py
+          sparse-checkout-cone-mode: false
+
+      # The changed paths (a rename as both its old and new path, so a code file moved under docs/
+      # is not docs-only) from the event's merge commit and its first parent, without blobs (as
+      # pr-capture-check does). Any failure leaves `listed` unset and the next step reads the files API.
+      - name: List the changed paths
+        id: paths
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          MERGE_SHA: ${{ github.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --quiet --depth=2 --filter=blob:none origin "$MERGE_SHA"
+          [ "$(git rev-parse "$MERGE_SHA^2")" = "$HEAD_SHA" ]
+          git diff --name-only -z --no-renames "$MERGE_SHA^1" "$MERGE_SHA" | tr '\0' '\n' > "$RUNNER_TEMP/paths.txt"
+          echo "listed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Check the description for a Performance table
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          TITLE: ${{ github.event.pull_request.title }}
+          BODY: ${{ github.event.pull_request.body }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          LISTED: ${{ steps.paths.outputs.listed }}
+        run: |
+          set -euo pipefail
+          if [ ! -f scripts/ci/pr_perf_section_check.py ]; then
+            # The pull request that adds the check: its base has no check to run yet.
+            echo "::notice::The base branch has no scripts/ci/pr_perf_section_check.py yet; nothing to check."
+            exit 0
+          fi
+          printf '%s' "$BODY" > "$RUNNER_TEMP/body.md"
+          if [ "$LISTED" != true ]; then
+            gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)' > "$RUNNER_TEMP/paths.txt"
+          fi
+          python3 scripts/ci/pr_perf_section_check.py --body-file "$RUNNER_TEMP/body.md" \
+            --paths-file "$RUNNER_TEMP/paths.txt" --title "$TITLE" --labels "$LABELS"

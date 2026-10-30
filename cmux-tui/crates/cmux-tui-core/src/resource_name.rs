@@ -6,6 +6,7 @@ use serde_json::{Map, Value, json};
 
 use crate::resource::ResourceError;
 use crate::workspace_registry::{RegistryTab, RegistryWorkspace};
+use cmux_json::JsonSet as _;
 
 /// Missing provenance in an older registry is conservatively user-owned.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -30,11 +31,25 @@ impl NameSource {
         if value == "auto" { Self::Auto } else { Self::User }
     }
 
-    /// A name the daemon picked itself (no requested name) belongs to the
-    /// automatic namer; a requested name belongs to whoever asked.
-    pub(crate) fn for_requested(requested: bool) -> Self {
-        if requested { Self::User } else { Self::Auto }
+    /// A new workspace's name source: one the daemon picked itself (no
+    /// requested name) belongs to the automatic namer, a requested name to
+    /// whoever asked. The app sends the daemon's own next
+    /// default (`workspace-N`) with Cmd-N so its row shows the final name at
+    /// once; that is still the daemon's default, not a name a person chose,
+    /// so it stays the automatic namer's (else the first prompt never
+    /// renames the workspace).
+    pub(crate) fn for_requested_workspace_name(name: Option<&str>) -> Self {
+        match name {
+            Some(name) if !is_default_workspace_name(name) => Self::User,
+            _ => Self::Auto,
+        }
     }
+}
+
+/// `workspace-N`, the daemon's default workspace name (`default_workspace_name`).
+pub(crate) fn is_default_workspace_name(name: &str) -> bool {
+    name.strip_prefix("workspace-")
+        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// Automatic callbacks carry the name revision captured before their work began.
@@ -160,7 +175,7 @@ impl NameUpdate {
                 "expected_name_revision": self.name_revision.map(|revision| revision.to_string()),
             });
             if self.release {
-                fingerprint["release"] = json!(true);
+                fingerprint.set("release", json!(true));
             }
             fingerprint
         })
@@ -292,7 +307,7 @@ pub(crate) fn name_refusal(
     } else {
         "automatic names cannot clear a title"
     };
-    resource["reason_code"] = json!(reason_code);
+    resource.set("reason_code", json!(reason_code));
     ResourceError::operation_failed(operation, reason, resource)
 }
 

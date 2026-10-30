@@ -15,6 +15,8 @@ export type AcpmuxSessionEntry = {
   agentSessionId?: string;
   status?: string;
   model?: string;
+  /** The harness's thinking effort, when a summary producer supplies it. */
+  effort?: string;
   cwd?: string;
   /** acpmux's last write to the session: any logged record, a warm, resume or stop of its agent too. */
   updatedAt?: number;
@@ -47,6 +49,8 @@ export type AcpmuxSessionEntry = {
   pullRequestUrls?: string[];
   /** A line of the session's latest reply, for previews. */
   preview?: string;
+  /** The latest message text from acpmux's summary, when present. */
+  lastMessage?: string;
   /** A fork: the chat it was forked from and that chat's event it branched after (cx-ncc.61). */
   parentId?: string;
   /** Started by another session's agent (acpmux `spawnedBy`): it folds under that chat, off every list. */
@@ -207,6 +211,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     agentSessionId: text(session.agentSessionId),
     status: session.status,
     model: text(session.model),
+    effort: text(session.effort),
     cwd: typeof session.cwd === "string" ? session.cwd : undefined,
     updatedAt: typeof session.updatedAt === "number" ? session.updatedAt : undefined,
     activityAt: summaryActivityAt(session),
@@ -226,6 +231,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     pullRequest: pullRequest(session.pullRequest),
     pullRequestUrls: pullRequestUrls(session.pullRequests),
     preview: text(session.preview),
+    lastMessage: text(session.lastMessage?.text) ?? text(session.preview),
     parentId: text(session.parentId),
     spawnedBy: text(session.spawnedBy),
     startedBy: text(session.startedBy),

@@ -14,12 +14,14 @@ dependencies = [
  "cmux-coderouter",
  "cmux-codex-acp",
  "cmux-git",
+ "cmux-json",
  "cmux-link",
  "cmux-local-auth",
  "cmux-panic-log",
- "cmux-tailnet",
  "cmux-sdk",
+ "cmux-tailnet",
  "cmux-unix-socket",
+ "cmux-wg",
  "cmux-worktree-care",
  "crossterm",
  "dirs",
@@ -43,6 +45,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "syntect",
+ "tempfile",
  "thiserror 2.0.19",
  "tokio",
  "tokio-rustls",
@@ -56,6 +59,7 @@ dependencies = [
  "uuid",
  "wait-timeout",
  "windows-sys 0.61.2",
+ "x25519-dalek",
  "zeroize",
 ]
 
@@ -810,6 +814,7 @@ dependencies = [
  "async-trait",
  "base64",
  "bytes",
+ "cmux-json",
  "cmux-pty",
  "futures-util",
  "getrandom 0.3.4",
@@ -938,6 +943,7 @@ dependencies = [
 name = "cmux-app-host"
 version = "0.1.0"
 dependencies = [
+ "cmux-json",
  "libc",
  "rquickjs",
  "serde",
@@ -948,9 +954,11 @@ dependencies = [
 name = "cmux-app-manifest"
 version = "0.1.0"
 dependencies = [
+ "hex",
  "jsonschema",
  "regex",
  "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -958,6 +966,7 @@ name = "cmux-browser-host"
 version = "1.0.0"
 dependencies = [
  "chacha20poly1305",
+ "cmux-json",
  "getrandom 0.3.4",
  "hmac",
  "libc",
@@ -1014,6 +1023,7 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-json",
  "cmux-link",
  "cmux-local-auth",
  "fs4",
@@ -1054,6 +1064,7 @@ name = "cmux-config"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-json",
  "core-foundation 0.10.1",
  "core-foundation-sys",
  "jsonschema",
@@ -1166,6 +1177,7 @@ dependencies = [
 name = "cmux-host"
 version = "0.1.0"
 dependencies = [
+ "cmux-json",
  "cmux-server",
  "cmux-server-core",
  "flate2",
@@ -1178,6 +1190,13 @@ dependencies = [
  "tar",
  "tempfile",
  "tokio",
+]
+
+[[package]]
+name = "cmux-json"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]
@@ -1369,6 +1388,7 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-build-identity",
+ "cmux-json",
  "cmux-link",
  "cmux-pty",
  "cmux-relay",
@@ -1454,6 +1474,7 @@ name = "cmux-server"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-json",
  "cmux-server-core",
  "flate2",
  "futures-util",
@@ -1479,6 +1500,7 @@ name = "cmux-server-core"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-json",
  "hmac",
  "proptest",
  "ring",
@@ -1496,6 +1518,18 @@ dependencies = [
  "cmux-sdk",
  "crossterm",
  "ratatui",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-tailnet"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "libc",
+ "reqwest",
+ "rustls",
+ "serde",
  "serde_json",
 ]
 
@@ -1529,6 +1563,7 @@ dependencies = [
  "async-trait",
  "base64",
  "bytes",
+ "cmux-json",
  "cmux-remote",
  "cmux-remote-protocol",
  "cmux-tui-core",
@@ -1570,18 +1605,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cmux-tailnet"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "libc",
- "reqwest",
- "rustls",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "cmux-tui"
 version = "1.0.0"
 dependencies = [
@@ -1593,9 +1616,11 @@ dependencies = [
  "cmux-agent-pane-policy",
  "cmux-api-compat",
  "cmux-build-identity",
+ "cmux-chat-index",
  "cmux-config",
  "cmux-holder",
  "cmux-host",
+ "cmux-json",
  "cmux-link",
  "cmux-panic-log",
  "cmux-process",
@@ -1653,6 +1678,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
+ "cmux-json",
  "serde_json",
  "tungstenite",
 ]
@@ -1663,6 +1689,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-cloud-wire",
+ "cmux-json",
  "serde",
  "serde_json",
  "url",
@@ -1686,6 +1713,7 @@ dependencies = [
  "cmux-git",
  "cmux-history",
  "cmux-holder",
+ "cmux-json",
  "cmux-kitty-media",
  "cmux-layout-reducer",
  "cmux-link",
@@ -1735,6 +1763,7 @@ name = "cmux-tui-hooks"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cmux-json",
  "cmux-tui-platform",
  "getrandom 0.3.4",
  "libc",
