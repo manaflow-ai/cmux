@@ -241,7 +241,9 @@ test("previews off: the row keeps its plain Computer menu", async () => {
 });
 
 for (const environments of [false, true]) {
-  const menu = () => doc().querySelector(environments ? ".acpmux-env-popover" : ".acpmux-location-menu");
+  // Base UI retains a closed popup during its exit transition; only an open popup can cover the ask.
+  const menu = () =>
+    doc().querySelector(environments ? ".acpmux-env-popover:not([data-closed])" : ".acpmux-location-menu:not([data-closed])");
   test(`trust question closes an open destination picker (previews ${environments})`, async () => {
     await mount(environments);
     await openPicker();
