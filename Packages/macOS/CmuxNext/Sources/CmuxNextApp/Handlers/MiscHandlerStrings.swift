@@ -117,7 +117,7 @@ extension ActionWorkFailure {
     /// The failure of a person's optimistic create (Cmd-D, Ctrl-`, New Row, New Column) as the refusal HUD shows it:
     /// ``PendingPaneNotCreated`` reads in the app's language at this boundary (its English text stays for the log); other
     /// errors keep the daemon's own text, as before.
-    static func create(_ label: String, _ error: any Error) -> ActionWorkFailure {
+    @MainActor static func create(_ label: String, _ error: any Error) -> ActionWorkFailure {
         if error is PendingPaneNotCreated { return ActionWorkFailure("\(label): \(MiscHandlerStrings.pendingPaneNotCreated)") }
         return ActionWorkFailure(label, error)
     }
