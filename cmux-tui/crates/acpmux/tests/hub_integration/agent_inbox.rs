@@ -525,11 +525,12 @@ async fn an_inbox_message_from_before_the_review_tag_never_steers_into_the_revie
         .await
         .unwrap();
 
-    // The review turn starts and ends: on base the held notice steered in at its start.
+    // The review turn starts and ends: on base the held notice steered in at its start. A FIFO
+    // write waits for its reader, so the second opens once the review turn runs. Every answer is
+    // read together: none is dropped while waiting for another.
     open(&gate).await;
-    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "before-gate").await;
     open(&review_gate).await;
-    let answered = answers(&mut c, &[first, review]).await;
+    let answered = answers(&mut c, &[first, review, sent]).await;
     assert_eq!(answered[&review]["stopReason"], "end_turn", "{}", answered[&review]);
     let review_turn = answered[&review]["_meta"]["acpmux"]["turnId"].clone();
     let all = prompts(&hub, &id);
@@ -541,9 +542,8 @@ async fn an_inbox_message_from_before_the_review_tag_never_steers_into_the_revie
         notices(&hub, &id).iter().all(|n| n["turnId"] != review_turn),
         "no notice in the review's turn: {all:?}"
     );
-    // After the review it wakes the chat as a turn of its own, which answers its sender.
-    let woke = answers(&mut c, &[sent]).await;
-    assert_ne!(woke[&sent]["_meta"]["acpmux"]["turnId"], review_turn, "{}", woke[&sent]);
+    // After the review it woke the chat as a turn of its own, which answered its sender.
+    assert_ne!(answered[&sent]["_meta"]["acpmux"]["turnId"], review_turn, "{}", answered[&sent]);
     for path in [gate, review_gate] {
         let _ = std::fs::remove_file(path);
     }

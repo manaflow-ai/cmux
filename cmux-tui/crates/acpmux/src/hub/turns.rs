@@ -391,7 +391,9 @@ impl Hub {
             && super::inbox::notice_held(session);
         // A review box's turn takes no other agent's steer: its message waits behind the review,
         // as the inbox leaves it (`inbox.rs`). The person's own steer and Send now still go in.
-        let review_held = from_agent && running.is_some() && super::inbox::review_box(session);
+        // Read with or without a running turn: one that starts before this reaches the queue is
+        // stopped by no agent's interrupt either.
+        let review_held = from_agent && super::inbox::review_box(session);
         let steer_now = steer
             && session.steering.load(Ordering::SeqCst)
             && running.is_some()
@@ -399,7 +401,7 @@ impl Hub {
             && !notice_held
             && !review_held;
         if steer && opts.steer_only && !steer_now {
-            if review_held {
+            if review_held && running.is_some() {
                 return Err(super::inbox::review_box_steer_refused());
             }
             return Err(super::turn_cap::steer_unavailable(capped));
