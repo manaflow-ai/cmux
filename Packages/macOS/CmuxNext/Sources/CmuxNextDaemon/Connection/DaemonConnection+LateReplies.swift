@@ -47,21 +47,40 @@ extension DaemonConnection {
     /// ``lateTerminalStartBudget`` is thrown as the timeout.
     @discardableResult
     public func createTerminalWaitingForStart(in key: WorkspaceKey, cwd: String?) async throws -> CreateTerminalResult {
-        let request = await createTerminalRequest(in: key, cwd: cwd)
-        return try await Self.retryingLateStarts("create-terminal in \(key.rawValue)", until: ContinuousClock.now + Self.lateTerminalStartBudget) {
+        try await requestWaitingForStart(await createTerminalRequest(in: key, cwd: cwd))
+    }
+
+    /// Sends `request`, a terminal start cmux-tui replays (a keyed `create-terminal`, or a
+    /// `split`, `new-pane` or `new-pane-right` under its client-minted `terminal_id`,
+    /// `split-client-keys-v1`), again while it misses its start deadline, so the terminal a loaded
+    /// host starts late is the one returned and none is started twice. A split that gave up at the
+    /// 5 s deadline took back the pane the window already showed: on a loaded Mac every split
+    /// snapped back. A refusal is thrown at once; a start still late after
+    /// ``lateTerminalStartBudget`` is thrown as the timeout.
+    func requestWaitingForStart<R: TerminalSpawningRequest>(_ request: R) async throws -> R.Response {
+        try await Self.retryingLateStarts(R.command, until: ContinuousClock.now + Self.lateTerminalStartBudget) {
             try await self.request(request)
         }
     }
 
-    /// A keyed pane creation the person already sees (Cmd-D's provisional pane, New Column's, New
-    /// Row's): a late reply is not a refusal, and taking the shown pane back made it vanish while
-    /// the daemon still made it (#26689). `options` (with the pane's client-minted ids and its
-    /// terminal id) are placed once, so every send is the same creation: the environment can change
-    /// between two placements (the login-shell capture lands, a config reload), and the daemon
-    /// answers a changed fingerprint with a conflict. `send` gets the placed options; a placed
-    /// request placed again is unchanged. The daemon serializes creations and replays the one that
-    /// committed. Without `terminal-placement-env-v1` the two-step fallback mints a terminal on
-    /// each send, so the creation is sent once.
+    /// A `split`, `new-pane` or `new-pane-right` with its client-minted ids: waited for through a
+    /// late start where the daemon replays a creation sent again with them (`split-client-keys-v1`),
+    /// sent once on an older daemon, which would make a second pane.
+    func requestPaneCreation<R: TerminalSpawningRequest>(_ request: R) async throws -> R.Response {
+        guard identity?.supports(DaemonCapability.splitClientKeys.rawValue) == true else { return try await self.request(request) }
+        return try await requestWaitingForStart(request)
+    }
+
+    /// A keyed pane creation the person already sees that the connection does not wait for itself
+    /// (New Row's, whose `new-row` replays under `row-client-replay-v1`): a late reply is not a
+    /// refusal, and taking the shown pane back made it vanish while the daemon still made it
+    /// (#26689). `options` (with the pane's client-minted ids and its terminal id) are placed once,
+    /// so every send is the same creation: the environment can change between two placements (the
+    /// login-shell capture lands, a config reload), and the daemon answers a changed fingerprint
+    /// with a conflict. `send` gets the placed options; a placed request placed again is unchanged.
+    /// The daemon serializes creations and replays the one that committed. Without
+    /// `terminal-placement-env-v1` the two-step fallback mints a terminal on each send, so the
+    /// creation is sent once.
     public func creatingShown<T>(_ what: String, _ options: SpawnOptions, _ send: (SpawnOptions) async throws -> T) async throws -> T {
         guard supportsPlacementEnv else { return try await send(options) }
         let options = await placed(options)
@@ -81,7 +100,7 @@ extension DaemonConnection {
             do {
                 return try await send()
             } catch let error as DaemonError where error.isLateStart && ContinuousClock.now < giveUp && !Task.isCancelled {
-                lateReplyLogger.info("\(what, privacy: .public): \(String(describing: error), privacy: .public); waiting with its mutation id")
+                lateReplyLogger.info("\(what, privacy: .public): \(String(describing: error), privacy: .public); waiting with its client ids")
             }
         }
     }

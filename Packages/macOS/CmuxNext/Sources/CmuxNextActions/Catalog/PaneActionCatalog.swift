@@ -11,8 +11,8 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 arguments: [CatalogArgument.cwdString.optional, CatalogArgument.keepBool.optional], targets: [.pane], cliName: "pane split-right", mainMenu: .view, startsTerminal: true
             ),
             // A PNG of the pane as on screen, never changing focus or selection
-            // (ScreenshotHandlers): Copy menu, palette and automation. An automation run's
-            // image has every web page the app does not own painted over (ScreenshotPrivacyMask).
+            // (ScreenshotHandlers): Copy menu, palette and automation. An agent's or a
+            // script's capture comes back with every browser page and agent chat masked.
             ActionDescriptor(
                 id: "pane.screenshot",
                 title: String(localized: "action.pane.screenshot", defaultValue: "Screenshot Pane", bundle: .module),

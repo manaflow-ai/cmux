@@ -55,6 +55,11 @@ public final class RemoteVNCSession {
         guard makeTransport != nil, !closed, retry == nil else { return }
         let wait = Duration.seconds(min(10, 1 << min(lostTries, 3)))
         lostTries += 1
+        scheduleRetry(after: wait)
+    }
+
+    private func scheduleRetry(after wait: Duration) {
+        guard !closed, retry == nil else { return }
         retry = Task { [weak self] in
             // wakeup-allow: one cancellable backoff wait before a reconnect; Stop and close cancel it.
             try? await Task.sleep(for: wait)
@@ -63,6 +68,15 @@ public final class RemoteVNCSession {
             connect()
         }
     }
+
+#if DEBUG
+    /// Test seam for the race where a manual reconnect supersedes an automatic retry.
+    internal var hasPendingRetryForTesting: Bool { retry != nil }
+
+    internal func scheduleAutomaticRetryForTesting(after wait: Duration) {
+        scheduleRetry(after: wait)
+    }
+#endif
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     nonisolated deinit {
@@ -107,16 +121,14 @@ public final class RemoteVNCSession {
 
     /// Stop, a hidden tab.
     public func stop() {
-        retry?.cancel()
-        retry = nil
+        cancelRetry()
         source.stop()
     }
 
     /// The tab closed: the demo server goes too.
     public func close() {
         closed = true
-        retry?.cancel()
-        retry = nil
+        cancelRetry()
         source.stop()
         demoStart?.cancel()
         demo?.stop()
@@ -126,6 +138,9 @@ public final class RemoteVNCSession {
     /// Reconnect or Sign In pressed. After a sign-in failure it asks for the
     /// user name and password first, in a sheet on `window`.
     public func reconnect(in window: NSWindow?) {
+        // A manual reconnect supersedes any delayed automatic retry. Otherwise the stale task
+        // can reconnect again after this attempt succeeds and replace the healthy connection.
+        cancelRetry()
         // A Cloud desktop only ever goes over the app's Cloud tunnel: no sign-in sheet, whose
         // connect would be plain TCP to the record's host.
         if makeTransport == nil, case .ended(.signInRequired) = source.status.state {
@@ -133,6 +148,11 @@ public final class RemoteVNCSession {
         } else {
             connect()
         }
+    }
+
+    private func cancelRetry() {
+        retry?.cancel()
+        retry = nil
     }
 
     private func promptForSignIn(in window: NSWindow?) {

@@ -700,6 +700,12 @@ impl ChildAgent {
             inbound: inbound.clone(),
             order: Mutex::new(()),
         });
+        // A delivery may have updated or removed the machine's secrets since
+        // daemon startup. Never build a process env from stale cached values.
+        anyhow::ensure!(
+            crate::login_env::machine_env_fresh_before_spawn().await,
+            "machine environment changed; login env refresh failed"
+        );
         let mut cmd = harness_command(name, profile, cwd, command_line, session)?;
         // Its MCP configs are read before it starts, never after (`hub/idle_census.rs`).
         let launch = crate::hub::LaunchServers::read(
@@ -710,6 +716,11 @@ impl ChildAgent {
         let preview_format = Some(pinned_preview_format(&cmd));
         #[cfg(windows)]
         cmd.creation_flags(crate::job::AGENT_FLAGS);
+        // Below the GUI's CPU class (macOS), the tools it starts with it (`cpu_class.rs`).
+        // From the harness's own env: its profile's value as resolved.
+        let env = command_env(&cmd);
+        crate::cpu_class::CpuClass::for_session(env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
+            .apply(&mut cmd);
         let mut child = cmd.spawn().map_err(|e| spawn_error(&format!("spawn agent {name}"), e))?;
         #[cfg(windows)]
         let job = {
@@ -821,6 +832,8 @@ impl ChildAgent {
                 // open; watch it so its exit is reported regardless.
                 let mut leader_check = tokio::time::interval(LEADER_CHECK);
                 let mut leader_gone: Option<tokio::time::Instant> = None;
+                // The carry whose hold was waited out (`claude_stdio/carry.rs`): once per carry.
+                let mut held: Option<u64> = None;
                 loop {
                     let next = tokio::select! {
                         next = lines.next_line() => next,
@@ -973,6 +986,20 @@ impl ChildAgent {
                                     .await;
                             }
                         }
+                    }
+                    // Claude Code ended its turn and runs on with steers it had not read: its next
+                    // line waits until the hub logged that turn's end and the next one's start
+                    // (the next turn's prompt), bounded (`claude_stdio/carry.rs`).
+                    // Each carry holds once, also one made while an earlier one still holds.
+                    let tr = agent_for_exit.translator.as_ref();
+                    let holding = tr.and_then(|tr| tr.holding().map(|carry| (tr, carry)));
+                    match holding {
+                        Some((tr, carry)) if held != Some(carry) => {
+                            tr.wait_unheld(crate::claude_stdio::CARRY_HOLD_MAX).await;
+                            held = Some(carry);
+                        }
+                        Some(_) => {}
+                        None => held = None,
                     }
                 }
                 // Claude's background shells ended with it (cx-ncc.84).
