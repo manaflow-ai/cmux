@@ -165,6 +165,8 @@ fn a_classic_verb_names_its_resource_command() {
         ),
         (&["list-workspaces"][..], "cmux workspace list"),
         (&["send", "ls"][..], "cmux terminal <terminal> write --text <text>"),
+        (&["rpc", "action.list", "{}"][..], "cmux action list"),
+        (&["rpc", "snapshot.get"][..], "cmux action list"),
     ] {
         let output = names.run("cmux", args);
         let stderr = text(&output.stderr);
