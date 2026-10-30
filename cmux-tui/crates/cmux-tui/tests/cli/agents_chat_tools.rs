@@ -642,6 +642,18 @@ fn an_agent_starts_a_chat_in_a_workspace_and_drives_it_without_the_app() {
         command
     };
 
+    // A start mode that does not ask before it acts (Claude's `bypassPermissions`, #27847) is
+    // the person's: an agent's `chat new --mode` is refused, never started in another mode.
+    let before = sessions();
+    let (code, refused) = chat_json(
+        as_caller(),
+        &["new", "--workspace", &workspace, "--harness", "fake", "--mode", "normal", "--", "hi"],
+    );
+    assert_eq!(code, Some(3), "{refused}");
+    assert_eq!(error_of(&refused)["code"], "chat.create_failed", "{refused}");
+    assert!(error_of(&refused)["message"].as_str().unwrap().contains("does not ask"), "{refused}");
+    assert_eq!(sessions(), before, "a chat started in a mode the agent may not choose: {refused}");
+
     let (code, created) = chat_json(
         as_caller(),
         &[
@@ -980,7 +992,9 @@ fn an_agent_chat_tab_lists_as_a_chat_with_its_session() {
     let output = cmux(&daemon, None).args(["--json", "tab", "list"]).output().unwrap();
     let listed: Value = serde_json::from_slice(&output.stdout)
         .unwrap_or_else(|_| panic!("tab list: {}", String::from_utf8_lossy(&output.stderr)));
-    let row = chat_row(&tab_rows(&listed)).unwrap_or_else(|| panic!("no chat tab in {listed}"));
+    let row = chat_row(&tab_rows(&listed)).unwrap_or_else(|| {
+        panic!("no chat tab in {listed}; {}", String::from_utf8_lossy(&output.stderr))
+    });
     assert_eq!(row["content_kind"], "conversation", "{row}");
     assert_eq!(row["extra"]["conversation"]["agent_session"]["host"], "install:chat-tab-kind");
 

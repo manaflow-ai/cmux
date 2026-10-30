@@ -338,12 +338,10 @@ const TAB_KINDS: [&str; 3] = ["conversation-tabs-v1", "agent-session-tabs-v1", "
 pub(super) fn declare_tab_kinds(
     reader: &mut BufReader<Box<dyn transport::Stream>>,
 ) -> Result<(), ()> {
-    let (Ok(request_id), Ok(key)) = (random_request_id(), random_idempotency_key()) else {
-        return Ok(());
-    };
-    // A mutation: it names its machine and session and carries an idempotency key.
+    let Ok(request_id) = random_request_id() else { return Ok(()) };
+    // Connection control, not a mutation: no idempotency key; it names its machine and session.
     let request = json!({"protocol": PROTOCOL, "type": "request", "id": request_id,
-        "operation": "client.metadata.update", "idempotency_key": key,
+        "operation": "client.metadata.update",
         "params": {"machine": "current", "session": "current", "client": "current",
                    "capabilities": TAB_KINDS}});
     let Ok(mut encoded) = serde_json::to_vec(&request) else { return Ok(()) };
