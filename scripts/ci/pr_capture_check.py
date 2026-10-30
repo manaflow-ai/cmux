@@ -87,6 +87,7 @@ def visible_markdown(body: str) -> str:
     visible: list[str] = []
     fence: tuple[str, int, int] | None = None
     in_comment = False
+    html_code: str | None = None
 
     def quote_content(line: str) -> tuple[int, str]:
         depth = 0
@@ -97,6 +98,10 @@ def visible_markdown(body: str) -> str:
 
     for original in (body or "").splitlines(keepends=True):
         depth, content = quote_content(original.rstrip("\n"))
+        if html_code is not None:
+            if re.search(rf"</{html_code}\s*>", content, re.IGNORECASE):
+                html_code = None
+            continue
         if fence is not None and depth < fence[2]:
             fence = None  # leaving a blockquote ends its contained code block
         if fence is not None:
@@ -104,6 +109,10 @@ def visible_markdown(body: str) -> str:
             if (depth == fence[2] and marker and marker.group(1)[0] == fence[0]
                     and len(marker.group(1)) >= fence[1]):
                 fence = None
+            continue
+
+        # Indented code is literal too: its comment delimiters are not HTML.
+        if not in_comment and (content.startswith("    ") or content.startswith("\t")):
             continue
 
         # Comments are recognized only outside code, so a literal comment opener
@@ -128,6 +137,12 @@ def visible_markdown(body: str) -> str:
                     rest = rest[start + 4:]
                     in_comment = True
         depth, content = quote_content(line.rstrip("\n"))
+        html = re.match(r"^ {0,3}<(pre|code|script|style|textarea)(?:[\s>])", content, re.IGNORECASE)
+        if html:
+            tag = html.group(1).casefold()
+            if not re.search(rf"</{tag}\s*>", content, re.IGNORECASE):
+                html_code = tag
+            continue
         marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", content)
         if marker and not (marker.group(1)[0] == "`" and "`" in marker.group(2)):
             fence = (marker.group(1)[0], len(marker.group(1)), depth)
