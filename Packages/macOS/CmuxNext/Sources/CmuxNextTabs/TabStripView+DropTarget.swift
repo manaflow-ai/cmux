@@ -35,11 +35,14 @@ extension TabStripView: TabDropTargetProviding {
         }
         let commitID = UUID()
         dropCommitID = commitID
+        // Snapshot both sides of the commit: rollback reverts only what this
+        // drop changed and keeps an unrelated pending reorder or regroup.
+        let before = (order: orderOverride, membership: groups.membershipOverride)
         switch payload {
         case .tab(let id, _): commitPhantom(tabID: TabID(id))
         case .tabGroup(let id, _, _, _): commitGroupPhantom(groupID: TabGroupID(id))
         }
-        let order = orderOverride, membership = groups.membershipOverride
+        let after = (order: orderOverride, membership: groups.membershipOverride)
         return { [weak self] landed in
             guard let self, dropCommitID == commitID else { return }
             dropCommitID = nil
@@ -52,8 +55,10 @@ extension TabStripView: TabDropTargetProviding {
                 dropPlaceholderGroup = nil
                 groups.phantomWidth = nil
             }
-            if orderOverride == order { orderOverride = nil }
-            if groups.membershipOverride == membership { groups.membershipOverride = [:] }
+            if after.order != before.order, orderOverride == after.order { orderOverride = before.order }
+            if after.membership != before.membership, groups.membershipOverride == after.membership {
+                groups.membershipOverride = before.membership
+            }
             sync(fromModel: false)
         }
     }

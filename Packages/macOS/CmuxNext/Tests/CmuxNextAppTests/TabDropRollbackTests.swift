@@ -175,4 +175,23 @@ struct TabDropRollbackTests {
         #expect(strip.view.dropPlaceholderIndex == nil && strip.view.groups.phantomWidth == nil)
     }
 
+    @Test func aRejectedExternalDropKeepsAnUnrelatedPendingReorder() throws {
+        let strip = Strip()
+        defer { strip.window.close() }
+        strip.model.groups = [TabGroupItem(id: "g")]
+        strip.model.tabs = [TabItem(id: "first", title: "First"), TabItem(id: "target", title: "Target")]
+        strip.view.sync(fromModel: true)
+        // An earlier in-strip reorder and regroup are still waiting on the App.
+        strip.view.orderOverride = ["target", "first"]
+        strip.view.groups.membershipOverride = ["first": "g"]
+        strip.view.sync(fromModel: false)
+        let proposal = try strip.preview()
+        let settle = try #require(strip.view.dropEnded(committed: proposal))
+        settle(false)
+        #expect(strip.view.orderOverride == ["target", "first"])
+        #expect(strip.view.groups.membershipOverride == ["first": "g"])
+        #expect(strip.view.presentedTabIDs == ["target", "first"])
+        #expect(strip.view.pendingDrop == nil && strip.view.dropPlaceholderIndex == nil)
+    }
+
 }
