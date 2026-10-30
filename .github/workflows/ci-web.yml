@@ -417,7 +417,7 @@ jobs:
       # check and the string catalog key check fail, through fast_gate_webviews_checks.py: each
       # runs on its own, and on a pull request only errors the base (the merge parent) lacks
       # fail, per error (file, code, message); the base's errors are warnings. A push charges
-      # every red. Elsewhere every piece of `bun run check` runs and gates, none stopping the next.
+      # every red. Elsewhere every piece of `bun run check` (its `check:pieces` list) runs and gates, none stopping the next.
       - name: Check webviews (Oxlint, Oxfmt, type check)
         id: webviews-check
         if: matrix.shard == 1
@@ -429,7 +429,7 @@ jobs:
         run: |
           status=0
           if [ "$CMUX_NEXT_STYLE_GUARDS" != warn ]; then
-            pieces="$(bun -e 'for (const p of require("./package.json").scripts.check.split("&&")) console.log(p.trim())')"
+            pieces="$(bun -e 'for (const p of (require("./package.json").scripts["check:pieces"] ?? require("./package.json").scripts.check).split("&&")) console.log(p.trim())')"
             while IFS= read -r piece; do
               PATH="$PWD/node_modules/.bin:$PATH" sh -c "$piece" || { echo "::error title=webviews check::$piece"; status=1; }
             done <<< "$pieces"
