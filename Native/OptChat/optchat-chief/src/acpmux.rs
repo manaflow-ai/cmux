@@ -1066,9 +1066,17 @@ impl AgentPort for Acpmux {
         const NOT_FOUND: i64 = -32002;
         let params = json!({"sessionId": id, "waitLogs": false});
         match self.client()?.request("_acpmux/info", params) {
-            // An answer that names no session says nothing of one (an older
-            // acpmux, a peer's stub), as a list without it did.
-            Ok(row) if row.get("sessionId").is_none() => Ok(None),
+            // Only this session's row counts, as the list's exact id match
+            // did: acpmux resolves a key by name or id prefix too, and an
+            // answer naming no session (an older acpmux, a peer's stub) says
+            // nothing of one.
+            Ok(row)
+                if ["sessionId", "qualifiedSessionId"]
+                    .iter()
+                    .all(|key| row.get(*key).and_then(Value::as_str) != Some(id)) =>
+            {
+                Ok(None)
+            }
             Ok(row) => serde_json::from_value(row)
                 .map(Some)
                 .map_err(|e| format!("info: {e}")),

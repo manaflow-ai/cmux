@@ -41,10 +41,15 @@ fn serve(listener: UnixListener) {
                         "_acpmux/sessions" => {
                             error(-32000, "session lists are paced: try again in 30839 ms")
                         }
-                        "_acpmux/info" if req["params"]["sessionId"] == "s-7" => result(json!({
-                            "sessionId": "s-7", "name": "kid", "harness": "claude-sr",
-                            "status": "idle", "logsLoading": false
-                        })),
+                        "_acpmux/info" if ["s-7", "s-"].contains(
+                            &req["params"]["sessionId"].as_str().unwrap_or_default(),
+                        ) =>
+                        {
+                            result(json!({
+                                "sessionId": "s-7", "name": "kid", "harness": "claude-sr",
+                                "status": "idle", "logsLoading": false
+                            }))
+                        }
                         "_acpmux/info" => error(-32002, "no session with the id"),
                         _ => result(json!({})),
                     };
@@ -75,4 +80,6 @@ fn a_paced_session_list_does_not_hide_a_sessions_harness() {
     let summary = acpmux.session("s-7").expect("a paced list does not fail the lookup");
     assert_eq!(summary.map(|s| s.harness).as_deref(), Some("claude-sr"));
     assert_eq!(acpmux.session("gone").expect("an unknown session is no error"), None);
+    // acpmux resolves a key by id prefix too: another session's row is not this one's.
+    assert_eq!(acpmux.session("s-").expect("a prefix match is no error"), None);
 }
