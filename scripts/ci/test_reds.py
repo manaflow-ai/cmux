@@ -78,6 +78,10 @@ CRASH_AT_START = re.compile(r"^(?:##\[error\]|::error[^:]*::)?(?:error: )?(?:\S+
 SHELL_SIGNAL = re.compile(r"^(?:\S+: line \d+: +)?\d+ +(Killed|Terminated|Hangup|Interrupt|Quit|User defined signal \d)"
                           r"(?::? \d+)? +\S")
 SHELL_SIGNAL_NUMBERS = {"Killed": "9", "Terminated": "15", "Hangup": "1", "Interrupt": "2", "Quit": "3"}
+# Actions may preserve only the shell status when a process dies after printing its test summary.
+# A 128 + signal status is still an abnormal end; a complete summary cannot excuse it as a base red.
+# Match the runner annotation, never a test name or an assertion quoting the diagnostic.
+PROCESS_EXIT = re.compile(r"^(?:##\[error\]|::error[^:]*::)\s*Process completed with exit code (\d{1,3})\.?$")
 # A signal or Mach exception named by a tool, the runtime or a crash report: a crash unless a test's own line
 # quotes it.
 SIGNALED = re.compile(r"(?:exited|terminated|killed|died) (?:with|by|on) (?:unexpected )?signal\b|\(signal: \d+|"
@@ -114,7 +118,8 @@ UNITTEST_LINE = re.compile(r"^(?:FAIL|ERROR): \w+ \([\w.]+\)|^\w+ \([\w.]+\)(?: 
 XC_SUITE_STARTED = re.compile(r"^\s*Test Suite '.+' started at ")
 XC_SUITE_ENDED = re.compile(r"^\s*Test Suite '.+' (?:passed|failed) at ")
 SUITE_STARTED = re.compile(r"^◇ Suite (.+?) started\.")
-SUITE_ENDED = re.compile(r"^[✔✘] Suite (.+?) (?:passed|failed)\b")
+# Known-issue suites use the same ━ completion marker as their tests and run summary.
+SUITE_ENDED = re.compile(r"^[✔✘━] Suite (.+?) (?:passed|failed)\b")
 # Swift Testing's start line, for naming the test a crash stack runs.
 STARTED = re.compile(r"◇ Test (?:case passing .+? to )?(\w+)\((.*?)\) started\.")
 # A test's end (Swift Testing; a case of a parameterized test ends with its test), and XCTest's start and end.
@@ -288,6 +293,11 @@ def read(log: str | None) -> Result:
             groups = [g for g in match.groups() if g]
             named.append(".".join(groups[:2]))
             crashed = True
+        exited = PROCESS_EXIT.match(text)
+        signal_exit = int(exited.group(1)) - 128 if exited else 0
+        if 1 <= signal_exit <= 64:
+            crashed = True
+            signals.append(str(signal_exit))
         runtime = HELPER_KILLED.search(text) or SHELL_SIGNAL.search(text) or (
             (CRASH.search(text) or CRASH_AT_START.search(text) or SIGNALED.search(text)) and not TEST_LINE.search(text))
         if runtime:
@@ -366,6 +376,208 @@ def classify(head_log: str | None, base_log: str | None, job: str = "", base: st
     elif new:
         reasons.append(f"{len(new)} failing test(s) pass or do not run on {base}: {'; '.join(new)[:600]}")
     return Verdict(bool(reasons), reasons, sorted(head.failed & seen))
+
+
+# The webview tests (scripts/ci/run-webviews-tests.sh, bun), judged per test across jobs. One test file runs in
+# a head shard (`react-apps-check (N)`) and, when red, is replayed on the merge parent by `react-apps-base-check (N)`,
+# while the base's own push runs it in whichever shard it falls in; a per-job comparison never matches those names
+# (2026-10-29: agent-pane-no-capsules, red on the base as `react-apps-check (1)`, charged to a PR as
+# `react-apps-base-check (4)`). So a test is named by its file and its title (webviews_test_results.py's `FILE >
+# TEST`, or `FILE` for a file that failed naming no test), and compared with its error (the bun `error:` line and the
+# test file's line it failed at) against every base job that ran it.
+WEB_FILE = r"(test/\S+?\.[cm]?[jt]sx?)"
+WEB_GROUP = re.compile(r"^##\[group\](FAIL|TIMEOUT) " + WEB_FILE + r"\b")  # a red file's log, run-webviews-tests.sh
+WEB_SUMMARY = re.compile(r"^(FAIL|TIMEOUT) " + WEB_FILE + r" \(limit")  # its line in the run's closing list
+WEB_FAIL = re.compile(r"^\(fail\) (.+?)(?: \[[0-9.]+m?s\])?$")
+WEB_ERROR = re.compile(r"^error: (.+)$")
+WEB_AT = re.compile(r"\bat .*?/webviews/" + WEB_FILE + r":(\d+):\d+\)?$")
+WEB_RETRY = "--- retry, alone ---"
+# guards_new_reds.py --label "Webview test": the tests a base replay charged to the change (errors) or found red on
+# the merge parent too (warnings), as GitHub prints the annotations.
+WEB_CHARGED = re.compile(r"^##\[(error|warning)\]" + WEB_FILE + r"(?: > (.+))?$")
+
+
+class WebFailures:
+    """What one webview test job log says: failed ({`FILE > TEST` or `FILE`: error, "" when none was printed}),
+    timed_out and crashed files, and charged/shared (a base replay's guards_new_reds verdicts, by name)."""
+
+    def __init__(self):
+        self.failed: dict = {}
+        self.timed_out: set = set()
+        self.crashed: set = set()
+        self.charged: set = set()
+        self.shared: set = set()
+        self.truncated: list = []
+
+
+def web_failures(log: str | None) -> WebFailures:
+    """The webview tests a job log names as failed, with each one's diagnostic. A retry's alone attempt supplies
+    its failing names and errors, matching webviews_test_results.py; runtime failures remain unconditionally own."""
+    found = WebFailures()
+    if not log:
+        return found
+    current = None  # the red file whose log this is
+    error: list[str] = []
+    where = ""
+    in_stack = False
+    summary = False
+    grouped = False
+    pending: dict[str, int] = {}
+
+    def diagnostic():
+        said = "\n".join(error)
+        return f"{said} at {where}" if said and where else said
+
+    def end_file():
+        if current and error:
+            said = diagnostic()
+            if current in found.failed and found.failed[current] != said:
+                said = "\n--- repeated failure ---\n".join(sorted({found.failed[current], said}))
+            found.failed[current] = said
+
+    texts = lines_of(log)
+    for text in texts:
+        if match := BUN_STARTED.match(text):
+            name = match.group(1)
+            pending[name] = pending.get(name, 0) + 1
+            summary = False
+        elif (match := BUN_RESULT.match(text)) and not WEB_SUMMARY.match(text):
+            name = match.group(2)
+            if pending.get(name, 0):
+                pending[name] -= 1
+        if match := WEB_GROUP.match(text):
+            end_file()
+            current, error, where, in_stack = match.group(2), [], "", False
+            grouped = True
+            if match.group(1) == "TIMEOUT":
+                found.timed_out.add(current)
+            continue
+        if text.startswith("### webviews tests:"):
+            end_file()
+            current = None
+            summary = True
+            continue
+        if match := WEB_SUMMARY.match(text):
+            name = match.group(2)
+            if match.group(1) == "TIMEOUT":
+                found.timed_out.add(name)
+            elif not any(key == name or key.startswith(name + " > ") for key in found.failed):
+                found.failed[name] = ""  # a red file that named no test (it did not load)
+            continue
+        if match := WEB_CHARGED.match(text):
+            (found.charged if match.group(1) == "error" else found.shared).add(
+                match.group(2) + (f" > {match.group(3)}" if match.group(3) else ""))
+            continue
+        if current is None:
+            continue
+        if "... output truncated;" in text:
+            found.truncated.append(f"{current}: its diagnostic was truncated")
+        if text == "##[endgroup]":
+            end_file()
+            current = None
+        elif text == WEB_RETRY:
+            # The base replay runs a file alone. Compare the final alone attempt, as
+            # webviews_test_results.py does, without letting an earlier error overwrite it.
+            found.failed = {key: value for key, value in found.failed.items()
+                            if key != current and not key.startswith(current + " > ")}
+            error, where, in_stack = [], "", False
+        elif match := WEB_ERROR.match(text):
+            error.append(match.group(1).strip())
+            in_stack = False
+        elif (match := WEB_AT.search(text)) and match.group(1) == current and not where:
+            where = f"{match.group(1)}:{match.group(2)}"
+            in_stack = True
+        elif text.lstrip().startswith("at "):
+            in_stack = True
+        elif match := WEB_FAIL.match(text):
+            key = f"{current} > {match.group(1)}"
+            said = diagnostic()
+            if key in found.failed and found.failed[key] != said:
+                # Multiple diagnostics for one title must not silently overwrite a new red.
+                said = "\n--- repeated failure ---\n".join(sorted({found.failed[key], said}))
+            found.failed[key] = said
+            error, where, in_stack = [], "", False
+        elif text.startswith("(pass) "):
+            end_file()  # an unhandled error is not the passing test's diagnostic
+            error, where, in_stack = [], "", False
+        elif error and not in_stack and text.strip():
+            error.append(text.strip())
+    end_file()
+    if (grouped or pending) and not summary:
+        found.truncated.append("its webview run printed no closing summary")
+    unfinished = sorted(name for name, count in pending.items() if count)
+    if unfinished:
+        found.truncated.append("webview files started and never finished: " + "; ".join(unfinished))
+    # Keep the common runtime and cut-short detection; Bun assertion titles can quote
+    # crash words, so result lines are not runtime diagnostics.
+    runtime = read("\n".join(text for text in texts if not WEB_FAIL.match(text)
+                             and not text.startswith("(pass) ")))
+    found.crashed.update(runtime.crashes)
+    found.truncated.extend(runtime.truncated)
+
+    return found
+
+
+def merged_web(logs: list) -> WebFailures:
+    out = WebFailures()
+    for log in logs:
+        got = web_failures(log)
+        for key, said in got.failed.items():
+            if key in out.failed and out.failed[key] != said:
+                said = "\n--- repeated failure ---\n".join(sorted({out.failed[key], said}))
+            out.failed[key] = said
+        out.timed_out |= got.timed_out
+        out.crashed |= got.crashed
+        out.charged |= got.charged
+        out.shared |= got.shared
+        out.truncated.extend(got.truncated)
+    return out
+
+
+def classify_web(head_logs: list, base_logs: list, job: str = "", base: str = "the base") -> Verdict | None:
+    """A red webview test job (a head shard, or the base replay that charged tests to the change) judged per test
+    against every base job that ran those tests: own unless each test the head is red on fails on the base too with
+    the same error. head_logs: the red job's log first, then the logs of the head's other jobs that ran the same
+    files (where each failure's error is printed); base_logs: the base's red webview test jobs. None when the red job's
+    log names no failing webview test (not a webview test red: the caller judges it as before). A file that timed out
+    or crashed, an unreadable log, or a test whose error is printed on only one side is the head's own."""
+    if not head_logs or any(log is None for log in head_logs):
+        return Verdict(True, [f"{job or 'the job'}: its log could not be read, so no test can be compared with {base}"])
+    red = web_failures(head_logs[0])
+    names = sorted(red.charged) if red.charged else sorted(red.failed)
+    if not names and not red.timed_out and not red.crashed and not red.truncated:
+        return None
+    # A replay's own log holds the merge parent's runs of those files, never the head's: the head's errors come from
+    # the head's other jobs then.
+    head = merged_web([log for log in (head_logs[1:] if red.charged else head_logs) if log is not None])
+    if red.charged:
+        files = {name.split(" > ", 1)[0] for name in red.charged}
+        # Replay annotations need not name an unhandled error that the head emitted
+        # outside a test. Every head diagnostic in the charged files must be compared.
+        names = sorted(set(names) | {name for name in head.failed if name.split(" > ", 1)[0] in files})
+    reasons = sorted(red.crashed | head.crashed)
+    reasons += [f"{name} timed out (a cut-short run is never a base red)"
+                for name in sorted(red.timed_out | head.timed_out)]
+    reasons += sorted(set(red.truncated + head.truncated))
+    if any(log is None for log in base_logs) or not base_logs:
+        reasons.append(f"no readable {base} webview test log to compare {len(names)} failing test(s) with")
+        return Verdict(True, reasons)
+    seen = merged_web(base_logs)
+    new, differ, shared = [], [], []
+    for name in names:
+        if name not in seen.failed:
+            new.append(name)
+            continue
+        mine, theirs = head.failed.get(name, ""), seen.failed[name]
+        if not mine or not theirs or mine != theirs:
+            differ.append(f"{name} ({mine or 'no error read'} here; {theirs or 'no error read'} on {base})")
+            continue
+        shared.append(name)
+    if new:
+        reasons.append(f"{len(new)} failing test(s) pass or do not run on {base}: {'; '.join(new)[:600]}")
+    if differ:
+        reasons.append(f"{len(differ)} test(s) fail differently on {base}: {'; '.join(differ)[:600]}")
+    return Verdict(bool(reasons), reasons, shared)
 
 
 # Gallery health's health.json: a shard's broken states and its states over their ready-time budget.

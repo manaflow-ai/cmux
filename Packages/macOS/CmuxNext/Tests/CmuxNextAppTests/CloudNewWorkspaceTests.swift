@@ -112,4 +112,14 @@ struct CloudNewWorkspaceTests {
             _ = try await CloudNewWorkspacePlan.copy(folder, workRoots: ["/home/cmux/work"]) { _ in .init(ok: false, errorCode: "machine_outdated") }
         }
     }
+
+    /// A machine is asked for only where Cloud can make it and a window shows its progress; every
+    /// other case opens here with its reason (#26078 review).
+    @Test func theRouteNeedsCloudASignInAndAWindow() {
+        #expect(CloudNewWorkspacePlan.route(unavailableReason: nil, signedIn: true, hasWindow: true) == .cloud)
+        #expect(CloudNewWorkspacePlan.route(unavailableReason: nil, signedIn: true, hasWindow: false) == .thisMac(.noWindow))
+        #expect(CloudNewWorkspacePlan.route(unavailableReason: nil, signedIn: false, hasWindow: true) == .thisMac(.signedOut))
+        #expect(CloudNewWorkspacePlan.route(unavailableReason: "off", signedIn: true, hasWindow: true) == .thisMac(.unavailable("off")))
+    }
 }
+

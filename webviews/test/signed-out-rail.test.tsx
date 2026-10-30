@@ -235,6 +235,8 @@ test("a search never lists a signed-out harness's models", async () => {
   expect(modelRows().every((row) => !row.querySelector(".acpmux-quick-value")?.textContent?.includes("Codex"))).toBe(
     true,
   );
+  const headings = [...dom.window.document.querySelectorAll(".acpmux-quick-menu .ui-menu-group-label")];
+  expect(headings.map((heading) => heading.textContent)).not.toContain("Codex");
   expect(sent).toEqual([]);
 });
 

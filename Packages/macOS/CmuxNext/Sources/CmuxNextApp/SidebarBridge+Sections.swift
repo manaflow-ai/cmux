@@ -218,9 +218,16 @@ extension SidebarBridge {
     func layoutItemMenu(_ id: LayoutItemID) -> NSMenu? {
         let tile = model.layout.item(id), item = tile ?? model.listedItem(id)
         let menus = ContextMenuCatalog.shared
-        let entries = menus.entries(for: .sidebarItem, removing: ChiefSidebar.menuRemovals(isApp: item?.owningAppID != nil, isChief: item?.ref == .builtIn(.chief), isTile: tile != nil))
+        let entries = menus.entries(for: .sidebarItem, removing: ChiefSidebar.menuRemovals(isApp: item?.owningAppID != nil, isChief: item?.ref == .builtIn(.chief), isTile: tile != nil)
+            .union(Self.pendingEdits(id)))
         return services.registry.makeContextMenu(for: .sidebarItem, target: ActionTargetRef(kind: .sidebarItem, id: id.rawValue),
                                                  entries: entries)
+    }
+
+    /// The item menu rows an item `id` does not offer while its add waits for the daemon (a Chief just dragged in): an
+    /// edit of its own fields waits for the echo (the planner refuses it until then), so the menu leaves it out.
+    static func pendingEdits(_ id: LayoutItemID) -> Set<ActionID> {
+        SidebarDocStore.current?.isPending(id) == true ? ["sidebar.item.toggleLabel"] : []
     }
 
     func applyLayoutOp(_ op: SidebarLayoutOp) {

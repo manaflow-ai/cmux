@@ -138,7 +138,9 @@ extension AppActions {
             spawn.inheritedCwd = NewTerminalStart.inherited(besides: focused.selectedTab, in: focused.pane, services: services)
         }
         // The Cloud toggle (#26062): a person's new workspace gets its own new Cloud machine.
-        if CloudHandlers.startNewWorkspaceInCloud(invocation, cwd: spawn.cwd ?? spawn.inheritedCwd, window: focus.shows ? sourceWindow?.state : nil, services) { return }
+        // Only a window shows the machine's progress; without one, or without Cloud, it opens here and says so.
+        let cloudRoute = CloudHandlers.startNewWorkspaceInCloud(invocation, cwd: spawn.cwd ?? spawn.inheritedCwd, window: focus.shows ? sourceWindow?.state : nil, services)
+        guard case .thisMac(let cloudNotice) = cloudRoute else { return }
 
         // Shown: the active window, or a new one when none is open. Not
         // shown (the CLI default): the most recent window lists it, or a new
@@ -168,6 +170,10 @@ extension AppActions {
                 _ = try await create(); BenchSpans.mark("cmdN.created")
                 pageMade = true
                 if focus.activatesApp, let target { focusWindow(windows, target) }
+                // In the window the workspace opened in (with every window closed, the new one).
+                if let cloudNotice, let window = target.flatMap(windows.controller(for:))?.window ?? windows.active?.window {
+                    CmuxToastCenter.shared.show(CmuxToast(id: "cloud-new-workspace-here", message: cloudNotice, duration: .seconds(8)), in: window)
+                }
                 return nil
             } catch is CancellationError {
                 return nil // a close took it before it started (WorkspaceLanes)

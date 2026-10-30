@@ -255,6 +255,7 @@ pub mod method {
     pub const MUX_WATCH: &str = "_acpmux/watch";
     pub const MUX_RENAME: &str = "_acpmux/rename";
     pub const MUX_KILL: &str = "_acpmux/kill";
+    pub const MUX_KEEP: &str = "_acpmux/keep";
     pub const MUX_WATCH_TAKE_OVER: &str = "_acpmux/watch_take_over";
     /// Stop one of a session's background subagents (a Claude background
     /// agent or workflow): `{sessionId, subagentSessionId}`.
@@ -271,6 +272,10 @@ pub mod method {
     pub const MUX_APP_REPLY: &str = "_acpmux/app_reply";
     pub const MUX_QUEUE_REMOVE: &str = "_acpmux/queue_remove";
     pub const MUX_QUEUE_EDIT: &str = "_acpmux/queue_edit";
+    /// One queued prompt's whole text and blocks, `{sessionId, promptId}` →
+    /// `{sessionId, promptId, turnId, text, prompt, fromAgent, fromSessionId, fromHarness}`
+    /// (`hub/queue_text.rs`); the queue list carries a 200-character preview only.
+    pub const MUX_QUEUE_TEXT: &str = "_acpmux/queue_text";
     /// To the agent adapter, `{sessionId}`: stop the agent's current step so it reads the steers
     /// that wait for it, and keep the turn (Send now on a steer, `hub/queue_edit.rs`). Answers
     /// `{interrupted}`, false when no steer waits; an agent without it answers an error.
@@ -284,6 +289,8 @@ pub mod method {
     /// `acpmux send --no-wait`: queue a prompt for this daemon to deliver (`hub/outbox.rs`).
     pub const MUX_SEND_QUEUE: &str = "_acpmux/send_queue";
     pub const MUX_SEND_STATUS: &str = "_acpmux/send_status";
+    /// Local socket: enqueue or read a mesh lifecycle control receipt.
+    pub const MUX_MESH_CONTROL: &str = "_acpmux/mesh_control";
     /// Resume agent message pairs the runaway guard paused (`hub/agent_pairs.rs`).
     pub const MUX_AGENT_PAIR_RESUME: &str = "_acpmux/agent_pair_resume";
     /// Retry a chat's failed last turn now (`hub/auto_resume/retry_turn.rs`).
@@ -305,6 +312,11 @@ pub mod method {
     pub const MUX_MAIL_READ: &str = "_acpmux/mail/read";
     pub const MUX_MAIL_WAIT: &str = "_acpmux/mail/wait";
     pub const MUX_MAIL_ACK: &str = "_acpmux/mail/ack";
+    /// Team-scoped relay messaging (Labs gated): send and inspect durable inbox entries.
+    pub const MUX_TEAM_SEND: &str = "_acpmux/team/send";
+    pub const MUX_TEAM_INBOX: &str = "_acpmux/team/inbox";
+    pub const MUX_TEAM_READ: &str = "_acpmux/team/read";
+    pub const MUX_TEAM_ACK: &str = "_acpmux/team/ack";
     /// An image a session's prompt sent, by its id (`hub/prompt_images.rs`).
     pub const MUX_ATTACHMENT: &str = "_acpmux/attachment";
     pub const MUX_PERMISSION_RESPOND: &str = "_acpmux/permission_respond";
@@ -340,6 +352,9 @@ pub mod method {
     pub const MUX_PERMISSION_CHAT_REVOKE: &str = "_acpmux/permission_chat_revoke";
     pub const MUX_SET_POLICY: &str = "_acpmux/set_policy";
     pub const MUX_SET_RULES: &str = "_acpmux/set_rules";
+    /// A session's turn cap (`hub/turn_cap.rs`): `{sessionId, turnCapMs?}`, a number sets it
+    /// (0 turns it off), null clears it, absent reads it.
+    pub const MUX_SET_TURN_CAP: &str = "_acpmux/set_turn_cap";
     pub const MUX_TAG: &str = "_acpmux/tag";
     /// The chat menu's Archive (`archived: true`) or Unarchive of one session:
     /// the `archived` tag, valued with when (milliseconds), set or removed.
@@ -525,6 +540,9 @@ pub mod method {
     pub const MUX_PAIR_LIST: &str = "_acpmux/pair_list";
     pub const MUX_PAIR_REVOKE: &str = "_acpmux/pair_revoke";
     pub const MUX_PAIR_ISSUE: &str = "_acpmux/pair_issue";
+    pub const MUX_MACHINE_CONSENT_SET: &str = "_acpmux/machine_consent_set";
+    pub const MUX_MACHINE_CONSENT_REFUSED: &str = "_acpmux/machine_consent_refused";
+    pub const MUX_MACHINE_CONSENT_GET: &str = "_acpmux/machine_consent_get";
     pub const MUX_PAIR_SET: &str = "_acpmux/pair_set";
     pub const MUX_PAIR_REDEEM: &str = "_acpmux/pair_redeem";
     // Notifications from acpmux to attached clients.

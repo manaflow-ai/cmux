@@ -61,7 +61,6 @@ cmux-tui/crates/cmux-tui/src/machine_provider_transport.rs	3	PL-daemon (cmux-tui
 cmux-tui/crates/cmux-tui/src/plugin_manager.rs	6	PL-daemon (cmux-tui-core and cmux-tui migration)
 cmux-tui/crates/cmux-tui/src/plugin_manager/build.rs	2	PL-daemon (cmux-tui-core and cmux-tui migration)
 cmux-tui/crates/cmux-tui/src/remote_cli.rs	9	PL-daemon (cmux-tui-core and cmux-tui migration)
-cmux-tui/crates/cmux-tui/src/remote_host/mod.rs	1	PL-daemon (cmux-tui-core and cmux-tui migration)
 cmux-tui/crates/cmux-tui/src/remote_host/serve.rs	2	PL-daemon (cmux-tui-core and cmux-tui migration)
 cmux-tui/crates/cmux-tui/src/remote_host/service.rs	6	PL-daemon (cmux-tui-core and cmux-tui migration)
 cmux-tui/crates/cmux-tui/src/test_exec.rs	2	PL-daemon (cmux-tui-core and cmux-tui migration)

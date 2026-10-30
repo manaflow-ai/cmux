@@ -8,6 +8,12 @@ public enum CloudStrings {
     }
     public static var noClient: String { String(localized: "cloud.unavailable.noClient", defaultValue: "The bundled cmux-tui client is missing, so Cloud machines cannot connect. Reinstall cmux from cmux.com/download, or rebuild a local build with cmux-tui bundled.", table: "Cloud", bundle: .module) }
     nonisolated public static var signInFirst: String { String(localized: "cloud.failed.signInFirst", defaultValue: "Sign in to use Cloud machines: run Sign In from the command palette, or `cmux cloud sign-in`.", table: "Cloud", bundle: .module) }
+    /// The Cloud toggle (#26062) is on, but this New Workspace opened on this Mac; `reason` says why.
+    public static func newWorkspaceOpenedHere(_ reason: String) -> String {
+        String(format: String(localized: "cloud.newWorkspace.openedHere", defaultValue: "This workspace opened on this Mac, not in Cloud. %@", table: "Cloud", bundle: .module), reason)
+    }
+    /// Why: no window was open to show a new Cloud machine's progress (Cmd-N with every window closed).
+    public static var newWorkspaceNoWindow: String { String(localized: "cloud.newWorkspace.noWindow", defaultValue: "New workspaces start in Cloud from an open window, where the new machine's progress shows.", table: "Cloud", bundle: .module) }
     public static var noMachine: String { String(localized: "cloud.failed.noMachine", defaultValue: "No Cloud machine is selected. Right-click a machine or pass --target machine:<id>; `cmux cloud list-machines` lists ids.", table: "Cloud", bundle: .module) }
     /// Why a Cloud machine needs an update, for its sidebar header and the
     /// Cloud diagnostics: the build it runs and what an update turns on.
@@ -35,6 +41,8 @@ public enum CloudStrings {
     }
     public static var notConnected: String { String(localized: "cloud.failed.notConnected", defaultValue: "The Cloud machine is not connected yet. Wait for it to connect; if it is paused, run `cmux cloud resume-machine --target machine:<id>`.", table: "Cloud", bundle: .module) }
     public static var commandRequired: String { String(localized: "cloud.failed.commandRequired", defaultValue: "Pass the command to run on the Cloud machine with --command \"<command>\".", table: "Cloud", bundle: .module) }
+    /// A creation's Retry when this Mac's install now bills another team than its first send (cmuxterm-hq#4709).
+    nonisolated public static var createRetryOtherTeam: String { String(localized: "cloud.failed.createRetryOtherTeam", defaultValue: "This machine was requested in another team. Switch back to that team to retry it, or dismiss it and create a new one.", table: "Cloud", bundle: .module) }
     public static var alreadySignedIn: String { String(localized: "cloud.failed.alreadySignedIn", defaultValue: "Already signed in. To switch accounts, run `cmux cloud sign-out`, then sign in again.", table: "Cloud", bundle: .module) }
     /// Team Picker's `team` names no team of this account.
     public static func noSuchTeam(_ team: String) -> String {

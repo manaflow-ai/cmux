@@ -73,4 +73,21 @@ struct AgentPaneStatusReplyShapeTests {
         let peers = try #require((reply["result"] as? [String: Any])?["peers"] as? [[String: String]])
         #expect(peers == [["name": "odd"], ["name": "bare"]])
     }
+
+    @Test func reconnectKeepsDoctorStateButDropsPeerEndpointsAndMetadata() throws {
+        let shape = try #require(AcpmuxPaneMethods.replyShapes["_acpmux/peer_reconnect"])
+        let text = AcpmuxPaneMethods.filteredReply(["result": ["peers": [
+            ["name": "cloud-1", "url": "wss://cloud-1.cmux.dev/?token=secret", "connected": false,
+             "state": "offline", "error": "doctor refused", "health": ["host": "hidden"]],
+        ]]], shape: shape, pageID: "8")
+        let reply = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
+        let result = try #require(reply["result"] as? [String: Any])
+        let peers = try #require(result["peers"] as? [[String: Any]])
+        let peer = try #require(peers.first)
+        #expect(peer["name"] as? String == "cloud-1")
+        #expect(peer["transport"] as? String == "wss")
+        #expect(peer["state"] as? String == "offline")
+        #expect(peer["error"] as? String == "doctor refused")
+        #expect(peer["url"] == nil && peer["health"] == nil)
+    }
 }

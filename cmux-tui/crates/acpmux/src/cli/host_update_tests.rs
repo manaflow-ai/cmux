@@ -243,8 +243,10 @@ impl Remote for FakePeer {
     }
 
     fn push(&self, local: &Path, remote: &str) -> Result<()> {
-        // As scp: a `~/` path is under the remote home.
-        std::fs::copy(local, self.home.join(remote.strip_prefix("~/").unwrap_or(remote)))?;
+        // As scp: a `~/` path is under the remote home. Written from a child
+        // process (`test_exec`): the update runs the pushed binary next.
+        let dest = self.home.join(remote.strip_prefix("~/").unwrap_or(remote));
+        crate::test_exec::write_executable(dest, std::fs::read(local)?);
         if let Some((rel, text)) = self.after_copy.borrow_mut().take() {
             self.write(rel, text);
         }
@@ -382,10 +384,9 @@ impl FakePeer {
     }
 
     fn exe(&self, rel: &str, text: &str) {
-        use std::os::unix::fs::PermissionsExt;
-        self.write(rel, text);
-        let mode = std::fs::Permissions::from_mode(0o755);
-        std::fs::set_permissions(self.home.join(rel), mode).unwrap();
+        let path = self.home.join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        crate::test_exec::write_executable(path, text);
     }
 
     fn read(&self, rel: &str) -> String {
@@ -765,7 +766,10 @@ fn without_systemd_the_detached_daemon_is_updated_checked_and_rolled_back() {
     assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
     assert_eq!(peer.daemon(), NEW);
     let calls = peer.take_calls();
-    assert!(calls.contains(&"acpmux daemon shutdown --keep-agents".to_owned()), "{calls:?}");
+    assert!(
+        calls.contains(&"acpmux daemon shutdown --keep-agents --restart".to_owned()),
+        "{calls:?}"
+    );
     assert!(calls.contains(&"acpmux --json daemon start".to_owned()), "{calls:?}");
     // A newer binary whose daemon never answers: back to NEW, detached.
     peer.offer("b2c3d4e5f 2026-10-22", None);

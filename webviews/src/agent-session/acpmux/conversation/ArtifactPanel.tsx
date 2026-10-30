@@ -1,16 +1,19 @@
 // The side panel beside the chat (cx-ncc.63, Claude parity): a document a reply carries in a fence
 // (artifactPreview.ts) drawn as it renders, with its source on the Code tab. HTML and SVG draw in the
-// render frame (RenderCard.tsx), an origin of its own that allows no connection, so a document cannot
-// reach the pane, its bridge, acpmux or the network; Markdown draws as the transcript draws it. The
-// pane on a dev server has no render frame, so there HTML and SVG show their source only.
+// offline artifact frame, an origin of its own that allows no connection, so a document cannot
+// reach the pane, its bridge, acpmux or the network; passive markup draws in a scriptless srcdoc and
+// waits for Run before the native frame grants scripts. Markdown draws as the transcript draws it.
+// The gallery runs public fixtures in srcdoc; other dev pages show their source only.
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useT } from "../i18n";
-import { documentName, previewHtml, type Artifact, type ArtifactKind } from "./artifactPreview";
+import { artifactFileName, documentName, previewHtml, type Artifact, type ArtifactKind } from "./artifactPreview";
+import { ARTIFACT_FRAME_URL, artifactGallery, artifactNeedsRun, galleryArtifactDocument } from "./artifactSandbox";
+import { renderFrameCSS } from "./renderBase";
 import { copyText } from "./clipboard";
 import { CodeBlock, languageLabel } from "./CodeBlock";
 import { Check, ChevronLeft, ChevronRight, Close, Copy, SaveTray } from "./icons";
 import { Markdown } from "./Markdown";
-import { canRender, ranRenders, RENDER_FRAME_URL, useRenderFrame } from "./RenderCard";
+import { canRender, ranRenders, useRenderFrame } from "./RenderCard";
 
 export { OpenPreview } from "./OpenPreview";
 
@@ -59,7 +62,8 @@ export function ArtifactPanel({
   const list = found >= 0 ? versions : [opened];
   const index = Math.max(0, found);
   const artifact = list[index]!;
-  const previews = artifact.kind === "markdown" || canRender();
+  const jsx = /^(jsx|tsx)$/i.test(artifact.lang);
+  const previews = artifact.kind === "markdown" || canRender() || artifactGallery();
   const [tab, setTab] = useState<"preview" | "code">(previews ? "preview" : "code");
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -85,7 +89,7 @@ export function ArtifactPanel({
   }, []);
   // The document's own name (its heading or <title>), else its language.
   const language = languageLabel(artifact.lang, t);
-  const title = documentName(artifact) || language;
+  const title = documentName(artifact) || artifact.path?.split("/").pop() || language;
   return (
     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape closes the panel from its tabs, buttons or a focused frame's edge.
     <aside
@@ -163,7 +167,16 @@ export function ArtifactPanel({
               aria-label={saved ? t("artifact.saved") : t("artifact.save")}
               title={saved ? t("artifact.saved") : t("artifact.save")}
               onClick={() =>
-                void onSave(artifact.code, documentName(artifact), artifact.kind)
+                void (async () => {
+                  // JSX saves as a standalone offline HTML document; Copy keeps its original source.
+                  const text = jsx
+                    ? galleryArtifactDocument(
+                        (await import("./artifactJsx")).jsxDocument(artifact.code),
+                        renderFrameCSS(),
+                      )
+                    : artifact.code;
+                  return onSave(text, artifactFileName(artifact), artifact.kind);
+                })()
                   // A host that failed to save is as good as none: copy the document instead.
                   .catch(() => "unavailable" as const)
                   .then((outcome) => {
@@ -195,21 +208,19 @@ export function ArtifactPanel({
         ) : (
           // Each version is its own frame: a frame draws the first document it is sent, and a
           // version with script waits for Run again.
-          <ArtifactFrame key={artifact.code} html={previewHtml(artifact)} title={title} />
+          <ArtifactFrame key={artifact.code} html={previewHtml(artifact)} title={title} jsx={jsx} />
         )}
       </div>
     </aside>
   );
 }
 
-/// A document that can run script waits for Run, as a render card does: the frame shares the pane's
-/// web process, so a busy loop would freeze the pane. Markup without script draws at once.
-const runsScript = (code: string) => /<script\b|\son[a-z]+\s*=|javascript:/i.test(code);
-
-function ArtifactFrame({ html, title }: { html: string; title: string }) {
+function ArtifactFrame({ html, title, jsx }: { html: string; title: string; jsx: boolean }) {
   const t = useT();
-  const [running, setRunning] = useState(() => ranRenders.has(html) || !runsScript(html));
-  if (!running)
+  const requiresRun = jsx || artifactNeedsRun(html);
+  const [allowed, setAllowed] = useState(() => ranRenders.has(html));
+  if (!requiresRun) return <PassiveFrame html={html} title={title} />;
+  if (!allowed)
     return (
       <div className="acpmux-artifact-run">
         <button
@@ -217,14 +228,46 @@ function ArtifactFrame({ html, title }: { html: string; title: string }) {
           className="acpmux-review-changes"
           onClick={() => {
             ranRenders.add(html);
-            setRunning(true);
+            setAllowed(true);
           }}
         >
           {t("render.run")}
         </button>
       </div>
     );
-  return <RunningFrame html={html} title={title} />;
+  return jsx ? <JsxFrame code={html} title={title} /> : <RunningFrame html={html} title={title} />;
+}
+
+function PassiveFrame({ html, title }: { html: string; title: string }) {
+  return (
+    <iframe
+      className="acpmux-artifact-frame"
+      srcDoc={galleryArtifactDocument(html, renderFrameCSS())}
+      title={title}
+      sandbox=""
+      referrerPolicy="no-referrer"
+    />
+  );
+}
+
+function JsxFrame({ code, title }: { code: string; title: string }) {
+  const [html, setHtml] = useState<string>();
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let active = true;
+    void import("./artifactJsx")
+      .then(({ jsxDocument }) => {
+        if (active) setHtml(jsxDocument(code));
+      })
+      .catch(() => {
+        if (active) setFailed(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [code]);
+  if (failed) return <CodeBlock code={code} lang="jsx" />;
+  return html === undefined ? null : <RunningFrame html={html} title={title} />;
 }
 
 function RunningFrame({ html, title }: { html: string; title: string }) {
@@ -233,7 +276,8 @@ function RunningFrame({ html, title }: { html: string; title: string }) {
     <iframe
       ref={frame}
       className="acpmux-artifact-frame"
-      src={RENDER_FRAME_URL}
+      src={artifactGallery() ? undefined : ARTIFACT_FRAME_URL}
+      srcDoc={artifactGallery() ? galleryArtifactDocument(html, renderFrameCSS()) : undefined}
       title={title}
       sandbox="allow-scripts"
       referrerPolicy="no-referrer"

@@ -108,16 +108,20 @@ import QuartzCore
         let begin = layer.convertTime(now, from: nil)
         let dp = CGPoint(x: position.x - layer.position.x, y: position.y - layer.position.y)
         let ds = CGSize(width: size.width - layer.bounds.width, height: size.height - layer.bounds.height)
+        // The model is already at the destination. A compositor sample before the explicit
+        // begin time must carry the starting delta too, or it flashes the destination first.
         if dp != .zero {
             let animation = Motion.sidebar.springAnimation(.move, "position", from: NSValue(point: dp), to: NSValue(point: .zero))
             animation.isAdditive = true
             animation.beginTime = begin
+            animation.fillMode = .backwards
             layer.add(animation, forKey: "\(key).position.\(serial)")
         }
         if ds != .zero {
             let animation = Motion.sidebar.springAnimation(.move, "bounds.size", from: NSValue(size: ds), to: NSValue(size: .zero))
             animation.isAdditive = true
             animation.beginTime = begin
+            animation.fillMode = .backwards
             layer.add(animation, forKey: "\(key).size.\(serial)")
         }
     }

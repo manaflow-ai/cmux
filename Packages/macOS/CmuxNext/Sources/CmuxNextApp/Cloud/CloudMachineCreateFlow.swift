@@ -91,9 +91,11 @@ struct CloudMachineCreateFlow {
     /// Creates a machine; `startedByPerson` is true for the person's own
     /// gesture in this app (click, menu, palette, key). Returns the machine
     /// record (contract 1.2). `askedBy`: the agent chat that asked, if one did.
+    /// `key`: the creation's own idempotency key, so its Retry is the same create
+    /// (the backend answers the first machine for it); a fresh one when none.
     /// `environment`: boot it in that Cloud environment (`cloud.environment.boot`)
     /// instead of a plain `cloud.machine.create`; the same confirmation and approval.
-    func create(name: String?, startedByPerson: Bool, askedBy: String? = nil, gate: Gate = .allowed, environment: String? = nil) async throws -> JSONValue {
+    func create(name: String?, startedByPerson: Bool, askedBy: String? = nil, key: String? = nil, gate: Gate = .allowed, environment: String? = nil) async throws -> JSONValue {
         if case .upgrade(let need) = gate {
             if startedByPerson { _ = await confirm(.upgrade(need)) }
             throw Failure.upgradeRequired(need.reason)
@@ -105,7 +107,7 @@ struct CloudMachineCreateFlow {
         if let name = machine.name { args["name"] = .string(name) }
         if let environment { args["environment"] = .string(environment) }
         let op = environment == nil ? "cloud.machine.create" : "cloud.environment.boot"
-        let answer = try await approvalLoop(op, args: .object(args), confirmed: confirmed) { request in
+        let answer = try await approvalLoop(op, args: .object(args), key: key ?? newKey(), confirmed: confirmed) { request in
             await confirm(.approval(request: request, machine))
         }
         return answer["machine"] ?? answer
@@ -115,15 +117,14 @@ struct CloudMachineCreateFlow {
     /// in this app: sent once with one key; when the backend holds it for approval, `confirm` asks the
     /// person (a no sends nothing more), then the approval is answered and the same key retried.
     func approvedCall(_ op: String, args: JSONValue, confirm: @MainActor () async -> Bool) async throws -> JSONValue {
-        try await approvalLoop(op, args: args, confirmed: false) { _ in await confirm() }
+        try await approvalLoop(op, args: args, key: newKey(), confirmed: false) { _ in await confirm() }
     }
 
     /// The first call, then at most `retries` same-key calls after the approval: every pass
-    /// returns, throws, or counts one retry. `confirmed`: a person already confirmed in this flow.
-    private func approvalLoop(_ op: String, args: JSONValue, confirmed: Bool,
+    /// returns, throws, or counts one retry, all with `key`. `confirmed`: a person already confirmed in this flow.
+    private func approvalLoop(_ op: String, args: JSONValue, key: String, confirmed: Bool,
                               ask: @MainActor (_ request: String) async -> Bool) async throws -> JSONValue {
         var confirmed = confirmed
-        let key = newKey()
         var approved: String?
         var attempt = 0
         for _ in 0...max(retries, 0) {

@@ -75,7 +75,7 @@ pub(super) fn closing_tab_groups(
         }
         match archives.last_mut().filter(|archive| archive["id"] == group.as_str()) {
             Some(archive) => {
-                if let Some(tab_ids) = archive["tab_ids"].as_array_mut() {
+                if let Some(tab_ids) = archive.get_mut("tab_ids").and_then(Value::as_array_mut) {
                     tab_ids.push(json!(tab));
                 }
             }

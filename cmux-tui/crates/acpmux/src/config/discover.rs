@@ -142,9 +142,12 @@ pub fn add_cmux_router_with(
         return;
     }
     let Some(claude) = which("claude") else { return };
-    let default = setting
+    let Some(&(default, _)) = setting
         .and_then(|m| CMUX_ROUTER_MODELS.iter().find(|(id, _)| *id == m))
-        .map_or(CMUX_ROUTER_MODELS[0].0, |(id, _)| *id);
+        .or_else(|| CMUX_ROUTER_MODELS.first())
+    else {
+        return;
+    };
     let env = BTreeMap::from([
         (crate::routes::PROFILE_ROUTE_KEY.to_owned(), crate::routes::CMUX_ROUTE_ID.to_owned()),
         // Claude Code's background calls name Haiku/Sonnet aliases; the

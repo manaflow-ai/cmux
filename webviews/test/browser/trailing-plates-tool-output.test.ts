@@ -32,8 +32,10 @@ await requireBrowserLane("trailing-plates-tool-output.test.ts", async () => {
       await page.addInitScript(() => {
         localStorage.setItem("cmux.experiments", JSON.stringify({ "hover-actions": "all" }));
       });
+      // The frame emulates its own media (gallery/frame/media.ts): Reduce Motion there too, so the
+      // actions' fade in (transcript-hover-fade.test.ts) has nothing to wait for when they are read.
       await page.goto(
-        `http://127.0.0.1:${port}${galleryFrame("agent-pane.tool-group-overlap", { variant: "mixed", colorScheme: mode })}`,
+        `http://127.0.0.1:${port}${galleryFrame("agent-pane.tool-group-overlap", { variant: "mixed", colorScheme: mode, reducedMotion: 1 })}`,
       );
       await page.locator(".cv-tool.is-toggle").first().click();
       await page.locator(".cv-tool.is-toggle").filter({ hasText: "Read coordination.md" }).click();

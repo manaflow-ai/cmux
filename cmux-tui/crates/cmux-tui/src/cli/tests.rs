@@ -11,6 +11,28 @@ fn strings(values: &[&str]) -> Vec<String> {
 }
 
 #[cfg(unix)]
+#[test]
+fn settings_separator_keeps_literal_confirm_with_daemon() {
+    let literal = strings(&["settings", "set", "--", "custom.label", "--confirm"]);
+    assert!(daemon_settings_scope(&literal));
+
+    let confirmed = strings(&["settings", "set", "custom.label", "value", "--confirm"]);
+    assert!(!daemon_settings_scope(&confirmed));
+}
+
+#[cfg(unix)]
+#[test]
+fn settings_crud_help_stays_on_the_app_help_scope() {
+    for args in [
+        strings(&["settings", "get", "--help"]),
+        strings(&["config", "set", "custom.label", "value", "--help"]),
+    ] {
+        assert!(has_help_option(&args));
+        assert!(!daemon_settings_scope(&args));
+    }
+}
+
+#[cfg(unix)]
 mod remote_cli_docs {
     use super::*;
     use std::collections::HashSet;

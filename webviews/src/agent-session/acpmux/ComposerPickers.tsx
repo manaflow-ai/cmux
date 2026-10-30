@@ -84,6 +84,9 @@ export const PICKER_LABELS = {
   fullAccessWarning: "picker.fullAccessWarning",
   /// A full-access row while MDM or a team policy keeps full access off (#23322).
   fullAccessManaged: "picker.fullAccessManaged",
+  /// The chip of a chat whose acpmux policy answers every prompt (approve-all) in a mode that asks.
+  approvesAll: "picker.approvesAll",
+  approvesAllDetail: "picker.approvesAllDetail",
   /// `{percent}` is the share of the context window used.
   context: "picker.context",
 } as const satisfies Record<string, StringKey>;
@@ -264,6 +267,7 @@ export function ComposerPickers({
             id: entry.acpmuxHarness ?? entry.id,
             name: entry.name,
             models: entry.models,
+            ...(entry.family ? { family: entry.family } : {}),
             ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
             pickable: entry.pickable && entry.acpmuxHarness !== null,
             ...(entry.topModels ? { top: entry.topModels } : {}),
@@ -1011,6 +1015,7 @@ export function ComposerPickers({
           help={t(PICKER_LABELS.modeHelp)}
           refusedReason={t(PICKER_LABELS.modeRefused)}
           permissionAccess={permissionAccess}
+          approvesAll={summary?.enforcement?.policy === "approve-all"}
           onMode={onMode}
           {...(pendingMenu
             ? { heading: t(pendingMenu.heading ?? PICKER_LABELS.mode), numbered: pendingMenu.numbered }
@@ -1107,6 +1112,7 @@ function AccessMenu({
   help,
   refusedReason,
   permissionAccess,
+  approvesAll = false,
   onMode,
   heading,
   numbered = true,
@@ -1122,6 +1128,9 @@ function AccessMenu({
   help: string;
   refusedReason: string;
   permissionAccess?: ComposerPermissionAccess;
+  /// acpmux's policy for the chat answers every permission prompt (approve-all, `enforcement`), so
+  /// the chat acts without asking whatever its harness mode is (cmux#27847).
+  approvesAll?: boolean;
   onMode(modeId: string): void | Promise<unknown>;
   /// The harness menu's mode supplies the icon layout even though its explanatory heading is not drawn.
   heading?: string;
@@ -1151,7 +1160,16 @@ function AccessMenu({
   // A chat that has not reported its mode (one acpmux has not started) names none, not the first,
   // and every mode, the first included, is a pick.
   const value = optimisticMode ?? current ?? "";
-  const currentMode = modes.find((choice) => choice.id === value);
+  const reportedMode = modes.find((choice) => choice.id === value);
+  // A harness mode that asks under a policy that answers every prompt (approve-all) acts without
+  // asking: the chip says full access, not the harness's Manual (cmux#27847). The menu still marks
+  // the harness's own mode, the one a pick changes.
+  // Plan stops edits in the harness itself, not by asking: it keeps its own name.
+  const answeredForYou = approvesAll && reportedMode !== undefined && !unrestricted(value) && !isPlan(value);
+  const currentMode: ModeChoice | undefined = answeredForYou
+    ? { id: value, name: t(PICKER_LABELS.approvesAll), icon: "shield-alert" }
+    : reportedMode;
+  const fullAccess = answeredForYou || unrestricted(value);
   const grants = permissionAccess?.grants ?? [];
   const pick = (next: string) => {
     if (blocked(next)) return;
@@ -1166,7 +1184,9 @@ function AccessMenu({
       }));
     });
   };
-  const tooltip = `${label}: ${currentMode?.name ?? label}\n${help}`;
+  const tooltip = answeredForYou
+    ? `${label}: ${currentMode?.name ?? label}\n${t(PICKER_LABELS.approvesAllDetail, { mode: reportedMode.name })}\n${help}`
+    : `${label}: ${currentMode?.name ?? label}\n${help}`;
   // A numbered menu (Claude Code's) draws no icon column, as Claude Code's mode menu does; the
   // button keeps the mode's symbol.
   const iconless = numbered && heading !== undefined;
@@ -1182,7 +1202,7 @@ function AccessMenu({
   ) {
     return (
       <span
-        className={`acpmux-mode acpmux-access acpmux-access-fixed${unrestricted(value) ? " acpmux-unrestricted" : ""}`}
+        className={`acpmux-mode acpmux-access acpmux-access-fixed${fullAccess ? " acpmux-unrestricted" : ""}`}
         data-fit-title={currentMode?.name ?? label}
         data-fit-title-unit="access"
         /* tooltip-allow: the chip is its shield alone; the tooltip says what it is and why it is fixed */
@@ -1197,7 +1217,7 @@ function AccessMenu({
   }
   return (
     <span
-      className={`acpmux-mode acpmux-access${unrestricted(value) ? " acpmux-unrestricted" : ""}`}
+      className={`acpmux-mode acpmux-access${fullAccess ? " acpmux-unrestricted" : ""}`}
       // A narrow row shows the glyph alone; the row's fit names the mode in a tooltip then (composerRowFit.ts).
       data-fit-title={currentMode?.name ?? label}
       data-fit-title-unit="access"
