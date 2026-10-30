@@ -341,8 +341,18 @@ public actor WireHomeSource: HomeSource {
         for _ in 0..<Self.inboxPages {
             var params: [String: HomeWireJSON] = ["limit": .number(Double(Self.inboxLimit))]
             if let cursor { params["cursor"] = .string(cursor) }
-            let value = try await client.read("inbox.list", .object(params))
-            guard let rows = value["entries"].array else { throw HomeRejection.ownerUnreachable }
+            // The first page's failure is the read's; a later page's ends it with the pages read.
+            let value: HomeWireJSON
+            do {
+                value = try await client.read("inbox.list", .object(params))
+            } catch {
+                if cursor == nil { throw error }
+                break
+            }
+            guard let rows = value["entries"].array else {
+                if cursor == nil { throw HomeRejection.ownerUnreachable }
+                break
+            }
             for entry in rows where mapping.isListed(entry) {
                 if let id = entry["conversation"].string, next[ConversationID(id)] == nil { next[ConversationID(id)] = entry }
             }

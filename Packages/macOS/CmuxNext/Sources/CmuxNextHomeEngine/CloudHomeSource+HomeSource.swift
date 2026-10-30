@@ -25,14 +25,17 @@ nonisolated extension CloudHomeSource {
     /// `inboxPages` of them, one bounded `cloud-inbox-list` read each. An entry a later page lists
     /// again (its activity moved it during the read) keeps the first page's copy; the list carries the
     /// first page's revision, so an inbox event after any page is newer than it (`touched`). An older
-    /// daemon sends no cursor: its one page is the list, as before.
+    /// daemon sends no cursor: its one page is the list, as before. A later page's failure keeps the
+    /// pages read (`nextCursor` names where it stopped).
     func allPages(_ commands: any CloudConversationCommands, identity: CloudIdentity) async throws -> CloudInboxList {
         var list = try await reply(for: identity) { try await commands.inboxList(cursor: nil) }
         var seen = Set(list.entries.map(\.conversation))
         var cursor = list.nextCursor
         for _ in 1..<Self.inboxPages {
             guard let current = cursor else { break }
-            let page = try await reply(for: identity) { try await commands.inboxList(cursor: current) }
+            // A later page that fails ends the read with the pages already read (the first page's
+            // failure is the read's), as the daemon's whole-inbox read does.
+            guard let page = try? await reply(for: identity, { try await commands.inboxList(cursor: current) }) else { break }
             list.entries += page.entries.filter { seen.insert($0.conversation).inserted }
             // A cursor that does not move would read the same page again.
             cursor = page.nextCursor == current ? nil : page.nextCursor

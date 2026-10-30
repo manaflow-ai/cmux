@@ -47,6 +47,21 @@ struct CloudInboxPagingTests {
         #expect(cursors == [nil, "k1"])
     }
 
+    /// A later page that fails keeps the pages read and names where the read stopped; the first
+    /// page's failure is the read's.
+    @Test func aLaterPagesFailureKeepsThePagesRead() async throws {
+        let daemon = FakeCloudDaemon()
+        await daemon.scriptInbox(["": CloudInboxList(entries: [Self.entry("conv_a")], nextCursor: "k1")], failing: ["k1"])
+        let source = CloudSourceHarness.connected(to: FakeCloudDaemon())
+        let list = try await source.allPages(daemon, identity: Self.identity)
+        #expect(list.entries.map(\.conversation) == ["conv_a"])
+        #expect(list.nextCursor == "k1")
+
+        let down = FakeCloudDaemon()
+        await down.scriptInbox([:], failing: [""])
+        await #expect(throws: (any Error).self) { _ = try await source.allPages(down, identity: Self.identity) }
+    }
+
     /// An older daemon sends no cursor: its one page is the list.
     @Test func anOlderDaemonsOnePageIsTheList() async throws {
         let daemon = FakeCloudDaemon()

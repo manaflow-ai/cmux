@@ -307,14 +307,17 @@ pub struct CloudConversations {
     inner: Arc<Inner>,
 }
 
-/// The refusal text of a lease change from a connection that is not the app.
 /// Pages `CloudConversations::inbox_list_all` reads at most (200 entries each).
-/// Wall time `home-inbox` spends on the Cloud inbox's pages after the first.
-pub const INBOX_ALL_BUDGET: Duration = Duration::from_secs(10);
 pub const MAX_INBOX_PAGES: usize = 50;
+/// Wall time, from the start of the read, after which `inbox_list_all` asks for no
+/// further page. With one more page's read (the transport's 20 s request
+/// timeout) the read ends inside the app's 30 s Cloud request timeout, so the
+/// request slot it holds is never left with a caller that gave up.
+pub const INBOX_ALL_BUDGET: Duration = Duration::from_secs(8);
 /// The owner's longest `inbox.list` cursor (ops-home-inbox.ts).
 const MAX_INBOX_CURSOR: usize = 256;
 
+/// The refusal text of a lease change from a connection that is not the app.
 const APP_ONLY_LEASE: &str = "the cloud session lease belongs to the verified cmux app connection; only it may set or clear it";
 
 fn check_lease_holder(lease: &Lease, by_app: bool) -> Result<(), CloudError> {
@@ -470,7 +473,7 @@ impl CloudConversations {
 
     /// The inbox for `home-inbox`'s Cloud rows: every page the owner has,
     /// following `next_cursor`, while `budget` lasts and for at most
-    /// `MAX_INBOX_PAGES` pages. An entry a later page lists again (its
+    /// `MAX_INBOX_PAGES` pages (`budget` counts from the start of the read). An entry a later page lists again (its
     /// activity moved it while the pages were read) is kept once, where it
     /// was first listed. The first page's failure is the read's; a later
     /// page's failure, the budget or the cap ends the read with the pages

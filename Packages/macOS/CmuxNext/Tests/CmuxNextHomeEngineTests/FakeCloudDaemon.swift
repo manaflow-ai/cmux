@@ -44,10 +44,17 @@ actor FakeCloudDaemon: CloudConversationCommands {
     /// The cursor of each `cloud-inbox-list` call, in order.
     private(set) var inboxCursors: [String?] = []
 
-    func scriptInbox(_ pages: [String: CloudInboxList]) { inboxPages = pages }
+    /// Cursors whose `cloud-inbox-list` fails as the Cloud not answering.
+    private var failingInboxCursors: Set<String> = []
+
+    func scriptInbox(_ pages: [String: CloudInboxList], failing: Set<String> = []) {
+        inboxPages = pages
+        failingInboxCursors = failing
+    }
 
     func inboxList(cursor: String?) async throws -> CloudInboxList {
         inboxCursors.append(cursor)
+        if failingInboxCursors.contains(cursor ?? "") { throw DaemonError.notConnected }
         return inboxPages[cursor ?? ""] ?? CloudInboxList(entries: [])
     }
 
