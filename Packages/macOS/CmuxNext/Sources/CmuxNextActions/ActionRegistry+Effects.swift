@@ -73,6 +73,21 @@ extension ActionRegistry {
         }
     }
 
+    /// A legacy handler's remote work whose local change (an optimistic create's stand-in) the store already rolls
+    /// back when it fails: tracked for a capturing caller, which reports the failure itself; otherwise the failure
+    /// shows where refusals show and is logged (``remoteFailureObserver``), as an ``ActionEffect/applied(_:)`` one does.
+    /// A refusal is never silent (P0 2026-10-30: a refused second Cmd-D's pane just vanished).
+    public func trackRollingBack(_ id: ActionID, _ work: ActionWork) {
+        let reported = isCapturingWork
+        let title = title(for: id) ?? id.rawValue
+        // task-owner: reports `work`'s failure once it ends; `work` itself is the caller's.
+        track(Task { [weak self] in
+            guard let failure = await work.value else { return nil }
+            if !reported { self?.remoteFailureObserver?(id, failedText(title, failure.message)) }
+            return failure
+        })
+    }
+
     /// Starts `send` after the handler's turn, tracked for a capturing caller; on failure rolls back
     /// and, unless a capturing caller reports it itself, shows it.
     private func start(_ id: ActionID, _ invocation: ActionInvocation, _ send: @escaping @MainActor () async -> ActionWorkFailure?,
