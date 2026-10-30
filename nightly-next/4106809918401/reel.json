@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "build": "4106809918401",
+  "notes": "notes/4106809918401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 28258,
+      "title": "test(agent-chat): a reader partway up a streaming reply sees only their own scroll",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27828,
+      "title": "fix(api): require mutation grants for GitHub write tokens",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28357,
+      "title": "fix(cmux-tui): drop a redundant clone in launchd_refresh",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27974,
+      "title": "perf(agent-activity): normalize filter once per projection",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28178,
+      "title": "refactor(webviews): remove unused AgentMark observer exports",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27970,
+      "title": "fix(daemon): authorize live remote root sessions durably",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28345,
+      "title": "acpmux: a cmux Cloud VM whose daemon is acpmux's own acpmux.service updates itself",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
