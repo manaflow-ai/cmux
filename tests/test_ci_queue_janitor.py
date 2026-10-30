@@ -3540,6 +3540,50 @@ class OpenHeadNeverCancelledTests(unittest.TestCase):
         self.assertEqual(posted & set(expected), set())
 
 
+class DeliveryRunScopeTests(unittest.TestCase):
+    """dep-fleet's ruling (#27521) protects delivery runs (any event but a pull request's), never a pull request's
+    test run of a nightly-named workflow: that run gets the normal open-head treatment and reserves no label."""
+
+    CANARY = ".github/workflows/nightly-next-canary.yml"
+    SMOKE = ".github/workflows/nightly-next-launch-smoke.yml"
+    CHECKS = ((CANARY, "nightly-next canary"), (SMOKE, "nightly-next launch smoke"))
+    LABEL = "blacksmith-6vcpu-macos-26"
+
+    def classify(self, run, pr):
+        return janitor.classify(run, janitor.macos_usage(mac_jobs(queued=2)), pr, newer_ci_run_waiting=False,
+                                pull_request_policy="compile-only", now=NOW)
+
+    def reserved(self, run):
+        job = {"labels": [self.LABEL], "status": "queued", "created_at": iso(5), "name": "smoke"}
+        return janitor.pool_load_snapshot([run], {run["id"]: [job]}, now=NOW)["pools"][self.LABEL]["reserved_queued"]
+
+    def test_a_pull_request_run_of_a_post_publish_check_is_swept_like_any_other(self):
+        for path, name in self.CHECKS:
+            with self.subTest(path=path):
+                run = make_run(path=path, name=name)
+                self.assertIsNone(janitor.protected_reason(run))
+                self.assertIsNone(janitor.orphan_protected_reason(run))
+                self.assertEqual(self.classify(run, make_pr(state="CLOSED"))[0], "stale-pr")
+                self.assertIsNone(self.classify(run, make_pr()), "its open head keeps it")
+                self.assertEqual(self.reserved(run), 0)
+
+    def test_delivery_runs_stay_protected_and_reserved(self):
+        for path, name in self.CHECKS:
+            for event, branch in (("schedule", "main"), ("workflow_dispatch", "feat-cmux-next"),
+                                  ("workflow_dispatch", "nightly-next")):
+                with self.subTest(path=path, event=event, branch=branch):
+                    run = make_run(event=event, branch=branch, path=path, name=name)
+                    self.assertIsNotNone(janitor.protected_reason(run))
+                    self.assertIsNotNone(janitor.orphan_protected_reason(run))
+                    self.assertIsNone(self.classify(run, make_pr(state="CLOSED")))
+                    self.assertEqual(self.reserved(run), 1)
+        build = make_run(event="push", branch="nightly-next", path=".github/workflows/nightly.yml",
+                         name="Nightly macOS build")
+        self.assertIsNotNone(janitor.protected_reason(build))
+        self.assertIsNotNone(janitor.orphan_protected_reason(build))
+        self.assertEqual(self.reserved(build), 1)
+
+
 class ReservedPoolWorkflowTests(unittest.TestCase):
     """Which runs' queued macOS jobs count as `reserved_queued`, the freshness work PR overflow stays off."""
 

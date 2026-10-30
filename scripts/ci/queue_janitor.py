@@ -208,7 +208,7 @@ import owned_warm_state  # noqa: E402
 import ui_tests_dispatch  # noqa: E402
 import starved_labels  # noqa: E402
 from delivery_workflows import REPLACEMENT_JOB_READS, attempt_jobs, build_started, is_delivery_run  # noqa: E402
-from delivery_workflows import is_delivery_workflow  # noqa: E402
+from delivery_workflows import delivers, is_delivery_event, is_delivery_workflow  # noqa: E402
 from delivery_workflows import newer_head_runs, superseded_unstarted  # noqa: E402
 
 
@@ -373,6 +373,11 @@ PROTECTED_EVENTS = frozenset({"merge_group", "release", "create", "delete", "dep
 PROTECTED_PUSH_BRANCHES = frozenset({"main", "feat-cmux-next"})
 MAIN_ONLY_EVENTS = frozenset({"schedule", "workflow_dispatch", "repository_dispatch"})
 PROTECTED_WORKFLOW = re.compile(r"release|nightly|testflight|app[-_ ]?store|appstore|publish|notar", re.IGNORECASE)
+# PROTECTED_WORKFLOW without "nightly": what still protects a pull request's run of a delivery workflow. Such a run
+# (nightly-next-canary.yml or nightly-next-launch-smoke.yml testing its own edit) publishes, signs, rolls back and
+# files nothing, so dep-fleet's ruling (#27521) does not cover it and the sweep treats it as any pull request run.
+PULL_REQUEST_PROTECTED_WORKFLOW = re.compile(r"release|testflight|app[-_ ]?store|appstore|publish|notar",
+                                             re.IGNORECASE)
 TAG_LIKE_REF = re.compile(r"^(v\d|cmux-tui-v\d|.*-v\d+\.\d+)")
 
 UTC = dt.timezone.utc
@@ -416,7 +421,8 @@ def protected_reason(run: Mapping[str, Any]) -> str | None:
         return f"{event} on main"
     if TAG_LIKE_REF.match(branch):
         return f"tag-like ref {branch}"
-    if PROTECTED_WORKFLOW.search(haystack):
+    test_run = not is_delivery_event(event) and is_delivery_workflow(str(run.get("path") or ""))
+    if (PULL_REQUEST_PROTECTED_WORKFLOW if test_run else PROTECTED_WORKFLOW).search(haystack):
         return "release/nightly/TestFlight/App Store workflow"
     return None
 
@@ -680,10 +686,12 @@ def macos_usage(jobs: Iterable[Mapping[str, Any]]) -> MacosUsage:
 RESERVED_RELEASE_WORKFLOWS = frozenset({"release.yml"})
 
 
-def reserves_pool(path: str | None) -> bool:
-    """Whether a run of the workflow at `path` is freshness work whose queued jobs hold their pool."""
+def reserves_pool(path: str | None, event: str | None = None) -> bool:
+    """Whether a run of the workflow at `path` from `event` is freshness work whose queued jobs hold their pool: a
+    release run, or a delivery run (delivery_workflows.delivers()). A pull request's test run of a delivery workflow
+    holds nothing; an unread event counts as a delivery one."""
     name = Path(str(path or "").split("@", 1)[0]).name.lower()
-    return name in RESERVED_RELEASE_WORKFLOWS or is_delivery_workflow(name)
+    return name in RESERVED_RELEASE_WORKFLOWS or delivers(name, event)
 
 
 POOL_QUEUED_JOB_STATUSES = QUEUED_JOB_STATUSES - {"waiting"}
@@ -898,7 +906,7 @@ def pool_load_snapshot(
     oldest: dict[str, dt.datetime] = {}
     committed: dict[str, int] = {}
     for run in runs:
-        reserved = reserves_pool(run.get("path"))
+        reserved = reserves_pool(run.get("path"), run.get("event"))
         seen: dict[str, int] = {}
         for job in jobs_by_run.get(run.get("id"), ()):
             if is_macos_job(job) and owned_label(job) and job.get("status") in (
@@ -2418,7 +2426,7 @@ def orphan_protected_reason(run: Mapping[str, Any]) -> str | None:
     # holding CI's concurrency group (and every later main run pending).
     if ORPHAN_PROTECTED_WORKFLOW.search(str(run.get("path") or "")):
         return "release/publish workflow"
-    if is_delivery_run(run.get("path"), run.get("name"), run.get("display_title")):
+    if delivers(run.get("path"), event, run.get("name"), run.get("display_title")):
         return "nightly/DEV/promote delivery workflow; needs runner capacity, never a cancel"
     if event == "push" and branch in PROTECTED_PUSH_BRANCHES - {"main"}:
         # Listed since follows_another_copy(): a feat-cmux-next push gates the nightly-next build,
