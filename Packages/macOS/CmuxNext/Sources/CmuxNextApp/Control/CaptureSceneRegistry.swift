@@ -515,7 +515,7 @@ extension CaptureSceneRegistry {
         controller.sidebar.restore(width: 300, hidden: false)
         endCloudMachineDisconnected()
         var shown = false
-        defer { if !shown { endCloudMachineDisconnected(always: true) } }
+        defer { if !shown { endCloudMachineDisconnected() } }
         // Machine headers draw only with a section per computer.
         DesignSettings.shared.sidebarSections.groupsByComputer = true
         for machine in Self.endedLinkMachines {
@@ -568,16 +568,19 @@ extension CaptureSceneRegistry {
         return .object(result)
     }
 
-    /// Takes a shown cloud-machine-disconnected picture away: the machines, and the grouping setting
-    /// it turned on, back to the settings' own value (as `DebugCloudMachineFixture` derives it). No
-    /// saved state: `debug.scene.render` makes a new registry each call, so a picture is shown while
-    /// its machines are listed. `always`: the scene's own failure, which ends it even when something
-    /// (a Cloud reconcile) already took the machines away and the setting is still forced on.
-    func endCloudMachineDisconnected(always: Bool = false) {
-        let ids = Self.endedLinkMachines.map(\.id)
-        guard always || ids.contains(where: { services.machines.session($0) != nil }) else { return }
-        for id in ids { services.machines.remove(id)?.disconnect() }
-        services.windows.reconcileMembership()
+    /// Takes a shown cloud-machine-disconnected picture away: whichever of its machines are still
+    /// listed, and the grouping setting it turned on, back to the settings' own value (as
+    /// `DebugCloudMachineFixture` derives it). Unconditional and with no saved state:
+    /// `debug.scene.render` makes a new registry each call, and a Cloud reconcile may already have
+    /// taken the machines away while the setting is still forced on.
+    func endCloudMachineDisconnected() {
+        var removed = false
+        for id in Self.endedLinkMachines.map(\.id) {
+            guard let session = services.machines.remove(id) else { continue }
+            session.disconnect()
+            removed = true
+        }
+        if removed { services.windows.reconcileMembership() }
         DesignSettings.shared.sidebarSections.groupsByComputer = (services.settings?.snapshot.sidebarSections ?? .defaults).groupsByComputer
     }
 
