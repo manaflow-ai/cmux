@@ -16,6 +16,7 @@ export function CopyButton({
   className = "cv-codeblock__action",
   copy = copyTextResult,
   size,
+  copiedWord = false,
   ...tabStop
 }: {
   text: string;
@@ -25,6 +26,8 @@ export function CopyButton({
   copy?: (text: string) => Promise<boolean>;
   /** The glyph's size; the icons' default when unset. */
   size?: number;
+  /** Show the word "Copied" beside the check while it shows (a card corner's look, CardCopy.tsx). */
+  copiedWord?: boolean;
 } & Partial<ReturnType<typeof rovingTabStopProps>>) {
   const t = useT();
   const [copied, setCopied] = useState(false);
@@ -39,6 +42,7 @@ export function CopyButton({
       title={name}
       /* A transcript row's roving tab stop and its keys, from src/ui (rovingTabStopProps). */
       {...tabStop}
+      data-copied={copied || undefined}
       onClick={async () => {
         const done = await copy(text);
         window.clearTimeout(timer.current);
@@ -47,6 +51,7 @@ export function CopyButton({
       }}
     >
       {copied ? <Check size={size} /> : <Copy size={size} />}
+      {copied && copiedWord && <span className="cv-copy__word">{name}</span>}
     </button>
   );
 }
