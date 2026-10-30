@@ -3587,6 +3587,15 @@
     "download": "Завантажити NIGHTLY для Mac",
     "warning": "Нічні збірки можуть містити помилки або незавершені функції. Якщо щось зламалося, повідомте про це на <githubLink>GitHub</githubLink> або в <discordLink>#nightly-bugs у Discord</discordLink> і поверніться до стабільної версії."
   },
+  "next": {
+    "title": "cmux NEXT NIGHTLY",
+    "subtitle": "Попередні збірки нового застосунку cmux",
+    "metaTitle": "cmux NEXT NIGHTLY — попередні збірки",
+    "metaDescription": "Завантажте cmux NEXT NIGHTLY — попередню версію нового застосунку cmux, що автоматично збирається з останнього коміту. Працює поряд із cmux і оновлюється сама.",
+    "description": "cmux NEXT NIGHTLY — попередня версія наступного cmux, що автоматично збирається з останнього коміту. Вона має власний bundle ID, тому працює поряд із cmux і cmux NIGHTLY без конфліктів. Потрібен Mac із чипом Apple.",
+    "download": "Завантажити NEXT NIGHTLY для Mac",
+    "warning": "Збірки NEXT NIGHTLY можуть містити помилки або незавершені функції. Якщо щось зламалося, повідомте на <githubLink>GitHub</githubLink> або в <discordLink>#nightly-bugs у Discord</discordLink> і поверніться до стабільної версії."
+  },
   "languageSwitcher": {
     "label": "Мова"
   },

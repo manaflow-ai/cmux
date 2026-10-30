@@ -3501,6 +3501,15 @@
     "download": "ดาวน์โหลด NIGHTLY สำหรับ Mac",
     "warning": "บิลด์ nightly อาจมีบั๊กหรือฟีเจอร์ที่ยังไม่สมบูรณ์ หากพบปัญหา รายงานบน <githubLink>GitHub</githubLink> หรือใน <discordLink>#nightly-bugs บน Discord</discordLink> แล้วสลับกลับไปใช้เวอร์ชันเสถียร"
   },
+  "next": {
+    "title": "cmux NEXT NIGHTLY",
+    "subtitle": "บิลด์ตัวอย่างของแอป cmux รุ่นถัดไป",
+    "metaTitle": "cmux NEXT NIGHTLY — บิลด์ตัวอย่าง",
+    "metaDescription": "ดาวน์โหลด cmux NEXT NIGHTLY ตัวอย่างของแอป cmux รุ่นถัดไปที่บิลด์อัตโนมัติจากคอมมิตล่าสุด ทำงานคู่กับ cmux และอัปเดตอัตโนมัติแยกกัน",
+    "description": "cmux NEXT NIGHTLY คือตัวอย่างของ cmux เวอร์ชันถัดไป ซึ่งบิลด์อัตโนมัติจากคอมมิตล่าสุด มี Bundle ID ของตัวเอง จึงทำงานคู่กับ cmux และ cmux NIGHTLY ได้โดยไม่ขัดแย้งกัน ต้องใช้ Mac ที่มีชิป Apple",
+    "download": "ดาวน์โหลด NEXT NIGHTLY สำหรับ Mac",
+    "warning": "บิลด์ NEXT NIGHTLY อาจมีบั๊กหรือฟีเจอร์ที่ยังไม่สมบูรณ์ หากพบปัญหา โปรดรายงานที่ <githubLink>GitHub</githubLink> หรือใน <discordLink>#nightly-bugs บน Discord</discordLink> แล้วเปลี่ยนกลับไปใช้เวอร์ชันเสถียร"
+  },
   "languageSwitcher": {
     "label": "ภาษา"
   },
