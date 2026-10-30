@@ -83,7 +83,14 @@ const hovered: Play = async (ctx) => {
 };
 const copied: Play = async (ctx) => {
   await open(ctx);
-  await ctx.click({ selector: BUTTON });
+  // The panel's open motion moves the button under a pointer click aimed at its first position:
+  // let it finish, then press the button itself, as `open` presses the toggle.
+  const settled = () =>
+    ctx.document
+      .getAnimations()
+      .every((animation) => animation.playState !== "running" || animation.effect?.getTiming().iterations === Infinity);
+  await ctx.waitFor(settled);
+  ctx.document.querySelector<HTMLButtonElement>(BUTTON)?.click();
   await ctx.waitFor(() => ctx.document.querySelector(`${BUTTON}[data-copied]`));
 };
 
