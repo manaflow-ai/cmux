@@ -220,3 +220,20 @@ test("a refusal binds a previously unknown folder without dropping its retry", a
   await act(async () => latest!.trust());
   expect(resent).toBe(1);
 });
+
+test("canceling one chat does not invalidate another chat's retained refusal", async () => {
+  const { source } = slowPeer();
+  const show = (sessionId: string) =>
+    act(async () => root.render(<Chat key="per-chat-cancel" trust={source} sessionId={sessionId} />));
+  let resentA = 0;
+  let resentB = 0;
+  await show("cancel-chat-a");
+  await act(async () => latest!.refused({ reason: "trust.pending", cwd: peerFolder }, () => resentA++));
+  await show("cancel-chat-b");
+  await act(async () => latest!.refused({ reason: "trust.pending", cwd: peerFolder }, () => resentB++));
+  await act(async () => latest!.cancelResend());
+  await show("cancel-chat-a");
+  await act(async () => latest!.trust());
+  expect(resentA).toBe(1);
+  expect(resentB).toBe(0);
+});

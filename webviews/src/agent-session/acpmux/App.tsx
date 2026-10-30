@@ -192,6 +192,7 @@ import { chatCloudMachine, cloudMachineRows, createStopWaiter } from "./cloudMac
 import { readUntilMoved, refreshCloudMachines, useCloudMachines } from "./cloudMachines";
 import { usePeerCloudMachine } from "./peerCloudMachine";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
+import { routeCurrentTrustRefusal } from "./trustRefusalRoute";
 import { heldPrompts } from "./heldPrompt";
 import { StartingSends, type StartingSend } from "./startingSends";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
@@ -8074,40 +8075,20 @@ function AcpmuxPane() {
         // folder's one question above the composer; Trust re-runs the refused step (cx-nn3e).
         client.onTrustRefused = (refusal, again) => {
           if (directClient.current !== client) return;
-          const shownSessionId = client.shownSession()?.sessionId;
-          // A New Tab has no shown session while ensureSession is creating its first one. A
-          // refusal in that window belongs to the client/generation that produced it; once a
-          // rendered session exists, reject a stale route from another selection.
-          if (
-            shownSessionId !== undefined &&
-            sessionIdRef.current !== undefined &&
-            shownSessionId !== sessionIdRef.current
-          )
-            return;
-          const owner = trustRouteOwner.current;
-          // A folder-choice cancel advances cancelEpoch before React necessarily paints the
-          // replacement route. Drop only that canceled request; a changed client/generation
-          // is a valid refusal that must wait for the new route owner to render.
-          if (owner?.client === client && owner.cancelEpoch !== trustCancelEpoch.current) return;
-          if (
-            owner &&
-            owner.client === client &&
-            owner.cancelEpoch === trustCancelEpoch.current &&
-            owner.generation === client.trustGeneration &&
-            (owner.sessionId === undefined || owner.sessionId === shownSessionId)
-          ) {
-            if (trustRefused.current?.(refusal, again)) return;
-          }
-          // The owner is stale during the selection/render gap. Keep this refusal until the
-          // effect observes the matching current owner instead of dropping the prompt.
-          pendingTrustRefusal.current = {
+          const owner = {
             client,
             generation: client.trustGeneration,
-            sessionId: shownSessionId ?? sessionIdRef.current,
+            sessionId: client.shownSession()?.sessionId,
             cancelEpoch: trustCancelEpoch.current,
-            error: refusal,
-            again,
           };
+          routeCurrentTrustRefusal(
+            owner,
+            trustRouteOwner.current,
+            () => trustRefused.current?.(refusal, again) ?? false,
+            () => {
+              pendingTrustRefusal.current = { ...owner, error: refusal, again };
+            },
+          );
         };
         // Only a connected client clears the error, so a stale endpoint doesn't flicker it away.
         setHostError(undefined);
