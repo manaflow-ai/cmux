@@ -244,6 +244,8 @@ export default componentEntry<Props>({
     "chat-flipped": { props: { chat: true, anchorTop: true }, play: open },
     "claude-many-harnesses": { props: { many: true }, play: open },
     "claude-many-harnesses-inline-effort": { props: { many: true, inlineEffort: true }, play: open },
+    // As a chat's composer opens it: each row's effort dropdown on (ModelPicker passes inlineEffort).
+    "in-chat": { props: { chat: true, inlineEffort: true }, play: open },
     combined: { props: { chat: true }, play: open },
     "combined-fast": { props: { chat: true, fast: true }, play: open },
     "harness-symbols": { props: { placement: "symbols" }, play: open },

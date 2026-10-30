@@ -492,6 +492,14 @@
   min-height: 0;
   padding: 0;
 }
+/* A symbol tab's name is its label only: hidden here, not by a utility class the page may lack
+   (the gallery loads no Tailwind, and showed every name). */
+.acpmux-quick-harness-name.sr-only {
+  position: absolute;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 .acpmux-quick-placement-symbols .acpmux-quick-rail-tab:has(> .acpmux-quick-harness-name:not(.sr-only)) {
   padding-inline: var(--ui-row-padding-inline);
   white-space: nowrap;

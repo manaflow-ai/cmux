@@ -245,6 +245,9 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
         nodes.map((node) => ({
           symbol: [...node.querySelectorAll(".agent-mark path")].map((path) => path.getAttribute("d")).join(" "),
           hidden: !!node.querySelector(".acpmux-quick-harness-name.sr-only"),
+          // A tab whose name is hidden is as narrow as its symbol (the picker's own rule hides it,
+          // not a Tailwind utility the page may lack).
+          drawn: node.getBoundingClientRect().width > node.getBoundingClientRect().height * 1.5,
           label: node.getAttribute("aria-label"),
           title: node.getAttribute("title"),
         })),
@@ -253,6 +256,7 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
       for (const tab of symbolTabs) {
         const shared = symbolTabs.filter((other) => other.symbol === tab.symbol).length > 1;
         expect(tab.hidden, `${tab.label}: symbol alone unless another tab draws it`).toBe(!shared);
+        expect(tab.drawn, `${tab.label}: its name shows beside the symbol`).toBe(shared);
         expect(tab.label).toBeTruthy();
         expect(tab.title).toBeTruthy();
       }
