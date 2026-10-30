@@ -211,7 +211,9 @@ import Testing
         if id == "appearance.compact" && wasOn {
             try await bridge.set(feature, on: false)
             #expect(bridge.isOn(feature))
-            #expect(Self.leafKeys(settings.fileRoot).isEmpty)
+            // Removing the key would re-enable the default and contradict the requested off
+            // press, so the settings bridge records the default explicitly to keep the card on.
+            #expect(settings.fileRoot.value(at: feature.path) == .string("compact"))
             return
         }
         try await bridge.set(feature, on: !wasOn)
