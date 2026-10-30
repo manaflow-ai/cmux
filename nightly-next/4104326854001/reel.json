@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "build": "4104326854001",
+  "notes": "notes/4104326854001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27614,
+      "title": "acpmux: leave superseded tool output out of a chat's open page",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
