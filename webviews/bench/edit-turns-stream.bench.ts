@@ -54,4 +54,6 @@ function measure(size: number, arm: "full" | "tracked"): number {
 }
 
 console.log("rows | full read ms/snapshot | tracked read ms/snapshot | median of", ROUNDS, "rounds x", SNAPSHOTS);
-for (const size of SIZES) console.log(`${size} | ${measure(size, "full").toFixed(4)} | ${measure(size, "tracked").toFixed(4)}`);
+for (const size of SIZES) {
+  console.log(`${size} | ${measure(size, "full").toFixed(4)} | ${measure(size, "tracked").toFixed(4)}`);
+}
