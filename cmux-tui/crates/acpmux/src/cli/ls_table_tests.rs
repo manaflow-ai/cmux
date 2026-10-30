@@ -1,0 +1,191 @@
+use super::*;
+use serde_json::json;
+
+const NOW: u64 = 1_800_000_000_000;
+
+fn lane(name: &str) -> Value {
+    json!({"name": name, "titleSource": "named", "harness": "claude", "status": "running",
+           "state": "running", "turnCount": 3, "updatedAt": NOW - 5_000, "parentId": null,
+           "pendingPermissions": 0, "stuckReason": null, "lane": {"state": "working"},
+           "lastPrompt": "a long brief", "tags": {}})
+}
+
+fn with(mut row: Value, patch: Value) -> Value {
+    for (k, v) in patch.as_object().unwrap() {
+        row[k] = v.clone();
+    }
+    row
+}
+
+fn compact(rows: &[Value]) -> String {
+    render(rows, Some(&[]), View::default(), false, NOW)
+}
+
+#[test]
+fn the_default_lists_only_live_named_lanes_and_counts_the_rest() {
+    let rows = vec![
+        lane("ao-cli-ls"),
+        with(lane("old"), json!({"status": "closed", "state": "closed"})),
+        with(lane("review-27899"), json!({"harness": "codex-review-box"})),
+        with(lane("rev-tagged"), json!({"harness": "codex", "tags": {"review.verdict": "SHIP"}})),
+        with(lane("child"), json!({"parentId": "01a1"})),
+        with(lane("codex-2"), json!({"harness": "codex", "titleSource": "harness"})),
+        with(lane(""), json!({})),
+    ];
+    let out = compact(&rows);
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "NAME       STATE    TURNS  AGE", "{out}");
+    assert_eq!(lines[1], "ao-cli-ls  running  3      5s", "{out}");
+    assert_eq!(
+        lines[2],
+        "6 more hidden (1 closed, 2 reviewers, 1 sub-sessions, 2 unnamed): acpmux ls --all"
+    );
+    assert_eq!(lines.len(), 3, "{out}");
+}
+
+#[test]
+fn all_lists_the_hidden_rows_and_a_filter_hides_none() {
+    let rows = vec![lane("a"), with(lane("old"), json!({"status": "closed", "state": "closed"}))];
+    let all = render(&rows, Some(&[]), View { all: true, wide: false }, false, NOW);
+    let old_row = |out: &str| out.lines().any(|l| l.starts_with("old ") && l.contains(" closed "));
+    assert!(old_row(&all), "{all}");
+    assert!(!all.contains("hidden"), "{all}");
+    let filtered = render(&rows, Some(&[]), View::default(), true, NOW);
+    assert!(old_row(&filtered), "{filtered}");
+}
+
+#[test]
+fn a_named_session_whose_name_looks_generated_is_kept() {
+    // Someone ran `acpmux new -n codex-2`: the daemon marks it named.
+    let named = with(lane("codex-2"), json!({"harness": "codex"}));
+    assert!(compact(&[named]).contains("codex-2"));
+    // A lane named after its harness and more is someone's name too.
+    let lane_name =
+        with(lane("codex-review"), json!({"harness": "codex", "titleSource": "harness"}));
+    assert!(compact(&[lane_name]).contains("codex-review"));
+}
+
+#[test]
+fn stuck_says_why_in_a_few_words() {
+    let cases = [
+        (json!({"pendingPermissions": 1}), "waiting", "permission"),
+        (json!({"pendingPermissions": 2}), "waiting", "2 permissions"),
+        (json!({"state": "stuck", "stuckReason": "capacity"}), "stuck", "capacity"),
+        (json!({"state": "stuck", "stuckReason": "harness_unavailable"}), "stuck", "harness down"),
+        (json!({"state": "idle", "lane": {"state": "failed"}}), "idle", "failed turn"),
+        (
+            json!({"lane": {"state": "working", "stalledSince": NOW - 12 * 60_000}}),
+            "running",
+            "stalled 12m",
+        ),
+    ];
+    for (patch, state, why) in cases {
+        let out = compact(&[with(lane("x"), patch.clone())]);
+        let row = out.lines().nth(1).unwrap();
+        let cells: Vec<&str> = row.split("  ").filter(|c| !c.is_empty()).map(str::trim).collect();
+        assert_eq!(cells[1], state, "{patch}: {out}");
+        assert_eq!(cells.last().copied(), Some(why), "{patch}: {out}");
+        assert!(out.starts_with("NAME  STATE"), "{out}");
+        assert!(out.lines().next().unwrap().ends_with("STUCK"), "{out}");
+    }
+}
+
+#[test]
+fn host_shows_only_when_a_row_is_on_a_peer() {
+    assert!(!compact(&[lane("a")]).contains("HOST"));
+    let peer = with(lane("b"), json!({"peer": "huge-blue", "peerState": "connected"}));
+    let out = compact(&[lane("a"), peer]);
+    assert!(out.lines().next().unwrap().starts_with("NAME  HOST"), "{out}");
+    assert!(out.contains("b     huge-blue"), "{out}");
+    assert!(out.contains("a     -"), "{out}");
+}
+
+#[test]
+fn an_unreachable_peer_reads_unknown_and_is_never_dropped() {
+    let stale = with(
+        lane("far"),
+        json!({"peer": "cmux16", "peerState": "offline", "stale": true, "state": "running"}),
+    );
+    let peers = [
+        json!({"name": "cmux16", "state": "offline", "downSince": NOW - 3 * 60_000}),
+        json!({"name": "air-blue", "state": "reconnecting", "downSince": null}),
+        json!({"name": "huge-blue", "state": "connected"}),
+    ];
+    let out = render(&[stale], Some(&peers), View::default(), false, NOW);
+    let row = out.lines().nth(1).unwrap();
+    assert!(row.contains("unknown") && row.ends_with("peer offline"), "{out}");
+    assert!(
+        out.contains("UNKNOWN cmux16: peer offline for 3m; its sessions are last known, not live"),
+        "{out}"
+    );
+    // A down peer with no rows at all still gets its line.
+    assert!(out.contains("UNKNOWN air-blue: peer reconnecting;"), "{out}");
+    assert!(!out.contains("huge-blue"), "{out}");
+    // Peer states that could not be read are said, not taken as none down.
+    let unread = render(&[lane("a")], None, View::default(), false, NOW);
+    assert!(unread.contains("UNKNOWN peers: their link states could not be read"), "{unread}");
+}
+
+#[test]
+fn warn_is_one_word_and_shows_only_while_a_row_has_one() {
+    assert!(!compact(&[lane("a")]).contains("WARN"));
+    let warned = with(
+        lane("big"),
+        json!({"usageWarnings": [{"rule": "contextTokens"}, {"rule": "noAutocompactCap"}]}),
+    );
+    let out = compact(&[lane("a"), warned.clone()]);
+    assert!(out.lines().next().unwrap().ends_with("WARN"), "{out}");
+    assert!(out.lines().any(|l| l.starts_with("big") && l.ends_with("warn")), "{out}");
+    let wide = render(&[warned], Some(&[]), View { all: false, wide: true }, false, NOW);
+    assert!(wide.contains("contextTokens noAutocompactCap"), "{wide}");
+}
+
+#[test]
+fn wide_prints_every_column() {
+    let out = render(&[lane("a")], Some(&[]), View { all: false, wide: true }, false, NOW);
+    assert_eq!(out.lines().next(), Some("NAME  AGENT   STATUS   TURNS  AGE  STUCK  LAST"), "{out}");
+    assert!(out.lines().nth(1).unwrap().ends_with("a long brief"), "{out}");
+}
+
+#[test]
+fn an_empty_daemon_and_an_all_hidden_list_say_so() {
+    assert!(compact(&[]).starts_with("no sessions (create one:"));
+    let closed = with(lane("old"), json!({"status": "closed", "state": "closed"}));
+    let out = compact(&[closed]);
+    assert!(out.starts_with("no live named sessions\n"), "{out}");
+    assert!(out.ends_with("1 more hidden (1 closed): acpmux ls --all\n"), "{out}");
+}
+
+#[test]
+fn a_filter_that_matches_nothing_still_names_the_down_peers() {
+    // `acpmux ls --host air-blue` with air-blue down and no rows cached from it.
+    let peers = [json!({"name": "air-blue", "state": "offline"})];
+    let out = render(&[], Some(&peers), View::default(), true, NOW);
+    assert!(out.starts_with("no sessions match these filters\n"), "{out}");
+    assert!(out.contains("UNKNOWN air-blue: peer offline;"), "{out}");
+}
+
+#[test]
+fn every_view_keeps_the_daemons_order() {
+    let closed = with(lane("old"), json!({"status": "closed", "state": "closed"}));
+    let rows = [lane("newest"), closed, lane("oldest")];
+    let order = |out: &str| -> Vec<String> {
+        out.lines().skip(1).map(|l| l.split_whitespace().next().unwrap().to_owned()).collect()
+    };
+    let all = render(&rows, Some(&[]), View { all: true, wide: false }, false, NOW);
+    assert_eq!(order(&all), ["newest", "old", "oldest"], "{all}");
+    let filtered = render(&rows, Some(&[]), View::default(), true, NOW);
+    assert_eq!(order(&filtered), ["newest", "old", "oldest"], "{filtered}");
+}
+
+#[test]
+fn a_short_or_empty_row_pads_without_panicking() {
+    let s = |cells: &[&str]| cells.iter().map(|c| (*c).to_owned()).collect::<Vec<_>>();
+    assert_eq!(table(vec![]), "");
+    assert_eq!(
+        table(vec![s(&["NAME", "STATUS", "AGE"]), s(&["a"]), s(&[])]),
+        "NAME  STATUS  AGE\na\n\n"
+    );
+    // A row longer than the header: its extra cells are padded to no width.
+    assert_eq!(table(vec![s(&["A", "B"]), s(&["x", "y", "z"])]), "A  B\nx  yz\n");
+}
