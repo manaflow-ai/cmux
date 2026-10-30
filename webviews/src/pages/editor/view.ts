@@ -717,7 +717,10 @@ export class MonacoView implements CodeView {
     const decorations = this.editor.createDecorationsCollection();
     return {
       findMatches: (query, matchCase) =>
-        this.model?.findMatches(query, false, false, matchCase, null, false).map((match) => match.range) ?? [],
+        // Monaco stops at 999 matches unless told otherwise; Replace All and "n of m" need them all.
+        this.model
+          ?.findMatches(query, false, false, matchCase, null, false, Number.MAX_SAFE_INTEGER)
+          .map((match) => match.range) ?? [],
       // The selection's start, not the cursor: a selected match leaves the cursor at its end, and
       // the next letter typed would skip to the match after it.
       caret: () =>
