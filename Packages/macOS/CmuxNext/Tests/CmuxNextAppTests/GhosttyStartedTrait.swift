@@ -4,7 +4,7 @@ import Testing
 /// Starts the shared Ghostty runtime before each test of a suite that makes terminal surfaces (app tests; the same
 /// trait is in CmuxNextTerminalTests).
 ///
-/// The app starts libghostty's app on its launch's config build (`GhosttyRuntime.start(loadingOn:)`, p02-threads-129,
+/// The app starts libghostty's app on its launch's config build (`GhosttyRuntime.start(loadingOn:)`, since
 /// a649fdca30f) and makes its terminals only after it; a test process has no launch, so a `TerminalSession` or
 /// `TerminalSurfaceView` a test made before anything started the runtime had no surface (`surface == nil`), and the
 /// test then passed or failed by which suite ran first. A suite that makes terminal surfaces carries `.ghosttyStarted`
