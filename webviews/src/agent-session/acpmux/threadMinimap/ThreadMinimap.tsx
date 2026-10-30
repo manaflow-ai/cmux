@@ -188,7 +188,7 @@ export function ThreadMinimap({
   };
   // The leave grace is a hover-intent delay off the motion scale (HOVER_INTENT.cardGrace). It fires
   // once, re-entry or focus cancels it, and it is skipped (the rail hides at once) under Reduce
-  // Motion or while the page is hidden; the unmount and visibility effects below clear it.
+  // Motion or while the page is hidden; the unmount effect below clears it.
   const hideRailAfterGrace = () => {
     if (railHideTimer.current !== undefined) clearTimeout(railHideTimer.current);
     const grace = reducedMotion() || document.hidden ? 0 : HOVER_INTENT.cardGrace;
@@ -204,22 +204,12 @@ export function ThreadMinimap({
       intend(null);
     }, grace);
   };
-  useEffect(() => {
-    const clear = () => {
-      if (railHideTimer.current === undefined) return;
-      clearTimeout(railHideTimer.current);
-      railHideTimer.current = undefined;
-      setRailRevealed(false);
-    };
-    const onVisibility = () => {
-      if (document.hidden) clear();
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => {
-      document.removeEventListener("visibilitychange", onVisibility);
+  useEffect(
+    () => () => {
       if (railHideTimer.current !== undefined) clearTimeout(railHideTimer.current);
-    };
-  }, []);
+    },
+    [],
+  );
   /// The row keyboard focus is on.
   const [focused, setFocused] = useState<number | undefined>(undefined);
   /// The row the card shows (it stays while the pointer is in the card).
