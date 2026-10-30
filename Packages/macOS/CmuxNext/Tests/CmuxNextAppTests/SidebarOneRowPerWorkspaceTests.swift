@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
 import CoreGraphics
@@ -60,5 +61,24 @@ import Testing
     @Test func sectionsWithoutARepeatAreUntouched() {
         let sections = [machine("local", kind: .local, [workspace("ws_mac")]), machine("vm-b", kind: .cloud, [workspace("ws_b")])]
         #expect(SidebarLayout.listingEachWorkspaceOnce(sections) == sections)
+    }
+
+    /// The drawn row shows the first machine's copy, the one whose place it takes: its title and its machine,
+    /// never a later machine's.
+    @Test func theRowShowsTheFirstMachinesWorkspace() throws {
+        let copy = { (title: String) in SidebarNode.workspace(SidebarWorkspace(id: WorkspaceID("ws_image"), title: title, directory: "~")) }
+        let sections = [machine("local", kind: .local, [workspace("ws_mac")]),
+                        machine("vm-a", kind: .cloud, [copy("first-copy")]),
+                        machine("vm-c", kind: .cloud, [copy("second-copy")])]
+        let sidebar = SidebarView(model: SidebarModel(sections: sections), design: DesignSettings())
+        sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
+        sidebar.renderNow()
+        sidebar.layoutSubtreeIfNeeded()
+        sidebar.list.reload(animated: false)
+        sidebar.list.rowViews.values.forEach { $0.layoutSubtreeIfNeeded() }
+        let row = try #require(sidebar.list.rowViews[.workspace(WorkspaceID("ws_image"))] as? WorkspaceRowView)
+        #expect(row.title.stringValue == "first-copy")
+        #expect(!row.subtitle.stringValue.contains("vm-c"), "the second line names a later machine: \(row.subtitle.stringValue)")
+        #expect(sidebar.list.workspaces[WorkspaceID("ws_image")]?.title == "first-copy")
     }
 }
