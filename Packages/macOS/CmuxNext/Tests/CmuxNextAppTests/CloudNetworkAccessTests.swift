@@ -99,7 +99,8 @@ struct CloudNetworkAccessTests {
     }
 
     /// Runs the action as `origin` from `start` and answers its result and what it wrote.
-    func run(_ access: String, from start: CloudNetworkPolicy, origin: ActionOrigin, applied: String = "applied")
+    func run(_ access: String, from start: CloudNetworkPolicy, origin: ActionOrigin, applied: String = "applied",
+             scope: ActionRunScope? = nil)
         async throws -> (result: Result<[String: ActionResultValue], ActionWorkFailure>, written: [CloudNetworkPolicy]) {
         let services = MachineIconTests.services()
         let session = MachineIconTests.cloudMachine(services, id: "vm-net-\(UUID().uuidString.prefix(8))")
@@ -108,6 +109,7 @@ struct CloudNetworkAccessTests {
         var written: [CloudNetworkPolicy] = []
         let run = services.registry.capturingRun {
             do {
+                try ActionRunScope.$current.withValue(scope) {
                 try CloudNetworkAccessActions.set(invocation, AppActionContext(services: services),
                                                   read: { id in
                                                        #expect(id == session.machineID)
@@ -117,6 +119,7 @@ struct CloudNetworkAccessTests {
                                                        written.append(policy)
                                                        return Self.state(policy)
                                                    })
+                }
             } catch { Issue.record("refused: \(error)") }
         }
         let task = try #require(run.results.first)
@@ -153,6 +156,9 @@ struct CloudNetworkAccessTests {
         #expect(widened.written.isEmpty)
         guard case .failure(let failure) = widened.result else { Issue.record("an agent widened access"); return }
         #expect(failure.message == CloudStrings.networkAccessAgentWidens)
+        let nested = try await run("full", from: CloudNetworkPolicy(mode: .none), origin: .user,
+                                   scope: ActionRunScope(origin: .mcp, allowsViewChange: false))
+        #expect(nested.written.isEmpty, "an action an MCP run nests is still the agent's")
         let person = try await run("full", from: CloudNetworkPolicy(mode: .none), origin: .cli)
         #expect(person.written.map(\.mode) == [.full])
     }

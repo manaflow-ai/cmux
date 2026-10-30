@@ -20,7 +20,8 @@ enum CloudNetworkAccessActions {
         // The policy lives on the web control plane (`/api/vm`); the app server link's machines have none yet.
         guard context.services.cloud.configuration.linkSource == .legacy else { throw unavailable }
         let access = try level(invocation)
-        let machineID = session.machineID, isAgent = CloudMoveAsks.isAgent(invocation)
+        // The run's effective origin counts: an action an MCP run nests carries a .user origin of its own.
+        let machineID = session.machineID, isAgent = CloudStartSession.isAgent(invocation)
         let work: @MainActor () async throws -> [String: ActionResultValue] = {
             let current = try await read(machineID)
             let policy = access.applied(to: current.policy, presets: current.presets.map(\.id))
