@@ -10,7 +10,9 @@
 // - only the newest WINDOW rows mount at first, placed at the bottom (or around the task opened)
 //   in a layout effect, before the frame paints; older rows mount a window at a time as the reader
 //   scrolls up to the top sentinel, with the scroll offset held so nothing moves;
-// - while the reader is at the bottom, a new row keeps them there.
+// - while the reader is at the bottom, a new row keeps them there;
+// - a workflow agent's transcript (read a page at a time through acpmux) loads its older history from
+//   the same top sentinel once every row it has is mounted (`onLoadOlder`), with the offset held too.
 // The sentinels' IntersectionObservers (one above the mounted rows, one below a window opened around
 // a task) are the only observers here: each disconnects when it fires, once every row on its side is
 // mounted, and on unmount.
@@ -47,11 +49,14 @@ export function SubagentTranscript({
   rows,
   running,
   anchor,
+  onLoadOlder,
 }: {
   rows: readonly AcpmuxRow[];
   running: boolean;
   /// The row of the task that was opened: the transcript opens on it.
   anchor?: string;
+  /// Set while older history can be read (a workflow agent's transcript): reaching the top reads it.
+  onLoadOlder?: () => Promise<unknown>;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
   const top = useRef<HTMLDivElement>(null);
@@ -65,11 +70,14 @@ export function SubagentTranscript({
     setRange(windowRange(rows, anchor));
   }
   const atBottom = useRef(anchor === undefined);
-  const grown = useRef<number | undefined>(undefined);
+  // The scroll height and mounted row count before rows were added above: once the count moves, the
+  // offset is moved by the added height (a render in between, a loading flag, changes nothing).
+  const grown = useRef<{ height: number; count: number } | undefined>(undefined);
   const placed = useRef(false);
   const first = Math.min(range.start, Math.max(0, rows.length - 1));
   const last = range.end === undefined || range.end >= rows.length ? undefined : range.end;
   const shown = rows.slice(first, last);
+  const loadOlder = onLoadOlder;
 
   // Before the first paint: at the bottom, or the opened task's row in view.
   useLayoutEffect(() => {
@@ -85,7 +93,8 @@ export function SubagentTranscript({
     }
     // Older rows mounted above: hold what the reader sees where it was.
     if (grown.current !== undefined) {
-      view.scrollTop += view.scrollHeight - grown.current;
+      if (shown.length === grown.current.count) return;
+      view.scrollTop += view.scrollHeight - grown.current.height;
       grown.current = undefined;
       return;
     }
@@ -121,15 +130,22 @@ export function SubagentTranscript({
     };
     if (first > 0)
       watch(top.current, "200px 0px 0px 0px", () => {
-        grown.current = view.scrollHeight;
+        grown.current = { height: view.scrollHeight, count: last === undefined ? rows.length - first : last - first };
         setRange((now) => ({ ...now, start: Math.max(0, first - WINDOW) }));
+      });
+    else if (loadOlder && rows.length > 0)
+      watch(top.current, "200px 0px 0px 0px", () => {
+        grown.current = { height: view.scrollHeight, count: last === undefined ? rows.length : last };
+        void loadOlder().catch(() => {
+          grown.current = undefined;
+        });
       });
     if (last !== undefined)
       watch(bottom.current, "0px 0px 200px 0px", () =>
         setRange((now) => (last + WINDOW >= rows.length ? { start: now.start } : { ...now, end: last + WINDOW })),
       );
     return () => observers.forEach((observer) => observer.disconnect());
-  }, [first, last, rows.length]);
+  }, [first, last, rows.length, loadOlder]);
 
   return (
     <div
@@ -140,7 +156,7 @@ export function SubagentTranscript({
         atBottom.current = view.scrollHeight - view.scrollTop - view.clientHeight <= BOTTOM_SLACK;
       }}
     >
-      {first > 0 && <div ref={top} className="acpmux-bg__sentinel" aria-hidden="true" />}
+      {(first > 0 || loadOlder) && <div ref={top} className="acpmux-bg__sentinel" aria-hidden="true" />}
       {shown.map((row) => (
         <TranscriptRow key={row.id} row={row} version={row.version} />
       ))}

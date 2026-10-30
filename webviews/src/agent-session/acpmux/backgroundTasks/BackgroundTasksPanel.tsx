@@ -24,7 +24,16 @@
 //
 // What runs turns the shared spinner, never a pulsing dot. Its one clock ticks each second only
 // while something runs and the pane shows (SubagentGroup.tsx `useNow`), and stops with the panel.
-import { createContext, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { formatDuration } from "../conversation/turns";
 import { ChevronLeft, Close, Expand, Spinner } from "../conversation/icons";
 import { useT } from "../i18n";
@@ -221,7 +230,13 @@ function WorkflowAgentTranscript({
   );
   // The first row is the "Subagent of" pill the app's pane leads with; the panel's head names it.
   const rows = useMemo(() => transcript.rows?.slice(1) ?? [], [transcript.rows]);
-  return <SubagentTranscript rows={rows} running={running} />;
+  // Older history, a page at a time, from the transcript's top (the hook's loader changes each render).
+  const loader = useRef(transcript.loadOlder);
+  loader.current = transcript.loadOlder;
+  const loadOlder = useCallback(() => loader.current(), []);
+  return (
+    <SubagentTranscript rows={rows} running={running} onLoadOlder={transcript.canLoadOlder ? loadOlder : undefined} />
+  );
 }
 
 function PanelFrame({
