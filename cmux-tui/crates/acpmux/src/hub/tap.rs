@@ -272,7 +272,9 @@ impl Hub {
                 && msg.method() == Some(crate::rpc::method::SESSION_UPDATE)
                 && let Some(params) = value.get_mut("params")
             {
-                // The chat's own thread is never one of its subagents.
+                // The chat's own thread is never one of its subagents. Seed the
+                // native root before handling updates so echoed root activity cannot
+                // create a phantom child; replay keeps live/background semantics.
                 let own = tap_session
                     .meta
                     .lock()
@@ -281,6 +283,9 @@ impl Hub {
                     .clone();
                 let mut tree = tap_session.subagents.lock().unwrap_or_else(|e| e.into_inner());
                 tree.set_own(own.as_deref());
+                if let Some(root) = own.as_deref() {
+                    tree.set_root(root);
+                }
                 subagent = tree.annotate_live(params, !kind.ends_with(".replay"));
             }
             // A live update's workflow changes feed the daemon's index of them.
