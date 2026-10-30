@@ -359,14 +359,19 @@ def owned_label_full(snapshot: Mapping[str, Any] | None, label: str, now: dt.dat
             queued_wait_s = float(entry.get("oldest_queued_s", float(entry.get("oldest_queued_minutes", 0)) * 60))
         except (TypeError, ValueError):
             queued_wait_s = 0
-    if queued_wait_s < OWNED_HEALTH_QUEUE_SECONDS:
-        return False
     if not isinstance(entry, Mapping):
-        return True
+        return queued_wait_s >= OWNED_HEALTH_QUEUE_SECONDS
     try:
         as_of = dt.datetime.fromisoformat(str(entry.get("as_of") or "").replace("Z", "+00:00"))
-        if as_of.tzinfo is None or not 0 <= (now - as_of).total_seconds() <= OWNED_HEALTH_STALE_SECONDS:
+        snapshot_age = (now - as_of).total_seconds()
+        if as_of.tzinfo is None or not 0 <= snapshot_age <= OWNED_HEALTH_STALE_SECONDS:
             return True
+        # The queue age is measured at `as_of`; include time elapsed since the
+        # reading so a fresh-at-read queue cannot be admitted after it crosses
+        # the three-minute overflow boundary.
+        queued_wait_s += snapshot_age
+        if queued_wait_s < OWNED_HEALTH_QUEUE_SECONDS:
+            return False
         listening, queued = int(entry["listening"]), int(entry["queued"])
         held = entry["held_offline"]
         counts = [int(held[key]) for key in ("units", "cpu", "livelock")]
@@ -670,6 +675,8 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     `route_wait`: how long the owned route the jobs would stay on has started nothing (dead_end()).
     """
     empty = {label: () for label in LABELS}
+    unavailable = tuple(label for label in LABELS if seen is not None and label_full_or_dead(
+        label, seen.snapshot, live=(live or {}).get(label, 0), queued=(waiting or {}).get(label, 0)))
     if skipped(env):
         return Placement(empty, "", skipped(env))
     if live is None or waiting is None:
@@ -686,8 +693,8 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
             why += (f"; the {seen.age:.0f}-min-old snapshot shows freshness work queued for `{SMALL}`, "
                     "so only a feed's compile takes it")
         fresh = (tuple([job for job in candidates(env, owned, promote_busy)
-                        if not held or job in feeds][:MAX_PER_RUN]) if saturated
-                 else unread_fresh_jobs(env, owned))
+                        if (not held or job in feeds) and SMALL not in unavailable][:MAX_PER_RUN]) if saturated
+                 else unread_fresh_jobs(env, owned) if SMALL not in unavailable else ())
         fresh_stall = fresh_stalled(seen.waits) if seen is not None else ()
         if fresh:
             # A feed's compile takes the last resort. The snapshot, read even when the
@@ -704,8 +711,6 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     stall = stalled(live, waiting, seen.waits, seen.age) if seen is not None else ()
     # Controller-declared outages and at-capacity backlog cannot be made live
     # by the older shorter-queue exception below.
-    unavailable = tuple(label for label in LABELS if seen is not None and label_full_or_dead(
-        label, seen.snapshot, live=live.get(label, 0), queued=waiting.get(label, 0)))
     stall = tuple(dict.fromkeys((*stall, *unavailable)))
     jobs = candidates(env, owned, promote_busy)
     # Freshness first across runs too: while a nightly's build or signing job is queued for a Blacksmith
