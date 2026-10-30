@@ -7184,10 +7184,13 @@ increases by one for every step written and every summary change, so a step's
 `{event:"conversation-run-changed", conversation, run, steps}` on `subscribe`
 to the connections that echoed `conversation-runs-v1` in `set-client-info`.
 
-`conversation-runs` `{conversation, turns?:[key], before_started_at?, limit?}`
-answers `{runs:[Run], has_more}`: with `turns` (at most 200 keys) the runs of
-those replies, else the newest runs that started before `before_started_at`
-(`limit` 1-200, default 50).
+`conversation-runs` `{conversation, turns?:[key], answers?:[key],
+before_started_at?, limit?}` answers `{runs:[Run], has_more}`: with `turns` (at
+most 200 keys) the runs of those replies. With `answers` (at most 200 message
+keys), a local owner advertising `conversation-run-answers-v1` returns runs
+whose `answers` include those messages; this exact lookup is for silent runs
+whose start predates the visible message window. Otherwise it returns the
+newest runs that started before `before_started_at` (`limit` 1-200, default 50).
 
 `conversation-run` `{conversation, run, after_rev?, limit?}` answers
 `{run:Run, steps:[Step], has_more}`: the steps written after `after_rev`
@@ -9451,7 +9454,7 @@ own unbound same-user Unix connection may ask (otherwise
 
 ### agent-session-start
 
-`agent-session-start-v1`: `{id, cmd:"agent-session-start", surface, cwd, harness?}`
+`agent-session-start-v1`: `{id, cmd:"agent-session-start", surface, cwd, harness?}` (and, when `agent-session-start-model-v1` is advertised, optional `model`)
 starts a new chat for an agent tab of this store in this machine's own
 acpmux and binds it to the tab, then answers
 `{surface, session, conversation}` (the tab's record, as
@@ -9475,7 +9478,8 @@ Claude and Codex), checked before the agent starts and again for the family
 it runs; otherwise `agent_session.untrusted_folder` (the daemon never answers
 the trust question; the person answers it on the machine or through
 `agent-session-trust`). There is no command, env, policy, mode,
-peer, preset or MCP server param; an unknown param is
+peer, preset or MCP server param; `model` is only accepted with the additive
+`agent-session-start-model-v1` capability and is passed to the first session; an unknown param is
 `agent_session.bad_request`. The machine kind decides first, read again at
 each start: a team VM (kind `team` in the root-owned `/etc/cmux/vm-kind` that
 cmux-host writes at a team enroll, or the team files root `/srv/team`,

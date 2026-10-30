@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1218,
+    "entries": 1219,
     "shortcuts": 189
   },
   "sections": [
@@ -2866,12 +2866,6 @@
           "command": null
         },
         {
-          "id": "macScreen.open",
-          "title": "New Mac Screen Tab",
-          "shortcut": null,
-          "command": "cmux tab new-mac-screen"
-        },
-        {
           "id": "newTab.default",
           "title": "New Tab",
           "shortcut": "⌘T",
@@ -3062,6 +3056,12 @@
           "title": "Save and Close Tabs to the Right",
           "shortcut": null,
           "command": "cmux tab stash-to-right"
+        },
+        {
+          "id": "macScreen.open",
+          "title": "Screen Sharing",
+          "shortcut": null,
+          "command": "cmux tab new-mac-screen"
         },
         {
           "id": "tab.screenshot",
@@ -5864,6 +5864,12 @@
           "title": "New Agent Chat",
           "shortcut": "⌘I",
           "command": "cmux agent new-chat"
+        },
+        {
+          "id": "palette.newAgentChatOn",
+          "title": "New Agent Chat on…",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "tasks.new",

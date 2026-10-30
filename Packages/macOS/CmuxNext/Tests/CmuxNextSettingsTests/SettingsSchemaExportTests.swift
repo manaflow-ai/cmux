@@ -68,6 +68,39 @@ import Testing
         #expect(SettingsSchema.agentSettableKeys.contains("appearance.backgroundBlur"))
     }
 
+    /// The checked-in schema is the descriptor registry consumed by the
+    /// daemon, CLI and MCP clients. Every row must carry the same surface
+    /// declaration that the native Settings page and palette use; otherwise
+    /// a new descriptor can silently become provider-dependent.
+    @Test func everyRowDeclaresSurfaceParity() throws {
+        let data = try SettingsSchemaExport().json(catalog: Self.catalog()).data(using: .utf8)!
+        let root = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let rows = try #require(root["rows"] as? [[String: Any]])
+        let rowsByKey = Dictionary(uniqueKeysWithValues: rows.compactMap { row in
+            (row["key"] as? String).map { ($0, row) }
+        })
+        #expect(rowsByKey.count == SettingsSchema.all.count)
+        for descriptor in SettingsSchema.all {
+            let plan = descriptor.surfacePlan
+            let row = try #require(rowsByKey[descriptor.id], Comment(rawValue: descriptor.id))
+            let surfaces = try #require(row["surfaces"] as? [String: Any], Comment(rawValue: descriptor.id))
+            #expect(Set(surfaces.keys) == Set(["palette", "cli", "mcp", "socket"]), Comment(rawValue: descriptor.id))
+            for (name, expected) in [("cli", plan.cli), ("mcp", plan.mcp), ("socket", plan.socket)] {
+                let surface = try #require(surfaces[name] as? [String: Any], Comment(rawValue: "\(descriptor.id): \(name)"))
+                #expect(surface["operations"] as? [String] == expected.operations, Comment(rawValue: "\(descriptor.id): \(name)"))
+                #expect(surface["aliases"] as? [String] == expected.aliases, Comment(rawValue: "\(descriptor.id): \(name)"))
+                #expect(surface["app_operations"] as? [String] == expected.appOperations, Comment(rawValue: "\(descriptor.id): \(name)"))
+                #expect(surface["app_aliases"] as? [String] == expected.appAliases, Comment(rawValue: "\(descriptor.id): \(name)"))
+                #expect(surface["offered"] as? Bool == expected.offered, Comment(rawValue: "\(descriptor.id): \(name)"))
+            }
+            let palette = try #require(surfaces["palette"] as? [String: Any], Comment(rawValue: "\(descriptor.id): palette"))
+            #expect(palette["offered"] as? Bool == plan.palette.offered, Comment(rawValue: descriptor.id))
+            #expect(palette["operations"] as? [String] == plan.palette.operations, Comment(rawValue: descriptor.id))
+            #expect(palette["row"] as? String == plan.palette.row, Comment(rawValue: descriptor.id))
+            #expect(palette["editor"] as? String == plan.palette.editor, Comment(rawValue: descriptor.id))
+        }
+    }
+
     /// A key missing from the catalog fails the export.
     @Test func missingKeyFailsTheExport() {
         #expect(throws: SettingsSchemaExport.MissingKeys.self) { try SettingsSchemaExport().json(catalog: []) }
