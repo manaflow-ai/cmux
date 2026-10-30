@@ -58,9 +58,9 @@ function ListRows({
           {row.subtitle && <div className="row-help">{row.subtitle}</div>}
         </div>
         {row.active && <span className="host-active" aria-hidden="true" />}
+        {trailing?.(row)}
+        {below?.(row)}
       </div>
-      {trailing?.(row)}
-      {below?.(row)}
     </div>
   ));
 }

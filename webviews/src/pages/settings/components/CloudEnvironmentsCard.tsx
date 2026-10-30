@@ -93,6 +93,7 @@ function EnvironmentRow({
   const status = STATUS[row.status];
   return (
     <div className="row" data-environment={row.id}>
+      <div className="row-main">
       <span className="row-label">
         <span className="row-title">{row.name}</span>
         <span className="row-help" data-environment-status={row.status}>
@@ -128,6 +129,7 @@ function EnvironmentRow({
           {t("settingsPage.cloudEnvironments.delete")}
         </button>
       </span>
+      </div>
     </div>
   );
 }
