@@ -40,6 +40,7 @@ describe("environment cleanup survives build completion", () => {
         pendingBuilds() { return Object.keys(this.boundEngine!.currentState.pending).length }
       }
       let owner = new Owner(state, env as Env)
+      const wake = async () => { await state.storage.deleteAlarm(); await owner.alarmIdle; await owner.alarm() }
       const submit = async (op: string, params: unknown) => {
         const r = reply(await owner.submit(x.team, x.p, frame(op, params)))
         expect(r.t, JSON.stringify(r)).toBe("result")
@@ -48,11 +49,7 @@ describe("environment cleanup survives build completion", () => {
       const created = await submit("cloud.environment.set", { name: "cleanup", setup_script: "true" })
       if (kind === "setup-failed") await owner.fakeControl({ exec_build_exit: 3 })
       await submit("cloud.environment.build", { environment: created.environment.id })
-      await owner.alarm()
-      await owner.alarmIdle
-      // The runtime may have queued the alarm scheduled by the build commit behind this direct
-      // invocation; drain that serialized wake before inspecting the environment.
-      await owner.alarm()
+      await wake()
       const result = await owner.readOp(x.team, x.p, "cloud.environment.list", {})
       expect(result).toMatchObject({ ok: true, value: { environments: [{ status: kind === "setup-failed" ? "failed" : "ready" }] } })
       expect((await owner.fakeControl({})).vms).toHaveLength(kind === "both" ? 2 : 1)
@@ -72,7 +69,7 @@ describe("environment cleanup survives build completion", () => {
         const original = state.storage.sql.exec<{ tag: string }>("SELECT tag FROM cloud_fake_vm WHERE name = ?", survivor.name).toArray()[0]!.tag
         state.storage.sql.exec("UPDATE cloud_fake_vm SET tag = ? WHERE name = ?", JSON.stringify({ cmux_next_team: "another-team", cmux_next_machine: "another-machine" }), survivor.name)
         await owner.fakeControl({ advance_ms: 400_000 })
-        await owner.alarm()
+        await wake()
         expect((await owner.fakeControl({})).vms).toHaveLength(1)
         expect(owner.pendingCleanup()).toMatchObject([{ error: { code: "cloud.provider.name_conflict" } }])
         state.storage.sql.exec("UPDATE cloud_fake_vm SET tag = ? WHERE name = ?", original, survivor.name)
@@ -84,7 +81,7 @@ describe("environment cleanup survives build completion", () => {
           expect(owner.pendingCleanup().length).toBeGreaterThan(0)
           expect((await owner.fakeControl({})).vms).toHaveLength(1) // Warm cleanup is not starved.
           const before = deletes
-          await owner.alarm()
+          await wake()
           expect(deletes).toBe(before) // Backoff: an early alarm cannot spend attempts.
         }
       }
