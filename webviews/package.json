@@ -13,7 +13,7 @@
     "check:layers": "python3 ../scripts/cmux-next/check-layers.py",
     "check:type-scale": "python3 ../scripts/cmux-next/gen-type-scale.py --check && python3 ../scripts/cmux-next/check-type-scale.py",
     "check:motion-scale": "python3 ../scripts/cmux-next/gen-motion-scale.py --check",
-    "check:surface-roles": "python3 ../scripts/cmux-next/gen-surface-roles.py --check",
+    "check:surface-roles": "python3 ../scripts/cmux-next/check-surface-roles.py",
     "check:status-glyphs": "python3 ../scripts/cmux-next/gen-status-glyphs.py --check",
     "check:ui-rulings": "bun scripts/check-ui-rulings.ts",
     "check:system-blue": "python3 ../scripts/cmux-next/check-system-blue.py",

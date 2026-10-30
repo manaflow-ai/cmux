@@ -1596,11 +1596,11 @@ jobs:
         run: python3 -I scripts/cmux-next/gen-motion-scale.py --check
 
       # The overlay surface roles (schemas/surface-roles/surface-roles.json): their Swift and CSS
-      # copies (Glass, never opaque: one token set for every popover, menu, card, toast and sheet).
+      # copies match it (Glass, never opaque: one token set for every popover, menu, card, toast and sheet).
       - name: Surface roles
         id: surface-roles
         continue-on-error: true
-        run: python3 -I scripts/cmux-next/gen-surface-roles.py --check
+        run: python3 -I scripts/cmux-next/check-surface-roles.py
 
       # The one menu row grid (schemas/menu-metrics/menu-metrics.json): its Swift and CSS copies, and no
       # menu with its own paddings (Leo 2026-10-21: one left alignment across every menu).
@@ -2092,6 +2092,7 @@ jobs:
             Overlays are glass, never solid
             Type scale
             Menu metrics
+            Surface roles
             Protected-folder copies
             Settings source copies
             Backdrop art export

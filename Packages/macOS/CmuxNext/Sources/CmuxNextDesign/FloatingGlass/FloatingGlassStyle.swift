@@ -56,8 +56,8 @@ public nonisolated struct FloatingGlassStyle: Sendable, Equatable {
             && lhs.lightRim == rhs.lightRim && lhs.castsShadow == rhs.castsShadow
     }
 
-    // The roles' looks (`toast`, `dialog`, `card`) are generated from
-    // schemas/surface-roles/surface-roles.json into SurfaceRole.generated.swift.
+    // The roles' looks (`toast`, `dialog`, `card`) are in SurfaceRole.swift, which follows
+    // schemas/surface-roles/surface-roles.json (scripts/cmux-next/check-surface-roles.py).
 
     /// The agent cursor's name tag and keystroke caption ("Chief · workspace"): a 22 pt capsule in
     /// the toast's veil and rim, with a shadow, over the page the cursor floats on.

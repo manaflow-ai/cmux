@@ -11,7 +11,7 @@ struct SurfaceRoleTests {
         ReduceTransparency(system: { on }, changes: NotificationCenter())
     }
 
-    /// The generated looks are the ones the toast, dialog and card drew before they moved to the roles.
+    /// The roles' looks are the ones the toast, dialog and card drew before they moved to the roles.
     @Test func theNeutralLooksKeepTheirValues() {
         #expect(FloatingGlassStyle.toast == FloatingGlassStyle(cornerRadius: 9, darkVeilAlpha: 0.42, lightVeilAlpha: 0.55,
                                                                darkRim: (0.30, 0.06), lightRim: (0.85, 0.10), castsShadow: true))

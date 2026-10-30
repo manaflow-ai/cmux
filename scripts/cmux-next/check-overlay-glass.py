@@ -540,7 +540,8 @@ def main() -> int:
     findings = scan(root)
     if findings:
         print("check-overlay-glass: a floating surface is solid instead of the shared glass (Leo 2026-10-21:")
-        print('  "STOP DOING SOLID. WE HAVE GLASS, SO JUST USE GLASS."). Use Glass.makeOverlayPanel, the')
+        print('  "STOP DOING SOLID. WE HAVE GLASS, SO JUST USE GLASS."). Use Glass.makeSurface(role) or')
+        print("  Glass.makeOverlayPanel, the")
         print("  tooltip glass or CardSurfaceView, or say why it stays solid: `// glass-opaque-allow: <reason>`.")
         print("  [popup-host]: a menu, picker, popover or web popup host builds its surface with")
         print("  Glass.makeOverlayPanel in its own body, or names the file that does in GLASS_FROM.")
