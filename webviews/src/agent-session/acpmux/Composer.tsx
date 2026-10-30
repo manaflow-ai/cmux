@@ -210,8 +210,8 @@ export type ComposerHandle = {
   ): void;
   /// Takes out the chips with these ids, leaving the prompt as typed (a design mode highlight removed on the page).
   detach(ids: readonly string[]): void;
-  /// Sends what is typed now, as Enter would, even while `blocked` is still drawn (the user just
-  /// answered Trust for the prompt the composer held). False when nothing went.
+  /// Sends what is typed now, as Enter would, even while a trust `blocked` reason is still drawn
+  /// (the user just answered Trust). A pending folder choice still holds it. False when nothing went.
   send(): boolean;
   /// Puts the caret in the prompt (Edit and Resend).
   focus(): void;
@@ -359,9 +359,12 @@ type Props = {
   onEmptyCommandReturn?(): void;
   /// Shell mode (`!` first) on or off: its ⌘Return answers no recap card, so the card drops its key.
   onShellChange?(shell: boolean): void;
-  /// Set while no prompt may go (the folder's trust question is open, useFolderTrustAsk.ts):
-  /// Send is off, Enter keeps the prompt, and `reason` shows above it. Shell mode still runs.
+  /// A concrete `reason` keeps the prompt while the folder's trust question is open. An empty
+  /// object only means the trust read is in flight; the daemon still authorizes each send.
   blocked?: SendBlock;
+  /// A new chat waiting on its folder choice: no prompt goes, including a trust-resend callback.
+  /// Shell mode still runs. This is separate from a trust read's empty `blocked` object.
+  blockSend?: boolean;
   /// Current session/route auth refusal. Unlike folder Trust, force-send cannot bypass it.
   authBlock?: string;
   /// Opens the Inspector at its Context section: the context ring's card links to it (Details ›).
@@ -431,6 +434,7 @@ export function Composer({
   sessionId,
   switching,
   blocked,
+  blockSend = false,
   authBlock,
   placeholder,
   onOpenContext,
@@ -1016,7 +1020,7 @@ export function Composer({
     // acpmux refuses this chat on this connection (remoteEditing.ts): keep the draft.
     if (!remote.canSend) return false;
     // The folder's trust question is open: the prompt stays where it is.
-    if (authBlock || (blocked && !force)) return false;
+    if (authBlock || blockSend || (blocked?.reason && !force)) return false;
     // The host has not taken the last prompt yet: it is still here, so Enter sends no copy, and
     // the composer says so instead of doing nothing.
     if (sending.current) {
@@ -1518,7 +1522,7 @@ export function Composer({
     onStop: stopTurn,
   });
   // While a turn runs, what is sent waits behind it, so the empty prompt says so.
-  const queues = !shell && snapshot.isWorking && remote.canSend && !blocked;
+  const queues = !shell && snapshot.isWorking && remote.canSend && !blockSend && !blocked?.reason;
   // An agent that steers takes Return into the running turn: it reads the prompt when its current
   // step ends, and nothing is cancelled. ⌘Return queues the prompt for after the turn (Claude's
   // keys, Leo 2026-10-20). Attachments go along, so staged files alone can steer too. An agent
@@ -1572,7 +1576,7 @@ export function Composer({
   );
   const suggestion = useMemo<PromptSuggestion | undefined>(
     () =>
-      !shell && !snapshot.isWorking && snapshot.rows.length === 0 && remote.canSend && !blocked
+      !shell && !snapshot.isWorking && snapshot.rows.length === 0 && remote.canSend && !blockSend && !blocked?.reason
         ? promptSuggestion(
             snapshot.sessions,
             { sessionId: snapshot.sessionId, cwd, branch },
@@ -1585,6 +1589,7 @@ export function Composer({
       snapshot.isWorking,
       snapshot.rows.length,
       remote.canSend,
+      blockSend,
       blocked,
       snapshot.sessions,
       snapshot.sessionId,
@@ -1736,6 +1741,7 @@ export function Composer({
       {...(snapshot.peerKinds ? { peerKinds: snapshot.peerKinds } : {})}
       {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
       {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
+      {...(snapshot.peerResources ? { peerResources: snapshot.peerResources } : {})}
       {...(onRefreshMachines ? { onRefreshMachines } : {})}
       {...(folderNote ? { folderNote } : {})}
       {...(runMode ? { runMode } : {})}
@@ -2161,8 +2167,8 @@ export function Composer({
               key="send"
               ref={sendButton}
               type="submit"
-              disabled={Boolean(authBlock || blocked) && !shell}
-              className={`acpmux-send${(shell ? shellText.trim() : !blocked && hasDraft) ? " acpmux-send-ready" : ""}`}
+              disabled={Boolean(authBlock || blockSend || blocked?.reason) && !shell}
+              className={`acpmux-send${(shell ? shellText.trim() : !blockSend && !blocked?.reason && hasDraft) ? " acpmux-send-ready" : ""}`}
               aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
               title={
                 shell
