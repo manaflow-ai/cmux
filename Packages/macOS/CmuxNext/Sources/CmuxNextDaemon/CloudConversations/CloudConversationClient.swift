@@ -3,7 +3,8 @@ public import Foundation
 /// The cloud conversation commands a Home source needs, so the source can be
 /// driven by a fake daemon in tests. `CloudConversationClient` is the real one.
 public protocol CloudConversationCommands: Sendable {
-    func inboxList(limit: Int) async throws -> CloudInboxList
+    /// One page of the account inbox (`cloud-inbox-list`): 200 entries from `cursor` (nil: the first page).
+    func inboxList(cursor: String?) async throws -> CloudInboxList
     func snapshot(_ conversation: String, tail: Int) async throws -> CloudConversationSnapshot
     func history(_ conversation: String, before seq: UInt64, limit: Int) async throws -> CloudConversationHistory
     /// `cloud-conversation-thread` (`conversation-thread-v1`).
@@ -102,8 +103,8 @@ public struct CloudConversationClient: CloudConversationCommands {
         try await network(CloudSelfHostInfoRequest())
     }
 
-    public func inboxList(limit: Int) async throws -> CloudInboxList {
-        try await network(CloudInboxListRequest(limit: limit))
+    public func inboxList(cursor: String?) async throws -> CloudInboxList {
+        try await network(CloudInboxListRequest(limit: CloudInboxListRequest.maxLimit, cursor: cursor))
     }
 
     public func snapshot(_ conversation: String, tail: Int) async throws -> CloudConversationSnapshot {
