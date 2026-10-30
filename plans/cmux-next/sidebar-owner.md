@@ -494,7 +494,6 @@ the gap, no row left out of place after drop or cancel).
 ## Codex follow-up
 
 - 2026-10-28: rail-topright-plus (`38580d70451`, Leo: "put a chevron optional in the new workspace thing"): the new-workspace + stays a one-click action, with a separate compact chevron for workspace options. Both controls follow the shared controls-on-hover policy at initialization and reveal together; the chevron's mouse, keyboard and VoiceOver paths open the same menu.
-- 2026-10-24: Leo requested "default just only show the inner tabs on hover and be able to go to and focus them when hovering ovre workspaces." Codex keeps the richer prompt and needs-input card behind the default-off `sidebar.hoverCards.richDetails` toggle. The popover keeps the shared glass, colors and fonts; the rail and Chief sidebar stay as they are.
 
 - 2026-10-23: Codex #24513 follow-up keeps the `inside` Chrome corner inset for a parent group whose rows are only nested groups; the regression test covers the previously unmeasured parent rail.
 
@@ -572,9 +571,8 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 ## First group fold reads a prepared lookup (2026-10-29)
 
 - [cd5b10ac221](https://github.com/manaflow-ai/cmux/commit/cd5b10ac2217376385a9c6ae34e5ff70ff966cfa) (PR [#24580](https://github.com/manaflow-ai/cmux/pull/24580)), Leo: "we know them beforehand, we can cache it, we can store those, like, saved operations." No visual change: `SidebarModel` builds its group lookup when sections arrive, so the first fold no longer scans every group before the row animation starts. Rows, layout and fold motion are unchanged. The commit carries no `Sidebar-Look:` trailer; reviewed and logged here. Test: `SidebarGroupToggleScalingTests.firstFoldDoesNotScanOtherGroups`.
-- 2026-10-24: The interactive inner-tab popover keeps its panel alive while the pointer crosses into the card; row focus still follows the shared tab-selection path.
 
 ## Workspace hover preview includes its tabs (2026-10-30)
 
 Leo: "and also why dont we have the rex thing yet of being abel to access the individual tabs in a workspace on its hover preview the best of both worlds thing"
-Leo also said on 2026-10-24: "default just only show the inner tabs on hover and be able to go to and focus them when hovering ovre workspaces … wouldnt first prompt/input needing/whatever MAYBE be nice...? idk tho. we can tuck that behind toggle". The shipped card therefore opens with four clickable inner tabs and a one-click Show details control; Gallery count and overflow remain bounded. status, prompts, history, usage and custom content stay available behind that toggle. Show more exposes remaining tabs in the same bounded scroll area. Each click uses the existing workspace/tab selection intent. The gallery compares tabs below the title, tabs after status (chosen), and compact tabs below details, plus the collapsed-details default.
+Leo also said on 2026-10-24: "default just only show the inner tabs on hover and be able to go to and focus them when hovering ovre workspaces … wouldnt first prompt/input needing/whatever MAYBE be nice...? idk tho. we can tuck that behind toggle". The shipped card therefore opens with four clickable inner tabs and a one-click Show details control when details exist. Status, prompts, history, usage and custom content stay available behind that toggle. Show more exposes remaining tabs in the same bounded scroll area. Each click uses the existing workspace/tab selection intent. The gallery compares tabs below the title, tabs after status, and compact tabs below details, plus the chosen default: tabs below the title with details collapsed.

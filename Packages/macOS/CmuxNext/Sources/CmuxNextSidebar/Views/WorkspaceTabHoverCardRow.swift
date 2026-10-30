@@ -71,9 +71,13 @@ final class WorkspaceTabHoverCardRow: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     func configure(_ tab: SidebarTab) {
+        let sameTab = currentTabID == tab.id
         currentTabID = tab.id
-        pressed = false
-        pressedTabID = nil
+        if !sameTab {
+            pressed = false
+            pressedTabID = nil
+        }
+        isHovered = false
         icon.image = tab.favicon.map { NSImage(cgImage: $0.image, size: NSSize(width: Metrics.iconSize, height: Metrics.iconSize)) }
             ?? tab.brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: Metrics.iconSize) }
             ?? NSImage.icon(tab.kind.icon, size: Metrics.iconSize)

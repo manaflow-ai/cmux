@@ -10,8 +10,8 @@ import CmuxNextWakeups
 /// its tabs show as one muted line, only when notable. It replaces the row
 /// tooltip.
 ///
-/// Resources are sampled from hover start (the CPU baseline) until the
-/// card hides; nothing is sampled while no card is pending or shown.
+/// Resources are sampled only while the card's details are expanded; collapsing
+/// details or hiding the card stops sampling.
 final class WorkspaceHoverCardController: HoverCardSource {
     let resources = ResourceCardSampler(source: nil)
     /// Hover time before a card shows: `HoverCardTiming.showDelay`, or
@@ -150,10 +150,12 @@ final class WorkspaceHoverCardController: HoverCardSource {
         body.configure(content)
         body.tabList.configure(title: ws.rawValue, tabs: workspace.tabs)
         body.tabList.onResize = { [weak self] in self?.coordinator.contentChanged(id) }
-        body.onDetailsChanged = { [weak self] in self?.coordinator.refit(id) }
+        body.onDetailsChanged = { [weak self] in self?.detailsChanged(id) }
         body.tabList.onSelect = { [weak self, weak list] tabID in
-            guard let self, let list, list.hoverCardRow(ws)?.tabs.contains(where: { $0.id == tabID }) == true else { return }
-            list.model.send(.selectTab(workspace: ws, tab: tabID))
+            guard let self else { return }
+            if let list, list.hoverCardRow(ws)?.tabs.contains(where: { $0.id == tabID }) == true {
+                list.model.send(.selectTab(workspace: ws, tab: tabID))
+            }
             self.coordinator.dismiss(.action)
         }
         body.setResources(resources.report)
@@ -194,7 +196,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
     }
 
     func hoverCardActivated(_ id: HoverTargetID) {
-        guard let ws = workspaceID(id) else { return }
+        guard bodyID == id, let ws = workspaceID(id), body?.isDetailsExpanded == true else { return }
         resources.open(.workspace(ws.rawValue)) { [weak self] report in
             guard let self, self.bodyID == id else { return }
             self.body?.setResources(report)
@@ -211,6 +213,20 @@ final class WorkspaceHoverCardController: HoverCardSource {
         bodyID = nil
         releaseCustom()
         updateTicker()
+    }
+
+    private func detailsChanged(_ id: HoverTargetID) {
+        if body?.isDetailsExpanded == true, let ws = workspaceID(id) {
+            resources.open(.workspace(ws.rawValue)) { [weak self] report in
+                guard let self, self.bodyID == id else { return }
+                self.body?.setResources(report)
+                self.coordinator.contentChanged(id)
+            }
+        } else {
+            resources.close()
+        }
+        updateTicker()
+        coordinator.refit(id)
     }
 
     /// The custom card for `ws`, mounted once per shown card; nil without a customization.
@@ -459,7 +475,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
 
     /// The card shows a running time (the status's or a command's): the controller ticks it.
     var isLive: Bool {
-        guard let content else { return false }
+        guard detailsExpanded, let content else { return false }
         return (activityWord != nil && content.activitySince != nil) || content.facts.contains { $0.since != nil }
     }
 
@@ -544,7 +560,8 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
 
     func acceptsHoverCardMouse(at screenPoint: CGPoint, in panel: NSWindow) -> Bool {
         if tabList.acceptsHoverCardMouse(at: screenPoint, in: panel) { return true }
-        let point = convert(panel.convertPoint(fromScreen: screenPoint), from: nil)
+        let windowPoint = panel.convertPoint(fromScreen: screenPoint)
+        let point = superview?.convert(windowPoint, from: nil) ?? windowPoint
         var hit = hitTest(point)
         while let view = hit {
             if view === detailsToggle { return true }
@@ -573,10 +590,10 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
             resourceRow.isHidden = !resourceShown
             customError.isHidden = customError.stringValue.isEmpty
         }
-        // The card always has status/details available for this workspace; keep
-        // the control visible while collapsed so one click reveals them.
         ageLabel.isHidden = !detailsExpanded || content?.age == nil
-        detailsToggle.isHidden = content == nil
+        let hasBuiltInDetails = activityWord != nil || content?.age != nil || content?.stats != nil
+            || content?.facts.isEmpty == false || content?.timeline.isEmpty == false || resourceShown
+        detailsToggle.isHidden = !hasBuiltInDetails && customView == nil && customError.stringValue.isEmpty
     }
 
     /// Every text an embedded view shows, by its accessibility (a SwiftUI scene has no labels).

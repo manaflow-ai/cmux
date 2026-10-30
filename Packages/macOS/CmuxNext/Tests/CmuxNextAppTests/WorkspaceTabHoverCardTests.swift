@@ -1,6 +1,7 @@
 @testable import CmuxNextSidebar
 @testable import CmuxNextDesign
 import CmuxNextDesignTokens
+import CmuxNextResources
 import AppKit
 import Testing
 
@@ -98,6 +99,35 @@ struct WorkspaceTabHoverCardTests {
         #expect(card.lines.contains("Keep this detail"))
     }
 
+    @Test func aCardWithoutDetailsHasNoDisclosure() {
+        let card = WorkspaceHoverCardView()
+        card.configure(WorkspaceHoverCardContent(title: "Scratch", icon: .terminal, facts: []))
+        #expect(card.detailsToggle.isHidden)
+        card.configure(WorkspaceHoverCardContent(title: "Scratch", icon: .terminal, age: "1m", facts: []))
+        #expect(!card.detailsToggle.isHidden)
+        card.detailsToggle.performClick(nil)
+        #expect(card.lines.contains("Scratch 1m"))
+    }
+
+    @Test func resourceSamplingRunsOnlyWhileDetailsAreExpanded() throws {
+        let workspace = SidebarWorkspace(id: WorkspaceID("project"), title: "Project", directory: "~/project")
+        let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+        let list = SidebarListView(model: SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: [.workspace(workspace)])]))
+        list.reload(animated: false)
+        let source = MockResourceSource(tabs: [])
+        list.hoverCard.resources.setSource(source)
+        let id = WorkspaceHoverCardController.targetID(workspace.id)
+        let body = try #require(list.hoverCard.hoverCardBody(for: id)?.view as? WorkspaceHoverCardView)
+        defer { list.hoverCard.hoverCardDeactivated(id) }
+        list.hoverCard.hoverCardActivated(id)
+        #expect(!list.hoverCard.resources.isOpen)
+        body.detailsToggle.performClick(nil)
+        #expect(list.hoverCard.resources.isOpen)
+        body.detailsToggle.performClick(nil)
+        #expect(!list.hoverCard.resources.isOpen)
+        #expect(!list.hoverCard.resources.isScheduled)
+    }
+
     @Test func overflowExpandsWithoutRemovingDetailsAndResetsForAnotherWorkspace() throws {
         let card = WorkspaceHoverCardView()
         card.configure(WorkspaceHoverCardContent(title: "Project", icon: .terminal,
@@ -127,6 +157,36 @@ struct WorkspaceTabHoverCardTests {
         #expect(view.acceptsHoverCardMouse(at: screenPoint, in: window))
     }
 
+    @Test func hostedCardAcceptsRowsAndOverflowAtTheirRealOrigins() throws {
+        let card = WorkspaceHoverCardView()
+        card.configure(WorkspaceHoverCardContent(title: "Project", icon: .terminal, facts: []))
+        card.tabList.configure(title: "project", tabs: (1...6).map {
+            SidebarTab(id: TabID("tab-\($0)"), title: "Tab \($0)")
+        })
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 360, height: 300), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close() }
+        window.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 360, height: 300))
+        card.frame = NSRect(x: 18, y: 24, width: 280, height: 240)
+        window.contentView?.addSubview(card)
+        card.layoutSubtreeIfNeeded()
+        card.tabList.layoutSubtreeIfNeeded()
+
+        let rows = Self.descendants(of: card.tabList).compactMap { $0 as? WorkspaceTabHoverCardRow }
+            .filter { !$0.isHidden }
+        #expect(rows.count == 4)
+        for row in [rows.first, rows.last].compactMap({ $0 }) {
+            let point = row.convert(NSPoint(x: row.bounds.midX, y: row.bounds.midY), to: nil)
+            let screenPoint = window.convertPoint(toScreen: point)
+            #expect(card.acceptsHoverCardMouse(at: screenPoint, in: window))
+        }
+        let more = try #require(Self.descendants(of: card.tabList).compactMap { $0 as? NSButton }
+            .first { !$0.isHidden && $0.title.localizedCaseInsensitiveContains("more") })
+        let point = more.convert(NSPoint(x: more.bounds.midX, y: more.bounds.midY), to: nil)
+        #expect(card.acceptsHoverCardMouse(at: window.convertPoint(toScreen: point), in: window))
+    }
+
     @Test func rowsReportTabDetailsAndReturnFocusesTheSelectedTab() throws {
         let view = WorkspaceTabHoverCardView()
         var selected: TabID?
@@ -140,10 +200,12 @@ struct WorkspaceTabHoverCardTests {
         let down = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 1,
                                                  windowNumber: 0, context: nil, characters: "\u{F701}",
                                                  charactersIgnoringModifiers: "\u{F701}", isARepeat: false, keyCode: 125))
-        #expect(view.handleHoverCardKeyDown(down))
         let enter = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 1,
                                                   windowNumber: 0, context: nil, characters: "\r",
                                                   charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
+        #expect(!view.handleHoverCardKeyDown(enter), "Return must pass through before an arrow shows keyboard selection")
+        #expect(selected == nil)
+        #expect(view.handleHoverCardKeyDown(down))
         #expect(view.handleHoverCardKeyDown(enter))
         #expect(selected == TabID("claude"))
     }
@@ -196,6 +258,33 @@ struct WorkspaceTabHoverCardTests {
         #expect(selected == nil, "a release from a stale press selected the replacement tab")
     }
 
+    @Test func aPressedRowSurvivesARefreshForTheSameTab() throws {
+        let view = WorkspaceTabHoverCardView()
+        var selected: TabID?
+        view.onSelect = { selected = $0 }
+        let tabs = [SidebarTab(id: TabID("first"), title: "first"), SidebarTab(id: TabID("second"), title: "second")]
+        view.configure(title: "app", tabs: tabs)
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 320, height: 120), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close() }
+        window.contentView = view
+        view.frame = NSRect(x: 0, y: 0, width: 320, height: 120)
+        view.layoutSubtreeIfNeeded()
+        let row = try #require(view.subviews.first?.subviews.compactMap { $0 as? NSScrollView }.first?.documentView?.subviews.first)
+        let point = row.convert(NSPoint(x: row.bounds.midX, y: row.bounds.midY), to: nil)
+        let down = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: 1,
+                                                   windowNumber: window.windowNumber, context: nil, eventNumber: 1,
+                                                   clickCount: 1, pressure: 1))
+        let up = try #require(NSEvent.mouseEvent(with: .leftMouseUp, location: point, modifierFlags: [], timestamp: 1,
+                                                 windowNumber: window.windowNumber, context: nil, eventNumber: 2,
+                                                 clickCount: 1, pressure: 0))
+        row.mouseDown(with: down)
+        view.configure(title: "app", tabs: tabs)
+        row.mouseUp(with: up)
+        #expect(selected == TabID("first"))
+    }
+
     @Test func tabRowActivatesOnRelease() throws {
         let view = WorkspaceTabHoverCardView()
         var selected: TabID?
@@ -222,7 +311,7 @@ struct WorkspaceTabHoverCardTests {
         #expect(selected == TabID("shell"), "tab did not activate on mouse-up")
     }
 
-    @Test func interactiveCardHandlesKeysWhilePointerStaysOnWorkspaceRow() async throws {
+    @Test func interactiveCardPassesKeysThroughWhilePointerStaysOnWorkspaceRow() async throws {
         _ = NSApplication.shared
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 240, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -248,12 +337,13 @@ struct WorkspaceTabHoverCardTests {
                                                   windowNumber: window.windowNumber, context: nil, characters: "\u{F701}",
                                                   charactersIgnoringModifiers: "\u{F701}", isARepeat: false, keyCode: 125))
         try #require(event.window === window, "the key event was not associated with the visible source window")
-        #expect(coordinator.handleMonitoredEvent(event) == nil, "the row key was passed through")
-        #expect(body.keys == [125])
-        #expect(coordinator.machine.shownTarget?.id == source.target.id)
-        let card = try #require(coordinator.panel).cardFrame
-        coordinator.pointerMoved(to: CGPoint(x: card.midX, y: card.midY))
-        #expect(coordinator.machine.shownTarget?.id == source.target.id, "moving from row into card dismissed it")
+        #expect(coordinator.handleMonitoredEvent(event) != nil, "the row key was consumed by the card")
+        #expect(body.keys.isEmpty)
+        #expect(coordinator.machine.shownTarget == nil, "the row key did not dismiss the card")
         try await WorkspaceHoverCardScrollTests.tearDown(window, coordinator)
+    }
+
+    private static func descendants(of view: NSView) -> [NSView] {
+        view.subviews + view.subviews.flatMap { Self.descendants(of: $0) }
     }
 }

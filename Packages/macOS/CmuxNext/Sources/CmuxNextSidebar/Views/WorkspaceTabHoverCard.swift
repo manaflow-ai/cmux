@@ -132,14 +132,17 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
         switch event.keyCode {
         case 125: moveSelection(by: 1)
         case 126: moveSelection(by: -1)
-        case 36, 76: onSelect?(tabs[selectedIndex].id)
+        case 36, 76:
+            guard showsKeyboardSelection else { return false }
+            onSelect?(tabs[selectedIndex].id)
         default: return false
         }
         return true
     }
 
     func acceptsHoverCardMouse(at screenPoint: CGPoint, in panel: NSWindow) -> Bool {
-        let point = convert(panel.convertPoint(fromScreen: screenPoint), from: nil)
+        let windowPoint = panel.convertPoint(fromScreen: screenPoint)
+        let point = superview?.convert(windowPoint, from: nil) ?? windowPoint
         var hit = hitTest(point)
         while let view = hit {
             if view is WorkspaceTabHoverCardRow || view === more { return true }
