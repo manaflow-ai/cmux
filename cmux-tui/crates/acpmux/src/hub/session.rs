@@ -41,6 +41,9 @@ pub struct Session {
     /// message acceptance/recovery touches this, never streamed tokens.
     /// Dedupe key is message id plus the target session for sender copies.
     pub(super) message_ids: StdMutex<Option<std::collections::HashSet<String>>>,
+    /// Tool output snapshots held back from the log while a newer one may replace them
+    /// (`store/deferred.rs`); taken only under `append_lock`.
+    pub(super) log_deferral: StdMutex<crate::store::Deferral>,
     pub(super) loading: AtomicBool,
     /// The generations of the agents whose `session/load` (or Claude fork prime) replays
     /// history: from the load's start until the inbound loop reaches that agent's
@@ -58,6 +61,12 @@ pub struct Session {
     /// for reads that take no lock.
     pub(super) log_load: StdMutex<bool>,
     pub(super) log_loaded: AtomicBool,
+    /// Claim retry recovery once per session object; imports may replace a chat with the
+    /// same id and a different journal, which must get its own recovery pass.
+    pub(super) auto_resume_restored: AtomicBool,
+    /// A retry task may outlive an imported replacement with the same durable id. Its mark
+    /// belongs to this instance, so its wake and cleanup cannot consume the replacement's.
+    pub(super) auto_resume: auto_resume::Pending,
     pub(super) turn_lock: Mutex<()>,
     /// Serializes the handoff of a turn's prompt and a session-wide cancel. A compacting Stop
     /// settles the logical turn before its cancel reaches the harness; keeping this lock until
@@ -74,6 +83,9 @@ pub struct Session {
     /// Being moved to another daemon (`transfer_out.rs`): the transfer id. It takes no prompt
     /// and starts nothing queued until the move commits (it closes) or aborts.
     pub(super) moving: StdMutex<Option<String>>,
+    /// Latest durable transfer event (sequence, blocked), rebuilt once from the log.
+    /// None until a restored log has been read successfully.
+    pub(super) transfer_authority: StdMutex<Option<(u64, bool)>>,
     /// Prompts `restore_queues` rebuilt, `(promptId, turnId)`, until their run asks for its turn.
     pub(super) restored: StdMutex<Vec<(String, String)>>,
     /// Inbox digests waiting for their turn, by prompt id: the messages each took, which its turn
@@ -245,6 +257,8 @@ pub struct Session {
     pub(super) silent_turn: StdMutex<Option<String>>,
     /// The turn cap's timer for the running turn (`turn_cap.rs`); the next turn aborts it.
     pub(super) turn_cap_timer: StdMutex<Option<tokio::task::AbortHandle>>,
+    /// Other agents' messages to this chat, in threads (`inbox.rs`).
+    pub(super) inbox: StdMutex<super::inbox::Inbox>,
     /// The hub clock's time (`Hub::clock_now`) of the last record or
     /// attach change; the idle harness exit counts from it (`idle.rs`).
     pub(super) last_active: AtomicU64,

@@ -25,7 +25,10 @@ snapshot sees that size stalled too: then `alternate` is the pick itself. GitHub
 that stalls after it holds the job until the run is cancelled. A re-run of
 failed jobs keeps this job's outputs, so the signing jobs read `alternate` on
 attempt 2 and later, and the re-run (the owned-pool rescue's or a person's)
-moves off the label that stalled instead of queueing on it again. When this
+moves off the label that stalled instead of queueing on it again.
+A label the snapshot shows dead (dead(): nothing running and no job started for an hour; a snapshot too old
+for the stall rule, up to six hours, still shows it) counts as stalled, is never `alternate`, and an unverified
+placement does not rotate onto it. When this
 step itself runs on a later attempt (a full re-run picks again), its pick is
 fresh, so `alternate` is that pick (run 40500413442's full re-run took the
 stale 12 vCPU alternate over a fresh pick, 2026-10-27):
@@ -64,14 +67,23 @@ def candidates(variable: str) -> list[str]:
     return list(dict.fromkeys([*first, cascade.SMALL, cascade.LARGE]))
 
 
+def dead(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> set[str]:
+    """The Blacksmith macOS 26 labels the snapshot (fresh or not) shows dead: the cascade's own rule
+    (next_macos_cascade.dead(), simple_pool_picker.blacksmith_dead())."""
+    return set(cascade.dead(snapshot, now))
+
+
 def stalled(snapshot: Mapping[str, Any] | None, labels: list[str], now: dt.datetime) -> set[str] | None:
-    """The labels a fresh snapshot saw a job wait on for STALL_MINUTES or more; None without one."""
+    """The labels a fresh snapshot saw a job wait on for STALL_MINUTES or more, or shows dead (dead()); None
+    without one. The stall rule alone calls a busy label and a dead one stalled alike: on 2026-10-30
+    blacksmith-12vcpu-macos-26 had started nothing for about a day while 6 vCPU, stalled by that rule too,
+    ran 5 jobs."""
     fresh = cascade._fresh(snapshot, now)  # noqa: SLF001 - the cascade's own freshness rule
     if fresh is None:
         return None
     age, pools = fresh
     age = max(0.0, age)
-    out = set()
+    out = dead(snapshot, now) & set(labels)
     for label in labels:
         # The one Blacksmith stall rule (simple_pool_picker.blacksmith_stalled, 10 min).
         if cascade._picker_rule.blacksmith_stalled(cascade._field(pools, label, "queued"),  # noqa: SLF001
@@ -85,10 +97,20 @@ def pick(variable: str, snapshot: Mapping[str, Any] | None, now: dt.datetime) ->
     labels = candidates(variable)
     stuck = stalled(snapshot, labels, now)
     if stuck is None:
-        return labels[0], f"no fresh pool snapshot, so `{labels[0]}` (vars.MACOS_RUNNER_26 or the default)"
+        # A snapshot too old for the stall rule still shows a dead label (dead()): never pick it unverified.
+        # dev_landing_place.py's overflow (OVERFLOW_LABEL, 12 vCPU) and nightly_build_runner.py read this pick.
+        gone = dead(snapshot, now)
+        label = next((label for label in labels if label not in gone), labels[0])
+        return label, (f"no fresh pool snapshot, so `{label}` "
+                       + ("(vars.MACOS_RUNNER_26 or the default)" if label == labels[0]
+                          else f"(`{labels[0]}` is dead: nothing running, no job started in an hour)"))
     moving = [label for label in labels if label not in stuck]
     if not moving:
-        return DEFAULT, f"every Blacksmith macOS label is stalled ({', '.join(sorted(stuck))}); `{DEFAULT}` has the most slots"
+        # A busy label still starts jobs; a dead one starts none.
+        gone = dead(snapshot, now)
+        label = DEFAULT if DEFAULT not in gone else next((other for other in labels if other not in gone), DEFAULT)
+        return label, (f"every Blacksmith macOS label is stalled ({', '.join(sorted(stuck))}); `{label}` "
+                       + ("has the most slots" if label == DEFAULT else f"still starts jobs (`{DEFAULT}` is dead)"))
     skipped = [label for label in labels[: labels.index(moving[0])]]
     why = f"`{moving[0]}`" + (f", past stalled {', '.join(f'`{s}`' for s in skipped)}" if skipped else "")
     return moving[0], why
@@ -131,6 +153,9 @@ def place(variable: str, snapshot: Mapping[str, Any] | None, now: dt.datetime, a
     rerun_pick = attempt > 1
     if stalled(snapshot, candidates(variable), now) is None:
         sizes = [DEFAULT, *(size for size in (cascade.SMALL, cascade.LARGE) if size != DEFAULT)]
+        # A snapshot too old to verify a pick still shows which label is dead: never rotate onto it.
+        gone = dead(snapshot, now)
+        sizes = [size for size in sizes if size not in gone] or sizes
         label = sizes[(attempt - 1) % len(sizes)]
         other = label if rerun_pick else sizes[attempt % len(sizes)]
         if not problem:
