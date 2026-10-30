@@ -196,11 +196,11 @@ async fn a_carried_turn_whose_result_was_lost_fails_its_prompt() {
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");
     let line = turn_with_a_steer(&t).await;
     assert!(answer(&t.inbound(&done("first")).await, 1).is_some());
-    assert!(t.holding(), "Claude Code's output waits for the carried turn's prompt");
+    assert!(t.holding().is_some(), "Claude Code's output waits for the carried turn's prompt");
     t.inbound(&echo(&line)).await;
     t.fail_pending("agent answer was over the size limit").await;
     let Outbound::Reply(reply) = t.outbound(&carried(3)).await else { panic!("it waited") };
     let Message::Response { error, .. } = &reply else { panic!("{reply:?}") };
     assert!(error.as_ref().is_some_and(|e| e.message.contains("size limit")), "{reply:?}");
-    assert!(!t.holding());
+    assert!(t.holding().is_none());
 }

@@ -77,6 +77,15 @@ export const CloudPlan = Schema.Struct({
   usage: Schema.Struct({ active: Schema.Int, saved: Schema.Int, vm_hours_used: Schema.Number, period_end: Millis })
 }).annotate({ identifier: "CloudPlan" })
 
+/**
+ * The caller's kind on one machine, the classic attach answer's `vmKind` (web vmKindForCaller):
+ * `owner` only for the machine's creator on the creator's personal team, never an agent token;
+ * every shared-team machine is `team`, its creator included. Computed per request, never stored.
+ * A client grants owner privileges only on the exact value `owner`.
+ */
+export const CloudVmKind = Schema.Literals(["owner", "team"])
+export type CloudVmKind = typeof CloudVmKind.Type
+
 export const CloudConnectInfo = Schema.Struct({
   machine: MachineId,
   host: HostId,
@@ -95,6 +104,8 @@ export const CloudConnectInfo = Schema.Struct({
   ),
   services: Schema.Array(Schema.Literals(["daemon", "ssh"])),
   daemon: Schema.Struct({ version: Schema.NullOr(Schema.String), capabilities: Schema.Array(Schema.String) }),
+  /** The caller's kind on this machine, per request (CloudVmKind). */
+  vm_kind: CloudVmKind,
   revision: Revision
 }).annotate({ identifier: "CloudConnectInfo" })
 
@@ -204,7 +215,7 @@ export const CloudMachineConnectInfo = cloudRead(
   Schema.Struct({ machine: Schema.optionalKey(MachineId), host: Schema.optionalKey(HostId) }),
   CloudConnectInfo,
   ["cloud.machine.not_bound", "cloud.machine.not_found"],
-  "How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. A read never mints a credential: the dial token comes from cloud.machine.link_token.",
+  "How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. A read never mints a credential: the dial token comes from cloud.machine.link_token. vm_kind is the caller's kind on this machine (owner only for its creator on the creator's personal team; every shared-team machine is team).",
   "cloud machine connect-info"
 )
 
@@ -227,11 +238,13 @@ export const CloudMachineLinkToken = def({
     expires_at: Millis,
     host: HostId,
     epoch: Schema.Int,
-    services: LinkServices
+    services: LinkServices,
+    /** The caller's kind on this machine, also signed into the token (claim `vmk`): the answer of this one dial. */
+    vm_kind: CloudVmKind
   }),
   // No key and no revision input, so no idempotency.conflict and no revision.conflict.
   errors: [...MUTATION.filter((code) => code !== "revision.conflict" && code !== "idempotency.conflict"), ...LIMITED, "cloud.link.install_refused", "cloud.machine.not_bound", "cloud.machine.not_found", "cloud.machine.paused"],
-  docs: "Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO and commits no stream event; the token is never cached, logged or kept in the ledger. Install principals only (agent tokens refused), and only cli, mac and ios installs (others: cloud.link.install_refused with details {install_kind, allowed}; the kind is what the install registered, so this keeps well-behaved vm, daemon and web installs out and is not a boundary against the user); limited per install (cloud.rate_limited); a deleting or failed machine answers cloud.machine.not_bound; a paused, pausing or starting machine answers cloud.machine.paused {machine, state} (no automatic start: the client asks the person and calls cloud.machine.start); only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app.",
+  docs: "Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. The token carries the caller's vm_kind (claim vmk, the same value as the result's vm_kind), so the owner answer is bound to this dial and ends with the token. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO and commits no stream event; the token is never cached, logged or kept in the ledger. Install principals only (agent tokens refused), and only cli, mac and ios installs (others: cloud.link.install_refused with details {install_kind, allowed}; the kind is what the install registered, so this keeps well-behaved vm, daemon and web installs out and is not a boundary against the user); limited per install (cloud.rate_limited); a deleting or failed machine answers cloud.machine.not_bound; a paused, pausing or starting machine answers cloud.machine.paused {machine, state} (no automatic start: the client asks the person and calls cloud.machine.start); only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app.",
   cli: { path: "cloud machine link-token", visible: false },
   mcp: { expose: "never", group: "cloud" }
 })
