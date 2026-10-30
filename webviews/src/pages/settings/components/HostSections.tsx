@@ -516,7 +516,7 @@ function ClearBrowsingData({ target }: { target: string }) {
     setCleared(true);
   };
   return (
-    <div className="host-field" data-clear-browsing-data="">
+    <div className="host-field" data-clear-browsing-data="" data-gallery-capture="">
       <span className="row-help">{title}</span>
       <select
         className="field"
