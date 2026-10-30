@@ -3051,11 +3051,28 @@ def cancel_plan(
             results[run_id] = f"failed: {error}"
             continue
         if candidate.open_head:
+            # GitHub.jobs() lists the latest attempt: a re-run someone starts between the read above and this
+            # one lists the new attempt's jobs, whose ids match nothing in the inventory. So a job of another
+            # attempt, or a run read again afterwards at another attempt or head, means no cancel.
+            attempt = int(candidate.run.get("run_attempt") or 1)
             try:
-                moved = open_head_jobs_moved((jobs_by_run or {}).get(run_id, ()), github.jobs(run_id))
+                now_jobs = github.jobs(run_id)
+                again = github.run(run_id)
             except RuntimeError as error:
                 results[run_id] = f"skipped (its jobs could not be read again at the open PR head: {error})"
                 continue
+            other = next((job.get("run_attempt") for job in now_jobs
+                          if job.get("run_attempt") not in (None, attempt)), None)
+            if other is not None or int(again.get("run_attempt") or 1) != attempt:
+                results[run_id] = f"skipped (now attempt {other or again.get('run_attempt')})"
+                continue
+            if again.get("head_sha") != candidate.run.get("head_sha"):
+                results[run_id] = "skipped (head changed)"
+                continue
+            if again.get("status") not in IN_FLIGHT_RUN_STATUSES:
+                results[run_id] = f"skipped (now {again.get('status')})"
+                continue
+            moved = open_head_jobs_moved((jobs_by_run or {}).get(run_id, ()), now_jobs)
             if moved:
                 results[run_id] = f"skipped ({moved})"
                 continue
