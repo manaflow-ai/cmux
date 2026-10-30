@@ -215,6 +215,36 @@ fn budget_with_soft_limit(soft: u64) -> u64 {
 /// (3) The connection budget is derived from the open-file limit: a higher
 /// limit admits more connections, and the connections never take more than
 /// half the descriptors (the rest stay for terminals, files and listeners).
+/// #28408 review: a connection draws its queued replies' bytes from a share
+/// of its socket's budget, not the whole pool. One that stops reading stops
+/// at half of what is left; a newcomer's first reply always fits while the
+/// pool has room, so no client starves another. No stall signal and no
+/// timer decide it: only bytes.
+#[test]
+fn a_connection_takes_at_most_half_of_what_is_left_and_a_newcomer_always_fits() {
+    let pool = RenderService::new_with_outbound_budgets(100, 100);
+    let stalled = pool.for_connection();
+    let mut taken = 0;
+    while taken < 100 && stalled.outbound_budget.try_retain(10) {
+        taken += 10;
+    }
+    assert!(taken <= 50, "one connection took {taken} of a 100-byte pool");
+    let newcomer = pool.for_connection();
+    assert!(newcomer.outbound_budget.try_retain(10), "a newcomer's first reply did not fit");
+    let second = pool.for_connection();
+    assert!(second.outbound_budget.try_retain(10), "a second newcomer's first reply did not fit");
+    // The control budget shares the same way.
+    let mut control = 0;
+    while control < 100 && stalled.control_budget.try_retain(10) {
+        control += 10;
+    }
+    assert!(control <= 50, "one connection took {control} of a 100-byte control pool");
+    assert!(newcomer.control_budget.try_retain(10));
+    // What a connection gives back returns to the pool.
+    stalled.outbound_budget.release(taken);
+    assert_eq!(pool.outbound_budget.retained_bytes.load(Ordering::Acquire), 20);
+}
+
 #[cfg(unix)]
 #[test]
 fn the_connection_budget_follows_the_open_file_limit() {
@@ -490,8 +520,8 @@ impl SessionClient {
             }
         }
         session.serve(Box::new(daemon_side), ConnectionLane::Shared);
-        // Only ends a red run (R5): a served reply comes at once.
-        client.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        // No read deadline (R5): the daemon answers, or closes a connection
+        // whose reply it can't make; either ends the read.
         let reader = BufReader::new(client.try_clone().unwrap());
         Self { stream: client, reader }
     }

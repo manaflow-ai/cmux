@@ -120,14 +120,38 @@ pub(super) struct OutboundByteBudget {
     pub(super) retained_bytes: AtomicUsize,
     pub(super) max_bytes: usize,
     holders: Mutex<Vec<Weak<dyn OutboundHolder>>>,
+    /// The socket's pool a connection's share draws from; `None` for a pool.
+    pool: Option<Arc<OutboundByteBudget>>,
 }
 
 impl OutboundByteBudget {
     pub(super) fn new(max_bytes: usize) -> Self {
-        Self { retained_bytes: AtomicUsize::new(0), max_bytes, holders: Mutex::default() }
+        Self {
+            retained_bytes: AtomicUsize::new(0),
+            max_bytes,
+            holders: Mutex::default(),
+            pool: None,
+        }
+    }
+
+    /// One connection's share of `pool` (red seam: no share rule yet).
+    pub(super) fn share_of(pool: &Arc<Self>) -> Self {
+        Self {
+            retained_bytes: AtomicUsize::new(0),
+            max_bytes: pool.max_bytes,
+            holders: Mutex::default(),
+            pool: Some(pool.clone()),
+        }
     }
 
     pub(super) fn try_retain(&self, bytes: usize) -> bool {
+        if let Some(pool) = &self.pool {
+            if !pool.try_retain(bytes) {
+                return false;
+            }
+            self.retained_bytes.fetch_add(bytes, Ordering::AcqRel);
+            return true;
+        }
         self.claim(bytes) || (self.evict_biggest_stalled() && self.claim(bytes))
     }
 
@@ -165,6 +189,9 @@ impl OutboundByteBudget {
     pub(super) fn release(&self, bytes: usize) {
         let previous = self.retained_bytes.fetch_sub(bytes, Ordering::AcqRel);
         debug_assert!(previous >= bytes, "outbound byte budget underflow");
+        if let Some(pool) = &self.pool {
+            pool.release(bytes);
+        }
     }
 }
 
@@ -299,7 +326,7 @@ impl Drop for BudgetedJsonWriter {
 }
 
 pub(super) struct RenderService {
-    pub(super) graphic_base64: Mutex<RenderGraphicBase64Cache>,
+    pub(super) graphic_base64: Arc<Mutex<RenderGraphicBase64Cache>>,
     pub(super) outbound_budget: Arc<OutboundByteBudget>,
     pub(super) control_budget: Arc<OutboundByteBudget>,
 }
@@ -319,13 +346,23 @@ impl RenderService {
 
     pub(super) fn new_with_outbound_budgets(max_bytes: usize, control_max_bytes: usize) -> Self {
         Self {
-            graphic_base64: Mutex::new(RenderGraphicBase64Cache::new(
+            graphic_base64: Arc::new(Mutex::new(RenderGraphicBase64Cache::new(
                 RENDER_GRAPHIC_BASE64_CACHE_MAX_BYTES,
                 RENDER_GRAPHIC_BASE64_CACHE_MAX_ENTRIES,
-            )),
+            ))),
             outbound_budget: Arc::new(OutboundByteBudget::new(max_bytes)),
             control_budget: Arc::new(OutboundByteBudget::new(control_max_bytes)),
         }
+    }
+
+    /// One connection's view: the same graphic cache, and its own share of
+    /// this socket's outbound and control budgets.
+    pub(super) fn for_connection(&self) -> Arc<Self> {
+        Arc::new(Self {
+            graphic_base64: self.graphic_base64.clone(),
+            outbound_budget: Arc::new(OutboundByteBudget::share_of(&self.outbound_budget)),
+            control_budget: Arc::new(OutboundByteBudget::share_of(&self.control_budget)),
+        })
     }
 
     pub(super) fn encode_graphic(&self, data: &Arc<[u8]>) -> Arc<str> {
