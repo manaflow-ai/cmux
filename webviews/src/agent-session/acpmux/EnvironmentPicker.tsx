@@ -107,6 +107,7 @@ export function EnvironmentPicker({
   current,
   onPick,
   onConnect,
+  cloudSignedIn,
   saved,
   onOpen,
   offload,
@@ -124,6 +125,8 @@ export function EnvironmentPicker({
   current: string;
   onPick(id: string): void;
   onConnect?(kind: ConnectKind): void;
+  /// The app's Cloud account state; signed out adds the sign-in action to Cloud.
+  cloudSignedIn?: boolean;
   saved?: SavedEnvironmentRows;
   /// The list opened, and every few seconds while it stays open: the host reads the machines
   /// again, so each one's status is current.
@@ -254,6 +257,16 @@ export function EnvironmentPicker({
       : []),
     ...(onConnect
       ? [
+          ...(cloudSignedIn === false
+            ? [
+                {
+                  value: ACTION + "cloudSignIn",
+                  text: t("composer.cloudSignIn"),
+                  kind: "cloud" as const,
+                  run: () => onConnect("cloud"),
+                },
+              ]
+            : []),
           {
             value: ACTION + "cloud",
             text: t("composer.newCloudMachine"),

@@ -15,6 +15,10 @@ export type CloudMachine = { id: string; name: string; stage: string };
 /// A Cloud machine as a row of the machine list: a Cloud environment carrying its machine.
 export type CloudMachineRow = Environment & { cloudMachine: CloudMachine };
 
+/// Whether the app's Cloud account is signed in. `undefined` means the app has not answered a
+/// machine-list request yet, so the picker does not add an account action until it knows the state.
+let accountSignedIn: boolean | undefined;
+
 type Call = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 
 /// A row id no acpmux peer name takes (`cloud-machine:` and the machine's id).
@@ -32,6 +36,11 @@ export function cloudMachinesFromReply(reply: unknown): CloudMachine[] {
     machines.push({ id, name, stage });
   }
   return machines;
+}
+
+export function cloudSignedInFromReply(reply: unknown): boolean | undefined {
+  const value = reply as { signedIn?: unknown } | null | undefined;
+  return typeof value?.signedIn === "boolean" ? value.signedIn : undefined;
 }
 
 /// The account's machines the list does not already have: one acpmux lists by the same name (any
@@ -109,12 +118,21 @@ function publish(next: readonly CloudMachine[]): void {
   for (const listener of listeners) listener();
 }
 
+function publishAccount(next: boolean | undefined): void {
+  if (next === accountSignedIn) return;
+  accountSignedIn = next;
+  for (const listener of listeners) listener();
+}
+
 /// Reads the app's list again. Outside the app, or when the app refuses, the list is left as it was.
 export function refreshCloudMachines(call: Call = postNative): Promise<void> {
   const asked = generation;
   inFlight ??= call("cloudMachine.list", {})
     .then((reply) => {
-      if (asked === generation) publish(cloudMachinesFromReply(reply));
+      if (asked === generation) {
+        publishAccount(cloudSignedInFromReply(reply));
+        publish(cloudMachinesFromReply(reply));
+      }
     })
     .catch(() => undefined)
     .finally(() => {
@@ -138,6 +156,10 @@ export function useCloudMachines(): readonly CloudMachine[] {
   return useSyncExternalStore(subscribe, snapshot, snapshot);
 }
 
+export function useCloudSignedIn(): boolean | undefined {
+  return useSyncExternalStore(subscribe, accountSnapshot, accountSnapshot);
+}
+
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
@@ -148,5 +170,13 @@ const snapshot = () => machines;
 export function setCloudMachinesForTest(next: readonly CloudMachine[]): void {
   generation += 1;
   inFlight = undefined;
+  publishAccount(undefined);
   publish(next);
 }
+
+/// Tests may seed the account state independently of the machine rows.
+export function setCloudMachinesForTestAccount(next: boolean | undefined): void {
+  publishAccount(next);
+}
+
+const accountSnapshot = () => accountSignedIn;

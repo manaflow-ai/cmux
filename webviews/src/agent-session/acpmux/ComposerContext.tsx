@@ -18,6 +18,7 @@ import {
   refreshCloudMachines,
   runCloudMachine,
   useCloudMachines,
+  useCloudSignedIn,
   withCloudMachines,
   type CloudMachine,
 } from "./cloudMachines";
@@ -174,6 +175,7 @@ export function ComposerContext({
 }) {
   const newChat = !started && onProject !== undefined;
   const accountMachines = useCloudMachines();
+  const cloudSignedIn = useCloudSignedIn();
   const shownMachines = cloudMachines ?? accountMachines;
   // Every machine acpmux lists (`_acpmux/status` peers) and every host its chats ran on, with each
   // one's transport and state, in both the environment picker and the plain Computer menu; for a
@@ -189,12 +191,12 @@ export function ComposerContext({
   // The list opened, and every few seconds while it is open: acpmux's peers and, for a new chat,
   // the app's Cloud machines are read again.
   const onRefreshMachines =
-    onRefreshPeers || (newChat && !cloudMachines)
+    newChat && !cloudMachines
       ? () => {
           onRefreshPeers?.();
-          if (newChat && !cloudMachines) void refreshCloudMachines();
+          void refreshCloudMachines();
         }
-      : undefined;
+      : onRefreshPeers;
   // The plain Computer menu lists them in the picker's sections and order (environments.ts), one
   // line each; a machine a chat cannot start on yet says its state on a second line.
   const menuComputers = useMemo(() => {
@@ -428,6 +430,7 @@ export function ComposerContext({
               onPick={pickEnvironment}
               {...(offload && onOffload ? { offload, onOffload } : {})}
               {...(!started && onConnect ? { onConnect } : {})}
+              {...(cloudSignedIn !== undefined ? { cloudSignedIn } : {})}
               {...(savedRows ? { saved: savedRows } : {})}
               {...(onRefreshMachines ? { onOpen: onRefreshMachines } : {})}
               {...(runMode && !started && !readOnly ? { runMode } : {})}
