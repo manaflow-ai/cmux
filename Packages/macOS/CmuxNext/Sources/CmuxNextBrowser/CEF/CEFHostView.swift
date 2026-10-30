@@ -113,8 +113,9 @@ final class CEFHostView: NSView {
     @objc func cmuxOcclusionRects() -> NSArray {
         Self.trackerStats.occlusionReads += 1
         // The fork reads these first on every update of a shown page.
-        readGeometry = CEFHostGeometry(of: self)
-        return occlusionMemoValue().bridged
+        let geometry = CEFHostGeometry(of: self)
+        readGeometry = geometry
+        return occlusionMemoValue(for: geometry).bridged
     }
 
     /// Read by the fork (`-cmuxClipPath`) on every geometry update: the
@@ -151,15 +152,18 @@ final class CEFHostView: NSView {
 
     /// The fork asks for the same occlusion array several times while a page
     /// settles. Keep both the normalized rectangles and their Objective-C
-    /// bridge for one geometry revision. `postGeometryChange` invalidates this
-    /// when any input that the tracker can read changes.
+    /// bridge for the geometry they were worked out from: the host's bounds,
+    /// its ancestors' clips and cutouts, its own holes and the window's
+    /// overlays over it (`CEFHostGeometry`, read anyway on every fork read).
+    /// A frame or ancestor change AppKit reports to the fork directly, with
+    /// no `postGeometryChange`, still gives a different key and a fresh build.
     private struct OcclusionMemo {
+        let geometry: CEFHostGeometry
         let rects: [CGRect]
         let bridged: NSArray
     }
 
-    private var occlusionRevision = 0
-    private var occlusionMemo: (revision: Int, value: OcclusionMemo)?
+    private var occlusionMemo: OcclusionMemo?
 
     private func clipShape() -> ClipMemo {
         let started = CEFTrackerStats.now()
@@ -180,13 +184,13 @@ final class CEFHostView: NSView {
     /// The chrome's rects plus the window's interactive overlays over this
     /// view, in this view's coordinates.
     var allOcclusionRects: [CGRect] {
-        occlusionMemoValue().rects
+        occlusionMemoValue(for: CEFHostGeometry(of: self)).rects
     }
 
-    private func occlusionMemoValue() -> OcclusionMemo {
-        if let memo = occlusionMemo, memo.revision == occlusionRevision {
+    private func occlusionMemoValue(for geometry: CEFHostGeometry) -> OcclusionMemo {
+        if let memo = occlusionMemo, memo.geometry == geometry {
             Self.trackerStats.occlusionHits += 1
-            return memo.value
+            return memo
         }
         let started = CEFTrackerStats.now()
         defer { Self.trackerStats.occlusionSeconds += CEFTrackerStats.now() - started }
@@ -204,8 +208,8 @@ final class CEFHostView: NSView {
             }
             rects = Self.outermost(normalized)
         }
-        let memo = OcclusionMemo(rects: rects, bridged: rects.map { NSValue(rect: $0) } as NSArray)
-        occlusionMemo = (occlusionRevision, memo)
+        let memo = OcclusionMemo(geometry: geometry, rects: rects, bridged: rects.map { NSValue(rect: $0) } as NSArray)
+        occlusionMemo = memo
         return memo
     }
 
@@ -267,7 +271,6 @@ final class CEFHostView: NSView {
     }
 
     private func invalidateOcclusionMemo() {
-        occlusionRevision &+= 1
         occlusionMemo = nil
     }
 

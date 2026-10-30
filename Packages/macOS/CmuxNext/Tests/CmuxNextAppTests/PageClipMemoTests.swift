@@ -57,6 +57,19 @@ import Testing
         #expect(CEFHostView.trackerStats.occlusionBuilds - before == 1)
     }
 
+    /// A resize the fork learns of from AppKit, with no `postGeometryChange`, still rebuilds the
+    /// holes on the next read: the memo is keyed on the geometry, not on posts.
+    @Test func aResizeWithoutAPostRebuildsTheHoles() {
+        let column = Column()
+        let first = column.page.cmuxOcclusionRects()
+        let before = CEFHostView.trackerStats.occlusionBuilds
+        column.host.frame = CGRect(x: 0, y: 0, width: 300, height: 300)
+        column.host.layoutSubtreeIfNeeded()
+        let after = column.page.cmuxOcclusionRects()
+        #expect(CEFHostView.trackerStats.occlusionBuilds - before == 1)
+        #expect(first !== after, "a new geometry gets a new bridge")
+    }
+
     @Test func aStripClipWithoutAFrameChangeGivesTheNewShape() throws {
         let column = Column()
         let whole = try #require(column.page.cmuxClipPath()?.bounds)
