@@ -10,26 +10,50 @@ nonisolated final class RemoteDeviceChannel: Sendable {
     let socket: Int32
     private let state = Mutex(ChannelState())
     private let writeLock = Mutex(())
-    private let pushes: AsyncStream<String>
-    private let pushSink: AsyncStream<String>.Continuation
     static let timeout: TimeInterval = 10
 
     private struct ChannelState: @unchecked Sendable { // crash-allow: every field is read and written under the Mutex
         var open = true
         var nextID = 1
         var waiting: [Int: (Result<[String: Any], any Error>) -> Void] = [:]
+        /// Hub pushes not read yet, and the one reader waiting for the next.
+        var pushes: [String] = []
+        var pushReader: CheckedContinuation<String?, Never>?
     }
 
     init(socket: Int32) {
         self.socket = socket
-        (pushes, pushSink) = AsyncStream.makeStream(of: String.self, bufferingPolicy: .bufferingNewest(256))
         let thread = Thread { [self] in readLoop() }
         thread.name = "cmux-remote-device"
         thread.start()
     }
 
     var isOpen: Bool { state.withLock { $0.open } }
-    var pushTexts: AsyncStream<String> { pushes }
+    /// The next hub push, in order; nil once the channel ends. One reader at a time.
+    func nextPush() async -> String? {
+        await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
+            let ready = state.withLock { state -> String?? in
+                if !state.pushes.isEmpty { return .some(state.pushes.removeFirst()) }
+                guard state.open else { return .some(nil) }
+                state.pushReader = continuation
+                return .none
+            }
+            if let ready { continuation.resume(returning: ready) }
+        }
+    }
+
+    private func deliver(_ text: String) {
+        let reader = state.withLock { state -> CheckedContinuation<String?, Never>? in
+            if let reader = state.pushReader {
+                state.pushReader = nil
+                return reader
+            }
+            if state.pushes.count >= 256 { state.pushes.removeFirst() }
+            state.pushes.append(text)
+            return nil
+        }
+        reader?.resume(returning: text)
+    }
 
     private func readLoop() {
         var pending = Data()
@@ -54,17 +78,20 @@ nonisolated final class RemoteDeviceChannel: Sendable {
                         done?(.failure(DeviceHubError.identity(message)))
                     }
                 } else if object["event"] as? String == "push", let text = object["text"] as? String {
-                    pushSink.yield(text)
+                    deliver(text)
                 }
             }
         }
-        let waiting = state.withLock { state -> [(Result<[String: Any], any Error>) -> Void] in
+        let (waiting, reader) = state.withLock { state -> ([(Result<[String: Any], any Error>) -> Void], CheckedContinuation<String?, Never>?) in
             state.open = false
-            defer { state.waiting.removeAll() }
-            return Array(state.waiting.values)
+            defer {
+                state.waiting.removeAll()
+                state.pushReader = nil
+            }
+            return (Array(state.waiting.values), state.pushReader)
         }
         for done in waiting { done(.failure(DeviceHubError.transport("cmux Remote's channel closed"))) }
-        pushSink.finish()
+        reader?.resume(returning: nil)
         Darwin.close(socket)
     }
 
@@ -95,18 +122,18 @@ nonisolated final class RemoteDeviceChannel: Sendable {
 
     func blockingCall(_ method: String, _ params: [String: Any]) throws -> [String: Any] {
         let semaphore = DispatchSemaphore(value: 0)
-        let box = Mutex<Result<[String: Any], any Error>?>(nil)
+        let box = Mutex<Result<AnswerBox, any Error>?>(nil)
         nonisolated(unsafe) let params = params
         send(method, params) { result in
-            nonisolated(unsafe) let result = result
-            box.withLock { $0 = result }
+            let boxed = result.map(AnswerBox.init)
+            box.withLock { $0 = boxed }
             semaphore.signal()
         }
         // concurrency-allow: a key operation's one IPC answer, bounded; DeviceKeyMaterial is synchronous and is never called on the main thread.
         guard semaphore.wait(timeout: .now() + Self.timeout) == .success, let result = box.withLock({ $0 }) else {
             throw DeviceHubError.transport("cmux Remote did not answer \(method)")
         }
-        return try result.get()
+        return try result.get().value
     }
 
     func close() {

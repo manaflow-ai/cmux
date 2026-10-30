@@ -6,12 +6,12 @@ public import Foundation
 /// over the daemon (`remote-host-app`) and cmux Remote's app socket. The returned channel is
 /// the worker's control pipe: its lines are the worker's, writing to it writes the worker's
 /// stdin, and closing it stops the worker, as EOF on the helper's stdin did.
-public protocol ComputerUseRemoteSpawning: Sendable {
+public nonisolated protocol ComputerUseRemoteSpawning: Sendable {
     func openComputerUse() async throws -> ComputerUseRemoteChannel
 }
 
 /// One open Computer Use channel through cmux Remote.
-public struct ComputerUseRemoteChannel: Sendable {
+public nonisolated struct ComputerUseRemoteChannel: Sendable {
     /// The worker's pid (cmux Remote's child).
     public var pid: pid_t
     /// The connected app socket, after its opening exchange.
