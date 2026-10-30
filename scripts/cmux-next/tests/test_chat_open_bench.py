@@ -33,6 +33,16 @@ class SummaryTests(unittest.TestCase):
         self.assertIsNone(summary["first_content_ms"]["median"])
         self.assertEqual(cos.cell(summary, "sidebar"), "FAILED (2/3 valid)")
 
+    def test_timed_out_open_with_numbers_still_fails_the_case(self):
+        # The trace gave up but still reported the times it had: they are not the open's.
+        slow = open_(15000, 15000, timed_out=True)
+        summary = cos.summarize([open_(100), open_(200), slow])
+        self.assertFalse(summary["complete"])
+        self.assertEqual((summary["n"], summary["ok"], summary["timed_out"]), (3, 2, 1))
+        self.assertEqual(cos.cell(summary, "big"), "FAILED (2/3 valid)")
+        errored = cos.summarize([open_(100), open_(120, error="wait: closed")])
+        self.assertEqual(cos.cell(errored, "subagent"), "FAILED (1/2 valid)")
+
     def test_missing_empty_time_is_missing_not_zero(self):
         summary = cos.summarize([open_(100, 50), {"first_content_ms": 120, "flashes": 0}])
         self.assertFalse(summary["complete"])
