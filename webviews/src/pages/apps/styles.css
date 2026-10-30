@@ -311,6 +311,19 @@
   background: var(--page-hover);
 }
 
+.apps-action-label {
+  display: inline-grid;
+}
+
+.apps-action-label > span {
+  grid-area: 1 / 1;
+}
+
+.apps-action-label-size {
+  visibility: hidden;
+  font-weight: 500;
+}
+
 .apps-button.primary,
 .apps-button.pressed {
   background: var(--page-selection);

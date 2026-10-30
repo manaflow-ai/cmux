@@ -145,6 +145,11 @@ struct PageFactory {
         }, hostLists: { [weak services] in services?.settingsWindow.pageHostLists() ?? .null })
         provider.removeDevice = { [weak services] id in await services?.devices.remove(id: id) }
         provider.setDeviceFullAccess = { [weak services] id, on in await services?.devices.setFullAccess(id: id, on: on) }
+        provider.setJoinConsent = { [weak services] surface, on in
+            guard let services, let surface = JoinConsentSurface(rawValue: surface) else { return nil }
+            return await services.joinConsent.set(surface, on: on)
+        }
+        provider.personBacksGesture = { [weak services] uptime in services?.personInput.backs(uptime) ?? false }
         provider.setMachineVmHost = { [weak services] id, on in
             guard let services else { return nil }
             return await services.cloudVmHost.set(id, on: on, reachable: services.settingsWindow.vmHostReach(id) == true)
