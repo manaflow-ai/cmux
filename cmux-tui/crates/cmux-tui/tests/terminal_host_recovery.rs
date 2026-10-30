@@ -4994,11 +4994,14 @@ fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
     // Every clone of one snapshot holds this host: its workspace takes a fresh key, never the
     // builder's, or every clone's workspace is one workspace to an app that shows several machines.
     assert!(!builder_key.is_empty());
-    assert_ne!(
-        workspaces["workspaces"][0]["key"].as_str(),
-        Some(builder_key.as_str()),
-        "{workspaces}"
-    );
+    let clone_key = workspaces["workspaces"][0]["key"].as_str().unwrap().to_string();
+    assert_ne!(clone_key, builder_key, "{workspaces}");
+    // The host's own record (its recovery mirror) names the clone's workspace, not the builder's.
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    while wait_for_host_records(&harness.host_root(), 1)[0].1.workspace_key != clone_key {
+        assert!(Instant::now() < deadline, "the host record still names the builder's workspace");
+        std::thread::sleep(Duration::from_millis(20));
+    }
     // The template settings configure this daemon only. A terminal it spawns
     // must not inherit them (the Cloud user's shells and agents).
     let env_file = harness.dir.join("template-child-env");
