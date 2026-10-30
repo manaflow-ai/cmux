@@ -245,7 +245,10 @@ for (const [remoteStart, trust, reconnectStart, decline, promptTrust] of [
         await until(() => !!host.querySelector('[role="alert"]'), "declined start settles with the draft retained");
         expect(host.querySelector(".nt-field")).toBe(field);
         expect(prompts).toHaveLength(0);
-        await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-trust-ask-action")!.click());
+        const undo = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-trust-ask-action")].find(
+          (button) => button.textContent === "Undo",
+        )!;
+        await act(async () => undo.click());
         await until(() => !!host.querySelector(".acpmux-trust-ask-primary"), "Undo offers Trust again");
       }
       await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-trust-ask-primary")!.click());
