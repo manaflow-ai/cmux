@@ -196,7 +196,8 @@ final class AgentTabStore {
     /// The one Read aloud voice every chat page speaks through, and Stop Reading Aloud stops.
     let readAloud = AgentPaneReadAloud()
     /// The Cloud machines each page's environment picker lists (`cloudMachine.*`); the app's peer approver for every host and page.
-    let cloudMachines = AgentPaneCloudMachines(), peerApprover: AgentPanePeerApprover?
+    let cloudMachines = AgentPaneCloudMachines()
+    let peerApprover: AgentPanePeerApprover?
     /// The device chats every page's New Tab cards show (``AgentPageChats``).
     let pageChats = AgentPageChats()
     weak var actionRegistry: ActionRegistry?
