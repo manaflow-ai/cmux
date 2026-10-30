@@ -122,6 +122,24 @@ test("a theme previews live in the app before it is picked: hover or arrows, rig
   expect(ops(page.provider, "cmux.settings.set")).toEqual([]);
 });
 
+test("a late theme save cannot end a newer preview after the picker reopens", async () => {
+  page = await renderPage({ path: "/settings/theme" });
+  let resolveSave!: () => void;
+  page.store.set = (() => new Promise<void>((resolve) => (resolveSave = resolve))) as typeof page.store.set;
+  const button = theme(page).querySelector('[data-theme-row="theme"] [data-theme-picker]')!;
+  await click(button);
+  const search = document.querySelector<HTMLElement>(".theme-search")!;
+  await fire(search, "keydown", { key: "ArrowDown" });
+  await fire(search, "keydown", { key: "Enter" });
+  await click(button);
+  const reopened = document.querySelector<HTMLElement>(".theme-search")!;
+  await fire(reopened, "keydown", { key: "ArrowDown" });
+  const endsBeforeSave = ops(page.provider, "cmux.settings.preview.end").length;
+  resolveSave();
+  await settle();
+  expect(ops(page.provider, "cmux.settings.preview.end").length).toBe(endsBeforeSave);
+});
+
 test("a pointer passing over themes previews nothing until it rests; the arrow keys preview at once", async () => {
   const { DWELL_MS } = await import("./components/ThemePicker");
   page = await renderPage({ path: "/settings/theme" });
