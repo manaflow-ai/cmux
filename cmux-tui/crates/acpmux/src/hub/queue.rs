@@ -1144,8 +1144,11 @@ impl Hub {
                     | "agent_pair_dropped"
                     | "agent_pair_paused"
                     | "agent_pair_resumed" => pair_records.push(e),
-                    "transfer_out" => moving = e.msg["transferId"].as_str().map(str::to_owned),
-                    "transfer_aborted" | "imported" => moving = None,
+                    // The daemon's own records only: an agent's update may carry any kind.
+                    "transfer_out" if e.dir == "mux" => {
+                        moving = e.msg["transferId"].as_str().map(str::to_owned)
+                    }
+                    "transfer_aborted" | "imported" if e.dir == "mux" => moving = None,
                     // Left the queue for a turn that has not started (`lost_start.rs`): its
                     // `queued` record stays waiting, so later records apply to it, and it goes
                     // back ahead of the queue.

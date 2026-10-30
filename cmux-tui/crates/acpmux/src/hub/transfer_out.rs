@@ -230,7 +230,20 @@ impl Hub {
             drop(guard);
             return Err(unfreeze(transfer_error("busy", "a recovered turn is running")));
         }
-        self.append(session, "mux", "transfer_out", json!({"transferId": transfer_id}));
+        // The move is what withdraws the chat from this daemon's tabs (`transfer_authority.rs`):
+        // one that never reached the log does not begin.
+        let (_, logged) = self.append_at(
+            session,
+            "mux",
+            "transfer_out",
+            json!({"transferId": transfer_id}),
+            None,
+            None,
+        );
+        if !logged {
+            drop(guard);
+            return Err(unfreeze(transfer_error("store", "could not durably record transfer_out")));
+        }
         let dir = transfers_dir().join(&transfer_id);
         let made = self
             .export(session, &dir)
@@ -244,10 +257,13 @@ impl Hub {
         drop(guard);
         let files = match made {
             Ok(files) => files,
-            Err(e) => {
+            Err(error) => {
                 let _ = std::fs::remove_dir_all(&dir);
-                self.append(session, "mux", "transfer_aborted", json!({"transferId": transfer_id}));
-                return Err(unfreeze(e));
+                let record = json!({"transferId": transfer_id});
+                // Its `transfer_out` is logged: it stays frozen unless its end is too.
+                let (_, logged) =
+                    self.append_at(session, "mux", "transfer_aborted", record, None, None);
+                return Err(if logged { unfreeze(error) } else { error });
             }
         };
         if let Some(socket) = to {
@@ -417,8 +433,14 @@ impl Hub {
         if let Some(reason) = reason {
             record.set("reason", json!(reason));
         }
+        // Logged while the chat is still frozen: a new move begins only after it, so this
+        // record never follows (and undoes) a newer `transfer_out` (`transfer_authority.rs`).
+        // One that never reached the log leaves it frozen, as its `transfer_out` says.
+        let (_, logged) = self.append_at(session, "mux", "transfer_aborted", record, None, None);
+        if !logged {
+            return Err(transfer_error("store", "could not durably record transfer_aborted"));
+        }
         self.end_move(session);
-        self.append(session, "mux", "transfer_aborted", record);
         let _ = std::fs::remove_dir_all(transfers_dir().join(transfer_id));
         Ok(json!({"sessionId": session.id, "transferId": transfer_id, "aborted": true}))
     }
