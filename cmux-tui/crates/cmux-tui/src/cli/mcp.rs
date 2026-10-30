@@ -870,6 +870,53 @@ impl<B: Backend> Server<B> {
         Ok(self.call_action(tool, &arguments))
     }
 
+    /// A terminal tool called with a `tab` and no `terminal`: the terminal that tab shows,
+    /// from `tab_get` (its `content_id`). Models name a terminal by the tab id they listed
+    /// (tests/tool-evals: 39 "needs terminal" errors in one 9-model panel). Other calls
+    /// pass unchanged.
+    fn terminal_of_tab<'a>(
+        &self,
+        tool: &v2_tools::V2Tool,
+        arguments: &'a Map<String, Value>,
+    ) -> Result<std::borrow::Cow<'a, Map<String, Value>>, Value> {
+        let named_by_tab = tool.name.starts_with("terminal_")
+            && !arguments.contains_key("terminal")
+            && arguments.get("tab").and_then(Value::as_str).is_some();
+        if !named_by_tab {
+            return Ok(std::borrow::Cow::Borrowed(arguments));
+        }
+        let mut lookup = Map::new();
+        for key in ["tab", "session"] {
+            if let Some(value) = arguments.get(key) {
+                lookup.insert(key.into(), value.clone());
+            }
+        }
+        let Some(tab_get) = v2_tools::find("tab_get") else {
+            return Ok(std::borrow::Cow::Borrowed(arguments));
+        };
+        let answer = self.call_v2(tab_get, &lookup);
+        if answer["isError"] == true {
+            return Err(answer);
+        }
+        let record = &answer["structuredContent"];
+        let record = record.get("value").unwrap_or(record);
+        let Some(terminal) = record["content_id"].as_str().filter(|id| id.starts_with("term_"))
+        else {
+            return Err(tool_error(envelope(
+                v2_tools::invalid(format!(
+                    "{} needs terminal: that tab shows no terminal",
+                    tool.name
+                )),
+                "not_run",
+                None,
+            )));
+        };
+        let mut with_terminal = arguments.clone();
+        with_terminal.remove("tab");
+        with_terminal.insert("terminal".into(), Value::String(terminal.to_owned()));
+        Ok(std::borrow::Cow::Owned(with_terminal))
+    }
+
     /// One request from a running `cmux_exec` script: a tool call through
     /// `call`, so a script has the rights of a direct call, or a docs search.
     fn script_request(
@@ -918,6 +965,10 @@ impl<B: Backend> Server<B> {
 
     fn call_v2(&self, tool: &v2_tools::V2Tool, arguments: &Map<String, Value>) -> Value {
         let arguments = match self.place_beside(tool, arguments) {
+            Ok(arguments) => arguments,
+            Err(answer) => return answer,
+        };
+        let arguments = match self.terminal_of_tab(tool, &arguments) {
             Ok(arguments) => arguments,
             Err(answer) => return answer,
         };
