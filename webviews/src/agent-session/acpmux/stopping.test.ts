@@ -266,6 +266,38 @@ test("a refused Stop stops reading as stopping and says why", () =>
     expect(notes().slice(before)).toEqual([said]);
   }));
 
+test("only the refusal of the Stop still waiting counts", () =>
+  withStoppingClient(async (f) => {
+    await f.start();
+    const notes = () =>
+      f
+        .shown()
+        .rows.filter((row) => row.kind === "notice")
+        .map((row) => row.text);
+    const deliver = (params: unknown) =>
+      (f.socket as unknown as { deliver(message: unknown): void }).deliver({
+        jsonrpc: "2.0",
+        method: "_acpmux/cancel_refused",
+        params,
+      });
+    const message = "only its owner can stop it";
+    const before = notes().length;
+    // No Stop waits: a late refusal says nothing.
+    deliver({ sessionId: f.id, message, turnId: "stop-turn-1" });
+    expect(notes()).toHaveLength(before);
+    await f.client.cancel();
+    expect(f.shown().stopping).toBe(true);
+    // An earlier turn's refusal does not answer the Stop of this one.
+    deliver({ sessionId: f.id, message: "an earlier Stop's answer", turnId: "stop-turn-0" });
+    expect(f.shown().stopping).toBe(true);
+    expect(notes()).toHaveLength(before);
+    deliver({ sessionId: f.id, message, turnId: "stop-turn-1" });
+    await f.until(() => f.shown().stopping === undefined);
+    expect(notes().slice(before)).toHaveLength(1);
+    expect(notes().at(-1)).toContain(message);
+    expect(notes().at(-1)).not.toContain("earlier");
+  }));
+
 test("a failed cancel send leaves Stop available for a successful retry", () =>
   withStoppingClient(async (f) => {
     await f.start();
