@@ -72,6 +72,8 @@ final class CardResidency {
 
     func setScrolling(_ scrolling: Bool) {
         self.scrolling = scrolling
+        // Stopped: building ahead resumes.
+        tick()
         publishIdle()
     }
 
@@ -101,6 +103,8 @@ final class CardResidency {
                 self.stillFrames += 1
                 guard self.stillFrames >= Self.restFrames else { return true }
                 self.moving = false
+                // At rest again: building ahead resumes.
+                self.tick()
                 return false
             }
         }
@@ -163,10 +167,12 @@ final class CardResidency {
         }
     }
 
-    private func nextToBuild() -> String? {
+    /// The next card to build: ahead of the screen only while the grid rests (shown,
+    /// settled, not scrolled by a finger or from code); otherwise only an on-screen one.
+    func nextToBuild() -> String? {
         guard let layout else { return nil }
         let step = plan.step(layout: layout, offset: offset, isBuilt: isBuilt)
-        let next = visible && settled ? step.next : step.visible.first
+        let next = visible && settled && !scrolling && !moving ? step.next : step.visible.first
         return next.flatMap { $0 < ids.count ? ids[$0] : nil }
     }
 }

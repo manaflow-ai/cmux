@@ -201,8 +201,20 @@ final class DiffRenderer {
         var options: DiffRows.Options
     }
 
-    /// Files up to this many lines are prepared in place (no blank frame); longer ones off main.
+    /// Files up to this many lines and characters are prepared in place (no blank frame);
+    /// longer ones (a minified line too) off main.
     static let inlineLineLimit = 300
+    static let inlineCharacterLimit = 24_000
+
+    static func preparesInPlace(_ file: DiffFile) -> Bool {
+        guard file.lines.count <= inlineLineLimit else { return false }
+        var characters = 0
+        for line in file.lines {
+            characters += line.text.utf8.count
+            if characters > inlineCharacterLimit { return false }
+        }
+        return true
+    }
 
     func update(file: DiffFile, key: DiffRenderKey) async {
         guard model?.key != key else { return }
@@ -213,7 +225,7 @@ final class DiffRenderer {
             DiffRenderModel(rows: cachedRows ?? DiffRows(file: file, options: options), key: key)
         }
         let made: DiffRenderModel
-        if file.lines.count <= Self.inlineLineLimit {
+        if Self.preparesInPlace(file) {
             made = build()
         } else {
             made = await Task.detached(priority: .userInitiated, operation: build).value
