@@ -325,13 +325,20 @@ export default agentPaneEntry({
     },
     "duration-columns": {
       note: "Duration-column stress fixture: running work spans 9s, 2h 20m and 12h 59m 59s so every time stays on one line in the shared trailing track.",
-      play: trayLines(3),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
+        if (ctx.document.querySelector(".acpmux-running-tray__head")?.getAttribute("aria-expanded") !== "true")
+          await ctx.click({ selector: ".acpmux-running-tray__head" });
+        await trayLines(6)(ctx);
+      },
       snapshot: chat(
         [
           user("Keep the long-running checks visible", 3),
           group(
             [
               durationAgent("Fresh check", 9_000, { action: "Run the quick check" }),
+              durationAgent("Nested check", 59_000, { action: "Run the nested check", parent: "agent-fresh-check" }),
+              durationAgent("Medium check", 31 * 60_000 + 19_000, { action: "Run the medium check" }),
               durationAgent("Long check", 2 * 60 * 60_000 + 20 * 60_000, { action: "Run the integration suite" }),
               durationAgent("Overnight check", 12 * 60 * 60_000 + 59 * 60_000 + 59_000, {
                 action: "Review the overnight logs",

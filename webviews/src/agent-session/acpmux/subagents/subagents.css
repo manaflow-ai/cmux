@@ -574,6 +574,7 @@ button.cv-subagent > :last-child {
 }
 .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button {
   /* Reserve the final track while keeping the stop control outside the button. */
+  padding-left: calc(8px + var(--acpmux-tray-indent, 0px));
   padding-right: calc(8px + var(--acpmux-tray-stop-width) + 8px);
 }
 .acpmux-agent-line > .acpmux-agent-line__stop-slot > .cv-subagent__stop {
@@ -603,13 +604,13 @@ button.cv-subagent > :last-child {
   .acpmux-running-tray .acpmux-agent-line__button > .acpmux-lineage__icon {
     position: absolute;
     top: 7px;
-    left: 8px;
+    left: calc(8px + var(--acpmux-tray-indent, 0px));
   }
   .acpmux-running-tray__head > .acpmux-summary-text,
   .acpmux-running-tray .acpmux-agent-line__button > .acpmux-summary-text {
     grid-column: 1 / -1;
     grid-row: 1;
-    margin-left: 22px;
+    margin-left: calc(22px + var(--acpmux-tray-indent, 0px));
   }
   .acpmux-running-tray__time,
   .acpmux-running-tray .acpmux-agent-line__time {

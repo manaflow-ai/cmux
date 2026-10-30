@@ -183,7 +183,9 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         expect(initial.rows.every((row) => !row.chevron || row.chevron.right <= row.status.right + 0.5)).toBe(true);
         expect(initial.rows.every((row) => !row.chevron || row.chevron.right <= initial.tray.right + 0.5)).toBe(true);
         expect(initial.rows.every((row) => row.time.lineCount <= 1)).toBe(true);
-        expect(initial.rows.every((row) => row.time.lineCount === 0 || row.time.textRight! <= row.time.boxRight + 0.5)).toBe(true);
+        expect(
+          initial.rows.every((row) => row.time.lineCount === 0 || row.time.textRight! <= row.time.boxRight + 0.5),
+        ).toBe(true);
         expect(initial.rows.every((row) => row.time.scrollWidth <= row.time.clientWidth + 1)).toBe(true);
         expect(initial.rows.every((row) => row.time.height <= 18)).toBe(true);
         expect(initial.rows.every((row) => row.time.whiteSpace === "nowrap")).toBe(true);
@@ -196,7 +198,9 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           if (!value) return 0;
           return value.split(" ").reduce((total, unit) => {
             const amount = Number.parseInt(unit, 10);
-            return total + (unit.endsWith("h") ? amount * 3_600_000 : unit.endsWith("m") ? amount * 60_000 : amount * 1_000);
+            return (
+              total + (unit.endsWith("h") ? amount * 3_600_000 : unit.endsWith("m") ? amount * 60_000 : amount * 1_000)
+            );
           }, 0);
         };
         expect(durationMs(initial.head.time.text)).toBe(
@@ -204,24 +208,24 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         );
         expect(initial.rows.map((row) => row.time.text)).toContain(initial.head.time.text);
 
-        // Freeze Playwright's clock after the gallery frame has loaded, then advance one second.
-        // The gallery clock is based on performance.now(), so installing before navigation would
-        // replace the fixture's fixed epoch and make its durations meaningless.
-        const clockNow = await page.evaluate(() => Date.now());
-        await page.clock.install({ time: clockNow });
-        await page.clock.pauseAt(clockNow);
         const beforeTick = await measure();
         const beforeTexts = beforeTick.rows.map((row) => row.time.text);
-        await page.clock.fastForward(1_000);
+        await page.waitForTimeout(1_100);
         const afterTick = await measure();
         expect(afterTick.rows.map((row) => row.time.text)).not.toEqual(beforeTexts);
         expect(afterTick.rows.every((row) => row.time.lineCount <= 1)).toBe(true);
         expect(afterTick.rows.every((row) => row.summary.width >= 60)).toBe(true);
-        expect(afterTick.rows.every((row) => row.time.lineCount === 0 || row.time.textRight! <= row.time.boxRight + 0.5)).toBe(true);
+        expect(
+          afterTick.rows.every((row) => row.time.lineCount === 0 || row.time.textRight! <= row.time.boxRight + 0.5),
+        ).toBe(true);
         expect(afterTick.rows.map((row) => row.time.right)).toEqual(initial.rows.map((row) => row.time.right));
         expect(afterTick.rows.map((row) => row.time.textRight)).toEqual(initial.rows.map((row) => row.time.textRight));
-        expect(afterTick.rows.map((row) => row.time.scrollWidth)).toEqual(initial.rows.map((row) => row.time.scrollWidth));
-        expect(afterTick.rows.map((row) => row.time.clientWidth)).toEqual(initial.rows.map((row) => row.time.clientWidth));
+        expect(afterTick.rows.map((row) => row.time.scrollWidth)).toEqual(
+          initial.rows.map((row) => row.time.scrollWidth),
+        );
+        expect(afterTick.rows.map((row) => row.time.clientWidth)).toEqual(
+          initial.rows.map((row) => row.time.clientWidth),
+        );
         expect(afterTick.rows.map((row) => row.status.left)).toEqual(initial.rows.map((row) => row.status.left));
         expect(afterTick.rows.map((row) => row.stop.left)).toEqual(initial.rows.map((row) => row.stop.left));
         expect(afterTick.rows.map((row) => row.time.height)).toEqual(initial.rows.map((row) => row.time.height));
@@ -238,7 +242,9 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           expect(narrow.rows.every((row) => row.summary.width >= 60)).toBe(true);
           expect(narrow.rows.every((row) => row.summary.bottom <= row.time.top + 0.5)).toBe(true);
           expect(narrow.rows.every((row) => row.time.lineCount <= 1)).toBe(true);
-          expect(narrow.rows.every((row) => row.time.lineCount === 0 || row.time.textRight! <= row.time.boxRight + 0.5)).toBe(true);
+          expect(
+            narrow.rows.every((row) => row.time.lineCount === 0 || row.time.textRight! <= row.time.boxRight + 0.5),
+          ).toBe(true);
           expect(narrow.rows.every((row) => row.time.scrollWidth <= row.time.clientWidth + 1)).toBe(true);
           expect(narrow.rows.every((row) => !row.chevron || row.chevron.right <= row.status.right + 0.5)).toBe(true);
           expect(narrow.rows.every((row) => !row.chevron || row.chevron.right <= narrow.tray.right + 0.5)).toBe(true);
