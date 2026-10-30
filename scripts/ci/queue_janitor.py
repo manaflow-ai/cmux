@@ -40,13 +40,23 @@ jobs queued on a pool they hold exceeds a threshold:
      runs, so this category is not gated on a backed-up pool. A run whose
      head is stale (a push with no open pull request at its head, or a pull
      request run whose PR is closed, merged or superseded) is cancelled. A
-     run at the current head of an open pull request is never cancelled, by
-     this category or any other (open_pr_at_head(), OPEN_HEAD_RULE): run
+     run at the current head of an open pull request is never cancelled by
+     any other category (open_pr_at_head(), OPEN_HEAD_RULE): run
      40398277457 (cmux-next, PR #25446) attempt 2 was cancelled at its head
      and stayed cancelled until a person re-ran it, because the carried
      re-run needs a later sweep and this workflow's concurrency group evicts
-     pending sweeps. The controller's fall-through moves such a compile
-     instead, so a lost job there now waits. A push or dispatch run whose
+     pending sweeps. A lost job there is the stall-aware failover instead
+     (open_head_lost(), coordinator-approved 2026-10-30): the sweep cancels
+     the run, waits a bounded time for the cancel to settle and re-runs its
+     failed jobs as cmux-bot at the same head (rerun_open_head()), and the
+     pending re-run state, written before the cancel's first read, carries
+     it to the next sweep when the cancel has not settled or the re-run was
+     refused. A bot's re-run, a run that already failed, one a newer run
+     took over, and a nightly, DEV or promote run keep OPEN_HEAD_RULE, as
+     does every open head while this sweep has no cmux-bot token or no
+     re-run state. On 2026-10-30 23 such runs had waited 1.5 to 10 hours
+     on glaeda-side-std, glaeda-gui-std and Blacksmith 6 vCPU while newer
+     jobs on their labels started. A push or dispatch run whose
      branch head (read this sweep, branch_head_lookups()) is still its head,
      with no open pull request at it, is current: it is cancelled and a later
      sweep re-runs its failed jobs (rerun-failed-jobs) when the run has
@@ -314,6 +324,13 @@ LOST_RERUN_TTL = dt.timedelta(hours=6)
 # Pending re-runs read (one run request each) and re-runs posted per sweep.
 LOST_PENDING_MAX = 25
 LOST_RERUN_MAX = 10
+# A lost job at an open pull request's head (classify_lost(), open_head): the sweep that cancels it reads
+# the run up to LOST_SETTLE_READS times, LOST_SETTLE_INTERVAL_S apart, for the cancel to settle, then re-runs
+# its failed jobs as cmux-bot (rerun_open_head()). A cancel still unsettled after that, or a re-run GitHub
+# refused, stays in LOST_RERUNS_KEY for the next sweep. 12 x 10 s keeps the wait for all of a sweep's cancels
+# (at most MAX_CANCELS, read together) at 2 minutes of the job's 15-minute timeout.
+LOST_SETTLE_READS = 12
+LOST_SETTLE_INTERVAL_S = 10
 # Unclaimed legs (find_unclaimed()): a leg on an owned label still queued with
 # no runner this long after it could first run, or the pool's p90 wait when
 # that is longer (unclaimed_bound()), at a live head, needs no evidence.
@@ -1134,6 +1151,9 @@ class Candidate:
     rerun: bool = False
     # That re-run must come from an App's token, never GITHUB_TOKEN (a Blacksmith leg, blacksmith_leg()).
     app_actor: bool = False
+    # Category e at an open pull request's head: this sweep re-runs it as cmux-bot once the cancel
+    # settles (rerun_open_head()), and the pending entry carries it otherwise (open_head_lost()).
+    open_head: bool = False
 
 
 def classify(
@@ -1502,6 +1522,10 @@ def lost_pr_state(run: Mapping[str, Any], prs: Sequence[Mapping[str, Any]],
 
 OPEN_HEAD_RULE = ("never cancelled: an open pull request's run at its head is never cancelled by anything "
                   "automatic; the controller's fall-through moves its compile instead")
+# The one exception (classify_lost(), open_head): a job GitHub never assigned at an open pull request's head is
+# the stall-aware failover, cancelled and re-run at the same head in the same sweep (rerun_open_head()).
+OPEN_HEAD_FAILOVER = ("stall-aware failover at the open head: cancelled and its failed jobs re-run as cmux-bot "
+                      "at the same head in this sweep (or the next, if the cancel has not settled)")
 
 
 def open_pr_at_head(run: Mapping[str, Any], prs: Sequence[Mapping[str, Any]] | None) -> Mapping[str, Any] | None:
@@ -1509,7 +1533,9 @@ def open_pr_at_head(run: Mapping[str, Any], prs: Sequence[Mapping[str, Any]] | N
 
     The one predicate every cancelling path checks first (categories a-f and
     the orphan pass): nothing the janitor does automatically cancels such a
-    run. Run 40398277457 (cmux-next, PR #25446 at 8be738c84d8) attempt 2 was
+    run, except category e's stall-aware failover of a job GitHub never
+    assigned (classify_lost(), OPEN_HEAD_FAILOVER), which re-runs it at once
+    at the same head. Run 40398277457 (cmux-next, PR #25446 at 8be738c84d8) attempt 2 was
     cancelled at its head for a Blacksmith leg (category f) and stayed
     cancelled until a person re-ran it: the carried re-run needs a later
     sweep, and the janitor's concurrency group evicts pending sweeps. Any run
@@ -1542,6 +1568,52 @@ class LostVerdict:
     note: str = ""
     rerun: bool = False
     pr: Mapping[str, Any] | None = None
+    # The cancel is at an open pull request's head: this sweep re-runs it as cmux-bot (rerun_open_head()).
+    open_head: bool = False
+
+
+def open_head_lost(run: Mapping[str, Any], run_jobs: Sequence[Mapping[str, Any]], evidence: str,
+                   pr: Mapping[str, Any], *, rerun_state: bool, newer: Mapping[str, Any] | None,
+                   cmux_bot: bool) -> LostVerdict:
+    """Category e at the head of open pull request `pr`: the stall-aware failover, or OPEN_HEAD_RULE.
+
+    A job GitHub never assigned (runner_id 0, no runner name), queued 30 minutes or more since it could run
+    while newer jobs on exactly its labels started (find_lost()), is cancelled and its failed jobs re-run at
+    the same head, as cmux-bot, in the same sweep (rerun_open_head()); the pending re-run state carries it
+    to the next sweep when the cancel has not settled or the re-run was refused. Leo's rulebook, as the
+    coordinator approved it on 2026-10-30: this is the stall-aware failover, the run comes back at the same
+    head, and it never applies to a started nightly, DEV or promote build. Everything else at an open head
+    keeps OPEN_HEAD_RULE:
+    - a branch whose open pull requests were not all read (OPEN_PRS_UNREAD);
+    - a nightly, DEV or promote run (_lost_scope() already leaves out protected runs; checked again here);
+    - an attempt a bot started (bot_rerun()): run 40398277457, the rescue's attempt 2, was cancelled at its
+      head and never re-run; such an attempt is never cancelled a second time;
+    - a run that already failed: re-running its failed jobs would repeat a red job too;
+    - a run a newer run at its head took over, which reports for that head;
+    - no re-run state (rerun_state) or no cmux-bot token this sweep (cmux_bot): the cancel could not be
+      carried or re-run as cmux-bot, so nothing is cancelled.
+    """
+    reason = f"{evidence}; at the head of open PR #{pr.get('number')}"
+
+    def keep(why: str) -> LostVerdict:
+        return LostVerdict("skip", f"{reason} ({why})", OPEN_HEAD_RULE, pr=pr)
+
+    if pr.get(OPEN_PRS_UNREAD):
+        return keep("the branch's open pull requests were not all read")
+    if protected_reason(run) is not None or is_delivery_run(str(run.get("path") or ""), run.get("name"),
+                                                            run.get("display_title")):
+        return keep("a nightly, DEV or promote run")
+    if bot_rerun(run):
+        return keep(f"attempt {run.get('run_attempt')} is a bot's re-run")
+    if any(job.get("status") == "completed" and job.get("conclusion") == "failure" for job in run_jobs):
+        return keep("the run already failed, and a re-run of its failed jobs would repeat that red")
+    if newer is not None:
+        return keep(f"newer run {newer.get('id')} at its head took over")
+    if not rerun_state:
+        return keep("no re-run state to fall back on")
+    if not cmux_bot:
+        return keep("no cmux-bot token this sweep to re-run it")
+    return LostVerdict("cancel", f"{reason}: {OPEN_HEAD_FAILOVER}", rerun=True, pr=pr, open_head=True)
 
 
 def classify_lost(
@@ -1554,6 +1626,7 @@ def classify_lost(
     rerun_state: bool,
     newer: Mapping[str, Any] | None = None,
     branch_head: str | None = None,
+    cmux_bot: bool = False,
 ) -> LostVerdict | None:
     """What category e does with a run holding a lost job, or None to leave it to the other categories.
 
@@ -1561,9 +1634,10 @@ def classify_lost(
     looked up (then nothing is known, and nothing is done). find_lost()
     already left alone any run with another job unfinished, so no cancel
     kills readable work. A stale run is cancelled: nobody reads it. A run at
-    the current head of an open pull request is never cancelled
-    (open_pr_at_head(), OPEN_HEAD_RULE): the job waits, and the controller's
-    fall-through moves the compile. A push or dispatch run at its live branch
+    the current head of an open pull request (open_pr_at_head()) is cancelled
+    and re-run at that head in the same sweep, as cmux-bot (the stall-aware
+    failover), or else keeps OPEN_HEAD_RULE: open_head_lost() has the rules
+    (`cmux_bot`: this sweep's token is cmux-bot's). A push or dispatch run at its live branch
     head is cancelled so that a later sweep re-runs its failed jobs, except:
     - an attempt a bot started (bot_rerun()) is left alone: it is the
       janitor's own re-run or owned_pool_rescue.py's, which the rescue's watch
@@ -1591,8 +1665,8 @@ def classify_lost(
         return LostVerdict("skip", evidence, f"PR #{pr.get('number')} has more labels than were read", pr=pr)
     at_head = open_pr_at_head(run, prs)
     if at_head is not None:
-        return LostVerdict("skip", f"{evidence}; at the head of open PR #{at_head.get('number')}", OPEN_HEAD_RULE,
-                           pr=at_head)
+        return open_head_lost(run, run_jobs, evidence, at_head, rerun_state=rerun_state, newer=newer,
+                              cmux_bot=cmux_bot)
     if state == "stale":
         return LostVerdict("cancel", f"{evidence}; {why}", pr=pr)
     if bot_rerun(run):
@@ -1920,6 +1994,9 @@ def new_lost_reruns(candidates: Iterable[Candidate], results: Mapping[int, str],
                      "cancelled_at": _iso(now)}
             if candidate.app_actor:
                 entry["app_actor"] = True
+            if candidate.open_head:
+                # At an open pull request's head: only cmux-bot re-runs it (rerun_open_head(), plan_lost_reruns()).
+                entry["open_head"] = True
             entries.append(entry)
     return entries
 
@@ -1941,6 +2018,7 @@ def plan_lost_reruns(
     head_runs: Mapping[int, Sequence[Mapping[str, Any]]],
     branch_heads: Mapping[str, str] | None = None,
     app_token: bool = True,
+    cmux_bot: bool = False,
 ) -> list[LostRerun]:
     """Which pending category-e and category-f cancels to re-run now.
 
@@ -1958,7 +2036,9 @@ def plan_lost_reruns(
     LOST_RERUN_TTL. A push or dispatch run is current at a live branch's
     head (`branch_heads`, lost_pr_state()); one whose branch head was not read
     is kept too. An entry that needs an App's re-run (`app_actor`, a
-    Blacksmith leg) is kept while this sweep has none (`app_token`).
+    Blacksmith leg) is kept while this sweep has none (`app_token`), and one
+    cancelled at an open pull request's head (`open_head`, open_head_lost())
+    while this sweep's token is not cmux-bot's (`cmux_bot`).
     """
     decisions: list[LostRerun] = []
     reruns = 0
@@ -2014,6 +2094,9 @@ def plan_lost_reruns(
         if entry.get("app_actor") and not app_token:
             decisions.append(LostRerun(entry, "keep", "needs an App's re-run; this sweep has only GITHUB_TOKEN", run))
             continue
+        if entry.get("open_head") and not (cmux_bot and app_token):
+            decisions.append(LostRerun(entry, "keep", "needs cmux-bot's re-run; this sweep has no cmux-bot token", run))
+            continue
         if reruns >= LOST_RERUN_MAX:
             decisions.append(LostRerun(entry, "keep", f"re-run cap of {LOST_RERUN_MAX} reached", run))
             continue
@@ -2049,6 +2132,59 @@ def pr_key(run: Mapping[str, Any]) -> tuple[str, str]:
     return (run_head_owner(run), str(run.get("head_branch") or ""))
 
 
+def rerun_open_head(
+    github: GitHub,
+    entries: Sequence[Mapping[str, Any]],
+    *,
+    reads: int = LOST_SETTLE_READS,
+    interval_s: float = LOST_SETTLE_INTERVAL_S,
+) -> tuple[list[LostRerun], list[dict[str, Any]], dict[int, str], int]:
+    """Re-run, in the sweep that cancelled them, the lost jobs category e cancelled at an open PR's head.
+
+    `entries` are this sweep's pending entries for those cancels (new_lost_reruns(), `open_head`), already
+    saved in the snapshot. Each run is read up to `reads` times, `interval_s` apart, all of them together,
+    until its cancel has settled: completed and cancelled at the same attempt and head. Then its failed
+    jobs are re-run as cmux-bot (rerun_lost(), app_only: never on the workflow's token, whose re-run is
+    github-actions[bot]'s). Returns (decisions, entries still pending, results, failures): an entry whose
+    cancel did not settle in time, whose run could not be read, or whose re-run GitHub refused stays pending,
+    and the next sweep's plan_lost_reruns() re-runs it (run 40398277457 stayed cancelled because its re-run
+    waited on a later sweep with no state to find it; here the state is written before the first read).
+    An entry whose run moved on (another attempt, another head, a finish other than cancelled) is dropped.
+    """
+    waiting = {int(entry["run_id"]): entry for entry in entries}
+    seen: dict[int, Mapping[str, Any]] = {}
+    for read in range(max(1, reads)):
+        for run_id in list(waiting):
+            try:
+                run = github.run(run_id)
+            except Exception as error:  # noqa: BLE001 the entry stays pending for the next sweep
+                print(f"queue-janitor: open-head re-run of run {run_id}: {error!r}", file=sys.stderr)
+                continue
+            seen[run_id] = run
+            if run.get("status") == "completed":
+                del waiting[run_id]
+        if not waiting or read == reads - 1:
+            break
+        time.sleep(interval_s)
+    decisions: list[LostRerun] = []
+    for entry in entries:
+        run_id = int(entry["run_id"])
+        run = seen.get(run_id)
+        if run_id in waiting:
+            why = f"cancel not settled ({run.get('status')})" if run else "run not readable"
+            decisions.append(LostRerun(entry, "keep", f"{why} after {reads} reads; the next sweep re-runs it", run))
+        elif int(run.get("run_attempt") or 0) != int(entry.get("attempt") or 0):
+            decisions.append(LostRerun(entry, "drop", f"already re-run (now attempt {run.get('run_attempt')})", run))
+        elif run.get("head_sha") != entry.get("head_sha"):
+            decisions.append(LostRerun(entry, "drop", "head changed", run))
+        elif run.get("conclusion") != "cancelled":
+            decisions.append(LostRerun(entry, "drop", f"finished {run.get('conclusion')}", run))
+        else:
+            decisions.append(LostRerun(entry, "rerun", "open PR head: the cancel settled, re-run as cmux-bot", run))
+    pending, results, failures = rerun_lost(github, decisions)
+    return decisions, pending, results, failures
+
+
 def build_plan(
     runs: Sequence[Mapping[str, Any]],
     jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]],
@@ -2064,6 +2200,7 @@ def build_plan(
     unclaimed: Mapping[int, UnclaimedJob] | None = None,
     branch_heads: Mapping[str, str] | None = None,
     app_rerun: bool = False,
+    cmux_bot_rerun: bool = False,
 ) -> Plan:
     """Decide every category's candidates under the shared cap.
 
@@ -2078,6 +2215,8 @@ def build_plan(
     category e does not hold, the same way. `unclaimed` defaults to
     find_unclaimed(); `branch_heads` (branch -> head read this sweep, "" when
     gone) tells a live branch's push or dispatch run from a stale one.
+    `cmux_bot_rerun` (this sweep's token is cmux-bot's) lets category e fail
+    a lost job over at an open pull request's head (open_head_lost()).
     """
     if lost is None:
         lost = find_lost(runs, jobs_by_run, now=now, evidence_jobs=evidence_jobs)
@@ -2113,7 +2252,8 @@ def build_plan(
             if run["id"] in lost:
                 lost_verdict = classify_lost(
                     run, jobs_by_run.get(run["id"], ()), lost[run["id"]], branch_prs, now=now,
-                    rerun_state=rerun_state, newer=newer, branch_head=heads.get(branch))
+                    rerun_state=rerun_state, newer=newer, branch_head=heads.get(branch),
+                    cmux_bot=cmux_bot_rerun)
             if run["id"] in unclaimed and (lost_verdict is None or lost_verdict.action != "cancel"):
                 held_category = "unclaimed"
                 lost_verdict = classify_unclaimed(
@@ -2126,7 +2266,8 @@ def build_plan(
                                            pr=lost_verdict.pr)
             if lost_verdict is not None and lost_verdict.action == "cancel":
                 candidates.append(Candidate(run, held_category, lost_verdict.reason, usage, lost_verdict.pr,
-                                            rerun=lost_verdict.rerun, app_actor=app_actor))
+                                            rerun=lost_verdict.rerun, app_actor=app_actor,
+                                            open_head=lost_verdict.open_head))
                 continue
         pr = None
         if run.get("event") == "pull_request":
@@ -2332,6 +2473,29 @@ def render_summary(plan: Plan, *, dry_run: bool, now: dt.datetime, results: Mapp
         name = str(run.get("name") or run.get("path") or "").replace("|", "\\|")
         reason = f"({decision.candidate.category}) {decision.candidate.reason}".replace("|", "\\|")
         lines.append(f"| {verb} | {url} | {name} | {reason} | {age} | {usage.queued}/{usage.running} |")
+    return "\n".join(lines) + "\n"
+
+
+def render_open_head_reruns(decisions: Sequence[LostRerun], results: Mapping[int, str], *, freed: int) -> str:
+    """This sweep's stall-aware failovers at open PR heads (rerun_open_head()), with the count it freed."""
+    if not decisions:
+        return ""
+    lines = ["", "### Lost jobs failed over at open PR heads", "",
+             f"**Freed: {freed}** of {len(decisions)} lost job run(s) cancelled at an open pull request's head "
+             "were re-run as cmux-bot at the same head in this sweep; the rest are kept for the next sweep or "
+             "dropped as noted.", "",
+             "| Decision | Run | Attempt | Note |", "| --- | --- | --- | --- |"]
+    for decision in decisions:
+        run_id = decision.entry.get("run_id")
+        if decision.action == "rerun":
+            verb = results.get(run_id) or "re-run failed jobs"
+        else:
+            verb = "keep for the next sweep" if decision.action == "keep" else "drop"
+        url = (decision.run or {}).get("html_url") or f"run {run_id}"
+        note = decision.note.replace("|", "\\|")
+        lines.append(f"| {verb.replace('|', '/')} | {url} | {decision.entry.get('attempt')} | {note} |")
+    # One line the PR body's freed count is read from (grep "open-head failover freed").
+    lines += ["", f"_open-head failover freed {freed} lost job run(s) this sweep._"]
     return "\n".join(lines) + "\n"
 
 
@@ -3331,7 +3495,7 @@ def rerun_lost(github: GitHub, decisions: Sequence[LostRerun]) -> tuple[list[dic
             continue
         run_id = int(decision.entry["run_id"])
         try:
-            github.rerun_failed(run_id, app_only=bool(decision.entry.get("app_actor")))
+            github.rerun_failed(run_id, app_only=bool(decision.entry.get("app_actor") or decision.entry.get("open_head")))
             results[run_id] = "re-ran failed jobs"
         except Exception as error:  # noqa: BLE001 one failed re-run never drops the other entries
             failures += 1
@@ -3483,6 +3647,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     orphan_age = dt.timedelta(minutes=orphan_minutes)
 
     github = GitHub(token, args.repo, fallback_token=os.environ.get("GH_FALLBACK_TOKEN") or "")
+    # The workflow passes cmux-bot's token as CMUX_BOT_TOKEN too: GH_TOKEN is cmux-bot's only when they match
+    # (its mint can fail, and GH_TOKEN then falls back to the glaeda-route App's). While it is, and not yet
+    # refused (app_token), category e fails a lost job at an open PR's head over (open_head_lost()).
+    cmux_bot_token = os.environ.get("CMUX_BOT_TOKEN") or ""
+
+    def cmux_bot() -> bool:
+        return bool(cmux_bot_token) and cmux_bot_token == token and github.app_token
     now = utc_now()
     linux_only = linux_only_workflow_paths(args.workflows_dir)
     try:
@@ -3656,7 +3827,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         runs, jobs_by_run, prs_by_branch,
         threshold=threshold, max_cancels=max_cancels, pull_request_policy=args.pull_request_policy,
         now=now, lost=lost, rerun_state=pending is not None, unclaimed=unclaimed, branch_heads=branch_heads,
-        app_rerun=github.app_token,
+        app_rerun=github.app_token, cmux_bot_rerun=cmux_bot(),
     )
 
     results: dict[int, str] = {}
@@ -3674,11 +3845,31 @@ def main(argv: Sequence[str] | None = None) -> int:
     # that asked for a re-run, goes into the snapshot for the next sweep.
     rerun_decisions: list[LostRerun] = []
     rerun_results: dict[int, str] = {}
+    open_head_decisions: list[LostRerun] = []
+    open_head_results: dict[int, str] = {}
+    open_head_freed = 0
     if pending is not None:
         # Saved before anything else can fail: this sweep's cancels are
         # already made, and an entry read twice is harmless (plan_lost_reruns()).
         fresh = [] if args.dry_run else new_lost_reruns(plan.to_cancel(), results, now=now)
         save_lost_reruns([*pending, *fresh])
+        # The stall-aware failover at an open PR's head: re-run in this sweep, once the cancels settle. What it
+        # cannot re-run now stays in `fresh` for the next sweep; the rest leaves it.
+        open_head = [entry for entry in fresh if entry.get("open_head")]
+        if open_head:
+            if cmux_bot():
+                open_head_decisions, open_head_pending, open_head_results, open_head_failures = rerun_open_head(
+                    github, open_head)
+            else:
+                # Refused since the plan (app_token): leave every one to a sweep that holds cmux-bot's token.
+                open_head_decisions = [LostRerun(entry, "keep", "cmux-bot's token was refused; the next sweep "
+                                                 "re-runs it") for entry in open_head]
+                open_head_pending, open_head_results, open_head_failures = [dict(e) for e in open_head], {}, 0
+            failures += open_head_failures
+            open_head_freed = sum(1 for decision in open_head_decisions if decision.action == "rerun"
+                                  and open_head_results.get(int(decision.entry["run_id"])) == "re-ran failed jobs")
+            fresh = [*(entry for entry in fresh if not entry.get("open_head")), *open_head_pending]
+            save_lost_reruns([*pending, *fresh])
         runs_now: dict[int, Mapping[str, Any]] = {}
         for entry in pending:
             run_id = entry.get("run_id")
@@ -3702,7 +3893,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         read_heads(branch_head_lookups(settled, {run.get("id") for run in settled}, prs_by_branch=prs_by_branch,
                                        known=branch_heads, cap=PENDING_HEAD_LOOKUPS))
         rerun_decisions = plan_lost_reruns(pending, runs_now, prs_by_branch, now=now, head_runs=head_runs,
-                                           branch_heads=branch_heads, app_token=github.app_token)
+                                           branch_heads=branch_heads, app_token=github.app_token,
+                                           cmux_bot=cmux_bot())
         if args.dry_run:
             # Nothing acted on, so only an expired entry goes.
             still_pending = [dict(decision.entry) for decision in rerun_decisions
@@ -3730,6 +3922,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     failures += superseded_failures
 
     summary = render_summary(plan, dry_run=args.dry_run, now=now, results=results)
+    summary += render_open_head_reruns(open_head_decisions, open_head_results, freed=open_head_freed)
     summary += render_lost_reruns(rerun_decisions, dry_run=args.dry_run, results=rerun_results)
     summary += render_orphan_summary(orphan_decisions, dry_run=args.dry_run, now=now, min_age=orphan_age,
                                      results=orphan_results)
