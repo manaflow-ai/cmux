@@ -561,7 +561,7 @@ export function Composer({
   const restoringSession = useRef(false);
   /// Set while a switch runs and kept until the session change it brings (Lucas 2026-10-19).
   const carryPrompt = useRef(false);
-  const draftTransfer = useRef<{ source?: string; target: string } | undefined>(undefined);
+  const draftTransfer = useRef<{ source?: string; target: string; state: { text: string; attachments: ComposerAttachment[] } } | undefined>(undefined);
   // Once a new chat has shown its location strip, keep its layout slot through the first send.
   // Resetting on a session key prevents a reopened chat from inheriting that reserved space.
   const locationSlotSession = useRef<string | undefined>(undefined);
@@ -633,7 +633,7 @@ export function Composer({
         .then((kept) => keptAttachments.write(chat, appendAttachments(kept, chips)))
         .catch(() => {});
     },
-    carries: () => carryPrompt.current || Boolean(switching),
+    carries: () => carryPrompt.current || Boolean(switching) || Boolean(draftTransfer.current?.target),
   });
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
@@ -680,10 +680,23 @@ export function Composer({
         return { text: field.current?.value() ?? textRef.current, attachments: attachmentsRef.current.filter((chip) => !chip.shellRun) };
       },
       prepareDraftTransfer(target) {
-        const transfer = { source: persistedSession.current, target };
+        const source = persistedSession.current;
+        const state = { text: field.current?.value() ?? textRef.current, attachments: attachmentsRef.current.filter((chip) => !chip.shellRun) };
+        const transfer = { source, target, state };
         draftTransfer.current = transfer;
         return () => {
           if (draftTransfer.current === transfer) draftTransfer.current = undefined;
+          if (source) {
+            writePersistedDraft(source, state.text);
+            void keptAttachments?.write(source, state.attachments).catch(() => undefined);
+          }
+          if (persistedSession.current === source) {
+            if (state.text) {
+              field.current?.type(state.text);
+              setText(state.text);
+            }
+            if (state.attachments.length) setAttachments(() => state.attachments);
+          }
         };
       },
       restore(restoredText, restoredAttachments) {
@@ -789,8 +802,8 @@ export function Composer({
     const moving = !!draftTransfer.current && draftTransfer.current.target === sessionId;
     const carried = moving || carryPrompt.current ? (field.current?.value() ?? text) : "";
     const previous = persistedSession.current;
-    if (previous && (moving || hydratedSession.current === previous))
-      writePersistedDraft(previous, moving ? "" : (field.current?.value() ?? text));
+    if (previous && hydratedSession.current === previous)
+      writePersistedDraft(previous, field.current?.value() ?? text);
     if (moving && !previous) unsentDraft.current?.push("");
     // This composer leaves that chat: only a quit compares its queued text, and only for the chat shown.
     forgetQueuedDraft(previous);

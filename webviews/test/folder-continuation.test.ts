@@ -50,6 +50,14 @@ for (const change of ["project", "session"] as const) {
     expect(f.events).toEqual(["start"]);
   });
 }
+test("failed selection cancels the transfer and preserves the source", async () => {
+  const f = fixture();
+  const first = f.continuation.run({ ...f.actions, select: async () => false });
+  f.pending.resolve("new");
+  await first;
+  expect(f.events).toEqual(["start", "transfer:new", "select:new", "cancel"]);
+});
+
 test("navigation during selection cannot clear the newer folder", async () => {
   const f = fixture();
   const selection = deferred<boolean>();

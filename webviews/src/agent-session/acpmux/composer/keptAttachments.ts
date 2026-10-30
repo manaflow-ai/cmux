@@ -114,7 +114,8 @@ export function useKeptAttachments(
     if (transfer) {
       if (pending.current) clearTimeout(pending.current.timer);
       pending.current = undefined;
-      if (transfer.source) write(transfer.source, [], [], false);
+      // Keep the source durable until the destination has read its chips. A navigation or failed
+      // attach can then cancel and restore the source without losing attachments.
     } else flush();
     const keepHeld = carry.current();
     let current = true;
