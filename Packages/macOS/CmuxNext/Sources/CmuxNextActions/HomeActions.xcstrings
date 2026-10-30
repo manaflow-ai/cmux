@@ -8836,6 +8836,30 @@
           }
         }
       }
+    },
+    "action.home.hideConversation": {
+      "comment": "Action (palette, CLI `cmux home hide`, Home row's Delete Conversation… and swipe): take a conversation off this account's Home list; a newer message lists it again.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Conversation from List"
+          }
+        }
+      }
+    },
+    "action.home.showHiddenConversations": {
+      "comment": "Action (palette, CLI `cmux home show-hidden`, Home compose menu): list every conversation deleted from the Home list again.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Hidden Conversations"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

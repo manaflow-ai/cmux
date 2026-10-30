@@ -19411,6 +19411,54 @@
           }
         }
       }
+    },
+    "handlers.misc.home.deleteConversationTitle": {
+      "comment": "Home: the question Delete Conversation… asks.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Are you sure you want to delete this conversation?"
+          }
+        }
+      }
+    },
+    "handlers.misc.home.deleteConversationMessage": {
+      "comment": "Home: the explanation under Delete Conversation…'s question.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It leaves your Home list. A new message brings it back, and Show Hidden Conversations lists it again."
+          }
+        }
+      }
+    },
+    "handlers.misc.home.deleteConversationConfirm": {
+      "comment": "Home: Delete Conversation…'s confirm button.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete"
+          }
+        }
+      }
+    },
+    "handlers.misc.home.deleteConversationCancel": {
+      "comment": "Home: Delete Conversation…'s cancel button.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
