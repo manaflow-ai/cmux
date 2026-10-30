@@ -83,9 +83,8 @@ impl Hub {
         if let (Some(pid), Some(sidecars)) = (pid, sidecars) {
             // The listing, each candidate's argv and the match all run in the bounded task.
             let census = tokio::task::spawn_blocking(move || {
-                let (leader_args, found) = crate::agent_host::tree::under(pid)?;
-                let identity = crate::agent_host::tree::identity;
-                Some(classify(&found, pid, &leader_args, &sidecars, identity))
+                let found = crate::agent_host::tree::under(pid)?;
+                Some(classify(&found, pid, &sidecars, crate::agent_host::tree::identity))
             });
             return match tokio::time::timeout(CENSUS_BUDGET, census).await {
                 Ok(Ok(Some(census))) => census,
@@ -361,14 +360,7 @@ fn runs(who: &crate::agent_host::tree::Identity, s: &Sidecar) -> bool {
         return false;
     }
     let program = |w: &str| w == s.command || s.resolved.as_deref() == Some(w);
-    // The executable is the program: the same path, or the same file once both are canonical (a
-    // symlinked install, `/private/var` for `/var`). Only an absolute path is canonicalized: a
-    // relative one would resolve in acpmux's folder, and `resolved` holds it in the harness's.
-    let is_exe = |w: &str| {
-        let w = Path::new(w);
-        let canonical = |p: &Path| std::fs::canonicalize(p).ok();
-        w == who.exe || canonical(w).is_some_and(|a| canonical(&who.exe) == Some(a))
-    };
+    let is_exe = |w: &str| runs_file(who, w);
     let runs_program = |first: &str| {
         program(first)
             && [Path::new(first).is_absolute().then_some(first), s.resolved.as_deref()]
@@ -392,6 +384,18 @@ fn runs(who: &crate::agent_host::tree::Identity, s: &Sidecar) -> bool {
     who.argv.get(at..) == Some(s.args.as_slice())
 }
 
+/// Whether `who`'s executable is the file `w` names: the same path, or the same file once both
+/// are canonical (a symlinked install, `/private/var` for `/var`). Only an absolute `w` is
+/// canonicalized: a relative one would resolve in acpmux's folder (`resolved` holds a server's in
+/// the harness's).
+#[cfg(unix)]
+fn runs_file(who: &crate::agent_host::tree::Identity, w: &str) -> bool {
+    let w = Path::new(w);
+    let canonical = |p: &Path| std::fs::canonicalize(p).ok();
+    w == who.exe
+        || (w.is_absolute() && canonical(w).is_some_and(|a| canonical(&who.exe) == Some(a)))
+}
+
 /// Whether `w` names one of [`INTERPRETERS`] (`python3.12` included).
 fn is_interpreter(w: &str) -> bool {
     let name = Path::new(w).file_name().map(|n| n.to_string_lossy().into_owned());
@@ -402,64 +406,71 @@ fn is_interpreter(w: &str) -> bool {
     })
 }
 
-/// A launcher's command line: an interpreter running a script by path (`node
-/// /home/u/.local/bin/codex -c x app-server`, npm's Codex launcher). Its script's file name and
-/// the args after the script.
-fn launcher(args: &str) -> Option<(&str, Vec<&str>)> {
-    let words: Vec<&str> = args.split_whitespace().collect();
-    let (interp, script) = (words.first().copied()?, words.get(1).copied()?);
+/// A launcher's argv: an interpreter running a script by path (`node /home/u/.local/bin/codex -c x
+/// app-server`, npm's Codex launcher). Its script's file name and the args after the script.
+fn launcher(argv: &[String]) -> Option<(&str, &[String])> {
+    let [interp, script, args @ ..] = argv else { return None };
     if !is_interpreter(interp) || !script.starts_with('/') {
         return None;
     }
-    Some((Path::new(script).file_name()?.to_str()?, words[2..].to_vec()))
+    Some((Path::new(script).file_name()?.to_str()?, args))
 }
 
-/// Whether `args` is the program a launcher (`launcher`) runs for itself: a program by absolute
-/// path, not an interpreter, with the launcher's script name and exactly its args. npm's Codex
-/// launcher runs its native `.../vendor/<triple>/bin/codex` with its own args and relays stdio:
-/// that child is the harness, so its children are the harness's children.
-fn relays(args: &str, launcher: &(&str, Vec<&str>)) -> bool {
-    let words: Vec<&str> = args.split_whitespace().collect();
-    let Some(program) = words.first().filter(|w| w.starts_with('/') && !is_interpreter(w)) else {
-        return false;
-    };
-    Path::new(program).file_name().and_then(|n| n.to_str()) == Some(launcher.0)
-        && words[1..] == launcher.1[..]
+/// Whether `who` is the program a launcher (`launcher`) runs for itself: a program by absolute
+/// path, not an interpreter, with the launcher's script name and exactly its args, and the file
+/// the kernel says it runs. npm's Codex launcher runs its native `.../vendor/<triple>/bin/codex`
+/// with its own args and relays stdio: that child is the harness, so its children are the
+/// harness's children. Argv is the process's own to rewrite (`exec -a /tmp/codex ...`), so the
+/// executable must be that program too.
+#[cfg(unix)]
+fn relays(who: &crate::agent_host::tree::Identity, launcher: &(&str, &[String])) -> bool {
+    let [program, args @ ..] = who.argv.as_slice() else { return false };
+    program.starts_with('/')
+        && !is_interpreter(program)
+        && Path::new(program).file_name().and_then(|n| n.to_str()) == Some(launcher.0)
+        && args == launcher.1
+        && runs_file(who, program)
 }
 
-/// Whether `args` runs one of the harness's own helper programs: an absolute path in the same
+/// Whether `who` runs one of the harness's own helper programs: an absolute path in the same
 /// folder as a relayed harness program (`relays`), named after it (`.../bin/codex-code-mode-host`
-/// beside `.../bin/codex`). Only the helper itself: what runs under it is judged on its own.
-fn part_of(args: &str, harness_programs: &[&str]) -> bool {
-    let Some(program) = args.split_whitespace().next().filter(|w| w.starts_with('/')) else {
+/// beside `.../bin/codex`), and the file the kernel says it runs. Only the helper itself: what
+/// runs under it is judged on its own.
+#[cfg(unix)]
+fn part_of(who: &crate::agent_host::tree::Identity, harness_programs: &[String]) -> bool {
+    let Some(program) = who.argv.first().filter(|w| w.starts_with('/')) else {
         return false;
     };
-    let program = Path::new(program);
-    harness_programs.iter().map(Path::new).any(|h| {
-        let named = |p: &Path| p.file_name().and_then(|n| n.to_str()).map(str::to_owned);
+    let named = |p: &Path| p.file_name().and_then(|n| n.to_str()).map(str::to_owned);
+    let beside = harness_programs.iter().map(Path::new).any(|h| {
+        let program = Path::new(program);
         program.parent() == h.parent()
             && named(h).zip(named(program)).is_some_and(|(h, p)| p.starts_with(&format!("{h}-")))
-    })
+    });
+    beside && runs_file(who, program)
 }
 
 /// `Busy` with the first process that is neither a server (a child of the harness), under one, the
-/// harness's relayed program (`relays`) nor one of its helpers (`part_of`). `leader_args` is the
-/// leader's own command line.
+/// harness's relayed program (`relays`) nor one of its helpers (`part_of`). Each is told by its
+/// identity (`identity_of`: exact argv and executable), the leader's own included, never by the
+/// line `ps` prints; one whose identity cannot be read is none of them.
 #[cfg(unix)]
 fn classify(
     found: &[crate::agent_host::tree::Under],
     leader: u32,
-    leader_args: &str,
     sidecars: &[Sidecar],
     identity_of: impl Fn(u32) -> Option<crate::agent_host::tree::Identity>,
 ) -> Census {
-    let launched = launcher(leader_args);
+    use crate::agent_host::tree::Identity;
+    let leader_argv = identity_of(leader).map(|who| who.argv).unwrap_or_default();
+    let launched = launcher(&leader_argv);
     let mut harness: Vec<u32> = vec![leader];
-    let mut harness_programs: Vec<&str> = Vec::new();
+    let mut harness_programs: Vec<String> = Vec::new();
     let mut parts: Vec<u32> = Vec::new();
     let mut allowed: Vec<u32> = Vec::new();
     // Each child's identity is read once, however many passes look at it.
-    let mut servers: std::collections::HashMap<u32, bool> = std::collections::HashMap::new();
+    let mut identities: std::collections::HashMap<u32, Option<Identity>> =
+        std::collections::HashMap::new();
     let mut grew = true;
     while grew {
         grew = false;
@@ -467,19 +478,25 @@ fn classify(
             if harness.contains(&p.pid) || parts.contains(&p.pid) || allowed.contains(&p.pid) {
                 continue;
             }
-            let of_harness = harness.contains(&p.ppid);
-            // The harness starts its servers itself: only its own children can be one.
-            let server = |servers: &mut std::collections::HashMap<u32, bool>| {
-                *servers.entry(p.pid).or_insert_with(|| {
-                    identity_of(p.pid).is_some_and(|who| sidecars.iter().any(|s| runs(&who, s)))
-                })
-            };
-            if allowed.contains(&p.ppid) || (of_harness && server(&mut servers)) {
+            if allowed.contains(&p.ppid) {
                 allowed.push(p.pid);
-            } else if of_harness && launched.as_ref().is_some_and(|l| relays(&p.args, l)) {
+                grew = true;
+                continue;
+            }
+            // The harness starts its servers, its relayed program and its helpers itself: only
+            // its own children can be one.
+            if !harness.contains(&p.ppid) {
+                continue;
+            }
+            let Some(who) = &*identities.entry(p.pid).or_insert_with(|| identity_of(p.pid)) else {
+                continue;
+            };
+            if sidecars.iter().any(|s| runs(who, s)) {
+                allowed.push(p.pid);
+            } else if launched.as_ref().is_some_and(|l| relays(who, l)) {
                 harness.push(p.pid);
-                harness_programs.extend(p.args.split_whitespace().next());
-            } else if of_harness && part_of(&p.args, &harness_programs) {
+                harness_programs.extend(who.argv.first().cloned());
+            } else if part_of(who, &harness_programs) {
                 parts.push(p.pid);
             } else {
                 continue;
@@ -523,10 +540,11 @@ mod tests {
     /// [`census`] with harness 10 run as `leader`.
     fn census_of(found: &[Under], leader: &str, servers: &[Sidecar]) -> Census {
         let split = |pid| {
-            let p = found.iter().find(|p| p.pid == pid)?;
-            Some(identity(p.args.split(' ').map(str::to_owned).collect()))
+            let line =
+                if pid == 10 { leader } else { found.iter().find(|p| p.pid == pid)?.args.as_str() };
+            Some(identity(line.split(' ').map(str::to_owned).collect()))
         };
-        classify(found, 10, leader, servers, split)
+        classify(found, 10, servers, split)
     }
 
     #[test]
@@ -639,6 +657,46 @@ mod tests {
         assert!(matches!(census_of(&found, leader, &servers), Census::Busy { pid: 11, .. }));
     }
 
+    /// The relayed harness and its helpers are told by exact argv and the kernel's executable, as
+    /// servers are: a child that names itself the native program or a helper (`exec -a`) is
+    /// neither, and a launcher whose path has a space in it still relays.
+    #[test]
+    fn a_relay_or_helper_is_its_executable_not_its_argv() {
+        let acpmux = "/Users/me/my apps/acpmux";
+        let servers =
+            from_json(Some(&json!({"forum": {"command": acpmux, "args": ["forum-mcp"]}})));
+        let bin = "/Users/me/my apps/node_modules/@openai/codex/vendor/aarch64-apple-darwin/bin";
+        let (native, helper) = (format!("{bin}/codex"), format!("{bin}/codex-code-mode-host"));
+        let who = |exe: &str, argv: &[&str]| Identity {
+            exe: exe.into(),
+            argv: argv.iter().map(|w| w.to_string()).collect(),
+        };
+        let leader =
+            who("/usr/local/bin/node", &["node", "/Users/me/my apps/bin/codex", "app-server"]);
+        let relayed = who(&native, &[&native, "app-server"]);
+        let server = who(acpmux, &[acpmux, "forum-mcp"]);
+        let own_helper = who(&helper, &[&helper]);
+        let found = [under(11, 10, "codex"), under(12, 11, "acpmux"), under(13, 11, "helper")];
+        let census = |relay: &Identity, helper: &Identity| {
+            classify(&found, 10, &servers, |pid| match pid {
+                10 => Some(leader.clone()),
+                11 => Some(relay.clone()),
+                12 => Some(server.clone()),
+                13 => Some(helper.clone()),
+                _ => None,
+            })
+        };
+        assert!(matches!(census(&relayed, &own_helper), Census::Clear));
+        // `exec -a`: a dev server that names itself the native program, or a helper.
+        let spoofed = who("/usr/bin/python3", &[&native, "app-server"]);
+        assert!(matches!(census(&spoofed, &own_helper), Census::Busy { pid: 11, .. }));
+        let spoofed = who("/tmp/devserver", &[&helper]);
+        assert!(matches!(census(&relayed, &spoofed), Census::Busy { pid: 13, .. }));
+        // A name in the helper's folder is not enough: the executable must be that file.
+        let elsewhere = who(&format!("{bin}/codex"), &[&format!("{bin}/codex-evil")]);
+        assert!(matches!(census(&relayed, &elsewhere), Census::Busy { pid: 13, .. }));
+    }
+
     #[test]
     fn the_configs_are_the_ones_the_harness_was_started_with() {
         let root = std::env::temp_dir().join(format!("idle-census-{}", uuid::Uuid::now_v7()));
@@ -726,18 +784,15 @@ mod tests {
         let lookup = |pid: u32| words(pid).map(identity);
         let line = |pid: u32| words(pid).map(|a| a.join(" ")).unwrap_or_default();
         let found: Vec<Under> = [11, 12, 13].into_iter().map(|p| under(p, 10, &line(p))).collect();
-        assert!(matches!(classify(&found, 10, "claude", &servers, lookup), Census::Clear));
+        assert!(matches!(classify(&found, 10, &servers, lookup), Census::Clear));
         for pid in [14, 15, 16] {
             let found = [under(pid, 10, &line(pid))];
-            let census = classify(&found, 10, "claude", &servers, lookup);
+            let census = classify(&found, 10, &servers, lookup);
             assert!(matches!(census, Census::Busy { pid: p, .. } if p == pid), "{pid}");
         }
         // A child whose argv cannot be read is never a server.
         let found = [under(11, 10, &line(11))];
-        assert!(matches!(
-            classify(&found, 10, "claude", &servers, |_| None),
-            Census::Busy { pid: 11, .. }
-        ));
+        assert!(matches!(classify(&found, 10, &servers, |_| None), Census::Busy { pid: 11, .. }));
     }
 
     /// Argv is the process's own to rewrite: the executable the kernel says it runs must be the
@@ -765,7 +820,7 @@ mod tests {
         ];
         for (identity, server) in cases {
             let found = [under(11, 10, &identity.argv.join(" "))];
-            let census = classify(&found, 10, "claude", &servers, |_| Some(identity.clone()));
+            let census = classify(&found, 10, &servers, |_| Some(identity.clone()));
             assert_eq!(matches!(census, Census::Clear), server, "{identity:?}");
         }
     }
@@ -842,7 +897,7 @@ mod tests {
         ];
         for (identity, server) in cases {
             let found = [under(11, 10, &identity.argv.join(" "))];
-            let census = classify(&found, 10, "claude", &servers, |_| Some(identity.clone()));
+            let census = classify(&found, 10, &servers, |_| Some(identity.clone()));
             assert_eq!(matches!(census, Census::Clear), server, "{identity:?}");
         }
         let _ = std::fs::remove_dir_all(root);
