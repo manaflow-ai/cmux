@@ -1,4 +1,5 @@
 public import Darwin
+public import Foundation
 public import CmuxSettings
 
 /// Authorizes peer processes for control socket requests.
