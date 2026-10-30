@@ -48,14 +48,26 @@ fn send(
     tokio::spawn(async move { hub.prompt_with(&to, blocks, "test", false, opts).await })
 }
 
-/// Pauses the next prompt between its admission and its turn's start (`prompt_start_seam`).
-fn pause_start(
-    hub: &Hub,
+/// Pauses the next prompt that reaches `seam`: `prompt_start_seam`, between its turn's
+/// admission and start, or `first_work_seam`, once it holds the first work and before it queues.
+fn pause(
+    seam: &full_access_bound::WriteSeam,
 ) -> (tokio::sync::oneshot::Receiver<()>, tokio::sync::oneshot::Sender<()>) {
     let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
     let (release, release_rx) = tokio::sync::oneshot::channel();
-    *hub.prompt_start_seam.lock().unwrap() = Some((arrived_tx, release_rx));
+    *seam.lock().unwrap() = Some((arrived_tx, release_rx));
     (arrived, release)
+}
+
+/// The `kind` records of the chat's log.
+fn records(hub: &Hub, s: &Session, kind: &str) -> Vec<Value> {
+    let records = hub.events(&s.id, 0, 100_000).unwrap();
+    records.into_iter().filter(|r| r.kind == kind).map(|r| r.msg).collect()
+}
+
+/// The prompt ids of the chat's turns, in order.
+fn turns(hub: &Hub, s: &Session) -> Vec<Value> {
+    records(hub, s, "user_message").into_iter().map(|m| m["promptId"].clone()).collect()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -134,6 +146,9 @@ async fn a_blocker_that_comes_before_the_first_work_queues_waits_for_it() {
     other.abort();
 }
 
+/// A person's prompt that takes the chat's first turn: the first work waits in the queue behind
+/// it, marked as the first work in the provenance that queue keeps across a restart
+/// (`queue.rs`), and its sender is the delegator once it runs.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_persons_prompt_before_the_first_work_queues_leaves_its_sender_the_delegator() {
     let (hub, s) = chat().await;
@@ -141,14 +156,45 @@ async fn a_persons_prompt_before_the_first_work_queues_leaves_its_sender_the_del
     let first = send(&hub, &s, "s-coord", "p-brief", "do the thing", true);
     tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
 
-    // The person's prompt takes the chat's first turn; the first work runs as the next.
-    let mine = hub.prompt(&s, vec![json!({"type": "text", "text": "mine"})], "test", false);
-    let mine = tokio::time::timeout(WAIT, mine).await.unwrap().unwrap();
-    assert_eq!(mine["stopReason"], "end_turn", "{mine}");
+    // The person's prompt takes the chat's first turn and holds it at a gate.
+    let gate = std::env::temp_dir().join(format!("acpmux-first-work-{}", uuid::Uuid::now_v7()));
+    assert!(std::process::Command::new("mkfifo").arg(&gate).status().unwrap().success());
+    let mine = {
+        let (hub, s) = (hub.clone(), s.clone());
+        let text = format!("gate: {}", gate.display());
+        tokio::spawn(async move {
+            hub.prompt(&s, vec![json!({"type": "text", "text": text})], "test", false).await
+        })
+    };
+    let running = async {
+        while s.turn().is_none() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    };
+    tokio::time::timeout(WAIT, running).await.expect("the person's turn runs");
 
+    // The first work queues behind it, marked.
     release.send(()).unwrap();
+    let queued = async {
+        loop {
+            let marked =
+                records(&hub, &s, "queued").into_iter().find(|m| m["promptId"] == "p-brief");
+            if let Some(m) = marked {
+                return m;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    };
+    let queued = tokio::time::timeout(WAIT, queued).await.expect("the first work queues");
+    assert_eq!(queued["_meta"]["provenance"]["firstWork"], true, "{queued}");
+
+    let path = gate.clone();
+    tokio::task::spawn_blocking(move || std::fs::write(path, "go")).await.unwrap().unwrap();
+    let mine = tokio::time::timeout(WAIT, mine).await.unwrap().unwrap().unwrap();
+    assert_eq!(mine["stopReason"], "end_turn", "{mine}");
     let done = tokio::time::timeout(WAIT, first).await.unwrap().unwrap().unwrap();
     assert_eq!(done["stopReason"], "end_turn", "{done}");
     assert_eq!(s.meta().turn_count, 2);
     assert_eq!(s.meta().delegator.as_deref(), Some("s-coord"));
+    let _ = std::fs::remove_file(gate);
 }
