@@ -35,19 +35,22 @@ public nonisolated enum SidebarAgentState: Int, Hashable, Sendable, Comparable {
 }
 
 /// A folded parent's descendants, counted by state: the chips on its row
-/// ("1 failed, 2 blocked, 5 running, 3 unread"). Idle descendants are not counted.
+/// ("1 failed, 2 blocked, 5 running, 3 unread"). Idle descendants are not counted by state;
+/// `total` counts every descendant, idle ones too (the row's count chip).
 public nonisolated struct SidebarTreeRollUp: Hashable, Sendable {
     public var blocked = 0
     public var failed = 0
     public var running = 0
     public var unread = 0
+    public var total = 0
 
-    public init(blocked: Int = 0, failed: Int = 0, running: Int = 0, unread: Int = 0) {
-        (self.blocked, self.failed, self.running, self.unread) = (blocked, failed, running, unread)
+    public init(blocked: Int = 0, failed: Int = 0, running: Int = 0, unread: Int = 0, total: Int = 0) {
+        (self.blocked, self.failed, self.running, self.unread, self.total) = (blocked, failed, running, unread, total)
     }
 
     public init(_ states: some Sequence<SidebarAgentState>) {
         for state in states {
+            total += 1
             switch state {
             case .blocked: blocked += 1
             case .failed: failed += 1
@@ -58,7 +61,7 @@ public nonisolated struct SidebarTreeRollUp: Hashable, Sendable {
         }
     }
 
-    public var isEmpty: Bool { blocked == 0 && failed == 0 && running == 0 && unread == 0 }
+    public var isEmpty: Bool { total == 0 && blocked == 0 && failed == 0 && running == 0 && unread == 0 }
 }
 
 /// A tree parent's chevron: its children draw under it, or fold into its roll-up.

@@ -391,8 +391,17 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                         y = Self.appendEmptyRow(group, section: section.id, parent: index, metrics: m, to: &rows, y: y)
                     }
                     let fold = SidebarDoneFoldID(section: section.id, group: group.id)
-                    let drawn = Self.foldingDone(Self.treeOrder(Self.workspaceIDs(members), parents: o.sessionTree?.parents),
-                                                 workspace: { if case let .workspace(ws) = members[$0] { ws } else { nil } }, fold: fold, options: o)
+                    let memberWorkspace: (Int) -> SidebarWorkspace? = { if case let .workspace(ws) = members[$0] { ws } else { nil } }
+                    let memberTree = Self.treeRows(Self.workspaceIDs(members), workspace: memberWorkspace, tree: o.sessionTree, filtering: filtering)
+                    // Only parents carry a chevron or a roll-up, so only they are looked up: a 10k-member group with
+                    // no lineage hashes nothing here (SidebarHugeGroupTests.oneGroup10k's open).
+                    let memberTreeRow = Dictionary(memberTree.lazy.filter { $0.fold != nil }.map { ($0.index, $0) },
+                                                   uniquingKeysWith: { first, _ in first })
+                    // `treeRows` already applies the session-tree fold predicate. Reusing its
+                    // filtered order keeps descendants of collapsed/deep-folded parents out of
+                    // the drawn rows while retaining their roll-up metadata.
+                    let drawn = Self.foldingDone(memberTree.map { (index: $0.index, depth: $0.depth) },
+                                                 workspace: memberWorkspace, fold: fold, options: o)
                     let foldedGap = Self.gapEntry(drawn, gap: o.gap, section: section.id, group: group.id, count: members.count)
                     for (position, (childIndex, depth)) in drawn.enumerated() {
                         if childIndex == foldedGap, let gap = o.gap { openGapIfNeeded(section: section.id, group: group.id, index: gap.index) }
@@ -419,6 +428,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                         }
                         var content = o.rowContent(ws, machine: machineLabel)
                         content.treeDepth = depth
+                        (content.treeFold, content.rollUp) = (memberTreeRow[childIndex]?.fold, memberTreeRow[childIndex]?.rollUp)
                         let h = m.height(for: content)
                         rows.append(SidebarRow(
                             key: .workspace(ws.id), y: y, height: h, section: section.id,
