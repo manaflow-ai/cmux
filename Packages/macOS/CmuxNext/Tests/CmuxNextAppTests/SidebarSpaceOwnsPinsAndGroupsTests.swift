@@ -243,13 +243,22 @@ import Testing
     }
 
     /// A link dragged into Pinned (the document drag's drop) stores the acting window's space in the same change.
+    /// The daemon gets the ops as the app FFI's reducer stamps them: one pinned before `item.update` took `room` sends
+    /// that update with an empty patch (a no-op), so the space itself is checked where the store plans the change.
     @Test func aLinkDraggedIntoPinnedTakesTheActingSpace() async throws {
         let remote = RecordingRemote(document: Self.linkDocument)
         let store = try await Self.loadedStore(remote)
         store.newItemRoom = { Self.work }
-        store.move(["itm_l"], to: SidebarDocTarget(section: Self.pinned), title: SidebarDocStore.moveTitle)
+        let target = SidebarDocTarget(section: Self.pinned)
+        let planned = try #require(store.spaceKeepingMove(["itm_l"], to: target), "a move into Pinned planned no space")
+        #expect(Self.roomUpdate(planned, item: "itm_l") == Self.work, "\(planned)")
+        #expect(store.spaceKeepingMove(["itm_l"], to: SidebarDocTarget(section: "sec_top")) == nil)
+
+        store.move(["itm_l"], to: target, title: SidebarDocStore.moveTitle)
         await RapidWorkspaceCreateTests.wait(within: .seconds(10)) { !remote.applied.isEmpty || !remote.moved.isEmpty }
-        #expect(Self.roomUpdate(remote.applied.flatMap { $0 }, item: "itm_l") == Self.work,
-                "applied \(remote.applied), moved \(remote.moved)")
+        let sent = remote.applied.flatMap { $0 }
+        let updated = sent.contains { $0["op"] as? String == "item.update" && $0["id"] as? String == "itm_l" }
+        #expect(sent.contains { $0["op"] as? String == "move" } && updated,
+                "the move and its update go in one change: applied \(remote.applied), moved \(remote.moved)")
     }
 }

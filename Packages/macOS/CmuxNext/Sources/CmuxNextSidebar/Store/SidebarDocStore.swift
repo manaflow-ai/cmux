@@ -275,15 +275,19 @@ public final class SidebarDocStore {
     /// Moves `items` to `target` as one change and one undo step titled `title`.
     public func move(_ items: [String], to target: SidebarDocTarget, title: String) {
         guard !items.isEmpty else { return } // nothing placed yet to move (an adopt is on the way)
-        // A link, tab or app moved into Pinned stores the acting window's space in the same change (spaces.md).
-        let stamps = Self.roomOps(moving: items, into: target.section, room: newItemRoom(), records: settledRecords)
-        // main-actor-ok: one SidebarDocTarget (section, parent, before, after, index), fixed size.
-        if !stamps.isEmpty, let to = try? JSONSerialization.jsonObject(with: JSONEncoder().encode(target)) {
-            return send(ops: [["op": "move", "items": items, "to": to]] + stamps, title: title)
-        }
+        if let ops = spaceKeepingMove(items, to: target) { return send(ops: ops, title: title) }
         send(.move(items, to: target, key: Self.newKey()), title: title) { remote, key, _ in
             try await remote.move(items, to: target, key: key)
         }
+    }
+
+    /// The `sidebar.apply` ops of a move that also stores the acting window's space on a link, tab or app it takes
+    /// into Pinned (`roomOps`, spaces.md), in the same change; nil when it stores none (a plain `sidebar.move`).
+    func spaceKeepingMove(_ items: [String], to target: SidebarDocTarget) -> [[String: Any]]? {
+        let stamps = Self.roomOps(moving: items, into: target.section, room: newItemRoom(), records: settledRecords)
+        // main-actor-ok: one SidebarDocTarget (section, parent, before, after, index), fixed size.
+        guard !stamps.isEmpty, let to = try? JSONSerialization.jsonObject(with: JSONEncoder().encode(target)) else { return nil }
+        return [["op": "move", "items": items, "to": to]] + stamps
     }
 
     /// Pin: the items move to the end of Pinned.
