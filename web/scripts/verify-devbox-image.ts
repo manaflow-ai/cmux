@@ -47,6 +47,7 @@ import {
   DEVBOX_DESKTOP_INSTALLS,
   DEVBOX_INSTANCE_ID_COMMAND,
   devboxAgentPins,
+  devboxBubblewrapCheckCommand,
   devboxDir,
   devboxGhosttyVersion,
   devboxIdentityCheckCommand,
@@ -109,9 +110,8 @@ const CHECKS: readonly string[] = [
   "grep -q AGENT_BROWSER_EXECUTABLE_PATH /etc/profile.d/cmux-media.sh && echo media-profile-ok",
   "cua-driver --version",
   "ffmpeg -version | head -1 && command -v Xvfb && command -v xdpyinfo && command -v xdotool",
-  // codex's Linux sandbox prerequisite: without the distro bwrap, codex warns
-  // on every launch that it is falling back to its bundled copy.
-  "bwrap --version && echo bubblewrap-ok",
+  // Prove the current upstream binary is selected and can sandbox as cmux.
+  devboxBubblewrapCheckCommand(),
   // Baked files are byte-identical to this checkout.
   ...FILE_PIN_CHECKS,
   // Devshell: ble.sh installed, bashrc chained, tmux pinned to bash, seed

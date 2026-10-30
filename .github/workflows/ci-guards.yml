@@ -862,6 +862,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_health_report.py
 
+      - name: Validate the CI health report's Actions cache section
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_actions_cache_report.py
+
       - name: Validate runner label policy
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_runner_label_policy.py

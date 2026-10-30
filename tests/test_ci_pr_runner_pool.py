@@ -3898,8 +3898,9 @@ class IrohReleaseGateWiring(unittest.TestCase):
     def test_simulator_e2e_stays_on_blacksmith(self):
         job = self.jobs["simulator-e2e"]
         self.assertEqual(job["needs"], "resolve-ref")
+        # Production Stack credentials: a literal label, never MACOS_RUNNER_15 (test_ci_fork_runner_routing.py).
         self.assertEqual(job["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-                                         f"{self.BLACKSMITH} }}}}")
+                                         "'blacksmith-6vcpu-macos-15' }}")
 
 
 class IOSWiring(unittest.TestCase):
@@ -3953,6 +3954,56 @@ class IOSWiring(unittest.TestCase):
         options = self.workflow("test-ios.yml")[True]["workflow_dispatch"]["inputs"]["runner"]["options"]
         self.assertEqual(options, ["auto", "blacksmith-6vcpu-macos-26", "owned"])
 
+    def test_the_simulator_build_holds_no_secret_and_the_seed_preflight_runs_beside_it(self):
+        # ios-simulator-build runs on ios_runner_pool.py's pick: an owned simulator
+        # Mac, or whatever MACOS_RUNNER_TESTS names. It must hold no secret there.
+        # The one step that named CI_CACHE_R2_* was the seed_cache preflight; it
+        # moves to ios-simulator-cache-seed on a literal ephemeral label (#27622).
+        # The restore reads the public URL and the save step never had the keys
+        # (on R2 it warns and saves nothing), so both stay exactly as they were.
+        jobs = self.workflow("test-ios.yml")["jobs"]
+        build = jobs["ios-simulator-build"]
+        self.assertIsNone(re.search(r"\bsecrets\b", json.dumps(build), re.IGNORECASE))
+        self.assertNotIn("environment", build)
+        steps = {step.get("name"): step for step in build["steps"]}
+        self.assertNotIn("Seed iOS caches from main", steps)
+        key = ("ios-spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.xcode-version') }}-"
+               "${{ hashFiles('ios/cmux.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}")
+        backend = "${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}"
+        seeding = "inputs.seed_cache && github.ref == 'refs/heads/main'"
+        restore = steps["Restore iOS SwiftPM cache"]
+        self.assertEqual(restore["uses"], "./.github/actions/cache-restore")
+        self.assertEqual(restore["if"], "${{ steps.owned-state.outputs.packages != 'true' }}")
+        self.assertEqual((restore["with"]["key"], restore["with"]["backend"]), (key, backend))
+        self.assertNotIn("env", restore)
+        save = steps["Save iOS SwiftPM cache"]
+        self.assertEqual(save["uses"], "./.github/actions/cache-save")
+        self.assertEqual(save["if"], "${{ " + seeding + " }}")
+        self.assertEqual((save["with"]["key"], save["with"]["backend"]), (key, backend))
+        self.assertEqual(save["with"]["path"], ".ci-ios-source-packages")
+        self.assertNotIn("env", save)
+        self.assertEqual(set(build["outputs"]), {"artifact_id", "artifact_digest", "archive_sha256", "archive_bytes",
+                                                 "compile_seconds", "package_seconds", "upload_seconds"})
+
+        seed = jobs["ios-simulator-cache-seed"]
+        self.assertEqual(seed["runs-on"],
+                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}")
+        self.assertEqual(seed["environment"], "${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}")
+        self.assertEqual(seed["needs"], ["ios-simulator-build"])
+        # As the step ran: only after a successful build, only on a main seed_cache run.
+        self.assertEqual(seed["if"], "${{ !cancelled() && needs.ios-simulator-build.result == 'success' && "
+                                     + seeding + " }}")
+        self.assertEqual(seed["permissions"], {"contents": "read"})
+        self.assertEqual([step.get("name") for step in seed["steps"]], ["Seed iOS caches from main"])
+        preflight = seed["steps"][0]
+        for name, secret in (("AWS_ACCESS_KEY_ID", "secrets.CI_CACHE_R2_ACCESS_KEY_ID"),
+                             ("AWS_SECRET_ACCESS_KEY", "secrets.CI_CACHE_R2_SECRET_ACCESS_KEY"),
+                             ("CI_CACHE_R2_ENDPOINT", "secrets.CI_CACHE_R2_ACCOUNT_ID")):
+            self.assertIn(secret, preflight["env"][name])
+        self.assertIn("R2 cache seeding requested but CI_CACHE_R2 credentials are unavailable", preflight["run"])
+        # The aggregate gate sees a failed preflight, as it saw the build job fail.
+        self.assertIn("ios-simulator-cache-seed", jobs["ios-tests"]["needs"])
+
     def test_screenshots_take_the_runner_jobs_pool_without_actions_read(self):
         workflow = self.workflow("ios-screenshots.yml")
         jobs = workflow["jobs"]
@@ -3972,6 +4023,42 @@ class IOSWiring(unittest.TestCase):
         capture = next(step for step in screenshots["steps"] if step.get("name") == "Capture screenshots")
         self.assertEqual(capture["env"]["SNAPSHOT_DERIVED_DATA_PATH"],
                          "${{ runner.temp }}/cmux-ios-snapshot-derived-data")
+
+    def test_screenshots_capture_holds_no_secret_and_a_literal_job_uploads(self):
+        # The capture runs on ios_runner_pool.py's pick, an owned simulator Mac
+        # when CI_IOS_OWNED is 1, a reused machine. So it holds no secret and
+        # enters no environment; the App Store Connect key is only in the short
+        # upload job on a literal ephemeral label, which takes the screenshots
+        # from this run's artifact.
+        jobs = self.workflow("ios-screenshots.yml")["jobs"]
+        capture = jobs["screenshots"]
+        self.assertNotIn("environment", capture)
+        self.assertNotRegex(yaml.safe_dump(capture, width=100000), r"(?i)\$\{\{[^}]*\bsecrets\b|ASC_API|appstoreconnect")
+        uploaded = next(step for step in capture["steps"] if step.get("name") == "Upload screenshots artifact")
+        self.assertEqual(uploaded["with"]["name"], "ios-appstore-screenshots")
+        self.assertEqual(uploaded["with"]["path"], "ios/fastlane/screenshots")
+
+        upload = jobs["app-store-upload"]
+        self.assertEqual(upload["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+                                            "'blacksmith-6vcpu-macos-26' }}")
+        self.assertIn("screenshots", upload["needs"])
+        self.assertEqual(upload["if"], "${{ github.event_name == 'workflow_dispatch' && inputs.upload }}")
+        self.assertEqual(upload["environment"], "release")
+        steps = upload["steps"]
+        names = [step.get("name") for step in steps]
+        self.assertEqual(names[0], "Guard trusted upload ref")
+        self.assertLess(names.index("Select Xcode"), names.index("Upload screenshots to App Store Connect"))
+        download = next(step for step in steps if step.get("name") == "Download screenshots artifact")
+        self.assertTrue(download["uses"].startswith("actions/download-artifact@"), download)
+        self.assertEqual(download["with"], {"name": "ios-appstore-screenshots", "path": "ios/fastlane/screenshots"})
+        self.assertLess(names.index("Download screenshots artifact"),
+                        names.index("Upload screenshots to App Store Connect"))
+        key = next(step for step in steps if step.get("name") == "Materialize App Store Connect API key")
+        self.assertIn('KEY_DIR="$RUNNER_TEMP/', key["run"])
+        self.assertNotIn("$HOME", key["run"])
+        deliver = next(step for step in steps if step.get("name") == "Upload screenshots to App Store Connect")
+        self.assertEqual(deliver["run"].strip(), "fastlane upload_screenshots")
+        self.assertEqual(deliver["working-directory"], "ios")
 
     def test_a_persistent_pick_publishes_the_rescue_marker(self):
         for name in ("test-ios.yml", "ios-screenshots.yml"):
@@ -3996,8 +4083,9 @@ class IOSWiring(unittest.TestCase):
                            "vars.CI_PR_POOL_OWNED"):
                 self.assertNotIn(routed, text, f"{name} must not route to an owned Mac")
         validate = self.workflow("ios-streamed-validate.yml")["jobs"]["validate"]
+        # It holds CLAUDE_CODE_OAUTH_TOKEN: a literal label, never MACOS_RUNNER_IOS.
         self.assertEqual(validate["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-                                              "vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}")
+                                              "'blacksmith-6vcpu-macos-26' }}")
 
     def test_home_secrets_are_removed_however_the_job_ends(self):
         # A reused runner keeps $HOME: every job that writes a secret file there

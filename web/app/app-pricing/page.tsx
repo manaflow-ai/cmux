@@ -108,8 +108,8 @@ async function isSignedOut(): Promise<boolean> {
 
 const pricingState = cache(async () => {
   const snapshot = await currentPlanSnapshot();
-  const goPlanEnabled =
-    !snapshot.isPro && (await isGoPlanEnabled(snapshot.userId));
+  // Plus is offered to every visitor, paid subscribers included.
+  const goPlanEnabled = await isGoPlanEnabled(snapshot.userId);
   return { snapshot, goPlanEnabled };
 });
 

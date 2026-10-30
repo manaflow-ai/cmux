@@ -160,9 +160,11 @@ class SigningDerivationTests(unittest.TestCase):
 
     def test_this_tree_and_feat_together(self) -> None:
         derived = signing.signing_variables()
-        # main: iroh-release-gate.yml's release-environment job reads MACOS_RUNNER_15.
-        self.assertIn("MACOS_RUNNER_15", derived)
+        # main: every job with a secret runs on a fixed label or the bounded LINUX_RUNNER selector
+        # (test_ci_fork_runner_routing.py), so no signing job reads MACOS_RUNNER_15 any more; the
+        # stand-in feat-cmux-next workflow reads MACOS_RUNNER_26.
         self.assertIn("MACOS_RUNNER_26", derived)
+        self.assertNotIn("MACOS_RUNNER_15", derived)
 
     def test_the_switch_and_checker_read_feat_cmux_next(self) -> None:
         for name in ("ci-cloud-overflow-probe.yml", "ci-repo-variables.yml"):
@@ -176,7 +178,8 @@ class SigningDerivationTests(unittest.TestCase):
             if name in values:
                 self.assertTrue(signing.ephemeral_label(values[name]), (name, values[name]))
         self.assertNotIn("MACOS_RUNNER_26", values)
-        self.assertNotIn("MACOS_RUNNER_15", values)
+        # No signing job reads MACOS_RUNNER_15 now, so it fails over to the owned std pool like _PR.
+        self.assertEqual(values["MACOS_RUNNER_15"], "glaeda-std-xcode-26.6")
         self.assertEqual(values["MACOS_RUNNER_PR"], "glaeda-std-xcode-26.6")
 
 

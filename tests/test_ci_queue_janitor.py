@@ -3039,6 +3039,85 @@ class UnclaimedLegSweepTests(unittest.TestCase):
         self.assertEqual(fake.posts(), [])
 
 
+def gates_reading(**row):
+    """A CI_FLEET_GATES reading as the fleet dashboard writes it (cmuxterm-hq build-fleet/ci-dash fleet_gates)."""
+    std = {"listening": 0, "busy": 10, "held_offline": {"total": 1, "units": 1, "cpu": 0, "livelock": 0, "other": 0},
+           "down": 0, "unreported": 0, "queued": 16, "oldest_queued_s": 3960, "as_of": "2026-09-22T16:58:00Z"}
+    side = {"listening": 1, "busy": 5, "held_offline": {"total": 40, "units": 12, "cpu": 26, "livelock": 2, "other": 0},
+            "down": 0, "unreported": 0, "queued": 44, "oldest_queued_s": 2580}
+    std.update(row)
+    return {"version": 1, "as_of": "2026-09-22T16:58:00Z", "published": {"variable": "CI_FLEET_GATES"},
+            "labels": {"glaeda-std-xcode-26.6": std, "glaeda-side-std-xcode-26.6": side}}
+
+
+class FleetGatesTests(unittest.TestCase):
+    """GitHub lists a runner whose gate holds its listener off as offline, like a dead one (2026-10-30 11:19Z: std
+    showed 10 of 11 online busy with 16 queued). The snapshot carries the gates' own state as `gates`."""
+
+    sweep = OrphanSweepTests.sweep
+
+    def test_a_reading_keeps_the_documented_fields_per_label(self):
+        gates, why = janitor.fleet_gates(json.dumps(gates_reading()))
+        self.assertIsNone(why)
+        self.assertEqual((gates["version"], gates["as_of"]), (1, "2026-09-22T16:58:00Z"))
+        self.assertNotIn("published", gates)
+        self.assertEqual(gates["labels"]["glaeda-std-xcode-26.6"], {
+            "listening": 0, "busy": 10,
+            "held_offline": {"total": 1, "units": 1, "cpu": 0, "livelock": 0, "other": 0},
+            "down": 0, "unreported": 0, "queued": 16, "oldest_queued_s": 3960, "as_of": "2026-09-22T16:58:00Z"})
+        side = gates["labels"]["glaeda-side-std-xcode-26.6"]
+        self.assertEqual(side["held_offline"], {"total": 40, "units": 12, "cpu": 26, "livelock": 2, "other": 0})
+        self.assertEqual(side["as_of"], "2026-09-22T16:58:00Z")  # the reading's own, when a label has none
+        self.assertEqual(janitor.FLEET_GATES_STALE_S, 300)
+
+    def test_a_reading_out_of_shape_is_refused_whole(self):
+        bad = {
+            "": "no CI_FLEET_GATES reading",
+            "not json": "not JSON",
+            json.dumps(dict(gates_reading(), version=2)): "not version 1",
+            json.dumps(dict(gates_reading(), as_of="yesterday")): "no as_of",
+            json.dumps(dict(gates_reading(), as_of="2026-09-22T16:58:00")): "no as_of",
+            json.dumps(gates_reading(busy=-1)): "out of shape",
+            json.dumps(gates_reading(busy=True)): "out of shape",
+            json.dumps(gates_reading(queued="16")): "out of shape",
+            json.dumps(gates_reading(held_offline={"total": 1, "units": 1})): "out of shape",
+            json.dumps(dict(gates_reading(), labels={"blacksmith-6vcpu-macos-26": gates_reading()["labels"][
+                "glaeda-std-xcode-26.6"]})): "out of shape",
+        }
+        for raw, want in bad.items():
+            gates, why = janitor.fleet_gates(raw)
+            self.assertIsNone(gates, raw)
+            self.assertIn(want, why, raw)
+        self.assertEqual(janitor.fleet_gates(None), (None, "no CI_FLEET_GATES reading"))
+
+    def test_the_sweep_writes_the_reading_into_the_pool_snapshot(self):
+        with tempfile.TemporaryDirectory() as out:
+            load = Path(out) / "load.json"
+            with mock.patch.dict("os.environ", {"FLEET_GATES": json.dumps(gates_reading())}):
+                code, *_ = self.sweep("--pool-load", str(load))
+            self.assertEqual(code, 0)
+            snapshot = json.loads(load.read_text())
+            self.assertEqual(snapshot["gates"], janitor.fleet_gates(json.dumps(gates_reading()))[0])
+            self.assertNotIn("gates_error", snapshot)
+
+    def test_the_sweep_says_why_a_snapshot_has_no_reading(self):
+        with tempfile.TemporaryDirectory() as out:
+            load = Path(out) / "load.json"
+            with mock.patch.dict("os.environ", {"FLEET_GATES": ""}):
+                code, *_ = self.sweep("--pool-load", str(load))
+            self.assertEqual(code, 0)
+            snapshot = json.loads(load.read_text())
+            self.assertNotIn("gates", snapshot)
+            self.assertEqual(snapshot["gates_error"], "no CI_FLEET_GATES reading")
+
+    def test_the_workflow_passes_the_variable_through_env_only(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        steps = yaml.safe_load(text)["jobs"]["sweep"]["steps"]
+        step = next(s for s in steps if s.get("name") == "Cancel wasted macOS runs")
+        self.assertEqual(step["env"]["FLEET_GATES"], "${{ vars.CI_FLEET_GATES }}")
+        self.assertEqual(text.count("vars.CI_FLEET_GATES"), 1)  # never expanded into a script
+
+
 NEXT_PATH = ".github/workflows/cmux-next.yml"
 NEXT_BRANCH = "feat-cmux-" + "next"
 LARGE_MAC = "blacksmith-12vcpu-macos-26"

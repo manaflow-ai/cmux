@@ -36,7 +36,12 @@ name: CI queue janitor
 #
 # Each sweep also publishes the per-pool macOS queue it saw as the
 # `macos-pool-load` artifact, which pull request CI reads to overflow off a
-# backed-up pool.
+# backed-up pool. It carries the gates' own state per glaeda label as `gates`
+# (listening, busy, held off by reason, queued, as_of), from the
+# CI_FLEET_GATES variable the fleet dashboard keeps fresh: GitHub lists a
+# runner the gate holds off as offline, like a dead one. A reading over 5 min
+# old is stale; readers treat stale or missing as full for jobs queued over
+# 3 min (scripts/ci/queue_janitor.py fleet_gates() documents the fields).
 #
 # It also alerts on starved fleet labels: a glaeda-* label with a job queued
 # over 10 minutes and no job on it running or started in that time
@@ -193,6 +198,10 @@ jobs:
           # 1: fold admission's owned-warm-keys artifacts into the snapshot's
           # `warm` (scripts/ci/owned_warm_state.py) for warm affinity.
           OWNED_WARM: ${{ vars.CI_OWNED_WARM }}
+          # The gates' own state per glaeda label, written by the fleet
+          # dashboard (cmuxterm-hq build-fleet/ci-dash); JSON data only, read
+          # through env and never expanded into a script. Into the snapshot as `gates`.
+          FLEET_GATES: ${{ vars.CI_FLEET_GATES }}
         run: python3 scripts/ci/queue_janitor.py
 
       # Early warning for the GITHUB_TOKEN budget every workflow shares: when it ran out on

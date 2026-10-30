@@ -199,6 +199,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pr_runner_pool import MAX_RUN_JOBS  # noqa: E402
 from pr_runner_pool import persistent as owned_pool  # noqa: E402
 from pr_runner_pool import CAPABILITY_LABELS, pool_label, root_label, side_label  # noqa: E402
+from pr_runner_pool import LANE_LABEL  # noqa: E402
 from pr_runner_pool import GitHub as PoolClient  # noqa: E402
 from pr_runner_pool import ARTIFACT_NAME as SNAPSHOT_ARTIFACT  # noqa: E402
 from pr_runner_pool import SNAPSHOT_BRANCH, SNAPSHOT_FILE, trusted_snapshot_artifact  # noqa: E402
@@ -555,6 +556,11 @@ def is_macos_job(job: Mapping[str, Any]) -> bool:
     return bool(owned_label(job)) or any("macos" in str(label).lower() for label in job.get("labels") or ())
 
 
+def lane_label(job: Mapping[str, Any]) -> str | None:
+    """The feat-cmux-next lane label (pr_runner_pool.LANE_LABEL: session, fast, dev, nightly) a job asked for."""
+    return next((str(label) for label in job.get("labels") or () if LANE_LABEL.fullmatch(str(label))), None)
+
+
 def runner_pool(job: Mapping[str, Any]) -> str:
     """The pool a macOS job waits on: its owned pool label, else the macOS labels it asked for."""
     owned = owned_label(job)
@@ -674,6 +680,72 @@ POOL_SETTINGS_ENV = {
     "PR_POOL_MAX_QUEUED": "max_queued",
     "PR_POOL_QUEUE_ROUNDS": "queue_rounds",
 }
+
+
+# Fleet gate state, the gates' own view of each owned runner label, in the snapshot as `gates`. GitHub lists a
+# runner whose glaeda gate holds its listener off as offline, the same as a dead one, so its runner list cannot tell
+# a full label from a broken one. The fleet dashboard (cmuxterm-hq build-fleet/ci-dash, fleet_gates) reads each
+# mini's probe and copies the reading into the CI_FLEET_GATES repository variable at least every 2 minutes; the
+# workflow passes it in as FLEET_GATES (a variable costs no API request). The fields, per label:
+#   listening        runners with their listener up and idle: a job queued for the label can start now
+#   busy             runners running a job
+#   held_offline     runners the gate holds off: {"total", "units", "cpu", "livelock", "other"}, where units is
+#                    capacity units taken by jobs, livelock is free units the other gates' listen claims hold
+#                    (glaeda#1751), cpu is the mini saturated at 80% CPU or more, and other is the rest (disk, a
+#                    token, the host lock, a restart delay); total is their sum
+#   down             offline with no hold (between jobs, or a listener that died)
+#   unreported       on a mini whose probe failed in that pass
+#   queued           the label's jobs waiting for a runner (not behind concurrency or an approval)
+#   oldest_queued_s  the oldest of those, in seconds; 0 with none queued
+#   as_of            when the dashboard read it (UTC), also once for the whole reading
+# Staleness is the reader's to judge, against its own clock and as_of, never the snapshot's generated_at: a reading
+# older than FLEET_GATES_STALE_S is stale, and a reader treats a stale or missing reading (no `gates` key, see
+# `gates_error`) as full for a job queued over 3 minutes. The snapshot itself can be a sweep interval old, so a
+# reading in it is often minutes old already; a workflow that can read ${{ vars.CI_FLEET_GATES }} gets it fresher.
+FLEET_GATES_VERSION = 1
+FLEET_GATES_STALE_S = 300
+FLEET_GATES_COUNTS = ("listening", "busy", "down", "unreported", "queued", "oldest_queued_s")
+FLEET_GATES_HELD = ("total", "units", "cpu", "livelock", "other")
+FLEET_GATES_MAX_LABELS = 200
+
+
+def fleet_gates(raw: str | None) -> tuple[dict[str, Any] | None, str | None]:
+    """(reading, None) from the CI_FLEET_GATES variable's text, checked and cut to the fields above, or (None, why).
+
+    Any field out of shape refuses the whole reading: a reader treats a missing one as full, which is the safe side.
+    """
+    if not (raw or "").strip():
+        return None, "no CI_FLEET_GATES reading"
+    try:
+        data = json.loads(raw or "")
+    except ValueError as error:
+        return None, f"CI_FLEET_GATES is not JSON ({error})"
+    if not isinstance(data, dict) or data.get("version") != FLEET_GATES_VERSION:
+        return None, f"CI_FLEET_GATES is not version {FLEET_GATES_VERSION}"
+
+    def stamp(value: Any) -> str | None:
+        when = parse_time(value) if isinstance(value, str) and value.endswith("Z") else None
+        return when.strftime("%Y-%m-%dT%H:%M:%SZ") if when else None
+
+    def count(value: Any) -> bool:
+        return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+    as_of = stamp(data.get("as_of"))
+    labels = data.get("labels")
+    if not as_of or not isinstance(labels, dict) or len(labels) > FLEET_GATES_MAX_LABELS:
+        return None, "CI_FLEET_GATES has no as_of or no labels"
+    out: dict[str, dict[str, Any]] = {}
+    for label, row in labels.items():
+        held = row.get("held_offline") if isinstance(row, dict) else None
+        if (not isinstance(label, str) or not label.startswith("glaeda-") or not isinstance(held, dict)
+                or not all(count(row.get(key)) for key in FLEET_GATES_COUNTS)
+                or not all(count(held.get(key)) for key in FLEET_GATES_HELD)):
+            return None, f"CI_FLEET_GATES label {str(label)[:80]!r} is out of shape"
+        out[label] = {**{key: row[key] for key in FLEET_GATES_COUNTS[:2]},
+                      "held_offline": {key: held[key] for key in FLEET_GATES_HELD},
+                      **{key: row[key] for key in FLEET_GATES_COUNTS[2:]},
+                      "as_of": stamp(row.get("as_of")) or as_of}
+    return {"version": FLEET_GATES_VERSION, "as_of": as_of, "labels": dict(sorted(out.items()))}, None
 
 
 MAX_ARTIFACT_PAGES = 5
@@ -840,12 +912,20 @@ def pool_load_snapshot(
         for label, count in seen.items():
             committed[label] = committed.get(label, 0) + count
         for job in jobs_by_run.get(run.get("id"), ()):
-            if not is_macos_job(job):
+            # A lane label (session, fast, dev, nightly) is no owned pool to the pickers, but its own queue: the
+            # placements and the rescue read whether it runs anything (run 40887257098's daemon test waited
+            # 3 h 20 min on glaeda-session-std-xcode-26.6 with no runner online, unseen here).
+            lane = lane_label(job)
+            macos = is_macos_job(job)
+            if not macos and not lane:
                 continue
             status = job.get("status")
             if status not in POOL_QUEUED_JOB_STATUSES and status not in RUNNING_JOB_STATUSES:
                 continue
-            for pool in (*counted_pools(runner_pool(job)), *capabilities(job)):
+            # A lane job counts on its lane label whatever else it asked for (`macOS`, `self-hosted`), and on its
+            # macOS pool as before.
+            counted = (*counted_pools(runner_pool(job)), *capabilities(job)) if macos else ()
+            for pool in dict.fromkeys(((lane,) if lane else ()) + counted):
                 entry = pools.setdefault(pool, {"queued": 0, "running": 0, "reserved_queued": 0,
                                                 "oldest_queued_minutes": 0})
                 if status in RUNNING_JOB_STATUSES:
@@ -3312,6 +3392,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 snapshot["warm"] = owned_warm_state.sweep(PoolClient(token, args.repo), jobs_by_run, now)
             except Exception as error:  # noqa: BLE001 a routing hint never fails the sweep
                 print(f"queue-janitor: owned warm state: {error}", file=sys.stderr)
+        # The gates' own state per owned label, from the CI_FLEET_GATES variable (fleet_gates()); readers treat
+        # a missing or stale reading as full.
+        gates, gates_error = fleet_gates(os.environ.get("FLEET_GATES"))
+        if gates:
+            snapshot["gates"] = gates
+        else:
+            snapshot["gates_error"] = gates_error
+            print(f"queue-janitor: fleet gates: {gates_error}", file=sys.stderr)
         args.pool_load.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
 
     if unread:
