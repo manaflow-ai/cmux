@@ -77,6 +77,7 @@ import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabChat, type New
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
+import { setAttentionTabs } from "./needsYou/attentionTabs";
 import { NewTabScreen, type NewTabScreenActions } from "./newtab/NewTabScreen";
 import { HistoryScreen } from "./newtab/HistoryScreen";
 import type { AllChatsPage } from "./newtab/AllChatsList";
