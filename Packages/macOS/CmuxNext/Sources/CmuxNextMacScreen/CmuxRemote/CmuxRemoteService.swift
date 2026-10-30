@@ -25,6 +25,8 @@ public final class CmuxRemoteService {
     private var grant: RemoteHostAppRequest.Response?
     /// Whether the daemon runs cmux Remote (`remote-host-v1` and an embedded bundle).
     public private(set) var available = false
+    /// The hub made with cmux Remote's device identity, while it is the one running.
+    var remoteHub: DeviceHub?
     private var lastConfig: (computerUse: Bool, screenSharing: Bool, headless: Bool)?
     /// The anchor's hourly refresh (PROTOCOL.md, Device renewal).
     private let anchorTimer = DemandTimer(owner: "cmux-remote.anchor")

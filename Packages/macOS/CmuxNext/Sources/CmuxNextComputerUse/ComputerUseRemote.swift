@@ -8,17 +8,22 @@ import CmuxNextCompat
 /// the worker's control pipe: its lines are the worker's, writing to it writes the worker's
 /// stdin, and closing it stops the worker, as EOF on the helper's stdin did.
 public nonisolated protocol ComputerUseRemoteSpawning: Sendable {
+    /// Whether the daemon runs cmux Remote now (else the in-app helper runs, as before).
+    func isAvailable() async -> Bool
     func openComputerUse() async throws -> ComputerUseRemoteChannel
 }
 
 /// Computer Use through cmux Remote from a closure: the host starts a worker for each channel.
 public nonisolated struct ComputerUseRemoteSource: ComputerUseRemoteSpawning {
+    let available: @Sendable () async -> Bool
     let open: @Sendable () async throws -> ComputerUseRemoteChannel
 
-    public init(open: @escaping @Sendable () async throws -> ComputerUseRemoteChannel) {
+    public init(available: @escaping @Sendable () async -> Bool, open: @escaping @Sendable () async throws -> ComputerUseRemoteChannel) {
+        self.available = available
         self.open = open
     }
 
+    public func isAvailable() async -> Bool { await available() }
     public func openComputerUse() async throws -> ComputerUseRemoteChannel { try await open() }
 
     /// cmux Remote's executable in this app's embedded bundle (the worker runs it), or nil.

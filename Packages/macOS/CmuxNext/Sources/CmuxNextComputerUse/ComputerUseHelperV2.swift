@@ -203,7 +203,11 @@ public final class ComputerUseHelperV2 {
         let current = generation
         guard enabled else { return await stop() }
         if case .running = state { return }
-        if let remote { return await applyRemote(remote, generation: current) }
+        if let remote, await remote.isAvailable() {
+            guard current == generation else { return }
+            return await applyRemote(remote, generation: current)
+        }
+        guard current == generation else { return }
         spawner = localSpawner
         guard let embedded = helperApp() else { return unavailable("the cmux Computer Use (dev) helper is not in this build") }
         let runningCheck = await staging.runningCheck(for: embedded)

@@ -20,10 +20,22 @@ public nonisolated final class CmuxRemoteDevices: Sendable {
         self.open = open
     }
 
-    /// The request channel, opened on first use and again after it ends.
+    /// This Mac's join consent now (the App sets it): sent first on every new channel, so a
+    /// restarted worker serves nothing the person has not allowed (it refuses until it hears it).
+    let consentNow = Mutex<(@Sendable () async -> (enabled: Bool, view: Bool, full: Bool))?>(nil)
+
+    public func setConsentSource(_ source: @escaping @Sendable () async -> (enabled: Bool, view: Bool, full: Bool)) {
+        consentNow.withLock { $0 = source }
+    }
+
+    /// The request channel, opened on first use and again after it ends (a worker or host restart).
     private func channel() async throws -> RemoteDeviceChannel {
         if let live = control.withLock({ $0 }), live.isOpen { return live }
         let fresh = RemoteDeviceChannel(socket: try await open())
+        if let source = consentNow.withLock({ $0 }) {
+            let consent = await source()
+            _ = try? await fresh.call("consent", ["enabled": consent.enabled, "view": consent.view, "full": consent.full])
+        }
         control.withLock { $0 = fresh }
         return fresh
     }
@@ -58,7 +70,18 @@ public nonisolated final class CmuxRemoteDevices: Sendable {
     /// the request channel, bounded by its read timeout. Never on the main thread: hub requests
     /// sign on the client's actor and ticket signaling on its own tasks.
     func blockingCall(_ method: String, _ params: [String: Any]) throws -> [String: Any] {
-        guard let live = control.withLock({ $0 }), live.isOpen else { throw DeviceHubError.identity("cmux Remote's device channel is closed") }
+        if let live = control.withLock({ $0 }), live.isOpen { return try live.blockingCall(method, params) }
+        // The worker restarted: reopen the channel (async) and wait for it, bounded; this runs off the main thread.
+        // concurrency-allow: the one-shot signal for the bounded reopen wait below (never on the main thread).
+        let opened = DispatchSemaphore(value: 0)
+        // task-owner: one reopen; the wait below is bounded.
+        Task.detached(priority: .userInitiated) { [self] in
+            _ = try? await channel()
+            opened.signal()
+        }
+        // concurrency-allow: never on the main thread (see RemoteDeviceKeys); bounded by the channel timeout.
+        guard opened.blockingWait(timeout: .now() + RemoteDeviceChannel.timeout) == .success,
+              let live = control.withLock({ $0 }), live.isOpen else { throw DeviceHubError.identity("cmux Remote's device channel is closed") }
         return try live.blockingCall(method, params)
     }
 

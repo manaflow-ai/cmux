@@ -21,19 +21,25 @@ extension CmuxRemoteService {
             guard let self else { throw CmuxRemoteError.unavailable }
             return try await openChannel("screen-sharing").socket
         })
-        computerUse.remote = ComputerUseRemoteSource(open: { [weak self] in
+        computerUse.remote = ComputerUseRemoteSource(available: { [weak self] in
+            await self?.waitAvailable() ?? false
+        }, open: { [weak self] in
             guard let self else { throw CmuxRemoteError.unavailable }
             // A tagged DEV app may be driven (the legacy dogfood scope); only this app opens a channel.
             let opened = try await openChannel("computer-use", extra: ["allowed_target_bundle_id": bundleID])
             return ComputerUseRemoteChannel(pid: opened.pid, socket: opened.socket, executable: executable)
         })
         deviceHub.makeRemoteHub = { [weak self] url, _ in
-            guard let self, await waitAvailable() else { return nil }
+            guard let self else { return nil }
+            remoteHub = nil
+            guard await waitAvailable() else { return nil }
             do {
                 let identity = try await devices.identity()
                 let client = DeviceHubClient(baseURL: url, identity: identity, tokens: DeviceHubAccountToken(tokens))
-                return DeviceHub(client: client, socket: DeviceHubSocket(connector: RemotePushConnector(devices: devices)),
-                                 secrets: KeychainRelaySecretStore(bundleIdentifier: bundleID), deviceName: MacScreenShareHost.computerName)
+                let hub = DeviceHub(client: client, socket: DeviceHubSocket(connector: RemotePushConnector(devices: devices)),
+                                    secrets: KeychainRelaySecretStore(bundleIdentifier: bundleID), deviceName: MacScreenShareHost.computerName)
+                remoteHub = hub
+                return hub
             } catch {
                 startLogger.error("cmux Remote device identity: \(String(describing: error), privacy: .public)")
                 return nil
@@ -41,8 +47,10 @@ extension CmuxRemoteService {
         }
         deviceHub.hubChanged = { [weak self, weak pages] hub, user, url in
             guard let self else { return }
-            followHub(hub, userID: user, hubURL: url, devices: devices)
-            pages?.remoteHosted = hub != nil && available
+            // cmux Remote serves this Mac only when the running hub is its device (else the app's own hub serves).
+            let remote = hub != nil && hub === remoteHub
+            followHub(remote ? hub : nil, userID: user, hubURL: url, devices: devices)
+            pages?.remoteHosted = remote
         }
         return devices
     }

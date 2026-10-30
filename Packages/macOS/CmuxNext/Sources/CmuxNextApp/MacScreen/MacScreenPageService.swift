@@ -207,6 +207,10 @@ extension AppServices {
                                              computerUse: ComputerUseHelperDaemon.shared.upstream,
                                              tokens: { try await auth.tokens().access }) else { return }
         let consent = joinConsent, previous = consent.changed
+        devices.setConsentSource { @MainActor [weak consent] in
+            guard let consent else { return (true, false, false) }
+            return (consent.enabled, consent.permitsMacScreen(control: false), consent.permitsMacScreen(control: true))
+        }
         consent.changed = { [weak consent] in
             previous()
             guard let consent else { return }
