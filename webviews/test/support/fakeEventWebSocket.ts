@@ -69,6 +69,6 @@ export class FakeEventWebSocket {
   }
 
   private emit(type: string, event: Record<string, unknown>): void {
-    for (const listener of [...(this.listeners.get(type) ?? [])]) listener(event);
+    for (const listener of this.listeners.get(type)?.slice() ?? []) listener(event);
   }
 }
