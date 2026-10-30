@@ -1,35 +1,49 @@
 import AppKit
 
-/// `PointerHover`'s targets filed by window (cx-8w027.10 item c): a refresh reads one window's
-/// targets, the targets without a window and the targets that hover now. A target is filed under
-/// the window its view is in when the index last saw it: at a refresh that visits it, at its own
-/// enter, exit or `refresh()`, and at every key-window change. A refresh files each visited target
-/// again, so a view that left the window moves to `unplaced`, one that came in from `unplaced` is
-/// filed under its window, and one found in another window refreshes that window too.
+/// `PointerHover`'s targets by view, and the ones that hover now. A refresh of a window reads the
+/// hovering targets (a handful) and the targets of the views under the pointer there, found by a
+/// walk down the window's view tree along the pointer, as Chromium's `RootView` finds a mouse
+/// move's handler (`GetEventHandlerForPoint`) and `Widget::SynthesizeMouseMoveEvent` replays the
+/// last mouse location after a layout. It never reads every target: the index changes only when a
+/// target is made or freed (O(1) each), and a view that moves into, out of or between windows
+/// needs no notice, since the walk sees where the views are now.
+///
+/// Before (cx-8w027.10 item c), each refresh read every target of the window plus every target
+/// whose view had no window (detached rows, the chrome of a closed tab, views made before their
+/// window), filed each again and sorted them all; a sidebar layout pass refreshes, so every layout
+/// pass cost every view the process kept, and the full suite's main thread spent its time there.
 @MainActor
 final class PointerHoverTargetIndex {
     private struct Weak {
         weak var value: PointerHover?
     }
 
-    private struct Bucket {
-        weak var window: NSWindow?
-        var targets: [ObjectIdentifier: Weak] = [:]
-    }
-
-    private var buckets: [ObjectIdentifier: Bucket] = [:]
-    /// Targets whose view had no window when last seen.
-    private var unplaced: [ObjectIdentifier: Weak] = [:]
+    /// The targets of each view (one, now and then two), by the view's identifier.
+    private var byView: [ObjectIdentifier: [Weak]] = [:]
     /// Targets that hover now (a handful).
     private var hovering: [ObjectIdentifier: Weak] = [:]
     private var nextOrder: UInt64 = 0
+    /// The entry count at which freed entries are swept (a target freed off the main thread
+    /// leaves its entry): twice the count after the last sweep, so sweeps cost O(1) a target.
+    private var sweepAt = 256
 
-    func insert(_ target: PointerHover) {
+    func insert(_ target: PointerHover, view: NSView) {
         nextOrder &+= 1
         target.order = nextOrder
-        target.indexedWindow = nil
-        unplaced[ObjectIdentifier(target)] = Weak(value: target)
-        place(target)
+        let key = ObjectIdentifier(view)
+        // A freed view's identifier reused by this one: its old entries go.
+        var entries = byView[key, default: []].filter { $0.value?.hoverView === view }
+        entries.append(Weak(value: target))
+        byView[key] = entries
+        if byView.count >= sweepAt { sweep() }
+    }
+
+    /// A target is freed (its `deinit`, on the main thread): its entries drop out.
+    func remove(_ target: ObjectIdentifier, view: ObjectIdentifier) {
+        hovering[target] = nil
+        guard let entries = byView[view] else { return }
+        let live = entries.filter { $0.value != nil }
+        byView[view] = live.isEmpty ? nil : live
     }
 
     func noteHovering(_ target: PointerHover, _ hovers: Bool) {
@@ -49,76 +63,64 @@ final class PointerHoverTargetIndex {
         return windows
     }
 
-    /// Files `target` under the window its view is in now; returns that window when the target
-    /// moved into it.
-    @discardableResult
-    func place(_ target: PointerHover) -> NSWindow? {
-        let key = ObjectIdentifier(target)
-        let window = target.viewWindow
-        let now = window.map(ObjectIdentifier.init)
-        let filed = now.map { buckets[$0]?.window === window && buckets[$0]?.targets[key] != nil } ?? (unplaced[key] != nil)
-        guard now != target.indexedWindow || !filed else { return nil }
-        if let old = target.indexedWindow {
-            buckets[old]?.targets[key] = nil
-            if buckets[old]?.targets.isEmpty == true { buckets[old] = nil }
-        }
-        unplaced[key] = nil
-        target.indexedWindow = now
-        guard let window, let now else {
-            unplaced[key] = Weak(value: target)
-            return nil
-        }
-        // A window identifier reused by a new window: the old window's targets go back to `unplaced`.
-        if let bucket = buckets[now], bucket.window !== window { dropBucket(now) }
-        if buckets[now] == nil { buckets[now] = Bucket(window: window) }
-        buckets[now]?.targets[key] = Weak(value: target)
-        return window
-    }
-
-    /// Every target filed under its window again; freed targets and closed windows drop out.
-    func placeAll() {
-        for (key, bucket) in buckets where bucket.window == nil { dropBucket(key) }
-        let all = buckets.values.flatMap { $0.targets.values.compactMap(\.value) } + unplaced.values.compactMap(\.value)
-        for (key, bucket) in buckets { buckets[key]?.targets = bucket.targets.filter { $0.value.value != nil } }
-        unplaced = unplaced.filter { $0.value.value != nil }
-        for target in all { place(target) }
-    }
-
-    /// The targets a refresh of `window` reads, in creation order with the hovering ones first
-    /// (a hover that ends runs before one that starts), each filed again; and the other windows
-    /// a visited target was found in. Freed targets drop out.
-    func candidates(in window: NSWindow) -> (targets: [PointerHover], moved: [NSWindow]) {
-        let key = ObjectIdentifier(window)
-        if let bucket = buckets[key], bucket.window !== window { dropBucket(key) }
-        var found: [ObjectIdentifier: PointerHover] = [:]
-        for (id, entry) in buckets[key]?.targets ?? [:] {
-            if let target = entry.value { found[id] = target } else { buckets[key]?.targets[id] = nil }
-        }
-        for (id, entry) in unplaced {
-            if let target = entry.value { found[id] = target } else { unplaced[id] = nil }
-        }
+    /// The targets a refresh of `window` reads: the ones that hover now, then the ones whose view
+    /// is under the pointer in `window` (the enter or exit's own point while `event` is one of its
+    /// window), each group in creation order (a hover that ends runs before one that starts).
+    /// Without a pointer in `window` (not shown, or outside it) only the hovering ones, which
+    /// then clear. The walk reads the pointer while another app is active too: each target then
+    /// asks its own scope (`computeHovering`).
+    func candidates(in window: NSWindow, at event: NSEvent?) -> [PointerHover] {
+        var seen = Set<ObjectIdentifier>()
+        var ending: [(order: UInt64, target: PointerHover)] = []
         for (id, entry) in hovering {
-            if let target = entry.value { found[id] = target } else { hovering[id] = nil }
+            guard let target = entry.value else {
+                hovering[id] = nil
+                continue
+            }
+            seen.insert(id)
+            ending.append((target.order, target))
         }
-        var moved: [NSWindow] = []
-        for target in found.values {
-            if let other = place(target), other !== window, !moved.contains(where: { $0 === other }) { moved.append(other) }
+        var starting: [(order: UInt64, target: PointerHover)] = []
+        if let point = PointerHover.pointer(in: window, requireKey: false, event: event, whileInactive: true) {
+            for view in Self.views(under: point, in: window) {
+                for entry in byView[ObjectIdentifier(view)] ?? [] {
+                    guard let target = entry.value, target.hoverView === view, seen.insert(ObjectIdentifier(target)).inserted else { continue }
+                    starting.append((target.order, target))
+                }
+            }
         }
-        // One integer per target: a tuple compare goes through the runtime's tuple metadata on
-        // every comparison, half of a Cmd-Tab's main-thread time with a few thousand targets.
-        let targets = found.values.map { (key: ($0.isHovering ? 0 : 1 << 63) | $0.order, target: $0) }
-            .sorted { $0.key < $1.key }.map(\.target)
-        return (targets, moved)
+        ending.sort { $0.order < $1.order }
+        starting.sort { $0.order < $1.order }
+        return ending.map(\.target) + starting.map(\.target)
     }
 
-    /// Drops the bucket under `key` (its window closed, or a new window reuses the identifier):
-    /// its live targets go back to `unplaced`, to be filed again where their views are.
-    private func dropBucket(_ key: ObjectIdentifier) {
-        guard let bucket = buckets.removeValue(forKey: key) else { return }
-        for (id, entry) in bucket.targets {
-            guard let target = entry.value else { continue }
-            target.indexedWindow = nil
-            unplaced[id] = entry
+    /// The shown views of `window` that contain `point` (window coordinates), from the window's
+    /// root view down. Every subview whose frame contains the point is entered, overlapping
+    /// siblings too (each target hovers by its own rect, also under a sibling). A hidden view and
+    /// its subviews are skipped (they cannot hover), and so is a view outside its superview's
+    /// bounds there (its visible rect, and AppKit's own hit test, leave it out).
+    static func views(under point: NSPoint, in window: NSWindow) -> [NSView] {
+        guard var root = window.contentView else { return [] }
+        while let up = root.superview { root = up }
+        let start = root.convert(point, from: nil)
+        guard !root.isHidden, root.bounds.contains(start) else { return [] }
+        var found: [NSView] = []
+        var stack: [(view: NSView, point: NSPoint)] = [(root, start)]
+        while let next = stack.popLast() {
+            found.append(next.view)
+            for sub in next.view.subviews where !sub.isHidden && sub.frame.contains(next.point) {
+                stack.append((sub, sub.convert(next.point, from: next.view)))
+            }
         }
+        return found
+    }
+
+    /// Drops the entries of freed targets.
+    private func sweep() {
+        for (key, entries) in byView {
+            let live = entries.filter { $0.value != nil }
+            if live.count != entries.count { byView[key] = live.isEmpty ? nil : live }
+        }
+        sweepAt = max(256, byView.count * 2)
     }
 }
