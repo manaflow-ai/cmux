@@ -6546,11 +6546,10 @@ export class AcpmuxDirectClient {
     const generation = this.selectionGeneration;
     let result: any;
     try {
-      // After Trust the same chat is adopted again.
-      result = await this.newSession(
-        newSessionParams({ adopt }),
-        () => void this.adoptChat(adopt).catch(() => undefined),
-      );
+      // After Trust the same chat is adopted again, unless the person moved to another chat since.
+      result = await this.newSession(newSessionParams({ adopt }), () => {
+        if (!this.closed && generation === this.selectionGeneration) void this.adoptChat(adopt).catch(() => undefined);
+      });
     } catch (error) {
       if (this.socket?.readyState !== WebSocket.OPEN) throw error;
       // The trust route asks about the folder; this is no failure to resume.
