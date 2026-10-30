@@ -102,6 +102,29 @@ import Testing
         #expect(feed.actions != nil)
     }
 
+    @Test func silentTerminalLedgerHasABoundedRequestAndFeedStillRefreshes() async throws {
+        UserDefaults.standard.removeObject(forKey: Self.teamKey)
+        defer { UserDefaults.standard.removeObject(forKey: Self.teamKey) }
+        let feed = FeedStore(items: [])
+        let live = coordinator(store: emptyStore(), feed: feed,
+                               dialer: PerMacDialer(acpmux: Self.acpmux(Answers()), silentNotifications: true))
+        defer { live.stop() }
+        live.showing(macIDs: ["m1"])
+        #expect(await live.waitUntil(within: .seconds(3)) { live.sessions["m1"]?.acpmux.isReady == true })
+        let session = try #require(live.sessions["m1"])
+        session.terminalFeed.requestDeadline = .milliseconds(20)
+        let request = try #require(session.terminalFeed.request)
+        do {
+            _ = try await request("list-notifications", ["limit": 100], session.workspaces.connectionSerial)
+            Issue.record("The silent ledger unexpectedly replied")
+        } catch let error as LinkError {
+            #expect(error.code == DaemonClient.replyTimeout)
+        }
+        await feed.retry { await live.reconnectFeeds() }
+        #expect(feed.refreshError == nil)
+        #expect(session.acpmux.isReady)
+    }
+
     @Test func feedRecoverySkipsSleepingMacsAndStartsOnlineMacsTogether() async {
         UserDefaults.standard.removeObject(forKey: Self.teamKey)
         defer { UserDefaults.standard.removeObject(forKey: Self.teamKey) }

@@ -140,7 +140,7 @@ final class WatchReply: @unchecked Sendable {
         let hub = AcpmuxHub()
         await hub.bind(try await link.openChannel(service: "acpmux", args: [:]), requestTimeout: .milliseconds(20))
         #expect(!hub.isReady)
-        #expect(hub.lastError?.contains(method) == true)
+        #expect(hub.lastError == LinkController.reason(LinkError(code: "timeout", message: "unused")))
         await hub.bind(try await Self.mac(WatchReply(Self.idle)).openChannel(service: "acpmux", args: [:]))
         #expect(hub.isReady)
         #expect(hub.lastError == nil)
