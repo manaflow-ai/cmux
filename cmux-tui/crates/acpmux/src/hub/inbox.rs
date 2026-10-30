@@ -32,7 +32,9 @@
 //!   action (a result, the default) from the session that started it
 //!   (its lineage parent) or the one that first gave it work (`SessionMeta::delegator`: the
 //!   sender of the first message to a chat that never ran a turn, which wakes it too). An FYI
-//!   never wakes a chat; it goes with the next notice.
+//!   never wakes a chat; it goes with the next notice. A chat whose cut turn's automatic
+//!   continuation may still fire (`auto_resume.rs` `continuation_pending`) is not woken: the
+//!   inbox is looked at again [`REFUSED_RETRY_MS`] on, and goes in behind the continuation.
 //!
 //! An agent's `session/prompt` waits for the notice that carries it and answers with that
 //! notice's answer: a steer's (`steered`, naming the turn it went into) or its own turn's; a
@@ -585,6 +587,8 @@ impl Hub {
     pub(super) fn inbox_review(self: &Arc<Self>, session: &Arc<Session>) {
         let meta = session.meta();
         let now = now_ms();
+        // Read before the inbox's lock: the retry's own lock is never taken under it.
+        let continuing = self.continuation_pending(session);
         let next = {
             let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
             let next = {
@@ -628,7 +632,17 @@ impl Hub {
                                 at => at.saturating_add(REFUSED_RETRY_MS),
                             };
                             let at = due.max(retry);
-                            if at <= now { Next::Wake } else { Next::WakeAt(at) }
+                            if continuing {
+                                // The cut turn's continuation may still fire (`auto_resume.rs`):
+                                // a turn of its own now would supersede it. Looked at again
+                                // later; a continuation that runs ends its timer when its turn
+                                // starts (`inbox_turn_started`) and reviews it as it ends.
+                                Next::WakeAt(at.max(now.saturating_add(REFUSED_RETRY_MS)))
+                            } else if at <= now {
+                                Next::Wake
+                            } else {
+                                Next::WakeAt(at)
+                            }
                         }
                     }
                 }
