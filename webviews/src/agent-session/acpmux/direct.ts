@@ -1214,6 +1214,9 @@ export class AcpmuxDirectClient {
   private liveTakeOver?: { canFork: boolean; command?: string };
   /// The chat `liveTakeOver` asks about: the choice is shown only on that chat.
   private liveTakeOverFor?: string;
+  /// The watch `watchLive` opened for a chat acpmux refused to resume, with that refused adopt: its
+  /// Fork It starts the fork at once from it (`takeOver`), as the choice alone did.
+  private liveWatch?: { sessionId: string; adopt: AcpmuxAdopt };
   private summary: Record<string, any> | undefined;
   /// The event seq the summary's config options are current as of: attach's `lastSeq` (its session
   /// names the options it runs now), then each newer config update. A replayed update before it is
@@ -6555,27 +6558,31 @@ export class AcpmuxDirectClient {
   }
   /// The chat acpmux refused to resume because another app still runs it (`adopt.live`), shown
   /// here View Only instead: its transcript at once, following that app, with the same Fork It and
-  /// Open Anyway over it (they take the watched chat over, `takeOver`). "there's frequently nothing
-  /// wrong with showing the same session but in two different places" (Leo, 2026-10-29). False
-  /// when it cannot be watched (a daemon or harness without watching): the choice shows alone.
+  /// Open Anyway over it (`takeOver`). "there's frequently nothing wrong with showing the same
+  /// session but in two different places" (Leo, 2026-10-29). False when it cannot be watched (a
+  /// daemon or harness without watching): the choice shows alone. True also when the person moved
+  /// to another chat (or the pane closed) meanwhile: then nothing more shows for this one.
   private async watchLive(adopt: AcpmuxAdopt, live: { canFork: boolean; command?: string }): Promise<boolean> {
     const watch: AcpmuxAdopt = { harness: adopt.harness, agentSessionId: adopt.agentSessionId, watch: true };
+    const generation = this.selectionGeneration;
+    const moved = () => this.closed || generation !== this.selectionGeneration;
     let result: any;
     try {
       result = await this.request("session/new", newSessionParams({ adopt: watch }));
     } catch {
-      return false;
+      return moved();
     }
+    if (moved()) return true;
     const sessionId = result?.sessionId ? String(result.sessionId) : undefined;
     if (!sessionId) return false;
     if (!adoptedBy(result, watch)) {
       await this.request("_acpmux/kill", { sessionId, purge: true }).catch(() => undefined);
-      return false;
+      return moved();
     }
-    this.adopted = sessionId;
     this.liveTakeOver = live;
     this.liveTakeOverFor = sessionId;
-    await this.select(sessionId);
+    this.liveWatch = { sessionId, adopt };
+    if ((await this.select(sessionId)) === sessionId) this.adopted = sessionId;
     return true;
   }
   /// Adopts the chat acpmux refused as live elsewhere anyway: `open` resumes it as it is (two
@@ -6638,6 +6645,13 @@ export class AcpmuxDirectClient {
     if (ifLive && (!live || (ifLive === "fork" && !live.canFork))) return false;
     this.liveTakeOver = undefined;
     this.emit();
+    // A watch `watchLive` opened forks at once, as the choice alone did: a fork taken over from a
+    // watch keeps its source only in the daemon's memory until its first prompt.
+    const watched = this.liveWatch?.sessionId === sessionId ? this.liveWatch : undefined;
+    if (ifLive === "fork" && watched) {
+      await this.adoptChat({ ...watched.adopt, ifLive: "fork" });
+      return true;
+    }
     try {
       await this.request("_acpmux/watch_take_over", { sessionId, ...(ifLive ? { ifLive } : {}) });
       return true;
