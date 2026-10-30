@@ -230,6 +230,12 @@ class RouteStep(unittest.TestCase):
             self.run_step("workflow_dispatch", BASE_TIER="true", GITHUB_REF="refs/heads/lane/x")
 
 
+def tier_suites():
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    import base_red_excuse
+    return base_red_excuse.SUITES
+
+
 class Workflows(unittest.TestCase):
     def test_the_dispatch_input_names_the_tested_commit(self):
         text = WORKFLOW.read_text()
@@ -246,6 +252,21 @@ class Workflows(unittest.TestCase):
     def test_push_attribution_runs_for_a_red_base_tier(self):
         jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
         self.assertIn("inputs.base_tier == true", jobs["push-attribution"]["if"])
+
+    def test_a_red_crash_gate_alone_starts_push_attribution(self):
+        # failure() reads only the needed jobs: the crash gate is one of the base tier's jobs.
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        self.assertIn("crash-ends-app", jobs["push-attribution"]["needs"])
+
+    def test_a_base_tier_run_checks_generated_files_on_their_own_job(self):
+        # A pull request's standalone `cmux-next generated files` red is compared with the base tier's
+        # verdict for that job, so a base tier run never folds it into daemon-test's build.
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        host = jobs["path_route"]["outputs"]["generated_host"]
+        self.assertTrue(host.startswith("${{ steps.route.outputs.generated != 'true' && 'none' || "
+                                        "inputs.base_tier == true && 'generated-files' || "), host)
+        self.assertIn("cmux-next generated files", tier_suites()["cmux-next base tier · "])
+        self.assertNotIn("cmux-next generated files (shared build)", tier_suites()["cmux-next base tier · "])
 
     def test_the_kick_is_serialized_and_cancels_nothing(self):
         kick_doc = yaml.safe_load(KICK.read_text())

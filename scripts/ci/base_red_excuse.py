@@ -127,10 +127,11 @@ JOBS_PAGE = 30
 SUITES = {
     "cmux-next tip Swift suite · ": frozenset({"cmux-next swift test"}),
     "cmux-next tip daemon suite · ": frozenset({"cmux-next daemon tests"}),
-    # cmux-next.yml base_tier: path routing's base_tier branch routes these, and nothing else.
+    # cmux-next.yml base_tier: path routing's base_tier branch routes these, and nothing else. Its generated
+    # files are checked on the generated-files job itself (path routing's generated_host), never folded.
     "cmux-next base tier · ": frozenset({
-        "cmux-next daemon tests", "cmux-next generated files", "cmux-next generated files (shared build)",
-        "cmux app scheme compile (Debug)", "cmux-next crash ends the app",
+        "cmux-next daemon tests", "cmux-next generated files", "cmux app scheme compile (Debug)",
+        "cmux-next crash ends the app",
     }),
     # cmux-next.yml dispatches that route neither swift-test nor daemon-test (path routing's dev_daily branch).
     "cmux NEXT DEV daily": frozenset(),

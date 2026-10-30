@@ -107,7 +107,6 @@ BASE_TIER_JOBS = frozenset({
     "cmux app scheme compile (Debug)",
     "cmux-next daemon tests",
     "cmux-next generated files",
-    "cmux-next generated files (shared build)",
     "cmux-next crash ends the app",
 })
 # One job, many static checks. Its last step lists each red one; the queue
