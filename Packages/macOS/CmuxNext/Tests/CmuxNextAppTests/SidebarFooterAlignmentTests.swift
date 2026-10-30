@@ -79,11 +79,15 @@ import Testing
 
         // The avatar is the sidebar's icon box (16 pt at compact), as before #23757 (Lawrence
         // 2026-10-21: "bottom footer thing too big, revert to old icon sizes"), centered in its
-        // square, and the Search button sits flush against that square: the two controls' own
-        // insets are the gap, as a toolbar's buttons.
+        // square. The Search button holds the row's right end, its inset mirroring the avatar's
+        // at the left (Lawrence 2026-10-27: "move the bottom-left search thing to the right side",
+        // f004cef0aa9), and never covers the avatar's square when the row is too narrow for both.
         #expect(abs(circle.width - SidebarStyle.iconBox) <= 0.25, "avatar \(circle) is not the icon box \(SidebarStyle.iconBox)")
         #expect(abs(circle.midX - chip.midX) <= 0.25, "avatar \(circle) off its square's center \(chip)")
-        #expect(abs(search.minX - chip.maxX) <= 0.25, "search \(search) flush after the avatar's square \(chip)")
+        let mirrored = h.sidebar.bounds.maxX - (chip.minX - h.sidebar.bounds.minX) - search.width
+        let searchX = max(chip.maxX, mirrored)
+        #expect(abs(search.minX - searchX) <= 0.5, "search \(search) not at the row's right end \(searchX) (avatar \(chip))")
+        #expect(search.minX >= chip.maxX - 0.25, "search \(search) covers the avatar's square \(chip)")
 
         // The line's taller control ends exactly the bottom margin above the window's edge (flipped: maxY is the bottom).
         let lineBottom = max(search.maxY, chip.maxY)
