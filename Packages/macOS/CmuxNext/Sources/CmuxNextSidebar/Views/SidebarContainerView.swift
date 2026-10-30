@@ -28,12 +28,19 @@ public final class SidebarContainerView: NSView {
 
     /// Clips the sliding panel to the container's (animating) width.
     private let clip = NSView()
+    /// The reach currently visible during a slide, derived from the clip rather than the logical
+    /// container width so hover columns and page occlusion follow the panel as it gives the gutter back.
+    public var visualPaneReach: CGFloat { max(0, clip.frame.width - bounds.width) }
     /// Holds the sidebar at `model.width`, pinned to the clip's edge that
     /// faces the content (`side`).
     private let panel = NSView()
     /// Internal, not private: the resize drag sets it from its own file
     /// (`SidebarContainerView+Resize`).
-    lazy var panelWidth: NSLayoutConstraint = panel.widthAnchor.constraint(equalToConstant: model.width)
+    lazy var panelWidth: NSLayoutConstraint = panel.widthAnchor.constraint(equalToConstant: model.width + paneReach)
+    /// The clip extends into the curved pane gutter while the sidebar is shown.
+    /// Internal so the side and motion extensions can retarget it without a second layout model.
+    lazy var clipLeading: NSLayoutConstraint = clip.leadingAnchor.constraint(equalTo: leadingAnchor)
+    lazy var clipTrailing: NSLayoutConstraint = clip.trailingAnchor.constraint(equalTo: trailingAnchor)
     let handle: SidebarResizeHandle
     /// The thin rail (`sidebar.style` = rail) and its open state (`SidebarContainerView+Rail`).
     public let railView = SidebarRailView()
@@ -134,13 +141,14 @@ public final class SidebarContainerView: NSView {
             sidebarView.trailingAnchor.constraint(equalTo: panel.trailingAnchor),
             sidebarView.topAnchor.constraint(equalTo: panel.topAnchor),
             sidebarView.bottomAnchor.constraint(equalTo: panel.bottomAnchor),
-            clip.leadingAnchor.constraint(equalTo: leadingAnchor),
-            clip.trailingAnchor.constraint(equalTo: trailingAnchor),
+            clipLeading,
+            clipTrailing,
             clip.topAnchor.constraint(equalTo: topAnchor),
             clip.bottomAnchor.constraint(equalTo: bottomAnchor),
             panel.topAnchor.constraint(equalTo: clip.topAnchor),
             panel.bottomAnchor.constraint(equalTo: clip.bottomAnchor),
         ])
+        setClipReach(paneReach, collapsed: isPanelCollapsed, animated: false)
         sidePins = Self.pins(panel: panel, clip: clip)
         NSLayoutConstraint.activate(sidePins[side] ?? [])
         mountHandle()
@@ -311,7 +319,8 @@ public final class SidebarContainerView: NSView {
         targetCollapseMotion = SidebarTunables.collapseMotion.value
         isWidthAnimating = false
         widthConstraint.constant = targetWidth
-        panelWidth.constant = model.width
+        panelWidth.constant = model.width + paneReach
+        setClipReach(paneReach, collapsed: isPanelCollapsed, animated: false)
         panel.isHidden = isPanelCollapsed
         panel.alphaValue = 1
         syncHandleVisibility()
@@ -325,7 +334,11 @@ public final class SidebarContainerView: NSView {
         let hidden = isPanelCollapsed
         let target = model.displayWidth
         let collapseMotion = SidebarTunables.collapseMotion.value
-        panelWidth.constant = model.width
+        let reach = paneReach
+        panelWidth.constant = model.width + reach
+        if !isWidthAnimating, targetWidth == target {
+            setClipReach(reach, collapsed: hidden, animated: false)
+        }
         syncHandleVisibility()
         if handle.isDragging, !hidden {
             targetWidth = target
@@ -362,6 +375,7 @@ public final class SidebarContainerView: NSView {
         // A toggle mid-animation starts from the constant on screen.
         Motion.sidebar.animateTimed(hidden ? .disappear : .appear, in: self, {
             Motion.animator(widthConstraint, in: self).constant = target
+            self.setClipReach(reach, collapsed: hidden, animated: true)
         }, completion: { [weak self] in
             guard let self, generation == self.animationGeneration else { return }
             self.widthCompletedGeneration = generation
