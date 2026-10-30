@@ -113,6 +113,16 @@ import Testing
     }
 
     /// Marking a workspace Done moves its row: the list lays out again instead of patching the row in place.
+    @Test func finishedAgentStateMovesTheRow() {
+        var model = SidebarModel(sections: Self.sections())
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(SidebarTunables.all)
+        TunableStore.shared.set(SidebarTunables.doneFold.key, .bool(true))
+        defer { TunableStore.shared.set(SidebarTunables.doneFold.key, nil) }
+        #expect(!model.patchWorkspaces([Self.ws("a", chip: .done)]))
+        #expect(!model.patchWorkspaces([Self.ws("c", chip: .failed)]))
+    }
+
     @Test func markingDoneMovesTheRow() {
         let model = SidebarModel(sections: Self.sections())
         TunableStore.shared.activate(file: nil)

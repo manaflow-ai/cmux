@@ -19,6 +19,8 @@ performance.
 
 - 6cc7f54550f: Finished, failed, and lost agent chats settle into the existing collapsed Done fold; waiting and CI-failing chats stay visible. Leo: "Finished and closed chats settle into a collapsed group (or drop to the bottom); they never disappear."
 
+- 5a2696b6dc1: Agent state transitions into done, failed, or lost trigger the finished fold layout so rows settle at the bottom. Leo: "Finished and closed chats settle into a collapsed group (or drop to the bottom); they never disappear."
+
 ## Rule for every sidebar change
 
 ### Group editor opening (2026-10-28)
