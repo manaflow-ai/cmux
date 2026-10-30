@@ -763,18 +763,18 @@
 /* The prompt's read receipt and its age lead the row, quiet (Leo's spec): a 16px double check in a
    24px square, the age in the caption size, a dot, then the buttons. (An answer's age is in the
    body size, 8px after its buttons: .cv-turn-time.) */
+/* Its last glyph ends 8 before the first control's 16 glyph box, in every action row (grid.md 5.5,
+   action row; Leo, 2026-10-27: "evenly spaced, compact, unified"): the control's own inset plus this
+   end padding make the 8, whatever the control slot. */
 .cv-user__time {
   padding-inline-start: 2px;
+  padding-inline-end: calc(8px - (var(--cv-footer-control-slot) - var(--cv-glyph-slot)) / 2);
   color: var(--cv-text-dim);
   font-size: var(--text-caption);
   line-height: var(--cv-meta-row);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   letter-spacing: var(--text-caption--letter-spacing);
-}
-/* At the end of another agent's message line its age comes straight before Copy. */
-.cv-received-actions .cv-user__time {
-  padding-inline-end: 6px;
 }
 .cv-user__dot {
   padding-inline: 4px;

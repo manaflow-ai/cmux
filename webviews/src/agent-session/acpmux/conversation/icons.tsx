@@ -71,9 +71,10 @@ export const OpenTab = (p: CvIconProps) => (
   </Svg>
 );
 
+/// Its ink (7.5 by 3.75) centres on the box's middle, so it sits on a row's mid beside 16 glyphs.
 export const ChevronDown = (p: CvIconProps) => (
   <Svg {...p}>
-    <path d="M4.25 6.25 8 10l3.75-3.75" />
+    <path d="M4.25 6.125 8 9.875l3.75-3.75" />
   </Svg>
 );
 
@@ -140,11 +141,20 @@ export const Undo = (p: CvIconProps) => (
   </Svg>
 );
 
-/// A counterclockwise arrow: send the prompt again.
-export const Retry = (p: CvIconProps) => (
-  <Svg {...p}>
-    <path d="M3.25 8a4.75 4.75 0 1 0 1.4-3.36" />
-    <path d="M3.25 2.75v2.5h2.5" />
+/// Send the prompt again: the shared clockwise arrow (the icon pack's `action.reload`, SF's
+/// arrow.clockwise), one arc with its head on the arc's end, drawn on the pack's 24 grid at this set's
+/// stroke (1.25 at 16) so it matches Copy and Pin beside it. The old hand-drawn arrow left its head
+/// off the arc (Leo, 2026-10-27: "Looks like a, like a mangled little corpse on that arrow bit").
+/// message-action-row-browser.test.ts keeps these paths equal to the pack's.
+export const RETRY_PATHS = [
+  "M18.5 9.25C20.197 12.189 19.709 15.902 17.309 18.302C14.909 20.703 11.197 21.192 8.257 19.496C5.317 17.8 3.883 14.341 4.759 11.062C5.636 7.783 8.606 5.502 12 5.5",
+  "M9.7 3.2L12 5.5L9.7 7.8",
+] as const;
+export const Retry = ({ strokeWidth = 1.25, ...p }: CvIconProps) => (
+  <Svg {...p} box={24} strokeWidth={(strokeWidth * 24) / 16}>
+    {RETRY_PATHS.map((d) => (
+      <path key={d} d={d} />
+    ))}
   </Svg>
 );
 
