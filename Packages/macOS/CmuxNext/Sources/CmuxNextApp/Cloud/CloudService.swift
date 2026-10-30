@@ -23,6 +23,9 @@ final class CloudService {
     let configuration: CloudConfiguration
     let auth: CloudAuth
     @ObservationIgnored let api: CloudAPIClient
+    /// A machine's exec and file routes: ``api`` on the legacy link, the cmux API Worker's on the
+    /// app server link, whose machines have no `/api/vm` row (cmux-platform#89).
+    @ObservationIgnored let machineAPI: CloudAPIClient
     /// The machines a `cloud deliver-secrets` runs for now: one delivery per machine at a time.
     @ObservationIgnored var deliveringSecrets: Set<String> = []
     @ObservationIgnored let paths: CloudPaths
@@ -136,7 +139,20 @@ final class CloudService {
             tokens: { try await auth.tokens() },
             teamID: { await auth.teamID }
         )
-        let api = api
+        let identity = MacInstallIdentity(
+            store: .forApp(directory: paths.root.appendingPathComponent("install", isDirectory: true),
+                           service: "\(configuration.bundleID ?? "cmux").install-key.\(configuration.ownerAPIBaseURL().host ?? "unknown")",
+                           team: CodeSigningTeam.current(), isDebugBuild: configuration.isDebugBuild),
+            transport: InstallHTTPTransport(baseURL: configuration.ownerAPIBaseURL()),
+            deviceName: Self.deviceName,
+            clientVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        )
+        installIdentity = identity
+        machineAPI = configuration.linkSource == .appServer
+            ? CloudAPIClient.workerMachines(baseURL: configuration.ownerAPIBaseURL(), accessToken: { try await auth.tokens().access },
+                                            teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) })
+            : api
+        let api = api, machineAPI = machineAPI
         let build = LaunchIdentity.current().build
         let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
         let environment = ProcessInfo.processInfo.environment
@@ -158,15 +174,16 @@ final class CloudService {
                     }
                     return CloudCodexBrokerAdapter.Launch(executable: acpmux.executable, prefix: [], codex: codex)
                 }
-            }, target: { scope, machineID in CloudCodexBrokerTarget(api: api, machineID: machineID, scope: scope) })
-        installIdentity = MacInstallIdentity(
-            store: .forApp(directory: paths.root.appendingPathComponent("install", isDirectory: true),
-                           service: "\(configuration.bundleID ?? "cmux").install-key.\(configuration.ownerAPIBaseURL().host ?? "unknown")",
-                           team: CodeSigningTeam.current(), isDebugBuild: configuration.isDebugBuild),
-            transport: InstallHTTPTransport(baseURL: configuration.ownerAPIBaseURL()),
-            deviceName: Self.deviceName,
-            clientVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-        )
+            }, target: { [linkSource = configuration.linkSource, weak machines] scope, machineID in
+                guard linkSource == .appServer else { return CloudCodexBrokerTarget(api: api, machineID: machineID, scope: scope) }
+                // A Worker machine: its app link's own owner answer and the app's record, never /api/vm.
+                return CloudCodexBrokerTarget(api: machineAPI, machineID: machineID, scope: scope, callerOwnsVM: {
+                    guard let link = await MainActor.run(body: { machines?.session(machineID)?.appLink }) else { return false }
+                    return await link.ownerLink != nil
+                }, isLive: {
+                    await MainActor.run { machines?.session(machineID)?.machine.status.isLive ?? false }
+                })
+            })
         hostReplica = CloudHostReplicaFollower(origin: HomeCloudLease.origin(configuration.ownerAPIBaseURL()),
             clientVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
             installToken: { [installIdentity] in let token = try await installIdentity.installToken(); return (token, HomeCloudLease.expiry(ofJWT: token) ?? HomeCloudLease.fallbackExpiry(now: Date())) },
@@ -174,7 +191,6 @@ final class CloudService {
         hands = HandsService(
             apiBaseURL: configuration.ownerAPIBaseURL(), accessToken: { [auth] in try await auth.tokens().access }, identity: installIdentity,
             presence: HandPresenceKeyStore(directory: paths.root.appendingPathComponent("install", isDirectory: true)))
-        let identity = installIdentity
         let launcher = configuration.linkSource == .appServer ? CloudLinkLauncher.forApp(build: LaunchIdentity.current().build) : nil
         link = CloudLinkLifecycle(launcher: launcher, installID: { [identity] in await identity.installID() },
                                   connection: { [machines] in machines.local.connection })
@@ -406,8 +422,11 @@ final class CloudService {
     /// one signed in when it lands, changes nothing: it can neither bring back
     /// a signed-out account's machines, nor undo a create or delete it did not
     /// see, nor mark the store loaded with an older answer than the latest.
-    func refresh() async {
-        guard auth.isSignedIn, unavailableReason == nil else { return }
+    /// True only when this call's own list landed: a failed, skipped or superseded call is false,
+    /// whatever the store held before it.
+    @discardableResult
+    func refresh() async -> Bool {
+        guard auth.isSignedIn, unavailableReason == nil else { return false }
         lastRefresh = .now
         listGeneration += 1
         let generation = listGeneration
@@ -424,7 +443,7 @@ final class CloudService {
                 list = listed.machines
                 limits = listed.limits
             }
-            guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return }
+            guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return false }
             machines.cloudLimits = limits
             if let limits { planObserved(limits.planId) }
             lastError = nil
@@ -433,17 +452,21 @@ final class CloudService {
             loadedAccount = account
             listLoadedAt = .now
             await startHubForSSHRoutes()
+            return true
         } catch {
-            guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return }
+            guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return false }
             lastError = CloudStrings.errorText(error)
             logger.error("machine list failed: \(String(describing: error), privacy: .public)")
+            return false
         }
     }
 
-    /// ``refresh()`` unless the list was read within `age`.
-    func refresh(ifOlderThan age: Duration) async {
-        if let last = lastRefresh, last.duration(to: .now) < age { return }
-        await refresh()
+    /// ``refresh()`` unless the list was read within `age`; true when the store then holds a list
+    /// the server answered within `age` for the account signed in now.
+    @discardableResult
+    func refresh(ifOlderThan age: Duration) async -> Bool {
+        if let last = lastRefresh, last.duration(to: .now) < age { return hasCurrentList(within: age) }
+        return await refresh()
     }
 
     /// Whom a machine list is for: the signed-in user and the team the API
@@ -507,7 +530,7 @@ final class CloudService {
         session.resumer = { [weak self] id in try await self?.resumeMachine(id) }
         // An attach reads a record that may be stale (paused behind the app) again first.
         session.refresher = { [weak self] force in
-            if force { await self?.refresh() } else { await self?.refresh(ifOlderThan: .seconds(30)) }
+            if force { _ = await self?.refresh() } else { _ = await self?.refresh(ifOlderThan: .seconds(30)) }
         }
         machines.add(session)
         session.connect()
@@ -564,7 +587,7 @@ final class CloudService {
                                                           // The first send's team, for every later call about this machine.
                                                           let team = creation?.request.wasSent == true ? creation?.request.team : await api.currentTeam()
                                                           creation?.markRequestSent(team: team)
-                                                          return try await Self.createWithKey(api.pinningTeam(team), name: name, request: request, idlePause: idlePause, onSent: onSent)
+                                                          return try await api.pinningTeam(team).createWithKey(name: name, request: request, idlePause: idlePause, onSent: onSent)
                                                       })
         logger.info("created machine \(machine.id, privacy: .public)")
         try proceed()
@@ -590,35 +613,6 @@ final class CloudService {
         listGeneration += 1
         return session
     }
-
-    /// `POST /api/vm` with the request's one idempotency key. The server answers
-    /// `503 vm_operation_in_progress` when provisioning outlasts its answer deadline and goes on
-    /// creating, and `409 vm_create_in_progress` to the same key while it still has no provider
-    /// machine: the same key is sent again (the server answers the machine once it exists), up
-    /// to ``inProgressRetries`` times, waiting ``inProgressDelay`` between, so a slow create still
-    /// ends with its machine and its bootstrap.
-    static func createWithKey(_ api: CloudAPIClient, name: String?, request: CloudMachineRequest, idlePause: Int?,
-                              onSent: @escaping @MainActor @Sendable () async -> Void) async throws -> CloudMachine {
-        // `api` is pinned to the first send's team: the server scopes a key per team, so a team
-        // switched in the app meanwhile must not make the same key a new machine in the other team.
-        let send = { try await api.createMachine(displayName: name, memoryMb: request.memoryMb, autosize: request.autosize, idlePauseMinutes: idlePause,
-                                                    idempotencyKey: request.idempotencyKey, onSent: onSent) }
-        for _ in 0..<inProgressRetries {
-            do {
-                return try await send()
-            } catch let CloudAPIError.http(status, code, _, _, _)
-                        where (status == 503 && code == "vm_operation_in_progress") || (status == 409 && code == "vm_create_in_progress") {
-                // wakeup-allow: bounded same-key retry of a create the server reports still in progress
-                try await ContinuousClock().sleep(for: inProgressDelay)
-            }
-        }
-        return try await send()
-    }
-
-    /// 70 tries 15 s apart: past the server's 16-minute provisioning budget (routeDeadline.ts
-    /// `create`), with each try's own answer time on top.
-    static let inProgressRetries = 70
-    static let inProgressDelay: Duration = .seconds(15)
 
     func deleteMachine(_ machineID: String) async throws {
         let brokerScope = auth.user.map { CloudCodexBrokerScope(userID: $0.id, teamID: auth.teamID) }

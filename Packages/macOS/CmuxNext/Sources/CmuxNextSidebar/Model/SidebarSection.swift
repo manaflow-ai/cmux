@@ -57,7 +57,7 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
         /// The machine answers, but its cmux-tui did not start (or the
         /// remote command failed); the detail carries its error.
         case failed
-        /// A Cloud machine that ran lost its link, or its resume failed; a
+        /// A Cloud machine that ran lost its link or had it revoked; a
         /// click connects it again. The detail carries why.
         case disconnected
         /// A Cloud machine its owner (or a caller) paused; resumes on attach.
