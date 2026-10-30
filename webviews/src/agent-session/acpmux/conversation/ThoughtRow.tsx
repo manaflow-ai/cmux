@@ -220,13 +220,15 @@ export const ThoughtRow = memo(function ThoughtRow({
 export function StepThought({ item, id, lead = false }: { item: AcpmuxActivity; id: string; lead?: boolean }) {
   const t = useT();
   const text = item.text.trim();
-  // Read from the kept choices on every draw, so the row follows its `id` even when React reuses it.
-  const [, redraw] = useState(0);
-  const open = choices.get(id) ?? lead;
+  // The reader's choice for this `id` is state, so a click draws again under the React Compiler
+  // (a render that only read the kept choices was memoized on `id` and never changed); a row React
+  // reuses for another `id` reads that one's kept choice.
+  const [chosen, setChosen] = useState<{ id: string; open: boolean } | undefined>(undefined);
+  const open = chosen?.id === id ? chosen.open : (choices.get(id) ?? lead);
   const bodyId = useId();
   const choose = (next: boolean) => {
     choices.set(id, next);
-    redraw((count) => count + 1);
+    setChosen({ id, open: next });
   };
   useFindReveal(
     useMemo(() => [item], [item]),
@@ -239,7 +241,8 @@ export function StepThought({ item, id, lead = false }: { item: AcpmuxActivity; 
   );
   // A later thought's quiet label, as ThoughtRow's folded line reads.
   const ms = lead || thoughtLayout.header() !== "duration" ? undefined : thoughtDuration(item);
-  const label = ms !== undefined && ms >= 1000 ? t("tools.thoughtFor", { time: formatDuration(ms) }) : t("tools.thought");
+  const label =
+    ms !== undefined && ms >= 1000 ? t("tools.thoughtFor", { time: formatDuration(ms) }) : t("tools.thought");
   return (
     <>
       <button
