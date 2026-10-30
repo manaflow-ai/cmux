@@ -34,3 +34,18 @@ test("a browser profile clears the chosen kinds of browsing data over the chosen
   expect(form!.querySelector("[data-cleared]")).not.toBeNull();
   page.unmount();
 });
+
+test("a refused clear shows the native error instead of Cleared", async () => {
+  const page = await renderPage({
+    path: "/settings/browser",
+    mock: { failing: { "cmux.app.action.run": "cmux.browser.clear_refused" } },
+  });
+  const row = page.container.querySelector<HTMLElement>('[data-profile="p-work"]')!;
+  await act(async () => row.querySelector<HTMLButtonElement>(".host-toggle")!.click());
+  const form = row.querySelector<HTMLElement>("[data-clear-browsing-data]")!;
+  await act(async () => form.querySelector<HTMLButtonElement>("[data-clear]")!.click());
+  await settle();
+  expect(form.querySelector("[data-cleared]")).toBeNull();
+  expect(form.querySelector<HTMLElement>("[data-clear-error]")?.textContent).toBe("cmux.app.action.run failed");
+  page.unmount();
+});

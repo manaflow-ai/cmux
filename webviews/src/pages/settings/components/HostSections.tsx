@@ -502,16 +502,18 @@ function ClearBrowsingData({ target }: { target: string }) {
     cache: true,
   });
   const [cleared, setCleared] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const title = t("action.browserProfile.clearBrowsingData").replace(/…$/, "");
-  // "Cleared" once the app took the run; a refused run shows nothing.
+  // "Cleared" once the app took the run; a refused run shows the owner's error.
   const clear = async () => {
     setCleared(false);
-    try {
-      await store.runAction("browserProfile.clearBrowsingData", { range, ...kinds }, target);
-      setCleared(true);
-    } catch {
-      setCleared(false);
+    setError(null);
+    const reply = await store.runAction("browserProfile.clearBrowsingData", { range, ...kinds }, target);
+    if (!reply.ok) {
+      setError(reply.error.message);
+      return;
     }
+    setCleared(true);
   };
   return (
     <div className="host-field" data-clear-browsing-data="">
@@ -559,6 +561,11 @@ function ClearBrowsingData({ target }: { target: string }) {
         {cleared && (
           <output className="row-help" data-cleared="">
             {t("settingsWindow.browsingDataCleared")}
+          </output>
+        )}
+        {error && (
+          <output className="row-error" data-clear-error="" role="alert">
+            {error}
           </output>
         )}
       </span>
