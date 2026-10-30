@@ -62,11 +62,40 @@ class PublishedInTests(unittest.TestCase):
             elif method == "DELETE":
                 comments.pop()
 
-        with patch.object(module, "status_api", api), patch.object(module.time, "sleep"):
-            self.assertEqual(module.publish("o/r", 7, stable, comments.copy(), 0), "written")
-        self.assertEqual(writes, ["PATCH"])
+        with patch.object(module, "status_api", api), patch.object(module.time, "sleep") as sleep:
+            self.assertEqual(module.publish("o/r", 7, stable, comments.copy(), 7.5), "written")
+            self.assertEqual(writes, ["PATCH", "DELETE"])
+            self.assertEqual(len(comments), 1)
+            self.assertEqual(module.publish("o/r", 7, stable, comments.copy(), 7.5), "unchanged")
+        self.assertEqual(writes, ["PATCH", "DELETE"])
+        self.assertEqual([call.args for call in sleep.call_args_list], [(7.5,), (7.5,)])
         self.assertEqual(module.pr_status.parse(comments[0]["body"]),
                          {"checks": "green", "published": "Shipped in:\n" + nightly + "\n" + stable})
+
+    def test_failed_shared_status_write_keeps_legacy_history(self):
+        old = module.build_line("v1", "https://x/v1", "a" * 40)
+        new = module.build_line("v2", "https://x/v2", "b" * 40)
+        comments = [
+            {"id": 1, "body": module.pr_status.render({"checks": "green"}),
+             "user": {"login": "github-actions[bot]"}},
+            {"id": 2, "body": module.MARKER + "\nShipped in:\n" + old,
+             "user": {"login": "github-actions[bot]"}},
+        ]
+        writes = []
+        refusal = subprocess.CalledProcessError(1, "gh", stderr="HTTP 403: secondary rate limit")
+
+        def api(method, path, payload=None):
+            if method == "GET":
+                return comments
+            writes.append(method)
+            raise refusal
+
+        with patch.object(module, "status_api", api), patch.object(module.time, "sleep"):
+            with self.assertRaises(subprocess.CalledProcessError):
+                module.publish("o/r", 7, new, comments.copy(), 7.5)
+        self.assertEqual(writes, ["PATCH"])
+        self.assertEqual(len(comments), 2)
+        self.assertIn(old, comments[1]["body"])
 
     def test_standalone_migration_edits_without_new_timeline_entry(self):
         line = module.build_line("v1", "https://x/v", "a" * 40)
