@@ -62,8 +62,9 @@ enum AgentPaneCapture {
     }
 
     /// Runs the pick with `executable` (``tool``; tests pass a stub); `.failed` when it could not start.
-    /// Its caller is the main actor: the spawn runs on AsyncProcess's own queue, and the wait holds no thread.
-    nonisolated static func capture(window: Bool, to file: URL, executable: String = tool) async -> CaptureResult {
+    /// Its caller is the main actor, so it runs off it (`@concurrent`): the spawn runs on AsyncProcess's own
+    /// queue, the wait holds no thread, and the file check and cleanup never touch the disk on the main thread.
+    @concurrent nonisolated static func capture(window: Bool, to file: URL, executable: String = tool) async -> CaptureResult {
         // -x: no shutter sound; -o: no window shadow.
         let arguments = (window ? ["-i", "-W", "-o"] : ["-i"]) + ["-x", "-t", "png", file.path]
         let result: CaptureResult
