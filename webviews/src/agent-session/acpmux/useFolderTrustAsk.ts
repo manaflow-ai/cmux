@@ -31,6 +31,9 @@ export function answerFolder(ask: { cwd: string; repo?: TrustRepo }, scope: "rep
   return scope === "repo" && ask.repo ? ask.repo.root : ask.cwd;
 }
 
+/// What `visitOf` records for a request made from a stale render: no visit ever matches it.
+const STALE_VISIT = "stale:";
+
 /// A folder question, or its answer saving (Use was clicked), holds only the chat it was asked in:
 /// the same session id and, when the client named one, the same visit. Two fresh chats share no
 /// session id, so the visit (`trustVisit` in App.tsx) tells them apart.
@@ -40,6 +43,9 @@ export function inThisVisit(
   visit: unknown,
 ): boolean {
   if (!held || held.sessionId !== sessionId) return false;
+  // A stale render (the client already moved on: trustVisit's symbol) matches no chat, and neither
+  // does a request made from one (`visitOf` marks it).
+  if (typeof visit === "symbol" || held.visit?.startsWith(STALE_VISIT)) return false;
   // An established chat is its own scope across visits (A → B → A keeps its question); only fresh
   // chats, which share no session id, are told apart by the visit.
   if (sessionId !== undefined) return true;
@@ -51,7 +57,7 @@ export function inThisVisit(
 /// moved on) records a mark no visit ever matches, so what it started never shows in another chat.
 export function visitOf(visit: unknown): { visit?: string } {
   if (typeof visit === "string") return { visit };
-  if (typeof visit === "symbol") return { visit: `stale:${crypto.randomUUID()}` };
+  if (typeof visit === "symbol") return { visit: `${STALE_VISIT}${crypto.randomUUID()}` };
   return {};
 }
 
