@@ -192,7 +192,8 @@ await requireBrowserLane("new-tab-draft-survives-host-failure.test.ts", async ()
         const input = node as HTMLInputElement | HTMLTextAreaElement;
         return [input.selectionStart, input.selectionEnd, input.value.length];
       });
-      expect(selection).toEqual([29, 29, 29]);
+      const draftLength = "compare the two retry policies".length;
+      expect(selection).toEqual([draftLength, draftLength, draftLength]);
       // No click or caret adjustment: the very next key after retry must append.
       await page.keyboard.type("!");
       expect(await page.locator(field).inputValue()).toBe("compare the two retry policies!");
