@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -11,7 +12,7 @@ import Testing
 /// (cx-r650e) while cmux-tui starts. The sidebar has nothing better to wait for: it shows in the
 /// window's first frame, not after the first workspace arrives. Driven like the launch: a fresh
 /// session, the real daemon, the app's launch window.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(2)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+@MainActor @Suite(.serialized, .timeLimit(.minutes(2)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"), .closesItsWindows)
 struct FreshLaunchSidebarTests {
     @MainActor private final class Presented {
         var sidebarShown: [Bool] = []

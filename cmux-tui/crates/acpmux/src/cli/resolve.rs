@@ -102,6 +102,9 @@ fn card(s: &Value) -> String {
     row("model", model(&s["model"]));
     let branch = s["gitBranch"].as_str().map(|b| format!("  [{b}]")).unwrap_or_default();
     row("cwd", format!("{}{branch}", text("cwd")));
+    if s["movedTo"].is_object() {
+        row("moved", crate::cli::session_move_plan::moved_to_text(&s["movedTo"]));
+    }
     let lane = &s["lane"];
     if let Some(state) = lane["state"].as_str() {
         let title = lane["title"].as_str().or(s["title"].as_str()).unwrap_or_default();
