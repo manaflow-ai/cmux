@@ -185,6 +185,7 @@ let package = Package(
             "CmuxMobileChief", "CmuxMobileTransport", "CmuxMobileModel", "CmuxMobileAgentChat",
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
             .product(name: "CmuxConversationCore", package: "CmuxConversation"),
+            .product(name: "CmuxConversationUI", package: "CmuxConversation", condition: .when(platforms: [.iOS])),
         ]),
     ],
     swiftLanguageModes: [.v6]
