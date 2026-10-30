@@ -51,11 +51,13 @@ import WebKit
         ])).get()
 
         #expect(try await page.read("document.getElementById('upload').files[0].size") == .number(Double(count)))
-        let correct = try await page.webView.callAsyncJavaScript(
-            "const bytes = new Uint8Array(await document.getElementById('upload').files[0].arrayBuffer()); return bytes.every((byte, index) => byte === index % 251);",
+        // A string result: a JS boolean from callAsyncJavaScript does not bridge to `Bool` here,
+        // while strings do (as `contents()` below relies on).
+        let mismatches = try await page.webView.callAsyncJavaScript(
+            "const bytes = new Uint8Array(await document.getElementById('upload').files[0].arrayBuffer()); let bad = 0; for (let i = 0; i < bytes.length; i++) if (bytes[i] !== i % 251) bad++; return bytes.length + ':' + bad;",
             arguments: [:], in: nil, in: .page
-        ) as? Bool
-        #expect(correct == true, "the original file must arrive byte-for-byte")
+        ) as? String
+        #expect(mismatches == "\(count):0", "the original file must arrive byte-for-byte")
     }
 
     @Test func interleavedUploadsKeepTheirOwnBytesAndCleanup() async throws {
