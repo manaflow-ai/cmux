@@ -15,7 +15,8 @@ const WAIT: Duration = Duration::from_secs(20);
 async fn chat(fails_over: bool) -> (Arc<Hub>, Arc<Session>) {
     use crate::config::{Config, StoreMode};
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-    let mut cfg = json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake"});
+    let mut cfg =
+        json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake"});
     if fails_over {
         cfg["harnesses"]["fake"]["fallback"] = json!("fake-fallback");
         let fallback = ["/usr/bin/env", "FAKE_FALLBACK=1", "python3", fake];
@@ -51,7 +52,10 @@ async fn record(
     let find = async {
         loop {
             let events = hub.events(&s.id, 0, 100_000).unwrap();
-            if let Some(e) = events.into_iter().find(|e| (dir.is_empty() || e.dir == dir) && e.kind == kind && ok(&e.msg)) {
+            if let Some(e) = events
+                .into_iter()
+                .find(|e| (dir.is_empty() || e.dir == dir) && e.kind == kind && ok(&e.msg))
+            {
                 return e;
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
