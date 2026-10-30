@@ -5048,19 +5048,23 @@ function AcpmuxPane() {
   /// Takes acpmux's trust refusal of a prompt (useFolderTrustAsk.ts): the question shows for the
   /// folder it named, and `again` sends the held prompt after Trust.
   const trustRefused = useRef<((error: unknown, again?: () => void) => boolean) | undefined>(undefined);
+  // Folder-choice cancellation invalidates all refusals from sends that were in flight.
+  // The direct client generation does not change when only the folder dialog is canceled.
+  const trustCancelEpoch = useRef(0);
   const pendingTrustRefusal = useRef<
     | {
         client: AcpmuxDirectClient;
         generation: number;
         sessionId?: string;
+        cancelEpoch: number;
         error: unknown;
         again?: () => void;
       }
     | undefined
   >(undefined);
-  const trustRouteOwner = useRef<{ client: AcpmuxDirectClient; generation: number; sessionId?: string } | undefined>(
-    undefined,
-  );
+  const trustRouteOwner = useRef<
+    { client: AcpmuxDirectClient; generation: number; sessionId?: string; cancelEpoch: number } | undefined
+  >(undefined);
   /// Keeps a send's gesture for the prompt acpmux held behind the trust question (heldPrompt.ts).
   const holdPrompt = useRef<(() => void) | undefined>(undefined);
   // A folder without a trust answer is asked about beside the chat's other permission asks as
@@ -5089,13 +5093,17 @@ function AcpmuxPane() {
   // The connection's action table outlives renders; Retry must read the current folder/auth gate.
   const retryAfterTrust = useRef(trustAsk.retry);
   retryAfterTrust.current = trustAsk.retry;
-  const cancelTrustResend = trustAsk.cancelResend;
+  const cancelTrustResend = useCallback(() => {
+    trustCancelEpoch.current += 1;
+    trustAsk.cancelResend();
+  }, [trustAsk.cancelResend]);
   const routeClient = trustRenderedOwner.current?.client;
   trustRouteOwner.current = routeClient
     ? {
         client: routeClient,
         generation: trustRenderedOwner.current?.generation ?? routeClient.trustGeneration,
         sessionId: trustRenderedOwner.current?.sessionId ?? snapshot.sessionId,
+        cancelEpoch: trustCancelEpoch.current,
       }
     : undefined;
   useEffect(() => {
@@ -5107,8 +5115,11 @@ function AcpmuxPane() {
       !client ||
       pending.client !== client ||
       pending.generation !== client.trustGeneration ||
+      pending.cancelEpoch !== trustCancelEpoch.current ||
       !owner ||
+      owner.cancelEpoch !== trustCancelEpoch.current ||
       owner.client !== client ||
+      owner.cancelEpoch !== pending.cancelEpoch ||
       owner.generation !== pending.generation ||
       (pending.sessionId !== undefined && client.shownSession()?.sessionId !== pending.sessionId)
     )
@@ -7459,7 +7470,7 @@ function AcpmuxPane() {
     /// composer's send saw before the switch selected its chat.
     const switchSendOwners = new Map<
       string,
-      { client: AcpmuxDirectClient; generation: number; sessionId: string | undefined }
+      { client: AcpmuxDirectClient; generation: number; sessionId: string | undefined; cancelEpoch: number }
     >();
     /// Sessions a switch started whose first summary has not arrived: it names the model a new
     /// chat on that harness starts on.
@@ -7739,18 +7750,24 @@ function AcpmuxPane() {
           )
             return;
           const owner = trustRouteOwner.current;
-          if (
-            owner &&
-            owner.client === client &&
-            owner.generation === client.trustGeneration &&
-            (owner.sessionId === undefined || owner.sessionId === shownSessionId)
-          ) {
+          if (owner) {
+            // A folder-choice cancel advances cancelEpoch before React necessarily paints the
+            // replacement route. Drop refusals from that canceled send rather than queueing them
+            // into pendingTrustRefusal for the next render.
+            if (
+              owner.client !== client ||
+              owner.cancelEpoch !== trustCancelEpoch.current ||
+              owner.generation !== client.trustGeneration ||
+              (owner.sessionId !== undefined && owner.sessionId !== shownSessionId)
+            )
+              return;
             if (trustRefused.current?.(refusal, again)) return;
           }
           pendingTrustRefusal.current = {
             client,
             generation: client.trustGeneration,
             sessionId: shownSessionId ?? sessionIdRef.current,
+            cancelEpoch: trustCancelEpoch.current,
             error: refusal,
             again,
           };
@@ -7815,11 +7832,12 @@ function AcpmuxPane() {
           }
         };
         /// The chat a trust refusal belongs to: the client, its selection generation and the session.
-        type TrustOwner = { client: AcpmuxDirectClient; generation: number; sessionId?: string };
+        type TrustOwner = { client: AcpmuxDirectClient; generation: number; sessionId?: string; cancelEpoch: number };
         // A trust refusal goes to the question of the chat it was sent in (`owner`), never another's.
         const routeTrustFor = (owner: TrustOwner, error: unknown, again?: () => void): boolean => {
           if (
             directClient.current !== owner.client ||
+            owner.cancelEpoch !== trustCancelEpoch.current ||
             owner.generation !== owner.client.trustGeneration ||
             owner.sessionId !== owner.client.selectedSession ||
             !isTrustRefusal(error)
@@ -7831,6 +7849,7 @@ function AcpmuxPane() {
             pending &&
             pending.client === owner.client &&
             pending.generation === owner.generation &&
+            pending.cancelEpoch === owner.cancelEpoch &&
             pending.sessionId === owner.sessionId &&
             pendingError?.reason === (error as { reason?: unknown }).reason &&
             pendingError?.cwd === (error as { cwd?: unknown }).cwd
@@ -7879,10 +7898,12 @@ function AcpmuxPane() {
           // A New Tab send may create/select its session inside ensureSession. Route a refusal by
           // the client's current selection generation rather than a render-time hook closure:
           // ensureSession can select before React has rendered the new chat.
+          const sendCancelEpoch = trustCancelEpoch.current;
           let sendOwner = {
             client,
             generation: client.trustGeneration,
             sessionId: client.shownSession()?.sessionId ?? sessionIdRef.current,
+            cancelEpoch: sendCancelEpoch,
           };
           const routeForSend: TrustRouter = (error, again) => routeTrustFor(sendOwner, error, again);
           // acpmux holds the prompt while the folder's trust question is open (on session/new
@@ -7942,6 +7963,7 @@ function AcpmuxPane() {
             client,
             generation: client.trustGeneration,
             sessionId: sessionId ?? client.shownSession()?.sessionId,
+            cancelEpoch: sendCancelEpoch,
           };
           await persistSession(sessionId);
           if (client.trustGeneration !== sendOwner.generation || client.selectedSession !== sendOwner.sessionId) {
@@ -8135,6 +8157,7 @@ function AcpmuxPane() {
               client,
               generation: client.trustGeneration,
               sessionId: client.shownSession()?.sessionId ?? sessionIdRef.current,
+              cancelEpoch: trustCancelEpoch.current,
             };
             return retryAfterTrust.current(() =>
               rowRetry.retry(failedRowIds(rowId, rowIds), (error, again) => routeTrustFor(owner, error, again)),
@@ -8440,6 +8463,7 @@ function AcpmuxPane() {
               client,
               generation: client.trustGeneration,
               sessionId: client.selectedSession,
+              cancelEpoch: trustCancelEpoch.current,
             });
             return client.send(
               text,
