@@ -628,21 +628,27 @@ export class SubagentFold {
       const agent = this.agents.get(child);
       if (!agent) continue;
       if (parent === null) {
-        if (agent.parent !== null) {
-          const entries = this.own.get(agent.parent);
-          if (entries) {
-            const kept = entries.filter((entry) => entry.spawned !== child);
-            if (kept.length !== entries.length) {
-              this.own.set(agent.parent, kept);
-              this.bump(agent.parent);
-            }
+        // The sender is the root: a child already at the top stays in the group it started in.
+        if (agent.parent === null) continue;
+        const entries = this.own.get(agent.parent);
+        if (entries) {
+          const kept = entries.filter((entry) => entry.spawned !== child);
+          if (kept.length !== entries.length) {
+            this.own.set(agent.parent, kept);
+            this.bump(agent.parent);
           }
         }
         agent.parent = null;
-        this.open ??= { id: `${SUBAGENTS}-root-${sender}`, at: agent.startedAt, version: 0, ids: [] };
-        if (!this.open.ids.includes(child)) this.open.ids.push(child);
-        this.groupOf.set(child, this.open);
-        this.changed.add(this.open);
+        // It draws where it started, never in whatever batch happens to be open now.
+        const previous = this.groupOf.get(child);
+        if (previous) {
+          previous.ids = previous.ids.filter((id) => id !== child);
+          this.changed.add(previous);
+        }
+        const group: Group = { id: `${SUBAGENTS}-root-${child}`, at: agent.startedAt, version: 0, ids: [child] };
+        this.groupOf.set(child, group);
+        this.bump(child);
+        this.changed.add(group);
         continue;
       }
       if (!this.canParent(child, parent)) continue;

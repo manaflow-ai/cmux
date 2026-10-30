@@ -900,3 +900,28 @@ test("late root seeding keeps a promoted child where it started, out of a later 
   expect(withChild?.subagents?.map(({ id }) => id)).toEqual(["child"]);
   expect(rows.some((row) => row.subagents?.some(({ id }) => id === "later"))).toBe(false);
 });
+
+test("late root seeding keeps a pending child of the root where it started, out of a later batch", () => {
+  const fold = new SubagentFold();
+  const replay = (update: any, acpmux: Record<string, unknown>, senderThreadId: string) => {
+    seq += 1;
+    const withCodex = { ...update, _meta: { codex: { collaboration: { tool: "spawnAgent", senderThreadId } } } };
+    const msg = { method: "session/update", params: { update: withCodex, _meta: { acpmux } } };
+    return fold.reduce({ seq, at: seq * 1000, msg }, withCodex);
+  };
+  // The root's sender id is not known yet: the child is pending on it, under a stale recorded parent.
+  replay({ sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "stale", parent: null }] }, "elsewhere");
+  replay({ sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "child", parent: "stale" }] }, "root-native");
+  const childAt = seq * 1000;
+  fold.closeBatch();
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "later", parent: null }] });
+  fold.takeRows();
+  fold.setRoot("root-native");
+
+  expect(fold.all().find(({ id }) => id === "child")?.parent).toBeNull();
+  const rows = fold.takeRows();
+  const withChild = rows.find((row) => row.subagents?.some(({ id }) => id === "child"));
+  expect(withChild?.at).toBe(childAt);
+  expect(withChild?.subagents?.map(({ id }) => id)).toEqual(["child"]);
+  expect(rows.some((row) => row.subagents?.some(({ id }) => id === "later"))).toBe(false);
+});
