@@ -123,6 +123,19 @@ extension AgentTabStore {
         tabs.pageChats.environments = state.map { SavedEnvironments(url: $0.appending(path: "environments.json")) }
         // The environment picker's Cloud machines: the account's, with Open and Resume (`cloudMachine.*`).
         AgentPaneCloudMachines.shared.wire(services)
+        // The composer strip's machine dot: the sidebar header's same link state; using a machine
+        // that is down runs its header's Reconnect.
+        tabs.machineLink.state = { [weak tabs, weak services] view in
+            guard let tabs, let services, let key = tabs.views.first(where: { $0.value === view })?.key,
+                  let machine = tabs.remoteMachineID(of: key) else { return nil }
+            return SidebarBridge.paneLink(machine, in: services.machines)
+        }
+        tabs.machineLink.use = { [weak services] machine in
+            services.map { SidebarBridge.paneUse(machine, in: $0.machines) } ?? .stuck
+        }
+        tabs.machineLink.reconnect = { [weak tabs] machine in
+            _ = tabs?.actionRegistry?.perform("machine.reconnect", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: machine), origin: .user))
+        }
         // The composer chips and shell commands chat pages held at the last quit (every relaunch's quit).
         tabs.relaunchWake = services.relaunchWake
         // The Chief home's acpmux: the Chief host's subagent tabs attach there.
@@ -208,6 +221,15 @@ extension AgentTabStore {
             guard let services, let (tab, pane) = services.locateTab(key) else { return nil }
             return (pane: pane.handle, daemon: services.machines.daemon(forTab: tab))
         }
+        tabs.paneWidth = { [weak services] key in
+            guard let services, let (_, pane) = services.locateTab(key) else { return nil }
+            return services.paneController(for: pane)?.view.bounds.width
+        }
+        tabs.selectInPane = { [weak services] key in
+            guard let services, let (tab, pane) = services.locateTab(key) else { return }
+            // Shown, and no keyboard focus moved: the chat keeps it (an unfocused subagent's tab, AgentBesidePlacement).
+            services.paneController(for: pane)?.selectWhenReportedKeepingFocus(surface: tab.surface)
+        }
         tabs.openInMainPane = { [weak services] chat, focus, open, created, finished in
             guard let services, let (_, pane) = services.locateTab(chat), let controller = services.paneController(for: pane),
                   let side = MainPaneLayout.side(from: controller, services: services) else { return nil }
@@ -265,13 +287,17 @@ extension AgentTabStore {
             }
             let machine = record.hostName ?? services.machines.machineName(daemon.machineID) ?? daemon.machineID
             let session = record.session ?? tabs.sessions[tabs.resolve(key)]
-            guard !daemon.isLocal, daemon.supports(DaemonCapability.agentSessionAttach.rawValue), let endpoint = daemon.remoteEndpoint else {
+            guard !daemon.isLocal, daemon.supports(DaemonCapability.agentSessionAttach.rawValue), daemon.remoteEndpoint != nil else {
                 // A chat this app started on that machine says what to do there; an older tab
                 // recorded for another Mac keeps the "runs on" notice.
                 guard started else { return nil }
                 return AgentTabRefusedHost(refusal: .startUnsupported(machine: machine))
             }
-            var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, hostID: record.host, endpoint: endpoint, servesTrust: daemon.supports(DaemonCapability.agentSessionTrust.rawValue),
+            // Opening the chat or sending to it while its machine is down reconnects the machine
+            // and goes on once its handshake finished, with no click.
+            let endpoint = AgentTabRemoteHost.endpoint(on: daemon)
+            let reconnect = tabs.machineLink.reconnecting(machine: daemon.machineID)
+            var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, hostID: record.host, endpoint: endpoint, reconnect: reconnect, servesTrust: daemon.supports(DaemonCapability.agentSessionTrust.rawValue),
                                            servesKeyedReason: daemon.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue))
             host.linksHost = AgentTabStore.registryHost(of: daemon)
             host.cloudMachineID = services.machines.session(daemon.machineID)?.machineID
@@ -279,9 +305,8 @@ extension AgentTabStore {
                 services.cloud.auth.isSignedIn && services.cloud.configuration.linkSource == .legacy
             // A Cloud machine (the app's own record, never the guest's) starts a chat or asks folder
             // trust only on the Cloud API's owner answer on the link the call goes over, checked as
-            // it is sent, through any daemon (an app-server link has none: no owner word).
-            let cloudLink: CloudMachineLink?? = services.machines.session(daemon.machineID).map(\.link)
-            let ownerLink = cloudLink.map { link -> AgentSessionAttachClient.OwnerLink in { await link?.ownerLink } }
+            // it is sent, through any daemon (the legacy link's or the app link's own answer).
+            let ownerLink = services.machines.session(daemon.machineID).map { AgentTabRemoteHost.ownerLink(appLink: $0.appLink, link: $0.link) }
             host.ownerLink = ownerLink
             if started {
                 // The tab may still be provisional here: each handshake reads its store surface.
@@ -299,7 +324,7 @@ extension AgentTabStore {
                 host.start = { [weak tabs] cwd, harness, model, personKey in
                     guard let tabs else { throw CancellationError() }
                     return try await tabs.startRemoteChat(key, machine: machine, cwd: cwd, harness: harness, model: model, personKey: personKey,
-                                                          ownerLink: ownerLink, endpoint: endpoint)
+                                                          ownerLink: ownerLink, reconnect: reconnect, endpoint: endpoint)
                 }
             }
             // cx-0q7o: the app's own ssh exec to that machine restarts its acpmux with a key.
