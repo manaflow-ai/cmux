@@ -504,6 +504,7 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
     test("explicitly disabling /btw retains the question without steering the main turn", async () => {
       const page = await openChat(MAIN, false);
       await type(page, `/btw ${QUESTION}`);
+      await page.locator(".acpmux-attachment-note").filter({ hasText: "Side questions are disabled" }).waitFor();
       await settled();
       expect(btws).toEqual([]);
       expect(prompts).toEqual([]);
