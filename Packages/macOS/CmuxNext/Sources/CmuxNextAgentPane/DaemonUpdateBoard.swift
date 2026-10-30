@@ -304,9 +304,10 @@ public final class DaemonUpdateBoard {
     nonisolated static let noticeID = "daemon-update.failures"
 
     /// The one toast of `failures` (failed or rolled-back updates; other states are left out), nil
-    /// when none: one machine's headline ("Couldn't update A", "A kept its previous build"), or
-    /// "Couldn't update A and B", with each machine's notice (its reason) in the tooltip and behind
-    /// Details, which shows them in the toast (Leo 2026-10-29: "the FUCKING details are FUCKING
+    /// when none: one machine's headline ("Couldn't update A", "A kept its previous build") with its
+    /// bare reason as the detail, or "Couldn't update A and B" with each machine's notice as a line
+    /// of the detail (each line names its machine and says whether it rolled back, which the
+    /// headline does not). The detail is the tooltip and what Details shows in the toast (Leo 2026-10-29: "the FUCKING details are FUCKING
     /// STUPID BECAUSE IT TAKES YOU TO FUCKING SETTINGS????").
     nonisolated static func noticeToast(_ failures: [DaemonUpdateEvent]) -> CmuxToast? {
         let shown = failures.compactMap { event in notice(event).map { (event, $0) } }
@@ -315,7 +316,8 @@ public final class DaemonUpdateBoard {
         let action = CmuxToast.Action.details(String(localized: "agentPane.daemonUpdate.notice.details", defaultValue: "Details",
                                                      bundle: .module))
         guard shown.count > 1 else {
-            return CmuxToast(id: noticeID, message: headline(first.0), detail: first.1, action: action, duration: CmuxToast.untilClosed)
+            return CmuxToast(id: noticeID, message: headline(first.0), detail: reason(first.0), action: action,
+                             duration: CmuxToast.untilClosed)
         }
         let names = ListFormatter.localizedString(byJoining: shown.map(\.0.displayName))
         let message = String(format: String(localized: "agentPane.daemonUpdate.notice.several", defaultValue: "Couldn't update %@",
@@ -333,6 +335,13 @@ public final class DaemonUpdateBoard {
         }
         return String(format: String(localized: "agentPane.daemonUpdate.notice.headline", defaultValue: "Couldn't update %@",
                                      bundle: .module), event.displayName)
+    }
+
+    /// The reason a failed or rolled-back update gave, alone (one machine's toast detail, under its
+    /// headline); nil for any other state.
+    nonisolated static func reason(_ event: DaemonUpdateEvent) -> String? {
+        if case .failed(let reason, _) = event.state { return reason }
+        return nil
     }
 
     /// The text of a failed or rolled-back update's toast; nil for any other state.

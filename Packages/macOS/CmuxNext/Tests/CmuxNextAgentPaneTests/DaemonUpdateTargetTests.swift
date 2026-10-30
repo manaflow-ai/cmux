@@ -228,11 +228,11 @@ import Testing
         #expect(toast.id == DaemonUpdateBoard.noticeID)
         #expect(toast.action?.revealsDetails == true)
         #expect(toast.message.contains("build-box") && !toast.message.contains("disk full"))
-        #expect(toast.detail?.contains("disk full") == true)
+        #expect(toast.detail == "disk full", "the detail repeats the headline: \(toast.detail ?? "nil")")
         let rolledBack = DaemonUpdateEvent(id: "acpmux-peer:build-box", displayName: "build-box",
                                            state: .failed(reason: "the new daemon did not answer", rolledBack: true), notify: true)
         let kept = try #require(DaemonUpdateBoard.noticeToast([rolledBack]))
-        #expect(kept.message.contains("build-box") && kept.detail?.contains("did not answer") == true)
+        #expect(kept.message.contains("build-box") && kept.detail == "the new daemon did not answer")
         #expect(kept.message != toast.message)
     }
 
