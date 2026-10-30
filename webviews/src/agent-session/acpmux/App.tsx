@@ -8438,11 +8438,11 @@ function AcpmuxPane() {
               const holder = composerHandle.current;
               const summary = snapshotRef.current?.summary;
               const intent = switchViewRef.current.intent;
-              const harness = intent?.harness ?? summary?.harness;
-              const model = intent?.config.model ?? summary?.model;
+              const selectedHarness = intent?.harness ?? summary?.harness;
+              const selectedModel = intent?.config.model ?? summary?.model;
               return folderContinuation.run({
                 start: () =>
-                  client.startSession(harness, undefined, undefined, undefined, true, model),
+                  client.startSession(selectedHarness, undefined, undefined, undefined, true, selectedModel),
                 current: () =>
                   directClient.current === client &&
                   client.trustGeneration === generation &&
