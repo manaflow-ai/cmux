@@ -257,31 +257,10 @@ pub enum Command {
         #[arg(long, default_value = "leo")]
         audience: String,
     },
-    /// List sessions on every host.
-    #[command(alias = "list", alias = "list-sessions")]
-    Ls {
-        /// Include tool inventories in JSON rows (otherwise read `session info SESSION`).
-        #[arg(long)]
-        with_tools: bool,
-        /// Only sessions in this state: running, ready, idle, closed, waiting.
-        #[arg(long)]
-        status: Option<String>,
-        /// Only sessions with a pending permission request.
-        #[arg(long)]
-        pending: bool,
-        /// Only sessions carrying this tag (key or key=value).
-        #[arg(long)]
-        tag: Option<String>,
-        /// Return at most N sessions, newest first.
-        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..))]
-        limit: Option<u64>,
-        /// Select comma-separated fields from each session record.
-        #[arg(long, value_name = "FIELD[,FIELD…]")]
-        fields: Option<String>,
-        /// Only sessions updated within this duration (for example `24h` or `30m`).
-        #[arg(long, value_name = "DURATION")]
-        since: Option<String>,
-    },
+    /// List sessions on every host: by default only live, named lanes, one short line each;
+    /// `--json` with no filter is every session's full record.
+    #[command(alias = "list", alias = "list-sessions", after_help = crate::cli::ls_table::HELP)]
+    Ls(crate::cli::run::LsArgs),
     /// Open the TUI on a session, or on the session list.
     #[command(alias = "a")]
     Attach {
@@ -384,7 +363,7 @@ pub enum Command {
     /// archives.
     #[command(subcommand, alias = "wt")]
     Worktree(crate::cli::worktree::WorktreeCmd),
-    /// Everything else about one session: info, cancel, stop, rename, fork, set, allow, deny, answer, export, import, tail.
+    /// Everything else about one session: info, cancel, stop, rename, fork, set, allow, deny, answer, export, import, tail, queue.
     #[command(subcommand, alias = "s")]
     Session(SessionCmd),
     /// This machine as a hand of a Cloud Chief: pair, run, status.
@@ -439,6 +418,8 @@ pub enum Command {
     LimitsCmd { session: String, max: Option<u32>, clear: bool },
     #[command(hide = true)]
     TurnCapCmd { session: String, minutes: Option<u64>, off: bool, clear: bool },
+    #[command(hide = true, subcommand)]
+    QueueCmd(crate::cli::session_queue::QueueCmd),
     #[command(hide = true)]
     Schema,
     #[command(hide = true)]
@@ -460,6 +441,12 @@ pub enum Command {
     RestartAgent { session: String },
     #[command(hide = true)]
     ResumeQueue { session: String },
+    #[command(hide = true)]
+    InboxDigest {
+        session: String,
+        #[arg(long)]
+        dry_run: bool,
+    },
     #[command(hide = true, alias = "rename-session")]
     Rename { session: String, new_name: String },
     #[command(hide = true)]
@@ -496,6 +483,16 @@ pub enum Command {
         path: PathBuf,
         #[arg(long, short)]
         name: Option<String>,
+    },
+    #[command(hide = true)]
+    MoveSessions {
+        sessions: Vec<String>,
+        host: String,
+        all_idle: bool,
+        interrupt: bool,
+        leave_dirty: bool,
+        cwd: Option<String>,
+        dry_run: bool,
     },
     #[command(hide = true)]
     Transfer {
@@ -543,7 +540,8 @@ pub enum Command {
         show_token: bool,
         /// Set a daemon host-wide setting as KEY=VALUE (for example,
         /// `session.memory_mb=6144`, `session.swap_mb=2048`,
-        /// `session.tasks_max=8192` or `session.sessions_tasks_max=131072`).
+        /// `session.tasks_max=8192`, `session.sessions_tasks_max=131072` or
+        /// `session.cpu_class=normal`).
         #[arg(long, value_name = "KEY=VALUE")]
         set: Option<String>,
     },
@@ -785,6 +783,21 @@ pub enum SessionCmd {
     Restart { session: String },
     /// Rename a session.
     Rename { session: String, new_name: String },
+    /// The other agents' messages waiting in a busy session's queue. With --digest they go in
+    /// as ONE prompt, now: steered into its running turn when its agent steers, else at the head
+    /// of the agents' messages in its queue, behind the person's prompts (which it never
+    /// touches). Each original keeps its full text in the log under its promptId. Without
+    /// --digest, or with --dry-run, prints that digest and changes nothing. Only this machine's
+    /// person or the session's own agent may drain it.
+    Inbox {
+        session: String,
+        /// Drain them into one digest prompt now.
+        #[arg(long)]
+        digest: bool,
+        /// Print the digest and change nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Run the queued prompts a failed turn held. An agent or a script may resume a
     /// queue; only answering a permission or a question needs the cmux app.
     Resume {
@@ -838,6 +851,35 @@ pub enum SessionCmd {
         path: PathBuf,
         #[arg(long, short)]
         name: Option<String>,
+    },
+    /// Move chats to another machine's daemon (an ssh peer), with their history, queue and
+    /// draft: the branch of a chat's worktree is pushed and checked out there as a fresh
+    /// worktree, a plain folder under the home maps to the same path under the peer's home. The
+    /// chat here never runs again, and `resolve` and agent links lead to its new place.
+    Move {
+        /// The chats to move (ids or names); none with --all-idle.
+        #[arg(required_unless_present = "all_idle")]
+        sessions: Vec<String>,
+        /// The peer to move them to, or `auto`: the placement's pick among the peers (never a
+        /// reserved one), one host per checkout.
+        #[arg(long)]
+        host: String,
+        /// Every open chat here that is between turns.
+        #[arg(long, conflicts_with = "sessions")]
+        all_idle: bool,
+        /// Stop a running turn instead of refusing the move.
+        #[arg(long)]
+        interrupt: bool,
+        /// Move a chat whose checkout has uncommitted changes; they stay on this machine.
+        #[arg(long)]
+        leave_dirty: bool,
+        /// Run the moved chats in this folder on the peer, as it is there: no worktree is made
+        /// and no branch pushed. For a folder outside this machine's home.
+        #[arg(long, value_name = "PATH")]
+        cwd: Option<String>,
+        /// Say where each chat would go and change nothing.
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Move a chat, with its history, queue and draft, to the daemon at another socket.
     Transfer {
@@ -914,6 +956,9 @@ pub enum SessionCmd {
         #[arg(long, short = 'n', default_value_t = 20)]
         limit: usize,
     },
+    /// The prompts waiting for the running turn: list, remove PROMPT_ID..., clear --from-agents.
+    #[command(subcommand)]
+    Queue(crate::cli::session_queue::QueueCmd),
 }
 
 #[derive(Args)]
@@ -1058,7 +1103,10 @@ pub struct NewArgs {
     /// inside the peer's webRoots (made when missing; left out, a scratch folder). The peer
     /// starts it asking: `--mode`, and a `--policy` other than ask from a peer that serves this
     /// machine as a remote client, are refused with the command that works instead.
-    /// `auto` (`auto-build` for a build) takes `acpmux host place`'s pick.
+    /// `auto` (`auto-build` for a build) takes `acpmux host place`'s pick. Left out on a
+    /// machine the fleet registry marks interactive (a person's own Mac), the session is placed
+    /// as with `auto`, off every such machine, unless `--cwd` or `-w` names a folder here;
+    /// `local` keeps it on this machine.
     #[arg(long)]
     pub host: Option<String>,
     /// Session name. Generated when omitted. With a launcher flag it is lowercased
@@ -1157,6 +1205,9 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Restart { session } => Command::RestartAgent { session },
             SessionCmd::Rename { session, new_name } => Command::Rename { session, new_name },
             SessionCmd::Resume { session, mesh } if !mesh.mesh => Command::ResumeQueue { session },
+            SessionCmd::Inbox { session, digest, dry_run } => {
+                Command::InboxDigest { session, dry_run: dry_run || !digest }
+            }
             control @ (SessionCmd::Start(_)
             | SessionCmd::Receipt { .. }
             | SessionCmd::Stop { .. }
@@ -1178,6 +1229,17 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Transfer { session, to, cwd, name, interrupt } => {
                 Command::Transfer { session, to, cwd, name, interrupt }
             }
+            SessionCmd::Move { sessions, host, all_idle, interrupt, leave_dirty, cwd, dry_run } => {
+                Command::MoveSessions {
+                    sessions,
+                    host,
+                    all_idle,
+                    interrupt,
+                    leave_dirty,
+                    cwd,
+                    dry_run,
+                }
+            }
             SessionCmd::Tail { session, last, follow, since } => {
                 Command::Tail { session, last, follow, since }
             }
@@ -1194,6 +1256,7 @@ pub fn flatten(c: Command) -> Command {
                 Command::RulesCmd { session, rules, clear }
             }
             SessionCmd::History { session, limit } => Command::History { session, limit },
+            SessionCmd::Queue(q) => Command::QueueCmd(q),
         },
         Command::Daemon(dc) => match dc {
             DaemonCmd::Run {
