@@ -552,3 +552,52 @@ pub enum Control {
     /// A proven peer daemon acting for its own local user: no mode rule.
     Peer,
 }
+
+#[cfg(test)]
+mod mode_write_tests {
+    use super::*;
+    use crate::config::{Config, StoreMode};
+    use crate::hub::NewRequest;
+    use serde_json::json;
+    use std::path::Path;
+
+    fn test_hub() -> Arc<Hub> {
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let mut config: Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", fake]}},
+            "defaultHarness": "fake",
+        }))
+        .expect("config");
+        config.store.mode = StoreMode::Memory;
+        let store = crate::store::open(&config.store, Path::new("/nonexistent")).expect("store");
+        Hub::new(config, store)
+    }
+
+    /// A harness answers `session/new` with `modes` that is not an object (the answer is stored as
+    /// sent) and later reports its current mode. The write used `modes["currentModeId"] = v`, which
+    /// panics on an array, string, number or bool, under the session's meta lock: that poisoned it
+    /// and every later `Session::meta()` panicked with it.
+    #[tokio::test]
+    async fn a_current_mode_written_over_modes_that_are_not_an_object_does_not_panic() {
+        let hub = test_hub();
+        let session = hub
+            .new_session(NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() })
+            .await
+            .expect("session");
+        for modes in [json!(["plan"]), json!("plan"), json!(7), json!(true)] {
+            hub.write_mode_state(&session, [ModeWrite::Modes(modes.clone())]);
+            hub.write_mode_state(&session, [ModeWrite::CurrentMode(json!("plan"))]);
+            // The modes stay as sent, the mode is kept apart as for a harness with no modes, and
+            // the meta lock still opens.
+            assert_eq!(session.meta().modes, Some(modes));
+            let kept = session.floor.undeclared_mode.lock().unwrap().clone();
+            assert_eq!(kept.as_deref(), Some("plan"));
+            *session.floor.undeclared_mode.lock().unwrap() = None;
+        }
+        // Modes that are an object still take the mode in place.
+        hub.write_mode_state(&session, [ModeWrite::Modes(json!({"availableModes": []}))]);
+        hub.write_mode_state(&session, [ModeWrite::CurrentMode(json!("code"))]);
+        assert_eq!(session.meta().modes.unwrap()["currentModeId"], json!("code"));
+        assert_eq!(*session.floor.undeclared_mode.lock().unwrap(), None);
+    }
+}
