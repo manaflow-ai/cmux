@@ -60,7 +60,7 @@ fn only_the_hermetic_helper_starts_the_acpmux_binary() {
         // hermetic environment.
         ("hub_integration/bg_tasks.rs", "crate::daemon_env::bin().into()"),
         // Linked into a fake app bundle; that copy starts only after `apply`.
-        ("dev_orphan_exit.rs", "let source = daemon_env::bin();"),
+        ("app_orphan_exit.rs", "let source = daemon_env::bin();"),
     ];
     let mut files = Vec::new();
     rust_files(&tests, &mut files);

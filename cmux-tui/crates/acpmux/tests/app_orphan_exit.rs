@@ -1,10 +1,11 @@
-//! A DEV build's daemon stops once its app is gone (`src/daemon/dev_orphan.rs`).
+//! A daemon stops once its cmux app is gone (`src/daemon/app_orphan.rs`).
 //! Dead DEV apps left their daemons running under launchd forever, about 10%
-//! of a core each (23 on one Mac, 2026-10-21). The daemon runs from a fake
-//! `cmux DEV` bundle with the debug-only short intervals and the app's
-//! control socket (`CMUX_SOCKET_PATH`) stood in for by a listener; NIGHTLY's
-//! daemon, a DEV daemon whose app answers, and any daemon off macOS keep
-//! serving.
+//! of a core each (23 on one Mac, 2026-10-21), and so did deleted NIGHTLY and
+//! Release apps. The daemon runs from a fake cmux bundle with the debug-only
+//! short intervals and the app's control socket (`CMUX_SOCKET_PATH`) stood in
+//! for by a listener. A DEV daemon stops when its app quits or its binary is
+//! gone; a NIGHTLY or Release one only when its binary is gone. A daemon whose
+//! app answers or only quit (NIGHTLY), and any daemon off macOS, keep serving.
 #![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
@@ -78,8 +79,8 @@ fn start_daemon(dir: &Path, bundle: &Path) -> Child {
         .env("ACPMUX_HOME", dir.join("h"))
         .env("ACPMUX_SOCKET", dir.join("s.sock"))
         .env("CMUX_SOCKET_PATH", app_socket(dir))
-        .env("ACPMUX_TEST_DEV_ORPHAN_DELAY_MS", DELAY_MS)
-        .env("ACPMUX_TEST_DEV_ORPHAN_RECHECK_MS", RECHECK_MS)
+        .env("ACPMUX_TEST_APP_ORPHAN_DELAY_MS", DELAY_MS)
+        .env("ACPMUX_TEST_APP_ORPHAN_RECHECK_MS", RECHECK_MS)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -168,7 +169,7 @@ fn stop(child: &mut Child) {
 
 #[cfg(target_os = "macos")]
 #[test]
-fn dev_orphan_exit_stops_a_dev_daemon_after_its_app_quits() {
+fn app_orphan_exit_stops_a_dev_daemon_after_its_app_quits() {
     let dir = scratch("orpa");
     let bundle = bundle(&dir, "cmux DEV orphan-app", "com.cmuxterm.app.debug.orphan.app");
     let app = start_app(&dir);
@@ -186,7 +187,7 @@ fn dev_orphan_exit_stops_a_dev_daemon_after_its_app_quits() {
 
 #[cfg(target_os = "macos")]
 #[test]
-fn dev_orphan_exit_stops_a_dev_daemon_whose_bundle_is_deleted() {
+fn app_orphan_exit_stops_a_dev_daemon_whose_bundle_is_deleted() {
     let dir = scratch("orph");
     let bundle = bundle(&dir, "cmux DEV orphan-test", "com.cmuxterm.app.debug.orphan.test");
     let mut daemon = start_daemon(&dir, &bundle);
@@ -202,7 +203,7 @@ fn dev_orphan_exit_stops_a_dev_daemon_whose_bundle_is_deleted() {
 /// elsewhere) still listens on the socket: the old daemon stops anyway.
 #[cfg(target_os = "macos")]
 #[test]
-fn dev_orphan_exit_stops_a_dev_daemon_whose_binary_is_replaced() {
+fn app_orphan_exit_stops_a_dev_daemon_whose_binary_is_replaced() {
     let dir = scratch("orpr");
     let bundle = bundle(&dir, "cmux DEV orphan-rebuilt", "com.cmuxterm.app.debug.orphan.rebuilt");
     let app = start_app(&dir);
@@ -230,7 +231,7 @@ fn dev_orphan_exit_stops_a_dev_daemon_whose_binary_is_replaced() {
 /// Socket control off: the app runs but never listens. The daemon keeps it.
 #[cfg(target_os = "macos")]
 #[test]
-fn dev_orphan_exit_keeps_a_dev_daemon_whose_app_never_listens() {
+fn app_orphan_exit_keeps_a_dev_daemon_whose_app_never_listens() {
     let dir = scratch("orpq");
     let bundle = bundle(&dir, "cmux DEV orphan-quiet", "com.cmuxterm.app.debug.orphan.quiet");
     let mut daemon = start_daemon(&dir, &bundle);
@@ -240,21 +241,86 @@ fn dev_orphan_exit_keeps_a_dev_daemon_whose_app_never_listens() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// NIGHTLY's app quits: its daemon keeps serving (remote peers and phones
+/// still reach its sessions), even with the socket refusing.
+#[cfg(target_os = "macos")]
 #[test]
-fn dev_orphan_exit_never_stops_a_nightly_daemon() {
+fn app_orphan_exit_keeps_a_nightly_daemon_after_its_app_quits() {
     let dir = scratch("orpn");
+    let bundle = bundle(&dir, "cmux NIGHTLY", "com.cmuxterm.app.nightly");
+    let app = start_app(&dir);
+    let mut daemon = start_daemon(&dir, &bundle);
+    let stopped_early = exits_within(&mut daemon, KEEPS_FOR);
+    drop(app);
+    let stopped_after = stopped_early || exits_within(&mut daemon, KEEPS_FOR);
+    stop(&mut daemon);
+    assert!(!stopped_after, "a NIGHTLY daemon stopped because its app quit");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The person deletes NIGHTLY (or moves to another channel and deletes it).
+#[cfg(target_os = "macos")]
+#[test]
+fn app_orphan_exit_stops_a_nightly_daemon_whose_bundle_is_deleted() {
+    let dir = scratch("orpd");
+    let bundle = bundle(&dir, "cmux NIGHTLY", "com.cmuxterm.app.nightly");
+    let mut daemon = start_daemon(&dir, &bundle);
+    std::fs::remove_dir_all(&bundle).unwrap();
+    let stopped = exits_within(&mut daemon, STOPS_WITHIN);
+    stop(&mut daemon);
+    assert!(stopped, "the NIGHTLY daemon kept running {STOPS_WITHIN:?} after its app was deleted");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A Release update replaced the binary and the app was not opened since.
+#[cfg(target_os = "macos")]
+#[test]
+fn app_orphan_exit_stops_a_release_daemon_whose_binary_is_replaced() {
+    let dir = scratch("orpu");
+    let bundle = bundle(&dir, "cmux", "com.cmuxterm.app");
+    let mut daemon = start_daemon(&dir, &bundle);
+    let acpmux = bundle.join("Contents/Resources/bin/acpmux");
+    let next = bundle.join("Contents/Resources/bin/acpmux.next");
+    std::fs::copy(&acpmux, &next).unwrap();
+    std::fs::rename(&next, &acpmux).unwrap();
+    let stopped = exits_within(&mut daemon, STOPS_WITHIN);
+    stop(&mut daemon);
+    assert!(
+        stopped,
+        "the Release daemon kept running {STOPS_WITHIN:?} after an update replaced it"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// An unchanged NIGHTLY build keeps its daemon, with or without its app.
+#[test]
+fn app_orphan_exit_keeps_a_nightly_daemon_whose_binary_stays() {
+    let dir = scratch("orpk");
     let bundle = bundle(&dir, "cmux NIGHTLY", "com.cmuxterm.app.nightly");
     let mut daemon = start_daemon(&dir, &bundle);
     let stopped = exits_within(&mut daemon, KEEPS_FOR);
     stop(&mut daemon);
-    assert!(!stopped, "a NIGHTLY daemon stopped without its app");
+    assert!(!stopped, "a NIGHTLY daemon stopped with its binary in place");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Not a cmux bundle: no watch, even when its binary is deleted.
+#[test]
+fn app_orphan_exit_never_stops_a_daemon_outside_a_cmux_bundle() {
+    let dir = scratch("orpo");
+    let bundle = bundle(&dir, "Other", "com.example.other");
+    let mut daemon = start_daemon(&dir, &bundle);
+    std::fs::remove_dir_all(&bundle).unwrap();
+    let stopped = exits_within(&mut daemon, KEEPS_FOR);
+    stop(&mut daemon);
+    assert!(!stopped, "a daemon outside a cmux bundle stopped");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// The watcher runs on macOS only; elsewhere it never starts.
 #[cfg(not(target_os = "macos"))]
 #[test]
-fn dev_orphan_exit_never_stops_a_daemon_off_macos() {
+fn app_orphan_exit_never_stops_a_daemon_off_macos() {
     let dir = scratch("orpl");
     let bundle = bundle(&dir, "cmux DEV orphan-linux", "com.cmuxterm.app.debug.orphan.linux");
     let mut daemon = start_daemon(&dir, &bundle);
