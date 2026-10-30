@@ -282,6 +282,22 @@ async fn a_late_retry_decision_keeps_a_finished_turns_end() {
     r.expire().await;
     assert_eq!(fake.take(), [s(9, "done", Some("Done."))]);
     assert_eq!(r.next_deadline(), None);
+    // A late decision for an older turn keeps a newer turn's end waiting to be sent again.
+    let (mut r, fake) = reporter();
+    fake.answer([ok(9, "running"), ok(9, "done"), ok(10, "running"), busy(), busy(), busy()]);
+    r.step(S, began(9)).await;
+    r.step(S, done(9, "Nine.")).await;
+    r.step(S, began(10)).await;
+    r.step(S, done(10, "Ten.")).await;
+    fake.take();
+    r.step(S, skipped()).await;
+    r.step(S, Step::RetryRestored { turn: 9, why: "The connection was interrupted.".into() }).await;
+    assert!(fake.take().is_empty(), "turn 9's late decision reports nothing");
+    assert!(!r.holds(S, Some(9)));
+    tokio::time::advance(LATER[0]).await;
+    fake.answer([ok(10, "done")]);
+    r.expire().await;
+    assert_eq!(fake.take(), [s(10, "done", Some("Ten."))]);
     // A new attempt of the turn that fails is reported again.
     let (mut r, fake) = reporter();
     fake.answer([ok(9, "running"), ok(9, "done"), ok(9, "running"), ok(9, "failed")]);
