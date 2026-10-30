@@ -11,7 +11,7 @@
 // (Leo 2026-10-21 on a tray line that showed a raw shell line: "is that a command or a
 // subagent?"), and a line that opens something ends in a chevron. A line with nothing to open is
 // a disabled button with no hover at all (subagents.css).
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { AgentMark, knownMark } from "../../shared/AgentMark";
 import { Tooltip } from "../../../ui/Tooltip";
 import { waveProps } from "../../../ui/wave";
@@ -24,7 +24,7 @@ import { Tick } from "./trayMotion";
 
 const ROW_ICON = rowIconSize(12);
 
-export function AgentLine({
+export const AgentLine = memo(function AgentLine({
   name,
   detail,
   progress,
@@ -170,4 +170,4 @@ export function AgentLine({
       {trayColumns ? <span className="acpmux-agent-line__stop-slot">{after}</span> : after}
     </div>
   );
-}
+})

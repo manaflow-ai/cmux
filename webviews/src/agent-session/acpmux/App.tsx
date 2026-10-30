@@ -6449,8 +6449,9 @@ function AcpmuxPane() {
       ].join("\u0000"),
     )
     .join("\u0001");
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- a new list only when an agent changes
-  const chatAgents = useMemo(() => freshAgents, [agentsKey]);
+  // Keep the latest agent objects so usage-only progress updates reach the matching row. AgentLine
+  // is memoized by its own props, so unchanged rows do not rerender when one agent reports usage.
+  const chatAgents = freshAgents;
   // A subagent draws no tool row (subagents/subagentFold.ts swallows the call that started it), so
   // a running foreground subagent holds Ctrl-B by itself.
   const foregroundAgent =
