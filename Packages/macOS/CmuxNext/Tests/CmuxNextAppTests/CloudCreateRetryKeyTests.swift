@@ -156,13 +156,13 @@ import Testing
         }
         backend.pending = 1 + 8 + 1
         await #expect(throws: CloudMachineCreateFlow.Failure.stillPending(request: "req_1")) {
-            _ = try await flow().create(name: nil, startedByPerson: false, key: key, onApproved: { creation.markApproved($0) })
+            _ = try await flow().create(name: nil, startedByPerson: false, key: key, onApproved: { creation.markApproved($0, key: key) })
         }
         #expect(creation.request.approvedRequest == "req_1")
         // The approved create is still running in the backend when the person clicks Retry.
         backend.pending = 2
         let retried = try await flow().create(name: nil, startedByPerson: false, key: key, approved: creation.request.approvedRequest,
-                                              onApproved: { creation.markApproved($0) })
+                                              onApproved: { creation.markApproved($0, key: key) })
         #expect(retried["id"]?.stringValue == "vm_1")
         #expect(approvals.answered == ["req_1"], "the Retry answered the closed approval again")
         #expect(backend.machines.count == 1)
@@ -179,9 +179,23 @@ import Testing
         let creation = CloudMachineCreation(windowID: nil)
         let key = creation.request.idempotencyKey
         creation.markRequestSent(team: "team_a")
-        creation.markApproved("req_1")
-        creation.renewKey()
+        creation.markApproved("req_1", key: key)
+        creation.renewKey(replacing: key)
         #expect(creation.request.idempotencyKey != key)
         #expect(!creation.request.wasSent && creation.request.team == nil && creation.request.approvedRequest == nil)
+    }
+
+    @Test func aLateRefusalOrApprovalForAnOlderKeyLeavesTheCurrentKeyAlone() {
+        let creation = CloudMachineCreation(windowID: nil)
+        let old = creation.request.idempotencyKey
+        creation.renewKey(replacing: old)
+        let current = creation.request.idempotencyKey
+        creation.markRequestSent(team: "team_a")
+        // The superseded attempt's answers arrive after the Retry took the new key.
+        creation.renewKey(replacing: old)
+        creation.markApproved("req_old", key: old)
+        #expect(creation.request.idempotencyKey == current, "a late refusal replaced the key the Retry sent")
+        #expect(creation.request.wasSent && creation.request.team == "team_a")
+        #expect(creation.request.approvedRequest == nil)
     }
 }

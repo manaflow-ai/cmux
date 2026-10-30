@@ -60,15 +60,18 @@ final class CloudMachineCreation: Identifiable {
         request.wasSent = true
     }
 
-    /// The person answered approval `request` for this create's key.
-    func markApproved(_ request: String) {
+    /// The person answered approval `request` for `key`; nothing when the creation moved on to another key.
+    func markApproved(_ request: String, key: String) {
+        guard self.request.idempotencyKey == key else { return }
         self.request.approvedRequest = request
     }
 
     /// The server refused the create outright and made no machine (``CloudService/isDefinitiveRefusal(_:)``):
     /// the key's stored answer is that refusal, so a Retry after the person fixes it (frees a slot,
     /// upgrades) needs a new key, which may also go to another team.
-    func renewKey() {
+    /// Only for the key the refused attempt sent: a Retry that started meanwhile keeps its own.
+    func renewKey(replacing key: String) {
+        guard request.idempotencyKey == key else { return }
         request.idempotencyKey = UUID().uuidString
         request.wasSent = false
         request.team = nil
