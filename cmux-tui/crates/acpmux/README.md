@@ -232,14 +232,28 @@ acpmux session cancel worker/review  # cancel its running turn
 acpmux session stop worker/review    # stop its agent; keep the session
 ```
 
-Use the stable `sessionId` from `resolve`, a unique name or prefix, or `HOST/NAME`. A
-sub-session (named `PARENT/SHORT`) also answers to its short name: `acpmux send mac-ci-3`
-reaches `claude-sr2/mac-ci-3` when nothing else does (no session on any host has that id,
-name or a name or id starting with `mac-ci-3`) and no other session, here or on a peer, has
-the short name `mac-ci-3` (then the send is refused with each one's name). `HOST/SHORT` looks
-on that host only. A name nothing matches is refused with the close matches.
-Resume, retry, cancel and stop refuse ambiguous matches, including a local and remote
-session with the same name, and list qualified IDs to select from. Once resolved, a control
+Use the stable `sessionId` from `resolve`, an id prefix, a bare name, or `HOST/NAME`.
+Every command that takes a session (send, last, retry, wait, attach, `session
+info|cancel|stop|close|rename`) reads a bare name or prefix the same way: it names the one
+live session with that name across this host and its peers, so `acpmux send review "…"`
+reaches `linux-b/review` when no other live session is called `review`. A sub-session (named
+`PARENT/SHORT`) also answers to its short name: `acpmux send lane-3` reaches
+`coord/lane-3` when no session on any host has that name or id and none here has a
+name starting with it; `HOST/SHORT` looks on that host only. A name nothing matches is
+refused with the close matches. Closed sessions count
+only when no live one matches. Several live matches are refused (exit 2,
+`session_ambiguous`), never picked; a session here does not win over a peer's. The refusal
+lists each choice and the exact command for it:
+
+```text
+$ acpmux send review "ship it"
+acpmux: usage: "review" names 2 live sessions: mac-a/review, linux-b/review; name one of them
+  acpmux send mac-a/review 'ship it'
+  acpmux send linux-b/review 'ship it'
+```
+
+With `--json`, `error.data.choices` lists each one's `host`, `name`, `route` and the key to
+`use`. Once resolved, a control
 keeps the owning peer and session ID even if another host has a copy of that session.
 The target daemon decides which start policy and controls the caller may use; a peer link
 does not grant app-only permissions.
@@ -308,6 +322,9 @@ acpmux session deny NAME                                      # an allow is the 
 acpmux session rules NAME '{"autoDeny": ["rm -rf"], "ask": ["execute"], "default": "approve"}'
 acpmux session limits NAME [--max N | --clear]                 # sub-sessions running at once (more wait), running and queued now
 acpmux session turn-cap NAME [--minutes N | --off | --clear]  # past it, other agents' messages wait for the next turn
+acpmux session queue list NAME                                # one row per queued prompt: id, sender, age, first line (--json: whole text)
+acpmux session queue remove NAME PROMPT_ID...                 # take those out; each reported removed or not found
+acpmux session queue clear NAME --from-agents [--dry-run]     # take out every other agent's message; your own prompts stay
 acpmux session tag NAME task=review --ttl 3600; acpmux ls --tag task=review
 acpmux ls --status running | --pending                        # filters; --json for the full records
 acpmux ls --limit 20 --fields name,harness,model,status,cwd   # newest sessions, selected fields

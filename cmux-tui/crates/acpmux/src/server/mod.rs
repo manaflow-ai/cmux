@@ -1901,6 +1901,9 @@ mod request_admission_tests {
 }
 
 #[cfg(test)]
+mod key_route_tests;
+
+#[cfg(test)]
 mod nodelay_tests {
     use super::tune_ws_socket;
 
