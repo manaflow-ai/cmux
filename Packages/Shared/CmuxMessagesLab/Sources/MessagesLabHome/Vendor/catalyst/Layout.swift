@@ -380,6 +380,17 @@ struct ThreadPreview: Hashable {
     /// The quote's tail is the bubbles' tail at this scale (Messages: it hangs 4 pt under the quote, the bubbles' 5.1).
     static let tailScale: CGFloat = 0.8
     static let maxTextLines = 2
+    /// How far above the quote's bottom the scaled tail joins its end (the tail's top inner point, 2.52 pt x 0.8).
+    static let tailJoinHeight: CGFloat = 2.02
+    /// cmux: how far in to move the tail on an end of radius `endRadius` so it joins the curve as it joins the one-line
+    /// end (radius `oneLineRadius`) it was fitted to: the two curves' distance in from the end at the join height.
+    static func tailInset(endRadius r: CGFloat, oneLineRadius r0: CGFloat) -> CGFloat {
+        func reach(_ r: CGFloat) -> CGFloat {
+            guard r > tailJoinHeight else { return 0 }
+            return r - (r * r - (r - tailJoinHeight) * (r - tailJoinHeight)).squareRoot()
+        }
+        return max(0, reach(r) - reach(r0))
+    }
     /// cmux: the quote's height for `lines` lines: 23.5 pt for one, 11 pt more per line (Messages: 34.5 pt for two; both
     /// end in half circles).
     static func textHeight(lines: Int) -> CGFloat {
@@ -393,9 +404,15 @@ struct ThreadPreview: Hashable {
         guard isText else { return BubblePath.balloon(frame: box, row: shapeRow) }
         let body = BubblePath.make(body: box, outgoing: outgoing, tail: false, circularEnds: true)
         let t = BubblePath.tailPath(outgoing: outgoing)
+        // cmux (user 2026-10-29, "when multiline the bottom right thing doesnt look drawn well"): the tail is fitted to a
+        // one-line quote's end; a taller quote's half-circle end is wider, so its curve at the tail's join (2 pt above the
+        // bottom) lies further in. Move the tail in by that difference so it joins the curve as on one line.
+        let r = min(box.width, box.height) / 2
+        let inset = ThreadPreview.tailInset(endRadius: r,
+                                            oneLineRadius: r - ThreadPreview.textLinePitch * CGFloat(max(0, textLines.count - 1)) / 2)
         var xf = outgoing
-            ? CGAffineTransform(translationX: box.maxX, y: box.maxY).scaledBy(x: ThreadPreview.tailScale, y: ThreadPreview.tailScale)
-            : CGAffineTransform(translationX: box.minX, y: box.maxY).scaledBy(x: -ThreadPreview.tailScale, y: ThreadPreview.tailScale)
+            ? CGAffineTransform(translationX: box.maxX - inset, y: box.maxY).scaledBy(x: ThreadPreview.tailScale, y: ThreadPreview.tailScale)
+            : CGAffineTransform(translationX: box.minX + inset, y: box.maxY).scaledBy(x: -ThreadPreview.tailScale, y: ThreadPreview.tailScale)
         guard let tail = t.cgPath.copy(using: &xf) else { return body }
         return UIBezierPath(cgPath: body.cgPath.union(tail))
     }

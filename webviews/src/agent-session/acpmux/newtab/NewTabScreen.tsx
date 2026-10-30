@@ -1206,7 +1206,7 @@ export function NewTabScreen(props: Props) {
         {...(browseProject ? { onBrowseProject: browseProject } : {})}
         {...(props.environments ? { environments: true } : {})}
         {...(newWorktreeHere ? { onNewWorktree: newWorktreeHere } : {})}
-        {...(props.environments && props.onConnect ? { onConnect: props.onConnect } : {})}
+        {...(props.onConnect ? { onConnect: props.onConnect, connectOnlyWhenEmpty: !props.environments } : {})}
         {...(props.environments && props.runMode ? { runMode: props.runMode } : {})}
         {...(saved.on
           ? {
@@ -1717,6 +1717,7 @@ export function NewTabScreen(props: Props) {
                       <div
                         key={rowKey(row)}
                         id={`nt-row-${index}`}
+                        ref={index === current ? keepInView : undefined}
                         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
                         role="option"
                         tabIndex={-1}
