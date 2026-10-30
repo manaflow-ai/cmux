@@ -110,6 +110,17 @@ NO_RESULT = re.compile(r"^(?:##\[error\]|::error[^:]*::)\s*.*\brequired tests di
 BUN_STARTED = re.compile(r"^START (\S+\.[cm]?[jt]sx?) \(hard limit")
 BUN_RESULT = re.compile(r"^(PASS|FAIL|TIMEOUT) (\S+\.[cm]?[jt]sx?)(?: |$)")
 BUN_PANIC = re.compile(r"^(?:panic\((?:main thread|thread \d+)\)|oh no: Bun has crashed)")
+# `bun test` itself (a raw run, or a file's log inside run-webviews-tests.sh): a header per file (a `##[group]` one in
+# Actions), a `(pass)` or `(fail) <describe> > <test> [1.23ms]` line per test, the failure's `error:` printed above its
+# line and a timeout note below it, a closing recap of the failures (`N tests failed:`, with no headers) and the
+# ` N pass` / ` N fail` counts that end each run.
+BUN_FILE = re.compile(r"^(?:##\[group\])?(\S+\.(?:test|spec)\.[cm]?[jt]sx?):$")
+BUN_TEST = re.compile(r"^\((pass|fail)\) (.+?)(?: \[[0-9.]+m?s\])?$")
+BUN_ERROR = re.compile(r"^error: (.+)$")
+BUN_TIMED_OUT = re.compile(r"^\s*\^ this test timed out after (\d+)ms")
+BUN_UNHANDLED = re.compile(r"^# Unhandled error between tests")
+BUN_RECAP = re.compile(r"^\d+ tests? failed:$")
+BUN_COUNT = re.compile(r"^\s*\d+ fail$")
 RUN_STARTED = re.compile(r"^◇ Test run started\.")
 RUN_ENDED = re.compile(r"^[✔✘━] Test run with \d+ tests?")
 RUN_COUNT = re.compile(r"^[✔✘━] Test run with (\d{1,9}) tests?")
@@ -136,12 +147,13 @@ LETTERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 # Plain classes, not dataclasses: consumers load this file with exec or importlib without registering it in
 # sys.modules, where a dataclass's string annotations cannot be resolved.
 class Result:
-    """What one job log says about its tests: ran, failed (names), crashes ("<who> crashed (signal N)") and
-    truncated (why the per-test results are incomplete)."""
+    """What one job log says about its tests: ran, failed (names), messages (a failed name's error, where the log
+    prints one), crashes ("<who> crashed (signal N)") and truncated (why the per-test results are incomplete)."""
 
     def __init__(self):
         self.ran = False
         self.failed: set = set()
+        self.messages: dict = {}
         self.crashes: list = []
         self.truncated: list = []
 
@@ -266,6 +278,52 @@ def signal_of(text: str) -> str | None:
     return None
 
 
+def read_bun(lines: list[str], result: Result) -> None:
+    """`bun test`'s failures into `result`: each named `FILE > TEST` under its file's header (webviews_test_results.py's
+    names), or `TEST` when the recap is all that names it, with its `error:` line or timeout as its message. An
+    unhandled error between tests is a failure named by its error. A `(pass)` or `(fail)` line after the last ` N fail`
+    count is a run that was cut short: bun prints the counts only when it finishes (and only those lines count, so
+    web_failures, which hands read() a log without them, judges as before)."""
+    file, said, last, recap, unhandled, counted = "", "", None, False, False, True
+
+    def fail(name: str, message: str) -> str:
+        result.failed.add(name)
+        result.ran = True
+        if message and not result.messages.get(name):
+            result.messages[name] = message
+        return name
+
+    for text in lines:
+        if BUN_RECAP.match(text):
+            recap, last = True, None
+        elif match := BUN_FILE.match(text):
+            file, said, last, recap = match.group(1), "", None, False
+        elif match := BUN_TEST.match(text):
+            result.ran, counted, last = True, False, None
+            name = match.group(2)
+            if match.group(1) == "fail" and not recap:
+                last = fail(f"{file} > {name}" if file else name, said)
+            elif match.group(1) == "fail" and not any(key == name or key.endswith(" > " + name) for key in result.failed):
+                last = fail(name, "")  # failed before its file's header printed
+            said = ""
+        elif BUN_UNHANDLED.match(text):
+            unhandled = True
+        elif match := BUN_ERROR.match(text):
+            if unhandled:
+                fail(f"{file} > unhandled error: {match.group(1)}" if file else f"unhandled error: {match.group(1)}", "")
+                unhandled = False
+            elif not said:
+                said = match.group(1)
+        elif (match := BUN_TIMED_OUT.match(text)) and last:
+            result.messages[last] = f"timed out after {match.group(1)}ms"
+        elif BUN_COUNT.match(text):
+            if unhandled:
+                fail(f"{file} > unhandled error" if file else "unhandled error", "")
+            file, said, last, recap, unhandled, counted = "", "", None, False, False, True
+    if not counted:
+        result.truncated.append("a bun test run printed no ` N pass` / ` N fail` summary after its last result")
+
+
 def read(log: str | None) -> Result:
     """The tests a job log ran, failed and crashed, and whether its per-test results are whole."""
     result = Result()
@@ -342,6 +400,7 @@ def read(log: str | None) -> Result:
     running = sum(1 for text in lines if CARGO_RUNNING.match(text))
     if running > sum(1 for text in lines if text.startswith("test result: ")):
         result.truncated.append("a cargo test binary printed no `test result:` line")
+    read_bun(lines, result)
     if crashed:
         who = named or crashed_tests(stack, started) or ["the test process"]
         signal = f"signal {signals[0]}" if signals else "no signal named"
@@ -374,7 +433,8 @@ def classify(head_log: str | None, base_log: str | None, job: str = "", base: st
     if base_log is None and head.failed:
         reasons.append(f"no {base} log to compare {len(head.failed)} failing test(s) with")
     elif new:
-        reasons.append(f"{len(new)} failing test(s) pass or do not run on {base}: {'; '.join(new)[:600]}")
+        named = [f"{name} ({head.messages[name]})" if head.messages.get(name) else name for name in new]
+        reasons.append(f"{len(new)} failing test(s) pass or do not run on {base}: {'; '.join(named)[:600]}")
     return Verdict(bool(reasons), reasons, sorted(head.failed & seen))
 
 
