@@ -30,7 +30,7 @@ acpmux new -n gui/composer \
   socket only: on another machine, run the command there (`ssh HOST acpmux
   new ...`); `--worktree --host` is refused.
 - **Prompt.** `--prompt-file` is read when the command runs, from its
-  absolute path; a missing or empty file fails before anything starts. The
+  absolute path; use `--prompt-file -` to read stdin. A missing or empty file fails before anything starts. The
   first prompt is: who started the session and how to report back
   (`--report-to`), where its worktree is, the prompt words, then the file.
 - **No questions.** Nobody sits at a launched session's chat, so it starts

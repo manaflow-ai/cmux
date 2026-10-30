@@ -10,16 +10,19 @@ struct AgentActivityOneShotCancelTests {
     @Test func cancellingReturnsBeforeTheDeadline() async throws {
         let server = try SilentServer()
         defer { server.close() }
-        let clock = ContinuousClock()
-        let started = clock.now
         let call = Task {
             try await AgentActivityLineConnection.oneShot(path: server.path, send: Data("{}\n".utf8), deadline: .seconds(20))
         }
         try await Task.sleep(for: .milliseconds(200))
+        // Timed from the cancel, not from before the task was made: the task's start and the 200 ms sleep
+        // are not the cancel's cost, and in a starved full parallel run (11.8 s measured from the start)
+        // they wait seconds for the cooperative pool.
+        let clock = ContinuousClock()
+        let cancelled = clock.now
         call.cancel()
         await #expect(throws: CancellationError.self) { try await call.value }
-        let elapsed = clock.now - started
-        #expect(elapsed < .seconds(5), "a cancelled call returned after \(elapsed)")
+        let elapsed = clock.now - cancelled
+        #expect(elapsed < .seconds(5), "a cancelled call returned \(elapsed) after its cancel")
     }
 
     @Test func alreadyCancelledReturnsAtOnce() async throws {

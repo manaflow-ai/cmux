@@ -65,10 +65,17 @@ public struct SidebarDocMachines {
         return store.handle(intent, model: model, drag: drag, pinTitle: pinTitle, unpinTitle: unpinTitle, undoable: undoable)
     }
 
-    /// Shows a change just sent (a new workspace's placement) in the sidebar's next rebuild
-    /// (`SidebarDocStore.reshow`), over the live workspaces now.
-    public func reshow() {
-        SidebarDocStore.current?.reshow(live: liveRefs())
+    /// Places ids at the list position in the document in the same turn as their create.
+    /// False leaves the older reorder path in charge when the document is inactive.
+    public func place(_ ids: [WorkspaceID], at position: DropPosition, model: SidebarModel) -> Bool {
+        guard let store = SidebarDocStore.current, let drag = drag(),
+              store.handle(.reorder(ids, to: position), model: model, drag: drag,
+                           pinTitle: SidebarDocStore.moveTitle, unpinTitle: SidebarDocStore.moveTitle, undoable: false)
+        else { return false }
+        // The reducer mirror is updated synchronously, but the normal Observation stream redraws one actor hop later.
+        // Rebuild now so a just-adopted workspace cannot render in the document's unplaced tail first.
+        store.reshow(live: liveRefs())
+        return true
     }
 
     /// Keeps `store` current: it refreshes when the home daemon connects or starts serving the document, and it shows

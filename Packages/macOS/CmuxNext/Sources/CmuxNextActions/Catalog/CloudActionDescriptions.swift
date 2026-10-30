@@ -185,6 +185,12 @@ nonisolated enum CloudActionDescriptions {
             it and resuming it when paused. Not a CLI verb: \
             `cmux cloud new-terminal-on-machine --target machine:<id> --focus` opens and shows a workspace.
             """,
+        "cloudOpenDesktop": """
+            Shows the machine's desktop (--target machine:<id>) in a new workspace on this Mac: its noVNC \
+            page in a browser tab, reached over this Mac's Cloud tunnel with no port opened here (--viewer \
+            web, the default). Refused when the machine has no desktop or address, or the browser is \
+            unavailable. Answers at once with no fields, before the page loads.
+            """,
         "cloudRenameMachine": """
             Renames the machine (--target machine:<id> --name <name>; an empty name clears it). Answers at \
             once, before the rename is done. Without --name it asks the person for the name in the app, so a \
@@ -221,8 +227,10 @@ nonisolated enum CloudActionDescriptions {
         "cloudDeliverSecrets": """
             Sends the values of the secret names the machine's .cmux/machine.toml declares (--target \
             machine:<id>, --repo OWNER/NAME for repo-scoped ones) from this Mac's Keychain to the machine \
-            over its daemon link, never the Cloud API. Returns status (delivered, unchanged or pending), \
-            delivered and missing names. Values are stored with cmux cloud secret set NAME.
+            over its daemon link, never the Cloud API. An own machine (an SSH machine or an acpmux peer, \
+            --target machine:<name>) gets exactly --names A,B over ssh, in ~/.config/cmux/machine-secrets.env; \
+            its shells read them through the returned source_line. Returns status (delivered, unchanged or \
+            pending), delivered and missing names. Values are stored with cmux cloud secret set NAME.
             """,
         "cloudResizeMachine": """
             Resizes the machine (--target machine:<id> --size small, medium, large or xlarge: 2 vCPU and \

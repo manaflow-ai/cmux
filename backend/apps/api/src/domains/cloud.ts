@@ -8,6 +8,7 @@ import { BIND_TOKEN_TTL_MS, bindMachine, type BindState } from "./cloud-bind.ts"
 import { applyVmStatus } from "./cloud-vm-status.ts"
 import { powerIntent, powerResult, providerStateResult, resizeIntent } from "./cloud-power.ts"
 import { snapshotCreate, snapshotDelete, snapshotRestore, snapshotResult, type SnapshotRow } from "./cloud-snapshot.ts"
+import { environmentBoot, environmentBuild, environmentBuildResult, environmentDelete, environmentSet } from "./cloud-environment.ts"
 import { createConfigProblem, limitDetails, DEFAULT_IDLE_SECONDS, DEFAULT_SIZE, providerName, sizeLocked, teamPlan, type CloudConfig, type CloudMachineView, DEFAULT_MEMORY_MB } from "./cloud-plan.ts"
 
 /**
@@ -24,7 +25,9 @@ export const TABLE_TOMBSTONE = "tombstone"
 export const TABLE_AUDIT = "audit"
 /** Snapshot rows (cloud-snapshot.ts); private, the public view is CloudSnapshot. */
 export const TABLE_SNAPSHOT = "snapshot"
-export const CLOUD_PRIVATE_TABLES: ReadonlyArray<string> = [TABLE_MACHINE, TABLE_LEDGER, TABLE_TOMBSTONE, TABLE_AUDIT, TABLE_SNAPSHOT]
+/** Environment rows (cloud-environment.ts); private, the public view is CloudEnvironment. */
+export const TABLE_ENVIRONMENT = "environment"
+export const CLOUD_PRIVATE_TABLES: ReadonlyArray<string> = [TABLE_MACHINE, TABLE_LEDGER, TABLE_TOMBSTONE, TABLE_AUDIT, TABLE_SNAPSHOT, TABLE_ENVIRONMENT]
 
 export const TOMBSTONE_MS = 30 * 24 * 3600_000
 export const LEDGER_KEEP_MS = 7 * 24 * 3600_000
@@ -83,13 +86,21 @@ export interface MachineRow extends Omit<CloudMachineView, "revision"> {
   readonly creator_sso_team?: string
   /** The VM's last applied status report (private; activity feeds the idle pause). */
   readonly vm_status?: { readonly state: string; readonly health?: unknown; readonly activity: unknown; readonly at: number }
+  /** A cold boot of an environment (cloud.environment.boot): the create starts its setup on the machine. */
+  readonly env_setup?: { readonly environment: string; readonly digest: string }
+  /** Booted by the platform Worker's environment setup (cloud-platform.ts): only such a machine takes its exec, snapshot and delete. */
+  readonly platform?: true
 }
 
 export interface LedgerRow {
   readonly capture_protocol?: 1
   readonly transport?: import("../cloud-vm-api-config.ts").CloudTransport
   readonly key: string
-  readonly op: "create" | "delete" | "pause" | "start" | "resize" | "snapshot" | "snapshot_delete"
+  readonly op: "create" | "delete" | "pause" | "start" | "resize" | "snapshot" | "snapshot_delete" | "env_build"
+  /** env_build: the environment, the build digest, and the warm-boot machine's provider name (cloud-environment.ts). */
+  readonly environment?: string
+  readonly env_digest?: string
+  readonly env_warm?: string
   /** snapshot ops: the snapshot id and its recorded provider slug (the only slug ever deleted). */
   readonly snapshot?: string
   readonly snapshot_name?: string
@@ -124,6 +135,9 @@ export interface TombstoneRow {
   readonly revision: string
 }
 
+/** The identity prefix of the platform Worker's calls for a person (cloud-platform.ts); no other principal has it. */
+export const PLATFORM_IDENTITY_PREFIX = "platform:"
+
 /** The ledger row of one intent: the caller's identity and the op's idempotency key (engine keys are per identity). */
 export const ledgerKey = (identity: string, idempotencyKey: string) => `${identity}|${idempotencyKey}`
 
@@ -134,13 +148,13 @@ const counted = (status: string) => (COUNTED.has(status) ? 1 : 0)
 export const countedRow = (row: MachineRow) => (row.delete_failed ? 1 : counted(row.status))
 
 export const publicMachine = (row: MachineRow): CloudMachineView => {
-  const { transport: _t, provider_name: _p, delete_failed: _f, host_id: _h, epoch: _e, bind: _b, wg_public_key: _w, daemon: _d, keyset_version: _k, vm_install: _v, vm_status: _s, creator_sso_team: _c, last_power_at: _l, from_snapshot: _fs, ...machine } = row
+  const { transport: _t, provider_name: _p, delete_failed: _f, host_id: _h, epoch: _e, bind: _b, wg_public_key: _w, daemon: _d, keyset_version: _k, vm_install: _v, vm_status: _s, creator_sso_team: _c, last_power_at: _l, from_snapshot: _fs, env_setup: _es, platform: _pf, ...machine } = row
   return machine
 }
 
 export const isAgent = (p: Principal) => p.kind === "agent" || p.agent !== undefined
 /** Money and destructive Cloud ops: an install's request runs only after the person's approval (G8, cx-wb5.65). */
-export const CLOUD_APPROVAL_OPS: ReadonlySet<string> = new Set(["cloud.machine.create", "cloud.machine.resize", "cloud.machine.delete", "cloud.snapshot.create", "cloud.snapshot.delete", "cloud.snapshot.restore"])
+export const CLOUD_APPROVAL_OPS: ReadonlySet<string> = new Set(["cloud.machine.create", "cloud.machine.resize", "cloud.machine.delete", "cloud.snapshot.create", "cloud.snapshot.delete", "cloud.snapshot.restore", "cloud.environment.build", "cloud.environment.boot", "cloud.environment.delete"])
 
 /** Creator or team admin (all teams are personal today: the personal team's user is its admin). */
 export const mayManage = (p: Principal, row: MachineRow) => p.user === row.creator || requirePersonalTeamAdmin(p, personalTeamIdFor) === undefined
@@ -185,6 +199,9 @@ export const cloudDomain = (config: CloudConfig): Domain<CloudState> => ({
     if (op.startsWith("cloud.snapshot.") && op !== "cloud.snapshot.list" && principal.kind !== "session" && !approved) return { code: "auth.forbidden", message: op === "cloud.snapshot.restore" && isAgent(principal) ? "an agent cannot create machines" : "snapshots need a signed-in person or their approval" }
     if (principal.kind !== "session" && !approved && op === "cloud.machine.create") return { code: "auth.forbidden", message: "creating a machine needs a signed-in person" }
     if (principal.kind !== "session" && !approved && op === "cloud.machine.delete") return { code: "auth.forbidden", message: "deleting a machine needs a signed-in person" }
+    // Environments: the setup script runs on machines the team pays for; agents never write or run one.
+    if (op.startsWith("cloud.environment.") && op !== "cloud.environment.list" && isAgent(principal)) return { code: "auth.forbidden", message: "an agent cannot change, build or boot environments" }
+    if ((op === "cloud.environment.build" || op === "cloud.environment.boot" || op === "cloud.environment.delete") && principal.kind !== "session" && !approved) return { code: "auth.forbidden", message: "environment builds, boots and deletes need a signed-in person or their approval" }
     return admit("cloud:CloudDO", op, principal, grantClasses, Date.now())
   },
 
@@ -198,7 +215,7 @@ export const cloudDomain = (config: CloudConfig): Domain<CloudState> => ({
       case "cloud.machine.delete":
         return remove(config, state, params, ctx)
       case "cloud.driver_result":
-        return driverResult(state, params, ctx)
+        return driverResult(config, state, params, ctx)
       case "cloud.watch_result":
         return watchResult(state, params, ctx)
       case "cloud.machine.bind":
@@ -214,6 +231,14 @@ export const cloudDomain = (config: CloudConfig): Domain<CloudState> => ({
         return snapshotDelete(config, state, params, ctx)
       case "cloud.snapshot.restore":
         return snapshotRestore(state, params, ctx, (p) => create(config, state, p, ctx))
+      case "cloud.environment.set":
+        return environmentSet(config, state, params, ctx)
+      case "cloud.environment.delete":
+        return environmentDelete(config, state, params, ctx)
+      case "cloud.environment.build":
+        return environmentBuild(config, state, params, ctx)
+      case "cloud.environment.boot":
+        return environmentBoot(config, state, params, ctx, (p) => create(config, state, p, ctx))
       case "cloud.machine.idle_pause":
         return ctx.principal.kind === "system" ? powerIntent(config, state, "cloud.machine.pause", params, ctx, true, (params as { reason?: "idle" | "no_report" } | null)?.reason ?? "idle") : reject("auth.forbidden", "internal op")
       case "cloud.machine.provider_state":
@@ -280,7 +305,8 @@ const create = (config: CloudConfig, state: CloudState, params: unknown, ctx: Re
     epoch: 1,
     bind: null,
     // The SSO team whose sign-in created the machine: its VM install is vouched by that team (SSO gate).
-    ...(p.sso_team ? { creator_sso_team: p.sso_team } : {})
+    ...(p.sso_team ? { creator_sso_team: p.sso_team } : {}),
+    ...(p.identity.startsWith(PLATFORM_IDENTITY_PREFIX) ? { platform: true as const } : {})
   }
   const key = ledgerKey(p.identity, ctx.idempotencyKey)
   const ledger: LedgerRow = { transport: machine.transport, key, op: "create", machine: id, provider_name: name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now }
@@ -298,7 +324,7 @@ const update = (state: CloudState, op: string, params: unknown, ctx: ReduceConte
   const rev = state.rev + 1
   const row: MachineRow = rename
     ? { ...stored.row, name: d.value.name!, revision: String(rev) }
-    : // Ours only (coordinator, 2026-10-05): Freestyle's timer is off; cloud.idlePause applies the policy from the VM's reports.
+    : // Ours only (coordinator, 2026-10-05): the provider's timer is off; cloud.idlePause applies the policy from the VM's reports.
       { ...stored.row, idle_policy: { idle_seconds: d.value.idle_seconds! }, revision: String(rev) }
   return { ok: true, state: next(state, {}, { machine: row.id, removed: false }), value: { machine: publicMachine(row) }, writes: [upsertMachine(row, stored.n)] }
 }
@@ -348,7 +374,7 @@ const remove = (config: CloudConfig, state: CloudState, params: unknown, ctx: Re
   return { ok: true, state: s, value: { deleted: true }, writes }
 }
 
-const driverResult = (state: CloudState, params: unknown, ctx: ReduceContext): ReduceResult<CloudState> => {
+const driverResult = (config: CloudConfig, state: CloudState, params: unknown, ctx: ReduceContext): ReduceResult<CloudState> => {
   const d = decodeInternal<typeof CloudDriverResultParams.Type>(CloudDriverResultParams, params)
   if (!d.ok) return d
   const r = d.value
@@ -367,6 +393,7 @@ const driverResult = (state: CloudState, params: unknown, ctx: ReduceContext): R
       value: { applied: true, final: false }, writes: [upsertLedger({ ...l, attempts, error, updated_at: ctx.now }, stored.n)] }
   }
   if ((l.op === "snapshot" || l.op === "snapshot_delete") && (r.ok || r.final === true || l.attempts + 1 >= MAX_ATTEMPTS)) return snapshotResult(state, stored, r, ctx)
+  if (l.op === "env_build" && (r.ok || r.final === true || l.attempts + 1 >= MAX_ATTEMPTS)) return environmentBuildResult(config, state, stored, r, ctx)
   if ((l.op === "pause" || l.op === "start" || l.op === "resize") && (r.ok || r.final === true || l.attempts + 1 >= MAX_ATTEMPTS)) return powerResult(state, stored, machine, r, ctx)
   if (!r.ok) {
     const attempts = l.attempts + 1
@@ -395,7 +422,7 @@ const driverResult = (state: CloudState, params: unknown, ctx: ReduceContext): R
   // binds it (5.8). The token expires 15 minutes after the provider reported the VM running.
   if (l.op === "create" && machine && r.bind_token_sha256) {
     const bind: BindState = { token_sha256: r.bind_token_sha256, expires_at: ctx.now + BIND_TOKEN_TTL_MS, spent: false }
-    // The record takes the VM's real size (Freestyle has no size at create).
+    // The record takes the VM's real size (a provider without `sizing` takes no size at create).
     return { ok: true, state: next(state, { pending }), value: { applied: true }, writes: [done, upsertMachine({ ...machine.row, bind, ...(r.resources ? { size: r.resources } : {}) }, machine.n)] }
   }
   if (l.op === "create" || !machine) return { ok: true, state: next(state, { pending }), value: { applied: true }, writes: [done] }

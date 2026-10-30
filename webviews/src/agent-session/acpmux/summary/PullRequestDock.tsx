@@ -87,12 +87,14 @@ export function PullRequestDock({
 }) {
   const t = useT();
   const { pullRequest: live } = useHeaderState();
-  // Same options and membership selector as Session Info. Retain the parse cache across
-  // streaming chunks with unchanged PR findings; a new verified mention still updates the count.
+  // The dock counts the same session-owned Changes as Session Info. Read-only reply mentions are
+  // Sources, so the cache fingerprints command findings only and skips per-token prose work.
   const parsed = useRef<{ key: string | symbol; repository?: string; prs: SummaryPullRequest[] }>(undefined);
-  const key = transcriptPullRequestKey(rows, true);
+  // Use the producer revision even though the dock parses commands only: the revision is O(1)
+  // for live snapshots and advances only when a tool finding changes.
+  const key = transcriptPullRequestKey(rows, false);
   if (parsed.current?.key !== key || parsed.current?.repository !== repository) {
-    parsed.current = { key, repository, prs: transcriptPullRequests(rows, { folder: repository, replies: true }) };
+    parsed.current = { key, repository, prs: transcriptPullRequests(rows, { folder: repository, replies: false }) };
   }
   const all = parsed.current.prs;
   const changes = visibleChanges(all, headerStatus(live));

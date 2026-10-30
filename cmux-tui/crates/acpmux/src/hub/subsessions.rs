@@ -77,6 +77,7 @@
 
 use super::*;
 use crate::store::{SubsessionLimits, SubsessionLink};
+use cmux_json::JsonSet as _;
 use std::collections::BTreeSet;
 
 /// The settings keys (schemas/settings/source/subsessions.json).
@@ -668,6 +669,7 @@ impl Hub {
                 person: false,
                 who: &who,
                 local: req.local,
+                peers: req.local,
                 // A child's name is made unique before this (`unique_name`).
                 name: None,
             })
@@ -769,7 +771,7 @@ impl Hub {
         });
         if let Some(kept) = &worktree {
             let w = &kept.made;
-            reply["worktree"] = json!({"root": w.root, "branch": w.branch, "base": w.base});
+            reply.set("worktree", json!({"root": w.root, "branch": w.branch, "base": w.base}));
         }
         Ok((probe, reply, worktree))
     }
@@ -840,7 +842,7 @@ impl Hub {
             "fromRole": super::subsession_send::family_role(&fm, &to.meta()),
         });
         if let Some(link) = &fm.subsession {
-            provenance["fromShortName"] = json!(link.short_name);
+            provenance.set("fromShortName", json!(link.short_name));
         }
         let (tx, rx) = tokio::sync::oneshot::channel::<Value>();
         // An agent a remote device drove (its turn, or its last one, is a Web
@@ -891,11 +893,11 @@ impl Hub {
         let mut summary = self.session_summary(s);
         // Masked before their cut (`TurnInfo::masked_preview`, `doing`), for `turn` and `doing`.
         if let Some(t) = s.turn().filter(|t| summary["turn"]["turnId"] == t.turn_id.as_str()) {
-            summary["turn"]["prompt"] = json!(t.masked_preview);
+            summary.set_path(&["turn", "prompt"], json!(t.masked_preview));
             t.doing.mask_into(&mut summary["turn"]);
         }
         if summary["waitingPrompt"].is_string() {
-            summary["waitingPrompt"] = json!(super::subsession_send::masked_waiting_prompt(s));
+            summary.set("waitingPrompt", json!(super::subsession_send::masked_waiting_prompt(s)));
         }
         let pick = |k: &str| summary.get(k).cloned().unwrap_or(Value::Null);
         let mut row = json!({
@@ -928,7 +930,7 @@ impl Hub {
             "questions": self.subsession_questions(s), // ancestors may answer them
         });
         if with_reply {
-            row["lastReply"] = json!(self.last_reply(s));
+            row.set("lastReply", json!(self.last_reply(s)));
         }
         // The tools hand this to another session's agent: a secret in the
         // child's text (one it read from a file, say) is masked.
@@ -1168,11 +1170,19 @@ impl Hub {
     /// `MAX_REPLY_CHARS`, so a cut never leaves a secret's head unmasked.
     pub fn last_reply(&self, s: &Session) -> Option<String> {
         let last = s.meta().last_seq;
-        let after = last.saturating_sub(4000);
-        let events = self.events(&s.id, after, 4000).ok()?;
+        self.reply_between(s, last.saturating_sub(4000), last)
+    }
+
+    /// [`Hub::last_reply`] among the records after `after` up to `upto` only (the last 4000 of
+    /// them): one turn's reply, read after later turns began (the Cloud hand-off reports,
+    /// `daemon/cloud_handoff.rs`).
+    pub fn reply_between(&self, s: &Session, after: u64, upto: u64) -> Option<String> {
+        let after = after.max(upto.saturating_sub(4000));
+        let count = usize::try_from(upto.saturating_sub(after)).unwrap_or(4000);
+        let events = self.events(&s.id, after, count).ok()?;
         let mut reply = String::new();
         let mut open = false;
-        for e in events {
+        for e in events.into_iter().take_while(|e| e.seq <= upto) {
             if e.dir == "mux" && matches!(e.kind.as_str(), "turn_started" | "user_message") {
                 open = false;
                 continue;

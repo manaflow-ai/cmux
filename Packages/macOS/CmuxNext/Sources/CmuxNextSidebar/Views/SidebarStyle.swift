@@ -26,6 +26,10 @@ enum SidebarStyle {
     static let placeholderFractions: [CGFloat] = [0.72, 0.5, 0.62]
     /// Icon frame; the glyph inside is `kindGlyphSize`.
     static var iconBox: CGFloat { Metrics.smallIconSize + Metrics.space2 }
+    /// The one leading icon column (Leo 2026-10-28: "the alignment"): in a row whose leading slot starts at `leading`,
+    /// every leading glyph (a band row's, a pinned row's pin, a workspace row's icon) centers its ink here, one
+    /// `iconBox` wide, so glyphs of different shapes and margins share one center x at every density.
+    static func iconColumnCenterX(leading: CGFloat) -> CGFloat { leading + iconBox / 2 }
     /// A workspace row's leading glyph: the size an icon takes beside the
     /// row title (cap height and stroke matched to the text).
     static var kindGlyphSize: CGFloat { .iconRowSize(forLabelPointSize: titleFont.pointSize) }
@@ -40,6 +44,10 @@ enum SidebarStyle {
         if swatch { return leading + iconSide + Metrics.space3 + Metrics.space1 }
         return leading + iconSide + Metrics.space3 - Swift.max(0, (iconSide - kindGlyphSize) / 2)
     }
+    /// The one text column after a leading glyph in a row whose first ink starts at `leading`: Home's and every
+    /// band row's label, a pinned row's title (after its pin), a workspace row's title after its icon. Lawrence
+    /// 2026-10-28: "home and pinned are not aligned".
+    static func leadingTextX(leading: CGFloat) -> CGFloat { titleTextX(leading: leading, iconSide: iconBox) }
     /// An item's glyph on its `iconBox` well (the list look), clear of the well's edge.
     static var wellGlyphSize: CGFloat { Swift.max(.iconFloor, iconBox - Metrics.space2) }
     static var controlSize: CGFloat { Metrics.iconSize + Metrics.space2 }

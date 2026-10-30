@@ -700,3 +700,42 @@ async fn history_page_cost() {
     assert_eq!(all.last().unwrap().seq, seq);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[tokio::test]
+async fn orchestration_fields_reach_subagent_events_and_session_summary() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "orchestration-fields").await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "orchestration-fields", None)).await.unwrap();
+    let events = hub.events(&id, 0, 1000).unwrap();
+    let rows: Vec<&Value> = events
+        .iter()
+        .filter_map(|e| e.msg.pointer("/params/_meta/acpmux/subagents"))
+        .filter_map(Value::as_array)
+        .flatten()
+        .collect();
+    let started = rows.iter().find(|r| r["state"] == "running").unwrap();
+    assert_eq!(started["model"], "gpt-6");
+    assert_eq!(started["effort"], "high");
+    let ended = rows.iter().find(|r| r["state"] == "completed").unwrap();
+    assert_eq!(ended["lastMessage"], format!("{}…", "é".repeat(239)));
+    assert_eq!(ended["tokens"], 1234);
+    // Text updates do not walk or re-emit subagent rows on every token.
+    assert!(
+        events
+            .iter()
+            .filter(|e| e.kind == "agent_message_chunk")
+            .all(|e| e.msg.pointer("/params/_meta/acpmux/subagents").is_none())
+    );
+    assert_eq!(hub.session_summary(&hub.resolve(&id).unwrap())["effort"], "high");
+}
+
+#[tokio::test]
+async fn orchestration_session_changed_carries_effort() {
+    let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "orchestration-watch").await;
+    c.request(method::MUX_WATCH, json!({"enabled": true})).await.unwrap();
+    c.send(method::SESSION_PROMPT, prompt(&id, "orchestration-fields", None)).await;
+    let changed =
+        c.wait_for(method::MUX_SESSION_CHANGED, |p| p["session"]["effort"] == "high").await;
+    assert_eq!(changed["sessionId"], id);
+}

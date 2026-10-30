@@ -552,10 +552,11 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   a new file and answers one data frame `{"path","size"}`, then `eof`. With
   `cwd`, which must be a folder of one of the Mac's tabs or inside a workspace
   root, the file goes to `<cwd>/.cmux/attachments/phone-<session>/`.
-  Otherwise it goes to the host's uploads folder. A refusal (`too_large`,
-  `forbidden`, `not_found`, `bad_request`, `io`) is answered
-  `{"error","message"}` before the channel closes with that code. The name is
-  made safe, and an existing file is never replaced (`name 2.ext`, ...).
+  Otherwise it goes to the host's uploads folder. Any size is accepted; the
+  bytes stream to disk as they arrive. A refusal (`forbidden`, `not_found`,
+  `bad_request`, `io`) is answered `{"error","message"}` before the channel
+  closes with that code. The name is made safe, and an existing file is never
+  replaced (`name 2.ext`, ...).
 - `browser`: `{"tab", "url"?}` a streamed Mac browser tab
   (verify/browser-stream.md). The channel carries the `cmux.rd/1` stream
   carrier (`u8 kind | u32 LE len | payload`, kind 1 control JSON, 2 datagram)

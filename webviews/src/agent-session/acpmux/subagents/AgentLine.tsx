@@ -19,6 +19,7 @@ import { Spinner } from "../conversation/icons";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import type { SubagentStatus } from "../summary/SubagentStatusList";
+import { Tick } from "./trayMotion";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -43,6 +44,7 @@ export function AgentLine({
   wave,
   working = false,
   expanded,
+  trayColumns = false,
 }: {
   name: string;
   /// What it does now, or the kind of agent it is; dim after the name.
@@ -81,6 +83,8 @@ export function AgentLine({
   working?: boolean;
   /// A command row's live-tail disclosure state.
   expanded?: boolean;
+  /// Use the running tray's fixed trailing columns; other AgentLine consumers keep their flow.
+  trayColumns?: boolean;
 }) {
   const shimmer = waveProps(wave);
   const brand = mark ? knownMark(mark, mark.split(/[-_/]/)[0]) : undefined;
@@ -116,12 +120,32 @@ export function AgentLine({
         <span className="acpmux-summary-agent__name">{name}</span>
         {detail && detail !== name && <span className="acpmux-summary-agent__kind">{detail}</span>}
       </span>
-      {time !== undefined && <span className="acpmux-summary-meta acpmux-agent-line__time">{time}</span>}
-      <span className="acpmux-summary-meta acpmux-summary-agent__state">{state}</span>
-      {chevron && onOpen && (
-        <span className="acpmux-agent-line__chevron" aria-hidden="true">
-          <Icon name="disclosure.collapsed" size={12} />
-        </span>
+      {trayColumns ? (
+        <>
+          <span className="acpmux-summary-meta acpmux-agent-line__time" aria-hidden={time === undefined}>
+            {time}
+          </span>
+          <span className="acpmux-agent-line__status">
+            {/* Running turns to Waiting or Done with a tick, never a jump (trayMotion.tsx). */}
+            <Tick className="acpmux-summary-meta acpmux-summary-agent__state" text={state} />
+            {chevron && onOpen && (
+              <span className="acpmux-agent-line__chevron" aria-hidden="true">
+                <Icon name="disclosure.collapsed" size={ROW_ICON} row />
+              </span>
+            )}
+          </span>
+        </>
+      ) : (
+        <>
+          {time !== undefined && <span className="acpmux-summary-meta acpmux-agent-line__time">{time}</span>}
+          {/* Running turns to Waiting or Done with a tick, never a jump (trayMotion.tsx). */}
+          <Tick className="acpmux-summary-meta acpmux-summary-agent__state" text={state} />
+          {chevron && onOpen && (
+            <span className="acpmux-agent-line__chevron" aria-hidden="true">
+              <Icon name="disclosure.collapsed" size={ROW_ICON} row />
+            </span>
+          )}
+        </>
       )}
     </button>
   );
@@ -135,7 +159,7 @@ export function AgentLine({
       ) : (
         button
       )}
-      {after}
+      {trayColumns ? <span className="acpmux-agent-line__stop-slot">{after}</span> : after}
     </div>
   );
 }

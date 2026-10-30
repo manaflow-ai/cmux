@@ -796,6 +796,9 @@ pub struct WorkspaceRegistry {
     /// Behind its own lock; lock order rules: see `registry_connection`.
     pub(crate) connection: std::sync::Arc<RegistryConnection>,
     database_path: Option<PathBuf>,
+    /// How long each step of this registry's open took (the owner's
+    /// `startup-timings.jsonl`); taken once by the owner's start.
+    open_timings: crate::startup_timings::StartupTimings,
     registry_id: String,
     generation: String,
     session_name: String,
@@ -2456,10 +2459,12 @@ impl WorkspaceRegistry {
             None,
             None,
             None,
+            crate::startup_timings::StartupTimings::start(),
         )
     }
 
     pub fn open(root: &Path, session_name: &str) -> anyhow::Result<Self> {
+        let mut timings = crate::startup_timings::StartupTimings::start();
         let root = platform::normalize_filesystem_path(root.to_path_buf());
         // Keep short roots in their existing spelling while giving all
         // root-level files the same long-path handling as their descendants.
@@ -2495,6 +2500,7 @@ impl WorkspaceRegistry {
             .with_context(|| format!("open workspace registry {}", db_path.display()))?;
         let connection = open_guard::quarantine_if_unreadable(&db_path, connection)?;
         platform::restrict_file(&db_path)?;
+        timings.lap("registry.lock_and_connect");
         Self::initialize(
             connection,
             session_name.to_string(),
@@ -2503,9 +2509,11 @@ impl WorkspaceRegistry {
             Some(session_guard),
             Some(lease),
             Some(db_path),
+            timings,
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn initialize(
         connection: Connection,
         session_name: String,
@@ -2514,6 +2522,7 @@ impl WorkspaceRegistry {
         session_guard: Option<SessionLease>,
         lease: Option<SessionLease>,
         database_path: Option<PathBuf>,
+        mut timings: crate::startup_timings::StartupTimings,
     ) -> anyhow::Result<Self> {
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         // Before the first write, so every commit of this connection uses it.
@@ -2785,6 +2794,7 @@ impl WorkspaceRegistry {
             migrate_resource_tabs_to_multiview(&tx)?;
             tx.commit()?;
         }
+        timings.lap("registry.schema");
         {
             let tx = connection.unchecked_transaction()?;
             resource_store::migrate_tab_name_authority(&tx)?;
@@ -2814,23 +2824,7 @@ impl WorkspaceRegistry {
         }
         if migrate_existing_registry {
             connection.execute_batch("PRAGMA foreign_keys=ON;")?;
-            let violation = connection
-                .query_row(
-                    "SELECT \"table\", rowid, parent, fkid
-                     FROM pragma_foreign_key_check
-                     LIMIT 1",
-                    [],
-                    |row| {
-                        Ok((
-                            row.get::<_, String>(0)?,
-                            row.get::<_, Option<i64>>(1)?,
-                            row.get::<_, String>(2)?,
-                            row.get::<_, i64>(3)?,
-                        ))
-                    },
-                )
-                .optional()?;
-            if violation.is_some() {
+            if first_state_foreign_key_violation(&connection)?.is_some() {
                 anyhow::bail!(
                     "saved session data could not be loaded; start a new session or restore this session from a backup"
                 );
@@ -2894,16 +2888,20 @@ impl WorkspaceRegistry {
         if let Err(error) = crate::state::sidebar_doc_store::migrate_at_open(&connection) {
             eprintln!("cmux-tui: sidebar document migration skipped ({error:#})");
         }
+        timings.lap("registry.migrations");
         check_registry_integrity(&connection)?;
+        timings.lap("registry.integrity_check");
         {
             let tx = connection.unchecked_transaction()?;
             initialize_compatibility_active_workspace(&tx)?;
             validate_resource_invariants(&tx)?;
             tx.commit()?;
         }
+        timings.lap("registry.resource_invariants");
         Ok(Self {
             connection: RegistryConnection::new(connection, database_path.as_deref()),
             database_path,
+            open_timings: timings,
             registry_id,
             generation: try_new_uuid_v4()?,
             session_name,
@@ -2921,6 +2919,11 @@ impl WorkspaceRegistry {
 
     pub(crate) fn session_journal_database_path(&self) -> Option<PathBuf> {
         self.database_path.clone()
+    }
+
+    /// This registry's open steps, once (later calls get none).
+    pub(crate) fn take_open_timings(&mut self) -> crate::startup_timings::StartupTimings {
+        std::mem::take(&mut self.open_timings)
     }
 
     pub(crate) fn resource_input_receipt_hmac(
@@ -3821,6 +3824,59 @@ const JOURNAL_HISTORY_TABLES: [&str; 7] = [
 const MUTATION_LEDGER_TABLES: [&str; 3] =
     ["mutations", "projection_mutations", "terminal_mutations"];
 
+/// Journal receipt ledgers: one row per accepted ingress append, read only
+/// by its `(producer, origin, idempotency key)` for a retry. A long-lived
+/// machine holds hundreds of thousands (588k, about 5.5 s of a cold
+/// quick_check on a 41 GB nightly registry), so the open-time checks skip
+/// them like the mutation ledgers.
+const RECEIPT_LEDGER_TABLES: [&str; 1] = ["journal_ingress_receipts"];
+
+/// Tables the open-time checks leave alone: journal history, idempotency
+/// ledgers and quarantined ledgers grow with use and are validated when read.
+fn skipped_by_open_check(table: &str) -> bool {
+    JOURNAL_HISTORY_TABLES.contains(&table)
+        || MUTATION_LEDGER_TABLES.contains(&table)
+        || RECEIPT_LEDGER_TABLES.contains(&table)
+        || mutation_ledger_retention::is_quarantined_ledger(table)
+}
+
+/// One `PRAGMA foreign_key_check` row: `(table, rowid, parent, foreign key index)`.
+pub(crate) type ForeignKeyViolation = (String, i64, Option<String>, i64);
+
+/// The first row of a registry state table whose foreign key names a missing
+/// parent: `(table, rowid, parent, foreign key index)`. The open migrates
+/// state tables with foreign keys off and validates the resource topology, so
+/// both check them; an unscoped `PRAGMA foreign_key_check` also walked every
+/// receipt ledger (about 4 s cold on a 41 GB registry) while the daemon's
+/// socket waited.
+pub(crate) fn first_state_foreign_key_violation(
+    connection: &Connection,
+) -> anyhow::Result<Option<ForeignKeyViolation>> {
+    let tables = {
+        let mut statement = connection.prepare(
+            "SELECT DISTINCT m.name FROM sqlite_master AS m, pragma_foreign_key_list(m.name)
+             WHERE m.type = 'table' ORDER BY m.name",
+        )?;
+        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
+    };
+    for table in tables.iter().filter(|table| !skipped_by_open_check(table.as_str())) {
+        let query = format!(
+            "SELECT \"table\", rowid, parent, fkid FROM pragma_foreign_key_check('{}') LIMIT 1",
+            table.replace('\'', "''")
+        );
+        let violation = connection
+            .query_row(&query, [], |row| {
+                let rowid = row.get::<_, Option<i64>>(1)?.unwrap_or_default();
+                Ok((row.get(0)?, rowid, row.get(2)?, row.get(3)?))
+            })
+            .optional()?;
+        if violation.is_some() {
+            return Ok(violation);
+        }
+    }
+    Ok(None)
+}
+
 /// Structural check of the registry state on open. An unscoped quick_check
 /// reads every page of the file, so its cost tracked total journal history;
 /// checking each state table and its indexes keeps startup proportional to
@@ -3834,12 +3890,7 @@ fn check_registry_integrity(connection: &Connection) -> anyhow::Result<()> {
         )?;
         statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
     };
-    let skipped = |table: &str| {
-        JOURNAL_HISTORY_TABLES.contains(&table)
-            || MUTATION_LEDGER_TABLES.contains(&table)
-            || mutation_ledger_retention::is_quarantined_ledger(table)
-    };
-    for table in tables.iter().filter(|table| !skipped(table.as_str())) {
+    for table in tables.iter().filter(|table| !skipped_by_open_check(table.as_str())) {
         let pragma = format!("PRAGMA quick_check('{}')", table.replace('\'', "''"));
         let result: String = connection.query_row(&pragma, [], |row| row.get(0))?;
         if result != "ok" {
@@ -3865,6 +3916,16 @@ fn check_registry_integrity(connection: &Connection) -> anyhow::Result<()> {
             continue;
         }
         for order in ["rowid DESC", "origin DESC, mutation_id DESC"] {
+            let query = format!("SELECT 1 FROM {table} ORDER BY {order} LIMIT 1");
+            let _: Option<i64> = connection.query_row(&query, [], |row| row.get(0)).optional()?;
+        }
+    }
+    // The receipt ledgers likewise: their newest row and newest key.
+    for table in RECEIPT_LEDGER_TABLES {
+        if !tables.iter().any(|name| name.as_str() == table) {
+            continue;
+        }
+        for order in ["rowid DESC", "producer_id DESC, origin DESC, idempotency_key DESC"] {
             let query = format!("SELECT 1 FROM {table} ORDER BY {order} LIMIT 1");
             let _: Option<i64> = connection.query_row(&query, [], |row| row.get(0)).optional()?;
         }

@@ -148,6 +148,8 @@ function probeMachine(vm: CloudVmRow, providerVmId: string, addresses: readonly 
     const result = yield* providers.exec(vm.provider, providerVmId, vmIdleProbeCommand(addresses), {
       asRoot: true,
       timeoutMs: VM_IDLE_PROBE_TIMEOUT_MS,
+      // Effect.timeout only interrupts the fiber; this makes the gateway abort the provider request too.
+      cancelOnInterrupt: true,
     }).pipe(Effect.timeout(PROBE_EXEC_BUDGET_MS));
     return result.exitCode === 0 ? parseVmIdleProbe(result.stdout) : null;
   }).pipe(Effect.catchAll(() => Effect.succeed(null)));

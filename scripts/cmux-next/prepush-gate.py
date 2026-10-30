@@ -1309,5 +1309,61 @@ def main(argv: list[str] | None = None) -> int:
     return 1
 
 
+GATE_LIMIT_SECONDS = 600.0  # a whole gate takes under a minute; a hang (a786, a796, a808: 28-30 min) refuses here
+
+
+def _descendants(pid: int) -> list[int]:
+    """Every live process this gate started, children first (from `ps`; the gate is not a process-group leader)."""
+    try:
+        rows = subprocess.run(["ps", "-A", "-o", "pid=,ppid="], capture_output=True, text=True, timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    kids: dict[int, list[int]] = collections.defaultdict(list)
+    for row in rows.splitlines():
+        parts = row.split()
+        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+            kids[int(parts[1])].append(int(parts[0]))
+    out, todo = [], [pid]
+    while todo:
+        for kid in kids.get(todo.pop(), []):
+            out.append(kid)
+            todo.append(kid)
+    return out
+
+
+def start_watchdog(limit: float) -> None:
+    """Past LIMIT seconds, print every thread's stack, stop the processes this gate started, and refuse the push.
+
+    A hung gate blocks the push anyway, so refusing loosens no check; the stacks say where it hung."""
+    import faulthandler
+    import threading
+
+    def fire() -> None:
+        sys.stderr.write(f"prepush-gate: the gate ran past its {limit:g}s limit (CMUX_NEXT_GATE_LIMIT_SECONDS); "
+                         "push refused. Where each thread was:\n")
+        sys.stderr.flush()
+        faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
+        for pid in _descendants(os.getpid()):
+            try:
+                os.kill(pid, 9)
+            except OSError:
+                pass
+        sys.stdout.flush()
+        os._exit(1)
+
+    timer = threading.Timer(limit, fire)
+    timer.daemon = True
+    timer.start()
+
+
+def gate_limit() -> float:
+    raw = os.environ.get("CMUX_NEXT_GATE_LIMIT_SECONDS", "").strip()
+    try:
+        return float(raw) if raw else GATE_LIMIT_SECONDS
+    except ValueError:
+        return GATE_LIMIT_SECONDS
+
+
 if __name__ == "__main__":
+    start_watchdog(gate_limit())
     sys.exit(main())

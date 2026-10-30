@@ -57,7 +57,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     }
 
     /// `debug.home.drive` {action: focus | type | send | tapback | video | scroll
-    /// | menu | geometry | link | texts | typing | rows | resize | nudge | list, text, dx, dy, trims, mine, tab, prefix, limit}: drives the shown Home through its own entry points (the
+    /// | chat_colors | menu | geometry | link | texts | typing | rows | resize | nudge | list, text, dx, dy, trims, mine, tab, prefix, limit}: drives the shown Home through its own entry points (the
     /// field's text system, Return's send, the tapback picker's react, the
     /// scroll view) for screenshots and recordings on a window that is
     /// never key. `tab` (a key from `debug.home` page.tabs) drives that Home tab.
@@ -80,6 +80,17 @@ final class DebugHomeNativeFixture: InternalPageProvider {
         }
         let ok: Bool
         switch params["action"]?.stringValue ?? "" {
+        case "chat_colors":
+            // The shown view (the fixture too) follows the app's Chat Colors store; `home.chatColors` then sets them.
+            // {sent, sentText, received, receivedText: "#RRGGBB" | "default", reset, panel}: the action's own store path.
+            let store = services.home.chatColors, id = view.conversationID.rawValue
+            view.chatColors = store
+            let values = ["sent", "sentText", "received", "receivedText"].reduce(into: [String: String]()) { $0[$1] = params[$1]?.stringValue }
+            do { try store.apply(values, reset: params["reset"]?.boolValue ?? false, to: id) } catch {
+                return .object(["error": .string(error.localizedDescription)])
+            }
+            if params["panel"]?.boolValue == true { services.home.chatColorsPanel.show(conversation: id, name: "", over: view.window) }
+            return .object(["ok": .bool(true), "conversation": .string(id), "colors": .string(store.colors(for: id).hexSummary)])
         case "menu":
             let titles = view.debugMenuTitles(mine: params["mine"]?.boolValue ?? false) ?? []
             return .object(["ok": .bool(!titles.isEmpty), "items": .array(titles.map { .string($0) })])

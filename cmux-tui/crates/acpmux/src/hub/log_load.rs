@@ -189,12 +189,16 @@ impl Hub {
             let plan = self.load_plan.lock().unwrap_or_else(|e| e.into_inner());
             plan.hosted.iter().cloned().collect()
         };
+        // All hosted chats were considered by adoption. Read their liveness once for this
+        // settling pass, off the executor, rather than reading every host record per chat.
+        // A failed read proves no host gone; keep its turn for later recovery.
+        let live = tokio::task::spawn_blocking(Self::read_live_host_sessions).await.ok().flatten();
         for id in hosted {
             let Ok(session) = self.resolve(&id) else { continue };
             if session.child.lock().await.is_some() {
                 continue;
             }
-            let gone = !Self::host_record_live(&id);
+            let gone = live.as_ref().is_some_and(|live| !live.contains(&id));
             let hub = self.clone();
             let settled = tokio::task::spawn_blocking(move || hub.settle_one(&session, gone));
             if let Err(e) = settled.await {

@@ -112,6 +112,7 @@ final class HomeHostView: NSView {
             guard let service, let other = service.tabChiefs.otherHost(of: conversation) else { return }
             service.hostedChief.pick(other)
         }
+        transcript.chatColors = service.chatColors  // Chat Colors…: this chat's own colours, live
         // task-owner: lives as long as this view; event-driven (Observation)
         hostWatch = Task { [weak self, weak service] in
             for await host in ObservationStream({ service?.chiefHost(of: conversation) ?? HomeChiefHostLine() }) {

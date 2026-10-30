@@ -98,8 +98,8 @@ public final class SidebarDocSections {
     public enum UnplacedAnchor: Equatable, Sendable {
         case before(String)
         case after(String)
-        /// Right after it when it is in a group (`top` from inside a group), else first or last as unanchored.
-        case afterInGroup(String)
+        /// First in its group when it is in a group (`top` from inside a group), else first or last as unanchored.
+        case firstInGroupOf(String)
         /// Last in its group when it is in one (`bottom` from inside a group), else first or last as unanchored.
         case lastInGroupOf(String)
         /// First among the machine's rows, below a leading Home row: `beforeCurrent` / `afterCurrent` when the
@@ -109,7 +109,7 @@ public final class SidebarDocSections {
         /// Whether it applies only inside a group.
         public var isGroupAnchor: Bool {
             switch self {
-            case .afterInGroup, .lastInGroupOf: true
+            case .firstInGroupOf, .lastInGroupOf: true
             case .before, .after, .first: false
             }
         }
@@ -249,7 +249,7 @@ public final class SidebarDocSections {
                               within: Int, from start: Int = 0) -> Bool {
         let id: String
         switch anchor {
-        case .before(let anchor), .after(let anchor), .afterInGroup(let anchor), .lastInGroupOf(let anchor): id = anchor
+        case .before(let anchor), .after(let anchor), .firstInGroupOf(let anchor), .lastInGroupOf(let anchor): id = anchor
         case .first:
             insertFirst([workspace], into: &sections, machineSections: within)
             return true
@@ -260,9 +260,9 @@ public final class SidebarDocSections {
             switch anchor {
             case .before: workspaces.insert(workspace, at: at)
             case .after: workspaces.insert(workspace, at: at + 1)
-            case .afterInGroup:
+            case .firstInGroupOf:
                 guard section.group != nil else { return false }
-                workspaces.insert(workspace, at: at + 1)
+                workspaces.insert(workspace, at: 0)
             case .lastInGroupOf:
                 guard section.group != nil else { return false }
                 workspaces.append(workspace)

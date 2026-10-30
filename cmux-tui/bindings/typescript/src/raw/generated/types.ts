@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR fdbcf5eb2b6c4eba8dab3ed1b3138ace2a1e1ae3940fab882e8889e5f73a88b5. */
+/* cmux-tui mux protocol 12, IR 2a4273b3de77ee2051c9429acea0cac6d50962f0f5752cafacf3798c4a8b247c. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -220,6 +220,8 @@ export type ColumnPin = {
   "mode": string;
   "role"?: (string) | null;
 };
+
+export type ColumnSide = "left" | "right";
 
 export type ConversationChange = {
   /** kind conversation. */

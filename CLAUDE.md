@@ -29,7 +29,10 @@ Read the matching skill before changing an area, then only the references needed
   Never use bare `xcodebuild` or an untagged `cmux DEV.app`. Clean up only your own tags.
 - **Agents never compile or test on the person's Mac.** No local `swift build`/`swift test`,
   `xcodebuild build|test`, `cargo build|test|clippy` or `scripts/reload.sh`: run them as a
-  fleet step (`cmux-ci run --class isolated --script ... --ref SHA`, `cmux-ci build cmux --ref SHA`).
+  fleet step (`cmux-ci run --class CLASS --script ... --ref SHA`, `cmux-ci build cmux --ref SHA`).
+  CLASS is the script's own class: `light` for Swift suites (`scripts/ci/package-test-lane.sh`,
+  `run-swift-testing-suites.sh`), lints and the Rust check; `isolated` only for the scripts that
+  say so. Any other class is refused with `runs as class X` and no step is made.
   Several agents' local SwiftPM test runs pegged the Mac at 100% CPU (2026-10-20). The PATH
   guards (`~/.local/lib/cmux-local-build-guards`) queue or refuse these; never bypass them.
 - **Scope every search.** `rg`/`find`/`fd` only inside your worktree or a named subfolder, never

@@ -3,6 +3,7 @@ import type { ComposerAttachment } from "../attachments";
 import { useT } from "../i18n";
 import type { AcpmuxRow, QueueEdit } from "../model";
 import { Close } from "./icons";
+import { MessageCopy, MessageFooterRow, ROW_ICON } from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
 
 /// Under a steer the agent has not read yet: a quiet clock (it reads a steer when its current
@@ -13,7 +14,9 @@ import { TurnActionsContext } from "./turnActions";
 /// 2026-10-20). An agent that cannot stop one step reads it when the step ends, as before. `send`
 /// is `_acpmux/queue_edit` `send_now` with the steer's own promptId; it answers false once the
 /// steer was read. The X is the page's `unsteer` (`takeBackSteer`), where the chat offers it.
-/// Queue controls replace normal hover actions until Send now is accepted or the agent reads it.
+/// Queue controls replace normal hover actions until Send now is accepted or the agent reads it;
+/// Copy stays after them, so a waiting steer can be copied as any message can (Leo, 2026-10-29:
+/// "i feel like im frequently missing the copy/whatever buttons on these steers").
 /// A refusal keeps the controls available. Accepted delivery removes them in the same render.
 export function PendingSteer({
   row,
@@ -36,45 +39,48 @@ export function PendingSteer({
   const busy = sending;
   return (
     <div className="cv-user__pending">
-      {promptId && (
-        <button
-          type="button"
-          className="cv-user__send-now"
-          // tooltip-allow: says Send now stops only the current step, not the turn; shown nowhere else
-          title={t("steer.sendNowHelp")}
-          disabled={busy}
-          onClick={() => {
-            setSending(true);
-            void send(promptId, { op: "send_now" })
-              .catch(() => false)
-              .then((sent) => {
-                if (!sent) return;
-                sentNowIds.add(promptId);
-                setSentNow(true);
-              })
-              .finally(() => setSending(false));
-          }}
-        >
-          {t("steer.sendNow")}
-        </button>
-      )}
-      {promptId && unsteer && (
-        <button
-          type="button"
-          className="cv-user__take-back"
-          aria-label={t("composer.queueEditMessage")}
-          title={t("composer.queueEditMessage")}
-          disabled={busy}
-          onClick={() => {
-            setSending(true);
-            void unsteer(row)
-              .catch(() => false)
-              .finally(() => setSending(false));
-          }}
-        >
-          <Close size={13} />
-        </button>
-      )}
+      <MessageFooterRow>
+        {promptId && (
+          <button
+            type="button"
+            className="cv-user__send-now"
+            // tooltip-allow: says Send now stops only the current step, not the turn; shown nowhere else
+            title={t("steer.sendNowHelp")}
+            disabled={busy}
+            onClick={() => {
+              setSending(true);
+              void send(promptId, { op: "send_now" })
+                .catch(() => false)
+                .then((sent) => {
+                  if (!sent) return;
+                  sentNowIds.add(promptId);
+                  setSentNow(true);
+                })
+                .finally(() => setSending(false));
+            }}
+          >
+            {t("steer.sendNow")}
+          </button>
+        )}
+        {promptId && unsteer && (
+          <button
+            type="button"
+            className="cv-user__take-back cv-iconbtn cv-iconbtn--compact"
+            aria-label={t("composer.queueEditMessage")}
+            title={t("composer.queueEditMessage")}
+            disabled={busy}
+            onClick={() => {
+              setSending(true);
+              void unsteer(row)
+                .catch(() => false)
+                .finally(() => setSending(false));
+            }}
+          >
+            <Close size={ROW_ICON} />
+          </button>
+        )}
+        {row.text?.trim() && <MessageCopy text={row.text} />}
+      </MessageFooterRow>
     </div>
   );
 }

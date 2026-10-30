@@ -82,7 +82,7 @@ export function ChildSessionRows({
                 <span className="acpmux-summary-agent__name">{child.title}</span>
               </span>
               <span className="acpmux-summary-meta acpmux-summary-agent__state">
-                {label.working && <Spinner size={12} loading />}
+                {label.working && <Spinner size={ROW_ICON} loading />}
                 {label.text}
               </span>
             </button>

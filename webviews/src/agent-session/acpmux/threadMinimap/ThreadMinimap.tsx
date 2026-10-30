@@ -8,13 +8,21 @@
 // own list (during a scrub) and the card's height. Motion is transform only (threadMinimap.css);
 // the numbers are in model.ts.
 import React, { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { transcriptColumn, type AcpmuxRow, type ConversationLayout } from "../model";
 import { useT } from "../i18n";
 import { MinimapTick } from "../../../ui/MinimapTick";
 import { usePromptMarks } from "./promptMarks";
 import { useHoverIntent } from "../../../ui/hoverIntent";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
-import { animateScroll, highlightBubble, reducedMotion, settleScroll, stopScroll } from "./scrollMotion";
+import {
+  animateScroll,
+  highlightBubble,
+  MOTION_SCROLL_EVENT,
+  reducedMotion,
+  settleScroll,
+  stopScroll,
+} from "./scrollMotion";
 import { PreviewCard } from "./PreviewCard";
 import { ScrollMap } from "./ScrollMap";
 import { threadMinimapLayout } from "./layout.experiment";
@@ -115,7 +123,7 @@ export function ThreadMinimap({
   placed,
   change,
 }: {
-  rows: AcpmuxRow[];
+  rows: readonly AcpmuxRow[];
   sessionId?: string;
   layout: ConversationLayout;
   scroller: React.RefObject<HTMLElement | null>;
@@ -272,12 +280,19 @@ export function ThreadMinimap({
       // The full-height map moves its own bar; no band to draw here.
       if (!live.current.shown) return;
       const next = visibleTurns(all, tops, total, node.scrollTop, height);
-      if (next.first !== drawn.first || next.last !== drawn.last) setBandMoves((count) => count + 1);
+      // Synchronously: a scroll event or a motion's frame callback is outside React's batch, which
+      // would draw the band after this frame paints. Only a scroll that moves the band renders.
+      if (next.first !== drawn.first || next.last !== drawn.last) flushSync(() => setBandMoves((count) => count + 1));
     };
     // Captured, so it runs before the transcript's own scroll handler and that one's render finds the
-    // band already drawn.
+    // band already drawn. A wheel glide or jump (scrollMotion.ts) writes the offset in a frame
+    // callback, whose scroll event comes a frame late: it announces its write in that frame too.
     node.addEventListener("scroll", scrolled, { capture: true, passive: true });
-    return () => node.removeEventListener("scroll", scrolled, { capture: true });
+    node.addEventListener(MOTION_SCROLL_EVENT, scrolled);
+    return () => {
+      node.removeEventListener("scroll", scrolled, { capture: true });
+      node.removeEventListener(MOTION_SCROLL_EVENT, scrolled);
+    };
   }, [scroller]);
 
   // The transcript's placement pass (its layout effect, after this rail's) has set the offset for

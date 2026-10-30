@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileDesign
+import CmuxMobileSupport
 import QuartzCore
 import SwiftUI
 import UIKit
@@ -20,6 +21,9 @@ enum ChatDockPlacement {
 @MainActor
 protocol ChatTranscriptScrolling: AnyObject {
     func scrollTranscript(toTop: Bool, animated: Bool)
+    /// Find in Chat: brings content y `y` (the transcript's own coordinates) under the header
+    /// and the find bar, and stops following the newest turn.
+    func scrollTranscript(toContentY y: CGFloat, animated: Bool)
 }
 
 /// The agent chat transcript as a UIKit scroll view with a keyboard-docked
@@ -404,7 +408,8 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             // Resting on the newest turn counts as following it (an
             // interactive dismissal drags the content away mid-gesture, then
             // it settles back).
-            if !scrollView.isTracking, !scrollView.isDecelerating, positionedInitially, abs(distanceFromBottom) < 2 {
+            if !scrollView.isTracking, !scrollView.isDecelerating, positionedInitially, abs(distanceFromBottom) < 2,
+               surface.find?.currentMatch == nil {
                 surface.following = true
             }
             scrollView.contentInset = UIEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
@@ -540,7 +545,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     }
 
     fileprivate func draggedKeyboardFrame() {
-        guard scrollView.isTracking, let top = KeyboardProbe.drawnTop(in: view.window) else { return }
+        guard scrollView.isTracking, let top = MobileKeyboardProbe().drawnTop(in: view.window) else { return }
         let local = view.convert(CGPoint(x: 0, y: top), from: nil).y
         let constant = min(local, view.bounds.maxY) - view.bounds.maxY
         guard let constraint = notifiedKeyboardTop, abs(constraint.constant - constant) > 0.01 else { return }
@@ -573,7 +578,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         let away = scrolledDistanceFromBottom > 80
         if scrollView.isTracking || scrollView.isDecelerating {
             surface.following = !away
-        } else if !away {
+        } else if !away, surface.find?.currentMatch == nil {
+            // A Find jump that lands near the bottom keeps the reader on its match: only the
+            // person's own scroll resumes following while a match is shown.
             surface.following = true
         }
     }
@@ -598,7 +605,22 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     func scrollTranscript(toTop: Bool, animated: Bool) {
         surface.following = !toTop
         view.layoutIfNeeded()
-        let target = toTop ? CGPoint(x: 0, y: -scrollView.contentInset.top) : bottomOffset
+        scroll(to: toTop ? CGPoint(x: 0, y: -scrollView.contentInset.top) : bottomOffset, animated: animated)
+    }
+
+    /// Room the find bar takes under the header (its 44 pt row and its margins).
+    static let findBarClearance: CGFloat = 64
+
+    func scrollTranscript(toContentY y: CGFloat, animated: Bool) {
+        surface.following = false
+        view.layoutIfNeeded()
+        let headerBottom = topInset ?? view.safeAreaInsets.top
+        let wanted = y - headerBottom - Self.findBarClearance
+        let target = CGPoint(x: 0, y: min(max(-scrollView.contentInset.top, wanted), max(-scrollView.contentInset.top, bottomOffset.y)))
+        scroll(to: target, animated: animated)
+    }
+
+    private func scroll(to target: CGPoint, animated: Bool) {
         if animated {
             // A long jump animated the offset across pages SwiftUI had not drawn yet (a
             // blank band and stale fragments for ~300 ms). Cut to one screen short of the
@@ -717,43 +739,6 @@ private final class DragLinkTarget: NSObject {
     @objc func tick() { owner?.draggedKeyboardFrame() }
 }
 
-/// The keyboard as drawn this frame: the system's placeholder for the
-/// remote keyboard in the app's text effects window (presentation layers),
-/// window coordinates. Read-only; nil when it cannot be found.
-@MainActor
-enum KeyboardProbe {
-    static func drawnTop(in window: UIWindow?) -> CGFloat? {
-        guard let window, let scene = window.windowScene else { return nil }
-        for w in scene.windows where NSStringFromClass(type(of: w)).contains("TextEffects") {
-            guard let host = find(in: w, where: { NSStringFromClass(type(of: $0)).contains("RemoteKeyboardPlaceholder") }) else { continue }
-            let rect = window.convert(onScreen(host, in: w), from: w)
-            return rect.height > 1 ? min(rect.minY, window.bounds.maxY) : window.bounds.maxY
-        }
-        return nil
-    }
-
-    /// A view's frame in its window as drawn this frame: the presentation
-    /// layers' geometry all the way up.
-    static func onScreen(_ view: UIView, in window: UIView) -> CGRect {
-        var layer: CALayer? = view.layer
-        var rect = (view.layer.presentation() ?? view.layer).bounds
-        while let current = layer, current !== window.layer {
-            let p = current.presentation() ?? current
-            guard let superlayer = current.superlayer else { break }
-            let sp = superlayer.presentation() ?? superlayer
-            rect = p.convert(rect, to: sp)
-            layer = superlayer
-        }
-        return rect
-    }
-
-    static func find(in view: UIView, where match: (UIView) -> Bool) -> UIView? {
-        if match(view) { return view }
-        for sub in view.subviews { if let found = find(in: sub, where: match) { return found } }
-        return nil
-    }
-}
-
 /// Lets the composer's swipe-down recognizer run beside the text view's own.
 private final class DockPanDelegate: NSObject, UIGestureRecognizerDelegate {
     @MainActor static let shared = DockPanDelegate()
@@ -826,11 +811,11 @@ final class ChatKeyboardTrace {
     }
 
     static func keyboardTop(in window: UIWindow?) -> CGFloat? {
-        KeyboardProbe.drawnTop(in: window) ?? window?.bounds.maxY
+        MobileKeyboardProbe().drawnTop(in: window) ?? window?.bounds.maxY
     }
 
     static func onScreen(_ view: UIView, in window: UIView) -> CGRect {
-        KeyboardProbe.onScreen(view, in: window)
+        MobileKeyboardProbe().onScreen(view, in: window)
     }
 
     /// The composer's glass card: the widest glass view in the window.
@@ -852,7 +837,7 @@ final class ChatKeyboardTrace {
     }
 
     private static func find(in view: UIView, where match: (UIView) -> Bool) -> UIView? {
-        KeyboardProbe.find(in: view, where: match)
+        MobileKeyboardProbe().find(in: view, where: match)
     }
 }
 #endif

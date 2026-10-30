@@ -198,10 +198,12 @@ const shortPane =
   async (ctx) => {
     await checkTrust(ctx);
     const field = ".acpmux-composer-box .ProseMirror";
-    for (let line = 0; line < lines; line++) {
-      if (line) await ctx.press("Shift+Enter");
-      await ctx.type(`draft line ${line + 1}`, line ? undefined : { selector: field });
-    }
+    // Keep the draft as one trusted input action: each extra play step waits for a settled frame,
+    // which made this fixture spend ~3.7 s typing twelve lines on every health retry. The newline
+    // characters preserve the same multiline ProseMirror draft without weakening any geometry check.
+    await ctx.type(Array.from({ length: lines }, (_, line) => "draft line " + (line + 1)).join("\n"), {
+      selector: field,
+    });
     const main = ctx.document.querySelector(".acpmux-main")!.getBoundingClientRect();
     const foot = ctx.document.querySelector(".acpmux-composer-foot")?.getBoundingClientRect();
     if (foot && foot.bottom > main.bottom + 0.5)

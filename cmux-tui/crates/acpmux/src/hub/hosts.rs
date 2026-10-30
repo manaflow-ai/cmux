@@ -11,6 +11,8 @@ use super::*;
 use crate::agent::Attached;
 use crate::agent_host::{self, Liveness};
 use crate::store::RecordHead;
+use cmux_json::JsonSet as _;
+use futures_util::StreamExt;
 
 /// How long adoption waits for the next replayed entry of one host to be
 /// logged before it recovers from the log as it is.
@@ -82,6 +84,10 @@ pub(super) struct OpenWork {
     /// What that turn does, from its logged updates under this incarnation: its tool calls in
     /// flight, its latest tool and its plan step (`hub/activity.rs`).
     doing: super::activity::TurnActivity,
+    /// Whether the adopted host's main Claude turn was compacting when the
+    /// previous controller stopped. Recovered from its logged `compaction`
+    /// updates so Stop keeps the prompt-first path after a restart.
+    compacting: bool,
 }
 
 /// What the host records say (`Hub::read_host_records`).
@@ -286,53 +292,12 @@ impl Hub {
                 return;
             }
         };
-        for (_, record) in good {
-            if agent_host::liveness(&dir, &record.session_id, &record.start_nonce) == Liveness::Dead
-            {
-                agent_host::remove_artifacts(&dir, &record);
-                continue;
-            }
-            let Some(session) = self.session_by_id(&record.session_id) else {
-                // A host for a session this daemon does not know (purged):
-                // nothing can show it, so end it.
-                let ended = end_host_blocking(
-                    dir.clone(),
-                    record.session_id.clone(),
-                    Some(record.start_nonce.clone()),
-                    Some(record.host_pid),
-                )
-                .await;
-                if ended {
-                    agent_host::remove_artifacts(&dir, &record);
-                } else {
-                    self.hold_unresolved(Some(&record.session_id)).await;
-                }
-                continue;
-            };
-            // This runs after the ready line, so a prompt can reach the host
-            // first (`ensure_child` -> `readopt`, under the spawn lock). One
-            // adoption per host: a second link would replace the first
-            // child, and the requests open on it would be lost.
-            let _spawning = session.spawn_lock.lock().await;
-            if let Some(child) = session.child.lock().await.as_ref()
-                && child.is_alive().await
-            {
-                continue;
-            }
-            // MDM forces full access off (start-mode.json, loaded with the hub), or the chat's grant
-            // was cleared (`policy_source.rs`): its host is ended, never adopted (#23322). One whose
-            // end failed is not adopted either (review 51), and may still write a line the previous
-            // daemon handed it: held until it is proven gone (`hold_unresolved`).
-            if self.ends_before_adoption(&session, off.off()).await {
-                if !Self::host_record_gone(&session.id) {
-                    self.hold_unresolved(Some(&session.id)).await;
-                }
-                continue;
-            }
-            if let Err(e) = self.adopt_one(&session, record, &off).await {
-                tracing::warn!(session = %session.id, "agent host adoption failed: {e:#}");
-            }
-        }
+        // Each host has its own spawn lock, replay and recovery. A slow host must not hold
+        // every following chat behind its replay deadline. Keep at most eight in flight;
+        // this pass ends once the records are drained and owns no detached adoption tasks.
+        futures_util::stream::iter(good)
+            .for_each_concurrent(8, |(_, record)| self.adopt_record(&dir, record, &off))
+            .await;
         for unreadable in bad {
             // Nothing proves what it may still write: held until its host is proven gone.
             if !Self::host_record_gone(&unreadable.session_id) {
@@ -353,6 +318,58 @@ impl Hub {
                     json!({"recordVersion": unreadable.record_version, "reason": unreadable.reason}),
                 );
             }
+        }
+    }
+
+    async fn adopt_record(
+        self: &Arc<Self>,
+        dir: &std::path::Path,
+        record: agent_host::HostRecord,
+        off: &OffLatch,
+    ) {
+        if agent_host::liveness(dir, &record.session_id, &record.start_nonce) == Liveness::Dead {
+            agent_host::remove_artifacts(dir, &record);
+            return;
+        }
+        let Some(session) = self.session_by_id(&record.session_id) else {
+            // A host for a session this daemon does not know (purged):
+            // nothing can show it, so end it.
+            let ended = end_host_blocking(
+                dir.to_owned(),
+                record.session_id.clone(),
+                Some(record.start_nonce.clone()),
+                Some(record.host_pid),
+            )
+            .await;
+            if ended {
+                agent_host::remove_artifacts(dir, &record);
+            } else {
+                self.hold_unresolved(Some(&record.session_id)).await;
+            }
+            return;
+        };
+        // This runs after the ready line, so a prompt can reach the host
+        // first (`ensure_child` -> `readopt`, under the spawn lock). One
+        // adoption per host: a second link would replace the first
+        // child, and the requests open on it would be lost.
+        let _spawning = session.spawn_lock.lock().await;
+        if let Some(child) = session.child.lock().await.as_ref()
+            && child.is_alive().await
+        {
+            return;
+        }
+        // MDM forces full access off (start-mode.json, loaded with the hub), or the chat's grant
+        // was cleared (`policy_source.rs`): its host is ended, never adopted (#23322). One whose
+        // end failed is not adopted either (review 51), and may still write a line the previous
+        // daemon handed it: held until it is proven gone (`hold_unresolved`).
+        if self.ends_before_adoption(&session, off.off()).await {
+            if !Self::host_record_gone(&session.id) {
+                self.hold_unresolved(Some(&session.id)).await;
+            }
+            return;
+        }
+        if let Err(e) = self.adopt_one(&session, record, off).await {
+            tracing::warn!(session = %session.id, "agent host adoption failed: {e:#}");
         }
     }
 
@@ -845,6 +862,7 @@ impl Hub {
                 }
                 ("mux", "turn_result") => {
                     work.turn = None;
+                    work.compacting = false;
                     // No turn, no turn state: an ended turn's records are not read
                     // (`open_work_reads`), so none of them may outlive it here.
                     work.heard_at = 0;
@@ -859,6 +877,13 @@ impl Hub {
                     if current && work.turn.is_some() && !subagents_own =>
                 {
                     work.doing.note(&e.msg["params"]["update"]);
+                }
+                ("in", "compaction") if current && work.turn.is_some() && !subagents_own => {
+                    match e.msg.pointer("/params/update/state").and_then(Value::as_str) {
+                        Some("running") => work.compacting = true,
+                        Some("completed") | Some("failed") => work.compacting = false,
+                        _ => {}
+                    }
                 }
                 ("mux", "permission_request") if current => {
                     if let (Some(pid), Some(aid)) = (
@@ -1025,6 +1050,7 @@ impl Hub {
         work: OpenWork,
     ) {
         Self::recover_floor(session, &work);
+        session.compacting.store(work.compacting, Ordering::SeqCst);
         self.rebuild_processes(session);
         if let Some((turn_seq, turn_id, prompt_id, prompt, client, control)) = work.turn.clone() {
             // A steer whose logged answer ended the turn settles it like the turn's own answer.
@@ -1232,6 +1258,8 @@ impl Hub {
             let turn_id = turn_id.clone();
             let request_id = id.clone();
             let incarnation = incarnation.to_owned();
+            // Counted until it is answered, as a live one is (`idle.rs`).
+            let busy = super::idle::AgentRequest::new(session);
             tokio::spawn(async move {
                 let finish_hub = hub.clone();
                 hub.on_agent_request(
@@ -1247,6 +1275,7 @@ impl Hub {
                 )
                 .await;
                 finish_hub.finish_agent_request(&s, &request_id, Some(&incarnation));
+                drop(busy);
             });
         }
     }
@@ -1343,7 +1372,7 @@ impl Hub {
             let answered_by = outcome.as_object_mut().and_then(|o| o.remove(ANSWERED_BY_SLOT));
             let mut decision = json!({"permissionId": permission_id, "outcome": outcome.clone()});
             if let Some(by) = answered_by {
-                decision["answeredBy"] = by;
+                decision.set("answeredBy", by);
             }
             hub.append(&s, "mux", "permission_decision", decision);
             {
@@ -1486,7 +1515,7 @@ fn permission_answer(mut outcome: Value) -> Value {
     }
     let mut out = json!({"outcome": outcome});
     if let Some(m) = out["outcome"].get("_meta").cloned() {
-        out["_meta"] = m;
+        out.set("_meta", m);
         if let Some(o) = out["outcome"].as_object_mut() {
             o.remove("_meta");
         }
@@ -1562,6 +1591,13 @@ impl Hub {
         let codex_bridge = command_line.is_none()
             && translator.is_none()
             && crate::codex_app_server::is_profile_launch(&profile.argv);
+        // Host launches receive a complete environment snapshot. It must be
+        // current when that snapshot is made, including on credential revocation.
+        if !crate::login_env::machine_env_fresh_before_spawn().await {
+            return Err(RpcError::internal(
+                "machine environment changed; login env refresh failed",
+            ));
+        }
         let cmd = crate::agent::harness_command(
             &meta.harness,
             profile,
@@ -1592,8 +1628,15 @@ impl Hub {
             cwd_pin: crate::cwd_pin::CwdPin::current(),
         };
         let launcher = crate::agent_host::link::HostLauncher::current().map_err(internal)?;
+        // Its MCP configs are read before it starts, never after (`hub/idle_census.rs`).
+        let launch = crate::agent::Launch::new(&spec.program, &spec.args, &spec.env, &spec.cwd);
+        let servers = LaunchServers::read(&launch, meta.family.clone().unwrap_or_default()).await;
+        let launched = |child: Arc<ChildAgent>| {
+            child.record_launch(servers.clone());
+            child
+        };
         let first = match self.start_hosted(session, meta, &launcher, &spec, tap.clone()).await {
-            Ok(child) => return Ok(child),
+            Ok(child) => return Ok(launched(child)),
             Err(e) => e,
         };
         // A host that started but did not answer (a wedged or dead host: its hello missed the
@@ -1606,7 +1649,7 @@ impl Hub {
         }
         tracing::warn!(session = %session.id, "agent host did not answer ({:#}); starting a fresh host", first.error);
         match self.start_hosted(session, meta, &launcher, &spec, tap).await {
-            Ok(child) => Ok(child),
+            Ok(child) => Ok(launched(child)),
             Err(second) => {
                 if let Some(failed) = &second.started {
                     let _ = self.end_unanswered_host(session, failed, &second.error).await;
@@ -1641,7 +1684,7 @@ impl Hub {
             "hostBuild": record.host_build.clone()
         });
         if meta.remote_origin {
-            started["remoteEnvPolicy"] = crate::agent::REMOTE_ENV_POLICY_ID.into();
+            started.set("remoteEnvPolicy", crate::agent::REMOTE_ENV_POLICY_ID.into());
         }
         self.append(session, "mux", "host_started", started);
         // A new host: its log is read back again under MDM's off, no end is pending for it, and

@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 
 use crate::cli::output::{arg_or_stdin, print_json};
 use crate::rpc::method;
+use cmux_json::JsonSet as _;
 
 #[derive(Subcommand)]
 pub enum TaskCmd {
@@ -69,6 +70,7 @@ pub struct ResultArgs {
 }
 
 #[derive(Subcommand)]
+/// Task briefs that coordinate work across sessions.
 pub enum BriefsCmd {
     #[command(alias = "list")]
     Ls {
@@ -98,10 +100,10 @@ pub async fn run(cmd: TaskCmd, json_out: bool) -> Result<()> {
             beads = Some((session.clone(), ids));
             let mut params = json!({"sessionId": session, "title": title, "stopCondition": stop});
             if !brief.is_empty() {
-                params["brief"] = json!(arg_or_stdin(&brief)?);
+                params.set("brief", json!(arg_or_stdin(&brief)?));
             }
             if let Some(from) = crate::cli::sender::of_this_process() {
-                params["_meta"] = json!({"acpmux": {"fromAgent": from}});
+                params.set("_meta", json!({"acpmux": {"fromAgent": from}}));
             }
             (method::MUX_TASK_NEW, params)
         }

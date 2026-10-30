@@ -272,31 +272,20 @@ extension SidebarDocStore {
     /// machine stayed connected closed there: the client sends `close` for
     /// it (the home daemon closes its own machine's workspaces itself).
     public func show(live: [SidebarDocWorkspaceRef], connectedRemotes: Set<String> = []) {
-        let previous = lastShownItems
+        let previous = lastLiveProjection
         let next = projection(live: live)
         shownVersion = version
         if next != shown { shown = next }
-        lastShownItems = next?.items ?? [:]
         if let next, !next.unplaced.isEmpty { adopt(next.unplaced) }
         let now = Set(live)
         let stillConnected = connectedRemotes.intersection(lastConnectedRemotes)
-        let closed = lastLive.subtracting(now).filter { stillConnected.contains($0.sessionID) && previous[$0] != nil }
+        let closed = lastLive.subtracting(now).filter { stillConnected.contains($0.sessionID) && previous?.items[$0] != nil }
         (lastLive, lastConnectedRemotes) = (now, connectedRemotes)
+        lastLiveProjection = next
         guard isActive, !closed.isEmpty else { return }
         let refs = closed.sorted { ($0.sessionID, $0.workspaceID) < ($1.sessionID, $1.workspaceID) }
             .map { ["session_id": $0.sessionID, "workspace_id": $0.workspaceID] }
         send(ops: [["op": "close", "refs": refs]], title: Self.moveTitle, undoable: false)
-    }
-
-    /// Rebuilds `shown` over `live` now, for a change the caller just sent
-    /// (a new workspace's placement): the sidebar's next rebuild lists it at its
-    /// place, not in the unplaced tail one observation turn later. Only `shown`:
-    /// no adopt, no remote-close check, and what the last `show` saw stays
-    /// (`lastLive`, `lastConnectedRemotes`, `lastShownItems`), so the next `show`
-    /// still sends the close of a remote workspace that left meanwhile.
-    public func reshow(live: [SidebarDocWorkspaceRef]) {
-        let next = projection(live: live)
-        if next != shown { shown = next }
     }
 
     /// The target that puts moved items where `index` (counted without

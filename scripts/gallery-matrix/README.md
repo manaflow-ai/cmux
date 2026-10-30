@@ -104,3 +104,66 @@ rendered again, and fails only when its fastest run is still past it. A state th
 a fifth is printed with the lower value. Rows only go down: download a run's `gallery-health-*`
 artifacts and run `bun ready-budgets.ts --from <dir>` to lower every row the run beat. It never
 raises a row; `--add` writes rows for slow states that have none, a raise the diff shows.
+
+On a pull request, a red shard renders its red entries again on the base it merged with, using this
+folder's checker, budgets and allowlist, and `scripts/ci/test_reds.py gallery` compares the two
+`health.json` files state by state. A state red the same way on the base (any budget miss counts as
+one kind; a broken state's reason is its kind) is a warning and the shard passes. Any other red
+state, a crashed render, a missing or cut-short `health.json`, a base render with no whole result,
+and any red on a push still fail.
+
+## Geometry audit
+
+`geometry-audit.ts` captures the declared fixtures from `geometry-baseline.json`, freezes active
+animations after play settles, and records DOM rectangles/computed styles next to each screenshot.
+`geometry-lint.ts` requires the screenshot hash, source-under-test SHA, dimensions/device scale,
+coordinate space, capture tuple and semantic groups. It compares only declared peers. Missing
+or unsupported evidence fails; it never treats a rectangle bottom as a text baseline or native
+view frames as accessibility frames.
+
+The first measured baseline covers Session Info's top-block label column, in both appearances.
+Its existing 2px drift was observed at the baseline revision; the baseline records that debt with
+its reason and maximum. Other surfaces and true text-baseline/native AX checks are explicit
+coverage gaps, not passing checks. Add measured selectors/rules as each audit surface is captured.
+Baseline debt changes require review; lint never regenerates or raises it automatically.
+
+Geometry is a lane-run audit, rather than a CI gate. Run it on a fleet worker after building the
+gallery; the output directory is disposable so a failed rerun cannot reuse old evidence. This
+one-liner captures the gallery and runs the lint at the checked-out source SHA:
+
+```sh
+cmux-ci test --setup webviews --timeout 1800 -- bash -lc '
+  set -euo pipefail
+  cd webviews
+  bun install --frozen-lockfile
+  CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery" bun run gallery:build
+  cd ../scripts/gallery-matrix
+  bun install --frozen-lockfile
+  ./node_modules/.bin/playwright install --with-deps --only-shell chromium
+  CMUX_GALLERY_IN_VM=1 bun geometry-audit.ts --gallery-dir "$RUNNER_TEMP/gallery" \
+    --output-dir "$RUNNER_TEMP/geometry" --expected-sha "$(git rev-parse HEAD)"
+'
+```
+
+## How geometry is measured
+
+- Rules compare CSS px (native points), including tokens, tolerances and reported deltas.
+  Before evaluating any rule, screenshot-pixel measurements are divided by the artifact's
+  `deviceScaleFactor`; evidence already in `css-px` stays unchanged. Raw coordinates and
+  screenshot crops remain available as evidence.
+- “Highlight covers only its control” means four-edge containment, with tolerance `t`:
+  `highlight.minX >= control.minX - t`, `highlight.maxX <= control.maxX + t`, and the
+  same checks for Y. A smaller contained highlight is valid. Comparing x/y/width/height
+  components independently can miss overflowing edges.
+- Optional `control`, `secondary` and `menuOpen` flags must be real booleans when present.
+  Parsing rejects strings such as `"false"`, numbers, null and other non-boolean values.
+- Each of these rules has a regression in [geometry.test.ts](geometry.test.ts) that fails
+  with the old bug: boolean parsing, CSS/scaled-screenshot equivalence, and hover containment
+  (contained highlights, all four overflowing edges, and the tolerance boundary).
+
+Run these regressions through the fleet from the repository root:
+
+```sh
+cmux-ci test --setup webviews --timeout 600 -- bash -c \
+  'cd scripts/gallery-matrix && bun install --frozen-lockfile && bun test geometry.test.ts'
+```

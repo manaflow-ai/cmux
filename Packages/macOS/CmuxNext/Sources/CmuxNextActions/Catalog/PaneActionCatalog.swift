@@ -21,13 +21,22 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 cliName: "pane screenshot",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ActionSurfaceCatalog.p(.pane, .inspect, 510, folder: .copy)])
             ),
+            // New Column Right keeps the `newColumn` id (cmux.json bindings, scripts); New Column
+            // Left opens before the pane's column (`column-left-v1`). Both search as "new column".
             ActionDescriptor(
                 id: "newColumn",
-                title: String(localized: "action.newColumn", defaultValue: "New Column", bundle: .module),
-                keywords: ["scroll", "column", "pane"],
+                title: String(localized: "action.newColumn", defaultValue: "New Column Right", bundle: .module),
+                keywords: ["new column", "scroll", "column", "pane", "right", "add"],
                 defaultShortcut: Shortcut("d", modifiers: [.control, .command]), category: .pane,
                 symbol: "rectangle.split.3x1", surfaces: [.palette, .keyboard, .menu, .contextMenu], targets: [.pane],
                 cliName: "pane new-column", mainMenu: .view, startsTerminal: true
+            ),
+            ActionDescriptor(
+                id: "newColumnLeft",
+                title: String(localized: "action.newColumnLeft", defaultValue: "New Column Left", bundle: .module),
+                keywords: ["new column", "scroll", "column", "pane", "left", "add", "before"],
+                category: .pane, symbol: "rectangle.split.3x1", surfaces: [.palette, .keyboard, .menu, .contextMenu],
+                targets: [.pane], cliName: "pane new-column-left", mainMenu: .view, startsTerminal: true
             ),
             ActionDescriptor(
                 id: "newRow",

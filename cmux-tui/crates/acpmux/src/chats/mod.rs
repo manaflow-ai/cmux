@@ -9,6 +9,8 @@
 //! Titles and folders are user data: the cache file is 0600 and nothing
 //! here logs them. Transcripts are read by the adapters only for metadata.
 
+use cmux_json::JsonSet as _;
+
 mod activity;
 pub(crate) mod brand;
 mod open;
@@ -150,7 +152,7 @@ impl ChatService {
             .roots()
             .map(|root| {
                 let mut value = serde_json::to_value(root).unwrap_or(Value::Null);
-                value["id"] = Value::String(root.id());
+                value.set("id", Value::String(root.id()));
                 value
             })
             .collect();
@@ -430,8 +432,8 @@ pub fn parse_key(text: &str) -> Option<ChatKey> {
 pub fn chat_value(chat: &IndexedChat) -> Value {
     let mut value = serde_json::to_value(chat).unwrap_or(Value::Null);
     let key = chat.entry.key();
-    value["brand"] = json!(brand::harness_brand(key.harness));
-    value["key"] = Value::String(key_text(&key));
+    value.set("brand", json!(brand::harness_brand(key.harness)));
+    value.set("key", Value::String(key_text(&key)));
     value
 }
 

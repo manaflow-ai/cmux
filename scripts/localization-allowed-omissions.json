@@ -7024,5 +7024,28 @@
       "fr": "ms is the SI symbol for milliseconds, written the same way in French; the other tokens are values. The translated entry is still required.",
       "es": "ms is the SI symbol for milliseconds, written the same way in Spanish; the other tokens are values. The translated entry is still required."
     }
+  },
+  "settings.choice.modelRouterDeepSeekV41Flash": {
+    "class": "brand",
+    "source": "DeepSeek V4.1 Flash"
+  },
+  "settings.choice.modelRouterDeepSeekV4Flash": {
+    "class": "brand",
+    "source": "DeepSeek V4 Flash"
+  },
+  "settings.choice.modelRouterDeepSeekV4Pro": {
+    "class": "brand",
+    "source": "DeepSeek V4 Pro"
+  },
+  "settings.choice.modelRouterDeepSeekV41Flash1017": {
+    "source": "DeepSeek V4.1 Flash 1017 (Images)",
+    "identityLocales": {
+      "fr": {
+        "reason": "DeepSeek V4.1 Flash 1017 is an invariant model name, and Images is the standard French noun. The translated French entry is still required.",
+        "values": [
+          "DeepSeek V4.1 Flash 1017 (Images)"
+        ]
+      }
+    }
   }
 }
