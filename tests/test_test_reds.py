@@ -747,6 +747,16 @@ class BunTestReds(unittest.TestCase):
                 self.assertTrue(verdict.own, verdict.reasons)
                 self.assertIn("crashed", verdict.reasons[0])
 
+    def test_a_webviews_retry_alone_replaces_the_files_first_run(self):
+        file = "test/agent-pane.test.ts"
+        def wrapper(retry_fails):
+            run = lambda fails: [f"::group::{file}:", *[f"(fail) pane > {name} [1.00ms]" for name in fails],
+                                 "(pass) pane > rests [1.00ms]", "::endgroup::", " 1 pass", f" {len(fails)} fail"]
+            return log(f"##[group]FAIL {file}", "--- first run: FAIL ---", *run(["flake", "real"]),
+                       "--- retry, alone ---", *run(retry_fails), "##[endgroup]")
+        self.assertEqual(reds.read(wrapper(["real"])).failed, {f"{file} > pane > real"})
+        self.assertEqual(reds.read(wrapper([])).failed, set())
+
     def test_the_webview_wrappers_comparison_is_unchanged(self):
         # web_failures hands read() its log without result lines: a wrapper log of bun output with no counts (as in
         # web_job) is judged as before, by classify_web's own rules.

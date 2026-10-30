@@ -292,6 +292,7 @@ def read_bun(lines: list[str], result: Result) -> None:
     count is a run that was cut short: bun prints the counts only when it finishes (and only those lines count, so
     web_failures, which hands read() a log without them, judges as before)."""
     file, said, last, recap, unhandled, counted = "", "", None, False, False, True
+    run_file = ""  # the file of the run that just ended, for run-webviews-tests.sh's retry
 
     def fail(name: str, message: str) -> str:
         result.failed.add(name)
@@ -305,6 +306,12 @@ def read_bun(lines: list[str], result: Result) -> None:
             recap, last = True, None
         elif match := BUN_FILE.match(text):
             file, said, last, recap = BUN_PACKAGE.sub("", match.group(1)), "", None, False
+            run_file = file
+        elif text == WEB_RETRY and run_file:
+            # run-webviews-tests.sh ran a red file again, alone: only that run counts (webviews_test_results.py).
+            for name in [name for name in result.failed if name.startswith(run_file + " > ")]:
+                result.failed.discard(name)
+                result.messages.pop(name, None)
         elif match := BUN_TEST.match(text):
             result.ran, counted, last = True, False, None
             name = match.group(2)
