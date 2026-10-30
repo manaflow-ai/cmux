@@ -56,9 +56,12 @@ describe("Freestyle customer backfill plan", () => {
     expect(plan).toEqual([{ kind: "invalid", vmId: "vm-a", userId: "not a valid id" }]);
   });
 
-  test("a deleted account's shared-team machine is reported, never tagged with the sentinel", () => {
-    const plan = planFreestyleCustomerBackfill([{ id: "vm-a", state: "paused", customerId: ALICE }], [row("vm-a", "deleted-account")]);
-    expect(plan).toEqual([{ kind: "invalid", vmId: "vm-a", userId: "deleted-account" }]);
+  test("a deleted account's shared-team machine loses that account's id and never gets the sentinel", () => {
+    const deletedRow = row("vm-a", "deleted-account");
+    const stale = planFreestyleCustomerBackfill([{ id: "vm-a", state: "paused", customerId: ALICE }], [deletedRow]);
+    expect(stale).toEqual([{ kind: "detach", vmId: "vm-a", state: "paused", from: ALICE, cloudVmIds: [deletedRow.cloudVmId] }]);
+    const clear = planFreestyleCustomerBackfill([{ id: "vm-a", state: "paused" }], [deletedRow]);
+    expect(clear).toEqual([{ kind: "tagged", vmId: "vm-a" }]);
   });
 
   test("summary counts every kind", () => {
@@ -66,6 +69,6 @@ describe("Freestyle customer backfill plan", () => {
       [{ id: "vm-a", state: "running" }, { id: "vm-b", state: "running", customerId: ALICE }, { id: "vm-c", state: "running" }],
       [row("vm-a", ALICE), row("vm-b", ALICE)],
     );
-    expect(summarizeBackfill(plan)).toEqual({ tag: 1, tagged: 1, unowned: 1, conflict: 0, invalid: 0 });
+    expect(summarizeBackfill(plan)).toEqual({ tag: 1, detach: 0, tagged: 1, unowned: 1, conflict: 0, invalid: 0 });
   });
 });

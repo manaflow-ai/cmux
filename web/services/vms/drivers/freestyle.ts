@@ -1447,6 +1447,14 @@ export class FreestyleProvider implements VMProvider {
     await vm.update({ maxRunTotalSeconds: Math.floor(used + remainingSeconds), automaticRestart: false });
   }
 
+  async detachCustomer(vmId: string): Promise<void> {
+    try {
+      await this.deps.client(CREATE_CLEANUP_TIMEOUT_MS).vms.ref(vmId).update({ customerId: null });
+    } catch (err) {
+      if (!isNotFound(err)) throw new ProviderError("freestyle", `detachCustomer(${vmId})`, err);
+    }
+  }
+
   async resume(vmId: string, options?: ResumeOptions): Promise<VMHandle> {
     return withVmSpan(
       "cmux.vm.provider.resume",

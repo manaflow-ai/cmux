@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { Freestyle } from "freestyle";
 import { FreestyleProvider } from "../services/vms/drivers/freestyle";
 import { freestyleCustomerId } from "../services/vms/drivers/freestyleCustomer";
+import { detachDeletedAccountCustomers } from "../services/vms/accountDeletionCustomers";
+import { vmProviderCustomer } from "../services/vms/workflows";
 
 // https://github.com/manaflow-ai/cmux/issues/27667: every machine names its
 // owning account as its Freestyle customer. These run the real SDK against a
@@ -12,13 +14,14 @@ const OWNER = { customerId: "8f3c1e2a-4b5d-4e6f-8a7b-9c0d1e2f3a4b" };
 
 type Sent = { readonly method: string; readonly path: string; readonly body: Record<string, unknown> | null };
 
-function recordingFreestyle(vm: { readonly customerId?: string; readonly failUpdate?: boolean } = {}) {
+function recordingFreestyle(vm: { readonly customerId?: string; readonly failUpdate?: boolean; readonly gone?: boolean } = {}) {
   const sent: Sent[] = [];
   const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
     const method = (init?.method ?? "GET").toUpperCase();
     const body = typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : null;
     sent.push({ method, path: url.pathname, body });
+    if (vm.gone) return Response.json({ code: "NOT_FOUND", message: "vm not found" }, { status: 404 });
     if (method === "PATCH" && vm.failUpdate) {
       return Response.json({ code: "BAD_REQUEST", message: "bad request" }, { status: 400 });
     }
@@ -93,6 +96,49 @@ describe("Freestyle customer tag", () => {
     const handle = await provider.resume(VM_ID, { customer: OWNER });
     expect(handle.status).toBe("running");
     expect(updates(sent)).toHaveLength(1);
+  });
+
+  test("resume clears a deleted account's id from a machine its shared team kept", async () => {
+    const { provider, sent } = recordingFreestyle({ customerId: OWNER.customerId });
+    expect((await provider.resume(VM_ID, { customer: null })).status).toBe("running");
+    expect(updates(sent).map((call) => call.body)).toEqual([{ customerId: null }]);
+  });
+
+  test("resume of an ownerless machine with no customer sends nothing", async () => {
+    const { provider, sent } = recordingFreestyle();
+    await provider.resume(VM_ID, { customer: null });
+    expect(updates(sent)).toEqual([]);
+  });
+
+  test("a deleted account's row maps to no customer, every other row to its user", () => {
+    expect(vmProviderCustomer({ userId: "deleted-account" })).toBeNull();
+    expect(vmProviderCustomer({ userId: OWNER.customerId })).toEqual(OWNER);
+  });
+
+  test("detachCustomer clears the customer and treats a machine already gone as done", async () => {
+    const live = recordingFreestyle({ customerId: OWNER.customerId });
+    await live.provider.detachCustomer(VM_ID);
+    expect(updates(live.sent).map((call) => call.body)).toEqual([{ customerId: null }]);
+    await recordingFreestyle({ gone: true }).provider.detachCustomer(VM_ID);
+  });
+
+  test("account deletion clears every kept machine and counts the ones it could not", async () => {
+    const detached: string[] = [];
+    const pending = await detachDeletedAccountCustomers(
+      [
+        { provider: "freestyle", providerVmId: "vm-kept" },
+        { provider: "freestyle", providerVmId: null },
+        { provider: "freestyle", providerVmId: "vm-refused" },
+      ],
+      () => ({
+        detachCustomer: async (vmId: string) => {
+          if (vmId === "vm-refused") throw new Error("provider unavailable");
+          detached.push(vmId);
+        },
+      }),
+    );
+    expect(detached).toEqual(["vm-kept"]);
+    expect(pending).toBe(1);
   });
 
   test("resume without an owner sends no tag", async () => {

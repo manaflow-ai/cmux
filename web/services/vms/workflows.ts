@@ -1,4 +1,5 @@
 import { compileNetworkPolicy, storedNetworkPolicy, type NetworkPolicy, type NetworkRulePlan } from "./networkPolicy";
+import { DELETED_ACCOUNT_ACTOR_ID } from "../auth/deletedAccount";
 import { createHash, randomUUID } from "node:crypto";
 import {
   applyVmResourceUsage,
@@ -1428,7 +1429,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
       "provider_create",
       providers.create(input.provider, {
         image: input.image,
-        customer: vmProviderCustomer(create.vm),
+        customer: vmProviderCustomer(create.vm) ?? undefined,
         forked: resumesLiveMachine(input.origin),
         // The display label is reserved with the row before provider work starts.
         // Passing it here makes the first guest prompt correct and removes the
@@ -1949,7 +1950,7 @@ function finishBaseCreate(
       "provider_create",
       providers.create(input.provider, {
         image: input.image,
-        customer: vmProviderCustomer(create.vm),
+        customer: vmProviderCustomer(create.vm) ?? undefined,
         imageSize: input.imageSize,
         runtimeBudgetSeconds: input.runtimeBudgetSeconds,
         displayName: create.vm.slug ?? undefined,
@@ -3912,9 +3913,12 @@ function pauseWokenMachine(
   });
 }
 
-/** The provider customer a machine is tagged with: its owner's account id. */
-function vmProviderCustomer(vm: Pick<CloudVmRow, "userId">): ProviderCustomer {
-  return { customerId: vm.userId };
+/**
+ * The provider customer a machine is tagged with: its owner's account id, or
+ * null for a deleted account's machine that a shared team kept.
+ */
+export function vmProviderCustomer(vm: Pick<CloudVmRow, "userId">): ProviderCustomer | null {
+  return vm.userId === DELETED_ACCOUNT_ACTOR_ID ? null : { customerId: vm.userId };
 }
 
 function resumeAfterLostRace(

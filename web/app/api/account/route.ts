@@ -101,6 +101,7 @@ import {
 } from "../../../services/vm-publications/accountDeletion";
 import { vmModelPlaneRevoker } from "../../../services/vms/modelPlaneGateway";
 import { DELETED_ACCOUNT_ACTOR_ID } from "../../../services/auth/deletedAccount";
+import { detachDeletedAccountCustomers } from "../../../services/vms/accountDeletionCustomers";
 
 
 const VAULT_OBJECT_DELETE_BATCH_SIZE = 100;
@@ -2018,9 +2019,15 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
       deletedRows: personalVmRows,
       deletedAtMs: now.getTime(),
       rewrittenIds: sharedTeamVmRows.map((vm) => vm.id),
+      rewrittenRows: sharedTeamVmRows,
     };
   });
   publishAccountDeletionVmSync(vmSync);
+  // The kept machines no longer belong to this account: take its id off them
+  // at the provider too. Best effort, after the commit, like the publication.
+  void detachDeletedAccountCustomers(vmSync.rewrittenRows).catch((error) => {
+    console.error("[account] provider customer cleanup skipped after deletion", error);
+  });
 }
 
 /** Best-effort machines-list publication after the deletion commits; a

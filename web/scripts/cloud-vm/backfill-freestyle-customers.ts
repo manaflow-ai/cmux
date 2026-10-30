@@ -12,8 +12,9 @@
  *
  * Dry run by default: prints every machine it would change, from what to what,
  * and changes nothing. `--apply` sends `PATCH /v5/vms/{id}` with only
- * `customer`, which leaves a paused machine paused. Rerunning is safe: a tagged
- * machine plans nothing.
+ * `customer` (or `customerId: null` for a deleted account's machine that a
+ * shared team kept), which leaves a paused or stopped machine as it was.
+ * Rerunning is safe: a machine already in line plans nothing.
  *
  * Production's FREESTYLE_API_KEY is a Sensitive Vercel variable, which
  * `vercel env pull` returns empty, so export it (it is the one Freestyle
@@ -98,6 +99,8 @@ function describe(action: BackfillAction): string {
   switch (action.kind) {
     case "tag":
       return `tag ${action.vmId} ${action.state} customer ${action.from ?? "none"} -> ${action.to} rows=${action.cloudVmIds.join(",")} status=${action.rowStatuses.join(",")}`;
+    case "detach":
+      return `detach ${action.vmId} ${action.state} customer ${action.from} -> none (owner is a deleted account) rows=${action.cloudVmIds.join(",")}`;
     case "conflict":
       return `conflict ${action.vmId} rows name users ${action.userIds.join(",")}: not tagged`;
     case "invalid":
@@ -109,10 +112,13 @@ function describe(action: BackfillAction): string {
   }
 }
 
-async function applyTag(fs: Freestyle, action: Extract<BackfillAction, { kind: "tag" }>): Promise<"tagged" | "gone" | "failed"> {
+type ChangeAction = Extract<BackfillAction, { kind: "tag" | "detach" }>;
+
+async function applyTag(fs: Freestyle, action: ChangeAction): Promise<"tagged" | "gone" | "failed"> {
   try {
-    await fs.vms.ref(action.vmId).update({ customer: { customerId: action.to } });
-    console.log(`applied ${action.vmId} -> ${action.to}`);
+    const to = action.kind === "tag" ? action.to : null;
+    await fs.vms.ref(action.vmId).update(to ? { customer: { customerId: to } } : { customerId: null });
+    console.log(`applied ${action.vmId} -> ${to ?? "none"}`);
     return "tagged";
   } catch (error) {
     if (error instanceof FreestyleApiError && error.status === 404) {
@@ -147,10 +153,10 @@ const program = Effect.acquireUseRelease(
     const { vms, totalCount } = yield* Effect.tryPromise(() => listFreestyleVms(fs));
     const actions = planFreestyleCustomerBackfill(vms, rows);
     for (const action of actions) {
-      if (action.kind === "tag" || action.kind === "conflict" || action.kind === "invalid") console.log(describe(action));
+      if (action.kind === "tag" || action.kind === "detach" || action.kind === "conflict" || action.kind === "invalid") console.log(describe(action));
       else if (action.kind === "unowned" && options.showUnowned) console.log(describe(action));
     }
-    const tags = actions.filter((action): action is Extract<BackfillAction, { kind: "tag" }> => action.kind === "tag");
+    const tags = actions.filter((action): action is ChangeAction => action.kind === "tag" || action.kind === "detach");
     const selected = tags.slice(0, options.limit);
     const outcomes = { tagged: 0, gone: 0, failed: 0 };
     if (options.apply) {
@@ -168,7 +174,7 @@ const program = Effect.acquireUseRelease(
       freestyleVms: { listed: vms.length, totalCount },
       ownerRows: rows.length,
       plan: summarizeBackfill(actions),
-      retags: tags.filter((action) => action.from !== null).length,
+      retags: tags.filter((action) => action.kind === "tag" && action.from !== null).length,
       unownedCloudVms: unowned.filter((action) => action.cmux === "cloud").length,
       ...(options.apply ? { applied: outcomes, notAttempted: tags.length - selected.length } : {}),
     }, null, 2));

@@ -486,6 +486,10 @@ Stack Auth user id) and nothing else: no email, IP, OAuth identity, secret or to
 - **Wake:** `resume` with `customer` tags a machine that does not carry its owner yet with a
   `PATCH /v5/vms/{id}` holding only `customer`. The span's `cmux.vm.customer_tag` says `tagged`,
   `failed` or `skipped`; a refused tag never fails the wake.
+- **Deleted accounts:** account deletion hands a shared team's machines to the
+  `deleted-account` sentinel, which is never sent. After the deletion commits,
+  `detachDeletedAccountCustomers` clears the account's id from those machines (`customerId: null`),
+  best effort; a wake or the backfill clears any it missed.
 - **Existing machines:** `scripts/cloud-vm/backfill-freestyle-customers.ts <staging|production>`
   plans from the target's rows (read-only transaction) and changes nothing without `--apply`.
   The Freestyle account is shared by every environment, so a machine no row names is reported

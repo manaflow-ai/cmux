@@ -210,7 +210,14 @@ export type RestoreOptions = Pick<CreateOptions, "customer" | "edgeRules" | "pro
   network?: ProviderNetworkRef;
 };
 
-export type ResumeOptions = Pick<CreateOptions, "customer">;
+export type ResumeOptions = {
+  /**
+   * The machine's owner. `null`: it belongs to no account (a deleted account's
+   * retained shared-team machine), so any customer it still carries is cleared.
+   * Absent: leave the customer alone.
+   */
+  readonly customer?: ProviderCustomer | null;
+};
 
 /** Private guest SSH, with the host key read through the authenticated provider API.
  * The client keeps its private key; only its public key reaches the control plane. */
@@ -636,10 +643,15 @@ export interface VMProvider {
   pause(vmId: string): Promise<void>;
   /**
    * Wake the machine. With `customer`, a provider that records one also tags a
-   * machine that does not carry it yet (machines created before the tag), best
-   * effort: the wake never fails over the tag.
+   * machine that does not carry it yet (machines created before the tag), or
+   * clears it for `null`, best effort: the wake never fails over the tag.
    */
   resume(vmId: string, options?: ResumeOptions): Promise<VMHandle>;
+  /**
+   * Clear the customer a machine carries, when its owning account is deleted
+   * but a shared team keeps the machine. A machine already gone counts as done.
+   */
+  detachCustomer?(vmId: string): Promise<void>;
   setRuntimeBudget?(vmId: string, remainingSeconds: number | null): Promise<void>;
 
   exec(vmId: string, command: string, opts?: ExecOptions): Promise<ExecResult>;

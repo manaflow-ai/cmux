@@ -31,24 +31,27 @@ export function freestyleCreateCustomer(customer: ProviderCustomer | undefined):
 }
 
 /** What a wake did about the machine's customer. */
-export type FreestyleWakeCustomerTag = "skipped" | "tagged" | "failed";
+export type FreestyleWakeCustomerTag = "skipped" | "tagged" | "detached" | "failed";
 
 /**
- * Tag a machine created before customer tagging the next time it wakes. The
- * wake has already succeeded, so a refused update is reported and the machine
- * stays usable; the next wake, or the backfill, tries again.
+ * Bring a machine's customer in line with its owner the next time it wakes:
+ * tag one created before customer tagging, or clear a deleted account's id
+ * from a machine its shared team kept (`customer` null). The wake has already
+ * succeeded, so a refused update is reported and the machine stays usable;
+ * the next wake, or the backfill, tries again.
  */
 export async function tagFreestyleCustomerOnWake(
   vm: Pick<Vm, "update">,
   data: Pick<VmData, "customerId">,
-  customer: ProviderCustomer | undefined,
+  customer: ProviderCustomer | null | undefined,
   onError: (error: unknown) => void,
 ): Promise<FreestyleWakeCustomerTag> {
-  const customerId = freestyleCustomerId(customer);
-  if (!customerId || data.customerId === customerId) return "skipped";
+  const customerId = customer === null ? null : freestyleCustomerId(customer);
+  const detach = customer === null && !!data.customerId;
+  if (!detach && (!customerId || data.customerId === customerId)) return "skipped";
   try {
-    await vm.update({ customer: { customerId } });
-    return "tagged";
+    await vm.update(detach ? { customerId: null } : { customer: { customerId: customerId! } });
+    return detach ? "detached" : "tagged";
   } catch (error) {
     onError(error);
     return "failed";
