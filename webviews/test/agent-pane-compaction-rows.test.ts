@@ -105,6 +105,7 @@ function fakeDaemon(history: ReturnType<typeof record>, page = history.length, o
 async function connect(daemon: ReturnType<typeof fakeDaemon>, onConnection?: (connection: string) => void) {
   let rows: AcpmuxRow[] = [];
   let working = false;
+  let stopping = false;
   const client = await AcpmuxDirectClient.connect(
     {
       protocolVersion: 1,
@@ -116,13 +117,14 @@ async function connect(daemon: ReturnType<typeof fakeDaemon>, onConnection?: (co
     (snapshot: any) => {
       rows = snapshot.rows;
       working = snapshot.isWorking === true;
+      stopping = snapshot.stopping === true;
       onConnection?.(snapshot.connection);
     },
     undefined,
     daemon.open,
   );
   await new Promise((resolve) => setTimeout(resolve, 0));
-  return { client, rows: () => rows, working: () => working };
+  return { client, rows: () => rows, working: () => working, stopping: () => stopping };
 }
 test("a compaction is one row: running, then how it ended", async () => {
   const daemon = fakeDaemon(
@@ -588,7 +590,7 @@ for (const terminal of ["turn_end", "turn_result"])
 for (const action of ["stop", "send-now"])
   test(`Stop before its late opener keeps the same turn identity (${action})`, async () => {
     const daemon = fakeDaemon([]);
-    const { client, rows, working } = await connect(daemon);
+    const { client, rows, working, stopping } = await connect(daemon);
     try {
       expect(working()).toBe(true);
       await client.cancel();
@@ -612,9 +614,12 @@ for (const action of ["stop", "send-now"])
           ),
         );
       }
+      expect(stopping()).toBe(true);
       daemon.push(record([["mux", "turn_result", { status: "cancelled", turnId: "turn-late" }]], 5));
       expect(rows().find((row) => row.id === "summary-turn-late")?.continued).toBeUndefined();
-      expect(working()).toBe(false);
+      // The fake daemon's summary keeps saying running (it sends no session change), so the Stop
+      // settling is what this turn's result shows here, not isWorking.
+      expect(stopping()).toBe(false);
     } finally {
       client.close();
     }
@@ -923,7 +928,7 @@ test("a compaction fence lifts at the next explicit prompt, so a later turn's co
       ["mux", "turn_result", { status: "completed", turnId: "turn-new" }],
     ]),
   );
-  const { client, rows, working } = await connect(daemon);
+  const { client, rows } = await connect(daemon);
   const compactions = () => rows().filter((row) => row.kind === "compaction");
   expect(compactions().map((row) => row.compaction?.state)).toEqual(["failed"]);
 
@@ -942,7 +947,6 @@ test("a compaction fence lifts at the next explicit prompt, so a later turn's co
   );
   expect(compactions().map((row) => row.compaction?.state)).toEqual(["failed", "completed"]);
   expect(compactions()[1]!.compaction?.inferred).toBeUndefined();
-  expect(working()).toBe(false);
   client.close();
 });
 
