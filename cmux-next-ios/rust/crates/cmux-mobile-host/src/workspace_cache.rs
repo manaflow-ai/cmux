@@ -166,12 +166,19 @@ struct Snapshots {
     pending: [Option<Instant>; 3],
     /// Deltas at/below this snapshot revision are already represented in it.
     tree_floor: Option<u64>,
+    /// A transient optional-layout failure is retried on the next successful idle probe.
+    retry_layout: bool,
 }
 
 impl Snapshots {
     fn invalidate(&mut self, kind: usize) {
         self.views[kind] = None;
         self.dirty[kind] = true;
+        if kind == TREE {
+            // Layout can authorize pinned workspaces only against the current tree.
+            // Dirty also rejects a layout answer requested before this change.
+            self.invalidate(LAYOUT);
+        }
     }
 
     fn event(&mut self, event: &Value) -> Result<(), ()> {
@@ -213,7 +220,9 @@ impl Snapshots {
                     self.views[TREE] = Some(Arc::new(next));
                     true
                 });
-                if !applied {
+                if applied {
+                    self.invalidate(LAYOUT);
+                } else {
                     self.invalidate(TREE);
                 }
             }
@@ -245,12 +254,18 @@ impl Snapshots {
         }
         if !valid {
             self.views[kind] = None;
-            // Older daemons may not have sidebar_layout.get. That optional
-            // view stays unavailable without disrupting tree/personal reads.
-            // Other failed or malformed replies restart this subscription via
-            // the worker's bounded reconnect backoff, rather than leaving a
-            // missing snapshot stuck until an unrelated event happens.
-            return if kind == LAYOUT && unsupported_layout(&reply) { Ok(()) } else { Err(()) };
+            // Layout is optional: preserve the healthy required snapshots. A
+            // successful idle probe retries transient failures at the existing
+            // bounded interval, even without events; unsupported operations wait
+            // for an event. Neither failure starts an immediate retry loop.
+            if kind == LAYOUT {
+                self.retry_layout = !unsupported_layout(&reply);
+                return Ok(());
+            }
+            return Err(());
+        }
+        if kind == LAYOUT {
+            self.retry_layout = false;
         }
         self.views[kind] = Some(Arc::new(reply));
         Ok(())
@@ -263,11 +278,7 @@ fn unsupported_layout(reply: &Value) -> bool {
         return true;
     }
     let message = error.as_str().or_else(|| error.get("message").and_then(Value::as_str));
-    message.is_some_and(|message| {
-        // Serde's unknown-operation response on daemons predating this v2
-        // method is a legacy error string rather than a typed ResourceError.
-        message.contains("unknown variant `sidebar_layout.get`")
-    })
+    message.is_some_and(|message| message.contains("unknown variant `sidebar_layout.get`"))
 }
 
 async fn session(path: &std::path::Path, published: &Published, generation: u64) -> Result<(), ()> {
@@ -375,6 +386,9 @@ async fn session_with_probe(
                     }
                     probe_deadline = None;
                     next_probe = Instant::now() + probe_interval;
+                    if state.retry_layout && state.pending[LAYOUT].is_none() {
+                        state.dirty[LAYOUT] = true;
+                    }
                 }
                 Some("cache-hello") => {}
                 _ => return Err(()),
@@ -711,6 +725,59 @@ mod tests {
     }
 
     #[test]
+    fn tree_changes_invalidate_layout_and_reject_pending_layout_answers() {
+        for event in [
+            json!({"event":"tree-changed"}),
+            json!({"event":"layout-changed"}),
+            json!({"event":"empty"}),
+            json!({"event":"workspace-closed", "workspace":1, "workspace_revision":4}),
+            json!({"event":"tab-changed", "workspace":1,"screen":2,"pane":3,"surface":4,
+                "entity":{"surface":99}}),
+            json!({"event":"workspace-closed", "workspace":1, "registry_id":"other"}),
+        ] {
+            let layout = json!({"result":{"sections":[{"workspaces":["one"]}]}});
+            let mut state = Snapshots::default();
+            state.answer(TREE, tree()).unwrap();
+            state.answer(LAYOUT, layout.clone()).unwrap();
+            state.pending[LAYOUT] = Some(Instant::now() + QUERY_WAIT);
+            state.event(&event).unwrap();
+            assert!(state.views[LAYOUT].is_none(), "old layout survived {event}");
+            assert!(state.dirty[LAYOUT], "layout must refresh after {event}");
+            state.answer(LAYOUT, layout).unwrap();
+            assert!(state.views[LAYOUT].is_none(), "pending reply restored old layout after {event}");
+            assert!(state.dirty[LAYOUT]);
+        }
+    }
+
+    #[test]
+    fn deltas_already_in_the_snapshot_do_not_invalidate_layout() {
+        let mut state = Snapshots::default();
+        state.answer(TREE, tree()).unwrap();
+        state.answer(LAYOUT, json!({"result":{"sections":[]}})).unwrap();
+        state.event(&json!({"event":"workspace-closed", "workspace":1,"workspace_revision":3})).unwrap();
+        assert!(state.views[LAYOUT].is_some());
+        assert!(!state.dirty[LAYOUT]);
+    }
+
+    #[test]
+    fn malformed_optional_layout_waits_for_an_event_then_recovers() {
+        let mut state = Snapshots::default();
+        state.answer(TREE, tree()).unwrap();
+        state.answer(PERSONAL, json!({"ok":true,"data":{"groups":[],"workspaces":[]}})).unwrap();
+        state.answer(LAYOUT, json!({"result":{"sections":"invalid"}})).unwrap();
+        assert!(state.views[TREE].is_some());
+        assert!(state.views[PERSONAL].is_some());
+        assert!(state.views[LAYOUT].is_none());
+        assert!(!state.dirty[LAYOUT], "a failure must not start a tight retry loop");
+        state.event(&json!({"event":"sidebar-layout-changed"})).unwrap();
+        assert!(state.dirty[LAYOUT]);
+        // As in the worker, starting the replacement request clears dirty.
+        state.dirty[LAYOUT] = false;
+        state.answer(LAYOUT, json!({"result":{"sections":[]}})).unwrap();
+        assert!(state.views[LAYOUT].is_some());
+    }
+
+    #[test]
     fn in_flight_invalidation_does_not_publish_an_old_answer() {
         let mut state = Snapshots::default();
         state.pending[TREE] = Some(Instant::now() + QUERY_WAIT);
@@ -774,24 +841,103 @@ mod tests {
         let mut state = Snapshots::default();
         assert!(state.answer(TREE, json!({"ok":false,"data":{"workspaces":[{"key":"other"}]}})).is_err());
         assert!(state.answer(PERSONAL, json!({"ok":true,"data":{"groups":[]}})).is_err());
-        assert!(state.answer(LAYOUT, json!({"type":"error","error":{"code":"unavailable"}})).is_err());
+        assert!(state.answer(LAYOUT, json!({"type":"error","error":{"code":"unavailable"}})).is_ok());
         assert!(state.views.iter().all(Option::is_none));
     }
 
     #[test]
-    fn unsupported_optional_layout_preserves_other_snapshots() {
+    fn optional_layout_errors_preserve_other_snapshots_without_immediate_retry() {
         let mut state = Snapshots::default();
         state.answer(TREE, tree()).unwrap();
         state.answer(PERSONAL, json!({"ok":true,"data":{"groups":[],"workspaces":[]}})).unwrap();
         for error in [
             json!({"code":"operation.unsupported"}),
             json!("unknown variant `sidebar_layout.get`, expected a known operation"),
+            json!({"code":"unavailable", "message":"temporarily unavailable"}),
+            json!("permission denied"),
         ] {
             state.answer(LAYOUT, json!({"error":error})).unwrap();
             assert!(state.views[TREE].is_some());
             assert!(state.views[PERSONAL].is_some());
             assert!(state.views[LAYOUT].is_none());
             assert!(!state.dirty[LAYOUT]);
+        }
+    }
+
+    #[tokio::test]
+    async fn idle_probes_retry_transient_layout_errors_without_restarting_other_views() {
+        for (failure, retry) in [
+            (json!({"error":{"code":"unavailable"}}), true),
+            (json!({"result":{"sections":"malformed"}}), true),
+            (json!({"error":{"code":"operation.unsupported"}}), false),
+            (json!({"error":"unknown variant `sidebar_layout.get`, expected a known operation"}), false),
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let socket = directory.path().join("daemon.sock");
+            let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+            let published = Arc::new(Published::new());
+            let observed = Arc::clone(&published);
+            let server = tokio::spawn(async move {
+                let (stream, _) = listener.accept().await.unwrap();
+                let (read, mut write) = stream.into_split();
+                let mut lines = BufReader::new(read).lines();
+                let (mut trees, mut personals, mut layouts, mut probes) = (0, 0, 0, 0);
+                while let Some(line) = lines.next_line().await.unwrap() {
+                    let request: Value = serde_json::from_str(&line).unwrap();
+                    let mut response = json!({"id":request["id"],"ok":true});
+                    match request["id"].as_str().unwrap() {
+                        "cache-tree" => {
+                            trees += 1;
+                            assert_eq!(trees, 1, "layout failure must not restart the tree");
+                            response["data"] = tree()["data"].clone();
+                        }
+                        "cache-personal" => {
+                            personals += 1;
+                            assert_eq!(personals, 1);
+                            response["data"] = json!({"groups":[],"workspaces":[]});
+                        }
+                        "cache-layout" => {
+                            layouts += 1;
+                            assert!(layouts <= probes + 1, "no layout retry before the idle probe");
+                            if layouts < 3 {
+                                response = failure.clone();
+                                response["id"] = request["id"].clone();
+                            } else {
+                                response["result"] = json!({"sections":[]});
+                            }
+                        }
+                        "cache-probe" => {
+                            probes += 1;
+                            let views = observed.views.lock().unwrap();
+                            assert!(views[TREE].is_some());
+                            assert!(views[PERSONAL].is_some());
+                            assert!(views[LAYOUT].is_none());
+                        }
+                        "cache-hello" | "cache-subscribe" => {}
+                        _ => panic!("unexpected request: {request}"),
+                    }
+                    write.write_all(format!("{response}\n").as_bytes()).await.unwrap();
+                    if (retry && layouts == 3) || (!retry && probes == 2) {
+                        assert_eq!(layouts, if retry { 3 } else { 1 });
+                        return;
+                    }
+                }
+                panic!("cache disconnected before optional layout recovery");
+            });
+            let result = tokio::time::timeout(
+                Duration::from_secs(2),
+                session_with_probe(&socket, &published, 0, Duration::from_millis(10), QUERY_WAIT),
+            )
+            .await;
+            if result.is_err() {
+                server.abort();
+            }
+            assert!(result.expect("idle layout recovery must be bounded").is_err());
+            server.await.unwrap();
+            let views = published.views.lock().unwrap();
+            assert!(views[TREE].is_some());
+            assert!(views[PERSONAL].is_some());
+            assert_eq!(views[LAYOUT].is_some(), retry);
         }
     }
 

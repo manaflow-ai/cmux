@@ -573,6 +573,9 @@ pub mod method {
     /// Sent to the prompting connection as soon as a `session/prompt` is
     /// recorded, before the turn ends: `{sessionId, promptId, turnId, queued}`.
     pub const MUX_PROMPT_ACCEPTED: &str = "_acpmux/prompt_accepted";
+    /// To the connection whose `session/cancel` notification was refused, which has no answer to
+    /// read: `{sessionId, message, reason?, peer?}` (`server/requests/cancel_refused.rs`).
+    pub const MUX_CANCEL_REFUSED: &str = "_acpmux/cancel_refused";
     /// To attached and watching clients when a background process starts or
     /// ends: `{process}` (`server/processes.rs`).
     pub const MUX_PROCESS_UPDATE: &str = "_acpmux/process_update";
