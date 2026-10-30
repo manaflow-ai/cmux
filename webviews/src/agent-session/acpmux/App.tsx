@@ -7164,9 +7164,19 @@ function AcpmuxPane() {
   // An adoption that came before this page's client connected (the host takes a spare whose New Tab
   // frame is drawn, which can be before its connect answers) runs once the client's actions are in.
   const pendingAdoption = useRef<SessionAdoption | undefined>(undefined);
+  // The newest adoption: an older one still reading its anchor never opens over it.
+  const adoptionTicket = useRef(0);
   const runAdoption = useCallback(async ({ sessionId, revealTurn }: SessionAdoption) => {
+    const ticket = ++adoptionTicket.current;
+    const before = directClient.current?.selectedSession;
     // Where the reader left this chat, before its rows draw, as a tab opened on it reads it.
     const anchor = await fetchScrollAnchor(sessionId);
+    // Another chat was picked while the anchor was read (a page action, automation): it stands.
+    if (ticket !== adoptionTicket.current || directClient.current?.selectedSession !== before) {
+      if (ticket === adoptionTicket.current)
+        setAdoptingSession((current) => (current === sessionId ? undefined : current));
+      return;
+    }
     const adopt = window.cmuxAcpmuxActions?.["chat.adopt"];
     if (!adopt) {
       pendingAdoption.current = { sessionId, ...(revealTurn ? { revealTurn } : {}) };
@@ -7187,7 +7197,17 @@ function AcpmuxPane() {
   runPendingAdoption.current = () => {
     const pending = pendingAdoption.current;
     pendingAdoption.current = undefined;
-    if (pending && directClient.current?.selectedSession !== pending.sessionId) void runAdoption(pending);
+    if (!pending) return;
+    if (directClient.current?.selectedSession !== pending.sessionId) {
+      void runAdoption(pending);
+      return;
+    }
+    // A reconnect opened the chat already (the host bound the tab to it): what the adoption still
+    // carries is its place and its turn (a subagent's pane).
+    void fetchScrollAnchor(pending.sessionId).then((anchor) => {
+      if (directClient.current?.selectedSession === pending.sessionId) setScrollAnchor(anchor);
+    });
+    if (pending.revealTurn) revealRef.current(pending.revealTurn);
   };
   const adoptSession = useCallback(
     (adoption: SessionAdoption) => {
