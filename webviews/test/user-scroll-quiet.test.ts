@@ -1,5 +1,9 @@
 import { expect, jest, spyOn, test } from "bun:test";
-import { USER_SCROLL_INTENT_MS, attachUserScrollIntent, userScrollIntent } from "../src/agent-session/acpmux/conversation/userScroll";
+import {
+  USER_SCROLL_INTENT_MS,
+  attachUserScrollIntent,
+  userScrollIntent,
+} from "../src/agent-session/acpmux/conversation/userScroll";
 
 test("quiet notification waits for the last input, stops during drag, and cleans up", () => {
   jest.useFakeTimers();
