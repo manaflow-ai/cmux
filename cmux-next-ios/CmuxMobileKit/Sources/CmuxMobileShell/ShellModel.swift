@@ -109,7 +109,6 @@ final class ShellModel {
         self.auth = auth
         self.settings = settings
         self.sidebar = sidebar
-        terminalTabs.accountUserIDProvider = { [weak auth] in auth?.user?.id }
         // Mock content only in DEBUG mock mode (mock auth); a live account
         // never falls back to it.
         let mockMode = TerminalSessionChoice.mockCompiledIn && auth.isMock
@@ -130,6 +129,7 @@ final class ShellModel {
         offlineCreation = UnavailableWorkspaceCreationBackend()
         #endif
         creator = WorkspaceCreator(store: store, backend: offlineCreation)
+        terminalTabs.accountUserIDProvider = { [weak auth] in auth?.user?.id }
         terminalTabs.mockDataEnabled = mockMode
         terminalTabs.macName = { [weak store] workspace in
             store?.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name

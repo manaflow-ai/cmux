@@ -290,7 +290,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// when it is shown again (a new host, attached in the background).
     private func cool(_ id: String) {
         guard let host = hosts.removeValue(forKey: id) else { return }
-        let key = hostFrameKeys.removeValue(forKey: id)
+        // Cooling retains the frame; keep its ownership key until release can remove it.
+        let key = hostFrameKeys[id]
         if let frame = host.model.snapshot {
             if let key {
                 lastFrames[key] = frame
