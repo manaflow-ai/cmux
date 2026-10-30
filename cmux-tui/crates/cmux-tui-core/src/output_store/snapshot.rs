@@ -154,6 +154,9 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
             let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
             state.pending = Vec::new();
             state.pending_start = state.next_offset();
+            // The files miss this stretch: back in full mode, the first
+            // flush writes whatever the screen shows.
+            state.segment_digest = None;
         }
     }
     let dirty = store.take_dirty();
