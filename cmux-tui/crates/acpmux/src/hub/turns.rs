@@ -314,8 +314,17 @@ impl Hub {
             ))
             .await;
         }
-        let steer_now =
-            steer && session.steering.load(Ordering::SeqCst) && running.is_some() && !capped;
+        // An inbox notice steers in only while the turn is under its cap and no prompt waits
+        // (`inbox.rs`), checked again here at dispatch.
+        let notice_held = steer
+            && running.is_some()
+            && super::inbox::is_notice(opts.provenance.as_ref())
+            && super::inbox::notice_held(session);
+        let steer_now = steer
+            && session.steering.load(Ordering::SeqCst)
+            && running.is_some()
+            && !capped
+            && !notice_held;
         if steer && opts.steer_only && !steer_now {
             return Err(super::turn_cap::steer_unavailable(capped));
         }
@@ -590,8 +599,11 @@ impl Hub {
             Vec::new()
         };
         super::team_information::prepend(&mut blocks, &team_messages);
+        // A team message, or an inbox notice (`inbox.rs`), counts as delivered only once the
+        // harness writer took its prompt: `on_sent` then logs it.
         let confirm_team_write = !team_messages.is_empty()
-            || (team_enabled && self.has_team_work(session, &team_prompt_ids));
+            || (team_enabled && self.has_team_work(session, &team_prompt_ids))
+            || super::inbox::is_notice(provenance.as_ref());
         if session.rehydrate.swap(false, Ordering::SeqCst)
             && let Some(transcript) = self.transcript(session, 24_000)
         {

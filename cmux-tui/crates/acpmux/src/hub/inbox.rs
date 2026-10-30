@@ -72,6 +72,8 @@ const CLIENT: &str = "acpmux";
 /// One message in the inbox.
 pub(super) struct Item {
     pub(super) prompt_id: String,
+    /// The notice that carried it, once one went in: a resend answers with its outcome.
+    pub(super) notice: Option<String>,
     pub(super) thread: String,
     /// Its sender's name, and its session when it has one here (`sender_session`).
     pub(super) from: String,
@@ -102,9 +104,10 @@ pub struct Inbox {
     pub(super) refused_at: u64,
     /// A notice whose turn started and whose prompt is not written yet: its prompt id and the
     /// messages it carries, noticed (logged) once it is written (`inbox_prompt_written`).
-    pub(super) landing: Option<(String, Vec<String>)>,
-    /// The notice turn whose prompt was written: it went in, whatever its turn's end.
-    pub(super) written: Option<String>,
+    pub(super) landing: Vec<(String, Vec<String>)>,
+    /// The notice turns whose prompt was written and whose task has not finished: they went in,
+    /// whatever their turn's end.
+    pub(super) written: Vec<String>,
 }
 
 /// What [`Hub::inbox_unsend`] did with an inbox item.
@@ -342,12 +345,20 @@ fn prompt_waits(session: &Session) -> bool {
     session.queue.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|q| !q.held)
 }
 
+/// Whether a notice may not steer into the running turn now: a prompt waits, or the turn is
+/// past its cap (`turns.rs` checks it again at dispatch).
+pub(super) fn notice_held(session: &Session) -> bool {
+    let started = session.turn().map(|t| t.started_at);
+    prompt_waits(session) || started.is_some_and(|at| capped(&session.meta(), at, now_ms()))
+}
+
 /// Whether the session's running turn is past its cap.
 fn capped(meta: &SessionMeta, started_at: u64, now: u64) -> bool {
     super::turn_cap::turn_cap_ms(meta).is_some_and(|cap| now.saturating_sub(started_at) >= cap)
 }
 
 /// What the inbox does now.
+#[derive(Clone, Copy)]
 enum Next {
     Nothing,
     /// A steer into the running turn.
@@ -405,6 +416,7 @@ impl Hub {
         let text = prompt_text(blocks);
         let thread = thread_key(explicit, sender, &text);
         let (tx, mut rx) = tokio::sync::watch::channel(None);
+        let mut resent_notice: Option<Option<String>> = None;
         let fresh = {
             let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
             // Read under the inbox's lock: `kill` marks the chat closed before `inbox_closed`
@@ -419,16 +431,16 @@ impl Hub {
                     false
                 }
                 // A resend of one a notice carried and answered already (or before a restart):
-                // its outcome is gone, so the answer says it is a duplicate that was delivered,
-                // as a resend of a logged prompt is answered with its record.
-                Some(_) => {
-                    let done = json!({"stopReason": "end_turn", "_meta": {"acpmux": {"promptId": prompt_id, "inbox": true, "threadId": thread, "duplicate": true, "noticed": true}}});
-                    tx.send_replace(Some(Ok(done)));
+                // answered with that notice's outcome from the log, as a resend of a logged
+                // prompt is (`logged_prompt`).
+                Some(item) => {
+                    resent_notice = Some(item.notice.clone());
                     false
                 }
                 None => {
                     inbox.items.push(Item {
                         prompt_id: prompt_id.to_owned(),
+                        notice: None,
                         thread: thread.clone(),
                         from: sender.to_owned(),
                         from_session: sender_session(provenance),
@@ -438,13 +450,19 @@ impl Hub {
                         text: text.clone(),
                         noticed: false,
                         read: false,
-                        answer: Some(tx),
+                        answer: Some(tx.clone()),
                     });
-                    trim(&mut inbox.items);
+                    trim(&mut inbox);
                     true
                 }
             }
         };
+        if let Some(notice) = resent_notice {
+            let logged = notice.and_then(|id| self.logged_prompt(session, &id));
+            let mut done = logged.unwrap_or_else(|| json!({"stopReason": "end_turn"}));
+            merge_mux_meta(&mut done, json!({"duplicate": true, "noticed": true}));
+            tx.send_replace(Some(Ok(done)));
+        }
         if fresh {
             let mut msg = json!({"promptId": prompt_id, "threadId": thread, "from": sender, "class": class, "kind": kind_of(class), "client": client, "text": text, "prompt": blocks});
             if let Some(from) = sender_session(provenance) {
@@ -496,68 +514,90 @@ impl Hub {
         let meta = session.meta();
         let now = now_ms();
         let next = {
-            let inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
-            let new: Vec<&Item> = inbox.items.iter().filter(|i| !i.noticed).collect();
-            if new.is_empty() || inbox.in_flight.is_some() || meta.status == SessionStatus::Closed {
-                Next::Nothing
-            } else {
-                match session.turn() {
-                    Some(turn) => {
-                        let steers = session.steering.load(Ordering::SeqCst);
-                        let retry = match inbox.refused_at {
-                            0 => 0,
-                            at => at.saturating_add(REFUSED_RETRY_MS),
-                        };
-                        if !steers || capped(&meta, turn.started_at, now) || prompt_waits(session) {
-                            Next::Nothing
-                        } else if retry > now {
-                            // A refused steer is tried again no sooner than the backoff: no
-                            // loop of refusals within a turn.
-                            Next::WakeAt(retry)
-                        } else {
-                            Next::Steer
+            let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+            let next = {
+                let new: Vec<&Item> = inbox.items.iter().filter(|i| !i.noticed).collect();
+                if new.is_empty()
+                    || inbox.in_flight.is_some()
+                    || meta.status == SessionStatus::Closed
+                {
+                    Next::Nothing
+                } else {
+                    match session.turn() {
+                        Some(turn) => {
+                            let steers = session.steering.load(Ordering::SeqCst);
+                            let retry = match inbox.refused_at {
+                                0 => 0,
+                                at => at.saturating_add(REFUSED_RETRY_MS),
+                            };
+                            if !steers
+                                || capped(&meta, turn.started_at, now)
+                                || prompt_waits(session)
+                            {
+                                Next::Nothing
+                            } else if retry > now {
+                                // A refused steer is tried again no sooner than the backoff: no
+                                // loop of refusals within a turn.
+                                Next::WakeAt(retry)
+                            } else {
+                                Next::Steer
+                            }
+                        }
+                        None => {
+                            // A waking message after the debounce; anything after the flush, so no
+                            // message is stranded in an idle chat.
+                            let waking = new.iter().filter(|i| wakes(&meta, i)).map(|i| i.at).min();
+                            let oldest = new.iter().map(|i| i.at).min().unwrap_or(now);
+                            let flush = oldest.saturating_add(FLUSH_MS);
+                            let due = waking
+                                .map_or(flush, |at| at.saturating_add(WAKE_DEBOUNCE_MS).min(flush));
+                            let retry = match inbox.refused_at {
+                                0 => 0,
+                                at => at.saturating_add(REFUSED_RETRY_MS),
+                            };
+                            let at = due.max(retry);
+                            if at <= now { Next::Wake } else { Next::WakeAt(at) }
                         }
                     }
-                    None => {
-                        // A waking message after the debounce; anything after the flush, so no
-                        // message is stranded in an idle chat.
-                        let waking = new.iter().filter(|i| wakes(&meta, i)).map(|i| i.at).min();
-                        let oldest = new.iter().map(|i| i.at).min().unwrap_or(now);
-                        let flush = oldest.saturating_add(FLUSH_MS);
-                        let due = waking
-                            .map_or(flush, |at| at.saturating_add(WAKE_DEBOUNCE_MS).min(flush));
-                        let retry = match inbox.refused_at {
-                            0 => 0,
-                            at => at.saturating_add(REFUSED_RETRY_MS),
-                        };
-                        let at = due.max(retry);
-                        if at <= now { Next::Wake } else { Next::WakeAt(at) }
+                }
+            };
+            match next {
+                Next::Nothing => {
+                    if let Some(timer) = inbox.timer.take() {
+                        timer.abort();
                     }
                 }
+                Next::WakeAt(at) => self.arm_locked(&mut inbox, session, at, now),
+                Next::Steer | Next::Wake => {}
             }
+            next
         };
         match next {
-            Next::Nothing => self.disarm_inbox(session),
+            // Disarmed and armed under the lock the decision was made under (above), so a review
+            // that decided earlier never aborts a timer a later one armed.
+            Next::Nothing | Next::WakeAt(_) => {}
             Next::Steer => self.deliver_notice(session, true),
             Next::Wake => self.deliver_notice(session, false),
-            Next::WakeAt(at) => self.arm_inbox(session, at, now),
         }
     }
 
     /// Sends the notice of every new message, as a steer or (`steer` false) a turn of its own,
     /// and answers their waiting `session/prompt`s with how it went in.
     fn deliver_notice(self: &Arc<Self>, session: &Arc<Session>, steer: bool) {
-        self.disarm_inbox(session);
         let notice_id = format!("inbox-notice-{}", uuid::Uuid::now_v7());
         let (text, parts, ids, waiters) = {
             let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
             if inbox.in_flight.is_some() {
                 return;
             }
-            let new: Vec<&Item> = inbox.items.iter().filter(|i| !i.noticed).collect();
-            if new.is_empty() {
+            if inbox.items.iter().all(|i| i.noticed) {
                 return;
             }
+            // The wake timer is done: this notice carries what it waited for.
+            if let Some(timer) = inbox.timer.take() {
+                timer.abort();
+            }
+            let new: Vec<&Item> = inbox.items.iter().filter(|i| !i.noticed).collect();
             let (text, parts) = render(&new);
             let ids: Vec<String> = new.iter().map(|i| i.prompt_id.clone()).collect();
             let mut waiters = Vec::new();
@@ -616,7 +656,8 @@ impl Hub {
             if first {
                 inbox.in_flight = None;
             }
-            let first = inbox.landing.take_if(|(id, _)| id == notice_id).is_some() || first;
+            let landed = inbox.landing.iter().position(|(id, _)| id == notice_id);
+            let first = landed.map(|i| inbox.landing.remove(i)).is_some() || first;
             if went_in {
                 inbox.refused_at = 0;
             } else {
@@ -627,7 +668,7 @@ impl Hub {
                 }
                 // Read under the inbox's lock, as `inbox_accept` reads it: a chat closed since
                 // answers its waiting senders here, else `inbox_closed` will.
-                let closed = session.meta().status == SessionStatus::Closed;
+                let closed = super::queue::closing(session);
                 for (id, answer) in waiters {
                     match inbox.items.iter_mut().find(|i| i.prompt_id == id) {
                         Some(item) if !closed => item.answer = Some(answer),
@@ -645,6 +686,11 @@ impl Hub {
         if first {
             self.log_noticed(session, notice_id, ids);
         }
+        // A chat that closed meanwhile answers with the closing error, as `inbox_closed` does.
+        let result = match super::queue::closing(session) {
+            true => Err(super::queue::closing_error()),
+            false => result,
+        };
         for (_, answer) in waiters {
             answer.send_replace(Some(result.clone()));
         }
@@ -652,6 +698,12 @@ impl Hub {
     }
 
     fn log_noticed(&self, session: &Session, notice_id: &str, ids: &[String]) {
+        {
+            let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+            for item in inbox.items.iter_mut().filter(|i| ids.contains(&i.prompt_id)) {
+                item.notice = Some(notice_id.to_owned());
+            }
+        }
         let msg = json!({"noticePromptId": notice_id, "promptIds": ids});
         self.append(session, "mux", "inbox_noticed", msg);
     }
@@ -665,7 +717,7 @@ impl Hub {
         if let Some((id, ids)) = inbox.in_flight.take_if(|(id, _)| id == prompt_id) {
             // No longer in flight, so what comes during its turn steers in; noticed (logged) only
             // once its prompt is written, so a turn that fails before leaves its messages new.
-            inbox.landing = Some((id, ids));
+            inbox.landing.push((id, ids));
         }
     }
 
@@ -674,9 +726,10 @@ impl Hub {
     pub(super) fn inbox_prompt_written(self: &Arc<Self>, session: &Arc<Session>, prompt_id: &str) {
         let landed = {
             let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
-            let landed = inbox.landing.take_if(|(id, _)| id == prompt_id);
+            let at = inbox.landing.iter().position(|(id, _)| id == prompt_id);
+            let landed = at.map(|i| inbox.landing.remove(i));
             if landed.is_some() {
-                inbox.written = Some(prompt_id.to_owned());
+                inbox.written.push(prompt_id.to_owned());
             }
             landed
         };
@@ -689,7 +742,8 @@ impl Hub {
     /// Whether notice `notice_id`'s turn had its prompt written; forgets it.
     fn notice_written(&self, session: &Session, notice_id: &str) -> bool {
         let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
-        inbox.written.take_if(|id| id == notice_id).is_some()
+        let at = inbox.written.iter().position(|id| id == notice_id);
+        at.map(|i| inbox.written.remove(i)).is_some()
     }
 
     /// A turn ended (`finish_turn`, `fail_unstarted_turn`): a refusal during it no longer holds
@@ -710,8 +764,9 @@ impl Hub {
         }
     }
 
-    /// Arms the wake timer for `at`, aborting the one before (module docs).
-    fn arm_inbox(self: &Arc<Self>, session: &Arc<Session>, at: u64, now: u64) {
+    /// Arms the wake timer for `at`, aborting the one before (module docs), under the inbox's
+    /// lock `inbox` the caller holds.
+    fn arm_locked(self: &Arc<Self>, inbox: &mut Inbox, session: &Arc<Session>, at: u64, now: u64) {
         let hub = Arc::downgrade(self);
         let weak: Weak<Session> = Arc::downgrade(session);
         let task = tokio::spawn(async move {
@@ -719,7 +774,6 @@ impl Hub {
             let (Some(hub), Some(session)) = (hub.upgrade(), weak.upgrade()) else { return };
             hub.inbox_review(&session);
         });
-        let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(previous) = inbox.timer.replace(task.abort_handle()) {
             previous.abort();
         }
@@ -737,7 +791,7 @@ impl Hub {
     /// the log says. Run again, it adds only what it does not hold.
     pub(super) fn restore_inbox(&self, session: &Arc<Session>) {
         let mut items: Vec<Item> = Vec::new();
-        let mut noticed: std::collections::HashSet<String> = Default::default();
+        let mut noticed: std::collections::HashMap<String, String> = Default::default();
         let mut read: std::collections::HashSet<String> = Default::default();
         let mut removed: std::collections::HashSet<String> = Default::default();
         let kinds = ["inbox", "inbox_noticed", "inbox_read", "inbox_removed"];
@@ -753,6 +807,7 @@ impl Hub {
                         crate::prompt_class::recorded(&e.msg).unwrap_or(PromptClass::Result);
                     items.push(Item {
                         prompt_id: field("promptId").to_owned(),
+                        notice: None,
                         thread: field("threadId").to_owned(),
                         from: field("from").to_owned(),
                         from_session: e
@@ -769,7 +824,11 @@ impl Hub {
                         answer: None,
                     });
                 }
-                "inbox_noticed" => noticed.extend(ids()),
+                "inbox_noticed" => {
+                    let notice = e.msg.get("noticePromptId").and_then(Value::as_str);
+                    let notice = notice.unwrap_or_default().to_owned();
+                    noticed.extend(ids().map(|id| (id, notice.clone())));
+                }
                 "inbox_read" => read.extend(ids()),
                 "inbox_removed" => {
                     let id = e.msg.get("promptId").and_then(Value::as_str).unwrap_or_default();
@@ -790,11 +849,12 @@ impl Hub {
             {
                 continue;
             }
-            item.noticed = noticed.contains(&item.prompt_id);
+            item.notice = noticed.get(&item.prompt_id).cloned().filter(|n| !n.is_empty());
+            item.noticed = noticed.contains_key(&item.prompt_id);
             item.read = read.contains(&item.prompt_id);
             inbox.items.push(item);
         }
-        trim(&mut inbox.items);
+        trim(&mut inbox);
     }
 
     /// `_acpmux/prompt_withdraw` of an inbox item (`withdraw.rs`): one no notice carried yet
@@ -939,9 +999,19 @@ impl Hub {
 }
 
 /// Keeps at most [`KEEP`] messages: the oldest read and noticed ones go first.
-fn trim(items: &mut Vec<Item>) {
+fn trim(inbox: &mut Inbox) {
+    // A message a notice carries that has not gone in yet may be new again: never trimmed.
+    let carried: std::collections::HashSet<String> = inbox
+        .in_flight
+        .iter()
+        .chain(inbox.landing.iter())
+        .flat_map(|(_, ids)| ids.iter().cloned())
+        .collect();
+    let items = &mut inbox.items;
     while items.len() > KEEP {
-        match items.iter().position(|i| i.read && i.noticed && i.answer.is_none()) {
+        let gone =
+            |i: &Item| i.read && i.noticed && i.answer.is_none() && !carried.contains(&i.prompt_id);
+        match items.iter().position(gone) {
             Some(i) => {
                 items.remove(i);
             }

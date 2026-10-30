@@ -12,6 +12,7 @@ fn item(
 ) -> Item {
     Item {
         prompt_id: prompt_id.to_owned(),
+        notice: None,
         thread: thread.to_owned(),
         from: from.to_owned(),
         from_session: None,
