@@ -187,6 +187,47 @@ class Lookup(unittest.TestCase):
         reuse.check_manifest(manifest, KEY, 9)
         self.assertEqual((manifest["origin"], manifest["compiled_run_id"]), ("reused", 3))
         self.assertEqual(manifest["archive_sha256"], hashlib.sha256(APP).hexdigest())
+        self.assertNotIn("swift_mode", manifest, "no mode passed, none recorded")
+
+    def test_a_record_keeps_the_resolved_swift_mode_beside_the_requested_one(self):
+        # #26999: the key prints swift_mode=auto, so an auto-singlefile and an auto-wholemodule compile shared
+        # one key and a report could not tell them apart. The receipt keeps both; the key keeps `auto`.
+        archive = Path(self.tmp.name) / f"cmux-next-dev-daily-unsigned-{SHA}.app.zip"
+        archive.write_bytes(APP)
+        manifest_path = Path(self.tmp.name) / "manifest.json"
+        out = io.StringIO()
+        with unittest.mock.patch.dict(os.environ, {"GITHUB_RUN_ID": "9"}), unittest.mock.patch("sys.stdout", out):
+            code = reuse.main(["record", "--key", KEY, "--sha", SHA, "--archive", str(archive),
+                               "--out", str(manifest_path), "--swift-mode", "wholemodule",
+                               "--swift-mode-requested", "auto"])
+        self.assertEqual(code, 0)
+        manifest = json.loads(manifest_path.read_text())
+        self.assertEqual((manifest["swift_mode"], manifest["swift_mode_requested"]), ("wholemodule", "auto"))
+        self.assertEqual(manifest["key"], KEY, "the key is the one the lookup built, unchanged")
+        self.assertIn("swift_mode=wholemodule", out.getvalue())
+        # A value outside the modes is left out, and never fails the record.
+        args = reuse.argparse.Namespace(key=KEY, sha=SHA, archive=str(archive), out=str(manifest_path),
+                                        reused_from_run="", reused_from_sha="", compiled_run="",
+                                        swift_mode="fast", swift_mode_requested="")
+        with unittest.mock.patch("sys.stderr", io.StringIO()):
+            self.assertNotIn("swift_mode", reuse.record(args, {"GITHUB_RUN_ID": "9"}))
+
+    def test_a_hit_carries_its_sources_resolved_mode_into_outputs_and_summary(self):
+        run, record, files, product = setup(7)
+        manifest = json.loads(zipfile.ZipFile(io.BytesIO(files["record-7"])).read("manifest.json"))
+        manifest.update(swift_mode="wholemodule", swift_mode_requested="auto")
+        files["record-7"] = zip_bytes({"manifest.json": json.dumps(manifest).encode()})
+        result = self.lookup(fake((run, record, files, product)))
+        self.assertEqual((result["swift_mode"], result["swift_mode_requested"]), ("wholemodule", "auto"))
+        summary = Path(self.tmp.name) / "summary.md"
+        with unittest.mock.patch("sys.stderr", io.StringIO()):
+            reuse.summarize(result, KEY, str(summary))
+        self.assertIn("swift_mode auto -> wholemodule", summary.read_text())
+        # A record from before the field reads as empty, and the summary says nothing about the mode.
+        old = self.lookup(fake(setup(8)))
+        self.assertEqual(old["swift_mode"], "")
+        self.assertEqual(reuse.swift_mode_note("", ""), "")
+        self.assertEqual(reuse.swift_mode_note("singlefile", "singlefile"), "singlefile")
 
 
 class Workflows(unittest.TestCase):
@@ -222,6 +263,15 @@ class Workflows(unittest.TestCase):
         lookup = job[job.index("id: dev-product\n"):job.index("      - name: Fetch the same-tree cmux-tui")]
         self.assertIn("format('{0}', vars.CI_NEXT_DEV_PRODUCT_REUSE) == '0'", lookup)
         self.assertEqual(re.findall(r"(?<!')vars\.[A-Z0-9_]+\s*==\s*'[0-9]", lookup), [])
+
+    def test_both_record_steps_pass_the_resolved_swift_mode(self):
+        text = (ROOT / ".github/workflows/cmux-next.yml").read_text()
+        self.assertEqual(text.count("dev_release_product_reuse.py record"), 2)
+        for compile_id in ("compile-cmux-next-dev-release", "compile"):
+            with self.subTest(compile=compile_id):
+                self.assertIn("steps.dev-product.outputs.hit == 'true' && steps.dev-product.outputs.swift_mode || "
+                              f"steps.{compile_id}.outputs.swift_mode", text)
+        self.assertEqual(text.count('--swift-mode "$SWIFT_MODE" --swift-mode-requested "$SWIFT_MODE_REQUESTED"'), 2)
 
     def test_every_variable_the_compile_step_reads_is_keyed(self):
         # The workflow file is keyed, but a repository variable's value is not in it: one that changes

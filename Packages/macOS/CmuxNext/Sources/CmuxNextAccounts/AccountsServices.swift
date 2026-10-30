@@ -1,3 +1,4 @@
+public import CMUXAuthCore
 public import CmuxNextCloud
 public import CmuxNextCodeRouter
 public import Foundation
@@ -25,6 +26,9 @@ public protocol AccountsServices: AnyObject {
     /// screen lists its teams and switches through it.
     var activeTeam: ActiveTeam? { get }
 
+    /// Team roles, details, create, rename and delete (nil: none here).
+    var teamBackend: (any AccountsTeamBackend)? { get }
+
     /// The team's CodeRouter accounts this user may see.
     func linkedAccounts() async throws -> [LinkedAccount]
     /// Builds the credential (from the local sign-in, the environment, the
@@ -48,6 +52,27 @@ public protocol AccountsServices: AnyObject {
     func saveKey(_ key: String, for provider: AIProvider) throws
     func deleteSavedKey(for provider: AIProvider) throws
 }
+
+/// Team management for the Accounts screen: `CloudAuth` in the app (through
+/// the auth coordinator, so the team list, the active team and everything that
+/// follows it change together), ``MockAccountsServices`` in the demo and tests.
+/// Failures are `CMUXTeamError`.
+@MainActor
+public protocol AccountsTeamBackend: AnyObject {
+    /// The account's teams with the person's role in each (roles nil when
+    /// only the sign-in service answered).
+    func teamMemberships() async throws -> CMUXTeamMemberships
+    /// One team's members, pending invitations and plan.
+    func teamDetail(id: String) async throws -> CMUXTeamDetail
+    /// Creates a team (the person becomes its admin) and makes it the active team.
+    func createTeam(named name: String) async throws -> CMUXAuthTeam
+    /// Renames a team (admins only).
+    func renameTeam(id: String, to name: String) async throws
+    /// Deletes a team (admins only). When it was the active team, another becomes active.
+    func deleteTeam(id: String) async throws
+}
+
+extension CloudAuth: AccountsTeamBackend {}
 
 extension AccountsServices {
     public var isSignedInToCmux: Bool { cmuxAccount.signedIn }
