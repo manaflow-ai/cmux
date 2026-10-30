@@ -50,12 +50,16 @@ pub(super) fn spawn(
                     None => chats::route(&hub, &conn, &method, params).await,
                 }
             });
-            let result = hub.answer_request(request).await;
+            let (result, writes) = crate::hub::request_writes::scope(request).await;
+            let kept = writes.kept();
+            // An error that committed records (a held agent message: "held, do not send it
+            // again") waits for them too; its answer stays the error.
+            let saved = hub.wait_written(writes).await;
             // The reply follows every event published before it on this connection: a turn's
             // `session/update`s reach the client before its `session/prompt` result. After the
             // write wait, right before the reply: every event published until now precedes it.
             conn.events_handed_on(&hub).await;
-            result
+            crate::hub::request_writes::answer(result, saved, kept)
         })
     };
     start(hub.supervisor(), conn, id, &method, slot, route);
