@@ -256,7 +256,23 @@ export function openForkMenu(throughSeq: number, anchor?: Element): boolean {
   const handler = menuHandler();
   if (!handler) return false;
   const { left, top, right, bottom } = (anchor ?? document.body).getBoundingClientRect();
-  handler.postMessage({ forkDestinations: throughSeq, popUp: { left, top, right, bottom } });
+  // Its opener stays lit while the destination menu is open, as More's does; the host reports the close.
+  clearMessagePopup();
+  const popupId = anchor ? crypto.randomUUID() : undefined;
+  if (anchor && popupId) {
+    openPopup = { id: popupId, anchor };
+    anchor.setAttribute("data-popup-open", "");
+  }
+  try {
+    handler.postMessage({
+      forkDestinations: throughSeq,
+      popUp: { left, top, right, bottom },
+      ...(popupId ? { popupId } : {}),
+    });
+  } catch {
+    clearMessagePopup();
+    return false;
+  }
   return true;
 }
 
