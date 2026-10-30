@@ -11,7 +11,10 @@
 //! Limits, decided here and nowhere else:
 //! - Width: a session has at most `maxChildren` live children. A child counts while its harness
 //!   is alive (`ready`, `running` or `waiting`); idle-finished, disconnected and closed children
-//!   do not use a slot.
+//!   do not use a slot. The limit is checked when a child starts. A prompt to a child that is
+//!   not live (hibernated, dead or closed) wakes it even past the limit, as a reopen always
+//!   did: a parent can always follow up on a child it has. `maxRunning` still bounds how many
+//!   run a turn, and a woken child frees its slot again when it hibernates.
 //!   Depth: a session is started at depth `parent.depth + 1` only when that
 //!   is at most the parent's `maxDepth`.
 //! - Running: at most `maxRunning` children run a turn at once; a start or a
