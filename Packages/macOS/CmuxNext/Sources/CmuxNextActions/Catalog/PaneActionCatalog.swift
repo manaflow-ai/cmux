@@ -377,9 +377,10 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "artifacts.show",
-                title: String(localized: "action.artifacts.show", defaultValue: "Open Artifacts as Pane", bundle: .module),
-                keywords: ["artifacts", "memory", "notes", "history", "pane"], category: .pane, symbol: "shippingbox",
-                surfaces: [.palette], targets: [.pane], cliName: "pane open-artifacts-as"
+                title: String(localized: "action.artifacts.show", defaultValue: "Show Artifacts", bundle: .module),
+                keywords: ["artifacts", "memory", "memories", "notes", "history", "saved"], category: .pane, symbol: "shippingbox",
+                surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
             // A file in a tab of the pane or in the text editor: the agent pane's changed
             // files (#16723), the palette and the File menu (no path: the cmux

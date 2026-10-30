@@ -1,57 +1,270 @@
-import { useEffect, useMemo, useSyncExternalStore } from "react";
-import { FileDiff } from "@pierre/diffs/react";
-import { getSingularPatch } from "@pierre/diffs";
-import { FileTree, useFileTree } from "@pierre/trees/react";
+// The Artifacts page: what agents saved and synced (artifacts, memories, notes) as a keyboard-first
+// tree (ui/Tree), the chosen file's preview and its history. HTML previews draw in a scriptless,
+// sandboxed srcdoc, as the agent pane's passive artifacts do, so a saved document can never reach
+// the page, its bridge or the network. Choosing a revision shows its change against its parent.
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { diffHunks, diffLines } from "../../agent-session/acpmux/diff";
+import { galleryArtifactDocument } from "../../agent-session/acpmux/conversation/artifactSandbox";
+import { FileIcon } from "../../file-icons";
+import { Tree, type TreeLine } from "../../ui/Tree";
 import type { Strings } from "../shared/i18n";
-import type { ArtifactsStore } from "./store";
-import type { ArtifactCommit } from "./types";
-import "./styles.css";
+import { textOf, type ArtifactsFailure, type ArtifactsSnapshot, type ArtifactsStore } from "./store";
+import type { ArtifactCommit, ArtifactFile } from "./types";
 
-function safeDocument(content: string): string {
-  const csp = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; navigate-to 'none'";
-  const meta = `<meta http-equiv="Content-Security-Policy" content="${csp}">`;
-  return /<head\b/i.test(content) ? content.replace(/<head(\b[^>]*)>/i, (tag) => `${tag}${meta}`) : `${meta}${content}`;
-}
-function patchFor(path: string, before: string, after: string) {
-  const oldLines = before.split("\n");
-  const newLines = after.split("\n");
-  return getSingularPatch([
-    `--- a/${path}`,
-    `+++ b/${path}`,
-    `@@ -1,${oldLines.length} +1,${newLines.length} @@`,
-    ...oldLines.map((line) => `-${line}`),
-    ...newLines.map((line) => `+${line}`),
-    "",
-  ].join("\n"));
-}
-function kind(path: string): "html" | "text" | "json" { return path.endsWith(".html") ? "html" : path.endsWith(".json") ? "json" : "text"; }
-
-export function ArtifactsPage({ store, strings: _strings }: { store: ArtifactsStore; strings?: Strings }) {
+export function ArtifactsPage({ store, strings }: { store: ArtifactsStore; strings: Strings }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  const entries = snapshot.tree?.entries ?? [];
-  const paths = useMemo(() => entries.filter((entry) => entry.type === "blob").map((entry) => entry.path), [entries]);
-  const { model } = useFileTree({ paths, initialExpansion: "open", onSelectionChange: (selected) => { const path = selected.at(-1); if (path) void store.select(path); } });
-  useEffect(() => { void store.start(); }, [store]);
-  if (snapshot.error && !snapshot.tree) return <p className="artifacts-message" role="alert">{snapshot.error}</p>;
-  const fileKind = snapshot.file ? kind(snapshot.file.path) : "text";
+  const { t } = strings;
+  if (snapshot.status === "unavailable") return <p className="artifacts-message">{t("artifacts.page.unavailable")}</p>;
+  if (snapshot.status === "idle" || snapshot.status === "loading")
+    return <p className="artifacts-message artifacts-muted">{t("artifacts.page.loading")}</p>;
+  if (snapshot.status === "failed")
+    return (
+      <div className="artifacts-message" role="alert">
+        <p>{failureText(snapshot.failure, strings)}</p>
+        <button type="button" className="artifacts-retry" onClick={() => void store.start()}>
+          {t("artifacts.page.retry")}
+        </button>
+      </div>
+    );
+  if (snapshot.status === "empty")
+    return <p className="artifacts-message artifacts-muted">{t("artifacts.page.empty")}</p>;
   return (
-    <div className="artifacts-page">
-      <aside className="artifacts-tree" aria-label="Artifacts files">
-        <header className="artifacts-tree-header"><strong>Artifacts</strong><span>{snapshot.tree?.sha ? `main · ${snapshot.tree.sha.slice(0, 7)}` : "Loading"}</span></header>
-        <FileTree model={model} id="artifacts-file-tree" style={{ height: "100%" }} />
+    <div className="artifacts">
+      <aside className="artifacts-side">
+        <header className="artifacts-header">
+          <h1 className="artifacts-title">{t("artifacts.page.title")}</h1>
+        </header>
+        <FileTree snapshot={snapshot} store={store} strings={strings} />
       </aside>
-      <main className="artifacts-main">
-        <header className="artifacts-file-header"><strong>{snapshot.file?.path ?? "Select a file"}</strong>{snapshot.file?.commit ? <span>commit {snapshot.file.commit.slice(0, 7)}</span> : null}</header>
-        {snapshot.error ? <p className="artifacts-inline-error" role="alert">{snapshot.error}</p> : null}
-        {snapshot.loading && !snapshot.file ? <p className="artifacts-message">Loading artifacts…</p> : snapshot.file && fileKind === "html" ? <iframe className="artifacts-frame" title="Artifact preview" sandbox="allow-scripts" srcDoc={safeDocument(snapshot.file.content)} /> : snapshot.file ? <pre className="artifacts-content">{snapshot.file.content}</pre> : <p className="artifacts-message">Choose a file from the tree.</p>}
-        <section className="artifacts-history" aria-label="Artifact history">
-          <h2>History</h2>
-          {snapshot.history.length === 0 ? <p className="artifacts-muted">No history for this file.</p> : snapshot.history.map((commit) => <HistoryRow key={commit.sha} commit={commit} active={commit.sha === snapshot.selectedCommit} path={snapshot.file?.path} diff={snapshot.diff} onSelect={() => void store.selectCommit(commit)} />)}
-        </section>
-      </main>
+      <section className="artifacts-main">
+        <header className="artifacts-header">
+          <span className="artifacts-path">{snapshot.selected ?? t("artifacts.file.choose")}</span>
+        </header>
+        <Preview snapshot={snapshot} strings={strings} />
+        <History snapshot={snapshot} store={store} strings={strings} />
+      </section>
     </div>
   );
 }
-function HistoryRow({ commit, active, path, diff, onSelect }: { commit: ArtifactCommit; active: boolean; path?: string; diff?: { before?: { content: string }; after: { content: string } }; onSelect: () => void }) {
-  return <article className={`artifacts-commit${active ? " is-active" : ""}`}><button type="button" className="artifacts-commit-button" onClick={onSelect}><span className="artifacts-commit-meta"><strong>{commit.message}</strong><time>{new Date(commit.time).toLocaleString()}</time></span><span className="artifacts-trailers">{commit.authorName} · {commit.trailers.session ?? "session unknown"} · {commit.trailers.machine ?? "machine unknown"} · {commit.trailers.harness ?? "harness unknown"}</span></button>{active && path && diff ? <div className="artifacts-diff"><FileDiff fileDiff={patchFor(path, diff.before?.content ?? "", diff.after.content)} options={{ theme: "github-dark", disableFileHeader: true }} disableWorkerPool /></div> : null}</article>;
+
+/** Every folder of `paths`, so the tree opens fully at first. */
+function foldersOf(paths: readonly string[]): Set<string> {
+  const folders = new Set<string>();
+  for (const path of paths) {
+    const parts = path.split("/");
+    for (let end = 1; end < parts.length; end++) folders.add(parts.slice(0, end).join("/"));
+  }
+  return folders;
+}
+
+function FileTree({
+  snapshot,
+  store,
+  strings,
+}: {
+  snapshot: ArtifactsSnapshot;
+  store: ArtifactsStore;
+  strings: Strings;
+}) {
+  const { paths, selected } = snapshot;
+  const [expanded, setExpanded] = useState(() => foldersOf(paths));
+  const [focused, setFocused] = useState(selected);
+  useEffect(() => setExpanded(foldersOf(paths)), [paths]);
+  const files = useMemo(() => new Set(paths), [paths]);
+  const lines = useMemo(() => {
+    // Children by folder, folders before files, each sorted by name.
+    const children = new Map<string, { name: string; path: string; folder: boolean }[]>();
+    const add = (parent: string, name: string, path: string, folder: boolean) => {
+      const list = children.get(parent) ?? [];
+      if (!list.some((entry) => entry.path === path)) list.push({ name, path, folder });
+      children.set(parent, list);
+    };
+    for (const path of paths) {
+      const parts = path.split("/");
+      parts.forEach((name, index) => {
+        add(parts.slice(0, index).join("/"), name, parts.slice(0, index + 1).join("/"), index < parts.length - 1);
+      });
+    }
+    const out: TreeLine[] = [];
+    const walk = (folder: string, depth: number) => {
+      const entries = (children.get(folder) ?? []).sort(
+        (a, b) => Number(b.folder) - Number(a.folder) || a.name.localeCompare(b.name),
+      );
+      for (const entry of entries) {
+        const open = entry.folder && expanded.has(entry.path);
+        out.push({
+          kind: "item",
+          key: entry.path,
+          depth,
+          text: entry.name,
+          expandable: entry.folder,
+          expanded: open,
+          content: (
+            <>
+              <span
+                className={`artifacts-chevron${entry.folder ? "" : " is-leaf"}${open ? " is-open" : ""}`}
+                aria-hidden="true"
+              />
+              {entry.folder ? <span className="artifacts-folder" aria-hidden="true" /> : <FileIcon path={entry.name} />}
+              <span className="artifacts-name">{entry.name}</span>
+            </>
+          ),
+        });
+        if (open) walk(entry.path, depth + 1);
+      }
+    };
+    walk("", 0);
+    if (snapshot.truncated)
+      out.push({
+        kind: "note",
+        key: "truncated",
+        content: <p className="artifacts-note">{strings.t("artifacts.page.truncated")}</p>,
+      });
+    return out;
+  }, [paths, expanded, snapshot.truncated, strings]);
+  const toggle = (path: string, open: boolean) =>
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (open) next.add(path);
+      else next.delete(path);
+      return next;
+    });
+  return (
+    <div className="artifacts-scroll">
+      <Tree
+        lines={lines}
+        selected={focused ?? selected}
+        label={strings.t("artifacts.page.title")}
+        className="artifacts-tree"
+        rowClassName="artifacts-row"
+        rowStyle={(item) => ({ paddingInlineStart: 8 + item.depth * 14 })}
+        onSelect={(path) => {
+          setFocused(path);
+          if (files.has(path)) void store.select(path);
+        }}
+        onExpand={toggle}
+        onActivate={(item) => {
+          if (item.expandable) toggle(item.key, !item.expanded);
+          else void store.select(item.key);
+        }}
+      />
+    </div>
+  );
+}
+
+function Preview({ snapshot, strings }: { snapshot: ArtifactsSnapshot; strings: Strings }) {
+  const { file, fileLoading, fileFailure } = snapshot;
+  if (fileFailure && !file)
+    return (
+      <p className="artifacts-message" role="alert">
+        {failureText(fileFailure, strings)}
+      </p>
+    );
+  if (fileLoading || !snapshot.selected)
+    return <div className="artifacts-preview artifacts-muted" aria-busy={fileLoading} />;
+  if (!file) return <div className="artifacts-preview" />;
+  if (file.tooLarge) return <p className="artifacts-message artifacts-muted">{strings.t("artifacts.file.tooLarge")}</p>;
+  const text = textOf(file);
+  if (text === undefined)
+    return <p className="artifacts-message artifacts-muted">{strings.t("artifacts.file.binary")}</p>;
+  if (isHtml(file))
+    return (
+      <iframe
+        className="artifacts-preview artifacts-frame"
+        title={file.path}
+        srcDoc={galleryArtifactDocument(text, "")}
+        sandbox=""
+        referrerPolicy="no-referrer"
+      />
+    );
+  return <pre className="artifacts-preview artifacts-text">{text}</pre>;
+}
+
+function isHtml(file: ArtifactFile): boolean {
+  return /^text\/html\b/i.test(file.contentType) || /\.html?$/i.test(file.path);
+}
+
+function History({
+  snapshot,
+  store,
+  strings,
+}: {
+  snapshot: ArtifactsSnapshot;
+  store: ArtifactsStore;
+  strings: Strings;
+}) {
+  const { history, selectedCommit, diff, fileFailure, file } = snapshot;
+  if (!snapshot.selected || snapshot.fileLoading) return null;
+  return (
+    <section className="artifacts-history" aria-label={strings.t("artifacts.history.title")}>
+      <h2 className="artifacts-history-title">{strings.t("artifacts.history.title")}</h2>
+      {history.length === 0 ? <p className="artifacts-muted">{strings.t("artifacts.history.none")}</p> : null}
+      <ol className="artifacts-commits">
+        {history.map((commit) => {
+          const active = commit.sha === selectedCommit;
+          return (
+            <li key={commit.sha} className={`artifacts-commit${active ? " is-active" : ""}`}>
+              <button
+                type="button"
+                className="artifacts-commit-button"
+                aria-pressed={active}
+                onClick={() => void store.selectCommit(commit)}
+              >
+                <span className="artifacts-commit-message">{commit.message}</span>
+                <time className="artifacts-muted" dateTime={new Date(commit.time).toISOString()}>
+                  {formatTime(commit.time, strings.language)}
+                </time>
+                <span className="artifacts-trailers artifacts-muted">{trailers(commit)}</span>
+              </button>
+              {active && file && fileFailure ? (
+                <p className="artifacts-note" role="alert">
+                  {failureText(fileFailure, strings)}
+                </p>
+              ) : null}
+              {active && diff?.sha === commit.sha ? (
+                <Change before={diff.before} after={diff.after} strings={strings} />
+              ) : null}
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
+}
+
+/** The revision's change to the file, as unified lines with a little context. */
+function Change({ before, after, strings }: { before?: string; after: string; strings: Strings }) {
+  const hunks = useMemo(() => diffHunks(diffLines(before ?? "", after)), [before, after]);
+  if (hunks.length === 0) return <p className="artifacts-note">{strings.t("artifacts.history.unchanged")}</p>;
+  return (
+    <div className="artifacts-diff">
+      {hunks.map((hunk, index) => (
+        <div key={index} className="artifacts-hunk">
+          {hunk.lines.map((line, row) => (
+            <div key={row} className={`artifacts-line is-${line.type}`}>
+              <span className="artifacts-sign" aria-hidden="true">
+                {line.type === "add" ? "+" : line.type === "del" ? "-" : " "}
+              </span>
+              {line.text}
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Who saved a revision: its harness, machine and session, as the saver gave them. */
+function trailers(commit: ArtifactCommit): string {
+  const { harness, machine, session } = commit.trailers;
+  return [harness, machine, session].filter(Boolean).join(" · ") || commit.authorName;
+}
+
+function formatTime(time: number, language: string): string {
+  return new Intl.DateTimeFormat(language, { dateStyle: "medium", timeStyle: "short" }).format(new Date(time));
+}
+
+/** The app's own words for a failure (it words them in the person's language), else the page's. */
+function failureText(failure: ArtifactsFailure | undefined, strings: Strings): string {
+  return failure?.message ?? strings.t("artifacts.page.failed");
 }
