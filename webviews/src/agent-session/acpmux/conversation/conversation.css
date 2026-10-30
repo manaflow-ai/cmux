@@ -3217,14 +3217,18 @@ a.cv-sha:focus-visible {
   flex-direction: column;
   gap: 6px;
 }
+/* On the card grid (grid.md 5.6): a 16 icon box on the card's lead, the cause on its text column
+   (lead + 16 + 8), the icon centred on the cause's first line, which is 18 tall. */
 .cv-turn-error__cause {
   display: flex;
   align-items: flex-start;
-  gap: 7px;
+  gap: var(--grid-gap);
 }
 .cv-turn-error__icon {
   flex: none;
-  margin-top: 2px;
+  width: var(--grid-icon-box);
+  height: var(--grid-icon-box);
+  margin-top: calc((18px - var(--grid-icon-box)) / 2);
   color: var(--agent-status-failure);
 }
 .cv-turn-error__actions {
@@ -3235,7 +3239,7 @@ a.cv-sha:focus-visible {
 }
 .cv-turn-error--card .cv-turn-error__actions,
 .cv-turn-error--rail .cv-turn-error__actions {
-  padding-inline-start: 21px;
+  padding-inline-start: calc(var(--grid-icon-box) + var(--grid-gap));
 }
 .cv-turn-error__primary {
   border-color: transparent;
@@ -3276,8 +3280,8 @@ a.cv-sha:focus-visible {
 }
 .cv-turn-error--card {
   margin-block: 2px 6px;
-  padding: 10px 12px;
-  border-radius: 10px;
+  padding: var(--grid-cards-padding);
+  border-radius: var(--grid-cards-radius);
 }
 .cv-turn-error--rail {
   padding-inline-start: 10px;

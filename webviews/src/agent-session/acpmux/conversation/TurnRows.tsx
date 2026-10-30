@@ -558,7 +558,7 @@ function TurnFailure({
       data-failure-kind={kind}
     >
       <span className="cv-turn-error__cause">
-        {arm !== "note" && <AlertCircle size={14} className="cv-turn-error__icon" />}
+        {arm !== "note" && <AlertCircle size={16} className="cv-turn-error__icon" />}
         <span className="text-fg">
           {sentence}
           {codeRouter && offerArm === "link" && (
