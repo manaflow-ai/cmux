@@ -259,12 +259,21 @@ impl Hub {
         // is committed (queued, started, or steered in), never before a refusal.
         let supersede = opts.supersede.clone();
         let replaced = std::sync::OnceLock::<Vec<String>>::new();
+        // Another agent's message queued as the running turn crosses its cap still gets the
+        // turn its notice (`turn_cap.rs`): the timer may have looked at the queue just before.
+        let from_agent =
+            super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref()).is_some()
+                && !opts.send_now;
         let mut accept = |mut v: Value| {
             if let Some(f) = on_accepted.take() {
                 if supersede.is_some() {
                     super::queue::supersede::mark(&mut v, replaced.get());
                 }
+                let queued = v.get("queued") == Some(&Value::Bool(true));
                 f(v);
+                if queued && from_agent {
+                    self.turn_cap_recheck(session);
+                }
             }
         };
         // A prompt that cannot reach any agent (none running, and its folder or harness is gone)
@@ -275,12 +284,14 @@ impl Hub {
         };
         let text = prompt_text(&blocks);
         let running = session.turn();
-        let steer_now = steer && session.steering.load(Ordering::SeqCst) && running.is_some();
+        // Another agent's message to a turn past its cap waits for the next turn (`turn_cap.rs`).
+        let capped = running.is_some()
+            && !opts.send_now
+            && self.turn_cap_holds(session, opts.provenance.as_ref(), opts.agent.as_deref());
+        let steer_now =
+            steer && session.steering.load(Ordering::SeqCst) && running.is_some() && !capped;
         if steer && opts.steer_only && !steer_now {
-            return Err(RpcError::invalid_params(
-                "steer.unavailable: the session has no running turn that its agent can steer",
-            )
-            .with_data(json!({"reason": "steer.unavailable"})));
+            return Err(super::turn_cap::steer_unavailable(capped));
         }
         if !live {
             self.cold_prompt_check(session).await?;
@@ -295,7 +306,10 @@ impl Hub {
         if steer_now {
             let turn_id = running.map(|t| t.turn_id).unwrap_or_default();
             let opts = PromptOptions { prompt_id: Some(prompt_id), on_accepted: None, ..opts };
-            return self.steer_turn(session, blocks, client, &turn_id, opts, &mut accept).await;
+            // Boxed: the steer's future stays out of this one, which every prompt's caller holds
+            // on its stack (a debug build's test thread has little room).
+            return Box::pin(self.steer_turn(session, blocks, client, &turn_id, opts, &mut accept))
+                .await;
         }
         // An automatic continuation runs only while its chat still ends on the cut turn: no await
         // from here to `queue_slot`'s choice, so it never joins the queue (`auto_resume.rs`).
@@ -310,7 +324,8 @@ impl Hub {
             prompt_id: &prompt_id,
             control,
             trust_gate,
-            interrupt: opts.interrupt,
+            // Held past the cap, it waits: it stops no turn (`turn_cap.rs`).
+            interrupt: opts.interrupt && !capped,
             interrupt_turn: opts.interrupt_turn.as_deref(),
             provenance: opts.provenance.as_ref(),
             agent: agent.as_deref(),
@@ -320,11 +335,11 @@ impl Hub {
             replaced: &replaced,
             no_queue: opts.no_queue,
         };
-        let (turn_id, waiting, guard, run) = match self.queue_slot(session, slot, &mut accept).await
-        {
-            Ok(slot) => slot,
-            Err(done) => return done,
-        };
+        let (turn_id, waiting, mut guard, run) =
+            match self.queue_slot(session, slot, &mut accept).await {
+                Ok(slot) => slot,
+                Err(done) => return done,
+            };
         // A normal Stop releases the next queued prompt. Its cancellation epoch starts
         // when it acquires the turn; an immediately admitted prompt keeps its entry epoch.
         if waiting {
@@ -396,7 +411,13 @@ impl Hub {
             self.hold_retry_start(session, &prompt_id).await;
         }
         if session.cancels.load(Ordering::SeqCst) != cancels {
-            let e = stopped_before_prompt();
+            // A continuation or retry of a cut turn is refused as one Stop overtook
+            // (`auto_resume.stopped`): its callers answer `retry.stopped` and record the skip.
+            let e = if after_turn.is_some() {
+                super::auto_resume::stopped()
+            } else {
+                stopped_before_prompt()
+            };
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
             return Err(e);
@@ -409,6 +430,7 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
+        self.arm_turn_cap(session, &turn_id);
         // A lane's report to a parent whose close began since `queue_slot` checked is refused
         // (`lane_reports.rs`). Checked once the turn is set: `kill` marks the close before it
         // clears the turn, so a close that began any time before this check is seen.
@@ -479,13 +501,15 @@ impl Hub {
         // The prompt is recorded and acknowledged above before the agent is started again (it
         // died, or the daemon restarted), so a client hears prompt_accepted at once.
         self.wake_cause(session, "prompt");
-        let mut started = self.child_for_since(session, stops).await;
+        // Boxed: two starts and the fallback check inline overflowed a debug build's 2 MiB
+        // worker stack (`fatal runtime error: stack overflow` in every prompt after #27484).
+        let mut started = Box::pin(self.child_for_since(session, stops)).await;
         // A failover left the chat on a profile that cannot start: back to the profile it came
         // from, which starts this turn (`fallback_start.rs`).
         if let Err(e) = &started
-            && self.back_from_fallback(session, e, &turn_id).await
+            && Box::pin(self.back_from_fallback(session, e, &turn_id)).await
         {
-            started = self.child_for_since(session, stops).await;
+            started = Box::pin(self.child_for_since(session, stops)).await;
         }
         let started = match started {
             Ok(child) => session
@@ -635,6 +659,7 @@ impl Hub {
             json!({"sessionId": agent_sid, "prompt": wire}),
             &turn_id,
             false,
+            false,
             fence.as_ref(),
             confirm_team_write,
             || {
@@ -669,7 +694,7 @@ impl Hub {
             // Its route cannot start (a local router that is down): the chat stays where it is
             // rather than moving onto a profile every later turn fails on (`fallback_start.rs`).
             if let Some(to) = &target
-                && let Some(why) = self.route_refusal(&session.meta(), to).await
+                && let Some(why) = Box::pin(self.route_refusal(&session.meta(), to)).await
             {
                 unstartable = Some((to.clone(), why.message));
                 target = None;
@@ -706,7 +731,7 @@ impl Hub {
                 }
                 self.save_meta(session);
                 let control = session.turn().map_or(control, |t| t.control);
-                let fallback = self.child_for_since(session, stops).await;
+                let fallback = Box::pin(self.child_for_since(session, stops)).await;
                 let refusal = match &fallback {
                     Ok(_) => match self
                         .check_dispatch(
@@ -780,6 +805,7 @@ impl Hub {
                                         json!({"sessionId": sid2, "prompt": wire}),
                                         &turn_id,
                                         false,
+                                        false,
                                         fence.as_ref(),
                                         confirm_team_write,
                                         || {
@@ -833,14 +859,30 @@ impl Hub {
         // model switch (`detach_child`) that ended the turn is no connection error.
         let agent_error = result.as_ref().err().map(|e| e.message.clone());
         let detached = session.turn().is_none_or(|t| t.turn_id != turn_id);
+        // Its agent ended the turn and runs on with steers it read after: the next turn starts
+        // as this one ends (`carried_turn.rs`). Boxed: this future stays small.
+        let carried = self.next_carried(session, &turn_id, &result);
         let mut result = self
-            .finish_turn(session, &child, result, &prompt_id, &turn_id, turn_seq, Some(joined))
+            .finish_turn(
+                session,
+                &child,
+                result,
+                &prompt_id,
+                &turn_id,
+                turn_seq,
+                Some(joined),
+                carried.as_deref(),
+            )
             .await;
+        if let Some(c) = &carried {
+            self.start_carried(session, &child, &turn_id, c, guard.take_slot());
+        }
         // A rule counts as told once the agent answered the prompt that carried it.
         self.forum_turn_end(session, &told, result.is_ok());
         // A connection error cut the turn off: it goes on by itself (`auto_resume.rs`).
         let cut = match (&result, detached) {
-            (Err(e), false) => Some(super::auto_resume::CutTurn {
+            // A turn its agent runs on with carried steers was not cut.
+            (Err(e), false) if carried.is_none() => Some(super::auto_resume::CutTurn {
                 // A family message's continuation speaks for its sender (`is_family`).
                 from: run
                     .provenance
@@ -858,8 +900,9 @@ impl Hub {
         self.schedule_auto_resume(session, &turn_id, cut);
         // The chat's route changed during the turn: move it before the next
         // one starts (route_switch.rs). A restart that fails leaves the
-        // harness stopped; the next prompt's spawn reports why.
-        if session.route_switch.load(Ordering::SeqCst) {
+        // harness stopped; the next prompt's spawn reports why. A carried turn runs on: its
+        // task moves it when it ends.
+        if session.route_switch.load(Ordering::SeqCst) && carried.is_none() {
             let _ = self.restart_on_route(session).await;
         }
         drop(guard);
@@ -880,11 +923,26 @@ impl Hub {
         turn_id: &str,
         turn_seq: u64,
         joined: Option<&super::digest::DigestTurn>,
+        next: Option<&super::carried_turn::NextTurn>,
     ) -> Result<Value, RpcError> {
         // This turn's number, before taking it lets the next one start (`lane_reports.rs`).
         let turn = session.meta().turn_count;
         // A model switch (`detach_child`) ended this turn already: its failure is not the queue's.
-        let detached = self.take_turn(session, turn_id).is_none_or(|t| t.turn_id != turn_id);
+        // A turn its agent runs on with steers it read after this one ended takes its place
+        // (`carried_turn.rs`).
+        let in_place = next.map(|n| n.next.clone());
+        let detached =
+            self.take_turn(session, turn_id, in_place).is_none_or(|t| t.turn_id != turn_id);
+        // Named in this turn's `turn_result`, so a restart before it starts still runs it.
+        let carried_next = next.filter(|_| !detached);
+        let carries_on = carried_next.is_some();
+        // Read as the turn result is written: a Web steer may raise the next turn meanwhile.
+        let carried_to = || {
+            carried_next.map(|n| {
+                let live = session.turn().filter(|t| t.turn_id == n.next.turn_id);
+                n.record(live.map_or(n.next.control, |t| t.control))
+            })
+        };
         session.queue_moved.notify_waiters();
         // Debug builds only: `ACPMUX_TEST_FINISH_HOLD_MS` holds a turn's end once its turn is
         // taken, as a slow end does (`tests/durable_agents.rs`). Bounded; release builds have no
@@ -1002,6 +1060,9 @@ impl Hub {
                         o.insert("cancelForced".into(), Value::Bool(true));
                     }
                     o.extend(super::turn_usage::turn_usage(session, v));
+                    if let Some(to) = carried_to() {
+                        o.insert("carriedTo".into(), to);
+                    }
                 }
                 self.write_turn_result(session, msg, git);
                 // The chat works again: agent messages a failed turn held go in (`digest.rs`).
@@ -1028,6 +1089,9 @@ impl Hub {
                         o.extend(info.clone());
                     }
                     o.extend(crate::recovery::fields(e));
+                    if let Some(to) = carried_to() {
+                        o.insert("carriedTo".into(), to);
+                    }
                     // Ended by acpmux, not the agent (`stalled_turn.rs`).
                     if let Some(data) = e.data.as_ref().filter(|d| d["detail"] == "stalled") {
                         o.insert("detail".into(), data["detail"].clone());
@@ -1057,6 +1121,8 @@ impl Hub {
             self.set_status(
                 session,
                 match (ended, alive, asking) {
+                    // The next turn runs already (`carried_turn.rs`).
+                    (false, true, _) if carries_on => SessionStatus::Running,
                     (true, _, _) => SessionStatus::Idle,
                     (false, false, _) => SessionStatus::Disconnected,
                     (false, true, true) => SessionStatus::Waiting,
