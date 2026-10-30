@@ -20,6 +20,7 @@ import "../../src/agent-session/acpmux/styles.css";
 import "../../src/agent-session/acpmux/composerControls.css";
 import "../../src/agent-session/acpmux/composerStates.css";
 import "../../src/agent-session/acpmux/composerLocation.css";
+import "../../src/agent-session/acpmux/composerFooterShared.css";
 import "../../src/agent-session/acpmux/modelPicker.css";
 import "../../src/agent-session/acpmux/newtab/screen.css";
 

@@ -45,7 +45,7 @@ import {
 import { flushSync } from "react-dom";
 import { usePresence, type Presence } from "../../../ui/presence";
 import { useChatDisplay } from "../chatDisplay";
-import { chatColumnOf, useChatWidth, type ChatColumn } from "../chatWidth";
+import { CHAT_LAYOUT_EVENT, chatColumnOf, useChatWidth, type ChatColumn } from "../chatWidth";
 import { PanelToggle } from "../header/PanelToggle";
 import { useHeaderState, type HeaderPullRequest } from "../header/headerState";
 import { useTabRow } from "../header/tabRow";
@@ -95,7 +95,6 @@ import { WorkflowTasks, type WorkflowAgentRowVariant } from "./WorkflowTasks";
 import type { WorkflowAgent, WorkflowSummary } from "../summary/workflow";
 import type { Subagent } from "../subagents/subagentFold";
 import { subagentProgress } from "../subagents/subagentProgress";
-import { RAIL_MIN_GUTTER } from "../threadMinimap/model";
 import { useUnderInspector } from "./underInspector";
 import "./inspector.css";
 
@@ -125,9 +124,9 @@ export const pushedWidth = (paneWidth: number, width: number) =>
 /// part of the true agent pane area except in the case when both would fit if only the agent pane
 /// shifted left". When the right gutter (model.ts transcriptColumn) holds the panel and its margins,
 /// nothing moves; when the two gutters together hold it, the column moves left by what the right one
-/// lacks; otherwise nothing moves and the panel floats over the chat. The left gutter keeps the
-/// thread rail's usable gutter (threadMinimap/model.ts RAIL_MIN_GUTTER), so the column only slides
-/// as far as the rail can follow it. The rail itself moves toward the text as the gutter shrinks.
+/// lacks; otherwise nothing moves and the panel floats over the chat. The pane's left edge is
+/// independent of this shift. The thread rail is pinned to that edge and
+/// keeps its own inset, so the column can use the full left gutter when it needs to move.
 /// A handoff review's form (handoff/styles.css: 760px, 18px from each edge) is wider than the column:
 /// with `wide`, the gutter is the form's. The form takes the transcript's place, so no thread rail
 /// draws beside it: the shift keeps the form's own edge clearance instead of the rail's room.
@@ -141,7 +140,7 @@ export const inspectorChatShift = (paneWidth: number, width: number, column?: Ch
     ? Math.min(columnInset, (paneWidth - Math.min(HANDOFF_FORM_WIDTH, paneWidth - 2 * HANDOFF_FORM_EDGE)) / 2)
     : columnInset;
   const lacks = width + 2 * FLOAT_MARGIN - inset;
-  const room = inset - (wide ? HANDOFF_FORM_EDGE : RAIL_MIN_GUTTER);
+  const room = inset - (wide ? HANDOFF_FORM_EDGE : 0);
   return lacks > 0 && lacks <= room ? lacks : 0;
 };
 
@@ -628,12 +627,14 @@ function InspectorPresence({
       delete shell.dataset.inspectorChatResizing;
       shell.style.removeProperty("--acpmux-chat-shift");
       shell.style.removeProperty("--acpmux-header-room");
+      shell.dispatchEvent(new (shell.ownerDocument.defaultView?.Event ?? Event)(CHAT_LAYOUT_EVENT));
       return;
     }
     shell.dataset.inspectorChatPlacement = push ? "push" : "overlay";
     if (suppressShiftTransition) shell.dataset.inspectorChatResizing = "true";
     else delete shell.dataset.inspectorChatResizing;
     shell.style.setProperty("--acpmux-chat-shift", `${chatShift}px`);
+    shell.dispatchEvent(new (shell.ownerDocument.defaultView?.Event ?? Event)(CHAT_LAYOUT_EVENT));
     // Push always narrows the transcript, not the header: native tabs reserve the tools at the
     // pane's trailing edge. Reuse the measured room (excluding an artifact beside the chat).
     if (paneWidth > 0) shell.style.setProperty("--acpmux-header-room", `${paneWidth}px`);
@@ -645,6 +646,7 @@ function InspectorPresence({
       delete shell.dataset.inspectorChatResizing;
       shell.style.removeProperty("--acpmux-chat-shift");
       shell.style.removeProperty("--acpmux-header-room");
+      shell.dispatchEvent(new (shell.ownerDocument.defaultView?.Event ?? Event)(CHAT_LAYOUT_EVENT));
     };
   }, [shell]);
   // A card under the panel (the computer use live preview) reads where it goes from the shell.
