@@ -1239,6 +1239,7 @@ export function ChatInspector({
           onOpen={onOpenSubagent}
           sessions={sessions}
           onOpenSession={onOpenSession}
+          harness={summary?.harness}
         />
       )}
     </InspectorSection>
