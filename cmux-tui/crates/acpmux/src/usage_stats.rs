@@ -321,82 +321,8 @@ impl Tracker {
         main: bool,
         models: &Models,
     ) {
-        let Ok(record) = serde_json::from_slice::<Value>(line) else {
-            // It named an assistant reply or a compaction (`claude_line`) and is not JSON.
-            return tail.lose(quick_timestamp(line).unwrap_or(now));
-        };
-        let Some(at) = timestamp(&record) else {
-            // Lost only if it would have counted: a reply of a real model with usage (an API
-            // error Claude Code makes up names `<synthetic>`), or a compaction.
-            let model = record["message"]["model"].as_str().unwrap_or_default();
-            let counts = record["type"] == "assistant"
-                && record["message"]["usage"].is_object()
-                && !model.is_empty()
-                && !model.starts_with('<')
-                || main && record["type"] == "system" && record["subtype"] == "compact_boundary";
-            if counts {
-                tail.lose(now);
-            }
-            return;
-        };
-        match record.get("type").and_then(Value::as_str) {
-            Some("system") if main && record["subtype"] == "compact_boundary" => {
-                if let Some(b) = self.bucket(at, now) {
-                    b.compactions += 1;
-                }
-            }
-            Some("assistant") => {
-                let message = &record["message"];
-                let model = message["model"].as_str().unwrap_or_default();
-                let usage = &message["usage"];
-                if model.is_empty() || model.starts_with('<') || !usage.is_object() {
-                    return;
-                }
-                if let Some(id) = message["id"].as_str() {
-                    if tail.recent.iter().any(|seen| seen == id) {
-                        return;
-                    }
-                    if tail.recent.len() == RECENT_IDS {
-                        tail.recent.pop_front();
-                    }
-                    tail.recent.push_back(id.to_owned());
-                }
-                // A reply without its token counts cannot be counted: never as 0.
-                let (Some(input), Some(output)) =
-                    (usage["input_tokens"].as_u64(), usage["output_tokens"].as_u64())
-                else {
-                    return tail.lose(at);
-                };
-                // The API leaves a cache count out when it is 0.
-                let n = |k: &str| usage[k].as_u64().unwrap_or(0);
-                let (read, write) =
-                    (n("cache_read_input_tokens"), n("cache_creation_input_tokens"));
-                // An hour's cache write is billed at twice the input price, five minutes' at the catalog's.
-                let write_1h = usage.pointer("/cache_creation/ephemeral_1h_input_tokens");
-                let write_1h = write_1h.and_then(Value::as_u64).unwrap_or(0).min(write);
-                let cost = models.prices(model).map(|p| {
-                    (input as f64 * p.input
-                        + output as f64 * p.output
-                        + read as f64 * p.cache_read
-                        + (write - write_1h) as f64 * p.cache_write
-                        + write_1h as f64 * p.input * 2.0)
-                        / 1e6
-                });
-                if main && record["isSidechain"] != Value::Bool(true) && at >= self.context_at {
-                    self.model = Some(model.to_owned());
-                    self.context_tokens = Some(input + read + write);
-                    self.context_at = at;
-                }
-                if let Some(b) = self.bucket(at, now) {
-                    b.tokens += input + output + read + write;
-                    if let Some(cost) = cost {
-                        b.cost_usd += cost;
-                        b.priced = true;
-                    }
-                }
-            }
-            _ => {}
-        }
+        let class = classify(Harness::Claude { main }, line, tail);
+        self.take(class, tail, now, models);
     }
 
     fn codex_line(&mut self, line: &[u8], tail: &mut Tail, now: u64, models: &Models) {
@@ -404,88 +330,68 @@ impl Tracker {
         if !wanted.iter().any(|w| contains(line, w)) {
             return;
         }
-        let Ok(record) = serde_json::from_slice::<Value>(line) else {
-            return tail.lose(quick_timestamp(line).unwrap_or(now));
+        // The model the next token reports ran on: no count of its own.
+        if contains(line, b"turn_context")
+            && let Ok(record) = serde_json::from_slice::<Value>(line)
+            && record["type"] == "turn_context"
+            && let Some(model) = record["payload"]["model"].as_str()
+        {
+            self.model = Some(model.to_owned());
+        }
+        let class = classify(Harness::Codex, line, tail);
+        self.take(class, tail, now, models);
+    }
+
+    /// Applies one record's [`classify`]: what it counts goes in the day's buckets, what it
+    /// should have counted and could not makes the day unknown (`Tail::lose`).
+    fn take(&mut self, class: Class, tail: &mut Tail, now: u64, models: &Models) {
+        let (at, counts) = match class {
+            Class::Uncountable | Class::Duplicate => return,
+            Class::Lost { at } => return tail.lose(at.unwrap_or(now)),
+            Class::Counted { at, counts } => (at, counts),
         };
-        let payload = &record["payload"];
-        let Some(at) = timestamp(&record) else {
-            // Lost only if it would have counted: a compaction, a spawn, or a token report with
-            // its info (a rate-limit update alone carries none).
-            let counts = match (record["type"].as_str(), payload["type"].as_str()) {
-                (Some("compacted"), _) => true,
-                (Some("response_item"), Some("function_call" | "custom_tool_call")) => {
-                    payload["name"] == "spawn_agent"
-                }
-                (Some("event_msg"), Some("token_count")) => !payload["info"].is_null(),
-                _ => false,
-            };
-            if counts {
-                tail.lose(now);
-            }
-            return;
-        };
-        match (record["type"].as_str(), payload["type"].as_str()) {
-            (Some("turn_context"), _) => {
-                if let Some(model) = payload["model"].as_str() {
-                    self.model = Some(model.to_owned());
-                }
-            }
-            (Some("compacted"), _) => {
+        match counts {
+            Counts::Compaction => {
                 if let Some(b) = self.bucket(at, now) {
                     b.compactions += 1;
                 }
             }
-            (Some("response_item"), Some("function_call" | "custom_tool_call"))
-                if payload["name"] == "spawn_agent" =>
-            {
+            Counts::Spawn => {
                 if let Some(b) = self.bucket(at, now) {
                     b.spawns += 1;
                 }
             }
-            (Some("event_msg"), Some("token_count")) => {
-                let info = &payload["info"];
-                // A rate-limit update alone carries no info.
-                if info.is_null() {
-                    return;
+            Counts::Tokens(t) => {
+                match &t.key {
+                    Key::Message(id) => {
+                        if tail.recent.len() == RECENT_IDS {
+                            tail.recent.pop_front();
+                        }
+                        tail.recent.push_back(id.clone());
+                    }
+                    Key::Total(total) => tail.last_total = Some(*total),
+                    Key::None => {}
                 }
-                let total = info.pointer("/total_token_usage/total_tokens").and_then(Value::as_u64);
-                let last = &info["last_token_usage"];
-                let (Some(_), Some(input), Some(output)) =
-                    (total, last["input_tokens"].as_u64(), last["output_tokens"].as_u64())
-                else {
-                    return tail.lose(at);
-                };
-                if total == tail.last_total {
-                    return;
-                }
-                tail.last_total = total;
-                if let Some(window) = info["model_context_window"].as_u64() {
+                if let Some(window) = t.window {
                     self.context_window = Some(window);
                 }
-                // OpenAI counts cached input inside input_tokens, and leaves out a 0 cache count.
-                let cached = last["cached_input_tokens"].as_u64().unwrap_or(0);
-                if at >= self.context_at {
-                    self.context_tokens = Some(input);
+                if let Some(context) = t.context.filter(|_| at >= self.context_at) {
+                    if t.model.is_some() {
+                        self.model = t.model.clone();
+                    }
+                    self.context_tokens = Some(context);
                     self.context_at = at;
                 }
-                let model = self.model.clone().unwrap_or_default();
-                let cost = models.prices(&model).map(|p| {
-                    (input.saturating_sub(cached) as f64 * p.input
-                        + cached as f64 * p.cache_read
-                        + output as f64 * p.output)
-                        / 1e6
-                });
-                // OpenAI's total_tokens is input + output (cached and reasoning are inside them).
-                let tokens = last["total_tokens"].as_u64().unwrap_or(input + output);
+                let model = t.model.clone().or_else(|| self.model.clone()).unwrap_or_default();
+                let cost = models.prices(&model).map(|p| t.cost(&p));
                 if let Some(b) = self.bucket(at, now) {
-                    b.tokens += tokens;
+                    b.tokens += t.total;
                     if let Some(cost) = cost {
                         b.cost_usd += cost;
                         b.priced = true;
                     }
                 }
             }
-            _ => {}
         }
     }
 
@@ -553,6 +459,190 @@ impl Tracker {
             self.subagents.insert(path, agent);
         }
         complete
+    }
+}
+
+/// Which records a transcript has, and the parse that reads them.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Harness {
+    /// Claude Code; `main`: the chat's own transcript, not a subagent's.
+    Claude {
+        main: bool,
+    },
+    Codex,
+}
+
+/// What one transcript record is to the usage counts ([`classify`]).
+#[derive(Debug, Clone, PartialEq)]
+enum Class {
+    /// Carries nothing to count: another kind of record, a reply Claude Code made up
+    /// (`<synthetic>`), a rate-limit update, a subagent's compaction.
+    Uncountable,
+    /// Repeats one already counted: a streamed message's other lines, a repeated Codex total.
+    Duplicate,
+    /// Should count but cannot be read: not JSON, no time, no token counts. Its time, when known.
+    Lost { at: Option<u64> },
+    /// Counts at `at`.
+    Counted { at: u64, counts: Counts },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum Counts {
+    Compaction,
+    Spawn,
+    Tokens(Tokens),
+}
+
+/// One model call's tokens.
+#[derive(Debug, Clone, PartialEq)]
+struct Tokens {
+    /// The model it names (Claude); Codex's comes from its turn context.
+    model: Option<String>,
+    input: u64,
+    output: u64,
+    cache_read: u64,
+    cache_write: u64,
+    /// Of `cache_write`, the hour-long writes (billed at twice the input price).
+    cache_write_1h: u64,
+    /// What the day's count adds.
+    total: u64,
+    /// The chat's context after the call; None for a subagent's call.
+    context: Option<u64>,
+    /// The context window the harness reported.
+    window: Option<u64>,
+    /// What tells a repeat of it.
+    key: Key,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum Key {
+    Message(String),
+    Total(u64),
+    None,
+}
+
+impl Tokens {
+    fn cost(&self, p: &Prices) -> f64 {
+        let write_5m = self.cache_write - self.cache_write_1h;
+        (self.input as f64 * p.input
+            + self.output as f64 * p.output
+            + self.cache_read as f64 * p.cache_read
+            + write_5m as f64 * p.cache_write
+            + self.cache_write_1h as f64 * p.input * 2.0)
+            / 1e6
+    }
+}
+
+/// The one decision of what a record is to the counts, timed or not, for every parse
+/// (`Tracker::take` applies it): first whether it is a kind that counts, then whether it
+/// repeats one counted (`tail`'s ids and last total), then whether it can be read (a time,
+/// its token counts). So nothing is lost that would have been skipped.
+fn classify(harness: Harness, line: &[u8], tail: &Tail) -> Class {
+    let Ok(record) = serde_json::from_slice::<Value>(line) else {
+        // The callers pass only lines that name a kind that counts (`claude_line`, `codex_line`).
+        return Class::Lost { at: quick_timestamp(line) };
+    };
+    let at = timestamp(&record);
+    let counted = |counts| match at {
+        Some(at) => Class::Counted { at, counts },
+        None => Class::Lost { at: None },
+    };
+    let n = |v: &Value, k: &str| v[k].as_u64();
+    match harness {
+        Harness::Claude { main } => match record["type"].as_str() {
+            Some("system") if record["subtype"] == "compact_boundary" => {
+                if main {
+                    counted(Counts::Compaction)
+                } else {
+                    Class::Uncountable
+                }
+            }
+            Some("assistant") => {
+                let message = &record["message"];
+                let model = message["model"].as_str().unwrap_or_default();
+                let usage = &message["usage"];
+                if model.is_empty() || model.starts_with('<') || !usage.is_object() {
+                    return Class::Uncountable;
+                }
+                let key =
+                    message["id"].as_str().map_or(Key::None, |id| Key::Message(id.to_owned()));
+                if let Key::Message(id) = &key
+                    && tail.recent.iter().any(|seen| seen == id)
+                {
+                    return Class::Duplicate;
+                }
+                // A reply without its token counts cannot be counted: never as 0.
+                let (Some(input), Some(output)) =
+                    (n(usage, "input_tokens"), n(usage, "output_tokens"))
+                else {
+                    return Class::Lost { at };
+                };
+                // The API leaves a cache count out when it is 0.
+                let read = n(usage, "cache_read_input_tokens").unwrap_or(0);
+                let write = n(usage, "cache_creation_input_tokens").unwrap_or(0);
+                let write_1h = usage.pointer("/cache_creation/ephemeral_1h_input_tokens");
+                let own = main && record["isSidechain"] != Value::Bool(true);
+                counted(Counts::Tokens(Tokens {
+                    model: Some(model.to_owned()),
+                    input,
+                    output,
+                    cache_read: read,
+                    cache_write: write,
+                    cache_write_1h: write_1h.and_then(Value::as_u64).unwrap_or(0).min(write),
+                    total: input + output + read + write,
+                    context: own.then_some(input + read + write),
+                    window: None,
+                    key,
+                }))
+            }
+            _ => Class::Uncountable,
+        },
+        Harness::Codex => {
+            let payload = &record["payload"];
+            match (record["type"].as_str(), payload["type"].as_str()) {
+                (Some("compacted"), _) => counted(Counts::Compaction),
+                (Some("response_item"), Some("function_call" | "custom_tool_call"))
+                    if payload["name"] == "spawn_agent" =>
+                {
+                    counted(Counts::Spawn)
+                }
+                (Some("event_msg"), Some("token_count")) => {
+                    let info = &payload["info"];
+                    // A rate-limit update alone carries no info.
+                    if info.is_null() {
+                        return Class::Uncountable;
+                    }
+                    let total =
+                        info.pointer("/total_token_usage/total_tokens").and_then(Value::as_u64);
+                    // Codex repeats its last report with each rate-limit update.
+                    if total.is_some() && total == tail.last_total {
+                        return Class::Duplicate;
+                    }
+                    let last = &info["last_token_usage"];
+                    let (Some(total), Some(input), Some(output)) =
+                        (total, n(last, "input_tokens"), n(last, "output_tokens"))
+                    else {
+                        return Class::Lost { at };
+                    };
+                    // OpenAI counts cached input inside input_tokens, and leaves out a 0 cache
+                    // count; its total_tokens is input + output.
+                    let cached = n(last, "cached_input_tokens").unwrap_or(0).min(input);
+                    counted(Counts::Tokens(Tokens {
+                        model: None,
+                        input: input - cached,
+                        output,
+                        cache_read: cached,
+                        cache_write: 0,
+                        cache_write_1h: 0,
+                        total: n(last, "total_tokens").unwrap_or(input + output),
+                        context: Some(input),
+                        window: n(info, "model_context_window"),
+                        key: Key::Total(total),
+                    }))
+                }
+                _ => Class::Uncountable,
+            }
+        }
     }
 }
 

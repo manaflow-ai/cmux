@@ -514,3 +514,218 @@ fn usage_probe() {
         println!("{read}: {:?} {}", started.elapsed(), serde_json::to_string(&stats).unwrap());
     }
 }
+
+/// Review of #28015: one decision (`classify`) for every record kind each parse reads, timed
+/// or not. A record without a time is classified as the same record with one, but for a
+/// count, which it cannot place in the day: `Counted` becomes `Lost`, nothing else changes.
+#[test]
+fn every_record_kind_is_classified_the_same_timed_or_not() {
+    let at = "2026-10-30T11:00:00Z";
+    let claude = Harness::Claude { main: true };
+    let subagent = Harness::Claude { main: false };
+    let mut tail = Tail::default();
+    tail.recent.push_back("msg_seen".into());
+    tail.last_total = Some(500);
+    let reply = |id: &str, model: &str, usage: Value| {
+        json!({"type": "assistant", "timestamp": at, "isSidechain": false,
+            "message": {"id": id, "model": model, "usage": usage}})
+    };
+    let full = usage(1, 2, 3, 4);
+    let token_count = |info: Value| json!({"timestamp": at, "type": "event_msg", "payload": {"type": "token_count", "info": info}});
+    let report = |total: Value, last: Value| {
+        token_count(json!({"total_token_usage": {"total_tokens": total}, "last_token_usage": last}))
+    };
+    let last = json!({"input_tokens": 10, "cached_input_tokens": 4, "output_tokens": 2, "total_tokens": 12});
+    let mut sidechain = reply("msg_side", "claude-opus-5-5", full.clone());
+    sidechain["isSidechain"] = json!(true);
+    // (what, harness, record, its class when timed)
+    let cases: Vec<(&str, Harness, Value, &str)> = vec![
+        ("claude reply", claude, reply("msg_new", "claude-opus-5-5", full.clone()), "tokens"),
+        (
+            "claude reply, no token counts",
+            claude,
+            reply("msg_n", "claude-opus-5-5", json!({"cache_read_input_tokens": 9})),
+            "lost",
+        ),
+        (
+            "claude reply, no usage",
+            claude,
+            json!({"type": "assistant", "timestamp": at, "message": {"id": "m", "model": "claude-opus-5-5"}}),
+            "uncountable",
+        ),
+        ("claude <synthetic>", claude, reply("msg_s", "<synthetic>", full.clone()), "uncountable"),
+        ("claude reply, no model", claude, reply("msg_e", "", full.clone()), "uncountable"),
+        (
+            "claude duplicate message.id",
+            claude,
+            reply("msg_seen", "claude-opus-5-5", full.clone()),
+            "duplicate",
+        ),
+        (
+            "claude duplicate, no token counts",
+            claude,
+            reply("msg_seen", "claude-opus-5-5", json!({})),
+            "duplicate",
+        ),
+        ("claude sidechain reply", claude, sidechain, "tokens"),
+        (
+            "claude subagent's reply",
+            subagent,
+            reply("msg_sub", "claude-opus-5-5", full.clone()),
+            "tokens",
+        ),
+        (
+            "claude compaction",
+            claude,
+            json!({"type": "system", "subtype": "compact_boundary", "timestamp": at}),
+            "compaction",
+        ),
+        (
+            "claude subagent's compaction",
+            subagent,
+            json!({"type": "system", "subtype": "compact_boundary", "timestamp": at}),
+            "uncountable",
+        ),
+        (
+            "claude user line",
+            claude,
+            json!({"type": "user", "timestamp": at, "message": {"content": "assistant"}}),
+            "uncountable",
+        ),
+        ("codex report", Harness::Codex, report(json!(600), last.clone()), "tokens"),
+        (
+            "codex rate-limit update (info null)",
+            Harness::Codex,
+            token_count(Value::Null),
+            "uncountable",
+        ),
+        ("codex duplicate total", Harness::Codex, report(json!(500), last.clone()), "duplicate"),
+        (
+            "codex duplicate total, no last usage",
+            Harness::Codex,
+            report(json!(500), json!({})),
+            "duplicate",
+        ),
+        (
+            "codex report, no total",
+            Harness::Codex,
+            token_count(json!({"last_token_usage": last})),
+            "lost",
+        ),
+        ("codex report, no last usage", Harness::Codex, report(json!(700), json!({})), "lost"),
+        (
+            "codex compaction",
+            Harness::Codex,
+            json!({"timestamp": at, "type": "compacted", "payload": {"message": "s"}}),
+            "compaction",
+        ),
+        (
+            "codex spawn_agent call",
+            Harness::Codex,
+            json!({"timestamp": at, "type": "response_item", "payload": {"type": "function_call", "name": "spawn_agent"}}),
+            "spawn",
+        ),
+        (
+            "codex spawn_agent custom call",
+            Harness::Codex,
+            json!({"timestamp": at, "type": "response_item", "payload": {"type": "custom_tool_call", "name": "spawn_agent"}}),
+            "spawn",
+        ),
+        (
+            "codex tool list naming spawn_agent",
+            Harness::Codex,
+            json!({"timestamp": at, "type": "response_item", "payload": {"type": "additional_tools", "tools": [{"name": "spawn_agent"}]}}),
+            "uncountable",
+        ),
+        (
+            "codex turn context",
+            Harness::Codex,
+            json!({"timestamp": at, "type": "turn_context", "payload": {"model": "gpt-6-astra"}}),
+            "uncountable",
+        ),
+    ];
+    let label = |class: &Class| match class {
+        Class::Uncountable => "uncountable",
+        Class::Duplicate => "duplicate",
+        Class::Lost { .. } => "lost",
+        Class::Counted { counts: Counts::Compaction, .. } => "compaction",
+        Class::Counted { counts: Counts::Spawn, .. } => "spawn",
+        Class::Counted { counts: Counts::Tokens(_), .. } => "tokens",
+    };
+    for (what, harness, record, want) in cases {
+        let timed = classify(harness, record.to_string().as_bytes(), &tail);
+        assert_eq!(label(&timed), want, "{what}");
+        let mut untimed = record.clone();
+        untimed.as_object_mut().unwrap().remove("timestamp");
+        let untimed = classify(harness, untimed.to_string().as_bytes(), &tail);
+        let expected = match timed {
+            Class::Counted { .. } | Class::Lost { .. } => Class::Lost { at: None },
+            other => other,
+        };
+        assert_eq!(untimed, expected, "{what}, without a time");
+    }
+    // Not JSON: lost, at the time it names when it names one.
+    let cut = br#"{"type":"assistant","timestamp":"2026-10-30T11:00:00Z","message":{"usage":"#;
+    assert_eq!(classify(claude, cut, &tail), Class::Lost { at: Some(ms(at)) });
+    assert_eq!(
+        classify(Harness::Codex, b"{\"type\":\"compacted\"", &tail),
+        Class::Lost { at: None }
+    );
+    // What a counted reply counts: the chat's own call is its context; a subagent's is not.
+    let Class::Counted { counts: Counts::Tokens(t), .. } = classify(
+        claude,
+        reply("msg_x", "claude-opus-5-5", full.clone()).to_string().as_bytes(),
+        &tail,
+    ) else {
+        panic!()
+    };
+    // usage(1, 2, 3, 4): input 1, cache write 2, cache read 3, output 4.
+    assert_eq!((t.total, t.context, t.key), (10, Some(6), Key::Message("msg_x".into())));
+    let Class::Counted { counts: Counts::Tokens(t), .. } =
+        classify(subagent, reply("msg_y", "claude-opus-5-5", full).to_string().as_bytes(), &tail)
+    else {
+        panic!()
+    };
+    assert_eq!(t.context, None);
+    // Codex: cached input is inside input_tokens; the context is all of it.
+    let Class::Counted { counts: Counts::Tokens(t), .. } =
+        classify(Harness::Codex, report(json!(600), last).to_string().as_bytes(), &tail)
+    else {
+        panic!()
+    };
+    assert_eq!((t.input, t.cache_read, t.total, t.context), (6, 4, 12, Some(10)));
+}
+
+/// Review of #28015 at 800ce2b4: an untimed repeat of a record already counted (a Claude
+/// message's other line, a Codex total said again) is a duplicate, not lost.
+#[test]
+fn an_untimed_repeat_of_a_counted_record_is_not_lost() {
+    let now = ms("2026-10-30T12:00:00Z");
+    let home = tempfile::tempdir().unwrap();
+    let (source, path) = claude(home.path());
+    let first = assistant("msg_1", "2026-10-30T11:00:00Z", usage(1, 0, 0, 1), false);
+    let mut repeat = first.clone();
+    repeat.as_object_mut().unwrap().remove("timestamp");
+    append(&path, &[first, repeat]);
+    assert_eq!(Tracker::default().refresh(&source, now, &models()).unwrap().tokens24h, Some(2));
+
+    let home = tempfile::tempdir().unwrap();
+    let mut env = BTreeMap::new();
+    env.insert("CODEX_HOME".to_owned(), home.path().display().to_string());
+    let source = Source {
+        family: "codex".into(),
+        agent_session_id: SID.into(),
+        cwd: "/w".into(),
+        created_at: now,
+        argv: Some(vec!["codex-acp".into()]),
+        env,
+    };
+    let path = home.path().join(format!("sessions/2026/10/30/rollout-x-{SID}.jsonl"));
+    let report = json!({"timestamp": "2026-10-30T11:00:00Z", "type": "event_msg", "payload": {
+        "type": "token_count", "info": {"total_token_usage": {"total_tokens": 10},
+            "last_token_usage": {"input_tokens": 8, "output_tokens": 2, "total_tokens": 10}}}});
+    let mut again = report.clone();
+    again.as_object_mut().unwrap().remove("timestamp");
+    append(&path, &[report, again]);
+    assert_eq!(Tracker::default().refresh(&source, now, &models()).unwrap().tokens24h, Some(10));
+}
