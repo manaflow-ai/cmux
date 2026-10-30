@@ -433,6 +433,32 @@ class Scenario(unittest.TestCase):
             self.assertTrue(summary["invalid"].startswith("invalid: the runs use different agent CLI rates"), summary["invalid"])
 
 
+class AAPerScenario(unittest.TestCase):
+    def test_a_scenario_without_an_aa_is_marked_on_every_verdict(self):
+        head = run("git", "-C", REPO, "rev-parse", "HEAD").stdout.strip()
+        with tempfile.TemporaryDirectory() as tmp:
+            dirs = []
+            for r in (1, 2, 3):
+                for arm in ("base", "head"):
+                    d = write_run(tmp, f"{arm}-{r}", arm, head, r)
+                    path = os.path.join(d, "run.json")
+                    with open(path) as f:
+                        run_ = json.load(f)
+                    run_["opts"] = {"cli_every": 0}  # the main arm: no A/A recorded for it in this test's checkout
+                    with open(path, "w") as f:
+                        json.dump(run_, f)
+                    dirs.append(d)
+            with open(os.path.join(HERE, "aa-failures.json")) as f:
+                recorded = json.load(f).get("scenarios", {})
+            summary = summarize(os.path.join(tmp, "s.json"), dirs)
+            verdicts = [row["verdict"] for row in summary["comparison"]["metrics"].values()]
+            if "0" in recorded:
+                self.assertNotIn("aa_note", summary)
+            else:
+                self.assertTrue(summary["aa_note"].startswith("no A/A yet for this scenario (agent CLI rate 0)"))
+                self.assertTrue(all(v.startswith("not A/A-checked: ") for v in verdicts), verdicts[:3])
+
+
 class LockDetail(unittest.TestCase):
     def test_the_lock_detail_after_the_load_is_kept_by_lock_and_order(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -450,7 +476,8 @@ class LockDetail(unittest.TestCase):
             self.assertEqual(top["registry"]["by_hold_total"][0]["hold_total_us"], 25_700_000)
             self.assertEqual(top["state"]["by_hold_p99"], [])
             with open(os.path.join(tmp, "s.txt")) as f:
-                self.assertIn("registry lock, top holders by total hold (after the load): resource_api.rs:551 25.7 s p99 524.3 ms", f.read())
+                self.assertIn("registry lock, top holders by total hold (since the daemon started; read after the load): "
+                              "resource_api.rs:551 25.7 s p99 524.3 ms", f.read())
         # Runs before this harness have no lock detail.
         with tempfile.TemporaryDirectory() as tmp:
             d = os.path.join(tmp, "run-1")

@@ -334,6 +334,9 @@ def run_metrics(run):
     # label, and of the live client processes by role; plus the refusals each client kind saw itself.
     holders = load(series.get("holders", []))
     labels = sorted({k for h in holders for k in (h.get("by_label") or {})})
+    end_list = next((h for h in reversed(series.get("holders", [])) if h.get("phase") == "end" and h.get("listed") is not None), None)
+    m["pool_holders_after_load"] = None if not end_list else {
+        "listed": end_list.get("listed"), "by_label": end_list.get("by_label"), "max_age_s": end_list.get("max_age_s")}
     m["pool_holders"] = {
         "samples": len(holders), "listed_ok": sum(1 for h in holders if h.get("listed") is not None),
         "listed_median": {k: statistics.median([(h.get("by_label") or {}).get(k, 0) for h in holders if h.get("listed") is not None] or [0])
@@ -407,8 +410,9 @@ def scenario_note(runs):
     if rates == [0]:
         return "main arm: no agent cmux CLI calls (hooks and the app only)"
     if not rates:
-        return "agent CLI rate: unknown (runs from before the option was recorded: one call per 3 tool calls)"
-    return ("agent CLI rate: one cmux workspace list per " + "/".join(map(str, rates)) + " tool calls: " + AGENT_CLI_RATE_NOTE)
+        rates = [3]  # runs from before the option was recorded: their default was one call per 3 tool calls
+    return ("assumed sensitivity arm, not from Austin's data: one cmux workspace list per " + "/".join(map(str, rates))
+            + " tool calls; it fills the 64-slot pool with CLI calls, so hook-path fixes cannot show in refused connections")
 
 
 AGENT_CLI_RATE_NOTE = ("assumed, not from Austin's data: one cmux workspace list per 3 tool calls; it fills the 64-slot pool with CLI calls, so hook-path fixes cannot show in refused connections")
@@ -654,9 +658,17 @@ def main():
     if "base" in arms and "head" in arms and not summary["invalid"]:
         summary["comparison"] = compare(runs)
         known = aa_failures()
+        # Runs that recorded no rate are from before the option existed: their default was one call per 3.
+        rate = (lambda r: 3 if r is None else r)(next(iter(rates))) if len(rates) == 1 else None
+        tested = known.get("scenarios", {}).get(str(rate)) if isinstance(known.get("scenarios"), dict) else None
+        if not aa_mode and tested is None:
+            # No A/A for this scenario yet (aa-failures.json "scenarios", keyed by the agent CLI rate).
+            summary["aa_note"] = f"no A/A yet for this scenario (agent CLI rate {rate}): verdicts are not A/A-checked"
+            for row in summary["comparison"]["metrics"].values():
+                row["verdict"] = f"not A/A-checked: {row['verdict']}"
         for label, row in summary["comparison"]["metrics"].items():
-            if label in known.get("metrics", {}) and not aa_mode:
-                row["verdict"] = f"invalid (fails A/A {known.get('date', '')}): {row['verdict']}"
+            if tested is not None and label in tested.get("metrics", {}) and not aa_mode:
+                row["verdict"] = f"invalid (fails A/A {tested.get('date', '')}): {row['verdict']}"
         if aa_mode:
             # An A/A passes a metric when its interval contains 0 (an exact [0, 0] passes; no pairs: not tested).
             failed = {label: {"ci_low": row["ci_low"], "ci_high": row["ci_high"]}
@@ -678,6 +690,8 @@ def main():
         lines.extend(f"   {c}" for c in commits[:30])
     if summary["invalid"]:
         lines.append(f"{summary['invalid']} -- NO VERDICT")
+    if summary.get("aa_note"):
+        lines.append(summary["aa_note"])
     width = max(len(label) for label, _ in KEY)
     comparison = summary.get("comparison")
     header = " " * width + "  " + "  ".join(f"{n:>12}" for n in names)
@@ -699,8 +713,9 @@ def main():
         aa = summary["aa"]
         lines.append(f"A/A self-test of {aa['build']}: {len(aa['passed'])} metrics pass (CI contains 0), "
                      f"{len(aa['failed'])} FAIL: {', '.join(aa['failed']) or 'none'}; not tested: {', '.join(aa['not_tested']) or 'none'}")
-        lines.append("Record it: copy summary.json's 'aa' block into scripts/cmux-next/austins-day/aa-failures.json "
-                     "({\"date\", \"build\", \"metrics\": failed}) in the harness owner's PR.")
+        lines.append("Record it: add summary.json's 'aa' block to scripts/cmux-next/austins-day/aa-failures.json under "
+                     "\"scenarios\" -> the agent CLI rate (\"0\" main arm, \"3\" assumed arm) as "
+                     "{\"date\", \"build\", \"harness\", \"metrics\": failed}, in the harness owner's PR.")
     for r in runs:
         if "metrics" not in r:
             lines.append(f"{r['dir']}: {r['error']}")
@@ -714,7 +729,7 @@ def main():
             for lock in ("registry", "state"):
                 top = (m["lock_top_sites"].get(lock) or {}).get("by_hold_total") or []
                 if top:
-                    lines.append(f"   {lock} lock, top holders by total hold (after the load): " + "; ".join(
+                    lines.append(f"   {lock} lock, top holders by total hold (since the daemon started; read after the load): " + "; ".join(
                         f"{s['site'].rsplit('/', 1)[-1]} {round((s.get('hold_total_us') or 0) / 1e6, 1)} s"
                         f" p99 {round((s.get('hold_p99_us') or 0) / 1000, 1)} ms" for s in top[:3]))
         if m.get("registry_lock_held_share") is not None:

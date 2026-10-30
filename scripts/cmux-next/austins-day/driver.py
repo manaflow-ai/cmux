@@ -768,17 +768,19 @@ def main():
                 hog.kill()
                 hog.wait(timeout=30)
     record("server_stats", {**server_stats(), "phase": "end"})
-    # After the load (outside every measured window, so the A/As still hold): the daemon's lock detail
-    # (server-stats `locks`: the registry lock and mux.state, the top 20 sites by total hold and by p99
-    # hold, since the daemon's start; #28147 and later), and its own client list.
+    # Stop the samplers and probes first, so the end read stays the last server-stats sample and no sample
+    # falls in the post-load calls below (review of 3bf19c209e0, note 1).
+    STOP.set()
+    for thread in load_threads + threads:
+        thread.join(timeout=30)
+    # After the load (outside every measured window): the daemon's lock detail (server-stats `locks`: the
+    # registry lock and mux.state, the top 20 sites by total hold and by p99 hold, counted since the daemon
+    # started, so setup and the baseline are in them; #28147 and later), and its own client list.
     _, locks, locks_code = cli("raw", "command", "--request-json",
                                json.dumps({"id": 1, "cmd": "server-stats", "include": ["locks"]}), timeout=30, binary=CLI_TUI)
     record("locks", {"t": round(time.time() - T0, 2), "code": locks_code,
                      "locks": locks.get("locks") if isinstance(locks, dict) else None})
     record("holders", {"t": round(time.time() - T0, 2), "phase": "end", **connection_holders(processes(), ask_daemon=True)})
-    STOP.set()
-    for thread in load_threads + threads:
-        thread.join(timeout=30)
     hangs = rpc("debug.hangs", timeout=60)
     app_probe_end = rpc("debug.daemon_requests", timeout=20)
     log_summary = app_log(time.time() - load_start)

@@ -103,6 +103,10 @@ to explore, and say so next to any number you cite.
 
 ## A/A self-test
 
+The A/A record (`aa-failures.json`) is kept per scenario, keyed by the agent CLI rate: `"0"` the main arm,
+`"3"` the assumed sensitivity arm. An A/B whose scenario has no A/A yet says "not A/A-checked" on every
+verdict.
+
 `austins-day.sh --aa <JOB|SHA>` runs one build in both arms, the same 5 alternating rounds. Every metric
 must show no difference: its 95 % interval must contain 0. A metric that fails is a harness defect (a
 bias from run order, warm caches, or the host), not a product result. The owner records the failed
@@ -141,13 +145,14 @@ Each run directory keeps `run.json` (all samples), `driver.log`, `app-log.txt`, 
   children it waited for (`wait4`); a helper's detached child is not counted.
 - `daemon_connections`: accepted, refused, peak, limit, and, for comparing arms, `refused_per_s` over the
   run's own server-stats window and `refused_share` of connects (the last answered server-stats comes at
-  a different time in each run, so a raw cumulative count is never compared). `pool_holders`: who fills
-  the pool, from the daemon's client list (`cmux-tui client list`: `client` is a scope only the `cmux-tui`
-  name accepts) by kind/name and the live hook-helper and CLI processes, with
-  the refusals each client kind saw itself. During the load the holder sample counts processes only;
-  the daemon's client list and its lock detail (`lock_top_sites`: server-stats `locks`, the top 20 sites of
-  the registry lock and mux.state by total and by p99 hold) are read once, right after the load, so they
-  add nothing to any measured window. `daemon_lock_wait_us`,
+  a different time in each run, so a raw cumulative count is never compared). Who fills the pool:
+  `pool_holders`, during the load, counts the live hook-helper and `cmux` CLI processes and the refusals
+  each client kind saw itself; `pool_holders_after_load` is the daemon's own client list (`cmux-tui client
+  list`; `client` is a scope only the `cmux-tui` name accepts) by kind/name, read once right after the
+  load. `lock_top_sites` is server-stats `locks`, the top 20 sites of the registry lock and mux.state by
+  total and by p99 hold, also read once after the load; its numbers count since the daemon started, so
+  setup and the baseline are in them. The samplers stop before these reads, so they add nothing to any
+  measured window. `daemon_lock_wait_us`,
   `daemon_lock_hold_us`, `daemon_lock_top_sites`, `journal_commit_us`: from `cmux server stats`.
 - `workspace_close_app_ms` / `workspace_close_daemon_ms`: time from the close action until the
   app's topology and the daemon's list no longer have the workspace; `workspace_close_not_done`.
