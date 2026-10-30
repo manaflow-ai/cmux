@@ -150,7 +150,8 @@ extension DaemonConnection {
         }
         if supportsPlacementEnv {
             let options = await placed(options)
-            return Self.created(try await request(SplitRequest(pane: pane, direction: direction, options: options)), options: options)
+            // The client-minted terminal id keys the split: a late start is waited for, not taken back.
+            return Self.created(try await requestPaneCreation(SplitRequest(pane: pane, direction: direction, options: options)), options: options)
         }
         if let placed = try await spawnPlacedByMove(options, into: .split(pane, direction)) { return placed }
         var options = served(options)
@@ -164,7 +165,7 @@ extension DaemonConnection {
     public func newPaneInColumn(of pane: PaneID, options: SpawnOptions = SpawnOptions()) async throws -> SurfaceCreated {
         guard supportsPlacementEnv else { return try await request(NewPaneRequest(pane: pane, options: served(options))) }
         let options = await placed(options)
-        return Self.created(try await request(NewPaneRequest(pane: pane, options: options)), options: options)
+        return Self.created(try await requestPaneCreation(NewPaneRequest(pane: pane, options: options)), options: options)
     }
 
     /// New scrolling column right of `pane`'s. `cwd`, `env`, and `keep`
@@ -182,7 +183,7 @@ extension DaemonConnection {
             return try await request(NewColumnRequest(pane: pane, width: width, left: left, options: served(options)))
         }
         let options = await placed(options)
-        return Self.created(try await request(NewColumnRequest(pane: pane, width: width, left: left, options: options)), options: options)
+        return Self.created(try await requestPaneCreation(NewColumnRequest(pane: pane, width: width, left: left, options: options)), options: options)
     }
 
     @discardableResult

@@ -101,13 +101,45 @@ import Testing
         #expect(cut?.hasSuffix("…") == true)
     }
 
-    @Test func theStatusRowGrowsARowPerLine() throws {
-        var state = HomeTurnStatusTests.state(typing: true, notice: "Ran 3 commands ›\nChecking on a31 · 5s")
-        let row = try #require(RowBuilder.rows(state, messages: [], now: Self.t0).first { $0.key == "notice" })
-        #expect(row.height == HomeNoticeRows.firstHeight + HomeNoticeRows.rowHeight)
-        state.ui.notice = "Checking on a31 · 5s"
+    /// User 2026-10-29 9:01 PM: "reading/starting agents should be one line". "Reading ›" sat on its own
+    /// row over "Starting agents · 7s": the status row is one line whatever the turn did, so it never
+    /// grows or jumps as steps finish or a thought arrives.
+    @Test func theStatusRowStaysOneLine() throws {
+        var state = HomeTurnStatusTests.state(typing: true, notice: "Checking on a31 · 5s")
         let one = try #require(RowBuilder.rows(state, messages: [], now: Self.t0).first { $0.key == "notice" })
         #expect(one.height == 16)
+        for notice in ["Reading ›\nStarting agents · 7s", "Ran 3 commands ›\nWaiting for a31's tests\nChecking on a31 · 5s"] {
+            state.ui.notice = notice
+            let row = try #require(RowBuilder.rows(state, messages: [], now: Self.t0).first { $0.key == "notice" })
+            #expect(row.height == one.height)
+        }
+    }
+
+    /// The one line reads the folded steps, then the step now: "Reading › Starting agents · 7s"
+    /// (the "›" already parts them; a dot after it would read "› ·").
+    @Test func theStepsAndTheStepNowShareOneLine() {
+        let font = HomeFonts.system(ofSize: 11)
+        let notice = "Reading ›\nStarting agents · 7s"
+        #expect(HomeNoticeRows.width(notice) == TextDraw.width("Reading › Starting agents · 7s", font: font))
+        #expect(HomeNoticeRows.line(notice) == "Reading › Starting agents · 7s")
+    }
+
+    /// A narrow column cuts the folded steps first: the step now and its time stay whole.
+    @Test func aNarrowColumnCutsTheStepsNotTheStepNow() throws {
+        let font = HomeFonts.system(ofSize: 11)
+        let notice = "Ran 3 commands · Read 2 files ›\nWaiting for a31's tests\nStarting agents · 7s"
+        let wide = HomeNoticeRows.fittedParts(notice, font: font, maxWidth: 1000)
+        #expect(wide.lead == "Ran 3 commands · Read 2 files › Waiting for a31's tests")
+        #expect(wide.last == "Starting agents · 7s")
+        let now = TextDraw.width("Starting agents · 7s", font: font)
+        let narrow = HomeNoticeRows.fittedParts(notice, font: font, maxWidth: now + 80)
+        let lead = try #require(narrow.lead)
+        #expect(lead.hasSuffix("…"))
+        #expect(narrow.last == "Starting agents · 7s")
+        #expect(TextDraw.width(lead + HomeNoticeRows.separator + narrow.last, font: font) <= now + 80 + 0.5)
+        let tight = HomeNoticeRows.fittedParts(notice, font: font, maxWidth: now - 20)
+        #expect(tight.lead == nil)
+        #expect(tight.last.hasSuffix("…"))
     }
 
     @Test func aNewThoughtShowsWithoutWaitingForTheClock() {
