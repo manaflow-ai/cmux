@@ -140,6 +140,12 @@ extension WindowManager {
             return
         }
         claim(workspaceID: workspaceID, in: state)
+        // An unowned ephemeral workspace went to its own incognito window: that window shows it.
+        if let owner = registry.value.owner(of: workspaceID), owner != state.id, let target = controller(for: owner) {
+            target.showWorkspace(requested: target.state.workspaceID)
+            bringToFront(target)
+            return
+        }
         controller(for: state.id)?.showWorkspace(requested: state.workspaceID)
     }
 
@@ -176,11 +182,10 @@ extension WindowManager {
         }
         if let active {
             claim(workspaceID: workspaceID, in: active.state, select: shows)
-            return active
+            // An unowned ephemeral workspace went to its own incognito window, not the active one.
+            return registry.value.owner(of: workspaceID).flatMap { controller(for: $0) } ?? active
         }
-        let opened = openWindow(workspaces: [workspaceID], incognito: holdsUnownedEphemeral(workspaceID))
-        if let opened { fileOpenedMachine(of: workspaceID, into: opened.state.id) }
-        return opened
+        return openWindow(workspaces: [workspaceID])
     }
 
     /// Moves `workspaceID` into `state`'s window and selects it there. Use
@@ -200,9 +205,7 @@ extension WindowManager {
         // An ephemeral workspace no window lists (a Cloud machine nobody had opened holds its
         // workspaces out of every window) goes to an incognito window, never into a normal one.
         if holdsUnownedEphemeral(workspaceID), !registry.value.isIncognito(state.id) {
-            if let opened = openWindow(workspaces: [workspaceID], incognito: true, behind: !shows) {
-                fileOpenedMachine(of: workspaceID, into: opened.state.id)
-            }
+            openWindow(workspaces: [workspaceID], incognito: true, behind: !shows)
             return
         }
         protectIfUnknown([workspaceID], window: state.id)
@@ -230,7 +233,10 @@ extension WindowManager {
     /// claim. They are filed quietly into `windowID`; an ephemeral one goes to an incognito window
     /// through the usual ephemeral placement.
     func fileOpenedMachine(of workspaceID: String, into windowID: String) {
-        guard let daemon = services.machines.daemon(forWorkspace: workspaceID), services.machines.session(daemon.machineID) != nil else { return }
+        guard !fillingOpenedMachine, let daemon = services.machines.daemon(forWorkspace: workspaceID),
+              services.machines.session(daemon.machineID) != nil else { return }
+        fillingOpenedMachine = true
+        defer { fillingOpenedMachine = false }
         let value = registry.value
         for workspace in daemon.store.workspaces where workspace.id != workspaceID && value.owner(of: workspace.id) == nil
             && pendingClaims[workspace.id] == nil && !EphemeralWorkspaces.isEphemeral(workspace.id, self) {
@@ -271,6 +277,8 @@ extension WindowManager {
         // A window an action run without view-change permission opens
         // appears behind, never key.
         let behind = behind || !ActionRunScope.viewChangeAllowed()
+        // Ephemeral workspaces no window lists (an unopened Cloud machine's) open an incognito window.
+        let incognito = incognito || (!workspaces.isEmpty && workspaces.allSatisfy(holdsUnownedEphemeral))
         let kinds = Set(workspaces.compactMap { registry.value.owner(of: $0) }.map(registry.value.isIncognito))
         if kinds.count > 1 || (incognito && kinds == [false]) {
             services.registry.refuse(RefusalStrings.incognitoMismatch)
@@ -280,6 +288,7 @@ extension WindowManager {
         if behind { behindWindows.insert(id) }
         protectIfUnknown(workspaces, window: id)
         transition(select: [id: workspaces]) { $0.openWindow(id: id, workspaceIDs: workspaces, frame: frame, behind: behind) }
+        if let first = workspaces.first { fileOpenedMachine(of: first, into: id) }
         guard let controller = controller(for: id) else { return nil }
         if let frame { controller.window?.setFrame(frame, display: true) }
         return controller
