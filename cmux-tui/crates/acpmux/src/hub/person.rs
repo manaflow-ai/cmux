@@ -181,7 +181,9 @@
 //! (`Hub::keeps_harness_mode`, as a handoff target of a source that asks
 //! does). A request that names a mode skips the default; (a) and (b) gate
 //! it as above. Presets, folder profiles, adopted chats and profiles that
-//! pin a mode in their argv keep the harness's own mode.
+//! pin a mode in their argv keep the harness's own mode, except a built-in
+//! Chief subagent preset that names no mode, whose chat starts as a plain one
+//! (`start_mode.rs` `plain_for_mode`, cmux#27847).
 //!
 //! Also without the person: no rules change under a session policy that
 //! does not ask (a rule is then what keeps a tool asking), no removal of a
@@ -249,6 +251,7 @@ pub use super::start_gate::{
     StartMode, caller_env, caller_proves, caller_token, host_label, mode_person_required,
     take_caller,
 };
+use cmux_json::JsonSet as _;
 
 /// The old place of the key in `initialize` (`_meta.acpmux`): stripped, never read.
 pub const KEY_FIELD: &str = "personKey";
@@ -470,7 +473,7 @@ impl PersonGate {
                 .ok_or_else(|| bad("each folder is absolute"))?;
             let mut row =
                 pick(f).ok_or_else(|| bad("each folder pick names a harness and a model"))?;
-            row["folder"] = folder.into();
+            row.set("folder", folder.into());
             kept.push(row);
         }
         out.insert("folders".into(), Value::Array(kept));
@@ -655,7 +658,8 @@ impl PersonGate {
             spent.pop_front();
         }
         let fresh = nonces.iter().enumerate().all(|(i, nonce)| {
-            !nonces[..i].contains(nonce) && !spent.iter().any(|(n, _)| n == nonce)
+            !nonces.get(..i).unwrap_or_default().contains(nonce)
+                && !spent.iter().any(|(n, _)| n == nonce)
         });
         if nonces.is_empty() || !fresh {
             return false;

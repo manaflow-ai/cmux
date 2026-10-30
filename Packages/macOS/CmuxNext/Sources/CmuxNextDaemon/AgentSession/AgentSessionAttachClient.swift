@@ -53,16 +53,23 @@ public actor AgentSessionAttachClient {
     /// A Cloud machine's running link id while its attach answer says the caller owns it, else nil
     /// (`CloudMachineLink.ownerLink`).
     public typealias OwnerLink = @Sendable () async -> Int?
+    /// Asked once when a connection fails (its endpoint, its socket or its handshake): true once
+    /// the machine's link came back, and the connection is tried once more.
+    public typealias Reconnect = @Sendable () async -> Bool
 
     private let surface: UInt64
     private let mode: Mode
     private let endpoint: EndpointProvider
+    private let reconnect: Reconnect?
     private let requestTimeout: Duration
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-attach")
     private var transport: LineTransport?
     private var connecting: Task<(LineTransport, Served), any Error>?
     private let handler = HandlerBox()
     private var closed = false
+    /// A quiet try (``sharedConnection(quiet:)``) lost its connection in its handshake and told no
+    /// one yet.
+    private var quietLoss = false
     /// What ``transport``'s daemon serves, read from its own `identify` on that connection and
     /// replaced only together with it.
     private var served = Served()
@@ -76,6 +83,8 @@ public actor AgentSessionAttachClient {
         var keyedReason = false
         /// `agent-session-start-vm-kind-v1`.
         var vmKind = false
+        /// `agent-session-start-model-v1`.
+        var model = false
         /// `agent-session-trust-vm-kind-v1`.
         var trustVMKind = false
         /// `agent-session-children-v1`.
@@ -92,11 +101,13 @@ public actor AgentSessionAttachClient {
     }
 
     /// `surface`: the tab's surface id in the daemon's store.
+    /// `reconnect`: asked when a connection fails (``Reconnect``); nil, never tried again.
     public init(surface: UInt64, requestTimeout: Duration = .seconds(10), mode: Mode = .attach,
-                endpoint: @escaping EndpointProvider) {
+                reconnect: Reconnect? = nil, endpoint: @escaping EndpointProvider) {
         self.surface = surface
         self.mode = mode
         self.endpoint = endpoint
+        self.reconnect = reconnect
         self.requestTimeout = requestTimeout
     }
 
@@ -120,6 +131,9 @@ public actor AgentSessionAttachClient {
     /// `agent_session.needs_keyed_start` and its facts in ``AgentSessionAttachError/details``. A
     /// daemon without `agent-session-start-keyed-reason-v1` gets no such param (it would refuse it).
     ///
+    /// An explicit `model` requires `agent-session-start-model-v1`; older daemons retain the
+    /// existing cwd/harness start when no model was requested.
+    ///
     /// `ownerLink`: set for a Cloud machine (from the app's own record of it, never the guest's).
     /// A chat starts there only while it gives the same link id before the connection and as the
     /// start is sent (the link's attach answer said the signed-in caller owns the machine, and
@@ -129,7 +143,7 @@ public actor AgentSessionAttachClient {
     /// that same connection, checked before it: if it ended meanwhile the start fails, never
     /// goes out over a new one.
     public func start(cwd: String, harness: String?, homeConfirmed: Bool = false, personKey: PersonKey? = nil,
-                      ownerLink: OwnerLink? = nil) async throws -> String {
+                      ownerLink: OwnerLink? = nil, model: String? = nil) async throws -> String {
         guard mode == .attach else {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "a read-only agent session cannot start a chat")
         }
@@ -138,9 +152,13 @@ public actor AgentSessionAttachClient {
         guard served.start else {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not serve agent session start")
         }
+        guard model == nil || served.model else {
+            throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not support choosing a start model")
+        }
         let callerOwnsVM = try await Self.ownerAnswer(ownerLink, before: before)
         let params = Self.startParams(cwd: cwd, harness: harness, homeConfirmed: homeConfirmed, personKey: personKey,
-                                      servesKeyedReason: served.keyedReason, callerOwnsVM: callerOwnsVM, servesVMKind: served.vmKind)
+                                      servesKeyedReason: served.keyedReason, callerOwnsVM: callerOwnsVM, servesVMKind: served.vmKind,
+                                      model: model, servesModel: served.model)
         guard !transport.isClosed else {
             throw AgentSessionAttachError(code: "agent_session.closed", message: "the connection ended before the start was sent")
         }
@@ -155,9 +173,11 @@ public actor AgentSessionAttachClient {
     /// The params of ``start(cwd:harness:homeConfirmed:personKey:ownerLink:)``: a param a daemon
     /// does not advertise is never sent (its `deny_unknown_fields` would refuse the start).
     static func startParams(cwd: String, harness: String?, homeConfirmed: Bool, personKey: PersonKey?,
-                            servesKeyedReason: Bool, callerOwnsVM: Bool, servesVMKind: Bool) -> [String: any Sendable] {
+                            servesKeyedReason: Bool, callerOwnsVM: Bool, servesVMKind: Bool,
+                            model: String? = nil, servesModel: Bool = false) -> [String: any Sendable] {
         var params: [String: any Sendable] = ["cwd": cwd]
         if let harness { params["harness"] = harness }
+        if servesModel, let model, !model.isEmpty { params["model"] = model }
         if homeConfirmed { params["home_confirmed"] = true }
         if let personKey, servesKeyedReason {
             params["require_person_key"] = true
@@ -315,13 +335,49 @@ public actor AgentSessionAttachClient {
         try await liveConnection().0
     }
 
-    /// The live connection and what its daemon serves.
+    /// The live connection and what its daemon serves. With ``reconnect``, a connection that fails
+    /// (its endpoint, its socket or its handshake) asks it and is tried once more. The wait runs in
+    /// the caller's task, so a cancelled call stops waiting, and nothing is sent after it. A failed
+    /// first try ends no attachment: its loss is told only when no retry follows or it fails too.
     private func liveConnection() async throws -> (LineTransport, Served) {
+        guard let reconnect else { return try await sharedConnection(quiet: false) }
+        do {
+            let connection = try await Self.retrying({ last in try await self.sharedConnection(quiet: !last) }, reconnect: reconnect)
+            quietLoss = false
+            return connection
+        } catch {
+            // The quiet first try's lost connection, unless the retry's own close told it.
+            if quietLoss, let current = handler.take() {
+                current("agent-session-closed", Data(#"{"event":"agent-session-closed","reason":"connection_lost"}"#.utf8))
+            }
+            quietLoss = false
+            throw error
+        }
+    }
+
+    /// `body(false)`, which asks `reconnect` when it throws, and runs `body(true)` (the last try)
+    /// when that answers true. A cancelled call reconnects nothing and is not retried; a failure
+    /// that is not the link's, or a link that does not come back, throws as it did.
+    public static func retrying<T: Sendable>(_ body: @Sendable (_ last: Bool) async throws -> T, reconnect: Reconnect) async throws -> T {
+        do {
+            return try await body(false)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            guard !Task.isCancelled, await reconnect() else { throw error }
+            try Task.checkCancellation()
+            return try await body(true)
+        }
+    }
+
+    /// The connection one try opens, shared with a try already running. `quiet`: its close before
+    /// its handshake finished ends no attachment (``quietLoss`` remembers it).
+    private func sharedConnection(quiet: Bool) async throws -> (LineTransport, Served) {
         if closed { throw AgentSessionAttachError(code: "agent_session.closed", message: "closed") }
         if let transport, !transport.isClosed { return (transport, served) }
         transport = nil
         if let connecting { return try await connecting.value }
-        let task = Task { try await self.connect() }
+        let task = Task { try await self.connect(quiet: quiet) }
         connecting = task
         defer { connecting = nil }
         let (transport, served) = try await task.value
@@ -334,11 +390,19 @@ public actor AgentSessionAttachClient {
         return (transport, served)
     }
 
-    private func connect() async throws -> (LineTransport, Served) {
-        let endpoint = try await self.endpoint()
-        let transport = try LineTransport(path: endpoint.socketPath)
+    private func connect(quiet: Bool) async throws -> (LineTransport, Served) {
+        let transport: LineTransport
+        do {
+            let endpoint = try await self.endpoint()
+            transport = try LineTransport(path: endpoint.socketPath)
+        } catch {
+            if quiet { quietLoss = true }
+            throw error
+        }
         let handler = handler
         let surface = surface
+        // A quiet try's close tells the attachment only once its handshake finished.
+        let tells = OSAllocatedUnfairLock(initialState: !quiet)
         transport.start(
             onEvent: { name, line, _ in
                 guard name.hasPrefix("agent-session-"), Self.surface(of: line) == surface else { return }
@@ -346,7 +410,7 @@ public actor AgentSessionAttachClient {
                 if name == "agent-session-closed" { handler.set(nil) }
             },
             onClose: { [logger] reason in
-                guard let current = handler.current else { return }
+                guard tells.withLock({ $0 }), let current = handler.current else { return }
                 handler.set(nil)
                 logger.info("agent attach connection ended: \(String(describing: reason), privacy: .public)")
                 current("agent-session-closed", Data(#"{"event":"agent-session-closed","reason":"connection_lost"}"#.utf8))
@@ -362,6 +426,7 @@ public actor AgentSessionAttachClient {
                             trust: identity.supports(DaemonCapability.agentSessionTrust.rawValue),
                             keyedReason: identity.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue),
                             vmKind: identity.supports(DaemonCapability.agentSessionStartVMKind.rawValue),
+                            model: identity.supports(DaemonCapability.agentSessionStartModel.rawValue),
                             trustVMKind: identity.supports(DaemonCapability.agentSessionTrustVMKind.rawValue),
                             children: identity.supports(DaemonCapability.agentSessionChildren.rawValue),
                             presence: identity.supports(DaemonCapability.agentSessionPresence.rawValue))
@@ -372,9 +437,11 @@ public actor AgentSessionAttachClient {
                                      capabilities: served.presence ? [DaemonCapability.agentSessionPresence.rawValue] : []),
                 on: transport, timeout: requestTimeout)
         } catch {
+            if quiet { quietLoss = true }
             transport.close()
             throw error
         }
+        tells.withLock { $0 = true }
         return (transport, served)
     }
 
@@ -419,4 +486,6 @@ private final class HandlerBox: Sendable {
     private let lock = OSAllocatedUnfairLock<AgentSessionAttachClient.EventHandler?>(initialState: nil)
     var current: AgentSessionAttachClient.EventHandler? { lock.withLock { $0 } }
     func set(_ handler: AgentSessionAttachClient.EventHandler?) { lock.withLock { $0 = handler } }
+    /// The handler, which is cleared: one caller tells it the attachment ended.
+    func take() -> AgentSessionAttachClient.EventHandler? { lock.withLock { current in defer { current = nil }; return current } }
 }

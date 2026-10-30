@@ -131,9 +131,11 @@ extension WorkspaceRowView {
         // covers (the `trailing` badge style), so a mark fading back never draws beside a control fading out (Leo
         // 2026-10-28: "just don't show the spinner" while hovering).
         let controlFades = fades && columnMark == nil && !badge.state.isUnread
-        // The chevron shows on hover and on the selected row only (cx-fo2t); its slot stays.
-        setHoverShown(disclosureButton, !(disclosure == nil || disclosure == .empty || isShowingPlaceholder || !(isHovered || isSelected)), fades: fades)
-        if disclosure != nil {
+        // The chevron shows on hover and on the selected row only (cx-fo2t); its slot stays. A row with nothing to
+        // disclose (`.empty`) never shows it and keeps no slot, so its hover menu takes the next slot, not a gap
+        // (Lawrence 2026-10-20: "no empty slots").
+        setHoverShown(disclosureButton, !(disclosure == nil || disclosure == .empty || isShowingPlaceholder || !(revealsHoverControls || isSelected)), fades: fades)
+        if disclosure != nil, disclosure != .empty {
             disclosureButton.frame = NSRect(x: trailing - control, y: cy - control / 2, width: control, height: control)
             trailing -= control + Metrics.space1
         }
@@ -160,8 +162,8 @@ extension WorkspaceRowView {
         // nothing moves. Marks under them hide while they show. An unread
         // badge keeps its slot at rest, and the action that lands there on
         // hover hides it.
-        let showClose = isHovered && !isShowingPlaceholder && isClosable
-        let showMore = !isPlaceholderRow && onMore != nil && isHovered && !renaming
+        let showClose = revealsHoverControls && !isShowingPlaceholder && isClosable
+        let showMore = !isPlaceholderRow && onMore != nil && revealsHoverControls && !renaming
         setHoverShown(closeButton, showClose, fades: controlFades)
         setHoverShown(badge, !(showClose || (showMore && !isClosable) || !badge.state.isUnread), fades: fades)
         // The keycap of one of the first rows takes the unread mark's slot when there is no mark.
@@ -210,15 +212,14 @@ extension WorkspaceRowView {
         }
 
         // Without an icon the title starts at the leading inset; with one, after it (`titleTextX`).
-        let swatch: Bool = if case .swatch? = iconKind { true } else { false }
-        var textX = SidebarStyle.titleTextX(leading: leading, iconSide: side, swatch: swatch) - Self.labelInset
+        var textX = SidebarStyle.workspaceTitleX(icon: iconKind, treeDepth: treeDepth)
         if !agentMark.isHidden && agentMarkVariant == .besideTitle {
             agentMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
-            textX = agentMark.frame.maxX + Metrics.space1
+            textX = SidebarStyle.titleXAfterLeadingMark(textX)
         }
         if !machineMark.isHidden {
             machineMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
-            textX = machineMark.frame.maxX + Metrics.space1
+            textX = SidebarStyle.titleXAfterLeadingMark(textX)
         }
         let textW = max(0, trailing - textX)
         let titleArrival = titleArrivalPending || titleArrivalActive
@@ -252,6 +253,20 @@ extension WorkspaceRowView {
         if titleArrivalPending && !titleArrivalScheduled {
             titleArrivalScheduled = true
             CATransaction.setCompletionBlock { [weak self] in self?.startTitleArrival() }
+        }
+        // A workspace icon, mark or late realization changes the title column without changing
+        // the tab model. Invalidate only this workspace's disclosed children so their anchor is
+        // recomputed on the same layout pass instead of retaining a stale x position.
+        let titleX = self.titleFrame.minX
+        if titleX != lastTabAnchorTitleX {
+            lastTabAnchorTitleX = titleX
+            if case let .workspace(workspaceID) = key,
+               let list = sequence(first: self as NSView, next: \.superview).lazy
+                   .compactMap({ $0 as? SidebarListView }).first {
+                for tab in lastConfiguration?.0.tabs ?? [] {
+                    list.rowViews[.tab(workspaceID, tab.id)]?.needsLayout = true
+                }
+            }
         }
         // No needsDisplay here: `updateLayer` reads no layout value, and configure, hover, selection,
         // drop target and appearance changes mark display themselves. Each display costs AppKit a
