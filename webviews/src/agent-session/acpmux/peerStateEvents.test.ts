@@ -149,6 +149,39 @@ test("a lag notice reads the peer snapshot again, so a dropped disconnect is not
   }
 });
 
+test("a snapshot's restarting peer stays restarting, never ready", async () => {
+  const f = await fixture("local");
+  try {
+    f.peers([{ name: "studio-mac", state: "restarting", lastSeen: null, error: null }]);
+    const restarting = f.waitForState("restarting");
+    f.socket().onmessage?.({
+      data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/lagged", params: { dropped: 1 } }),
+    });
+    await restarting;
+    expect(f.latest().peerConnected?.["studio-mac"]).toBe(false);
+  } finally {
+    f.client.close();
+  }
+});
+
+test("a listed machine the snapshot no longer names stays offline after a lag", async () => {
+  const f = await fixture("local");
+  try {
+    f.notify(note("offline", { error: "removed" }));
+    f.peers([]);
+    const emitted = f.snapshots.length;
+    f.socket().onmessage?.({
+      data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/lagged", params: { dropped: 1 } }),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(f.snapshots.length).toBeGreaterThan(emitted);
+    expect(f.latest().peerStates?.["studio-mac"]).toBe("offline");
+    expect(f.latest().peerConnected?.["studio-mac"]).toBe(false);
+  } finally {
+    f.client.close();
+  }
+});
+
 for (const [origin, supported] of [
   ["peer", true],
   ["remote", true],

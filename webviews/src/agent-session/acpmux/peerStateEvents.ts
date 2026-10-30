@@ -1,7 +1,10 @@
 import type { PeerLinkState } from "./protocol/generated/types";
 
-const STATES = new Set<unknown>(["connecting", "connected", "degraded", "reconnecting", "offline"]);
-type Link = { state: PeerLinkState; connected: boolean; lastSeen: number | undefined; error: string | undefined };
+// `restarting`: the peer's daemon is restarting (acpmux peer_link.rs); its snapshot names it though
+// the event enum does not, and it is not connected.
+const STATES = new Set<unknown>(["connecting", "connected", "degraded", "reconnecting", "restarting", "offline"]);
+type LinkState = PeerLinkState | "restarting";
+type Link = { state: LinkState; connected: boolean; lastSeen: number | undefined; error: string | undefined };
 type VersionedLink = { link: Link; revision: number };
 const object = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
@@ -71,7 +74,7 @@ export class PeerStateEvents {
 function observation(value: Record<string, unknown>): Link | undefined {
   if (!STATES.has(value.state)) return undefined;
   return {
-    state: value.state as PeerLinkState,
+    state: value.state as LinkState,
     connected: value.state === "connected",
     // A full observation clears old nullable values when overlaid on an older status read.
     lastSeen: typeof value.lastSeen === "number" && Number.isFinite(value.lastSeen) ? value.lastSeen : undefined,

@@ -6828,6 +6828,14 @@ export class AcpmuxDirectClient {
   }
   private applyPeerStates(): void {
     const peers = [...this.peerEvents.entries()];
+    // A listed machine the authoritative snapshot no longer names (removed, or never connected) stays
+    // listed by `_acpmux/status`: keep it explicitly offline, never selectable.
+    if (this.peerEvents.authoritative) {
+      const known = new Set(peers.map(([peer]) => peer));
+      for (const peer of this.peers)
+        if (!known.has(peer))
+          peers.push([peer, { state: "offline", connected: false, lastSeen: undefined, error: undefined }]);
+    }
     this.peerStates = {
       ...(this.peerEvents.authoritative ? {} : this.peerStates),
       ...Object.fromEntries(peers.map(([peer, link]) => [peer, link.state])),
