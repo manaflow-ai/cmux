@@ -1833,11 +1833,8 @@ jobs:
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-administration: read
 
-      # The pool snapshot reads (actions: read) go through the routing App's own budget, not the
-      # GITHUB_TOKEN budget every workflow in the repo shares: run 41051244674 (2026-10-30) got
-      # "API rate limit exceeded for installation" there, so the pickers saw no snapshot and
-      # signing queued on Blacksmith. Same scope as the routing token; a failed mint, or a run
-      # outside it, leaves it empty and GITHUB_TOKEN reads, as cmux-next.yml's macos-placement does.
+      # Snapshot reads spend the routing App's budget, not the shared GITHUB_TOKEN one (run
+      # 41051244674 hit its 403 limit); empty falls back to GITHUB_TOKEN, as in cmux-next.yml.
       - name: Mint the glaeda read token
         id: snapshot-read-token
         if: github.repository == 'manaflow-ai/cmux' && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/nightly-next'
@@ -4070,10 +4067,9 @@ jobs:
     # The owned pick mints the routing token (GLAEDA_ROUTE_APP_KEY), so the key is read in the
     # routing environment, as pick-nightly-build-runner does (tests/test_supplychain_security.py).
     environment: ci-routing-agent
-    # Room for every step budget in turn (the read token mint 1 and the Blacksmith pick 2, then the
-    # owned pick's token mints 1 + 1, the verify picker 2 and the signing picker 2) plus checkout, so the
-    # job is never cut off before its outputs; the Blacksmith pick runs before the owned steps so `runner`
-    # is set before they start.
+    # Room for every step budget in turn (the read token mint 1, the Blacksmith pick 2, then the owned pick's token
+    # mints 1 + 1, the verify picker 2 and the signing picker 2) plus checkout, so the job is never
+    # cut off before its outputs; the Blacksmith pick runs before the owned steps so `runner` is set first.
     timeout-minutes: 13
     permissions:
       # The queue janitor's pool snapshot (an artifact).
@@ -4102,8 +4098,7 @@ jobs:
           path: .publish-tooling
           sparse-checkout: scripts/ci
 
-      # As pick-nightly-build-runner: the snapshot and signing-job reads spend the routing App's own
-      # budget, not the shared GITHUB_TOKEN one (run 41051244674's 403s here); empty falls back to it.
+      # As pick-nightly-build-runner (run 41051244674's 403s were here).
       - name: Mint the glaeda read token
         id: snapshot-read-token
         if: github.repository == 'manaflow-ai/cmux' && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_name == 'nightly-next'
