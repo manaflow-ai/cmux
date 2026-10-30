@@ -291,14 +291,23 @@ jobs:
         if: inputs.setup == 'rust'
         uses: ./.fast-checks-checkout/.github/actions/setup-cmux-tui-rust
 
+      # FAST_CHECKS_OUT is an empty directory the command may write files to (screenshots,
+      # reports, logs); whatever is there when it ends, passed or not, is uploaded as the
+      # fast-checks-output artifact below. Names starting with a dot are left out (the
+      # action's include-hidden-files default). Write captures there instead of printing
+      # them into the job log as base64, which gets truncated. Read it with
+      # gh run download RUN -R manaflow-ai/cmux -n fast-checks-output -D DIR.
       - name: Run fast checks
         env:
           FAST_CHECKS_COMMAND: ${{ inputs.command }}
           FAST_CHECKS_DIRECTORY: ${{ inputs.directory }}
           FAST_CHECKS_TIMEOUT: ${{ inputs.timeout }}
           FAST_CHECKS_SOURCE: ${{ inputs.source_sha }}
+          FAST_CHECKS_OUT: ${{ runner.temp }}/fast-checks-out
         run: |
           umask 022
+          rm -rf -- "$FAST_CHECKS_OUT"
+          mkdir -p -- "$FAST_CHECKS_OUT"
           python3 - <<'PY'
           import json, os, pathlib, signal, subprocess, time
           root = pathlib.Path.cwd().resolve()
@@ -358,5 +367,14 @@ jobs:
         with:
           name: fast-checks-receipt
           path: ${{ runner.temp }}/fast-checks.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Save command output files
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fast-checks-output
+          path: ${{ runner.temp }}/fast-checks-out/
           if-no-files-found: ignore
           retention-days: 7
