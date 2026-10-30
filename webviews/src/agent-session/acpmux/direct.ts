@@ -3157,6 +3157,10 @@ export class AcpmuxDirectClient {
     const visible = pageShown();
     const attaching = this.typed("_acpmux/attach", {
       sessionId,
+      // The visible page must not wait for the daemon's restart-time full-log restoration. The
+      // attach page can read the newest records directly; queue/status restoration continues in
+      // the daemon and arrives on the attached event stream (Leo: the window must be well under 1 s).
+      waitLogs: false,
       limit: 400,
       // The most opening a chat downloads, however large its tool output (a remote session's open).
       maxBytes: OPEN_PAGE_BYTES,

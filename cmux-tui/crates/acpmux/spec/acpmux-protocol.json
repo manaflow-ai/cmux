@@ -1752,6 +1752,13 @@
             "boolean",
             "null"
           ]
+        },
+        "waitLogs": {
+          "description": "Wait for restart-time log restoration before answering; false serves the page immediately.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       },
       "required": [

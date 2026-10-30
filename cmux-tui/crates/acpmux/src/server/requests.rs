@@ -1887,7 +1887,12 @@ async fn dispatch_request(
             let s = hub.resolve(session_key(&params)?)?;
             // A restart reads the chat logs after its ready line: the queue, turn and status
             // shown here come from this chat's (`hub/log_load.rs`).
-            hub.session_log(&s).await;
+            // A visible page asks for the newest records immediately (`waitLogs:false`); waiting
+            // for the full restore here made a restarted long chat blank for tens of seconds.
+            // Callers that need authoritative queue/status details keep the old default.
+            if params.get("waitLogs").and_then(Value::as_bool) != Some(false) {
+                hub.session_log(&s).await;
+            }
             let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
             let event_stream = params.get("eventStream").and_then(Value::as_bool).unwrap_or(false);
             let hidden = params.get("visible") == Some(&Value::Bool(false));
