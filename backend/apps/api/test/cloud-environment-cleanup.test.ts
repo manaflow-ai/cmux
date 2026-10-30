@@ -49,6 +49,10 @@ describe("environment cleanup survives build completion", () => {
       if (kind === "setup-failed") await owner.fakeControl({ exec_build_exit: 3 })
       await submit("cloud.environment.build", { environment: created.environment.id })
       await owner.alarm()
+      await owner.alarmIdle
+      // The runtime may have queued the alarm scheduled by the build commit behind this direct
+      // invocation; drain that serialized wake before inspecting the environment.
+      await owner.alarm()
       const result = await owner.readOp(x.team, x.p, "cloud.environment.list", {})
       expect(result).toMatchObject({ ok: true, value: { environments: [{ status: kind === "setup-failed" ? "failed" : "ready" }] } })
       expect((await owner.fakeControl({})).vms).toHaveLength(kind === "both" ? 2 : 1)
