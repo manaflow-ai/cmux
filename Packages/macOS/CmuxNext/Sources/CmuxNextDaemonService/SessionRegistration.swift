@@ -43,7 +43,7 @@ public final class SessionRegistration<Record: Hashable & Sendable> {
     public func submit(session: String, record: Record, machine: String?, epoch: Int,
                        send: @escaping @Sendable () async throws -> Void) -> Task<Void, Never>? {
         guard !stopped else { return nil }
-        showPendingNotices()
+        showPendingNoticesNow()
         let link = SessionRegistrationConnection(generation: 0)
         guard let token = ledger.begin(session: session, record: record, connection: link) else { return nil }
         // task-owner: one put-session; its answer goes to the ledger on the main actor
@@ -82,7 +82,7 @@ public final class SessionRegistration<Record: Hashable & Sendable> {
         let outcome = ledger.failed(session: session, token: token, failure: SessionRegistrationLedger<Record>.classify(error))
         if let reason = outcome.refusal {
             pendingNotices[session] = Self.notSavedForRestore(machine: machine, reason: reason)
-            showPendingNotices()
+            showPendingNoticesNow()
         }
         guard let delay = outcome.retryAfter else { return }
         let timer = retries[session] ?? DemandTimer(owner: "SessionRegistration.retry")
@@ -94,7 +94,10 @@ public final class SessionRegistration<Record: Hashable & Sendable> {
         }
     }
 
-    private func showPendingNotices() {
+    /// Red stub: the public entry point of the head; it shows nothing.
+    public func showPendingNotices() {}
+
+    private func showPendingNoticesNow() {
         for (session, message) in pendingNotices where notice(session, message) {
             pendingNotices[session] = nil
         }
