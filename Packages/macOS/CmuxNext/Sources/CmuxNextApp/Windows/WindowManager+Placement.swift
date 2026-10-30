@@ -47,25 +47,33 @@ extension WindowManager {
             guard let pending = pendingPlacements[id] else { continue }
             // A rows-pass retry can run before membership names the owner: keep the entry for that pass.
             guard let window = pending.window ?? registry.value.owner(of: id) else { continue }
+            // A window the registry still lists whose controller a reconcile has not made yet keeps its entry too.
+            guard let bridge = controller(for: window)?.sidebar, let daemon = services.machines.daemon(forWorkspace: id) else {
+                if registry.value.window(window) == nil { pendingPlacements[id] = nil }
+                continue
+            }
             pendingPlacements[id] = nil
-            guard let bridge = controller(for: window)?.sidebar, let daemon = services.machines.daemon(forWorkspace: id) else { continue }
             // One store-backed rows pass per window; each following placement
             // reads the model with the preceding optimistic moves applied.
             let sections = Self.placementSections(in: bridge, refresh: refreshed.insert(window).inserted)
             let section = SectionID.machine(MachineID(daemon.machineID))
             let home = NewWorkspacePlacements.home(services.machines)
-            // Waits for a current row a cold layout omits; one pinned since the press shows in the band, not the list.
-            if pending.byDefault?.awaitsCurrentAnchor(section: section, in: sections, home: home) == true,
-               let current = pending.byDefault?.current, services.machines.workspace(id: current) != nil,
-               !NewWorkspacePlacements.shownInBand(current, layout: bridge.model.layout, room: bridge.model.activeProfileID?.rawValue,
-                                                   legacy: services.sidebarLayout.unavailableReason != nil, machines: services.machines) {
-                pendingPlacements[id] = pending
-                continue
+            // Waits for a current row a cold layout omits. One closed or pinned since the press (it shows in the
+            // band, not the list) has no row to wait for: the rule resolves as if it never had one.
+            var byDefault = pending.byDefault
+            if byDefault?.awaitsCurrentAnchor(section: section, in: sections, home: home) == true, let current = byDefault?.current {
+                if services.machines.workspace(id: current) != nil,
+                   !NewWorkspacePlacements.shownInBand(current, layout: bridge.model.layout, room: bridge.model.activeProfileID?.rawValue,
+                                                       legacy: services.sidebarLayout.unavailableReason != nil, machines: services.machines) {
+                    pendingPlacements[id] = pending
+                    continue
+                }
+                byDefault?.currentMachine = nil
             }
             // This Mac's daemon placed the workspace by the setting in its create: no second write for that
             // slot. Another machine's create writes no row in this Mac's order, so the app places it.
-            let slot = pending.slot ?? (daemon.isLocal ? pending.byDefault?.move(for: id, section: section, in: sections, home: home)
-                : pending.byDefault?.slot(for: id, section: section, in: sections, home: home))
+            let slot = pending.slot ?? (daemon.isLocal ? byDefault?.move(for: id, section: section, in: sections, home: home)
+                : byDefault?.slot(for: id, section: section, in: sections, home: home))
             if let position = slot?.position(moving: [id], section: section, in: sections) {
                 bridge.place([SidebarWorkspaceID(id)], at: position, in: sections)
             }
