@@ -186,6 +186,21 @@ rm -f "$binary" "$binary.ref"; ln -s "$TMP/outside-sentinel" "$binary.ref"
 portable; n=$((n + 1)); expect_builds "$n" "a missing binary did not rebuild"
 [[ "$(cat "$TMP/outside-sentinel")" == untouched ]] || fail "rebuild of a missing binary wrote through the provenance symlink"
 [[ ! -L "$binary.ref" ]] || fail "rebuild of a missing binary left the provenance symlink"
+# A directory where the binary or its provenance belongs is repaired, not fatal.
+rm -f "$binary"; mkdir "$binary"
+portable; n=$((n + 1)); expect_builds "$n" "a directory in place of the binary did not rebuild"
+expect_result built "a rebuilt directory binary did not report a rebuild"
+[[ -f "$binary" ]] || fail "the rebuild left a directory in place of the binary"
+rm -f "$binary.ref"; mkdir "$binary.ref"
+portable; n=$((n + 1)); expect_builds "$n" "a directory in place of the provenance did not rebuild"
+[[ -f "$binary.ref" ]] || fail "the rebuild left a directory in place of the provenance"
+# A restored entry whose directories are links never sends the repair outside the cache.
+entry="${binary%/*}"; outside="$TMP/outside-entry"
+rm -rf "$outside"; mv "$entry" "$outside"; ln -s "$outside" "$entry"
+printf 'corrupt\n' >> "$outside/optchat-chief"; cp "$outside/optchat-chief" "$TMP/outside-before"
+portable; n=$((n + 1)); expect_builds "$n" "a linked entry directory was reused"
+[[ ! -L "$entry" && -f "$binary" ]] || fail "the rebuild kept the linked entry directory"
+cmp -s "$outside/optchat-chief" "$TMP/outside-before" || fail "the rebuild wrote through a linked entry directory"
 
 # Only the 8 most recently used input-keyed entries stay.
 entries=$(find "$TMP/cache" -maxdepth 1 -name 'inputs-*' | grep -c .)
