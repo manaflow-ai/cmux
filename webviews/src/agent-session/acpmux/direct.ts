@@ -1789,10 +1789,10 @@ export class AcpmuxDirectClient {
           onLost();
         } else this.scheduleReconnect();
       };
-      socket.onmessage = (message) => {
-        if (this.socket === socket && !this.closed)
-          acpmuxPerf.timed("client.receive", () => this.receive(String(message.data)));
-      };
+      // A socket this client replaced still answers what was asked on it (an export that watches for
+      // the swap rejects on that answer); only its peer notes, about a connection that is gone, drop.
+      socket.onmessage = (message) =>
+        acpmuxPerf.timed("client.receive", () => this.receive(String(message.data), this.socket !== socket));
     }).catch((error: unknown) => {
       this.releaseCopyAttach(mine);
       throw error;
@@ -2453,7 +2453,7 @@ export class AcpmuxDirectClient {
     }, delay);
   }
 
-  private receive(raw: string): void {
+  private receive(raw: string, stale = false): void {
     this.wire.received(raw);
     let message: Reply | Notification;
     try {
@@ -2491,7 +2491,7 @@ export class AcpmuxDirectClient {
     }
     const notification = message as Notification;
     if (notification.method === "_acpmux/peer_state_changed") {
-      if (this.peerEvents.changed(notification.params)) {
+      if (!stale && !this.closed && this.peerEvents.changed(notification.params)) {
         this.applyPeerStates();
         if (!this.snapshotHold) this.emit();
       }
