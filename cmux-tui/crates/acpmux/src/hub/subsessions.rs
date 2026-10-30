@@ -518,8 +518,8 @@ impl Hub {
         })
     }
 
-    /// Notes a sub-session's status change in its parent's index, and tells
-    /// the parent's watchers when it starts or stops holding a live slot.
+    /// Tells the parent's watchers when a sub-session closed or reopened. Its width slot follows
+    /// every status write (`set_live`); hibernating or waking is not a close or a reopen.
     pub(super) fn subsession_status(
         &self,
         id: &str,
@@ -527,11 +527,11 @@ impl Hub {
         was: SessionStatus,
         now: SessionStatus,
     ) {
-        let event = match (holds_width_slot(was), holds_width_slot(now)) {
-            (true, false) => "closed",
-            // Reopened (a prompt to an inactive child, by the user or a client): it holds a slot
-            // again, past the limit if the parent is full.
-            (false, true) => "reopened",
+        let event = match (was == SessionStatus::Closed, now == SessionStatus::Closed) {
+            (false, true) => "closed",
+            // Reopened (a prompt to a closed child, by the user or a client): once its harness
+            // is up it holds a slot again, past the limit if the parent is full.
+            (true, false) => "reopened",
             _ => return,
         };
         if let Ok(parent) = self.resolve(&link.started_by) {
