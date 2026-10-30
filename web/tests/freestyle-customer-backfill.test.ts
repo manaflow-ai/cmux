@@ -56,6 +56,11 @@ describe("Freestyle customer backfill plan", () => {
     expect(plan).toEqual([{ kind: "invalid", vmId: "vm-a", userId: "not a valid id" }]);
   });
 
+  test("a deleted account's shared-team machine is reported, never tagged with the sentinel", () => {
+    const plan = planFreestyleCustomerBackfill([{ id: "vm-a", state: "paused", customerId: ALICE }], [row("vm-a", "deleted-account")]);
+    expect(plan).toEqual([{ kind: "invalid", vmId: "vm-a", userId: "deleted-account" }]);
+  });
+
   test("summary counts every kind", () => {
     const plan = planFreestyleCustomerBackfill(
       [{ id: "vm-a", state: "running" }, { id: "vm-b", state: "running", customerId: ALICE }, { id: "vm-c", state: "running" }],

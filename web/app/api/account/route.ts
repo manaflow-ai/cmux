@@ -100,10 +100,10 @@ import {
   deleteVmPublicationsForAccountDeletion,
 } from "../../../services/vm-publications/accountDeletion";
 import { vmModelPlaneRevoker } from "../../../services/vms/modelPlaneGateway";
+import { DELETED_ACCOUNT_ACTOR_ID } from "../../../services/auth/deletedAccount";
 
 
 const VAULT_OBJECT_DELETE_BATCH_SIZE = 100;
-const DELETED_ACCOUNT_ACTOR_ID = "deleted-account";
 const POSTHOG_DEFAULT_API_HOST = "https://us.posthog.com";
 const POSTHOG_PERSON_DELETE_TIMEOUT_MS = 10_000;
 const HOSTED_TENANT_DELETE_BATCH_SIZE = 2;

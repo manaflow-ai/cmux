@@ -25,7 +25,7 @@ export type BackfillAction =
   | { readonly kind: "unowned"; readonly vmId: string; readonly state: string; readonly cmux: string | null }
   /** Rows of different users name it; the database has to be fixed first. */
   | { readonly kind: "conflict"; readonly vmId: string; readonly userIds: readonly string[] }
-  /** The owner's id is outside Freestyle's customer id alphabet. */
+  /** The owner names no account Freestyle can record: outside its alphabet, or the deleted-account sentinel. */
   | { readonly kind: "invalid"; readonly vmId: string; readonly userId: string };
 
 /**

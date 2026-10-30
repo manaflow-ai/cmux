@@ -56,7 +56,7 @@ describe("Freestyle customer tag", () => {
   });
 
   test("an id Freestyle would refuse is left out instead of failing the create", async () => {
-    for (const customer of [undefined, { customerId: "" }, { customerId: "has space" }, { customerId: "x".repeat(129) }]) {
+    for (const customer of [undefined, { customerId: "" }, { customerId: "has space" }, { customerId: "x".repeat(129) }, { customerId: "deleted-account" }]) {
       const { provider, sent } = recordingFreestyle();
       await provider.create({ image: "sh-image", customer });
       expect(creates(sent)).toHaveLength(1);

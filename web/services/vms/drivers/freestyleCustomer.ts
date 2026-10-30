@@ -1,4 +1,5 @@
 import type { Vm, VmData } from "freestyle";
+import { DELETED_ACCOUNT_ACTOR_ID } from "../../auth/deletedAccount";
 import type { ProviderCustomer } from "./types";
 
 /**
@@ -10,11 +11,13 @@ const FREESTYLE_CUSTOMER_ID = /^[A-Za-z0-9_.:@-]{1,128}$/;
 /**
  * The customer id Freestyle should record for a machine, or null when there is
  * none to send. An id Freestyle would refuse is dropped rather than sent: the
- * customer tag must never be the reason a create fails.
+ * customer tag must never be the reason a create fails. A deleted account's
+ * shared-team machines carry a sentinel owner; sending it would make every such
+ * machine, across unrelated teams, one Freestyle customer.
  */
 export function freestyleCustomerId(customer: ProviderCustomer | undefined): string | null {
   const id = customer?.customerId.trim();
-  return id && FREESTYLE_CUSTOMER_ID.test(id) ? id : null;
+  return id && id !== DELETED_ACCOUNT_ACTOR_ID && FREESTYLE_CUSTOMER_ID.test(id) ? id : null;
 }
 
 /**
