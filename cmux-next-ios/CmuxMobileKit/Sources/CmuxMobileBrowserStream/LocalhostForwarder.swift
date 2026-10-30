@@ -7,7 +7,7 @@ private let log = Logger(subsystem: "dev.cmux.mobile", category: "localhost-forw
 
 /// A browser tab opened on this iPhone at `http(s)://localhost:<port>` loads the
 /// Mac's page, as `ssh -L` would: this iPhone listens on its own `127.0.0.1:<port>`
-/// (and `[::1]:<port>` when it can) for local connections only, and sends each
+/// (and `[::1]:<port>` when it can), which only this iPhone reaches, and sends each
 /// connection over the Mac's link as a `localhost` channel, which the Mac
 /// connects to the same port on its loopback (PROTOCOL.md `localhost`). The page
 /// keeps its origin, so its cookies, absolute links and hot-reload socket work.
@@ -61,6 +61,13 @@ public final class LocalhostForwarder {
     /// Why the Mac last refused a connection to a port ("Nothing is listening on
     /// port 3000 on this Mac."), until a connection to it goes through.
     public private(set) var refusals: [UInt16: String] = [:]
+    /// What happened to the connections pages made (tests and the log read it).
+    struct Counts: Equatable {
+        var accepted = 0
+        var refused = 0
+        var opened = 0
+    }
+    private(set) var counts = Counts()
 
     public init(open: @escaping Open) {
         self.open = open
@@ -162,7 +169,8 @@ public final class LocalhostForwarder {
     private func listen(host: NWEndpoint.Host, port: UInt16, reuse: Bool) async throws(Failure) -> NWListener {
         guard let endpointPort = NWEndpoint.Port(rawValue: port) else { throw .unavailable("bad port") }
         let parameters = NWParameters.tcp
-        parameters.acceptLocalOnly = true
+        // Bound to a loopback address: only this iPhone can connect. (`acceptLocalOnly`
+        // is about the local network, not loopback, and refused these connections.)
         // Only a port this app held before is bound with reuse (its closed connections'
         // TIME_WAIT would refuse the rebind for half a minute). A first bind never is,
         // so no other app can share a port with it, and an app already on the port
@@ -208,8 +216,16 @@ public final class LocalhostForwarder {
     /// One connection a page made to the port: to the port's Mac, and the Mac's refusal kept.
     private func serve(_ connection: NWConnection, port: UInt16) async {
         // A port stopped meanwhile forwards nothing (never to some other Mac).
+        counts.accepted += 1
         guard let forward = forwards[port], !suspended else { return connection.cancel() }
-        let refusal = await Self.pump(connection, port: port, macID: forward.macID, open: open)
+        let open = open
+        let opened = { @Sendable (macID: String?, port: UInt16) async throws -> any LinkChannel in
+            await MainActor.run { self.counts.opened += 1 }
+            return try await open(macID, port)
+        }
+        let refusal = await Self.pump(connection, port: port, macID: forward.macID, open: opened) { @Sendable in
+            await MainActor.run { self.counts.refused += 1 }
+        }
         // Kept before the page hears the connection end, so its card can say why.
         if forwards[port] === forward {
             if let refusal { refusals[port] = refusal } else if refusals[port] != nil { refusals[port] = nil }
@@ -230,7 +246,8 @@ public final class LocalhostForwarder {
     /// Passes one connection's bytes both ways until either side closes, every
     /// request through the gate. Returns the Mac's refusal, if it refused the
     /// connection before any reply. The caller cancels the connection.
-    nonisolated static func pump(_ connection: NWConnection, port: UInt16, macID: String?, open: Open) async -> String? {
+    nonisolated static func pump(_ connection: NWConnection, port: UInt16, macID: String?, open: Open,
+                                 refused: @Sendable () async -> Void = {}) async -> String? {
         connection.start(queue: queue)
         let gate = LoopbackRequestGate(port: port)
         // The Mac hears of the connection only once a whole request head passed.
@@ -241,6 +258,7 @@ public final class LocalhostForwarder {
             case .forward(let bytes): first = bytes
             case .refuse(let reason):
                 log.notice("localhost:\(port, privacy: .public): refused a request (\(reason, privacy: .public))")
+                await refused()
                 return nil
             }
         }

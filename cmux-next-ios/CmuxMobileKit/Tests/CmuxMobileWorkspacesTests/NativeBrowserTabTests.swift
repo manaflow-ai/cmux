@@ -260,6 +260,8 @@ final class DevServerChannel: LinkChannel, @unchecked Sendable {
         native.macForwardsLocalhost = { _ in true }
         let port = try await freePort()
         native.open(tab: "s1", macID: "mac-a", at: URL(string: "http://127.0.0.1:\(port)/"))
+        // Mac A's tab holds the port once WebKit asked for it.
+        for _ in 0..<1000 where native.forwarder?.ports.contains(port) != true { try await Task.sleep(for: .milliseconds(5)) }
         let other = native.open(tab: "s2", macID: "mac-b", at: URL(string: "http://127.0.0.1:\(port)/"))
         #expect(other.problem?.isMacOnly == true)
         #expect(other.problem?.detail?.contains("Another Mac's tab") == true)

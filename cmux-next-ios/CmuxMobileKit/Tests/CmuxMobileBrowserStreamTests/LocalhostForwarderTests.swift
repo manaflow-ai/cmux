@@ -105,6 +105,8 @@ final class OpenLog: @unchecked Sendable {
         #expect(forwarder.ports == [port])
 
         let first = await fetch(port)
+        #expect(forwarder.counts.accepted > 0, "the page's connection reached this iPhone's listener: \(forwarder.counts)")
+        #expect(forwarder.counts.refused == 0, "the gate passed it: \(forwarder.counts)")
         #expect(first?.status == 200)
         #expect(first?.body == "served on the Mac's loopback")
         // Another request (the page's script or image) goes the same way.

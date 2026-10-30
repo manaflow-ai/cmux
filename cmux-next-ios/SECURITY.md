@@ -356,8 +356,8 @@ manaflow-ai/cmux#13742 (comment 6534420678).
   open yet is refused (the person can type it). One port forwards to one Mac:
   while it forwards to one Mac and that Mac's tab shows it, another Mac's tab
   gets the mirror instead.
-- **On the phone.** The listeners accept local connections only
-  (`acceptLocalOnly`), so other devices on the phone's network can't use them.
+- **On the phone.** The listeners are bound to `127.0.0.1` and `[::1]`, so
+  other devices on the phone's network can't reach them.
   They run while a native tab shows the port and the app is active and linked
   (they stop in the background and come back after). A first bind never asks
   for address reuse, so no other app can share the port, and an app already on
