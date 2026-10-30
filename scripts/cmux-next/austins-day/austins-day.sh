@@ -171,7 +171,11 @@ if [ -n "$build" ]; then
 else
   read -r base_job base_commit < <(resolve "$base")
   read -r head_job head_commit < <(resolve "$head")
-  for round in $(seq 1 "$runs"); do
+  # AUSTINS_DAY_FIRST_ROUND numbers the rounds from N (a replacement round keeps the number, so the ABBA order,
+  # of the round it replaces).
+  first_round=${AUSTINS_DAY_FIRST_ROUND:-1}
+  [[ $first_round =~ ^[1-9][0-9]*$ ]] || { echo "bad AUSTINS_DAY_FIRST_ROUND: $first_round" >&2; exit 2; }
+  for round in $(seq "$first_round" $((first_round + runs - 1))); do
     # ABBA: odd rounds run the base first, even rounds the head first, so a warm-up or drift effect of the
     # run position cancels out of the arm difference (and summarize.py estimates it apart).
     # A run that got no lease or no app is tried once more (a round needs both arms to count).
