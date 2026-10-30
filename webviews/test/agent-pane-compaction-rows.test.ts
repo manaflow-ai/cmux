@@ -805,6 +805,38 @@ test("a Stop of a known turn does not swallow the next unnamed turn's Stop", asy
   }
 });
 
+// Review at f024ce96 (P1): the stopped turn's late result, naming that turn, must not end a newer
+// turn that names none; it only settles its own Stop.
+for (const kind of ["turn_result", "turn_end"] as const)
+  test(`a stopped turn's late ${kind} does not end a newer unnamed turn`, async () => {
+    const daemon = fakeDaemon(
+      record([
+        ["mux", "user_message", { text: "first", turnId: "turn-old" }],
+        ["mux", "turn_started", { turnId: "turn-old" }],
+      ]),
+    );
+    const { client, rows } = await connect(daemon);
+    const cancels = () => daemon.sent.filter((raw) => JSON.parse(raw).method === "session/cancel").length;
+    try {
+      await client.cancel();
+      daemon.push(
+        record(
+          [
+            ["mux", "user_message", { text: "legacy next" }],
+            ["mux", "turn_started", {}],
+            ["mux", kind, { turnId: "turn-old", status: "cancelled" }],
+          ],
+          3,
+        ),
+      );
+      expect(rows().some((row) => row.kind === "typing")).toBe(true);
+      await client.cancel();
+      expect(cancels()).toBe(2);
+    } finally {
+      client.close();
+    }
+  });
+
 // Review at f3f7ad83 (P2): turn_error is the legacy pair of turn_result, as turn_end is; it answers
 // an unidentified Stop the same way.
 test("a legacy turn_error answers an unidentified Stop, so the next turn's Stop is sent", async () => {
