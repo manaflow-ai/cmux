@@ -15,12 +15,12 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
 use std::io::{BufRead, BufReader};
 #[cfg(target_os = "macos")]
 use std::os::unix::net::{UnixListener, UnixStream};
-#[cfg(target_os = "macos")]
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-#[cfg(target_os = "macos")]
-use std::sync::Arc;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+#[cfg(target_os = "macos")]
+use std::sync::Arc;
+#[cfg(target_os = "macos")]
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 /// The test delay; the daemon looks for its app every [`RECHECK_MS`].
