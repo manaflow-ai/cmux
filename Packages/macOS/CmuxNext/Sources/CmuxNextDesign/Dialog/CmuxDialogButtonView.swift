@@ -124,8 +124,11 @@ public final class CmuxDialogButtonView: ClickableButton {
         CATransaction.setDisableActions(true)
         focusRing.frame = bounds.insetBy(dx: -outset, dy: -outset)
         focusRing.cornerRadius = CmuxDialogMetrics.buttonCornerRadius + outset
-        focusGap.frame = bounds
-        focusGap.cornerRadius = CmuxDialogMetrics.buttonCornerRadius
+        // Just outside the fill, so a focused button keeps its full size and its edges line up with
+        // its neighbors' (drawn inside, the band shrank the fill 3 px on every side).
+        let gap = Self.focusGapWidth
+        focusGap.frame = bounds.insetBy(dx: -gap, dy: -gap)
+        focusGap.cornerRadius = CmuxDialogMetrics.buttonCornerRadius + gap
         CATransaction.commit()
     }
 
@@ -139,12 +142,13 @@ public final class CmuxDialogButtonView: ClickableButton {
         return nil
     }
 
-    /// How far outside the button the focus ring reaches: its line only. Dialog button rows are
-    /// `Metrics.space2` (4 pt) apart, and a ring reaching further overlapped the next button (a
-    /// 4 pt outset, ring plus gap, drew over the neighbor's edge). The gap is inside (``focusGap``).
-    static let focusRingOutset: CGFloat = 2
-    static let focusRingWidth: CGFloat = 2
-    static let focusGapWidth: CGFloat = 1.5
+    /// How far outside the button the focus ring reaches: the gap (``focusGap``, on a solid fill)
+    /// then the ring's line. Dialog button rows are `Metrics.space2` (4 pt) apart, and a ring
+    /// reaching 4 pt ran into the next button; 2.5 pt leaves 1.5 pt to it. On a translucent fill
+    /// there is no gap band and the ring still sits 1 pt off the fill, the same place.
+    static let focusRingOutset: CGFloat = focusGapWidth + focusRingWidth
+    static let focusRingWidth: CGFloat = 1.5
+    static let focusGapWidth: CGFloat = 1
 
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
