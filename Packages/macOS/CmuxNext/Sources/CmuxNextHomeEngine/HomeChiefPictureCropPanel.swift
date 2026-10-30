@@ -3,7 +3,7 @@ import CmuxNextDesign
 
 /// Move and Scale for a Chief's new picture, as Messages edits a contact photo: the picture
 /// under a circle, dragged to move it and scrolled, pinched or slid to zoom; Save keeps the
-/// circle's square (``HomeChiefPictureCrop``). One small panel over the window the card was in.
+/// circle's square (``HomeChiefPictureCrop``). One small panel, a child of the window the card was in.
 @MainActor
 final class HomeChiefPictureCropPanel {
     private var panel: NSPanel?
@@ -15,13 +15,20 @@ final class HomeChiefPictureCropPanel {
         self.panel = panel
         let view = HomeChiefPictureCropView(image: image)
         view.onDone = { [weak panel] picture in
-            panel?.orderOut(nil)
+            if let panel {
+                panel.parent?.removeChildWindow(panel)
+                panel.orderOut(nil)
+            }
             if let picture { onSave(picture) }
         }
         panel.contentView = view
         panel.setContentSize(view.fittingSize)
-        if let frame = window?.frame {
+        panel.parent?.removeChildWindow(panel)
+        if let window {
+            let frame = window.frame
             panel.setFrameOrigin(NSPoint(x: frame.midX - panel.frame.width / 2, y: frame.midY - panel.frame.height / 2))
+            // A child of the window the card was in: it moves with it and stays over it.
+            window.addChildWindow(panel, ordered: .above)
         }
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(view.canvas)
