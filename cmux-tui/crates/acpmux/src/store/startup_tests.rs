@@ -7,9 +7,7 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 #[cfg(target_os = "linux")]
 fn listing_open_chats_does_not_read_their_log_directories() {
     let home = tempfile::tempdir().unwrap();
-    let store =
-        LocalStore::new(home.path().join("sessions"), 64 * 1024, &crate::supervised::embedded())
-            .unwrap();
+    let store = LocalStore::new(home.path().join("sessions"), 64 * 1024).unwrap();
     let mut meta: SessionMeta = serde_json::from_value(serde_json::json!({
         "schema": META_SCHEMA, "id": "chat", "name": "chat", "harness": "fake",
         "cwd": home.path(), "status": "idle", "createdAt": 1, "updatedAt": 1,
@@ -65,9 +63,7 @@ fn listing_open_chats_does_not_read_their_log_directories() {
 fn exact_load_checks_session_and_log_directory_privacy_before_metadata() {
     use std::os::unix::fs::{PermissionsExt, symlink};
     let home = tempfile::tempdir().unwrap();
-    let store =
-        LocalStore::new(home.path().join("sessions"), 64 * 1024, &crate::supervised::embedded())
-            .unwrap();
+    let store = LocalStore::new(home.path().join("sessions"), 64 * 1024).unwrap();
     let meta: SessionMeta = serde_json::from_value(serde_json::json!({
         "schema": META_SCHEMA, "id": "chat", "name": "chat", "harness": "fake",
         "cwd": home.path(), "status": "idle", "createdAt": 1, "updatedAt": 1,
@@ -101,9 +97,7 @@ fn exact_load_checks_session_and_log_directory_privacy_before_metadata() {
 #[test]
 fn exact_startup_load_excludes_the_same_purged_metadata_as_the_list() {
     let home = tempfile::tempdir().unwrap();
-    let store =
-        LocalStore::new(home.path().join("sessions"), 64 * 1024, &crate::supervised::embedded())
-            .unwrap();
+    let store = LocalStore::new(home.path().join("sessions"), 64 * 1024).unwrap();
     let mut meta: SessionMeta = serde_json::from_value(serde_json::json!({
         "schema": META_SCHEMA, "id": "chat", "name": "chat", "harness": "fake",
         "cwd": home.path(), "status": "closed", "createdAt": 1, "updatedAt": 1,

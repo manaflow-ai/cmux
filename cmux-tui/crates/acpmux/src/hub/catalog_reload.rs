@@ -16,9 +16,6 @@ impl Hub {
         let _one = RELOADING.get_or_init(|| tokio::sync::Mutex::new(())).lock().await;
         let (path, sources) = self.config_sources().await?;
         let peers_read = self.peer_read_gen().await;
-        // The file read back holds every save queued before this reload (`config_writer.rs`).
-        let hub = self.clone();
-        let _ = crate::daemon::spawn_blocking(move || hub.config_writer.flush()).await;
         // Disk reads and PATH discovery run outside the async executor. An
         // invalid/missing file never replaces the last accepted configuration.
         let mut next = crate::daemon::spawn_blocking(move || {

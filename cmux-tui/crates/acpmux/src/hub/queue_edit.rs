@@ -205,7 +205,7 @@ impl Hub {
         if !prompt_id.is_empty() {
             reply.set("promptId", json!(prompt_id));
         }
-        let ok = match op {
+        let new_value = match op {
             "update" => {
                 let edit = Edit::parse(params)?;
                 let updated = self
@@ -240,9 +240,7 @@ impl Hub {
                 return Err(RpcError::invalid_params(e));
             }
         };
-        // The reply says the change holds (`queue_change_logged`).
-        self.queue_change_logged(session).await?;
-        reply.set("ok", ok);
+        reply.set("ok", new_value);
         Ok(reply)
     }
 

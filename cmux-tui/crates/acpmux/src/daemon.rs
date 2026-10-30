@@ -168,7 +168,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if std::env::var("ACPMUX_LOCAL_ROUTER").as_deref() == Ok("1") {
         ensure_router();
     }
-    let store = crate::store::open_supervised(&config.store, &home(), &supervisor)?;
+    let store = crate::store::open(&config.store, &home())?;
     // The dashboard and WebSocket always run. First run picks a loopback port
     // and a random token and saves both, so the URL is stable afterwards.
     // The token is mandatory (plans/cmux-next/identity.md section 4): a saved

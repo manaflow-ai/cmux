@@ -11,14 +11,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 mod compact;
-mod log_writer;
 pub use compact::{CompactMode, Compaction, Staged};
-pub use log_writer::Progress;
 
 /// One line in the session event log.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -751,11 +749,6 @@ pub trait Store: Send + Sync {
     }
     /// Close the session's log until it is next written (a closed session's).
     fn close_log(&self, _id: &str) {}
-    /// What of session `id`'s log is on disk, as it changes; None for a store whose `append`
-    /// writes before it returns. An agent host entry is acknowledged only once it is covered.
-    fn progress(&self, _id: &str) -> Option<tokio::sync::watch::Receiver<Progress>> {
-        None
-    }
     /// Retention (`store/compact.rs`): the log's last `seq` when it was last compacted.
     fn compacted_seq(&self, _id: &str) -> Option<u64> {
         None
@@ -885,31 +878,17 @@ fn parse_record(line: &[u8]) -> serde_json::Result<EventRecord> {
     serde_json::from_slice(line)
 }
 
-/// The store of a process with no supervisor of its own (tests, one-shot commands):
-/// [`crate::supervised::embedded`].
 pub fn open(config: &StoreConfig, root: &Path) -> Result<Box<dyn Store>> {
-    open_supervised(config, root, &crate::supervised::embedded())
-}
-
-/// The store; its writer thread runs under `supervisor` (the daemon's).
-pub fn open_supervised(
-    config: &StoreConfig,
-    root: &Path,
-    supervisor: &crate::supervised::Supervisor,
-) -> Result<Box<dyn Store>> {
     Ok(match config.mode {
         StoreMode::Memory => Box::new(MemoryStore::default()),
-        StoreMode::Local => {
-            Box::new(LocalStore::new(root.join("sessions"), config.segment_bytes, supervisor)?)
-        }
+        StoreMode::Local => Box::new(LocalStore::new(root.join("sessions"), config.segment_bytes)?),
     })
 }
 
 // ---------------------------------------------------------------- memory
 
-/// A session's record and its log. The record is written on the record writer's thread
-/// (`hub/meta_writer.rs`), so a session's first records can be logged before its first save
-/// lands: the log is kept either way, as a file store's is.
+/// A session's record and its log. A session's records logged before its first save are kept,
+/// as a file store's are (the settings replay's tests log first, `hub/meta_replay_tests.rs`).
 #[derive(Default)]
 struct MemorySession {
     meta: Option<SessionMeta>,
@@ -1032,14 +1011,23 @@ mod memory_tests {
 
 pub struct LocalStore {
     root: PathBuf,
-    /// Writes the event logs on its own thread (`store/log_writer.rs`).
-    log: log_writer::LogWriter,
+    segment_bytes: u64,
+    writers: Mutex<Writers>,
 }
 
-/// The fewest logs held open: a quarter of launchd's soft limit of 256. The least recently
-/// written one is closed for a new one (`store/log_writer.rs`). A daemon held one descriptor per
-/// session it wrote since it started, closed ones too, and ran out (cmux16, 2026-10-22: 193 of
+/// The logs held open, at most `open_logs` (`open_logs_for`): the least recently written one
+/// is closed for a new one. A daemon held one descriptor per session it wrote
+/// since it started, closed ones too, and ran out (cmux16, 2026-10-22: 193 of
 /// its 256, every agent start failing with "Too many open files").
+struct Writers {
+    open: HashMap<String, SegmentWriter>,
+    /// Counts appends; a writer's `used` is the count at its last one.
+    clock: u64,
+    /// The most logs held open.
+    open_logs: usize,
+}
+
+/// The fewest logs held open: a quarter of launchd's soft limit of 256.
 const OPEN_LOGS: usize = 64;
 
 /// The most logs held open under any limit.
@@ -1052,6 +1040,26 @@ const OPEN_LOGS_MAX: usize = 2048;
 /// entries waited in the daemon.
 pub(crate) fn open_logs_for(soft: u64) -> usize {
     usize::try_from(soft / 4).unwrap_or(usize::MAX).clamp(OPEN_LOGS, OPEN_LOGS_MAX)
+}
+
+struct SegmentWriter {
+    index: u32,
+    file: File,
+    written: u64,
+    used: u64,
+}
+
+impl SegmentWriter {
+    /// Closes the log, durable first as `flush` would have made it. Called under the
+    /// writers' lock, so the cache never holds more than its `open_logs` and a session's
+    /// records stay in order. A failed sync is logged: its records were written (an append is
+    /// never synced on its own), so only a machine crash before the kernel writes them back
+    /// loses them, as it would any append since the last `flush`.
+    fn close(self, id: &str) {
+        if let Err(e) = self.file.sync_data() {
+            tracing::warn!(session = %id, "sync event log on close: {e}");
+        }
+    }
 }
 
 /// This process's soft open-file limit; the daemon raises it before it opens the store
@@ -1072,30 +1080,25 @@ fn soft_open_file_limit() -> u64 {
 }
 
 impl LocalStore {
-    pub fn new(
-        root: PathBuf,
-        segment_bytes: u64,
-        supervisor: &crate::supervised::Supervisor,
-    ) -> Result<Self> {
+    pub fn new(root: PathBuf, segment_bytes: u64) -> Result<Self> {
         crate::config::private_state_dir(&root)
             .with_context(|| format!("create private store {}", root.display()))?;
-        let log = log_writer::LogWriter::start(
-            root.clone(),
-            segment_bytes.max(64 * 1024),
-            open_logs_for(soft_open_file_limit()),
-            supervisor,
-        );
-        Ok(Self { root, log })
+        Ok(Self {
+            root,
+            segment_bytes: segment_bytes.max(64 * 1024),
+            writers: Mutex::new(Writers {
+                open: HashMap::new(),
+                clock: 0,
+                open_logs: open_logs_for(soft_open_file_limit()),
+            }),
+        })
     }
 
     fn dir(&self, id: &str) -> PathBuf {
         self.root.join(id)
     }
 
-    /// The session's segments, oldest first, once every line queued for it is written: each
-    /// read of a log lists them first, so it sees every append made before it.
     fn segments(&self, id: &str) -> Result<Vec<(u32, PathBuf)>> {
-        self.log.settle(id);
         segments_in(&self.dir(id).join("events"))
     }
 
@@ -1161,6 +1164,20 @@ impl LocalStore {
             }
         }
         Ok(false)
+    }
+
+    fn open_writer(&self, id: &str) -> Result<SegmentWriter> {
+        let dir = self.dir(id).join("events");
+        crate::config::private_state_dir(&self.dir(id))?;
+        crate::config::private_state_dir(&dir)?;
+        let segs = self.segments(id)?;
+        let (index, path) = match segs.last() {
+            Some((i, p)) => (*i, p.clone()),
+            None => (1, dir.join("000001.ndjson")),
+        };
+        let file = open_private_append(&path)?;
+        let written = file.metadata().map(|m| m.len()).unwrap_or(0);
+        Ok(SegmentWriter { index, file, written, used: 0 })
     }
 }
 
@@ -1462,14 +1479,9 @@ impl Store for LocalStore {
     }
 
     fn flush_session(&self, id: &str) -> Result<()> {
-        // `segments` waits for the log writer to write what this session queued; the writer never
-        // syncs (`store/log_writer.rs`), so each segment is synced here.
-        let segments = self.segments(id)?;
-        if self.log.progress(id).borrow().failed {
-            anyhow::bail!("the event log of {id} failed earlier; it is not all on disk");
-        }
-        for (_, path) in segments {
-            cmux_blocking::fs::open(&path)?.sync_all()?;
+        let writers = self.writers.lock_or_recover();
+        if let Some(writer) = writers.open.get(id) {
+            writer.file.sync_all()?;
         }
         let session = self.dir(id);
         sync_directory(&session.join("events"))?;
@@ -1479,15 +1491,45 @@ impl Store for LocalStore {
     }
 
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
-        // Serialized here, written on the log writer's thread (`store/log_writer.rs`). The hub
-        // appends a session's records under its append lock, so they queue in seq order.
-        let mut line = serde_json::to_vec(record)?;
-        line.push(b'\n');
-        self.log.append(id, line, record.seq)
-    }
-
-    fn progress(&self, id: &str) -> Option<tokio::sync::watch::Receiver<Progress>> {
-        Some(self.log.progress(id))
+        // One lock hold from the eviction to the write: the least recently written log is
+        // closed before this one opens, so no more than `open_logs` are ever open, and no other
+        // append comes between (a session's records stay in order). Its sync runs under the lock,
+        // once per eviction: only while more than `open_logs` sessions are written.
+        let mut writers = self.writers.lock_or_recover();
+        if !writers.open.contains_key(id)
+            && writers.open.len() >= writers.open_logs
+            && let Some(oldest) =
+                writers.open.iter().min_by_key(|(_, w)| w.used).map(|(k, _)| k.clone())
+            && let Some(w) = writers.open.remove(&oldest)
+        {
+            w.close(&oldest);
+        }
+        if !writers.open.contains_key(id) {
+            let writer = self.open_writer(id)?;
+            writers.open.insert(id.to_owned(), writer);
+        }
+        writers.clock += 1;
+        let clock = writers.clock;
+        let full = writers.open.get(id).is_some_and(|w| w.written >= self.segment_bytes);
+        if full && let Some(old) = writers.open.remove(id) {
+            // The full segment closes before the next one opens (rare: once per segment).
+            let index = old.index + 1;
+            old.close(id);
+            let path = self.dir(id).join("events").join(format!("{index:06}.ndjson"));
+            let file = open_private_append(&path)?;
+            writers
+                .open
+                .insert(id.to_owned(), SegmentWriter { index, file, written: 0, used: clock });
+        }
+        let Some(w) = writers.open.get_mut(id) else {
+            anyhow::bail!("no segment writer for session {id}");
+        };
+        w.used = clock;
+        let mut line = serde_json::to_string(record)?;
+        line.push('\n');
+        w.file.write_all(line.as_bytes())?;
+        w.written += line.len() as u64;
+        Ok(())
     }
 
     /// Reads only past `after`: a segment whose successor starts at or before `after + 1`
@@ -1687,7 +1729,10 @@ impl Store for LocalStore {
     }
 
     fn flush(&self) -> Result<()> {
-        self.log.flush()
+        for w in self.writers.lock_or_recover().open.values() {
+            w.file.sync_data()?;
+        }
+        Ok(())
     }
 
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
@@ -1700,7 +1745,10 @@ impl Store for LocalStore {
     }
 
     fn close_log(&self, id: &str) {
-        self.log.close_log(id);
+        let mut writers = self.writers.lock_or_recover();
+        if let Some(w) = writers.open.remove(id) {
+            w.close(id);
+        }
     }
 
     fn compacted_seq(&self, id: &str) -> Option<u64> {
@@ -1720,7 +1768,7 @@ impl Store for LocalStore {
     }
 
     fn delete(&self, id: &str) -> Result<()> {
-        self.log.forget(id);
+        self.writers.lock_or_recover().open.remove(id);
         let dir = self.dir(id);
         // macOS returns ENOTEMPTY when a file lands mid-removal; retry briefly.
         let mut last = None;

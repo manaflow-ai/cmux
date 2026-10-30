@@ -59,7 +59,7 @@ fn argv() -> Vec<String> {
 async fn direct(cwd: &Path, pin: Option<CwdPin>) -> Option<Arc<ChildAgent>> {
     let profile: HarnessProfile = serde_json::from_value(json!({"argv": argv()})).unwrap();
     let (inbound, _rx) = tokio::sync::mpsc::channel(16);
-    let tap: Tap = Arc::new(|_, _, _| Some(acpmux::agent::WriteTicket::done()));
+    let tap: Tap = Arc::new(|_, _, _| true);
     let supervisor = acpmux::supervised::embedded();
     let spawned = ChildAgent::spawn("pinned", &profile, cwd, inbound, tap, &supervisor);
     CwdPin::scope(pin, spawned).await.ok()

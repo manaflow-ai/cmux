@@ -14,7 +14,7 @@
 //!
 //! Each segment is rewritten beside itself (`NNNNNN.ndjson.compact`) with no lock held
 //! ([`LocalStore::stage_compaction`]) and renamed over it once nothing was appended since
-//! ([`LocalStore::commit_compaction`], under the chat's append lock and the log writer's files
+//! ([`LocalStore::commit_compaction`], under the chat's append lock and the store's writers'
 //! lock, which every `append` takes), so a segment on disk is
 //! always either the old one or the compacted one, with the same records in the same order.
 //! `events/compacted.json` records the pass in two steps: written before the first rename, so a
@@ -24,7 +24,6 @@
 use super::*;
 use compact_archive::Archive;
 use std::borrow::Cow;
-use std::io::Write;
 
 #[path = "compact_archive.rs"]
 mod compact_archive;
@@ -195,8 +194,9 @@ impl LocalStore {
     }
 
     /// Puts `staged` in place of the log it was read from, unless the log changed since (false).
-    /// The caller holds the chat's append lock; the log writer's files lock is held from the
-    /// check to the last rename (`LogWriter::with_log_closed`).
+    /// The caller holds the chat's append lock; the store's own writers' lock is held from the
+    /// check to the last rename, so no record lands meanwhile from any writer (an import's
+    /// `append` takes no chat lock).
     pub(super) fn commit_compaction(&self, id: &str, mut staged: Staged) -> Result<bool> {
         if staged.segments.iter().any(|s| s.tmp.is_none()) {
             return Ok(false);
@@ -207,12 +207,9 @@ impl LocalStore {
             complete: false,
             stats: staged.stats,
         };
-        // The log writer's files lock is held from the check to the last rename, so no record
-        // lands meanwhile from any writer (an import's `append` takes no chat lock), and the
-        // chat's next append opens the compacted segment, not the old one's descriptor.
-        let committed = self.log.with_log_closed(id, || -> Result<bool> {
-            // Not `self.segments`: it settles the log writer, which may be waiting for this lock.
-            let now = segments_in(&self.dir(id).join("events"))?;
+        {
+            let mut writers = self.writers.lock_or_recover();
+            let now = self.segments(id)?;
             let unchanged = now.len() == staged.segments.len()
                 && now.iter().zip(&staged.segments).all(|((_, path), s)| {
                     *path == s.path
@@ -226,6 +223,10 @@ impl LocalStore {
             // says complete, a later pass compacts the log again. Only a commit that goes ahead
             // writes it, so a refused one leaves the chat's folder as it was.
             write_atomic(&self.marker(id), &serde_json::to_vec_pretty(&marker)?)?;
+            // Its next append opens the compacted segment, not the old one's descriptor.
+            if let Some(w) = writers.open.remove(id) {
+                w.close(id);
+            }
             // Every segment stays, an empty one too: a reader that listed the segments a moment
             // ago opens each by its name.
             for segment in &mut staged.segments {
@@ -233,10 +234,6 @@ impl LocalStore {
                     std::fs::rename(&tmp, &segment.path)?;
                 }
             }
-            Ok(true)
-        })?;
-        if !committed {
-            return Ok(false);
         }
         sync_directory(&self.dir(id).join("events"))?;
         marker.complete = true;

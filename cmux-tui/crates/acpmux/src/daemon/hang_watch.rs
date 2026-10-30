@@ -22,9 +22,6 @@ use cmux_hang_watch::{Guard, Scope, ThreadKind};
 
 /// How long one blocking-pool item may run: Chrome's default task deadline.
 pub const BLOCKING_ITEM: Duration = cmux_hang_watch::DEFAULT_DEADLINE;
-/// How long one write of a writer thread (a config file, a session record) may run: the
-/// daemon journal writer's batch deadline (task 073).
-pub const WRITE_ITEM: Duration = Duration::from_secs(5);
 /// The name a blocking-pool thread that is not registered yet is watched under for its item.
 pub const BLOCKING_THREAD: &str = "acpmux-blocking";
 

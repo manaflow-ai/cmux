@@ -45,7 +45,7 @@ fn local_store_makes_existing_state_private_and_writes_private_events() {
         std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o644)).unwrap();
     }
 
-    let store = LocalStore::new(root.clone(), 64 * 1024, &crate::supervised::embedded()).unwrap();
+    let store = LocalStore::new(root.clone(), 64 * 1024).unwrap();
     let _ = store.list().unwrap();
     store
         .append(
@@ -79,7 +79,7 @@ fn local_store_makes_existing_state_private_and_writes_private_events() {
 fn a_strict_read_fails_when_the_log_cannot_be_listed() {
     let temp = TempDir::new();
     let root = temp.0.join("sessions");
-    let store = LocalStore::new(root.clone(), 64 * 1024, &crate::supervised::embedded()).unwrap();
+    let store = LocalStore::new(root.clone(), 64 * 1024).unwrap();
     let record = EventRecord {
         seq: 1,
         at: 1,
@@ -89,8 +89,6 @@ fn a_strict_read_fails_when_the_log_cannot_be_listed() {
         host_seq: None,
     };
     store.append("session-1", &record).unwrap();
-    // The store's writer appends on a thread of its own: the segment is on disk once it settles.
-    store.log.settle("session-1");
     let events = root.join("session-1").join("events");
     std::fs::remove_dir_all(&events).unwrap();
     std::fs::write(&events, "not a directory").unwrap();
@@ -109,7 +107,7 @@ fn local_store_refuses_a_symlinked_existing_session() {
     std::fs::create_dir_all(&root).unwrap();
     std::fs::create_dir_all(&outside).unwrap();
     std::os::unix::fs::symlink(&outside, root.join("linked-session")).unwrap();
-    let store = LocalStore::new(root, 64 * 1024, &crate::supervised::embedded()).unwrap();
+    let store = LocalStore::new(root, 64 * 1024).unwrap();
     assert!(store.list().is_err());
 }
 
@@ -124,5 +122,5 @@ fn local_store_refuses_a_state_root_with_an_extended_acl() {
         .status()
         .unwrap();
     assert!(status.success());
-    assert!(LocalStore::new(root, 64 * 1024, &crate::supervised::embedded()).is_err());
+    assert!(LocalStore::new(root, 64 * 1024).is_err());
 }

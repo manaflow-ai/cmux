@@ -18,7 +18,7 @@ async fn direct_spawn_failure_does_not_expose_harness_argv() {
     }))
     .unwrap();
     let (inbound, _rx) = mpsc::channel(1);
-    let tap: Tap = Arc::new(|_, _, _| Some(WriteTicket::done()));
+    let tap: Tap = Arc::new(|_, _, _| true);
     let (temp, supervisor) = (std::env::temp_dir(), crate::supervised::embedded());
     let error = match ChildAgent::spawn("missing", &profile, &temp, inbound, tap, &supervisor).await
     {
@@ -37,7 +37,7 @@ async fn a_durable_withdrawal_never_logs_an_unscoped_raw_cursor() -> anyhow::Res
     let recorded = cursors.clone();
     let tap: Tap = Arc::new(move |_, _, seq| {
         recorded.lock().unwrap_or_else(|e| e.into_inner()).push(seq);
-        Some(WriteTicket::done())
+        true
     });
     let (tx, mut rx) = mpsc::channel(8);
     let agent = ChildAgent::spawn(
@@ -68,7 +68,7 @@ async fn a_durable_withdrawal_never_logs_an_unscoped_raw_cursor() -> anyhow::Res
     })
     .await;
     agent.kill().await;
-    assert!(result?.is_some(), "the cancellation was not stored");
+    assert!(result?, "the cancellation was not stored");
     assert_eq!(
         *cursors.lock().unwrap_or_else(|e| e.into_inner()),
         vec![None],
@@ -100,7 +100,7 @@ async fn direct_children_give_withdrawals_distinct_request_owners() -> anyhow::R
             &profile,
             &std::env::temp_dir(),
             inbound,
-            Arc::new(|_, _, _| Some(WriteTicket::done())),
+            Arc::new(|_, _, _| true),
             &crate::supervised::embedded(),
         )
         .await?;

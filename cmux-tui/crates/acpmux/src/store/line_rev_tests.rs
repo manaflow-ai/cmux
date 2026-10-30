@@ -53,7 +53,7 @@ fn tail_after_hands_the_meta_replay_kinds_oldest_first_and_counts_the_tail() {
     let segment = events.join("000001.ndjson");
     std::fs::write(&segment, text).unwrap();
     std::fs::set_permissions(&segment, std::fs::Permissions::from_mode(0o600)).unwrap();
-    let store = LocalStore::new(root.clone(), 64 * 1024, &crate::supervised::embedded()).unwrap();
+    let store = LocalStore::new(root.clone(), 64 * 1024).unwrap();
     let mut seen = Vec::new();
     let tail = store.tail_after("s", 2, &["renamed", "policy"], &mut |rec| {
         seen.push((rec.seq, rec.kind));

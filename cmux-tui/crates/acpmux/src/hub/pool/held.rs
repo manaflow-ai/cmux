@@ -43,7 +43,7 @@ pub(super) fn holding_tap(
                 {
                     reported();
                 }
-                Some(crate::agent::WriteTicket::done())
+                true
             }
             TapSlot::Live(live) => {
                 let live = live.clone();

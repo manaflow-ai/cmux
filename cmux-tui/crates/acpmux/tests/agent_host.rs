@@ -558,8 +558,7 @@ async fn hosted_agent(
     logs: bool,
 ) -> std::sync::Arc<acpmux::agent::ChildAgent> {
     let (inbound, _) = tokio::sync::mpsc::channel(64);
-    let tap: acpmux::agent::Tap =
-        std::sync::Arc::new(move |_, _, _| logs.then(acpmux::agent::WriteTicket::done));
+    let tap: acpmux::agent::Tap = std::sync::Arc::new(move |_, _, _| logs);
     let attached = acpmux::agent::ChildAgent::attach_hosted(
         "fake",
         record.clone(),
