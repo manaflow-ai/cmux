@@ -61,9 +61,12 @@ extension WorkspaceRowView {
         // connect (`SidebarLayout.machineLabel`, "gpu-box · Failed to start"), which no line draws (Leo
         // 2026-10-30: "remove the second line"). The whole name is compared, so a name with " · " in it
         // still counts.
-        if let machine = content.machine,
-           !(detail == machine.name || detail?.hasPrefix(machine.name + WorkspaceRowContent.separator) == true) {
-            parts.append(content.machineLabel ?? machine.name)
+        // Said whether or not the row draws a mark (with one machine listed it draws none).
+        if let spoken = content.machineLabel ?? content.machine?.name {
+            let name = content.machine?.name ?? spoken
+            if !(detail == name || detail?.hasPrefix(name + WorkspaceRowContent.separator) == true || detail?.hasPrefix(spoken) == true) {
+                parts.append(spoken)
+            }
         }
         parts += presence.map(Strings.presenceLine)
         return parts.joined(separator: ", ")

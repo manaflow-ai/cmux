@@ -57,8 +57,9 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// The computer the workspace runs on, while the sidebar lists more than one (SidebarMachineMark).
     public var machine: SidebarMachineMark?
     /// The computer as a one-list row names it, with its status when it cannot connect
-    /// (`gpu-box · Failed to start`, `SidebarLayout.machineLabel`): no line draws it any more (Leo
-    /// 2026-10-30), so the row's accessibility label says it. Nil for this Mac and a grouped sidebar.
+    /// (`gpu-box · Failed to start`, `SidebarLayout.machineLabel`; set by `SidebarLayoutOptions.rowContent`
+    /// in every row mode): no line draws it any more (Leo 2026-10-30), so the row's accessibility label
+    /// says it, whether or not the row draws a machine mark. Nil for this Mac and a grouped sidebar.
     public var machineLabel: String?
     /// The session tree (`sidebar.sessionTree`): 1 under the workspace whose agent started this one's.
     public var treeDepth = 0
@@ -139,7 +140,6 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
             status: status
         )
         trailingStatus = trailing
-        machineLabel = Self.nonEmpty(machine)
         badgeTime = set.secondLine.contains(.lastActivity) ? nil : ws.lastActivity.map { Self.ageText($0, now: now, ages: ages) }
     }
 

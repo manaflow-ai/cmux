@@ -84,6 +84,28 @@ import Testing
         #expect(text.components(separatedBy: "gpu-box").count - 1 == 1, "the computer was named twice: \(text)")
     }
 
+    /// Review of #28510 at 58ee6d24 (P1): every row mode says the failed machine's status, and a row that draws no
+    /// mark (only that one machine listed, so no marks) still names the computer.
+    @Test(arguments: ["compact", "minimal", "tabs", "expanded", "unmarked"])
+    func everyRowModeSpeaksAFailedMachinesStatus(_ mode: String) throws {
+        let model = SidebarModel(sections: [mac, vm].map(section))
+        var o = model.listOptions()
+        o.machineStatusLabels[vm.id] = "Failed to start"
+        switch mode {
+        case "minimal": o.minimal = true
+        case "tabs": o.workspacesAsTabs = true
+        case "expanded": o.expanded = true
+        case "unmarked": o.machines = [:]
+        default: break
+        }
+        let ws = SidebarWorkspace(id: WorkspaceID("w"), machineID: vm.id, title: "w", directory: "~/code/app")
+        let content = o.rowContent(ws, machine: SidebarLayout.machineLabel(section(vm), options: o))
+        if mode == "unmarked" { #expect(content.machine == nil, "fixture: no mark drawn") }
+        let text = WorkspaceRowView.accessibilityText(ws, content: content, tabCount: nil, presence: [])
+        #expect(text.contains("gpu-box · Failed to start"), "\(mode): VoiceOver lost the failed machine's status: \(text)")
+        #expect(text.components(separatedBy: "gpu-box").count - 1 == 1, "\(mode): the computer was named twice: \(text)")
+    }
+
     /// A machine whose name holds the row's separator (`gpu · box`) is still named once.
     @Test func aNameWithTheSeparatorIsNamedOnce() throws {
         let dotted = SidebarMachine(id: MachineID("dotted"), name: "gpu · box", kind: .ssh)
