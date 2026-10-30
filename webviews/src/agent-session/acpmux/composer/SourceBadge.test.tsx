@@ -1,12 +1,12 @@
 // l10n-allow-file: test fixture app names, not shipped UI.
 // The source app's icon at an attachment's top-right corner (SourceBadge.tsx): the host's own PNG
 // for a known app, nothing for an unknown source or an answer that is not one.
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, setSystemTime, test } from "bun:test";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AttachmentSource } from "../attachments";
-import { resetSourceIcons, SourceBadge, withSourceLabel } from "./SourceBadge";
+import { ICON_RETRY_MS, resetSourceIcons, SourceBadge, withSourceLabel } from "./SourceBadge";
 
 const PNG = "data:image/png;base64,iVBORw0KGgo=";
 const chrome: AttachmentSource = { name: "Google Chrome", bundleId: "com.google.Chrome", site: "github.com" };
@@ -27,6 +27,7 @@ afterEach(async () => {
   }
   saved.clear();
   resetSourceIcons();
+  setSystemTime();
 });
 
 /// Renders `node` with the host answering `attachment.sourceIcon` by `answer`; returns the
@@ -108,4 +109,29 @@ test("the tooltip puts the source under the tile's own title", () => {
   expect(withSourceLabel("image.png", "From Finder")).toBe("image.png\nFrom Finder");
   expect(withSourceLabel(undefined, "From Finder")).toBe("From Finder");
   expect(withSourceLabel("image.png", undefined)).toBe("image.png");
+});
+
+test("an app whose icon the host did not draw gets it on a later attachment, one ask at a time", async () => {
+  setSystemTime(new Date(1_000_000));
+  let draws = false;
+  const first = await render(<SourceBadge source={chrome} />, () => (draws ? { src: PNG } : {}));
+  expect(first.container.innerHTML).toBe("");
+  expect(first.asked).toEqual(["com.google.Chrome"]);
+  // The host can draw it now (this Mac said a new attachment came from it).
+  draws = true;
+  // Too soon after the empty answer: no new ask.
+  const soon = await render(<SourceBadge source={chrome} />, () => ({ src: PNG }));
+  expect(soon.asked).toEqual([]);
+  expect(soon.container.innerHTML).toBe("");
+  // The next attachment from that app, past the wait: one ask, and the badge shows.
+  setSystemTime(new Date(1_000_000 + ICON_RETRY_MS + 1));
+  const later = await render(
+    <>
+      <SourceBadge source={chrome} />
+      <SourceBadge source={chrome} />
+    </>,
+    () => ({ src: PNG }),
+  );
+  expect(later.asked).toEqual(["com.google.Chrome"]);
+  expect(later.container.querySelectorAll(".acpmux-source-badge img").length).toBe(2);
 });

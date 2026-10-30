@@ -9,15 +9,25 @@ import type { AttachmentSource } from "../attachments";
 import { useT } from "../i18n";
 import { callHost } from "./attachmentSources";
 
-/// Each app's icon once the host answered: its data URL, or null for none. Kept for the page's life
+/// Each app's icon once the host drew it: its data URL. Only answers are kept, for the page's life
 /// (a person's sources are a handful of apps).
-const icons = new Map<string, string | null>();
-const asked = new Set<string>();
+const icons = new Map<string, string>();
+/// The apps asked now: at most one ask per app is in flight.
+const asking = new Set<string>();
+/// When each app's last ask came back with no icon (refused, empty, not a PNG). The host may draw it
+/// later (this Mac said a new attachment came from it), so the next badge of that app asks again,
+/// but no sooner than ``ICON_RETRY_MS`` after.
+const failed = new Map<string, number>();
 const listeners = new Set<() => void>();
 
+/// How long after an ask that came back with no icon the next badge of that app may ask again.
+export const ICON_RETRY_MS = 30_000;
+
 function askIcon(bundleId: string): void {
-  if (asked.has(bundleId)) return;
-  asked.add(bundleId);
+  if (icons.has(bundleId) || asking.has(bundleId)) return;
+  const at = failed.get(bundleId);
+  if (at !== undefined && Date.now() - at < ICON_RETRY_MS) return;
+  asking.add(bundleId);
   void callHost("attachment.sourceIcon", { bundleId })
     .then((answer) => {
       const src = (answer as { src?: unknown } | null | undefined)?.src;
@@ -25,6 +35,12 @@ function askIcon(bundleId: string): void {
     })
     .catch(() => null)
     .then((src) => {
+      asking.delete(bundleId);
+      if (!src) {
+        failed.set(bundleId, Date.now());
+        return;
+      }
+      failed.delete(bundleId);
       icons.set(bundleId, src);
       for (const listener of listeners) listener();
     });
@@ -39,7 +55,7 @@ const subscribe = (listener: () => void) => {
 
 /// The data URL of the icon of the app `bundleId` names, once the host drew it.
 export function useSourceIcon(bundleId: string | undefined): string | undefined {
-  const read = useCallback(() => (bundleId ? (icons.get(bundleId) ?? undefined) : undefined), [bundleId]);
+  const read = useCallback(() => (bundleId ? icons.get(bundleId) : undefined), [bundleId]);
   const src = useSyncExternalStore(subscribe, read, read);
   useEffect(() => {
     if (bundleId) askIcon(bundleId);
@@ -79,5 +95,6 @@ export function SourceBadge({ source }: { source: AttachmentSource | undefined }
 /// Forgets the icons (the gallery's fixtures, a test).
 export function resetSourceIcons(): void {
   icons.clear();
-  asked.clear();
+  asking.clear();
+  failed.clear();
 }

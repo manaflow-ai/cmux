@@ -237,7 +237,7 @@ export default componentEntry<Props>({
   area: "Composer",
   pane: true,
   height: 420,
-  widths: { normal: 620, narrow: 340 },
+  widths: { normal: 780, narrow: 340 },
   covers: [
     "agent-session/acpmux/composer/SourceBadge.tsx#SourceBadge",
     "agent-session/acpmux/composer/VideoAttachmentTile.tsx#VideoAttachmentTile",
