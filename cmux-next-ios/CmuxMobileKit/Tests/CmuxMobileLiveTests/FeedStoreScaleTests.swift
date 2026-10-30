@@ -1,4 +1,4 @@
-import CmuxMobileFeed
+@testable import CmuxMobileFeed
 import Foundation
 import Observation
 import Testing
@@ -41,6 +41,23 @@ import Testing
         #expect(store.items.filter(\.isRead).map(\.id).sorted() == ["i1", "i2", "i3"])
         store.markRead(["i1", "i2"])
         #expect(writes == 1)
+    }
+
+    /// Sign-out then sign-in again before the disk queue drains: the marks saved after the
+    /// removal are the ones on disk (an earlier write must not take them, then be deleted).
+    @Test func aSaveAfterARemovalLandsWhenAllThreeWereQueued() throws {
+        let url = FileManager.default.temporaryDirectory.appending(path: "readmarks-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let marks = FeedReadMarks(url: url)
+        FeedReadMarks.queue.suspend()
+        marks.save(["a"])
+        marks.remove()
+        marks.save(["b"])
+        FeedReadMarks.queue.resume()
+        FeedReadMarks.flush()
+        #expect(marks.load() == ["b"])
+        let onDisk = try? JSONDecoder().decode([String].self, from: Data(contentsOf: url))
+        #expect(onDisk == ["b"])
     }
 
     @Test func readMarksSaveOffTheCallerAndReloadInOrder() throws {

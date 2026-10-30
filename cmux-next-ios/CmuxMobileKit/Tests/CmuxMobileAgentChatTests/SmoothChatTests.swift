@@ -229,7 +229,7 @@ import Testing
         #expect(cache.computations == 1)
         #expect(!onMain.value)
         // Ready now: the next open reuses it.
-        #expect(await cache.changeSetReady(for: store.turns[2]) == changes)
+        #expect(cache.changeSetNow(for: store.turns[2]) == changes)
         #expect(cache.computations == 1)
     }
 }
@@ -297,3 +297,31 @@ final class OnMainFlag: @unchecked Sendable {
     func set() { lock.withLock { flag = true } }
     var value: Bool { lock.withLock { flag } }
 }
+
+#if os(iOS)
+import UIKit
+
+/// A row queued for an off-main layout just before the environment changed (a rotation,
+/// Dynamic Type, the code wrap setting) is queued again for the new one, not skipped until
+/// the discarded batch lands (it would then be laid out on the main thread as it scrolls in).
+@MainActor
+@Suite struct NativeLayoutQueueTests {
+    @MainActor final class Landed {
+        var ids: [String] = []
+    }
+
+    @Test func aRowQueuedBeforeAnEnvironmentChangeIsLaidOutForTheNewOne() async throws {
+        let layouts = ChatNativeLayouts()
+        layouts.environment = ChatNativeEnvironment(width: 390, category: .large, wrapCode: false)
+        let job = ChatNativeLayouts.Job(id: "r", revision: 1, kind: .stopped, expanded: false)
+        let landed = Landed()
+        layouts.prepare([job], urgent: true) { landed.ids += $0 }
+        layouts.environment = ChatNativeEnvironment(width: 844, category: .large, wrapCode: false)
+        layouts.prepare([job], urgent: true) { landed.ids += $0 }
+        for _ in 0..<400 where landed.ids.isEmpty { try await Task.sleep(for: .milliseconds(5)) }
+        #expect(landed.ids == ["r"])
+        #expect(layouts.has("r", revision: 1, expanded: false))
+        #expect(layouts.madeNow == 0)
+    }
+}
+#endif

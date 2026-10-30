@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Testing
+@testable import CmuxMobileAgentChat
 @testable import CmuxMobileArtifacts
 @testable import CmuxMobileDiff
 
@@ -253,5 +254,19 @@ import Testing
         newGate.continuation.yield()
         #expect(await third.value == "new")
         #expect(memo.makesStarted == 2)
+    }
+}
+
+/// An edited-files card's viewed marks follow the file's content: a new diff of the same
+/// file with the same line and addition counts is not shown as already viewed.
+@MainActor
+@Suite struct CardViewedKeyTests {
+    @Test func aChangedDiffWithTheSameCountsGetsItsOwnKey() {
+        let first = DiffFile(path: "a/b.swift", oldText: "a\nb\n", newText: "a\nB\n")
+        let second = DiffFile(path: "a/b.swift", oldText: "a\nc\n", newText: "a\nC\n")
+        #expect(first.lines.count == second.lines.count && first.additions == second.additions)
+        #expect(ChatNativeRowActions.viewedKey(first, in: "t-1") == DiffViewedStore.key(for: first))
+        #expect(ChatNativeRowActions.viewedKey(second, in: "t-1") == DiffViewedStore.key(for: second))
+        #expect(ChatNativeRowActions.viewedKey(first, in: "t-1") != ChatNativeRowActions.viewedKey(second, in: "t-1"))
     }
 }
