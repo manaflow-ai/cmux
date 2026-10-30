@@ -216,14 +216,15 @@ test("held input does not apply a browser clamp twice when rows above shrink", a
     });
     const parked = node.scrollTop;
     // Model the browser clamping the live offset in the DOM commit before React's layout pass.
+    let offset = node.scrollTop;
     Object.defineProperty(node, "scrollHeight", { configurable: true, get: height });
     Object.defineProperty(node, "scrollTop", {
       configurable: true,
       get() {
-        return Math.min(offsets.get(node) ?? 0, height() - VIEWPORT);
+        return Math.min(offset, height() - VIEWPORT);
       },
       set(top: number) {
-        offsets.set(node, Math.min(top, height() - VIEWPORT));
+        offset = Math.min(top, height() - VIEWPORT);
       },
     });
     await act(async () => render(rows));

@@ -1,3 +1,5 @@
+import { railOwnsWheel } from "../threadMinimap/railWheel";
+
 /// Automatic transcript motion yields for one second after the last manual input.
 export const USER_SCROLL_INTENT_MS = 1000;
 const SCROLL_KEYS = new Set([
@@ -98,7 +100,10 @@ export function attachUserScrollIntent(node: HTMLElement): () => void {
   const intent = userScrollIntent(node);
   const page = node.ownerDocument;
   let pressed = false;
-  const mark = (event: Event) => intent.mark(event);
+  // A wheel over a rail that scrolls itself moves the rail, not the transcript (railWheel.ts).
+  const mark = (event: Event) => {
+    if (!railOwnsWheel(event)) intent.mark(event);
+  };
   const down = (event: Event) => {
     pressed = true;
     intent.press(true);
