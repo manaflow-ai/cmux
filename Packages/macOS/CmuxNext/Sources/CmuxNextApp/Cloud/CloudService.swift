@@ -172,7 +172,16 @@ final class CloudService {
                     }
                     return CloudCodexBrokerAdapter.Launch(executable: acpmux.executable, prefix: [], codex: codex)
                 }
-            }, target: { scope, machineID in CloudCodexBrokerTarget(api: machineAPI, machineID: machineID, scope: scope) })
+            }, target: { [linkSource = configuration.linkSource, weak machines] scope, machineID in
+                guard linkSource == .appServer else { return CloudCodexBrokerTarget(api: api, machineID: machineID, scope: scope) }
+                // A Worker machine: its app link's own owner answer and the app's record, never /api/vm.
+                return CloudCodexBrokerTarget(api: machineAPI, machineID: machineID, scope: scope, callerOwnsVM: {
+                    guard let link = await MainActor.run(body: { machines?.session(machineID)?.appLink }) else { return false }
+                    return await link.ownerLink != nil
+                }, isLive: {
+                    await MainActor.run { machines?.session(machineID)?.machine.status.isLive ?? false }
+                })
+            })
         hostReplica = CloudHostReplicaFollower(origin: HomeCloudLease.origin(configuration.ownerAPIBaseURL()),
             clientVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
             installToken: { [installIdentity] in let token = try await installIdentity.installToken(); return (token, HomeCloudLease.expiry(ofJWT: token) ?? HomeCloudLease.fallbackExpiry(now: Date())) },

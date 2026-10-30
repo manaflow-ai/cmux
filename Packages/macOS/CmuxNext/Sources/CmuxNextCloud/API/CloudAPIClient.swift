@@ -63,6 +63,10 @@ public struct CloudAPIClient: Sendable {
     /// `/v1/cloud/machines/{id}/` on the cmux API Worker (`baseURL`:
     /// ``CloudConfiguration/ownerAPIBaseURL(environment:)``), with this install's token as the
     /// only credential (cmux-platform#89, backend cloud-machine-exec). Only those routes serve there.
+    /// The token's own team claim picks the team, the same team the app link lists its machines
+    /// in (the credential relay's token), so ``pinningTeam(_:)`` changes nothing here: a Stack team
+    /// id is not a cmux API team, and the flows that pin one (credential recovery, the Codex
+    /// broker, a create's bootstrap) act only on the caller's own machine.
     public static func workerMachines(baseURL: URL, installToken: @escaping @Sendable () async throws -> String,
                                       session: URLSession = CloudAPIClient.noStoreTransport,
                                       appVersion: String = "cmux-next") -> CloudAPIClient {
