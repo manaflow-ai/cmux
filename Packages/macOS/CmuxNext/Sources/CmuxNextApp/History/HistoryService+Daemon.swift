@@ -22,12 +22,16 @@ extension HistoryService {
         // Commands are every connected daemon's terminal command rows (terminal-command-history-v1),
         // read by `commands`; the local daemon lists only its own.
         let appRead: Set<HistoryEntry.Kind> = [.command]
-        let kinds = query.kinds.isEmpty ? Set(HistoryEntry.Kind.allCases).subtracting(appRead) : query.kinds.subtracting(appRead)
+        var kinds = query.kinds.isEmpty ? Set(HistoryEntry.Kind.allCases).subtracting(appRead) : query.kinds.subtracting(appRead)
         var all: [HistoryEntry] = []
+        if kinds.remove(.closed) != nil {
+            all = await Self.filteredClosedDaemonEntries(query, closed: { self.closedEntries() }) { request in
+                try await daemon.list(kinds: request.kinds, text: request.text, range: request.range, limit: request.limit)
+            }
+        }
         if !kinds.isEmpty {
             let rows = (try? await daemon.list(kinds: kinds, text: query.text, range: query.range, limit: query.limit)) ?? []
-            let entries = rows.compactMap { $0.historyEntry(untitled: Strings.untitledTerminal) }.map { reachable($0) }
-            all = Self.enrichClosedEntries(entries, from: kinds.contains(.closed) ? closedEntries() : [])
+            all += rows.compactMap { $0.historyEntry(untitled: Strings.untitledTerminal) }.map { reachable($0) }
         }
         if wantsCommands {
             await commands.refresh()
@@ -36,6 +40,21 @@ extension HistoryService {
         all.sort { ($0.time, $0.id) > ($1.time, $1.id) }
         if let limit = query.limit, all.count > limit { all.removeLast(all.count - limit) }
         return all
+    }
+
+    /// Closed rows gain searchable titles and agent identity only in the app. Fetch them
+    /// separately so unrelated history cannot consume the daemon's page before enrichment,
+    /// and apply the user's text and result limit afterwards.
+    static func filteredClosedDaemonEntries(
+        _ query: HistoryQuery,
+        closed: () -> [HistoryEntry],
+        list: (HistoryQuery) async throws -> [DaemonHistoryEntry]
+    ) async -> [HistoryEntry] {
+        // Use the history API's full page, not its default 500 or the user's display limit.
+        let request = HistoryQuery(kinds: [.closed], range: query.range, limit: 5_000)
+        let rows = (try? await list(request)) ?? []
+        let entries = rows.compactMap { $0.historyEntry(untitled: Strings.untitledTerminal) }
+        return query.apply(to: enrichClosedEntries(entries, from: closed()))
     }
 
     /// One entry by id: commands from every machine's rows, everything else from the daemon's newest

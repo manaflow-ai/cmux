@@ -57,6 +57,41 @@ struct ClosedAgentIdentityTests {
         #expect(HistoryService.enrichClosedEntries([original], from: [otherMachine]) == [original])
     }
 
+    @Test func daemonClosedSearchFiltersAfterEnrichmentAndBeforeLimit() async throws {
+        // Put the matching chat beyond both the requested limit and the daemon's default
+        // 500-row page. Newer unrelated rows must not crowd it out before enrichment.
+        let rows = try (1...501).map { index in
+            try JSONDecoder().decode(DaemonHistoryEntry.self, from: Data("""
+                {"id":"closed:closed_\(index)","kind":"closed","at_ms":"\(index)",
+                 "title":"\(index == 1 ? "" : "Other")","closed_kind":"browser_tab","available":true}
+                """.utf8))
+        }
+        let original = try #require(rows.first?.historyEntry(untitled: "Terminal fallback"))
+        let record = CmuxNextHistory.ClosedItem(id: "daemon:closed_1", kind: .browserTab,
+                                               title: AgentPaneModel.tabTitle, machine: "local",
+                                               agentSession: .init(sessionID: "same-session", harness: "codex"))
+        let known = HistoryEntry(id: "closed:daemon:closed_1", kind: .closed, time: original.time,
+                                 title: record.title, payload: .closed(record))
+        for text in ["same-session", "codex", AgentPaneModel.tabTitle, "no-such-chat"] {
+            let query = HistoryQuery(text: text, kinds: [.closed], limit: 1)
+            let matches = await HistoryService.filteredClosedDaemonEntries(query, closed: { [known] }) { request in
+                #expect(request.kinds == [.closed])
+                #expect(request.range == query.range)
+                var daemonQuery = request
+                daemonQuery.limit = request.limit ?? 500
+                let raw = rows.compactMap { $0.historyEntry(untitled: "Terminal fallback") }
+                let ids = Set(daemonQuery.apply(to: raw).map(\.id))
+                return rows.filter { ids.contains($0.id) }
+            }
+            #expect(matches.map(\.id) == (text == "no-such-chat" ? [] : [original.id]))
+            if let match = matches.first {
+                #expect(match.title == AgentPaneModel.tabTitle)
+                guard case .closed(let item) = match.payload else { Issue.record("not closed"); return }
+                #expect(item.agentSession?.sessionID == "same-session")
+            }
+        }
+    }
+
     @Test func closedContainersRetainTheirOwnKind() throws {
         var item = try Self.closed()
         #expect(HistoryService.closedAgentSession(item)?.harness == "codex")
