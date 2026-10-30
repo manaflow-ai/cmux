@@ -143,4 +143,28 @@ struct CloudWorkspaceRestoreTests {
         services.machines.add(session)
         return session
     }
+
+    /// Review of #28358: the account-list rule is for Cloud machines only. A forgotten SSH machine
+    /// or server is not in any Cloud list, so while signed out of Cloud its workspaces must still
+    /// be gone, as before B7b.
+    @Test func aForgottenSSHOrServerMachinesWorkspaceIsStillGoneWhileSignedOutOfCloud() throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        try #require(!services.cloud.isSignedIn && !services.cloud.auth.isRestoring, "the test runs signed out")
+        services.machines.local.store.apply(snapshot: DaemonTree(registryID: "s-local"))
+        let windows = services.windows
+        var record = WindowRecord(id: "w1", workspaceKey: WorkspaceKey(rawValue: "ws-ssh"),
+                                  workspaceKeys: [WorkspaceKey(rawValue: "ws-ssh"), WorkspaceKey(rawValue: "ws-server")])
+        record.workspaceMachines = ["ws-ssh": "ssh-0a1b2c3d4e5f", "ws-server": "server-host-1"]
+        windows.rememberMachines(of: WindowStateDocument(windows: [record]))
+        #expect(windows.isDead("ws-ssh"), "a forgotten SSH machine's workspace is kept while signed out of Cloud")
+        #expect(windows.isDead("ws-server"), "a forgotten server's workspace is kept while signed out of Cloud")
+    }
+
+    @Test func onlyCloudMachineIDsAreCloud() {
+        #expect(MachineRegistry.isCloudMachineID("vm-restore"))
+        #expect(!MachineRegistry.isCloudMachineID("ssh-0a1b2c3d4e5f"))
+        #expect(!MachineRegistry.isCloudMachineID("server-host-1"))
+        #expect(!MachineRegistry.isCloudMachineID(MachineRegistry.localID))
+    }
 }
