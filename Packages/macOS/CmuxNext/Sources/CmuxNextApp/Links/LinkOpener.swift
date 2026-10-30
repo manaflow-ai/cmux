@@ -333,11 +333,6 @@ final class LinkOpener {
             if moved {
                 if let intent { source.workspace?.expectFocus(on: surface, target: target, awayFrom: source.paneKey, generation: intent) }
                 if column { await AgentBesidePlacement.revealMoved(tab.id, from: anchor, services: services) }
-                // The daemon move places the tab in its destination pane, but its selection can
-                // remain on that pane's previous tab. Foreground opens must show the tab they add.
-                if focus, let destination = services.locateTab(tab.id).flatMap({ services.paneController(for: $0.1) }) {
-                    destination.selectWhenReported(surface: surface)
-                }
                 return nil
             }
             source.select(StripTabID(tab.id))
