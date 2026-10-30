@@ -241,12 +241,14 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 keywords: ["remove", "all", "windows", "everything", "clear"], category: .workspace, symbol: "xmark.rectangle.portrait",
                 surfaces: [.palette, .menu], cliName: "workspace close-all-in-all-windows", mainMenu: .file, destructive: true
             ),
+            // `pinned` sets the state (`cmux workspace <ws> pin|unpin`, MCP `app_workspace_pin_unpin`,
+            // cmux#25586); without it the action toggles.
             ActionDescriptor(
                 id: "palette.toggleWorkspacePin",
                 title: String(localized: "action.palette.toggleWorkspacePin", defaultValue: "Pin/Unpin Workspace", bundle: .module),
                 keywords: ["pin", "unpin", "favorite"], category: .workspace, symbol: "pin",
-                surfaces: [.palette, .menu, .contextMenu, .keyboard], targets: [.workspace], cliName: "workspace pin-unpin",
-                mainMenu: .file
+                surfaces: [.palette, .menu, .contextMenu, .keyboard],
+                arguments: [CatalogArgument.pinnedBool], targets: [.workspace], cliName: "workspace pin-unpin", mainMenu: .file
             ),
             // Archive keeps the workspace in its group (or its section), last and dimmed; Unarchive puts
             // it back (plans/cmux-next/archiving-DESIGN.md). The menu reads Archive or Unarchive.

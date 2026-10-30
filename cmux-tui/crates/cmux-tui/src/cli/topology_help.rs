@@ -12,6 +12,7 @@ USAGE
   cmux workspace <selector> rename <name>|--name <name>
   cmux workspace <selector> rename --release-to-auto
   cmux workspace <selector> move --index <n>
+  cmux workspace <ws_id> pin|unpin
   cmux workspace <selector> update [--title <value>|--clear-title] [--color <value>|--clear-color]
     [--icon <value>|--clear-icon] [--description <text>|--clear-description]
     [--task-status todo|working|needs-attention|review|done|--clear-task-status]
@@ -72,6 +73,10 @@ puts a group right before the workspace at that placement index;
 icon (one emoji, an SF Symbol name, or a stored image:sha256-<hex> or
 svg:sha256-<hex> asset); --clear-icon removes it. --pinned true
 saves a group so it stays when its workspaces close; false unpins it.
+pin and unpin pin a workspace the way the sidebar does (the app's
+Pin/Unpin Workspace action, `workspace pin-unpin --pinned true|false`); they
+need the cmux app. Each list row's extra.pinned says whether the sidebar shows it
+pinned.
 
 SELECTORS
   <selector> is an id (ws_…, pane_…, tab_…, term_…), caller, current, or an

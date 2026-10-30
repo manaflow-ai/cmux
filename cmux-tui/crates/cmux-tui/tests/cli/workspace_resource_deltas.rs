@@ -179,4 +179,43 @@ mod sidebar_order {
         }
         let _ = fs::remove_dir_all(&dir);
     }
+    /// cmux#25586: every `workspace list` row says whether the sidebar shows
+    /// it pinned (`extra.pinned`), in every order, so Chief and agents can
+    /// read their pins.
+    #[test]
+    fn workspace_list_says_which_workspaces_are_pinned() {
+        let server = HeadlessServer::start("ws-list-pinned");
+        let kept = created(&server, "kept");
+        let pinned = created(&server, "pinned");
+        let tree = raw_json(&server, json!({"id": "tree", "cmd": "list-workspaces"}));
+        let key = tree["workspaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|workspace| workspace["resource_id"] == json!(pinned))
+            .and_then(|workspace| workspace["key"].as_str())
+            .unwrap_or_else(|| panic!("no pinned workspace: {tree}"))
+            .to_string();
+        assert_success(&raw_cli(
+            &server,
+            json!({"id": "pin", "cmd": "set-workspace-metadata", "key": key, "pinned": true}),
+        ));
+        for order in [&[][..], &["--order", "personal"][..], &["--order", "session"][..]] {
+            let mut args = vec!["workspace", "list"];
+            args.extend_from_slice(order);
+            let output = json_cli(&server, &args);
+            assert_success(&output);
+            let listed = json_output(&output);
+            let pinned_of = |id: &str| {
+                listed
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|workspace| workspace["id"] == json!(id))
+                    .map(|workspace| workspace["extra"]["pinned"].clone())
+            };
+            assert_eq!(pinned_of(&pinned), Some(json!(true)), "{order:?}: {listed}");
+            assert_eq!(pinned_of(&kept), Some(json!(false)), "{order:?}: {listed}");
+        }
+    }
 }

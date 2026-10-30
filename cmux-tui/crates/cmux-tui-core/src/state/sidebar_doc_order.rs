@@ -12,7 +12,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use cmux_layout_reducer::sidebar_doc::Item;
+use cmux_layout_reducer::sidebar_doc::{Item, PINNED_SECTION_ID};
 use rusqlite::Connection;
 use serde_json::Value;
 
@@ -28,6 +28,19 @@ pub(crate) struct DocumentOrder {
     ids: Vec<String>,
     machine_start: usize,
     archived_start: Option<usize>,
+    /// The workspaces the document places (`ids` as a set).
+    placed: HashSet<String>,
+    /// The placed workspaces that show pinned: at the top level of Pinned,
+    /// or pinned inside their group (the app's `isPinned(item:)`).
+    pinned: HashSet<String>,
+}
+
+impl DocumentOrder {
+    /// Whether workspace `id` shows pinned; `None` when the document does
+    /// not place it (the daemon's pin flag answers then).
+    pub(crate) fn pinned(&self, id: &str) -> Option<bool> {
+        self.placed.contains(id).then(|| self.pinned.contains(id))
+    }
 }
 
 /// The document order, or `None` when the store has no document.
@@ -72,7 +85,21 @@ pub(crate) fn document_order(connection: &Connection) -> anyhow::Result<Option<D
             }
         }
         let machine_start = machine_start.unwrap_or(ids.len());
-        Ok(Some(DocumentOrder { ids, machine_start, archived_start }))
+        // Every item, subgroups at any depth too, so a nested member is placed.
+        let (mut placed, mut pinned) = (HashSet::new(), HashSet::new());
+        for item in doc.items_unordered() {
+            let Some(reference) = item.body.workspace() else { continue };
+            if reference.session_id != local {
+                continue;
+            }
+            placed.insert(reference.workspace_id.clone());
+            if (item.section == PINNED_SECTION_ID && item.parent.is_none())
+                || item.pinned_in_group()
+            {
+                pinned.insert(reference.workspace_id.clone());
+            }
+        }
+        Ok(Some(DocumentOrder { ids, machine_start, archived_start, placed, pinned }))
     })
 }
 
@@ -136,6 +163,8 @@ mod tests {
             ids: vec!["a".into(), "z".into()],
             machine_start: 0,
             archived_start: Some(1),
+            placed: HashSet::from(["a".into(), "z".into()]),
+            pinned: HashSet::new(),
         };
         let workspaces =
             ["z", "new", "a"].map(|id| json!({ "id": id, "active": id == active })).to_vec();

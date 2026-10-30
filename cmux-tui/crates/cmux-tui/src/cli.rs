@@ -104,6 +104,8 @@ mod tab_capabilities;
 mod terminal_talk;
 mod topology_help;
 mod wire;
+#[cfg(unix)]
+mod workspace_pin;
 use surface::MACHINE_CATALOG_HELP;
 pub(super) use surface::{BIN, Surface};
 
@@ -628,6 +630,9 @@ fn daemon_settings_scope(command_args: &[String]) -> bool {
 fn run_app_action_fallback(args: &[String]) -> Option<i32> {
     let (global, command_args) = parse_action_globals(args).ok()?;
     if let Some((name, action_args)) = agent_view::action(&command_args) {
+        return app::run_cli_action(&global, &name, &action_args);
+    }
+    if let Some((name, action_args)) = workspace_pin::action(&command_args) {
         return app::run_cli_action(&global, &name, &action_args);
     }
     let words = command_args.iter().take_while(|arg| !arg.starts_with('-')).count();
