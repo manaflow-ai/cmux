@@ -135,7 +135,7 @@ extension PaneController {
         let size = newTerminalSize
         let command = NewTerminalTabCommand(pane: handle, options: SpawnOptions(cwd: cwd, size: size, workspace: workspace, keep: keep))
         if text == nil, page == nil, command.isOptimistic(on: daemon) {
-            return newTerminalTabNow(command, agent: agent, intent: intent, keys: keys, window: window, then: then)
+            return newTerminalTabNow(command, agent: agent, intent: intent, keys: keys, window: window, outbound: outbound, then: then)
         }
         services.registry.track(Task { [services] in
             var landed = false
@@ -167,7 +167,7 @@ extension PaneController {
     /// daemon's tab takes its place (``NewTerminalTabCommand``). The keys typed meanwhile wait for
     /// the daemon's terminal, as before.
     private func newTerminalTabNow(_ command: NewTerminalTabCommand, agent: AgentPaneView?, intent: UInt64?, // perf-hot: 10ms new-tab (the terminal stand-in shows in the key's turn)
-                                   keys: CreationInputBuffer.Ticket?, window: NSWindow?, then: (@MainActor (SurfaceID) -> Void)?) {
+                                   keys: CreationInputBuffer.Ticket?, window: NSWindow?, outbound: OutboundTab?, then: (@MainActor (SurfaceID) -> Void)?) {
         // task-owner: the selected agent's cwd, read while the stand-in shows (#16620)
         let agentCwd = agent.map { agent in
             Task { @MainActor () -> String? in
