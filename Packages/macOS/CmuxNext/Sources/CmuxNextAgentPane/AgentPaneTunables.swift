@@ -306,7 +306,8 @@ public nonisolated struct AgentPaneTunables {
         String(localized: "agentPane.harnessPlacement.title", defaultValue: "Model picker harness placement", bundle: .module),
         help: String(localized: "agentPane.harnessPlacement.help",
                      defaultValue: "Compare a named left rail, a wrapping top strip and a compact left rail.", bundle: .module),
-        default: .left, code: "AgentPaneTunables.harnessPlacement")
+        // Harness tabs across the top by default (Leo 2026-10-29: "Yes, tabs on top").
+        default: .top, code: "AgentPaneTunables.harnessPlacement")
 
     /// Tool runs fold as the Codex desktop app folds them (webviews conversation/turns.ts
     /// `codexRuns`, cx-ncc.108): each finished run is one summary line between the paragraphs

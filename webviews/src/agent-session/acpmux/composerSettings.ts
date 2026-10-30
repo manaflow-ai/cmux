@@ -53,7 +53,8 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   reasoningSlider: false,
   reasoningSliderStyle: "accent",
   plainFooter: true,
-  harnessPlacement: "left",
+  // Harness tabs across the top of the model menu (Leo 2026-10-29: "Yes, tabs on top").
+  harnessPlacement: "top",
   harnessSwitch: false,
   escapeDoublePress: true,
 };
@@ -84,7 +85,7 @@ export function readComposerSettings(value: unknown): ComposerSettings {
     reasoningSliderStyle,
     plainFooter: flag("plainFooter"),
     harnessPlacement:
-      raw.harnessPlacement === "top" || raw.harnessPlacement === "compact" ? raw.harnessPlacement : "left",
+      raw.harnessPlacement === "left" || raw.harnessPlacement === "compact" ? raw.harnessPlacement : "top",
     harnessSwitch: flag("harnessSwitch"),
     escapeDoublePress: flag("escapeDoublePress"),
   };
