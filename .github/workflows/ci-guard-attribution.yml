@@ -49,9 +49,10 @@ jobs:
     # ci.yml skips `fast-guards` for its pull requests (cmux-next has its own lanes), so its
     # analysis always ended "no completed verdict" after reading the run's jobs. Skipped here.
     if: ${{ github.repository == 'manaflow-ai/cmux' && contains(fromJSON('["success","failure","timed_out","startup_failure","action_required","cancelled"]'), github.event.workflow_run.conclusion) && (github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.head_branch == 'main') && !(github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.path == '.github/workflows/ci.yml' && github.event.workflow_run.pull_requests[0].base.ref == 'feat-cmux-next') }}
-    # Analysis only reads trusted main history and the Actions/PR APIs. It
-    # needs no secret or write token, so use the shared Linux runner pool.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Analysis only reads trusted main history and the Actions/PR APIs, but it
+    # mints App tokens to read on their budget, so it runs on a literal
+    # Blacksmith label no variable can move (tests/test_ci_fork_runner_routing.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 20
     permissions:
       actions: read

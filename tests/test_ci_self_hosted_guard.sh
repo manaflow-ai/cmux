@@ -1807,7 +1807,7 @@ run_check check_release_build_runner_disk_capacity
 run_check check_display_runner_identity_guard "$CI_MACOS_FILE" "tests-build-and-lag"
 run_check check_build_lag_deriveddata_cache_path
 
-# build-ghosttykit.yml (routed through the MACOS_RUNNER_BACKGROUND repo var)
+# build-ghosttykit.yml (a literal Blacksmith label: it holds GHOSTTY_RELEASE_TOKEN)
 run_check check_macos_runner "$GHOSTTYKIT_FILE" "build-ghosttykit"
 
 # ci-macos-compat.yml (matrix.os routed through the MACOS_RUNNER_* repo vars)

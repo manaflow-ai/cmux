@@ -1,4 +1,5 @@
 import { compileNetworkPolicy, storedNetworkPolicy, type NetworkPolicy, type NetworkRulePlan } from "./networkPolicy";
+import { DELETED_ACCOUNT_ACTOR_ID } from "../auth/deletedAccount";
 import { createHash, randomUUID } from "node:crypto";
 import {
   applyVmResourceUsage,
@@ -17,7 +18,7 @@ import * as Option from "effect/Option";
 import { eq } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { cloudVms } from "../../db/schema";
-import { hasProviderTlsRuleLimitCause, ProviderGuestUnresponsiveError, ProviderStateConflictError, type CreateOptions } from "./drivers/types";
+import { hasProviderTlsRuleLimitCause, ProviderGuestUnresponsiveError, ProviderStateConflictError, type CreateOptions, type ProviderCustomer } from "./drivers/types";
 import { isVmProviderHang, withVmAnswerDeadline, withVmRouteDeadline, type VmRouteDeadline } from "./routeDeadline";
 import * as Layer from "effect/Layer";
 import type {
@@ -167,6 +168,8 @@ import {
   VM_API_ACTIVITY_MIN_INTERVAL_MS,
   VM_IDLE_PAUSE_MINUTES_KEY,
   vmIdlePauseMinutesFromRow,
+  vmIdlePauseDiagnosticsFromRow,
+  type VmIdlePauseDiagnostics,
   vmIdleEpochFromRow,
   vmLastApiActivityFromRow,
   vmPauseIntentEpochFromRow,
@@ -252,6 +255,7 @@ export type VmEntry = {
   readonly agentUpdates: VmAgentUpdatesSetting;
   /** Minutes without activity before the machine pauses by itself; 0 is Off (services/vms/idlePause.ts). */
   readonly idlePauseMinutes: VmIdlePauseMinutes;
+  readonly idlePause: VmIdlePauseDiagnostics;
   /** Why a paused machine is paused: "idle" (auto-pause) or "user"; null when running or unknown. */
   readonly pauseReason: VmPauseReason | null;
   /**
@@ -1425,6 +1429,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
       "provider_create",
       providers.create(input.provider, {
         image: input.image,
+        customer: vmProviderCustomer(create.vm) ?? undefined,
         forked: resumesLiveMachine(input.origin),
         // The display label is reserved with the row before provider work starts.
         // Passing it here makes the first guest prompt correct and removes the
@@ -1945,6 +1950,7 @@ function finishBaseCreate(
       "provider_create",
       providers.create(input.provider, {
         image: input.image,
+        customer: vmProviderCustomer(create.vm) ?? undefined,
         imageSize: input.imageSize,
         runtimeBudgetSeconds: input.runtimeBudgetSeconds,
         displayName: create.vm.slug ?? undefined,
@@ -3907,6 +3913,14 @@ function pauseWokenMachine(
   });
 }
 
+/**
+ * The provider customer a machine is tagged with: its owner's account id, or
+ * null for a deleted account's machine that a shared team kept.
+ */
+export function vmProviderCustomer(vm: Pick<CloudVmRow, "userId">): ProviderCustomer | null {
+  return vm.userId === DELETED_ACCOUNT_ACTOR_ID ? null : { customerId: vm.userId };
+}
+
 function resumeAfterLostRace(
   providers: VmProviderGatewayShape,
   vm: CloudVmRow,
@@ -3917,7 +3931,7 @@ function resumeAfterLostRace(
   return Effect.gen(function* () {
     // The re-pause zeroed a Go machine's runtime budget; give it back first.
     if (vm.billingPlanId === "go" && !(yield* restoreGoRuntimeBudget(providers, vm, providerVmId))) return;
-    yield* resume(vm.provider, providerVmId).pipe(
+    yield* resume(vm.provider, providerVmId, { customer: vmProviderCustomer(vm) }).pipe(
       Effect.timeout(PAUSE_OPERATION_TIMEOUT_MS),
       Effect.tapError((cause) => Effect.logWarning("Could not resume a machine a re-pause raced", {
         event: "cloud_vm.repause_race.resume_failed",
@@ -4074,7 +4088,7 @@ function resumeAndWaitRunning(
   return Effect.gen(function* () {
     const resume = providers.resume;
     if (!resume) return;
-    const handle = yield* resume(vm.provider, providerVmId).pipe(Effect.tapError(() => bestEffortPause(providers, vm, providerVmId)));
+    const handle = yield* resume(vm.provider, providerVmId, { customer: vmProviderCustomer(vm) }).pipe(Effect.tapError(() => bestEffortPause(providers, vm, providerVmId)));
     if (handle.status === "running") return;
     const settled = yield* waitForRunningStatus(providers, vm, providerVmId);
     if (settled) return;
@@ -5265,6 +5279,11 @@ export function resizeVm(input: {
     }
     if (!providers.resize || !providers.getStats) {
       return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "resize" }));
+    }
+    // A user resize is activity before any preflight/provider I/O. Do not
+    // proceed on a failed write: an overdue idle candidate could pause it.
+    if (repo.recordVmApiActivity) {
+      yield* repo.recordVmApiActivity({ id: vm.id, providerVmId: input.providerVmId, at: yield* Clock.currentTimeMillis });
     }
     yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "resize", {
       forceProviderProbe: true,
@@ -6720,6 +6739,7 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     cmuxTuiContract: typeof metadata["cmuxTuiContract"] === "string" ? metadata["cmuxTuiContract"] : null,
     agentUpdates: vmAgentUpdatesFromRow(row),
     idlePauseMinutes: vmIdlePauseMinutesFromRow(row),
+    idlePause: vmIdlePauseDiagnosticsFromRow(row),
     pauseReason: vmPauseReasonFromRow(row),
     resourceReservation: hasVmResourceReservationMetadata(row.providerMetadata)
       ? (({ vcpus, memoryMb }) => ({ vcpus, memoryMb }))(vmResourceReservationFromMetadata(row.providerMetadata))
