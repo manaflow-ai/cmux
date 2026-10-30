@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import fcntl
+import json
 import os
 import subprocess
 import sys
@@ -175,6 +176,71 @@ class Scratch(unittest.TestCase):
         with open(lock, "a") as handle:
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)  # free again
         holder.stdout.close()
+
+    def built(self, fingerprint: str) -> None:
+        products = self.scratch / fingerprint / "Packages__macOS__B/arm64-apple-macosx/debug"
+        products.mkdir(parents=True, exist_ok=True)
+        (products / "description.json").write_text("{}")
+        (products / "B.swiftmodule").write_bytes(b"m" * 64)
+
+    def verdict(self, fingerprint: str) -> dict:
+        verdict: dict = {}
+        scratch.link(self.workspace, self.store, RUNNER, fingerprint=fingerprint, verdict=verdict)
+        return verdict
+
+    def test_the_first_link_on_a_mini_starts_cold_first_on_host(self):
+        self.assertEqual(self.verdict("xcode-a"), {"state": "cold", "reason": "first on host", "bytes": 0})
+
+    def test_a_link_that_finds_its_build_starts_warm_with_its_bytes(self):
+        self.verdict("xcode-a")
+        self.built("xcode-a")
+        verdict = self.verdict("xcode-a")
+        self.assertEqual((verdict["state"], verdict["reason"]), ("warm", "kept"))
+        self.assertGreaterEqual(verdict["bytes"], 66)
+
+    def test_a_linked_directory_that_never_built_is_cold(self):
+        self.verdict("xcode-a")
+        self.assertEqual(self.verdict("xcode-a")["reason"], "never built")
+
+    def test_a_new_fingerprint_and_an_evicted_one_are_told_apart(self):
+        self.verdict("xcode-a")
+        self.built("xcode-a")
+        self.assertEqual(self.verdict("xcode-b")["reason"], "new fingerprint")
+        for holder in scratch.HOLDERS:
+            holder.kill()
+            holder.wait()
+        scratch.HOLDERS.clear()
+        scratch.evict(self.store)
+        self.assertEqual(self.verdict("xcode-a"), {"state": "cold", "reason": "evicted", "bytes": 0})
+
+    def test_the_verdict_file_is_this_jobs_for_the_runner_hook(self):
+        temp = Path(self.tmp.name) / "runner-temp"
+        temp.mkdir()
+        environ = {"RUNNER_TEMP": str(temp), "GITHUB_RUN_ID": "41121262424", "GITHUB_RUN_ATTEMPT": "2"}
+        path = scratch.write_warm_start("warm", 12 * 1024**3, "kept", environ)
+        self.assertEqual(path, temp / scratch.WARM_START_FILE)
+        self.assertEqual(json.loads(path.read_text()), {
+            "schema": "cmux-warm-start/v1", "run_id": "41121262424", "run_attempt": "2",
+            "source": "spm_scratch", "state": "warm", "bytes": 12 * 1024**3, "reason": "kept"})
+        self.assertLess(path.stat().st_size, 4096)
+        self.assertEqual(list(temp.iterdir()), [path])  # no staged leftovers
+        self.assertIsNone(scratch.write_warm_start("cold", 0, "x", {}))
+
+    def test_the_command_writes_the_verdict(self):
+        temp = Path(self.tmp.name) / "runner-temp"
+        temp.mkdir()
+        env = {**os.environ, "RUNNER_TEMP": str(temp), "RUNNER_NAME": RUNNER, "GITHUB_RUN_ID": "7",
+               "GITHUB_RUN_ATTEMPT": "1", "PATH": os.environ.get("PATH", "")}
+        code = ("import sys; sys.path.insert(0, sys.argv[1]); import owned_spm_scratch as s; "
+                "s.toolchain_fingerprint = lambda w: 'xcode-a'; "
+                "code = s.main(['x', 'link', sys.argv[2], sys.argv[3]]); "
+                "[(h.kill(), h.wait()) for h in s.HOLDERS]; sys.exit(code)")
+        result = subprocess.run([sys.executable, "-c", code, str(ROOT / "scripts/ci"), str(self.workspace),
+                                 str(self.store)], env=env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("starts cold (first on host, 0.0 GiB kept)", result.stdout)
+        payload = json.loads((temp / scratch.WARM_START_FILE).read_text())
+        self.assertEqual((payload["state"], payload["reason"], payload["run_id"]), ("cold", "first on host", "7"))
 
     def test_the_workflow_links_before_the_package_tests(self):
         text = WORKFLOW.read_text()

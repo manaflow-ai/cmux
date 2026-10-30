@@ -44,18 +44,30 @@ compile-string-catalogs.sh then compiled a file that is not in the checkout
 (cmux#26961, 2026-10-29: "MiscHandlers.xcstrings: error: Missing required key
 'version'" from a branch that moved the catalog). The bundles are copies of
 the sources, so SwiftPM copies them again in seconds; compiled modules stay.
+
+`link` also says whether the job starts warm: one line in the log and, in
+$RUNNER_TEMP/glaeda-warm-start.json (cmux-warm-start/v1), the state ("warm": a
+kept build at this path; "cold": nothing kept), the kept bytes and why a cold
+start was cold ("evicted": this fingerprint's directory was pruned; "never
+built": an earlier job linked it but built nothing; "new fingerprint": none was
+ever kept on this mini for this toolchain, bonsplit and workspace; "first on
+host": the mini keeps no scratch yet; "link failed: ..."). glaeda's runner hook
+copies the file into the job's record in glaeda-cmux-jobs.jsonl as
+"warm_start", which the fleet dashboard counts per job class.
 """
 from __future__ import annotations
 
 import contextlib
 import fcntl
 import hashlib
+import json
 import os
 from pathlib import Path
 import shutil
 import signal
 import subprocess
 import sys
+from typing import Mapping
 
 DEFAULT_STORE = Path("/Users/Shared/cmux-build-fleet/ci")
 # For the whole mini: a full package selection keeps about 8 GiB per toolchain and workspace.
@@ -65,6 +77,8 @@ TRASH = ".trash-"
 HELD = "held"
 # swift-package-tests' timeout-minutes is 60: a holder outliving it belongs to a job the runner lost.
 HOLD_SECONDS = 65 * 60
+WARM_START_FILE = "glaeda-warm-start.json"
+WARM_START_SCHEMA = "cmux-warm-start/v1"
 
 
 def packages(workspace: Path) -> list[Path]:
@@ -182,10 +196,13 @@ def entries(scratch: Path) -> list[Path]:
         return []
 
 
-def prune(scratch: Path, max_bytes: int = MAX_BYTES) -> list[str]:
-    """Drop the least recently used directories no job holds until the mini's scratch fits MAX_BYTES."""
+def prune(scratch: Path, max_bytes: int = MAX_BYTES, sizes: dict[str, int] | None = None) -> list[str]:
+    """Drop the least recently used directories no job holds until the mini's scratch fits MAX_BYTES.
+    SIZES, when given, gets every directory's bytes by name (before any drop)."""
     sweep_trash(scratch)
     stats = {entry: tree_stats(entry) for entry in entries(scratch)}
+    if sizes is not None:
+        sizes.update({entry.name: size for entry, (size, _) in stats.items()})
     total = sum(size for size, _ in stats.values())
     dropped = []
     for entry in sorted(stats, key=lambda entry: stats[entry][1]):
@@ -234,18 +251,62 @@ def drop_resource_bundles(build: Path) -> list[Path]:
     return dropped
 
 
-def link(workspace: Path, store: Path, runner: str, fingerprint: str | None = None) -> list[str]:
+def write_warm_start(state: str, kept_bytes: int, reason: str, environ: Mapping[str, str] = os.environ) -> Path | None:
+    """Leave this job's warm-start verdict in $RUNNER_TEMP for glaeda's runner hook (observation only)."""
+    temp = environ.get("RUNNER_TEMP", "")
+    if not temp:
+        return None
+    payload = {"schema": WARM_START_SCHEMA, "run_id": environ.get("GITHUB_RUN_ID", ""),
+               "run_attempt": environ.get("GITHUB_RUN_ATTEMPT", ""), "source": "spm_scratch",
+               "state": state, "bytes": max(0, int(kept_bytes)), "reason": reason[:200]}
+    path = Path(temp) / WARM_START_FILE
+    with contextlib.suppress(OSError):
+        staged = path.with_name(f"{path.name}.{os.getpid()}")
+        staged.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
+        staged.replace(path)
+        return path
+    return None
+
+
+def kept_build(target_root: Path) -> bool:
+    """Whether a package directory holds a build SwiftPM planned (<package>/<triple>/<config>/description.json),
+    not just the empty folders an earlier link made."""
+    return any(target_root.glob("*/*/*/description.json"))
+
+
+def warm_start(scratch_existed: bool, lock_existed: bool, kept: bool, existed: bool = False) -> tuple[str, str]:
+    """(state, reason) for a job whose directory was KEPT (or only EXISTED, unbuilt) or not, read before `link`
+    creates anything."""
+    if kept:
+        return "warm", "kept"
+    if existed:
+        return "cold", "never built"  # an earlier job linked it and built nothing (it failed or was cancelled first)
+    if lock_existed:
+        return "cold", "evicted"  # drop() removes the directory and its .size, never its lock
+    return "cold", "new fingerprint" if scratch_existed else "first on host"
+
+
+def link(workspace: Path, store: Path, runner: str, fingerprint: str | None = None,
+         verdict: dict[str, object] | None = None) -> list[str]:
+    """VERDICT, when given, gets the warm-start state, reason and kept bytes."""
     if "-glaeda" not in runner or not store.is_dir():
         return []
     scratch = store / SCRATCH
+    scratch_existed = scratch.is_dir() and any(scratch.iterdir())
     scratch.mkdir(parents=True, exist_ok=True)
     target_root = scratch / (fingerprint or toolchain_fingerprint(workspace))
+    lock_existed = lock_path(target_root).exists()
+    sizes: dict[str, int] = {}
     with open(lock_path(target_root), "a") as own:
         # Held from here, so prune skips this job's directory; the holder keeps it for the job.
         fcntl.flock(own, fcntl.LOCK_SH)
+        existed, kept = target_root.is_dir(), kept_build(target_root)
         os.utime(lock_path(target_root))  # its last use, for prune's order
-        prune(scratch)
+        prune(scratch, sizes=sizes)
         hold(lock_path(target_root))
+    if verdict is not None:
+        state, reason = warm_start(scratch_existed, lock_existed, kept, existed)
+        verdict.update(state=state, reason=reason, bytes=sizes.get(target_root.name, 0) if kept else 0)
     linked = []
     for package in packages(workspace):
         relative = package.relative_to(workspace).as_posix()
@@ -276,12 +337,19 @@ def main(argv: list[str]) -> int:
             signal.pause()
     if len(argv) in (3, 4) and argv[1] == "link":
         store = Path(argv[3]) if len(argv) == 4 else DEFAULT_STORE
+        verdict: dict[str, object] = {}
         try:
-            linked = link(Path(argv[2]).resolve(), store, os.environ.get("RUNNER_NAME", ""))
+            linked = link(Path(argv[2]).resolve(), store, os.environ.get("RUNNER_NAME", ""), verdict=verdict)
         except (OSError, subprocess.SubprocessError) as error:  # a kept build is an optimization only
             print(f"owned SwiftPM scratch: skipped ({error})")
+            write_warm_start("cold", 0, f"link failed: {error}")
             return 0
         print(f"owned SwiftPM scratch: {len(linked)} packages keep their .build between jobs")
+        if verdict:
+            kept_bytes = int(verdict["bytes"])  # type: ignore[call-overload]
+            print(f"owned SwiftPM scratch: starts {verdict['state']} ({verdict['reason']}, "
+                  f"{kept_bytes / 1024**3:.1f} GiB kept)")
+            write_warm_start(str(verdict["state"]), kept_bytes, str(verdict["reason"]))
         return 0
     if len(argv) in (2, 3) and argv[1] == "evict":
         for path in evict(Path(argv[2]) if len(argv) == 3 else DEFAULT_STORE):
