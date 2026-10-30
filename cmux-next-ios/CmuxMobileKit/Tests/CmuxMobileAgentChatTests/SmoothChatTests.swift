@@ -323,5 +323,31 @@ import UIKit
         #expect(layouts.has("r", revision: 1, expanded: false))
         #expect(layouts.madeNow == 0)
     }
+
+/// Native answer rows keep what the SwiftUI blocks offered: a heading is a heading to
+/// VoiceOver, and a block's long-press menu can select text, not only copy the whole message.
+@MainActor
+@Suite struct NativeBlockParityTests {
+    static let environment = ChatNativeEnvironment(width: 350, category: .large, wrapCode: false)
+
+    static func cell(_ kind: MarkdownBlock.Kind) throws -> ChatNativeRowCell {
+        let layout = try #require(ChatNativeLayout.make(.block(messageID: "m", block: MarkdownBlock(id: 0, kind: kind)), id: "m#0",
+                                                        expanded: false, environment: environment))
+        let cell = ChatNativeRowCell(frame: CGRect(x: 0, y: 0, width: 390, height: layout.height))
+        var actions = ChatNativeActions()
+        actions.message = { "## Plan\n\nShip it." }
+        cell.apply(layout, actions: actions)
+        return cell
+    }
+
+    static func traits(_ cell: ChatNativeRowCell) -> [UIAccessibilityTraits] {
+        (cell.accessibilityElements ?? []).compactMap { ($0 as? NSObject)?.accessibilityTraits }
+    }
+
+    @Test func aHeadingReadsAsAHeading() throws {
+        #expect(Self.traits(try Self.cell(.heading(level: 2, text: "Plan"))).contains { $0.contains(.header) })
+        #expect(!Self.traits(try Self.cell(.paragraph("Ship it."))).contains { $0.contains(.header) })
+    }
+}
 }
 #endif

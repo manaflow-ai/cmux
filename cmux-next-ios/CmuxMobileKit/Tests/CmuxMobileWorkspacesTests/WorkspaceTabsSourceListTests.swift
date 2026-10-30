@@ -280,5 +280,27 @@ import SwiftUI
         light.colorScheme = .light
         #expect(!light.mayShow(drawn))
     }
+
+    /// A tab moving to another of the Mac's screens updates its card's screen chip: the
+    /// cards read the listed workspace, which must change when only its screens change.
+    @Test func aTabMovingScreensUpdatesItsCardsChip() throws {
+        let store = AppStore.mock(tabMemory: .inMemory())
+        let source = Self.source(store)
+        let ids = try #require(store.workspace(id: "ws-cmux")?.tabs.map(\.id))
+        try #require(ids.count >= 2)
+        func screens(onSecond: [String]) -> [MacScreen] {
+            [MacScreen(id: 1, isActive: true, activePane: 1, panes: [1], tabIDs: ids.filter { !onSecond.contains($0) }),
+             MacScreen(id: 2, name: "logs", activePane: 2, panes: [2], tabIDs: onSecond)]
+        }
+        store.updateWorkspace("ws-cmux") { $0.screens = screens(onSecond: [ids.last!]) }
+        source.refreshTabs()
+        #expect(source.listedWorkspace?.screenLabel(ofTab: ids[0]) == "Screen 1")
+        let notified = SourceChanges()
+        withObservationTracking { _ = source.listedWorkspace } onChange: { notified.count += 1 }
+        store.updateWorkspace("ws-cmux") { $0.screens = screens(onSecond: [ids[0], ids.last!]) }
+        source.refreshTabs()
+        #expect(notified.count == 1)
+        #expect(source.listedWorkspace?.screenLabel(ofTab: ids[0]) == "logs")
+    }
 }
 #endif
