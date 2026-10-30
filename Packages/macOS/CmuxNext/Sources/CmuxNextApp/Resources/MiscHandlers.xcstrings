@@ -1,6 +1,137 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "handlers.agentChats.moreMatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أفضل %1$lld من %2$lld محادثة مطابقة. اكتب المزيد لتضييق النتائج."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Najboljih %1$lld od %2$lld odgovarajućih razgovora. Upišite više da suzite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "De bedste %1$lld af %2$lld matchende chats. Skriv mere for at indsnævre."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die besten %1$lld von %2$lld passenden Chats. Tippe weiter, um einzugrenzen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The best %1$lld of %2$lld matching chats. Type more to narrow."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los %1$lld mejores de %2$lld chats coincidentes. Escribe más para acotar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les %1$lld meilleurs des %2$lld chats correspondants. Tapez plus pour affiner."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le %1$lld migliori di %2$lld chat corrispondenti. Digita altro per restringere."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一致する %2$lld 件のチャットのうち上位 %1$lld 件です。絞り込むには入力を続けてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$lld ល្អបំផុតក្នុងចំណោមការជជែកដែលត្រូវគ្នា %2$lld។ វាយបន្ថែមដើម្បីបង្រួម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일치하는 채팅 %2$lld개 중 상위 %1$lld개입니다. 더 입력해 범위를 좁히세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "De beste %1$lld av %2$lld samsvarende chatter. Skriv mer for å snevre inn."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Najlepsze %1$lld z %2$lld pasujących czatów. Wpisz więcej, aby zawęzić."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Os %1$lld melhores de %2$lld chats correspondentes. Digite mais para refinar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Лучшие %1$lld из %2$lld подходящих чатов. Введите больше, чтобы сузить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$lld รายการที่ดีที่สุดจากแชตที่ตรงกัน %2$lld รายการ พิมพ์เพิ่มเพื่อจำกัดผลลัพธ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eşleşen %2$lld sohbetin en iyi %1$lld tanesi. Daraltmak için yazmaya devam edin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Найкращі %1$lld з %2$lld відповідних чатів. Введіть більше, щоб звузити."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$lld cuộc trò chuyện phù hợp nhất trong %2$lld. Nhập thêm để thu hẹp."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$lld 个匹配的聊天中最佳的 %1$lld 个。继续输入以缩小范围。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$lld 個相符聊天中最佳的 %1$lld 個。繼續輸入以縮小範圍。"
+          }
+        }
+      }
+    },
     "handlers.browserPage.captureFailed": {
       "extractionState": "manual",
       "localizations": {

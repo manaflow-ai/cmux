@@ -27,11 +27,15 @@ public final class AcpmuxChatWindows {
         public var exclude: [String]
         /// Exactly these chats, in this order (a pinned list); nil: the newest chats.
         public var keys: [String]?
-        /// Text acpmux searches for in each chat's title and folder; nil or empty: every chat.
+        /// What acpmux ranks the chats by, with the palette's own ranker (title, folder and
+        /// harness; every word anywhere); nil or empty: the newest chats.
         public var query: String?
+        /// The title a chat with none shows, so a query finds it by that word.
+        public var untitled: String?
 
         public init(window: String, limit: Int, topLevel: Bool = true, exclude: [String] = [], keys: [String]? = nil,
-                    query: String? = nil) {
+                    query: String? = nil, untitled: String? = nil) {
+            self.untitled = untitled
             self.window = window
             self.limit = limit
             self.topLevel = topLevel
@@ -46,6 +50,7 @@ public final class AcpmuxChatWindows {
             if !exclude.isEmpty { params["exclude"] = exclude }
             if let keys { params["keys"] = keys }
             if let query, !query.isEmpty { params["query"] = query }
+            if let untitled { params["untitled"] = untitled }
             return params
         }
     }
@@ -54,6 +59,8 @@ public final class AcpmuxChatWindows {
     @MainActor @Observable
     public final class Window {
         public private(set) var rows: [AcpmuxChat] = []
+        /// How many chats matched a query window's query (more than `rows` when it shows a page).
+        public private(set) var total: Int?
         /// The revision of the last message applied; 0 before the first.
         @ObservationIgnored public fileprivate(set) var revision: UInt64 = 0
         /// Called with the rows after each message of this window acpmux sends for its current spec
@@ -66,7 +73,8 @@ public final class AcpmuxChatWindows {
             followers.append(({ [weak owner] in owner }, changed))
         }
 
-        fileprivate func set(rows: [AcpmuxChat]) {
+        fileprivate func set(rows: [AcpmuxChat], total: Int? = nil) {
+            if self.total != total { self.total = total }
             if self.rows != rows { self.rows = rows }
         }
 
@@ -86,6 +94,8 @@ public final class AcpmuxChatWindows {
         public var full: Bool
         public var keys: [String]
         public var rows: [String: AcpmuxChat]
+        /// How many chats matched (a query window only).
+        public var total: Int?
 
         public init(window: String, generation: UInt64? = nil, revision: UInt64, full: Bool, keys: [String], rows: [AcpmuxChat]) {
             self.window = window
@@ -94,6 +104,7 @@ public final class AcpmuxChatWindows {
             self.full = full
             self.keys = keys
             self.rows = Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
+            total = nil
         }
 
         public init?(params: [String: Any]) {
@@ -102,6 +113,7 @@ public final class AcpmuxChatWindows {
             let rows = (params["rows"] as? [[String: Any]] ?? []).compactMap(AcpmuxChat.init(json:))
             self.init(window: window, generation: (params["gen"] as? NSNumber)?.uint64Value, revision: revision,
                       full: params["full"] as? Bool ?? false, keys: keys, rows: rows)
+            total = (params["total"] as? NSNumber)?.intValue
         }
     }
 
@@ -213,7 +225,7 @@ public final class AcpmuxChatWindows {
         }
         model.revision = update.revision
         lastTouchedRows = update.rows.count
-        model.set(rows: rows)
+        model.set(rows: rows, total: update.total)
         answeredGeneration[update.window] = generations[update.window]
         model.answered()
     }

@@ -37,11 +37,17 @@ struct AgentChatsPalettePage {
             return stream
         }
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let spec = AcpmuxChatWindows.Spec(window: window, limit: pageLimit, topLevel: true, query: text.isEmpty ? nil : text)
+        let spec = AcpmuxChatWindows.Spec(window: window, limit: pageLimit, topLevel: true, query: text.isEmpty ? nil : text,
+                                          untitled: AgentChatsPaletteStrings.untitled)
         // The follower lives as long as this query's stream: ending it releases the token.
         let token = FollowToken()
         let answer = { (rows: [AcpmuxChat]) in
-            continuation.yield(items(rows, windows: windows, services: services))
+            var shown = items(rows, windows: windows, services: services)
+            // acpmux ranked more chats than one page holds: say so, and how to see the rest.
+            if let total = windows.window(window).total, total > rows.count {
+                shown.append(moreNotice(shown: rows.count, total: total))
+            }
+            continuation.yield(shown)
             continuation.finish()
         }
         windows.window(window).follow(token) { rows in
@@ -51,6 +57,13 @@ struct AgentChatsPalettePage {
         if windows.isAnswered(spec) { answer(windows.window(window).rows) }
         continuation.onTermination = { _ in withExtendedLifetime(token) {} }
         return stream
+    }
+
+    /// The last row when more chats match than the page shows: not a command.
+    static func moreNotice(shown: Int, total: Int) -> PaletteItem {
+        let text = AgentChatsPaletteStrings.moreMatch(shown: shown, total: total)
+        return PaletteItem(id: "agentChats.more", title: text, symbol: "info.circle", isEnabled: false,
+                           primary: PaletteCommand(id: "none", title: text, effect: .performKeepingOpen {}))
     }
 
     /// Owns one query's follower (released with its stream).
@@ -81,4 +94,9 @@ struct AgentChatsPaletteStrings {
     static var placeholder: String { String(localized: "handlers.agentChats.placeholder", defaultValue: "Search chats", table: "MiscHandlers", bundle: .module) }
     static var open: String { String(localized: "handlers.agentChats.open", defaultValue: "Open Chat", table: "MiscHandlers", bundle: .module) }
     static var untitled: String { String(localized: "handlers.agentChats.untitled", defaultValue: "New chat", table: "MiscHandlers", bundle: .module) }
+    /// The row under a page that shows only the best `shown` of `total` matching chats.
+    static func moreMatch(shown: Int, total: Int) -> String {
+        String(format: String(localized: "handlers.agentChats.moreMatch", defaultValue: "The best %1$lld of %2$lld matching chats. Type more to narrow.",
+                              table: "MiscHandlers", bundle: .module), Int64(shown), Int64(total))
+    }
 }
