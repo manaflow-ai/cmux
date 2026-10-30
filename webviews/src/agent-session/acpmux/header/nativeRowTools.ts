@@ -165,11 +165,16 @@ function addMessages(menu: NativeRowMenuItem[], prefix: string, messages: string
     menu.push({ id: `${prefix}.message:${index}`, label: menuLabel(message), enabled: false }),
   );
 }
-function worktreeBinding(extra: NonNullable<NativeRowExtras["worktree"]>): RowToolBinding {
+function worktreeBinding(extra: NonNullable<NativeRowExtras["worktree"]>, t: Translate): RowToolBinding {
   const { value, ops } = extra;
   const identity = identityKey(ops.identity, "worktree");
   const menu: NativeRowMenuItem[] = [],
     runs = new Map<string, () => void>();
+  // Like the DOM popover, a new chat still opens the worktree facts before mutations are available.
+  const detail = value.base
+    ? t("header.worktreeFrom", { main: value.mainRoot, base: value.base })
+    : t("header.worktreeOf", { main: value.mainRoot });
+  addMessages(menu, "worktree.facts", [value.branch, detail]);
   addAction(menu, runs, `worktree.apply:${identity}`, ops.apply);
   addAction(menu, runs, `worktree.${ops.keep ? "removeAnyway" : "remove"}:${identity}`, ops.remove);
   addAction(menu, runs, `worktree.keep:${identity}`, ops.keep);
@@ -294,7 +299,7 @@ export function nativeRowToolBindings(
   t: Translate = translate,
 ): RowToolBinding[] {
   const bindings: RowToolBinding[] = [
-    ...(extras?.worktree ? [worktreeBinding(extras.worktree)] : []),
+    ...(extras?.worktree ? [worktreeBinding(extras.worktree, t)] : []),
     ...(extras?.pullRequest ? [pullRequestBinding(extras.pullRequest, t)] : []),
     ...(panel
       ? [

@@ -13,14 +13,14 @@ export function readyToMerge(pr: HeaderPullRequest) {
   );
 }
 
-/// The status text and compact badge shared by the DOM chip and native row. Counts are derived
-/// from the individual checks so pending/failing states cannot be presented as passing.
 export function checkPresentation(check: HeaderCheck, t: Translate = translate): string {
   const marker = check.state === "failed" ? "✕" : check.state === "pending" ? "…" : "✓";
   const base = check.onBase === true ? ` ${t("header.prCheckOnBase")}` : "";
   return `${marker} ${check.name}${base}`;
 }
 
+/// The status text and compact badge shared by the DOM chip and native row. Aggregate state
+/// remains authoritative when individual check rows are missing or incomplete.
 export function pullRequestStatus(pr: HeaderPullRequest, t: Translate): { label: string; badge: string } {
   const stateKeys: Record<string, StringKey> = {
     open: "header.prState.open",
@@ -52,7 +52,17 @@ export function pullRequestStatus(pr: HeaderPullRequest, t: Translate): { label:
       : total > 0
         ? `${number} ✓${passed}/${total}`
         : number;
-  return { label, badge: onBase > 0 ? `${badge} · ${onBase} ${t("header.prCheckOnBase")}` : badge };
+  const checkState = hasFailed
+    ? failedRows === 0 || total === 0
+      ? t("rail.checksFailing")
+      : undefined
+    : hasPending
+      ? t("rail.checksPending")
+      : undefined;
+  return {
+    label: checkState ? `${label} · ${checkState}` : label,
+    badge: onBase > 0 ? `${badge} · ${onBase} ${t("header.prCheckOnBase")}` : badge,
+  };
 }
 export interface HeaderOperationAction {
   label: string;

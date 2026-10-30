@@ -104,6 +104,43 @@ function nativeHarness() {
   return { container, render, tool, row, invoke, click };
 }
 
+test("a native worktree without mutation handlers opens its informational menu", async () => {
+  const h = nativeHarness();
+  await h.render({
+    folder: "/worktrees/new-chat",
+    readStatus: async () => ({ branch: "feature", base: "main", worktree: { main_root: "/repo" } }),
+  });
+  const tool = h.tool("worktree");
+  expect(tool.enabled).toBe(true);
+  expect(tool.menu).toContainEqual(expect.objectContaining({ label: "feature", enabled: false }));
+  expect(tool.menu).toContainEqual(
+    expect.objectContaining({
+      label: translate("header.worktreeFrom", { main: "/repo", base: "main" }),
+      enabled: false,
+    }),
+  );
+  expect(tool.menu!.every((item) => !item.enabled)).toBe(true);
+});
+
+test("native and DOM PR labels retain aggregate failure and pending state without failed check rows", async () => {
+  const h = nativeHarness();
+  await h.render();
+  for (const state of ["failing", "pending"]) {
+    for (const total of [0, 2]) {
+      for (const checkList of [[], [{ name: "Only returned check", state: "passed" }]]) {
+        await act(async () =>
+          setHeaderState({ pullRequest: { ...request(7), checks: { state, passed: total, total }, checkList } }),
+        );
+        const status = translate(state === "failing" ? "rail.checksFailing" : "rail.checksPending");
+        expect(h.tool("pullRequest").label).toContain(status);
+        await h.render({ nativeRowTools: { enabled: false } });
+        expect(h.container.querySelector(".acpmux-header-pr")?.getAttribute("aria-label")).toContain(status);
+        await h.render();
+      }
+    }
+  }
+});
+
 test("native worktree uses the DOM refusal, retry, exclusion and removed state machine", async () => {
   const h = nativeHarness();
   const removes: { key: string; discard: boolean; reply: ReturnType<typeof deferred> }[] = [];
