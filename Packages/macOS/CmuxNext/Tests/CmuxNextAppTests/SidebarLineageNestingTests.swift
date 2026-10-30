@@ -239,6 +239,81 @@ import Testing
         #expect(tree.collapsed.contains(Self.lane))
     }
 
+    /// One render's reveal, as `SidebarView.render` runs it: the force from the drawn tree before and now, then the
+    /// selected rows' ancestry.
+    private static func render(_ reveal: inout SidebarSelectionTreeReveal, _ tree: SidebarSessionTree, from old: SidebarSessionTreeState?,
+                               selection: Set<WorkspaceID>, model: SidebarModel, selectionChanged: Bool = false) {
+        reveal.update(selection: selection, model: model, tree: tree,
+                      force: SidebarView.revealsSelection(selectionChanged: selectionChanged, from: old, to: tree.drawn))
+    }
+
+    /// An agent started or closed elsewhere changes `parents` but not the selected row's ancestors: a fold the person
+    /// made above the selection stays closed (router review on #28103: any spawn reopened it).
+    @Test func anUnrelatedSpawnOrCloseKeepsAFoldAboveTheSelection() {
+        let other = WorkspaceID("other")
+        let tree = SidebarSessionTree(defaults: UserDefaults(suiteName: "SidebarLineageNestingTests.\(UUID().uuidString)") ?? .standard)
+        let model = SidebarModel(sections: Self.sections([Self.coordinator, Self.lane, Self.sub, Self.reviewer, Self.mine, other]))
+        var reveal = SidebarSelectionTreeReveal()
+        tree.state = SidebarSessionTreeState(parents: Self.parents)
+        Self.render(&reveal, tree, from: nil, selection: [Self.reviewer], model: model, selectionChanged: true)
+        #expect(tree.opened == [Self.lane, Self.sub])
+        // The person folds the lane above the selection.
+        var old = tree.drawn
+        tree.toggle(Self.lane, folded: false)
+        Self.render(&reveal, tree, from: old, selection: [Self.reviewer], model: model)
+        #expect(tree.collapsed.contains(Self.lane))
+        // An agent in `mine` starts a session: the selection's chain is unchanged.
+        old = tree.drawn
+        tree.state = SidebarSessionTreeState(parents: Self.parents.merging([other: Self.mine]) { $1 })
+        Self.render(&reveal, tree, from: old, selection: [Self.reviewer], model: model)
+        #expect(tree.collapsed.contains(Self.lane), "a spawn elsewhere")
+        // That session closes.
+        old = tree.drawn
+        tree.state = SidebarSessionTreeState(parents: Self.parents)
+        model.setSections(Self.sections([Self.coordinator, Self.lane, Self.sub, Self.reviewer, Self.mine]))
+        Self.render(&reveal, tree, from: old, selection: [Self.reviewer], model: model)
+        #expect(tree.collapsed.contains(Self.lane), "a close elsewhere")
+        #expect(!SidebarView.revealsSelection(selectionChanged: false, from: SidebarSessionTreeState(parents: Self.parents),
+                                              to: SidebarSessionTreeState(parents: Self.parents.merging([other: Self.mine]) { $1 })))
+    }
+
+    /// The selected row moved under a folded ancestor (its own chain changed): the folds above it open.
+    @Test func reparentingTheSelectionUnderAFoldRevealsIt() {
+        let tree = SidebarSessionTree(defaults: UserDefaults(suiteName: "SidebarLineageNestingTests.\(UUID().uuidString)") ?? .standard)
+        let model = SidebarModel(sections: Self.sections([Self.coordinator, Self.lane, Self.mine]))
+        var reveal = SidebarSelectionTreeReveal()
+        tree.state = SidebarSessionTreeState(parents: [Self.lane: Self.coordinator])
+        Self.render(&reveal, tree, from: nil, selection: [Self.mine], model: model, selectionChanged: true)
+        var old = tree.drawn
+        tree.toggle(Self.coordinator)
+        Self.render(&reveal, tree, from: old, selection: [Self.mine], model: model)
+        #expect(tree.collapsed == [Self.coordinator])
+        // `mine` now lists under the lane, itself folded (below the top level) under the folded coordinator.
+        old = tree.drawn
+        tree.state = SidebarSessionTreeState(parents: [Self.lane: Self.coordinator, Self.mine: Self.lane])
+        Self.render(&reveal, tree, from: old, selection: [Self.mine], model: model)
+        #expect(tree.collapsed.isEmpty)
+        #expect(tree.opened == [Self.lane])
+        #expect(Self.rows(model.sections, tree: tree.drawn).contains { $0.id == Self.mine })
+    }
+
+    /// The lineage's first arrival (the feed starts after restored windows) reveals the selection, past a fold kept
+    /// from the last launch.
+    @Test func theFirstLineageRevealsTheSelection() {
+        let tree = SidebarSessionTree(defaults: UserDefaults(suiteName: "SidebarLineageNestingTests.\(UUID().uuidString)") ?? .standard)
+        tree.toggle(Self.coordinator)
+        let model = SidebarModel(sections: Self.sections([Self.coordinator, Self.lane, Self.sub]))
+        var reveal = SidebarSelectionTreeReveal()
+        Self.render(&reveal, tree, from: nil, selection: [Self.sub], model: model, selectionChanged: true)
+        #expect(tree.collapsed == [Self.coordinator])
+        let old = tree.drawn
+        tree.state = SidebarSessionTreeState(parents: Self.parents)
+        Self.render(&reveal, tree, from: old, selection: [Self.sub], model: model)
+        #expect(tree.collapsed.isEmpty)
+        #expect(tree.opened == [Self.lane])
+        #expect(SidebarView.revealsSelection(selectionChanged: false, from: SidebarSessionTreeState(), to: SidebarSessionTreeState(parents: Self.parents)))
+    }
+
     @Test func runsCutAtEachTopLevelEntry() {
         let runs = SidebarLayout.runs([(0, 0), (1, 1), (2, 2), (3, 0), (4, 1), (5, 0)])
         #expect(runs.map { $0.map(\.index) } == [[0, 1, 2], [3, 4], [5]])
