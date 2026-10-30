@@ -202,10 +202,10 @@ extension WindowManager {
             services.registry.refuse(RefusalStrings.incognitoMismatch)
             return
         }
-        // An ephemeral workspace no window lists (a Cloud machine nobody had opened holds its
-        // workspaces out of every window) goes to an incognito window, never into a normal one.
-        if holdsUnownedEphemeral(workspaceID), !registry.value.isIncognito(state.id) {
-            openWindow(workspaces: [workspaceID], incognito: true, behind: !shows)
+        // A held Cloud workspace (its machine nobody had opened here) enters only a window of its
+        // kind: an ephemeral one an incognito window, a normal one a normal window.
+        if isHeldCloudWorkspace(workspaceID), EphemeralWorkspaces.isEphemeral(workspaceID, self) != registry.value.isIncognito(state.id) {
+            fileHeldWorkspace(workspaceID, select: shows)
             return
         }
         protectIfUnknown([workspaceID], window: state.id)
@@ -228,6 +228,25 @@ extension WindowManager {
         registry.value.owner(of: workspaceID) == nil && EphemeralWorkspaces.isEphemeral(workspaceID, self)
     }
 
+    /// Whether `workspaceID` is a Cloud machine's workspace no window lists: reconcile holds the
+    /// workspaces of a machine nobody opened here (`unopenedCloudWorkspaces`).
+    func isHeldCloudWorkspace(_ workspaceID: String) -> Bool {
+        guard registry.value.owner(of: workspaceID) == nil, let (_, daemon) = services.machines.workspace(id: workspaceID) else { return false }
+        return services.machines.session(daemon.machineID) != nil
+    }
+
+    /// Files a held Cloud workspace into a window of its kind: an ephemeral one opens an incognito
+    /// window; a normal one joins the most recent open normal window, else opens one.
+    func fileHeldWorkspace(_ workspaceID: String, select: Bool) {
+        if EphemeralWorkspaces.isEphemeral(workspaceID, self) {
+            openWindow(workspaces: [workspaceID], incognito: true, behind: !select)
+        } else if let normal = registry.value.mostRecentOpen(incognito: false), let state = states[normal] {
+            claim(workspaceID: workspaceID, in: state, select: select)
+        } else {
+            openWindow(workspaces: [workspaceID], behind: !select)
+        }
+    }
+
     /// Opening a Cloud machine (a claim of one of its workspaces) brings its other workspaces in:
     /// reconcile held them while nobody had opened the machine, and nothing else re-runs it after a
     /// claim. They are filed quietly into `windowID`; an ephemeral one goes to an incognito window
@@ -239,8 +258,11 @@ extension WindowManager {
         fillingOpenedMachine = true
         defer { fillingOpenedMachine = false }
         let value = registry.value
+        // Only the ids that resolve to this machine, as reconcile counts them: a key a clone shares
+        // with another unopened machine resolves there, and filing it would open that machine.
         for workspace in daemon.store.workspaces where !value.isIncognito(windowID) && workspace.id != workspaceID && value.owner(of: workspace.id) == nil
-            && pendingClaims[workspace.id] == nil && !EphemeralWorkspaces.isEphemeral(workspace.id, self) {
+            && pendingClaims[workspace.id] == nil && !EphemeralWorkspaces.isEphemeral(workspace.id, self)
+            && services.machines.workspace(id: workspace.id)?.1 === daemon {
             pendingClaims[workspace.id] = windowID
             quietClaims.insert(workspace.id)
         }
@@ -280,6 +302,14 @@ extension WindowManager {
         let behind = behind || !ActionRunScope.viewChangeAllowed()
         // Ephemeral workspaces no window lists (an unopened Cloud machine's) open an incognito window.
         let incognito = incognito || (!workspaces.isEmpty && workspaces.allSatisfy(holdsUnownedEphemeral))
+        // Held Cloud workspaces of the other kind (a mixed batch) go to a window of their own kind after.
+        let misfits = workspaces.filter { isHeldCloudWorkspace($0) && EphemeralWorkspaces.isEphemeral($0, self) != incognito }
+        let workspaces = workspaces.filter { !misfits.contains($0) }
+        guard !workspaces.isEmpty else {
+            for id in misfits { fileHeldWorkspace(id, select: !behind) }
+            return misfits.first.flatMap { registry.value.owner(of: $0) }.flatMap { controller(for: $0) }
+        }
+        defer { for id in misfits { fileHeldWorkspace(id, select: false) } }
         let kinds = Set(workspaces.compactMap { registry.value.owner(of: $0) }.map(registry.value.isIncognito))
         if kinds.count > 1 || (incognito && kinds == [false]) {
             services.registry.refuse(RefusalStrings.incognitoMismatch)
