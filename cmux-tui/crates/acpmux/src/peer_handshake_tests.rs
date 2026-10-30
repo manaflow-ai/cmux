@@ -270,6 +270,69 @@ async fn a_change_during_a_paged_watch_list_comes_after_the_whole_list() {
     fake.abort();
 }
 
+/// A request of a link gone down that is still on its way out while the next link reads its
+/// watch list in pages takes no page's place: the list is still published whole.
+#[tokio::test]
+async fn a_request_of_a_gone_link_takes_no_page_of_the_watch_list() {
+    let (tx, mut notices) = mpsc::channel(64);
+    let peer = Peer::new("web", "ws://10.0.0.9:9", None, None, tx);
+    let (ours, theirs) = tokio::io::duplex(1 << 16);
+    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+    let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+    let (asked_tx, asked) = tokio::sync::oneshot::channel::<()>();
+    let (go_tx, go) = tokio::sync::oneshot::channel::<()>();
+    // Answers the watch with a first page; holds the second until the test lets it go.
+    let fake = tokio::spawn(async move {
+        let (mut asked_tx, mut go) = (Some(asked_tx), Some(go));
+        while let Some(Ok(frame)) = server.next().await {
+            let Frame::Text(text) = frame else { continue };
+            let msg: Value = serde_json::from_str(&text).unwrap();
+            let Some(id) = msg.get("id").cloned() else { continue };
+            let result = if msg["method"] == method::MUX_WATCH {
+                json!({"sessions": [{"sessionId": "a", "updatedAt": 5}], "nextCursor": "h1"})
+            } else if msg["method"] == method::MUX_SESSIONS {
+                let _ = asked_tx.take().map(|tx| tx.send(()));
+                if let Some(go) = go.take() {
+                    let _ = go.await;
+                }
+                json!({"sessions": [{"sessionId": "b", "updatedAt": 4}]})
+            } else {
+                json!({})
+            };
+            let line = Message::ok(id, result).to_line();
+            if server.send(Frame::Text(line.trim_end().to_owned().into())).await.is_err() {
+                return;
+            }
+        }
+    });
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    let link = peer.clone();
+    let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+    tokio::time::timeout(Duration::from_secs(5), asked).await.unwrap().unwrap();
+    // A `_acpmux/sessions` admitted on an earlier link, sent now.
+    let gone = peer.link_epoch().wrapping_sub(1);
+    let stale = peer.link_request_on(method::MUX_SESSIONS, json!({}), Some(gone)).await;
+    assert!(stale.is_err(), "{stale:?}");
+    go_tx.send(()).unwrap();
+    let mut listed = None;
+    loop {
+        let (_, _, notice) = tokio::time::timeout(Duration::from_secs(5), notices.recv())
+            .await
+            .expect("the link connects")
+            .expect("the link stays open");
+        match notice {
+            PeerNotice::Sessions(rows) => listed = Some(rows),
+            PeerNotice::Connected => break,
+            _ => {}
+        }
+    }
+    let rows = listed.expect("the whole list came before Connected");
+    let ids: Vec<&str> = rows.iter().map(|r| r["sessionId"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["a", "b"]);
+    serving.abort();
+    fake.abort();
+}
+
 /// A watch page cursor that is not a string ends the handshake with an error, instead of
 /// connecting with the rows before it as if the list were whole.
 #[tokio::test]
