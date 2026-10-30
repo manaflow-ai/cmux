@@ -74,6 +74,9 @@ pub(super) struct Orphan {
     ending: bool,
     /// The entry count when the census started: a line that came while it ran keeps the host.
     census_at: u64,
+    /// The census said clear, and its answer went round the event queue once more, so every
+    /// event any task sent before it (a line, a connection) is handled before the end.
+    confirming: bool,
     /// Requests the controller sent the harness with no answer yet, by id (its JSON text).
     open: HashSet<String>,
     /// Fenced lines queued for the harness whose receipt is not logged yet.
@@ -84,11 +87,6 @@ pub(super) struct Orphan {
 }
 
 impl Orphan {
-    /// The host's own end began: its harness group is being ended.
-    pub(super) fn ends(&self) -> bool {
-        self.ending
-    }
-
     /// A line from the controller: a request waits for its answer, and a session opened with
     /// MCP servers names them.
     pub(super) fn note_request(&mut self, message: &Message) {
@@ -159,10 +157,11 @@ impl State {
 
     /// As the host starts serving and after every event: a controller's hello ends the wait (its
     /// generation moves on); its absence starts one ([`OrphanExit`]). True once the host's own
-    /// end is done: the harness exited. No controller can have come meanwhile: an ending host
-    /// answers no hello (`on_frame`), and the end began only with no connection at all.
+    /// end is done: the harness exited and no controller is there to log it. A daemon that
+    /// connects while the harness ends is answered as any: it logs the exit, as of a harness
+    /// that crashed, and the host then ends as every host does (`finished`).
     pub(super) fn orphan_follow(&mut self, events: &mpsc::Sender<Event>) -> bool {
-        if self.orphan.ending && self.exit_h.is_some() {
+        if self.orphan.ending && self.exit_h.is_some() && self.controller.is_none() {
             return true;
         }
         let Some(exit) = &self.spec.orphan_exit else { return false };
@@ -205,10 +204,9 @@ impl State {
             return;
         }
         let wait = std::time::Duration::from_millis(exit.idle_ms);
-        // Checked again on the census's answer too: an entry or a connection that came while it
-        // ran keeps the host (a connection that has not said hello yet may be a next daemon's).
-        // From here to the group's SIGTERM the loop handles no other event, and once it is sent
-        // the host answers no hello, so no turn starts on the harness it ends.
+        // Checked again on the census's answer, and on its round of the event queue: an entry or
+        // a connection that came meanwhile keeps the host (a connection that has not said hello
+        // yet may be a next daemon's). From here to the group's SIGTERM no other event is handled.
         let mut pending = self.pending().await;
         pending.connections = self.pending_conns.len();
         pending.unlogged += usize::from(census.is_some() && self.next_h != self.orphan.census_at);
@@ -220,11 +218,21 @@ impl State {
         match (census, self.record.harness_pid) {
             // Nothing runs that a census could find: the harness already ended.
             _ if !leader => self.orphan_end().await,
-            (Some(true), _) => self.orphan_end().await,
+            (Some(true), _) if self.orphan.confirming => self.orphan_end().await,
+            // Other tasks' events sent before the census's answer may wait behind it (tokio's
+            // queue orders each sender, not all of them): one more round lets them in first.
+            (Some(true), _) => {
+                self.orphan.confirming = true;
+                let (events, generation) = (events.clone(), self.orphan.generation);
+                // task-owner: one send; the runtime ends it with the host.
+                tokio::spawn(async move {
+                    let _ = events.send(Event::Orphan(generation, Some(true))).await;
+                });
+            }
             // Something else runs under it (a dev server it left), or it can not tell.
             (Some(false), _) | (None, None) => self.orphan_wait(events, wait),
             (None, Some(pid)) => {
-                self.orphan.census_at = self.next_h;
+                (self.orphan.census_at, self.orphan.confirming) = (self.next_h, false);
                 let given = self.orphan.given_servers.clone();
                 let (events, generation) = (events.clone(), self.orphan.generation);
                 // task-owner: one census, bounded by its own budget (`hub/idle_census.rs`).

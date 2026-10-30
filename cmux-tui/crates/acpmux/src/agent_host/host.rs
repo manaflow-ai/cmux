@@ -990,8 +990,7 @@ impl State {
             return;
         };
         if let ControllerFrame::Hello { min, max, token, .. } = &frame {
-            // Nor does a host that ends its harness (`host/orphan.rs`): no turn starts on it.
-            if self.stall_hello || self.orphan.ends() {
+            if self.stall_hello {
                 return;
             }
             let Some(pos) = self.pending_conns.iter().position(|(pid, _)| *pid == id) else {
