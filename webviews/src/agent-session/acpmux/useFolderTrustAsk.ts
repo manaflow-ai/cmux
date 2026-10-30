@@ -52,6 +52,11 @@ export function visitOf(visit: unknown): { visit?: string } {
   return {};
 }
 
+/// A held Trust retry's key: its chat and the client visit it was refused in (none: unbound).
+function retryKey(chat: string | undefined, visit: unknown): string {
+  return JSON.stringify([chat ?? null, typeof visit === "string" ? visit : null]);
+}
+
 /// Why Send is off; an empty block only reports a trust read in flight. `shownAbove`: the
 /// question over the card already says it, so the card draws no caption (Send's tooltip keeps it).
 export type SendBlock = { reason?: StringKey; shownAbove?: boolean };
@@ -224,12 +229,21 @@ export function useFolderTrustAsk(
   const [refusal, setRefusal] = useState<{ sessionId?: string; cwd?: string; authorityEpoch: number }>();
   /// Each chat's refused prompt, sent again after Trust there: another chat's refusal keeps its own.
   /// Each is kept until Trust has saved and no folder choice or auth refusal holds the chat.
+  /// Keyed by chat and visit (`retryKey`): fresh chats share no session id, so each keeps its own.
   const resend = useRef(
-    new Map<
-      string | undefined,
-      { again: () => void; cwds: (string | undefined)[]; family?: string; ready: boolean; visit?: string }
-    >(),
+    new Map<string, { again: () => void; cwds: (string | undefined)[]; family?: string; ready: boolean }>(),
   );
+  /// The keys a chat's held retry may sit under: its visit's, then the unbound one (a New Tab's first
+  /// render has no client visit yet, and its retry stays its own once the visit binds).
+  const retryKeys = (chat: string | undefined, visit: unknown) =>
+    typeof visit === "string" ? [retryKey(chat, visit), retryKey(chat, undefined)] : [retryKey(chat, undefined)];
+  const heldRetry = (chat: string | undefined, visit: unknown) => {
+    for (const key of retryKeys(chat, visit)) {
+      const held = resend.current.get(key);
+      if (held) return { key, held };
+    }
+    return undefined;
+  };
   /// What acpmux's last trust refusal said of each chat's folder, until an answer there: the
   /// question draws from it when the folder's read gets no answer in time (a peer's folder, read
   /// over the peer link) or disagrees with acpmux's gate. Kept per chat, so a chat switch keeps it.
@@ -503,10 +517,10 @@ export function useFolderTrustAsk(
             : { cwd: asked.cwd, ...where, state: "decided", level },
         );
         // The prompt acpmux refused goes now that the folder is trusted; another answer keeps it.
-        const held = resend.current.get(asked.sessionId);
+        const found = heldRetry(asked.sessionId, visitValue);
         if (level === "trusted") {
-          if (held) held.ready = true;
-        } else resend.current.delete(asked.sessionId);
+          if (found) found.held.ready = true;
+        } else if (found) resend.current.delete(found.key);
       } catch {
         if (stillHere()) setAsk({ cwd: asked.cwd, state: "failed" });
       } finally {
@@ -527,6 +541,7 @@ export function useFolderTrustAsk(
       ownerEpoch,
       sameAuthority,
       sameVisit,
+      visitValue,
     ],
   );
 
@@ -535,14 +550,14 @@ export function useFolderTrustAsk(
   useEffect(() => {
     // A retry Trust already released waits only on the folder choice: leaving its chat drops it.
     // One still waiting for Trust stays with its chat (sent after Trust there, as before).
-    // Fresh chats share the undefined key: the visit a retry was refused in tells them apart.
-    const here = (waiting: { visit?: string }) => waiting.visit === undefined || waiting.visit === visitValue;
-    for (const [chat, waiting] of resend.current)
-      if ((chat !== sessionId || !here(waiting)) && waiting.ready) resend.current.delete(chat);
-    const held = resend.current.get(sessionId);
-    if (!held || !here(held)) return;
+    // Fresh chats share no session id: the visit a retry was refused in tells them apart.
+    const mine = new Set(retryKeys(sessionId, visitValue));
+    for (const [key, waiting] of resend.current) if (!mine.has(key) && waiting.ready) resend.current.delete(key);
+    const found = heldRetry(sessionId, visitValue);
+    if (!found) return;
+    const { key, held } = found;
     if (!held.cwds.includes(cwd) || held.family !== family) {
-      resend.current.delete(sessionId);
+      resend.current.delete(key);
       return;
     }
     if (!held.ready || !trusted || blockSend || !cwd || !mounted.current) return;
@@ -550,7 +565,7 @@ export function useFolderTrustAsk(
     // this one: its render-time values pass, the live ones do not. Keep the callback; the next
     // render, for the chat now selected, drops this chat's released retry.
     if (!sameAuthority() || !sameVisit()) return;
-    resend.current.delete(sessionId);
+    resend.current.delete(key);
     try {
       held.again();
     } catch {
@@ -585,13 +600,13 @@ export function useFolderTrustAsk(
     /// supersedes that callback, so the next effect cannot send the same prompt a second time.
     retry: <T>(again: () => Promise<T>): Promise<T | undefined> => {
       if (blockSend) return Promise.resolve(undefined);
-      resend.current.delete(sessionId);
+      for (const key of retryKeys(sessionId, visitValue)) resend.current.delete(key);
       return again();
     },
     /// Cancel leaves the draft or failed row in place for a later explicit send/retry.
     cancelResend: useCallback(() => {
-      resend.current.delete(sessionId);
-    }, [sessionId]),
+      for (const key of retryKeys(sessionId, visitValue)) resend.current.delete(key);
+    }, [sessionId, visitValue]),
     /// Trust only the chat's folder.
     trust: () => void save("trusted"),
     /// Trust the repository holding the folder: every worktree of it takes the answer.
@@ -624,16 +639,15 @@ export function useFolderTrustAsk(
         setReading(true);
         // A refusal without its own re-run (a prompt the client routed first) keeps the one set.
         if (again)
-          resend.current.set(sessionId, {
+          resend.current.set(retryKey(sessionId, visitValue), {
             again,
             cwds: [cwd, refusedFolder],
             family,
             ready: false,
-            ...visitOf(visitValue),
           });
         else {
-          const held = resend.current.get(sessionId);
-          if (held) held.ready = false;
+          const found = heldRetry(sessionId, visitValue);
+          if (found) found.held.ready = false;
         }
         setReads((count) => count + 1);
         return true;
