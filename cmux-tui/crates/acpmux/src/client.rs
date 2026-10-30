@@ -226,7 +226,11 @@ impl Client {
         }
         let mut seen = std::collections::HashSet::new();
         while let Some(cursor) = reply.as_object_mut().and_then(|r| r.remove("nextCursor")) {
-            let Value::String(cursor) = cursor else { break };
+            let cursor = match cursor {
+                Value::String(cursor) => cursor,
+                Value::Null => break,
+                other => anyhow::bail!("{m}: the daemon gave the page cursor {other}"),
+            };
             if !seen.insert(cursor.clone()) {
                 anyhow::bail!("{m}: the daemon gave the page cursor {cursor:?} twice");
             }

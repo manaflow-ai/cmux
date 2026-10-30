@@ -223,10 +223,14 @@ pub struct Peer {
     health: StdMutex<Option<(u64, Value)>>,
     /// An ask for it is out.
     health_asking: AtomicBool,
-    /// The pending key of the handshake's `_acpmux/watch`. The reader publishes that reply's
-    /// list itself, before it reads the next frame, so a `session_changed` the peer sent after
-    /// the reply reaches the hub after the list, never before it.
+    /// The pending key of the handshake's `_acpmux/watch`, or of the `_acpmux/sessions` page
+    /// after it (`watch_paging`). The reader publishes that reply's list itself, before it reads
+    /// the next frame, so a `session_changed` the peer sent after the reply reaches the hub after
+    /// the list, never before it. A list in pages is published once, whole, after its last.
     watch_key: StdMutex<Option<String>>,
+    /// The handshake is reading the pages of its watch list: its `_acpmux/sessions` replies go
+    /// to the reader's list like the watch's own.
+    watch_paging: AtomicBool,
 }
 
 impl Peer {
@@ -295,6 +299,7 @@ impl Peer {
             health: StdMutex::new(None),
             health_asking: AtomicBool::new(false),
             watch_key: StdMutex::new(None),
+            watch_paging: AtomicBool::new(false),
         })
     }
 
@@ -783,7 +788,9 @@ impl Peer {
         let (tx, rx) = oneshot::channel();
         let key = Value::from(id).to_string();
         self.pending.lock().await.insert(key.clone(), tx);
-        if m == method::MUX_WATCH {
+        if m == method::MUX_WATCH
+            || (m == method::MUX_SESSIONS && self.watch_paging.load(Ordering::SeqCst))
+        {
             *self.watch_key.lock_or_recover() = Some(key.clone());
         }
         // A request that times out, or whose caller stops waiting, takes its
@@ -1220,13 +1227,9 @@ impl Peer {
                 answer => (answer?, true),
             };
             // A list too large for one message comes in pages (a peer served as Web, over
-            // plain ws://, gets the whole list): the reader published the first, and the
-            // whole list replaces it before the link connects.
-            if first.get("nextCursor").is_some_and(Value::is_string) {
-                let rows = me.watch_pages(first, tools, link).await?;
-                let notice = PeerNotice::Sessions(rows);
-                let _ = me.notices.send((me.name.clone(), me.generation, notice)).await;
-            }
+            // plain ws://, gets the whole list): every page is read before the link connects,
+            // and the reader publishes the list once, whole, after the last.
+            me.watch_pages(first, tools, link).await?;
             // Connected only now, and ready with it, so its state note follows `connected`.
             // `run` moves the epoch on before it clears `connected` and takes the link down, so
             // a link that dropped meanwhile is seen here: it is not made ready again, and never
@@ -1298,6 +1301,10 @@ impl Peer {
                 }
             };
         }
+        // The rows of a watch list read in pages so far, and the changes the peer sent
+        // meanwhile: published once the last page is in, the list first. A link that drops
+        // before then publishes neither, so the hub keeps its last whole list.
+        let mut paged: Option<(Vec<Value>, Vec<PeerNotice>)> = None;
         let result = loop {
             if self.stop.load(Ordering::SeqCst) {
                 break Ok(LinkEnd::Stopped);
@@ -1389,9 +1396,25 @@ impl Peer {
                                 self.github_link.store(link + 1, Ordering::SeqCst);
                             }
                             if let (true, Ok(list)) = (watch, &reply) {
-                                let notice = PeerNotice::Sessions(watch_sessions(list));
-                                if self.notices.send((self.name.clone(), self.generation, notice)).await.is_err() {
-                                    break Ok(LinkEnd::Stopped);
+                                let (mut rows, held) = paged.take().unwrap_or_default();
+                                rows.extend(watch_sessions(list));
+                                match page_cursor(list) {
+                                    // More pages: the handshake asks for them.
+                                    Ok(Some(_)) => paged = Some((rows, held)),
+                                    // A bad cursor: the handshake fails and the link drops.
+                                    Err(_) => {}
+                                    Ok(None) => {
+                                        let mut stopped = false;
+                                        for notice in std::iter::once(PeerNotice::Sessions(rows)).chain(held) {
+                                            if self.notices.send((self.name.clone(), self.generation, notice)).await.is_err() {
+                                                stopped = true;
+                                                break;
+                                            }
+                                        }
+                                        if stopped {
+                                            break Ok(LinkEnd::Stopped);
+                                        }
+                                    }
                                 }
                             }
                             let _ = tx.send(reply);
@@ -1416,6 +1439,11 @@ impl Peer {
                             } else {
                                 PeerNotice::Notification { method: m, params: p, link: self.link_epoch() }
                             };
+                            // A change during a paged watch list goes after that list.
+                            if let (Some((_, held)), PeerNotice::SessionChanged { .. }) = (paged.as_mut(), &notice) {
+                                held.push(notice);
+                                continue;
+                            }
                             if self.notices.send((self.name.clone(), self.generation, notice)).await.is_err() {
                                 break Ok(LinkEnd::Stopped);
                             }
@@ -1508,28 +1536,36 @@ fn watch_sessions(reply: &Value) -> Vec<Value> {
 }
 
 impl Peer {
-    /// The rows of the watch reply `first` and of every page after it, read with
-    /// `_acpmux/sessions {cursor}` on link `link`. A cursor that comes again is an error,
-    /// never a loop or a short list.
-    async fn watch_pages(
-        &self,
-        mut first: Value,
-        tools: bool,
-        link: u64,
-    ) -> Result<Vec<Value>, RpcError> {
-        let mut rows = watch_sessions(&first);
-        let (mut seen, mut next) = (HashSet::new(), first.get_mut("nextCursor").map(Value::take));
-        while let Some(Value::String(cursor)) = next {
-            if !seen.insert(cursor.clone()) {
-                let why = format!("the peer gave the watch page cursor {cursor:?} twice");
-                return Err(RpcError::internal(why));
+    /// Reads every page after the watch reply `first` with `_acpmux/sessions {cursor}` on link
+    /// `link`; the reader gathers their rows (`watch_key`). A cursor given twice, or one that is
+    /// not a string, is an error that ends the handshake, never a loop or a short list.
+    async fn watch_pages(&self, first: Value, tools: bool, link: u64) -> Result<(), RpcError> {
+        let (mut seen, mut next) = (HashSet::new(), page_cursor(&first)?);
+        self.watch_paging.store(next.is_some(), Ordering::SeqCst);
+        let read = async {
+            while let Some(cursor) = next {
+                if !seen.insert(cursor.clone()) {
+                    let why = format!("the peer gave the watch page cursor {cursor:?} twice");
+                    return Err(RpcError::internal(why));
+                }
+                let params = json!({"withTools": tools, "cursor": cursor});
+                let page = self.link_request_on(method::MUX_SESSIONS, params, Some(link)).await?;
+                next = page_cursor(&page)?;
             }
-            let params = json!({"withTools": tools, "cursor": cursor});
-            let mut page = self.link_request_on(method::MUX_SESSIONS, params, Some(link)).await?;
-            rows.extend(watch_sessions(&page));
-            next = page.get_mut("nextCursor").map(Value::take);
-        }
-        Ok(rows)
+            Ok(())
+        };
+        let read = read.await;
+        self.watch_paging.store(false, Ordering::SeqCst);
+        read
+    }
+}
+
+/// A watch or page reply's `nextCursor`: none when absent or null, an error when not a string.
+fn page_cursor(reply: &Value) -> Result<Option<String>, RpcError> {
+    match reply.get("nextCursor") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(cursor)) => Ok(Some(cursor.clone())),
+        Some(other) => Err(RpcError::internal(format!("the peer gave the page cursor {other}"))),
     }
 }
 
