@@ -110,40 +110,48 @@ function followEscape(on: boolean) {
   else window.removeEventListener("keydown", onEscape, true);
 }
 
-// Scripts that name their language well enough to pick a voice. Latin text cannot tell English from
-// Spanish by its letters, so it keeps the pane's language.
-const SCRIPTS: readonly { pattern: RegExp; language: string; family: readonly string[] }[] = [
-  { pattern: /[\u3040-\u30ff]/gu, language: "ja", family: ["ja"] },
-  { pattern: /[\uac00-\ud7af\u1100-\u11ff]/gu, language: "ko", family: ["ko"] },
-  { pattern: /[\u4e00-\u9fff\u3400-\u4dbf]/gu, language: "zh-CN", family: ["zh", "yue"] },
-  { pattern: /[\u0400-\u04ff]/gu, language: "ru", family: ["ru", "uk", "bg", "sr", "be", "mk", "kk"] },
-  { pattern: /[\u0600-\u06ff]/gu, language: "ar", family: ["ar", "fa", "ur"] },
-  { pattern: /[\u0590-\u05ff]/gu, language: "he", family: ["he"] },
-  { pattern: /[\u0e00-\u0e7f]/gu, language: "th", family: ["th"] },
-  { pattern: /[\u0370-\u03ff]/gu, language: "el", family: ["el"] },
-  { pattern: /[\u0900-\u097f]/gu, language: "hi", family: ["hi", "mr", "ne"] },
-];
+// Scripts that name their language well enough to pick a voice, tested on letters only (digits and
+// punctuation of a script's block, such as Arabic-Indic digits, say nothing about the language). Latin
+// text cannot tell English from Spanish by its letters, so it keeps the pane's language.
+const SCRIPTS = [
+  { id: "kana", pattern: /^[\p{scx=Hiragana}\p{scx=Katakana}]$/u, language: "ja", family: ["ja"] },
+  { id: "hangul", pattern: /^\p{scx=Hangul}$/u, language: "ko", family: ["ko"] },
+  { id: "han", pattern: /^\p{scx=Han}$/u, language: "zh-CN", family: ["zh", "yue"] },
+  { id: "cyrillic", pattern: /^\p{scx=Cyrillic}$/u, language: "ru", family: ["ru", "uk", "bg", "sr", "be", "mk", "kk"] },
+  { id: "arabic", pattern: /^\p{scx=Arabic}$/u, language: "ar", family: ["ar", "fa", "ur"] },
+  { id: "hebrew", pattern: /^\p{scx=Hebrew}$/u, language: "he", family: ["he"] },
+  { id: "thai", pattern: /^\p{scx=Thai}$/u, language: "th", family: ["th"] },
+  { id: "greek", pattern: /^\p{scx=Greek}$/u, language: "el", family: ["el"] },
+  { id: "devanagari", pattern: /^\p{scx=Devanagari}$/u, language: "hi", family: ["hi", "mr", "ne"] },
+] as const;
 
-/// The language to speak `text` in: the pane's `fallback` unless the text is mostly another script
-/// (a Japanese reply read by an English voice is noise). Kana marks Japanese even among Han
+/// The language to speak `text` in: the pane's `fallback` unless the text's letters are mostly another
+/// script (a Japanese reply read by an English voice is noise). Kana marks Japanese even among Han
 /// characters; a fallback in the same script's family (zh-Hant for Han text) is kept.
 export function spokenLanguage(text: string, fallback?: string): string | undefined {
-  const letters = text.match(/\p{L}/gu)?.length ?? 0;
+  let letters = 0;
+  const counts = new Map<string, number>();
+  for (const [letter] of text.matchAll(/\p{L}/gu)) {
+    letters++;
+    const script = SCRIPTS.find((candidate) => candidate.pattern.test(letter));
+    if (script) counts.set(script.id, (counts.get(script.id) ?? 0) + 1);
+  }
   if (!letters) return fallback;
-  // Japanese text is mostly Han characters with a little kana: count it as one script.
-  const kana = text.match(SCRIPTS[0]!.pattern)?.length ?? 0;
+  // Japanese text is mostly Han characters with a little kana: with any kana, Han counts as Japanese.
+  const kana = counts.get("kana") ?? 0;
+  const han = counts.get("han") ?? 0;
+  if (kana) counts.set("kana", kana + han);
   let best: (typeof SCRIPTS)[number] | undefined;
   let bestCount = 0;
   for (const script of SCRIPTS) {
-    let count = text.match(script.pattern)?.length ?? 0;
-    if (script.language === "ja") count += kana ? (text.match(SCRIPTS[2]!.pattern)?.length ?? 0) : 0;
-    if (script.language === "zh-CN" && kana) continue;
+    if (script.id === "han" && kana) continue;
+    const count = counts.get(script.id) ?? 0;
     if (count > bestCount) [best, bestCount] = [script, count];
   }
   // Under a third of the letters is a quoted word or name, not the message's language.
   if (!best || bestCount * 3 < letters) return fallback;
   const base = fallback?.split("-")[0]?.toLowerCase();
-  return base && best.family.includes(base) ? fallback : best.language;
+  return base && (best.family as readonly string[]).includes(base) ? fallback : best.language;
 }
 
 /// Markdown as it should be heard: link and image text without their addresses, no emphasis or

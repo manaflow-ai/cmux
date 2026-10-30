@@ -32,6 +32,17 @@ test("a quoted word in another script does not change the language", () => {
   expect(spokenLanguage("The Japanese word 猫 means cat, and this sentence is otherwise English.", "en")).toBe("en");
 });
 
+test("digits and punctuation of a script's block are not its letters", () => {
+  expect(spokenLanguage("The result is ١٢٣٤٥٦٧٨٩", "en")).toBe("en");
+  expect(spokenLanguage("Version ०१२३४५६७८९ shipped", "en")).toBe("en");
+  expect(spokenLanguage("Total ๑๒๓๔๕๖๗", "en")).toBe("en");
+  expect(spokenLanguage("هذه رسالة ١٢٣", "en")).toBe("ar");
+});
+
+test("the Katakana long-vowel mark counts as Japanese", () => {
+  expect(spokenLanguage("コンピューター", "en")).toBe("ja");
+});
+
 test("text without letters keeps the fallback", () => {
   expect(spokenLanguage("1234 — 5678", "de")).toBe("de");
 });
