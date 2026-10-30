@@ -126,7 +126,13 @@ await requireBrowserLane("gallery-agent-pane-entries.test.ts", async () => {
       play: "steps",
       shows: has(".acpmux-summary-card .acpmux-summary-agents"),
     },
-    { entry: "subagents", variant: "card-open-child", play: "steps", shows: has(".cv-subagent-of") },
+    // The card asks for the subagent's companion pane; the source chat and its summary card stay.
+    {
+      entry: "subagents",
+      variant: "card-open-child",
+      play: "steps",
+      shows: has(".acpmux-summary-card .acpmux-summary-agents"),
+    },
     // Run boards: a person reviews a candidate's evidence and approves it for integration. Each is
     // "error", not "steps": its own labels change width when the state changes (a width follow-up,
     // not a missing state). Timeline: "Approve for integration" becomes "Approval recorded" and
