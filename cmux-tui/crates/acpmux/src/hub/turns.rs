@@ -307,7 +307,7 @@ impl Hub {
         blocks: Vec<Value>,
         client: &str,
         steer: bool,
-        opts: PromptOptions,
+        mut opts: PromptOptions,
         joined: &super::digest::DigestTurn,
     ) -> Result<Value, RpcError> {
         // Stop can arrive during dispatch setup, before session.turn is installed. Keep
@@ -389,6 +389,13 @@ impl Hub {
                 .await;
             }
         };
+        // A first work says so in its provenance, which its queue entry keeps across a restart
+        // (`queue.rs`): its sender is the delegator whichever turn it runs as.
+        if first_work.is_some()
+            && let Some(p) = opts.provenance.as_mut().and_then(Value::as_object_mut)
+        {
+            p.insert(super::inbox::FIRST_WORK.to_owned(), Value::Bool(true));
+        }
         #[cfg(test)]
         if first_work.is_some() {
             let seam = self.first_work_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
@@ -606,7 +613,7 @@ impl Hub {
             // inbox took while this first work waited to start named. Its own sender, not a
             // digest's: messages that joined its turn (`digest.rs`) name none. A first work a
             // person's prompt went ahead of still names it.
-            if (m.turn_count == 0 || first_work.is_some())
+            if (m.turn_count == 0 || super::inbox::is_first_work(run.provenance.as_ref()))
                 && let Some(from) = super::inbox::sender_session(run.provenance.as_ref())
                 && from != m.id
             {

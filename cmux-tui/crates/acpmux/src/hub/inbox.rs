@@ -19,9 +19,10 @@
 //! delegator once its turn starts. The prompt holds the first work while it runs
 //! ([`FirstWork`]), so of two that come at once only one is it; a refused one lets go. No notice
 //! goes ahead of it while it holds the chat (`inbox_review`); a person's prompt may, and its
-//! sender is the delegator still. Messages after it, and any to a chat that ran a turn, go to the
-//! inbox. A lane's brief came to it as a notice of its brief (2026-10-30), so the lane read a
-//! thread where it should have read its task.
+//! sender is the delegator still: its provenance says it is the first work ([`FIRST_WORK`]), in
+//! the queue too, so across a restart as well. Messages after it, and any to a chat that ran a
+//! turn, go to the inbox. A lane's brief came to it as a notice of its brief (2026-10-30), so the
+//! lane read a thread where it should have read its task.
 //!
 //! A review box (`review_box.rs`: the `*-review-box` harness `lane-place new --review` starts, or
 //! a session with a `review.` tag) has no inbox ([`review_box`]), and another agent's message
@@ -85,6 +86,9 @@ use std::sync::atomic::Ordering;
 
 /// The provenance kind of a notice.
 pub const NOTICE_KIND: &str = "inbox_notice";
+/// On a chat's first work's provenance (module docs): set by acpmux only, as no client's
+/// provenance keeps a field it does not name (`prompt_provenance.rs`).
+pub const FIRST_WORK: &str = "firstWork";
 /// How long after the oldest waking message an idle chat is woken: a burst is one turn.
 pub const WAKE_DEBOUNCE_MS: u64 = 2_000;
 /// A notice the chat refused is tried again no sooner than this.
@@ -366,6 +370,11 @@ fn label(key: &str) -> String {
         Some((_, n)) => format!("#{n}"),
         None => "messages".to_owned(),
     }
+}
+
+/// Whether a prompt's provenance marks it a chat's first work ([`FIRST_WORK`]).
+pub(super) fn is_first_work(provenance: Option<&Value>) -> bool {
+    provenance.and_then(|p| p.get(FIRST_WORK)).and_then(Value::as_bool) == Some(true)
 }
 
 /// The session a message came from, when its provenance names one (not a sender that only
