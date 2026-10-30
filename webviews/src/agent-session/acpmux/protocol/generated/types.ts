@@ -861,6 +861,12 @@ export type SessionDetail = {
   moving: boolean;
   name: string;
   /**
+   * Someone gave `name` (at the start, a fork's or a rename), not the daemon's `HARNESS-N`
+   * default. Absent otherwise, from a session named before it was kept, and from a peer on an
+   * older acpmux.
+   */
+  nameGiven?: boolean;
+  /**
    * The session whose agent started this one (`acpmux new` in its shell, or its
    * `start_session` tool), recorded at creation from the proven caller; null for a
    * session a person or the app started. Not the fork parent (`parentId`). Absent
@@ -1069,6 +1075,12 @@ export type SessionSummary = {
   /** Being moved to another daemon; it takes no prompt meanwhile. */
   moving: boolean;
   name: string;
+  /**
+   * Someone gave `name` (at the start, a fork's or a rename), not the daemon's `HARNESS-N`
+   * default. Absent otherwise, from a session named before it was kept, and from a peer on an
+   * older acpmux.
+   */
+  nameGiven?: boolean;
   /**
    * The session whose agent started this one (`acpmux new` in its shell, or its
    * `start_session` tool), recorded at creation from the proven caller; null for a
