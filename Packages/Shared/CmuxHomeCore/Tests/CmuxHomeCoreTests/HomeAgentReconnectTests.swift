@@ -4,6 +4,23 @@ import CmuxHomeCoreTestSupport
 @testable import CmuxHomeCore
 
 @MainActor struct HomeAgentReconnectTests {
+    @Test func aPushedConversationPageRefreshesAgentReports() async throws {
+        let source = AgentReportRecoverySource()
+        let store = HomeStore(source: source)
+        store.start()
+        defer { store.stop() }
+        await waitUntil { store.isOnline && !store.rows.isEmpty }
+        let conversation = ConversationID("conv_aziz")
+        await store.open(conversation)
+        await waitUntil { store.agentMessageReads[conversation] == nil }
+        let question = try #require(store.transcript(for: conversation).first?.messageID)
+        await source.finishReport(in: conversation, answering: question)
+        let page = try await source.snapshot(of: conversation, tail: 100)
+        store.handle(.conversationPage(page))
+        await waitUntil { store.transcript(for: conversation).contains { $0.plainText.contains("Recovered report") } }
+        #expect(store.transcript(for: conversation).filter(\.isReadOnly).count == 1)
+    }
+
     @Test(arguments: [false, true])
     func reportMissedWhileDisconnectedAppearsOnRecovery(ownerOnly: Bool) async throws {
         let source = AgentReportRecoverySource()

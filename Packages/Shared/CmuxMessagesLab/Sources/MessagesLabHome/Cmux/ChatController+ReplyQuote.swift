@@ -26,7 +26,8 @@ extension ChatController {
     /// Reply to Selection: the thread composer opens as Reply… does, with the quote on the field.
     func replyToSelection(_ quote: ReplyQuote) {
         // Validate the capability before mutating the engine, selection, or focus.
-        guard intents?.canReply == true else { return }
+        guard intents?.canReply == true,
+              intents?.canInteract(with: quote.source.messageId) != false else { return }
         dispatch(.reply(quote.source))
         replyQuote = quote
         selection.clear()
