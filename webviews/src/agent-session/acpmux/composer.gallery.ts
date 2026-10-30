@@ -1436,6 +1436,12 @@ export default agentPaneEntry({
       },
     },
     "history-recall-older-page": {
+      checks: {
+        layoutShiftMax: {
+          value: 0.12,
+          reason: "The delayed older page intentionally inserts transcript rows above the composer.",
+        },
+      },
       note: "Play: recall C, then an older page arrives while the field still shows it; ↑ continues with B instead of jumping to A.",
       snapshot: chat(historyPageRows),
       play: async (ctx) => {
