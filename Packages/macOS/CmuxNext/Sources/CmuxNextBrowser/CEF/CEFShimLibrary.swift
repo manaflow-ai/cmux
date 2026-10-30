@@ -68,6 +68,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let goBack: @convention(c) (Int32) -> Void
     let goForward: @convention(c) (Int32) -> Void
     let reload: @convention(c) (Int32) -> Void
+    let reloadIgnoreCache: @convention(c) (Int32) -> Void
     let stop: @convention(c) (Int32) -> Void
     let setFocus: @convention(c) (Int32, Int32) -> Void
     let setZoomLevel: @convention(c) (Int32, Double) -> Void
@@ -338,6 +339,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         goBack = try r("cmux_shim_go_back")
         goForward = try r("cmux_shim_go_forward")
         reload = try r("cmux_shim_reload")
+        reloadIgnoreCache = try r("cmux_shim_reload_ignore_cache")
         stop = try r("cmux_shim_stop")
         setFocus = try r("cmux_shim_set_focus")
         setZoomLevel = try r("cmux_shim_set_zoom_level")

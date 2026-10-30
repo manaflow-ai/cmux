@@ -118,8 +118,9 @@ public nonisolated final class HomeSourceRouter: HomeSource {
     public func submit(_ intent: HomeIntent) async throws -> HomeOpResult {
         let toCloud: Bool
         switch intent.op {
-        case .createGroup(_, let ids):
-            toCloud = state.withLock { state in !ids.allSatisfy { state.localParticipants.contains($0) || $0.rawValue == DaemonHomeSource.chief.id } }
+        case .createGroup(_, let ids, let invites):
+            // Invites are the cloud's (`invite.create`); a local channel has none.
+            toCloud = !invites.isEmpty || state.withLock { state in !ids.allSatisfy { state.localParticipants.contains($0) || $0.rawValue == DaemonHomeSource.chief.id } }
         case .startConversation, .invite, .openDirect: toCloud = true
         case .createChief: toCloud = false
         default:
