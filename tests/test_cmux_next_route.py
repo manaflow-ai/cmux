@@ -10,6 +10,7 @@ through the regenerated graph.
 from __future__ import annotations
 
 import fnmatch
+import importlib.util
 import json
 import re
 import sys
@@ -355,10 +356,8 @@ class PullRequestTiers(unittest.TestCase):
                 self.assertEqual(result["native"], "false")
 
     def test_a_file_a_test_reads_selects_that_test(self):
-        # CmuxNextSettingsTests reads the schema. Since the bundles are build output
-        # (ce0b9e76a9b) the schema is also a web-bundle input, so the test targets that
-        # depend on a target shipping a bundle are selected with it, and nothing else.
-        # The graph names those dependents (#23260, #22683 and #21818 each added one).
+        # CmuxNextSettingsTests reads the schema. The schema is also a web-bundle input, but
+        # no suite reads a built bundle (BundleInputs), so only the targets that read it run.
         import cmux_next_route as route_module
         path = "schemas/settings/settings-schema.json"
         result = tiers([path])
@@ -368,11 +367,11 @@ class PullRequestTiers(unittest.TestCase):
         bundles = {"CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity", "CmuxNextPalette"}
         self.assertEqual(set(route_module.BUNDLE_TARGETS), bundles)
         self.assertLessEqual(bundles, set(GRAPH["targets"]))
-        self.assertEqual(selected, sorted(graph_dependents(bundles) | graph_readers(path)))
-        for name in ("CmuxNextSettingsTests", "CmuxNextAppTests", "CmuxNextAgentPaneTests", "CmuxNextPagesTests", "CmuxNextPaletteTests"):
-            self.assertIn(name, selected)
-        for name in ("CmuxNextDaemonTests", "CmuxNextMobileTests"):
+        self.assertEqual(selected, sorted(graph_readers(path)))
+        self.assertIn("CmuxNextSettingsTests", selected)
+        for name in ("CmuxNextAppTests", "CmuxNextAgentPaneTests", "CmuxNextDaemonTests", "CmuxNextMobileTests"):
             self.assertNotIn(name, selected)
+        self.assertEqual(result["native"], "true", "the compiles still ship the schema's bundles")
 
     def test_a_local_package_selects_the_targets_that_use_it(self):
         result = tiers(["Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Thread.swift"])
@@ -682,6 +681,117 @@ class UnreadDocs(unittest.TestCase):
         self.assertFalse(self.route.unread_doc(root, graph, "plans/x/note.md", []), "no generated_outputs.py there")
 
 
+class BundleInputs(unittest.TestCase):
+    """A web bundle source (BUNDLE_INPUTS) runs the compiles that ship the bundles, and swift test only for
+    the test targets that read the file itself: no suite reads a built bundle's content."""
+
+    @classmethod
+    def setUpClass(cls):
+        import cmux_next_route as route_module
+        cls.route = route_module
+
+    # Page JavaScript a suite runs, and the ways a suite gives the page its own document.
+    TALKS_TO_PAGE = re.compile(r"\b(?:evaluateJavaScript|callAsyncJavaScript|waitUntilLoaded|WKUserScript)\b")
+    OWN_DOCUMENT = re.compile(r'loadHTMLString|registerBundledRoot|allowFixtureRoot|AgentPageTestRoot'
+                              r'|source:\s*\.bundled\(|index\.html|\.html"')
+    OPT_IN = re.compile(r"\.enabled\(if:\s*ProcessInfo\.processInfo\.environment\[")
+
+    def test_the_bundle_targets_are_the_ones_the_bundle_build_writes_into(self):
+        """BUNDLE_TARGETS is every CmuxNext target build-web-bundles.sh writes a bundle into, each taking it as
+        a resource; a new bundle target fails here until the router (and the check below) place it."""
+        script = (ROOT / "scripts/cmux-next/build-web-bundles.sh").read_text(encoding="utf-8")
+        outputs = dict(re.findall(rf'="{PACKAGE}/Sources/(\w+)/(Resources[^"]*)"', script))
+        self.assertEqual(set(outputs), set(self.route.BUNDLE_TARGETS))
+        manifest = (ROOT / PACKAGE / "Package.swift").read_text(encoding="utf-8")
+        for target, output in outputs.items():
+            with self.subTest(target=target):
+                start = re.search(rf'\.target\(\s*name:\s*"{target}"', manifest)
+                self.assertIsNotNone(start)
+                arguments = call_arguments(manifest, start.end())
+                resources = re.findall(r'\.(?:copy|process)\("([^"]+)"\)', manifest[start.end():start.end() + 2000])
+                self.assertIn("resources", arguments)
+                self.assertTrue(any(output == r or output.startswith(r.rstrip("/") + "/") for r in resources),
+                                f"{target} does not take {output} as a resource: {resources}")
+
+    def test_no_suite_runs_page_javascript_on_a_built_bundle(self):
+        """Why a bundle source runs no swift test. In every test target that links a bundle target, a suite
+        that runs page JavaScript loads its own document (a fixture page, loadHTMLString, a scratch root) or is
+        an opt-in bench swift test does not run. A suite that needs a built page must route BUNDLE_INPUTS to
+        its target again (cmux_next_route.py) before it lands."""
+        reaching = graph_dependents(set(self.route.BUNDLE_TARGETS))
+        self.assertIn("CmuxNextAppTests", reaching)
+        offenders, talking = [], 0
+        for name in sorted(reaching):
+            for source in sorted((ROOT / GRAPH["targets"][name]["path"]).rglob("*.swift")):
+                code = "\n".join(line for line in source.read_text(encoding="utf-8").splitlines()
+                                 if not line.lstrip().startswith(("//", "/*", "*")))
+                if not self.TALKS_TO_PAGE.search(code):
+                    continue
+                talking += 1
+                if not (self.OWN_DOCUMENT.search(code) or self.OPT_IN.search(code)):
+                    offenders.append(str(source.relative_to(ROOT)))
+        self.assertGreater(talking, 5, "the scan found no suite that runs page JavaScript")
+        self.assertEqual(offenders, [])
+
+    def test_a_bundle_source_alone_runs_the_compiles_but_no_swift_test(self):
+        """#28272, #27930: agent pane sources reach all four bundle targets' resources, and no test reads them."""
+        for changed in (["webviews/src/agent-session/acpmux/sessionPages.ts", "mux/host/src/acpmux-client.ts"],
+                        ["webviews/src/agent-session/acpmux/subagents/SubagentTray.tsx",
+                         "scripts/cmux-next/media/states/subagent-tray.json"],
+                        ["scripts/cmux-next/build-pages-web.sh"]):
+            with self.subTest(changed=changed):
+                result = tiers(changed)
+                self.assertEqual(result["native"], "true", "the compiles ship the bundles")
+                self.assertEqual(result["swift"], "false")
+                self.assertEqual(result["generated"], "false")
+                self.assertEqual(result["swift_targets"], "")
+                self.assertEqual(result["fast_tier"], "false")
+
+    def test_what_still_runs_swift_test(self):
+        """A file a test names, a Swift bridge source and a shared fixture keep their suites."""
+        cases = {
+            # The Swift half of the page bridge: its own target and every test target above it.
+            f"{PACKAGE}/Sources/CmuxNextPages/PageSchemeHandler.swift": "CmuxNextPagesTests",
+            f"{PACKAGE}/Sources/CmuxNextAgentPane/AgentPaneView.swift": "CmuxNextAgentPaneTests",
+            # A webviews fixture an app suite reads (NewTabIntentTableTests).
+            "webviews/test/fixtures/new-tab-intents.json": "CmuxNextAppTests",
+            # The dev server's entries (PageDevServerTests): a page's main.tsx.
+            "webviews/src/pages/settings/main.tsx": "CmuxNextPagesTests",
+            # Read by CmuxNextSettingsTests as well as built into the bundles.
+            "schemas/settings/settings-schema.json": "CmuxNextSettingsTests",
+        }
+        for path, target in cases.items():
+            with self.subTest(path=path):
+                result = tiers([path])
+                self.assertEqual(result["swift"], "true")
+                self.assertIn(target, result["swift_targets"].split())
+
+    def test_a_pattern_read_selects_only_what_it_matches(self):
+        """The graph records a test's `*` literal as a pattern read (ci-target-graph.py glob_read)."""
+        graph = json.loads(json.dumps(GRAPH))
+        reads = graph["targets"]["CmuxNextPagesTests"]["reads"]
+        graph["targets"]["CmuxNextPagesTests"]["reads"] = [
+            read for read in reads if read != "webviews/src/pages/"] + ["webviews/src/pages/*/main.tsx"]
+        with mock.patch.object(self.route, "load_graph", return_value=graph):
+            entry = tiers(["webviews/src/pages/settings/main.tsx"])
+            self.assertEqual(entry["swift_targets"].split(), ["CmuxNextPagesTests"])
+            inside = tiers(["webviews/src/pages/settings/components/ThemePicker.tsx",
+                            "webviews/src/pages/settings/layout.css"])
+            self.assertEqual(mac_tiers(inside), [], "a page-internal edit is a web nit: ci-web covers it")
+        self.assertTrue(self.route.matches("webviews/src/pages/a/b/main.tsx", "webviews/src/pages/*/main.tsx"),
+                        "fnmatch's * crosses /: a pattern read is never narrower than the test")
+        self.assertFalse(self.route.matches("webviews/src/pages/a/App.tsx", "webviews/src/pages/*/main.tsx"))
+
+    def test_the_dev_server_test_reads_only_the_page_entries(self):
+        """PageDevServerTests names its entries by a pattern, which the graph generator records."""
+        spec = importlib.util.spec_from_file_location("ci_target_graph_for_route", ROOT / "scripts/cmux-next/ci-target-graph.py")
+        generator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(generator)
+        reads = generator.literal_reads(ROOT / PACKAGE / "Tests/CmuxNextPagesTests")
+        self.assertIn("webviews/src/pages/*/main.tsx", reads)
+        self.assertNotIn("webviews/src/pages/", reads)
+
+
 class FastTierRoute(unittest.TestCase):
     """The Mac fast tier (fast-tier.json's swift entries) builds the CmuxNext package and runs a few of
     its suites. It runs when that build or those suites can change, and not for a change only the
@@ -704,19 +814,22 @@ class FastTierRoute(unittest.TestCase):
         self.assertEqual(result["swift"], "true")
         self.assertEqual(result["fast_tier"], "true")
 
-    def test_web_bundle_inputs_beside_rust_skip_it_but_keep_swift_test(self):
-        """#28160 and #28015: acpmux Rust and the pane's protocol types. The bundles ship as resources of
-        the targets swift test runs; the fast tier job builds no bundle, so nothing it reads changed."""
+    def test_web_bundle_inputs_beside_rust_skip_it(self):
+        """#28160 and #28015: acpmux Rust and the pane's protocol types. The fast tier job builds no
+        bundle, and no suite reads one (BundleInputs): the daemon tier and the compiles carry them."""
         for changed in (["cmux-tui/crates/acpmux/src/rpc.rs", "webviews/src/agent-session/acpmux/direct.ts",
                          "webviews/src/agent-session/acpmux/protocol/generated/methods.ts"],
                         ["cmux-tui/crates/acpmux/src/lib.rs",
-                         "webviews/src/agent-session/acpmux/protocol/generated/types.ts"],
-                        # Read only by CmuxNextSettingsTests (no fast tier suite) and a bundle input.
-                        ["schemas/settings/settings-schema.json"]):
+                         "webviews/src/agent-session/acpmux/protocol/generated/types.ts"]):
             with self.subTest(changed=changed):
                 result = tiers(changed)
-                self.assertEqual(result["swift"], "true")
                 self.assertEqual(result["fast_tier"], "false")
+                self.assertEqual(result["swift"], "false")
+                self.assertEqual(result["daemon"], "true")
+                self.assertEqual(result["native"], "true")
+        # Read only by CmuxNextSettingsTests (no fast tier suite) and a bundle input.
+        result = tiers(["schemas/settings/settings-schema.json"])
+        self.assertEqual((result["swift"], result["fast_tier"]), ("true", "false"))
 
     def test_app_ffi_sources_keep_swift_test_but_not_it(self):
         """The package links CCmuxAppFFI as a pinned binary (a URL and checksum in Package.swift), so its

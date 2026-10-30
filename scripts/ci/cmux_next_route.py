@@ -204,9 +204,17 @@ WEBVIEW = (
 )
 
 # The web bundles are build output since cx-vn5 (scripts/cmux-next/build-web-bundles.sh
-# runs before every package build). A change to what they are built from is a
-# change to the targets that ship them: their tests read the built pages, as they
-# read the committed copies before.
+# runs before every package build). A change to what they are built from changes the
+# app the scheme and Release compiles build (`native`), but no swift test suite: the
+# targets that ship them take them as `.copy` resources (or one processed .js), which
+# no source edit can break, and their suites load fixture pages (AgentPaneView with a
+# temporary index.html, loadHTMLString, a scratch page root), never a built page's
+# content; the app suites that open a real page assert only the native side
+# (DebugSettingsHangWatchTests runs with or without the built page). A bundle source a
+# test does read, such as the dev server's entries (PageDevServerTests) or a shared
+# fixture (webviews/test/fixtures/new-tab-intents.json), selects that test through the
+# graph's reads, like any other file. ci-web type-checks, lints, tests and builds the
+# bundles on Linux, as it does for every webviews change that touches nothing else.
 BUNDLE_INPUTS = (
     "webviews/src/*", "webviews/scripts/*", "webviews/package.json", "webviews/bun.lock",
     "webviews/reactCompiler.mjs", "webviews/vite.config.ts", "schemas/settings/*",
@@ -224,6 +232,7 @@ BUNDLE_INPUTS = (
     "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts/InterVariable.woff2",
 )
 BUNDLE_TARGETS = ("CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity", "CmuxNextPalette")
+BUNDLE_SWIFT_TEST_REASON = "(no swift test suite reads a built bundle; only the tests that read this file run)"
 # Committed web bundles that ci-web rebuilds and compares (`--check`) on every pull request,
 # and that the app takes as a `.copy` resource: a change to them needs no compile.
 CHECKED_WEB_BUNDLES = (
@@ -346,7 +355,7 @@ def unread_doc(root: Path, graph: dict, path: str, tree_inputs: list[str]) -> bo
     covered = False
     for target in graph["targets"].values():
         for read in target.get("reads", []):
-            if read == path:
+            if read == path or ("*" in read and matches(path, read)):
                 return False
             if not (read.endswith("/") and under(path, read)):
                 continue
@@ -517,6 +526,10 @@ def _scheme_phase_rust_inputs(root: Path) -> list[str]:
 
 
 def matches(path: str, pattern: str) -> bool:
+    """A trailing / is a directory; a `*` is a test target's pattern read (ci-target-graph.py
+    glob_read: fnmatch, whose `*` also crosses /, so it matches at least what the test reads)."""
+    if "*" in pattern:
+        return fnmatch.fnmatchcase(path, pattern + "*" if pattern.endswith("/") else pattern)
     return under(path, pattern) if pattern.endswith("/") else path == pattern
 
 
@@ -852,9 +865,8 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str],
     tree_inputs = tree_input_paths(root)
     daemon_closure = closure(graph, set(LIVE_DAEMON_SUBJECTS))
     # Targets whose sources (or local packages) changed: the package build itself can change. A web
-    # bundle input changes only what the targets that ship it copy as resources (changed_targets).
+    # bundle input is none of them: it changes only the resources the bundle targets copy (BUNDLE_INPUTS).
     changed_targets: set[str] = set()
-    source_targets: set[str] = set()
     fast = fast_tier_scope(root, graph)
 
     for path in changed:
@@ -908,15 +920,15 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str],
             result.reasons.append(f"{path} is the Mac fast tier's registry or runner")
 
         if any(fnmatch.fnmatch(path, pattern) for pattern in BUNDLE_INPUTS):
+            # The compiles ship the bundles; swift test reads none of their content (BUNDLE_INPUTS).
             shipped = {name for name in BUNDLE_TARGETS if name in graph["targets"]}
-            changed_targets |= shipped
             result.native = True
-            result.reasons.append(f"{path} is built into the web bundles of {', '.join(sorted(shipped))}")
+            result.reasons.append(f"{path} is built into the web bundles of {', '.join(sorted(shipped))}"
+                                  f" {BUNDLE_SWIFT_TEST_REASON}")
 
         owner = owning_target(graph, path)
         if owner is not None:
             changed_targets.add(owner)
-            source_targets.add(owner)
             result.native = True
             # An executable target (the server helper) is bundled by the app
             # scheme's build phases, not linked into CmuxNextApp.
@@ -929,7 +941,6 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str],
             if any(under(path, prefix) for prefix in prefixes):
                 users = {t for t, target in graph["targets"].items() if name in target["packages"]}
                 changed_targets |= users
-                source_targets |= users
                 result.native = result.scheme = True
                 result.reasons.append(f"{path} is in local package {name}, used by {', '.join(sorted(users))}")
         for name in tests:
@@ -941,7 +952,7 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str],
 
     if result.full:
         return result
-    result.package_build = bool(source_targets)
+    result.package_build = bool(changed_targets)
     for name in tests:
         if name in changed_targets or closure(graph, {name}) & changed_targets:
             result.tests.add(name)
