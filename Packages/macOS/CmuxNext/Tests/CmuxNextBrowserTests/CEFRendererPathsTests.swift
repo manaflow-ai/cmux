@@ -555,16 +555,16 @@ import Testing
                 signal.finish()
             }
             defer { hangGuard.cancel() }
-            var next = sent.makeAsyncIterator()
-            while true {
-                for id in Spy.unanswered { runtime.handle(.devToolsResult(browser: 7, messageID: id, success: true, json: "{}")) }
-                Spy.unanswered = []
-                if Spy.devToolsCalls.contains(method) { return }
-                guard await next.next() != nil else {
-                    Issue.record("the tab sent no \(method) within 10 s: \(Spy.devToolsCalls)")
-                    return
-                }
-            }
+            if answerUntilSent(method) { return }
+            for await _ in sent where answerUntilSent(method) { return }
+            Issue.record("the tab sent no \(method) within 10 s: \(Spy.devToolsCalls)")
+        }
+
+        /// Answers every DevTools call the tab sent and still waits on; true once the tab sent `method`.
+        private func answerUntilSent(_ method: String) -> Bool {
+            for id in Spy.unanswered { runtime.handle(.devToolsResult(browser: 7, messageID: id, success: true, json: "{}")) }
+            Spy.unanswered = []
+            return Spy.devToolsCalls.contains(method)
         }
 
         /// Answers every DevTools call the tab sent (as Chromium's DEVTOOLS_RESULT would) until `condition`.

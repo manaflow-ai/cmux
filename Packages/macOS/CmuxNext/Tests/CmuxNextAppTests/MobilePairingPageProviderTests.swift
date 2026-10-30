@@ -28,7 +28,7 @@ import Testing
                     writes.append((path, value))
                     if path == MobileSettings.allowIPhoneConnectionsPath { allowed = value.boolValue ?? false }
                 },
-                invite: { [unowned self] _ in invite }, mainWork: .testing()))
+                invite: { [unowned self] _ in invite }, mainWork: MainWorkScheduler(budget: MainFrameBudget())))
         }
     }
 
