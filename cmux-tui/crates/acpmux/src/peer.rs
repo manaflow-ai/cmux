@@ -352,6 +352,12 @@ impl Peer {
         self.with_link(|l| l.seed(last_seen));
     }
 
+    /// What its last handshake would have said of attachments: a test's peer that never ran.
+    #[cfg(test)]
+    pub(crate) fn seed_send_attach(&self, takes: bool) {
+        self.send_attach.store(takes, Ordering::SeqCst);
+    }
+
     pub(crate) fn seed_cached_link(
         &self,
         last_seen: Option<u64>,

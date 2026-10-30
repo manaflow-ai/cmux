@@ -657,6 +657,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             status,
             supersede,
             class,
+            inbox,
             attach,
         } => {
             if let Some(delivery) = status {
@@ -676,6 +677,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             prompt_id.supersede = supersede;
             let classed = class.is_some();
             prompt_id.class = class;
+            (prompt_id.pr, prompt_id.thread) = (inbox.pr, inbox.thread);
             // An agent's send and a message (--no-wait) steer; the person's waiting send queues.
             let agent = crate::cli::sender::from_an_agent(prompt_id.from_agent.is_some());
             let mut steer = send_steers(steer, no_steer, no_wait, agent);
