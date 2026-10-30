@@ -13,6 +13,13 @@
 //! a team message, a correction under a supersede key, a steer-only send, and the prompts acpmux
 //! makes itself (lane reports, task cards, a paused pair's release) still queue.
 //!
+//! A chat's first work is no inbox item either ([`first_work`]): the first message another agent
+//! sends a chat that never ran a turn, with none running and nothing waiting (`lane-place
+//! --prompt-file`, `acpmux new` with a prompt), runs as that prompt, and its sender is the chat's
+//! delegator. Messages after it, and any to a chat that ran a turn, go to the inbox. A lane's
+//! brief came to it as a notice of its brief (2026-10-30), so the lane read a thread where it
+//! should have read its task.
+//!
 //! A review box (`review_box.rs`: the `*-review-box` harness `lane-place new --review` starts, or
 //! a session with a `review.` tag) has no inbox ([`review_box`]), and another agent's message
 //! never steers into its turn (`turns.rs`; `inbox_digest.rs` refuses to drain one): it queues
@@ -211,6 +218,15 @@ pub(super) fn takes(
 /// message waits behind its running turn instead of steering in (`turns.rs`).
 pub(super) fn review_box(session: &Session) -> bool {
     crate::review_box::of_meta(&session.meta.lock().unwrap_or_else(|e| e.into_inner()))
+}
+
+/// Whether a message now would be the chat's first work: it never ran a turn, none runs, and
+/// nothing waits in its queue or its inbox.
+fn first_work(session: &Session) -> bool {
+    session.meta.lock().unwrap_or_else(|e| e.into_inner()).turn_count == 0
+        && session.turn().is_none()
+        && session.queue.lock().unwrap_or_else(|e| e.into_inner()).is_empty()
+        && session.inbox.lock().unwrap_or_else(|e| e.into_inner()).items.is_empty()
 }
 
 /// The refusal of a steer-only message from another agent to a review box's running turn.
@@ -460,6 +476,11 @@ impl Hub {
         if !takes(true, send_now, control, blocks, provenance) {
             return None;
         }
+        // A chat's first work runs as its prompt, not as a notice of it (module docs).
+        if first_work(session) {
+            self.note_delegator(session, provenance);
+            return None;
+        }
         let class = crate::prompt_class::of_message(class, true).unwrap_or(PromptClass::Result);
         Some((agent, class))
     }
@@ -598,7 +619,7 @@ impl Hub {
 
     /// The first message to a chat that never ran a turn names its delegator: its later actions
     /// wake the chat too.
-    fn note_delegator(&self, session: &Arc<Session>, provenance: Option<&Value>) {
+    fn note_delegator(&self, session: &Session, provenance: Option<&Value>) {
         let Some(from) = sender_session(provenance) else { return };
         let set = {
             let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
