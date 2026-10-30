@@ -11,7 +11,11 @@ const PROMPTS_READ: usize = 16;
 
 /// The opener as an `_acpmux/event` value, `None` when the page needs none (it starts a turn, or
 /// holds the log from its start) or the read back finds none.
-pub(super) fn turn_opener(hub: &Hub, session_id: &str, page: &crate::hub::EventPage) -> Option<Value> {
+pub(super) fn turn_opener(
+    hub: &Hub,
+    session_id: &str,
+    page: &crate::hub::EventPage,
+) -> Option<Value> {
     if !page.has_more {
         return None;
     }
@@ -37,7 +41,9 @@ pub(super) fn turn_opener(hub: &Hub, session_id: &str, page: &crate::hub::EventP
 
 /// A prompt that starts a turn: acpmux's own `user_message`, not a steer into a running turn.
 fn starts_turn(rec: &crate::store::EventRecord) -> bool {
-    rec.dir == "mux" && rec.kind == "user_message" && rec.msg.get("steer") != Some(&Value::Bool(true))
+    rec.dir == "mux"
+        && rec.kind == "user_message"
+        && rec.msg.get("steer") != Some(&Value::Bool(true))
 }
 
 #[cfg(test)]
@@ -45,7 +51,14 @@ mod tests {
     use super::*;
 
     fn rec(seq: u64, kind: &str, msg: Value) -> crate::store::EventRecord {
-        crate::store::EventRecord { seq, at: 0, dir: "mux".into(), kind: kind.into(), msg, host_seq: None }
+        crate::store::EventRecord {
+            seq,
+            at: 0,
+            dir: "mux".into(),
+            kind: kind.into(),
+            msg,
+            host_seq: None,
+        }
     }
 
     #[test]

@@ -773,7 +773,8 @@ async fn an_attach_page_names_the_prompt_of_the_turn_it_starts_inside() {
             )
             .await
             .unwrap();
-        let expected = read["events"].as_array().unwrap().iter().rev().find(|e| starts_turn(e)).cloned();
+        let expected =
+            read["events"].as_array().unwrap().iter().rev().find(|e| starts_turn(e)).cloned();
         assert_eq!(page["turnOpener"], expected.unwrap(), "limit {limit}: {page}");
     }
     // The page that starts with the prompt itself needs none.
