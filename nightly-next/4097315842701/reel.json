@@ -1,0 +1,131 @@
+{
+  "version": 1,
+  "build": "4097315842701",
+  "notes": "notes/4097315842701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27329,
+      "title": "Session Info: keep multiple server ports within narrow rows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27355,
+      "title": "fix: ease subagent tray exits out",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27457,
+      "title": "fix(home): Chat Colors… is AppKit, not SwiftUI (base red: No new SwiftUI)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27537,
+      "title": "fix(cloud): preserve idle observations when pause checks race",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27624,
+      "title": "fix(agent-chat): Jump to latest fades in place and stays shown while you scroll up",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27588,
+      "title": "fix(next): show All Chats rows during initial loading",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24486,
+      "title": "fix(agent-pane): recover permission handshake sockets",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24425,
+      "title": "ci: the SwiftPM package jobs run on Blacksmith 32 vCPU",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27560,
+      "title": "Agent chat: hover-revealed transcript controls fade in and out instead of blinking",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27613,
+      "title": "Use semantic colours for ACP Inspector errors and menu fallbacks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27354,
+      "title": "Preserve whole Unicode characters in agent message previews",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24423,
+      "title": "ci: the cmux-next CI guard group runs on Blacksmith 32 vCPU, a worker per core",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27223,
+      "title": "cmux NEXT: This Mac's join consent: Screen sharing and Control switches, and a one-time sheet (Labs)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27300,
+      "title": "fix(ios): keep agent and Feed content clear of top chrome",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27569,
+      "title": "cmux NEXT: Session Info's subagents show their harness's logo, or a color of their own",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27585,
+      "title": "fix(sidebar): unify pinned hover geometry on the drawn pill",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27646,
+      "title": "fix(agent-pane): block restart during queued retry",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27643,
+      "title": "acpmux: runtime workers get an 8 MiB stack (a debug daemon overflowed tokio's 2 MiB)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27599,
+      "title": "ci(cmux-tui-spec): run acpmux's protocol tests on PRs that touch acpmux",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25184,
+      "title": "cmux NEXT model menu: the route names the provider, rows join by owner, one offer per provider",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
