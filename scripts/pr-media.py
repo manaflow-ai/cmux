@@ -386,7 +386,7 @@ def looks_like_a_server_error(text: str) -> bool:
     return re.search(r"HTTP 50[0234]\b", text) is not None
 
 
-def gh_read(args: list[str], runner=None, absent_ok: bool = False) -> dict | None:
+def gh_read(args: list[str], runner=None, absent_ok: bool = False, env=None) -> dict | None:
     """A `gh api` read.
 
     A failure is a failure: it returns None only for a 404 the caller asked to
@@ -394,7 +394,8 @@ def gh_read(args: list[str], runner=None, absent_ok: bool = False) -> dict | Non
     token or a typo'd repository was reported as "the media branch does not
     exist, create it", which is advice that overwrites a shared branch.
     """
-    done = (runner or subprocess.run)(["gh", "api", *args], capture_output=True, text=True)
+    extra = {"env": env} if env is not None else {}
+    done = (runner or subprocess.run)(["gh", "api", *args], capture_output=True, text=True, **extra)
     if done.returncode == 0:
         try:
             parsed = json.loads(done.stdout)
@@ -412,8 +413,103 @@ def contents_path(repo: str, path: str, branch: str | None = None) -> str:
     return f"{route}?ref={urllib.parse.quote(branch, safe='')}" if branch else route
 
 
-def existing_sha(repo: str, branch: str, path: str, runner=None) -> str | None:
-    found = gh_read([contents_path(repo, path, branch)], runner=runner, absent_ok=True)
+class GitUnanswered(Exception):
+    """Git could not say what is on the branch; the contents API is asked instead."""
+
+
+def git_out(checkout: Path, *args: str, timeout: float = 120) -> str:
+    try:
+        done = subprocess.run(["git", "-C", str(checkout), *args], capture_output=True, text=True,
+                              timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise GitUnanswered(f"git {args[0]}: {error}") from error
+    if done.returncode != 0:
+        raise GitUnanswered(f"git {args[0]}: {(done.stderr or done.stdout).strip()}")
+    return done.stdout
+
+
+def origin_names(url: str, repo: str) -> bool:
+    """Whether URL is github.com's REPO (https, ssh or scp-like form, `.git` or not)."""
+    match = re.fullmatch(r"(?:https?://(?:[^@/]+@)?|ssh://(?:[^@/]+@)?|[^@/:]+@)github\.com[:/]"
+                         r"([^/]+/[^/]+?)(?:\.git)?/?", url.strip())
+    return bool(match) and match.group(1).lower() == repo.lower()
+
+
+def media_checkout(repo: str, branch: str) -> Path | None:
+    """A clone of REPO that git can read BRANCH's tree from cheaply, or None.
+
+    On an agent host the glaeda-gh shim refuses a `contents/` read of a
+    repository that is checked out there (it spends the shared API quota on
+    bytes git has for free), so the existence check reads the branch with git
+    when it can. Candidates: $PR_MEDIA_CHECKOUT, the current directory's clone,
+    ~/Projects/cmux. A shallow clone is passed over, and so is a full clone
+    that has never fetched BRANCH: fetching the media branch's whole history
+    with its blobs is far more than one API read. A partial (blob:none) clone,
+    or one that already tracks BRANCH, fetches only the new trees.
+    """
+    candidates = [os.environ.get("PR_MEDIA_CHECKOUT"), ".", str(Path.home() / "Projects" / "cmux")]
+    for candidate in candidates:
+        if not candidate:
+            continue
+        try:
+            top = Path(git_out(Path(candidate), "rev-parse", "--show-toplevel", timeout=20).strip())
+            if not origin_names(git_out(top, "remote", "get-url", "origin", timeout=20), repo):
+                continue
+            if git_out(top, "rev-parse", "--is-shallow-repository", timeout=20).strip() == "true":
+                continue
+            partial = subprocess.run(["git", "-C", str(top), "config", "--get", "remote.origin.partialclonefilter"],
+                                     capture_output=True, text=True, timeout=20).stdout.strip()
+            tracked = subprocess.run(["git", "-C", str(top), "rev-parse", "-q", "--verify",
+                                      f"refs/remotes/origin/{branch}^{{commit}}"],
+                                     capture_output=True, text=True, timeout=20).returncode == 0
+        except (GitUnanswered, OSError, subprocess.TimeoutExpired):
+            continue
+        if partial or tracked:
+            return top
+    return None
+
+
+# (checkout, branch) -> the branch tip this process read. Re-read (fresh=True)
+# after a write lost a race; another writer's path is never trusted from here.
+_TIPS: dict[tuple[str, str], str] = {}
+
+
+def git_blob_sha(checkout: Path, branch: str, path: str, fresh: bool = False) -> str | None:
+    """PATH's blob sha on BRANCH as the remote has it now (the contents API's `sha`), or None."""
+    key = (str(checkout), branch)
+    tip = None if fresh else _TIPS.get(key)
+    if tip is None:
+        listed = git_out(checkout, "ls-remote", "origin", f"refs/heads/{branch}", timeout=60).split()
+        if not listed:
+            raise GitUnanswered(f"no {branch} on origin")
+        tip = listed[0]
+        if subprocess.run(["git", "-C", str(checkout), "cat-file", "-e", f"{tip}^{{tree}}"],
+                          capture_output=True).returncode != 0:
+            # By sha, not by name: no remote-tracking ref or FETCH_HEAD is written, so
+            # sessions sharing a clone never race on a ref lock. A partial clone keeps its filter.
+            git_out(checkout, "fetch", "--no-tags", "--no-write-fetch-head", "-q", "origin", tip)
+        _TIPS[key] = tip
+    entry = git_out(checkout, "ls-tree", "-z", tip, "--", path).split("\0")[0]
+    if not entry:
+        return None
+    meta, _, named = entry.partition("\t")
+    fields = meta.split()
+    if named != path or len(fields) != 3 or fields[1] != "blob":
+        return None
+    return fields[2]
+
+
+def existing_sha(repo: str, branch: str, path: str, runner=None, fresh: bool = False) -> str | None:
+    checkout = media_checkout(repo, branch)
+    if checkout is not None:
+        try:
+            return git_blob_sha(checkout, branch, path, fresh=fresh)
+        except GitUnanswered:
+            pass
+    # No clone git can answer from (a shallow CI checkout, a host without one), or git failed:
+    # the API read is the one git cannot replace, which is what the shim's escape is for.
+    found = gh_read([contents_path(repo, path, branch)], runner=runner, absent_ok=True,
+                    env={**os.environ, "GLAEDA_GH_ALLOW_API_SOURCE": "1"})
     if found is None:
         return None
     sha = found.get("sha")
@@ -453,7 +549,7 @@ def put_file(repo: str, branch: str, path: str, local: Path, message: str,
         said = (done.stderr or done.stdout).strip()
         if attempt < PUT_ATTEMPTS and (looks_like_a_conflict(said) or looks_like_a_server_error(said)):
             time.sleep(0.5 * attempt + random.random())
-            sha = existing_sha(repo, branch, path, runner=runner)
+            sha = existing_sha(repo, branch, path, runner=runner, fresh=True)
             continue
         raise MediaError(f"upload of {path} failed: {said}")
 

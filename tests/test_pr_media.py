@@ -5,6 +5,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -26,6 +27,11 @@ SPEC.loader.exec_module(MODULE)
 # tool; tests that do not exercise it get a no-op, and PrivacyTests a stubbed one.
 REAL_CHECK_PRIVACY = getattr(MODULE, "check_privacy", None)
 MODULE.check_privacy = lambda items, repo, **options: None
+# The existence check reads the media branch with git from a local clone when
+# there is one; tests that do not exercise that get the API read, and
+# GitExistenceTests a clone of a local bare repository.
+REAL_MEDIA_CHECKOUT = MODULE.media_checkout
+MODULE.media_checkout = lambda repo, branch: None
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 32
 MP4 = b"\x00\x00\x00\x18ftypisom" + b"0" * 32
@@ -829,6 +835,134 @@ class HelpTests(unittest.TestCase):
         self.assertIn("--pr", done.stdout)
         self.assertIn("pr-media", done.stdout)
 
+
+def git(cwd, *args):
+    return subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True).stdout
+
+
+class GitExistenceTests(unittest.TestCase):
+    """The glaeda-gh shim refuses `contents/` reads of a repository checked out on
+    the host, so the sha read comes from git when a clone can answer it."""
+
+    def setUp(self):
+        self.scratch = tempfile.TemporaryDirectory()
+        root = Path(self.scratch.name)
+        self.origin = root / "origin.git"
+        subprocess.run(["git", "init", "-q", "--bare", str(self.origin)], check=True)
+        self.writer = root / "writer"
+        subprocess.run(["git", "init", "-q", "-b", "pr-media", str(self.writer)], check=True)
+        git(self.writer, "config", "user.email", "t@example.com")
+        git(self.writer, "config", "user.name", "t")
+        self.commit("12/shot.png", b"one")
+        git(self.writer, "remote", "add", "origin", str(self.origin))
+        git(self.writer, "push", "-q", "origin", "pr-media")
+        self.clone = root / "clone"
+        subprocess.run(["git", "clone", "-q", "--no-checkout", str(self.origin), str(self.clone)], check=True)
+        MODULE._TIPS.clear()
+        MODULE.media_checkout = lambda repo, branch: self.clone
+
+    def tearDown(self):
+        MODULE.media_checkout = lambda repo, branch: None
+        MODULE._TIPS.clear()
+        self.scratch.cleanup()
+
+    def commit(self, path, data):
+        (self.writer / path).parent.mkdir(parents=True, exist_ok=True)
+        (self.writer / path).write_bytes(data)
+        git(self.writer, "add", path)
+        git(self.writer, "commit", "-q", "-m", path)
+
+    def test_a_file_on_the_branch_gives_its_blob_sha_without_the_api(self):
+        gh = FakeGh()
+        sha = MODULE.existing_sha("o/r", "pr-media", "12/shot.png", runner=gh)
+        self.assertEqual(sha, git(self.writer, "rev-parse", "pr-media:12/shot.png").strip())
+        self.assertEqual(gh.calls, [])
+
+    def test_a_missing_path_is_absent_without_the_api(self):
+        gh = FakeGh()
+        self.assertIsNone(MODULE.existing_sha("o/r", "pr-media", "12/other.png", runner=gh))
+        self.assertIsNone(MODULE.existing_sha("o/r", "pr-media", "12", runner=gh))  # a folder is no file
+        self.assertEqual(gh.calls, [])
+
+    def test_a_fresh_read_sees_what_another_writer_pushed_since(self):
+        self.assertIsNone(MODULE.existing_sha("o/r", "pr-media", "12/late.png"))
+        self.commit("12/late.png", b"late")
+        git(self.writer, "push", "-q", "origin", "pr-media")
+        sha = MODULE.existing_sha("o/r", "pr-media", "12/late.png", fresh=True)
+        self.assertEqual(sha, git(self.writer, "rev-parse", "pr-media:12/late.png").strip())
+
+    def test_a_lost_race_rereads_the_branch_with_git(self):
+        self.assertIsNone(MODULE.existing_sha("o/r", "pr-media", "12/race.png"))
+        self.commit("12/race.png", b"theirs")
+        git(self.writer, "push", "-q", "origin", "pr-media")
+        theirs = git(self.writer, "rev-parse", "pr-media:12/race.png").strip()
+        gh = FakeGh(existing=["12/race.png"])
+        gh.existing["12/race.png"] = theirs
+        with tempfile.TemporaryDirectory() as directory:
+            local = written(directory, "race.png", PNG)
+            with mock.patch.object(MODULE.time, "sleep"):
+                MODULE.put_file("o/r", "pr-media", "12/race.png", local, "m", runner=gh, checked=True)
+        self.assertEqual(gh.puts["12/race.png"]["sha"], theirs)
+        self.assertFalse([argv for argv in gh.calls if "PUT" not in argv])
+
+    def test_when_git_fails_the_api_is_asked_with_the_shim_escape(self):
+        git(self.clone, "remote", "set-url", "origin", str(Path(self.scratch.name) / "gone.git"))
+        seen = []
+        gh = FakeGh(existing=["12/shot.png"])
+
+        def runner(argv, **kwargs):
+            seen.append(kwargs.get("env") or {})
+            return gh(argv, **kwargs)
+
+        self.assertEqual(MODULE.existing_sha("o/r", "pr-media", "12/shot.png", runner=runner), "abc123")
+        self.assertEqual(seen[0].get("GLAEDA_GH_ALLOW_API_SOURCE"), "1")
+
+
+class ApiFallbackTests(unittest.TestCase):
+    def test_with_no_clone_the_api_is_asked_with_the_shim_escape(self):
+        seen = []
+        gh = FakeGh()
+
+        def runner(argv, **kwargs):
+            seen.append((argv, kwargs.get("env") or {}))
+            return gh(argv, **kwargs)
+
+        self.assertIsNone(MODULE.existing_sha("o/r", "pr-media", "1/shot.png", runner=runner))
+        self.assertIn("contents/1/shot.png?ref=pr-media", " ".join(seen[0][0]))
+        self.assertEqual(seen[0][1].get("GLAEDA_GH_ALLOW_API_SOURCE"), "1")
+
+    def test_a_clone_is_used_only_when_its_origin_is_the_repository(self):
+        for url in ("git@github.com:o/r.git", "https://github.com/O/R", "https://x-access-token@github.com/o/r.git",
+                    "ssh://git@github.com/o/r.git"):
+            self.assertTrue(MODULE.origin_names(url, "o/r"), url)
+        for url in ("git@github.com:o/r2.git", "https://notgithub.com/o/r", "/srv/mirrors/github.com/o/r",
+                    "https://gitlab.com/o/r"):
+            self.assertFalse(MODULE.origin_names(url, "o/r"), url)
+
+    def test_a_shallow_clone_is_passed_over_and_a_full_one_that_tracks_the_branch_is_used(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "-q", str(root / "src")], check=True)
+            for message in ("a", "b"):
+                git(root / "src", "-c", "user.email=t@e", "-c", "user.name=t", "commit", "-q", "--allow-empty",
+                    "-m", message)
+            for name, depth in (("shallow", ["--depth", "1"]), ("full", [])):
+                subprocess.run(["git", "clone", "-q", *depth, f"file://{root / 'src'}", str(root / name)], check=True)
+                git(root / name, "remote", "set-url", "origin", "git@github.com:o/r.git")
+            # HOME and the current directory hold no clone, so only $PR_MEDIA_CHECKOUT is a candidate.
+            previous = os.getcwd()
+            os.chdir(root)
+            try:
+                with mock.patch.dict(os.environ, {"HOME": str(root), "PR_MEDIA_CHECKOUT": str(root / "shallow")}):
+                    git(root / "shallow", "update-ref", "refs/remotes/origin/pr-media", "HEAD")
+                    self.assertIsNone(REAL_MEDIA_CHECKOUT("o/r", "pr-media"))
+                with mock.patch.dict(os.environ, {"HOME": str(root), "PR_MEDIA_CHECKOUT": str(root / "full")}):
+                    self.assertIsNone(REAL_MEDIA_CHECKOUT("o/r", "pr-media"))  # never fetched the branch
+                    git(root / "full", "update-ref", "refs/remotes/origin/pr-media", "HEAD")
+                    self.assertEqual(REAL_MEDIA_CHECKOUT("o/r", "pr-media"), (root / "full").resolve())
+                    self.assertIsNone(REAL_MEDIA_CHECKOUT("o/other", "pr-media"))
+            finally:
+                os.chdir(previous)
 
 if __name__ == "__main__":
     unittest.main()
