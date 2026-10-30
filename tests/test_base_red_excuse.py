@@ -284,8 +284,8 @@ class Excusing(unittest.TestCase):
         base["steps"].append({"name": "Report routed guard jobs", "conclusion": "failure"})
         self.gh.jobs = {3: head, 4: base}
         self.gh.logs = {
-            3: log(name, "Check routed guard jobs", "release-notary: failure"),
-            4: log(name, "Check routed guard jobs", "release-notary: failure", "Report routed guard jobs"),
+            3: log(name, "Check routed guard jobs", "workflow-guard-tests: failure (route linux_guard_tests=true)"),
+            4: log(name, "Check routed guard jobs", "workflow-guard-tests: failure (route linux_guard_tests=true)", "Report routed guard jobs"),
         }
         self.with_checks([{"id": 3, "name": name, "status": "completed", "conclusion": "failure",
                            "app": {"slug": "github-actions"},
@@ -349,7 +349,7 @@ class Excusing(unittest.TestCase):
     def test_guard_child_new_job_is_not_excused(self):
         self.test_a_guard_status_is_judged_by_its_routed_child()
         self.gh.jobs[5]["name"] = "nightly-guards / workflow-guard-source-lints / lint"
-        with self.assertRaisesRegex(excuse.Refused, "no completed"):
+        with self.assertRaisesRegex(excuse.Refused, "no failed child"):
             self.judge()
 
     def test_newest_red_base_job_wins_over_older_green(self):

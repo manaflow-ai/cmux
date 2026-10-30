@@ -187,17 +187,68 @@ def refused_at_setup(job: dict, log: str | None = None) -> bool:
     return log is not None and HOOK_REFUSAL in log
 
 
+def validate_guard_routes(repo: str, sha: str, guard: dict, children: list[dict], github) -> None:
+    """A Guard status red must report only failed routes backed by concrete children.
+
+    The wrapper also validates routing inputs and required-but-skipped jobs.
+    Those failures cannot be waived by an unrelated child that is red on base.
+    Children returned by head_jobs are still compared with base by judge.
+    """
+    name = guard["name"]
+    if guard.get("head_sha") not in (None, sha):
+        raise Refused(f"'{name}': job is not for the exact SHA {sha}")
+    if guard.get("status") != "completed" or guard.get("conclusion") != "failure":
+        raise Refused(f"'{name}': no completed failure verdict for its routes")
+    text = github.log(repo, guard)
+    if refused_at_setup(guard, text):
+        raise Refused(f"'{name}' was refused at setup by its runner")
+    steps, _, errors = signature(guard, text)
+    if steps != {"Check routed guard jobs"}:
+        raise Refused(f"'{name}': non-routing failed steps: {'; '.join(sorted(steps))}")
+    if errors:
+        raise Refused(f"'{name}': routing error: {'; '.join(sorted(errors))[:600]}")
+    report = test_reds.read(text)
+    if report.crashes or report.truncated:
+        raise Refused(f"'{name}': routing process crashed or ended early")
+    prefix = name[:-len("Guard status")]
+    routes = []
+    for line in lines_of(text):
+        match = re.fullmatch(r"((?:workflow-guard-[\w-]+|linux_guard_[\w]+)): (.+)", line)
+        if not match:
+            continue
+        route, result = match.groups()
+        if not re.fullmatch(r"failure(?: \(route [\w]+=(?:true|false)\))?", result):
+            raise Refused(f"'{name}': {route}: {result}")
+        child_name = prefix + route
+        if not any(child.get("conclusion") == "failure" and
+                   (child.get("name") == child_name or child.get("name", "").startswith(child_name + " / "))
+                   for child in children):
+            raise Refused(f"'{name}': no failed child for routed failure {route}")
+        routes.append(route)
+    if not routes:
+        raise Refused(f"'{name}': no routed failure report to compare with its children")
+
+
 def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github) -> list[dict]:
     jobs: dict[int, dict] = {}
     for run in runs:
+        guards = []
+        children = []
         for page in github.json(f"repos/{repo}/actions/runs/{run}/jobs?filter=latest&per_page=100", paginate=True):
             for job in page.get("jobs") or []:
                 if is_aggregate(job.get("name", "")):
+                    if job.get("name") not in AGGREGATES and job.get("conclusion") not in ("success", "skipped", "neutral", None):
+                        guards.append(job)
                     continue
                 if job.get("status") == "completed" and job.get("conclusion") not in ("success", "skipped", "neutral"):
                     if job.get("head_sha") not in (None, sha):
                         raise Refused(f"{job.get('name')}: job is not for the exact SHA {sha}")
                     jobs[job["id"]] = job
+                    children.append(job)
+        for guard in guards:
+            if not children:
+                raise Refused(f"run {run}: its aggregate check failed with no failed job to compare with the base")
+            validate_guard_routes(repo, sha, guard, children, github)
     if checks:
         latest = latest_checks(repo, sha, github)
         aggregate_runs = []
