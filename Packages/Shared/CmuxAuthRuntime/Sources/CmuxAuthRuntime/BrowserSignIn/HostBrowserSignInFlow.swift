@@ -39,6 +39,8 @@ public final class HostBrowserSignInFlow {
     @ObservationIgnored private let approveUnsolicitedCallback: @MainActor (UnsolicitedAuthCallbackApprovalRequest) async -> Bool
     private let clock: any Clock<Duration>
     private let browserAttemptTimeout: TimeInterval
+    /// How long a default-browser handoff waits for its callback before it ends as `browser_timeout`.
+    private let browserHandoffTimeout: TimeInterval
     private let slowSignInThreshold: TimeInterval
     private let instantCancelWindow: TimeInterval
     private let signOutCoordinator: HostBrowserSignOutCoordinator
@@ -88,6 +90,7 @@ public final class HostBrowserSignInFlow {
         approveUnsolicitedCallback: @escaping @MainActor (UnsolicitedAuthCallbackApprovalRequest) async -> Bool = { _ in false },
         clock: any Clock<Duration> = ContinuousClock(),
         browserAttemptTimeout: TimeInterval = 10 * 60,
+        browserHandoffTimeout: TimeInterval = 5 * 60,
         slowSignInThreshold: TimeInterval = 30,
         instantCancelWindow: TimeInterval = 1.5,
         beginSignOut: @escaping @MainActor @Sendable () -> Void = {},
@@ -107,6 +110,7 @@ public final class HostBrowserSignInFlow {
         self.approveUnsolicitedCallback = approveUnsolicitedCallback
         self.clock = clock
         self.browserAttemptTimeout = browserAttemptTimeout
+        self.browserHandoffTimeout = browserHandoffTimeout
         self.slowSignInThreshold = slowSignInThreshold
         self.instantCancelWindow = instantCancelWindow
         deadline = HostBrowserDeadline(clock: clock)
@@ -208,12 +212,14 @@ public final class HostBrowserSignInFlow {
             log.log("auth.callback.external.routeToActive attempt=\(attemptID)")
             cancelAttemptTimeout()
             cancelSlowSignInHint()
+            // Hold the session continuation while the callback validates.
+            // Safari can report the hosted session cancelled in that window;
+            // resuming then would end the attempt and drop these tokens as
+            // raced.
+            let continuation = takeActiveSessionContinuation()
             let signedIn = await completeCallback(url: url, attemptID: attemptID)
-            resumeActiveSessionContinuation(
-                returning: .cancelled(reason: "external_callback"),
-                reason: "externalCallback",
-                expectedAttemptID: attemptID
-            )
+            log.log("auth.browser.session.resume reason=externalCallback attempt=\(attemptID)")
+            continuation?.resume(returning: .cancelled(reason: "external_callback"))
             return signedIn
         }
         if let state {
@@ -351,6 +357,10 @@ public final class HostBrowserSignInFlow {
                 return await self.completeCallback(url: callbackURL, attemptID: attemptID)
             case let .cancelled(reason):
                 self.log.log("auth.browser.attempt.cancelled id=\(attemptID) reason=\(reason) signedIn=\(self.coordinator.isAuthenticated)")
+                // The person closed the popup: a visible retry, not a silent return to Sign In.
+                if reason == "canceled_login", !self.coordinator.isAuthenticated {
+                    self.lastFailure = .browserSignInFailed("popup_closed")
+                }
                 return self.coordinator.isAuthenticated
             case let .failed(reason):
                 self.recordBrowserSessionFailure(reason: reason, attemptID: attemptID)
@@ -431,8 +441,11 @@ public final class HostBrowserSignInFlow {
         log.log("auth.browser.handoff.continueInDefaultBrowser attempt=\(attemptID)")
         if openExternalURL(attemptSignInURL(state)) {
             // Browser launched: keep the attempt parked so the
-            // eventual cmux://auth-callback resumes it.
+            // eventual cmux://auth-callback resumes it. A parked handoff that
+            // never gets its callback ends after the handoff wait, not the
+            // popup's longer one.
             handedOffAttemptID = attemptID
+            scheduleAttemptTimeout(attemptID, after: browserHandoffTimeout)
         } else {
             // No browser launched, so nothing will call back.
             // End the attempt with a failure instead of parking
@@ -507,19 +520,22 @@ public final class HostBrowserSignInFlow {
         isPresentingSignIn = false
     }
 
-    private func scheduleAttemptTimeout(_ attemptID: UInt64) {
+    /// Arms the attempt's deadline, replacing any earlier one. `seconds` nil uses ``browserAttemptTimeout``.
+    private func scheduleAttemptTimeout(_ attemptID: UInt64, after seconds: TimeInterval? = nil) {
         activeAttemptTimeoutTask?.cancel()
-        guard browserAttemptTimeout > 0 else {
+        let timeout = seconds ?? browserAttemptTimeout
+        guard timeout > 0 else {
             activeAttemptTimeoutTask = nil
             return
         }
-        let timeout = browserAttemptTimeout
         let clock = self.clock
         activeAttemptTimeoutTask = Task { @MainActor [weak self] in
             try? await clock.sleep(for: .seconds(timeout))
             guard !Task.isCancelled, let self, self.activeAttemptID == attemptID else { return }
-            self.log.log("auth.browser.attempt.timeout id=\(attemptID)")
-            self.lastFailure = .timedOut
+            self.log.log("auth.browser.attempt.timeout id=\(attemptID) timeoutSeconds=\(Int(timeout))")
+            // A retryable browser failure: the UI names the browser step, and the
+            // detail reads `browser_timeout` for a bug report.
+            self.lastFailure = .browserSignInFailed("browser_timeout")
             self.cancelActiveAttempt()
         }
     }
@@ -724,6 +740,15 @@ public final class HostBrowserSignInFlow {
     private func issueCallbackState(_ state: String) {
         let lifetime = browserAttemptTimeout > 0 ? browserAttemptTimeout : 10 * 60
         issuedCallbackStates.issue(state, clock: clock, lifetime: .seconds(lifetime))
+    }
+
+    /// Detach the session continuation so later session completions, attempt
+    /// replacement and sign-out cannot resume it; the caller must resume it.
+    private func takeActiveSessionContinuation() -> CheckedContinuation<HostBrowserAuthSessionResult?, Never>? {
+        let continuation = activeSessionContinuation
+        activeSessionContinuation = nil
+        activeSessionContinuationAttemptID = nil
+        return continuation
     }
 
     private func resumeActiveSessionContinuation(

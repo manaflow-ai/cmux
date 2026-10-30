@@ -35,6 +35,10 @@ fail "$SRC/CmuxNextApp/X.swift" "a stale allowlist entry" 'import AppKit' "$SRC/
 fail "$SRC/CmuxNextApp/X.swift" "an entry for a missing file" 'import AppKit' "$SRC/CmuxNextApp/Gone.swift"
 fail "Packages/macOS/CmuxNext/Tests/T/XTests.swift" "a test file" 'import SwiftUI'
 
+fail "$SRC/CmuxNextApp/New/X.swift" "a moved file whose entry still names its old path" 'import SwiftUI' "$SRC/CmuxNextApp/Old/X.swift"
+grep -q "change the line to the new path" "$tmp/err" \
+  || { echo "FAIL: a gone entry whose file moved names the new path" >&2; cat "$tmp/err" >&2; exit 1; }
+
 pass "$SRC/CmuxNextApp/X.swift" "AppKit only" $'import AppKit\nimport QuartzCore'
 pass "$SRC/CmuxNextApp/X.swift" "an allowlisted file" 'import SwiftUI' "$SRC/CmuxNextApp/X.swift"
 pass "$SRC/CmuxNextApp/X.swift" "an import in a comment" $'import AppKit\n// import SwiftUI\n/* import SwiftUI */'
@@ -63,4 +67,99 @@ git -C "$repo" add -A
 code=0; python3 -I "$CHECK" --base "$base" "$repo" >/dev/null 2>"$tmp/err" || code=$?
 [[ $code -eq 1 ]] && grep -q "Three.swift is new since" "$tmp/err" \
   || { echo "FAIL: must fail: a new allowlist entry (got $code)" >&2; cat "$tmp/err" >&2; exit 1; }
+# A move that also rewrote the file (below git's rename similarity, 84b3fc57) keeps its entry too.
+git -C "$repo" rm -q --cached "$SRC/B/Three.swift"; rm "$repo/$SRC/B/Three.swift"
+mkdir -p "$repo/$SRC/C"
+git -C "$repo" mv "$SRC/A/Two.swift" "$SRC/C/Two.swift"
+printf 'import SwiftUI\nimport AppKit\n\n/// Rewritten while it moved.\nstruct Renamed { let a = 1; let b = 2; let c = 3 }\n' > "$repo/$SRC/C/Two.swift"
+printf '%s\n' "$SRC/B/One.swift" "$SRC/C/Two.swift" > "$repo/$LIST"
+git -C "$repo" add -A
+python3 -I "$CHECK" --base "$base" "$repo" >/dev/null 2>"$tmp/err" \
+  || { echo "FAIL: must pass: a moved and rewritten file keeps its entry" >&2; cat "$tmp/err" >&2; exit 1; }
+
+# One gone entry pairs with one added entry of its name, never with two.
+commit() { git -C "$repo" add -A && git -C "$repo" -c user.email=t@t -c user.name=t commit -q -m "$1"; }
+mkdir -p "$repo/$SRC/D" "$repo/$SRC/E" "$repo/$SRC/F"
+printf 'import SwiftUI\nstruct Dup {}\n' > "$repo/$SRC/D/Dup.swift"
+printf '%s\n' "$SRC/B/One.swift" "$SRC/C/Two.swift" "$SRC/D/Dup.swift" > "$repo/$LIST"
+commit base2
+base2=$(git -C "$repo" rev-parse HEAD)
+git -C "$repo" rm -q "$SRC/D/Dup.swift"
+printf 'import SwiftUI\nstruct E { let e = "a different file" }\n' > "$repo/$SRC/E/Dup.swift"
+printf 'import SwiftUI\nstruct F { let f = "another different file" }\n' > "$repo/$SRC/F/Dup.swift"
+printf '%s\n' "$SRC/B/One.swift" "$SRC/C/Two.swift" "$SRC/E/Dup.swift" "$SRC/F/Dup.swift" > "$repo/$LIST"
+git -C "$repo" add -A
+code=0; python3 -I "$CHECK" --base "$base2" "$repo" >/dev/null 2>"$tmp/err" || code=$?
+[[ $code -eq 1 ]] && grep -q "E/Dup.swift is new since" "$tmp/err" && grep -q "F/Dup.swift is new since" "$tmp/err" \
+  || { echo "FAIL: must fail: one gone entry cannot admit two new files of its name (got $code)" >&2; cat "$tmp/err" >&2; exit 1; }
+
+# An entry for a file that already imported SwiftUI at the base (a base red) is a note, not growth.
+git -C "$repo" rm -q -f "$SRC/E/Dup.swift" "$SRC/F/Dup.swift"
+mkdir -p "$repo/$SRC/D"; printf 'import SwiftUI\nstruct Red {}\n' > "$repo/$SRC/D/Red.swift"
+printf '%s\n' "$SRC/B/One.swift" "$SRC/C/Two.swift" > "$repo/$LIST"
+commit base3-red
+base3=$(git -C "$repo" rev-parse HEAD)
+printf '%s\n' "$SRC/B/One.swift" "$SRC/C/Two.swift" "$SRC/D/Red.swift" > "$repo/$LIST"
+git -C "$repo" add -A
+python3 -I "$CHECK" --base "$base3" "$repo" >/dev/null 2>"$tmp/err" && grep -q "Red.swift is new in .* but already imported SwiftUI" "$tmp/err" \
+  || { echo "FAIL: must pass with a note: an entry for a base red" >&2; cat "$tmp/err" >&2; exit 1; }
+# A finding the base already had is a base red: a warning, never this change's failure.
+# Red.swift imports SwiftUI unlisted at base3 (a push landed it past the gate).
+printf '%s\n' "$SRC/B/One.swift" "$SRC/C/Two.swift" > "$repo/$LIST"
+git -C "$repo" add -A
+out=$(GITHUB_ACTIONS=true python3 -I "$CHECK" --base "$base3" "$repo" 2>"$tmp/err") \
+  && grep -q "base red, already on .*D/Red.swift: imports SwiftUI" "$tmp/err" \
+  && grep -q "::warning title=No new SwiftUI (base red)::$SRC/D/Red.swift" <<<"$out" \
+  || { echo "FAIL: must pass with a warning: an unlisted importer already on the base" >&2; cat "$tmp/err" >&2; exit 1; }
+code=0; python3 -I "$CHECK" "$repo" >/dev/null 2>"$tmp/err" || code=$?
+[[ $code -eq 1 ]] || { echo "FAIL: without --base the base red still fails (got $code)" >&2; cat "$tmp/err" >&2; exit 1; }
+# The same base red, moved by the change, is still the base's.
+mkdir -p "$repo/$SRC/G"; git -C "$repo" mv "$SRC/D/Red.swift" "$SRC/G/Red.swift"
+python3 -I "$CHECK" --base "$base3" "$repo" >/dev/null 2>"$tmp/err" \
+  || { echo "FAIL: must pass: a base red the change only moved" >&2; cat "$tmp/err" >&2; exit 1; }
+git -C "$repo" mv "$SRC/G/Red.swift" "$SRC/D/Red.swift"
+# A new importer beside the base red is still this change's finding.
+printf 'import SwiftUI\nstruct Fresh {}\n' > "$repo/$SRC/D/Fresh.swift"
+git -C "$repo" add -A
+code=0; python3 -I "$CHECK" --base "$base3" "$repo" >/dev/null 2>"$tmp/err" || code=$?
+[[ $code -eq 1 ]] && grep -q "^NO-SWIFTUI: $SRC/D/Fresh.swift: imports SwiftUI" "$tmp/err" \
+  && ! grep -q "^NO-SWIFTUI: $SRC/D/Red.swift" "$tmp/err" \
+  || { echo "FAIL: must fail on the new importer only (got $code)" >&2; cat "$tmp/err" >&2; exit 1; }
+git -C "$repo" rm -q -f "$SRC/D/Fresh.swift"
+# A change that drops the import from an allowlisted file but keeps its line fails (its own stale entry);
+# an entry the base already had stale is a base red.
+printf 'import AppKit\nstruct One {}\n' > "$repo/$SRC/B/One.swift"
+git -C "$repo" add -A
+code=0; python3 -I "$CHECK" --base "$base3" "$repo" >/dev/null 2>"$tmp/err" || code=$?
+[[ $code -eq 1 ]] && grep -q "^NO-SWIFTUI: $LIST: $SRC/B/One.swift no longer imports SwiftUI" "$tmp/err" \
+  || { echo "FAIL: must fail: a stale entry the change made (got $code)" >&2; cat "$tmp/err" >&2; exit 1; }
+commit base4-stale
+base4=$(git -C "$repo" rev-parse HEAD)
+python3 -I "$CHECK" --base "$base4" "$repo" >/dev/null 2>"$tmp/err" \
+  && grep -q "base red, already on .*B/One.swift no longer imports SwiftUI" "$tmp/err" \
+  || { echo "FAIL: must pass with a warning: a stale entry already on the base" >&2; cat "$tmp/err" >&2; exit 1; }
+# A change that unlists a file the base allowed (it still imports SwiftUI) fails.
+printf 'import SwiftUI\nstruct One {}\n' > "$repo/$SRC/B/One.swift"
+printf '%s\n' "$SRC/C/Two.swift" > "$repo/$LIST"
+git -C "$repo" add -A
+code=0; python3 -I "$CHECK" --base "$base4" "$repo" >/dev/null 2>"$tmp/err" || code=$?
+[[ $code -eq 1 ]] && grep -q "^NO-SWIFTUI: $SRC/B/One.swift: imports SwiftUI" "$tmp/err" \
+  || { echo "FAIL: must fail: an importer whose base entry the change deleted (got $code)" >&2; cat "$tmp/err" >&2; exit 1; }
+# A base red the change moves and lists under its new path is an acknowledged base red, not growth.
+mkdir -p "$repo/$SRC/G"; git -C "$repo" mv "$SRC/D/Red.swift" "$SRC/G/Red.swift"
+printf '%s\n' "$SRC/B/One.swift" "$SRC/C/Two.swift" "$SRC/G/Red.swift" > "$repo/$LIST"
+git -C "$repo" add -A
+python3 -I "$CHECK" --base "$base4" "$repo" >/dev/null 2>"$tmp/err" && grep -q "G/Red.swift is new in .* but already imported SwiftUI" "$tmp/err" \
+  || { echo "FAIL: must pass with a note: a moved base red listed under its new path" >&2; cat "$tmp/err" >&2; exit 1; }
+git -C "$repo" mv "$SRC/G/Red.swift" "$SRC/D/Red.swift"
+# An allowlist already unsorted on the base warns while the change leaves it alone, and fails once the change edits it.
+printf '%s\n' "$SRC/C/Two.swift" "$SRC/B/One.swift" > "$repo/$LIST"
+commit base5-unsorted
+base5=$(git -C "$repo" rev-parse HEAD)
+python3 -I "$CHECK" --base "$base5" "$repo" >/dev/null 2>"$tmp/err" && grep -q "base red, already on .*keep it sorted" "$tmp/err" \
+  || { echo "FAIL: must pass with a warning: an allowlist already unsorted on the base" >&2; cat "$tmp/err" >&2; exit 1; }
+printf '%s\n' "$SRC/C/Two.swift" "$SRC/B/One.swift" "$SRC/B/One.swift" > "$repo/$LIST"
+code=0; python3 -I "$CHECK" --base "$base5" "$repo" >/dev/null 2>"$tmp/err" || code=$?
+[[ $code -eq 1 ]] && grep -q "^NO-SWIFTUI: $LIST: keep it sorted" "$tmp/err" \
+  || { echo "FAIL: must fail: a duplicate added to an allowlist already unsorted (got $code)" >&2; cat "$tmp/err" >&2; exit 1; }
 echo "check-no-swiftui: ok"

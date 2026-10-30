@@ -6,6 +6,7 @@ public import Foundation
 /// failure; a request body is never included.
 public enum CodeRouterError: Error, Sendable, Equatable, CustomStringConvertible {
     case notSignedIn
+    case scopeChanged
     case timedOut(String)
     case http(status: Int, code: String?, message: String?)
     case transport(String)
@@ -14,6 +15,7 @@ public enum CodeRouterError: Error, Sendable, Equatable, CustomStringConvertible
     public var description: String {
         switch self {
         case .notSignedIn: "not signed in to cmux"
+        case .scopeChanged: "cmux account scope changed"
         case .timedOut(let path): "\(path) timed out"
         case .http(let status, let code, let message): message ?? code.map { "\($0) (\(status))" } ?? "HTTP \(status)"
         case .transport(let detail): detail
@@ -34,20 +36,24 @@ public enum CodeRouterError: Error, Sendable, Equatable, CustomStringConvertible
 public struct CodeRouterClient: Sendable {
     public typealias Tokens = @Sendable () async throws -> (access: String, refresh: String)
     public typealias TeamID = @Sendable () async -> String?
+    public typealias ScopeValidator = @Sendable () async throws -> Void
     public typealias Labeler = @Sendable () async -> AccountLabeler
 
     public let baseURL: URL
     let tokens: Tokens
     let teamID: TeamID
+    let scopeValidator: ScopeValidator?
     let labeler: Labeler
     let session: URLSession
     let timeout: Duration
 
     public init(baseURL: URL, tokens: @escaping Tokens, teamID: @escaping TeamID, labeler: @escaping Labeler,
-                session: URLSession = .shared, timeout: Duration = .seconds(15)) {
+                session: URLSession = .shared, timeout: Duration = .seconds(15),
+                scopeValidator: ScopeValidator? = nil) {
         self.baseURL = baseURL
         self.tokens = tokens
         self.teamID = teamID
+        self.scopeValidator = scopeValidator
         self.labeler = labeler
         self.session = session
         self.timeout = timeout
@@ -98,7 +104,9 @@ public struct CodeRouterClient: Sendable {
     func send(_ method: String, _ path: String, body: [String: any Sendable]? = nil,
                      team override: String? = nil) async throws -> Data {
         let (access, refresh): (String, String)
-        do { (access, refresh) = try await tokens() } catch { throw CodeRouterError.notSignedIn }
+        do { (access, refresh) = try await tokens() }
+        catch let error as CodeRouterError { throw error }
+        catch { throw CodeRouterError.notSignedIn }
         guard let url = URL(string: baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + path) else {
             throw CodeRouterError.transport("bad path")
         }
@@ -115,6 +123,7 @@ public struct CodeRouterClient: Sendable {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
+        try await scopeValidator?()
         let session = session, prepared = request
         let data: Data, response: URLResponse
         do {

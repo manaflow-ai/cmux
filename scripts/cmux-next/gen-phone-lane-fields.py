@@ -39,6 +39,9 @@ REVIEWED_FIELDS = {
                                      "1b92a6de6fe0171a"),
     ("resize-attached-view", "identity"): ("SizingIdentity: whose size lease this is",
                                            "603297ce84b828a2"),
+    ("set-host-size-policy", "policy"): ("HostSizePolicyRequest: a mode name and a list of device tokens; the "
+                                         "daemon validates both and writes two settings keys, nothing else",
+                                         "17f8e98fe6f266e3"),
     ("clear-history", "fallback_key"): ("TerminalKeyInput: a key to send when the surface cannot clear",
                                         "a5c09e7823e98e46"),
     # This lane refuses new-conversation-tab outright (DaemonLanePolicy.evaluate); cmux-mobile-host is the

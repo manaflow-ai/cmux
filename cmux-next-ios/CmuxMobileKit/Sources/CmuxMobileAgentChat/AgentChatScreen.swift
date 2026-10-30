@@ -5,6 +5,7 @@ import CmuxAgentBrands
 import CmuxMobileDesign
 import CmuxMobileDiff
 import CmuxMobileMarkdown
+import CmuxMobileModel
 import SwiftUI
 import UIKit
 
@@ -40,6 +41,36 @@ public final class AgentChatSurface {
     public var parityRoute: AgentParityRoute?
     /// The session's artifacts browser (a sheet).
     public var showArtifacts = false
+    /// Find in Chat while its bar is up (nil: closed).
+    public var find: AgentChatFind?
+    /// Each searchable block's frame (top, height) in the transcript's content coordinates
+    /// (Find in Chat scrolls to its current match). Written as rows lay out; never observed.
+    @ObservationIgnored var findAnchors: [String: (top: CGFloat, height: CGFloat)] = [:]
+    /// Asks the find bar's field for the keyboard (it takes it when the bar opens).
+    var findFieldFocused = false
+
+    /// Find in Chat: opens the bar with its field focused (the composer gives the keyboard up).
+    public func openFind() {
+        if find == nil { find = AgentChatFind() }
+        composerFocused = false
+        findFieldFocused = true
+    }
+
+    /// Done: the bar closes and the marks go.
+    public func closeFind() {
+        find = nil
+        findFieldFocused = false
+    }
+
+    /// Scrolls the transcript to the find bar's current match: the top of the rendered block
+    /// that holds it (a prompt bubble, or one paragraph, list, code card or table of an answer).
+    func revealFindMatch() {
+        guard let match = find?.currentMatch, let frame = findAnchors[match.block] else { return }
+        // Within a block taller than the screen (a long paragraph or code card), its place in
+        // the block's text, as a share of the block's height.
+        let y = frame.top + max(0, frame.height * CGFloat(match.position) - 24)
+        scroller?.scrollTranscript(toContentY: y, animated: !UIAccessibility.isReduceMotionEnabled)
+    }
     public let artifacts = ArtifactsBrowserState()
     // DEBUG demo hooks for the parity screens (the screens act on them through their own paths).
     var demoCheckpointRestore: String?
@@ -244,6 +275,8 @@ public struct AgentChatScreen: View {
                     .disabled(!AgentChatSurface.hasAgentEdits(store))
                 AgentParityMenuItems(store: store, surface: surface)
                 Button("Copy Session ID", systemImage: "doc.on.doc") { UIPasteboard.general.string = store.summary.id }
+                Button("Find in Chat…", systemImage: "magnifyingglass") { surface.openFind() }
+                    .disabled(store.turns.isEmpty)
                 if !store.modes.isEmpty {
                     Section("Mode") {
                         Picker("Mode", selection: Binding(get: { store.currentModeID ?? "" }, set: { store.setMode($0) })) {
@@ -302,6 +335,9 @@ public struct AgentChatTranscript: View {
     var placement: ChatDockPlacement
     var onUserScroll: ((CGFloat) -> Void)?
     @State private var warningTrigger = 0
+    /// A file the agent named (a link in an answer, a tool call's path, a diff's
+    /// file), previewed full screen from the Mac.
+    @State private var filePreview: FilePreviewRequest?
     #if DEBUG
     private let director = DemoDirector.shared
     #endif
@@ -333,7 +369,18 @@ public struct AgentChatTranscript: View {
             isEmpty: store.turns.isEmpty,
             identity: ObjectIdentifier(store),
             content: AnyView(AgentChatTurns(store: store, surface: surface)
-                .environment(\.openDiff, OpenDiffAction { changes, file in surface.diffRoute = AgentChatSurface.DiffRoute(changes: changes, fileID: file) })),
+                .environment(\.openDiff, OpenDiffAction { changes, file in surface.diffRoute = AgentChatSurface.DiffRoute(changes: changes, fileID: file) })
+                .environment(\.openSessionFile, openFile)
+                .environment(\.attachmentLoader, AttachmentLoader { [weak source = store.source] attachment in
+                    await source?.attachmentData(attachment)
+                })
+                // A file link in an answer opens its preview, a cmux link what it names; web links open as before.
+                .environment(\.openURL, OpenURLAction { url in
+                    if CmuxLinkOpener.shared.open(url) { return .handled }
+                    guard let link = FileLink(url: url) else { return .systemAction }
+                    openFile(link.reference, line: link.line)
+                    return .handled
+                })),
             empty: AnyView(AgentChatEmptyState(store: store)),
             dock: placement == .owned ? AnyView(AgentChatBottomStack(store: store, surface: surface, bottomPadding: 0)) : nil,
             // Both placements: the controller hosts the circle at a fixed
@@ -343,21 +390,33 @@ public struct AgentChatTranscript: View {
         // UIKit owns the safe areas and the keyboard (the controller docks
         // the stack to the keyboard layout guide).
         .ignoresSafeArea()
-        // The soft top edge under the status bar or bar is the controller's TopFadeView.
-        .navigationDestination(item: $surface.diffRoute) { route in
-            if let file = route.fileID {
-                DiffFileScreen(changeSet: route.changes, fileID: file)
-            } else {
-                DiffChangesScreen(changeSet: route.changes)
+        // Find in Chat's bar, under the header (a tab's status bar inset, or the pushed bar).
+        .overlay(alignment: .top) {
+            if let find = surface.find {
+                AgentChatFindBar(find: find, surface: surface, store: store)
+                    .padding(.top, (topInset ?? 0) + 4)
+                    .transition(.opacity)
             }
         }
+        // UIKit owns the native top edge and the workspace's iOS 26 gradient fallback.
+        .navigationDestination(item: $surface.diffRoute) { route in
+            Group {
+                if let file = route.fileID {
+                    DiffFileScreen(changeSet: route.changes, fileID: file)
+                } else {
+                    DiffChangesScreen(changeSet: route.changes)
+                }
+            }
+            .environment(\.openSessionFile, openFile)
+        }
+        .filePreview($filePreview)
         .navigationDestination(item: $surface.parityRoute) { route in
             AgentParityDestination(route: route, store: store, surface: surface)
         }
         .sheet(isPresented: $surface.showArtifacts) {
             SessionArtifactsSheet(store: store, surface: surface)
         }
-        .sensoryFeedback(.warning, trigger: warningTrigger)
+        .cmuxMobileSensoryFeedback(.warning, trigger: warningTrigger)
         // A live ask buzzes, and so does one a reattach caught up on (raised while the link
         // was down); one that was already waiting when the chat opened does not.
         .onChange(of: store.pendingPermission?.request.id) { _, new in
@@ -374,6 +433,18 @@ public struct AgentChatTranscript: View {
     }
 }
 
+extension AgentChatTranscript {
+    /// Reads the file from the Mac over the link (`artifactSource`: the `file`
+    /// service, confined to the folders the Mac shares; relative paths resolve
+    /// against the session's folder).
+    var openFile: OpenFileAction {
+        let source = store.source.artifactSource
+        return OpenFileAction { path, line in
+            filePreview = FilePreviewRequest(reference: path, source: source, line: line)
+        }
+    }
+}
+
 /// The turns of an agent chat (hosted in the transcript's scroll view).
 struct AgentChatTurns: View {
     let store: AgentChatStore
@@ -382,7 +453,10 @@ struct AgentChatTurns: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let first = store.turns.first {
-                Text("Session started \(first.promptAt.formatted(date: .abbreviated, time: .shortened))")
+                // A chat opened on its newest history says where what is shown starts.
+                Text(store.hasEarlierHistory
+                    ? "Showing messages since \(first.promptAt.formatted(date: .abbreviated, time: .shortened))"
+                    : "Session started \(first.promptAt.formatted(date: .abbreviated, time: .shortened))")
                     .font(.footnote)
                     .foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity)
@@ -401,6 +475,7 @@ struct AgentChatTurns: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 20)
+        .coordinateSpace(.named(AgentChatFindBar.contentSpace))
     }
 }
 
@@ -428,6 +503,7 @@ struct AgentChatEmptyState: View {
 struct AgentChatJumpButton: View {
     let store: AgentChatStore
     let surface: AgentChatSurface
+    private let metrics = CmuxMobileTheme.standard.metrics
 
     var body: some View {
         ZStack {
@@ -438,17 +514,23 @@ struct AgentChatJumpButton: View {
                     Image(systemName: "arrow.down")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.primary)
-                        .frame(width: 36, height: 36)
-                        .overlay {
-                            if store.isRunning {
-                                PulsingRing()
-                            }
-                        }
+                        .frame(width: metrics.smallCircle, height: metrics.smallCircle)
                         .background(Color.cmuxMobileBackground.opacity(0.72), in: .circle)
                         // A tinted glass disc, so transcript text under it never reads through the arrow.
                         .glassEffect(.regular.tint(Color.cmuxMobileBackground.opacity(0.35)).interactive(), in: .circle)
                         // The 36 pt disc in a 44 pt target.
-                        .frame(width: 44, height: 44)
+                        .frame(width: metrics.glassButton, height: metrics.glassButton)
+                        .overlay(alignment: .topTrailing) {
+                            if store.isRunning {
+                                ProgressView()
+                                    .controlSize(.mini)
+                                    .tint(.primary)
+                                    .frame(width: metrics.workingIndicatorBadge, height: metrics.workingIndicatorBadge)
+                                    .background(Color.cmuxMobileBackground, in: .circle)
+                                    .allowsHitTesting(false)
+                                    .accessibilityHidden(true)
+                            }
+                        }
                         .contentShape(.circle)
                 }
                 .buttonStyle(.plain)
@@ -458,7 +540,7 @@ struct AgentChatJumpButton: View {
         }
         // The host's fixed size (`ChatTranscriptController.jumpHostSize`):
         // the circle appears in place, centered, from its first frame.
-        .frame(width: 44, height: 44)
+        .frame(width: metrics.glassButton, height: metrics.glassButton)
     }
 }
 
@@ -470,7 +552,8 @@ public struct AgentChatBottomStack: View {
     @Bindable var surface: AgentChatSurface
     var bottomPadding: CGFloat = 8
     @State private var reportedHeight: CGFloat = 0
-    @FocusState private var composerFocused: Bool
+    /// The composer field's focus (a UITextView that follows it both ways).
+    @State private var composerFocused = false
 
     public init(store: AgentChatStore, surface: AgentChatSurface) {
         self.store = store
@@ -616,19 +699,6 @@ nonisolated struct DrawnHeightReporter: ViewModifier, Animatable {
     }
 }
 
-struct PulsingRing: View {
-    @State private var on = false
-
-    var body: some View {
-        Circle()
-            .strokeBorder(Color.primary, lineWidth: 2)
-            .opacity(on ? 0.9 : 0.2)
-            .onAppear {
-                withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { on = true }
-            }
-    }
-}
-
 /// One turn: user bubble, the agent's rows, working label, changes card, actions.
 struct TurnView: View {
     let turn: AgentTurn
@@ -641,6 +711,7 @@ struct TurnView: View {
             // Replayed history (the transcript on open, a reattach's catch-up) is drawn in
             // place; only what arrives live animates in.
             UserBubble(turn: turn, isLast: isLast) { store.send(prompt: $0) }
+                .findBlock(AgentChatFind.promptKey(turn.id), surface: surface)
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .transition(.asymmetric(insertion: store.isReplayed(turn.id) ? .identity
                     : .offset(y: 24).combined(with: .scale(scale: 0.96)).combined(with: .opacity), removal: .opacity))
@@ -665,11 +736,15 @@ struct TurnView: View {
                     Text("Stopped").font(.footnote).foregroundStyle(.tertiary)
                 case .failed:
                     let failure = TurnFailureCopy(message: turn.errorText, harness: store.summary.harness, harnessName: store.summary.agentName)
-                    FailureCard(title: "Agent stopped", message: failure.sentence, detail: failure.detail) {
-                        store.send(prompt: turn.prompt)
+                    FailureCard(title: "Agent stopped", message: failure.sentence, detail: failure.detail,
+                                canRetry: store.canRetryFailedTurn(turn),
+                                retryWith: RetryModelChoice(store: store, turn: turn)) {
+                        store.retryFailedTurn(turn)
                     }
                 case .completed:
-                    AnswerActionRow(turn: turn, isLast: isLast) { store.send(prompt: turn.prompt) }
+                    AnswerActionRow(turn: turn, isLast: isLast, retryWith: RetryModelChoice(store: store, turn: turn)) {
+                        store.send(prompt: turn.prompt)
+                    }
                 case .running:
                     EmptyView()
                 }
@@ -683,8 +758,11 @@ struct TurnView: View {
         case .message(_, let markdown):
             // A replayed message's blocks are drawn in place too, not faded in one by one
             // (one still streaming when the chat opened streams on without the block fade).
+            // Find in Chat marks and scrolls to the markdown block (paragraph, list, code) that
+            // holds a match, never a guess inside the whole message.
             StreamingMarkdown(markdown: markdown, isStreaming: turn.status == .running && isLastRow,
-                              animatesBlocks: !store.isReplayed(row.id))
+                              animatesBlocks: !store.isReplayed(row.id),
+                              findMarks: surface.map { MessageFindMarks(row: row.id, surface: $0) as any MarkdownBlockMarks })
         case .thought(_, let text):
             ThoughtRow(text: text, isLive: turn.status == .running && isLastRow)
         case .tool(let call):
@@ -752,11 +830,14 @@ struct StreamingMarkdown: View {
     let markdown: String
     let isStreaming: Bool
     var animatesBlocks = true
+    /// Find in Chat's marks on this message's blocks.
+    var findMarks: (any MarkdownBlockMarks)?
 
     var body: some View {
-        // While streaming, an emphasis or code marker that has not closed yet is hidden.
+        // While streaming, an emphasis or code marker that has not closed yet is hidden (the
+        // blocks keep their ids: only the last block's inline markers change).
         MarkdownView(MarkdownDocument(parsing: isStreaming ? MarkdownStreamTail(markdown).displayed : markdown), isStreaming: isStreaming,
-                     animatesBlocks: animatesBlocks)
+                     animatesBlocks: animatesBlocks, marks: findMarks)
             .contextMenu {
                 Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = markdown }
                 ShareLink(item: markdown) { Label("Share", systemImage: "square.and.arrow.up") }
@@ -816,7 +897,11 @@ struct UserBubble: View {
 /// edges line up with the bubble (no remove-badge room).
 struct SentAttachments: View {
     let attachments: [AgentAttachment]
-    @State private var viewing: ImageViewerItem?
+    /// A tapped attachment: every attachment of the message opens full screen, to swipe between.
+    @State private var preview: FilePreviewRequest?
+    /// Bytes read for recorded images (a prompt this launch did not send).
+    @State private var fetched: [String: Data] = [:]
+    @Environment(\.attachmentLoader) private var loader
 
     var body: some View {
         let images = attachments.filter { $0.kind == .image }
@@ -833,22 +918,38 @@ struct SentAttachments: View {
                                     Text("+\(images.count - 3)").font(.headline).foregroundStyle(.white)
                                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                                         .background(.black.opacity(0.45), in: .rect(cornerRadius: 16, style: .continuous))
+                                        .allowsHitTesting(false)
                                 }
                             }
                     }
                 }
             }
             ForEach(files) { file in
-                AttachmentThumb(attachment: file).padding(.top, -6).padding(.trailing, -6)
+                AttachmentThumb(attachment: file, open: { open(file) }).padding(.top, -6).padding(.trailing, -6)
             }
         }
-        .fullScreenCover(item: $viewing) { FullScreenImageViewer(item: $0) }
+        .filePreview($preview)
+    }
+
+    /// Images first, then files: the order they show in. A recorded image's bytes come from the
+    /// session (read once here, or by the preview when it opens first).
+    private func open(_ attachment: AgentAttachment) {
+        let ordered = attachments.filter { $0.kind == .image } + attachments.filter { $0.kind != .image }
+        let files = ordered.map { item in
+            var file = item.localFile
+            if file.data == nil { file.data = fetched[item.id] }
+            return file
+        }
+        let load = loader.load
+        preview = FilePreviewRequest(files: files, startingAt: attachment.id) { file in
+            await load(AgentAttachment(id: file.id, kind: file.isImage ? .image : .file, name: file.name))
+        }
     }
 
     @ViewBuilder
     private func thumbnail(_ attachment: AgentAttachment, size: CGSize) -> some View {
         Group {
-            if let data = attachment.data, let image = UIImage(data: data) {
+            if let data = attachment.data ?? fetched[attachment.id], let image = UIImage(data: data) {
                 Image(uiImage: image).resizable().scaledToFill()
             } else {
                 Color.cmuxMobileFill.overlay { Image(systemName: "photo").font(.title3).foregroundStyle(.secondary) }
@@ -857,9 +958,11 @@ struct SentAttachments: View {
         .frame(width: size.width, height: size.height)
         .clipShape(.rect(cornerRadius: 16, style: .continuous))
         .contentShape(.rect(cornerRadius: 16, style: .continuous))
-        // Tap opens the image full screen.
-        .onTapGesture {
-            if let data = attachment.data { viewing = ImageViewerItem(id: attachment.id, name: attachment.name, data: data) }
+        // Tap opens it full screen (swipe to the message's other attachments).
+        .onTapGesture { open(attachment) }
+        .task(id: attachment.id) {
+            guard attachment.data == nil, fetched[attachment.id] == nil, let data = await loader.load(attachment) else { return }
+            fetched[attachment.id] = data
         }
         .accessibilityElement()
         .accessibilityLabel(Text("Image, \(attachment.name)"))
@@ -868,10 +971,58 @@ struct SentAttachments: View {
     }
 }
 
+/// Reads the bytes of an attachment a recorded prompt names (`AgentSessionSource.attachmentData`).
+struct AttachmentLoader: Sendable {
+    let load: @MainActor @Sendable (AgentAttachment) async -> Data?
+}
+
+extension EnvironmentValues {
+    @Entry var attachmentLoader = AttachmentLoader { _ in nil }
+}
+
+/// Retry with another model (the Mac's turn menu, cx-ncc.62): the chat harness's models, the
+/// one it runs checked. Shown with two or more models; a pick moves the chat and sends the
+/// prompt again, and a model the Mac refuses (a Claude chat the Mac started) says why in the
+/// chat with the Mac's words, sending nothing.
+@MainActor
+struct RetryModelChoice {
+    let store: AgentChatStore
+    let turn: AgentTurn
+
+    init?(store: AgentChatStore, turn: AgentTurn) {
+        guard !store.retryModels.isEmpty else { return nil }
+        self.store = store
+        self.turn = turn
+    }
+
+    /// The Mac's title (`turn.retryWith`).
+    static let title = "Retry with another model"
+
+    var menu: some View {
+        Menu {
+            ForEach(store.retryModels) { model in
+                Button {
+                    store.retry(turn, model: model.id)
+                } label: {
+                    if model.id == store.currentModelID {
+                        Label(model.name, systemImage: "checkmark")
+                    } else {
+                        Text(model.name)
+                    }
+                }
+            }
+        } label: {
+            Label(Self.title, systemImage: "arrow.triangle.2.circlepath")
+        }
+        .accessibilityIdentifier("chat.retryWithModel")
+    }
+}
+
 /// SPEC 4.4 action row: copy, share, retry, more; trailing duration.
 struct AnswerActionRow: View {
     let turn: AgentTurn
     let isLast: Bool
+    var retryWith: RetryModelChoice?
     let retry: () -> Void
     @State private var copied = false
 
@@ -885,7 +1036,9 @@ struct AnswerActionRow: View {
                     withAnimation(.cmuxMobileSnap) { copied = false }
                 }
             }
-            .sensoryFeedback(.impact(weight: .light, intensity: 0.7), trigger: copied) { _, new in new }
+            .sensoryFeedback(.impact(weight: .light, intensity: 0.7), trigger: copied) { _, new in
+                new && CmuxMobileTheme.standard.haptics.isEnabled
+            }
             ShareLink(item: turn.answerMarkdown) {
                 IconActionLabel("square.and.arrow.up")
             }
@@ -897,6 +1050,7 @@ struct AnswerActionRow: View {
                 Section(AgentTurn.menuTimestamp(turn.endedAt ?? turn.promptAt)) {
                     Button("Copy as Markdown", systemImage: "text.document") { UIPasteboard.general.string = turn.answerMarkdown }
                     Button("Retry", systemImage: "arrow.clockwise", action: retry)
+                    retryWith?.menu
                 }
             } label: {
                 IconActionLabel("ellipsis")

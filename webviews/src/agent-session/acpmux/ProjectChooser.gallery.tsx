@@ -12,6 +12,7 @@ type Props = {
   icon: ReactNode;
   onPick(cwd: string): void;
   onBrowse?(): void;
+  onNoProject?(): void;
 };
 
 const icon = createElement(
@@ -50,6 +51,13 @@ const longProjects: Project[] = [
 const open: Play = async (ctx) => {
   await ctx.click({ selector: ".acpmux-project-button" });
   await ctx.waitFor(() => ctx.document.querySelector('[role="dialog"]'));
+  const field = ctx.document.querySelector<HTMLInputElement>('[role="combobox"]')!;
+  const menu = ctx.document.querySelector<HTMLElement>(".acpmux-project-menu")!;
+  const width = field.getBoundingClientRect().width;
+  if (width < menu.clientWidth - 24)
+    throw new Error("Project search must fill the menu width, not render as a native short input");
+  if (ctx.document.defaultView!.getComputedStyle(field).borderLeftWidth !== "0px")
+    throw new Error("Project search must keep the composer field style without a native border");
 };
 
 // The macOS menu gesture: press the pill, drag onto a row, release to pick it.
@@ -70,13 +78,15 @@ const noMatches: Play = async (ctx) => {
 const typedPath: Play = async (ctx) => {
   await open(ctx);
   await ctx.type("/tmp/new-project");
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-menu-active"));
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-menu-active, [role="option"][data-highlighted]'));
 };
 
 export default componentEntry<Props>({
   id: "agent-pane.project-chooser",
   title: "Project chooser",
   area: "Agent pane",
+  // Its rows use the pane's Tailwind (`data-[highlighted]:bg-hover`), which only a pane entry loads.
+  pane: true,
   covers: ["agent-session/acpmux/ProjectChooser.tsx#ProjectChooser"],
   load: () => import("./ProjectChooser").then((module) => module.ProjectChooser),
   styles: () => import("./styles.css"),
@@ -109,8 +119,15 @@ export default componentEntry<Props>({
         current: projects[0]!.cwd,
         currentLabel: projects[0]!.label,
         icon,
-        onPick: () => undefined,
-        onBrowse: () => undefined,
+        onPick: (cwd) => {
+          document.documentElement.dataset.galleryProjectPicked = cwd;
+        },
+        onBrowse: () => {
+          document.documentElement.dataset.galleryProjectAction = "browse";
+        },
+        onNoProject: () => {
+          document.documentElement.dataset.galleryProjectAction = "none";
+        },
       },
       play: open,
     },
@@ -118,6 +135,25 @@ export default componentEntry<Props>({
       note: "Pressing the pill opens the chooser; dragging onto a project and releasing picks it and closes.",
       props: { projects, current: projects[0]!.cwd, currentLabel: projects[0]!.label, icon, onPick: () => undefined },
       play: pressDragRelease,
+    },
+    "remote-completion": {
+      note: "The shared combobox completes readable project, host and path text; same-path projects stay on the machine selected by the filter.",
+      props: {
+        projects: [
+          { cwd: "/home/you/src/atlas-web", label: "atlas-web", host: "This Mac" },
+          { cwd: "/home/you/src/atlas-web", label: "atlas-web", host: "gpu-box", peer: "gpu-box" },
+        ],
+        icon,
+        onPick: () => undefined,
+      },
+      play: async (ctx) => {
+        await open(ctx);
+        await ctx.type("gpu");
+        await ctx.press("Tab");
+        await ctx.waitFor(() =>
+          ctx.document.querySelector<HTMLInputElement>('[role="combobox"]')?.value.includes("/home/you/src/atlas-web"),
+        );
+      },
     },
     "no-matches": {
       note: "A query with no results shows the quiet empty state without changing the anchor.",
@@ -128,6 +164,18 @@ export default componentEntry<Props>({
       note: "An absolute path query offers the typed path as a selectable project.",
       props: { projects, current: projects[0]!.cwd, currentLabel: projects[0]!.label, icon, onPick: () => undefined },
       play: typedPath,
+    },
+    "long-no-actions": {
+      note: "A long recent-project list without action rows still scrolls to its last folder.",
+      props: {
+        projects: Array.from({ length: 40 }, (_, index) => ({
+          cwd: `/demo/review-${index + 1}`,
+          label: `review-${index + 1}`,
+        })),
+        icon,
+        onPick: () => undefined,
+      },
+      play: open,
     },
     "long-names": {
       note: "Long project labels and paths truncate inside stable rows while badges remain visible.",

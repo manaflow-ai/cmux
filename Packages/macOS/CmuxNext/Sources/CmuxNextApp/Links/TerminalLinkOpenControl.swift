@@ -18,6 +18,9 @@ import CmuxNextSettings
 ///   `command:` hook prints it; a `command:` target is refused here.
 /// - `origin`, `after`: as every CLI request.
 ///
+/// A sign-in or device-code page (`SignInPage`) that no rule matches opens in cmux whatever the
+/// default target, while `browser.openSignInPagesInCmux` is on (the default).
+///
 /// The default target `cmux` follows the link rule (`browser.openLinksInCmuxBrowser`, the host
 /// list, `browser.urlsToAlwaysOpenExternally`), as a click on the link in the terminal would; a
 /// rule or a `target` that names cmux opens a cmux browser tab whatever that rule says (unless the
@@ -46,7 +49,7 @@ enum TerminalLinkOpenControl {
                     }
                     decision = .init(target: target, rule: nil)
                 } else {
-                    decision = setting.decide(url, callers: callers)
+                    decision = setting.decide(url, callers: callers, routing: services?.settings?.snapshot.linkRouting ?? .fallback)
                 }
                 let explicit = params["target"] != nil || decision.rule != nil
                 let source = params["terminal_id"]?.stringValue.flatMap { call.snapshot.topology.tabID(ofTerminal: $0) }

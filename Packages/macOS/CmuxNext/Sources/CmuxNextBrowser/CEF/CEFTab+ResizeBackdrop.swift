@@ -66,7 +66,7 @@ extension CEFTab {
         guard BrowserResizeTunables.pageBackdrop.value, pastFirstRealPage, browserID != nil, !isClosed else { return }
         let document = pageBackdropDocument
         Task { [weak self] in
-            guard let value = try? await self?.evaluate(Self.pageBackdropScript, world: .page) else { return }
+            guard let value = try? await self?.evaluate(Self.pageBackdropScript, world: .page, gesture: .cmux) else { return }
             // A navigation since the read: the next document samples its own.
             guard let self, document == self.pageBackdropDocument, !self.isClosed else { return }
             let argb = Self.backdropARGB(from: value)

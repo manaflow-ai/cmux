@@ -128,13 +128,9 @@ async function mount(prompts: number) {
 const ticks = () => [...document.querySelectorAll<HTMLElement>('.acpmux-scrollmap__mark[data-kind="user"]')];
 const tick = (index: number) => ticks()[index]!;
 const card = () => document.querySelector<HTMLElement>(".acpmux-minimap__card");
-/// The top of a mounted row in the thread, from its transform.
+/// The place of a mounted row in the thread: its `top` less the thread's 16 px top padding.
 const rowTop = (id: string) =>
-  Number(
-    /translateY\(([\d.]+)px\)/.exec(
-      document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${id}"]`)!.style.transform,
-    )?.[1],
-  );
+  Number.parseFloat(document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${id}"]`)!.style.top) - 16;
 /// Where a jump to turn `index` leaves the scroller: the prompt's bubble 35 px below the viewport
 /// top (the thread pads its rows 16 px down).
 const landing = (index: number) => {

@@ -21,7 +21,15 @@ final class CEFMessagePump {
     private var isRunning = false
     /// Why the timer is armed (for the wakeup ledger).
     private var armedReason = CEFPumpSchedule.Wake.Reason.scheduled
-    private(set) var stats = CEFPumpStats()
+    private var counters = CEFPumpStats()
+    /// What Chromium threads ask whether a delayed request must wake the main thread.
+    let gate: CEFPumpCrossThreadGate
+
+    var stats: CEFPumpStats {
+        var stats = counters
+        stats.keptCrossThreadRequests = Int(clamping: gate.kept)
+        return stats
+    }
 
     /// `clock` is monotonic seconds (tests inject one).
     init(
@@ -29,12 +37,14 @@ final class CEFMessagePump {
         safetyNet: CEFPumpSchedule.SafetyNet = CEFPumpSchedule.standard,
         timer: any CEFPumpTimer = CEFRunLoopPumpTimer(),
         clock: @escaping () -> TimeInterval = CEFMessagePump.uptime,
-        ledger: WakeupLedger = .shared
+        ledger: WakeupLedger = .shared,
+        gate: CEFPumpCrossThreadGate = CEFPumpCrossThreadGate()
     ) {
         self.work = work
         self.timer = timer
         self.clock = clock
         self.ledger = ledger
+        self.gate = gate
         schedule = CEFPumpSchedule(safetyNet: safetyNet)
     }
 
@@ -54,13 +64,14 @@ final class CEFMessagePump {
     /// (CefShutdown may follow).
     func stop() {
         isRunning = false
+        _ = gate.take()
         timer.invalidate()
     }
 
     /// Main thread: a CEF `OnScheduleMessagePumpWork(delay_ms)` request.
     func request(milliseconds: Int64) {
         guard isRunning else { return }
-        if milliseconds <= 0 { stats.immediateRequests += 1 } else { stats.delayedRequests += 1 }
+        if milliseconds <= 0 { counters.immediateRequests += 1 } else { counters.delayedRequests += 1 }
         pumpMark("pump-req-\(min(milliseconds, 9_999))")
         schedule.request(milliseconds: milliseconds, now: clock())
         rearm()
@@ -80,17 +91,20 @@ final class CEFMessagePump {
     private func timerFired() {
         guard isRunning else { return }
         ledger.record("CEFMessagePump", reason: armedReason.rawValue)
-        if armedReason == .fallback { stats.followUpRuns += 1 }
+        if armedReason == .fallback { counters.followUpRuns += 1 }
         fire()
     }
 
     private func fire() {
         guard isRunning else { return }
+        // Before any work: no request is kept against a fire that is already running, and those
+        // kept until now join the schedule (rearm() publishes again after the pass).
+        mergeKeptRequests()
         let started = clock()
         guard schedule.beginWork(now: started) else {
             // CefDoMessageLoopWork re-entered through a nested run loop (menu,
             // modal panel). The outer pass runs the pump again when it returns.
-            stats.reentrantFires += 1
+            counters.reentrantFires += 1
             rearm()
             return
         }
@@ -100,22 +114,34 @@ final class CEFMessagePump {
         pumpMark("pump-end")
         let finished = clock()
         let elapsed = finished - started
-        stats.workRuns += 1
-        stats.workSeconds += elapsed
-        if elapsed >= CEFPumpSchedule.timeSlice { stats.longWorkRuns += 1 }
+        counters.workRuns += 1
+        counters.workSeconds += elapsed
+        if elapsed >= CEFPumpSchedule.timeSlice { counters.longWorkRuns += 1 }
         schedule.endWork(now: finished, elapsed: elapsed)
         rearm()
     }
 
     private func rearm() {
         guard isRunning else { return }
-        stats.fallbackInterval = schedule.armedSafetyNetInterval ?? 0
+        mergeKeptRequests()
+        counters.fallbackInterval = schedule.armedSafetyNetInterval ?? 0
         guard let wake = schedule.nextWake else {
             timer.disarm()
             return
         }
         armedReason = wake.reason
         timer.arm(after: max(0, wake.deadline - clock()), tolerance: wake.tolerance)
+        // Only a demand-driven fork (no safety net) reports its next delayed task after each pass;
+        // with an older one every request reaches the schedule. An immediate pass is no deadline.
+        guard schedule.safetyNet == .none, wake.deadline.isFinite, wake.deadline > 0 else { return }
+        gate.publish(deadlineNanos: UInt64(wake.deadline * 1e9))
+    }
+
+    /// Takes the requests the gate kept (it keeps none from now until the next publish) into the
+    /// schedule: no later than the earliest of them.
+    private func mergeKeptRequests() {
+        guard let earliest = gate.take() else { return }
+        schedule.requestNoLater(than: TimeInterval(earliest) / 1e9)
     }
 }
 
@@ -124,6 +150,11 @@ final class CEFMessagePump {
 let cefScheduleCallback: CEFShimLibrary.ScheduleFn = { context, delayMilliseconds in
     guard let context else { return }
     let address = UInt(bitPattern: context)
+    if !Thread.isMainThread,
+       let gate = CEFRuntime.pumpGate(at: address),
+       !gate.admit(delayMilliseconds: delayMilliseconds, nowNanos: clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) {
+        return // kept for the main thread's next pass or re-arm, with no wake (CEFPumpCrossThreadGate)
+    }
     let deliver: @Sendable () -> Void = {
         MainActor.assumeIsolated { // main-proof: deliver runs only in the Thread.isMainThread branch or as a CFRunLoopGetMain() block (below)
             CEFRuntime.from(address)?.pump?.request(milliseconds: delayMilliseconds)

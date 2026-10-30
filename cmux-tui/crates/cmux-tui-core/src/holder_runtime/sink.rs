@@ -1,6 +1,6 @@
 //! One holder terminal's output queue on the daemon side.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, VecDeque};
 use std::io::{self, Read};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 
@@ -43,6 +43,42 @@ struct SinkState {
     lost: bool,
     /// The daemon is shutting down and leaves the terminal running.
     detached: bool,
+    /// Offsets where a holder died inside a PTY read that started there:
+    /// the bytes it took are lost, and the output from each on does not
+    /// follow the output before ([`HolderSink::cut_at`]). Only offsets the
+    /// sink has not received up to yet (two holders can die before it
+    /// catches up).
+    cuts: BTreeSet<u64>,
+    /// The newest cut whose CAN was queued, until a screen snapshot at or
+    /// past it reached the holder: a restarted daemon replays the holder's
+    /// ring from its prologue, and a ring replay across the cut would
+    /// splice the bytes before and after it, so the prologue must move past
+    /// it ([`HolderSink::snapshot_due`]).
+    cut_unsnapshotted: Option<u64>,
+    /// Where output is lost if the holder an ADOPT went to continues the
+    /// dead holder's segment, and where if it starts a fresh ring instead:
+    /// its ADOPTED answer says which ([`HolderSink::expect_adoption`]).
+    adoption: Option<AdoptionCuts>,
+}
+
+/// The possible losses of one adoption sent to a holder that answers it
+/// with ADOPTED ([`HolderSink::expect_adoption`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct AdoptionCuts {
+    /// Where the adopted stream continues (the newest byte received).
+    pub(super) resume: u64,
+    /// The end of the dead holder's segment the ADOPT handed on, if it
+    /// handed one: an answered ring that ends there (or past it) is that
+    /// segment, continued.
+    pub(super) handed_end: Option<u64>,
+    /// The cut when the holder continues the handed segment: a read the
+    /// dead holder died inside, at the segment's end.
+    pub(super) continued: Option<u64>,
+    /// The cut when the holder writes a fresh ring from `resume` instead of
+    /// the handed segment: everything the dead holder read past it is lost
+    /// too. `None` when nothing is lost then, or when it was marked already
+    /// (the ADOPT handed no segment of the dead holder's).
+    pub(super) fresh: Option<u64>,
 }
 
 /// Bytes the holder streamed for one terminal, waiting for the terminal's
@@ -131,6 +167,32 @@ impl SinkState {
         })
     }
 
+    /// A pending cut at the next byte to receive: queue its CAN now. One
+    /// the stream already passed (a gap or a prologue moved past it) was
+    /// cancelled by them.
+    fn take_cut_at_received(&mut self) {
+        loop {
+            let Some(cut) = self.cuts.first().copied().filter(|cut| *cut <= self.received) else {
+                return;
+            };
+            self.cuts.remove(&cut);
+            if cut == self.received {
+                eprintln!("cmux-tui: holder terminal lost output at {cut} (holder died reading)");
+                self.push_unnumbered(&[CANCEL]);
+                self.cut_unsnapshotted = Some(cut);
+            }
+        }
+    }
+
+    /// [`HolderSink::cut_at`] under the lock.
+    fn cut(&mut self, at: u64) {
+        if at < self.received {
+            return;
+        }
+        self.cuts.insert(at);
+        self.take_cut_at_received();
+    }
+
     fn has_unnumbered(&self) -> bool {
         self.runs.iter().any(|run| run.offset.is_none())
     }
@@ -142,7 +204,7 @@ impl SinkState {
         Pending {
             confirmed: self.confirmed,
             received: self.received,
-            head: all[..head_len.min(all.len())].to_vec(),
+            head: all.get(..head_len).unwrap_or(&all).to_vec(),
             all,
         }
     }
@@ -185,10 +247,16 @@ impl HolderSink {
         self.state.lock().recover_poison().received
     }
 
-    /// Offset after the last byte the parser finished parsing.
-    #[cfg(test)]
+    /// Offset after the last holder byte the parser finished parsing.
     pub(crate) fn confirmed(&self) -> u64 {
         self.state.lock().recover_poison().confirmed
+    }
+
+    /// The terminal ended or no holder streams it any more (set before
+    /// [`Self::wait_end`] returns).
+    pub(crate) fn has_ended(&self) -> bool {
+        let state = self.state.lock().recover_poison();
+        state.exit.is_some() || state.lost
     }
 
     /// The parser finished parsing every byte the reader took. The reader
@@ -232,7 +300,10 @@ impl HolderSink {
     /// [`SNAPSHOT_IDLE_BYTES`] parsed since the last snapshot, or after
     /// [`SNAPSHOT_EVERY_BYTES`] even while output keeps coming. None while
     /// unnumbered bytes (a seed, a prologue) wait: the screen is not the
-    /// screen at any offset until they are parsed.
+    /// screen at any offset until they are parsed. Due at once, too, when
+    /// the parser passed a cut ([`Self::cut_at`]) no snapshot is past yet:
+    /// the holder's prologue must not leave the cut in the ring a restarted
+    /// daemon replays.
     pub(super) fn snapshot_due(&self) -> Option<u64> {
         let mut state = self.state.lock().recover_poison();
         state.confirm();
@@ -241,14 +312,72 @@ impl HolderSink {
         }
         let since = state.confirmed.saturating_sub(state.snapshot_base);
         let idle = state.bytes.is_empty();
-        ((idle && since >= SNAPSHOT_IDLE_BYTES) || since >= SNAPSHOT_EVERY_BYTES)
+        let past_cut = state.cut_unsnapshotted.is_some_and(|cut| state.confirmed >= cut);
+        ((idle && since >= SNAPSHOT_IDLE_BYTES) || since >= SNAPSHOT_EVERY_BYTES || past_cut)
             .then_some(state.confirmed)
     }
 
-    /// A snapshot at `base` went to the holder (or could not be made).
-    pub(super) fn snapshot_taken(&self, base: u64) {
+    /// A snapshot at `base` was handled: `reached` when it went to the
+    /// holder or cannot be made (an empty replay), false when no holder
+    /// link was open. Either way the next periodic one waits for more
+    /// output; only a reached one moves the holder's prologue past a cut,
+    /// so a cut's snapshot is due again until a holder link takes it.
+    pub(super) fn snapshot_taken(&self, base: u64, reached: bool) {
         let mut state = self.state.lock().recover_poison();
         state.snapshot_base = state.snapshot_base.max(base);
+        if reached && state.cut_unsnapshotted.is_some_and(|cut| base >= cut) {
+            state.cut_unsnapshotted = None;
+        }
+    }
+
+    /// Output was lost at holder offset `at` (a holder died inside a PTY
+    /// read that started there, `cmux_holder::ring::interrupted_read`, or
+    /// an adoption dropped the bytes from `at` on): the bytes the stream
+    /// brings from `at` do not continue the ones before. The parser gets a
+    /// CAN right before the byte at `at` (now, when every byte before it
+    /// was received), so it does not continue an escape sequence or a
+    /// UTF-8 character the loss cut, and the loss is logged. Never a silent
+    /// splice. An offset before what the sink received is ignored: no holder
+    /// can have sent a byte past a read it never published.
+    pub(crate) fn cut_at(&self, at: u64) {
+        self.state.lock().recover_poison().cut(at);
+        self.changed.notify_all();
+    }
+
+    /// An ADOPT goes to a holder that answers it with ADOPTED. When it
+    /// hands the dead holder's ring segment on, the new holder may continue
+    /// it or, when it cannot (a segment it refuses), start a fresh ring at
+    /// the resume offset. Which loss to mark depends on that: `continued`
+    /// when it continues the segment, `fresh` when it does not. Its ADOPTED
+    /// answer decides ([`TerminalSink::adopted`], before any output of the
+    /// adopted stream); a cut chosen before the answer would be wrong for
+    /// one of the two (a silent splice at the resume offset, and a false
+    /// CAN inside valid output at the segment's end).
+    pub(super) fn expect_adoption(&self, cuts: AdoptionCuts) {
+        self.state.lock().recover_poison().adoption = Some(cuts);
+    }
+
+    /// The plan of [`Self::expect_adoption`] names no loss: its ADOPT never
+    /// reached the holder whole (nothing continues the segment, which stays
+    /// the custody copy and is planned again with the next adoption), or
+    /// the holder it went to still runs the terminal after a reconnect and
+    /// resumes it from its own ring.
+    pub(super) fn forget_adoption(&self) {
+        self.state.lock().recover_poison().adoption = None;
+    }
+
+    /// Before a new adoption: an earlier one whose answer never came (the
+    /// link ended first, or the holder refused it) leaves the daemon no
+    /// custody segment, so nobody can say what that holder read from the
+    /// PTY before it went away: the next holder starts at the resume
+    /// offset, and the stream is cut there.
+    pub(super) fn settle_unanswered_adoption(&self) {
+        let mut state = self.state.lock().recover_poison();
+        if let Some(cuts) = state.adoption.take() {
+            state.cut(cuts.resume);
+            drop(state);
+            self.changed.notify_all();
+        }
     }
 
     /// The holder is gone for good: the reader drains and the wait ends lost.
@@ -271,8 +400,10 @@ impl HolderSink {
     /// Up to `buf.len()` bytes; 0 once the terminal ended (or the daemon
     /// detached) and every byte before was read. A call means the reader
     /// parsed what it took before (if [`Self::confirm_parsed`] did not say
-    /// so already), so the acknowledgement for it goes out first.
-    fn read(&self, buf: &mut [u8]) -> usize {
+    /// so already), so the acknowledgement for it goes out first. Also
+    /// returns how many of the bytes, from the first, take no holder offset
+    /// (a reopen seed, a prologue): they are not the shell's output.
+    fn read(&self, buf: &mut [u8]) -> (usize, usize) {
         let ack = {
             let mut state = self.state.lock().recover_poison();
             state.confirm();
@@ -286,17 +417,24 @@ impl HolderSink {
             state = self.changed.wait(state).recover_poison();
         }
         if state.detached {
-            return 0;
+            return (0, 0);
         }
         // Taken, not parsed: the bytes stay queued (and in `pending`) until
         // the reader confirms them.
-        let n = buf.len().min(state.bytes.len());
         let (head, tail) = state.bytes.as_slices();
-        let from_head = n.min(head.len());
-        buf[..from_head].copy_from_slice(&head[..from_head]);
-        buf[from_head..n].copy_from_slice(&tail[..n - from_head]);
+        let mut n = 0;
+        for part in [head, tail] {
+            let Some(room) = buf.get_mut(n..) else { break };
+            let take = room.len().min(part.len());
+            if let (Some(to), Some(from)) = (room.get_mut(..take), part.get(..take)) {
+                to.copy_from_slice(from);
+            }
+            n += take;
+        }
         state.in_flight = n;
-        n
+        let unnumbered: usize =
+            state.runs.iter().take_while(|run| run.offset.is_none()).map(|run| run.len).sum();
+        (n, unnumbered.min(n))
     }
 
     /// Block until the terminal ended, was lost or the daemon detached.
@@ -339,9 +477,22 @@ impl TerminalSink for HolderSink {
             state.push_unnumbered(&[CANCEL]);
         }
         let skip = state.received.saturating_sub(offset) as usize;
-        let from = offset.max(state.received);
-        state.push_numbered(from, &bytes[skip.min(bytes.len())..]);
+        let mut from = offset.max(state.received);
+        let mut rest = bytes.get(skip..).unwrap_or_default();
+        loop {
+            let inside = state.cuts.iter().copied().find(|cut| *cut > from && *cut < end);
+            let Some(cut) = inside else { break };
+            // A dead holder's lost read sits inside these bytes: the parser
+            // gets its CAN between the bytes before it and the ones after.
+            let (before, after) = rest.split_at((cut - from) as usize);
+            state.push_numbered(from, before);
+            state.received = cut;
+            state.take_cut_at_received();
+            (from, rest) = (cut, after);
+        }
+        state.push_numbered(from, rest);
         state.received = end;
+        state.take_cut_at_received();
         drop(state);
         self.changed.notify_all();
     }
@@ -352,6 +503,8 @@ impl TerminalSink for HolderSink {
             eprintln!("cmux-tui: holder terminal lost output {requested}..{oldest}");
             state.received = oldest;
             state.push_unnumbered(&[CANCEL]);
+            // A cut inside the gap or at its end: the gap's CAN covers it.
+            state.cuts.retain(|cut| *cut > oldest);
             drop(state);
             self.changed.notify_all();
         }
@@ -372,6 +525,9 @@ impl TerminalSink for HolderSink {
                 state.confirmed = state.confirmed.max(base);
                 state.acked = state.acked.max(base);
             }
+            // A cut at `base` follows the screen; one before it is in the
+            // prologue's past.
+            state.take_cut_at_received();
         }
         state.snapshot_base = state.snapshot_base.max(base);
         drop(state);
@@ -380,6 +536,23 @@ impl TerminalSink for HolderSink {
 
     fn acks_itself(&self) -> bool {
         true
+    }
+
+    fn adopted(&self, end: u64) {
+        let mut state = self.state.lock().recover_poison();
+        let Some(cuts) = state.adoption.take() else { return };
+        let continued = cuts.handed_end.is_some_and(|handed| end >= handed);
+        if let Some(at) = if continued { cuts.continued } else { cuts.fresh } {
+            state.cut(at);
+            drop(state);
+            self.changed.notify_all();
+        }
+    }
+
+    fn refused(&self, message: &str) {
+        // No holder streams it: the reader drains and the wait ends lost.
+        eprintln!("cmux-tui: the terminal holder refused a terminal's stream: {message}");
+        self.lose();
     }
 
     fn exit(&self, status: ExitStatus, _end: u64) {
@@ -406,7 +579,7 @@ pub(super) struct SinkReader(pub(super) Arc<HolderSink>);
 #[cfg(test)]
 impl Read for SinkReader {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        Ok(self.0.read(buf))
+        Ok(self.0.read(buf).0)
     }
 }
 
@@ -417,22 +590,30 @@ impl Read for SinkReader {
 /// much the terminal printed since they were set.
 pub(super) struct SnapshottingReader {
     pub(super) sink: Arc<HolderSink>,
-    /// Builds and sends the snapshot at an offset (the terminal's replay).
-    pub(super) snapshot: Box<dyn Fn(u64) + Send>,
+    /// Builds and sends the snapshot at an offset (the terminal's replay):
+    /// false when no holder link was open to take it.
+    pub(super) snapshot: Box<dyn Fn(u64) -> bool + Send>,
     /// The terminal id (hex) its create's debug spans follow: the first
-    /// output, first text and first prompt the daemon reads for it are
-    /// marked as on the hosted path (new-terminal-100x's first-text).
+    /// output, first text and first prompt the shell printed are marked as
+    /// on the hosted path (new-terminal-100x's first-text). Only holder
+    /// output counts: a reopened terminal's replayed seed or a prologue is
+    /// not the shell's first text.
     pub(super) terminal_id: String,
 }
 
 impl Read for SnapshottingReader {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         if let Some(base) = self.sink.snapshot_due() {
-            (self.snapshot)(base);
-            self.sink.snapshot_taken(base);
+            let reached = (self.snapshot)(base);
+            self.sink.snapshot_taken(base, reached);
         }
-        let n = self.sink.read(buf);
-        crate::debug_spans::output_marks(&self.terminal_id, &buf[..n]);
+        let (n, unnumbered) = self.sink.read(buf);
+        if n > unnumbered {
+            if let Some(output) = buf.get(unnumbered..n) {
+                crate::debug_spans::output_marks(&self.terminal_id, output);
+            }
+            cmux_flow_trace::hop("daemon.output.holder", 0, &self.terminal_id);
+        }
         Ok(n)
     }
 }
@@ -514,6 +695,28 @@ mod tests {
         assert_eq!(sink.confirmed(), 21);
     }
 
+    /// Review 1 of pl-holder-11: a holder killed inside a PTY read lost
+    /// the bytes that read took, however many. The dead holder's segment
+    /// names the offset ([`HolderSink::cut_at`]), and the parser gets a CAN
+    /// exactly there: inside a later chunk, between its bytes before and
+    /// after the cut, and at once when every byte before it was received.
+    /// A cut behind what was received names nothing.
+    #[test]
+    fn output_lost_where_a_holder_died_reading_is_cancelled_not_spliced() {
+        let sink = HolderSink::new(0);
+        sink.data(0, b"\x1b[3");
+        sink.cut_at(5);
+        sink.cut_at(1);
+        sink.data(3, b"8;5;1");
+        sink.cut_at(8);
+        sink.data(8, b"x");
+        sink.exit(ExitStatus::Exited(0), 9);
+        let mut out = Vec::new();
+        SinkReader(sink.clone()).read_to_end(&mut out).unwrap();
+        assert_eq!(out, b"\x1b[38;\x185;1\x18x");
+        assert_eq!((sink.received(), sink.confirmed()), (9, 9));
+    }
+
     #[test]
     fn a_snapshot_is_due_after_a_burst_once_the_stream_is_idle() {
         let sink = HolderSink::new(0);
@@ -528,7 +731,7 @@ mod tests {
             read += reader.read(&mut buf).unwrap();
         }
         assert_eq!(sink.snapshot_due(), Some(burst.len() as u64));
-        sink.snapshot_taken(burst.len() as u64);
+        sink.snapshot_taken(burst.len() as u64, true);
         // An echo after it costs no replay.
         sink.data(burst.len() as u64, b"x");
         assert_eq!(reader.read(&mut buf).unwrap(), 1);
@@ -559,6 +762,23 @@ mod tests {
         let mut buf = [0u8; 8];
         assert_eq!(SinkReader(sink.clone()).read(&mut buf).unwrap(), 0);
         assert_eq!(sink.wait_end(), SinkEnd::Detached);
+    }
+
+    /// A reopened terminal's seed (and a prologue) is not the shell's
+    /// output: a read says how many of its bytes come before the first
+    /// holder byte, so first-output marks skip them.
+    #[test]
+    fn a_read_says_how_many_leading_bytes_are_not_holder_output() {
+        let sink = HolderSink::new(0);
+        sink.prepend(b"replayed screen");
+        sink.data(0, b"$ ");
+        let mut buf = [0u8; 8];
+        assert_eq!(sink.read(&mut buf), (8, 8), "the seed's first bytes");
+        let mut buf = [0u8; 64];
+        assert_eq!(sink.read(&mut buf), (9, 7), "the seed's rest, then the shell's prompt");
+        assert_eq!(&buf[7..9], b"$ ");
+        sink.data(2, b"ls");
+        assert_eq!(sink.read(&mut buf), (2, 0), "only the shell's output");
     }
 
     /// The replay race (holder item 1): a chunk the reader took but has not

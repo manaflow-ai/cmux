@@ -24,6 +24,8 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.browserToggleOmnibar",
         ],
         .noObject: [
+            "window.toggleDockLeft", "window.toggleDockRight", "window.toggleDockTop", "window.toggleDockBottom",
+            "window.toggleDockOrientation",
             "palette.openFilesPane", "palette.openFindPane",
             "sidebar.profileMenu", "browser.downloads.showFolder",
             "home.show",
@@ -32,16 +34,17 @@ nonisolated extension ActionSurfaceCatalog {
             "quit", "quitKeepSessions", "quitEndSessions", "quitEndEverything", "globalSearch", "commandPalette",
             "palette.openTaskManager", "palette.sleepyMode", "keepMacAwake", "about", "manageLayouts",
             "palette.findWork", "reopenClosedBrowserPanel", "palette.browserClearHistory", "importFromBrowser", "password.importCSV", "browser.importFromFiles", "browser.allowAgentWithExtensions",
-            "workspace.importClassic", "fileEditor.importEditorSettings", "palette.enableBrowser", "palette.disableBrowser", "toggleRightSidebar", "switchRightSidebarToFiles",
+            "workspace.importClassic", "session.moveFromBuild", "fileEditor.importEditorSettings", "palette.enableBrowser", "palette.disableBrowser", "toggleRightSidebar", "switchRightSidebarToFiles",
             "switchRightSidebarToFind", "switchRightSidebarToSessions", "switchRightSidebarToFeed",
             "switchRightSidebarToDock", "switchRightSidebarToMachines", "palette.toggleMatchTerminalBackground",
             "showNotifications", "feed.show", "markAllNotificationsRead",
             "clearAllNotifications", "notifications.toggleBanners", "notifications.dismissal.keystroke",
+            "notifications.setAgentSound", "notifications.setEventSound", "notifications.importSound",
             "notifications.dismissal.focus", "notifications.dismissal.click", "notifications.dismissal.explicit",
             "notifications.dismissal.timeout", "notifications.dismissal.never", "palette.openTerminalChatView",
             "palette.quickAgentChat",
             "palette.launchClaudeTeams", "palette.launchCodexTeams", "palette.computerUse.setup",
-            "palette.computerUse.accessibility", "palette.computerUse.screenRecording", "computerUseStop",
+            "palette.computerUse.accessibility", "palette.computerUse.screenRecording", "palette.computerUse.restart", "computerUseStop",
             "newCloudMachine", "cloudDiagnostics", "openTeamPicker", "palette.auth.signIn", "palette.auth.signOut",
             "palette.mobileConnect", "accounts.show", "accounts.refresh", "accounts.reauthenticate",
             "accounts.connect", "accounts.remove", "reloadConfiguration", "palette.openCmuxSettingsFile",
@@ -131,10 +134,22 @@ nonisolated extension ActionSurfaceCatalog {
         ],
         .dragGesture: [
             "space.move", "browser.extension.move", "bookmark.move", "space.moveLeft", "space.moveRight",
+            "space.moveToStart", "space.moveToEnd",
         ],
         .minimalMenu: [
-            "space.setDefaults", "browserProfile.clearSpaceDefault",
+            "space.setDefaults", "space.clearDefaults", "browserProfile.clearSpaceDefault",
+            // Open in New Window took its row (spaces-overhaul-DESIGN.md rule 4); New Window in Space… (a new
+            // window with a new workspace of the space) stays in the palette and the CLI.
+            "space.newWindow",
         ],
+        // Leo 2026-10-23: the workspace row menu drops this long tail; the palette keeps it.
+        .pointerMenuTrim: [
+            // Docked workspaces are a default-off prototype (`window.dockedWorkspaces`): palette, CLI and MCP only,
+            // so the workspace row's Move menu does not grow six rows nobody can use yet.
+            "workspace.dockLeft", "workspace.dockRight", "workspace.dockTop", "workspace.dockBottom", "workspace.undock",
+            "workspace.toggleDockFloating","workspace.setTint", "workspace.copyPath", "copyWorkspaceSSHError", "revealWorkspaceInFinder", "palette.copyWorkspaceID",
+            "palette.copyWorkspaceIDAndRef", "palette.copyWorkspaceLink", "workspace.showResources", "palette.openWorkspacePullRequests",
+            "workspace.setRemoteLocalhost"],
         .paletteInternal: [
             "commandPaletteNext", "commandPalettePrevious",
         ],

@@ -102,6 +102,19 @@ pub(crate) fn host_orphan_env() -> Option<(&'static str, String)> {
     Some((HOST_ORPHAN_GRACE_ENV, DEV_HOST_ORPHAN_GRACE.as_secs().to_string()))
 }
 
+/// The orphan grace the terminal processes this daemon starts get: an
+/// explicit [`HOST_ORPHAN_GRACE_ENV`] in its environment, else
+/// [`DEV_HOST_ORPHAN_GRACE`] in builds with one, else none. The holder gets
+/// it too (`cmux_holder::ORPHAN_GRACE_ENV`), so holder terminals end after
+/// the same grace as hosted ones.
+#[cfg(unix)]
+pub(crate) fn spawned_orphan_grace() -> Option<Duration> {
+    if std::env::var_os(HOST_ORPHAN_GRACE_ENV).is_some() {
+        return read_host_orphan_grace();
+    }
+    DEV_ORPHAN_GRACE.load(Ordering::Acquire).then_some(DEV_HOST_ORPHAN_GRACE)
+}
+
 /// A `SIGTERM` ends a host only after this long with no client stream, so a
 /// daemon's reconnect gap (resync, lost connection) is not an orphan.
 pub(crate) const HOST_SIGTERM_ORPHAN_MIN: Duration = Duration::from_secs(2);

@@ -43,7 +43,11 @@ rust_root="$repo_root/cmux-next-ios/rust"
 
 # The source key: the committed trees of every input, plus any uncommitted
 # change to them (a --working-tree fleet build), so a stale build is never reused.
-inputs=(cmux-next-ios/rust cmux-tui/crates/cmux-wg cmux-tui/crates/cmux-transport cmux-tui/Cargo.toml)
+# cmux-mobile-host links the remote-desktop crates through cmux-mobile-link;
+# include those path trees or an rd-only edit could reuse stale host bytes.
+inputs=(cmux-next-ios/rust cmux-tui/crates/cmux-wg cmux-tui/crates/cmux-transport
+  cmux-tui/crates/cmux-rd-proto cmux-tui/crates/cmux-rd-core
+  cmux-tui/crates/cmux-rd-engine cmux-tui/crates/cmux-rd-ffi cmux-tui/Cargo.toml)
 key_material=""
 for input in "${inputs[@]}"; do
   key_material+="$(git -C "$repo_root" rev-parse "HEAD:$input" 2>/dev/null || echo "missing:$input")"$'\n'
@@ -100,7 +104,9 @@ for arch in $archs; do
   rust_targets+=("$([[ "$arch" == arm64 ]] && printf aarch64 || printf x86_64)-apple-darwin")
 done
 echo "==> ensuring Rust targets ${rust_targets[*]} for the cmux-next-ios toolchain"
-(cd "$rust_root" && rustup target add "${rust_targets[@]}")
+# shellcheck source=scripts/lib/rust-targets.sh
+source "$repo_root/scripts/lib/rust-targets.sh"
+(cd "$rust_root" && ensure_rust_targets "${rust_targets[@]}")
 
 # A persistent target dir in the tree's own (ignored) cmux-next-ios/rust/target, so
 # the next build of a warm slot is incremental. Cargo locks it.

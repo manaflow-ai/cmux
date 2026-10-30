@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextHomeEngine
 import CmuxNextDaemon
 import CmuxNextLayout
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -13,7 +14,7 @@ import Testing
 /// tool to and refused ("The agent chat can't be split."). Cmd-D and Cmd-Shift-D there now open the
 /// new pane in a column right of the dock, as New Tab does; the keys around them (focus, equalize,
 /// close) then act on that column like any.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"), .closesItsWindows)
 struct HomeSplitKeysTests {
     /// Shows the docked Home with its dock alone and focused; returns the window and the home workspace.
     static func showHome(_ services: AppServices, _ connection: DaemonConnection) async throws -> (WindowController, WorkspaceModel) {
@@ -140,8 +141,12 @@ struct HomeSplitKeysTests {
             var opensTerminal = ActionInvocation(origin: .user)
             opensTerminal.opensTerminal = true
             #expect(services.registry.perform("splitRight", invocation: opensTerminal))
-            try await PasswordManagerRouteTests.until({ Self.panes(home).count == 2 && Self.panes(home).last?.tabs.isEmpty == false },
-                                                       report: { "\(Self.panes(home).count) panes" })
+            // The daemon's pane, not the split's stand-in (`ProvisionalPane`), which shows first and
+            // whose handle the daemon does not know ("new-tab failed: unknown pane").
+            try await PasswordManagerRouteTests.until({
+                Self.panes(home).count == 2
+                    && Self.panes(home).last?.tabs.first.map { !ProvisionalTab.isProvisional(surface: $0.surface) } == true
+            }, report: { "\(Self.panes(home).count) panes, right tabs \(Self.panes(home).last?.tabs.map(\.surface) ?? [])" })
             let right = try #require(Self.panes(home).last)
             _ = try await connection.newTab(in: right.handle)
             try await PasswordManagerRouteTests.until({ right.tabs.count == 2 }, report: { "right of Home: \(right.tabs.count) tab(s)" })

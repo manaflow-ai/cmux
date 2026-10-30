@@ -6,6 +6,7 @@ import * as quota from "./home-attachment-quota.ts"
 import { deliverKrlNotices, krlDueAt, type KrlRetry } from "./user-krl.ts"
 import { emailDomainOf, verifyInstallSignature, type InstallClaims } from "./auth.ts"
 import { verifyAttestation, type AttestedKey } from "./app-attest.ts"
+import { isCompanyEmail } from "./domains/cloud-plan.ts"
 import { admit } from "./domains/common.ts"
 import { chiefActive, grantFor, inboxRefusalFor, installActive, grantMigrationsDue, userPathAllowed, jwkThumbprint, makeUserDomain, type UserState } from "./domains/user.ts"
 import { appIdHashFor, confirmRead } from "./domains/user-confirm.ts"
@@ -367,13 +368,15 @@ export class UserDO extends OwnerDO<UserState> {
   /** A revoked install loses its open sockets at once, not at token expiry. */
   private closeRevoked(op: string, frames: ReadonlyArray<OwnerFrame>) {
     const result = frames.find((f) => f.t === "result")
-    // An archived chief's token stops at once: its sockets here and on every other owner close.
-    if (op === "chief.archive" && result && result.t === "result") {
+    // An archived or deleted chief's token stops at once: its sockets here and on every other owner close.
+    if ((op === "chief.archive" || op === "chief.delete") && result && result.t === "result") {
       const agent = (result.value as { id?: string }).id
       if (!agent) return
-      this.closeSockets((p) => p.agent === agent, "chief archived")
-      // Its sandboxes pause and their Freestyle identity (tokens and grants) is revoked (chief-brain-cc/sandbox.ts).
-      this.ctx.waitUntil((this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(`${agent}/sandboxes`)) as unknown as { ccSandboxRetire(): Promise<unknown> }).ccSandboxRetire().catch(() => undefined))
+      this.closeSockets((p) => p.agent === agent, op === "chief.delete" ? "chief deleted" : "chief archived")
+      // Its sandboxes pause (archive: a restore resumes them) or are deleted (delete), and their Freestyle identity
+      // (tokens and grants) is revoked (chief-brain-cc/sandbox.ts).
+      const sandboxes = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(`${agent}/sandboxes`)) as unknown as { ccSandboxRetire(): Promise<unknown>; ccSandboxPurge(): Promise<unknown> }
+      this.ctx.waitUntil((op === "chief.delete" ? sandboxes.ccSandboxPurge() : sandboxes.ccSandboxRetire()).catch(() => undefined))
       if (markAgentClosing(this.ctx.storage.sql, agent, Date.now()) > 0) this.ctx.waitUntil(this.flushCloses(Date.now()).finally(() => this.scheduleAlarm()))
       return
     }
@@ -462,6 +465,11 @@ export class UserDO extends OwnerDO<UserState> {
     const settings = homeUser.homeSettingsOf(engine.currentState.home_settings)
     if (!settings.trust_same_domain || !invites.requestTrusted(senderDomain, invites.emailDomain(u.email))) return null
     return { display_name: u.display_name, allow_requests_from: settings.allow_requests_from }
+  }
+  /** CloudDO (cloud-entitlements.ts): whether this user's verified email is a company account (cloud-plan.ts isCompanyEmail). Never the address itself. */
+  async cloudCompanyAccount(entity: string): Promise<boolean> {
+    const u = this.existing()?.currentState.user
+    return Boolean(u && u.id === entity && u.email_verified === true && isCompanyEmail(u.email))
   }
   async stackUserOf(entity: string): Promise<string | null> { const u = this.existing()?.currentState.user; return u && u.id === entity ? u.stack_user_id : null } // CloudDO: the owner's Stack user id (cloud-coderouter-edge.ts)
   /** TeamDO's identity check only: an active daemon's public key, scoped to its existing team and grant. */

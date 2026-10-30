@@ -23,9 +23,15 @@ pub mod op_names {
     pub const CALENDAR_EVENTS_LIST: &str = "calendar.events.list";
     pub const CHIEF_ARCHIVE: &str = "chief.archive";
     pub const CHIEF_CREATE: &str = "chief.create";
+    pub const CHIEF_DELETE: &str = "chief.delete";
     pub const CHIEF_LIST: &str = "chief.list";
     pub const CHIEF_UPDATE: &str = "chief.update";
     pub const CLOUD_BILLING_CHECKOUT: &str = "cloud.billing.checkout";
+    pub const CLOUD_ENVIRONMENT_BOOT: &str = "cloud.environment.boot";
+    pub const CLOUD_ENVIRONMENT_BUILD: &str = "cloud.environment.build";
+    pub const CLOUD_ENVIRONMENT_DELETE: &str = "cloud.environment.delete";
+    pub const CLOUD_ENVIRONMENT_LIST: &str = "cloud.environment.list";
+    pub const CLOUD_ENVIRONMENT_SET: &str = "cloud.environment.set";
     pub const CLOUD_MACHINE_CONNECT_INFO: &str = "cloud.machine.connect_info";
     pub const CLOUD_MACHINE_CREATE: &str = "cloud.machine.create";
     pub const CLOUD_MACHINE_DELETE: &str = "cloud.machine.delete";
@@ -231,9 +237,15 @@ pub mod op_names {
         CALENDAR_EVENTS_LIST,
         CHIEF_ARCHIVE,
         CHIEF_CREATE,
+        CHIEF_DELETE,
         CHIEF_LIST,
         CHIEF_UPDATE,
         CLOUD_BILLING_CHECKOUT,
+        CLOUD_ENVIRONMENT_BOOT,
+        CLOUD_ENVIRONMENT_BUILD,
+        CLOUD_ENVIRONMENT_DELETE,
+        CLOUD_ENVIRONMENT_LIST,
+        CLOUD_ENVIRONMENT_SET,
         CLOUD_MACHINE_CONNECT_INFO,
         CLOUD_MACHINE_CREATE,
         CLOUD_MACHINE_DELETE,
@@ -442,9 +454,15 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "calendar.events.list" => visitor.visit::<CalendarEventsListOp>(),
         "chief.archive" => visitor.visit::<ChiefArchiveOp>(),
         "chief.create" => visitor.visit::<ChiefCreateOp>(),
+        "chief.delete" => visitor.visit::<ChiefDeleteOp>(),
         "chief.list" => visitor.visit::<ChiefListOp>(),
         "chief.update" => visitor.visit::<ChiefUpdateOp>(),
         "cloud.billing.checkout" => visitor.visit::<CloudBillingCheckoutOp>(),
+        "cloud.environment.boot" => visitor.visit::<CloudEnvironmentBootOp>(),
+        "cloud.environment.build" => visitor.visit::<CloudEnvironmentBuildOp>(),
+        "cloud.environment.delete" => visitor.visit::<CloudEnvironmentDeleteOp>(),
+        "cloud.environment.list" => visitor.visit::<CloudEnvironmentListOp>(),
+        "cloud.environment.set" => visitor.visit::<CloudEnvironmentSetOp>(),
         "cloud.machine.connect_info" => visitor.visit::<CloudMachineConnectInfoOp>(),
         "cloud.machine.create" => visitor.visit::<CloudMachineCreateOp>(),
         "cloud.machine.delete" => visitor.visit::<CloudMachineDeleteOp>(),

@@ -11,18 +11,73 @@ import type { PlayContext } from "../../gallery/play";
 import { assistant, chat, CWD, manySessions, noChat, user } from "../../gallery/fixtures/acpmux";
 import { setComposerLook, type ComposerLook } from "./composerLook";
 
-/// A started Claude Code chat in a project: the transcript over the composer.
-const startedChat = () =>
-  chat([
+/// A started Claude Code chat in a project: the transcript over the composer. It reports its modes,
+/// as a running Claude Code session does, so the mode chip (the permission capsule) draws in both looks.
+const startedChat = () => {
+  const snapshot = chat([
     user("Add retries to the fetch helper, with a backoff.", 12),
     assistant(
       "Added `withRetry` to `fetchJson`: three tries with jittered backoff, and only for network errors and 5xx answers. The tests cover a 503 that recovers and a 404 that does not retry.",
       11,
     ),
   ]);
+  snapshot.summary = {
+    ...snapshot.summary!,
+    modes: {
+      currentModeId: "default",
+      availableModes: [
+        { id: "default", name: "Ask before edits", description: "Review changes before they run" },
+        { id: "acceptEdits", name: "Edit automatically", description: "Make edits without asking" },
+        { id: "plan", name: "Plan", description: "Plan before making changes" },
+      ],
+    },
+  };
+  return snapshot;
+};
 
 /// A new chat before its first send: the folder and computer strip heads the composer.
 const newChat = () => noChat(manySessions(4), { summary: { sessionId: "", cwd: CWD, harness: "codex" } });
+
+const goalChat = (status: "active" | "paused") => {
+  const snapshot = chat(startedChat().rows, { harness: "codex", model: "gpt-6-astra" });
+  return {
+    ...snapshot,
+    summary: {
+      ...snapshot.summary!,
+      harness: "codex",
+      goal: {
+        objective: "Finish the timeout fix and verify the retry behavior",
+        status,
+        tokenBudget: 50000,
+        tokensUsed: 12400,
+      },
+    },
+  };
+};
+
+const speedNewTab = () => {
+  const snapshot = newChat();
+  snapshot.summary = { ...snapshot.summary!, model: "gpt-6.1-sol" };
+  snapshot.catalog = snapshot.catalog.map((entry) =>
+    entry.id === "codex"
+      ? {
+          ...entry,
+          models: [
+            {
+              id: "gpt-6.1-sol",
+              name: "GPT-6.1 Sol",
+              fast: true,
+              serviceTiers: [
+                { id: "priority", name: "Fast" },
+                { id: "ultrafast", name: "Ultrafast" },
+              ],
+            },
+          ],
+        }
+      : entry,
+  );
+  return snapshot;
+};
 
 const newTab = (fields: Record<string, unknown> = {}) => ({
   newTab: { layout: "b", kind: "agent", cwd: CWD, home: "/Users/you", lastAgent: "claude", ...fields },
@@ -117,15 +172,49 @@ export default agentPaneEntry({
   widths: { narrow: 420, normal: 760, wide: 1100 },
   covers: [
     "agent-session/acpmux/composerLook.ts",
+    "agent-session/acpmux/composerFooterShared.css",
     "agent-session/acpmux/LookSwitch.tsx#LookSwitch",
     "agent-session/acpmux/newtab/PageDots.tsx#PageDots",
     "agent-session/acpmux/newtab/StyleSwitch.tsx#DotSwitch",
   ],
   variants: {
+    "goal-active": {
+      note: "A persisted Codex goal between turns; Pause and Clear use the same /goal command path.",
+      snapshot: goalChat("active"),
+      play: (ctx) => look(ctx, "claude"),
+    },
+    "goal-paused": {
+      note: "A paused goal remains visible when the conversation reopens.",
+      snapshot: goalChat("paused"),
+      play: (ctx) => look(ctx, "codex"),
+    },
+    "newtab-codex-speed": {
+      note: "Fast and Ultrafast are available before the first prompt, from the model's advertised tiers.",
+      height: 520,
+      ready: newTab(),
+      snapshot: speedNewTab(),
+      play: (ctx) => look(ctx, "codex"),
+    },
     "claude-chat": {
       note: "The first dot, Claude's look (the default): the composer as it was, the mode, model and effort in the quiet row under the box.",
       snapshot: startedChat(),
       play: (ctx) => look(ctx, "claude"),
+    },
+    "permission-pill-claude": {
+      note: "Claude's permission capsule hovered: the shared 8px inset, 28px height and full radius match Codex.",
+      snapshot: startedChat(),
+      play: async (ctx) => {
+        await look(ctx, "claude");
+        await ctx.hover({ selector: ".acpmux-access-trigger" });
+      },
+    },
+    "permission-pill-codex": {
+      note: "Codex's permission capsule hovered: the same dimensions, 16px after the + glyph.",
+      snapshot: startedChat(),
+      play: async (ctx) => {
+        await look(ctx, "codex");
+        await ctx.hover({ selector: ".acpmux-access-trigger" });
+      },
     },
     "claude-chat-dots": {
       note: "Claude's look with the pointer in the quiet row's empty middle: the two dots show there, Claude marked.",
@@ -141,7 +230,7 @@ export default agentPaneEntry({
       play: (ctx) => look(ctx, "codex"),
     },
     "codex-chat-dots": {
-      note: "Codex's look with the pointer in the band under the box (the dead space Codex leaves): the two dots show there, Codex marked.",
+      note: "Codex's look with the pointer in the box's internal dead-space row: the two dots show there, Codex marked.",
       snapshot: startedChat(),
       play: async (ctx) => {
         await look(ctx, "codex");

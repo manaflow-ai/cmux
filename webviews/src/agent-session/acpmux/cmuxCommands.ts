@@ -12,7 +12,9 @@ export type CmuxCommand = SlashCommand & {
     | "import"
     | "continue"
     | "fork"
-    | "btw";
+    | "btw"
+    | "side"
+    | "status";
   descriptionKey?: SlashCommand["descriptionKey"];
 };
 
@@ -74,6 +76,20 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
     source: "cmux",
     action: "btw",
   },
+  {
+    name: "side",
+    description: "",
+    descriptionKey: "composer.slashFork",
+    source: "cmux",
+    action: "side",
+  },
+  {
+    name: "status",
+    description: "",
+    descriptionKey: "composer.slashStatus",
+    source: "cmux",
+    action: "status",
+  },
 ];
 
 /// Harnesses commonly expose these, but not every adapter advertises them through ACP. Keep a
@@ -100,14 +116,15 @@ export function mergedCommands(
   enabledCmuxActions: ReadonlySet<CmuxCommand["action"]> = new Set(CMUX_COMMANDS.map((command) => command.action)),
 ): SlashCommand[] {
   const seen = new Set<string>();
-  const merged = [...CMUX_COMMANDS.filter((command) => enabledCmuxActions.has(command.action)), ...(agent ?? [])].filter(
-    (command) => {
-      const name = command.name.trim().toLowerCase();
-      if (!name || seen.has(name)) return false;
-      seen.add(name);
-      return true;
-    },
-  );
+  const merged = [
+    ...CMUX_COMMANDS.filter((command) => enabledCmuxActions.has(command.action)),
+    ...(agent ?? []),
+  ].filter((command) => {
+    const name = command.name.trim().toLowerCase();
+    if (!name || seen.has(name)) return false;
+    seen.add(name);
+    return true;
+  });
   for (const fallback of PASS_THROUGH_FALLBACKS) {
     if (!seen.has(fallback.name)) {
       seen.add(fallback.name);

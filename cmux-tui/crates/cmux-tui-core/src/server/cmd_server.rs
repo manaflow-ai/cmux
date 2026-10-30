@@ -7,7 +7,7 @@ use crate::panic_free::JsonFields;
 use anyhow::Context;
 
 use super::PROTOCOL_VERSION;
-use super::daemon_build::{stamped_build_commit, stamped_ghostty_commit};
+use super::daemon_build::{stamped_build_commit, stamped_build_time, stamped_ghostty_commit};
 use super::identify_capabilities;
 use crate::platform;
 
@@ -74,6 +74,9 @@ pub(super) fn identify(
         // How this daemon was installed and how to update it, for a client's refusal text.
         identity.insert("install", json!(channel.as_str()));
         identity.insert("update_command", json!(channel.update_command()));
+        // The source commit's time, so a client that updates this machine
+        // never moves it back to an older build (`link machine update --if-older`).
+        identity.insert("build_time", json!(stamped_build_time()));
     }
     if machine_metadata {
         identity.insert("machine_id", json!(mux.machine_public_id));
@@ -151,6 +154,7 @@ pub(super) fn set_client_info(
     api_revision: Option<u32>,
     version: Option<String>,
     install: Option<String>,
+    remote: bool,
 ) -> anyhow::Result<Value> {
     // Refuse an unsupported revision before changing anything else; the
     // refusal names the client's own update command.
@@ -172,6 +176,9 @@ pub(super) fn set_client_info(
     let (name, kind) = mux.control_clients.set_info(client, name, kind, capabilities)?;
     if identity_changed {
         mux.control_clients.set_sizing_identity(client, identity);
+    }
+    if remote {
+        mux.control_clients.mark_remote_device(client);
     }
     mux.refresh_terminal_client_identity(client);
     mux.emit(MuxEvent::ClientChanged { client, name, kind });

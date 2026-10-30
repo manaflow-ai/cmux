@@ -151,7 +151,8 @@ import Foundation
     }
 
     /// New Column's overlay (`new-pane-right`, cmux-tui `new_pane_right`): a column holding `leaf`
-    /// right after the target's column, at the column's width, with the width changes it brings.
+    /// right after the target's column (right before it for New Column Left, `side: "left"`), at
+    /// the column's width, with the width changes it brings.
     /// A screen that is still a split tree becomes two columns, the tree and the new one, as the
     /// daemon wraps its root in a viewport split.
     private static func applyColumn(_ column: ProvisionalColumn, after target: PaneID, leaf: PaneID, daemon: PaneModel?,
@@ -169,18 +170,23 @@ import Foundation
                 return entry
             }
         }
-        guard let index = columns.firstIndex(where: { $0.layout.paneIDs.contains(target) }) else { return nil }
-        columns.insert(ColumnSnapshot(id: column.handle, width: column.width, layout: .leaf(leaf)), at: index + 1)
+        // The target's column: its index places the new column, its panes place the new pane.
+        guard let index = columns.firstIndex(where: { $0.layout.paneIDs.contains(target) }),
+              let anchor = columns[checked: index]?.layout.paneIDs else { return nil }
+        columns.insert(ColumnSnapshot(id: column.handle, width: column.width, layout: .leaf(leaf)), at: column.left ? index : index + 1)
         let undo = IntentUndo.splitPane(screen: screen.handle, layout: screen.layout, columns: screen.columns,
                                         pane: daemon == nil ? provisional.handle : nil)
-        // The compat tree the daemon keeps beside its columns: the screen's tree with the new leaf on its right.
-        screen.layout = .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: screen.layout, b: .leaf(leaf))
+        // The compat tree the daemon keeps beside its columns: the screen's tree with the new leaf on its side.
+        screen.layout = column.left
+            ? .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(leaf), b: screen.layout)
+            : .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: screen.layout, b: .leaf(leaf))
         screen.columns = columns
         guard daemon == nil else { return undo }
         let pane = model(of: provisional, in: store)
-        let anchor = columns[index].layout.paneIDs
-        let after = (screen.panes.lastIndex { anchor.contains($0.handle) } ?? screen.panes.count - 1) + 1
-        screen.panes.insert(pane, at: min(after, screen.panes.count))
+        let at = column.left
+            ? (screen.panes.firstIndex { anchor.contains($0.handle) } ?? 0)
+            : (screen.panes.lastIndex { anchor.contains($0.handle) } ?? screen.panes.count - 1) + 1
+        screen.panes.insert(pane, at: min(at, screen.panes.count))
         store.index.insert(pane, in: screen)
         return undo
     }
@@ -194,16 +200,18 @@ import Foundation
         guard screen.zoomedPane == nil else { return nil }
         var columns = screen.columns
         if columns.isEmpty { columns = [ColumnSnapshot(id: ColumnID(rawValue: row.firstHandle.rawValue | (1 << 60)), width: 1, layout: screen.layout)] }
-        guard let index = columns.firstIndex(where: { $0.layout.paneIDs.contains(target) }) else { return nil }
-        var column = columns[index]
+        guard let index = columns.firstIndex(where: { $0.layout.paneIDs.contains(target) }),
+              var column = columns[checked: index] else { return nil }
         var rows = column.rows.isEmpty ? [RowSnapshot(id: row.firstHandle, height: 1000, layout: column.layout)] : column.rows
         guard let at = rows.firstIndex(where: { $0.layout.paneIDs.contains(target) }) else { return nil }
         rows.insert(RowSnapshot(id: row.handle, height: row.height, layout: .leaf(leaf)), at: at + 1)
         column.rows = rows
-        column.layout = rows.dropFirst().reduce(rows[0].layout) { chain, next in
+        // The column's compat chain of its rows (rows holds at least the target's row and the new one).
+        guard let first = rows.first else { return nil }
+        column.layout = rows.dropFirst().reduce(first.layout) { chain, next in
             .split(id: nil, resourceID: nil, direction: .down, ratio: 0.5, a: chain, b: next.layout)
         }
-        columns[index] = column
+        columns.replaceSubrange(index...index, with: [column])
         let undo = IntentUndo.splitPane(screen: screen.handle, layout: screen.layout, columns: screen.columns,
                                         pane: daemon == nil ? provisional.handle : nil)
         screen.layout = split(screen.layout, target, .down, 0.5, leaf, provisional.splitID)

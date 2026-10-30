@@ -10,19 +10,18 @@ passed; a job that passes records its own.
 The key covers:
 
 - what the job reads:
-  - fast-tier and fast-tier-cargo: the commit's full tree hash
-    (`git rev-parse <rev>^{tree}`), so a pass is reused only on an identical
-    tree (a rerun, or a re-push of the same tree);
-  - swift-test, release-compile and generated-files: the git object id of
-    each path on an explicit input list (`git ls-tree <rev> -- <paths>`; an
-    absent path counts as absent). The list is derived from the router
-    (scripts/ci/cmux_next_route.py), the CI target graph's `reads`
-    (Packages/macOS/CmuxNext/ci-target-graph.json), the web bundles' inputs
-    (scripts/cmux-next/web-bundle-key.py) and the scripts each job runs, and
-    over-includes: the whole Packages and vendor trees, scripts/cmux-next,
-    schemas, plans/cmux-next and the submodule gitlinks. A base move that
-    touches none of these keeps the key. generated-files also keys its base's
-    (`--base-rev`, HEAD^1) settings sources, which its stamp check reads;
+  - every job here: the commit's full tree hash (`git rev-parse <rev>^{tree}`),
+    so a pass is reused only on an identical tree (a rerun, or a re-push of the
+    same tree). Any base move changes the key. swift-test, release-compile and
+    generated-files keyed an explicit input list until version 4; a list that
+    misses an input reuses a pass for a change that was never built, so they
+    key the whole tree too (`whole_tree`). Their lists stay: `--list-inputs`
+    prints them and the DEV and nightly product closures read release-compile's.
+    The list is derived from the router (scripts/ci/cmux_next_route.py), the CI
+    target graph's `reads` (Packages/macOS/CmuxNext/ci-target-graph.json), the
+    web bundles' inputs (scripts/cmux-next/web-bundle-key.py) and the scripts
+    each job runs. generated-files also keys its base's (`--base-rev`, HEAD^1)
+    settings sources, which its stamp check reads;
 - the blob hash of the whole .github/workflows/cmux-next.yml;
 - the toolchain the workflow step names with `--extra`: Xcode (the
   `xcodebuild -version` output), the macOS version and build, arch and the
@@ -32,7 +31,14 @@ The key covers:
 - the env flags a Mac job's result depends on (`--extra`, '' is a value):
   the selected Swift targets and filter, whether the label is a mini (the GUI
   requirement, the CEF steps), the configured Xcode app and the web bundles'
-  source key.
+  source key; for swift-test, the base commit when it checks the generated files
+  on its own build (`generated_base`, '' otherwise).
+
+dev-release-product keys the compiled DEV Release app itself (scripts/ci/dev_release_product_reuse.py
+moves the bytes), so its closure is broad: every path in the tree except PRODUCT_EXCLUDES, the paths
+that cannot reach the app bundle (docs, tests, other platforms' apps, CI files other than this
+workflow). A path no rule names is an input, so a new directory invalidates reuse until it is
+classified; a path another job's input list names inside an excluded area stays an input.
 
 When a required value is missing or empty, a declared flag is not passed, a
 value is unknown, or git cannot read a revision, it prints no key, and the job
@@ -43,9 +49,11 @@ $GITHUB_OUTPUT and the inputs on stderr (`--list-inputs` lists every path).
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import hashlib
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -55,7 +63,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import cmux_next_route as route  # noqa: E402
 
-VERSION = 3  # 2 keyed only full trees in actions/cache; no key of it may match.
+VERSION = 4  # 2 keyed only full trees in actions/cache; 3 keyed input lists. No key of either may match.
 WORKFLOW = ".github/workflows/cmux-next.yml"
 MAC_TOOLCHAIN = ("xcode", "macos", "macos_build", "arch", "pool")
 # Keyed when given; not every runner image sets ImageOS/ImageVersion.
@@ -93,10 +101,54 @@ SWIFT_TEST = (
     "scripts/sign-cmux-bundle-helpers.sh",
 ) + route.SWIFT_JOB_INPUTS + route.BUNDLE_INPUTS
 GENERATED = ("scripts/ci/defaults_guard.py", "docs/mdm", "docs/configuration.md") + route.BUNDLE_INPUTS
-# check-stamp --base HEAD^1 reads the base's settings sources and exports.
+# generated-files compares the exports with the base's (HEAD^1) settings sources and exports.
 SETTINGS_BASE = (
     "Packages/macOS/CmuxNext/Sources/CmuxNextSettings", "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests",
     "schemas/settings", "schemas/settings-export", "docs/mdm", "scripts/ci/defaults_guard.py",
+)
+
+
+# Paths that cannot reach the DEV Release app (the cmux scheme: cmux.xcodeproj, its build phases'
+# scripts and the packages it links), as fnmatch patterns over whole path segments. Everything else
+# in the tree is an input. Keep this exact: a wrong entry here ships a stale app.
+PRODUCT_EXCLUDES = (
+    # Docs, plans and design notes (only their prose; plans/cmux-next's JSON stays an input). Not
+    # top-level Markdown: the app bundles THIRD_PARTY_LICENSES.md.
+    "docs", "design", "release-notes", "plans/*.md", "plans/*/*.md", "plans/*/*/*.md",
+    # Tests: the repository's, the scripts', and each package's test targets (`xcodebuild build`
+    # of the app scheme compiles no test target).
+    "tests", "tests_v2", "scripts/cmux-next/tests", "scripts/tests", "Packages/*/Tests", "Packages/*/*/Tests",
+    # CI and agent configuration; .github/workflows/cmux-next.yml and .github/actions stay inputs
+    # (the keep rule below), the rest of .github is other workflows.
+    ".github", ".claude", ".codex", ".agents", ".greptile", ".coderabbit.yaml",
+    # Benchmarks and developer tooling no build phase or compile step runs.
+    "scripts/fuzz", "scripts/measure", "scripts/perf-bench", "scripts/git-hooks", "scripts/install-git-hooks.sh",
+    # The classic iOS app. Not cmux-next-ios, web or backend: the app bundles files from each
+    # (build-mobile-host.sh, the model catalog, bundle-cli-resources.sh's cloud catalogs).
+    "ios",
+)
+
+
+def product_excluded(path: str) -> bool:
+    parts = path.split("/")
+    return any(len(pattern.split("/")) == len(parts)
+               and all(fnmatch.fnmatchcase(part, glob) for part, glob in zip(parts, pattern.split("/")))
+               for pattern in PRODUCT_EXCLUDES)
+
+
+def product_may_exclude_below(path: str) -> bool:
+    """Whether a pattern could exclude something under the directory `path`."""
+    parts = path.split("/")
+    return any(len(pattern.split("/")) > len(parts)
+               and all(fnmatch.fnmatchcase(part, glob) for part, glob in zip(parts, pattern.split("/")))
+               for pattern in PRODUCT_EXCLUDES)
+
+
+# nightly.yml's `decide` outputs that build-nightly-app passes to (or around) xcodebuild. Every one is
+# keyed, '' included; tests/test_nightly_release_product_reuse.py checks the build steps read no other.
+NIGHTLY_PRODUCT_FLAGS = (
+    "track", "channel", "bundle_id", "app_name", "url_scheme", "entitlements", "icon_name", "variants",
+    "compile_archs", "import_variant", "swift_import_flags", "empty_browser_sources", "password_readers_out",
 )
 
 
@@ -105,18 +157,42 @@ class Job:
     required: tuple[str, ...]          # toolchain values, never empty
     flags: tuple[str, ...] = ()        # env flags, always passed, '' allowed
     inputs: tuple[str, ...] | None = None  # None: the whole tree
+    whole_tree: bool = False           # key the full tree hash even though `inputs` is declared
     web: bool = False                  # also the web bundles' inputs
     base_inputs: tuple[str, ...] = ()  # read at --base-rev
+    product: bool = False              # the whole tree minus PRODUCT_EXCLUDES
+    workflow: str = WORKFLOW           # the workflow file keyed whole (the one that builds it)
 
 
 JOBS = {
     "fast-tier": Job(MAC_TOOLCHAIN),
     "fast-tier-cargo": Job(("runner", "rustc", "cargo", "zig", "clang")),
-    "swift-test": Job(MAC_TOOLCHAIN + ("web_bundles",), ("swift_targets", "swift_filter", "mini", "xcode_app"),
-                      SWIFT_TEST, web=True),
+    # generated_base: the base commit when swift-test checks the generated files on its own build
+    # (cmux-next.yml CMUX_NEXT_FOLD_GENERATED, which compares them with the base), else ''.
+    "swift-test": Job(MAC_TOOLCHAIN + ("web_bundles",), ("swift_targets", "swift_filter", "mini", "xcode_app",
+                                                         "layout_reducer", "generated_base"),
+                      SWIFT_TEST + GENERATED, web=True, whole_tree=True),
     "generated-files": Job(MAC_TOOLCHAIN + ("web_bundles",), ("mini", "xcode_app"), GENERATED, web=True,
-                           base_inputs=SETTINGS_BASE),
-    "release-compile": Job(MAC_TOOLCHAIN, ("mini", "xcode_app"), ()),
+                           base_inputs=SETTINGS_BASE, whole_tree=True),
+    "release-compile": Job(MAC_TOOLCHAIN, ("mini", "xcode_app"), (
+        "LICENSE", "cmux-tui/build-support/notices", "cmux-tui/crates/ghostty-vt-sys/build.rs",
+        "cmux-tui/rust-toolchain.toml", "scripts/verify-app-bundle-licenses.sh",
+    ), whole_tree=True),
+    # The unsigned DEV Release app (scripts/ci/dev_release_product_reuse.py): Xcode, the SDK, the arch,
+    # that script's RECIPE and the cmux-tui tree it bundles (CMUX_TUI_TREE_KEY, or `own`: the tree's
+    # own key is a function of TUI_TREE_INPUTS, which the closure keeps). The build
+    # settings are the compile step's env (this workflow) and check-cmux-scheme-compile.sh's flags.
+    "dev-release-product": Job(("xcode", "sdk", "arch", "recipe", "tui_tree"), product=True),
+    # The unsigned cmux NEXT Nightly app before stamping (scripts/ci/nightly_release_product_reuse.py):
+    # the same closure, but keyed by nightly.yml (its build steps and their flags), never cmux-next.yml
+    # alone, and by `decide`'s outputs that reach the build (NIGHTLY_PRODUCT_FLAGS): the identity, the
+    # icon, the arches and the browser-import variant. The job name is part of the key, so a nightly
+    # key never equals a DEV key.
+    # The runner's macOS too (`sw_vers` version and build): the SDK alone does not name the host
+    # tools and system libraries a build runs.
+    "nightly-release-product": Job(("xcode", "sdk", "arch", "recipe", "tui_tree", "macos", "macos_build"),
+                                   NIGHTLY_PRODUCT_FLAGS, product=True,
+                                   workflow=".github/workflows/nightly.yml"),
 }
 GRAPH = route.GRAPH
 
@@ -164,6 +240,76 @@ def input_paths(root: str, rev: str, job: str) -> list[str]:
     return sorted(path for path in paths if not any(path.startswith(other + "/") for other in paths))
 
 
+TUI_TREE_INPUTS = "scripts/cmux-next/cmux-tui-tree-inputs.txt"
+
+
+def tui_tree_inputs(root: str, rev: str) -> set[str]:
+    """The paths the bundled cmux-tui tree is keyed by (cmux_tui_tree_key.py), so the app's key
+    covers its cmux-tui without computing that key: a fixture under tests or backend stays an input."""
+    try:
+        text = git(root, "show", f"{rev}:{TUI_TREE_INPUTS}")
+    except subprocess.CalledProcessError:
+        return set()
+    paths = set()
+    for line in text.splitlines():
+        fields = line.split("#", 1)[0].split()
+        if len(fields) == 2:
+            paths.add(normalize(fields[1]))
+    return paths
+
+
+PROJECT = "cmux.xcodeproj/project.pbxproj"
+
+
+def project_files(root: str, rev: str) -> set[str]:
+    """The files the Xcode project names relative to the repository root (sourceTree SOURCE_ROOT)."""
+    try:
+        text = git(root, "show", f"{rev}:{PROJECT}")
+    except subprocess.CalledProcessError:
+        return set()
+    return {normalize(path) for path in re.findall(r'path = "?([^";]+)"?; sourceTree = SOURCE_ROOT;', text)}
+
+
+def product_inputs(root: str, rev: str) -> dict[str, str]:
+    """`mode type oid` of every top-most tree entry outside PRODUCT_EXCLUDES.
+
+    Inside an excluded directory a path another job's input list names stays an input (the
+    Release compile's list and the web bundles' inputs: this workflow, .github/actions, docs/mdm,
+    tests/fixtures/classic-to-next, web/data/model-catalog). Outside one a listed directory is
+    still split, so Packages' test targets never count."""
+    listing = subprocess.run(["git", "-C", root, "ls-tree", "-r", "-t", "--full-tree", rev],
+                             capture_output=True, text=True, timeout=120)
+    if listing.returncode != 0:
+        raise Unresolved(listing.stderr.strip() or f"git ls-tree {rev} failed")
+    keeps = set(input_paths(root, rev, "release-compile")) | {normalize(path) for path in web_bundle_inputs()}
+    keeps |= {normalize(path) for path in route.BUNDLE_INPUTS} | tui_tree_inputs(root, rev) | project_files(root, rev)
+    keeps = {path for path in keeps if path}
+    found: dict[str, str] = {}
+    done = None  # a directory recorded or dropped whole: skip what the listing shows under it
+    for line in listing.stdout.splitlines():
+        meta, _, path = line.partition("\t")
+        if done and path.startswith(done):
+            continue
+        is_tree = meta.split()[1] == "tree"
+        parts = path.split("/")
+        ancestors = ["/".join(parts[:index]) for index in range(1, len(parts))]
+        roots = [parent for parent in ancestors + [path] if product_excluded(parent)]
+        if roots:
+            # Kept: a listed path at or under the excluded directory, never one above it ("Packages"
+            # does not keep Packages/*/Tests).
+            if any(parent in keeps and len(parent) >= len(roots[0]) for parent in ancestors + [path]):
+                found[path] = meta
+            elif is_tree and any(keep.startswith(path + "/") for keep in keeps):
+                continue  # only the kept entries under it, as the listing reaches them
+            done = path + "/"
+            continue
+        if is_tree and product_may_exclude_below(path):
+            continue  # entry by entry
+        found[path] = meta
+        done = path + "/"
+    return found
+
+
 def object_ids(root: str, rev: str, paths: list[str]) -> dict[str, str]:
     """`mode type oid` of each path at `rev` (submodule gitlinks included), or '-' when absent."""
     listing = subprocess.run(["git", "-C", root, "ls-tree", "--full-tree", rev, "--", *paths],
@@ -194,11 +340,13 @@ def fingerprint(root: str, rev: str, job: str, extra: list[str], base_rev: str |
         raise Unresolved(f"no toolchain value for {', '.join(missing)}")
     try:
         commit = git(root, "rev-parse", "--verify", f"{rev}^{{commit}}")
-        workflow = git(root, "rev-parse", "--verify", f"{rev}:{WORKFLOW}")
+        workflow = git(root, "rev-parse", "--verify", f"{rev}:{spec.workflow}")
         value: dict = {"version": VERSION, "job": job, "workflow": workflow,
                        "toolchain": {name: values[name] for name in spec.required + OPTIONAL if name in values},
                        "flags": {name: values[name] for name in spec.flags}}
-        if spec.inputs is None:
+        if spec.product:
+            value["inputs"] = product_inputs(root, commit)
+        elif spec.inputs is None or spec.whole_tree:
             value["tree"] = git(root, "rev-parse", "--verify", f"{rev}^{{tree}}")
         else:
             value["inputs"] = object_ids(root, commit, input_paths(root, commit, job))
@@ -222,6 +370,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--extra", action="append", default=[], help="NAME=VALUE of the toolchain or a flag (repeatable)")
     parser.add_argument("--list-inputs", action="store_true", help="print every keyed path on stderr")
     args = parser.parse_args(argv)
+    if args.list_inputs and JOBS[args.job].product:
+        try:
+            for path in product_inputs(args.root, args.rev):
+                print(f"input {path}", file=sys.stderr)
+        except (Unresolved, subprocess.CalledProcessError) as why:
+            print(f"::notice title=No input list for {args.job}::{why}", file=sys.stderr)
+        return 0
     if args.list_inputs and JOBS[args.job].inputs is not None:
         # Only the paths: no toolchain needed (tests check the job's scripts are on the list).
         try:
@@ -246,7 +401,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {meta} {path}", file=sys.stderr)
         for path, meta in value.get("base_inputs", {}).items():
             print(f"  base {meta} {path}", file=sys.stderr)
-    print(f"workflow {value['workflow']} {WORKFLOW}", file=sys.stderr)
+    print(f"workflow {value['workflow']} {JOBS[args.job].workflow}", file=sys.stderr)
     for name, text in sorted({**value["toolchain"], **value["flags"]}.items()):
         print(f"{name} {text}", file=sys.stderr)
     print(f"key=job-pass-{args.job}-{digest[:40]}")

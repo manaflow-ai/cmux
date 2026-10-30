@@ -1,6 +1,7 @@
 //! Agent reports: raw socket and resource agent reports, the sequence-locked commit, and the agent list.
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 impl Mux {
     pub fn report_agent(
@@ -351,7 +352,7 @@ impl Mux {
             "extra":extra,
         });
         let mut public_value = value.clone();
-        public_value["source_session"] = serde_json::json!(record.session.as_deref());
+        public_value.set("source_session", serde_json::json!(record.session.as_deref()));
         let deltas = if effective_hook_state.is_some_and(|state| state.ended) {
             serde_json::json!([{
                 "kind":"delete",
@@ -412,6 +413,10 @@ impl Mux {
         };
         if matches!(agent.state, AgentState::Done) {
             self.forget_agent_prompt(&agent.terminal_id);
+        }
+        // Working, idle or done: the agent no longer waits on its question.
+        if !matches!(agent.state, AgentState::Blocked) {
+            self.forget_agent_question(&agent.terminal_id);
         }
         let agent = AgentRecord { last_prompt: self.agent_prompt(&agent.terminal_id), ..agent };
         if !commit.replayed {

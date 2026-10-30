@@ -81,8 +81,8 @@ final class AccountsService: AccountsServices {
     var client: CodeRouterClient? {
         let cloud = services.cloud
         let auth = cloud.auth, labels = labels
-        return CodeRouterClient(baseURL: cloud.configuration.apiBaseURL, tokens: { try await auth.tokens() },
-                                teamID: { await auth.teamID }, labeler: { await labels.labeler() })
+        return CodeRouterClient(baseURL: cloud.configuration.apiBaseURL, account: auth,
+                                labeler: { await labels.labeler() })
     }
 
     // MARK: AccountsServices
@@ -100,6 +100,8 @@ final class AccountsService: AccountsServices {
         if let showcaseMock { showcaseMock.runCmuxAccount(action); model.refresh(); return }
         services.cloud.auth.run(action, signOut: { [services] in await services.cloud.signOut() }, refresh: { [weak self] in self?.model.refresh() })
     }
+
+    var activeTeam: ActiveTeam? { showcaseMock != nil ? showcaseMock?.activeTeam : services.cloud.isSignedIn ? services.cloud.auth.activeTeam : nil }
 
     func linkedAccounts() async throws -> [LinkedAccount] {
         if let showcaseMock { return try await showcaseMock.linkedAccounts() }

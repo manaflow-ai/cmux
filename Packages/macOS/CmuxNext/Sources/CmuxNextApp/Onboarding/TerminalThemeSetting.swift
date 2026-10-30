@@ -41,6 +41,7 @@ final class TerminalThemeSetting {
                       background: ReducedBackgroundsSetting.drawn(snapshot.windowBackground, reduced: snapshot.reducedBackgrounds),
                       terminalOverridden: snapshot.surfaceBackgrounds.overridesTerminal)
             edits = snapshot.themeEdits
+            edits.highlight = snapshot.highlightColor
         }
     }
 
@@ -58,7 +59,7 @@ final class TerminalThemeSetting {
     /// Reloads the Ghostty config with the overrides (tests count it).
     var reload: () -> Void = { GhosttyRuntime.shared.reloadConfig() }
     /// Repaints the window from the theme with the new background, before the reload.
-    var repaint: () -> Void = { ThemeBridge.repaintBackground() }
+    lazy var repaint: () -> Void = { [backdropScope] in ThemeBridge.repaintBackground(store: backdropScope.store) }
     /// The reload after the last step of a window background drag (the Opacity slider).
     private let reloadTimer = DemandTimer(owner: "terminal-theme.background-reload")
     /// How long that reload waits after a step (tests lengthen it, so a slow host's steps still coalesce).
@@ -131,6 +132,7 @@ final class TerminalThemeSetting {
         var state = State(snapshot)
         state.theme = theme
         state.edits = edits
+        state.edits.highlight = snapshot.highlightColor
         state.background = ReducedBackgroundsSetting.drawn(background, reduced: reduced)
         apply(state)
     }

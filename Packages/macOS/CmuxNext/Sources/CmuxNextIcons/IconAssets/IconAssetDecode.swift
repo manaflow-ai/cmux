@@ -4,7 +4,8 @@ package import UniformTypeIdentifiers
 
 /// The one way the app decodes icon asset bytes it did not draw itself (a download, a daemon's
 /// blob): only the named formats, only up to a sane pixel count, never cached by ImageIO.
-package nonisolated enum IconAssetDecode {
+package nonisolated struct IconAssetDecode {
+    package nonisolated init() {}
     /// What the page accepts for an Image (`IMAGE_TYPES` in webviews/src/icon-picker/AssetTab.tsx).
     package static let pickerTypes: Set<String> = [UTType.png, .jpeg, .webP, .gif, .heic].reduce(into: []) { $0.insert($1.identifier) }
     /// What an owner stores (`image/png`, `image/jpeg`, `image/webp`).

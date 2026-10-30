@@ -17,7 +17,7 @@ Usage: omnibar-click-bench.py --tag TAG --app PATH [--runs 15] [--engines chromi
 import argparse, glob, json, os, signal, socket, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bench_launch import BenchApp  # noqa: E402
+from bench_launch import BenchApp, bundle_id  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -35,6 +35,7 @@ parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json")
 opts = parser.parse_args()
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
+BUNDLE_ID = bundle_id(APP) or f"com.cmuxterm.app.debug.{TAG}"
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
@@ -44,7 +45,7 @@ CONFIG = os.path.join(SCRATCH, "cmux.json")
 open(CONFIG, "w").write("{}\n")
 CLI_ENV = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1", "CMUX_TAG": TAG,
-           "CMUX_BUNDLE_ID": f"com.cmuxterm.app.debug.{TAG}", "CMUX_BUNDLED_CLI_PATH": CLI}
+           "CMUX_BUNDLE_ID": BUNDLE_ID, "CMUX_BUNDLED_CLI_PATH": CLI}
 LAUNCHED, LOAD = [], []
 TIMINGS = {}  # (phase, engine) -> debug.timings omnibar_clicks
 app = None
@@ -207,16 +208,16 @@ def main():
     else:
         env["CMUX_NEXT_NO_ACTIVATE"] = None  # bench_launch: not the default no-activate launch
     # One launch path (bench_launch.py): socket in the state folder, bench env, a clear reason when it does not come up.
-    bench = BenchApp(APP, out=opts.out, log_name=f"app-{TAG}.log", window=None, screen=None, teardown=False, env=env)
+    launcher = BenchApp(APP, out=opts.out, log_name=f"app-{TAG}.log", window=None, screen=None, teardown=False, env=env)
     try:
-        bench.launch(timeout=120, on_start=lambda process: LAUNCHED.append(process.pid))
+        launcher.launch(timeout=120, on_start=lambda process: LAUNCHED.append(process.pid))
     finally:
-        app = bench.process
-    SOCKET = bench.socket
+        app = launcher.process
+    SOCKET = launcher.socket
     CLI_ENV["CMUX_SOCKET_PATH"] = SOCKET
     time.sleep(2)  # test harness: first launch settles
     if opts.activate:
-        subprocess.run(["osascript", "-e", f'tell application id "com.cmuxterm.app.debug.{TAG}" to activate'], capture_output=True, timeout=30)
+        subprocess.run(["osascript", "-e", f'tell application id "{BUNDLE_ID}" to activate'], capture_output=True, timeout=30)
         time.sleep(1)  # test harness: activation settles
     rows = []
     for engine in opts.engines.split(","):

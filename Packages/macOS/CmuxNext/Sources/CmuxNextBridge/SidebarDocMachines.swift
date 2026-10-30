@@ -28,11 +28,14 @@ public struct SidebarDocMachines {
         stores().lazy.compactMap { store in store.workspace(id: id).map { ($0, store) } }.first
     }
 
-    /// The document item that places sidebar workspace `id`.
+    /// The confirmed document item that places sidebar workspace `id`. A workspace only a pending change places (its
+    /// adopt still on the way) has none: a later change names it by its adopt again (`adoptRef`), so it does not depend
+    /// on the earlier change reaching the daemon first (a pin, an archive, a drag or a reorder right after Cmd-N).
     public func item(workspace id: String) -> String? {
         guard let store = SidebarDocStore.current, let (workspace, daemon) = workspace(id: id),
-              let ref = SidebarDocSections.ref(of: workspace, session: daemon.registryID) else { return nil }
-        return store.shown?.items[ref]
+              let ref = SidebarDocSections.ref(of: workspace, session: daemon.registryID),
+              let item = store.shown?.items[ref], store.records.items[item] != nil else { return nil }
+        return item
     }
 
     /// The drag half while the document is active.
@@ -60,6 +63,19 @@ public struct SidebarDocMachines {
     public func handle(_ intent: SidebarIntent, model: SidebarModel, pinTitle: String, unpinTitle: String, undoable: Bool = true) -> Bool {
         guard let store = SidebarDocStore.current, let drag = drag() else { return false }
         return store.handle(intent, model: model, drag: drag, pinTitle: pinTitle, unpinTitle: unpinTitle, undoable: undoable)
+    }
+
+    /// Places ids at the list position in the document in the same turn as their create.
+    /// False leaves the older reorder path in charge when the document is inactive.
+    public func place(_ ids: [WorkspaceID], at position: DropPosition, model: SidebarModel) -> Bool {
+        guard let store = SidebarDocStore.current, let drag = drag(),
+              store.handle(.reorder(ids, to: position), model: model, drag: drag,
+                           pinTitle: SidebarDocStore.moveTitle, unpinTitle: SidebarDocStore.moveTitle, undoable: false)
+        else { return false }
+        // The reducer mirror is updated synchronously, but the normal Observation stream redraws one actor hop later.
+        // Rebuild now so a just-adopted workspace cannot render in the document's unplaced tail first.
+        store.reshow(live: liveRefs())
+        return true
     }
 
     /// Keeps `store` current: it refreshes when the home daemon connects or starts serving the document, and it shows

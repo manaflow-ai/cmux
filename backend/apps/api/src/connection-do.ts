@@ -13,6 +13,7 @@ import { approvalView, createApprovalTable, nextApprovalAt, pruneApprovals, APPR
 import { createWatchTable, nextWatchAt, recordStopFailure, watchOf } from "./integrations/gmail-push.ts"
 import { onDisconnect, onGmailPush, runWatchWork, startWatchSafely, stopWatchWith, watchSoon, type GooglePush, type WatchHost } from "./integrations/google-watches.ts"
 import { createRevocationTable, drainRevocations, nextRevocationAt, takeCredentialForRevocation } from "./integrations/revocations.ts"
+import * as ghTokens from "./integrations/github-tokens.ts"
 import { ProviderError, providerForOp, providers, scopesToRequest, type Credential, type Http } from "./integrations/providers.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
@@ -61,6 +62,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     createWatchTable(sql)
     createFallbackTable(sql)
     createApprovalTable(sql)
+    ghTokens.createGithubTokenTable(sql)
   }
 
   protected read(state: ConnectionsState, op: string, _params: unknown, principal: Principal): ReadResult {
@@ -101,7 +103,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     const forget = expiredForgets(state).find((p) => !skip.has(`forget:${p.connection}`))
     if (forget) times.push(forget.at)
     if (lockNoticePending(state)) times.push(Math.max(_now, this.noticeRetryAt ?? _now))
-    for (const t of [nextRevocationAt(this.ctx.storage.sql), nextWatchAt(this.ctx.storage.sql), nextResealAt(this.ctx.storage.sql), nextApprovalAt(this.ctx.storage.sql)]) if (t !== null) times.push(t)
+    for (const t of [nextRevocationAt(this.ctx.storage.sql), nextWatchAt(this.ctx.storage.sql), nextResealAt(this.ctx.storage.sql), nextApprovalAt(this.ctx.storage.sql), ghTokens.nextLedgerAt(this.ctx.storage.sql)]) if (t !== null) times.push(t)
     return times.length === 0 ? null : Math.min(...times)
   }
 
@@ -169,6 +171,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     const entity = (this.boundEntity() ?? undefined)
     if (entity) await this.deliverLockNotice(entity, now)
     await this.revokeAtProviders(now)
+    await ghTokens.drainTokenRevocations(this.ledger(), now).catch((e) => console.error(JSON.stringify({ msg: "github token revocation drain failed", error: e instanceof Error ? e.name : "unknown" })))
     await runWatchWork(this.watchHost(), engine.currentState.connections, now)
     await resealFallbacks(this.ctx.storage.sql, this.env, this.http, engine.currentState.connections, now)
     expireApprovals(this.ctx.storage.sql, now)
@@ -200,6 +203,42 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     if (c.account) void this.index(c.account.key).remove(c.owner, c.id).catch((e) => console.error(JSON.stringify({ msg: "account index remove failed", connection: c.id, error: String(e) })))
   }
 
+  /** POST /v1/integrations/github/token: the Worker authenticated the principal and checked its team (and a vm install's machine). */
+  async githubToken(entity: string, principal: Principal, ask: ghTokens.TokenAsk): Promise<ghTokens.TokenReply> {
+    if (principal.team !== entity) return { ok: false, status: 403, code: "auth.forbidden", message: "not this team's connections" }
+    const engine = this.bind(entity)
+    return ghTokens.githubToken({ ...this.ledgerHost(entity), state: () => engine.currentState }, principal, ask, Date.now()).finally(() => this.scheduleAlarm())
+  }
+
+  /** POST /v1/integrations/github/token/revoke (the Worker checked who may revoke whose tokens): how many live tokens were revoked. */
+  async githubRevoke(entity: string, who: { principal: string } | { install: string }): Promise<number> {
+    return this.boundTo(entity) ? ghTokens.revokeTokens(this.ledger(), who, Date.now()).finally(() => this.scheduleAlarm()) : 0
+  }
+
+  async githubStatus(entity: string, principal: Principal) { return ghTokens.githubStatus(this.env, this.boundTo(entity) ? this.bind(entity).currentState : connectionsDomain.initial(), principal) }
+
+  /** UserDO revoked an install (install.revoke, a machine delete's VM install): its sockets close and its GitHub tokens are revoked. */
+  override async closeInstall(entity: string, install: string, agent?: string): Promise<boolean> {
+    const done = await super.closeInstall(entity, install, agent)
+    if (!agent) await this.githubRevoke(entity, { install })
+    return done
+  }
+
+  private readonly ghBuckets = new Map<string, { tokens: number; at: number }>()
+  private readonly ghInflight = new Map<string, Promise<ghTokens.TokenReply>>()
+  private readonly ghRevokes = new Map<string, number>()
+  private ledger = () => ({ sql: this.ctx.storage.sql, env: this.env, http: this.http, revokes: this.ghRevokes })
+  private ledgerHost(team: string): Omit<ghTokens.LedgerHost, "state"> {
+    type Users = { registerSocket(e: string, install: string, grant: string | undefined, cls: string, name: string, expiresAt: number): Promise<boolean> }
+    return {
+      sql: this.ctx.storage.sql, env: this.env, http: this.http, team, buckets: this.ghBuckets, inflight: this.ghInflight, revokes: this.ghRevokes,
+      // UserDO's socket registry calls closeInstall here on a revoke (socket-registry.ts); false when the install is no longer active.
+      register: (p, at) => (this.env.USER_DO.get(this.env.USER_DO.idFromName(p.user!)) as unknown as Users).registerSocket(p.user!, p.install!, p.grant, "ConnectionDO", team, at),
+      audit: (record) => void this.runSystem("integration.github.token_minted", record, `ghtok:${String(record.token_id)}`),
+      needsReauth: (c, detail) => void this.submitSystem("connection.status", { connection: c.id, status: "needs_reauth", detail }, `status:${c.id}:needs_reauth:${Date.now()}`)
+    }
+  }
+
   /** Provider-side revocations after disconnects (G5); the alarm retries what is left. */
   private async revokeAtProviders(now: number) {
     try {
@@ -227,11 +266,11 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
    * team_policy, so from then on only TeamDO's pushes change them (review P1-1).
    * Idempotent: a repeated call replays the lock and returns the locked values.
    */
-  async adoptIntegrationPolicy(team: string): Promise<{ ok: true; policy: { allowed_providers: ReadonlyArray<string> | null; github: { scope: string; require_org_admin: boolean; repo_allowlist: ReadonlyArray<string> | null } }; managed_by: "sso" | "mdm" | null } | { ok: false; message: string }> {
+  async adoptIntegrationPolicy(team: string): Promise<{ ok: true; policy: { allowed_providers: ReadonlyArray<string> | null; github: { scope: string; require_org_admin: boolean; repo_allowlist: ReadonlyArray<string> | null; allow_workflows?: boolean } }; managed_by: "sso" | "mdm" | null } | { ok: false; message: string }> {
     const engine = this.bind(team)
     const fields = (p: ReturnType<typeof policyOf>) => ({
       allowed_providers: p.allowed_providers,
-      github: { scope: p.github.scope, require_org_admin: p.github.require_org_admin, repo_allowlist: p.github.repo_allowlist }
+      github: { scope: p.github.scope, require_org_admin: p.github.require_org_admin, repo_allowlist: p.github.repo_allowlist, ...(p.github.allow_workflows ? { allow_workflows: true } : {}) }
     })
     const current = fields(policyOf(engine.currentState))
     const res = this.submitSystem("integration.policy.apply_managed", { source: "team_policy", policy: current, applied_by: "team_policy:adopt" }, `integration-adopt:${team}`)

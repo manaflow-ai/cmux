@@ -84,6 +84,17 @@ allowlist gets a local `forbidden` error line and never reaches the daemon.
     LocalApp token, so the pane-only methods stay closed.
   - The endpoint comes from the app over hostd's stdin and is never written to
     disk.
+  - **A phone's own credential.** When the app gives a paired phone its own
+    acpmux credential (`phone_credentials` on stdin; acpmux pairing role `phone`,
+    which only the person issues), that phone's channel presents it instead of
+    the dashboard token. acpmux still serves it as `Web`, with every Web rule,
+    but knows which phone it is. What hostd's phone filter refuses (a mode that
+    does not ask, a chat in one) then goes on marked
+    `_meta.acpmux.requireFullAccess`, and acpmux runs it only when that phone's
+    Full-access setting is on (Settings > Devices on the Mac, off by default,
+    off again at once when turned off or the phone is removed). Without a
+    credential, or when acpmux refuses it, the dashboard token and hostd's own
+    refusal apply as before.
 - **Executing commands.** The phone can prompt agents, and agents run commands
   on the Mac. This is the product, and it runs under acpmux's permission
   policy: tool approvals reach the phone as questions, and the agent waits for
@@ -299,6 +310,45 @@ A phone browser tab streams from a CEF remote browser host the Mac app runs,
 | Mutates or destroys objects the session does not own? | No: a fresh cache per host, removed on exit; the person's browser profiles are not used. |
 | Reads local state the remote should not see? | Only what a web page sees in a fresh profile (no cookies, history or saved logins of the person), files in the shared folders (the same files the `file` previews read), and pages the Mac already shows. Never home itself, `~/.ssh`, `~/Library` or the other credential trees unless the Mac's own browser has that page open (that page, not its folder's other files); the host checks every file load, subresources included. |
 
+## `surface`: streamed simulator tabs (2026-10-22)
+
+A phone streams a Mac phone tab's iOS simulator (PROTOCOL.md `surface`,
+verify/simulator-surface.md). This reuses the `browser` trust model; it adds
+no new path for a peer and no new trust decision.
+
+- **Who.** Only a paired phone of this Mac's owner opens the channel (the
+  same gate as every service). It reaches only a tab the app's own daemon
+  lists now as a phone page tab of an open workspace: hostd checks the
+  `list-workspaces` answer, and the app checks its own store again before it
+  starts a source (`PhoneSurfaceHosts`). No answer from the daemon streams
+  nothing.
+- **What it sees.** Only the simulator's own framebuffer: SimulatorKit's
+  IOSurface of that device, the one the Mac's phone tab draws. No screen,
+  window or other app is captured.
+- **What it can do.** Touch the simulator, type text, press a short list of
+  keys and Home or Lock: what a person at the Mac's phone tab can do. No
+  install, launch, open-URL, location, appearance or recording reaches a
+  phone; hostd drops any other input, and the source takes only those lines.
+  One indirect effect: text a US keyboard cannot type (accents, emoji) is put
+  on the simulator's pasteboard with `simctl pbcopy` and pasted, as the Mac's
+  own phone tab does, so it also lands on that simulator's pasteboard (which
+  Simulator.app may sync to the Mac's while it is open). The source applies
+  input one event at a time from a bounded queue (256), so a flood cannot
+  start more than one `simctl` at once.
+- **Lifetime.** The source stops when its tab closes or shows another phone
+  (checked at the start, on every input, frame and encode), and hostd hears
+  `surface_gone`.
+- **Loopback.** The app's source listens on `127.0.0.1` (accept local only),
+  with a per-launch secret it gives hostd over stdin, compared in constant
+  time. hostd's own host for each tab is on loopback with its own secret, as
+  for a browser host.
+
+| Rule 2 question | Answer |
+| --- | --- |
+| Executes commands or opens content on local objects? | No command or content: touches, text, keys and Home / Lock on the simulator the person already shows in a phone tab. |
+| Mutates or destroys objects the session does not own? | Only the simulator's UI state, as the owner at the Mac's phone tab could change it. Nothing else on the Mac. |
+| Reads local state the remote should not see? | The pictures of that simulator's screen, which the Mac shows in its phone tab. Nothing else. |
+
 ## Link transport: TURN over TLS, and no backend relay (`feat-cnx-ios-turntls`)
 
 The WireGuard link's paths are plain UDP, TURN over UDP and, where UDP is
@@ -504,6 +554,38 @@ This is not a trust-policy change. A paired phone could already type into
 these terminals. The lock-screen notification reply (`cmux.terminal.reply`,
 `notification-reply`) is a different path. It stays held behind #13742 in
 the push-fallback branch, and this branch adds no notification action.
+
+### Answering a terminal agent's question from the phone (`rich-push-termq`)
+
+A terminal-hosted Claude Code AskUserQuestion is answered from the Feed card or
+its notification by typing the answer into that terminal. No command is added
+to the allowlist: the phone uses `read-screen {surface}` and `send {surface,
+bytes}`, which its own keyboard already uses on the person's terminals.
+
+- Where the question comes from: the agent hook reads the tool input before
+  redaction and sends it beside the journal event (`live_question`); the daemon
+  keeps it in memory only while the agent waits (never the journal, the ledger,
+  the database or a log; `an_agent_question_reaches_the_notification_and_its_row_in_memory_only`
+  checks the state folder). A program's OSC notification never carries a
+  question; a program that runs the agent hook helper itself can post one, which still
+  only lets the person's chosen option numbers and printable text reach that terminal (`a_terminal_agent_question_pushes_as_a_question`).
+- What is typed: only keys that select the person's chosen options
+  (`TerminalQuestionKeys`): option numbers, Tab, arrow-down, Return, Escape,
+  and "Other" text limited to printable characters, so a free-text answer can
+  never press Return, an arrow or Escape it was not meant to.
+- Where it is typed: only while `read-screen` shows this question with each of
+  its options at its own number. A terminal that moved on (a shell, another
+  prompt, another question) gets nothing, and the card says so.
+- Which question: a notification answers only the question it was sent for (its push is
+  named by a hash of the question and its options; the phone types only while that question is pending), never a
+  newer one on the same tab.
+- When: a notification's answer is a foreground action (the app is open and
+  unlocked); nothing is typed from the lock screen. Lock-screen terminal input
+  is PR B's held policy (`verify/notifications-trust.md`).
+- Residual: the screen check reads text, so an agent that draws a lookalike
+  question screen in the same terminal could receive the keys; they are still
+  only the person's chosen option numbers and printable text, into a terminal
+  the person already types into from the phone.
 
 ## `acpmux`: agent chats in the person's workspaces (`feat-cnx-ios-agentcwd`, in `feat-cnx-ios-parity`)
 
@@ -715,17 +797,16 @@ sent as an ACP `resource_link` to that path.
 | Rule 2 question | Answer |
 | --- | --- |
 | Executes commands or opens content on local objects? | No. It creates one regular file. Nothing is executed, opened or indexed. The file mode follows the umask, without the executable bit. |
-| Mutates or destroys objects the session does not own? | It never overwrites. The bytes go to a hidden `.<uuid>.part` file created with `O_EXCL`. That file is hard-linked to `<name>`, or to `<name> 2`, `<name> 3` and so on when the name is taken, and only then removed. A short, long or oversized upload removes the part and leaves nothing. The name is reduced to its last path component. Separators, `:` and control characters are replaced, leading dots and spaces are trimmed, and the name is cut at 120 bytes (`safe_file_name`). The size is declared first and capped at `CMUX_MOBILE_UPLOAD_MAX_BYTES` (100 MiB by default). Receiving more than the declared size is refused. |
+| Mutates or destroys objects the session does not own? | It never overwrites. The bytes go to a hidden `.<uuid>.part` file created with `O_EXCL`. That file is hard-linked to `<name>`, or to `<name> 2`, `<name> 3` and so on when the name is taken, and only then removed. A short or long upload removes the part and leaves nothing. The name is reduced to its last path component. Separators, `:` and control characters are replaced, leading dots and spaces are trimmed, and the name is cut at 120 bytes (`safe_file_name`). The size is declared first, with no cap (attachments take files of any size), and the bytes stream to the part file as they arrive. Receiving more than the declared size, or fewer before the channel ends, is refused. |
 | Where can it write? | With `cwd`, the folder must exist and be either the folder of a tab the daemon lists right now (`list-workspaces`, canonicalized) or inside `CMUX_MOBILE_FILE_ROOTS`. The file goes to `<cwd>/.cmux/attachments/phone-<link session>/`, next to acpmux's own attachments, so the workspace's agent can read it without leaving its folder. hostd canonicalizes that folder again after creating it, so a `.cmux` or `attachments` symlink that points out of the workspace is refused. Without `cwd`, the file goes to `<CMUX_MOBILE_STATE_DIR>/uploads/<link session>/` (mode 0700). The phone never picks any other part of the path. |
 | Reads local state the remote should not see? | No. The reply contains only the path of the file the phone just wrote. |
 
 - **Rule 6 (tests):** `upload_names_are_safe`, `publish_never_replaces`, and
   the `upload` cases in `tests/host.rs`: a plain upload, a workspace folder, a
-  folder that is no tab's and outside the roots (`forbidden`), and an
-  oversized upload (`too_large`).
+  folder that is no tab's and outside the roots (`forbidden`), and
+  `an_upload_past_the_old_100_mib_cap_is_saved_whole` (no size cap).
 - **Open:** there is no total quota per phone, and old uploads are not
-  cleaned up. Both are bounded only by the per-file cap and the person's
-  disk.
+  cleaned up. Both are bounded only by the person's disk.
 
 ## `auth`: pairing a phone with this Mac
 
@@ -928,6 +1009,33 @@ for anyone but a developer who launches their own DEBUG build with it. The e2e
 rig sets it in the rig app's `LSEnvironment` (`e2e/mac.py`) and names its
 simulator; it never clicks Allow and never writes `paired-devices.json`.
 
+## Notification replies: the mailbox, sealed pushes and terminal input (`feat-cmux-next-ios-push-fallback`)
+
+Held for #13742 (`verify/notifications-trust.md`). Wire format: PROTOCOL.md
+"Sealed pushes and the reply mailbox".
+
+| Threat | What stops it | What's left |
+| --- | --- | --- |
+| The Worker (or someone holding a stolen Stack token) forges a reply | the Mac opens only what is sealed to its box key and signed by a paired phone's identity key (Secure Enclave); the Worker-stamped sender must be that phone | none: a token alone signs nothing |
+| A replayed, late or re-issued reply | one-time id and nonce, kept on disk with each id's outcome until expiry (an unreadable store applies nothing); `expiresAt` at most 600 s after `issuedAt` and 660 s after the Mac's clock; the phone's window is 540 s from when the person made it and a Retry keeps it; an Allow also spends acpmux's own decision nonce | none beyond the window |
+| A reply applied twice (link and mailbox, or a lost ack) | the link's `reply_id` and the mailbox id share one spent store; a repeat answers the first outcome; a text prompt carries one `promptId` with `resend: true` on both paths, which acpmux runs once, also across a restart | none |
+| A reply applied to something else | it names one session, permission, conversation or terminal notification, and hostd checks it is still pending; an Allow is bound by the acpmux approval signature to that prompt, option and daemon run; a Deny with no option takes only a reject | none |
+| The Worker claims a reply was applied | every outcome is signed by the Mac identity key; the phone takes it only with a signature that checks against its pin, else says "Not confirmed" | none |
+| A removed or refused phone | the Mac checks its current paired list and denied list on every reply | a removal not yet on the Mac (the Mac app was off) applies when it next starts |
+| The Worker or APNs reads notification content | sealed pushes (ECIES to the phone's push key, signed by the Mac identity key); the generic banner names only the Mac; when every paired phone has a key the content never leaves in clear, also when one box failed | phones without a push key (older apps) get plain content; kinds, ids, sizes, timing and the target Mac stay visible |
+| A forged push steers an answer (fake question, swapped labels, fake terminal Reply) | the phone acts on no unsealed push from a Mac that seals to it; a sealed push is opened again from its box before a button acts; answers are bound to the live option's label | before the first pairing with that Mac (trust on first use) |
+| A genuine sealed push replayed under the service's own banner and category (no `mutable-content`, so the service extension never ran) | a sealed box acts only when the banner, subtitle, body and category shown are what the phone writes from that box (`PushTrustGate.Shown`); otherwise a tap only opens the app | none |
+| A replayed old push | `postedAt` in the box; past 15 minutes its buttons stop acting | none |
+| A changed box key in the shared keychain | the box key's signature is checked against the app's own pin before each reply is sealed | none |
+| Lock-screen input into a terminal | the Reply action is `authenticationRequired` (device unlock) and offered only when the poster asked for replies; the long-press view has no terminal composer and the outbox refuses terminal text; the Mac requires `reply: true`, a row at most 15 minutes old, and that the posting process (pid and executable, recorded at post time) still holds the terminal; on a terminal where an agent runs, one write bound to that agent's session, made only while it waits at its prompt (`send-expect-agent-v1`), and no reply without it | a program's notification can invite a harmful reply: the person reads what they send |
+| Queue flooding | 32 pending per Mac, 60 posts a minute per user, 10-minute expiry | a token holder can delay real replies for up to 10 minutes |
+| A lost, unlocked phone | the same as the app itself; removing the phone from the Mac (or the account) ends its replies | none new |
+
+Policy: the `daemon` lane adds `notification-reply` with only `notification`,
+`text` and `reply_id` (`policy.rs` tests refuse every other field and
+over-long text); hostd's mailbox applies a reply through the same policy as a
+link request.
+
 ## Decisions for the person
 
 - Agent chats from the phone in the person's workspaces: acpmux lets a phone
@@ -938,5 +1046,8 @@ simulator; it never clicks Allow and never writes `paired-devices.json`.
 
 - Phone pairing and Face ID signed approvals (`verify/phone-approvals.md`),
   a trust-policy change recommended on issue #13742.
+- Notification replies without the live link and terminal input from a
+  notification (`verify/notifications-trust.md`), recommended on #13742; held
+  until approved.
 - None for the service: production builds use the production Worker
   (`https://mobile-api.cmux.dev`), and development builds use the dev Worker.

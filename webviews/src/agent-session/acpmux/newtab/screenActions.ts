@@ -34,12 +34,15 @@ export function newTabScreenActions(deps: {
     onAsk(harness, text, picked, model, noProject, attachments, saved) {
       const peer = saved?.peer;
       remember(harness);
-      deps.leave();
       // The prompt goes in the same turn as the switch: the switch queues it, and a folder trust
       // refusal then holds it with the send's gesture (holdPrompt), so Trust sends it. Sending
       // after `chat.new` settled lost it: the switch had stopped on the refusal with nothing
       // queued ("Not sent").
       const start = (folder?: string) => {
+        // Keep the New Tab visible while a folder confirmation or worktree request is pending.
+        // Leaving before the host accepts the folder briefly mounted the empty chat hero, which
+        // read as a flash before the first prompt landed.
+        deps.leave();
         // On another machine the prompt waits for its chat: a start that fails there must not
         // send it to a new chat on this Mac.
         if (peer) {
@@ -49,9 +52,12 @@ export function newTabScreenActions(deps: {
               : undefined;
           // `chat.new` resolves to the chat it started; none (a refused or held start): no send.
           ignore(
-            callNative("chat.new", { harness, ...(folder ? { cwd: folder } : {}), peer }).then((started) =>
-              started ? send() : undefined,
-            ),
+            callNative("chat.new", {
+              harness,
+              ...(folder ? { cwd: folder } : {}),
+              ...(model ? { model } : {}),
+              peer,
+            }).then((started) => (started ? send() : undefined)),
           );
           return;
         }
@@ -99,7 +105,6 @@ export function newTabScreenActions(deps: {
     },
     onJump: (target, id) => ignore(callNative("tab.jump", { target, id })),
     onOpenSession(sessionId) {
-      deps.leave();
       deps.selectSession(sessionId);
     },
     // A chat opens in a new workspace (the host's Open Chat path), so this page stays the New

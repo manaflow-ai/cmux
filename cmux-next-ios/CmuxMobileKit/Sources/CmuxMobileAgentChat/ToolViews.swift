@@ -25,6 +25,7 @@ extension EnvironmentValues {
 struct ToolRowView: View {
     let call: ACPToolCall
     @State private var expanded = false
+    @Environment(\.openSessionFile) private var openFile
     private let wording = ToolWording()
 
     var body: some View {
@@ -43,6 +44,19 @@ struct ToolRowView: View {
             }
         }
         .accessibilityElement(children: .contain)
+        // The files the call read or wrote open in the preview (long press).
+        .contextMenu {
+            if openFile.isAvailable {
+                ForEach(Array(call.locations.prefix(5).enumerated()), id: \.offset) { _, location in
+                    Button("Open \((location.path as NSString).lastPathComponent)", systemImage: "doc.text.magnifyingglass") {
+                        openFile(location.path, line: location.line)
+                    }
+                }
+            }
+            if let path = call.locations.first?.path {
+                Button("Copy Path", systemImage: "doc.on.doc") { UIPasteboard.general.string = path }
+            }
+        }
     }
 
     private var header: some View {
@@ -216,10 +230,14 @@ struct ThoughtRow: View {
             .buttonStyle(.plain)
             .padding(.vertical, -6)
             if expanded {
-                Text(text)
+                // Opened by the person: all of it. Opened because it is live: its newest
+                // lines (a line limit alone keeps the first three, which stop changing).
+                Text(choice.chosen == true ? text : DisclosureChoice.liveTail(of: text))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(choice.chosen == true ? nil : 3)
+                    // Wrapped, the tail can be more than three lines: cut its start, never its newest words.
+                    .truncationMode(.head)
                     .padding(.leading, 26)
                     .transition(.opacity)
             }
@@ -231,6 +249,7 @@ struct ThoughtRow: View {
 struct DiffSnippet: View {
     let call: ACPToolCall
     let changeSet: DiffChangeSet
+    @Environment(\.openSessionFile) private var openFile
     @Environment(\.openDiff) private var openDiff
     @State private var showAll = false
     @ScaledMetric(relativeTo: .footnote) private var codeSize: CGFloat = 13
@@ -310,6 +329,9 @@ struct DiffSnippet: View {
         }
         .contextMenu {
             Button("Open Diff", systemImage: "arrow.up.right.square") { openDiff(changeSet, file: file.id) }
+            if openFile.isAvailable, file.status != .deleted {
+                Button("Open File", systemImage: "doc.text.magnifyingglass") { openFile(file.path) }
+            }
             Button("Copy Path", systemImage: "doc.on.doc") { UIPasteboard.general.string = file.path }
         }
     }

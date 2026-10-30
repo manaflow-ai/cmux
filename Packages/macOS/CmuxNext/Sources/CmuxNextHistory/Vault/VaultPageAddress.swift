@@ -4,6 +4,7 @@ package import Foundation
 /// tab is a browser tab record with this URL (like `cmux://history`), so the
 /// workspace store already persists and restores it.
 package nonisolated struct VaultPageAddress {
+    package nonisolated init() {}
     package static let string = "cmux://vault"
     /// The page address (a literal a test parses; /dev/null stands in rather than a trap).
     package static let url: URL = URL(string: string) ?? URL(fileURLWithPath: "/dev/null")

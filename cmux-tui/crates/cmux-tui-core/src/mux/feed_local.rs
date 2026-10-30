@@ -183,6 +183,10 @@ impl Mux {
                 .get(terminal)
                 .and_then(|record| record.agent_session_id.clone())
         });
+        // A question hook's notification takes its question; the terminal keeps it while the
+        // agent waits (`list-notifications`).
+        let question = agent_terminal
+            .and_then(|terminal| self.take_agent_question(terminal, notification.id.as_str()));
         self.emit(MuxEvent::Notification(NotificationEvent {
             id: Some(notification.id.as_str().to_owned()),
             message,
@@ -193,6 +197,7 @@ impl Mux {
             subtitle: notification.subtitle.clone(),
             body: notification.body.clone(),
             preview,
+            question,
             level: notification.level,
             surface: notification.surface,
             workspace_id: notification.workspace_id.clone(),

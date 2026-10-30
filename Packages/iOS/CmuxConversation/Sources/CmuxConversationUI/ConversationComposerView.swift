@@ -2,6 +2,7 @@
 import CmuxConversationCore
 import CmuxConversationGeometry
 import UIKit
+import UniformTypeIdentifiers
 
 /// A picked image (or, with `file`, a document) waiting in the composer.
 struct ComposerAttachment {
@@ -24,6 +25,37 @@ struct ComposerAttachment {
         self.data = file.data
         self.mimeType = file.info.mimeType
         self.file = file
+    }
+}
+
+/// A queued attachment's bytes as a local file Quick Look can open before
+/// it is sent: a document keeps its name, a photo is "Photo.<ext>".
+struct ComposerAttachmentFile: Sendable {
+    let id: UUID
+    let data: Data
+    let name: String
+
+    init(_ attachment: ComposerAttachment) {
+        id = attachment.id
+        data = attachment.data
+        let ext = UTType(mimeType: attachment.mimeType)?.preferredFilenameExtension ?? "jpg"
+        let safe = (attachment.file?.info.name ?? "Photo.\(ext)").replacingOccurrences(of: "/", with: "-")
+        name = safe.isEmpty || safe == "." || safe == ".." ? "Attachment" : safe
+    }
+
+    func write() -> URL? {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ConversationComposerAttachments", isDirectory: true)
+            .appendingPathComponent(id.uuidString, isDirectory: true)
+        let target = folder.appendingPathComponent(name)
+        if FileManager.default.fileExists(atPath: target.path) { return target }
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try data.write(to: target, options: .atomic)
+            return target
+        } catch {
+            return nil
+        }
     }
 }
 
@@ -72,6 +104,8 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     private(set) var attachments: [ComposerAttachment] = []
     /// A preview's remove button was tapped (after the attachment is dropped).
     var onRemoveAttachment: ((UUID) -> Void)?
+    /// A queued attachment was tapped: preview it (the view it zooms from).
+    var onOpenAttachment: ((UUID, UIView) -> Void)?
     /// Mention ranges, the gray candidate and suggestions for the draft.
     private(set) lazy var mentionController = ComposerMentionController(textView: textView)
     /// Pending rich link card for a URL that opens or ends the draft.
@@ -212,6 +246,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
             self?.removeAttachment(id: id)
             self?.onRemoveAttachment?(id)
         }
+        attachmentShelf.onOpen = { [weak self] id, view in self?.onOpenAttachment?(id, view) }
 
         textView.font = ConversationTheme.bodyFont
         textView.baseTypingAttributes = [
@@ -227,7 +262,18 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         textView.textContainer.lineFragmentPadding = 0
         textView.isScrollEnabled = false
         textView.delegate = self
+        // The keyboard's Return starts a new line (as in Messages); a hardware
+        // keyboard's Return sends and Shift- or Option-Return starts a new line.
         textView.returnKeyType = .default
+        textView.onHardwareReturn = { [weak self] in
+            guard let self, self.hasContent, !self.holdsDraft else { return }
+            self.delegate?.composerDidTapSend(self)
+        }
+        // A copied image or file pasted into the field (edit menu Paste or
+        // Command-V) is attached as Photos or Files would attach it, while
+        // "+" takes attachments (Chief turns it off until it takes sends).
+        textView.acceptsAttachments = { [weak self] in self?.plusButton.isEnabled == true }
+        textView.onPasteAttachments = { [weak self] in self?.pasteAttachments() }
         textView.accessibilityIdentifier = "conversation.composer.text"
         // Messages: a text field labeled "Message" whose value is the placeholder while empty.
         textView.accessibilityLabel = String(localized: "conversation.ax.composerField", defaultValue: "Message", bundle: .module)
@@ -597,6 +643,74 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
 
     // MARK: Attachments
 
+    /// The pasteboard's images (each item's PNG or JPEG bytes as the copying
+    /// app gave them, else re-encoded as PNG), or its copied files.
+    private func pasteAttachments() {
+        let board = UIPasteboard.general
+        guard board.hasImages else {
+            if let first = ComposerTextView.leadingType(board), ComposerTextView.isPastedFileType(first),
+               !board.hasStrings || first.conforms(to: .image) {
+                pasteFileData(board.itemProviders)
+                return
+            }
+            for url in board.urls?.filter(\.isFileURL) ?? [] {
+                Task { @MainActor [weak self] in
+                    guard let traits = self?.traitCollection,
+                          let attachment = await ConversationMediaDelegate.composerAttachment(for: url, traits: traits) else { return }
+                    self?.addAttachment(attachment)
+                }
+            }
+            return
+        }
+        let pasted: [ComposerAttachment] = (0..<board.numberOfItems).compactMap { index in
+            let item = IndexSet(integer: index)
+            let itemTypes = (board.types(forItemSet: item)?.first ?? []).compactMap { UTType($0) }
+            guard let type = itemTypes.first(where: { $0.conforms(to: .image) }),
+                  let data = board.data(forPasteboardType: type.identifier, inItemSet: item)?.first,
+                  let image = UIImage(data: data) else { return nil }
+            if type.conforms(to: .png) { return ComposerAttachment(image: image, data: data, mimeType: "image/png") }
+            if type.conforms(to: .jpeg) { return ComposerAttachment(image: image, data: data, mimeType: "image/jpeg") }
+            return image.pngData().map { ComposerAttachment(image: image, data: $0, mimeType: "image/png") }
+        }
+        guard pasted.isEmpty else {
+            pasted.forEach(addAttachment)
+            return
+        }
+        for image in board.images ?? [] {
+            if let png = image.pngData() { addAttachment(ComposerAttachment(image: image, data: png, mimeType: "image/png")) }
+        }
+    }
+
+    /// A file copied in Files is its bytes on the pasteboard, not a path:
+    /// each is copied (off the main thread) under its own name, then attached
+    /// as the Files picker attaches a file. The copy goes once it is attached.
+    private func pasteFileData(_ providers: [NSItemProvider]) {
+        for provider in providers {
+            guard let type = provider.registeredTypeIdentifiers.lazy.compactMap({ UTType($0) })
+                .first(where: { ComposerTextView.isPastedFileType($0) }) else { continue }
+            var name = (provider.suggestedName ?? "").replacingOccurrences(of: "/", with: "-")
+            if name.isEmpty || name == "." || name == ".." {
+                name = String(localized: "conversation.composer.pastedFile", defaultValue: "Pasted file", bundle: .module)
+            }
+            if let ext = type.preferredFilenameExtension, (name as NSString).pathExtension.isEmpty { name += ".\(ext)" }
+            let folder = FileManager.default.temporaryDirectory
+                .appendingPathComponent("ConversationComposerPaste", isDirectory: true)
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            let target = folder.appendingPathComponent(name)
+            _ = provider.loadFileRepresentation(forTypeIdentifier: type.identifier) { url, _ in
+                // The provider's file exists only during this call, on its own queue.
+                guard let url, (try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)) != nil,
+                      (try? FileManager.default.copyItem(at: url, to: target)) != nil else { return }
+                Task { @MainActor [weak self] in
+                    defer { try? FileManager.default.removeItem(at: folder) }
+                    guard let traits = self?.traitCollection,
+                          let attachment = await ConversationMediaDelegate.composerAttachment(for: target, traits: traits) else { return }
+                    self?.addAttachment(attachment)
+                }
+            }
+        }
+    }
+
     func addAttachment(_ attachment: ComposerAttachment) {
         attachments.append(attachment)
         let opening = attachments.count == 1
@@ -726,18 +840,43 @@ final class ComposerTextView: UITextView {
     var decorateStorage: ((NSTextStorage) -> Void)?
     let effectLayer = ConversationTextEffectLayer()
 
+    /// A hardware keyboard's Return (no modifier): send. Shift- and Option-Return
+    /// insert a line break; while text is being composed (marked text) Return
+    /// belongs to the input method.
+    var onHardwareReturn: (() -> Void)?
+
     override var keyCommands: [UIKeyCommand]? {
-        let format: [UIKeyCommand] = [
+        var commands: [UIKeyCommand] = [
             UIKeyCommand(input: "b", modifierFlags: .command, action: #selector(toggleBoldface(_:))),
             UIKeyCommand(input: "i", modifierFlags: .command, action: #selector(toggleItalics(_:))),
             UIKeyCommand(input: "u", modifierFlags: .command, action: #selector(toggleUnderline(_:))),
         ]
-        format.forEach { $0.wantsPriorityOverSystemBehavior = true }
-        return (super.keyCommands ?? []) + format
+        if onHardwareReturn != nil {
+            commands += [
+                UIKeyCommand(input: "\r", modifierFlags: [], action: #selector(hardwareReturn)),
+                UIKeyCommand(input: "\r", modifierFlags: .shift, action: #selector(hardwareLineBreak)),
+                UIKeyCommand(input: "\r", modifierFlags: .alternate, action: #selector(hardwareLineBreak)),
+            ]
+        }
+        commands.forEach { $0.wantsPriorityOverSystemBehavior = true }
+        return (super.keyCommands ?? []) + commands
+    }
+
+    @objc private func hardwareReturn() { onHardwareReturn?() }
+
+    @objc private func hardwareLineBreak() {
+        insertText("\n")
+        scrollRangeToVisible(selectedRange)
     }
 
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if action == #selector(hardwareReturn) || action == #selector(hardwareLineBreak) {
+            return isEditable && markedTextRange == nil
+        }
         if action == #selector(toggleBoldface(_:)) || action == #selector(toggleItalics(_:)) || action == #selector(toggleUnderline(_:)) {
+            return isEditable
+        }
+        if action == #selector(paste(_:)), pastesAttachments {
             return isEditable
         }
         return super.canPerformAction(action, withSender: sender)
@@ -760,7 +899,51 @@ final class ComposerTextView: UITextView {
         set { super.accessibilityValue = newValue }
     }
 
+    /// Takes a pasted image or copied file. A plain text view offers no Paste
+    /// for an image; this one does while `acceptsAttachments`. The paste is
+    /// the person's own action, so reading the pasteboard asks nothing.
+    var onPasteAttachments: (() -> Void)?
+    var acceptsAttachments: () -> Bool = { false }
+
+    /// An image or a copied file leads the pasteboard, and the composer takes
+    /// one now. Text that came with an image (cells from Numbers, a note with
+    /// a picture) still pastes as text. Reading the types asks nothing.
+    private var pastesAttachments: Bool {
+        guard onPasteAttachments != nil, acceptsAttachments() else { return false }
+        let board = UIPasteboard.general
+        // An image copied as an image object (Photos, Safari) leads with
+        // UIKit's private `com.apple.uikit.image`, not an image type.
+        if board.hasImages, !board.hasStrings { return true }
+        // The first declared type, past an app's private ones: Files leads with
+        // `com.apple.DocumentManager.FINode.File`, then the file's own type.
+        guard let first = Self.leadingType(board) else { return board.hasImages }
+        if first.conforms(to: .fileURL) { return true }
+        if first.conforms(to: .image) { return board.hasImages || Self.isPastedFileType(first) }
+        guard !board.hasStrings else { return false }
+        return board.contains(pasteboardTypes: [UTType.fileURL.identifier]) || Self.isPastedFileType(first)
+    }
+
+    /// A copied file's own type (Files' Copy puts the file's bytes, a PDF or
+    /// an archive): declared, and not text, a web link or an app's private format.
+    static func leadingType(_ board: UIPasteboard) -> UTType? {
+        board.types.lazy.compactMap { UTType($0) }.first(where: \.isDeclared)
+    }
+
+    /// The same rule as CmuxMobileDesign's `UIPasteboard.isComposerFileType`
+    /// (another package).
+    static func isPastedFileType(_ type: UTType) -> Bool {
+        guard type.isDeclared, !type.isDynamic else { return false }
+        if type.conforms(to: .image) { return true }
+        let prose: [UTType] = [.text, .url, .rtfd, .flatRTFD, .webArchive]
+        if prose.contains(where: { type.conforms(to: $0) }) { return false }
+        return type.conforms(to: .data) || type.conforms(to: .package)
+    }
+
     override func paste(_ sender: Any?) {
+        if pastesAttachments, let onPasteAttachments {
+            onPasteAttachments()
+            return
+        }
         super.paste(sender)
         delegate?.textViewDidChange?(self)
     }

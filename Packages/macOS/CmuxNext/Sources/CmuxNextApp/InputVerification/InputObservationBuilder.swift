@@ -44,7 +44,7 @@ enum InputObservationBuilder {
             childPage: controller.focusApplier.focusedChildWindowPageID.map { pageTabKeys[$0] ?? $0 },
             presented: presented,
             childWindowTabs: childWindowTabs.sorted(),
-            hasSheet: window?.attachedSheet != nil
+            hasSheet: window?.attachedSheet != nil, topPage: controller.shownTopPage != nil
         )
     }
 

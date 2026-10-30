@@ -17,8 +17,9 @@ bench launches and quits the app itself), and maps their reports to budget rows 
   agent-engine-bench.py          ACP chat composer: keydown to next frame (the page's typingStats)
   bench_idle.py                  idle CPU of the app with terminals open
 
-A bench that fails to run (older build without its debug method, no display) leaves its rows "n/a"; the
-suite goes on. Output: --json (rows, raw report paths, host), a Markdown table in the log.
+  A bench that fails to run (older build without its debug method, no display) leaves its rows "n/a"; the
+  suite goes on, but the gate reports an incomplete result when an expected row is absent. Output: --json
+  (rows, raw report paths, host), a Markdown table in the log.
 
 Gate (--gate): a row regresses when its p95 is more than 10 % over the stored baseline for this host
 class (scripts/cmux-next/perf-budgets-baseline/<chip>-macos<major>.json) and more than the row's
@@ -278,6 +279,73 @@ def budget_for(name, budgets):
     return {}
 
 
+def incomplete_rows(rows, baseline, manifest, only):
+    """Return missing-data reasons for the requested benchmark parts.
+
+    The baseline expands the manifest's patterns into concrete row names. This lets a
+    renamed or newly added row fail closed without hard-coding every dynamic sidebar
+    size in the runner. The manifest still catches a zero-row or schema-shape failure
+    when no previous baseline contains a name to expand.
+    """
+    selected = [pattern for part in only for pattern in manifest.get(part, [])]
+    current = {row.get("name"): row for row in rows if row.get("name")}
+    missing = []
+    for name in sorted(baseline):
+        if selected and not any(re.fullmatch(pattern, name) for pattern in selected):
+            continue
+        sample = current.get(name)
+        if sample is None or sample.get("p95") is None:
+            missing.append({"name": name, "reason": "missing current p95"})
+    # A baseline with at least one concrete row for a benchmark part is the
+    # source of truth for that part's shape. Older baselines can legitimately
+    # contain only one family (for example the sidebar switch row); requiring
+    # every manifest family in that case would turn an otherwise concrete
+    # current-value check into a false incomplete result. A part with no
+    # baseline rows still needs its manifest families to prove that the bench
+    # produced data at all.
+    baseline_parts = {
+        part for part in only
+        if any(any(re.fullmatch(pattern, name) for pattern in manifest.get(part, []))
+               for name in baseline)
+    }
+    for part in only:
+        if part in baseline_parts:
+            continue
+        for pattern in manifest.get(part, []):
+            matched = [name for name in current if re.fullmatch(pattern, name)]
+            if not matched or not any(current[name].get("p95") is not None for name in matched):
+                # A part with no baseline rows still needs this manifest-level
+                # reason so a new baseline cannot be written from a partial run.
+                missing.append({"name": pattern, "reason": "manifest row not measured"})
+    return missing
+
+
+def completeness_counts(rows, baseline, manifest, only, incomplete, regressed):
+    """Summarize the manifest coverage in the JSON receipt.
+
+    Concrete names in a baseline are the expected rows for that host. When no
+    baseline exists, the manifest patterns are the expected entries instead.
+    """
+    selected = [pattern for part in only for pattern in manifest.get(part, [])]
+    measured_names = {row.get("name") for row in rows if row.get("name") and row.get("p95") is not None}
+    expected_names = {name for name in baseline
+                      if not selected or any(re.fullmatch(pattern, name) for pattern in selected)}
+    if expected_names:
+        expected = len(expected_names)
+        measured = len(expected_names & measured_names)
+    else:
+        matched = {pattern for pattern in selected
+                   if any(re.fullmatch(pattern, name) for name in measured_names)}
+        expected = len(selected)
+        measured = len(matched)
+    incomplete_names = {item["name"] for item in incomplete}
+    return {"expected": expected,
+            "measured": measured,
+            "unsupported": 0,
+            "failed": len(regressed),
+            "incomplete": len(incomplete_names)}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tag", required=True)
@@ -363,6 +431,11 @@ def main():
     baseline = (load(base_path) or {}).get("p95", {})
     regressed = compare(rows, baseline)
     over = over_budget(rows)
+    incomplete = []
+    if opts.gate and not baseline:
+        incomplete.append({"name": "baseline", "reason": "missing baseline p95 rows"})
+    incomplete.extend(incomplete_rows(rows, baseline, budgets.get("expected", {}), only))
+    counts = completeness_counts(rows, baseline, budgets.get("expected", {}), only, incomplete, regressed)
 
     print(f"\n# cmux-next perf budgets, {cls} ({platform.node()}), tag {opts.tag}\n")
     print("| row | p50 | p95 | budget p95 | baseline p95 | |\n|---|---|---|---|---|---|")
@@ -372,22 +445,29 @@ def main():
         mark = "REGRESSED" if r["name"] in reg_names else ("over budget" if r["name"] in over else "")
         print(f"| {r['name']} | {f(r['p50'])} | {f(r['p95'])} | {f(r['budget'])} | {f(baseline.get(r['name']))} | {mark} |")
     print(f"\nPERF-BUDGETS rows={len(rows)} measured={sum(r['p95'] is not None for r in rows)} "
-          f"over_budget={len(over)} regressed={len(regressed)} baseline={'yes' if baseline else 'none'}")
+          f"over_budget={len(over)} regressed={len(regressed)} incomplete={len(incomplete)} "
+          f"baseline={'yes' if baseline else 'none'} expected={counts['expected']} "
+          f"measured={counts['measured']} unsupported={counts['unsupported']} failed={counts['failed']}")
     for r in regressed:
         print(f"PERF-BUDGETS-REGRESSION {r['name']} p95 {r['p95']} vs baseline {r['baseline']} (+{r['worse_pct']} %)")
+    for r in incomplete:
+        print(f"PERF-BUDGETS-INCOMPLETE {r['name']}: {r['reason']}")
 
     result = {"tag": opts.tag, "host_class": cls, "host": platform.node(), "baseline_file": base_path if baseline else None,
-              "rows": rows, "regressed": regressed, "over_budget": over, "runs": runs,
+              "rows": rows, "regressed": regressed, "over_budget": over, "incomplete": incomplete,
+              "counts": counts, "runs": runs,
               "profile_split": profile_split}
     if opts.json:
         os.makedirs(os.path.dirname(os.path.abspath(opts.json)), exist_ok=True)
         json.dump(result, open(opts.json, "w"), indent=1)
-    if opts.write_baseline:
+    if opts.write_baseline and incomplete:
+        print("PERF-BUDGETS-BASELINE refused: the run is incomplete; provide measured rows for every expected entry")
+    elif opts.write_baseline:
         json.dump({"host_class": cls, "p95": {r["name"]: r["p95"] for r in rows if r["p95"] is not None}},
                   open(opts.write_baseline, "w"), indent=1, sort_keys=True)
     if opts.gate and not baseline:
-        print(f"PERF-BUDGETS-GATE no baseline at {base_path}: nothing to compare (not a failure)")
-    sys.exit(1 if opts.gate and regressed else 0)
+        print(f"PERF-BUDGETS-GATE no baseline at {base_path}: incomplete")
+    sys.exit(1 if opts.gate and (regressed or incomplete) else 0)
 
 
 if __name__ == "__main__":

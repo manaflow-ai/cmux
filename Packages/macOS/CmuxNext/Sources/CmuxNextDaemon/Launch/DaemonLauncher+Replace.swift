@@ -46,7 +46,7 @@ extension DaemonLauncher {
             throw ReplaceRefusal(code: failure.code, message: failure.message)
         }
         let ensured = try Self.parseEnsure(result)
-        ensureOutcome.note(nil)
+        ensureOutcome.note(nil, pid: ensured.pid)
         return ensured
     }
 
@@ -54,7 +54,7 @@ extension DaemonLauncher {
     func ensureRecordingOutcome() async throws -> EnsureResult {
         do {
             let ensured = try await ensure()
-            ensureOutcome.note(nil)
+            ensureOutcome.note(nil, pid: ensured.pid)
             return ensured
         } catch {
             // A cancelled ensure (its connection torn down, or shutdown) says nothing about the owner.
@@ -90,6 +90,8 @@ public final class EnsureOutcome: Sendable {
     private struct State {
         var ownerLooksStuck = false
         var observer: (@MainActor @Sendable () -> Void)?
+        /// Gets every ensure's outcome (the automatic restart, ``UnresponsiveOwnerWatch``).
+        var watch: UnresponsiveOwnerWatch?
     }
 
     private let state = Mutex(State())
@@ -104,14 +106,20 @@ public final class EnsureOutcome: Sendable {
         state.withLock { $0.observer = observer }
     }
 
-    /// Records how an ensure ended (nil: it succeeded).
-    func note(_ error: (any Error)?) {
+    /// Feeds every ensure's outcome to `watch`, which restarts an owner that stays stuck.
+    public func follow(_ watch: UnresponsiveOwnerWatch) {
+        state.withLock { $0.watch = watch }
+    }
+
+    /// Records how an ensure ended (nil: it succeeded, finding or starting the owner `pid`).
+    func note(_ error: (any Error)?, pid: Int32? = nil) {
         let stuck = error.map(DaemonLauncher.isStuckOwnerFailure) ?? false
-        let observer = state.withLock { state -> (@MainActor @Sendable () -> Void)? in
-            guard state.ownerLooksStuck != stuck else { return nil }
+        let (observer, watch) = state.withLock { state -> ((@MainActor @Sendable () -> Void)?, UnresponsiveOwnerWatch?) in
+            guard state.ownerLooksStuck != stuck else { return (nil, state.watch) }
             state.ownerLooksStuck = stuck
-            return state.observer
+            return (state.observer, state.watch)
         }
+        watch?.note(UnresponsiveOwnerWatch.Ensure(error, pid: pid))
         guard let observer else { return }
         // task-owner: one main-actor hop per change; the observer reads the current value
         Task { @MainActor in observer() }

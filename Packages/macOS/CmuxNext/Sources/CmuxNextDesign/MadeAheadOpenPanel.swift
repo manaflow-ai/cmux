@@ -9,16 +9,21 @@ public import AppKit
 /// click first shows its sheet 830 ms after the click in a fresh process and 160 ms after it
 /// later; the panel made ahead shows it after 95 ms, then 45 to 65 ms. One panel is made while
 /// the person is idle and reused. The warm-up still costs that main-thread time once, at a
-/// pause or while cmux is in the background. The logic is ``MadeAheadPanelStore``'s; when the
-/// warm-up may run is ``OpenPanelWarmGate``'s.
+/// pause or while cmux is in the background, and it has no deadline: AppKit makes the panel only
+/// on the main thread and cannot ask its view service first, so with a hung panel service the
+/// warm-up (or a click with no panel made ahead) blocks the main thread once, up to about 40 s,
+/// before the dead panel stops further warm-ups. The logic is ``MadeAheadPanelStore``'s; when
+/// the warm-up may run is ``OpenPanelWarmGate``'s.
+///
+/// The app makes one, at its composition root (`AppServices.openPanel`), and passes it to every picker that takes
+/// it: `AgentPaneView` (and its `AgentPaneFilePicker`), Home's `HomeAttachmentPanel`, and a WebKit view's
+/// `<input type="file">` (``WebFileInputAnswering``: `PageOpenPanel` for a cmux page on WebKit, and the WebKit
+/// browser engine's `fileInput`). Chromium does not take it: a Chromium browser tab or a cmux page hosted in
+/// Chromium (the default engine) has no file-dialog handler in the CEF shim, so Chromium makes its own new
+/// `NSOpenPanel` on the main thread for each click, not made ahead and with no dead-panel guard (open, routed to
+/// the CEF owners). Each instance keeps its own panel, so a test makes its own and never shares one with the app.
 @MainActor
 public final class MadeAheadOpenPanel {
-    // Recorded exception (review 2 of pl-fleet-gui): a runtime-state singleton the CLAUDE.md DI rule forbids in a
-    // rewritten file. Its four users (AgentPaneView, AgentPaneFilePicker, PageOpenPanel, HomeAttachmentPanel) are
-    // static or shared entry points with no init to inject through; making one at the composition root and passing it
-    // down is a separate change across three packages. The logic under it (MadeAheadPanelStore) is injected.
-    public static let shared = MadeAheadOpenPanel()
-
     private let store: MadeAheadPanelStore<NSOpenPanel>
 
     /// Whether the panel was made ahead of a click.
@@ -46,4 +51,17 @@ public final class MadeAheadOpenPanel {
     /// lands on a keystroke or the click itself. Bounded: after ten busy checks it waits for the
     /// click. A view that offers the picker calls this when it reaches a window.
     public func warmWhenIdle() { store.warmWhenIdle() }
+
+    /// Starts ``warmWhenIdle()`` when `schedule` runs its work: the app passes its launch's first idle moment
+    /// (`LaunchSettle.whenSettled`), so the first click on a picker is not cold even before a view that offers it
+    /// reached a window (Lead decision 2026-10-23: keep the system panel; start its warm-up at launch idle).
+    ///
+    /// - Parameter schedule: runs the work it is given once, later or at once (for example after the first frame).
+    ///
+    /// ```swift
+    /// services.openPanel.warmWhenIdle(after: launchSettle.whenSettled)
+    /// ```
+    public func warmWhenIdle(after schedule: (@escaping @MainActor () -> Void) -> Void) {
+        schedule { [weak self] in self?.warmWhenIdle() }
+    }
 }

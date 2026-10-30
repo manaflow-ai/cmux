@@ -180,7 +180,7 @@ public final class FeedStore {
             recordReadMarks()
             refreshDerived()
             #if DEBUG
-            if FeedStressRig.shared.config.isActive { FeedStore.logChange(from: oldValue, to: items) }
+            if FeedStressRig.shared.config.logsChurn { FeedStore.logChange(from: oldValue, to: items) }
             #endif
             onItemsChange?(items)
         }
@@ -287,6 +287,15 @@ public final class FeedStore {
     }
 
     public func markRead(_ id: String) { mutate(id) { $0.isRead = true } }
+    /// Mark All Notifications as Read: every event in the Feed, in one write.
+    public func markAllRead() {
+        guard items.contains(where: { !$0.isRead }) else { return }
+        items = items.map { item in
+            var item = item
+            item.isRead = true
+            return item
+        }
+    }
     public func markUnread(_ id: String) {
         readIDs.removeAll { $0 == id }
         readMarks?.save(readIDs)

@@ -43,6 +43,11 @@ public final class StreamedBrowserDirectory {
 
     public var isLive: Bool { opener != nil || macOpener != nil }
 
+    /// Hears the tabs the Macs list (``retain(tabs:)``) and placeholder tabs that
+    /// became real (``rename(tab:to:)``): pages opened on the iPhone follow them.
+    public var tabsRetained: (@MainActor (Set<String>) -> Void)?
+    public var tabRenamed: (@MainActor (_ old: String, _ new: String) -> Void)?
+
     /// The streamed model of a tab (`tab`: its key on the Mac, `url`: its
     /// first page), or nil when not linked.
     public func model(tab: String, url: URL?, macID: String? = nil) -> StreamedBrowserModel? {
@@ -74,6 +79,35 @@ public final class StreamedBrowserDirectory {
         return model
     }
 
+    /// The streamed model of a Mac phone tab's simulator (`tab`: `s<surface>`), or nil
+    /// when not linked. It is a browser tab's stream (one media lane, the shown tab
+    /// owns it) with no page: the simulator page reads ``StreamedBrowserModel/meter``,
+    /// ``StreamedBrowserModel/phase`` and sends touches at 0...1 of its screen.
+    public func simulatorModel(tab: String, macID: String? = nil) -> StreamedBrowserModel? {
+        let macID = macOpener == nil ? nil : macID.flatMap { $0.isEmpty ? nil : $0 }
+        guard macID != nil || opener != nil else { return nil }
+        let key = Self.key(tab: tab, macID: macID)
+        if let model = models[key] { return model }
+        let model = StreamedBrowserModel(tab: tab, url: nil) { [weak self] sink, tab, _ in
+            let link: (any BrowserStreamOpening)?
+            if let macID {
+                link = await self?.macOpener?(macID)
+            } else {
+                link = await self?.opener?()
+            }
+            guard let link else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
+            return try await link.openSurface(tab: tab, sink: sink)
+        }
+        model.openedHidden = { [weak self] in
+            guard let self else { return }
+            for shown in models.values where shown.isShown { shown.reassertShown() }
+        }
+        models[key] = model
+        if !appActive { model.setAppActive(false) }
+        warmMedia()
+        return model
+    }
+
     /// A workspace with browser tabs is shown: the WebRTC media session
     /// beside a WireGuard link opens before the first tab needs it.
     private func warmMedia() {
@@ -91,6 +125,7 @@ public final class StreamedBrowserDirectory {
     /// key (the placeholder's), so a redial reopens this page, history and
     /// all, not a new blank host for the real id.
     public func rename(tab old: String, to new: String) {
+        tabRenamed?(old, new)
         let renamed = models.keys.filter { Self.parts($0).tab == old }
         guard old != new, !renamed.isEmpty else {
             log.notice("browser rename \(old, privacy: .public) -> \(new, privacy: .public): no model")
@@ -117,6 +152,7 @@ public final class StreamedBrowserDirectory {
     /// pending ones): a tab whose workspace closed on the Mac is dropped, so
     /// a redial never opens it again (transport-verify-20261019.md defect 7).
     public func retain(tabs: Set<String>) {
+        tabsRetained?(tabs)
         for key in models.keys where !tabs.contains(Self.parts(key).tab) {
             log.notice("browser drop \(key, privacy: .public)")
             models.removeValue(forKey: key)?.close()

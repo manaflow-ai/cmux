@@ -26,6 +26,7 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -38,6 +39,8 @@ const BATCH: Duration = Duration::from_millis(60);
 const BATCH_MAX: usize = 200;
 const POST_TIMEOUT: Duration = Duration::from_secs(15);
 const VM_TIMEOUT: Duration = Duration::from_secs(330);
+/// Waits before a stream or result post is tried again (no answer, or a 5xx).
+const POST_RETRIES: [Duration; 2] = [Duration::from_secs(1), Duration::from_secs(3)];
 
 fn main() {
     let run = std::env::args().nth(1).unwrap_or_default();
@@ -182,6 +185,7 @@ fn main() {
     cmd.process_group(0);
 
     let mut stream = TurnStream::new();
+    let timed_out = Arc::new(AtomicBool::new(false));
     let (code, signal, stderr) = match cmd.spawn() {
         Err(e) => (Some(127), None, format!("spawn: {e}")),
         Ok(mut child) => {
@@ -211,6 +215,7 @@ fn main() {
             // left behind may hold its output open).
             let (exited_tx, exited_rx) = channel::<Option<std::process::ExitStatus>>();
             let deadline = t0 + Duration::from_millis(max_ms);
+            let limit_hit = timed_out.clone();
             let waiter = thread::spawn(move || {
                 let (status_tx, status_rx) = channel();
                 thread::spawn(move || {
@@ -221,6 +226,7 @@ fn main() {
                 {
                     Ok(s) => s,
                     Err(_) => {
+                        limit_hit.store(true, Ordering::SeqCst);
                         kill_group(pgid);
                         status_rx.recv().ok().flatten()
                     }
@@ -253,6 +259,7 @@ fn main() {
         run: &run,
         model: &model,
         code,
+        timed_out: timed_out.load(Ordering::SeqCst),
         signal,
         stderr: &stderr,
         total_ms: t0.elapsed().as_millis() as u64,
@@ -270,7 +277,7 @@ fn main() {
     if written.is_ok() {
         let _ = fs::rename(&tmp, dir.join(format!("{run}.out")));
     }
-    let _ = worker.post(&json!({"run": run, "result": out}), POST_TIMEOUT);
+    let _ = worker.post_retrying(&json!({"run": run, "result": out}));
     std::process::exit(0);
 }
 
@@ -391,6 +398,20 @@ impl Worker {
         let status = resp.status();
         Some((status, resp.into_json::<Value>().ok()))
     }
+
+    /// A stream or result post, tried again after no answer or a 5xx (a
+    /// deploy, an overloaded isolate); a 4xx is final (the turn is over).
+    fn post_retrying(&self, body: &Value) -> Option<(u16, Option<Value>)> {
+        let mut answer = self.post(body, POST_TIMEOUT);
+        for wait in POST_RETRIES {
+            if answer.as_ref().is_some_and(|(s, _)| *s < 500) {
+                break;
+            }
+            thread::sleep(wait);
+            answer = self.post(body, POST_TIMEOUT);
+        }
+        answer
+    }
 }
 
 enum NoteMsg {
@@ -429,7 +450,7 @@ impl Notes {
         let send = |queue: &mut Vec<Value>| {
             if !queue.is_empty() {
                 let events = std::mem::take(queue);
-                let _ = worker.post(&json!({"run": worker.run, "events": events}), POST_TIMEOUT);
+                let _ = worker.post_retrying(&json!({"run": worker.run, "events": events}));
             }
         };
         loop {

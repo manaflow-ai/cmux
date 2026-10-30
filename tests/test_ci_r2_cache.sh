@@ -182,6 +182,74 @@ out="$(output_of restore "$WORK/dst2" shared-bundle-one)"
 if CI_CACHE_R2_NAMESPACE='../x' output_of restore "$WORK/dst" shared-bundle-one >/dev/null; then fail "a namespace with a slash must be rejected"; fi
 echo "PASS: CI_CACHE_R2_NAMESPACE shares one cache across runner platforms"
 
+# The site's LAN cache host, through the mini's glaeda broker (a Unix socket): an archive comes from it
+# first; its miss is the bucket's miss; any other answer falls through to the bucket.
+lan_dir="$(mktemp -d /tmp/r2lan.XXXXXX)"
+mkfifo "$WORK/lan-ready"
+python3 - "$lan_dir/fetch.sock" "$WORK/lan-ready" "$WORK/lan-log" "$WORK/lan-src" <<'PY' &
+import json, os, shutil, socket, sys
+path, ready, log, src = sys.argv[1:]
+server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+server.bind(path); server.listen(4)
+open(ready, "w").write("ok")
+while True:
+    conn, _ = server.accept()
+    request = json.loads(conn.makefile().readline())
+    open(log, "a").write(json.dumps(request) + "\n")
+    mode = open(os.path.join(src, "mode")).read().strip()
+    if mode == "hit":
+        shutil.copy(os.path.join(src, "archive"), request["dest"])
+        answer = {"code": 0, "record": {"bytes": os.path.getsize(request["dest"]), "seconds": 0.1, "wait_seconds": 0}}
+    elif mode == "miss":
+        answer = {"code": 3, "record": {"reason": "not in the bucket"}}
+    elif mode == "old":
+        answer = {"code": 1, "record": {"tool": "glaeda-lan-fetch", "error": "bad request"}}
+    else:
+        answer = {"code": 1, "record": {"error": "host down"}}
+    conn.sendall((json.dumps(answer) + "\n").encode()); conn.close()
+PY
+LAN_PID=$!
+mkdir -p "$WORK/lan-src"
+cat "$WORK/lan-ready" >/dev/null
+rm -rf "$WORK/src" "$WORK/dst"; mkdir -p "$WORK/src"; echo lan > "$WORK/src/f.txt"
+output_of save "$WORK/src" lan-one >/dev/null
+lan_object="$(cd "$NS/objects" && ls lan-one.tar.*)"
+mkdir -p "$WORK/lan-copy"; echo from-lan > "$WORK/lan-copy/f.txt"
+if [[ "$lan_object" == *.tar.zst ]]; then tar -cf - -C "$WORK/lan-copy" . | zstd -q -o "$WORK/lan-src/archive"
+else tar -czf "$WORK/lan-src/archive" -C "$WORK/lan-copy" .; fi
+export CMUX_LAN_CACHE_SOCKET="$lan_dir/fetch.sock"
+# lan_cache_fetch.py takes only an https bucket; the local test server is http, so pretend for it.
+lan_shim="$WORK/shim"; mkdir -p "$lan_shim"
+real_python="$(command -v python3)"  # resolved before the shim goes first on PATH
+cat > "$lan_shim/python3" <<SH
+#!/usr/bin/env bash
+if [[ "\$1" == *lan_cache_fetch.py ]]; then set -- "\$1" "https://ci-cache.example" "\${@:3}"; fi
+exec "$real_python" "\$@"
+SH
+chmod +x "$lan_shim/python3"
+echo hit > "$WORK/lan-src/mode"
+out="$(PATH="$lan_shim:$PATH" output_of restore "$WORK/dst" lan-one)"
+[[ "$out" == *"cache-hit=true"* && "$(cat "$WORK/dst/f.txt")" == from-lan ]] || fail "a LAN hit must restore its copy, got: $out"
+grep -q '"verb": "cache"' "$WORK/lan-log" && grep -q "\"file\": \"$lan_object\"" "$WORK/lan-log" || fail "the broker was not asked for the object"
+echo down > "$WORK/lan-src/mode"; rm -rf "$WORK/dst"
+out="$(PATH="$lan_shim:$PATH" output_of restore "$WORK/dst" lan-one)"
+[[ "$out" == *"cache-hit=true"* && "$(cat "$WORK/dst/f.txt")" == lan ]] || fail "a down LAN host must fall back to the bucket, got: $out"
+# A broker without the cache verb (an older glaeda) falls through to the bucket and warns, once per job.
+echo old > "$WORK/lan-src/mode"; rm -rf "$WORK/dst"; warn_tmp="$(mktemp -d "$WORK/rt.XXXXXX")"
+out="$(RUNNER_TEMP="$warn_tmp" PATH="$lan_shim:$PATH" output_of restore "$WORK/dst" lan-one)"
+[[ "$out" == *"cache-hit=true"* && "$(cat "$WORK/dst/f.txt")" == lan ]] || fail "an old broker must fall back to the bucket, got: $out"
+grep -q '^::warning title=LAN cache unused::' "$WORK/log" || fail "an old broker must warn, log: $(cat "$WORK/log")"
+rm -rf "$WORK/dst"
+out="$(RUNNER_TEMP="$warn_tmp" PATH="$lan_shim:$PATH" output_of restore "$WORK/dst" lan-one)"
+[[ "$out" == *"cache-hit=true"* ]] || fail "a second old-broker restore must still hit the bucket, got: $out"
+grep -q '::warning' "$WORK/log" && fail "the old-broker warning must show once per job, log: $(cat "$WORK/log")"
+echo miss > "$WORK/lan-src/mode"; rm -rf "$WORK/dst"
+out="$(PATH="$lan_shim:$PATH" output_of restore "$WORK/dst" lan-one)"
+[[ "$out" == "cache-hit=false" ]] || fail "the LAN host's miss is the bucket's miss, got: $out"
+kill "$LAN_PID" 2>/dev/null || true; wait "$LAN_PID" 2>/dev/null || true
+rm -rf "$lan_dir"; unset CMUX_LAN_CACHE_SOCKET
+echo "PASS: archives come from the LAN cache host first and fall back to the bucket"
+
 unset AWS_SECRET_ACCESS_KEY
 output_of save "$WORK/src" family-tool-four >/dev/null || fail "a save without credentials must not fail the job"
 ls "$NS/objects/" | grep -q '^family-tool-four' && fail "a save without credentials must upload nothing"

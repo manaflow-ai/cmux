@@ -7,4 +7,10 @@ public nonisolated enum LaunchRegion: String, Sendable, CaseIterable {
     case tabs
     /// Pane content: the first terminal frame.
     case pane
+    /// Home: its conversation's first page (header, first-run actions, message box).
+    case home
+
+    /// Made after the launch window (Home: over several daemon replies), so its wait runs from
+    /// its own first hold; the launch deadline, armed by the window's holds, leaves it held.
+    public var hasOwnDeadline: Bool { self == .home }
 }

@@ -21,7 +21,7 @@ use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::Child;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use cmux_holder::client::{Event, HolderClient, launch, launch_with};
 use cmux_holder::holder::error_code;
@@ -35,15 +35,10 @@ fn holder_binary() -> &'static Path {
     Path::new(env!("CARGO_BIN_EXE_cmux-holder"))
 }
 
+mod support;
+
 fn temp_dir() -> PathBuf {
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-    let dir = PathBuf::from("/tmp").join(format!(
-        "cmhx-{}-{}",
-        std::process::id(),
-        stamp % 1_000_000_000
-    ));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+    support::unique_dir("cmhx")
 }
 
 fn shell(chan: u32) -> SpawnRequest {
@@ -109,7 +104,7 @@ fn pump_until(
             Event::Prologue { chan, .. } => panic!("terminal {chan}: unexpected prologue"),
             Event::Exit { chan, .. } => panic!("terminal {chan}: shell exited"),
             Event::Error { chan, message, .. } => panic!("terminal {chan}: holder error {message}"),
-            Event::Pong { .. } => {}
+            Event::Pong { .. } | Event::Adopted { .. } => {}
         }
     }
 }
@@ -117,6 +112,60 @@ fn pump_until(
 fn alive(pid: i32) -> bool {
     // SAFETY: signal 0 probes a pid this test started.
     unsafe { libc::kill(pid, 0) == 0 }
+}
+
+/// A named pipe at `path` (0600): the program's signal to the test.
+fn fifo(path: &Path) -> PathBuf {
+    let name = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
+    // SAFETY: mkfifo reads a NUL-terminated path.
+    assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0, "mkfifo {}", path.display());
+    path.to_path_buf()
+}
+
+/// Block until the program writes its line to the pipe `path` and closes
+/// it. The deadline only fails a program that never gets there (`what`).
+fn wait_for_line(path: &Path, what: &str) {
+    let (sent, got) = std::sync::mpsc::channel();
+    let path = path.to_path_buf();
+    std::thread::spawn(move || {
+        let _ = sent.send(std::fs::read(&path));
+    });
+    match got.recv_timeout(Duration::from_secs(30)) {
+        Ok(Ok(_)) => {}
+        Ok(Err(error)) => panic!("{what}: {error}"),
+        Err(_) => panic!("{what} within 30 s"),
+    }
+}
+
+/// One holder turn that began after now: a PING and its PONG (DATA that
+/// arrives meanwhile goes to `got`, which starts at offset 0). The holder
+/// handles the PING in a turn whose `poll` returned after the PING was
+/// sent, and in each turn it reads every master that `poll` found ready, up
+/// to the master's end or the terminal's room, before it reads its link
+/// (`Holder::turn`), publishing each read before the next. So after the
+/// PONG, everything the program wrote before the PING (a PTY buffers far
+/// less than one turn reads) is in the ring or waits behind the terminal's
+/// room, and no PTY read is in flight: a SIGKILL then cannot land inside
+/// one (the one loss the ring allows, and reports: `cmux_holder::ring`).
+/// On Linux the PTY hands bytes to the master on a kernel worker, but a
+/// `poll` or `read` of the master runs that worker first. The test sends
+/// nothing else meanwhile, so the PING is what made that `poll` report the
+/// link.
+fn holder_turn(client: &mut HolderClient, nonce: u64, got: &mut Vec<u8>) {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    client.ping(nonce).unwrap();
+    loop {
+        match client.next_event(deadline) {
+            Ok(Event::Pong { nonce: answered }) if answered == nonce => return,
+            Ok(Event::Data { offset, bytes, .. }) => {
+                assert_eq!(offset, got.len() as u64, "output offsets must continue");
+                got.extend(bytes);
+            }
+            Ok(Event::Pong { .. } | Event::Adopted { .. }) => {}
+            Ok(other) => panic!("unexpected {other:?} before PONG {nonce}"),
+            Err(error) => panic!("the holder never answered PING {nonce}: {error}"),
+        }
+    }
 }
 
 fn write_master(master: &OwnedFd, bytes: &[u8]) {
@@ -242,12 +291,14 @@ fn a_holder_killed_holding_unsent_output_loses_no_byte_through_its_ring() {
     const TOTAL: usize = 700_000;
     let dir = temp_dir();
     let socket = dir.join("h.sock");
+    let written = fifo(&dir.join("written"));
     let first = launch(holder_binary(), &socket, &TOKEN).unwrap();
     let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
     assert!(client.version() >= 4, "this holder speaks the ring version");
     let mut request = shell(1);
     request.argv[2] = format!(
-        "stty raw -echo; yes abcdefghijklmnopqrstuvwxyz0123456789 | head -c {TOTAL}; exec cat"
+        "stty raw -echo; yes abcdefghijklmnopqrstuvwxyz0123456789 | head -c {TOTAL}; echo > '{}'; exec cat",
+        written.display()
     )
     .into_bytes();
     let spawned = client.spawn_with_ring(1, &request).unwrap();
@@ -262,11 +313,19 @@ fn a_holder_killed_holding_unsent_output_loses_no_byte_through_its_ring() {
         }
     }
     // Without an acknowledgement the holder sends nothing more, but it
-    // reads the rest of the program's output into its ring.
-    while cmux_holder::ring::segment_end(&ring).unwrap() < TOTAL as u64 {
-        assert!(Instant::now() < deadline, "the holder never read the whole output");
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    // reads the rest of the program's output into its ring. The program says
+    // when its last write returned; one holder turn later the holder read
+    // and published all of it, so it dies holding read but unsent output,
+    // with no read in flight and nothing left in the PTY. (Output still
+    // waiting in the PTY when the holder dies is
+    // `a_holder_killed_at_its_room_limit_leaves_the_rest_to_the_next_holder`.)
+    wait_for_line(&written, "the program never wrote its whole output");
+    holder_turn(&mut client, 1, &mut got);
+    assert_eq!(
+        cmux_holder::ring::segment_end(&ring).unwrap(),
+        TOTAL as u64,
+        "the holder has read the program's whole output"
+    );
     kill(first);
     // What the dead holder had written to the socket still arrives.
     while let Ok(event) = client.next_event(Instant::now() + Duration::from_millis(500)) {
@@ -301,6 +360,424 @@ fn a_holder_killed_holding_unsent_output_loses_no_byte_through_its_ring() {
     drop(client);
     kill(second);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A ring segment that ends before the offset the daemon has received (a
+/// stale one, say kept after an earlier adoption fell back to a fresh ring)
+/// is not continued: the new holder starts a fresh ring at `resume`, so the
+/// next output is numbered after what the daemon has. Continuing it would
+/// number that output below, and the daemon would drop it as received.
+#[test]
+fn a_stale_ring_segment_is_not_continued_and_output_continues_at_resume() {
+    let dir = temp_dir();
+    let socket = dir.join("h.sock");
+    let first = launch(holder_binary(), &socket, &TOKEN).unwrap();
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    let spawned = client.spawn_with_ring(1, &shell(1)).unwrap();
+    client.attach(1, 0).unwrap();
+    let mut screens = BTreeMap::new();
+    screens.insert(
+        1,
+        Screen {
+            master: spawned.master.try_clone().unwrap(),
+            pid: spawned.pid,
+            base: 0,
+            bytes: Vec::new(),
+        },
+    );
+    pump_until(&mut client, &mut screens, |chan| format!("ready-{chan}"));
+    drop(client);
+    kill(first);
+    let received = screens[&1].end();
+    assert!(received > 0);
+    // A segment whose writer never got past offset 0.
+    let stale = cmux_holder::ring::create_segment(0, 64 * 1024).unwrap();
+
+    let second = launch(holder_binary(), &socket, &TOKEN).unwrap();
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    let mut id = [0u8; 16];
+    id[..4].copy_from_slice(&1u32.to_le_bytes());
+    client
+        .adopt_with_ring(1, &id, (spawned.pid, received, received), &spawned.master, &stale, b"")
+        .unwrap();
+    client.attach(1, received).unwrap();
+    client.write(1, b"after-stale\n").unwrap();
+    // `pump_until` checks that every DATA offset continues the screen.
+    pump_until(&mut client, &mut screens, |_| "after-stale\r\nafter-stale".to_string());
+    client.close(1, 200).unwrap();
+    drop(client);
+    kill(second);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Review 2 of holder items 1-3: a holder that cannot continue the segment
+/// an ADOPT carried (here: a file that is no ring, so `Ring::adopt` fails)
+/// starts a fresh ring at `resume` and says so in its ADOPTED answer, with
+/// that ring's segment. The daemon keeps that segment, not the one it
+/// handed over: when this holder dies too, the next one continues the
+/// segment this one really wrote, and the stream goes on at the daemon's
+/// offset (`pump_until` checks every offset). Before the answer the daemon
+/// kept the old segment, which could end past what it received and splice
+/// stale bytes in.
+#[test]
+fn a_holder_that_cannot_continue_a_segment_says_which_ring_it_writes() {
+    let dir = temp_dir();
+    let socket = dir.join("h.sock");
+    let first = launch(holder_binary(), &socket, &TOKEN).unwrap();
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    let spawned = client.spawn_with_ring(1, &shell(1)).unwrap();
+    client.attach(1, 0).unwrap();
+    let screen = Screen {
+        master: spawned.master.try_clone().unwrap(),
+        pid: spawned.pid,
+        base: 0,
+        bytes: Vec::new(),
+    };
+    let mut screens = BTreeMap::from([(1, screen)]);
+    pump_until(&mut client, &mut screens, |chan| format!("ready-{chan}"));
+    drop(client);
+    kill(first);
+    let mut id = [0u8; 16];
+    id[..4].copy_from_slice(&1u32.to_le_bytes());
+
+    // The segment handed over is no ring at all.
+    let not_a_ring: OwnedFd = std::fs::File::create(dir.join("not-a-ring")).unwrap().into();
+    let second = launch(holder_binary(), &socket, &TOKEN).unwrap();
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    let received = screens[&1].end();
+    client
+        .adopt_with_ring(
+            1,
+            &id,
+            (spawned.pid, received, received),
+            &spawned.master,
+            &not_a_ring,
+            b"",
+        )
+        .unwrap();
+    let adopted = client.adopted(1).expect("the holder answers the ADOPT");
+    assert_eq!((adopted.oldest, adopted.end), (received, received), "a fresh ring at resume");
+    let written = adopted.ring.expect("the holder names the segment it writes");
+    client.attach(1, received).unwrap();
+    client.write(1, b"on-fresh\n").unwrap();
+    pump_until(&mut client, &mut screens, |_| "on-fresh\r\non-fresh".to_string());
+    assert_eq!(
+        cmux_holder::ring::segment_end(&written).unwrap(),
+        screens[&1].end(),
+        "the answered segment is the one the holder writes"
+    );
+    drop(client);
+    kill(second);
+
+    // The next holder continues exactly that segment.
+    let third = launch(holder_binary(), &socket, &TOKEN).unwrap();
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    let received = screens[&1].end();
+    client
+        .adopt_with_ring(1, &id, (spawned.pid, received, received), &spawned.master, &written, b"")
+        .unwrap();
+    let adopted = client.adopted(1).unwrap();
+    assert_eq!(adopted.end, received, "the answered segment continues where the daemon is");
+    assert!(adopted.oldest < received, "the kept ring still holds the earlier output");
+    client.attach(1, received).unwrap();
+    client.write(1, b"on-kept\n").unwrap();
+    pump_until(&mut client, &mut screens, |_| "on-kept\r\non-kept".to_string());
+    assert_eq!(cmux_holder::ring::segment_end(&written).unwrap(), screens[&1].end());
+    client.close(1, 200).unwrap();
+    drop(client);
+    kill(third);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Review 2 of holder items 1-3: after an adoption the new holder's credit
+/// counts from the offset the daemon parsed, not the one it received. The
+/// "daemon" received one credit window and parsed none of it when the
+/// holder died; the new holder must send nothing more until an ACK, so the
+/// daemon's queue and the ring past what it parsed stay within the window
+/// plus the unsent limit. Before, the holder allowed a new window on top of
+/// the unparsed one.
+#[test]
+fn a_new_holders_credit_counts_from_what_the_daemon_parsed() {
+    // The credit window plus the unsent limit: as much as the first holder
+    // may hold with nothing acknowledged.
+    const TOTAL: usize = wire::CREDIT_WINDOW as usize + cmux_holder::holder::UNSENT_HIGH_WATER;
+    let dir = temp_dir();
+    let socket = dir.join("h.sock");
+    let written = fifo(&dir.join("written"));
+    let first = launch(holder_binary(), &socket, &TOKEN).unwrap();
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    let mut request = shell(1);
+    request.argv[2] = format!(
+        "stty raw -echo; yes abcdefghijklmnopqrstuvwxyz0123456789 | head -c {TOTAL}; echo > '{}'; exec cat",
+        written.display()
+    )
+    .into_bytes();
+    let spawned = client.spawn_with_ring(1, &request).unwrap();
+    let ring = spawned.ring.expect("the holder passes its ring segment");
+    client.attach(1, 0).unwrap();
+    let mut got = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while (got.len() as u64) < wire::CREDIT_WINDOW {
+        if let Event::Data { offset, bytes, .. } = client.next_event(deadline).unwrap() {
+            assert_eq!(offset, got.len() as u64);
+            got.extend(bytes);
+        }
+    }
+    let unsent = cmux_holder::holder::UNSENT_HIGH_WATER as u64;
+    // The program's signal that it wrote the window and the unsent limit:
+    // the holder holds them, but for what still waits in the PTY.
+    wait_for_line(&written, "the program never wrote its output");
+    holder_turn(&mut client, 1, &mut got);
+    assert_eq!(cmux_holder::ring::segment_end(&ring).unwrap(), TOTAL as u64);
+    kill(first);
+    while let Ok(event) = client.next_event(Instant::now() + Duration::from_millis(500)) {
+        if let Event::Data { offset, bytes, .. } = event {
+            assert_eq!(offset, got.len() as u64);
+            got.extend(bytes);
+        }
+    }
+    drop(client);
+    let received = got.len() as u64;
+    assert_eq!(received, wire::CREDIT_WINDOW, "the dead holder sent exactly one window");
+
+    let second = launch(holder_binary(), &socket, &TOKEN).unwrap();
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    let mut id = [0u8; 16];
+    id[..4].copy_from_slice(&1u32.to_le_bytes());
+    // Nothing parsed: the screen is at 0, the stream continues at `received`.
+    client
+        .adopt_with_ring(1, &id, (spawned.pid, 0, received), &spawned.master, &ring, b"")
+        .unwrap();
+    client.attach_parsed(1, received, 0).unwrap();
+    let quiet = Instant::now() + Duration::from_millis(500);
+    while let Ok(event) = client.next_event(quiet) {
+        if let Event::Data { offset, bytes, .. } = event {
+            panic!(
+                "the holder sent {} bytes at {offset} past a window the daemon has not parsed",
+                bytes.len()
+            );
+        }
+    }
+    let ring_end = cmux_holder::ring::segment_end(&ring).unwrap();
+    assert!(
+        ring_end <= wire::CREDIT_WINDOW + unsent,
+        "the ring runs {ring_end} bytes past what the daemon parsed"
+    );
+    // The daemon parsed it all: the rest flows, byte for byte.
+    client.ack(1, received).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while got.len() < TOTAL {
+        if let Event::Data { offset, bytes, .. } = client.next_event(deadline).unwrap() {
+            assert_eq!(offset, got.len() as u64);
+            got.extend(bytes);
+            client.ack(1, got.len() as u64).unwrap();
+        }
+    }
+    let line = b"abcdefghijklmnopqrstuvwxyz0123456789\n";
+    let expected: Vec<u8> = line.iter().copied().cycle().take(TOTAL).collect();
+    assert!(got == expected, "the output after the crash differs from what the program printed");
+    client.close(1, 200).unwrap();
+    drop(client);
+    kill(second);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Review 1 of pl-holder-11: a holder that dies while output still waits
+/// in the PTY (it stopped reading at its room limit: one credit window sent
+/// and not acknowledged, the unsent limit read into its ring) loses none of
+/// it. The next holder continues the ring and reads the rest from the PTY,
+/// after the ring's bytes, in order.
+#[test]
+fn a_holder_killed_at_its_room_limit_leaves_the_rest_to_the_next_holder() {
+    // What the holder may hold with nothing acknowledged, and a rest that a
+    // PTY buffers whole (so the program's last write returns).
+    const HELD: usize = wire::CREDIT_WINDOW as usize + cmux_holder::holder::UNSENT_HIGH_WATER;
+    const TOTAL: usize = HELD + 200;
+    let dir = temp_dir();
+    let socket = dir.join("h.sock");
+    let written = fifo(&dir.join("written"));
+    let first = launch(holder_binary(), &socket, &TOKEN).unwrap();
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    let mut request = shell(1);
+    request.argv[2] = format!(
+        "stty raw -echo; yes abcdefghijklmnopqrstuvwxyz0123456789 | head -c {TOTAL}; echo > '{}'; exec cat",
+        written.display()
+    )
+    .into_bytes();
+    let spawned = client.spawn_with_ring(1, &request).unwrap();
+    let ring = spawned.ring.expect("the holder passes its ring segment");
+    client.attach(1, 0).unwrap();
+    let mut got = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while (got.len() as u64) < wire::CREDIT_WINDOW {
+        if let Event::Data { offset, bytes, .. } = client.next_event(deadline).unwrap() {
+            assert_eq!(offset, got.len() as u64);
+            got.extend(bytes);
+        }
+    }
+    wait_for_line(&written, "the program never wrote its output");
+    // One turn later the holder read all it may and stopped at its room:
+    // no read is in flight, and the rest waits in the PTY.
+    holder_turn(&mut client, 1, &mut got);
+    assert_eq!(
+        cmux_holder::ring::segment_end(&ring).unwrap(),
+        HELD as u64,
+        "the holder reads no further than its room"
+    );
+    assert_eq!(cmux_holder::ring::interrupted_read(&ring).unwrap(), None);
+    kill(first);
+    drop(client);
+    let received = got.len() as u64;
+    assert_eq!(received, wire::CREDIT_WINDOW, "the dead holder sent exactly one window");
+
+    let second = launch(holder_binary(), &socket, &TOKEN).unwrap();
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    let mut id = [0u8; 16];
+    id[..4].copy_from_slice(&1u32.to_le_bytes());
+    client
+        .adopt_with_ring(1, &id, (spawned.pid, received, received), &spawned.master, &ring, b"")
+        .unwrap();
+    client.attach(1, received).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while got.len() < TOTAL {
+        match client.next_event(deadline).unwrap() {
+            Event::Data { offset, bytes, .. } => {
+                assert_eq!(offset, got.len() as u64, "the new holder continues at the daemon");
+                got.extend(bytes);
+                client.ack(1, got.len() as u64).unwrap();
+            }
+            Event::Gap { requested, oldest, .. } => panic!("lost output {requested}..{oldest}"),
+            _ => {}
+        }
+    }
+    let line = b"abcdefghijklmnopqrstuvwxyz0123456789\n";
+    let expected: Vec<u8> = line.iter().copied().cycle().take(TOTAL).collect();
+    assert!(got == expected, "the output after the crash differs from what the program printed");
+    client.close(1, 200).unwrap();
+    drop(client);
+    kill(second);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A new terminal holds its output until its ATTACH: the daemon sends SPAWN
+/// and ATTACH as two writes, and a holder that read freely in between could
+/// pass the ring's size before the ATTACH and lose the terminal's first
+/// output (a GAP from 0). Here no ATTACH comes until the program printed
+/// more than the unsent limit: the holder must have read no more than an
+/// attached stream from 0 may (its custody segment ends there; before the
+/// fix it ended at everything printed, and past the ring's size the first
+/// bytes were gone), and the ATTACH then gets every byte from 0, in order.
+#[test]
+fn a_new_terminal_holds_its_output_until_its_attach() {
+    const LIMIT: usize = cmux_holder::holder::UNSENT_HIGH_WATER;
+    // More than the unsent limit, by a rest a PTY buffers whole.
+    const TOTAL: usize = LIMIT + 200;
+    let dir = temp_dir();
+    let socket = dir.join("h.sock");
+    let written = fifo(&dir.join("written"));
+    let holder = launch(holder_binary(), &socket, &TOKEN).unwrap();
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    let mut request = shell(1);
+    request.argv[2] = format!(
+        "stty raw -echo; yes abcdefghijklmnopqrstuvwxyz0123456789 | head -c {TOTAL}; echo > '{}'; exec cat",
+        written.display()
+    )
+    .into_bytes();
+    let spawned = client.spawn_with_ring(1, &request).unwrap();
+    let ring = spawned.ring.expect("the holder passes its ring segment");
+    wait_for_line(&written, "the program never wrote its output");
+    let mut got = Vec::new();
+    holder_turn(&mut client, 1, &mut got);
+    assert!(got.is_empty(), "the holder sent output before the ATTACH");
+    assert_eq!(
+        cmux_holder::ring::segment_end(&ring).unwrap(),
+        LIMIT as u64,
+        "an unattached new terminal read past what an attached stream may hold"
+    );
+    client.attach(1, 0).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while got.len() < TOTAL {
+        match client.next_event(deadline).unwrap() {
+            Event::Data { offset, bytes, .. } => {
+                assert_eq!(offset, got.len() as u64);
+                got.extend(bytes);
+                client.ack(1, got.len() as u64).unwrap();
+            }
+            Event::Gap { requested, oldest, .. } => {
+                panic!("the new terminal lost its first output {requested}..{oldest}")
+            }
+            _ => {}
+        }
+    }
+    let line = b"abcdefghijklmnopqrstuvwxyz0123456789\n";
+    let expected: Vec<u8> = line.iter().copied().cycle().take(TOTAL).collect();
+    assert!(got == expected, "the attached stream differs from what the program printed");
+    client.close(1, 200).unwrap();
+    drop(client);
+    kill(holder);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Review 2 of holder items 1-3: a daemon older than ring layout 2 (wire
+/// version 3 or 4) gets no ring segment from this holder, in a SPAWNED or a
+/// LISTED (one descriptor, the master, and no `FLAG_RING`), and no ADOPTED
+/// answer to an ADOPT (it would not know the frame). Such a daemon could
+/// hand a layout 2 segment to a holder of its own build, which cannot read
+/// it. A daemon of this version gets both.
+#[test]
+fn an_older_daemon_gets_no_ring_segment_and_no_adopted_answer() {
+    for version in [3u16, 4, wire::RING_VERSION] {
+        let dir = temp_dir();
+        let socket = dir.join("h.sock");
+        let first = launch(holder_binary(), &socket, &TOKEN).unwrap();
+        let (mut client, _) = HolderClient::connect_as(&socket, &TOKEN, version).unwrap();
+        assert_eq!(client.version(), version);
+        let spawned = client.spawn_with_ring(1, &shell(1)).unwrap();
+        let rings = version >= wire::RING_VERSION;
+        assert_eq!(spawned.ring.is_some(), rings, "version {version}: SPAWNED's segment");
+        client.attach(1, 0).unwrap();
+        let screen = Screen {
+            master: spawned.master.try_clone().unwrap(),
+            pid: spawned.pid,
+            base: 0,
+            bytes: Vec::new(),
+        };
+        let mut screens = BTreeMap::from([(1, screen)]);
+        pump_until(&mut client, &mut screens, |chan| format!("ready-{chan}"));
+        drop(client);
+        let (client, listed) = HolderClient::connect_as(&socket, &TOKEN, version).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert!(listed[0].master.is_some(), "version {version}: LISTED's master");
+        assert_eq!(listed[0].ring.is_some(), rings, "version {version}: LISTED's segment");
+        drop(listed);
+        drop(client);
+        kill(first);
+
+        let second = launch(holder_binary(), &socket, &TOKEN).unwrap();
+        let (mut client, _) = HolderClient::connect_as(&socket, &TOKEN, version).unwrap();
+        let mut id = [0u8; 16];
+        id[..4].copy_from_slice(&1u32.to_le_bytes());
+        let received = screens[&1].end();
+        client.adopt(1, &id, spawned.pid, received, &spawned.master).unwrap();
+        client.ping(7).unwrap();
+        let mut answered = false;
+        loop {
+            match expect_event(&mut client, "the PONG after the ADOPT") {
+                Event::Adopted { chan: 1, ring, .. } => {
+                    assert!(ring, "a version {version} holder writes a shared ring");
+                    answered = true;
+                }
+                Event::Pong { nonce: 7 } => break,
+                _ => {}
+            }
+        }
+        assert_eq!(answered, rings, "version {version}: the ADOPTED answer");
+        client.close(1, 200).unwrap();
+        drop(screens);
+        drop(client);
+        kill(second);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 #[test]
@@ -533,8 +1010,11 @@ fn a_terminal_whose_streams_keep_ending_without_detach_restores_without_its_ring
     client.attach(1, 0).unwrap();
     let mut screens = BTreeMap::from([(1, Screen { master, pid, base: 0, bytes: Vec::new() })]);
     pump_until(&mut client, &mut screens, |chan| format!("ready-{chan}"));
-    // Strike 1: the first daemon's link ends without DETACH.
-    drop(client);
+    // Strike 1: the first daemon's link ends without DETACH. `end`, not a
+    // drop: a holder another test forks in this window would keep the
+    // socket open past the next connect, and the holder would see a
+    // takeover, not a lost link.
+    client.end();
     // Strike 2: the next one replays the ring, then ends the same way.
     let (mut client, listed) = HolderClient::connect(&socket, &TOKEN).unwrap();
     client.reattach(1, listed[0].oldest).unwrap();
@@ -542,7 +1022,7 @@ fn a_terminal_whose_streams_keep_ending_without_detach_restores_without_its_ring
         Event::Data { offset: 0, .. } => {}
         other => panic!("the second daemon did not get the ring: {other:?}"),
     }
-    drop(client);
+    client.end();
     // The third gets no ring tail: a GAP to the end, then live output.
     let (mut client, listed) = HolderClient::connect(&socket, &TOKEN).unwrap();
     let end = listed[0].end;
@@ -559,7 +1039,7 @@ fn a_terminal_whose_streams_keep_ending_without_detach_restores_without_its_ring
     }
     // A daemon that DETACHes is no strike: the next one gets the whole ring.
     client.detach(1).unwrap();
-    drop(client);
+    client.end();
     let (mut client, listed) = HolderClient::connect(&socket, &TOKEN).unwrap();
     client.reattach(1, listed[0].oldest).unwrap();
     match expect_event(&mut client, "the ring after a clean detach") {
@@ -688,6 +1168,47 @@ fn an_idle_holder_exits_and_a_scripts_sigterm_does_not_end_one_with_terminals() 
         std::thread::sleep(Duration::from_millis(50));
     }
     assert!(!socket.exists(), "the idle holder left its socket");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Holder item 5 (parity with terminal hosts before the holder is the
+/// default): a holder started with an orphan grace (`CMUX_HOLDER_ORPHAN_GRACE_MS`,
+/// the grace a DEV or test daemon gives its hosts) ends its terminals once no
+/// daemon was linked for that long, then exits idle, so throwaway daemons do
+/// not keep shells and PTYs for ever. A daemon that comes back in time keeps
+/// them.
+#[test]
+fn an_orphan_grace_ends_the_terminals_of_a_holder_no_daemon_came_back_to() {
+    let dir = temp_dir();
+    let socket = dir.join("h.sock");
+    let mut holder = launch_with(holder_binary(), &socket, &TOKEN, |command| {
+        command.args(["--idle-exit-ms", "500"]).env("CMUX_HOLDER_ORPHAN_GRACE_MS", "1500");
+    })
+    .unwrap();
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    let (pid, master) = client.spawn(1, &shell(1)).unwrap();
+    client.attach(1, 0).unwrap();
+    let mut screens = BTreeMap::from([(1, Screen { master, pid, base: 0, bytes: Vec::new() })]);
+    pump_until(&mut client, &mut screens, |chan| format!("ready-{chan}"));
+    // A daemon that reconnects within the grace keeps the shell.
+    drop(client);
+    std::thread::sleep(Duration::from_millis(700));
+    let (client, listed) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    assert_eq!(listed.len(), 1, "the holder dropped its terminal before the grace");
+    drop(client);
+    std::thread::sleep(Duration::from_millis(1000));
+    assert!(alive(pid), "the grace counted from the first link's end, not the last");
+    // No daemon comes back: the shell ends, then the idle holder exits.
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while alive(pid) {
+        assert!(Instant::now() < deadline, "an orphaned holder kept its shell");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    while holder.try_wait().unwrap().is_none() {
+        assert!(Instant::now() < deadline, "the orphaned holder kept running");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    drop(screens);
     let _ = std::fs::remove_dir_all(&dir);
 }
 

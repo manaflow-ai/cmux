@@ -19,6 +19,7 @@ path = "src/main.rs"
 
 [dependencies]
 optchat-core = { path = "../optchat-core" }
+chief-kernel = { path = "../chief-kernel" }
 optchat-host = { path = "../optchat-host" }
 # Claude Code's stream-json lines and token counts, shared with the Cloud
 # Chief's turn runner (Native/OptChat/chief-turn); the library only.
@@ -63,6 +64,8 @@ test-in-process-peer = []
 [dev-dependencies]
 optchat-chief = { path = ".", features = ["test-in-process-peer"] }
 tempfile = "3"
+# The Chief fast evals (examples/chief_eval.rs): check regexes.
+regex = "1"
 
 # The Chief ships in the app bundle (Resources/bin): fat LTO with one codegen
 # unit, like the cmux-tui client, keeps it small.

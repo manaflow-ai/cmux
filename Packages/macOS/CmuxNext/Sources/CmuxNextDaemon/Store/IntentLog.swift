@@ -7,7 +7,13 @@ enum IntentUndo: Equatable {
     case moveTab(surface: SurfaceID, fromPane: PaneID, fromIndex: Int, toPane: PaneID)
     case tabName(surface: SurfaceID, name: String?)
     case tabPinned(surface: SurfaceID, pinned: Bool)
+    case paneName(pane: PaneID, name: String?)
+    case screenName(screen: ScreenID, name: String?)
+    case screenColor(screen: ScreenID, color: String?)
+    case screenIcon(screen: ScreenID, icon: String?)
+    case screenPinned(screen: ScreenID, pinned: Bool)
     case workspaceName(key: WorkspaceKey, name: String)
+    case workspaceColor(key: WorkspaceKey, color: String?)
     /// The workspace's daemon-order index and group before the apply.
     case workspacePlace(key: WorkspaceKey, index: Int, group: WorkspaceGroupID?)
     case workspaceGroupCollapsed(WorkspaceGroupID, collapsed: Bool)
@@ -69,6 +75,9 @@ struct PendingIntent {
     var replySurface: SurfaceID?
     /// Closes of a cancelled creation's daemon surface sent so far (a timed-out close is sent again).
     var closeAttempts = 0
+    /// A script batch's intent held back by its ``StoreStage``: in the log (ordered with the rest)
+    /// but not shown, and never due, until the stage commits.
+    var held = false
 }
 
 /// The ordered log of pending intents. Pure bookkeeping: the store applies
@@ -98,10 +107,25 @@ struct IntentLog {
 
     /// Appends a new intent. False when the transaction is already pending
     /// or already settled (an id is never reused).
-    mutating func append(_ intent: Intent, transaction: ClientTransactionID) -> Bool {
+    mutating func append(_ intent: Intent, transaction: ClientTransactionID, held: Bool = false) -> Bool {
         guard !contains(transaction), !wasSettled(transaction) else { return false }
-        entries.append(PendingIntent(transaction: transaction, kind: intent))
+        var entry = PendingIntent(transaction: transaction, kind: intent)
+        entry.held = held
+        entries.append(entry)
         return true
+    }
+
+    /// Whether any intent is held by a stage.
+    var hasHeld: Bool { entries.contains(where: \.held) }
+
+    /// Shows the held intents with the rest (their stage committed): the next overlay restore
+    /// applies them in log order.
+    mutating func releaseHeld() {
+        entries = entries.map { entry in
+            var entry = entry
+            entry.held = false
+            return entry
+        }
     }
 
     /// Records the sequence that settles `transaction`; keeps the smaller
@@ -172,6 +196,8 @@ struct IntentLog {
     }
 
     private static func isDue(_ intent: PendingIntent, appliedSequence: UInt64, snapshot: Bool) -> Bool {
+        // A held intent never showed: it leaves only after its stage released it.
+        if intent.held { return false }
         if snapshot, intent.settlesAtSnapshot { return true }
         return intent.settleSequence.map { appliedSequence >= $0 } ?? false
     }

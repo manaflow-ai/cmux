@@ -27,6 +27,11 @@
       "notices": ["section:rust-iroh-ffi", "section:manual-rust-and-zig-standard-libraries"]
     },
     {
+      "path": "Contents/Frameworks/WebRTC.framework/*",
+      "what": "libwebrtc M154 (stasel/WebRTC 154.0.0, Packages/Shared/CmuxVNCWebRTC) for Mac Screen streams (CmuxScreenKit); its BoringSSL, Opus, libvpx, libsrtp, Abseil, dav1d, libaom, libyuv, protobuf-lite and PFFFT notices are in Chromium 154's CREDITS.html",
+      "notices": ["section:manual-webrtc-mac-screen-streams", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html"]
+    },
+    {
       "path": "Contents/Frameworks/Chromium Embedded Framework.framework/*",
       "what": "CEF and Chromium, including libcef_sandbox, SwiftShader and the Vulkan loader",
       "notices": ["file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]

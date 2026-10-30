@@ -22,6 +22,7 @@ All of these run the same daemon operations, so a profile added in one place sho
 | CLI (app actions) | `cmux agent add-harness --arg command=acme-agent` or `--arg registry=goose` | `cmux agent check-harness --arg id=acme` | `cmux agent remove-harness --arg id=acme`, `cmux agent restore-harness` |
 | MCP (`cmux mcp serve`) | `app_agent_add_harness` | `app_agent_check_harness` | `app_agent_remove_harness`, `app_agent_restore_harness` |
 | acpmux CLI (no app needed) | `cmux harness add`, `cmux harness add ID --registry` | `cmux harness doctor ID` | delete the file |
+| Icon | Settings > Agents: **Icon…** on your profile; `cmux harness icon ID VALUE`; `_acpmux/harness/icon` | `cmux harness icon ID` | `cmux harness icon ID --clear` |
 
 Secrets never pass through Settings or the app actions: a custom command names env keys, the
 profile reads each from the Keychain item of the same name (`keychain:KEY`), and
@@ -79,8 +80,9 @@ schema = 1
 id = "acme"
 name = "Acme Agent"             # display name
 description = "Acme's internal coding agent"
-icon = "acme.svg"               # file next to the profile (svg/png, <= 256 KB), or a built-in:
-                                # claude, openai, codex, opencode, pi, gemini, terminal, generic
+icon = "acme.svg"               # file next to the profile (svg/png, <= 256 KB), one emoji ("🦊"),
+                                # an SF Symbol ("hammer.fill"; "sf:NAME" forces one), an agent
+                                # mark (claude, openai, gemini, goose, amp, ...), terminal or generic
 protocol = "acp"                # acp (default) | terminal | claude-stdio
 command = "acme-agent"          # program on PATH, or an absolute path (no spaces, no arguments)
 args = ["acp", "--model", "${model}"]   # ${model} = the chosen model, ${cwd} = the chat folder
@@ -133,6 +135,34 @@ cwd = "{cwd}"
 
 Each `{ ... }` model entry stays on one line (TOML inline tables).
 
+## Icons
+
+Every harness has an icon in the model picker, New Tab, Home, subagent rows, Settings, its chats'
+tabs and its workspaces' sidebar rows.
+Set your own from the CLI or from Settings > Agents (**Icon…** on your profile's row: type a value,
+choose or drop a PNG or SVG, or **Automatic**):
+
+```sh
+cmux harness icon acme 🦊                 # one emoji
+cmux harness icon acme hammer.fill        # an SF Symbol
+cmux harness icon acme goose              # an agent's mark
+cmux harness icon acme ~/Pictures/acme.svg   # copied next to the profile as acme.svg
+cmux harness icon acme --clear            # back to automatic
+cmux harness icon acme                    # what cmux shows now, and why
+cmux harness add acme --command acme-agent --icon 🦊
+```
+
+Without an `icon` line cmux picks one: the mark of the agent the harness runs, read from its id
+(`claude-work`), its program (`codex-acp`), the package a runner starts (`npx -y
+@google/gemini-cli` is Gemini; also `bunx`, `pnpm dlx`, `uvx`, `pipx run`) or its family; else
+`terminal` for a terminal harness; else a monogram of its name (`Zeta Bot` is `ZB`) on a color fixed
+by its id, so it never changes between launches or devices. A missing or broken icon file is a
+doctor error, never a blank icon. An SVG may not hold scripts or event handlers. Clients draw the
+daemon's one answer, `iconSpec` on each `_acpmux/harnesses` entry: `{kind: brand|glyph|emoji|symbol|
+image|monogram, ..., source: profile|id|command|family|default}`. The app draws an SF Symbol for its pages (`harness.symbol` on the agent page,
+`agents.run {action: "symbol"}` in Settings) and natively in the tab strip and sidebar; a name the
+Mac cannot draw shows the symbol's monogram (`text`, `hue`).
+
 ## Secrets
 
 Never put a secret (API key, token, password) in a profile file. Store it in the system secret
@@ -181,7 +211,7 @@ cmux harness doctor acme                              # one real hello turn
   refused: the key goes only into the Keychain.
 - Without `--keychain-item` the item is `cmux-harness/<id>/<KEY>`, which `cmux harness secret set`
   writes. With it, the profile reads the item you name (`service` or `service/account`).
-- A family or global route (`cmux route use`) never rewrites an endpoint harness; a chat's or
+- A family or global route binding never rewrites an endpoint harness; a chat's or
   workspace's route still does.
 - `cmux harness doctor ID` (and `_acpmux/harness/doctor {id, prompt: true}`) sends one real prompt:
   `claude -p` with the profile's env for `anthropic-endpoint` (at least 60 s), the ACP prompt for

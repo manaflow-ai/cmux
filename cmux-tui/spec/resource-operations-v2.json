@@ -547,6 +547,19 @@
             }
           },
           "description": "Every live Chief, the default first, then in creation order."
+        },
+        "deleted": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            }
+          },
+          "description": "The ids of deleted Chiefs (their tombstones), in deletion order, so a client hides their conversations."
         }
       },
       "extra": false
@@ -8996,6 +9009,15 @@
             "name": "string"
           },
           "description": "The file's unified diff from its first @@ line. Only with include_patch, and never for an untracked file."
+        },
+        "blob_fingerprint": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The file's git blob identity from its patch's index and mode lines, so a client can tell an unchanged file from a changed one even when the patch is cut. Only with include_patch, and never for an untracked file."
         },
         "patch_truncated": {
           "required": false,
@@ -25943,7 +25965,8 @@
         "fields": {
           "event": {"required": true, "type": {"kind": "ref", "name": "JournalIngressEvent"}},
           "live_prompt": {"required": false, "description": "An agent hook's turn prompt for the hover card task line: kept in daemon memory only (at most 200 characters), never journaled, persisted or logged.", "type": {"kind": "primitive", "name": "string"}},
-          "live_reply": {"required": false, "description": "A finished or failed turn's last agent message for its banner preview: kept in daemon memory only (at most 200 characters) until the turn's notification event carries it as preview, never journaled, persisted or logged.", "type": {"kind": "primitive", "name": "string"}}
+          "live_reply": {"required": false, "description": "A finished or failed turn's last agent message for its banner preview: kept in daemon memory only (at most 200 characters) until the turn's notification event carries it as preview, never journaled, persisted or logged.", "type": {"kind": "primitive", "name": "string"}},
+          "live_question": {"required": false, "description": "A question hook's question (Claude Code AskUserQuestion, Codex request_user_input) as compact JSON {harness, tool_use_id?, questions: [{id?, question, header?, multiSelect, isOther?, options: [{label, description?}]}]} (at most 16 KiB, 4 questions, 8 options each): kept in daemon memory only while the agent waits on it, carried by the question notification event as question and by its list-notifications row; never journaled, persisted or logged.", "type": {"kind": "primitive", "name": "string"}}
         },
         "extra": false
       },
@@ -29764,7 +29787,17 @@
                 "max_length": 200
               }
             },
-            "description": "tab-attention-v1: an agent needs the person to act in this tab (confirm, log in, approve, pick). The reason is one line the person reads, at most 200 bytes of UTF-8; null clears the mark. Shown as the tab's extra.attention {reason, at_ms} (present only while marked) on every client, which draw it as needs-you. It never moves focus. Viewing the tab keeps it; the agent's clear, a browser tab's navigation to another page, or the tab's close clears it."
+            "description": "tab-attention-v1: an agent needs the person to act in this tab (confirm, log in, approve, pick). The reason is one line the person reads, at most 200 bytes of UTF-8; null clears the mark. Shown as the tab's extra.attention {reason, at_ms, request_id} (present only while marked) on every client, which draw it as needs-you. It never moves focus. Viewing the tab keeps it; the agent's clear, a browser tab's navigation to another page, or the tab's close clears it."
+          },
+          "attention_request_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 32,
+              "max_length": 32
+            },
+            "description": "tab-attention-request-id-v1: with attention:null, clear only the mark whose extra.attention.request_id equals this opaque 32-byte lowercase hexadecimal identity. A stale identity is a successful no-op and returns the current tab. Requires attention:null; never use at_ms as identity or fall back to an unconditional clear when capability or identity is absent."
           },
           "expected_revision": {
             "required": false,
