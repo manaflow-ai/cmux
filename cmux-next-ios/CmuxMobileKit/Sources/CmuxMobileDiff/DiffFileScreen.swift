@@ -144,7 +144,6 @@ public struct DiffFileScreen: View {
                 }
             }
         }
-        .toolbar(.hidden, for: .tabBar)
         #if DEBUG
         .onChange(of: DemoDirector.shared.serial) { runDemoCommand() }
         #endif

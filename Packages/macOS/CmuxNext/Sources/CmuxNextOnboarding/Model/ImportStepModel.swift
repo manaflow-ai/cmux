@@ -195,13 +195,25 @@ public final class ImportStepModel {
     /// Browsers whose data macOS blocks until the user grants Full Disk Access.
     public var needsFullDiskAccess: Bool { sources.contains(where: \.needsFullDiskAccess) }
 
-    /// Finds the browsers once, when a person asks (Find Browsers). Never when
-    /// the step only shows: detection reads other apps' data (Safari's files,
+    /// Finds the browsers once, when the person opens Import from Browser or
+    /// asks to check again. Detection reads other apps' data (Safari's files,
     /// each Chromium `Local State`), which macOS guards with a privacy prompt
-    /// (LAUNCH-NO-TCC-PROMPTS). `redetect()` is Check again.
+    /// (LAUNCH-NO-TCC-PROMPTS); the tool itself is an explicit import request,
+    /// so opening it is the point at which that work may begin. `redetect()`
+    /// is Check again.
     public func detect() {
         guard phase == .idle else { return }
         redetect()
+    }
+
+    /// The window ended while browsers were still being looked for: stop
+    /// the scan so it neither keeps probing nor updates a closed step. A
+    /// running import is left alone (it finishes after the window moves on).
+    public func stopDetecting() {
+        guard phase == .detecting else { return }
+        task?.cancel()
+        task = nil
+        phase = .idle
     }
 
     public func redetect() {
@@ -214,11 +226,16 @@ public final class ImportStepModel {
         task?.cancel()
         phase = .detecting
         task = Task { [weak self, services] in
+            // A cancelled scan (stopDetecting, a newer redetect) stops before its next probe.
             let found = await services.detectBrowsers()
+            guard !Task.isCancelled else { return }
             let awaiting = await services.browsersAwaitingAccess()
+            guard !Task.isCancelled else { return }
             let chromiumPasswords = found.contains { $0.profiles.contains { $0.availability(of: .passwords).isImportable } }
             let store = chromiumPasswords ? await services.canImportPasswords() : false
+            guard !Task.isCancelled else { return }
             let choices = await services.importTargets()
+            guard !Task.isCancelled else { return }
             let earlier = await services.earlierImportTargets()
             guard let self, !Task.isCancelled else { return }
             targetChoices = choices

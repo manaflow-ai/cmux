@@ -96,6 +96,25 @@ public final class AgentChatSurface {
     }
     /// Mirrors the composer's focus (the composer's `@FocusState` follows it).
     public var composerFocused = false
+
+    /// Edit and Resend from a user bubble: the message goes into the composer to edit and
+    /// is sent from there. Returns false, changing nothing, while the composer holds a
+    /// draft (the bubble asks before replacing it).
+    func editAndResend(_ turn: AgentTurn, store: AgentChatStore) -> Bool {
+        guard let prompt = store.editAndResend(turn, draft: text) else { return false }
+        loadForEditing(prompt, permissionPending: store.pendingPermission != nil)
+        return true
+    }
+
+    /// Puts a message in the composer, focused. With permission choices up, the composer
+    /// takes their place as a follow-up, as for a draft typed before the permission arrived,
+    /// never as "Reply instead", which would answer the request (an open "Reply instead" ends).
+    func loadForEditing(_ prompt: String, permissionPending: Bool) {
+        text = prompt
+        replyInsteadOfPermission = false
+        if permissionPending { permissionDeferred = true }
+        composerFocused = true
+    }
     /// Screen y of the top of the floating bottom stack (tab mode), so the
     /// transcript's bottom margin follows the composer and the keyboard.
     public internal(set) var bottomStackTop: CGFloat?
@@ -269,7 +288,6 @@ public struct AgentChatScreen: View {
             .background(Color.cmuxMobileBackground)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }
-            .toolbar(.hidden, for: .tabBar)
     }
 
     // MARK: Toolbar
@@ -702,6 +720,133 @@ nonisolated struct DrawnHeightReporter: ViewModifier, Animatable {
     }
 }
 
+/// One turn: user bubble, the agent's rows, working label, changes card, actions.
+struct TurnView: View {
+    let turn: AgentTurn
+    let store: AgentChatStore
+    let isLast: Bool
+    var surface: AgentChatSurface?
+    /// Edit and Resend while the composer holds a draft: confirming replacing it.
+    @State private var confirmingReplace = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Replayed history (the transcript on open, a reattach's catch-up) is drawn in
+            // place; only what arrives live animates in.
+            UserBubble(turn: turn, isLast: isLast) { editAndResend() }
+                .findBlock(AgentChatFind.promptKey(turn.id), surface: surface)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .transition(.asymmetric(insertion: store.isReplayed(turn.id) ? .identity
+                    : .offset(y: 24).combined(with: .scale(scale: 0.96)).combined(with: .opacity), removal: .opacity))
+            VStack(alignment: .leading, spacing: 10) {
+                let rows = turn.rows
+                ForEach(rows) { row in
+                    rowView(row, isLastRow: row.id == rows.last?.id)
+                        .rowHeightProbe("\(row.id)")
+                        .transition(.asymmetric(insertion: store.isReplayed(row.id) ? .identity : .opacity, removal: .opacity)
+                            .animation(.easeOut(duration: 0.15)))
+                }
+                if turn.status == .running, rows.needsWorkingIndicator, store.pendingPermission == nil, store.pendingQuestion == nil {
+                    WorkingLabel(turn.retry?.label ?? "Working", since: turn.startedAt)
+                        .frame(minHeight: 28)
+                        .transition(.opacity)
+                }
+                if turn.status != .running, let changes = turn.changeSet {
+                    EditedFilesCard(changeSet: changes).padding(.top, 4)
+                }
+                switch turn.status {
+                case .cancelled:
+                    Text("Stopped").font(.footnote).foregroundStyle(.tertiary)
+                case .failed:
+                    let failure = TurnFailureCopy(message: turn.errorText, harness: store.summary.harness, harnessName: store.summary.agentName)
+                    FailureCard(title: "Agent stopped", message: failure.sentence, detail: failure.detail,
+                                canRetry: store.canRetryFailedTurn(turn),
+                                retryWith: RetryModelChoice(store: store, turn: turn)) {
+                        store.retryFailedTurn(turn)
+                    }
+                case .completed:
+                    AnswerActionRow(turn: turn, isLast: isLast, retryWith: RetryModelChoice(store: store, turn: turn)) {
+                        store.send(prompt: turn.prompt)
+                    }
+                case .running:
+                    EmptyView()
+                }
+            }
+        }
+        // Edit and Resend while a draft is in the composer: the draft is replaced only on a
+        // choice here, and can be copied first.
+        .confirmationDialog("Replace your draft?", isPresented: $confirmingReplace, titleVisibility: .visible) {
+            Button("Copy Draft and Replace") {
+                UIPasteboard.general.string = surface?.text
+                editInComposer()
+            }
+            Button("Replace Draft", role: .destructive) { editInComposer() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Edit and Resend puts this message in the composer.")
+        }
+    }
+
+    /// Edit and Resend: the message goes into the composer to edit, and is sent from there.
+    /// A draft in the composer is never replaced without asking.
+    private func editAndResend() {
+        guard let surface else { return }
+        if !surface.editAndResend(turn, store: store) { confirmingReplace = true }
+    }
+
+    private func editInComposer() {
+        surface?.loadForEditing(turn.prompt, permissionPending: store.pendingPermission != nil)
+    }
+
+    @ViewBuilder
+    private func rowView(_ row: TurnRow, isLastRow: Bool) -> some View {
+        switch row {
+        case .message(_, let markdown):
+            // A replayed message's blocks are drawn in place too, not faded in one by one
+            // (one still streaming when the chat opened streams on without the block fade).
+            // Find in Chat marks and scrolls to the markdown block (paragraph, list, code) that
+            // holds a match, never a guess inside the whole message.
+            StreamingMarkdown(markdown: markdown, isStreaming: turn.status == .running && isLastRow,
+                              animatesBlocks: !store.isReplayed(row.id),
+                              findMarks: surface.map { MessageFindMarks(row: row.id, surface: $0) as any MarkdownBlockMarks })
+        case .thought(_, let text):
+            ThoughtRow(text: text, isLive: turn.status == .running && isLastRow)
+        case .tool(let call):
+            // One row (same id) as the run grows into a group: swap in
+            // place instead of crossfading two labels over each other.
+            ToolRowView(call: call).transition(.identity)
+        case .toolGroup(_, let calls):
+            ToolGroupView(calls: calls, turnRunning: turn.status == .running).transition(.identity)
+        case .edit(let call):
+            if call.isRunning {
+                ToolRowView(call: call)
+            } else {
+                DiffSnippet(call: call, changeSet: turn.changeSet ?? DiffChangeSet(id: call.id, title: "Changes", subtitle: "", files: []))
+            }
+        case .plan(_, let entries):
+            PlanCard(entries: entries)
+        case .permission(let record):
+            PermissionCard(record: record, agentName: store.summary.agentName,
+                           showChoices: surface?.permissionBarHidden == true && record.request.id == store.pendingPermission?.request.id
+                               ? { withAnimation(.cmuxMobileSmooth) { surface?.showPermissionChoices() } } : nil)
+        case .question(let id):
+            if let question = turn.question(id) {
+                QuestionCard(question: question) { store.answer(question, with: $0) }
+                if question.isPending, question.source.rejectOption != nil {
+                    // A phone's answer can be refused (only the Mac may answer); a decline always goes through.
+                    Button("Decline") { store.decline(question) }
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 4)
+                }
+            }
+        case .subagents(_, let ids):
+            SubagentGroupCard(ids: ids, store: store) { surface?.parityRoute = .subagent($0) }
+        }
+    }
+}
+
+
 /// Title-menu entries for the parity screens (pushed chat and workspace tab).
 public struct AgentParityMenuItems: View {
     let store: AgentChatStore
@@ -766,7 +911,7 @@ struct UserBubble: View {
     let attachments: [AgentAttachment]
     let promptAt: Date
     let isLast: Bool
-    let resend: (String) -> Void
+    let editAndResend: () -> Void
     @State private var selecting = false
 
     var body: some View {
@@ -787,6 +932,7 @@ struct UserBubble: View {
                         Button("Select Text", systemImage: "selection.pin.in.out") { selecting = true }
                         if isLast {
                             Button("Edit and Resend", systemImage: "pencil") { resend(prompt) }
+
                         }
                         ShareLink(item: prompt) { Label("Share", systemImage: "square.and.arrow.up") }
                     }
