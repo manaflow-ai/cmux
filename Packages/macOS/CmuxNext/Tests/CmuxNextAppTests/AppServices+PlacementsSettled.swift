@@ -1,7 +1,7 @@
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import CmuxNextDaemonService
-import CmuxNextSidebar
+@testable import CmuxNextSidebar
 import Foundation
 import Testing
 
@@ -38,7 +38,10 @@ extension AppServices {
         }
         await wait { personalPlacements.isIdle }
         // The document's own completion signal (each reply resumes it), not a poll; the deadline is a hang guard only.
-        if let document, await !Self.settled(document, before: deadline) { return document.pendingDescription }
+        if let document {
+            let settled = await Self.settled(document, before: deadline)
+            if !settled { return document.pendingDescription }
+        }
         // Taken after the replies: every echo and write-back event of the changes above is before it.
         if let barrier = await daemon.connection?.eventSequence() {
             await wait { daemon.store.appliedSequence >= barrier }

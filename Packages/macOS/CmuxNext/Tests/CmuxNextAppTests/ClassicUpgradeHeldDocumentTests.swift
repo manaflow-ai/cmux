@@ -16,7 +16,7 @@ struct ClassicUpgradeHeldDocumentTests {
         private let inner: any SidebarDocRemote
         private var held: [CheckedContinuation<Void, Never>] = []
         /// Whether someone waits for the document to settle now.
-        var waiting: () -> Bool = { false }
+        var waiting: @MainActor () -> Bool = { false }
         /// Changes and adopts that were held at some point.
         private(set) var everHeld = 0
         /// Changes and adopts held now.
@@ -51,9 +51,9 @@ struct ClassicUpgradeHeldDocumentTests {
 
         /// Sends every held change on, in the order they came.
         func release() {
-            let waiting = held
+            let ready = held
             held = []
-            for change in waiting { change.resume() }
+            for change in ready { change.resume() }
         }
 
         private func gate() async {
@@ -69,11 +69,11 @@ struct ClassicUpgradeHeldDocumentTests {
         try mac.save(profile)
         let before = try mac.classicDigest()
         var made: HeldRemote?
-        let sim = try ClassicUpgradeSimulator(mac: mac) { inner in
+        let sim = try ClassicUpgradeSimulator(mac: mac, documentRemote: { inner in
             let held = HeldRemote(inner)
             made = held
             return held
-        }
+        })
         let remote = try #require(made, "the simulation did not make its sidebar document")
         let document = try #require(SidebarDocStore.current)
         // Someone waits for the document: what is held goes on, and what comes meanwhile is not held.
@@ -84,6 +84,8 @@ struct ClassicUpgradeHeldDocumentTests {
         await sim.settle()
         // Read in the turn settle() returned in: nothing may still be held or unanswered.
         let stillHeld = remote.holding, settled = document.isSettled, pending = document.pendingDescription
+        // From here nothing is held: what is held goes on, and shutdown's own changes are not held.
+        remote.waiting = { true }
         remote.release()
         #expect(remote.everHeld > 0, "no document change was held: the run did not place through the sidebar document")
         #expect(stillHeld == 0 && settled, "settle() returned with \(stillHeld) sidebar document changes still held (settled: \(settled); \(pending))")
