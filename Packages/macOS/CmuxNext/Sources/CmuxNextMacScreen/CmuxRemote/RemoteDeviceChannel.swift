@@ -140,14 +140,14 @@ nonisolated final class RemoteDeviceChannel: Sendable {
     }
 
     func blockingCall(_ method: String, _ params: [String: Any]) throws -> [String: Any] {
+        // concurrency-allow: the one-shot signal for blockingCall's bounded wait below (never on the main thread).
         let semaphore = DispatchSemaphore(value: 0)
         let box = Mutex<Result<Data, any Error>?>(nil)
         send(method, Self.encode(params)) { result in
             box.withLock { $0 = result }
             semaphore.signal()
         }
-        // DeviceKeyMaterial is synchronous: hub requests sign on the client's actor and ticket
-        // signaling on its own tasks, never the main thread; the wait is bounded by `timeout`.
+        // concurrency-allow: DeviceKeyMaterial is synchronous; hub requests sign on the client's actor and ticket signaling on its own tasks, never the main thread; the wait is bounded by `timeout`.
         guard semaphore.blockingWait(timeout: .now() + Self.timeout) == .success, let result = box.withLock({ $0 }) else {
             throw DeviceHubError.transport("cmux Remote did not answer \(method)")
         }
