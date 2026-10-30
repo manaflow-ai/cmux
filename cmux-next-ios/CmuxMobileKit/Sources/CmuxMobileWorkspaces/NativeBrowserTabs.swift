@@ -74,12 +74,14 @@ public final class NativeBrowserTabs {
         guard macForwardsLocalhost(macID) else {
             return .macOnly(detail: String(localized: "Update cmux on the Mac to open its localhost pages on this iPhone. The mirrored page can show it now."))
         }
-        // One port, one Mac: another Mac's tab on this iPhone shows that port.
-        let elsewhere = nativeKeys.contains { other in
-            other != key && Self.macID(ofKey: other) != macID
+        // One port, one Mac: the port forwards to another Mac whose tab on this iPhone
+        // still shows it (a tab that was refused the port never holds it).
+        let owner = forwarder?.forwardsElsewhere(port, than: macID) == true
+        let shownThere = nativeKeys.contains { other in
+            other != key && Self.macID(ofKey: other) != macID && models[other]?.problem == nil
                 && entries[other]?.url.flatMap(URL.init(string:)).flatMap(PhoneReach.port) == port
         }
-        if elsewhere {
+        if owner && shownThere {
             return .macOnly(detail: String(localized: "Another Mac's tab on this iPhone shows localhost:\(port). Mirror this one, or close that tab first."))
         }
         return .forwarded
@@ -90,7 +92,7 @@ public final class NativeBrowserTabs {
         guard case .forwarded = loopbackPolicy(url, key: key), let forwarder, let port = PhoneReach.port(url) else {
             return loopbackPolicy(url, key: key)
         }
-        do {
+        do throws(LocalhostForwarder.Failure) {
             try await forwarder.forward(port: port, macID: Self.macID(ofKey: key))
             return .forwarded
         } catch .portInUse {

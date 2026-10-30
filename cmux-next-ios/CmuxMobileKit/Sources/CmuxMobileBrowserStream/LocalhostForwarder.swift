@@ -37,6 +37,8 @@ public final class LocalhostForwarder {
         var v6: NWListener?
         /// The bind in flight: a second caller for the port waits for it.
         var binding: Task<Result<Void, Failure>, Never>?
+        /// This app listened on the port before (a rebind may meet its own TIME_WAIT).
+        var held = false
         init(macID: String?) { self.macID = macID }
 
         var isUp: Bool { v4?.state == .ready }
@@ -63,6 +65,11 @@ public final class LocalhostForwarder {
 
     /// The ports forwarded now (listening or waiting to listen again).
     public var ports: Set<UInt16> { Set(forwards.keys) }
+
+    /// Whether `port` forwards to a Mac other than `macID` now.
+    public func forwardsElsewhere(_ port: UInt16, than macID: String?) -> Bool {
+        forwards[port].map { $0.macID != macID } ?? false
+    }
 
     /// Forwards `port` to `macID`'s loopback: returns once this iPhone listens on it.
     public func forward(port: UInt16, macID: String?) async throws(Failure) {
@@ -114,12 +121,12 @@ public final class LocalhostForwarder {
         let task = Task { () -> Result<Void, Failure> in
             forward.cancel()
             let v4: NWListener
-            do {
-                v4 = try await listen(host: .ipv4(.loopback), port: port)
+            do throws(Failure) {
+                v4 = try await listen(host: .ipv4(.loopback), port: port, reuse: forward.held)
             } catch {
                 return .failure(error)
             }
-            let v6 = try? await listen(host: .ipv6(.loopback), port: port)
+            let v6 = try? await listen(host: .ipv6(.loopback), port: port, reuse: forward.held)
             // Stopped, moved or suspended while these bound.
             guard forwards[port] === forward, !suspended, !Task.isCancelled else {
                 v4.cancel()
@@ -128,6 +135,7 @@ public final class LocalhostForwarder {
             }
             forward.v4 = v4
             forward.v6 = v6
+            forward.held = true
             log.notice("forwarding localhost:\(port, privacy: .public)\(v6 == nil ? " (IPv4 only)" : "", privacy: .public)")
             return .success(())
         }
@@ -138,14 +146,15 @@ public final class LocalhostForwarder {
         return result
     }
 
-    private func listen(host: NWEndpoint.Host, port: UInt16) async throws(Failure) -> NWListener {
+    private func listen(host: NWEndpoint.Host, port: UInt16, reuse: Bool) async throws(Failure) -> NWListener {
         guard let endpointPort = NWEndpoint.Port(rawValue: port) else { throw .unavailable("bad port") }
         let parameters = NWParameters.tcp
         parameters.acceptLocalOnly = true
-        // Listening again right after a stop (resume, Open on iPhone again) must not wait
-        // out the closed connections' TIME_WAIT. An app holding the port without reuse
-        // still makes this bind fail (`portInUse`).
-        parameters.allowLocalEndpointReuse = true
+        // Only a port this app held before is bound with reuse (its closed connections'
+        // TIME_WAIT would refuse the rebind for half a minute). A first bind never is,
+        // so no other app can share a port with it, and an app already on the port
+        // makes it fail (`portInUse`).
+        parameters.allowLocalEndpointReuse = reuse
         parameters.requiredLocalEndpoint = .hostPort(host: host, port: endpointPort)
         let listener: NWListener
         do {
@@ -210,12 +219,17 @@ public final class LocalhostForwarder {
     /// connection before any reply. The caller cancels the connection.
     nonisolated static func pump(_ connection: NWConnection, port: UInt16, macID: String?, open: Open) async -> String? {
         connection.start(queue: queue)
-        // The first request is checked before the Mac hears of the connection.
-        var gate = LoopbackRequestGate(port: port)
-        guard let first = await receive(connection) else { return nil }
-        if case .refuse(let reason) = gate.check(first) {
-            log.notice("localhost:\(port, privacy: .public): refused a request (\(reason, privacy: .public))")
-            return nil
+        let gate = LoopbackRequestGate(port: port)
+        // The Mac hears of the connection only once a whole request head passed.
+        var first = Data()
+        while first.isEmpty {
+            guard let data = await receive(connection) else { return nil }
+            switch gate.check(data) {
+            case .forward(let bytes): first = bytes
+            case .refuse(let reason):
+                log.notice("localhost:\(port, privacy: .public): refused a request (\(reason, privacy: .public))")
+                return nil
+            }
         }
         let channel: any LinkChannel
         do {
@@ -223,16 +237,18 @@ public final class LocalhostForwarder {
         } catch {
             return (error as? LinkError).flatMap { refusalCodes.contains($0.code) && !$0.message.isEmpty ? $0.message : nil }
         }
-        let sendFirst = (try? await channel.send(first)) != nil
+        let sentFirst = (try? await channel.send(first)) != nil
         // This iPhone → the Mac, every request through the gate.
-        let upstream = Task { [gate] in
-            var gate = gate
-            while sendFirst, let data = await receive(connection) {
-                if case .refuse(let reason) = gate.check(data) {
+        let upstream = Task {
+            reading: while sentFirst, let data = await receive(connection) {
+                switch gate.check(data) {
+                case .forward(let bytes):
+                    if bytes.isEmpty { continue }
+                    do { try await channel.send(bytes) } catch { break reading }
+                case .refuse(let reason):
                     log.notice("localhost:\(port, privacy: .public): refused a request (\(reason, privacy: .public))")
-                    break
+                    break reading
                 }
-                do { try await channel.send(data) } catch { break }
             }
             await channel.close(code: "eof", reason: "")
         }
@@ -240,6 +256,7 @@ public final class LocalhostForwarder {
         var delivered = false
         while let data = try? await channel.receive() {
             delivered = true
+            gate.replied(data)
             guard await send(connection, data) else { break }
         }
         upstream.cancel()

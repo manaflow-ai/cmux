@@ -53,6 +53,13 @@ final class FakeLoopbackChannel: LinkChannel, @unchecked Sendable {
     var closedBy: LinkError? { refusal }
 }
 
+/// True the first time only.
+final class FirstOnly: @unchecked Sendable {
+    private let lock = NSLock()
+    private var taken = false
+    func take() -> Bool { lock.withLock { defer { taken = true }; return !taken } }
+}
+
 /// What the forwarder asked the link for.
 final class OpenLog: @unchecked Sendable {
     private let lock = NSLock()
@@ -77,7 +84,7 @@ final class OpenLog: @unchecked Sendable {
     func forwardOnFreePort(_ forwarder: LocalhostForwarder, macID: String?) async throws -> UInt16 {
         for _ in 0..<20 {
             let port = UInt16.random(in: 20000...60000)
-            do {
+            do throws(LocalhostForwarder.Failure) {
                 try await forwarder.forward(port: port, macID: macID)
                 return port
             } catch .portInUse {
@@ -153,6 +160,8 @@ final class OpenLog: @unchecked Sendable {
     @Test func suspendedPortsListenAgainOnResume() async throws {
         let forwarder = LocalhostForwarder { _, _ in FakeLoopbackChannel(body: "back") }
         let port = try await forwardOnFreePort(forwarder, macID: "mac-a")
+        // A served connection leaves this side's TIME_WAIT on the port.
+        #expect(await fetch(port)?.body == "back")
         forwarder.suspend()
         #expect(await fetch(port) == nil)
         #expect(forwarder.ports == [port], "the port is still known")
@@ -163,6 +172,32 @@ final class OpenLog: @unchecked Sendable {
             if body == nil { try await Task.sleep(for: .milliseconds(20)) }
         }
         #expect(body == "back")
+        forwarder.retain(ports: [])
+    }
+
+    /// No other app can share a forwarded port, even one that asks for address reuse.
+    @Test func anotherAppCannotShareAForwardedPort() async throws {
+        let forwarder = LocalhostForwarder { _, _ in FakeLoopbackChannel(body: "ours") }
+        let port = try await forwardOnFreePort(forwarder, macID: "mac-a")
+        let parameters = NWParameters.tcp
+        parameters.allowLocalEndpointReuse = true
+        parameters.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: NWEndpoint.Port(rawValue: port)!)
+        let other = try NWListener(using: parameters)
+        let failed = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            let once = FirstOnly()
+            other.stateUpdateHandler = { state in
+                let result: Bool? = switch state {
+                case .ready: false
+                case .failed: true
+                default: nil
+                }
+                if let result, once.take() { continuation.resume(returning: result) }
+            }
+            other.start(queue: .main)
+        }
+        other.cancel()
+        #expect(failed, "another app's listener bound the forwarded port")
+        #expect(await fetch(port)?.body == "ours")
         forwarder.retain(ports: [])
     }
 

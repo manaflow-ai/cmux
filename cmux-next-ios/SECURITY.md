@@ -334,28 +334,40 @@ manaflow-ai/cmux#13742 (comment 6534420678).
 - **What is new: web content on the phone.** Pages in the phone's own web view
   could otherwise use a forwarded port. On the Mac, Chromium's Private Network
   Access stops an internet page from reaching loopback; iOS WebKit has no such
-  check, so the phone applies its own (`LoopbackRequestGate`, every request on
-  every forwarded connection, before any byte reaches the Mac):
-  - the request's `Host` must be `localhost`, `127.0.0.1` or `[::1]` with that
-    port (a DNS-rebinding page names its own host and is refused);
-  - a request marked `Sec-Fetch-Site: cross-site`, or with an `Origin` that is
-    not a loopback origin, is refused (an internet page in another native tab
-    can't send requests into the Mac's dev server);
-  - anything that is not an HTTP/1.x request head is refused (no other
-    protocol through the port); a WebSocket upgrade and a chunked body pass
-    as is after their checked head, and TLS passes (the certificate binds the
-    host).
+  check, so the phone applies its own (`LoopbackRequestGate`). A request's
+  bytes go to the Mac only after its whole head passed:
+  - the `Host` must be `localhost`, `127.0.0.1` or `[::1]` with that port (a
+    DNS-rebinding page names its own host and is refused);
+  - a request from another site (`Sec-Fetch-Site: cross-site`, or an `Origin`
+    that is not a loopback origin, `null` included) is refused, except a
+    top-level page load (`GET` with `Sec-Fetch-Mode: navigate` and
+    `Sec-Fetch-Dest: document`), as desktop browsers and SameSite=Lax allow:
+    a sign-in callback loads, an internet page's script can't send requests;
+  - only HTTP/1.x request heads pass: TLS (`https://localhost`, whose Mac
+    certificate this iPhone doesn't trust anyway) and other protocols are
+    refused, and so is a chunked request body (WebKit sends none);
+  - a WebSocket passes unchecked only after the Mac answered `101`; before
+    that reply nothing more is sent, and after another reply the connection
+    is checked as requests again.
   A port is opened only for a navigation the person started (the address bar,
-  Open on iPhone, a restored tab, a tapped link, Back/Forward) or one from the
-  same loopback origin; a page's script or form can't make the phone listen on
-  a new port. One port forwards to one Mac: while one Mac's tab shows it,
-  another Mac's tab gets the mirror instead.
+  Open on iPhone, a restored tab, a tapped link, Back/Forward), a same-origin
+  one, or one to a port already open; a page's script or form can't make the
+  phone listen on a new port. A redirect to another loopback port that isn't
+  open yet is refused (the person can type it). One port forwards to one Mac:
+  while it forwards to one Mac and that Mac's tab shows it, another Mac's tab
+  gets the mirror instead.
 - **On the phone.** The listeners accept local connections only
   (`acceptLocalOnly`), so other devices on the phone's network can't use them.
   They run while a native tab shows the port and the app is active and linked
-  (they stop in the background and come back after). Another app on the phone
-  could connect to a listener while it runs; it would reach the same Mac port
-  the person already reaches, through the same request checks.
+  (they stop in the background and come back after). A first bind never asks
+  for address reuse, so no other app can share the port, and an app already on
+  it makes the phone keep the tab mirrored ("Another app on this iPhone uses
+  port N"). A rebind of a port the app held (after the background) asks for
+  reuse so its own closed connections don't block it for half a minute.
+  Another app on the phone could connect to a running listener and forge the
+  `Host` and `Origin` headers the checks read, so for other apps the checks
+  are no barrier: such an app reaches the Mac port that the person on this
+  phone already reaches through `browser` and the terminals.
 - **App Transport Security.** The app adds `NSAllowsLocalNetworking`, so iOS
   lets the web view load `http://localhost` (also `.local` and unqualified
   hosts). Other plain `http://` sites stay refused.
