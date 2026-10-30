@@ -1546,17 +1546,20 @@ impl Store for LocalStore {
                 if reader.read_until(b'\n', &mut line)? == 0 {
                     break;
                 }
-                if line.ends_with(b"\n") {
+                // A line still being written ends the read of this segment: the bytes of it that
+                // arrive later are no line of their own, and the copy covers none of it.
+                let torn = !line.ends_with(b"\n");
+                if !torn {
                     covered += line.len() as u64;
                     if stamp.is_some() && kind_index::indexed(&line) {
                         lines.extend_from_slice(&line);
                     }
                 }
-                if line.iter().all(u8::is_ascii_whitespace) {
-                    continue;
-                }
-                if !wanted(&line, visit) {
+                if !line.iter().all(u8::is_ascii_whitespace) && !wanted(&line, visit) {
                     return Ok(());
+                }
+                if torn {
+                    break;
                 }
             }
             if let Some(stamp) = stamp

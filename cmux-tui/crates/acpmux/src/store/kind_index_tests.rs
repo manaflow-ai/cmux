@@ -2,6 +2,7 @@
 
 use super::*;
 use serde_json::json;
+use std::io::Write;
 
 fn rec(seq: u64, kind: &str) -> EventRecord {
     let dir = if kind == "tool_call_update" { "in" } else { "mux" };
@@ -119,4 +120,70 @@ fn the_log_loads_kinds_are_indexed() {
     for kind in crate::hub::Hub::QUEUE_KINDS.iter().chain(&["turn_started", "turn_result"]) {
         assert!(INDEXED_KINDS.contains(kind), "{kind}");
     }
+}
+
+/// A damaged copy (cut short, or its header's coverage changed) is read past: the scan reads the
+/// segment, as without a copy.
+#[test]
+fn a_damaged_copy_is_read_past() {
+    let root = root();
+    let (store, log) = store_with_log(&root, 6);
+    let kinds = ["queued", "turn_result"];
+    let expected: Vec<EventRecord> =
+        log.iter().filter(|r| kinds.contains(&r.kind.as_str())).cloned().collect();
+    scanned(&store, &kinds);
+    let copies = root.join("c").join(kind_index::DIR);
+    for (n, entry) in std::fs::read_dir(&copies).unwrap().enumerate() {
+        let path = entry.unwrap().path();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let (header, lines) = text.split_once('\n').unwrap();
+        let damaged = if n % 2 == 0 {
+            // Its last copied line lost.
+            let cut = lines.trim_end_matches('\n').rsplit_once('\n').map_or("", |(a, _)| a);
+            format!("{header}\n{cut}\n")
+        } else {
+            // It claims to cover nothing of the segment.
+            let mut h: serde_json::Value = serde_json::from_str(header).unwrap();
+            h["len"] = json!(0);
+            format!("{h}\n{lines}")
+        };
+        std::fs::write(&path, damaged).unwrap();
+    }
+    assert_eq!(scanned(&store, &kinds), expected);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A line still being written at the end of the newest segment is no part of a copy: once it is
+/// whole, a scan returns it.
+#[test]
+fn a_line_being_written_is_read_once_whole() {
+    let root = root();
+    let (store, mut log) = store_with_log(&root, 3);
+    let (_, newest) = store.segments("c").unwrap().last().unwrap().clone();
+    let next = rec(log.last().unwrap().seq + 1, "queued");
+    let line = serde_json::to_string(&next).unwrap() + "\n";
+    let (head, tail) = line.split_at(line.len() / 2);
+    let mut file = std::fs::OpenOptions::new().append(true).open(&newest).unwrap();
+    file.write_all(head.as_bytes()).unwrap();
+    let before: Vec<EventRecord> = log.iter().filter(|r| r.kind == "queued").cloned().collect();
+    assert_eq!(scanned(&store, &["queued"]), before);
+    file.write_all(tail.as_bytes()).unwrap();
+    log.push(next);
+    let after: Vec<EventRecord> = log.iter().filter(|r| r.kind == "queued").cloned().collect();
+    assert_eq!(scanned(&store, &["queued"]), after);
+    assert_eq!(scanned(&store, &["queued"]), after, "from the copy");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A scan never makes a deleted chat's folder again.
+#[test]
+fn a_scan_writes_no_copy_for_a_deleted_chat() {
+    let root = root();
+    let (store, _) = store_with_log(&root, 3);
+    let (index, path) = store.segments("c").unwrap()[0].clone();
+    let meta = std::fs::metadata(&path).unwrap();
+    std::fs::remove_dir_all(root.join("c")).unwrap();
+    assert!(store.write_kind_index("c", index, &meta, 0, b"").is_err());
+    assert!(!root.join("c").exists());
+    let _ = std::fs::remove_dir_all(&root);
 }
