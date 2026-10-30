@@ -385,6 +385,11 @@ impl Hub {
     /// End the host of a session that has no adopted child, when one runs
     /// (a host this build cannot adopt, or one whose link was lost).
     pub(super) async fn end_unadopted_host(&self, session: &Session) {
+        // A lost home's hosts folder may be another daemon's now: its records name that daemon's
+        // agents. This daemon's own hosts end with their folder (`agent_host`), so none is read.
+        if crate::config::home_lost() {
+            return;
+        }
         let dir = agent_host::hosts_dir();
         let Ok((good, bad)) = agent_host::load_records(&dir) else { return };
         let record = good.iter().find(|(_, r)| r.session_id == session.id).map(|(_, r)| r.clone());
@@ -1111,14 +1116,14 @@ impl Hub {
             if work.turn_at > 0 {
                 turn.started_at = work.turn_at;
             }
-            self.recover_carried(session, child, turn, None, false);
+            self.recover_carried(session, child, turn, None, Default::default());
         } else if work.turn.is_none()
             && let Some((from, record)) = &work.carry_next
             && let Some(next) = super::carried_turn::NextTurn::from_record(record)
         {
             let super::carried_turn::NextTurn { carried, next, continues } = next;
             let begin = Some((from.clone(), carried));
-            self.recover_carried(session, child, next, begin, continues.trust_gate);
+            self.recover_carried(session, child, next, begin, continues);
         } else if let Some((turn_seq, turn_id, prompt_id, prompt, client, control)) =
             work.turn.clone()
         {
@@ -1166,6 +1171,8 @@ impl Hub {
                         work.open_tools.clone();
                     self.watch_stalled_turn(session, Some(work.heard_at.max(started_at)));
                     self.set_status(session, SessionStatus::Running);
+                    // Its cap counts from its start, as logged (`turn_cap.rs`).
+                    self.arm_turn_cap(session, &turn_id);
                     // The answer is either logged already, or still to come
                     // (`await_response` also takes one that arrived first).
                     let rx = match answer {

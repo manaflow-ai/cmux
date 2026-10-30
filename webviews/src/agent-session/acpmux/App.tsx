@@ -19,7 +19,7 @@ import React, {
 import { AnsweredBy, AuthorChip } from "./multiplayer/Faces";
 import { LivePresenceStack, LiveTypingLine } from "./multiplayer/LivePresence";
 import { flushSync } from "react-dom";
-import { CONNECT_ACTIONS, savedEnvironmentHost, type ConnectKind, type OffloadKind } from "./environments";
+import { CONNECT_ACTIONS, type ConnectKind, type OffloadKind } from "./environments";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { restoreForkSource } from "./handoff/restoreForkSource";
 import { rowPresence } from "./conversation/rowPresence";
@@ -105,6 +105,7 @@ import { holdNewTabAttachments } from "./newtab/remoteAttachmentDraft";
 import { startNewTabTransition } from "./newtab/startTransition";
 import { isAgentHome, projectLabel, recentLocalFolders, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
+import { railOwnsWheel } from "./threadMinimap/railWheel";
 import { animateScroll, stopScroll } from "./threadMinimap/scrollMotion";
 import { JUMP_CURVE, jumpDuration } from "./threadMinimap/model";
 import { cssTimeMs } from "./conversation/fold";
@@ -157,6 +158,8 @@ import { ComposerPickers, PICKER_LABELS, type ComposerPermissionAccess } from ".
 import { openPicker } from "./pickerOpeners";
 import { EmptyState, type EmptyStateProjects, isNewChat, projectName } from "./EmptyState";
 import { ChatUnavailableState } from "./ChatUnavailableState";
+import { useCloudChatRecovery } from "./useCloudChatRecovery";
+import { cloudChatRecoveryActive, cloudChatUnavailable, type CloudChatIdentity } from "./cloudChatRecovery";
 import { PastChat, type PastTurn, readPastTurns } from "./PastChat";
 import type { Project } from "./ProjectChooser";
 import { byRecentUse, parseProjectRepos, projectRows } from "./projectRepos";
@@ -180,6 +183,7 @@ import { ComputerUsePreviewCard } from "./computerUse/ComputerUsePreviewCard";
 import { PermissionCard } from "./PermissionCard";
 import { cardTakesShortcuts } from "./permissionKeys";
 import { QuestionCard } from "./question/QuestionCard";
+import { PermissionQuestion } from "./question/PermissionQuestion";
 import { QUESTION_RECORD } from "./question/record";
 import { DECISION_TEXT, PERMISSION_RECORD } from "./permissions/record";
 import type { QuestionReply } from "./question/model";
@@ -189,7 +193,7 @@ import { PeerCopyBanner } from "./PeerCopyBanner";
 import { chatCloudMachine, cloudMachineRows, createStopWaiter } from "./cloudMachineMenu";
 import { readUntilMoved, refreshCloudMachines, useCloudMachines } from "./cloudMachines";
 import { usePeerCloudMachine } from "./peerCloudMachine";
-import { useFolderTrustAsk } from "./useFolderTrustAsk";
+import { inThisVisit, useFolderTrustAsk, visitOf } from "./useFolderTrustAsk";
 import { heldPrompts } from "./heldPrompt";
 import { StartingSends, type StartingSend } from "./startingSends";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
@@ -200,7 +204,6 @@ import { SummaryCard } from "./summary/SummaryCard";
 import { runningBackgroundTasks } from "./summary/sessionSummary";
 import { openSourceFile } from "./inspector/SourcesSection";
 import { useChatInspector } from "./inspector/ChatInspector";
-import { environmentToSave } from "./inspector/EnvironmentSection";
 import {
   type BackgroundCommand,
   backgroundCommands,
@@ -448,9 +451,11 @@ import {
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 import { AgentRunCard } from "./subagents/AgentRunCard";
+import { SubagentEmptyRow } from "./subagents/SubagentEmptyRow";
 import { restartOwner, restartPrompt, restartReaches } from "./subagents/restart";
 import {
   SUBAGENT_DONE,
+  SUBAGENT_EMPTY,
   SUBAGENT_OF,
   SUBAGENT_ROW,
   WORKFLOW_CARD,
@@ -1523,6 +1528,7 @@ const defaultRegistry: NativeRegistry = {
   [SUBAGENT_ROW]: SubagentRow,
   [SUBAGENT_DONE]: SubagentDoneRow,
   [SUBAGENT_OF]: SubagentOfPillRow,
+  [SUBAGENT_EMPTY]: SubagentEmptyRow,
   [WORKFLOW_CARD]: WorkflowCardRow,
 };
 
@@ -3976,6 +3982,9 @@ export function VirtualTranscript({
     let pointerY: number | undefined;
     let touchY: number | undefined;
     const reader = (event?: Event) => {
+      // The wheel over a rail that scrolls itself scrolls the rail, not the transcript: the reader is
+      // not moving the transcript, so follow and a jump in flight stay as they are (railWheel.ts).
+      if (event && railOwnsWheel(event)) return;
       const pointer = event?.type === "pointermove" ? (event as PointerEvent) : undefined;
       const touch = event?.type === "touchmove" ? (event as TouchEvent).touches[0] : undefined;
       const movingUp =
@@ -4397,7 +4406,7 @@ const answerPermission = (permission: AcpmuxPermission) => (optionId: string) =>
 
 /// Sends a question card's reply: the harness's option (absent cancels) and its answers. The card
 /// shows a refusal (the promise rejects) and takes input again for a retry.
-const replyToQuestion = (permission: AcpmuxPermission) => (sent: QuestionReply) =>
+const replyToQuestion = (permission: AcpmuxPermission, sent: QuestionReply) =>
   callNative("chat.permission", {
     permissionId: permission.permissionId,
     ...(sent.optionId === undefined ? {} : { optionId: sent.optionId }),
@@ -4445,7 +4454,7 @@ function PermissionAsk({
   return (
     <>
       {waiting > 0 && <p className="acpmux-permission-waiting">{t("permission.moreWaiting", { n: waiting })}</p>}
-      <QuestionCard question={permission.question} onReply={replyToQuestion(permission)} />
+      <PermissionQuestion permission={permission} question={permission.question} send={replyToQuestion} />
     </>
   );
 }
@@ -4690,11 +4699,16 @@ function AcpmuxPane() {
     use(cwd: string): void;
     cancel?(): void;
     sessionId?: string;
+    /// The client's visit it was asked in (`trustVisit`): another fresh chat has the same no-id.
+    visit?: string;
     error?: string;
   }>();
   const folderConfirmGeneration = useRef(0);
   const folderConfirmInFlight = useRef(false);
-  const [folderConfirming, setFolderConfirming] = useState(false);
+  /// The chat whose folder answer is saving (Use was clicked), or false: only that chat waits on it.
+  /// `visit` is the client's selection identity then (`trustVisit`): a fresh chat has no session id,
+  /// so another fresh chat shown later is told apart by it.
+  const [folderConfirming, setFolderConfirming] = useState<false | { sessionId?: string; visit?: string }>(false);
   const [importError, setImportError] = useState<string | undefined>();
   // Edit CLAUDE.md the app refused (a link out of the folder, not a file): the notice above the
   // composer says why, with Retry; opening it clears the notice.
@@ -4723,6 +4737,7 @@ function AcpmuxPane() {
   /// This Mac's name, from the handshake.
   const [machineName, setMachineName] = useState<string | undefined>();
   const [cloudMachineID, setCloudMachineID] = useState<string | undefined>();
+  const [cloudChatIdentity, setCloudChatIdentity] = useState<CloudChatIdentity>();
   const [cloudCredentialRecoveryAvailable, setCloudCredentialRecoveryAvailable] = useState(false);
   const [scrollAnchor, setScrollAnchor] = useState<(ScrollAnchor & { sessionId: string }) | undefined>();
   const [githubRepository, setGithubRepository] = useState<string | undefined>();
@@ -5202,7 +5217,13 @@ function AcpmuxPane() {
   const startFolderRef = useRef(startFolder);
   startFolderRef.current = startFolder;
   /// The folder question, while the chat it was asked for is still the one shown.
-  const pendingFolder = folderAsk && folderAsk.sessionId === snapshot.sessionId ? folderAsk : undefined;
+  const visitNow = trustVisit();
+  const pendingFolder = inThisVisit(folderAsk, snapshot.sessionId, visitNow) ? folderAsk : undefined;
+  // One hard stop for direct composer sends and every callback released by Trust. Confirmation
+  // hides the question before the host answers, so it remains blocked while that answer saves.
+  // Another chat shown meanwhile has no folder question of its own: it is not held.
+  const confirmingHere = inThisVisit(folderConfirming, snapshot.sessionId, visitNow);
+  const blockSend = Boolean(pendingFolder) || confirmingHere || Boolean(authBlock);
   // `snapshot.catalog` is `catalog` (the snapshot above carries the fetched one).
   const continueAvailable = canContinueIn(snapshot);
   /// Takes acpmux's trust refusal of a prompt (useFolderTrustAsk.ts): the question shows for the
@@ -5242,9 +5263,14 @@ function AcpmuxPane() {
     },
     answersTrust,
     healthLocal && snapshot.origin !== "remote" && snapshot.origin !== "peer",
+    blockSend,
   );
   const trustRoute = trustAsk.refused;
   trustRefused.current = trustRoute;
+  // The connection's action table outlives renders; Retry must read the current folder/auth gate.
+  const retryAfterTrust = useRef(trustAsk.retry);
+  retryAfterTrust.current = trustAsk.retry;
+  const cancelTrustResend = trustAsk.cancelResend;
   const routeClient = trustRenderedOwner.current?.client;
   trustRouteOwner.current = routeClient
     ? {
@@ -6554,6 +6580,10 @@ function AcpmuxPane() {
   /// this pane when this is a subagent's pane or the host opens none.
   const showSubagent = useCallback((id: string, focus = true) => {
     if (subagentPane.current) return setSubagentView(id);
+    // The pane the app opens is a new tab on this chat's own session (subagentPanes.ts). Hand the
+    // chat over first, as openOwnTab does before `chat.openTab`, so that tab draws it from the
+    // host's kept tail (tailCache.ts) before its own attach answers, instead of opening blank.
+    directClient.current?.handOverCurrentTail();
     void openSubagentPane(callNative, id, focus).then((opened) => {
       if (!opened && focus) setSubagentView(id);
     });
@@ -6670,11 +6700,6 @@ function AcpmuxPane() {
     inspectorSummary !== undefined &&
     !inspectorSummary.peer &&
     !(inspectorSummary.host && inspectorSummary.hostKind !== "local");
-  // Save in its Environment keeps the machine and folder as a New Tab environment, only for a chat
-  // in a project (a scratch folder has none).
-  const environmentDraft = quick
-    ? undefined
-    : environmentToSave(inspectorSummary, snapshot.peerKinds, githubRepository);
   // A background command's Bash call in the transcript (`showToolRow` below, which needs what the
   // Inspector draws): what its task row opens where its terminal cannot (a peer's or Cloud chat).
   const showCallRef = useRef<(toolCallId: string) => boolean>(() => false);
@@ -6747,7 +6772,10 @@ function AcpmuxPane() {
       quick || !inspectorLocal
         ? undefined
         : (path) => ignoreFailure(callNative("pane.action", { id: HEADER_ACTIONS.files, cwd: path, mode: "open" })),
-    onSaveEnvironment: environmentDraft ? () => savedEnvironmentHost(callNative).save(environmentDraft) : undefined,
+    // Active chat panes do not support environment.save; the native handler accepts it only from
+    // New Tab. Keep the inspector's optional callback for gallery/host integrations, but do not
+    // expose a button here that would always be rejected.
+    onSaveEnvironment: undefined,
     // A failed MCP server's Reconnect in Connectors, where acpmux offers it (a Claude Code chat's).
     onReconnectMcp: snapshot.reconnectsMcp ? reconnectMcp : undefined,
     // Quick Chat's panel has no room beside it for the side panel.
@@ -7087,6 +7115,25 @@ function AcpmuxPane() {
   /// The chat menu shows New side chat: the right-click menu then opens one from any turn that forks.
   const opensSideChat = useRef(false);
   const archiveChatRef = useRef<(() => void) | undefined>(undefined);
+  const recheckCloudChat = useCallback(async () => {
+    await directClient.current?.recheckMissing();
+  }, []);
+  const cloudRecovery = useCloudChatRecovery({
+    cloud: cloudChatIdentity,
+    session: snapshot.missingSession ?? snapshot.sessionId,
+    active: cloudChatRecoveryActive(
+      !!snapshot.unavailable,
+      snapshot.sessionId,
+      snapshot.rows.length,
+      snapshot.connection === "connected",
+      freshView,
+    ),
+    recheck: recheckCloudChat,
+  });
+  const cloudUnavailable =
+    cloudRecovery.state === "paused" || cloudRecovery.state === "deleted"
+      ? cloudChatUnavailable(snapshot.unavailable ?? { reason: "offline" }, cloudRecovery.state, machineName)
+      : snapshot.unavailable;
   const hasTray = !quick && !freshView && (trayList.length > 0 || trayFinished.length > 0);
   // The tray's motion (subagents/trayMotion.tsx): the chat on screen as of this render, which the
   // tray reads as it goes (it plays its exit only while its own chat still shows), and the chat that
@@ -7401,27 +7448,35 @@ function AcpmuxPane() {
   );
   // New Worktree while the host makes it (a git worktree add can take seconds): a line says so;
   // a newer folder pick ends it.
-  const [worktreeCreating, setWorktreeCreating] = useState(false);
+  /// A worktree being made, for the chat (visit) it was asked in: another fresh chat shows nothing of it.
+  const [worktreeCreating, setWorktreeCreating] = useState<false | { sessionId?: string; visit?: string }>(false);
   /// A folder the user picked on this Mac: the host takes it at once or asks first
   /// (startFolder.tsx); `use` runs only with a folder the host took.
   /// Only the latest pick's answer counts (two quick picks can answer out of order).
   const folderPick = useRef(0);
   const shownSession = useRef(snapshot.sessionId);
   shownSession.current = snapshot.sessionId;
-  const requestFolder = useCallback((cwd: string, use: (folder: string) => void, cancel?: () => void) => {
-    const pick = ++folderPick.current;
-    folderConfirmGeneration.current += 1;
-    folderConfirmInFlight.current = false;
-    setFolderConfirming(false);
-    const sessionId = shownSession.current;
-    setFolderAsk(undefined);
-    setWorktreeCreating(false);
-    void pickFolder(callNative, cwd, (folder) => {
-      if (pick === folderPick.current) use(folder);
-    }).then((ask) => {
-      if (ask && pick === folderPick.current) setFolderAsk({ ask, use, cancel, sessionId });
-    });
-  }, []);
+  const requestFolder = useCallback(
+    (cwd: string, use: (folder: string) => void, cancel?: () => void) => {
+      const pick = ++folderPick.current;
+      folderConfirmGeneration.current += 1;
+      folderConfirmInFlight.current = false;
+      setFolderConfirming(false);
+      const sessionId = shownSession.current;
+      const visit = trustVisit();
+      setFolderAsk(undefined);
+      setWorktreeCreating(false);
+      // The pick lands only in the chat it was made in: a chat switched to meanwhile gets nothing.
+      const asked = { sessionId, ...visitOf(visit) };
+      const stillHere = () => inThisVisit(asked, shownSession.current, trustVisit());
+      void pickFolder(callNative, cwd, (folder) => {
+        if (pick === folderPick.current && stillHere()) use(folder);
+      }).then((ask) => {
+        if (ask && pick === folderPick.current) setFolderAsk({ ask, use, cancel, sessionId, ...visitOf(visit) });
+      });
+    },
+    [trustVisit],
+  );
   const freshRef = useRef(false);
   freshRef.current = freshChat && !snapshot.sessionId;
   /// The project the person picked in this pane's project picker, until they send in it: that send
@@ -7446,38 +7501,46 @@ function AcpmuxPane() {
     [requestFolder],
   );
   /// New Worktree (cx-lyqio.2): the new chat starts in a worktree of its folder, or says why not.
-  const [worktreeError, setWorktreeError] = useState<string | undefined>();
-  const startInWorktree = useCallback((cwd: string) => {
-    // A newer folder pick wins over this worktree, as between two picks.
-    const pick = ++folderPick.current;
-    folderConfirmGeneration.current += 1;
-    folderConfirmInFlight.current = false;
-    setFolderConfirming(false);
-    const sessionId = shownSession.current;
-    setFolderAsk(undefined);
-    setWorktreeError(undefined);
-    setWorktreeCreating(true);
-    const use = (folder: string) => {
-      // The person's pick: a send there makes it the New Tab default (newtab/startedProject.ts).
-      pickedProject.current = folder;
-      // A chat that started meanwhile keeps its folder: the worktree gets a new chat of its own.
-      if (freshRef.current) setProjectDraft(folder);
-      else void callNative("chat.new", { cwd: folder }).catch(() => undefined);
-    };
-    void newWorktree(callNative, cwd, (folder) => {
-      if (pick === folderPick.current) use(folder);
-    })
-      .then(({ ask }) => {
-        // The host asks about the worktree's folder first: the question shows as a picked folder's.
-        if (ask && pick === folderPick.current) setFolderAsk({ ask, use, sessionId });
+  const [worktreeError, setWorktreeError] = useState<{ message: string; sessionId?: string; visit?: string }>();
+  const startInWorktree = useCallback(
+    (cwd: string) => {
+      // A newer folder pick wins over this worktree, as between two picks.
+      const pick = ++folderPick.current;
+      folderConfirmGeneration.current += 1;
+      folderConfirmInFlight.current = false;
+      setFolderConfirming(false);
+      const sessionId = shownSession.current;
+      const visit = trustVisit();
+      setFolderAsk(undefined);
+      // The worktree lands only in the chat it was made for: a chat switched to meanwhile gets nothing.
+      const asked = { sessionId, ...visitOf(visit) };
+      const stillHere = () => inThisVisit(asked, shownSession.current, trustVisit());
+      setWorktreeError(undefined);
+      setWorktreeCreating(asked);
+      const use = (folder: string) => {
+        // The person's pick: a send there makes it the New Tab default (newtab/startedProject.ts).
+        pickedProject.current = folder;
+        // A chat that started meanwhile keeps its folder: the worktree gets a new chat of its own.
+        if (freshRef.current) setProjectDraft(folder);
+        else void callNative("chat.new", { cwd: folder }).catch(() => undefined);
+      };
+      void newWorktree(callNative, cwd, (folder) => {
+        if (pick === folderPick.current && stillHere()) use(folder);
       })
-      .catch((error: unknown) => {
-        if (pick === folderPick.current) setWorktreeError(errorMessage(error) || String(error));
-      })
-      .finally(() => {
-        if (pick === folderPick.current) setWorktreeCreating(false);
-      });
-  }, []);
+        .then(({ ask }) => {
+          // The host asks about the worktree's folder first: the question shows as a picked folder's.
+          if (ask && pick === folderPick.current) setFolderAsk({ ask, use, sessionId, ...visitOf(visit) });
+        })
+        .catch((error: unknown) => {
+          if (pick === folderPick.current)
+            setWorktreeError({ message: errorMessage(error) || String(error), ...asked });
+        })
+        .finally(() => {
+          if (pick === folderPick.current) setWorktreeCreating(false);
+        });
+    },
+    [trustVisit],
+  );
   const automationPick = useRef<(cwd: string) => void>(undefined);
   automationPick.current = (cwd) => chooseProject(cwd);
   useEffect(() => {
@@ -7828,6 +7891,7 @@ function AcpmuxPane() {
           pastTurns?: unknown;
           machineName?: unknown;
           cloudMachineID?: unknown;
+          cloudAccount?: unknown;
           cloudCredentialRecoveryAvailable?: unknown;
           /// The app opens a Cloud chat's hand-off turns (`cloud.handoffTurn`, cloudHandoffTurn.ts).
           cloudHandoffs?: unknown;
@@ -7841,6 +7905,13 @@ function AcpmuxPane() {
         setCloudCredentialRecoveryAvailable(host.cloudCredentialRecoveryAvailable === true);
         setCloudMachineID(
           typeof host.cloudMachineID === "string" && host.cloudMachineID ? host.cloudMachineID : undefined,
+        );
+        setCloudChatIdentity(
+          typeof host.cloudMachineID === "string" &&
+            Array.isArray(host.cloudAccount) &&
+            host.cloudAccount.every((part) => part === null || typeof part === "string")
+            ? { id: host.cloudMachineID, account: host.cloudAccount as (string | null)[] }
+            : undefined,
         );
         setNewSession(host.newSession === true && !host.sessionId);
         if (host.newSession && !host.sessionId && typeof host.cwd === "string" && host.cwd) setProjectDraft(host.cwd);
@@ -8085,6 +8156,8 @@ function AcpmuxPane() {
           sessionId && !mock
             ? callNative("chat.persistSession", { sessionId }).catch(() => undefined)
             : Promise.resolve();
+        // A chat this client adopts later (the live-chat choice, an adopt retried after Trust).
+        client.onAdopted = (sessionId) => void persistSession(sessionId);
         /// Opens a chat this one made in a tab of its own (`chat.openTab`); false when the host opens none.
         /// A mode pick on the shown chat: it holds for that chat only, never a new chat's start mode
         /// (hub/start_mode.rs; Leo 2026-10-21).
@@ -8452,7 +8525,9 @@ function AcpmuxPane() {
               generation: client.trustGeneration,
               sessionId: client.shownSession()?.sessionId ?? sessionIdRef.current,
             };
-            return rowRetry.retry(failedRowIds(rowId, rowIds), (error, again) => routeTrustFor(owner, error, again));
+            return retryAfterTrust.current(() =>
+              rowRetry.retry(failedRowIds(rowId, rowIds), (error, again) => routeTrustFor(owner, error, again)),
+            );
           },
           // Edit on prompts that did not get there: their rows go and the prompts come back to the
           // composer as one, in order, ahead of what is typed there now.
@@ -8503,9 +8578,9 @@ function AcpmuxPane() {
               String(query ?? ""),
               typeof limit === "number" ? limit : FILE_SEARCH_LIMIT,
             ),
+          // The chat the choice leads to is kept as the tab's by `onAdopted`, only while it is shown.
           "chat.adoptLive": async ({ choice }) => {
             await client.adoptLive(choice === "fork" ? "fork" : "open");
-            return persistSession(client.adopted);
           },
           // The native context menu's Open Image: the image the page reported under the pointer.
           "chat.menu.openImage": async () => openReportedImage(),
@@ -9970,14 +10045,17 @@ function AcpmuxPane() {
   // that surface too: the regular composer is deliberately hidden behind the New Tab, so leaving
   // the ask there would strand the prompt with no Use or Cancel action.
   const confirmPendingFolder = useCallback(() => {
-    if (!pendingFolder || folderConfirming || folderConfirmInFlight.current) return;
+    if (!pendingFolder || folderConfirming !== false || folderConfirmInFlight.current) return;
     const pending = pendingFolder;
     const generation = ++folderConfirmGeneration.current;
+    // The answer lands only in the chat it was asked in: a chat switched to while it saves gets nothing.
+    const asked = { sessionId: pending.sessionId, ...visitOf(trustVisit()) };
     const use = (cwd: string) => {
-      if (generation === folderConfirmGeneration.current) pending.use(cwd);
+      if (generation === folderConfirmGeneration.current && inThisVisit(asked, shownSession.current, trustVisit()))
+        pending.use(cwd);
     };
     folderConfirmInFlight.current = true;
-    setFolderConfirming(true);
+    setFolderConfirming(asked);
     setFolderAsk(undefined);
     void confirmFolder(callNative, pending.ask, use).then(
       () => {
@@ -9992,20 +10070,21 @@ function AcpmuxPane() {
         setFolderAsk((current) => current ?? { ...pending, error: errorMessage(error) || String(error) });
       },
     );
-  }, [folderConfirming, pendingFolder]);
+  }, [folderConfirming, pendingFolder, trustVisit]);
   const cancelPendingFolder = useCallback(() => {
     folderConfirmGeneration.current += 1;
     folderConfirmInFlight.current = false;
     setFolderConfirming(false);
+    cancelTrustResend();
     pendingFolder?.cancel?.();
     setFolderAsk(undefined);
-  }, [pendingFolder]);
+  }, [pendingFolder, cancelTrustResend]);
   const folderAskView = pendingFolder ? (
     <NewTabFolderAsk
       ask={pendingFolder.ask}
       current={freshChat && !snapshot.sessionId ? projectDraft : snapshot.summary?.cwd}
       error={pendingFolder.error}
-      confirming={folderConfirming}
+      confirming={confirmingHere}
       onUse={confirmPendingFolder}
       onCancel={cancelPendingFolder}
     />
@@ -10269,11 +10348,19 @@ function AcpmuxPane() {
             {background.notice && t(BACKGROUND_NOTICE_TEXT[background.notice])}
           </output>
         </Notice>
-        <Notice id="worktree-creating" tier="status" when={worktreeCreating && freshChat && !snapshot.sessionId}>
+        <Notice
+          id="worktree-creating"
+          tier="status"
+          when={inThisVisit(worktreeCreating, snapshot.sessionId, visitNow) && freshChat && !snapshot.sessionId}
+        >
           <output className="acpmux-switch-notice acpmux-worktree-creating">{t("worktree.creating")}</output>
         </Notice>
-        <Notice id="worktree-error" tier="error" when={worktreeError && freshChat && !snapshot.sessionId}>
-          <WorktreeFailure error={worktreeError ?? ""} onDismiss={() => setWorktreeError(undefined)} />
+        <Notice
+          id="worktree-error"
+          tier="error"
+          when={inThisVisit(worktreeError, snapshot.sessionId, visitNow) && freshChat && !snapshot.sessionId}
+        >
+          <WorktreeFailure error={worktreeError?.message ?? ""} onDismiss={() => setWorktreeError(undefined)} />
         </Notice>
         <Notice id="btw-failure" tier="error" when={btwFailure}>
           <output className="acpmux-switch-notice acpmux-folder-choice">
@@ -10613,7 +10700,11 @@ function AcpmuxPane() {
             handle={composerRef}
             // No prompt goes while a picked folder waits for the user's answer, or while the chat only
             // shows a session another app runs (WatchBanner).
-            blocked={pendingFolder ? {} : trustAsk.blocked}
+            blocked={trustAsk.blocked}
+            blockSend={blockSend}
+            closeOnTrustAsk={Boolean(
+              trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted"),
+            )}
             authBlock={authBlock}
             accessory={<DictationMic dictation={dictation} />}
             dictating={isWaitingForWords(dictation.state)}
@@ -11096,6 +11187,23 @@ function AcpmuxPane() {
                       </span>
                     )}
                     <ChatHeaderTools
+                      nativeRowTools={{
+                        enabled: inTabRow && tabRow.nativeRowTools === true && !diffFiles && !inspectorOpen,
+                        callNative,
+                        panel: inspector.on
+                          ? {
+                              id: "inspector",
+                              label: t("chatInspector.title"),
+                              toggled: inspector.shown === true,
+                              run: inspector.toggle,
+                            }
+                          : {
+                              id: "summary",
+                              label: t("summary.open"),
+                              toggled: summaryCard.shown,
+                              run: summaryCard.toggle,
+                            },
+                      }}
                       tabTools={!quick}
                       pullRequestChip={!readOnlySubagent}
                       // A new chat's picked folder too: New Worktree names its branch before the first prompt.
@@ -11163,7 +11271,7 @@ function AcpmuxPane() {
                       }}
                       inspector={inspector.button}
                       inbox={<NeedsYouButton items={needsYou.items} mode={needsYou.mode} actions={needsYou.actions} />}
-                      summary={inspector.on ? null : <SummaryButton card={summaryCard} />}
+                      summary={inspector.on ? null : (native) => <SummaryButton card={summaryCard} native={native} />}
                       menu={chatMenu}
                       onMenuOpen={readTabState}
                       expand={continuing && canContinue ? "continue" : undefined}
@@ -11206,7 +11314,7 @@ function AcpmuxPane() {
                 {snapshot.summary?.watching && snapshot.liveTakeOver && (
                   <LiveChatChoice
                     {...snapshot.liveTakeOver}
-                    onChoose={(choice) => void directClient.current?.takeOver(choice).catch(() => undefined)}
+                    onChoose={(choice) => void callNative("chat.adoptLive", { choice }).catch(() => undefined)}
                   />
                 )}
                 {!reviewing && snapshot.handoff?.error && (
@@ -11241,14 +11349,20 @@ function AcpmuxPane() {
                       ignoreFailure(callNative("chat.handoff.get").then(() => setReviewReload((value) => value + 1)))
                     }
                   />
-                ) : snapshot.unavailable ? (
+                ) : cloudUnavailable ? (
                   // The tab's chat is not here: which case it is, centered where the chat would be.
                   <ChatUnavailableState
-                    unavailable={snapshot.unavailable}
+                    unavailable={cloudUnavailable}
+                    onResumeMachine={cloudRecovery.resume}
+                    resuming={cloudRecovery.resuming}
+                    error={cloudRecovery.error}
                     {...(snapshot.missingSession ? { session: snapshot.missingSession } : {})}
                     {...(machineName ? { machine: machineName } : {})}
                     onRemove={() => runHeaderAction(HEADER_ACTIONS.close)}
-                    onReconnect={() => void directClient.current?.recheckMissing()}
+                    onReconnect={() => {
+                      cloudRecovery.refresh();
+                      void directClient.current?.recheckMissing();
+                    }}
                     onResume={showAllChats}
                     onClose={() => runHeaderAction(HEADER_ACTIONS.close)}
                   />
