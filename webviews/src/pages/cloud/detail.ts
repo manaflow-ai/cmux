@@ -243,6 +243,11 @@ export class DetailReader {
     this.host.set({ ...current, pendingPorts: this.pendingPorts(machine) });
     try {
       const accepted = await run();
+      // A parked mutation may finish after A → B → A loaded a list from before
+      // the effect. Its old answer is discarded, but the current selection must
+      // reconcile with the host before the pending guard is released.
+      if (generation !== this.generation && action !== "browser" && this.host.get()?.machine === machine)
+        await this.reload("ports");
       return accepted && generation === this.generation;
     } finally {
       // A session reset can start a new action at the same key before the old call settles.
