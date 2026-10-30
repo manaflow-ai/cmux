@@ -128,7 +128,7 @@ extension HomeFirstRunView {
         heroHeight.constant = hero.height(for: width)
         introHeight.constant = intro.height(for: introW)
         cardHeight.constant = switchCard.height(for: width)
-        variantHeading.font = .systemFont(ofSize: 17 * scale, weight: .semibold)
+        variantHeading.font = .systemFont(ofSize: TypeScale.heading * scale, weight: TypeScale.emphasis)
         variantHeading.alignment = variant.leading ? .left : .center
         variantHeading.frame.size.width = width
         let size = stack.fittingSize
