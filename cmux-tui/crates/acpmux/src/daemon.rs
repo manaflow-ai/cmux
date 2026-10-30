@@ -503,8 +503,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     #[cfg(not(unix))]
     let ctrl_c = tokio::signal::ctrl_c();
     // Before the ready line: a launcher may remove the home as soon as it reads it
-    // (`daemon/home_watch.rs`). Ends with this function (dropped at shutdown).
-    let home_gone = home_watch::watch(&home(), &socket_path(), &lock);
+    // (`daemon/home_watch.rs`). Its own task, so it keeps watching through a shutdown that began
+    // on a signal: a home replaced while the agents drain is still marked lost before their last
+    // writes. Ends with this function, whichever way it returns.
+    let mut home_gone = tokio::spawn(home_watch::watch(&home(), &socket_path(), &lock));
+    let _home_watch = AbortOnDrop(home_gone.abort_handle());
     // The socket this daemon bound: a shutdown removes only that one.
     let bound_socket = home_watch::Owned::now(&[&socket_path()]);
     // Its home and lock, re-read during the shutdown: one that began on a signal no longer
@@ -602,7 +605,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 _ = next_signal(int.as_mut()) => {},
                 _ = hub.shutdown.notified() => {},
                 // A normal stop, not a restart handoff: nothing can reach this daemon again.
-                why = home_gone => tracing::warn!("stopping: {why}"),
+                Ok(why) = &mut home_gone => tracing::warn!("stopping: {why}"),
             }
         }
         #[cfg(not(unix))]
@@ -610,7 +613,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             tokio::select! {
                 _ = ctrl_c => {},
                 _ = hub.shutdown.notified() => {},
-                why = home_gone => tracing::warn!("stopping: {why}"),
+                Ok(why) = &mut home_gone => tracing::warn!("stopping: {why}"),
             }
         }
     };
@@ -710,7 +713,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         retry.abort();
         let _ = retry.await;
     }
-    if !home_lost {
+    recheck_home();
+    if !crate::config::home_lost() {
         let _ = std::fs::remove_file(home().join("daemon.pid"));
         for file in [local_app_file, peer_file].into_iter().flatten() {
             let _ = std::fs::remove_file(file);
@@ -718,6 +722,15 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     tracing::info!("stopped");
     Ok(())
+}
+
+/// Aborts a task when dropped.
+struct AbortOnDrop(tokio::task::AbortHandle);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
 }
 
 /// The next delivery of a registered signal; never, if registration failed.
