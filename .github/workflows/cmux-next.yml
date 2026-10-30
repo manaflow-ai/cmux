@@ -1019,7 +1019,7 @@ jobs:
                                 ref_kind="tags" if env["REF_TYPE"] == "tag" else "heads")
                   # The tip daemon suite tests this exact commit, like the DEV daily: its same-tree run
                   # starts after the tip moves on (scripts/ci/cmux_next_tree_notify.py is_current).
-                  if env["TIP_DAEMON_SUITE"] == "true" and env["BRANCH"] == "feat-cmux-next":
+                  if env.get("TIP_DAEMON_SUITE") == "true" and env["BRANCH"] == "feat-cmux-next":
                       marker.update(tip_suite="daemon")
               else:
                   marker.update(origin="push", branch=env["BRANCH"])
