@@ -15,8 +15,8 @@ impl Hub {
         if session.id != id {
             return Err(refused("turn_attestation.caller_mismatch"));
         }
-        // Finish takes this same ordering lock before clearing `session.turn`. Holding it
-        // while we copy the turn and issue the proof prevents a post-finish race.
+        // Keep the journal stable while validating it. Lifecycle paths such as detach
+        // also mutate the live turn without this lock, so admission rechecks that state.
         let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
         let (seq, turn_id) = session
             .turn
@@ -57,8 +57,25 @@ impl Hub {
         if !started || ended {
             return Err(refused("turn_attestation.not_live"));
         }
+        #[cfg(test)]
+        tests::before_admission();
+        // Every clear/replacement of the live turn holds this mutex, including kill,
+        // detach and startup. Revalidate after journal I/O and retain the guard through
+        // signing and encoding; the admitted turn cannot be cleared or replaced meanwhile.
+        // Lock order remains append_lock -> turn, never append_lock -> auto_resume.
+        let live = session.turn.lock().unwrap_or_else(|e| e.into_inner());
+        if !live.as_ref().is_some_and(|turn| turn.turn_seq == seq && turn.turn_id == turn_id)
+            || session.purged.load(Ordering::SeqCst)
+            || session.closing.load(Ordering::SeqCst)
+            || session.status() == SessionStatus::Closed
+            || !self.session_log_loaded(&session)
+        {
+            return Err(refused("turn_attestation.not_live"));
+        }
         let proof = TurnAttestation::issue(identity, id, seq, now_ms(), ttl)?;
-        serde_json::to_value(proof).map_err(|_| refused("turn_attestation.encoding"))
+        let encoded = serde_json::to_value(proof).map_err(|_| refused("turn_attestation.encoding"));
+        drop(live);
+        encoded
     }
 }
 

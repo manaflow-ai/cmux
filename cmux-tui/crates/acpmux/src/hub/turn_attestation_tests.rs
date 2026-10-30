@@ -187,3 +187,72 @@ fn turn_attestation_requires_authenticated_local_caller() {
     assert!(crate::turn_attestation::request(&ask, Some(&session.id), true).is_ok());
     drop(hub);
 }
+
+// Per issuing thread, so parallel tests never share a pause or a session identifier.
+thread_local! {
+    static BEFORE_ADMISSION: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const {
+        std::cell::RefCell::new(None)
+    };
+}
+
+pub(super) fn before_admission() {
+    let hook = BEFORE_ADMISSION.with(|slot| slot.borrow_mut().take());
+    if let Some(hook) = hook {
+        hook();
+    }
+}
+
+#[test]
+fn turn_attestation_rejects_detach_after_journal_validation() {
+    let (_dir, enrolled) = enrolled_identity();
+    let (hub, session) = fixture();
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+    let (resume_tx, resume_rx) = std::sync::mpsc::channel();
+    let issue_hub = hub.clone();
+    let id = session.id.clone();
+    let issuer = std::thread::spawn(move || {
+        BEFORE_ADMISSION.with(|slot| {
+            *slot.borrow_mut() = Some(Box::new(move || {
+                ready_tx.send(()).unwrap();
+                resume_rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+            }));
+        });
+        issue_hub.issue_turn_attestation(&id, &enrolled, 60_000)
+    });
+    ready_rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+    // The fixture has a live journal-backed turn but no child and already-idle metadata.
+    // Real detach clears the turn without needing a status-change journal append. This
+    // completes while the issuer still holds append_lock, proving that lock is insufficient.
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    runtime.block_on(hub.detach_child(&session));
+    assert!(session.turn().is_none());
+    resume_tx.send(()).unwrap();
+    match issuer.join().unwrap() {
+        Ok(_) => panic!("detached turn must not receive a stale attestation"),
+        Err(error) => assert_eq!(error, refused("turn_attestation.not_live")),
+    }
+}
+
+#[test]
+fn turn_attestation_rejects_replacement_after_journal_validation() {
+    for replace_id in [false, true] {
+        let (_dir, enrolled) = enrolled_identity();
+        let (hub, session) = fixture();
+        let changed = session.clone();
+        BEFORE_ADMISSION.with(|slot| {
+            *slot.borrow_mut() = Some(Box::new(move || {
+                let mut live = changed.turn.lock().unwrap();
+                let turn = live.as_mut().unwrap();
+                if replace_id {
+                    turn.turn_id = "replacement-turn".into();
+                } else {
+                    turn.turn_seq += 1;
+                }
+            }));
+        });
+        match hub.issue_turn_attestation(&session.id, &enrolled, 60_000) {
+            Ok(_) => panic!("replaced turn must not receive a stale attestation"),
+            Err(error) => assert_eq!(error, refused("turn_attestation.not_live")),
+        }
+    }
+}
