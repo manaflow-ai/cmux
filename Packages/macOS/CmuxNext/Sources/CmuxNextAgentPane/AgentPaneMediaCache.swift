@@ -47,7 +47,7 @@ actor AgentPaneMediaCache {
     /// Deletes only this owner's copy after its grant expires; never resolves an arbitrary path.
     func remove(_ file: URL) {
         guard let ownerName,
-              file.deletingLastPathComponent() == root.appending(path: ownerName),
+              file.deletingLastPathComponent().standardizedFileURL.path == root.appending(path: ownerName).standardizedFileURL.path,
               Self.isClip(file.lastPathComponent), ownerDescriptor >= 0 else { return }
         unlinkat(ownerDescriptor, file.lastPathComponent, 0)
     }
