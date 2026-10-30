@@ -51,6 +51,24 @@ extension TabHandlers {
             let reveal = revealer(ctx, tab: tab, outcome: .workspace(id: workspace.id), workspaceID: workspace.id)
             TabMoves.toWorkspace(tab, workspace: workspace, services: ctx.services, completion: reveal)
         })
+        registry.bindEffect("tab.moveToSpace", requires: DaemonCapability.profiles.rawValue,
+                            daemon: ctx.services.machines.local, effect: { invocation in
+            guard let (tab, _) = ctx.daemonTab(invocation) else { return .done }
+            guard let room = try ctx.optionalRoom(invocation["space"]) else {
+                return .refused(RoomStrings.roomArgumentRequired)
+            }
+            guard let workspace = ctx.services.workspaceID(ofTab: tab.id),
+                  let qualified = WindowProfiles.qualified(workspace, machines: ctx.services.machines) else {
+                return .done
+            }
+            let key = qualified.key, session = qualified.session
+            let daemon = ctx.services.machines.local
+            return .applied(ActionConfirmation(send: {
+                await daemon.failure("pin-workspace") {
+                    try await $0.pinWorkspace(session: session, key: key, to: room.id)
+                }
+            }))
+        })
         registry.bind("palette.moveTabToNewWorkspace", invoke: { moveToNewWorkspace(ctx, $0, newWindow: false) })
         registry.bind("tab.moveToNewWindow", invoke: { moveToNewWorkspace(ctx, $0, newWindow: true) })
     }
