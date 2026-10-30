@@ -179,6 +179,7 @@ test("a peer the status lists but the snapshot omits is not offered as ready", a
   const { environmentReady, knownMachines } = await import("./environments");
   const f = await fixture("local");
   try {
+    f.notify(note("offline", { lastSeen: 42, error: "lost" }));
     // Removed between the `_acpmux/status` read and the `_acpmux/peers` read (or an invalid row).
     f.peers([]);
     const omitted = f.waitForState(undefined);
@@ -195,6 +196,10 @@ test("a peer the status lists but the snapshot omits is not offered as ready", a
     };
     const [machine] = knownMachines(["studio-mac"], [], peers.kinds, [], peers.connected, peers.states);
     expect(environmentReady(machine!)).toBe(false);
+    // The offline banner (chatUnavailable) still reads what the status read last said of it.
+    const status = (f.client as unknown as { peerStatus: Record<string, unknown> }).peerStatus["studio-mac"];
+    expect(status).toMatchObject({ connected: false, lastSeen: 42, error: "lost" });
+    expect(status).not.toHaveProperty("state");
   } finally {
     f.client.close();
   }
