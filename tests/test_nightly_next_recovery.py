@@ -337,7 +337,7 @@ class WorkflowTests(unittest.TestCase):
 
     def test_publish_runs_for_an_accepted_own_or_recovered_build(self):
         condition = workflow()["jobs"]["publish-nightly"]["if"]
-        self.assertTrue(condition.startswith("!cancelled() && needs.decide.result == 'success' && "), condition)
+        self.assertTrue(condition.startswith("always() && !cancelled() && needs.decide.result == 'success' && "), condition)
         self.assertIn(
             "(((needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && (needs.signer-dmg.result == 'success' || needs.verify-signed-nightly.result == 'success') && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))",
             condition,
