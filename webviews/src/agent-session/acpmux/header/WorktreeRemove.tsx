@@ -1,8 +1,11 @@
 // The same removal state and actions drive this popover and the native menu (worktreeOps.ts).
+import { StableLabel } from "../../../ui/StableLabel";
+import { useT } from "../i18n";
 import type { WorktreeOps } from "./worktreeOps";
 export type { Removing } from "./worktreeOps";
 
 export function WorktreeRemove({ ops }: { ops: WorktreeOps }) {
+  const t = useT();
   const { removing, remove, keep, removeMessage } = ops;
   if (removing.step === "removed") {
     return (
@@ -31,7 +34,7 @@ export function WorktreeRemove({ ops }: { ops: WorktreeOps }) {
         </div>
       ) : (
         <button type="button" disabled={!remove.enabled} onClick={remove.run}>
-          {remove.label}
+          <StableLabel label={remove.label} alternatives={[t("header.worktreeRemove"), t("header.worktreeRemoving")]} />
         </button>
       )}
       {removing.step === "failed" && <span role="alert">{removeMessage}</span>}

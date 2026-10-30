@@ -5,6 +5,8 @@
 // with GitHub before it merges. The chip keeps where the merge stands, so closing the popover
 // mid-merge never offers a second one.
 import { useEffect, useRef } from "react";
+import { StableLabel } from "../../../ui/StableLabel";
+import { useT } from "../i18n";
 import type { PullRequestOps } from "./pullRequestOps";
 export { readyToMerge } from "./pullRequestOps";
 
@@ -15,6 +17,7 @@ export type Merging =
 export type MergeResult = { queued: boolean };
 
 export function PullRequestMerge({ ops }: { ops: PullRequestOps }) {
+  const t = useT();
   const { merging, start, confirm, cancel, question, messages } = ops;
   const box = useRef<HTMLDivElement>(null);
   // The control the reader pressed is replaced; the next one takes focus, when focus was here.
@@ -48,7 +51,9 @@ export function PullRequestMerge({ ops }: { ops: PullRequestOps }) {
               aria-disabled={merging.step === "merging" ? true : undefined}
               onClick={confirm?.run}
             >
-              {confirm?.label}
+              {confirm && (
+                <StableLabel label={confirm.label} alternatives={[t("header.prMergeConfirm"), t("header.prMerging")]} />
+              )}
             </button>
           </div>
         </>

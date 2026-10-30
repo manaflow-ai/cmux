@@ -1298,6 +1298,8 @@ impl Hub {
                 self.write_turn_result(session, msg, git);
             }
         }
+        // Its harness wrote the turn's spend: read it (`usage_view.rs`).
+        self.refresh_usage_stats_of(session);
         self.reset_stream(session);
         // Nobody showing it: the sidebar dot and `wait --until done` see it.
         if !self.shown(session) {
@@ -1806,7 +1808,18 @@ impl Hub {
     /// Stop the child. The log stays. `purge` also deletes the log.
     pub async fn kill(&self, session: &Arc<Session>, purge: bool) -> Result<(), RpcError> {
         // An idle pass under way ends first; none starts while this stop runs (`idle.rs`).
-        let _using = session.harness_use.read().await;
+        let using = session.harness_use.read().await;
+        self.kill_held(session, purge, using).await
+    }
+
+    /// `kill`, with `_using`, a lease of `harness_use` (shared, or exclusive for a conditional
+    /// stop, `stop_if_idle.rs`), held until the session is closed.
+    pub(super) async fn kill_held(
+        &self,
+        session: &Arc<Session>,
+        purge: bool,
+        _using: impl Send,
+    ) -> Result<(), RpcError> {
         // Counted first: a start for a request from before this stop ends (`ensure_child`).
         session.stops.fetch_add(1, Ordering::SeqCst);
         session.closing.store(true, Ordering::SeqCst);
