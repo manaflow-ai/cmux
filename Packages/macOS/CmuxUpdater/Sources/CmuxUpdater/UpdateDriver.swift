@@ -44,6 +44,8 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     var ring: UpdateRing = .nightly
     /// Builds at or below this are not offered (``UpdateController/skipsBuildsThrough``).
     var skipsBuildsThrough: String?
+    /// Builds the host refuses (``UpdateController/refusesUpdate``).
+    var refusesBuild: (@MainActor (String) -> Bool)?
     /// The update a background check accepted, and its held install once it is ready.
     var backgroundItem: SUAppcastItem?
     var stagedInstall: (() -> Void)?
@@ -132,6 +134,12 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         log.append("show update found: \(appcastItem.displayVersionString)")
         if let skip = skipsBuildsThrough, appcastItem.versionString.compare(skip, options: .numeric) != .orderedDescending {
             log.append("not offering \(appcastItem.versionString): a rollback left it (skips through \(skip))")
+            setState(.idle)
+            return reply(.dismiss)
+        }
+        // Before the background accept too: a refused build never downloads.
+        if refusesBuild?(appcastItem.versionString) == true {
+            log.append("not offering \(appcastItem.versionString): the host refuses it")
             setState(.idle)
             return reply(.dismiss)
         }

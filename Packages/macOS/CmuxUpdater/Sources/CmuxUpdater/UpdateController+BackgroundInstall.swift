@@ -159,6 +159,10 @@ extension UpdateController {
     /// Downloads the update that waits for the user; it then stages like a background download.
     public func acceptAvailableUpdate() {
         guard case .updateAvailable(let available) = model.state, !available.reply.isConsumed else { return }
+        if driver.refusesBuild?(available.appcastItem.versionString) == true {
+            log.append("not downloading \(available.appcastItem.versionString): the host refuses it")
+            return
+        }
         driver.acceptInBackground(available)
     }
 
@@ -187,5 +191,12 @@ extension UpdateController {
     public var skipsBuildsThrough: String? {
         get { driver.skipsBuildsThrough }
         set { driver.skipsBuildsThrough = newValue }
+    }
+
+    /// Whether the host refuses a found build by its `sparkle:version` (cmux NEXT: a pulled
+    /// build): it is dismissed when found, before any download or prompt, and never accepted.
+    public var refusesUpdate: (@MainActor (String) -> Bool)? {
+        get { driver.refusesBuild }
+        set { driver.refusesBuild = newValue }
     }
 }
