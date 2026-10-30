@@ -28,6 +28,8 @@ import { SubagentBanner, SubagentTitle, type SubagentHeaderVariant } from "./Sub
 import { subagentSummary, type SubagentScope } from "./subagentScope";
 import { outputArtifacts } from "./OutputsSection";
 import { DEFAULT_SECTIONS } from "./inspectorState";
+import { sessionEntry, type AcpmuxSessionEntry } from "../sessionList";
+import type { SessionUsageStats } from "../usageStats";
 
 type Props = ComponentProps<typeof ChatInspector> & {
   placement?: InspectorPlacement;
@@ -268,9 +270,35 @@ const transcriptTasks: NonNullable<Props["transcriptTasks"]> = [
   { id: "call-gen", command: "bun scripts/pages/gen-strings.mjs", state: "completed", startedAt: started - 700_000 },
 ];
 
+/// What acpmux reports a session spent (usageStats.ts), for Usage.
+const spent = (fields: Partial<SessionUsageStats>): SessionUsageStats => ({
+  launcher: "claude",
+  autocompact: "none",
+  compactions24h: 0,
+  subagentsLive: 0,
+  subagents1h: 0,
+  subagents24h: 0,
+  tokens24h: 0,
+  updatedAt: Date.UTC(2026, 9, 30, 3),
+  ...fields,
+});
+const ownUsage = spent({
+  launcher: "claude-sr2",
+  autocompact: "capped",
+  autocompactCap: 200_000,
+  contextTokens: 94_000,
+  contextWindow: 200_000,
+  compactions24h: 2,
+  subagentsLive: 1,
+  subagents1h: 3,
+  subagents24h: 11,
+  tokens24h: 38_400_000,
+  costUsd24h: 61.2,
+});
 const summary = {
   ...local.summary!,
   usage: { used: 94_000, size: 200_000 },
+  usageStats: ownUsage,
   // At most 16 of the chats it started run at once (acpmux's default).
   subsessionLimits: { maxRunning: 16, maxRunningSource: "default" as const },
   branch: "feat/next-inspector",
@@ -288,7 +316,7 @@ const checkTopBlockAlignment: Play = async (ctx) => {
   const environment = '[data-section="environment"] .acpmux-chat-inspector-row__name';
   await ctx.waitFor(() => ctx.document.querySelector(environment));
   const labelLeft = rect(environment).left;
-  for (const section of ["context", "connectors"]) {
+  for (const section of ["context", "usage", "connectors"]) {
     const title = rect(`[data-section="${section}"] .acpmux-chat-inspector-section__title`);
     if (Math.abs(title.left - labelLeft) > 0.5)
       throw new Error(`${section} label starts ${title.left - labelLeft}px from the Environment text column`);
@@ -299,8 +327,56 @@ const checkTopBlockAlignment: Play = async (ctx) => {
     throw new Error("The heading-only Changes section moved from the icon column");
 };
 
+/// Every session acpmux lists, this Mac's and a peer's: the usage audit's deputies on a build box (no
+/// autocompact cap, 290-330k per call, 67-90 subagents a day) above this chat.
+const fleet: AcpmuxSessionEntry[] = [
+  sessionEntry({
+    sessionId: local.summary!.sessionId,
+    name: "inspector-polish",
+    harness: "claude",
+    usageStats: ownUsage,
+  }),
+  ...(
+    [
+      ["dep-fleet", 1_420.5, 312_000, 90],
+      ["dep-land", 1_288, 331_000, 84],
+      ["dep-asks", 1_204.75, 296_000, 71],
+      ["self-audit", 1_190, 290_000, 67],
+    ] as const
+  ).map(([name, costUsd24h, contextTokens, subagents24h]) =>
+    sessionEntry({
+      sessionId: `build-box-${name}`,
+      name: `build-box/${name}`,
+      peer: "build-box",
+      harness: "claude",
+      usageStats: spent({ costUsd24h, contextTokens, contextWindow: 1_000_000, subagents24h, tokens24h: 900_000_000 }),
+    }),
+  ),
+  sessionEntry({
+    sessionId: "gcp-review",
+    name: "lane-vm/review-27744",
+    peer: "lane-vm",
+    harness: "codex",
+    // acpmux has not read a whole day yet: the 24h counts are unknown, never 0.
+    usageStats: {
+      launcher: "codex-acp",
+      autocompact: "unknown",
+      contextTokens: 41_000,
+      updatedAt: Date.UTC(2026, 9, 30, 3),
+    },
+  }),
+  sessionEntry({
+    sessionId: "docs-pass",
+    name: "docs-pass",
+    harness: "claude",
+    usageStats: spent({ autocompact: "capped", costUsd24h: 4.1, contextTokens: 22_000, tokens24h: 1_300_000 }),
+  }),
+];
+
 const full: Props = {
   summary,
+  allSessions: fleet,
+  onOpenChat: () => undefined,
   machineName: "Studio",
   repository: "manaflow-ai/cmux",
   made: {
@@ -583,6 +659,7 @@ export default componentEntry<Props>({
     "agent-session/acpmux/inspector/SubagentScopeHeader.tsx",
     "agent-session/acpmux/inspector/subagentScope.ts",
     "agent-session/acpmux/inspector/TasksSection.tsx",
+    "agent-session/acpmux/inspector/UsageSection.tsx",
     "agent-session/acpmux/inspector/WorkflowTasks.tsx",
     "agent-session/acpmux/summary/foldWorkflows.ts",
     "agent-session/acpmux/subagents/AgentLine.tsx",
@@ -631,6 +708,71 @@ export default componentEntry<Props>({
       note: "Narrow-width check: at 260px the longest supported model label truncates while the running agent name stays visible and state plus elapsed time keep separate columns.",
       props: workflowProps("running", "detail", 260, "anthropic/claude-sonnet-5-5"),
       play: assertNarrowWorkflowLayout,
+    },
+    usage: {
+      note: "Usage open (Leo, 2026-10-30, on the deputies nobody could see spending): this chat's last 24 hours (cost, tokens, the context each call carries with Compact beside it, its autocompact cap, compactions, subagents with Show, the launcher), then every session acpmux lists on this Mac and its peers, highest 24h cost first; five show, then View all. Folded, it is one row after Context: this chat's 24h cost.",
+      props: {
+        ...full,
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
+      },
+    },
+    "usage-no-cap": {
+      note: "Usage for a chat acpmux says runs with no autocompact cap: Autocompact reads No cap, with Restart with cap beside it, disabled until acpmux can restart a session with a cap. A cap acpmux could not read reads as an em dash and offers nothing.",
+      props: {
+        ...full,
+        summary: { ...summary, usageStats: { ...ownUsage, autocompact: "none" as const, autocompactCap: undefined } },
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
+      },
+    },
+    "usage-context": {
+      note: "Usage sorted by Context: the sessions carrying the most context per call first, the uncapped deputies on build-box at 290-330k on top.",
+      props: {
+        ...full,
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
+      },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-chat-inspector-usage__sort-option:nth-child(2)" });
+        await ctx.waitFor(() => ctx.document.querySelector('[data-sort="context"]') !== null);
+      },
+    },
+    "usage-all": {
+      note: "Usage with View all open: every session with usage, the lane VM's Codex review, whose 24h numbers acpmux has not read yet, shows an em dash, never $0.00.",
+      props: {
+        ...full,
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
+      },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-chat-inspector-usage-fold" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll("[data-sort] > li").length > 5);
+      },
     },
     "layout-glance": {
       note: "Chosen (Leo, 2026-10-22: \"this session rail is tmi and too many boxes?\"). Eight cards became three blocks with a hairline between them and no box: the Environment's rows with no title, Context and Connectors one row each; Changes and Outputs; Subagents and Background tasks, the Servers card's row now heading Background tasks. Least ink of the three while every section and click stays; the rows line up under the panel's title.",
