@@ -34,15 +34,7 @@ import Testing
         let place = view.controller.demo?.readingPlace(keeps: { _ in true })
         if place == nil {
             let pinned = view.controller.store?.state.ui.scroll.pinnedToBottom == true
-            var rows = "no demo"
-            if let demo = view.controller.demo {
-                let i = demo.firstVisibleRow
-                let near = (max(0, i - 2)..<min(demo.model.count, i + 6)).map { j in
-                    "\(demo.model.rows[j].spec.key)@\(demo.windowY(contentY: demo.layout.contentTop(j)))\(demo.model.rows[j].ghost ? " ghost" : "")"
-                }
-                rows = "count \(demo.model.count) first \(i) anchorY \(demo.anchorY) atNewest \(demo.store.state.atNewest) near \(near)"
-            }
-            Issue.record("\(which): no place; pinned \(pinned), placed \(!view.projection.placesOnOpen); \(rows)")
+            Issue.record("\(which): no place; pinned \(pinned), placed \(!view.projection.placesOnOpen)")
         }
         return place
     }
@@ -78,10 +70,11 @@ import Testing
                 "\(comment): offset \(demo.collection.contentOffset.y), bottom \(demo.pinnedOffset)")
     }
 
-    /// The person scrolls the transcript up by `points` (a wheel moves the clip view; the model follows).
+    /// The person scrolls the transcript up by `points` within the loaded rows (a wheel moves the clip
+    /// view; the model follows).
     private func scrollUp(_ view: MessagesLabHomeView, by points: CGFloat) throws {
         let demo = try #require(view.controller.demo)
-        view.controller.host.scrollView.scroll(toModelOffset: demo.collection.contentOffset.y - points)
+        view.controller.host.scrollView.scroll(toModelOffset: max(demo.minOffset, demo.collection.contentOffset.y - points))
         demo.userScrolled()
         view.superview?.layoutSubtreeIfNeeded()
     }
@@ -122,7 +115,7 @@ import Testing
         close(rig.view, in: rig)
 
         let first = try await open(rig)
-        try scrollUp(first, by: 2400)
+        try scrollUp(first, by: 600)
         #expect(!first.projection.placesOnOpen, "the first view was placed")
         guard let left = place(first, "scrolled up") else { return }
         close(first, in: rig)
