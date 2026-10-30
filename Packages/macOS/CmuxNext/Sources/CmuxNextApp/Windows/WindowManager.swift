@@ -164,6 +164,8 @@ final class WindowManager {
 
     func didActivate(_ controller: WindowController) {
         lastActive = controller
+        // A "not saved for restore" notice that came while no window could show it shows now.
+        sessionRegistrar.showPendingNotices()
         if keepsOrder { return }
         registry.apply { $0.activate(controller.state.id); return WindowRegistry.Changes() }
     }
