@@ -51,13 +51,13 @@ import Testing
             ]),
         ])
         view.show(more: true, lit: false, nativeItems: [tool])
+        var invoked: (String, String?)?
+        view.onNativeTool = { id, menuItemID in invoked = (id, menuItemID) }
         var shown: NSMenu?
         view.moreButton.presentMenu = { menu, _ in shown = menu }
         #expect(view.moreButton.accessibilityPerformPress())
         #expect(shown?.items.map(\.title) == ["Rename", "Continue In"])
 
-        var invoked: (String, String?)?
-        view.onNativeTool = { id, menuItemID in invoked = (id, menuItemID) }
         let row = try #require(shown?.items.first)
         #expect(NSApplication.shared.sendAction(try #require(row.action), to: row.target, from: row))
         #expect(invoked?.0 == "chat-menu")
