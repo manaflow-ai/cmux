@@ -2,6 +2,8 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextFiles
+@testable import CmuxNextFilesUI
 @testable import CmuxNextApp
 @testable import CmuxNextDesign
 @testable import CmuxNextHome
@@ -154,6 +156,60 @@ import Testing
             #expect(TabItemMapping.shared.item(tab, fallbackTitle: "Terminal").indicator == .idle)
             try await call(page, "reset", "appearance.statusIndicator.showAgentWorkingOnTabs")
             #expect(TabItemMapping.shared.item(tab, fallbackTitle: "Terminal").indicator == .working(progress: nil))
+        }
+    }
+
+    @Test func interfaceSizeUpdatesMountedFileNamesWithoutChangingEntriesOrSelection() async throws {
+        try await withPage { page, _ in
+            let actions = FilesPaneActions(activate: { _ in }, select: { _, _ in }, sort: { _ in },
+                                           rename: { _, _ in }, drop: { _, _, _, _ in }, menu: { _ in NSMenu() },
+                                           key: { _ in false }, browse: { _ in })
+            let icons = FileIconProvider()
+            let grid = FileIconGridView(actions: actions, icons: icons)
+            let list = FileListView(actions: actions, icons: icons)
+            let sidebar = FileSidebarView(actions: FileSidebarActions(open: { _ in }, add: { _, _ in },
+                                                                      remove: { _ in }, eject: { _ in }, drop: { _, _, _, _ in }))
+            let folder = URL(fileURLWithPath: "/settings-test")
+            let entries = [FileEntry(name: "Folder", in: folder, kind: .folder)]
+            let selection: Set<String> = ["Folder"]
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 300),
+                                  styleMask: [.borderless], backing: .buffered, defer: false)
+            let root = try #require(window.contentView)
+            for (index, view) in [grid.view, list.view, sidebar.view].enumerated() {
+                view.frame = NSRect(x: CGFloat(index) * 400, y: 0, width: 400, height: 300)
+                root.addSubview(view)
+            }
+            window.orderFront(nil)
+            defer { window.orderOut(nil) }
+            let collection = try #require((grid.view as? NSScrollView)?.documentView as? NSCollectionView)
+            let table = try #require((list.view as? NSScrollView)?.documentView as? NSTableView)
+            let places = try #require((sidebar.view as? NSScrollView)?.documentView as? NSTableView)
+            func render() {
+                grid.show(entries, of: folder, selection: selection)
+                list.show(entries, of: folder, selection: selection)
+                sidebar.show([.header("Files")], current: folder)
+                root.layoutSubtreeIfNeeded()
+                collection.layoutSubtreeIfNeeded()
+            }
+            func fonts() throws -> [CGFloat] {
+                let tile = try #require(collection.item(at: IndexPath(item: 0, section: 0)))
+                let cell = try #require(table.view(atColumn: 0, row: 0, makeIfNecessary: true) as? NSTableCellView)
+                let place = try #require(places.view(atColumn: 0, row: 0, makeIfNecessary: true) as? NSTableCellView)
+                return [try #require(tile.textField?.font).pointSize, try #require(cell.textField?.font).pointSize,
+                        try #require(place.textField?.font).pointSize]
+            }
+            render()
+            let originals = try fonts()
+            try await call(page, "set", "appearance.metrics.chromeFontSize", .number(16))
+            render()
+            for (actual, original) in zip(try fonts(), originals) {
+                #expect(abs(actual - original * Typography.userScale) < 0.01)
+            }
+            #expect(collection.selectionIndexPaths == [IndexPath(item: 0, section: 0)])
+            #expect(table.selectedRowIndexes == IndexSet(integer: 0))
+            try await call(page, "reset", "appearance.metrics.chromeFontSize")
+            render()
+            for (actual, original) in zip(try fonts(), originals) { #expect(abs(actual - original) < 0.01) }
         }
     }
 
