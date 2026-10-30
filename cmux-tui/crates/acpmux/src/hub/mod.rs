@@ -124,6 +124,7 @@ mod tap;
 mod titles;
 mod tool_paths;
 mod tools;
+pub(crate) mod turn_cap;
 mod watch;
 pub use new_request::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
@@ -357,6 +358,9 @@ pub struct PromptOptions {
     /// A person's subagent retry (`subagent_retry_manual.rs`): refused with `retry.busy` where it
     /// would wait (behind a turn, the queue, the turn lock or a run slot), never queued.
     pub no_queue: bool,
+    /// A queued prompt sent now (`queue.rs` `steer_queued`): it steers in even past the running
+    /// turn's cap (`turn_cap.rs`).
+    pub send_now: bool,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -1092,6 +1096,7 @@ impl Hub {
             stalled_gen: AtomicU64::new(0),
             last_model_at: AtomicU64::new(0),
             silent_turn: StdMutex::new(None),
+            turn_cap_timer: StdMutex::new(None),
             last_active: AtomicU64::new(self.clock_now()),
             hibernated_at: AtomicU64::new(hibernated_at),
             wake_cause: StdMutex::new(None),
