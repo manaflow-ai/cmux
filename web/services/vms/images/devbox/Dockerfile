@@ -32,17 +32,14 @@ FROM ubuntu:24.04
 # Cache-buster: bump the date to force remote builders past stale layer
 # caches (a remote builder served stale layers for chatmux on 2026-08-21 and
 # 2026-08-25). Also the image version /etc/cmux/image-stamp carries.
-ENV CMUX_IMAGE_EPOCH=2026-10-14-r1
+ENV CMUX_IMAGE_EPOCH=2026-10-28-r1
 
 ENV LANG=C.UTF-8 \
     DEBIAN_FRONTEND=noninteractive
 
 # Devtools (chatmux devbox apt list) plus vim, sudo for non-root provider
 # exec users, procps for the driver's daemon process discovery (pgrep),
-# iproute2 for the desktop's port probes (ss), and bubblewrap: codex's Linux
-# sandbox prerequisite (developers.openai.com/codex/concepts/sandboxing), so
-# codex uses the distro's bwrap instead of warning on every launch that it is
-# falling back to its bundled copy.
+# and iproute2 for the desktop's port probes (ss).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     ripgrep \
@@ -73,11 +70,32 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     sudo \
     util-linux \
     e2fsprogs \
-    bubblewrap \
   && rm -rf /var/lib/apt/lists/* \
   && ln -s "$(command -v fdfind)" /usr/local/bin/fd \
   && echo 'LANG=C.UTF-8' > /etc/default/locale \
-  && fd --version && jq --version && fzf --version && sqlite3 --version && tmux -V && ss -V && bwrap --version
+  && fd --version && jq --version && fzf --version && sqlite3 --version && tmux -V && ss -V
+
+# Muse needs a current bubblewrap; Ubuntu 24.04 ships 0.9.0. Build the
+# checksum-pinned upstream release, and divert /usr/bin/bwrap so a later apt
+# install cannot replace it. Keep /usr/bin/bwrap for Ubuntu's AppArmor profile.
+# build-devbox-freestyle.ts reads these pins and replays this install command.
+ARG CMUX_IMAGE_BUBBLEWRAP_URL=https://github.com/containers/bubblewrap/releases/download/v0.13.1/bubblewrap-0.13.1.tar.xz
+ARG CMUX_IMAGE_BUBBLEWRAP_SHA256=0e85c8702248b8dd64144f594147553650cdd0e4c951690345faace79c217c4d
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends meson ninja-build libcap-dev \
+  && curl -fsSL -o /tmp/bubblewrap.tar.xz $CMUX_IMAGE_BUBBLEWRAP_URL \
+  && echo "$CMUX_IMAGE_BUBBLEWRAP_SHA256  /tmp/bubblewrap.tar.xz" | sha256sum -c - \
+  && rm -rf /tmp/bubblewrap \
+  && mkdir /tmp/bubblewrap \
+  && tar -xJf /tmp/bubblewrap.tar.xz -C /tmp/bubblewrap --strip-components=1 \
+  && meson setup /tmp/bubblewrap/build /tmp/bubblewrap --prefix=/usr --buildtype=release -Dtests=false -Dman=disabled -Dselinux=disabled -Dbash_completion=disabled -Dzsh_completion=disabled \
+  && meson compile -C /tmp/bubblewrap/build \
+  && dpkg-divert --local --rename --divert /usr/bin/bwrap.distrib --add /usr/bin/bwrap \
+  && meson install -C /tmp/bubblewrap/build --no-rebuild \
+  && apt-get purge -y meson ninja-build libcap-dev \
+  && rm -rf /var/lib/apt/lists/* /tmp/bubblewrap /tmp/bubblewrap.tar.xz \
+  && test "$(/usr/bin/bwrap --version)" = "bubblewrap 0.13.1" \
+  && test "$(command -v bwrap)" = /usr/bin/bwrap
 
 # The work user: the base's uid-1000 account renamed to `cmux`
 # (web/services/vms/images/workUser.ts). ONE account owns the desktop session,

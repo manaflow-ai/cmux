@@ -13,7 +13,7 @@ name: nightly-next feed watch
 # dispatches a current-tip build after 20 minutes without a publication when
 # no started nightly-next build has the tip or a commit containing it as its
 # head (a run queued 10 minutes without a runner is not started; main's runs
-# never count). The guard covers classic NIGHTLY too. The
+# never count). The
 # tick (nightly-next-tick.yml) asks at landing; this is the backstop, and at
 # :07/:37 with a 25-minute trigger it could not meet the 30-minute bound.
 # A run whose signing or publication failed after a good compile is resumed
@@ -77,7 +77,12 @@ jobs:
           MAX_RESUMES: ${{ vars.NIGHTLY_NEXT_MAX_UNSIGNED_RESUMES || '2' }}
         run: python3 scripts/ci/nightly_next_unsigned_resume.py --repo "$REPOSITORY" --max-resumes "$MAX_RESUMES"
 
-      - name: Check how long feat-cmux-next pushes have waited for the feed
+      # The watcher exits 3 when GitHub is unavailable. Keep this step
+      # blocking: the failed step and the script's GITHUB_STEP_SUMMARY entry
+      # are the durable degraded-health signal, while feed CDN read failures
+      # remain warnings and do not fail the check by themselves.
+      - name: Check feed health (degraded when GitHub API is unavailable)
+        id: feed_watch
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}

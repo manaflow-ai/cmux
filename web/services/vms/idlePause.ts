@@ -61,6 +61,24 @@ export const VM_PAUSE_REASON_KEY = "cmuxPauseReason";
 export const VM_LAST_API_ACTIVITY_KEY = "cmuxLastApiActivityAt";
 /** When the idle cron last checked the machine, epoch ms; the cron checks the least recent first. */
 export const VM_IDLE_PROBED_AT_KEY = "cmuxIdleProbedAt";
+/** Last cron verdict, independent of lifecycle/activity fences. */
+export const VM_IDLE_LAST_DECISION_KEY = "cmuxIdleLastDecision";
+export type VmIdleOutcome = "paused" | "idle" | "active" | "unknown" | "off" | "aborted" | "error" | "claim_refused";
+export type VmIdleLastDecision = {
+  readonly at: number;
+  readonly outcome: VmIdleOutcome;
+  readonly reason: string;
+  readonly run: { readonly checked: number; readonly elapsedMs: number };
+};
+export type VmIdlePauseDiagnostics = {
+  readonly minutes: VmIdlePauseMinutes;
+  readonly lastCheckedAt: number | null;
+  readonly idleSince: number | null;
+  readonly lastApiActivityAt: number | null;
+  readonly privateAddressKnown: boolean;
+  readonly lastDecision: VmIdleLastDecision | null;
+};
+
 /**
  * The idle fence: a counter every write that can change the idle verdict
  * moves (an observation, API activity, the setting, any status write, a
@@ -237,6 +255,29 @@ export function vmLastApiActivityFromRow(row: MetadataRow): number | null {
 export function vmIdlePrivateAddressesFromRow(row: MetadataRow): string[] {
   const metadata = row.providerMetadata ?? {};
   return [metadata["networkIpv4"], metadata["networkIpv6"]].filter((a): a is string => typeof a === "string" && a !== "");
+}
+
+/** Only the diagnostic fields leave the row; never expose arbitrary provider metadata. */
+export function vmIdlePauseDiagnosticsFromRow(row: MetadataRow & { readonly providerVmId: string | null }): VmIdlePauseDiagnostics {
+  const checked = row.providerMetadata?.[VM_IDLE_PROBED_AT_KEY];
+  return {
+    minutes: vmIdlePauseMinutesFromRow(row),
+    lastCheckedAt: isTime(checked) ? checked : null,
+    idleSince: vmIdleObservationFromRow(row)?.idleSince ?? null,
+    lastApiActivityAt: vmLastApiActivityFromRow(row),
+    privateAddressKnown: vmIdlePrivateAddressesFromRow(row).length > 0,
+    lastDecision: lastDecisionFromMetadata(row.providerMetadata?.[VM_IDLE_LAST_DECISION_KEY]),
+  };
+}
+
+function lastDecisionFromMetadata(raw: unknown): VmIdleLastDecision | null {
+  if (!raw || typeof raw !== "object") return null;
+  const { at, outcome, reason, run } = raw as Record<string, unknown>;
+  if (!isTime(at) || typeof outcome !== "string" || typeof reason !== "string" || !run || typeof run !== "object") return null;
+  if (!["paused", "idle", "active", "unknown", "off", "aborted", "error", "claim_refused"].includes(outcome)) return null;
+  const { checked, elapsedMs } = run as Record<string, unknown>;
+  if (count(checked) === null || count(elapsedMs) === null) return null;
+  return { at, outcome: outcome as VmIdleOutcome, reason, run: { checked: checked as number, elapsedMs: elapsedMs as number } };
 }
 
 /** The daemon's `subscribe-activity` snapshot. */

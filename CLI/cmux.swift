@@ -2962,12 +2962,6 @@ final class ClaudeHookSessionStore {
     }
 }
 
-private let agentHookWrapperProcessNames: Set<String> = [
-    "sh",
-    "bash",
-    "zsh",
-    "env"
-]
 
 private let suppressSubagentNotificationsDefaultsKey = "suppressSubagentNotifications"
 private let suppressSubagentNotificationsEnvironmentKey = "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"
@@ -21652,8 +21646,10 @@ struct CMUXCLI {
             return """
             Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]
                    cmux hooks uninstall [agent] [--agent <name>] [--yes|-y]
-                   cmux hooks <agent> install [--yes|-y] (opencode supports --project)
-                   cmux hooks <agent> uninstall [--yes|-y] (opencode supports --project)
+                   cmux hooks setup kiro --global [--yes|-y]
+                   cmux hooks uninstall kiro --global
+                   cmux hooks <agent> install [--yes|-y]
+                   cmux hooks <agent> uninstall [--yes|-y]
                    cmux hooks <agent> <event> [flags]
                    cmux hooks feed --source <agent> [--event <event>]
 
@@ -21679,7 +21675,10 @@ struct CMUXCLI {
               ~/.campfire/agent/extensions/cmux-campfire-session.ts
               ~/.config/amp/plugins/cmux-session.ts
               ~/.kiro/agents/cmux.json
+              ~/.kiro/hooks/cmux.json (kiro --global)
               See docs/agent-hooks.md for the full integration matrix.
+
+            \(Self.kiroGlobalHelpSummary)
 
             Examples:
               cmux hooks setup
@@ -21689,6 +21688,7 @@ struct CMUXCLI {
               cmux hooks uninstall rovo
               cmux hooks codex install
               cmux hooks opencode install --project
+              cmux hooks setup kiro --global
               cmux hooks uninstall
             """
         case "themes":
@@ -35128,36 +35128,6 @@ struct CMUXCLI {
     /// first so it silently succeeds even when cmux is not installed
     /// (e.g. user opened codex in a non-cmux terminal).
 
-    // MARK: - Agent PID inference
-
-    private func agentPIDFromHookEnvironment(agentName: String, env: [String: String]) -> Int? {
-        let envKey = Self.agentHookPIDEnvironmentVariable(agentName: agentName)
-        guard let raw = env[envKey]?.trimmingCharacters(in: .whitespacesAndNewlines),
-              let pid = Int(raw),
-              pid > 0 else {
-            return nil
-        }
-        return pid
-    }
-
-    func inferredAgentPID() -> Int? {
-        var candidate = getppid()
-        var remainingWrapperSkips = 8
-
-        while candidate > 1, remainingWrapperSkips > 0 {
-            guard let processName = processName(for: candidate) else { break }
-            if !agentHookWrapperProcessNames.contains(processName) {
-                break
-            }
-            let next = parentPID(of: candidate)
-            guard next > 1, next != candidate else { break }
-            candidate = next
-            remainingWrapperSkips -= 1
-        }
-
-        return candidate > 1 ? Int(candidate) : nil
-    }
-
     func claudeAgentPID(from env: [String: String]) -> Int? {
         guard let raw = env["CMUX_CLAUDE_PID"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
@@ -35317,7 +35287,7 @@ struct CMUXCLI {
         return Int64(info.kp_eproc.e_tdev)
     }
 
-    private func parentPID(of pid: pid_t) -> pid_t {
+    func parentPID(of pid: pid_t) -> pid_t {
         var info = kinfo_proc()
         var size = MemoryLayout<kinfo_proc>.size
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
@@ -35327,7 +35297,7 @@ struct CMUXCLI {
         return info.kp_eproc.e_ppid
     }
 
-    private func processName(for pid: pid_t) -> String? {
+    func processName(for pid: pid_t) -> String? {
         let process = Process()
         let stdout = Pipe()
         process.executableURL = URL(fileURLWithPath: "/bin/ps")
@@ -35338,21 +35308,21 @@ struct CMUXCLI {
         do {
             try cliRunProcess(process)
         } catch {
-            return nil
+            return libprocProcessName(for: pid)
         }
         process.waitUntilExit()
-        guard process.terminationStatus == 0 else { return nil }
+        guard process.terminationStatus == 0 else { return libprocProcessName(for: pid) }
 
         let data = stdout.fileHandleForReading.readDataToEndOfFileOrEmpty()
         guard let output = String(data: data, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines),
             !output.isEmpty else {
-            return nil
+            return libprocProcessName(for: pid)
         }
         return URL(fileURLWithPath: output).lastPathComponent.lowercased()
     }
 
-    private func processArguments(for pid: pid_t) -> [String]? {
+    func processArguments(for pid: pid_t) -> [String]? {
         var argMax: Int32 = 0
         var argMaxSize = MemoryLayout<Int32>.size
         var argMaxMib: [Int32] = [CTL_KERN, KERN_ARGMAX]
@@ -37910,6 +37880,9 @@ export default {
         if let note = def.postInstallNote {
             print(note)
         }
+        if def.name == "kiro", Self.kiroGlobalHooksInstalled(def) {
+            print(Self.kiroBothInstallsNote)
+        }
 
         try pruneLegacyGrokHookFileIfNeeded(def: def, configDir: configDir, primaryFilePath: filePath)
 
@@ -38660,9 +38633,13 @@ export default {
         // only infer a PID from the live process tree when replay is live.
         let liveProcessIdentityAllowed = !relayOrigin && !routeWasSnapshotted
         let requireLiveProcessForSessionChecks = !relayOrigin
-        let observedPID = agentPIDFromHookEnvironment(agentName: def.name, env: env)
+        let observedPID = agentPIDFromHookEnvironment(agentName: def.name, env: env).map {
+            def.name == "kiro" && liveProcessIdentityAllowed ? (kiroCLIAncestorPID() ?? $0) : $0
+        }
         let inferredPID = observedPID
-            ?? (liveProcessIdentityAllowed ? inferredAgentPID() : nil)
+            ?? (liveProcessIdentityAllowed
+                ? inferredAgentPID().map { def.name == "kiro" ? (kiroCLIAncestorPID() ?? $0) : $0 }
+                : nil)
         func liveAgentPID(_ pid: Int?) -> Int? {
             liveProcessIdentityAllowed ? pid : nil
         }
@@ -45719,6 +45696,13 @@ export default {
     }
 
     private func installHooksForAgent(_ def: AgentHookDef, arguments: [String]) throws {
+        if arguments.contains("--global") {
+            guard def.name == "kiro" else {
+                throw CLIError(message: Self.kiroGlobalRequiresKiroMessage)
+            }
+            try installKiroGlobalHooks(def)
+            return
+        }
         if def.name == "opencode" {
             let projectLocal = arguments.contains("--project")
             if projectLocal {
@@ -45734,6 +45718,13 @@ export default {
     }
 
     private func uninstallHooksForAgent(_ def: AgentHookDef, arguments: [String]) throws {
+        if arguments.contains("--global") {
+            guard def.name == "kiro" else {
+                throw CLIError(message: Self.kiroGlobalRequiresKiroMessage)
+            }
+            try uninstallKiroGlobalHooks(def)
+            return
+        }
         if def.name == "opencode" {
             let projectLocal = arguments.contains("--project")
             if projectLocal {
@@ -45800,8 +45791,8 @@ export default {
                 throw CLIError(message: "Unknown hooks target: \(first)")
             }
             telemetry.breadcrumb("hooks.\(def.name).dispatch")
-            if def.name == "codex",
-               try runAgentInboxHookIfMatched(agent: "codex", commandArgs: rest, client: client) {
+            if def.name == "codex" || def.name == "kiro",
+               try runAgentInboxHookIfMatched(agent: def.name, commandArgs: rest, client: client) {
                 return
             }
             do {
@@ -45828,6 +45819,8 @@ export default {
         var flagAgent: String?
         var positionalAgent: String?
         var uninstall = false
+        /// Kiro only: target the Kiro CLI V3 global hooks file.
+        var global = false
     }
 
     /// Parses setup/uninstall arguments, rejecting anything it doesn't know
@@ -45861,6 +45854,8 @@ export default {
                 continue
             case "--uninstall":
                 parsed.uninstall = true
+            case "--global":
+                parsed.global = true
             default:
                 if arg.hasPrefix("--agent=") {
                     try setFlagAgent(String(arg.dropFirst("--agent=".count)))
@@ -45908,6 +45903,10 @@ export default {
         } else {
             agentFilterDef = nil
         }
+        if arguments.global, agentFilterDef?.name != "kiro" {
+            throw CLIError(message: Self.kiroGlobalRequiresKiroMessage)
+        }
+        let agentArguments = arguments.global ? ["--global"] : []
         let isUninstall = uninstall || arguments.uninstall
         let fm = FileManager.default
         let verb = isUninstall ? "uninstalling" : "installing"
@@ -45951,9 +45950,9 @@ export default {
             }
             print("  \(def.name):")
             if isUninstall {
-                try uninstallHooksForAgent(def, arguments: [])
+                try uninstallHooksForAgent(def, arguments: agentArguments)
             } else {
-                try installHooksForAgent(def, arguments: [])
+                try installHooksForAgent(def, arguments: agentArguments)
             }
             count += 1
             print("")
