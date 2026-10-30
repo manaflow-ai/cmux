@@ -40,7 +40,7 @@ public actor AgentHookSpoolWatcher {
             fileDescriptor: fd, eventMask: [.write, .delete, .rename], queue: nil
         )
         files.setEventHandler { [weak self] in
-            Task { await self?.directoryChanged() }
+            Task { [weak self] in await self?.directoryChanged() }
         }
         files.setCancelHandler { Darwin.close(fd) }
         let process = DispatchSource.makeProcessSource(identifier: parentPID, eventMask: .exit, queue: nil)
@@ -70,7 +70,7 @@ public actor AgentHookSpoolWatcher {
         let timer = DispatchSource.makeTimerSource(queue: nil)
         timer.schedule(deadline: .now() + delay)
         timer.setEventHandler { [weak self] in
-            Task { await self?.retryReady() }
+            Task { [weak self] in await self?.retryReady() }
         }
         retrySource = timer
         timer.resume()
