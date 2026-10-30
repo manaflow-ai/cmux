@@ -47,6 +47,10 @@ struct NewTerminalOnPendingSplitTests {
             // hold of the split and the new tab ended.
             let coordinator = services.keyRouter.creationInputCoordinator
             try await PinnedPageTests.until({ !coordinator.isHolding(in: window) }, report: { "the window's creation hold never ended" })
+            // ... and it ended because the focus landed on the new terminal, not at its 2 s bound (keys a person typed
+            // meanwhile would have gone on that late): R-L5, its end is a signal.
+            #expect(coordinator.lastHoldEnd(in: window) == .focusLanded,
+                    "the creation hold ended by \(String(describing: coordinator.lastHoldEnd(in: window))), not because the focus landed")
             let responder = String(describing: window.firstResponder.map { type(of: $0) })
             let nonce = String(UInt32.random(in: 100_000...999_999))
             for character in "echo p0t\(nonce)t$((6*7))\r" {
