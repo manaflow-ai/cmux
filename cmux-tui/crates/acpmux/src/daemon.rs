@@ -515,11 +515,15 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // (`daemon/home_watch.rs`). Its own task, so it keeps watching through a shutdown that began
     // on a signal: a home replaced while the agents drain is still marked lost before their last
     // writes. Ends with this function, whichever way it returns.
-    let mut home_gone =
-        tokio::spawn(home_watch::watch(owned_home.clone(), &home(), &socket_path()));
-    let _home_watch = AbortOnDrop(home_gone.abort_handle());
-    // The socket this daemon bound: a shutdown removes only that one.
+    // The socket this daemon bound, read once: the watch and the shutdown's removal use it.
     let bound_socket = home_watch::Owned::now(&[&socket_path()]);
+    let mut home_gone = tokio::spawn(home_watch::watch(
+        owned_home.clone(),
+        bound_socket.clone(),
+        &home(),
+        &socket_path(),
+    ));
+    let _home_watch = AbortOnDrop(home_gone.abort_handle());
     // Its home and lock, re-read during the shutdown too.
     let recheck_home = move || {
         if let Some(why) = owned_home.as_ref().and_then(|owned| owned.lost()) {
@@ -692,7 +696,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     recheck_home();
     // One that could not be read right after the bind is left alone: it may be another's. (A
     // replacement between this check and the unlink cannot be ruled out: unlink takes a path.)
-    if bound_socket.as_ref().is_some_and(|s| s.lost().is_none()) {
+    // Off Unix there is no identity to read: the socket goes, as it always did.
+    if bound_socket.as_ref().map_or(!cfg!(unix), |s| s.lost().is_none()) {
         // The home watch runs on through the shutdown: this removal is not a loss.
         home_watch::release_socket();
         let _ = std::fs::remove_file(socket_path());

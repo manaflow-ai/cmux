@@ -19,8 +19,10 @@
 //! above it (FSEvents watches a folder's whole tree). A command never starts a daemon in the
 //! old, now missing path (`config::autostart_refusal`).
 //!
-//! The home and lock are read as soon as the daemon holds its lock, so one replaced during its
-//! startup is a loss too. Once the loss is reported the shutdown removes nothing at the old
+//! The home and lock are read as soon as the daemon holds its lock (by path: a replacement in
+//! the instant between taking the lock and that read is not seen), and the socket as it is
+//! bound, so one replaced during the startup is a loss too. Unix only: off Unix there is no
+//! watch, and the shutdown keeps base's cleanup. Once the loss is reported the shutdown removes nothing at the old
 //! paths except the socket it bound, and the shared write paths (`config::private_state_dir*`,
 //! `write_atomic`, `owner_only`, the store, the registry, the catalog and live-model caches,
 //! `agent_tools::write_private`) refuse to write under the old home (`config::mark_home_lost`):
@@ -114,10 +116,15 @@ pub(crate) type HomeGone = Pin<Box<dyn Future<Output = String> + Send>>;
 
 /// Watch `home`, `socket` and `lock` (see the module doc).
 #[cfg(unix)]
-pub(crate) fn watch(held: Option<Owned>, home: &Path, socket: &Path) -> HomeGone {
+pub(crate) fn watch(
+    held: Option<Owned>,
+    bound: Option<Owned>,
+    home: &Path,
+    socket: &Path,
+) -> HomeGone {
     use notify::Watcher as _;
     // The home and lock as the daemon first held them (`held`), and the socket as bound.
-    let Some(owned) = held.zip(Owned::now(&[socket])).map(|(held, bound)| held.with(bound)) else {
+    let Some(owned) = held.zip(bound).map(|(held, bound)| held.with(bound)) else {
         tracing::warn!("home watch off: {} or {} cannot be read", home.display(), socket.display());
         return Box::pin(std::future::pending());
     };
@@ -186,7 +193,12 @@ impl Owned {
 pub(crate) fn release_socket() {}
 
 #[cfg(not(unix))]
-pub(crate) fn watch(_held: Option<Owned>, _home: &Path, _socket: &Path) -> HomeGone {
+pub(crate) fn watch(
+    _held: Option<Owned>,
+    _bound: Option<Owned>,
+    _home: &Path,
+    _socket: &Path,
+) -> HomeGone {
     Box::pin(std::future::pending())
 }
 
