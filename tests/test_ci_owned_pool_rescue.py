@@ -2056,8 +2056,10 @@ class Sweeper(unittest.TestCase):
 
     def test_snapshot_download_failure_is_unavailable_health(self):
         api = rescue.GitHub("test-token", "manaflow-ai/cmux")
-        with unittest.mock.patch.object(api._snapshot_client, "snapshot", side_effect=RuntimeError("artifact download failed (410)")):
-            self.assertIsNone(api.pool_snapshot(START))
+        for error in (RuntimeError("artifact download failed (410)"), rescue.zipfile.BadZipFile("truncated artifact")):
+            with self.subTest(error=type(error).__name__), unittest.mock.patch.object(
+                    api._snapshot_client, "snapshot", side_effect=error):
+                self.assertIsNone(api.pool_snapshot(START))
 
     def test_watches_each_marked_run_once(self):
         runs = [listed(1),

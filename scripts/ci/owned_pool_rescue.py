@@ -236,6 +236,7 @@ import sys
 import threading
 import time
 import urllib.error
+import zipfile
 import urllib.request
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
@@ -1027,7 +1028,7 @@ def late_marker_name(target: Target) -> str:
     return f"{LATE_MARKER_PREFIX}-{target.run_id}-{target.attempt}"
 
 
-READ_ERRORS = (urllib.error.URLError, http.client.HTTPException, OSError, ValueError)
+READ_ERRORS = (urllib.error.URLError, http.client.HTTPException, OSError, ValueError, zipfile.BadZipFile)
 
 
 def read(call: Callable[[], Any], sleep: Callable[[float], None], log: Callable[[str], None]) -> Any:
