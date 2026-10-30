@@ -91,6 +91,8 @@ mod stop;
 mod stuck_liveness;
 #[path = "hub_integration/subagent_retry.rs"]
 mod subagent_retry;
+#[path = "hub_integration/successor_harness.rs"]
+mod successor_harness;
 #[path = "hub_integration/surfaces.rs"]
 mod surfaces;
 #[path = "hub_integration/tags_rules.rs"]
