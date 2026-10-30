@@ -1,6 +1,12 @@
 //! Closed conversation kinds opt in independently of live conversation support.
 use super::super::*;
 
+fn writer_with_outbound() -> (MessageWriter, Arc<BoundedOutbound>) {
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+    (writer, outbound)
+}
+
 #[test]
 fn closed_conversation_tabs_negotiate_independently_and_keep_plain_browsers() {
     let mux = Mux::new_for_test("closed-kind-capability", crate::SurfaceOptions::default());
