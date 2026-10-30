@@ -435,6 +435,9 @@ public final class LayoutRootView: NSView {
         // re-read their clip shape (their frames may not have moved).
         if let previous, previous.style != snapshot.style { planeHost?.paneShapesDidChange(overlayPlane) }
         if needsFrames { driver.start() }
+        // A divider drag moves panes in this sync with no frame tick after it: what follows the panes once per placed
+        // frame (shortcut hint chips) hears it here, as it would from the tick.
+        else if snapshot.gestureActive { onFramePlaced?() }
         // A change that starts springs (a split, a close) is in motion from the frame it lands in.
         if needsFrames && driver.isRunning { setLayoutInMotion(true) }
     }

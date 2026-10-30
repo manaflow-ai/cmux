@@ -361,6 +361,9 @@ final class WindowOverlayLayer {
     /// Click-catching panels over divider hit areas while pages show.
     private func syncCatchers() { // perf-hot: 1ms cef-geometry (one window move per divider catcher panel)
         if catchers.onHover == nil {
+            catchers.isDividerDragging = { [weak self] in
+                self?.planes.contains { ($0.home as? LayoutRootView)?.isDividerDragging == true } ?? false
+            }
             catchers.onHover = { [weak self] id, hovered in
                 if id == Self.sidebarResizeAreaID {
                     (self?.window.contentView as? WindowRootView)?.sidebar.refreshResizeHover()

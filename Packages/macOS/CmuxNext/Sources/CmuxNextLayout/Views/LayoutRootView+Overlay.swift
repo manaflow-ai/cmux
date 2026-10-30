@@ -142,6 +142,9 @@ extension LayoutRootView {
         isLayoutInMotion || screenViews.values.contains { !$0.isHidden && ($0.hasMotion || $0.activeDrag != nil) }
     }
 
+    /// A divider, column-edge or row-edge drag runs on a shown screen (its catcher panel keeps the resize cursor).
+    public var isDividerDragging: Bool { screenViews.values.contains { !$0.isHidden && $0.activeDrag != nil } }
+
     func reportInteractiveRects() { // One report (lines, areas, motion, strip clips) asks the pages for one update at most.
         guard let planeHost else { return }
         let rects = interactiveOverlayRects
