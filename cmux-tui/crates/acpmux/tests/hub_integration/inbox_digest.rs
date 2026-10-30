@@ -782,6 +782,15 @@ async fn messages_drained_twice_follow_the_newest_digest_at_a_restart() {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     queue(&mut c, from_agent(&id, "p-slash", "lane-x", "/compact")).await;
+    // A restored message is drained once its task claimed it (`takes`): a dry run says when.
+    loop {
+        let dry = c.request(DIGEST, json!({"sessionId": id, "dryRun": true})).await.unwrap();
+        if dry["digested"] == 2 {
+            break;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "never claimed: {dry} {first:?}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
     let made = c.request(DIGEST, json!({"sessionId": id})).await.unwrap();
     assert_eq!(made["digested"], 2, "{made} {first:?} {:?}", queue_order(&mut c, &id).await);
     let order = order_after_a_restart(hub, c, &dir, &id).await;
