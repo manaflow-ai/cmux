@@ -96,11 +96,11 @@ public nonisolated final class AgentPaneStateFile: Sendable {
     /// main actor and a present-but-unreadable file cannot be mistaken for a missing one.
     public func readState() -> ReadState {
         let read = {
-            do { return ReadState.readable(try Data(contentsOf: self.url)) }
+            do { return ReadState.readable(try Data(blockingContentsOf: self.url)) }
             catch CocoaError.fileReadNoSuchFile { return .missing }
             catch { return .unreadable }
         }
-        return DispatchQueue.getSpecific(key: onQueue) == true ? read() : queue.sync(execute: read)
+        return DispatchQueue.getSpecific(key: onQueue) == true ? read() : queue.blockingSync(execute: read)
     }
 
     /// Ordered before subsequent saves, including coalesced writes. Quarantine and the write
