@@ -308,7 +308,9 @@ function railByHarness(
 ): QuickFamily[] {
   const seen = new Set<string>();
   const byId = new Map(list.map((family) => [family.id, family]));
-  const hasModels = (family: QuickFamily | undefined) => !!family && family.models.length + family.more.length > 0;
+  // Only a row that can be picked starts the entry; one whose probe failed keeps its launch tab.
+  const hasModels = (family: QuickFamily | undefined) =>
+    !!family && [...family.models, ...family.more].some((model) => !model.disabled);
   return list.flatMap((family) => {
     if (seen.has(family.id)) return [];
     seen.add(family.id);
@@ -921,7 +923,6 @@ export function ModelPicker(props: ModelPickerProps) {
         return models.length ? [{ ...family, models }] : [];
       }
       if (family.id === current?.id || family.note) return [own];
-      if (family.launch) return [{ ...own, models: [], more: [], fork: true }];
       return [{ ...own, models: [], more: [], fork: true }];
     });
   }, [
