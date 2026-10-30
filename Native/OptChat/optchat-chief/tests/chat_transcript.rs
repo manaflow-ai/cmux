@@ -239,3 +239,60 @@ fn the_chief_has_the_transcript_tool_and_a_subagent_does_not() {
         ))
     );
 }
+
+#[test]
+fn a_reply_logs_the_message_it_replies_to_when_the_log_has_no_line_for_it() {
+    let mut h = Harness::new(default_script());
+    h.connect();
+    // The bubble the person replies to: posted as the Chief by no Chief tool
+    // (the Claude Docs text the person saw in Home). The log has no line for
+    // its message id, so the reply alone names a message the Chief cannot read.
+    let parent = as_chief(
+        &h,
+        "c-unknown-docs",
+        vec![text(
+            "Claude Docs guide: the skeleton goes first, then the sections",
+        )],
+    );
+    deliver(&mut h, parent.clone());
+    let mut reply = message(next_seq(&h), "user_local", "dyk what this means");
+    reply.reply_to = Some(PartRef {
+        message_id: parent.id.clone(),
+        part_index: 0,
+    });
+    deliver(&mut h, reply);
+    // The reply's own line is logged when its turn starts: let the turn run.
+    h.settle_posts();
+    // The parent's text, under its id and seq, logged before the reply, so the
+    // next turn's delta carries it and zoom on its line shows it.
+    let log = h.log();
+    let parent_at = log
+        .iter()
+        .position(|(kind, text)| kind == "note" && text.contains(&parent.id))
+        .unwrap_or_else(|| panic!("the replied-to message is not in the log: {log:?}"));
+    let parent_note = &log[parent_at].1;
+    assert!(parent_note.contains("skeleton goes first"), "{parent_note}");
+    assert!(
+        parent_note.contains(&format!("#{}", parent.seq)),
+        "{parent_note}"
+    );
+    let reply_at = log
+        .iter()
+        .position(|(_, text)| text.contains("dyk what this means"))
+        .expect("the reply is logged");
+    assert!(parent_at < reply_at, "the parent comes first: {log:?}");
+    // A reply to a message that already has its own line adds no note.
+    let earlier = h.say("user_local", "check the nightly");
+    h.settle_posts();
+    let mut again = message(next_seq(&h), "user_local", "and this one");
+    again.reply_to = Some(PartRef {
+        message_id: earlier.id.clone(),
+        part_index: 0,
+    });
+    deliver(&mut h, again);
+    let repeats: Vec<String> = notes(&h)
+        .into_iter()
+        .filter(|n| n.contains(&format!("replies to {} ", earlier.id)))
+        .collect();
+    assert!(repeats.is_empty(), "{repeats:?}");
+}

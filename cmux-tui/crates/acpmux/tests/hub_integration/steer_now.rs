@@ -241,3 +241,69 @@ async fn a_steer_sent_with_steer_now_stops_the_step_at_once() {
     assert!(said(&seen, "read: PINEAPPLE"), "the agent never read the steer: {seen:?}");
     assert_eq!(answer.unwrap()["stopReason"], "end_turn", "the turn read as stopped");
 }
+
+/// Ten other sessions' messages sent while the step runs go in as one (Leo, 2026-10-27: "i also
+/// feel like there should be better batching for messages from other sessions so you can get to
+/// things faster/more efficiently"): the agent reads one message holding all ten, each whole,
+/// under its sender, oldest first (claude_stdio `steer_batch.rs`). Each send is still its own
+/// prompt: recorded, accepted as a steer, and answered `steered`.
+#[tokio::test]
+async fn ten_agent_messages_during_a_long_step_arrive_as_one_input() {
+    let (hub, mut c, id) = claude_hub().await;
+    let turn = long_step(&mut c, &id).await;
+    let mut senders = Vec::new();
+    for i in 1..=10 {
+        let mut a = connect(&hub).await;
+        let pid = format!("p-agent-{i}");
+        let mut p = prompt(&id, &pid, &format!("MSG-{i:02} from the lane"), true);
+        p["_meta"]["acpmux"]["fromAgent"] = json!(format!("lane-{}", (i - 1) % 3));
+        let request = a.send(method::SESSION_PROMPT, p).await;
+        let accepted = a.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == pid).await;
+        assert_eq!(accepted["steer"], true, "{accepted}");
+        senders.push((a, request));
+    }
+    // The last message reached Claude Code's stdin (in the one line, once its drops are answered).
+    let stdin = |e: &acpmux::store::EventRecord| {
+        e.kind == "claude.stdin" && e.msg.to_string().contains("MSG-10")
+    };
+    let mut tries = 0;
+    while !hub.events(&id, 0, 10_000).unwrap().iter().any(stdin) && tries < 200 {
+        tries += 1;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    send_now(&hub, &id, "p-agent-10").await;
+    let (answer, seen) = c.response(turn).await;
+    assert_eq!(answer.unwrap()["stopReason"], "end_turn");
+    let reads: Vec<&str> = seen
+        .iter()
+        .filter(|(m, _)| m == method::SESSION_UPDATE)
+        .filter_map(|(_, p)| p["update"]["content"]["text"].as_str())
+        .filter(|t| t.starts_with("read: "))
+        .collect();
+    assert_eq!(reads.len(), 1, "one input, not one per message: {reads:#?}");
+    let read = reads[0];
+    assert!(
+        read.starts_with("read: 10 messages from 3 sessions arrived during this step."),
+        "{read}"
+    );
+    let mut at = 0;
+    for i in 1..=10 {
+        let sender = format!("lane-{}", (i - 1) % 3);
+        for want in
+            [format!("[message {i} of 10] from {sender}\n"), format!("MSG-{i:02} from the lane")]
+        {
+            let found = read[at..].find(&want);
+            at += found.unwrap_or_else(|| panic!("{want:?} missing or out of order: {read}"))
+                + want.len();
+        }
+    }
+    let records = hub.events(&id, 0, 10_000).unwrap();
+    for (i, (mut a, request)) in senders.into_iter().enumerate() {
+        let pid = format!("p-agent-{}", i + 1);
+        let (answer, _) = a.response(request).await;
+        assert_eq!(answer.unwrap()["stopReason"], "steered", "{pid}");
+        let recorded =
+            records.iter().filter(|e| e.kind == "user_message" && e.msg["promptId"] == pid);
+        assert_eq!(recorded.count(), 1, "{pid} is not its own record");
+    }
+}

@@ -115,6 +115,48 @@ export type CloudConnectInfo = {
 
 export type CloudConnectServices = ReadonlyArray<"daemon" | "ssh">
 
+export type CloudEnvironment = {
+  readonly id: EnvironmentId
+  readonly name: string
+  readonly repo: string | null
+  readonly setup_script: string
+  readonly env: ReadonlyArray<CloudEnvironmentVariable>
+  readonly creator: UserId
+  readonly status: "unbuilt" | "building" | "ready" | "stale" | "failed"
+  readonly snapshot: SnapshotId | null
+  readonly last_build: CloudEnvironmentBuildRecord | null
+  readonly created_at: number
+  readonly revision: Revision
+}
+
+export type CloudEnvironmentBuildRecord = {
+  readonly state: "building" | "ready" | "failed"
+  readonly started_at: number
+  readonly finished_at: number | null
+  readonly error: {
+    readonly code: string
+    readonly message: string
+  } | null
+  readonly log_tail: string | null
+  readonly timings: {
+    readonly boot_ms: number
+    readonly ready_ms: number
+    readonly setup_ms: number
+    readonly snapshot_ms: number
+    readonly warm_ms: number
+    readonly total_ms: number
+  } | null
+}
+
+/** A plain variable (baked into the snapshot) or a secret (a vault item name; the value never enters the snapshot). */
+export type CloudEnvironmentVariable = {
+  readonly name: string
+  readonly value: string
+} | {
+  readonly name: string
+  readonly secret: string
+}
+
 export type CloudGroup = {
   readonly id: GroupId
   readonly name: string
@@ -286,6 +328,9 @@ export type EnrollmentToken = {
 export type EnrollmentTokenHash = string
 
 export type EnrollmentTokenId = string
+
+/** A Cloud environment. */
+export type EnvironmentId = string
 
 export type FeedAction = {
   readonly id: string
@@ -1561,6 +1606,57 @@ export interface CloudOps {
     }
     readonly result: {
       readonly url: string
+    }
+  }
+  /** Create a machine in the environment (the plan checks of cloud.machine.create). boot snapshot: it boots the environment's ready snapshot and runs nothing. boot cold (no build yet, or a stale one): it boots the deployment's image and starts the setup on the machine in the background (~/.cmux/environment-build.log; ~/.cmux/environment.json when it finished). A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first. */
+  readonly "cloud.environment.boot": {
+    readonly params: {
+      readonly environment: EnvironmentId
+      readonly name?: string
+      readonly size: CloudMachineSize
+    }
+    readonly result: {
+      readonly machine: CloudMachine
+      readonly boot: "snapshot" | "cold"
+    }
+  }
+  /** Build the environment's snapshot: a builder machine from the deployment's image clones the repo, runs the setup script, and is snapshotted and deleted. Answers at once with status building (built: true); the build takes minutes, and cloud.environment.list shows ready or failed with the log tail. A snapshot that still matches answers built: false and changes nothing. The new snapshot counts against max_saved (cloud.quota.exceeded {resource: saved}); it replaces the previous one when it is ready. One build per environment at a time (cloud.environment.busy). A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first. */
+  readonly "cloud.environment.build": {
+    readonly params: {
+      readonly environment: EnvironmentId
+    }
+    readonly result: {
+      readonly environment: CloudEnvironment
+      readonly built: boolean
+    }
+  }
+  /** Delete an environment and its snapshot (cloud.snapshot.removed follows). Machines booted from it keep running. A build still running answers cloud.environment.busy. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first. */
+  readonly "cloud.environment.delete": {
+    readonly params: {
+      readonly environment: EnvironmentId
+    }
+    readonly result: {
+      readonly deleted: true
+    }
+  }
+  /** The team's Cloud environments, oldest first, with each one's build status. */
+  readonly "cloud.environment.list": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly environments: ReadonlyArray<CloudEnvironment>
+    }
+  }
+  /** Create an environment (name required) or edit one. The inputs are checked as a whole: cloud.environment.invalid {field, message} (a GitHub repo as owner/name[@ref] or a github.com URL without credentials, a setup script up to 64 KB, at most 100 variables with names the machine does not own). An edit to the repo, the script or the variables makes a built snapshot stale; a rename does not. At most 20 environments per team (cloud.quota.exceeded {limit, used, resource: environments}). Agent principals are refused; the client asks a person first. */
+  readonly "cloud.environment.set": {
+    readonly params: {
+      readonly environment?: EnvironmentId
+      readonly name?: string
+      readonly repo?: string | null
+      readonly setup_script?: string
+      readonly env?: ReadonlyArray<CloudEnvironmentVariable>
+    }
+    readonly result: {
+      readonly environment: CloudEnvironment
     }
   }
   /** How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. A read never mints a credential: the dial token comes from cloud.machine.link_token. */
@@ -3686,6 +3782,11 @@ export const cloudOpMeta = {
   "chief.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "chief.update": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "cloud.billing.checkout": { class: "mutation", owner: "cloud:CloudDO", risk: "money" },
+  "cloud.environment.boot": { class: "mutation", owner: "cloud:CloudDO", risk: "money" },
+  "cloud.environment.build": { class: "mutation", owner: "cloud:CloudDO", risk: "money" },
+  "cloud.environment.delete": { class: "mutation", owner: "cloud:CloudDO", risk: "destructive" },
+  "cloud.environment.list": { class: "read", owner: "cloud:CloudDO", risk: "read" },
+  "cloud.environment.set": { class: "mutation", owner: "cloud:CloudDO", risk: "mutate-shared" },
   "cloud.machine.connect_info": { class: "read", owner: "cloud:CloudDO", risk: "read" },
   "cloud.machine.create": { class: "mutation", owner: "cloud:CloudDO", risk: "money" },
   "cloud.machine.delete": { class: "mutation", owner: "cloud:CloudDO", risk: "destructive" },

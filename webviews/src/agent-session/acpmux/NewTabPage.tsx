@@ -3,11 +3,12 @@ import { WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useEscapingList } from "../../ui/popupHost";
 import { AgentMark as BrandMark } from "../shared/AgentMark";
-import { agentBrand } from "../shared/agentBrand";
 import { agentDisplayName } from "./agents";
 import { seedLastPicks, useLastPick } from "./lastPick";
 import { ArrowUpIcon } from "./ComposerPickers";
 import { useComposerLook } from "./composerLook";
+import { ComposerFoot } from "./ComposerFoot";
+import { useRowFit } from "./composerRowFit";
 import { useComposerSettings } from "./composerSettings";
 import type { AcpmuxSnapshot } from "./model";
 import { ProjectChooser, type Project } from "./ProjectChooser";
@@ -53,6 +54,7 @@ import {
 import { reordered } from "./composer/stripReorder";
 import { DropOverlay } from "./composer/DropOverlay";
 import { useHarnessesListed } from "./catalog";
+import { useNewTabCommand, type NewTabCommandActions } from "./newtab/useNewTabCommand";
 
 /// The three things a new tab can become (#16620). Order is the switch's order and Tab's cycle.
 export const TAB_KINDS = ["terminal", "browser", "agent"] as const;
@@ -268,7 +270,7 @@ export function ageLabel(updatedAt: number | undefined, now = Date.now(), t: Tra
   return hours < 24 ? t("age.hours", { n: hours }) : t("age.days", { n: Math.round(hours / 24) });
 }
 
-type Props = {
+type Props = NewTabCommandActions & {
   snapshot: AcpmuxSnapshot;
   /// Each kind's shortcut as the host shows it ("⌃⇧⌘T"); a kind without one shows none.
   hotkeys?: Partial<Record<TabKind, string>>;
@@ -338,6 +340,10 @@ export function NewTabPage({
   location,
   projects = [],
   onSubmit,
+  onCmuxCommand,
+  onImportFile,
+  importError,
+  importSandboxed,
   onJump,
   onOpenSession,
   onShowAll,
@@ -347,7 +353,7 @@ export function NewTabPage({
   onInputReady,
 }: Props) {
   const t = useT();
-  const { spellChecking } = useComposerSettings();
+  const { plainFooter, spellChecking } = useComposerSettings();
   // The classic template is a New Tab page too: what it opens (the project chooser, its menus)
   // appears at once; exits keep their fades (newtab/noEntryMotion.ts).
   useNoEntryMotion();
@@ -386,6 +392,7 @@ export function NewTabPage({
     setOpenFailed(false);
     const attachments = next === "agent" ? attachmentRef.current : [];
     const chat = next === "agent" && harness ? { harness, ...(chipModel ? { model: chipModel } : {}) } : undefined;
+    if (next === "agent" && command.intercept(value, harness, attachments.length)) return;
     const result = onSubmit(next, value, folder, attachments.length ? attachments : undefined, chat);
     // The suggestions float over the note: they close until the next edit, so it shows.
     if (result)
@@ -421,8 +428,20 @@ export function NewTabPage({
       pasteTarget: (target) => (kind === "agent" && field.current?.contains(target) ? { uploads: false } : undefined),
       dropZone: () => field.current?.closest(".acpmux-newtab") ?? null,
     });
-  attachmentRef.current = attachments;
   const holdForAttachments = useSendWhenAttached(unsettled);
+  const command = useNewTabCommand(
+    text,
+    setText,
+    { onCmuxCommand, onImportFile, importError, ...(importSandboxed ? { importSandboxed } : {}) },
+    {
+      attachments,
+      setAttachments,
+      pending,
+      cancel,
+      cancelHeldSend: holdForAttachments.cancel,
+    },
+  );
+  attachmentRef.current = attachments;
   // WEB-SWAP: a web update's reload would lose what this page holds only in its state: a typed
   // query (the location comes back with the page), staged attachments, and a kind or folder picked
   // (pages/shared/webSwap.ts).
@@ -565,10 +584,12 @@ export function NewTabPage({
   const submitNow = useRef<() => void>(() => {});
   const submit = (event?: React.FormEvent) => {
     event?.preventDefault();
+    if (kind === "agent" && command.intercept(query.trim(), harness, attachments.length, true)) return;
     if (holdForAttachments(() => submitNow.current())) return;
     submitNow.current();
   };
   submitNow.current = () => {
+    if (kind === "agent" && command.intercept(query.trim(), harness, attachments.length)) return;
     const row = rows[selected];
     if (row) return activate(row);
     if (kind === "browser" && !query.trim()) return;
@@ -622,6 +643,8 @@ export function NewTabPage({
   // The composer's look (composerLook.ts; the page's first two dots, newtab/PageDots.tsx): Codex's
   // lays the row under the field out as Codex's (composerLook.css).
   const look = useComposerLook();
+  const foot = useRef<HTMLDivElement>(null);
+  useRowFit(foot, `${kind}:${plainFooter}:${look}`);
 
   return (
     <div className="acpmux-newtab" data-kind={kind} data-composer-look={look === "codex" ? "codex" : undefined}>
@@ -689,10 +712,11 @@ export function NewTabPage({
               ))}
             </fieldset>
           </div>
+          {command.input}
           <AttachmentStrip
             attachments={attachments}
             pending={pending}
-            {...(attachError ? { error: attachError } : {})}
+            {...(command.error || attachError ? { error: command.error ?? attachError } : {})}
             codex={false}
             onRemove={(id) => {
               setAttachments((current) => current.filter((item) => item.id !== id));
@@ -738,7 +762,6 @@ export function NewTabPage({
                   {agent}
                 </span>
               )}
-              {kind === "agent" && Chips && <Chips snapshot={chipSnapshot} cwd={projectCwd} />}
             </span>
             <button
               type="submit"
@@ -750,6 +773,13 @@ export function NewTabPage({
             </button>
           </div>
         </form>
+        {kind === "agent" && Chips && (
+          <div className="acpmux-newtab-foot">
+            <ComposerFoot ref={foot} plain={plainFooter}>
+              <Chips snapshot={chipSnapshot} cwd={projectCwd} />
+            </ComposerFoot>
+          </div>
+        )}
         {rows.length > 0 && (
           <div
             ref={attachList}
@@ -885,10 +915,10 @@ function Favicon({ src }: { src: string }) {
   return <img className="acpmux-icon acpmux-favicon" src={src} alt="" width={16} height={16} draggable={false} />;
 }
 
-/// The agent's brand mark (design/agent-icons), so a session's row says which agent it
-/// is at a glance; an agent without a mark draws the generic agent glyph.
+/// The agent's brand mark (design/agent-icons) or its harness's own icon, so a session's row says
+/// which agent it is at a glance; an agent without either draws the generic agent glyph.
 export function AgentMark({ harness }: { harness?: string }) {
-  return agentBrand(harness) ? <BrandMark agent={harness} size={16} /> : <KindIcon kind="agent" />;
+  return <BrandMark agent={harness} size={16} fallback={<KindIcon kind="agent" />} />;
 }
 
 // 16px stroke icons in currentColor, matching ComposerPickers.

@@ -635,6 +635,7 @@ ENUM_BY_PATH = {
     'types/ClientTransport': models.ClientTransport,
     'types/CloseReason': models.CloseReason,
     'types/ColumnMoveDirection': models.ColumnMoveDirection,
+    'types/ColumnSide': models.ColumnSide,
     'types/ConversationThreadStatus': models.ConversationThreadStatus,
     'types/CursorStyle': models.CursorStyle,
     'types/DetachReason': models.DetachReason,

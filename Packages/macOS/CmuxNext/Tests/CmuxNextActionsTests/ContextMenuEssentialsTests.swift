@@ -37,8 +37,8 @@ struct ContextMenuEssentialsTests {
     private static let sidebarTrimmedActions: [ActionID] = [
         "workspace.setTheme", "workspace.setTint", "workspace.removeAllColors",
         "sidebar.workspaceTabs.toggle", "sidebar.density.compact", "sidebar.density.comfortable",
-        "sidebar.density.expanded", "workspace.copyPath", "palette.copyWorkspaceID",
-        "palette.copyWorkspaceLink", "palette.copyWorkspaceIDAndRef", "copyWorkspaceSSHError",
+        // Copy Workspace ID and Copy Workspace Link came back under More > Copy (#27709, classic parity).
+        "sidebar.density.expanded", "workspace.copyPath", "palette.copyWorkspaceIDAndRef", "copyWorkspaceSSHError",
         "agentChat.copyIdentifier", "workspace.showResources", "revealWorkspaceInFinder",
         "palette.openWorkspacePullRequests", "workspace.setRemoteLocalhost",
     ]
@@ -59,6 +59,16 @@ struct ContextMenuEssentialsTests {
         #expect(allActions(menu).contains("workspace.duplicate"))
     }
 
+    /// Classic's row menu copies the workspace's id and link (#27709); here they sit in More > Copy,
+    /// so the top level keeps its essentials.
+    @Test func theWorkspaceMenuCopiesTheIDAndLinkUnderMore() {
+        let menu = registry().makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"))
+        #expect(!rows(menu).contains("palette.copyWorkspaceID"))
+        let more = menu.items.first { $0.title == "More" }?.submenu
+        #expect(more.map(allActions)?.contains("palette.copyWorkspaceID") == true)
+        #expect(more.map(allActions)?.contains("palette.copyWorkspaceLink") == true)
+    }
+
     /// Leo 2026-10-23: "I don't think anybody actually looks at most of the, like, row settings
     /// ... obviously don't remove things from being searchable in the command palette". The row's
     /// menu drops the global, copy and diagnostic long tail; the palette and the sidebar
@@ -77,7 +87,9 @@ struct ContextMenuEssentialsTests {
         let entries = ContextMenuCatalog.shared.selectionEntries(for: .workspaceRow)
         let menu = registry().makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"), entries: entries)
         let shown = rows(menu)
-        #expect(shown == ["palette.workspaceColor", "workspace.newBelow", "workspace.moveToNewGroup", "—",
+        // One verb for a selection: the row is Group Selected Workspaces, the action Cmd-Shift-G runs,
+        // not a second "Add to New Group" that does the same thing under another name.
+        #expect(shown == ["palette.workspaceColor", "workspace.newBelow", "groupSelectedWorkspaces", "—",
                           "workspace.duplicate", "palette.moveWorkspaceToTop", "palette.toggleWorkspacePin", "workspace.toggleAudioMute", "—",
                           "More", "—", "closeWorkspace", "palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow", "—",
                           "reopenClosedWorkspace"])
@@ -104,7 +116,7 @@ struct ContextMenuEssentialsTests {
             return Dictionary(menu.items.compactMap { item in ActionRegistry.menuRun(of: item).map { ($0.id, item.title) } }) { first, _ in first }
         }
         let on = titles(pins: true, mutes: true), off = titles(pins: false, mutes: false)
-        for id: ActionID in ["workspace.moveToNewGroup", "workspace.duplicate", "palette.toggleWorkspacePin", "workspace.toggleAudioMute"] {
+        for id: ActionID in ["workspace.duplicate", "palette.toggleWorkspacePin", "workspace.toggleAudioMute"] {
             #expect(on[id] == NSMenu.workspaceSelectionTitle(id, pins: true, mutes: true), "\(id)")
         }
         #expect(on["palette.toggleWorkspacePin"] != off["palette.toggleWorkspacePin"])

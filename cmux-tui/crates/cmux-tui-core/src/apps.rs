@@ -73,7 +73,7 @@ mod terminal_links;
 #[cfg(unix)]
 mod terminal_ops;
 #[cfg(unix)]
-mod timer;
+pub(crate) mod timer;
 
 use std::sync::{Arc, OnceLock};
 

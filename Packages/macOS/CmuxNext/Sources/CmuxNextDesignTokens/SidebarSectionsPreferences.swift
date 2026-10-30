@@ -46,7 +46,8 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// False: the bands never scroll; the list shrinks instead (to a
     /// minimum of three rows).
     public var pinnedBandsScroll: Bool
-    /// Whether the workspace list expands each workspace into its tab rows.
+    /// Whether the workspace list expands each workspace into its tab rows. On by default
+    /// (Lawrence 2026-10-27: "show everything by default"); off hides every workspace's tabs.
     public var showWorkspaceTabs: Bool
     /// `sidebar.groupByComputer`: one workspace section per computer, each
     /// under its header. Off (the default) shows one list of workspaces with
@@ -76,6 +77,13 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// `sidebar.showSearchButton`: the footer's Search button after the profile avatar
     /// (plans/cmux-next/sidebar-search.md). On by default; off hides the button only.
     public var showSearchButton = true
+    /// `sidebar.noFade`: the whole left sidebar shows with no edge fade, and the bottom profile and
+    /// search bar hides (Lawrence 2026-10-26). Off by default: the edges fade and the bar shows.
+    public var noFade = false
+    /// `sidebar.controlsOnHover` (Show Sidebar Controls Only on Hover, Lawrence 2026-10-27): the sidebar's New Workspace
+    /// button, spaces strip, profile control and Search button show only while the pointer is over
+    /// the sidebar. Off by default: they always show.
+    public var controlsOnHover = false
     /// Minimal mode (`sidebar.minimal`, cx-w1r5; Lawrence 2026-10-09: "some
     /// people like minimal mode"): workspace rows draw only their icon, name,
     /// unread mark and attention state (no second line, no counts or badges,
@@ -133,7 +141,7 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     public var style: SidebarLayoutStyle = .standard
 
     public init(look: String = "quiet", topBandMaxShare: Double = 1.0 / 3.0, bottomBandMaxShare: Double = 0.25,
-                pinnedBandsScroll: Bool = true, showWorkspaceTabs: Bool = false) {
+                pinnedBandsScroll: Bool = true, showWorkspaceTabs: Bool = true) {
         self.look = look
         self.topBandMaxShare = topBandMaxShare
         self.bottomBandMaxShare = bottomBandMaxShare
