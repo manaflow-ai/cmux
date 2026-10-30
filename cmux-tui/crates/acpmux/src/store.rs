@@ -716,6 +716,19 @@ pub trait Store: Send + Sync {
             if kinds.contains(&rec.kind.as_str()) { visit(rec) } else { true }
         })
     }
+    /// `scan_kinds`, but strict as `scan_strict` is: a record that cannot be read is an error. A
+    /// file store reads a segment's copy of its kinds (`store/kind_index.rs`) only when every line
+    /// the copy covers read whole.
+    fn scan_kinds_strict(
+        &self,
+        id: &str,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_strict(id, 0, &mut |rec| {
+            if kinds.contains(&rec.kind.as_str()) { visit(rec) } else { true }
+        })
+    }
     /// `scan` from the start, passing each record's head ([`RecordHead`]) until `visit` returns
     /// false; the reader parses only the records it needs (`RecordHead::record`). A file store
     /// reads a head without parsing its line: adopting a host after a restart reads its whole
@@ -1511,76 +1524,16 @@ impl Store for LocalStore {
         kinds: &[&str],
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        // Debug builds only: `ACPMUX_TEST_SCAN_DELAY_MS` holds each log scan, as a slow disk or a
-        // long log does (`tests/restart_reattach.rs`). Bounded; release builds have no seam.
-        #[cfg(debug_assertions)]
-        if let Some(ms) =
-            std::env::var("ACPMUX_TEST_SCAN_DELAY_MS").ok().and_then(|v| v.parse::<u64>().ok())
-        {
-            std::thread::sleep(std::time::Duration::from_millis(ms.min(1_000)));
-        }
-        let mut line = Vec::new();
-        // A scan for the kinds a log load reads takes each segment's copy of them
-        // (`store/kind_index.rs`), then the segment past it, and saves the copy again.
-        let copied = kinds.iter().all(|k| kind_index::INDEXED_KINDS.contains(k));
-        let wanted = |line: &[u8], visit: &mut dyn FnMut(EventRecord) -> bool| {
-            if record_kind(line).is_some_and(|kind| !kinds.iter().any(|k| k.as_bytes() == kind)) {
-                return true;
-            }
-            let Ok(rec) = serde_json::from_slice::<EventRecord>(line) else { return true };
-            !kinds.contains(&rec.kind.as_str()) || visit(rec)
-        };
-        for (index, path) in self.segments(id)? {
-            let mut file = crate::config::private_state_file(&path)?;
-            // What a copy is of: the file this reads, however its path changes meanwhile.
-            let stamp = if copied { Some(file.metadata()?) } else { None };
-            let (mut copy, from) = match stamp.as_ref().map(|s| self.read_kind_index(id, index, s))
-            {
-                Some(Some((lines, from))) => (Some(lines), from),
-                _ => (None, 0),
-            };
-            for line in copy.iter().flat_map(|lines| lines.split(|b| *b == b'\n')) {
-                if !line.iter().all(u8::is_ascii_whitespace) && !wanted(line, visit) {
-                    return Ok(());
-                }
-            }
-            if from > 0 {
-                std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(from))?;
-            }
-            let had_copy = copy.is_some();
-            let lines = copy.get_or_insert_with(Vec::new);
-            // The bytes past `from` read up to the end of their last whole line.
-            let mut covered = 0u64;
-            let mut reader = BufReader::with_capacity(256 * 1024, file);
-            loop {
-                line.clear();
-                if reader.read_until(b'\n', &mut line)? == 0 {
-                    break;
-                }
-                // A line still being written ends the read of this segment: the bytes of it that
-                // arrive later are no line of their own, and the copy covers none of it.
-                let torn = !line.ends_with(b"\n");
-                if !torn {
-                    covered += line.len() as u64;
-                    if stamp.is_some() && kind_index::indexed(&line) {
-                        lines.extend_from_slice(&line);
-                    }
-                }
-                if !line.iter().all(u8::is_ascii_whitespace) && !wanted(&line, visit) {
-                    return Ok(());
-                }
-                if torn {
-                    break;
-                }
-            }
-            if let Some(stamp) = stamp
-                && (!had_copy || covered >= kind_index::COPY_AFTER)
-                && let Err(e) = self.write_kind_index(id, index, &stamp, from + covered, lines)
-            {
-                tracing::warn!(session = %id, segment = index, "saving the log's kind index failed: {e}");
-            }
-        }
-        Ok(())
+        self.scan_kinds_in(id, kinds, false, visit)
+    }
+
+    fn scan_kinds_strict(
+        &self,
+        id: &str,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_kinds_in(id, kinds, true, visit)
     }
 
     /// Segments newest first, so a page from the end reads only the segments it

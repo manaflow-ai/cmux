@@ -117,7 +117,8 @@ fn a_copy_that_no_longer_matches_its_segment_is_made_again() {
 /// The kinds the log load reads are all copied.
 #[test]
 fn the_log_loads_kinds_are_indexed() {
-    for kind in crate::hub::Hub::QUEUE_KINDS.iter().chain(&[
+    let hub = crate::hub::Hub::QUEUE_KINDS.iter().chain(crate::hub::Hub::INBOX_KINDS);
+    for kind in hub.chain(crate::hub::Hub::TRANSFER_KINDS).chain(&[
         "turn_started",
         "turn_result",
         "forked",
@@ -158,6 +159,92 @@ fn a_damaged_copy_is_read_past() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// A copy made for another list of kinds (an older daemon's, before a kind the log load reads was
+/// added) holds no line of the added kinds, so it is read past.
+#[test]
+fn a_copy_made_for_other_kinds_is_read_past() {
+    let root = root();
+    let (store, log) = store_with_log(&root, 6);
+    let kinds = ["queued", "turn_result"];
+    let expected: Vec<EventRecord> =
+        log.iter().filter(|r| kinds.contains(&r.kind.as_str())).cloned().collect();
+    scanned(&store, &kinds);
+    let copies = root.join("c").join(kind_index::DIR);
+    let mut stripped = Vec::new();
+    for (index, path) in store.segments("c").unwrap() {
+        let copy = copies.join(format!("{index:06}.ndjson"));
+        let Ok(text) = std::fs::read_to_string(&copy) else { continue };
+        let (header, lines) = text.split_once('\n').unwrap();
+        let header: serde_json::Value = serde_json::from_str(header).unwrap();
+        // The copy an older list without `turn_result` made: none of its lines.
+        let older: String =
+            lines.split_inclusive('\n').filter(|l| !l.contains("\"turn_result\"")).collect();
+        let meta = std::fs::metadata(&path).unwrap();
+        let len = header["len"].as_u64().unwrap();
+        store.write_kind_index("c", index, &meta, len, true, older.as_bytes()).unwrap();
+        stripped.push(copy);
+    }
+    assert!(!stripped.is_empty());
+    let queued: Vec<EventRecord> =
+        expected.iter().filter(|r| r.kind == "queued").cloned().collect();
+    assert_eq!(scanned(&store, &kinds), queued, "a copy for these kinds is read");
+    for copy in &stripped {
+        let text = std::fs::read_to_string(copy).unwrap();
+        let (header, lines) = text.split_once('\n').unwrap();
+        let mut h: serde_json::Value = serde_json::from_str(header).unwrap();
+        h["kinds"] = json!(h["kinds"].as_u64().unwrap() ^ 1);
+        std::fs::write(copy, format!("{h}\n{lines}")).unwrap();
+    }
+    assert_eq!(scanned(&store, &kinds), expected);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A strict scan fails on a line that does not read, as one of the whole log does, whether it
+/// reads the segment or a copy: the copy a lenient scan made says the line did not read.
+#[test]
+fn a_strict_scan_fails_on_an_unreadable_line_through_a_copy_too() {
+    let root = root();
+    let (store, mut log) = store_with_log(&root, 3);
+    let (_, newest) = store.segments("c").unwrap().last().unwrap().clone();
+    let mut file = std::fs::OpenOptions::new().append(true).open(&newest).unwrap();
+    file.write_all(b"{\"seq\": not json}\n").unwrap();
+    let next = rec(log.last().unwrap().seq + 1, "queued");
+    file.write_all((serde_json::to_string(&next).unwrap() + "\n").as_bytes()).unwrap();
+    log.push(next);
+    let queued: Vec<EventRecord> = log.iter().filter(|r| r.kind == "queued").cloned().collect();
+    let strict = |store: &LocalStore| store.scan_kinds_strict("c", &["queued"], &mut |_| true);
+    assert!(strict(&store).is_err(), "from the segment");
+    assert_eq!(scanned(&store, &["queued"]), queued, "a lenient scan skips it");
+    assert_eq!(scanned(&store, &["queued"]), queued, "from the copies");
+    assert!(strict(&store).is_err(), "from the copy");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A strict scan of a log whose lines all read takes the copies, as a lenient one does.
+#[test]
+fn a_strict_scan_reads_the_copies_of_a_whole_log() {
+    let root = root();
+    let (store, log) = store_with_log(&root, 6);
+    let kinds = ["transfer_out", "queued"];
+    let expected: Vec<EventRecord> = log.iter().filter(|r| r.kind == "queued").cloned().collect();
+    let strict = |store: &LocalStore| {
+        let mut out = Vec::new();
+        store
+            .scan_kinds_strict("c", &kinds, &mut |r| {
+                out.push(r);
+                true
+            })
+            .unwrap();
+        out
+    };
+    assert_eq!(strict(&store), expected);
+    PARSED_LINES.with(|n| n.set(0));
+    assert_eq!(strict(&store), expected, "from the copies");
+    let parsed = PARSED_LINES.with(|n| n.get());
+    assert_eq!(parsed as usize, expected.len(), "parsed only the copies' wanted lines");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// A line still being written at the end of the newest segment is no part of a copy: once it is
 /// whole, a scan returns it.
 #[test]
@@ -188,7 +275,7 @@ fn a_scan_writes_no_copy_for_a_deleted_chat() {
     let (index, path) = store.segments("c").unwrap()[0].clone();
     let meta = std::fs::metadata(&path).unwrap();
     std::fs::remove_dir_all(root.join("c")).unwrap();
-    assert!(store.write_kind_index("c", index, &meta, 0, b"").is_err());
+    assert!(store.write_kind_index("c", index, &meta, 0, true, b"").is_err());
     assert!(!root.join("c").exists());
     let _ = std::fs::remove_dir_all(&root);
 }
