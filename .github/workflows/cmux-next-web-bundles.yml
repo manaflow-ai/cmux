@@ -157,12 +157,19 @@ jobs:
 
       - name: Measure
         working-directory: webviews
-        run: bun run latency:ci
+        run: |
+          set -euo pipefail
+          # Dispatches may check out a topic at depth 1. Record the fetched integration tip
+          # explicitly instead of requiring that checkout to contain a merge-base history.
+          git fetch --no-tags --depth=1 origin +refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next
+          base="$(git rev-parse --verify 'refs/remotes/origin/feat-cmux-next^{commit}')"
+          bun run latency:ci --base "$base"
 
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: latency-results
+          retention-days: 3
           path: webviews/latency-results.json
           if-no-files-found: ignore
