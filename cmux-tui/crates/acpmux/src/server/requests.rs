@@ -153,7 +153,13 @@ pub(super) async fn handle_notification(
             }
             if let Ok(key) = session_key(&params) {
                 if let Ok(s) = hub.resolve(key) {
-                    if let Err(e) = hub.cancel(&s).await {
+                    // The person's Stop holds the agents' messages behind it (`hub/cancel.rs`).
+                    let stopped = if conn.is_person() {
+                        hub.person_stop(&s).await
+                    } else {
+                        hub.cancel(&s).await
+                    };
+                    if let Err(e) = stopped {
                         tracing::debug!(conn = %conn.id, "cancel: {e}");
                     }
                 } else if let Some((peer, id, _)) = hub.resolve_remote(key) {
@@ -691,6 +697,18 @@ async fn dispatch_request(
     if let Some(reply) = super::peer_forward::forward(hub, conn, m, &params).await {
         return reply;
     }
+    if matches!(
+        m,
+        method::MUX_FILE_PUT_BEGIN
+            | method::MUX_FILE_PUT_CHUNK
+            | method::MUX_FILE_PUT_FINISH
+            | method::MUX_FILE_PUT_CANCEL
+            | method::MUX_FILE_PUT_STATUS
+    ) && super::remote_guard::control_of(conn.origin, conn.auth, &params)
+        == crate::hub::Control::Web
+    {
+        return crate::hub::file_uploads::web::handle(hub, m, params).await;
+    }
     match m {
         method::MUX_MESH_CONTROL => super::mesh_control_send::handle(hub, conn, &params).await,
         method::MUX_DISPATCH => dispatch_brief(hub, conn, params).await,
@@ -736,7 +754,7 @@ async fn dispatch_request(
             #[rustfmt::skip]
             let extensions: &[&str] = &[
                 method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
-                method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_KEEP, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT,
+                method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_KEEP, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT, method::MUX_QUEUE_TEXT,
                 method::MUX_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_GITHUB_ACTION, method::MUX_GITHUB_APP_LEASE, method::MUX_ATTACHMENT, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_TEAM_SEND, method::MUX_TEAM_INBOX, method::MUX_TEAM_READ, method::MUX_TEAM_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE, method::MUX_RETENTION,
                 method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_COMPOSER_SET, method::MUX_COMPOSERS, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_TYPING, method::MUX_MARK_UNREAD, method::MUX_ARCHIVE, method::MUX_SIDE,
                 method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_MCP_RECONNECT, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_FILE_PUT_STATUS, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_RESOLVE, method::MUX_SHUTDOWN, method::MUX_SESSION_AUTH, method::MUX_MESH_CONTROL,
@@ -1151,6 +1169,9 @@ async fn dispatch_request(
         }
         method::SESSION_LOAD | method::SESSION_RESUME => {
             let s = resolved_session(hub, resolved.as_ref(), &params)?;
+            // Before the attach: a message the live stream sends during the replay is not
+            // replayed again, nor one replayed sent live (`MessageNotices`).
+            conn.message_notices.lock().unwrap_or_else(|e| e.into_inner()).reopen(None, &s.id);
             attach(hub, conn, &s.id);
             // Replay history as ACP updates, then answer.
             // One record at a time, the first 100,000 as before: the log is never held whole.
@@ -1163,6 +1184,25 @@ async fn dispatch_request(
                         method::SESSION_UPDATE,
                         json!({"sessionId": s.id, "update": {"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": text}}, "_meta": {"acpmux": {"seq": rec.seq, "at": rec.at, "replay": true}}}),
                     ));
+                } else if rec.dir == "mux" && rec.kind == "_acpmux/message" {
+                    // Once, whether the live stream or this replay sends it first.
+                    let fresh = conn
+                        .message_notices
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .replay(None, &s.id, rec.seq);
+                    // Another daemon's link, served as Peer or added with the dashboard token
+                    // (`view::a_link`), takes the event envelope, so its hub keeps the sequence
+                    // and replays it after a reconnect: its hub reads no compact notice.
+                    // Person/app clients keep the compact notice they already consume.
+                    if fresh && super::view::a_link(conn) {
+                        conn.send(&Message::notification(
+                            method::MUX_EVENT,
+                            super::event_value(&s.id, &rec),
+                        ));
+                    } else if fresh {
+                        conn.send(&Message::notification(method::MUX_MESSAGE, rec.msg.clone()));
+                    }
                 } else if rec.dir == "in"
                     && !rec.kind.ends_with(".replay")
                     && rec.msg.get("method").and_then(Value::as_str) == Some(method::SESSION_UPDATE)
@@ -1241,6 +1281,14 @@ async fn dispatch_request(
                     .filter(|name| conn.origin == super::Origin::Peer || *name != own)?;
                 Some(crate::prompt_provenance::named_sender(name, &s.id))
             });
+            let provenance =
+                stamp_bound_sender(hub, conn, &s.id, &params, provenance, person_message);
+            // A Chief's turn names the Chief (manaflow-ai/cmux#27914), by the session's exact id.
+            let provenance = provenance.map(|p| {
+                crate::prompt_provenance::stamp_chief(p, |id| {
+                    hub.resolve(id).ok().filter(|from| from.id == id).map(|from| from.meta())
+                })
+            });
             // Another agent's message with no provenance (`hub/digest.rs`): one that names its
             // sender, or one from a connection that proved it runs in an acpmux session.
             let agent = declared
@@ -1254,6 +1302,25 @@ async fn dispatch_request(
                 .and_then(Value::as_str)
                 .filter(|p| !p.is_empty())
                 .map(str::to_owned);
+            let message_id = mux_meta(&params)
+                .and_then(|m| m.get("messageId"))
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty())
+                .map(str::to_owned);
+            // Only a peer daemon may carry this metadata.  A local or web caller can
+            // name arbitrary `_meta` fields, but sender identity is stamped by the
+            // proven caller/provenance below; accepting it here would let a client
+            // forge durable message records in another session's journal.
+            let message_sender = (conn.origin == super::Origin::Peer && !web)
+                .then(|| mux_meta(&params).and_then(|m| m.get("messageSender")))
+                .flatten()
+                .and_then(|sender| {
+                    let sender: crate::protocol::MessageSender =
+                        serde_json::from_value(sender.clone()).ok()?;
+                    (!sender.name.is_empty() && !sender.session_id.is_empty())
+                        .then(|| serde_json::to_value(sender).ok())
+                        .flatten()
+                });
             let on_accepted = Some(composer::on_accepted(hub, conn, &s, &params)?);
             // A key replaces its sender's queued prompts (`supersede.rs`), which knows agents and
             // the owner only: a person's prompt neither replaces nor is replaced.
@@ -1294,6 +1361,8 @@ async fn dispatch_request(
             let saved = crate::attach::Saved::with_owned(saved, &s.id, owned.take());
             let opts = crate::hub::PromptOptions {
                 prompt_id,
+                message_id,
+                message_sender,
                 on_accepted: match &saved {
                     Some(saved) => saved.watch(on_accepted),
                     None => on_accepted,
@@ -1355,7 +1424,9 @@ async fn dispatch_request(
         // the agent that never answers.
         method::SESSION_CANCEL => {
             let s = hub.resolve(session_key(&params)?)?;
-            if let Err(e) = hub.cancel(&s).await {
+            let stopped =
+                if conn.is_person() { hub.person_stop(&s).await } else { hub.cancel(&s).await };
+            if let Err(e) = stopped {
                 tracing::debug!(conn = %conn.id, "cancel: {e}");
             }
             Ok(json!({}))
@@ -1371,9 +1442,12 @@ async fn dispatch_request(
             let env = crate::session_env::parse(mux_meta(&params))?;
             let workspace_id = crate::session_env::workspace_id(mux_meta(&params), &env)?;
             let through = super::fork_through::through(&params);
+            let start_later = super::fork_through::starts_later(&params);
             let who = who(conn);
             let admitted = hub.admit_new(ask(conn, &params, &who)).await?;
-            let new = admitted.run(hub.fork(&s, name, cwd, env, workspace_id, through)).await?;
+            let new = admitted
+                .run(hub.fork(&s, name, cwd, env, workspace_id, through, start_later))
+                .await?;
             attach(hub, conn, &new.id);
             let meta = new.meta();
             let mut summary = hub.session_summary(&new);
@@ -1905,8 +1979,20 @@ async fn dispatch_request(
             // end holds every record up to it (of the kinds asked), so a client may take
             // the page as covering it.
             let last = s.meta().last_seq;
+            // The app's open names its bound: superseded tool output stays out of its page
+            // (`store/superseded.rs`); the live stream is unchanged.
+            let page_filter =
+                filter.omitting_superseded(params.get("maxBytes").is_some_and(|b| !b.is_null()));
             let page = hub
-                .events_page(&s.id, after.unwrap_or(0), before, limit, max_bytes, newest, &filter)
+                .events_page(
+                    &s.id,
+                    after.unwrap_or(0),
+                    before,
+                    limit,
+                    max_bytes,
+                    newest,
+                    &page_filter,
+                )
                 .map_err(|e| RpcError::internal(e.to_string()))?;
             // The newest page holds to the log's end; a page of older records, or a forward one
             // with more to read, only to its own last record.
@@ -1954,6 +2040,8 @@ async fn dispatch_request(
         // A lending Mac counts once this answer is queued (`server/mod.rs`, `github_owner.rs`).
         method::MUX_WATCH => super::list_reply::watch(hub, conn, &params).await,
         method::MUX_EVENTS | method::MUX_ATTACHMENT => events::handle(hub, m, &params),
+        // A read, for whoever may read the log, as `_acpmux/events` (`hub/queue_text.rs`).
+        method::MUX_QUEUE_TEXT => Box::pin(queue_text(hub, &params)).await,
         method::MUX_MAIL_SEND
         | method::MUX_MAIL_READ
         | method::MUX_MAIL_WAIT
@@ -2015,16 +2103,26 @@ async fn dispatch_request(
             // Only its sender takes a prompt back (`author.rs`), checked as it leaves.
             let author = crate::author::author(&params)?;
             let editor = crate::author::editor(author.as_ref());
-            let removed = hub.withdraw_queued(&s, prompt_id, editor)?;
-            Ok(json!({"sessionId": s.id, "promptId": prompt_id, "removed": removed}))
+            // `acpmux session queue clear --from-agents`: only while it is another agent's
+            // message, checked as it leaves, so an edit meanwhile keeps the person's prompt.
+            let agents_only = params.get("fromAgentsOnly").and_then(Value::as_bool) == Some(true);
+            let w = hub.withdraw_queued(&s, prompt_id, editor, agents_only)?;
+            let mut reply = json!({"sessionId": s.id, "promptId": prompt_id,
+                "removed": w == crate::hub::Withdrawn::Removed});
+            if agents_only {
+                reply.set("fromAgentsOnly", json!(true));
+                reply.set("notFromAgent", json!(w == crate::hub::Withdrawn::NotFromAgent));
+            }
+            Ok(reply)
         }
         method::MUX_SEND_QUEUE | method::MUX_SEND_STATUS => {
             super::outbox::handle(hub, conn, m, &params).await
         }
         method::MUX_SESSION_AUTH => super::session_auth::handle(hub, conn, params).await,
-        method::MUX_PROMPT_WITHDRAW | method::MUX_AGENT_PAIR_RESUME | method::MUX_RETRY => {
-            super::agent_messages::handle(hub, conn, m, &params).await
-        }
+        method::MUX_PROMPT_WITHDRAW
+        | method::MUX_AGENT_PAIR_RESUME
+        | method::MUX_RETRY
+        | method::MUX_INBOX_DIGEST => super::agent_messages::handle(hub, conn, m, &params).await,
         method::MUX_PERMISSION_GROUPS => {
             let s = hub.resolve(session_key(&params)?)?;
             let mut list = hub.permission_groups(&s, &params)?;
@@ -2261,4 +2359,42 @@ mod admission_force_tests {
         assert_eq!(name(null).as_deref(), Some("top"));
         assert_eq!(name(json!({})), None);
     }
+}
+
+/// `_acpmux/queue_text` (`hub/queue_text.rs`), out of `dispatch_request` and boxed there, so its
+/// wait adds nothing to that future's size.
+async fn queue_text(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
+    let s = hub.resolve(session_key(params)?)?;
+    // The queue a restart rebuilds from the log.
+    hub.session_log(&s).await;
+    let prompt_id = str_param(params, "promptId")
+        .ok_or_else(|| RpcError::invalid_params("promptId is required"))?;
+    hub.queued_text(&s, prompt_id)
+}
+
+/// An agent message's provenance with which session sent it and on what harness, for display
+/// only (`prompt_provenance::FROM_SESSION_ID`): the session this connection proved, else what a
+/// peer daemon said of its own proven caller; a client's claim is dropped. A person's prompt and
+/// none are left as they are. Out of `dispatch_request`, whose future must stay small.
+fn stamp_bound_sender(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    to: &str,
+    params: &Value,
+    provenance: Option<Value>,
+    person_message: bool,
+) -> Option<Value> {
+    let provenance = provenance?;
+    if person_message {
+        return Some(provenance);
+    }
+    let bound = match conn.caller() {
+        Some(caller) if !conn.is_person() && caller != to => hub
+            .resolve(caller)
+            .ok()
+            .map(|from| crate::prompt_provenance::BoundSender::of_session(&from.id, &from.meta())),
+        _ if conn.origin == super::Origin::Peer => crate::prompt_provenance::peer_sender(params),
+        _ => None,
+    };
+    Some(crate::prompt_provenance::stamp_sender(provenance, bound.as_ref()))
 }
