@@ -115,6 +115,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// The kept place the view opened at, while rows above it are still estimated: each off-main
     /// measure moves them, so the place is shown again until the rows are exact or the person scrolls.
     var openedPlace: (message: ID, offset: CGFloat)?
+    /// A permalink was asked for before the view was placed: it opens at the newest message, not a
+    /// kept place, even when the link's message is already loaded (`reveal` then ends at once).
+    var revealedBeforePlacing = false
     /// Tree threads: permalink paging, the thread header, Copy Link (HomeProjection+ThreadHeader.swift).
     let tree = HomeTreeState()
     /// One streamed-text commit per display frame (HomeStreamPacer).
@@ -864,8 +867,10 @@ final class HomeProjection: @preconcurrency ChatIntents {
 
     /// Advances my read cursor to the newest committed message while the
     /// newest row is on screen and the user can see it.
-    private func reportReadIfNeeded() {
-        guard isVisibleToUser, !stopped, let store = controller.store, store.state.ui.scroll.pinnedToBottom,
+    func reportReadIfNeeded() {
+        // Not before the view is placed: its engine state starts pinned, and a chat that opens
+        // scrolled up has not shown its newest message (#27627).
+        guard isVisibleToUser, !stopped, !placesOnOpen, let store = controller.store, store.state.ui.scroll.pinnedToBottom,
               let newest = shown.last(where: { $0.seq != nil })?.seq else { return }
         let cursor = max(reportedRead, shownSummary?.readCursors[me] ?? 0)
         guard newest > cursor else { return }

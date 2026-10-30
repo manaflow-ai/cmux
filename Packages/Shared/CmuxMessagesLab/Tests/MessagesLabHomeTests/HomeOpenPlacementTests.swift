@@ -131,6 +131,30 @@ import Testing
         #expect(again.controller.store?.state.ui.scroll.pinnedToBottom == false)
     }
 
+    @Test func aChatScrolledUpThenBackToTheBottomOpensAtTheNewest() async throws {
+        let rig = try await HomeChatRig(history: 300)
+        defer { rig.stop() }
+        close(rig.view, in: rig)
+
+        // A place kept by an earlier view of this chat.
+        let first = try await open(rig)
+        try scrollUp(first, by: 600)
+        close(first, in: rig)
+        #expect(rig.store.scrollAnchor(for: HomeChatRig.conversation) != nil)
+
+        // Back at the newest message this time: that is what the next view shows.
+        let second = try await open(rig)
+        let demo = try #require(second.controller.demo)
+        second.controller.host.scrollView.scroll(toModelOffset: demo.pinnedOffset)
+        demo.userScrolled()
+        close(second, in: rig)
+        #expect(rig.store.scrollAnchor(for: HomeChatRig.conversation) == nil)
+
+        let again = try await open(rig)
+        defer { again.stop() }
+        try expectAtNewest(again, "back at a chat last left at the bottom")
+    }
+
     @Test func aKeptPlaceWhoseMessageIsNotLoadedOpensAtTheNewest() async throws {
         let rig = try await HomeChatRig(history: 300)
         defer { rig.stop() }

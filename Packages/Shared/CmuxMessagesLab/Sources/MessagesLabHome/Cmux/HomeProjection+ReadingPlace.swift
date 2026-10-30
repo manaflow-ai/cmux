@@ -35,7 +35,8 @@ extension HomeProjection {
     func placeOnOpen() {
         guard placesOnOpen, !stopped, let demo = controller.demo, !shown.isEmpty, laidOutInPane else { return }
         placesOnOpen = false
-        if pendingReveal == nil, let anchor = homeStore.scrollAnchor(for: conversation),
+        defer { reportReadIfNeeded() }
+        if pendingReveal == nil, !revealedBeforePlacing, let anchor = homeStore.scrollAnchor(for: conversation),
            let item = shown.last(where: { $0.messageID == anchor.message }) {
             let place = (message: HomeMapping.id(item, aliases: aliases), offset: CGFloat(anchor.offset))
             if demo.show(message: place.message, offset: place.offset, in: controller.host.scrollView) {
@@ -53,6 +54,8 @@ extension HomeProjection {
     /// moves the message the view opened at by the rows' error in between: it goes back to its place.
     func placeAgainAfterMeasure() {
         guard let place = openedPlace, !stopped, let demo = controller.demo else { return }
+        // A send or a jump to the newest message since the open pinned it: that wins.
+        guard controller.store?.state.ui.scroll.pinnedToBottom != true else { openedPlace = nil; return }
         demo.show(message: place.message, offset: place.offset, in: controller.host.scrollView)  // scrolled() clears it
         openedPlace = demo.hasEstimatedRows ? place : nil
     }
