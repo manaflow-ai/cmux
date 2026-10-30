@@ -188,7 +188,7 @@ nonisolated enum CloudGitHubSetup {
     /// agent (the CLI waits up to 240 s for it) is stopped and counts as unavailable too, so the
     /// device flow still starts inside ``timeoutMs``. Sets `unbound` to 1 for either.
     static let unboundProbe = [
-        #"p=$(mktemp 2>/dev/null || echo "/tmp/cmux-gh-probe.$$")"#,
+        #"probe_err=$(mktemp 2>/dev/null || echo "/tmp/cmux-gh-probe.$$")"#,
         #"printf 'protocol=https\nhost=github.com\npath=cmux-setup-probe/none.git\n\n' | cmux github credential get >/dev/null 2>"$probe_err" & probe=$!"#,
         #"j=0; while kill -0 "$probe" 2>/dev/null && [ $j -lt \#(probeSeconds * 4) ]; do sleep 0.25; j=$((j+1)); done"#,
         #"if kill -0 "$probe" 2>/dev/null; then kill "$probe" 2>/dev/null; unbound=1"#,
