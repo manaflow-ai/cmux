@@ -1,6 +1,9 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "composer.plusChatsHint": {"comment":"Composer + menu: search row","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Find an earlier conversation"}},"ar":{"stringUnit":{"state":"translated","value":"ابحث عن محادثة سابقة"}},"bs":{"stringUnit":{"state":"translated","value":"Pronađi raniji razgovor"}},"da":{"stringUnit":{"state":"translated","value":"Find en tidligere samtale"}},"de":{"stringUnit":{"state":"translated","value":"Eine frühere Unterhaltung finden"}},"es":{"stringUnit":{"state":"translated","value":"Buscar una conversación anterior"}},"fr":{"stringUnit":{"state":"translated","value":"Retrouver une conversation précédente"}},"it":{"stringUnit":{"state":"translated","value":"Trova una conversazione precedente"}},"ja":{"stringUnit":{"state":"translated","value":"以前のチャットを探す"}},"km":{"stringUnit":{"state":"translated","value":"ស្វែងរកការជជែកមុន"}},"ko":{"stringUnit":{"state":"translated","value":"이전 대화 찾기"}},"nb":{"stringUnit":{"state":"translated","value":"Finn en tidligere samtale"}},"pl":{"stringUnit":{"state":"translated","value":"Znajdź wcześniejszą rozmowę"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Encontre uma conversa anterior"}},"ru":{"stringUnit":{"state":"translated","value":"Найти прошлую беседу"}},"th":{"stringUnit":{"state":"translated","value":"ค้นหาการสนทนาก่อนหน้า"}},"tr":{"stringUnit":{"state":"translated","value":"Önceki bir sohbeti bul"}},"uk":{"stringUnit":{"state":"translated","value":"Знайти попередню розмову"}},"vi":{"stringUnit":{"state":"translated","value":"Tìm cuộc trò chuyện trước"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"查找之前的对话"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"尋找先前的對話"}}}},
+    "composer.plusSearchPages": {"comment":"Composer + menu: search row","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Search pages"}},"ar":{"stringUnit":{"state":"translated","value":"ابحث في الصفحات"}},"bs":{"stringUnit":{"state":"translated","value":"Pretraži stranice"}},"da":{"stringUnit":{"state":"translated","value":"Søg i sider"}},"de":{"stringUnit":{"state":"translated","value":"Seiten durchsuchen"}},"es":{"stringUnit":{"state":"translated","value":"Buscar páginas"}},"fr":{"stringUnit":{"state":"translated","value":"Rechercher des pages"}},"it":{"stringUnit":{"state":"translated","value":"Cerca pagine"}},"ja":{"stringUnit":{"state":"translated","value":"ページを検索"}},"km":{"stringUnit":{"state":"translated","value":"ស្វែងរកទំព័រ"}},"ko":{"stringUnit":{"state":"translated","value":"페이지 검색"}},"nb":{"stringUnit":{"state":"translated","value":"Søk i sider"}},"pl":{"stringUnit":{"state":"translated","value":"Szukaj stron"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Pesquisar páginas"}},"ru":{"stringUnit":{"state":"translated","value":"Искать страницы"}},"th":{"stringUnit":{"state":"translated","value":"ค้นหาหน้า"}},"tr":{"stringUnit":{"state":"translated","value":"Sayfalarda ara"}},"uk":{"stringUnit":{"state":"translated","value":"Шукати сторінки"}},"vi":{"stringUnit":{"state":"translated","value":"Tìm trang"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"搜索页面"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"搜尋頁面"}}}},
+    "composer.plusPagesHint": {"comment":"Composer + menu: search row","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Find a visited page"}},"ar":{"stringUnit":{"state":"translated","value":"ابحث عن صفحة زرتها"}},"bs":{"stringUnit":{"state":"translated","value":"Pronađi posjećenu stranicu"}},"da":{"stringUnit":{"state":"translated","value":"Find en besøgt side"}},"de":{"stringUnit":{"state":"translated","value":"Eine besuchte Seite finden"}},"es":{"stringUnit":{"state":"translated","value":"Buscar una página visitada"}},"fr":{"stringUnit":{"state":"translated","value":"Retrouver une page visitée"}},"it":{"stringUnit":{"state":"translated","value":"Trova una pagina visitata"}},"ja":{"stringUnit":{"state":"translated","value":"訪問したページを探す"}},"km":{"stringUnit":{"state":"translated","value":"ស្វែងរកទំព័រដែលបានចូលមើល"}},"ko":{"stringUnit":{"state":"translated","value":"방문한 페이지 찾기"}},"nb":{"stringUnit":{"state":"translated","value":"Finn en besøkt side"}},"pl":{"stringUnit":{"state":"translated","value":"Znajdź odwiedzoną stronę"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Encontre uma página visitada"}},"ru":{"stringUnit":{"state":"translated","value":"Найти посещённую страницу"}},"th":{"stringUnit":{"state":"translated","value":"ค้นหาหน้าที่เคยเข้าชม"}},"tr":{"stringUnit":{"state":"translated","value":"Ziyaret edilen bir sayfayı bul"}},"uk":{"stringUnit":{"state":"translated","value":"Знайти відвідану сторінку"}},"vi":{"stringUnit":{"state":"translated","value":"Tìm trang đã truy cập"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"查找访问过的页面"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"尋找瀏覽過的頁面"}}}},
     "chatMenu.forkTo": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Fork to…"}},"ar":{"stringUnit":{"state":"translated","value":"إنشاء فرع في…"}},"de":{"stringUnit":{"state":"translated","value":"Verzweigen nach…"}},"fr":{"stringUnit":{"state":"translated","value":"Créer une branche dans…"}},"es":{"stringUnit":{"state":"translated","value":"Crear rama en…"}},"ja":{"stringUnit":{"state":"translated","value":"分岐先…"}},"ko":{"stringUnit":{"state":"translated","value":"다음 위치로 분기…"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"分支到…"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"分支至…"}},"bs":{"stringUnit":{"state":"translated","value":"Napravi granu u…"}},"da":{"stringUnit":{"state":"translated","value":"Forgren til…"}},"it":{"stringUnit":{"state":"translated","value":"Crea un ramo in…"}},"km":{"stringUnit":{"state":"translated","value":"បំបែកសាខាទៅ…"}},"nb":{"stringUnit":{"state":"translated","value":"Forgren til…"}},"pl":{"stringUnit":{"state":"translated","value":"Utwórz odgałęzienie w…"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Criar ramificação em…"}},"ru":{"stringUnit":{"state":"translated","value":"Создать ветку в…"}},"th":{"stringUnit":{"state":"translated","value":"แยกสาขาไปยัง…"}},"tr":{"stringUnit":{"state":"translated","value":"Şuraya dallandır…"}},"uk":{"stringUnit":{"state":"translated","value":"Створити гілку в…"}},"vi":{"stringUnit":{"state":"translated","value":"Tạo nhánh tại…"}}}},
     "composer.connectPhone": {"comment":"Agent pane: the environment picker's row under New environment that opens the Mobile Pairing page, so cmux on iPhone reaches this Mac (EnvironmentPicker.tsx)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Connect Phone…"}},"ar":{"stringUnit":{"state":"translated","value":"ربط الهاتف…"}},"bs":{"stringUnit":{"state":"translated","value":"Poveži telefon…"}},"da":{"stringUnit":{"state":"translated","value":"Forbind telefon…"}},"de":{"stringUnit":{"state":"translated","value":"Telefon verbinden…"}},"es":{"stringUnit":{"state":"translated","value":"Conectar teléfono…"}},"fr":{"stringUnit":{"state":"translated","value":"Connecter un téléphone…"}},"it":{"stringUnit":{"state":"translated","value":"Collega telefono…"}},"ja":{"stringUnit":{"state":"translated","value":"電話を接続…"}},"km":{"stringUnit":{"state":"translated","value":"ភ្ជាប់ទូរសព្ទ…"}},"ko":{"stringUnit":{"state":"translated","value":"휴대폰 연결…"}},"nb":{"stringUnit":{"state":"translated","value":"Koble til telefon…"}},"pl":{"stringUnit":{"state":"translated","value":"Połącz telefon…"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Conectar celular…"}},"ru":{"stringUnit":{"state":"translated","value":"Подключить телефон…"}},"th":{"stringUnit":{"state":"translated","value":"เชื่อมต่อโทรศัพท์…"}},"tr":{"stringUnit":{"state":"translated","value":"Telefon Bağla…"}},"uk":{"stringUnit":{"state":"translated","value":"Підключити телефон…"}},"vi":{"stringUnit":{"state":"translated","value":"Kết nối điện thoại…"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"连接手机…"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"連接手機…"}}}},
     "picker.approvesAll": {"comment":"Agent pane: the mode chip of a chat whose permission policy approves every request (ComposerPickers.tsx)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Full access"}},"ar":{"stringUnit":{"state":"needs_review","value":"وصول كامل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Potpuni pristup"}},"da":{"stringUnit":{"state":"needs_review","value":"Fuld adgang"}},"de":{"stringUnit":{"state":"needs_review","value":"Vollzugriff"}},"es":{"stringUnit":{"state":"needs_review","value":"Acceso total"}},"fr":{"stringUnit":{"state":"needs_review","value":"Accès complet"}},"it":{"stringUnit":{"state":"needs_review","value":"Accesso completo"}},"ja":{"stringUnit":{"state":"needs_review","value":"フルアクセス"}},"km":{"stringUnit":{"state":"needs_review","value":"សិទ្ធិចូលប្រើពេញលេញ"}},"ko":{"stringUnit":{"state":"needs_review","value":"전체 액세스"}},"nb":{"stringUnit":{"state":"needs_review","value":"Full tilgang"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pełny dostęp"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Acesso total"}},"ru":{"stringUnit":{"state":"needs_review","value":"Полный доступ"}},"th":{"stringUnit":{"state":"needs_review","value":"สิทธิ์เข้าถึงเต็มรูปแบบ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Tam erişim"}},"uk":{"stringUnit":{"state":"needs_review","value":"Повний доступ"}},"vi":{"stringUnit":{"state":"needs_review","value":"Toàn quyền truy cập"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"完全访问"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"完整存取"}}}},
@@ -138520,138 +138523,6 @@
         }
       }
     },
-    "turn.failure.contextFull": {
-      "comment": "Agent pane: a failed turn's error card (the cause in one line) when the conversation outgrew the model's context window; its button is Compact; {harness} is the agent's name",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "هذه المحادثة أطول من نافذة سياق {harness}. اضغطها ثم أعد المحاولة."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ovaj razgovor je predug za kontekstni prozor modela {harness}. Sažmite ga, pa pokušajte ponovo."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Denne chat er for lang til {harness}s kontekstvindue. Komprimer den, og prøv igen."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dieser Chat ist zu lang für das Kontextfenster von {harness}. Komprimiere ihn und versuche es dann erneut."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This chat is too long for {harness}’s context window. Compact it, then retry."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Este chat es demasiado largo para la ventana de contexto de {harness}. Compáctalo y vuelve a intentarlo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cette conversation est trop longue pour la fenêtre de contexte de {harness}. Compactez-la, puis réessayez."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Questa chat è troppo lunga per la finestra di contesto di {harness}. Compattala, poi riprova."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "このチャットは {harness} のコンテキストウィンドウに収まりません。圧縮してから再試行してください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការជជែកនេះវែងពេកសម្រាប់បង្អួចបរិបទរបស់ {harness}។ សូមបង្រួមវា រួចព្យាយាមម្តងទៀត។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "이 채팅은 {harness}의 컨텍스트 창에 비해 너무 깁니다. 압축한 뒤 다시 시도하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Denne chatten er for lang for kontekstvinduet til {harness}. Komprimer den, og prøv igjen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ten czat jest za długi dla okna kontekstu {harness}. Skompaktuj go, a potem spróbuj ponownie."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Esta conversa é longa demais para a janela de contexto de {harness}. Compacte-a e tente de novo."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Этот чат слишком длинный для контекстного окна {harness}. Сожмите его и повторите попытку."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แชทนี้ยาวเกินหน้าต่างบริบทของ {harness} บีบอัดแชทแล้วลองอีกครั้ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bu sohbet {harness} bağlam penceresi için çok uzun. Sıkıştırın, sonra yeniden deneyin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Цей чат задовгий для контекстного вікна {harness}. Стисніть його й повторіть спробу."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cuộc trò chuyện này quá dài so với cửa sổ ngữ cảnh của {harness}. Hãy thu gọn rồi thử lại."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "此对话超出了 {harness} 的上下文窗口。请先压缩，再重试。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "此對話超出了 {harness} 的上下文視窗。請先壓縮，再重試。"
-          }
-        }
-      }
-    },
     "turn.failure.tailscale": {
       "comment": "Agent pane: a failed turn's error card (the cause in one line); {harness} is the agent's name",
       "extractionState": "manual",
@@ -242300,7 +242171,139 @@
     "status.field.routing":{"comment":"Agent pane: Session status card row label for the route or endpoint the harness's requests go through.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Routing"}},"ar":{"stringUnit":{"state":"needs_review","value":"التوجيه"}},"bs":{"stringUnit":{"state":"needs_review","value":"Usmjeravanje"}},"da":{"stringUnit":{"state":"needs_review","value":"Routing"}},"de":{"stringUnit":{"state":"needs_review","value":"Routing"}},"es":{"stringUnit":{"state":"needs_review","value":"Enrutamiento"}},"fr":{"stringUnit":{"state":"needs_review","value":"Routage"}},"it":{"stringUnit":{"state":"needs_review","value":"Instradamento"}},"ja":{"stringUnit":{"state":"needs_review","value":"ルーティング"}},"km":{"stringUnit":{"state":"needs_review","value":"ការបញ្ជូន"}},"ko":{"stringUnit":{"state":"needs_review","value":"라우팅"}},"nb":{"stringUnit":{"state":"needs_review","value":"Ruting"}},"pl":{"stringUnit":{"state":"needs_review","value":"Routing"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Roteamento"}},"ru":{"stringUnit":{"state":"needs_review","value":"Маршрутизация"}},"th":{"stringUnit":{"state":"needs_review","value":"การกำหนดเส้นทาง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yönlendirme"}},"uk":{"stringUnit":{"state":"needs_review","value":"Маршрутизація"}},"vi":{"stringUnit":{"state":"needs_review","value":"Định tuyến"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"路由"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"路由"}}}},
     "status.field.settings":{"comment":"Agent pane: Session status card row label for the settings files the harness read.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Settings"}},"ar":{"stringUnit":{"state":"needs_review","value":"الإعدادات"}},"bs":{"stringUnit":{"state":"needs_review","value":"Postavke"}},"da":{"stringUnit":{"state":"needs_review","value":"Indstillinger"}},"de":{"stringUnit":{"state":"needs_review","value":"Einstellungen"}},"es":{"stringUnit":{"state":"needs_review","value":"Ajustes"}},"fr":{"stringUnit":{"state":"needs_review","value":"Réglages"}},"it":{"stringUnit":{"state":"needs_review","value":"Impostazioni"}},"ja":{"stringUnit":{"state":"needs_review","value":"設定"}},"km":{"stringUnit":{"state":"needs_review","value":"ការកំណត់"}},"ko":{"stringUnit":{"state":"needs_review","value":"설정"}},"nb":{"stringUnit":{"state":"needs_review","value":"Innstillinger"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ustawienia"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Ajustes"}},"ru":{"stringUnit":{"state":"needs_review","value":"Настройки"}},"th":{"stringUnit":{"state":"needs_review","value":"การตั้งค่า"}},"tr":{"stringUnit":{"state":"needs_review","value":"Ayarlar"}},"uk":{"stringUnit":{"state":"needs_review","value":"Налаштування"}},"vi":{"stringUnit":{"state":"needs_review","value":"Cài đặt"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"设置"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"設定"}}}},
     "status.field.context":{"comment":"Agent pane: Session status card row label for how much of the context window is used.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Context"}},"ar":{"stringUnit":{"state":"needs_review","value":"السياق"}},"bs":{"stringUnit":{"state":"needs_review","value":"Kontekst"}},"da":{"stringUnit":{"state":"needs_review","value":"Kontekst"}},"de":{"stringUnit":{"state":"needs_review","value":"Kontext"}},"es":{"stringUnit":{"state":"needs_review","value":"Contexto"}},"fr":{"stringUnit":{"state":"needs_review","value":"Contexte"}},"it":{"stringUnit":{"state":"needs_review","value":"Contesto"}},"ja":{"stringUnit":{"state":"needs_review","value":"コンテキスト"}},"km":{"stringUnit":{"state":"needs_review","value":"បរិបទ"}},"ko":{"stringUnit":{"state":"needs_review","value":"컨텍스트"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kontekst"}},"pl":{"stringUnit":{"state":"needs_review","value":"Kontekst"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Contexto"}},"ru":{"stringUnit":{"state":"needs_review","value":"Контекст"}},"th":{"stringUnit":{"state":"needs_review","value":"บริบท"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bağlam"}},"uk":{"stringUnit":{"state":"needs_review","value":"Контекст"}},"vi":{"stringUnit":{"state":"needs_review","value":"Ngữ cảnh"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"上下文"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"上下文"}}}},
-    "status.field.usageLimits":{"comment":"Agent pane: Session status card row label for the harness's usage limits.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Usage limits"}},"ar":{"stringUnit":{"state":"needs_review","value":"حدود الاستخدام"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ograničenja korištenja"}},"da":{"stringUnit":{"state":"needs_review","value":"Forbrugsgrænser"}},"de":{"stringUnit":{"state":"needs_review","value":"Nutzungslimits"}},"es":{"stringUnit":{"state":"needs_review","value":"Límites de uso"}},"fr":{"stringUnit":{"state":"needs_review","value":"Limites d'utilisation"}},"it":{"stringUnit":{"state":"needs_review","value":"Limiti di utilizzo"}},"ja":{"stringUnit":{"state":"needs_review","value":"使用制限"}},"km":{"stringUnit":{"state":"needs_review","value":"ដែនកំណត់ការប្រើប្រាស់"}},"ko":{"stringUnit":{"state":"needs_review","value":"사용 한도"}},"nb":{"stringUnit":{"state":"needs_review","value":"Bruksgrenser"}},"pl":{"stringUnit":{"state":"needs_review","value":"Limity użycia"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Limites de uso"}},"ru":{"stringUnit":{"state":"needs_review","value":"Лимиты использования"}},"th":{"stringUnit":{"state":"needs_review","value":"ขีดจำกัดการใช้งาน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Kullanım sınırları"}},"uk":{"stringUnit":{"state":"needs_review","value":"Ліміти використання"}},"vi":{"stringUnit":{"state":"needs_review","value":"Giới hạn sử dụng"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"使用限制"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"使用限制"}}}}
+    "status.field.usageLimits":{"comment":"Agent pane: Session status card row label for the harness's usage limits.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Usage limits"}},"ar":{"stringUnit":{"state":"needs_review","value":"حدود الاستخدام"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ograničenja korištenja"}},"da":{"stringUnit":{"state":"needs_review","value":"Forbrugsgrænser"}},"de":{"stringUnit":{"state":"needs_review","value":"Nutzungslimits"}},"es":{"stringUnit":{"state":"needs_review","value":"Límites de uso"}},"fr":{"stringUnit":{"state":"needs_review","value":"Limites d'utilisation"}},"it":{"stringUnit":{"state":"needs_review","value":"Limiti di utilizzo"}},"ja":{"stringUnit":{"state":"needs_review","value":"使用制限"}},"km":{"stringUnit":{"state":"needs_review","value":"ដែនកំណត់ការប្រើប្រាស់"}},"ko":{"stringUnit":{"state":"needs_review","value":"사용 한도"}},"nb":{"stringUnit":{"state":"needs_review","value":"Bruksgrenser"}},"pl":{"stringUnit":{"state":"needs_review","value":"Limity użycia"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Limites de uso"}},"ru":{"stringUnit":{"state":"needs_review","value":"Лимиты использования"}},"th":{"stringUnit":{"state":"needs_review","value":"ขีดจำกัดการใช้งาน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Kullanım sınırları"}},"uk":{"stringUnit":{"state":"needs_review","value":"Ліміти використання"}},"vi":{"stringUnit":{"state":"needs_review","value":"Giới hạn sử dụng"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"使用限制"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"使用限制"}}}},
+    "turn.failure.contextFull": {
+      "comment": "Agent pane: a failed turn's error card (the cause in one line) when the conversation outgrew the model's context window; its button is Compact; {harness} is the agent's name",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هذه المحادثة أطول من نافذة سياق {harness}. اضغطها ثم أعد المحاولة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj razgovor je predug za kontekstni prozor modela {harness}. Sažmite ga, pa pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne chat er for lang til {harness}s kontekstvindue. Komprimer den, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Chat ist zu lang für das Kontextfenster von {harness}. Komprimiere ihn und versuche es dann erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This chat is too long for {harness}’s context window. Compact it, then retry."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este chat es demasiado largo para la ventana de contexto de {harness}. Compáctalo y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette conversation est trop longue pour la fenêtre de contexte de {harness}. Compactez-la, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa chat è troppo lunga per la finestra di contesto di {harness}. Compattala, poi riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このチャットは {harness} のコンテキストウィンドウに収まりません。圧縮してから再試行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការជជែកនេះវែងពេកសម្រាប់បង្អួចបរិបទរបស់ {harness}។ សូមបង្រួមវា រួចព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 채팅은 {harness}의 컨텍스트 창에 비해 너무 깁니다. 압축한 뒤 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne chatten er for lang for kontekstvinduet til {harness}. Komprimer den, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten czat jest za długi dla okna kontekstu {harness}. Skompaktuj go, a potem spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta conversa é longa demais para a janela de contexto de {harness}. Compacte-a e tente de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот чат слишком длинный для контекстного окна {harness}. Сожмите его и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แชทนี้ยาวเกินหน้าต่างบริบทของ {harness} บีบอัดแชทแล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sohbet {harness} bağlam penceresi için çok uzun. Sıkıştırın, sonra yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей чат задовгий для контекстного вікна {harness}. Стисніть його й повторіть спробу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuộc trò chuyện này quá dài so với cửa sổ ngữ cảnh của {harness}. Hãy thu gọn rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此对话超出了 {harness} 的上下文窗口。请先压缩，再重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此對話超出了 {harness} 的上下文視窗。請先壓縮，再重試。"
+          }
+        }
+      }
+    }
   },
   "version": "1.0"
 }
