@@ -169,6 +169,7 @@ extension TabStripView {
             newTabButton.isHidden = !model.showsNewTabButton
             needsLayout = true
         }
+        newTabMenuButton.isHidden = !model.showsNewTabButton || !showsNewTabMenuButton
 
         relayout(animated: animated || (styleChanged && !reduceMotion), added: added, growsAdded: cellsAnimate && adding,
                  token: cellsAnimate && removing && !adding ? .tabClose : nil)

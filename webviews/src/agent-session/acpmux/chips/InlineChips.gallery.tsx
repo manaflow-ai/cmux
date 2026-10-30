@@ -1,6 +1,8 @@
 // l10n-allow-file: public gallery sample paths and design notes, not shipped UI.
 import { componentEntry, type ChipHostFixture } from "../../../gallery/format";
 
+type InlineChipVariant = "before" | "minimal" | "accent" | "hairline";
+
 const chipHost: ChipHostFixture = {
   paths: {
     "/example/project/cmux.json": { place: "root", folder: false },
@@ -12,7 +14,7 @@ const chipHost: ChipHostFixture = {
   policy: { outsideRoots: "confirm" },
 };
 
-export default componentEntry<{ variant: string }>({
+export default componentEntry<{ variant: InlineChipVariant }>({
   id: "agent-pane.inline-chips",
   title: "Inline reference chips",
   area: "Agent pane",
