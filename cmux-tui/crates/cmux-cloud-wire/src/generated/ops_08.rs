@@ -5,6 +5,42 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ParticipantAvatarSetResult {
+    pub participant_id: ParticipantId,
+    pub avatar: Option<AvatarRef>,
+}
+
+wire_errors! {
+    /// The error codes participant.avatar.set declares.
+    ParticipantAvatarSetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        AvatarInvalid = "avatar_invalid",
+        AvatarTooLarge = "avatar_too_large",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        UnknownParticipant = "unknown_participant",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows. role (default member) is at most your own; only the owner adds an admin. A group past 64 members becomes a large group (member rows, a roster in the head). A banned person needs participants.unban first. Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once.
+    ParticipantsAddOp {
+        name: "participants.add",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: ParticipantsAddParams,
+        result: HomeConversationCommit,
+        error: ParticipantsAddError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ParticipantsAddParams {
     pub conversation: ConversationId,
     pub participant: HomeParticipantInput,
@@ -863,34 +899,5 @@ wire_op! {
         params: TeamAiLimitGetParams,
         result: TeamAiLimitGetResult,
         error: TeamAiLimitGetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamAiLimitGetParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cursor: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamAiLimitGetResult {
-    pub team: String,
-    pub default_usd: WireNumber,
-    pub is_default: bool,
-    pub resets_at: i64,
-    pub me: TeamAiLimitMember,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub members: Option<Vec<TeamAiLimitMember>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub team_usage: Option<TeamAiUsageLine>,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
-    pub next_cursor: Option<Option<String>>,
-}
-
-wire_errors! {
-    /// The error codes team.ai_limit.get declares.
-    TeamAiLimitGetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
     }
 }

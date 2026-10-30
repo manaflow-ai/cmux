@@ -5,6 +5,22 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ServerNetworkProof {
+    #[serde(rename = "signedAt")]
+    pub signed_at: i64,
+    pub nonce: String,
+    pub signature: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ServerNetworkReservation {
+    pub state: LitReserved,
+    pub tenant: NativeTenantId,
+    pub mesh: NativeMeshId,
+    pub device: NativeDeviceId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
 pub enum ServerNetworkState {
     ServerNetworkReservation(ServerNetworkReservation),
@@ -878,23 +894,3 @@ pub struct UsageSummary {
 
 /// A cmux user (Stack user id kept as an external id).
 pub type UserId = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UserProfile {
-    pub id: UserId,
-    pub stack_user_id: String,
-    pub email: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub email_verified: Option<bool>,
-    pub display_name: String,
-    pub personal_team: TeamId,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UserTeam {
-    pub id: TeamId,
-    pub display_name: String,
-    pub kind: UserTeamKind,
-    pub role: TeamRole,
-    pub sso_required: bool,
-}

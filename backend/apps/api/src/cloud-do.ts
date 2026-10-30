@@ -247,7 +247,7 @@ export class CloudDO extends CloudIdle {
    * NOT an op. Another team's machine is not found; a member who left is forbidden.
    */
   ownerExec(entity: string, user: string, machine: string, command: string, stdin: Uint8Array | null, timeoutMs: number): Promise<MachineExecReply> {
-    return this.guestExec(entity, machine, () => this.mayUseMachines(entity, user), command, stdin, timeoutMs, { action: "owner.exec", who: `platform:${user}` })
+    return this.guestExec(entity, machine, (row) => row.visibility === "private" && row.creator !== user ? Promise.resolve(false) : this.mayUseMachines(entity, user), command, stdin, timeoutMs, { action: "owner.exec", who: `platform:${user}` })
   }
 
   /** The personal team, or a member with team.resources now and no departure heard during the read. */

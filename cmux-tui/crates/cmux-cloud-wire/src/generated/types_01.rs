@@ -338,6 +338,8 @@ pub struct CloudMachine {
     pub id: MachineId,
     pub team: TeamId,
     pub creator: UserId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub visibility: Option<CloudMachineVisibility>,
     pub name: Option<String>,
     pub size: CloudMachineSize,
     pub status: CloudMachineStatus,
@@ -351,6 +353,13 @@ pub struct CloudMachine {
     #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
     pub pause_reason: Option<Option<CloudMachinePauseReason>>,
     pub revision: Revision,
+}
+
+wire_enum! {
+    CloudMachineVisibility {
+        Private = "private",
+        Team = "team",
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -432,11 +441,20 @@ pub struct CloudPlanUsage {
 pub struct CloudSnapshot {
     pub id: SnapshotId,
     pub machine: MachineId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub visibility: Option<CloudSnapshotVisibility>,
     pub name: Option<String>,
     pub size_mb: i64,
     pub status: CloudSnapshotStatus,
     pub created_at: i64,
     pub revision: Revision,
+}
+
+wire_enum! {
+    CloudSnapshotVisibility {
+        Private = "private",
+        Team = "team",
+    }
 }
 
 wire_enum! {
@@ -877,21 +895,6 @@ pub struct HomeAttachmentPoster {
 
 wire_enum! {
     HomeAttachmentPosterMimeType {
-        ImageJpeg = "image/jpeg",
-        ImageWebp = "image/webp",
-    }
-}
-
-/// Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: "preview"}.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeAttachmentPreview {
-    pub hash: HomeSha256,
-    pub mime_type: HomeAttachmentPreviewMimeType,
-    pub byte_count: i64,
-}
-
-wire_enum! {
-    HomeAttachmentPreviewMimeType {
         ImageJpeg = "image/jpeg",
         ImageWebp = "image/webp",
     }

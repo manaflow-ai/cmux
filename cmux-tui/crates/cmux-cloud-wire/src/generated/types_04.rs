@@ -4,6 +4,26 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UserProfile {
+    pub id: UserId,
+    pub stack_user_id: String,
+    pub email: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email_verified: Option<bool>,
+    pub display_name: String,
+    pub personal_team: TeamId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UserTeam {
+    pub id: TeamId,
+    pub display_name: String,
+    pub kind: UserTeamKind,
+    pub role: TeamRole,
+    pub sso_required: bool,
+}
+
 wire_enum! {
     UserTeamKind {
         Personal = "personal",

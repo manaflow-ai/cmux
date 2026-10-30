@@ -2,7 +2,7 @@ import type { ReduceContext, ReduceResult, RowWrite, StoredRow } from "@cmux/own
 import { CloudSnapshotCreate, CloudSnapshotDelete, CloudSnapshotRestore, planRequiredDetails, type CloudDriverResultParams, type CloudSnapshot } from "@cmux/protocol"
 import { decodeParams, reject } from "./common.ts"
 import { limitDetails, providerName, teamPlan, type CloudConfig } from "./cloud-plan.ts"
-import { ledgerKey, machineRow, TABLE_LEDGER, TABLE_SNAPSHOT, mayDelete, mayManage, next, noChangePower, PENDING_SAFETY_MS, unavailable, upsertLedger, withoutPending, type CloudState, type LedgerRow } from "./cloud.ts"
+import { ledgerKey, machineRow, TABLE_LEDGER, TABLE_SNAPSHOT, TABLE_TOMBSTONE, mayDelete, mayManage, next, noChangePower, PENDING_SAFETY_MS, unavailable, upsertLedger, withoutPending, type CloudState, type LedgerRow } from "./cloud.ts"
 
 /**
  * Snapshots (state-placement.md 7 item 4; CLOUDDO-MONEY-OPS). A snapshot row is private; the public
@@ -73,7 +73,7 @@ export const snapshotDelete = (config: CloudConfig, state: CloudState, params: u
   const source = machineRow(ctx.rows, r.machine)
   // The machine may be gone; then the team admin (or the creator recorded on no row) decides: personal teams only today.
   // The machine's creator or a team admin; once the machine is gone, the snapshot's own creator or a team admin (review P3).
-  const owner = (source ? source.row : { creator: r.creator ?? "" }) as Parameters<typeof mayManage>[1]
+  const owner = (r.visibility !== undefined ? { creator: r.creator ?? "" } : source ? source.row : { creator: r.creator ?? "" }) as Parameters<typeof mayManage>[1]
   if (!mayDelete(ctx.principal, owner)) return reject("auth.forbidden", "only the machine's creator or a team admin may delete its snapshots")
   if (!ctx.idempotencyKey) return unavailable()
   return snapshotRetire(config, state, stored, ledgerKey(ctx.principal.identity, ctx.idempotencyKey), ctx)
@@ -134,7 +134,11 @@ export const snapshotResult = (state: CloudState, stored: StoredRow<LedgerRow>, 
     return { ok: true, state: next(state, { pending, saved: state.saved - counts(snap.row.status) + counts(row.status) }, { machine: row.machine, removed: false, snapshot: row.id }), value: { applied: true }, writes }
   }
   if (r.ok) {
-    writes.push({ table: TABLE_SNAPSHOT, op: "delete", key: snap.row.id })
+    writes.push({ table: TABLE_SNAPSHOT, op: "delete", key: snap.row.id },
+      { table: TABLE_TOMBSTONE, op: "upsert", key: snap.row.id, n: rev, row: {
+        machine: snap.row.machine, creator: snap.row.creator, visibility: snap.row.visibility,
+        deleted_at: ctx.now, revision: String(rev)
+      } })
     return { ok: true, state: next(state, { pending, saved: state.saved - (snap.row.saved_reserved === true ? 1 : 0) }, { machine: snap.row.machine, removed: true, snapshot: snap.row.id }), value: { applied: true }, writes }
   }
   // The provider kept the snapshot: its status (and count) from before the delete (review P3).

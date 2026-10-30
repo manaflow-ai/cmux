@@ -182,6 +182,7 @@ export type CloudMachine = {
   readonly id: MachineId
   readonly team: TeamId
   readonly creator: UserId
+  readonly visibility?: "private" | "team"
   readonly name: string | null
   readonly size: CloudMachineSize
   readonly status: CloudMachineStatus
@@ -235,6 +236,7 @@ export type CloudPlan = {
 export type CloudSnapshot = {
   readonly id: SnapshotId
   readonly machine: MachineId
+  readonly visibility?: "private" | "team"
   readonly name: string | null
   readonly size_mb: number
   readonly status: "creating" | "ready" | "deleting" | "failed"
@@ -1757,6 +1759,16 @@ export interface CloudOps {
     readonly params: {
       readonly machine: MachineId
       readonly size: CloudMachineSize
+    }
+    readonly result: {
+      readonly machine: CloudMachine
+    }
+  }
+  /** Explicitly enroll or change a machine's visibility. Only its signed-in creator may do this. expected_revision must equal the machine revision just read; a stale request changes nothing. Personal machines cannot be moved into a team by this operation. Existing snapshots keep their own visibility. Agent principals are refused; the client asks a person first. */
+  readonly "cloud.machine.set_visibility": {
+    readonly params: {
+      readonly machine: MachineId
+      readonly visibility: "private" | "team"
     }
     readonly result: {
       readonly machine: CloudMachine
@@ -3799,6 +3811,7 @@ export const cloudOpMeta = {
   "cloud.machine.pause": { class: "mutation", owner: "cloud:CloudDO", risk: "mutate-shared" },
   "cloud.machine.rename": { class: "mutation", owner: "cloud:CloudDO", risk: "mutate-shared" },
   "cloud.machine.resize": { class: "mutation", owner: "cloud:CloudDO", risk: "money" },
+  "cloud.machine.set_visibility": { class: "mutation", owner: "cloud:CloudDO", risk: "mutate-own" },
   "cloud.machine.start": { class: "mutation", owner: "cloud:CloudDO", risk: "mutate-shared" },
   "cloud.machine.upgrade": { class: "mutation", owner: "cloud:CloudDO", risk: "execute" },
   "cloud.migration.start": { class: "mutation", owner: "cloud:CloudDO", risk: "mutate-own" },

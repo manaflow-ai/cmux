@@ -4,6 +4,38 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_errors! {
+    /// The error codes feed.unarchive declares.
+    FeedUnarchiveError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        FeedClosed = "feed.closed",
+        FeedFull = "feed.full",
+        FeedMoving = "feed.moving",
+        FeedRateLimited = "feed.rate_limited",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerMoved = "owner.moved",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Allow a validated path through the caller's private network.
+    FirewallCreateOp {
+        name: "firewall.create",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session],
+        params: FirewallCreateParams,
+        result: FirewallCreateResult,
+        error: FirewallCreateError,
+    }
+}
+
 wire_enum! {
     FirewallCreateParamsSourceProtocol {
         Tcp = "tcp",
@@ -865,35 +897,4 @@ wire_enum! {
         Teams = "teams",
         Nobody = "nobody",
     }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeSettingsSetParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub discoverable_by_email: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub discoverable_by_phone: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub allow_requests_from: Option<HomeSettingsSetParamsAllowRequestsFrom>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub email_requests: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub trust_same_domain: Option<bool>,
-}
-
-wire_enum! {
-    HomeSettingsSetResultAllowRequestsFrom {
-        Anyone = "anyone",
-        Teams = "teams",
-        Nobody = "nobody",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeSettingsSetResult {
-    pub discoverable_by_email: bool,
-    pub discoverable_by_phone: bool,
-    pub allow_requests_from: HomeSettingsSetResultAllowRequestsFrom,
-    pub email_requests: bool,
-    pub trust_same_domain: bool,
 }

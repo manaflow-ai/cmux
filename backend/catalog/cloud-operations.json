@@ -1071,6 +1071,16 @@
             "name": "UserId"
           }
         },
+        "visibility": {
+          "required": false,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "private",
+              "team"
+            ]
+          }
+        },
         "name": {
           "required": true,
           "type": {
@@ -1421,6 +1431,16 @@
           "type": {
             "kind": "ref",
             "name": "MachineId"
+          }
+        },
+        "visibility": {
+          "required": false,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "private",
+              "team"
+            ]
           }
         },
         "name": {
@@ -18117,6 +18137,13 @@
               "creator": {
                 "$ref": "#/$defs/UserId"
               },
+              "visibility": {
+                "type": "string",
+                "enum": [
+                  "private",
+                  "team"
+                ]
+              },
               "name": {
                 "anyOf": [
                   {
@@ -20204,6 +20231,13 @@
               "creator": {
                 "$ref": "#/$defs/UserId"
               },
+              "visibility": {
+                "type": "string",
+                "enum": [
+                  "private",
+                  "team"
+                ]
+              },
               "name": {
                 "anyOf": [
                   {
@@ -20640,6 +20674,13 @@
               "creator": {
                 "$ref": "#/$defs/UserId"
               },
+              "visibility": {
+                "type": "string",
+                "enum": [
+                  "private",
+                  "team"
+                ]
+              },
               "name": {
                 "anyOf": [
                   {
@@ -20993,6 +21034,13 @@
               },
               "creator": {
                 "$ref": "#/$defs/UserId"
+              },
+              "visibility": {
+                "type": "string",
+                "enum": [
+                  "private",
+                  "team"
+                ]
               },
               "name": {
                 "anyOf": [
@@ -21587,6 +21635,13 @@
               "creator": {
                 "$ref": "#/$defs/UserId"
               },
+              "visibility": {
+                "type": "string",
+                "enum": [
+                  "private",
+                  "team"
+                ]
+              },
               "name": {
                 "anyOf": [
                   {
@@ -21931,6 +21986,13 @@
               },
               "creator": {
                 "$ref": "#/$defs/UserId"
+              },
+              "visibility": {
+                "type": "string",
+                "enum": [
+                  "private",
+                  "team"
+                ]
               },
               "name": {
                 "anyOf": [
@@ -22287,6 +22349,13 @@
               },
               "creator": {
                 "$ref": "#/$defs/UserId"
+              },
+              "visibility": {
+                "type": "string",
+                "enum": [
+                  "private",
+                  "team"
+                ]
               },
               "name": {
                 "anyOf": [
@@ -22674,6 +22743,388 @@
               "creator": {
                 "$ref": "#/$defs/UserId"
               },
+              "visibility": {
+                "type": "string",
+                "enum": [
+                  "private",
+                  "team"
+                ]
+              },
+              "name": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "size": {
+                "$ref": "#/$defs/CloudMachineSize"
+              },
+              "status": {
+                "$ref": "#/$defs/CloudMachineStatus"
+              },
+              "image": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "daemon_version": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "daemon_version"
+                ],
+                "additionalProperties": true
+              },
+              "host": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/HostId"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "classic": {
+                "type": "boolean"
+              },
+              "created_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "last_active_at": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "idle_policy": {
+                "type": "object",
+                "properties": {
+                  "idle_seconds": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "idle_seconds"
+                ],
+                "additionalProperties": true
+              },
+              "error": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "code": {
+                        "type": "string"
+                      },
+                      "message": {
+                        "type": "string"
+                      },
+                      "at": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "code",
+                      "message",
+                      "at"
+                    ],
+                    "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "pause_reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "idle",
+                      "no_report",
+                      "provider_stopped",
+                      "provider_paused"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "revision": {
+                "$ref": "#/$defs/Revision"
+              }
+            },
+            "required": [
+              "id",
+              "team",
+              "creator",
+              "name",
+              "size",
+              "status",
+              "image",
+              "host",
+              "classic",
+              "created_at",
+              "last_active_at",
+              "idle_policy",
+              "error",
+              "revision"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "cloud.machine.set_visibility": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "machine": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "MachineId"
+            }
+          },
+          "visibility": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "private",
+                "team"
+              ]
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "machine": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "CloudMachine"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.sso_required",
+        "auth.unauthenticated",
+        "client.too_old",
+        "cloud.machine.not_found",
+        "idempotency.conflict",
+        "owner.unreachable",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:CloudDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "cloud machine set-visibility",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "cloud"
+      },
+      "docs": "Explicitly enroll or change a machine's visibility. Only its signed-in creator may do this. expected_revision must equal the machine revision just read; a stale request changes nothing. Personal machines cannot be moved into a team by this operation. Existing snapshots keep their own visibility. Agent principals are refused; the client asks a person first.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "machine": {
+            "$ref": "#/$defs/MachineId"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "private",
+              "team"
+            ]
+          },
+          "expected_revision": {
+            "$ref": "#/$defs/Revision"
+          }
+        },
+        "required": [
+          "machine",
+          "visibility",
+          "expected_revision"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "MachineId": {
+            "type": "string",
+            "pattern": "^vm_[a-z0-9]{20}$",
+            "description": "A Cloud machine."
+          },
+          "Revision": {
+            "type": "string",
+            "pattern": "^[0-9]+$",
+            "description": "Decimal per-object revision (the owner's event sequence)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "machine": {
+            "$ref": "#/$defs/CloudMachine"
+          }
+        },
+        "required": [
+          "machine"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "MachineId": {
+            "type": "string",
+            "pattern": "^vm_[a-z0-9]{20}$",
+            "description": "A Cloud machine."
+          },
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "CloudMachineSize": {
+            "type": "object",
+            "properties": {
+              "cpu": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 64
+              },
+              "memory_mb": {
+                "type": "integer",
+                "minimum": 512,
+                "maximum": 262144
+              },
+              "disk_mb": {
+                "type": "integer",
+                "minimum": 1024,
+                "maximum": 1048576
+              }
+            },
+            "additionalProperties": true,
+            "description": "A machine size. The plan decides which sizes are allowed (cloud.size.locked)."
+          },
+          "CloudMachineStatus": {
+            "type": "string",
+            "enum": [
+              "provisioning",
+              "starting",
+              "running",
+              "pausing",
+              "paused",
+              "deleting",
+              "failed"
+            ]
+          },
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          },
+          "Revision": {
+            "type": "string",
+            "pattern": "^[0-9]+$",
+            "description": "Decimal per-object revision (the owner's event sequence)."
+          },
+          "CloudMachine": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/MachineId"
+              },
+              "team": {
+                "$ref": "#/$defs/TeamId"
+              },
+              "creator": {
+                "$ref": "#/$defs/UserId"
+              },
+              "visibility": {
+                "type": "string",
+                "enum": [
+                  "private",
+                  "team"
+                ]
+              },
               "name": {
                 "anyOf": [
                   {
@@ -23022,6 +23473,13 @@
               "creator": {
                 "$ref": "#/$defs/UserId"
               },
+              "visibility": {
+                "type": "string",
+                "enum": [
+                  "private",
+                  "team"
+                ]
+              },
               "name": {
                 "anyOf": [
                   {
@@ -23366,6 +23824,13 @@
               },
               "creator": {
                 "$ref": "#/$defs/UserId"
+              },
+              "visibility": {
+                "type": "string",
+                "enum": [
+                  "private",
+                  "team"
+                ]
               },
               "name": {
                 "anyOf": [
@@ -24248,6 +24713,13 @@
               "machine": {
                 "$ref": "#/$defs/MachineId"
               },
+              "visibility": {
+                "type": "string",
+                "enum": [
+                  "private",
+                  "team"
+                ]
+              },
               "name": {
                 "anyOf": [
                   {
@@ -24550,6 +25022,13 @@
               "machine": {
                 "$ref": "#/$defs/MachineId"
               },
+              "visibility": {
+                "type": "string",
+                "enum": [
+                  "private",
+                  "team"
+                ]
+              },
               "name": {
                 "anyOf": [
                   {
@@ -24807,6 +25286,13 @@
               },
               "creator": {
                 "$ref": "#/$defs/UserId"
+              },
+              "visibility": {
+                "type": "string",
+                "enum": [
+                  "private",
+                  "team"
+                ]
               },
               "name": {
                 "anyOf": [
@@ -25285,6 +25771,13 @@
               },
               "creator": {
                 "$ref": "#/$defs/UserId"
+              },
+              "visibility": {
+                "type": "string",
+                "enum": [
+                  "private",
+                  "team"
+                ]
               },
               "name": {
                 "anyOf": [

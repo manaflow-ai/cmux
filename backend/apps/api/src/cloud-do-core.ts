@@ -18,6 +18,7 @@ import { BACKSTOP_IDLE_SECONDS, silentSince } from "./cloud-idle.ts"
 import { planView, teamPlan, type CloudConfig } from "./domains/cloud-plan.ts"
 import { CloudEntitlementStore } from "./cloud-entitlements.ts"
 import { decodeParams } from "./domains/common.ts"
+import { roleHas } from "./domains/team-roles.ts"
 import { cloudApprovalsDueAt, gateCloudRequest, InstallStarts, isApprovedRun, needsCloudApproval, wakeCloudApprovals, type CloudApprovalHost } from "./cloud-approvals.ts"
 import { buildEnvironmentSnapshot, EnvironmentBuildError, environmentBuildStartExec } from "@cmux/cloud-env"
 import { asWorkUser, GuardedCloudSandbox } from "./cloud-env-sandbox.ts"
@@ -148,8 +149,24 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     return principal.install_kind !== "vm" && (this.boundEntity() === null ? principal.team !== undefined : this.member(state, principal))
   }
 
-  protected override subscriberView(state: CloudState): unknown {
-    return headView(state)
+  private changeVisible(changed: CloudState["changed"], principal: Principal): boolean {
+    if (!changed) return true
+    const rows = this.boundEngine?.rows
+    const id = changed.snapshot ?? changed.machine
+    const row = rows?.get<{ creator?: string; visibility?: string }>(changed.snapshot ? TABLE_SNAPSHOT : TABLE_MACHINE, id)?.row
+      ?? rows?.get<TombstoneRow>(TABLE_TOMBSTONE, id)?.row
+    // A pruned/deleted target with no privacy metadata is not safe to replay.
+    return row !== undefined && (row.visibility !== "private" || row.creator === principal.user)
+  }
+
+  protected override subscriberView(state: CloudState, principal: Principal): unknown {
+    return headView(this.changeVisible(state.changed, principal) ? state : { ...state, changed: null })
+  }
+
+  protected override mayReceive(_state: CloudState, event: EventFrame, principal: Principal): boolean {
+    // Use this event's changed target, not the latest state's target, for reconnect replays.
+    const effect = event.effects?.state as Pick<CloudState, "changed"> | undefined
+    return effect !== undefined && this.changeVisible(effect.changed, principal)
   }
 
   protected read(state: CloudState, op: string, params: unknown, principal: Principal): ReadResult {
@@ -166,10 +183,11 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
         if (Number.isNaN(after)) return { ok: false, code: "validation.invalid", message: "unknown cursor" }
         const limit = d.value.limit ?? 50
         const page = rows?.range<MachineRow>(TABLE_MACHINE, { ...(after === undefined ? {} : { after }), limit: limit + 1 }) ?? []
-        const visible = page.filter((r) => r.row.visibility !== "private" || r.row.creator === principal.user)
-        const more = visible.length > limit
-        const shown = visible.slice(0, limit)
-        return { ok: true, value: { machines: shown.map((r) => publicMachine(r.row)), next_cursor: more ? `c${shown[shown.length - 1]!.n}` : null, revision: String(state.rev) }, revision: "" }
+        // Cursor tracks scanned rows, including hidden ones, so a private page cannot hide later team rows.
+        const more = page.length > limit
+        const scanned = page.slice(0, limit)
+        const shown = scanned.filter((r) => r.row.visibility !== "private" || r.row.creator === principal.user)
+        return { ok: true, value: { machines: shown.map((r) => publicMachine(r.row)), next_cursor: more ? `c${scanned[scanned.length - 1]!.n}` : null, revision: String(state.rev) }, revision: "" }
       }
       case "cloud.machine.get": {
         const id = (params as { machine?: unknown } | null)?.machine
@@ -223,6 +241,12 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     if (principal.team !== entity) return forbidden(entity, frame.idempotency_key)
     // `approval:<request>` keys belong to approved runs (cloud-approvals.ts); a caller cannot take one first.
     if (frame.idempotency_key.startsWith("approval:")) return reject(entity, frame.idempotency_key, "validation.invalid", "idempotency keys starting with approval: are reserved")
+    if (frame.op === "cloud.machine.set_visibility") {
+      if (principal.kind !== "session" || !principal.user || principal.agent) return forbidden(entity, frame.idempotency_key)
+      const team = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(entity)) as unknown as { memberRole(e: string, u: string): Promise<string | null> }
+      const role = await team.memberRole(entity, principal.user).catch(() => null)
+      if (!roleHas(role ?? undefined, "team.resources")) return forbidden(entity, frame.idempotency_key)
+    }
     // G8 (cx-wb5.65): an install's money or destructive request waits for the person's approval.
     if (needsCloudApproval(frame.op, principal)) return gateCloudRequest(this.approvalHost(entity), principal, frame)
     return this.submitAs(entity, principal, frame)

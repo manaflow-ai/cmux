@@ -657,6 +657,54 @@ wire_errors! {
 }
 
 wire_op! {
+    /// Explicitly enroll or change a machine's visibility. Only its signed-in creator may do this. expected_revision must equal the machine revision just read; a stale request changes nothing. Personal machines cannot be moved into a team by this operation. Existing snapshots keep their own visibility. Agent principals are refused; the client asks a person first.
+    CloudMachineSetVisibilityOp {
+        name: "cloud.machine.set_visibility",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:CloudDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: CloudMachineSetVisibilityParams,
+        result: CloudMachineSetVisibilityResult,
+        error: CloudMachineSetVisibilityError,
+    }
+}
+
+wire_enum! {
+    CloudMachineSetVisibilityParamsVisibility {
+        Private = "private",
+        Team = "team",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineSetVisibilityParams {
+    pub machine: MachineId,
+    pub visibility: CloudMachineSetVisibilityParamsVisibility,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineSetVisibilityResult {
+    pub machine: CloudMachine,
+}
+
+wire_errors! {
+    /// The error codes cloud.machine.set_visibility declares.
+    CloudMachineSetVisibilityError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// Start (resume) a paused machine (a machine that never bound answers cloud.machine.not_bound: delete it): answers status starting; cloud.machine.upsert brings running (or paused again with the error after a final provider failure). It takes an active slot (cloud.quota.exceeded {limit, used, resource, plan}); cloud.machine.not_paused {machine, state} for any other status. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.
     CloudMachineStartOp {
         name: "cloud.machine.start",
@@ -856,43 +904,3 @@ wire_op! {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CloudPlanGetParams {}
-
-wire_errors! {
-    /// The error codes cloud.plan.get declares.
-    CloudPlanGetError {
-        AuthForbidden = "auth.forbidden",
-        AuthSsoRequired = "auth.sso_required",
-        AuthUnauthenticated = "auth.unauthenticated",
-        ClientTooOld = "client.too_old",
-        OwnerUnreachable = "owner.unreachable",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Open the rescue shell: a wire stream id the client opens as a WebSocket (contract 2.6). Works when the VM daemon is down and for classic machines.
-    CloudShellOpenOp {
-        name: "cloud.shell.open",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:CloudDO",
-        risk: "execute",
-        principals: [Session, Install],
-        params: CloudShellOpenParams,
-        result: CloudShellOpenResult,
-        error: CloudShellOpenError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudShellOpenParams {
-    pub machine: MachineId,
-    pub cols: i64,
-    pub rows: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudShellOpenResult {
-    pub stream: String,
-}

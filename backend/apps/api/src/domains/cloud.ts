@@ -1,5 +1,5 @@
 import type { Domain, Principal, ReduceContext, ReduceResult, RowReader, RowWrite } from "@cmux/ownership"
-import { CloudAbandonedClearParams, CloudDriverResultParams, CloudMachineCreate, CloudMachineDelete, CloudMachineIdlePolicySet, CloudMachineRename, CloudPruneParams, CloudWatchResultParams, planRequiredDetails } from "@cmux/protocol"
+import { CloudAbandonedClearParams, CloudDriverResultParams, CloudMachineCreate, CloudMachineDelete, CloudMachineIdlePolicySet, CloudMachineRename, CloudMachineSetVisibility, CloudPruneParams, CloudWatchResultParams, planRequiredDetails } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
 import { admit, decodeParams, reject, requirePersonalTeamAdmin } from "./common.ts"
 import { grantClasses } from "../home-admit.ts"
@@ -132,6 +132,8 @@ export interface LedgerRow {
 }
 
 export interface TombstoneRow {
+  readonly creator?: string
+  readonly visibility?: "private" | "team"
   readonly machine: string
   readonly deleted_at: number
   readonly revision: string
@@ -218,6 +220,8 @@ export const cloudDomain = (config: CloudConfig): Domain<CloudState> => ({
     switch (op) {
       case "cloud.machine.create":
         return create(config, state, params, ctx)
+      case "cloud.machine.set_visibility":
+        return setVisibility(state, params, ctx)
       case "cloud.machine.rename":
       case "cloud.machine.idle_policy.set":
         return update(state, op, params, ctx)
@@ -264,6 +268,27 @@ export const cloudDomain = (config: CloudConfig): Domain<CloudState> => ({
   }
 })
 
+/** Explicit opt-in, journaled atomically with the row; no deployment-wide enrollment. */
+const setVisibility = (state: CloudState, params: unknown, ctx: ReduceContext): ReduceResult<CloudState> => {
+  const d = decodeParams<typeof CloudMachineSetVisibility.params.Type>(CloudMachineSetVisibility, params)
+  if (!d.ok) return d
+  const stored = machineRow(ctx.rows, d.value.machine)
+  if (!stored) return reject("cloud.machine.not_found", "no such machine in this team")
+  const row = stored.row, p = ctx.principal
+  if (p.kind !== "session" || isAgent(p) || !row.creator || row.creator !== p.user || row.team !== p.team)
+    return reject("auth.forbidden", "only the signed-in creator may change visibility")
+  if (d.value.visibility === "team" && row.team === personalTeamIdFor(row.creator))
+    return reject("auth.forbidden", "moving a personal machine to a team is a separate operation")
+  if (d.value.expected_revision !== row.revision) return reject("revision.conflict", "machine changed; read it again before changing visibility")
+  if (row.visibility === d.value.visibility) return noChange(state, { machine: publicMachine(row) })
+  const updated = { ...row, visibility: d.value.visibility, revision: String(state.rev + 1) }
+  const journal = { machine: row.id, team: row.team, actor: p.user, at: ctx.now,
+    old_policy: row.visibility === undefined ? "legacy" : "visibility-v1", old_visibility: row.visibility ?? null,
+    policy: "visibility-v1", visibility: updated.visibility, old_revision: row.revision, revision: updated.revision }
+  return { ok: true, state: next(state, {}, { machine: row.id, removed: false }), value: { machine: publicMachine(updated) },
+    writes: [upsertMachine(updated, stored.n), { table: TABLE_AUDIT, op: "upsert", key: ctx.tx, n: state.rev + 1, row: journal }] }
+}
+
 const create = (config: CloudConfig, state: CloudState, params: unknown, ctx: ReduceContext): ReduceResult<CloudState> => {
   const d = decodeParams<typeof CloudMachineCreate.params.Type>(CloudMachineCreate, params)
   if (!d.ok) return d
@@ -273,7 +298,7 @@ const create = (config: CloudConfig, state: CloudState, params: unknown, ctx: Re
   if (!plan) return reject("cloud.plan.required", "Cloud machines need a paid plan", planRequiredDetails())
   // A restore boots the snapshot (our recorded slug); a client never names a provider snapshot.
   const from = d.value.from_snapshot === undefined ? undefined : ctx.rows?.get<SnapshotRow>(TABLE_SNAPSHOT, d.value.from_snapshot)?.row
-  if (d.value.from_snapshot !== undefined && from?.status !== "ready") return reject("cloud.snapshot.not_found", "no such snapshot")
+  if (d.value.from_snapshot !== undefined && (from?.status !== "ready" || (from.visibility === "private" && from.creator !== p.user))) return reject("cloud.snapshot.not_found", "no such snapshot")
   const memory = d.value.size.memory_mb ?? plan.memory_options_mb[0] ?? DEFAULT_MEMORY_MB
   if (sizeLocked(plan, memory)) return reject("cloud.size.locked", "this size needs another plan", limitDetails(plan, { memory_mb: memory }))
   const cpu = d.value.size.cpu ?? DEFAULT_SIZE.cpu
@@ -316,7 +341,8 @@ const create = (config: CloudConfig, state: CloudState, params: unknown, ctx: Re
     // The SSO team whose sign-in created the machine: its VM install is vouched by that team (SSO gate).
     ...(p.sso_team ? { creator_sso_team: p.sso_team } : {}),
     ...(p.identity.startsWith(PLATFORM_IDENTITY_PREFIX) ? { platform: true as const } : {}),
-    ...(machine.team !== personalTeamIdFor(machine.creator) ? { visibility: "team" as const } : {})
+    // A private snapshot must never be restored into a legacy member-readable row.
+    ...(from?.visibility === "private" ? { visibility: "private" as const } : {})
   }
   const key = ledgerKey(p.identity, ctx.idempotencyKey)
   const ledger: LedgerRow = { transport: machine.transport, key, op: "create", machine: id, provider_name: name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now }
@@ -436,7 +462,7 @@ const driverResult = (config: CloudConfig, state: CloudState, params: unknown, c
     return { ok: true, state: next(state, { pending }), value: { applied: true }, writes: [done, upsertMachine({ ...machine.row, bind, ...(r.resources ? { size: r.resources } : {}) }, machine.n)] }
   }
   if (l.op === "create" || !machine) return { ok: true, state: next(state, { pending }), value: { applied: true }, writes: [done] }
-  const tomb: TombstoneRow = { machine: l.machine, deleted_at: ctx.now, revision: String(rev) }
+  const tomb: TombstoneRow = { machine: l.machine, deleted_at: ctx.now, revision: String(rev), creator: machine.row.creator, ...(machine.row.visibility ? { visibility: machine.row.visibility } : {}) }
   const writes: Array<RowWrite> = [done, { table: TABLE_MACHINE, op: "delete", key: l.machine }, { table: TABLE_TOMBSTONE, op: "upsert", key: l.machine, n: rev, row: tomb }]
   // Other deletes of the same machine still run (by name, so they find nothing and succeed).
   return { ok: true, state: next(state, { pending, active: state.active - countedRow(machine.row) }, { machine: l.machine, removed: true }), value: { applied: true }, writes }

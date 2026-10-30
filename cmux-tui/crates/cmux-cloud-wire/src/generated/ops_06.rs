@@ -4,6 +4,37 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeSettingsSetParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discoverable_by_email: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discoverable_by_phone: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_requests_from: Option<HomeSettingsSetParamsAllowRequestsFrom>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email_requests: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trust_same_domain: Option<bool>,
+}
+
+wire_enum! {
+    HomeSettingsSetResultAllowRequestsFrom {
+        Anyone = "anyone",
+        Teams = "teams",
+        Nobody = "nobody",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeSettingsSetResult {
+    pub discoverable_by_email: bool,
+    pub discoverable_by_phone: bool,
+    pub allow_requests_from: HomeSettingsSetResultAllowRequestsFrom,
+    pub email_requests: bool,
+    pub trust_same_domain: bool,
+}
+
 wire_errors! {
     /// The error codes home.settings.set declares.
     HomeSettingsSetError {
@@ -863,40 +894,4 @@ wire_op! {
 pub struct InviteAcceptParams {
     pub code: String,
     pub secret: String,
-}
-
-wire_errors! {
-    /// The error codes invite.accept declares.
-    InviteAcceptError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Banned = "banned",
-        DuplicateParticipant = "duplicate_participant",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        InviteExpired = "invite_expired",
-        InviteNotPending = "invite_not_pending",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
-        UnknownInvite = "unknown_invite",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Accept a message request in Home: the open email invite to your verified email joins you, with no link. Anyone else gets unknown_invite.
-    InviteAcceptVerifiedOp {
-        name: "invite.accept_verified",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-own",
-        principals: [Session],
-        params: InviteAcceptVerifiedParams,
-        result: HomeConversationCommit,
-        error: InviteAcceptVerifiedError,
-    }
 }

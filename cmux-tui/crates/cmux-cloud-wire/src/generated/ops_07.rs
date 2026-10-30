@@ -4,6 +4,42 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_errors! {
+    /// The error codes invite.accept declares.
+    InviteAcceptError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Banned = "banned",
+        DuplicateParticipant = "duplicate_participant",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InviteExpired = "invite_expired",
+        InviteNotPending = "invite_not_pending",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        UnknownInvite = "unknown_invite",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Accept a message request in Home: the open email invite to your verified email joins you, with no link. Anyone else gets unknown_invite.
+    InviteAcceptVerifiedOp {
+        name: "invite.accept_verified",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-own",
+        principals: [Session],
+        params: InviteAcceptVerifiedParams,
+        result: HomeConversationCommit,
+        error: InviteAcceptVerifiedError,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct InviteAcceptVerifiedParams {
     pub conversation: ConversationId,
@@ -863,40 +899,4 @@ pub struct ParticipantAvatarSetParams {
     /// true removes the picture (no bytes).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub clear: Option<bool>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ParticipantAvatarSetResult {
-    pub participant_id: ParticipantId,
-    pub avatar: Option<AvatarRef>,
-}
-
-wire_errors! {
-    /// The error codes participant.avatar.set declares.
-    ParticipantAvatarSetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        AvatarInvalid = "avatar_invalid",
-        AvatarTooLarge = "avatar_too_large",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        UnknownParticipant = "unknown_participant",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows. role (default member) is at most your own; only the owner adds an admin. A group past 64 members becomes a large group (member rows, a roster in the head). A banned person needs participants.unban first. Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once.
-    ParticipantsAddOp {
-        name: "participants.add",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: ParticipantsAddParams,
-        result: HomeConversationCommit,
-        error: ParticipantsAddError,
-    }
 }

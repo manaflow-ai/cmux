@@ -5,6 +5,46 @@
 use super::*;
 
 wire_errors! {
+    /// The error codes cloud.plan.get declares.
+    CloudPlanGetError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        OwnerUnreachable = "owner.unreachable",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Open the rescue shell: a wire stream id the client opens as a WebSocket (contract 2.6). Works when the VM daemon is down and for classic machines.
+    CloudShellOpenOp {
+        name: "cloud.shell.open",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:CloudDO",
+        risk: "execute",
+        principals: [Session, Install],
+        params: CloudShellOpenParams,
+        result: CloudShellOpenResult,
+        error: CloudShellOpenError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudShellOpenParams {
+    pub machine: MachineId,
+    pub cols: i64,
+    pub rows: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudShellOpenResult {
+    pub stream: String,
+}
+
+wire_errors! {
     /// The error codes cloud.shell.open declares.
     CloudShellOpenError {
         AuthForbidden = "auth.forbidden",
@@ -857,38 +897,6 @@ wire_errors! {
         NotReachable = "not_reachable",
         OwnerUnreachable = "owner.unreachable",
         UnknownConversation = "unknown_conversation",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Start verifying an email domain for the team (owners and admins): returns the DNS TXT record to publish. Public mail domains are refused.
-    DomainClaimOp {
-        name: "domain.claim",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "mutate-shared",
-        principals: [Session],
-        params: DomainClaimParams,
-        result: TeamDomain,
-        error: DomainClaimError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct DomainClaimParams {
-    pub domain: EmailDomain,
-}
-
-wire_errors! {
-    /// The error codes domain.claim declares.
-    DomainClaimError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        PolicyInvalid = "policy.invalid",
-        RevisionConflict = "revision.conflict",
         ValidationInvalid = "validation.invalid",
     }
 }

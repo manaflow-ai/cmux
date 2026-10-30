@@ -4,6 +4,21 @@
 #[allow(unused_imports)]
 use super::*;
 
+/// Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: "preview"}.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeAttachmentPreview {
+    pub hash: HomeSha256,
+    pub mime_type: HomeAttachmentPreviewMimeType,
+    pub byte_count: i64,
+}
+
+wire_enum! {
+    HomeAttachmentPreviewMimeType {
+        ImageJpeg = "image/jpeg",
+        ImageWebp = "image/webp",
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HomeChief {
     pub id: ChiefId,
@@ -882,20 +897,4 @@ pub struct ServerNetworkBinding {
     pub mesh: NativeMeshId,
     pub device: NativeDeviceId,
     pub confirmed_at: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ServerNetworkProof {
-    #[serde(rename = "signedAt")]
-    pub signed_at: i64,
-    pub nonce: String,
-    pub signature: String,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ServerNetworkReservation {
-    pub state: LitReserved,
-    pub tenant: NativeTenantId,
-    pub mesh: NativeMeshId,
-    pub device: NativeDeviceId,
 }

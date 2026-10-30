@@ -42,6 +42,7 @@ pub mod op_names {
     pub const CLOUD_MACHINE_PAUSE: &str = "cloud.machine.pause";
     pub const CLOUD_MACHINE_RENAME: &str = "cloud.machine.rename";
     pub const CLOUD_MACHINE_RESIZE: &str = "cloud.machine.resize";
+    pub const CLOUD_MACHINE_SET_VISIBILITY: &str = "cloud.machine.set_visibility";
     pub const CLOUD_MACHINE_START: &str = "cloud.machine.start";
     pub const CLOUD_MACHINE_UPGRADE: &str = "cloud.machine.upgrade";
     pub const CLOUD_MIGRATION_START: &str = "cloud.migration.start";
@@ -256,6 +257,7 @@ pub mod op_names {
         CLOUD_MACHINE_PAUSE,
         CLOUD_MACHINE_RENAME,
         CLOUD_MACHINE_RESIZE,
+        CLOUD_MACHINE_SET_VISIBILITY,
         CLOUD_MACHINE_START,
         CLOUD_MACHINE_UPGRADE,
         CLOUD_MIGRATION_START,
@@ -473,6 +475,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "cloud.machine.pause" => visitor.visit::<CloudMachinePauseOp>(),
         "cloud.machine.rename" => visitor.visit::<CloudMachineRenameOp>(),
         "cloud.machine.resize" => visitor.visit::<CloudMachineResizeOp>(),
+        "cloud.machine.set_visibility" => visitor.visit::<CloudMachineSetVisibilityOp>(),
         "cloud.machine.start" => visitor.visit::<CloudMachineStartOp>(),
         "cloud.machine.upgrade" => visitor.visit::<CloudMachineUpgradeOp>(),
         "cloud.migration.start" => visitor.visit::<CloudMigrationStartOp>(),

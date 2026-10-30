@@ -94,7 +94,7 @@ export const connectInfo = async (entity: string, rows: Rows | undefined, p: Pri
   if (!d.ok) return d
   if ((d.value.machine === undefined) === (d.value.host === undefined)) return { ok: false, code: "validation.invalid", message: "give exactly one of machine and host" }
   const row = machineBySelector(rows, d.value)
-  if (!row) return { ok: false, code: "cloud.machine.not_found", message: "no such machine in this team" }
+  if (!row || (row.visibility === "private" && row.creator !== p.user)) return { ok: false, code: "cloud.machine.not_found", message: "no such machine in this team" }
   if (!row.host || !row.wg_public_key) return { ok: false, code: "cloud.machine.not_bound", message: "the machine is still provisioning" }
   const allowed = allowedServices(entity, row, p, await policy())
   if (!allowed.ok) return allowed
@@ -145,7 +145,7 @@ export const mintLinkToken = async (
   const d = decodeParams<{ host: string; services: ReadonlyArray<string> }>(CloudMachineLinkToken, args.params)
   if (!d.ok) return d
   const row = machineBySelector(args.rows, { host: d.value.host })
-  if (!row) return { ok: false, code: "cloud.machine.not_found", message: "no such machine in this team" }
+  if (!row || (row.visibility === "private" && row.creator !== p.user)) return { ok: false, code: "cloud.machine.not_found", message: "no such machine in this team" }
   if (!row.host || !row.wg_public_key) return { ok: false, code: "cloud.machine.not_bound", message: "the machine is still provisioning" }
   // Coordinator decision: no dial to a machine that cannot answer, and no automatic start (start costs
   // money and a slot): the client shows "Start machine?" and calls cloud.machine.start.

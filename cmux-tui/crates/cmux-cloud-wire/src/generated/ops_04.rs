@@ -5,6 +5,38 @@
 use super::*;
 
 wire_op! {
+    /// Start verifying an email domain for the team (owners and admins): returns the DNS TXT record to publish. Public mail domains are refused.
+    DomainClaimOp {
+        name: "domain.claim",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-shared",
+        principals: [Session],
+        params: DomainClaimParams,
+        result: TeamDomain,
+        error: DomainClaimError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DomainClaimParams {
+    pub domain: EmailDomain,
+}
+
+wire_errors! {
+    /// The error codes domain.claim declares.
+    DomainClaimError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        PolicyInvalid = "policy.invalid",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// The team's claimed and verified email domains (owners and admins).
     DomainListOp {
         name: "domain.list",
@@ -867,36 +899,4 @@ pub struct FeedUnarchiveResultItemsItem {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FeedUnarchiveResult {
     pub items: Vec<FeedUnarchiveResultItemsItem>,
-}
-
-wire_errors! {
-    /// The error codes feed.unarchive declares.
-    FeedUnarchiveError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        FeedClosed = "feed.closed",
-        FeedFull = "feed.full",
-        FeedMoving = "feed.moving",
-        FeedRateLimited = "feed.rate_limited",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerMoved = "owner.moved",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Allow a validated path through the caller's private network.
-    FirewallCreateOp {
-        name: "firewall.create",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Session],
-        params: FirewallCreateParams,
-        result: FirewallCreateResult,
-        error: FirewallCreateError,
-    }
 }

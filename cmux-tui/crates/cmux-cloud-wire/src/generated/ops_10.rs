@@ -4,6 +4,26 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmJournalAppendParams {
+    pub stream: TeamJournalStream,
+    pub epoch: i64,
+    pub first_seq: i64,
+    pub last_seq: i64,
+    pub bytes: String,
+    pub sha256: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmJournalAppendResult {
+    pub stream: TeamJournalStream,
+    pub first_seq: i64,
+    pub last_seq: i64,
+    pub epoch: i64,
+    pub high_water: i64,
+    pub replayed: bool,
+}
+
 wire_errors! {
     /// The error codes team_vm.journal.append declares.
     TeamVmJournalAppendError {
@@ -880,19 +900,5 @@ wire_op! {
         params: UserEnsureParams,
         result: UserProfile,
         error: UserEnsureError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UserEnsureParams {}
-
-wire_errors! {
-    /// The error codes user.ensure declares.
-    UserEnsureError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
     }
 }
