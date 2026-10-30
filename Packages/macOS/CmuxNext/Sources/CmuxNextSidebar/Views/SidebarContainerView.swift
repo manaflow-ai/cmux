@@ -53,6 +53,9 @@ public final class SidebarContainerView: NSView {
     /// Internal, not private: the resize drag sets it from its own file
     /// (`SidebarContainerView+Resize`).
     lazy var panelWidth: NSLayoutConstraint = panel.widthAnchor.constraint(equalToConstant: model.width + paneReach)
+    /// The reach used by the last applied style, so a Card/flat or rail switch retargets the clip
+    /// even when the sidebar width itself is already settled.
+    private var lastPaneReach: CGFloat = 0
     /// The clip extends into the curved pane gutter while the sidebar is shown.
     /// Internal so the side and motion extensions can retarget it without a second layout model.
     lazy var clipLeading: NSLayoutConstraint = clip.leadingAnchor.constraint(equalTo: leadingAnchor)
@@ -336,6 +339,7 @@ public final class SidebarContainerView: NSView {
         isWidthAnimating = false
         widthConstraint.constant = targetWidth
         panelWidth.constant = model.width + paneReach
+        lastPaneReach = paneReach
         setClipReach(paneReach, collapsed: isPanelCollapsed, animated: false)
         panel.isHidden = isPanelCollapsed
         panel.alphaValue = 1
@@ -351,8 +355,10 @@ public final class SidebarContainerView: NSView {
         let target = model.displayWidth
         let collapseMotion = SidebarTunables.collapseMotion.value
         let reach = paneReach
+        let reachChanged = reach != lastPaneReach
+        lastPaneReach = reach
         panelWidth.constant = model.width + reach
-        if !isWidthAnimating, targetWidth == target {
+        if reachChanged || (!isWidthAnimating && targetWidth == target) {
             setClipReach(reach, collapsed: hidden, animated: false)
         }
         syncHandleVisibility()

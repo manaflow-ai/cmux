@@ -17,7 +17,7 @@ sidebar from now on"). Scope: workspace and group rows, nested groups, the group
 the row close (X), unread dots, densities, drag and reorder, the Home/pinned band, and sidebar
 performance.
 
-- 2026-10-30: sidebar pane gap (PR #28052, commits `8a92353e0b2`, `4e3a0a16d4c` and `c4f11ab868f` and `852496a26e1`): Leo, "THE FUCKING OPERATIVE SITUATION IS THE SPACING" / "THE FUCKING SIDEBAR POSITION RELATIVE TO IT ALSO". Card style keeps a scaled 2.5 pt plain sidebar band after each row; the resize line remains above the card in the titlebar, while `flat-sidebar-line` remains unchanged. Geometry: `SidebarPaneGapTests`.
+- 2026-10-30: sidebar pane gap (PR #28052, commits `8a92353e0b2`, `4e3a0a16d4c` and `c4f11ab868f` and `852496a26e1` and `ded89ea2064`): Leo, "THE FUCKING OPERATIVE SITUATION IS THE SPACING" / "THE FUCKING SIDEBAR POSITION RELATIVE TO IT ALSO". Card style keeps a scaled 2.5 pt plain sidebar band after each row; the resize line remains above the card in the titlebar, while `flat-sidebar-line` remains unchanged. Geometry: `SidebarPaneGapTests`.
 
 ## Rule for every sidebar change
 
