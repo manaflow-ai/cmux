@@ -96,9 +96,9 @@ export function UserBubble({
       : orderedParts!.slice(firstMedia + 1).some((part) => part.kind === "text"));
   const strip = useComposerSettings().attachmentView === "strip" && hasInterleaved;
   // A placed prompt's attachments the composer left in the strip (unmarked) stay in the band.
-  const unplaced = (part: PromptContentPart) => placed && isStripMedia(part) && part.placed !== true;
-  const banded = (part: PromptContentPart) => (strip ? isStripMedia(part) : hasInterleaved && unplaced(part));
-  const stripMedia = orderedParts?.filter(banded) ?? [];
+  const banded = (part: PromptContentPart) =>
+    isStripMedia(part) && (strip || (hasInterleaved && placed && part.placed !== true));
+  const stripMedia = orderedParts?.filter(isStripMedia).filter(banded) ?? [];
   const shownParts = orderedParts?.filter((part) => !banded(part));
   const renderImage = useCallback((image: PromptImage) => <SentImage image={image} />, []);
   const editable = useMemo(() => (editing ? liftInlineImages(row.text ?? text).text : ""), [editing, row.text, text]);
