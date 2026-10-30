@@ -236,6 +236,8 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pr_runner_pool
+from next_macos_cascade import owned_label_full, OWNED_HEALTH_QUEUE_SECONDS
 from pr_runner_pool import MAX_QUEUE_ROUNDS, QUEUE_ROUND_MINUTES, nightly_dedicated, parse_queue_rounds, persistent  # noqa: E402
 
 CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
@@ -597,7 +599,8 @@ def setup_budget(job: Mapping[str, Any], now: dt.datetime, budget_seconds: int,
 def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_seconds: int,
            first_seen: Mapping[Any, dt.datetime] | None = None, deadline: dt.datetime | None = None,
            floor_seconds: int | None = None, allow_running_rescue: bool = False,
-           include_blacksmith_macos: bool = False) -> Look:
+           include_blacksmith_macos: bool = False,
+           health_snapshot: Mapping[str, Any] | None = None) -> Look:
     """One look at the jobs of a run on a persistent pool (each job's budget: job_budget())."""
     seen = first_seen or {}
     waiting = [job for job in jobs if queued_pool(job, include_blacksmith_macos=include_blacksmith_macos)
@@ -605,6 +608,15 @@ def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_second
     budgets = {id(job): job_budget(job, budget_seconds, deadline=deadline, floor_seconds=floor_seconds,
                                    first_seen=seen.get(job.get("id"))) for job in waiting}
     stuck = [job for job in waiting if queued_seconds(job, now, seen.get(job.get("id"))) >= budgets[id(job)]]
+    if include_blacksmith_macos:
+        for job in waiting:
+            label = job_pool(job)
+            if (label and job not in stuck and owned_label_full(
+                    health_snapshot, label, now,
+                    queued_wait_s=queued_seconds(job, now, seen.get(job.get("id"))))):
+                stuck.append(job)
+                budgets[id(job)] = OWNED_HEALTH_QUEUE_SECONDS
+
     names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in stuck))
     # Rescuing normally cancels the whole run, so a job already running on a
     # persistent runner would die with the stuck one and move to Blacksmith
@@ -672,6 +684,22 @@ class GitHub:
         self.repo = repo
         self.headers = _headers(token)
         self.read_headers = _headers(read_token) if read_token else self.headers
+        self._snapshot_client = pr_runner_pool.GitHub(read_token or token, repo)
+        self._snapshot_lock = threading.Lock()
+        self._snapshot_at: dt.datetime | None = None
+        self._snapshot: Mapping[str, Any] | None = None
+
+    def pool_snapshot(self, now: dt.datetime) -> Mapping[str, Any] | None:
+        """Share one trusted janitor artifact read per minute across watches."""
+        with self._snapshot_lock:
+            if self._snapshot_at is None or (now - self._snapshot_at).total_seconds() >= 60:
+                self._snapshot_at = now
+                try:
+                    self._snapshot = self._snapshot_client.snapshot(now=now)
+                except READ_ERRORS:
+                    self._snapshot = None
+            return self._snapshot
+
 
     def request(self, method: str, path: str, *, own_token: bool = False, body: Mapping | None = None) -> Any:
         headers = self.read_headers if method == "GET" and not own_token else self.headers
@@ -1039,10 +1067,17 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
             for job in jobs:
                 if job_pool(job) and waiting_for_runner(job):
                     first_seen.setdefault(job.get("id"), seen_at)
+            health = None
+            if target.path == CMUX_NEXT_WORKFLOW_PATH and any(
+                    job_pool(job) and waiting_for_runner(job)
+                    and queued_seconds(job, seen_at, first_seen.get(job.get("id"))) >= OWNED_HEALTH_QUEUE_SECONDS
+                    for job in jobs):
+                health = api.pool_snapshot(seen_at)
             look = assess(jobs, now=seen_at, budget_seconds=budget_seconds, first_seen=first_seen,
                           deadline=deadline, floor_seconds=floor_seconds,
                           allow_running_rescue=target.path == CMUX_NEXT_WORKFLOW_PATH,
-                          include_blacksmith_macos=target.path == CMUX_NEXT_WORKFLOW_PATH)
+                          include_blacksmith_macos=target.path == CMUX_NEXT_WORKFLOW_PATH,
+                          health_snapshot=health)
             if look.action == "refused" and not finished and seen_at < deadline and not target.main:
                 # GitHub re-runs no job of a run still in progress (403 "already
                 # running", for one job or the failed ones), and cancelling

@@ -100,6 +100,9 @@ class FakeAPI:
         self.calls.append(f"artifact:{name}")
         return self.marker(name) if callable(self.marker) else self.marker
 
+    def pool_snapshot(self, now):
+        return None
+
     def pull(self, number):
         self.calls.append("pull")
         return {"state": self.state, "head": {"sha": self.head}}
