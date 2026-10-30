@@ -18,13 +18,6 @@ import CmuxNextCompat
 /// therefore costs nothing, and a steadily busy app one check per window.
 /// A spin on a background thread that never wakes the main thread is seen
 /// only in the window after the last main-thread wake.
-///
-/// It watches the main thread, so it never blocks it: every kernel read (each
-/// process's `proc_pid_rusage` and `proc_pidinfo`, the helper list, the main
-/// thread's `thread_info` and its stack sample) runs on its own serial queue
-/// (`com.cmuxterm.next.busy-watchdog`, threading-model.md). The main thread's part is ``noteAwake()``: two
-/// atomics, and one queue hop when it opens a window. v229 (2026-10-30): a
-/// window end on the main thread stalled it 1,261 ms in `proc_pidinfo`.
 public final class BusyWatchdog: Sendable {
     public struct Configuration: Sendable {
         public var window: Duration
@@ -78,10 +71,6 @@ public final class BusyWatchdog: Sendable {
     private let awakeDuringWindow = Atomic<Bool>(false)
     private let window: Mutex<Window?> = Mutex(nil)
     private let timer: DemandTimer
-    /// Runs every open and close, so every kernel read: serial, so a window's close follows its open. At
-    /// most one open or close is pending (``measuring`` admits one window at a time, its deadline one close),
-    /// so the queue needs no bound; a read the kernel holds delays only the next window.
-    private let sampling = DispatchQueue(label: "com.cmuxterm.next.busy-watchdog", qos: .utility)
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "hangs")
 
     /// A value wrapper prevents inout Mutex reads from reabstracting and
@@ -132,21 +121,16 @@ public final class BusyWatchdog: Sendable {
         helpers.withLock { $0.list }
     }
 
-    /// The main run loop woke. Cheap, and it never reads the kernel: two
-    /// atomics, and when no window is open one hop that opens it on the
-    /// sampling queue.
+    /// The main run loop woke. Cheap: one atomic store, plus opening a
+    /// window when none is open.
     public func noteAwake() {
-        guard measuring.compareExchange(expected: false, desired: true, ordering: .acquiringAndReleasing).exchanged else {
-            awakeDuringWindow.store(true, ordering: .relaxed)
-            return
-        }
-        // This wake opens the window; it is not a wake during it.
-        awakeDuringWindow.store(false, ordering: .relaxed)
-        sampling.async { [self] in openWindow() }
+        awakeDuringWindow.store(true, ordering: .relaxed)
+        guard measuring.compareExchange(expected: false, desired: true, ordering: .acquiringAndReleasing).exchanged else { return }
+        openWindow()
     }
 
-    /// Takes the window's start samples. On the sampling queue.
     private func openWindow() {
+        awakeDuringWindow.store(false, ordering: .relaxed)
         let helperList = helperSource()()
         var sampled: [pid_t: (label: String, usage: ProcessUsage)] = [:]
         for helper in helperList {
@@ -155,17 +139,10 @@ public final class BusyWatchdog: Sendable {
         let start = Window(process: probe.usage(getpid()), mainCPUNanos: mainCPUNanos(), activity: activity.total,
                            helpers: sampled, startNanos: clock_gettime_nsec_np(CLOCK_UPTIME_RAW))
         window.withLock { $0 = start }
-        timer.schedule(after: configuration.window) { [weak self] in self?.endWindow() }
+        timer.schedule(after: configuration.window) { [weak self] in self?.closeWindow() }
     }
 
-    /// The window's deadline fired: its close runs on the sampling queue.
-    private func endWindow() {
-        sampling.async { [self] in closeWindow() }
-    }
-
-    /// Takes the window's end samples, records a busy window, and opens the next window when the app woke
-    /// during this one. On the sampling queue.
-    private func closeWindow() {
+    func closeWindow() {
         guard let start = window.withLock({ window in defer { window = nil }; return window }) else { return }
         let now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
         let wall = Double(max(now &- start.startNanos, 1))
@@ -188,16 +165,11 @@ public final class BusyWatchdog: Sendable {
                 }
             }
         }
-        // Keep watching only while the app stays awake. The next window starts with no wake counted.
-        if awakeDuringWindow.exchange(false, ordering: .relaxed) {
+        // Keep watching only while the app stays awake.
+        if awakeDuringWindow.load(ordering: .relaxed) {
             openWindow()
-            return
-        }
-        measuring.store(false, ordering: .releasing)
-        // A wake between the exchange and the store found the watch still on and opened nothing: open for it.
-        if awakeDuringWindow.exchange(false, ordering: .relaxed),
-           measuring.compareExchange(expected: false, desired: true, ordering: .acquiringAndReleasing).exchanged {
-            openWindow()
+        } else {
+            measuring.store(false, ordering: .releasing)
         }
     }
 
