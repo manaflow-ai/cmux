@@ -4,8 +4,9 @@
 A pushed ref's own changes are those of the commits the remote does not have yet. The push knows commits the
 remote has: the ref's remote head (pre-push stdin, or a --base), the remote-tracking ref of the pushed ref name
 (refs/remotes/<remote>/<name>: the last head this clone saw there), this clone's origin/feat-cmux-next (the shared
-base every branch rebases onto or merges in) and the remote's HEAD (refs/remotes/<remote>/HEAD, main: a main-based
-branch, a tag on main). So
+base every branch rebases onto or merges in), the remote's HEAD (refs/remotes/<remote>/HEAD, main: a main-based
+branch, a tag on main) and each ref in this clone's `git config --get-all cmux.prepushExtraUpstream` (a long-lived
+shared branch that task branches merge in; none when unset). So
 
     own commits = git rev-list HEAD --not <those refs>
     edges       = the boundary of that walk (the parents of own commits that are not own themselves),
@@ -248,6 +249,12 @@ def own_range(repo: Path, head: str, known: list[str] | tuple[str, ...] = (), up
     if tracked is not None:
         pushed_before.append(tracked)
     shared = [sha for sha in (upstream_sha, remote_head_sha) if sha is not None]
+    # `git config --add cmux.prepushExtraUpstream <ref>` names more shared bases, such as a long-lived feature
+    # branch on the remote (perf/chrome-parity). Its commits are already on the remote, so a task branch that
+    # merged it in is judged over what it adds, as for origin/feat-cmux-next. Unset: only the two above.
+    code, extra = _git(repo, "config", "--get-all", "cmux.prepushExtraUpstream")
+    if code == 0 and extra:
+        shared += [sha for sha in commits_of(repo, extra.split()) if sha is not None and sha not in shared]
     negatives = list(dict.fromkeys(pushed_before + shared))
     every_ref = f"--remotes={name}" if name else "--remotes"
     shallow = _shallow_roots(repo)
