@@ -4384,6 +4384,53 @@ class OpenHeadFailoverSweepTests(unittest.TestCase):
             self.assertEqual(results[stuck["id"]], "cancelled")
             self.assertEqual(fake.posts(), [[str(stuck["id"]), "cancel"]])
 
+    def test_one_cancel_that_never_settles_does_not_cost_the_settled_ones_their_re_run(self):
+        settled, fake = self.world()
+        stuck, other, jobs, prs = open_head_world(branch="feature-b")
+        fake.runs[stuck["id"]] = dict(stuck)
+        fake.prs.update(prs)
+        fake.runs[settled["id"]].update(status="completed", conclusion="cancelled")
+        clock = [1000.0]
+        original = fake.request
+
+        def timed(method, path, body=None, *, app_only=False):
+            clock[0] += 1.0
+            return original(method, path, body, app_only=app_only)
+        fake.request = timed
+
+        def entry(run, branch):
+            candidate = mock.Mock(run=dict(run, status="completed", conclusion=None), category="lost", rerun=True,
+                                  open_head=True, app_actor=False, pr=make_pr(5), reason="lost")
+            return janitor.new_lost_reruns([candidate], {run["id"]: "cancelled"}, now=NOW)[0]
+        entries = [entry(settled, "feature"), entry(stuck, "feature-b")]
+        with mock.patch.object(janitor.time, "monotonic", lambda: clock[0]), \
+                mock.patch.object(janitor.time, "sleep", lambda s: clock.__setitem__(0, clock[0] + s)), \
+                mock.patch("builtins.print"):
+            decisions, pending, results, failures = janitor.rerun_open_head(fake, entries, now=NOW)
+        self.assertEqual([(d.entry["run_id"], d.action) for d in decisions],
+                         [(settled["id"], "rerun"), (stuck["id"], "keep")])
+        self.assertEqual(fake.posts(), [[str(settled["id"]), "rerun-failed-jobs"]])
+        self.assertEqual([e["run_id"] for e in pending], [stuck["id"]])
+        self.assertLessEqual(clock[0], 1000.0 + janitor.LOST_SETTLE_BUDGET_S + 1.0)
+
+    def test_the_failover_and_the_pending_entries_share_one_re_run_cap(self):
+        # A sweep re-runs at most LOST_RERUN_MAX runs, whether this sweep cancelled them or an earlier one did.
+        earlier, fake = self.world()
+        with tempfile.TemporaryDirectory() as temp, mock.patch.object(janitor, "LOST_FAILOVER_CUTOFF_S", -1.0):
+            self.sweep(fake, temp)
+        self.assertEqual([e["run_id"] for e in fake.snapshots[-1]["lost_reruns"]], [earlier["id"]])
+        fake.runs[earlier["id"]].update(status="completed", conclusion="cancelled")
+        stuck, other, jobs, prs = open_head_world(branch="feature-b")
+        fake.runs.update({stuck["id"]: dict(stuck), other["id"]: dict(other)})
+        fake.job_map.update(jobs)
+        fake.prs.update(prs)
+        fake.log.clear()
+        with tempfile.TemporaryDirectory() as temp, mock.patch.object(janitor, "LOST_RERUN_MAX", 1):
+            self.sweep(fake, temp)
+        reruns = [post for post in fake.posts() if post[1] == "rerun-failed-jobs"]
+        self.assertEqual(reruns, [[str(stuck["id"]), "rerun-failed-jobs"]])
+        self.assertEqual([e["run_id"] for e in fake.snapshots[-1]["lost_reruns"]], [earlier["id"]])
+
     def test_the_workflow_hands_the_janitor_cmux_bots_token_twice(self):
         workflow = yaml.safe_load(WORKFLOW.read_text())
         step = next(step for step in workflow["jobs"]["sweep"]["steps"] if step.get("name") == "Cancel wasted macOS runs")
