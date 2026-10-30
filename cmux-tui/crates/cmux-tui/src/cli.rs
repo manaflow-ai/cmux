@@ -757,11 +757,15 @@ fn classic_command(scope: &str) -> Option<&'static str> {
     Some(match scope {
         "list-workspaces" => "cmux workspace list",
         "new-workspace" => "cmux workspace create --name <name>",
-        "rename-workspace" | "workspace-action" => "cmux workspace current rename <name>",
+        "rename-workspace" => "cmux workspace current rename <name>",
+        "workspace-action" => {
+            "cmux workspace current rename <name>` or `cmux workspace current update"
+        }
         "select-workspace" => "cmux workspace <workspace> focus",
         "close-workspace" => "cmux workspace <workspace> close",
         "list-surfaces" | "list-pane-surfaces" => "cmux tab list",
-        "new-surface" | "new-pane" => "cmux tab create",
+        "new-surface" => "cmux tab create terminal",
+        "new-pane" | "new-split" => "cmux pane current split --right",
         "rename-tab" | "rename-surface" | "tab-action" => "cmux tab <tab> rename <name>",
         "close-surface" => "cmux tab <tab> close",
         "send" | "send-text" => "cmux terminal <terminal> write --text <text>",
