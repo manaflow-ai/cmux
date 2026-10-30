@@ -236,16 +236,16 @@ Use the stable `sessionId` from `resolve`, an id prefix, a bare name, or `HOST/N
 Every command that takes a session (send, last, retry, wait, attach, `session
 info|cancel|stop|close|rename`) reads a bare name or prefix the same way: it names the one
 live session with that name across this host and its peers, so `acpmux send review "…"`
-reaches `hb/review` when no other live session is called `review`. Closed sessions count
+reaches `linux-b/review` when no other live session is called `review`. Closed sessions count
 only when no live one matches. Several live matches are refused (exit 2,
 `session_ambiguous`), never picked; a session here does not win over a peer's. The refusal
 lists each choice and the exact command for it:
 
 ```text
 $ acpmux send review "ship it"
-acpmux: usage: "review" names 2 live sessions: big-red/review, hb/review; name one of them
-  acpmux send big-red/review 'ship it'
-  acpmux send hb/review 'ship it'
+acpmux: usage: "review" names 2 live sessions: mac-a/review, linux-b/review; name one of them
+  acpmux send mac-a/review 'ship it'
+  acpmux send linux-b/review 'ship it'
 ```
 
 With `--json`, `error.data.choices` lists each one's `host`, `name`, `route` and the key to
