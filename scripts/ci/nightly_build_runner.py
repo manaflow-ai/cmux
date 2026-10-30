@@ -221,7 +221,8 @@ def blacksmith_route(variable: str, snapshot: Mapping[str, Any] | None, now: dt.
     label, why = blacksmith_picker.pick(variable, snapshot, now)
     if exclude and label == exclude:
         others = [other for other in blacksmith_picker.candidates(variable) if other != exclude]
-        stuck = blacksmith_picker.stalled(snapshot, others, now) or set()
+        # A stale snapshot still shows a dead label (blacksmith_picker.dead()): it is no moving alternative.
+        stuck = (blacksmith_picker.stalled(snapshot, others, now) or set()) | blacksmith_picker.dead(snapshot, now)
         moving = [other for other in others if other not in stuck]
         if moving:
             return moving[0], f"`{moving[0]}`, since `{exclude}` already holds a waiting leg"
