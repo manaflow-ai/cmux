@@ -90,6 +90,32 @@ test("source-looking underscores stay literal while structural and fetched Markd
   expect(toolResult("A fetched page summary.", undefined, false, { kind: "fetch" }).lang).toBe("markdown");
 });
 
+test("code inside a fenced block does not make a Markdown result plain text", () => {
+  const doc = [
+    "## Usage",
+    "",
+    "Install it, then:",
+    "",
+    "```ts",
+    'import { start } from "./server";',
+    "const port = 8080;",
+    "export default start(port);",
+    "```",
+    "",
+    "~~~python",
+    "class Worker:",
+    "    def __init__(self):",
+    "        self.ready = True",
+    "~~~",
+  ].join("\n");
+  expect(toolResult(doc)).toEqual({ text: doc, lang: "markdown" });
+  expect(toolResult(JSON.stringify([{ type: "text", text: doc }]))).toEqual({ text: doc, lang: "markdown" });
+  expect(toolResult(doc, undefined, false, { kind: "fetch" }).lang).toBe("markdown");
+  // Code outside a fence still keeps the result literal, and so does an unclosed fence.
+  expect(toolResult(`${doc}\nconst leaked = true;`).lang).toBe("text");
+  expect(toolResult("## Notes\n\n```js\nconst open = 1;").lang).toBe("text");
+});
+
 const PNG = "iVBORw0KGgo=";
 const pretty = (value: unknown) => JSON.stringify(value, null, 2);
 
