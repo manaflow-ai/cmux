@@ -6,7 +6,7 @@
 // Mermaid 11 as fallback, and the SVG is cleaned before it is shown. The block draws once it nears the
 // viewport; Code shows the source. A source the renderer refuses shows the source and why.
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { DiagramLibraries, renderMermaid, renderVega } from "../../../pages/markdown/diagrams";
+import { cancelDiagram, DiagramLibraries, renderMermaid, renderVega } from "../../../pages/markdown/diagrams";
 import { useT } from "../i18n";
 import { useNearViewport } from "../useNearViewport";
 import { postNative } from "../native";
@@ -50,11 +50,7 @@ export function DiagramBlock({ lang, code, actions }: { lang: string; code: stri
     setFailure(undefined);
     setDrawn(false);
     setSaved(false);
-    // Each draw has its own container: a render still running for an earlier source or mode can only
-    // write into its own, which is gone by then, so it never replaces the chart Save would export.
-    const host = target.ownerDocument.createElement("div");
-    target.append(host);
-    const drawing = mode === "mermaid" ? renderMermaid(libraries, code, host) : renderVega(libraries, mode, code, host);
+    const drawing = mode === "mermaid" ? renderMermaid(libraries, code, target) : renderVega(libraries, mode, code, target);
     drawing.then(
       () => {
         if (live) setDrawn(true);
@@ -65,7 +61,9 @@ export function DiagramBlock({ lang, code, actions }: { lang: string; code: stri
     );
     return () => {
       live = false;
-      host.remove();
+      // Stops the Vega view and makes a render still running drop its result, so it never replaces the
+      // chart a later draw enabled Save for.
+      cancelDiagram(target);
     };
   }, [near, mode, code]);
 
