@@ -682,6 +682,9 @@ impl Hub {
             // moves the session too, not only a usage or auth limit.
             // A stopped session's agent closed because of the stop: no failover starts it again.
             // Nor does one MDM's off ended (review 3 of #26034).
+            // The process exit and its stderr arrive on separate inbound messages; drain them
+            // before deciding whether this is the supported authentication failover case.
+            Self::drain_inbound(session).await;
             let stderr =
                 session.stderr_tail.lock().unwrap().iter().cloned().collect::<Vec<_>>().join("\n");
             let dead_limit = e.message.starts_with("agent process closed")
