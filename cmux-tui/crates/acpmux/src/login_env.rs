@@ -90,6 +90,8 @@ struct State {
     /// Names of secret variables the login shell sets (values not cached).
     secret_names: Vec<String>,
     last_check: Option<Instant>,
+    /// Machine-env metadata from the last successful shell import.
+    applied_machine_stamp: Option<String>,
 }
 
 static STATE: RwLock<State> = RwLock::new(State {
@@ -98,9 +100,12 @@ static STATE: RwLock<State> = RwLock::new(State {
     fingerprint: None,
     secret_names: Vec::new(),
     last_check: None,
+    applied_machine_stamp: None,
 });
 static ENABLED: AtomicBool = AtomicBool::new(false);
 static REFRESHING: AtomicBool = AtomicBool::new(false);
+/// Coalesce concurrent agent starts awaiting a changed machine secret file.
+static MACHINE_REFRESH: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// Whether this daemon reads the login environment: always, unless
 /// `ACPMUX_LOGIN_ENV=0`.
@@ -228,6 +233,8 @@ async fn import_once(read: &str) -> bool {
     let started = Instant::now();
     let before = pairs();
     let marker = run_marker();
+    // Capture before reading the shell. import() retries when files change mid-read.
+    let machine_stamp = machine_files_stamp();
     let output = run_shell(&shell, &marker).await;
     let elapsed = started.elapsed();
     let Some(text) = output else {
@@ -252,10 +259,34 @@ async fn import_once(read: &str) -> bool {
     let added = imported.vars.len();
     let mut st = STATE.write().unwrap_or_else(|e| e.into_inner());
     st.imported = Some(imported);
+    st.applied_machine_stamp = machine_stamp;
     st.outcome = Outcome::Shell;
     drop(st);
     tracing::info!(shell = %shell, added, ms = elapsed.as_millis() as u64, "imported login shell environment");
     pairs() != before
+}
+
+/// A delivered cloud secret file may have changed after acpmux cached the
+/// shell environment. A new harness must use the new values, or refuse to
+/// start rather than inheriting a stale, possibly revoked secret.
+/// This reads only file metadata; secret values remain shell-owned.
+pub async fn machine_env_fresh_before_spawn() -> bool {
+    if !ENABLED.load(Ordering::SeqCst) {
+        return true;
+    }
+    let applied = || STATE.read().unwrap_or_else(|e| e.into_inner()).applied_machine_stamp.clone();
+    if machine_files_stamp() == applied() {
+        return true;
+    }
+    let _one = MACHINE_REFRESH.lock().await;
+    // The watcher or an earlier spawn may already have completed this import.
+    if machine_files_stamp() == applied() {
+        return true;
+    }
+    import().await;
+    let current = machine_files_stamp();
+    let st = STATE.read().unwrap_or_else(|e| e.into_inner());
+    st.outcome == Outcome::Shell && st.applied_machine_stamp == current
 }
 
 /// Called before each agent spawn: when the startup files changed since the
@@ -756,6 +787,9 @@ pub fn apply_tokio_for(
             None => cmd.env_remove(AGENT_USER_ZDOTDIR_ENV),
         };
     }
+    if let Some(browser) = agent_browser_env() {
+        cmd.env("BROWSER", browser);
+    }
 }
 
 /// The fixed login-derived subset a remote-origin harness may receive.
@@ -788,6 +822,43 @@ pub fn apply_std_for(
             None => cmd.env_remove(AGENT_USER_ZDOTDIR_ENV),
         };
     }
+    if let Some(browser) = agent_browser_env() {
+        cmd.env("BROWSER", browser);
+    }
+}
+
+/// The app's URL opener next to its bundled CLI (`<Resources>/bin/cmux-open-url`,
+/// scripts/cmux-next/url-open), by the bare name an agent finds first on [`agent_path`].
+const URL_OPENER: &str = "cmux-open-url";
+
+/// The `BROWSER` an agent gets: the app's URL opener, as the app's terminals get
+/// (BundledCLIEnvironment.swift), so a sign-in or device-code page a tool opens
+/// (`gh auth login`, `aws sso login`, Python's webbrowser, `open <url>`) lands in a
+/// cmux browser tab and not in the default browser. Set before the agent's shells
+/// run the user's files, so a `.zprofile` that sets `BROWSER=open` only when it is
+/// unset (prezto's stock one) keeps it. `None` when this daemon already has a
+/// `BROWSER` or the person added `BROWSER` to `loginEnvAllow` (theirs wins), or
+/// without a bundled CLI whose bin dir holds an executable opener (an older app).
+pub fn agent_browser_env() -> Option<&'static str> {
+    if std::env::var_os("BROWSER").is_some_and(|v| !v.is_empty()) || extra_exact("BROWSER") {
+        return None;
+    }
+    let bin = std::env::var_os(BUNDLED_CLI_ENV)
+        .map(PathBuf::from)
+        .filter(|cli| cli.is_absolute())
+        .and_then(|cli| cli.parent().map(std::path::Path::to_path_buf))?;
+    is_executable(&bin.join(URL_OPENER)).then_some(URL_OPENER)
+}
+
+#[cfg(unix)]
+fn is_executable(path: &std::path::Path) -> bool {
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+}
+
+#[cfg(not(unix))]
+fn is_executable(path: &std::path::Path) -> bool {
+    path.is_file()
 }
 
 /// The app's agent zsh layer, `<Resources>/cmux-cli-path/zsh-agent`, next to
@@ -979,6 +1050,59 @@ fn save_cache(fingerprint: &str, login: &[(String, String)], login_path: Option<
     }
 }
 
+/// Files created by cloud apply-machine-config and deliver-secrets. Their
+/// metadata is enough to detect delivery, rotation and deletion; never read
+/// or hash a credential value on the spawn decision path.
+fn machine_files_stamp_in(home: &std::path::Path) -> Option<String> {
+    let mut any = false;
+    let mut stamp = String::new();
+    for name in ["machine.env", "machine-secrets.env"] {
+        let path = home.join(".config/cmux").join(name);
+        match std::fs::symlink_metadata(path) {
+            Ok(meta) => {
+                any = true;
+                let kind = if meta.is_file() {
+                    'f'
+                } else if meta.file_type().is_symlink() {
+                    'l'
+                } else {
+                    'o'
+                };
+                let modified = meta
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_nanos())
+                    .unwrap_or(0);
+                // A delivery uses atomic replacement: preserve the identity change
+                // even for a same-length secret written within one mtime tick.
+                #[cfg(unix)]
+                let identity = {
+                    use std::os::unix::fs::MetadataExt as _;
+                    format!("{}:{}:{}:{}", meta.dev(), meta.ino(), meta.ctime(), meta.ctime_nsec())
+                };
+                #[cfg(not(unix))]
+                let identity = String::new();
+                stamp.push_str(&format!("{name}:{kind}:{}:{modified}:{identity};", meta.len()));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                stamp.push_str(&format!("{name}:absent;"));
+            }
+            Err(e) => {
+                any = true;
+                stamp.push_str(&format!("{name}:error:{:?};", e.kind()));
+            }
+        }
+    }
+    any.then_some(stamp)
+}
+
+fn machine_files_stamp() -> Option<String> {
+    let home =
+        std::env::var_os("HOME").map(PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();
+    machine_files_stamp_in(&home)
+}
+
 /// The startup files and tool-manager configs a login shell reads: path,
 /// size and mtime of each (absent ones count too), plus the shell itself.
 fn fingerprint() -> String {
@@ -1036,6 +1160,9 @@ fn startup_files() -> Vec<PathBuf> {
         ".config/direnv/direnvrc",
         ".nvmrc",
         ".config/claude/env",
+        // Both machine configuration and delivered secrets can change after daemon startup.
+        ".config/cmux/machine.env",
+        ".config/cmux/machine-secrets.env",
     ] {
         files.push(home.join(f));
     }
@@ -1046,6 +1173,60 @@ fn startup_files() -> Vec<PathBuf> {
     }
     files.push(PathBuf::from(&shell));
     files
+}
+
+#[cfg(test)]
+mod machine_file_tests {
+    use super::{machine_files_stamp_in, startup_files};
+
+    #[test]
+    fn login_watch_includes_delivered_machine_files() {
+        let home = std::env::var_os("HOME")
+            .map(std::path::PathBuf::from)
+            .or_else(dirs::home_dir)
+            .unwrap_or_default();
+        let watched = startup_files();
+        for name in ["machine.env", "machine-secrets.env"] {
+            assert!(watched.contains(&home.join(".config/cmux").join(name)));
+        }
+    }
+
+    #[test]
+    fn stamp_changes_for_delivery_rotation_and_revocation() {
+        let dir = tempfile::tempdir().expect("temp home");
+        let conf = dir.path().join(".config/cmux");
+        std::fs::create_dir_all(&conf).expect("config dir");
+        let env = conf.join("machine.env");
+        let secrets = conf.join("machine-secrets.env");
+        assert_eq!(machine_files_stamp_in(dir.path()), None);
+        std::fs::write(&env, b"export RUN_MODE='dev'\n").expect("write machine env");
+        let applied = machine_files_stamp_in(dir.path());
+        assert!(applied.is_some());
+        std::fs::write(&secrets, b"export SESSION_KEY='dummy-secret-1'\n").expect("deliver");
+        let delivered = machine_files_stamp_in(dir.path());
+        assert_ne!(delivered, applied);
+        std::fs::write(&secrets, b"export SESSION_KEY='different-dummy-secret'\n").expect("rotate");
+        let rotated = machine_files_stamp_in(dir.path());
+        assert_ne!(rotated, delivered);
+        #[cfg(unix)]
+        {
+            // Atomic replace with the same size changes the file identity.
+            let next = conf.join("replacement");
+            std::fs::write(&next, b"export SESSION_KEY='same-length-secret-001'\n")
+                .expect("prepare replacement");
+            let before = machine_files_stamp_in(dir.path());
+            assert_eq!(
+                std::fs::metadata(&next).expect("replacement").len(),
+                std::fs::metadata(&secrets).expect("old value").len(),
+            );
+            std::fs::rename(&next, &secrets).expect("atomic replace");
+            assert_ne!(machine_files_stamp_in(dir.path()), before);
+        }
+        std::fs::remove_file(&secrets).expect("revoke");
+        assert_eq!(machine_files_stamp_in(dir.path()), applied);
+        std::fs::remove_file(&env).expect("remove machine env");
+        assert_eq!(machine_files_stamp_in(dir.path()), None);
+    }
 }
 
 #[cfg(test)]

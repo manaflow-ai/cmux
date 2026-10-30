@@ -57,6 +57,7 @@ export function HarnessesScreen({
   callNative,
   onClose,
   onStart = onClose,
+  onStartChat,
   checking = false,
   refreshCatalog,
   signInPollMs = 3000,
@@ -75,6 +76,8 @@ export function HarnessesScreen({
   onClose(): void;
   /// A chat starts in this tab: the page leaves (and a New Tab page becomes the chat).
   onStart?(): void;
+  /// A New Tab setup request continues its pending draft instead of creating an empty chat.
+  onStartChat?(harness: string): void;
 }) {
   const t = useT();
   const [health, setHealth] = useState<Record<string, HarnessHealth | undefined>>({});
@@ -230,6 +233,7 @@ export function HarnessesScreen({
     } else if (row.status === "unavailable") {
       fix(row).run();
     } else if (row.status === "ready") {
+      if (onStartChat) return onStartChat(row.harness);
       void callNative("chat.new", { harness: row.harness, ...inFolder }).catch(() => undefined);
       onStart();
     }

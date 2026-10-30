@@ -36,6 +36,28 @@ public struct ChiefPreferences: @unchecked Sendable {
         defaults.set(on, forKey: key("receipts", conversationID))
     }
 
+    /// Where this phone has read to with Send Read Receipts off (the Mac's
+    /// cursor stays behind): kept, so a reconnect or relaunch does not bring
+    /// the unread count back.
+    public func readHere(_ conversationID: String) -> Int? {
+        defaults.object(forKey: key("readHere", conversationID)) as? Int
+    }
+
+    public func setReadHere(_ seq: Int, _ conversationID: String) {
+        defaults.set(seq, forKey: key("readHere", conversationID))
+    }
+
+    /// The newest message seen with the conversation open on this phone
+    /// (Home's Needs You for an unseen question): kept, so a relaunch does not
+    /// bring back every question already seen.
+    public func seenMessageID(_ conversationID: String) -> String? {
+        defaults.string(forKey: key("seen", conversationID))
+    }
+
+    public func setSeenMessageID(_ id: String?, _ conversationID: String) {
+        defaults.set(id, forKey: key("seen", conversationID))
+    }
+
     /// The newest engine report read from the Mac `macID` (its model,
     /// harness, effort and the models it offered), so Chief's settings show
     /// the model even while that Mac's Chief can't list its models.
@@ -109,8 +131,8 @@ public final class ChiefAlerts: NSObject, UNUserNotificationCenterDelegate {
 
     /// Posts an alert for `message` from Chief in `conversationID`.
     /// `visible`: that Chief's conversation is on screen (it shows the message itself).
-    func notify(_ message: ConversationMessage, title: String, conversationID: String, preferences: ChiefPreferences,
-                visible: Bool) {
+    func notify(_ message: ConversationMessage, title: String, conversationID: String, macID: String? = nil,
+                preferences: ChiefPreferences, visible: Bool) {
         guard Self.canNotify, !(visible && appActive), !preferences.muted(conversationID) else { return }
         let content = UNMutableNotificationContent()
         content.title = title
@@ -118,7 +140,9 @@ public final class ChiefAlerts: NSObject, UNUserNotificationCenterDelegate {
             : message.text.isEmpty && !message.attachments.isEmpty ? String(localized: "Attachment") : message.text
         content.sound = .default
         content.threadIdentifier = "chief.\(conversationID)"
-        content.userInfo = ["cmuxMobile.chief.conversation": conversationID]
+        var userInfo: [String: String] = [Self.conversationKey: conversationID]
+        if let macID { userInfo[Self.macKey] = macID }
+        content.userInfo = userInfo
         let request = UNNotificationRequest(identifier: "chief.\(message.id)", content: content, trigger: nil)
         Task {
             let center = UNUserNotificationCenter.current()
@@ -128,13 +152,31 @@ public final class ChiefAlerts: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
-    /// Hide Alerts turned on: take back what is already delivered for it.
+    nonisolated static let conversationKey = "cmuxMobile.chief.conversation"
+    nonisolated static let macKey = "cmuxMobile.chief.mac"
+
+    /// Where a tap on one of these alerts goes: Chief's conversation (kind
+    /// `chief`, the shell's route), on its Mac when it has one. Nil for any
+    /// other notification, and for a button other than the tap itself.
+    public nonisolated static func route(userInfo: [AnyHashable: Any], actionIdentifier: String)
+        -> (kind: String, mac: String?, conversationID: String)? {
+        guard actionIdentifier == UNNotificationDefaultActionIdentifier,
+              let conversation = userInfo[conversationKey] as? String else { return nil }
+        return ("chief", userInfo[macKey] as? String, conversation)
+    }
+
+    /// Take back what is already delivered for a conversation: Hide Alerts
+    /// turned on, or its messages were read (here or on the Mac).
     func clearDelivered(conversationID: String) {
         guard Self.canNotify else { return }
         let center = UNUserNotificationCenter.current()
         Task {
             let ids = await center.deliveredNotifications()
-                .filter { $0.request.content.threadIdentifier == "chief.\(conversationID)" }
+                // This app's own alerts, and the Macs' Chief pushes (`<mac>:chief:<conversation>`).
+                .filter {
+                    let thread = $0.request.content.threadIdentifier
+                    return thread == "chief.\(conversationID)" || thread.hasSuffix(":chief:\(conversationID)")
+                }
                 .map(\.request.identifier)
             center.removeDeliveredNotifications(withIdentifiers: ids)
         }

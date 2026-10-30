@@ -8,7 +8,7 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxActivity } from "../model";
 import { acpmuxSendCall } from "./acpmuxSends";
 import { toolGroups } from "./toolGroups";
-import { AcpmuxSendLine } from "./SentMessageLine";
+import { AcpmuxSendLine, configureSentLook } from "./SentMessageLine";
 import { resetTranscriptDisclosure } from "./transcriptDisclosure";
 import { SubsessionContext, SubsessionStore } from "../subagents/subsessions";
 import type { AcpmuxSessionEntry } from "../sessionList";
@@ -107,10 +107,48 @@ test("a sent message reads its target, how it was taken and its first line, and 
   await act(async () => row.click());
   expect(row.getAttribute("aria-expanded")).toBe("true");
   expect(container.querySelector(".cv-subsession__under h2")?.textContent).toBe("Merged #4182");
+  // Open, the message shows once: under the row, not again as the row's first line.
+  expect(row.textContent).toBe("Sent message to coord-deputy · queued");
+  expect(row.querySelector(".cv-sent__preview")).toBeNull();
   // The command stays one more click away, behind Raw.
   expect(container.querySelector(".cv-shell")).toBeNull();
   await act(async () => container.querySelector<HTMLButtonElement>(".cv-subsession__toggle")!.click());
   expect(container.querySelector(".cv-shell")?.textContent).toContain("acpmux send --no-wait coord-deputy");
+});
+
+test("a direct recorded heredoc send stays compact and opens to rendered Markdown", async () => {
+  const container = await line(
+    bash("acpmux send --no-wait coord-deputy - <<'EOF'\n## Ready\n\n- checks pass\nEOF", { output: "queued" }),
+  );
+  const row = container.querySelector<HTMLElement>(".cv-sent")!;
+  expect(row.textContent).toContain("Sent message to coord-deputy");
+  expect(row.textContent).not.toContain("cat > /tmp/review.md");
+  await act(async () => row.click());
+  expect(container.querySelector(".cv-subsession__under h2")?.textContent).toBe("Ready");
+  expect(container.querySelectorAll(".cv-subsession__under li").length).toBe(1);
+  expect(container.querySelector(".cv-subsession__under")?.textContent).toContain("checks pass");
+});
+
+test("closing the row brings its first line back", async () => {
+  const container = await line(bash("acpmux send --no-wait coord-deputy 'Restore base.'", { output: "queued" }));
+  const row = container.querySelector<HTMLElement>(".cv-sent")!;
+  await act(async () => row.click());
+  expect(row.textContent).toBe("Sent message to coord-deputy · queued");
+  await act(async () => row.click());
+  expect(row.textContent).toBe("Sent message to coord-deputy · queuedRestore base.");
+});
+
+test("the quote look drops its quoted line while the row is open", async () => {
+  configureSentLook("quote");
+  try {
+    const container = await line(bash("acpmux send --no-wait coord-deputy 'Restore base.'", { output: "queued" }));
+    const row = container.querySelector<HTMLElement>(".cv-sent")!;
+    expect(row.textContent).toContain("“Restore base.”");
+    await act(async () => row.click());
+    expect(row.textContent).not.toContain("Restore base.");
+  } finally {
+    await act(async () => configureSentLook("sentence"));
+  }
 });
 
 test("in flight it is live, with the spinner", async () => {

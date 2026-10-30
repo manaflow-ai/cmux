@@ -21,6 +21,7 @@ on:
       - "scripts/cmux-next/notices/ghostty_source_archive.py"
       - "scripts/cmux-next/notices/test_ghostty_source_archive.py"
       - "scripts/cmux-next/build-ghostty-source-archive.sh"
+      - "scripts/cmux-next/zig-fetch-all.sh"
       - "ghostty-next"
       - "cmux-tui/crates/ghostty-vt-sys/build.rs"
       - "scripts/cmux-next/notices/check_ghostty_vt_notices.py"

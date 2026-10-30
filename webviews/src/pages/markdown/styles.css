@@ -493,12 +493,39 @@ body {
   caret-color: transparent;
 }
 
-.md-prose :is(td, th).selectedCell::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: var(--cmux-md-selection-color);
-  pointer-events: none;
+/* User 2026-10-28 ("highlighting full table cells is still weird"): the fill was an ::after layer
+   above the cell in --cmux-md-selection-color, which the app sets to the theme's opaque terminal
+   selection color, so selected cells were flat gray blocks with their words hidden. Native text
+   selection never draws that color as is: WebKit (the app's engine) paints an opaque ::selection
+   color through Color::blendWithWhite, the translucent color (alpha 0.6, 0.667, 0.733 or 0.8,
+   the least whose channels stay >= 0) that over white looks like the given one. The cell fill does
+   the same, as a background under the text: it matches the text selection in the rest of the
+   document, the page shows through it, and the words stay on top. A translucent color is kept. */
+.md-prose {
+  /* Inside rgb(from …) only: 1 for a translucent color, 0 for an opaque one. */
+  --md-cell-selection-keep: sign(1 - alpha);
+  --md-cell-selection-alpha: clamp(0.6, round(up, 1 - min(r, g, b) / 255, calc(1 / 15)), 0.8);
+  --md-cell-selection-color: rgb(
+    from var(--cmux-md-selection-color)
+      calc(
+        var(--md-cell-selection-keep) * r + (1 - var(--md-cell-selection-keep)) *
+          (r - 255 * (1 - var(--md-cell-selection-alpha))) / var(--md-cell-selection-alpha)
+      )
+      calc(
+        var(--md-cell-selection-keep) * g + (1 - var(--md-cell-selection-keep)) *
+          (g - 255 * (1 - var(--md-cell-selection-alpha))) / var(--md-cell-selection-alpha)
+      )
+      calc(
+        var(--md-cell-selection-keep) * b + (1 - var(--md-cell-selection-keep)) *
+          (b - 255 * (1 - var(--md-cell-selection-alpha))) / var(--md-cell-selection-alpha)
+      )
+      / calc(var(--md-cell-selection-keep) * alpha + (1 - var(--md-cell-selection-keep)) * var(--md-cell-selection-alpha))
+  );
+}
+
+.md-prose :is(td, th).selectedCell {
+  background-image: linear-gradient(var(--md-cell-selection-color), var(--md-cell-selection-color));
+  background-clip: padding-box;
 }
 
 /* Column resizing (tables.ts ResizableTableView): a handle on the hovered column's right edge. */

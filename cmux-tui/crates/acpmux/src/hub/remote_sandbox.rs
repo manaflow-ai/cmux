@@ -49,6 +49,7 @@
 //! `--allow-dangerously-skip-permissions`.
 
 use super::*;
+use cmux_json::JsonSet as _;
 #[cfg(target_os = "linux")]
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 #[cfg(target_os = "linux")]
@@ -162,7 +163,7 @@ pub(super) fn claude_settings(endpoint: Option<&str>) -> String {
         "permissions": {"disableBypassPermissionsMode": "disable", "ask": ASK_TOOLS},
     });
     if let Some(url) = endpoint {
-        v["env"] = json!({"ANTHROPIC_BASE_URL": url});
+        v.set("env", json!({"ANTHROPIC_BASE_URL": url}));
     }
     v.to_string()
 }
@@ -479,11 +480,29 @@ fn own_dir(dir: &Path, uid: u32) -> Result<(), String> {
 }
 
 #[cfg(target_os = "linux")]
+mod accounts;
+
+/// Ok when no one but `uid` can write `path` or any folder above it up to
+/// `boundary` (a sticky `boundary` such as `/tmp` excepted when
+/// `sticky_boundary`). Group write counts only on `uid`'s own folder whose
+/// group is `uid`'s user-private group (Ubuntu's default umask 002).
+#[cfg(target_os = "linux")]
 fn linux_secure_path(
     path: &Path,
     boundary: &Path,
     uid: u32,
     sticky_boundary: bool,
+) -> Result<(), String> {
+    linux_secure_path_with(path, boundary, uid, sticky_boundary, &accounts::System)
+}
+
+#[cfg(target_os = "linux")]
+fn linux_secure_path_with(
+    path: &Path,
+    boundary: &Path,
+    uid: u32,
+    sticky_boundary: bool,
+    accounts: &dyn accounts::Accounts,
 ) -> Result<(), String> {
     let mut reached = false;
     for ancestor in path.ancestors() {
@@ -491,11 +510,19 @@ fn linux_secure_path(
             .map_err(|e| format!("{}: {e}", ancestor.display()))?;
         let sticky_exception =
             sticky_boundary && ancestor == boundary && metadata.mode() & 0o1000 != 0;
-        if metadata.uid() != uid && metadata.mode() & 0o022 != 0 && !sticky_exception {
-            return Err(format!("{} is writable by another user", ancestor.display()));
-        }
         if metadata.mode() & 0o022 != 0 && !sticky_exception {
-            return Err(format!("{} is group- or world-writable", ancestor.display()));
+            if metadata.uid() != uid {
+                return Err(format!("{} is writable by another user", ancestor.display()));
+            }
+            if metadata.mode() & 0o002 != 0 {
+                return Err(format!("{} is world-writable", ancestor.display()));
+            }
+            accounts::private_group(uid, metadata.gid(), accounts)
+                .map_err(|why| format!("{} is group-writable and {why}", ancestor.display()))?;
+            // With an ACL the group bits are its mask, which can let named
+            // users or groups write.
+            accounts::no_extended_acl(ancestor)
+                .map_err(|why| format!("{} is group-writable and {why}", ancestor.display()))?;
         }
         if ancestor == boundary {
             reached = true;
@@ -1474,18 +1501,20 @@ mod endpoint_tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn linux_canary_attempts_both_persistence_renames() {
-        use std::os::unix::fs::PermissionsExt;
         let root = std::env::temp_dir().join(format!("canary-renames-{}", uuid::Uuid::now_v7()));
         std::fs::create_dir_all(root.join("bin")).unwrap();
         let probe = canary_persistence_probe(&root, true).unwrap().unwrap();
         let log = root.join("renames");
         let mv = root.join("bin/mv");
-        std::fs::write(&mv, "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$RENAME_LOG\"\nexit 1\n")
-            .unwrap();
-        std::fs::set_permissions(&mv, std::fs::Permissions::from_mode(0o700)).unwrap();
+        crate::test_exec::write_executable(
+            &mv,
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$RENAME_LOG\"\nexit 1\n",
+        );
         let helper = root.join("bin/helper");
-        std::fs::write(&helper, "#!/bin/sh\ncase \"$1\" in __remote-sandbox-canary-rename) echo rename=0;; *) echo unix=unknown;; esac\n").unwrap();
-        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o700)).unwrap();
+        crate::test_exec::write_executable(
+            &helper,
+            "#!/bin/sh\ncase \"$1\" in __remote-sandbox-canary-rename) echo rename=0;; *) echo unix=unknown;; esac\n",
+        );
         let out = std::process::Command::new("/bin/bash")
             .args(["-c", CANARY, "canary", "/nonexistent/outside", "0"])
             .arg(&root)
@@ -1812,23 +1841,110 @@ mod endpoint_tests {
         assert!(!error.contains("platform has none"), "{error}");
     }
 
+    /// A fresh `root/project` tree with `root` at `mode`, removed on drop.
+    #[cfg(target_os = "linux")]
+    struct ModeTree {
+        root: PathBuf,
+        child: PathBuf,
+        gid: u32,
+    }
+
+    #[cfg(target_os = "linux")]
+    impl ModeTree {
+        fn new(tag: &str, mode: u32) -> Self {
+            use std::os::unix::fs::PermissionsExt;
+            let root = std::env::temp_dir()
+                .join(format!("acpmux-linux-safe-{tag}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&root);
+            let child = root.join("project");
+            std::fs::create_dir_all(&child).unwrap();
+            std::fs::set_permissions(&child, std::fs::Permissions::from_mode(0o700)).unwrap();
+            std::fs::set_permissions(&root, std::fs::Permissions::from_mode(mode)).unwrap();
+            let gid = std::fs::metadata(&root).unwrap().gid();
+            ModeTree { root, child, gid }
+        }
+        fn check(&self, accounts: &dyn accounts::Accounts) -> Result<(), String> {
+            // SAFETY: getuid has no preconditions and cannot fail.
+            let uid = unsafe { libc::getuid() };
+            linux_secure_path_with(&self.child, &self.root, uid, false, accounts)
+        }
+        fn private(&self) -> accounts::tests::Fake {
+            // SAFETY: getuid has no preconditions and cannot fail.
+            accounts::tests::Fake::private(unsafe { libc::getuid() }, self.gid)
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    impl Drop for ModeTree {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
-    fn linux_group_writable_ancestor_is_refused() {
-        use std::os::unix::fs::PermissionsExt;
-        let root = std::env::temp_dir().join(format!("acpmux-linux-safe-{}", std::process::id()));
-        let child = root.join("project");
-        std::fs::create_dir_all(&child).unwrap();
-        let original = std::fs::metadata(&root).unwrap().permissions().mode();
-        let mut mode = std::fs::metadata(&root).unwrap().permissions();
-        mode.set_mode(original | 0o020);
-        std::fs::set_permissions(&root, mode).unwrap();
-        let uid = unsafe { libc::getuid() };
-        assert!(linux_secure_path(&child, &root, uid, false).is_err());
-        let mut restore = std::fs::metadata(&root).unwrap().permissions();
-        restore.set_mode(original);
-        let _ = std::fs::set_permissions(&root, restore);
-        let _ = std::fs::remove_dir_all(root);
+    fn linux_group_writable_ancestor_in_a_private_group_is_allowed() {
+        let tree = ModeTree::new("private", 0o775);
+        assert_eq!(tree.check(&tree.private()), Ok(()));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_group_writable_ancestor_in_a_shared_group_is_refused() {
+        let tree = ModeTree::new("shared", 0o775);
+        let mut shared = tree.private();
+        shared.group.as_mut().unwrap().members = vec!["bob".into()];
+        let error = tree.check(&shared).unwrap_err();
+        assert!(error.contains("is group-writable and its group leo"), "{error}");
+        assert!(error.contains("bob"), "{error}");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_group_writable_ancestor_in_a_non_primary_group_is_refused() {
+        let tree = ModeTree::new("other", 0o775);
+        let mut other = tree.private();
+        other.user.as_mut().unwrap().gid = tree.gid.wrapping_add(1);
+        other.group.as_mut().unwrap().name = "developers".into();
+        let error = tree.check(&other).unwrap_err();
+        assert!(error.contains("its group developers"), "{error}");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_world_writable_ancestor_is_refused_even_in_a_private_group() {
+        let tree = ModeTree::new("world", 0o777);
+        let error = tree.check(&tree.private()).unwrap_err();
+        assert!(error.ends_with("is world-writable"), "{error}");
+        let tree = ModeTree::new("world-only", 0o757);
+        assert!(tree.check(&tree.private()).unwrap_err().ends_with("is world-writable"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_group_writable_ancestor_with_an_acl_is_refused() {
+        // A named user (nobody, 65534) and then a named group with write: the
+        // mode still reads 0775, but the ACL lets them write.
+        for named in [2u16, 8] {
+            let tree = ModeTree::new(&format!("acl-{named}"), 0o775);
+            let Some(()) = accounts::tests::set_acl(&tree.root, named, 65534) else {
+                eprintln!("skipped: this filesystem has no POSIX ACLs");
+                return;
+            };
+            assert_eq!(std::fs::metadata(&tree.root).unwrap().mode() & 0o777, 0o775);
+            let error = tree.check(&tree.private()).unwrap_err();
+            assert!(error.contains("has an access control list"), "{error}");
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_group_writable_ancestor_whose_group_lookup_fails_is_refused() {
+        let tree = ModeTree::new("lookup", 0o775);
+        let mut failing = tree.private();
+        failing.group = None;
+        let error = tree.check(&failing).unwrap_err();
+        assert!(error.contains("cannot be checked"), "{error}");
     }
 
     #[cfg(target_os = "linux")]

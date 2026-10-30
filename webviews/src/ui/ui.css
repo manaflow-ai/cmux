@@ -119,7 +119,7 @@
 }
 
 .ui-menu-item-destructive {
-  color: var(--cmux-app-danger, var(--agent-danger, color-mix(in srgb, var(--ui-fg) 78%, #d44)));
+  color: var(--cmux-app-danger, var(--agent-danger, var(--ui-fg)));
 }
 
 .ui-context-menu-backdrop {
@@ -157,8 +157,10 @@
 
 .ui-menu-check {
   display: inline-flex;
+  align-items: center;
   width: 12px;
   justify-content: center;
+  line-height: 1;
 }
 
 .ui-select {
@@ -242,7 +244,7 @@
   display: block;
   box-sizing: border-box;
   width: 100%;
-  min-height: var(--ui-row-height);
+  height: var(--ui-row-height);
   margin: 0 0 4px;
   padding: 0 var(--ui-row-padding-inline);
   border: 0;
@@ -292,7 +294,8 @@
   background: var(--ui-hover);
 }
 
-.ui-toolbar-button[data-pressed] {
+.ui-toolbar-button[data-pressed],
+.ui-toolbar-button[aria-pressed="true"] {
   background: var(--ui-selected);
 }
 

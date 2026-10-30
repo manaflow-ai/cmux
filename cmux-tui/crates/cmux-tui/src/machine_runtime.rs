@@ -532,11 +532,12 @@ fn ssh_pattern_matches(pattern: &str, host: &str) -> bool {
     let (p, h): (Vec<char>, Vec<char>) = (pattern.chars().collect(), host.chars().collect());
     // The classic two-pointer wildcard match, backtracking to the last `*`.
     let (mut i, mut j, mut star, mut mark) = (0, 0, None, 0);
-    while j < h.len() {
-        if i < p.len() && (p[i] == '?' || p[i] == h[j]) {
+    while let Some(&host_char) = h.get(j) {
+        let pattern_char = p.get(i).copied();
+        if pattern_char.is_some_and(|c| c == '?' || c == host_char) {
             i += 1;
             j += 1;
-        } else if i < p.len() && p[i] == '*' {
+        } else if pattern_char == Some('*') {
             star = Some(i);
             mark = j;
             i += 1;
@@ -548,7 +549,7 @@ fn ssh_pattern_matches(pattern: &str, host: &str) -> bool {
             return false;
         }
     }
-    p[i..].iter().all(|&c| c == '*')
+    p.get(i..).unwrap_or_default().iter().all(|&c| c == '*')
 }
 
 fn is_concrete_ssh_host(host: &str) -> bool {

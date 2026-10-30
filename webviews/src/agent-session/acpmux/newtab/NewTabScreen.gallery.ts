@@ -16,6 +16,7 @@ const OTHER_SITE_ICON =
 /// No chat yet, Claude Code starting on Medium: the model and reasoning chips both show.
 const reasoningChat = () =>
   noChat([], {
+    listedSessions: true,
     catalog: CATALOG.map((entry) =>
       entry.id === "claude" ? { ...entry, start: { model: "claude-opus-5-5", effort: "medium" } } : entry,
     ),
@@ -358,21 +359,61 @@ export default agentPaneEntry({
   variants: withAllChats({
     empty: {
       note: "No chats yet. A harness is installed, so the chip names its model and nothing on the page offers Add harness.",
-      ready: newTab(),
-      snapshot: noChat(),
+      ready: newTab({ pageWidgets: ["chats"] }),
+      snapshot: noChat([], { listedSessions: true }),
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-chats-empty") !== null);
         if (ctx.document.querySelector(".nt-no-agent, .acpmux-add-harness"))
           throw new Error("Add harness shows on the page with a harness installed");
+      },
+    },
+    "chats-loading": {
+      note: "The first session list is pending: recent chats use placeholders until it settles.",
+      ready: newTab({ pageWidgets: ["chats"] }),
+      snapshot: noChat(),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-cards[aria-busy=true]") !== null);
+      },
+    },
+    "inherited-project": {
+      note: "A fresh workspace inherits its last project: the machine/project controls keep their established slots and the inherited project stays selected without requiring a new pick.",
+      ready: newTab({ template: "minimal", cwd: "/Users/you", startedProject: CWD, projects: [CWD] }),
+      snapshot: noChat([], { listedSessions: true }),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+        const location = ctx.document.querySelector<HTMLElement>(".nt-location");
+        const project = ctx.document.querySelector<HTMLElement>(
+          ".nt-location .acpmux-location-leading > .acpmux-location-picker:first-child button",
+        );
+        if (!location || !project || !project.textContent?.includes("atlas-web"))
+          throw new Error("the inherited project is not shown in the established location slot");
+        const before = project.getBoundingClientRect();
+        if (before.width <= 0 || before.height <= 0) throw new Error("the location slot is not mounted");
+        await ctx.type("keep this project", { selector: ".nt-field" });
+        await ctx.waitFor(() => !(ctx.document.querySelector<HTMLButtonElement>(".nt-send")?.disabled ?? true));
+        const after = project.getBoundingClientRect();
+        if (Math.abs(after.left - before.left) > 1 || Math.abs(after.top - before.top) > 1)
+          throw new Error("the inherited location slot moved after input");
       },
     },
     // The model button opens its one menu (Leo 2026-10-20), whole: the card does not clip it
     // (Lawrence 2026-10-13). Points near its top and bottom edges hit the menu, not the page. On New
     // Tab More models shows its models in place, under its row (newTabComposer.ts), then Add harness….
+    "computer-first-setup": {
+      note: "Fresh home with Labs off and only Studio Mac: the Computer menu exposes Add a computer and New Cloud Machine.",
+      ready: { ...newTab(), machineName: "Studio Mac" },
+      snapshot: noChat(),
+      native: { "cloudMachine.list": { signedIn: false, loaded: true, machines: [] } },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+        await ctx.click({ selector: '.nt-location .acpmux-location-picker[data-kind="computer"] button' });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-location-menu [role="option"]'));
+      },
+    },
     "machines-fleet": {
       note: "The machine chip with 21 machines acpmux lists (`host ls`): every one, in This Mac, My machines and Cloud and VMs; in each the ones a chat can start on first, in number order, the rest greyed with their state and no pick.",
       ready: newTab(),
-      snapshot: noChat([], fleetPeers()),
+      snapshot: noChat([], { ...fleetPeers(), listedSessions: true }),
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
         await ctx.click({ selector: '.nt-location .acpmux-location-picker[data-kind="computer"] button' });
@@ -382,7 +423,7 @@ export default agentPaneEntry({
     "model-picker-open": {
       note: "The New Tab model button's menu, open down: the harness rail and the models, never cut by the card; More models opens in place and ends on Add harness….",
       ready: newTab(),
-      snapshot: noChat(),
+      snapshot: noChat([], { listedSessions: true }),
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
         await ctx.click({ role: "button", name: "Model" });
@@ -399,8 +440,10 @@ export default agentPaneEntry({
         await ctx.click({ role: "menuitem", name: "More models" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-list > .acpmux-quick-more-list"));
         const more = ctx.document.querySelector(".acpmux-quick-list > .acpmux-quick-more-list")!;
-        if (!more.nextElementSibling?.textContent?.includes("Add harness"))
-          throw new Error("the model menu's More models does not end on Add harness…");
+        if (more.querySelector('[aria-label="Add harness…"]'))
+          throw new Error("More models must contain models only; Add harness belongs in the rail");
+        if (!ctx.document.querySelector('.acpmux-quick-rail-add[aria-label="Add harness…"]'))
+          throw new Error("the model menu's harness rail must end on Add harness…");
       },
     },
     // The effort is part of the one model button (Leo 2026-10-20: "Opus 5.5  Medium"), and its
@@ -632,7 +675,7 @@ export default agentPaneEntry({
     "chats-unavailable": {
       note: "The chat index did not answer: All chats says it could not load and offers Try again.",
       ready: newTab(),
-      snapshot: noChat(),
+      snapshot: noChat([], { listedSessions: true }),
       native: {},
     },
     "calm-default": {
@@ -665,11 +708,11 @@ export default agentPaneEntry({
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
         await ctx.waitFor(
-          () => ctx.document.querySelector(".nt-pickers .acpmux-newtab-plus .acpmux-picker-button") !== null,
+          () => ctx.document.querySelector(".nt-composer .acpmux-newtab-plus .acpmux-picker-button") !== null,
         );
         await ctx.click({ selector: ".acpmux-newtab-plus .acpmux-picker-button" });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-newtab-plus [data-value="attach"]') !== null);
-        const input = ctx.document.querySelector<HTMLInputElement>(".nt-pickers .acpmux-attach-input");
+        const input = ctx.document.querySelector<HTMLInputElement>(".nt-composer .acpmux-attach-input");
         if (!input || !input.multiple) throw new Error("the New Tab attachment chooser is missing or single-file");
       },
     },
@@ -743,7 +786,7 @@ export default agentPaneEntry({
       // The mock daemon answers with no harness, as acpmux does on a Mac without an agent CLI.
       ready: { ...newTab(), transport: "mock" },
       mockHarnesses: [],
-      snapshot: { ...noChat(), catalog: [] },
+      snapshot: { ...noChat([], { listedSessions: true }), catalog: [] },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-composer .acpmux-add-harness") !== null);
         if (ctx.document.querySelector(".nt-no-agent")) throw new Error("a No agent to ask line shows under the field");
@@ -755,7 +798,7 @@ export default agentPaneEntry({
       note: "hq#1925 12: suggestions open over the New terminal / browser / chat row and cover it; no text under the popover shows through.",
       ready: { ...newTab(), transport: "mock" },
       mockHarnesses: [],
-      snapshot: { ...noChat(), catalog: [] },
+      snapshot: { ...noChat([], { listedSessions: true }), catalog: [] },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-create") !== null);
         await ctx.type("fix the flaky upload test", { selector: ".nt-field" });
@@ -788,7 +831,7 @@ export default agentPaneEntry({
     "harnesses-from-menu": {
       note: "Play: Integrate a Harness… from the palette or the File menu on this page (cx-9fqw) shows the Harnesses page here, in place, not in a second tab.",
       ready: newTab(),
-      snapshot: noChat(),
+      snapshot: noChat([], { listedSessions: true }),
       play: async (ctx) => {
         const page = ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { command?(name: string): void } };
         await ctx.waitFor(() => page.cmuxAcpmuxBridge?.command !== undefined);
@@ -820,9 +863,8 @@ export default agentPaneEntry({
         });
         // The rows stay inside the list's box after a scroll too (cx-p8ul): every drawn row sits
         // within the scroller, below the field. The scroll is a measured step, so the play reports.
-        await ctx.scroll({ selector: ".nt-all-list" }, "bottom");
-        if ((ctx.document.querySelector(".nt-all-list")?.scrollTop ?? 0) === 0)
-          throw new Error("All chats did not scroll");
+        await ctx.scroll({ selector: ".nt-screen" }, "bottom");
+        if ((ctx.document.querySelector(".nt-screen")?.scrollTop ?? 0) === 0) throw new Error("New Tab did not scroll");
         const list = ctx.document.querySelector(".nt-all-list")!.getBoundingClientRect();
         const rows = [...ctx.document.querySelectorAll(".nt-all-item:not(.is-loader)")];
         if (rows.length === 0) throw new Error("All chats drew no rows");

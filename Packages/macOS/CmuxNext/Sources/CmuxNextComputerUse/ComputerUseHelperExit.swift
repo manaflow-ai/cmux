@@ -82,6 +82,8 @@ final class ComputerUseHelperRestarts {
     /// The watched helper exited by itself: takes one restart, or false once
     /// `limit` restarts ran within `window`.
     func takeRestart() -> Bool {
+        // The watch has fired, or its event never came (``ComputerUseHelperDaemon/confirmRunning()``): end it.
+        cancelWatch?()
         cancelWatch = nil
         let now = elapsed()
         recent.removeAll { now - $0 >= Self.window }
