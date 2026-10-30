@@ -64,7 +64,7 @@ extension NotificationCenterService {
                 && (controller.window?.occlusionState.contains(.visible) ?? false)
         }
         var visibility = TerminalVisibility.hidden
-        visibility.appActive = services.appActiveSource()
+        visibility.appActive = NSApp.isActive
         if shown {
             visibility.tabSelected = true
             visibility.paneOnScreen = true

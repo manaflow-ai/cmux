@@ -86,7 +86,7 @@ final class FeedService {
         let workspace = NSWorkspace.shared.notificationCenter
         let update: @MainActor (Bool?) -> Void = { [weak self] forced in
             guard let self else { return }
-            source.setPresence(active: forced ?? self.appActive())
+            source.setPresence(active: forced ?? NSApp.isActive)
             if forced == nil { source.checkAlive() }
             // An activation or wake may find acpmux back: a reports reader past its timed retries tries again.
             if forced != false { reportsWake?.fire() }
@@ -126,7 +126,7 @@ final class FeedService {
         guard !started else {
             if auth.isSignedIn {
                 startReportsIfNeeded()
-                source.setPresence(active: appActive())
+                source.setPresence(active: NSApp.isActive)
             }
             return
         }
@@ -134,7 +134,7 @@ final class FeedService {
         started = true
         model.start()
         startReportsIfNeeded()
-        if auth.isSignedIn { source.setPresence(active: appActive()) }
+        if auth.isSignedIn { source.setPresence(active: NSApp.isActive) }
     }
 
     var isSignedIn: Bool { auth.isSignedIn }
