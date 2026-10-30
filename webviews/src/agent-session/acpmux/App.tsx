@@ -5051,6 +5051,11 @@ function AcpmuxPane() {
   // Folder-choice cancellation invalidates all refusals from sends that were in flight.
   // The direct client generation does not change when only the folder dialog is canceled.
   const trustCancelEpoch = useRef(0);
+  // onTrustRefused is a client-level callback with no send owner. Keep the canceled
+  // route marker until an explicit new send or client generation supersedes it.
+  const trustCanceledRoute = useRef<{ client: AcpmuxDirectClient; generation: number; epoch: number } | undefined>(
+    undefined,
+  );
   const pendingTrustRefusal = useRef<
     | {
         client: AcpmuxDirectClient;
@@ -5094,9 +5099,13 @@ function AcpmuxPane() {
   const retryAfterTrust = useRef(trustAsk.retry);
   retryAfterTrust.current = trustAsk.retry;
   const cancelTrustResend = useCallback(() => {
+    const client = directClient.current;
+    if (client)
+      trustCanceledRoute.current = { client, generation: client.trustGeneration, epoch: trustCancelEpoch.current };
     trustCancelEpoch.current += 1;
+    pendingTrustRefusal.current = undefined;
     trustAsk.cancelResend();
-  }, [trustAsk.cancelResend]);
+  }, [trustAsk]);
   const routeClient = trustRenderedOwner.current?.client;
   trustRouteOwner.current = routeClient
     ? {
@@ -7739,6 +7748,8 @@ function AcpmuxPane() {
         // folder's one question above the composer; Trust re-runs the refused step (cx-nn3e).
         client.onTrustRefused = (refusal, again) => {
           if (directClient.current !== client) return;
+          const canceled = trustCanceledRoute.current;
+          if (canceled && canceled.client === client && canceled.generation === client.trustGeneration) return;
           const shownSessionId = client.shownSession()?.sessionId;
           // A New Tab has no shown session while ensureSession is creating its first one. A
           // refusal in that window belongs to the client/generation that produced it; once a
@@ -7871,6 +7882,7 @@ function AcpmuxPane() {
             client: owner.client,
             generation: owner.generation,
             sessionId: owner.sessionId,
+            cancelEpoch: owner.cancelEpoch,
             error,
             again,
           };
