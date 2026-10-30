@@ -64,6 +64,7 @@ struct PageWebViewChromiumTests {
         let page = try #require(hosting.made.first)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .titled,
                               backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.contentView = view
         window.orderFrontRegardless()
         view.setChromiumVisibility(true)

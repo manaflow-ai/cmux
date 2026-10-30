@@ -32,6 +32,18 @@ struct AgentPaneChromiumVisibilityTests {
         return (view, chromium, window)
     }
 
+    /// The launch image stays until the chat paints: the document's first frame is an empty chat.
+    @Test func pagePaintedWaitsForTheChatNotTheDocument() async throws {
+        let (view, _, window) = try await pane()
+        defer { view.page?.close(); window.close() }
+        var ran = false
+        view.whenPagePainted { ran = true }
+        view.page?.notePainted()
+        #expect(!ran, "the document's first frame cleared the launch image before the chat painted")
+        view.model.markPainted()
+        #expect(ran)
+    }
+
     @Test func aWindowHoldHidesAndRevealsNestedChromium() async throws {
         let (view, chromium, window) = try await pane()
         defer { view.page?.close(); window.close() }
