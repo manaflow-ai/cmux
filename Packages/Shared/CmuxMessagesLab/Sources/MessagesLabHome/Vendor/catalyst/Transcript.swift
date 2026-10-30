@@ -1060,8 +1060,9 @@ final class RowCell: UICollectionViewCell {
             DispatchQueue.concurrentPerform(iterations: specs.count) { i in
                 // checked reads and writes (crash ratchet)
                 let r0 = CACurrentMediaTime()
-                if let slot = out.checkedIndex(i), let spec = specs[checked: i], let sc = scales[checked: i] {
-                    out[slot] = PaletteScope.with(palettes[checked: i] ?? nil) { RowBitmaps.render(spec, scale: sc) }
+                if let spec = specs[checked: i], let sc = scales[checked: i] {
+                    let image = PaletteScope.with(palettes[checked: i] ?? nil) { RowBitmaps.render(spec, scale: sc) }
+                    if let slot = out.checkedIndex(i) { out[slot] = image }
                 }
                 if let slot = ms.checkedIndex(i) { ms[slot] = (CACurrentMediaTime() - r0) * 1000 }
             }

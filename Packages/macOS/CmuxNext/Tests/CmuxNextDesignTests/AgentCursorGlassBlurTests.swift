@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// Real blur for the agent cursor's name tag (user, 2026-10-20: "get a real
@@ -7,10 +8,12 @@ import Testing
 /// the Chromium page windows, so a behind-window visual effect view in that
 /// panel blurs the page under the tag; a mask layer cuts it to the tag shapes.
 @MainActor
+@Suite(.closesItsWindows)
 struct AgentCursorGlassBlurTests {
     @Test func theCursorGlassBlursWhatIsBehindTheOverlayWindow() throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],
                               backing: .buffered, defer: true)
+        defer { window.closeWithOverlayHost() }
         let host = WindowOverlayHost.host(for: window)
         let cursorLayer = host.agentCursorLayer
         let mask = host.agentCursorGlassLayer
