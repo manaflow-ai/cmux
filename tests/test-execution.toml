@@ -198,6 +198,10 @@ path = "tests/test_ci_delta_since_green.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_fast_tier_anchor.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_fork_runner_routing.py"
 lane = "linux-guard"
 
