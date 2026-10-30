@@ -163,11 +163,20 @@ export type PromptImage = {
 };
 /// Ordered ACP content. The daemon validates blockIndex/companionOf against the actual blocks.
 /// Local attachment identities and video previews survive echo; companions remain on the wire.
+/// `placed`: the composer put this attachment in the text (inlinePrompt.ts), so the sent bubble
+/// draws the prompt in this order; an unplaced prompt's parts have none (UserBubble.tsx).
 export type PromptContentPart =
   | { kind: "text"; text: string }
-  | (PromptImage & { kind: "image"; persisted?: false; attachmentId?: string; blockIndex?: number })
+  | (PromptImage & {
+      kind: "image";
+      persisted?: false;
+      attachmentId?: string;
+      blockIndex?: number;
+      placed?: true;
+    })
   | {
       kind: "file" | "document" | "audio" | "pasted";
+      placed?: true;
       id?: string;
       attachmentId?: string;
       companionOf?: number;
@@ -265,6 +274,9 @@ export type AcpmuxRow = {
   viaCli?: string;
   /// The originating prompt row, so Retry can restore image/PDF attachments.
   retryRowId?: string;
+  /// A turn summary of the chat's last turn, which a failed turn's Retry asks acpmux to retry
+  /// (turns.ts), even when its prompt is an attempt acpmux sent and draws nothing.
+  retryable?: boolean;
   /// A turn footer's answer row (turns.ts), whose right-click menu the footer's More opens.
   answerId?: string;
   retryAttachments?: ComposerAttachment[];
