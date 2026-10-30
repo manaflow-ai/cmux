@@ -167,6 +167,8 @@ export function MediaPlayer({
   const inlineVideo = useRef<HTMLVideoElement | null>(null);
   const expandedVideo = useRef<HTMLVideoElement | null>(null);
   const expandedPlayed = useRef(false);
+  // Where the inline copy's own Play continues from after the expanded player closed.
+  const inlineResume = useRef<number | undefined>(undefined);
   // Closing the expanded player hands its position back, so the inline copy (paused at the
   // handoff) resumes where the expanded one stopped instead of rewinding.
   const closeExpanded = () => {
@@ -174,7 +176,10 @@ export function MediaPlayer({
     const inline = inlineVideo.current;
     if (expandedPlayed.current && large && inline && large !== inline) {
       const time = large.currentTime;
-      if (Number.isFinite(time) && time > 0) inline.currentTime = time;
+      if (Number.isFinite(time) && time > 0) {
+        inline.currentTime = time;
+        inlineResume.current = time;
+      }
     }
     expandedPlayed.current = false;
     setExpanded(false);
@@ -212,6 +217,11 @@ export function MediaPlayer({
         onError={onError}
         videoRef={(element) => {
           inlineVideo.current = element;
+        }}
+        onPlay={() => {
+          const time = inlineResume.current;
+          inlineResume.current = undefined;
+          return time;
         }}
       />
       <span className="cv-media__actions">
@@ -275,6 +285,7 @@ export function MediaPlayer({
                 }}
                 onPlay={(element) => {
                   expandedPlayed.current = true;
+                  inlineResume.current = undefined;
                   const current = inlineVideo.current;
                   if (!current || current === element) return undefined;
                   const time = current.currentTime;

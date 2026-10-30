@@ -412,6 +412,21 @@ describe("the inline player", () => {
     expect(video.currentTime).toBe(30);
   });
 
+  test("inline Play continues from where the expanded player closed", async () => {
+    const { container, video } = await mount();
+    await act(async () => container.querySelector<HTMLButtonElement>("button.cv-media__expand")!.click());
+    const stage = dom!.window.document.querySelector(".cv-media-stage")!;
+    const large = stage.querySelector<HTMLVideoElement>("video")!;
+    await act(async () => stage.querySelector<HTMLButtonElement>("button.cv-media__poster")!.click());
+    large.currentTime = 30;
+    await act(async () =>
+      dom!.window.document.querySelector<HTMLButtonElement>(".acpmux-image-viewer-action")!.click(),
+    );
+    await act(async () => container.querySelector<HTMLButtonElement>("button.cv-media__poster")!.click());
+    expect(video.currentTime).toBe(30);
+    expect(video.dataset.played).toBe("sound");
+  });
+
   test("its hover transitions run only when motion is allowed", () => {
     const css = readFileSync(new URL("../src/agent-session/acpmux/chips/chips.css", import.meta.url), "utf8");
     const media = css.slice(css.indexOf("/* Video and audio (ReplyMedia)"), css.indexOf(".cv-media-stage {"));
