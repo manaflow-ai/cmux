@@ -888,25 +888,46 @@ impl<B: Backend> Server<B> {
         arguments: &'a Map<String, Value>,
     ) -> Result<std::borrow::Cow<'a, Map<String, Value>>, Value> {
         // Only a tool that needs a terminal: `terminal_list` takes `tab` as a filter.
-        let needs_terminal = tool.needs_terminal();
-        let tab = arguments.get("tab").and_then(Value::as_str);
-        let Some(tab) = tab.filter(|_| needs_terminal && !arguments.contains_key("terminal"))
-        else {
+        if !tool.needs_terminal() {
             return Ok(std::borrow::Cow::Borrowed(arguments));
+        }
+        // The tab that names the terminal: `tab`, or a `terminal` that is really a tab, by
+        // its id (`tab_…`) or by a name with no scope above it (`terminal: "eval"` for the
+        // tab named eval, which the daemon's terminal name selector cannot find without a
+        // tab). tests/tool-evals m1: three models named a terminal by its tab.
+        let terminal_arg = arguments.get("terminal").and_then(Value::as_str);
+        let scoped =
+            ["workspace", "screen", "pane", "tab"].iter().any(|key| arguments.contains_key(*key));
+        let tab_like = terminal_arg.filter(|value| {
+            let bare = value.rsplit_once(':').map_or(*value, |(_, id)| id);
+            bare.starts_with("tab_")
+                || (!scoped
+                    && !bare.starts_with("term_")
+                    && !matches!(bare, "current" | "focused" | "caller"))
+        });
+        let tab = match (arguments.get("tab").and_then(Value::as_str), terminal_arg) {
+            (Some(tab), None) => tab,
+            (None, Some(_)) if tab_like.is_some() => tab_like.unwrap_or_default(),
+            _ => return Ok(std::borrow::Cow::Borrowed(arguments)),
         };
         // A `<session>:tab_…` names another session: the terminal gets the same prefix.
         let session = tab.rsplit_once(':').map(|(session, _)| session.to_owned());
         let mut lookup = Map::new();
-        for key in ["tab", "session", "workspace", "screen", "pane"] {
+        for key in ["session", "workspace", "screen", "pane"] {
             if let Some(value) = arguments.get(key) {
                 lookup.insert(key.into(), value.clone());
             }
         }
+        lookup.insert("tab".into(), Value::String(tab.to_owned()));
         let Some(tab_get) = v2_tools::find("tab_get") else {
             return Ok(std::borrow::Cow::Borrowed(arguments));
         };
         let answer = self.call_v2(tab_get, &lookup);
         if answer["isError"] == true {
+            // A plain name no tab has: let the daemon judge it as a terminal name.
+            if arguments.contains_key("terminal") {
+                return Ok(std::borrow::Cow::Borrowed(arguments));
+            }
             return Err(answer);
         }
         let record = &answer["structuredContent"];

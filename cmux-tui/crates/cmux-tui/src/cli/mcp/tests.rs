@@ -1818,3 +1818,37 @@ fn a_record_works_where_its_id_goes() {
     let add = add.unwrap_or_else(|| panic!("{sent:?}"));
     assert_eq!(add["request"]["params"]["device"], device, "{add}");
 }
+
+/// A terminal named by its tab, through `terminal` itself: a `tab_…` id or the tab's name
+/// with no scope above it (tests/tool-evals m1: `terminal_wait({terminal: "eval-cmd"})`,
+/// `terminal_screen_read({terminal: tab.tab_id})`).
+#[test]
+fn a_terminal_named_by_its_tab_through_terminal() {
+    let shown = json!({"id": "tab_1", "content_id": "term_00000000000000000000000000000abc"});
+    let fake = Fake { resource_result: Some(shown), ..Fake::default() };
+    let mut server = Server::new(fake, None);
+    for terminal in ["tab_00000000000000000000000000000001", "eval-cmd"] {
+        server
+            .call(&json!({"name": "terminal_screen_read", "arguments": {"terminal": terminal}}))
+            .expect("a tool result");
+    }
+    server
+        .call(&json!({"name": "terminal_screen_read",
+                       "arguments": {"terminal": "term_00000000000000000000000000000def"}}))
+        .expect("a tool result");
+    let sent = server.backend.sent.borrow();
+    let reads: Vec<&Value> =
+        sent.iter().filter(|s| s["request"]["operation"] == "terminal.screen.read").collect();
+    assert_eq!(reads.len(), 3, "{sent:?}");
+    for read in &reads[..2] {
+        assert_eq!(
+            read["request"]["params"]["terminal"], "term_00000000000000000000000000000abc",
+            "{read}"
+        );
+    }
+    assert_eq!(
+        reads[2]["request"]["params"]["terminal"], "term_00000000000000000000000000000def",
+        "a terminal id stays: {}",
+        reads[2]
+    );
+}
