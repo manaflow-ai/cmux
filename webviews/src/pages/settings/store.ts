@@ -511,6 +511,12 @@ export class SettingsStore {
     await this.refreshHost();
   }
 
+  /** Settings > Devices: this joined Mac's Screen sharing or Control on or off, then re-read the host lists. */
+  async setJoinConsent(surface: "screen" | "control", on: boolean): Promise<void> {
+    await this.request("cmux.settings.devices.join_consent", { surface, on });
+    await this.refreshHost();
+  }
+
   /** Settings > Machines: a Cloud machine's "Dedicated agent machine" on or off, then re-read the host lists. */
   async setMachineVmHost(id: string, on: boolean): Promise<void> {
     await this.request("cmux.settings.machines.vm_host", { id, on });
