@@ -50,8 +50,11 @@ run() {
   cargo="$(grep -c '^ *Compiling ' "$out" || true)"
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$side" "$case" "$secs" "$verdict" "$cargo" "$rc" "$(git -C "$dir" rev-parse HEAD)" | tee -a "$results"
   tail -n 4 "$out" | sed "s/^/  [$side-$case] /"
-  [[ "$rc" -eq 0 ]] || { echo "---- $side-$case log ----"; tail -n 60 "$out"; }
+  [[ "$rc" -eq 0 ]] || { echo "---- $side-$case log ----"; tail -n 60 "$out"; failures=$((failures + 1)); }
+  return 0
 }
+# A failed case is recorded and the rest still run; the step fails at the end.
+failures=0
 
 printf 'side\tcase\tseconds\tresult\tcrates_compiled\texit\tcommit\n' | tee -a "$results"
 
@@ -75,3 +78,4 @@ run after chief-source-commit "$work/head" "$work/th" "$work/ch" CMUX_NEXT_OPTCH
 
 echo "==== results ===="
 cat "$results"
+[[ "$failures" -eq 0 ]] || { echo "error: $failures case(s) failed; the measurement is incomplete" >&2; exit 1; }
