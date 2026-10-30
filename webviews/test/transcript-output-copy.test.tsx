@@ -106,6 +106,17 @@ test("a code handoff completes immediately when pane animation is disabled", asy
   }
 });
 
+test("a code handoff keeps the hidden highlighted card out of the accessibility tree", async () => {
+  const { CodeHandoff } = await import("../src/agent-session/acpmux/conversation/StreamingCode");
+  // Keep the handoff in its initial plain stage while the highlighted card is mounted underneath.
+  await render(<CodeHandoff code={"x".repeat(200_001)} lang="text" />);
+  const real = host.querySelector<HTMLElement>(".cv-code-handoff__real");
+  expect(real?.getAttribute("aria-hidden")).toBe("true");
+  expect(real?.hasAttribute("inert")).toBe(true);
+  const hiddenCopies = [...real?.querySelectorAll('button[aria-label="Copy code"]') ?? []];
+  expect(hiddenCopies.every((button) => button.closest("[inert]"))).toBe(true);
+});
+
 const call = (kind: string, output: string, command?: string) =>
   ({
     kind: "activity",

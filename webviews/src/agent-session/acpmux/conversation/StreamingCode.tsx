@@ -96,7 +96,16 @@ export function CodeHandoff({ code, lang }: { code: string; lang: string }) {
   return (
     <div ref={ref} className={`cv-code-handoff is-${stage}`}>
       {stage !== "done" && <PlainCode code={code} lang={lang} />}
-      <div className="cv-code-handoff__real" onAnimationEnd={() => setStage("done")}>
+      <div
+        className="cv-code-handoff__real"
+        // During the handoff the highlighted card is already mounted underneath the plain card.
+        // Keep its duplicate copy/open controls out of the accessibility tree (and tab order)
+        // until the fade finishes; pointer-events alone does not stop keyboard or screen-reader
+        // interaction with the transparent card.
+        aria-hidden={stage !== "done" || undefined}
+        inert={stage !== "done" || undefined}
+        onAnimationEnd={() => setStage("done")}
+      >
         <CodeBlock code={code} lang={lang} />
       </div>
     </div>
