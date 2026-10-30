@@ -10,9 +10,28 @@ struct DaemonRequestExecutor: Sendable {
         Self.checkNoStandIn(request)
         #endif
         let response = try await transport.request(cmd: R.command, timeout: timeout) { id in
-            try WireCoding.encodeRequest(request, id: id)
+            let line = try WireCoding.encodeRequest(request, id: id)
+            // Rule (b): a request that names a stand-in is never sent. A create resolves its target first (the DEBUG
+            // check above stops one that did not); any other pane verb on a pane still opening fails here, at once,
+            // with no daemon round trip, and its refusal shows (``PaneNotReady``, `DaemonService.onPaneNotReady`).
+            if Self.mayNameStandIn(line), let leak = Self.standInReference(inLine: line) {
+                throw PaneNotReady(command: R.command, reference: leak)
+            }
+            return line
         }
         return try WireCoding.decodeResponse(R.Response.self, from: response.line)
+    }
+
+    /// The decimal prefix every stand-in id starts with (2^62 = 4611686018427387904; stand-ins count up from it), so a
+    /// line without it names no stand-in: one byte scan per request, a JSON parse only on a hit.
+    private static let standInPrefix = Data("4611686018427".utf8)
+
+    static func mayNameStandIn(_ line: Data) -> Bool { line.range(of: standInPrefix) != nil }
+
+    /// ``standInReference(in:)`` for an encoded request line.
+    static func standInReference(inLine line: Data) -> String? {
+        guard let object = try? JSONSerialization.jsonObject(with: line) else { return nil }
+        return standInReference(in: object, key: nil)
     }
 
     #if DEBUG
@@ -20,16 +39,17 @@ struct DaemonRequestExecutor: Sendable {
 
     /// DEBUG, rule (b) of the P0 2026-10-30: a request names no stand-in. The creates that resolve their target with
     /// `DaemonStore.daemonTarget(_:)` (every terminal-starting request: new-tab, split, new-pane, new-pane-right,
-    /// new-row) stop here; any other request that still names one is logged as a fault, not stopped: those pane verbs
-    /// (zoom, rename, swap, a New Tab page on a pending pane) do not resolve a stand-in yet and the daemon refuses them
-    /// ("unknown pane"), as before this check (follow-up: one seam that resolves every pane verb).
+    /// new-row) stop here; any other request that still names one is logged, not stopped: those pane verbs (zoom,
+    /// rename, swap, a New Tab page on a pending pane) do not wait for their pane yet
+    /// ("unknown pane"), as before this check; any other request naming one is refused before it is sent
+    /// (``PaneNotReady``; follow-up: one seam where every pane verb waits for its pane).
     static func checkNoStandIn<R: DaemonRequest>(_ request: R) {
         guard let leak = standInReference(in: request) else { return }
         if R.self is any TerminalSpawningRequest.Type {
             // crash-allow: DEBUG-only invariant check (rule b): these creates resolve their target before they send
             assertionFailure("\(R.command) names stand-in \(leak): resolve it with DaemonStore.daemonTarget(_:) first")
         } else {
-            logger.fault("\(R.command, privacy: .public) names stand-in \(leak, privacy: .public); the daemon will refuse it")
+            logger.info("\(R.command, privacy: .public) names stand-in \(leak, privacy: .public); refused locally (PaneNotReady)")
         }
     }
     #endif

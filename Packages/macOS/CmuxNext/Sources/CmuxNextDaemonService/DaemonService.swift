@@ -468,6 +468,8 @@ public final class DaemonService {
     /// Receives every command task `send` starts, so an action run from the
     /// control socket can await it (`ActionRegistry.track`).
     @ObservationIgnored public var workTracker: ((ActionWork) -> Void)?
+    /// Shows a pane verb refused because its pane is still opening (``PaneNotReady``); the app sets it (the refusal HUD).
+    @ObservationIgnored public var onPaneNotReady: ((_ label: String) -> Void)?
 
     public func shutdownConnection() {
         // Nothing may start an owner again behind the shutdown (the unresponsive owner's restart).

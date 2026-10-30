@@ -656,6 +656,9 @@ final class AppServices {
         WorkspaceClose.willClose = { [weak self] workspace in self?.remoteTerminals.workspaceClosing(workspace) }
         let registry = registry
         daemon.workTracker = { registry.track($0) }
+        // A pane verb on a pane still opening was not sent: the refusal path logs it and shows it (P0 rule a; every
+        // machine's daemon copies this hook, as `workTracker`).
+        daemon.onPaneNotReady = { [weak registry] _ in registry?.refuse(MiscHandlerStrings.paneNotReady) }
         _ = palette  // built here, as before
         terminalDelegate.services = self
         _ = configActions  // built here, as before
