@@ -97,7 +97,7 @@ describe("hosted MCP agent gateway", { timeout: 60_000 }, () => {
     if (!gateway) return
     const s = await setup("revoked-install")
     const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]) as CryptoKeyPair
-    const jwk = await crypto.subtle.exportKey("jwk", pair.publicKey)
+    const jwk = await crypto.subtle.exportKey("jwk", pair.publicKey) as JsonWebKey
     const reg = await op(s.session, "install.register", { public_jwk: { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y }, kind: "mac", name: "gateway", device_name: "gateway", platform: "macos" })
     expect(reg.json.ok).toBe(true)
     const token = await mintAccessToken(env as Env, { user: s.user, team: s.team, install: reg.json.value.id, grant: reg.json.value.grant })
