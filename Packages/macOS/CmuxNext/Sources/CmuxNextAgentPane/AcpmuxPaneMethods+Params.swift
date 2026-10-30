@@ -36,7 +36,7 @@ nonisolated extension AcpmuxPaneMethods {
         // (its own id) or the chat's own turn.
         "_acpmux/retry": (["sessionId", "subagentId"], []),
         // `visible`: whether the pane shows the chat; acpmux owns unread from it (cx-n8ou).
-        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible"], []),
+        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "waitLogs"], []),
         "_acpmux/detach": (["sessionId"], []),
         "_acpmux/view": (["sessionId", "visible"], []),
         // Whether this pane types in a shared chat, never its text (multiplayer/presenceClient.ts).
