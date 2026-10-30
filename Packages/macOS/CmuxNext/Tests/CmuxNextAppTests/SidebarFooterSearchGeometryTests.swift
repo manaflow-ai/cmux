@@ -24,14 +24,14 @@ import Testing
         let placement = SidebarFooterBand.searchPlacement(columnX: 140, sidebarWidth: 160,
                                                            side: 24, itemsMaxX: 150)
         #expect(placement.needsDedicatedRow)
-        #expect(placement.x == 136)
-        #expect(placement.x + 24 <= 160)
+        #expect(placement.x == 134)
+        #expect(placement.x + 24 <= 158)
     }
 
     @Test func widePinnedRowStillLeavesSearchInsideTheSidebar() {
         let placement = SidebarFooterBand.searchPlacement(columnX: 340, sidebarWidth: 360,
                                                            side: 24, itemsMaxX: 330)
         #expect(placement.needsDedicatedRow)
-        #expect(placement.x + 24 <= 360)
+        #expect(placement.x + 24 <= 358)
     }
 }

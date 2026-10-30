@@ -72,7 +72,8 @@ final class SidebarFooterBand {
 
     /// Whether an overfull pinned row needs the separate footer line reserved for Search.
     var needsDedicatedSearchRow: Bool {
-        guard let host, let row = bandFirstRow else { return false }
+        guard let host, host.design.sidebarSections.showSearchButton, !host.design.sidebarSections.noFade,
+              let row = bandFirstRow else { return false }
         return Self.searchPlacement(columnX: SidebarStyle.trailingColumnCenterX(sidebarWidth: host.bounds.width),
                                     sidebarWidth: host.bounds.width, side: Self.searchButtonSide,
                                     itemsMaxX: row.itemsMaxX).needsDedicatedRow
@@ -123,7 +124,9 @@ final class SidebarFooterBand {
                                 itemsMaxX: CGFloat?) -> (x: CGFloat, needsDedicatedRow: Bool) {
         let columnMinX = columnX - side / 2
         guard let itemsMaxX else { return (columnMinX, false) }
-        let rightEdge = sidebarWidth - side
+        let band = SidebarResizeBand(width: max(Metrics.dividerHitWidth, SidebarResizeBand.minimumWidth),
+                                     gutter: Metrics.mainPaneGutter)
+        let rightEdge = sidebarWidth - band.inside - side
         let requestedX = max(columnMinX, itemsMaxX + Metrics.space2)
         return (min(requestedX, rightEdge), requestedX > rightEdge)
     }
