@@ -212,14 +212,12 @@ test("ignores stale open failures across navigation, collapse, and retry", async
   const provider = new MockFilesProvider(files);
   const baseCall = provider.call.bind(provider);
   const pending: Array<{ resolve: () => void; reject: (error: Error) => void }> = [];
-  provider.call = async <R>(op: string, params: unknown): Promise<R> => {
+  provider.call = (async (op: string, params: unknown) => {
     if (op === FilesOps.open) {
-      return new Promise<R>((resolve, reject) =>
-        pending.push({ resolve: () => resolve(undefined as R), reject }),
-      );
+      return new Promise<undefined>((resolve, reject) => pending.push({ resolve: () => resolve(undefined), reject }));
     }
     return baseCall(op, params);
-  };
+  }) as typeof provider.call;
   const settle = (reject: boolean, message = "gone") => {
     const attempt = pending.shift()!;
     if (reject) attempt.reject(pageError("test.open_failed", message));
