@@ -2183,7 +2183,7 @@ pre.cv-math-source {
 }
 .cv-step > .cv-tool {
   grid-template-columns: minmax(0, max-content) var(--cv-disclosure-slot) minmax(0, 1fr) auto;
-  gap: 6px;
+  gap: 4px;
 }
 .cv-step > .cv-tool > .cv-tool__icon {
   display: none;
@@ -2220,7 +2220,6 @@ pre.cv-math-source {
 }
 .cv-step-thought__body {
   display: block;
-  padding-block: 1px;
   line-height: 20px;
 }
 .cv-step.is-thought::after {
@@ -2231,8 +2230,8 @@ pre.cv-math-source {
 /* "tree": the tree guide the steps hung off before, its glyphs back, hairlines between rows. */
 :root[data-tool-steps-look="tree"] .cv-steps {
   --cv-step-inset: 0px;
-  margin-left: 7.5px;
-  padding-left: 14.5px;
+  margin-left: 8px;
+  padding-left: 12px;
   border: 0;
   border-left: 1px solid var(--cv-rule);
   border-radius: 0;
