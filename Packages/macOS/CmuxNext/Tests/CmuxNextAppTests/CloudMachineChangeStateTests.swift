@@ -156,6 +156,45 @@ struct CloudMachineChangeStateTests {
         #expect(await resolver.attempts == 2)
     }
 
+    @Test(arguments: [CloudMachine.Status.pausing, .starting])
+    func aFailedKillPreservesTheOlderMutation(change: CloudMachine.Status) async throws {
+        let session = Self.session(status: change == .starting ? .paused : .running)
+        defer { session.disconnect() }
+        let changes = CloudMachineChanges()
+        defer { changes.stop() }
+        try await changes.run(change, machineID: session.machineID, of: { session }) {
+            await #expect(throws: ActionFailure.self) {
+                try await changes.run(.deleting, machineID: session.machineID, of: { session }) {
+                    throw ActionFailure(message: "delete refused")
+                }
+            }
+            #expect(session.machine.pendingChange == change)
+        }
+        let stale = CloudMachine(id: session.machineID, status: session.machine.status)
+        #expect(changes.pendingStatus(for: stale) == change)
+        changes.listed([stale], refresh: {})
+        #expect(changes.isSettling, "the older provider transition still needs polling")
+        let terminal = CloudMachine(id: session.machineID, status: change == .starting ? .running : .paused)
+        #expect(changes.pendingStatus(for: terminal) == nil)
+        changes.listed([terminal], refresh: {})
+        #expect(!changes.isSettling)
+    }
+
+    @Test func anOlderFailureCannotEraseANewerMutationOfTheSameKind() async throws {
+        let session = Self.session(status: .running)
+        defer { session.disconnect() }
+        let changes = CloudMachineChanges()
+        defer { changes.stop() }
+        await #expect(throws: ActionFailure.self) {
+            try await changes.run(.deleting, machineID: session.machineID, of: { session }) {
+                try await changes.run(.deleting, machineID: session.machineID, of: { session }) {}
+                throw ActionFailure(message: "older delete refused")
+            }
+        }
+        #expect(session.machine.pendingChange == .deleting)
+        #expect(changes.pendingStatus(for: CloudMachine(id: session.machineID, status: .running)) == .deleting)
+    }
+
     @Test func anAcceptedMutationSurvivesAStaleListUntilItsTerminalRecord() async throws {
         let session = Self.session(status: .running)
         let changes = CloudMachineChanges(sleep: { _ in })
