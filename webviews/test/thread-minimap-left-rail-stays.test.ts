@@ -1,10 +1,11 @@
 // The thread rail (threadMinimap/ThreadMinimap.tsx) is never pushed aside by Session Info (Leo,
 // 2026-10-25: "So the left rail thing, that still gets hidden. So, like, when that session rail is
 // there, the session rail ends up pushing it to the side, and also when the left pane gets too narrow,
-// the session rail still disappears. We can't have it disappear."). Session Info floats and moves the
-// chat's column left only when both fit (inspector/ChatInspector.tsx inspectorChatShift); the rail
-// follows the transcript's inset, preserving its full look while the gutter progressively shrinks.
-// In a wide pane (1600), the pane where the column moves (1200), a narrow window (800), the
+// the session rail still disappears. We can't have it disappear."). Session Info floats and never
+// moves the chat's column (Leo, 2026-10-29: "it's not supposed to be a fucking sidebar that pushes the
+// fucking layout"), so with it open the rail draws where it does with it closed; the rail follows the
+// transcript's inset, preserving its full look while the gutter progressively shrinks.
+// In a wide pane (1600), a pane whose gutter cannot hold the panel (1200), a narrow window (800), the
 // overlap breakpoint (780), and the narrowest usable pane (760), with Session Info closed, open,
 // and pushing (Push always): the rail keeps one full-width look, hugs the transcript at a 4 px
 // resting gap, overlaps only at the breakpoint, and hides only when the minimum usable gutter is gone.
@@ -131,10 +132,16 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
                   distance: width >= 800 ? 4 : -6,
                 };
           const pushedExpected = width <= 1084 ? { shown: false } : { ...expected, scrollbarPinned: false };
-          const openExpected = width === 1084 ? { ...placed, clearOfColumn: false, distance: -8 } : expected;
-          expect({ closed: where(closed), open: where(open), pushed: where(pushed) }).toEqual({
+          // Floating, Session Info moves nothing: the rail is where it was with the panel closed.
+          expect({
+            closed: where(closed),
+            open: where(open),
+            moved: "left" in open && "left" in closed ? open.left - closed.left : 0,
+            pushed: where(pushed),
+          }).toEqual({
             closed: expected,
-            open: openExpected,
+            open: expected,
+            moved: 0,
             pushed: pushedExpected,
           });
         } finally {

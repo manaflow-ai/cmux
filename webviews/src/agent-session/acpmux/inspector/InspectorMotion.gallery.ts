@@ -6,8 +6,8 @@
 // plays click the header's Inspector toggle to close it, and again to open it. Pushing, the chat
 // narrows and widens with the panel on the same frames, so neither ends with a jump (Lawrence:
 // "animation at end is jumpy"); `long-chat` is a chat with forty turns, whose column re-wraps as it
-// narrows (in a pane under about 1120px wide, where the panel pushes). The resize handoff gallery
-// keeps the panel floating while the column eases left into the room the pushed layout will take.
+// narrows (in a pane under about 1120px wide, where the panel pushes). The resize gallery keeps the
+// panel floating while the chat's column stays where it is.
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, user } from "../../../gallery/fixtures/acpmux";
 import type { Play, PlayContext } from "../../../gallery/play";
@@ -68,7 +68,7 @@ export default agentPaneEntry({
       play: close,
     },
     "resize-handoff": {
-      note: "A pane resize through the float/push boundary: the chat column shifts left in a short handoff band while Session Info still floats, then the pushed layout takes the same center with no jump.",
+      note: "A pane resize: Session Info keeps floating at the pane's right edge and the chat's column never moves for it.",
       snapshot: longChat,
       native,
     },
