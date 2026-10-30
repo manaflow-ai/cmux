@@ -5271,6 +5271,8 @@ function AcpmuxPane() {
   const retryAfterTrust = useRef(trustAsk.retry);
   retryAfterTrust.current = trustAsk.retry;
   const cancelTrustResend = useCallback(() => {
+    const client = directClient.current;
+    client?.cancelTrustRefusals();
     trustCancelEpoch.current += 1;
     trustAsk.cancelResend();
   }, [trustAsk.cancelResend]);
