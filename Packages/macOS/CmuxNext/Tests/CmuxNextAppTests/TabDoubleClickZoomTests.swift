@@ -175,6 +175,80 @@ typealias ZoomStripID = CmuxNextTabs.TabID
         #expect(harness.zooms == [tab], "\(harness.intents)")
     }
 
+    /// The real double-click: the first click restores the layout, the indicator goes, and the second
+    /// press lands on the tab's title there. It toggles nothing again.
+    @Test func theSecondPressAfterTheIndicatorLeftRestoresNothing() throws {
+        let harness = StripHarness()
+        defer { harness.tearDown() }
+        harness.setZoomed(true)
+        let tab = ZoomStripID("tab0")
+        let point = try harness.zoomButton(tab)
+        harness.click(point)
+        harness.setZoomed(false)
+        harness.click(point, clickCount: 2)
+        #expect(harness.zooms == [tab], "\(harness.intents)")
+    }
+
+    /// A triple-click: the double-click zooms, the indicator appears under the pointer, and the
+    /// third press on it restores nothing.
+    @Test func aTripleClicksThirdPressOnTheIndicatorRestoresNothing() throws {
+        let harness = StripHarness()
+        defer { harness.tearDown() }
+        let tab = ZoomStripID("tab0")
+        harness.setZoomed(true)
+        let point = try harness.zoomButton(tab)
+        harness.setZoomed(false)
+        harness.click(point)
+        harness.click(point, clickCount: 2)
+        #expect(harness.zooms == [tab], "the double-click zooms")
+        harness.setZoomed(true)
+        harness.click(point, clickCount: 3)
+        #expect(harness.zooms == [tab], "\(harness.intents)")
+    }
+
+    /// Closing the selected tab while zoomed: the new selection shows the indicator (a full sync).
+    @Test func theIndicatorMovesToTheNextSelectionWhenTheSelectedTabCloses() throws {
+        let harness = StripHarness()
+        defer { harness.tearDown() }
+        harness.setZoomed(true)
+        harness.model.tabs.removeAll { $0.id == ZoomStripID("tab0") }
+        harness.model.selectedID = ZoomStripID("tab1")
+        harness.strip.sync(fromModel: true, animating: false)
+        harness.strip.layoutSubtreeIfNeeded()
+        #expect(harness.strip.cells[ZoomStripID("tab1")]?.zoomButtonRect != nil)
+        #expect(harness.strip.cells[ZoomStripID("tab2")]?.zoomButtonRect == nil)
+    }
+
+    /// A selection-only sync that keeps the selected tab (a multi-selection change) keeps its
+    /// indicator's layers, so a hover or press on it survives.
+    @Test func aMultiSelectionChangeKeepsTheIndicator() throws {
+        let harness = StripHarness()
+        defer { harness.tearDown() }
+        harness.setZoomed(true)
+        let tab = ZoomStripID("tab0")
+        let layer = try #require(harness.strip.cells[tab]?.zoomLayer)
+        let order = harness.model.tabs.map(\.id)
+        _ = harness.model.multiSelection.click(ZoomStripID("tab1"), .toggle, order: order, active: tab)
+        harness.strip.syncFromModel()
+        #expect(harness.strip.cells[tab]?.zoomLayer === layer)
+    }
+
+    /// VoiceOver: a zoomed pane's selected tab says so and offers Exit Zoom, which toggles the zoom.
+    @Test func voiceOverReadsAndExitsTheZoom() throws {
+        let harness = StripHarness()
+        defer { harness.tearDown() }
+        let tab = ZoomStripID("tab0")
+        let element = try #require(harness.strip.cells[tab]?.accessibility)
+        #expect(element.accessibilityCustomActions()?.contains { $0.name == Strings.exitZoom } != true)
+        harness.setZoomed(true)
+        #expect(element.accessibilityLabel()?.contains(Strings.axZoomed) == true)
+        let action = try #require(element.accessibilityCustomActions()?.first { $0.name == Strings.exitZoom })
+        _ = action.handler?()
+        #expect(harness.zooms == [tab])
+        harness.setZoomed(false)
+        #expect(element.accessibilityLabel()?.contains(Strings.axZoomed) != true)
+    }
+
     /// The strip itself never moves a tab for a zoom (the toolbar's width is checked below).
     @Test func aZoomMovesNoTab() {
         let harness = StripHarness()

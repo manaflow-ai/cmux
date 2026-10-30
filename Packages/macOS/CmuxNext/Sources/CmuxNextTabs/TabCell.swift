@@ -13,6 +13,8 @@ final class TabCell {
     let accessibility = TabAccessibilityElement()
     /// The strip's handler behind the element's Mute tab / Unmute tab action.
     var accessibilityToggleAudio: (@MainActor () -> Void)? { didSet { updateAccessibility() } }
+    /// The strip's handler behind the element's Exit Zoom action, while the tab shows the zoom indicator.
+    var accessibilityToggleZoom: (@MainActor () -> Void)? { didSet { updateAccessibility() } }
     private(set) var item: TabItem
     /// Instant (L4): the content switches in one frame, so the highlight does too.
     var isSelected = false {
@@ -38,6 +40,7 @@ final class TabCell {
             updateZoomBadge()
             updateColors(animated: false)
             layoutLayers()
+            updateAccessibility()
         }
     }
     /// The pointer is on the zoom indicator, or presses it (TabCell+ZoomBadge).

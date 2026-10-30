@@ -36,7 +36,9 @@ extension TabStripView {
 
     private func syncSelection(_ input: ModelSnapshot) {
         let selected = input.selectedID
-        if let lastSelectedID, let cell = cells[lastSelectedID] {
+        // Only a cell that lost the selection drops the indicator: flipping the still-selected
+        // one off and on would rebuild its layers and lose a hover or press on it.
+        if let lastSelectedID, lastSelectedID != selected, let cell = cells[lastSelectedID] {
             cell.isSelected = false
             cell.showsZoom = false
         }
@@ -214,6 +216,7 @@ extension TabStripView {
         cell.accessibility.onPress = { [weak self] in self?.model.send(.select(id)) }
         cell.accessibility.onClose = { [weak self] in self?.close(id, source: .accessibility) }
         cell.accessibilityToggleAudio = { [weak self] in self?.model.send(.toggleAudioMute(id)) }
+        cell.accessibilityToggleZoom = { [weak self] in self?.model.send(.toggleZoom(id)) }
         let element = ObjectIdentifier(cell.accessibility)
         cell.accessibility.onFocus = { [weak self] focused in self?.noteAccessibilityFocus(element, focused) }
         tabsLayer(isPinned: item.isPinned)?.addSublayer(cell.layer)
