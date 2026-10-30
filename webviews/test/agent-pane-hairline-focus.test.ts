@@ -309,7 +309,8 @@ await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
     expect(ring.focused).toBe(true);
     expect(ring.style).toBe("solid");
     expect(ring.width).toBe(1);
-    expect(ring.offset).toBe(-1.5);
+    // Chromium quantizes the specified -1.5px outline offset to -1px at 1x.
+    expect(ring.offset).toBe(-1);
     await page.emulateMedia({ contrast: "more" });
     const contrastRing = await page.evaluate(() => {
       const tick = document.getElementById("rail-tick")!;
