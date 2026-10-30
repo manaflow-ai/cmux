@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "6e6661334b6d20f300c49059740a6892b48e7c6c773fef091543291b5b518022";
+inline constexpr std::string_view kProtocolIrSha256 = "98c4043022f88fb5841f377edc178aa568c70700c97ca18735403806195acaf3";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -51,6 +51,7 @@ struct CloudConversationPresenceParticipant;
 struct ColorHex;
 enum class ColumnMoveDirection;
 struct ColumnPin;
+enum class ColumnSide;
 struct ConversationChange;
 struct ConversationImportMessage;
 struct ConversationMessage;
@@ -1803,6 +1804,7 @@ struct CloudInboxChangedEvent {
 };
 
 struct CloudInboxListRequest {
+    Field<std::string> cursor{};
     std::optional<bool> include_archived{};
     Field<std::uint32_t> limit{};
     friend bool operator==(const CloudInboxListRequest&, const CloudInboxListRequest&) = default;
@@ -1945,6 +1947,11 @@ struct ColumnPin {
     std::string mode{};
     Field<std::string> role{};
     friend bool operator==(const ColumnPin&, const ColumnPin&) = default;
+};
+
+enum class ColumnSide {
+    left,
+    right,
 };
 
 struct ConfigReloadRequestedEvent {
@@ -2393,6 +2400,7 @@ struct ConversationRunResult {
 };
 
 struct ConversationRunsRequest {
+    Field<std::vector<std::string>> answers{};
     Field<std::uint64_t> before_started_at{};
     std::string conversation{};
     Field<std::uint32_t> limit{};
@@ -3986,6 +3994,7 @@ struct NewPaneRightRequest {
     Field<std::string> pane_id{};
     Field<std::uint16_t> rows{};
     Field<std::vector<std::string>> shell_args{};
+    Field<ColumnSide> side{};
     Field<std::string> tab_id{};
     Field<std::string> terminal_id{};
     Field<std::string> url{};
@@ -6215,6 +6224,12 @@ template <>
 struct Codec<ColumnPin> {
     static Result<Json> encode(const ColumnPin& value);
     static Result<ColumnPin> decode(const Json& value);
+};
+
+template <>
+struct Codec<ColumnSide> {
+    static Result<Json> encode(const ColumnSide& value);
+    static Result<ColumnSide> decode(const Json& value);
 };
 
 template <>
