@@ -1032,6 +1032,12 @@
   background: var(--acpmux-top-tray);
   box-shadow: inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-strip-edge);
 }
+/* Folder-browse recovery adds a second row. In the tray, keep that row below the raised composer
+   instead of letting the fixed tray height clip it under the card. */
+:root[data-top-strip="tray"] .acpmux-composer-strip:has(> .acpmux-composer-context > .acpmux-folder-choice) {
+  height: auto;
+  min-height: calc(var(--acpmux-strip-height) + var(--acpmux-tray-tuck));
+}
 /* The strip keeps the card's blur (composerStates.css), and glass is never opaque: off Reduce
    Transparency the tray's step goes over the card's glass tint, as Codex's tray does
    (composerLook.css), not over the solid tray tone (accent-glass-invariants). */
