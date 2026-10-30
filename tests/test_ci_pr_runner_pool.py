@@ -3301,7 +3301,7 @@ class IOSRouting(unittest.TestCase):
     def test_a_kit_run_needs_one_machine_and_one_simulator(self):
         kit = {"id": 1, "display_title": "cmux-next-ios kit tests",
                "path": ".github/workflows/cmux-next-ios-kit.yml",
-               "created_at": pool.iso(NOW - dt.timedelta(minutes=1))}
+               "created_at": pool.iso(NOW - dt.timedelta(minutes=10))}
         self.assertEqual((ios_pool.charged_jobs(kit), ios_pool.charged_sim_jobs(kit)), (1, 1))
         self.assertEqual(ios_pool.charged_sim_jobs(kit, ios_pool.Placements(frozenset()), NOW), 0)
 
