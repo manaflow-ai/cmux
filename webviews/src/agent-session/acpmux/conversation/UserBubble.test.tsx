@@ -157,9 +157,7 @@ for (const kind of ["image", "document", "audio", "text", "pasted", "link"] as c
       },
     });
     expect(container.querySelector(".cv-user__actions")).not.toBeNull();
-    const retry = container.querySelector<HTMLButtonElement>(
-      `button[aria-label="${translate("turn.retry")}"]`,
-    );
+    const retry = container.querySelector<HTMLButtonElement>(`button[aria-label="${translate("turn.retry")}"]`);
     expect(retry).not.toBeNull();
     await act(async () => retry!.click());
     expect(retried).toEqual([row.id]);
