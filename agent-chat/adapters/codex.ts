@@ -505,8 +505,15 @@ function answerCodexQuestion(sess: SessionCtx, questionId: string, answers: Agen
     return;
   }
   const result = codexQuestionReply(pending.items, answers);
+  try {
+    pending.write({ jsonrpc: "2.0", id: pending.requestId, result });
+  } catch {
+    // The app-server is gone, and the request with it: close the card
+    // instead of leaving a question nobody can answer.
+    settleQuestion(sess, questionId, "expired", false);
+    throw new Error("Codex stopped before the answer reached it");
+  }
   codexQuestions(sess).delete(questionId);
-  pending.write({ jsonrpc: "2.0", id: pending.requestId, result });
   sess.emit({ kind: "question-resolved", questionId, outcome: "answered" });
   const summary = pending.items
     .map((item) => `${item.header ?? item.question}: ${item.secret ? "(hidden)" : answers[item.id]}`)

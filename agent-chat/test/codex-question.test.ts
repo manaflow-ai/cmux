@@ -125,6 +125,20 @@ test("declining, Stop, Codex settling it, and the turn ending each close the que
   expect(ended.events[1]).toEqual({ kind: "question-resolved", questionId: "codex-item-1", outcome: "expired" });
 });
 
+test("an answer that cannot reach an exiting app-server closes the question", () => {
+  const h = codexSessionForTest();
+  h.feed([ask(15, [region])]);
+  const pending = (h.sess.internal.codexQuestions as Map<string, { write(msg: unknown): void }>).get("codex-item-1")!;
+  pending.write = () => {
+    throw new Error("stdin closed");
+  };
+  expect(() => codexAdapter.answerQuestion!(h.sess, "codex-item-1", { region: "us" })).toThrow("Codex stopped before the answer reached it");
+  expect(h.events.at(-1)).toEqual({ kind: "question-resolved", questionId: "codex-item-1", outcome: "expired" });
+  // The app-server's exit later finds nothing left to settle.
+  expect(() => codexAdapter.answerQuestion!(h.sess, "codex-item-1", { region: "us" })).toThrow("no longer waiting");
+  expect(h.events.filter((e) => e.kind === "question-resolved")).toHaveLength(1);
+});
+
 test("a request with nothing answerable is declined so the turn goes on", () => {
   const h = codexSessionForTest();
   h.feed([ask(14, [{ header: "no id", question: "?" }])]);
