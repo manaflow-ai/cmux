@@ -49,13 +49,13 @@ struct IncompatibleOwnerHandoffTests {
     private let directory = FileManager.default.temporaryDirectory
         .appendingPathComponent("cnd-incompatible-\(UUID().uuidString.prefix(8))", isDirectory: true)
 
-    private func launcher(bundled: Bool = true, session: String = "cmux-app-test") -> DaemonLauncher {
+    private func makeLauncher(bundled: Bool = true, session: String = "cmux-app-test") -> DaemonLauncher {
         DaemonLauncher(configuration: .init(binary: URL(fileURLWithPath: "/usr/bin/false"), session: session,
                                             binaryIsBundled: bundled),
                        environment: { [:] })
     }
 
-    private func endpoint(_ owner: Owner, log: URL) throws -> DaemonEndpoint {
+    private func makeEndpoint(_ owner: Owner, log: URL) throws -> DaemonEndpoint {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let capabilities = String(decoding: try JSONEncoder().encode(owner.capabilities), as: UTF8.self)
         let bridge = DaemonBridge(executable: "/usr/bin/python3", arguments: [
@@ -71,7 +71,7 @@ struct IncompatibleOwnerHandoffTests {
         -> (error: DaemonError?, shutdowns: [[String: Any]]) {
         let log = directory.appendingPathComponent("log-\(UUID().uuidString.prefix(8)).jsonl")
         let base = DaemonConnection.Configuration(requiredCapabilities: required, terminalEnvironment: nil)
-        let connection = DaemonConnection(endpoint: try endpoint(owner, log: log),
+        let connection = DaemonConnection(endpoint: try makeEndpoint(owner, log: log),
                                           configuration: launcher?.handingOffIncompatibleOwners(base) ?? base)
         var failure: DaemonError?
         do {
@@ -92,7 +92,7 @@ struct IncompatibleOwnerHandoffTests {
 
     @Test func anOwnerOfAnOlderProtocolIsHandedOffKeepingItsTerminals() async throws {
         defer { try? FileManager.default.removeItem(at: directory) }
-        let launcher = launcher()
+        let launcher = makeLauncher()
         let result = try await connect(Owner(), launcher: launcher)
         #expect(result.error == .incompatibleOwnerHandedOff)
         let shutdown = try #require(result.shutdowns.first)
@@ -107,7 +107,7 @@ struct IncompatibleOwnerHandoffTests {
 
     @Test func anOwnerMissingARequiredCapabilityIsHandedOff() async throws {
         defer { try? FileManager.default.removeItem(at: directory) }
-        let result = try await connect(Owner(protocolVersion: 12, capabilities: ["other-v1"]), launcher: launcher(),
+        let result = try await connect(Owner(protocolVersion: 12, capabilities: ["other-v1"]), launcher: makeLauncher(),
                                        required: ["needed-v1"])
         #expect(result.error == .incompatibleOwnerHandedOff)
         #expect(result.shutdowns.count == 1)
@@ -115,7 +115,7 @@ struct IncompatibleOwnerHandoffTests {
 
     @Test func aSecondIncompatibleOwnerIsRefusedNotHandedOffAgain() async throws {
         defer { try? FileManager.default.removeItem(at: directory) }
-        let launcher = launcher()
+        let launcher = makeLauncher()
         _ = try await connect(Owner(), launcher: launcher)
         launcher.handoff.cancel(pid: 424_242)
         let again = try await connect(Owner(pid: 424_243), launcher: launcher)
@@ -125,14 +125,14 @@ struct IncompatibleOwnerHandoffTests {
 
     @Test func anOwnerOfAnotherSessionIsNeverStopped() async throws {
         defer { try? FileManager.default.removeItem(at: directory) }
-        let result = try await connect(Owner(session: "cmux-app-other"), launcher: launcher())
+        let result = try await connect(Owner(session: "cmux-app-other"), launcher: makeLauncher())
         #expect(result.error == .unsupportedProtocol(11))
         #expect(result.shutdowns.isEmpty)
     }
 
     @Test func anExternalBinaryOrAConnectionWithoutTheHandoffKeepsTheRefusal() async throws {
         defer { try? FileManager.default.removeItem(at: directory) }
-        let external = try await connect(Owner(), launcher: launcher(bundled: false))
+        let external = try await connect(Owner(), launcher: makeLauncher(bundled: false))
         #expect(external.error == .unsupportedProtocol(11))
         #expect(external.shutdowns.isEmpty)
         let plain = try await connect(Owner(), launcher: nil)
@@ -142,7 +142,7 @@ struct IncompatibleOwnerHandoffTests {
 
     @Test func aRefusedHandoffShowsTheRefusal() async throws {
         defer { try? FileManager.default.removeItem(at: directory) }
-        let launcher = launcher()
+        let launcher = makeLauncher()
         let result = try await connect(Owner(accepts: false), launcher: launcher)
         #expect(result.error == .unsupportedProtocol(11))
         #expect(result.shutdowns.count == 1)
@@ -153,9 +153,9 @@ struct IncompatibleOwnerHandoffTests {
     /// attaches to the successor.
     @Test func theFirstConnectReachesTheSuccessor() async throws {
         defer { try? FileManager.default.removeItem(at: directory) }
-        let launcher = launcher()
+        let launcher = makeLauncher()
         let log = directory.appendingPathComponent("startup.jsonl")
-        let endpoint = try endpoint(Owner(upgrade: directory.appendingPathComponent("upgraded")), log: log)
+        let endpoint = try makeEndpoint(Owner(upgrade: directory.appendingPathComponent("upgraded")), log: log)
         let configuration = launcher.handingOffIncompatibleOwners(.init(requiredCapabilities: [], terminalEnvironment: nil))
         let connected = await DaemonStartup.shared.connect(wake: RetryWake(owner: "IncompatibleOwnerHandoffTests")) {
             DaemonConnection(endpoint: endpoint, configuration: configuration)

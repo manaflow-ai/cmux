@@ -92,7 +92,7 @@ struct DaemonVersionHandoffTests {
             required.requiredCapabilities += ["cmux-test-never-served-v1"]
             let updated = DaemonConnection(configuration: launcher.handingOffIncompatibleOwners(required),
                                            endpointProvider: launcher.endpointProvider)
-            await #expect(throws: DaemonError.incompatibleOwnerHandedOff) { try await updated.start() }
+            await #expect(throws: DaemonError.incompatibleOwnerHandedOff) { _ = try await updated.start() }
             await updated.close()
 
             // The first connection reconnects to the successor by itself.
