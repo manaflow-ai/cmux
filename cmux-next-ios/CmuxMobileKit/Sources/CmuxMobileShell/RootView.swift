@@ -644,7 +644,9 @@ private struct LiveCallHost: ViewModifier {
 
 /// Exactly four tabs: Home, Workspaces, Feed, Settings. The selected tab is
 /// `label` (neutral accent), never blue. The bar stays fully visible while
-/// content scrolls: it never minimizes to the selected tab's pill.
+/// content scrolls: it never minimizes to the selected tab's pill. Whether it
+/// shows at all is ``ShellModel/showsTabBar(on:)``, set here on each tab's
+/// content, outside its stack.
 struct ShellTabs: View {
     let shell: ShellModel
 
@@ -653,13 +655,19 @@ struct ShellTabs: View {
         TabView(selection: $shell.tab) {
             Tab("Home", systemImage: "house", value: RootTab.home) {
                 HomeScreen(shell: shell)
+                    .modifier(TabBarVisibility(shell: shell, tab: .home))
+                    .modifier(TabBarProbeHost())
             }
             Tab("Workspaces", systemImage: "square.stack.3d.up", value: RootTab.workspaces) {
                 WorkspacesScreen(shell: shell)
+                    .modifier(TabBarVisibility(shell: shell, tab: .workspaces))
+                    .modifier(TabBarProbeHost())
             }
             .badge(shell.store.attentionCount)
             Tab("Feed", systemImage: "bubble.left.and.text.bubble.right", value: RootTab.feed) {
                 FeedTabContent(shell: shell)
+                    .modifier(TabBarVisibility(shell: shell, tab: .feed))
+                    .modifier(TabBarProbeHost())
             }
             .badge(FeedStore.shared.needsYouCount)
             Tab("Settings", systemImage: "gearshape", value: RootTab.settings) {
@@ -677,11 +685,25 @@ struct ShellTabs: View {
                 ) {
                     SidebarToolbarItem(sidebar: shell.sidebar)
                 }
+                .modifier(TabBarVisibility(shell: shell, tab: .settings))
+                .modifier(TabBarProbeHost())
             }
         }
         .tabBarMinimizeBehavior(.never)
         .tint(theme.colors.label.color)
         .cmuxMobileSensoryFeedback(.selection, trigger: shell.tab)
+    }
+}
+
+/// The UI tests' tab bar probe (``TabBarProbe``) in a tab's content, outside
+/// its stack; nothing outside DEBUG builds launched with its argument.
+private struct TabBarProbeHost: ViewModifier {
+    func body(content: Content) -> some View {
+        #if DEBUG
+        content.overlay(alignment: .topLeading) { TabBarProbe() }
+        #else
+        content
+        #endif
     }
 }
 
