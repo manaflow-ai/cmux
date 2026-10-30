@@ -1,5 +1,5 @@
 import CmuxNextCompat
-import Observation
+public import Observation
 
 /// Separates observable page ownership from AppKit's non-observable view hierarchy.
 @MainActor @Observable
