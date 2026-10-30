@@ -1,0 +1,65 @@
+//! Read the existing turn and journal; no new session state or turn counter.
+use super::*;
+use crate::turn_attestation::{TurnAttestation, refused};
+use cmux_server::pairing::EnrolledIdentity;
+
+impl Hub {
+    pub(crate) fn issue_turn_attestation(
+        &self,
+        id: &str,
+        identity: &EnrolledIdentity,
+        ttl: u64,
+    ) -> Result<Value, RpcError> {
+        let session = self.resolve(id)?;
+        // Exact identity only, never a name/prefix which might resolve to another chat.
+        if session.id != id {
+            return Err(refused("turn_attestation.caller_mismatch"));
+        }
+        let (seq, turn_id) = session
+            .turn
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .map(|t| (t.turn_seq, t.turn_id.clone()))
+            .filter(|(seq, _)| *seq > 0)
+            .ok_or_else(|| refused("turn_attestation.not_live"))?;
+        // No turn lock while taking append_lock (other paths append while holding turn).
+        // Hold journal ordering through signing: an end cannot be recorded between the
+        // liveness check and issuance. A start not durably appended proves nothing.
+        let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
+        if session.purged.load(Ordering::SeqCst)
+            || session.closing.load(Ordering::SeqCst)
+            || !self.session_log_loaded(&session)
+        {
+            return Err(refused("turn_attestation.not_live"));
+        }
+        let mut started = false;
+        let mut ended = false;
+        self.store
+            .scan_strict(id, seq - 1, &mut |r| {
+                if r.dir == "mux" {
+                    if r.seq == seq && r.kind == "turn_started" && r.msg["turnId"] == turn_id {
+                        started = true;
+                    }
+                    if (r.seq > seq && r.kind == "turn_started")
+                        || (matches!(r.kind.as_str(), "turn_end" | "turn_result" | "turn_error")
+                            && (r.msg["turnId"] == turn_id || r.msg["turnSeq"] == seq))
+                        || matches!(r.kind.as_str(), "stopped" | "exited")
+                    {
+                        ended = true;
+                    }
+                }
+                true
+            })
+            .map_err(|_| refused("turn_attestation.journal_unavailable"))?;
+        if !started || ended {
+            return Err(refused("turn_attestation.not_live"));
+        }
+        let proof = TurnAttestation::issue(identity, id, seq, now_ms(), ttl)?;
+        serde_json::to_value(proof).map_err(|_| refused("turn_attestation.encoding"))
+    }
+}
+
+#[cfg(test)]
+#[path = "turn_attestation_tests.rs"]
+mod tests;
