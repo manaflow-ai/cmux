@@ -2527,6 +2527,26 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                               target.main or target.nightly or target.push_branch),
                           attempt_started_at=target.attempt_started_at,
                           reserved=target.nightly, stranded=stranded)
+            # The open-head failover's offer comes first, before every branch below that waits or returns: the
+            # refusal wait (a refused sibling of a run that also failed on its own is never re-run by the refusal
+            # path, follow()), and the "rescue" and "refused" returns (a hold for a Blacksmith slot re-watches and
+            # would return before an offer placed after them). A job left queued is offered the failover every
+            # FAILOVER_LOOK_SECONDS, whatever kept the queue rescue off: a red job of the attempt (a full re-run
+            # would repeat it, but the placement or settled re-run keeps its result), a refusals-only watch (it
+            # looked once, at its first queue alarm) or a hold for a Blacksmith slot. Its label runs nothing, so it
+            # waits for no turn (open_head_failover()). Runs 40993742146 and 41013458526 (2026-10-30) waited hours
+            # behind a red `checks` with the failover never looked at. A refusal with no failure of its own keeps
+            # the refusal path, whose re-run of failed jobs brings back the refused job too.
+            offer = look.waiting or look.action == "rescue" or (
+                look.action == "refused" and bool(decided_failures(jobs, target.attempt_started_at)))
+            if offer and target.pr_number and not finished and (failover_at is None or seen_at >= failover_at) \
+                    and any(mac_route(job) and waiting_for_runner(job)
+                            and queued_seconds(job, seen_at, first_seen.get(job.get("id"))) >= UNSTARTED_STALL_SECONDS
+                            for job in jobs):
+                failover_at = seen_at + dt.timedelta(seconds=FAILOVER_LOOK_SECONDS)
+                why = open_head_failover(api, target, now=now, sleep=sleep, log=log, first_seen=first_seen).why
+                if why:
+                    return "failover", why
             if look.action == "refused" and not finished and seen_at < deadline and not target.main:
                 # GitHub re-runs no job of a run still in progress (403 "already
                 # running", for one job or the failed ones), and cancelling
@@ -2555,20 +2575,6 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
             log(f"look {looks}: {look.reason}")
             if look.action in ("rescue", "refused"):
                 return look.action, look.reason
-            if look.waiting and target.pr_number and (failover_at is None or seen_at >= failover_at) and any(
-                    mac_route(job) and waiting_for_runner(job)
-                    and queued_seconds(job, seen_at, first_seen.get(job.get("id"))) >= UNSTARTED_STALL_SECONDS
-                    for job in jobs):
-                # A job left queued is offered the open-head failover every FAILOVER_LOOK_SECONDS, whatever kept
-                # the queue rescue off: a red job of the attempt (a full re-run would repeat it, but cmux-next's
-                # re-run of its placement keeps its result), a refusals-only watch (it looked once, at its first
-                # queue alarm) or a hold for a Blacksmith slot. Its label runs nothing, so it waits for no turn
-                # (open_head_failover()). Runs 40993742146 and 41013458526 (2026-10-30) waited hours behind a red
-                # `checks` with the failover never looked at.
-                failover_at = seen_at + dt.timedelta(seconds=FAILOVER_LOOK_SECONDS)
-                why = open_head_failover(api, target, now=now, sleep=sleep, log=log, first_seen=first_seen).why
-                if why:
-                    return "failover", why
             if not look.waiting:
                 interval = IDLE_POLL_SECONDS
                 owned = [job for job in jobs if job_pool(job)]
@@ -3590,19 +3596,21 @@ def open_head_guard(api: GitHub, target: Target, sleep: Callable[[float], None],
     """rescue()'s before_cancel for an open-head failover, right before the cancel and every re-send of it: the run
     must still be this attempt and unfinished (a cancel hits the run's current attempt, which another watch's re-run
     may have started), and no job of it may have started since (failover_loses(), with the failover's `plan`). Else
-    the cancel is dropped (OpenHeadStarted)."""
+    the cancel is dropped (OpenHeadStarted). The jobs are read last, after the run, as in settled_guard(): a run read
+    slowed by a rate limit or a retry must not leave a jobs read from before it, in which a job that started or
+    queued meanwhile (one the re-run would leave cancelled) is missing."""
     def check() -> None:
         if before_cancel is not None:
             before_cancel()
-        jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
-        if len(jobs) >= MAX_JOB_PAGES * 100:
-            raise OpenHeadStarted(f"the run lists {len(jobs)} jobs, maybe more, so none can be shown unstarted")
         run = read(lambda: api.run(target.run_id), sleep, log) or {}
         attempt = int(run.get("run_attempt") or 0)
         if attempt != target.attempt:
             raise OpenHeadStarted(f"the run is at attempt {attempt}, not {target.attempt}")
         if run.get("status") == "completed":
             raise OpenHeadStarted("the run has finished")
+        jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
+        if len(jobs) >= MAX_JOB_PAGES * 100:
+            raise OpenHeadStarted(f"the run lists {len(jobs)} jobs, maybe more, so none can be shown unstarted")
         taken = sorted(str(job.get("name") or job.get("id")) for job in jobs if failover_loses(job, plan))
         if taken:
             raise OpenHeadStarted(f"{', '.join(taken)} started before the cancel")

@@ -6508,6 +6508,20 @@ class OpenHeadSettledFailover(unittest.TestCase):
                 self.assertFalse(found)
                 self.assertNotIn("cancel", api.calls)
 
+    def test_a_watch_moves_a_dead_label_beside_a_refusal_and_a_failure_of_its_own(self):
+        # A refused Mac sibling made assess() answer "refused", and the watch waited for the run to finish before the
+        # failover's offer; at the deadline follow() declined the refusal path, the run having failed on its own (the
+        # swift test). The offer now comes before that wait, so the stalled compile still moves.
+        def shape(seconds):
+            return [*self.shape_27853(seconds), refused_job("cmux-next daemon tests", labels=(SESSION,))]
+        clock, api, target = self.world(shape, extra={"attempt_started_at": START})
+        with unittest.mock.patch("sys.stdout", io.StringIO()):
+            result = rescue.follow(api, target, seconds=30, queue_rounds="0", now=clock.now, sleep=clock.sleep,
+                                   log=lambda _: None, side_seconds=30)
+        self.assertIn("cancel", api.calls, (result, api.calls))
+        self.assertIn(f"rerun-job:{self.COMPILE_ID}", api.calls, (result, api.calls))
+        self.assertNotIn("rerun-failed", api.calls)
+
     def test_a_watch_moves_a_dead_label_behind_red_siblings_whatever_blacksmiths_state(self):
         # assess() leaves a run with a red job queued (leave_decided), and the destination hold kept a job queued
         # while Blacksmith was stalled; a label that runs nothing is no queue to wait in.
@@ -6746,6 +6760,32 @@ class OpenHeadPlacementRerun(unittest.TestCase):
         result, lines = self.run_rescue(api, clock, target)
         self.assertEqual([call for call in api.calls if call.startswith("rerun")], [f"rerun-job:{self.PLACEMENT_ID}"])
         self.assertIn(f"GitHub refused the re-run of {rescue.CMUX_NEXT_PLACEMENT_JOB}", result)
+
+    def test_a_job_that_queues_while_the_guard_reads_the_run_drops_the_cancel(self):
+        # open_head_guard() reads the jobs after the run: a job outside the placement's subtree that queued while the
+        # run read was slow (a retry, a rate limit) shows in that later read, so the cancel never leaves it behind.
+        state = {"looks": 0, "queued": False}
+        clock, api, target = self.world(with_ids(self.shape()))
+
+        def jobs(run_id, attempt):
+            state["looks"] += 1
+            found = FakeAPI.jobs(api, run_id, attempt)
+            if state["queued"]:
+                late = job("pr-red-checks / comment", labels=["blacksmith-2vcpu-ubuntu-2404"])
+                late["id"] = 4242
+                found.append(late)
+            return found
+        read_run = api.run
+
+        def run(run_id):
+            if state["looks"] >= 2:  # past the failover's look and the receipt: the guard's run read
+                state["queued"] = True
+            return read_run(run_id)
+        api.jobs, api.run = jobs, run
+        result, _ = self.run_rescue(api, clock, target)
+        assert_left_at_open_head(self, api, result, number=27797)
+        self.assertFalse([call for call in api.calls if call.startswith("rerun-job")], api.calls)
+        self.assertIn("pr-red-checks / comment", result)
 
     def test_a_queued_job_the_placement_rerun_may_not_bring_back_is_never_cancelled(self):
         # A stalled Mac job beside an unrelated queued job whose name maps to no workflow job, or to a job inside the
