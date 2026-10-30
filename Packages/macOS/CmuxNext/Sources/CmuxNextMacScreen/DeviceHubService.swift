@@ -3,7 +3,7 @@ import CmuxNextCompat
 import CmuxNextControl
 public import CmuxNextDevices
 public import CmuxNextSettings
-import Foundation
+public import Foundation
 import os
 
 /// The device hub for this app (docs/device-hub/PROTOCOL.md): made when
