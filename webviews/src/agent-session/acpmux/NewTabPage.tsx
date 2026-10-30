@@ -382,7 +382,7 @@ export function NewTabPage({
     setBrowseError(undefined);
     setProjectCwd(path);
   };
-  const browseProject = async (request?: BrowseRequest): Promise<string | undefined> => {
+  const browseProject = async (request?: BrowseRequest): Promise<BrowseResult> => {
     // The Add Project dialog owns its result and errors until it commits the choice.
     if (request?.deferPick) return onBrowseProject?.(request);
     const id = ++browseRequest.current;
