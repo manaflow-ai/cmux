@@ -5910,3 +5910,6 @@ mod actor_migration_tests;
 
 #[cfg(test)]
 mod workspace_name_tests;
+
+#[cfg(test)]
+mod projection_size_tests;
