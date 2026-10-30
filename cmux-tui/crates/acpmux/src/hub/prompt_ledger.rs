@@ -105,6 +105,19 @@ impl Hub {
                 }
             }
             match (rec.kind.as_str(), &turn_id) {
+                // Put back after the turn it joined failed (`digest.rs` `requeue_joined`): it
+                // waits again under its own turn id. Ahead of the arm below, which would take
+                // the record too and keep the refused digest this prompt's.
+                ("queued", Some(_))
+                    if rec.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id)
+                        && rec.msg.get("requeued") == Some(&Value::Bool(true)) =>
+                {
+                    turn_id = rec.msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
+                    started = false;
+                    ended = None;
+                    // Out of an inbox digest that failed too (`inbox_digest.rs`).
+                    digest = None;
+                }
                 ("user_message" | "queued", _)
                     if !started
                         && ended.is_none()
@@ -129,18 +142,6 @@ impl Hub {
                     if rec.msg.get("turnId").and_then(Value::as_str) == Some(id) =>
                 {
                     ended = Some(rec.msg);
-                }
-                // Put back after the turn it joined failed (`digest.rs` `requeue_joined`): it
-                // waits again under its own turn id.
-                ("queued", Some(_))
-                    if rec.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id)
-                        && rec.msg.get("requeued") == Some(&Value::Bool(true)) =>
-                {
-                    turn_id = rec.msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
-                    started = false;
-                    ended = None;
-                    // Out of an inbox digest that failed too (`inbox_digest.rs`).
-                    digest = None;
                 }
                 ("turn_stop_requested", Some(id))
                     if rec.msg.get("turnId").and_then(Value::as_str) == Some(id) =>

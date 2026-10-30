@@ -392,6 +392,9 @@ impl Hub {
                 // Stopped: Stop recorded it when it took the mark (`stop_auto_resume`).
                 if ending == Some(true) {
                     self.settled_unretried(session, turn_id, "not_retried");
+                    // The turn's end reviewed the inbox while it was marked ending
+                    // (`continuation_pending`), which put a wake off: nothing waits now.
+                    self.inbox_review(session);
                 }
             }
             return;
