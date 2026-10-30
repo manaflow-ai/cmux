@@ -213,7 +213,8 @@ async function openEffort() {
   const opened = menus()[0]!;
   const current = opened.querySelector<HTMLElement>('.acpmux-quick-item[role="menuitemradio"][aria-checked="true"]');
   // The running model's effort item opens its levels as a side dropdown beside the row.
-  const trigger = current?.closest(".acpmux-quick-model-effort")?.querySelector<HTMLElement>(".acpmux-quick-effort-trigger");
+  const trigger = (current?.closest(".acpmux-quick-model-effort") ?? opened.querySelector(".acpmux-quick-model-effort[data-running]"))
+    ?.querySelector<HTMLElement>(".acpmux-quick-effort-trigger");
   if (trigger) {
     await act(async () => trigger.click());
     await settle();

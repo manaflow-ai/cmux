@@ -589,6 +589,8 @@
   .acpmux-quick-effort-trigger {
   opacity: 0;
 }
+/* The dropdown is as wide as its levels, not the model menu's 280px floor, so it fits beside the row. */
+.acpmux-quick-menu.acpmux-quick-effort-menu { min-width: 0; }
 .acpmux-quick-effort-menu .acpmux-quick-effort-segment { gap: var(--ds-space-2); }
 .acpmux-quick-effort-badge {
   padding: 0 6px;

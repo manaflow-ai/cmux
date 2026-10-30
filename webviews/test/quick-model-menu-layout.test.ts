@@ -272,7 +272,9 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
         }
         const rowBox = (await row.boundingBox())!;
         const menuBox = (await dropdown.boundingBox())!;
-        expect(menuBox.x).toBeGreaterThanOrEqual(rowBox.x + rowBox.width - 8);
+        expect(menuBox.x, `${variant}: row ${JSON.stringify(rowBox)} dropdown ${JSON.stringify(menuBox)}`).toBeGreaterThanOrEqual(
+          rowBox.x + rowBox.width - 8,
+        );
         const viewport = page.viewportSize()!;
         expect(menuBox.y).toBeGreaterThanOrEqual(0);
         expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(viewport.height);
@@ -291,17 +293,33 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
   });
 
   test("the bottom model's effort dropdown is whole, and pointing at the next model leaves the first", async () => {
-    const page = await open("chat", 640, 360, "agent-pane.inline-model-effort");
+    // The chat fixture's model button sits 484px down (a composer at the window's foot), so the
+    // window is tall enough to show it: a menu whose anchor is off screen is hidden with it.
+    const page = await open("chat", 640, 560, "agent-pane.inline-model-effort");
     try {
       const rows = page.locator(".acpmux-quick-model-effort");
       const lastRow = rows.last();
-      await lastRow.locator(".acpmux-quick-effort-trigger").hover();
+      const lastTrigger = lastRow.locator(".acpmux-quick-effort-trigger");
+      expect(
+        await lastTrigger.isVisible(),
+        await lastTrigger.evaluate((node) => {
+          const rect = node.getBoundingClientRect();
+          const hidden = [];
+          for (let at: Element | null = node; at; at = at.parentElement) {
+            const style = getComputedStyle(at);
+            if (style.visibility !== "visible" || style.display === "none")
+              hidden.push(`${at.className} ${style.visibility} ${style.display}`);
+          }
+          return `trigger ${JSON.stringify(rect.toJSON())} hidden by ${hidden.join(" | ")}`;
+        }),
+      ).toBe(true);
+      await lastTrigger.hover();
       const dropdown = page.locator(".acpmux-quick-effort-menu");
       await dropdown.waitFor();
       const box = (await dropdown.boundingBox())!;
       expect(box.y + box.height).toBeLessThanOrEqual(page.viewportSize()!.height);
       // The first row's model takes the pointer and closes the dropdown it does not own.
-      await rows.first().locator("> .acpmux-quick-item").hover();
+      await rows.first().locator(":scope > .acpmux-quick-item").hover();
       await dropdown.waitFor({ state: "detached" });
     } finally {
       await page.close();
