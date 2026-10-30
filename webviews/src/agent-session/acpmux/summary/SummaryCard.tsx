@@ -68,7 +68,7 @@ export function SummaryCard({
   /// The chat's project folder; Outputs excludes files outside it.
   cwd?: string;
   onOpenOutput?: (path: string) => void;
-  onOpenImage?: (src: string, alt: string) => void;
+  onOpenImage?: (src: string, alt: string, path?: string) => void;
   /// The last turn that edited files, with its counts and files; the Changes rows open its diff,
   /// or a file's.
   changes?: SummaryChanges;
@@ -361,9 +361,9 @@ export function SummaryCard({
           }}
           onOpenImage={
             onOpenImage &&
-            ((src, alt) => {
+            ((src, alt, path) => {
               setGallery(false);
-              onOpenImage(src, alt);
+              onOpenImage(src, alt, path);
             })
           }
         />
