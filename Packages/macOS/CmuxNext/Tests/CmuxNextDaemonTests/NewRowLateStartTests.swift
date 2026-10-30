@@ -3,13 +3,13 @@ import Testing
 @testable import CmuxNextDaemon
 
 /// P0 2026-10-30, review of fix/p0-new-terminal-always: a New Row's stand-in (an optimistic `new-row` under
-/// `row-client-keys-v1`) still had the 5 s start deadline, so on a loaded host the row was taken back while cmux-tui
-/// still made it, and the DEBUG R3 check stopped the app there. A keyed row now waits through a late start as a split
-/// does: sent again under its client keys, which the daemon replays, until the reply.
+/// `row-client-keys-v1`) had the 5 s start deadline, so on a loaded host the row was taken back while cmux-tui still
+/// made it. cmux-tui does not replay a `new-row` sent again: a second ask with the same `pane_id` is refused
+/// `pane_id_exists` (resource_topology/client_ids.rs), so asking again would make the app take the row back on that
+/// refusal. The row is sent once and waits for its reply or the connection's end.
 ///
-/// Socket boundary: a scripted daemon on the real JSON-lines transport. It makes one row per client-minted `pane_id`
-/// and its start ends once, `delay` after the first ask (longer than the client's start deadline); an ask after
-/// that is replayed at once, as cmux-tui replays a keyed creation.
+/// Socket boundary: a scripted daemon on the real JSON-lines transport, modelled on cmux-tui: it makes the row after a
+/// start longer than the client's start deadline, and refuses a second `new-row` with a `pane_id` it already holds.
 struct NewRowLateStartTests {
     private struct Recorded: DaemonRequest {
         typealias Response = JSONValue
@@ -17,35 +17,34 @@ struct NewRowLateStartTests {
     }
 
     private static let script = #"""
-    import json, sys, threading, time
+    import json, sys, threading
     print('{"ok":true}', file=sys.stderr, flush=True)
-    rows, panes, lock, started = [], {}, threading.Lock(), None
+    rows, panes, lock = [], {}, threading.Lock()
     caps = ['terminal-placement-env-v1', 'terminal-env-v1', 'rows-v1', 'row-client-keys-v1']
-    def reply(frame, data):
+    def write(line):
         with lock:
-            print(json.dumps({'id': frame.get('id'), 'ok': True, 'data': data}), flush=True)
+            print(json.dumps(line), flush=True)
     def made(frame):
-        key = frame.get('pane_id') or 'unkeyed-%d' % len(rows)
         with lock:
-            replayed = key in panes
-            if not replayed:
-                panes[key] = 10 + len(panes)
-        reply(frame, {'surface': panes[key], 'terminal_id': frame.get('terminal_id'), 'replayed': replayed})
+            panes[frame.get('pane_id')] = 10 + len(panes)
+            surface = panes[frame.get('pane_id')]
+        write({'id': frame.get('id'), 'ok': True, 'data': {'surface': surface, 'terminal_id': frame.get('terminal_id')}})
     for line in sys.stdin:
         frame = json.loads(line)
         command = frame.get('cmd')
         if command == 'identify':
-            reply(frame, {'app': 'cmux-tui', 'protocol': 12, 'generation': 'new-row-late-start-test', 'capabilities': caps})
+            write({'id': frame.get('id'), 'ok': True, 'data': {'app': 'cmux-tui', 'protocol': 12,
+                   'generation': 'new-row-late-start-test', 'capabilities': caps}})
         elif command == 'new-row':
             rows.append(frame)
-            # One start: it ends `delay` after the first ask; an ask after that is replayed at once.
-            if started is None:
-                started = time.time()
-            threading.Timer(max(0.0, started + float(sys.argv[1]) - time.time()), made, args=(frame,)).start()
+            if any(r is not frame and r.get('pane_id') == frame.get('pane_id') for r in rows):
+                write({'id': frame.get('id'), 'ok': False, 'error': 'pane_id_exists', 'code': 'pane_id_exists'})
+                continue
+            threading.Timer(float(sys.argv[1]), made, args=(frame,)).start()
         elif command == 'test-rows':
-            reply(frame, {'rows': rows, 'panes': len(panes)})
+            write({'id': frame.get('id'), 'ok': True, 'data': {'rows': rows, 'panes': len(panes)}})
         else:
-            reply(frame, {})
+            write({'id': frame.get('id'), 'ok': True, 'data': {}})
     """#
 
     @Test func aKeyedRowThatStartsLateIsWaitedForAndMadeOnce() async throws {
@@ -64,8 +63,9 @@ struct NewRowLateStartTests {
         await connection.close()
 
         #expect(created.surface == SurfaceID(rawValue: 10), "the row the daemon started late is the one returned")
-        #expect(recorded["panes"]?.doubleValue == 1, "asking again under the client keys makes no second row")
         let rows = try #require(recorded["rows"]?.arrayValue)
-        #expect(rows.allSatisfy { $0["pane_id"]?.stringValue == options.paneID }, "every request carries the stand-in's pane id")
+        #expect(rows.count == 1, "cmux-tui refuses a new-row sent again; the late row is waited for, asked once")
+        #expect(rows.first?["pane_id"]?.stringValue == options.paneID, "the request carries the stand-in's pane id")
+        #expect(recorded["panes"]?.doubleValue == 1)
     }
 }
