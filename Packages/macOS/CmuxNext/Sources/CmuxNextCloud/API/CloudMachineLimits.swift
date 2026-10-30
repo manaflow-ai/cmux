@@ -9,20 +9,34 @@ public struct CloudMachineLimits: Sendable, Hashable, Decodable {
     public var activeVmCount: Int
     /// The plan that sets the cap (`free`, `go`, `pro`, `max`, `team`); nil when the server sent none.
     public var planId: String?
+    /// The memory sizes a create on this plan may ask for (`memoryOptionsMb`), smallest first;
+    /// empty when the server sent none.
+    public var memoryOptionsMb: [Int]
+    /// The vCPUs the server gives each of those sizes (`vcpusByMemoryMb`), so a size is labeled
+    /// without a table of the app's own.
+    public var vcpusByMemoryMb: [Int: Int]
 
-    public init(maxActiveVms: Int?, activeVmCount: Int, planId: String? = nil) {
+    public init(maxActiveVms: Int?, activeVmCount: Int, planId: String? = nil,
+                memoryOptionsMb: [Int] = [], vcpusByMemoryMb: [Int: Int] = [:]) {
         self.maxActiveVms = maxActiveVms
         self.activeVmCount = activeVmCount
         self.planId = planId
+        self.memoryOptionsMb = memoryOptionsMb
+        self.vcpusByMemoryMb = vcpusByMemoryMb
     }
 
-    enum CodingKeys: String, CodingKey { case maxActiveVms, activeVmCount, planId }
+    enum CodingKeys: String, CodingKey { case maxActiveVms, activeVmCount, planId, memoryOptionsMb, vcpusByMemoryMb }
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         maxActiveVms = try c.decodeIfPresent(Int.self, forKey: .maxActiveVms)
         activeVmCount = try c.decodeIfPresent(Int.self, forKey: .activeVmCount) ?? 0
         planId = try? c.decodeIfPresent(String.self, forKey: .planId)
+        // Size fields this client cannot read leave the sizes out, never the cap.
+        let options = ((try? c.decodeIfPresent([Int].self, forKey: .memoryOptionsMb)) ?? nil) ?? []
+        memoryOptionsMb = Array(Set(options.filter { $0 > 0 })).sorted()
+        let vcpus = ((try? c.decodeIfPresent([String: Int].self, forKey: .vcpusByMemoryMb)) ?? nil) ?? [:]
+        vcpusByMemoryMb = Dictionary(vcpus.compactMap { key, value in Int(key).flatMap { $0 > 0 && value > 0 ? ($0, value) : nil } }) { first, _ in first }
     }
 }
 

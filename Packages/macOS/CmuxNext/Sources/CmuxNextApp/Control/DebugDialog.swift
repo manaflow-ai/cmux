@@ -176,6 +176,10 @@ enum DebugDialog {
             "cloudWorkspaceEmpty": CloudWorkspaceSetupWizard.setupDialogSpec(source: .empty),
             "cloudWorkspaceRepository": CloudWorkspaceSetupWizard.setupDialogSpec(source: .repository, repository: "octo/paint"),
             "cloudWorkspaceTeam": CloudWorkspaceSetupWizard.setupDialogSpec(availability: .teamMachine, source: .empty),
+            // The plan's sizes; only the 8 GB size has a listed machine, so only it shows a rate.
+            "cloudWorkspaceSized": CloudWorkspaceSetupWizard.setupDialogSpec(source: .empty, sizes: [
+                .init(memoryMb: 4096, vcpus: 2), .init(memoryMb: 8192, vcpus: 4, hourlyRateUsd: 0.26), .init(memoryMb: 16384, vcpus: 8),
+            ]),
             // Gallery-only alternatives: compare the selected labeled form with a compact choice
             // and with explicit source actions. These fixtures never ship or change production flow.
             "cloudWorkspaceCompact": CmuxDialogSpec(

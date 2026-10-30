@@ -59,6 +59,11 @@ final class CloudService {
     @ObservationIgnored private let machines: MachineRegistry
     /// The plan gate for a create, from the last machine list's limits.
     var createGate: CloudMachineCreateFlow.Gate { CloudMachineCreateFlow.gate(machines.cloudLimits) }
+    /// The plan's machine sizes a person's create offers, from the last machine list: its limits'
+    /// sizes and the rates the server gave listed machines of the same size.
+    var planSizes: [CloudWorkspaceSetupWizard.SizeOption] {
+        CloudWorkspaceSetupWizard.SizeOption.options(limits: machines.cloudLimits, machines: machines.cloud.map(\.machine))
+    }
     /// The app's `cmux-tui` (the hub's, the moves' and `cloud enroll-machine`'s `wg dial`).
     @ObservationIgnored let binary: URL?
     /// This Mac's `cmux link` across the session (cx-rtipa S3).
