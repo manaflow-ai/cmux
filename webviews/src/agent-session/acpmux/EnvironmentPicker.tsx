@@ -114,6 +114,7 @@ export function EnvironmentPicker({
   offload,
   onOffload,
   runMode,
+  closeOnTrustAsk = false,
 }: {
   label: string;
   /// The name automation opens it by (`openPicker`).
@@ -136,13 +137,20 @@ export function EnvironmentPicker({
   /// A new chat's Run as (preview, hq#3367): Persistent (a chat, as before) or Sandboxed (the
   /// first message runs once on a throwaway Cloud VM).
   runMode?: RunModeRows;
+  /// A trust question is the blocking surface; close an already-open destination menu so its
+  /// actions remain visible and clickable when the question arrives.
+  closeOnTrustAsk?: boolean;
 }) {
   // A picked saved environment is the current row: every machine row is then a change.
   const currentRow = saved?.current !== undefined ? SAVED + saved.current : current;
   const [query, setQuery] = useState("");
   const trigger = useRef<HTMLButtonElement>(null);
   const escaped = useRef(false);
-  const { control, anchor, open, setOpen, side, flip } = useLocationPopover();
+  const { control, anchor, open, setOpen: setPopoverOpen, side, flip } = useLocationPopover();
+  const setOpen = (next: boolean) => {
+    if (next && closeOnTrustAsk) return;
+    setPopoverOpen(next);
+  };
   const reset = () => {
     setQuery("");
   };
@@ -151,6 +159,11 @@ export function EnvironmentPicker({
     if (!next) reset();
   });
   useLocationOpener(menu, () => setOpen(true));
+  useEffect(() => {
+    if (!closeOnTrustAsk || !open) return;
+    setPopoverOpen(false);
+    setQuery("");
+  }, [closeOnTrustAsk, open, setPopoverOpen]);
   // Sandboxed is the pick: no machine row is checked, and a machine pick goes back to Persistent.
   const sandboxed = runMode?.mode === "sandboxed";
   const checkedRow = sandboxed ? undefined : currentRow;

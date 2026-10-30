@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { OnNewTab } from "./newTabComposer";
 import type { QuickFamily, QuickModel, QuickProviderLook, QuickSearchField } from "./QuickModelMenu";
+import { effortLevel, openEffort } from "../../../test/support/effortDropdown";
 
 let QuickModelMenu: typeof import("./QuickModelMenu").QuickModelMenu;
 const loadQuickModelMenu = async () => {
@@ -361,15 +362,20 @@ test("inline effort picks a different model and its level together; model names 
     await settle();
   };
   await open();
-  expect(document.querySelectorAll(".acpmux-quick-effort-segment")).toHaveLength(4);
+  // The running Model A lists its own two levels and the session-only Ultracode (3); Model B only
+  // its one (the menu held 4 levels across both rows before each got its own dropdown).
+  expect(await openEffort(document, "Model A")).toHaveLength(3);
   expect(document.querySelector('[aria-label="Model A · Ultracode"]')).toBeTruthy();
+  expect((await openEffort(document, "Model B")).map((item) => item.getAttribute("aria-label"))).toEqual([
+    "Model B · Low",
+  ]);
   expect(document.querySelector('[aria-label="Model B · High"]')).toBeNull();
-  await act(async () => (document.querySelector('[aria-label="Model A · Ultracode"]') as HTMLElement).click());
+  await act(async () => (await effortLevel(document, "Model A · Ultracode"))!.click());
   expect(effortPicks).toEqual(["ultracode"]);
   expect(picks).toEqual([]);
   await settle();
   await open();
-  await act(async () => (document.querySelector('[aria-label="Model B · Low"]') as HTMLElement).click());
+  await act(async () => (await effortLevel(document, "Model B · Low"))!.click());
   expect(picks.map(({ id, effort }) => ({ id, effort }))).toEqual([{ id: "b", effort: "low" }]);
   await settle();
   await open();
@@ -383,7 +389,7 @@ test("inline effort picks a different model and its level together; model names 
   expect(picks.at(-1)?.effort).toBeUndefined();
   await settle();
   await open();
-  await act(async () => (document.querySelector('[aria-label="Model A · Low"]') as HTMLElement).click());
+  await act(async () => (await effortLevel(document, "Model A · Low"))!.click());
   expect(effortPicks).toEqual(["ultracode", "low"]);
   expect(picks.at(-1)?.id).toBe("b");
   expect(picks).toHaveLength(2);
@@ -391,11 +397,11 @@ test("inline effort picks a different model and its level together; model names 
   await settle();
   await act(async () => root!.render(<InlineHarness combined={false} />));
   await open();
-  expect(document.querySelectorAll(".acpmux-quick-effort-segment")).toHaveLength(0);
+  expect(document.querySelectorAll(".acpmux-quick-effort-trigger, .acpmux-quick-effort-segment")).toHaveLength(0);
   expect(labels(list())).toContain("Effort");
   await act(async () => root!.render(<InlineHarness omitInlineEffort />));
   await settle();
-  expect(document.querySelectorAll(".acpmux-quick-effort-segment")).toHaveLength(0);
+  expect(document.querySelectorAll(".acpmux-quick-effort-trigger, .acpmux-quick-effort-segment")).toHaveLength(0);
   expect(labels(list())).toContain("Effort");
 });
 
@@ -457,7 +463,7 @@ test.each([
   });
   await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
   await settle();
-  await act(async () => (document.querySelector(`[aria-label="Model A · ${name}"]`) as HTMLElement).click());
+  await act(async () => (await effortLevel(document, `Model A · ${name}`))!.click());
   // The level goes through the reported option (Ultracode is no catalog effort a combo could land);
   // Fast goes through the combo, which maps it onto the option's plain tier, never the toggle, which
   // would restore a remembered ultrafast.
@@ -574,8 +580,8 @@ test("the running model keeps session-only effort levels and calls effort.onPick
   });
   await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
   await settle();
-  expect(document.querySelectorAll(".acpmux-quick-effort-segment")).toHaveLength(3);
-  await act(async () => (document.querySelector('[aria-label="Model A · Ultracode"]') as HTMLElement).click());
+  expect(await openEffort(document, "Model A")).toHaveLength(3);
+  await act(async () => (await effortLevel(document, "Model A · Ultracode"))!.click());
   expect(picked).toEqual(["ultracode"]);
 });
 
@@ -689,7 +695,7 @@ for (const location of ["top", "more", "provider"] as const) {
       });
       await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
       await settle();
-      const segments = document.querySelectorAll(".acpmux-quick-effort-segment");
+      const segments = await openEffort(document);
       const fallback = [...document.querySelectorAll(".acpmux-quick-sub")].find((row) =>
         row.textContent?.startsWith("Effort"),
       );
