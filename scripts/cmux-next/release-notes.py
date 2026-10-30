@@ -230,6 +230,16 @@ def _safe_description(text):
             and not any(pattern.search(text) for pattern, _ in validate.INTERNAL))
 
 
+def _validated_description(text):
+    """Keep final copy only when the release gate accepts it as an English summary."""
+    if not _safe_description(text):
+        return ""
+    import validate
+    problems = validate.Problems("PR description")
+    validate.check_text(problems, "summary", text, "summary", "en")
+    return "" if problems.items else text
+
+
 def _plain_line(text):
     text = MARKDOWN_LINK.sub(r"\1", text)
     text = INLINE_MARKUP.sub("", text)
@@ -242,7 +252,7 @@ def _plain_line(text):
     text = _first_sentence(text)
     if len(text) >= DESCRIPTION_LIMIT:
         text = text[:DESCRIPTION_LIMIT - 1].rsplit(" ", 1)[0].rstrip(" ,;:-")
-    return sentence(text)
+    return _validated_description(sentence(text))
 
 def pr_description(body, fallback=""):
     """Extract one plain-language sentence from a PR body, without headings or markup."""
@@ -574,9 +584,7 @@ def summary_whats_new_digest(args, lines):
             continue
         # The summary says what the title leaves out, or repeats a title that is the whole line.
         full = " ".join(line["title"].split()).rstrip(". ")
-        description = line.get("description", "")
-        if not _safe_description(description):
-            description = ""
+        description = _validated_description(line.get("description", ""))
         entry = {"id": f"summary-{index}", "category": categories[line["group"]],
                  "title": {"en": title},
                  "summary": {"en": sentence(description or (title_tail(full, title) if title != full else full))},
