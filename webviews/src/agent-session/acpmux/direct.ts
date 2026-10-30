@@ -1366,6 +1366,10 @@ export class AcpmuxDirectClient {
   /// would never draw (Lawrence 2026-10-19). It draws first but is not history: older pages still
   /// load from `firstSeq`, and it gives way once a page brings it.
   private turnOpener?: EventRecord;
+  /// The prompt the open turn runs, by its root: acpmux's automatic continuation of a cut turn runs
+  /// `P~resume-n`, which is `P`'s (hub/auto_resume.rs). A Stop kept through a reconnect stops only
+  /// that turn (stopThroughReconnect.ts).
+  private turnPrompt?: string;
   private lastSeq = 0;
   private turnOpen = false;
   /// The open turn's agent has said nothing since its prompt, past acpmux's `silentTurnMs`
@@ -1934,6 +1938,7 @@ export class AcpmuxDirectClient {
     this.stoppingEnded();
     this.events = [];
     this.turnOpener = undefined;
+    this.turnPrompt = undefined;
     this.historyExhausted = false;
     this.olderRetryAt = 0;
     // Nothing is drawn, so nothing drawn came from a kept tail: the next open says for itself.
@@ -3645,6 +3650,7 @@ export class AcpmuxDirectClient {
     this.firstSeq = undefined;
     this.lastSeq = 0;
     this.turnOpen = false;
+    this.turnPrompt = undefined;
     this.silentTurn = false;
     this.turnTokens = undefined;
     this.turnTokenSplit = undefined;
@@ -4318,6 +4324,8 @@ export class AcpmuxDirectClient {
           this.setDelivery(fallbackPromptId, { state: "read", readAt: event.at }, `user-${event.seq}`);
         }
         this.stoppingOpens(event);
+        // A prompt opens its turn; a steer goes into the turn already open.
+        if (promptId && msg.steer !== true) this.turnPrompt = promptRoot(promptId);
         this.turnOpen = true;
       } else if (event.kind === "turn_silent") {
         this.silentTurn = this.turnOpen;
@@ -4325,6 +4333,8 @@ export class AcpmuxDirectClient {
         this.silentTurn = false;
       } else if (event.kind === "turn_started") {
         this.stoppingOpens(event);
+        // A turn that does not name its prompt is no known one's: never the turn before's.
+        this.turnPrompt = typeof msg.promptId === "string" && msg.promptId ? promptRoot(msg.promptId) : undefined;
         this.turnOpen = true;
         this.silentTurn = false;
         this.turnTokens = event.seq >= this.usageFromSeq ? 0 : undefined;
@@ -4355,6 +4365,7 @@ export class AcpmuxDirectClient {
         }
       } else if (event.kind === "turn_end" || event.kind === "turn_result") {
         this.turnOpen = false;
+        this.turnPrompt = undefined;
         this.silentTurn = false;
         this.turnTokens = undefined;
         this.turnTokenSplit = undefined;
@@ -4903,6 +4914,7 @@ export class AcpmuxDirectClient {
       isWorking: working,
       // A Stop whose turn has not ended yet (`stoppingAfterSeq`).
       ...(working && this.stoppingAfterSeq !== undefined ? { stopping: true as const } : {}),
+      ...(working && this.turnPrompt ? { turnPrompt: this.turnPrompt } : {}),
       ...(this.replayThrough === undefined && this.turnTokens ? { turnTokens: this.turnTokens } : {}),
       ...(this.replayThrough === undefined && this.turnTokens && this.turnTokenSplit
         ? { turnTokenSplit: this.turnTokenSplit }
@@ -6690,6 +6702,19 @@ export class AcpmuxDirectClient {
     if (!this.canFork || !this.actingSessionId || this.forking) return undefined;
     this.forking = true;
     const generation = this.selectionGeneration;
+    // Fork Conversation (`stay`): the chat says "Forking…" until acpmux answers and the app opens
+    // the fork, so a slow fork never looks like nothing happened.
+    const pendingId = stay ? noticeId("notice-forking") : undefined;
+    if (pendingId) {
+      this.rows.set(pendingId, {
+        id: pendingId,
+        version: 1,
+        at: Date.now(),
+        kind: "notice",
+        text: translate("notice.forking"),
+      });
+      this.emit();
+    }
     try {
       const sessionId = from ?? this.actingSessionId;
       const result = await this.request(
@@ -6716,6 +6741,10 @@ export class AcpmuxDirectClient {
       return undefined;
     } finally {
       this.forking = false;
+      if (pendingId && this.rows.has(pendingId)) {
+        this.rows.delete(pendingId);
+        this.emit();
+      }
     }
   }
   /// Forks the open session through `throughSeq` and stays on it: New side chat's copy, which the
@@ -6920,6 +6949,8 @@ export class AcpmuxDirectClient {
   private foldOlder(older: EventRecord[]): void {
     const live = {
       turnOpen: this.turnOpen,
+      // The running turn's prompt is the held events', never an older page's.
+      turnPrompt: this.turnPrompt,
       silentTurn: this.silentTurn,
       turnTokens: this.turnTokens,
       turnTokenSplit: this.turnTokenSplit,
@@ -6951,6 +6982,7 @@ export class AcpmuxDirectClient {
     };
     const held = new Map(this.rows);
     this.turnOpen = false;
+    this.turnPrompt = undefined;
     this.silentTurn = false;
     this.turnTokens = undefined;
     this.turnTokenSplit = undefined;
@@ -7388,6 +7420,12 @@ function catalogEntry(harness: any): AcpmuxSnapshot["catalog"][number] {
 
 /// Whether the person can see the page: WebKit reports `hidden` for a web view out of its window,
 /// hidden, or in an occluded window.
+/// The prompt a turn runs for: acpmux's continuation `P~resume-n` of a cut turn is `P`'s
+/// (hub/auto_resume.rs `SUFFIX`).
+export function promptRoot(promptId: string): string {
+  return promptId.replace(/~resume-\d+$/, "");
+}
+
 function pageShown(): boolean {
   return typeof document === "undefined" || document.visibilityState !== "hidden";
 }

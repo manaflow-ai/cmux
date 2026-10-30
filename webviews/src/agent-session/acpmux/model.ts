@@ -753,6 +753,9 @@ export type AcpmuxSnapshot = {
   /// Stop (or Esc) was sent and the running turn has not ended yet (direct.ts `cancel`): Stop
   /// turns and says it is stopping, so a press never looks like it did nothing.
   stopping?: true;
+  /// The prompt the running turn runs, by its root (direct.ts `turnPrompt`): acpmux's continuation
+  /// of a cut turn counts as that turn. Unset when no turn runs or its prompt is not known.
+  turnPrompt?: string;
   /// This computer's clock minus the session's, for a session on a peer (SSH, Cloud) whose
   /// events carry the peer's clock; unset when they share a clock or it is not known yet.
   clockOffsetMs?: number;
