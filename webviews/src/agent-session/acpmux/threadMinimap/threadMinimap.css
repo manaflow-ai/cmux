@@ -527,3 +527,16 @@
   flex: none;
   display: block;
 }
+/* On the right edge (railSide.ts: Settings > Agent Chat > Prompt Rail Side, or the rail's right-click
+   menu) the rail is the left one mirrored (design/session-rail.md): its narrow-pane hover strip sits at
+   the pane's right edge, and its ticks start at that edge and grow toward the text. The compact rail
+   mirrors its list (the rail itself keeps its box and data attributes); the full-height map mirrors
+   whole. Only x flips: rows and the pointer's y are as on the left. */
+.acpmux-minimap__strip[data-side="right"] {
+  left: auto;
+  right: 0;
+}
+.acpmux-minimap__rail[data-side="right"] .acpmux-minimap__list,
+.acpmux-scrollmap[data-side="right"] {
+  transform: scaleX(-1);
+}

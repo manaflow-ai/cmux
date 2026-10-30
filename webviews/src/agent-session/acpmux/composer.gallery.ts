@@ -1311,7 +1311,7 @@ export default agentPaneEntry({
       }),
     },
     "queued-from-agent": {
-      note: "Another agent's message waiting behind the turn: no queue row; it is its received card in the transcript after the turn, Read after this turn, its actions (Steer, Edit message, Delete) in its ⋯ menu (QueuedMessageCard.tsx). The person's prompt is the queue's one row, unchanged.",
+      note: "Another agent's message waiting behind the turn: no queue row; it waits in the transcript's one collapsed group after the turn, no Read after this turn, its actions (Copy; ⋯ Send now, Dismiss) on its line (QueuedMessageCard.tsx). The person's prompt is the queue's one row, unchanged.",
       snapshot: chat(working, {
         isWorking: true,
         queue: [
@@ -1338,6 +1338,9 @@ export default agentPaneEntry({
         ],
       }),
       play: async (ctx) => {
+        // It waits in the one collapsed group of waiting messages (PendingMessagesCard.tsx).
+        await ctx.click({ selector: ".cv-pending__toggle" });
+        await ctx.waitFor(() => ctx.document.querySelector('[data-queued-message="q1"] .cv-disclosure__toggle'));
         await ctx.click({ selector: '[data-queued-message="q1"] .cv-disclosure__toggle' });
         await ctx.waitFor(() =>
           ctx.document.querySelector('[data-queued-message="q1"] .cv-disclosure__toggle[aria-expanded="true"]'),
