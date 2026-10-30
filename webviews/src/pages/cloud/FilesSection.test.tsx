@@ -10,12 +10,23 @@ import { FilesSection } from "./FilesSection";
 const dom = new JSDOM("<!doctype html><body></body>", { url: "http://localhost/" });
 const globals = globalThis as Record<string, unknown>;
 const savedGlobals = new Map<string, unknown>();
-for (const name of ["window", "document", "navigator", "HTMLElement", "HTMLTextAreaElement", "Event", "Node", "IS_REACT_ACT_ENVIRONMENT"]) {
+for (const name of [
+  "window",
+  "document",
+  "navigator",
+  "HTMLElement",
+  "HTMLTextAreaElement",
+  "Event",
+  "Node",
+  "IS_REACT_ACT_ENVIRONMENT",
+]) {
   savedGlobals.set(name, globals[name]);
   globals[name] = name === "IS_REACT_ACT_ENVIRONMENT" ? true : (dom.window as unknown as Record<string, unknown>)[name];
 }
 // Evaluate the DOM client after installing the document, even when another test imported it first.
-const clientPath = fileURLToPath(new URL("./cjs/react-dom-client.development.js", import.meta.resolve("react-dom/client")));
+const clientPath = fileURLToPath(
+  new URL("./cjs/react-dom-client.development.js", import.meta.resolve("react-dom/client")),
+);
 delete require.cache[clientPath];
 const { createRoot } = require(clientPath) as typeof import("react-dom/client");
 afterAll(() => {
@@ -33,16 +44,30 @@ async function editor() {
   document.body.append(container);
   const root = createRoot(container);
   const detail: MachineDetail = {
-    machine: "machine-a", loading: false,
-    files: { path: "/home/cmux", loading: false, entries: [], preview: { path: "/home/cmux/note.txt", size: 8, text: "original" } },
+    machine: "machine-a",
+    loading: false,
+    files: {
+      path: "/home/cmux",
+      loading: false,
+      entries: [],
+      preview: { path: "/home/cmux/note.txt", size: 8, text: "original" },
+    },
   };
   const writes: string[] = [];
   let finish!: (saved: boolean) => void;
-  const store = { files: { save: (_path: string, text: string) => {
-    writes.push(text);
-    return new Promise<boolean>((resolve) => { finish = resolve; });
-  } } } as unknown as CloudStore;
-  await act(async () => root.render(<FilesSection store={store} detail={detail} unavailable={[]} transfers={[]} strings={strings} />));
+  const store = {
+    files: {
+      save: (_path: string, text: string) => {
+        writes.push(text);
+        return new Promise<boolean>((resolve) => {
+          finish = resolve;
+        });
+      },
+    },
+  } as unknown as CloudStore;
+  await act(async () =>
+    root.render(<FilesSection store={store} detail={detail} unavailable={[]} transfers={[]} strings={strings} />),
+  );
   const click = async (selector: string) => {
     await act(async () => container.querySelector<HTMLButtonElement>(selector)!.click());
   };
@@ -55,9 +80,17 @@ async function editor() {
   };
   await click(".cloud-file-edit");
   return {
-    container, writes, click, type,
-    finish: async (saved: boolean) => { await act(async () => finish(saved)); },
-    close: () => { act(() => root.unmount()); container.remove(); },
+    container,
+    writes,
+    click,
+    type,
+    finish: async (saved: boolean) => {
+      await act(async () => finish(saved));
+    },
+    close: () => {
+      act(() => root.unmount());
+      container.remove();
+    },
   };
 }
 
@@ -77,7 +110,9 @@ test("a successful delayed save preserves edits typed during the write and allow
     expect(view.writes).toEqual(["submitted", "newer draft"]);
     await view.finish(true);
     expect(view.container.querySelector("textarea")).toBeNull();
-  } finally { view.close(); }
+  } finally {
+    view.close();
+  }
 });
 
 test("a failed save leaves the draft editable and can be retried", async () => {
@@ -92,7 +127,9 @@ test("a failed save leaves the draft editable and can be retried", async () => {
     await view.finish(true);
     expect(view.writes).toEqual(["unsaved", "unsaved"]);
     expect(view.container.querySelector("textarea")).toBeNull();
-  } finally { view.close(); }
+  } finally {
+    view.close();
+  }
 });
 
 test("an old successful write cannot close a cancelled and reopened editor", async () => {
@@ -103,5 +140,7 @@ test("an old successful write cannot close a cancelled and reopened editor", asy
     await view.click(".cloud-file-edit");
     await view.finish(true);
     expect(view.container.querySelector("textarea")?.value).toBe("original");
-  } finally { view.close(); }
+  } finally {
+    view.close();
+  }
 });

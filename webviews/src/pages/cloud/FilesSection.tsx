@@ -79,12 +79,15 @@ function Preview({ store, detail, strings }: Pick<SectionProps, "store" | "detai
     setSaving(true);
     // Typing stays available during a write. Only its submitted edit may close on success;
     // a newer edit (including Cancel followed by Edit) belongs to the next save.
-    void store.files.save(preview.path, draft).then((saved) => {
-      if (saved && submittedRevision === draftRevision.current) setDraft(null);
-    }).finally(() => {
-      savingNow.current = false;
-      setSaving(false);
-    });
+    void store.files
+      .save(preview.path, draft)
+      .then((saved) => {
+        if (saved && submittedRevision === draftRevision.current) setDraft(null);
+      })
+      .finally(() => {
+        savingNow.current = false;
+        setSaving(false);
+      });
   };
   return (
     <div className="cloud-file-view">
