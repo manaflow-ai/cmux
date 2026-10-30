@@ -90,8 +90,8 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     let now: @Sendable () -> Date
     private let state = Mutex(State())
     /// The newest generation written (a write of an older one is skipped: it would put back what a
-    /// newer change took out), and the newest that reached the disk (it holds every older change).
-    private let written = Mutex((attempted: 0, onDisk: 0))
+    /// newer change took out), and the newest that reached the disk with its entries.
+    private let written = Mutex((attempted: 0, onDisk: 0, entries: [Entry]()))
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.prompt-journal", qos: .utility)
     /// Runs after a record's failed write, before it is taken back (tests: a disconnect in between).
     let afterFailedWrite = Mutex<(@Sendable () -> Void)?>(nil)
@@ -122,7 +122,7 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         let record = UUID()
         var replaced: (entry: Entry, holder: Holder?, index: Int)?
         var dropped: [(entry: Entry, holder: Holder?)] = []
-        let onDisk = change { state in
+        let onDisk = change(holding: entry) { state in
             guard !state.ended.contains(owner) else { return false }
             let key = Self.key(entry.daemon, entry.promptId)
             if let index = state.entries.firstIndex(where: { Self.key($0.daemon, $0.promptId) == key }) {
@@ -276,7 +276,8 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     /// Applies `body` (true when the entries changed) and writes the result when they did. False
     /// when that write failed.
     @discardableResult
-    private func change(_ body: (inout State) -> Bool) -> Bool {
+    /// `holding`: a skipped write is on disk only while the newer snapshot on disk still holds it.
+    private func change(holding: Entry? = nil, _ body: (inout State) -> Bool) -> Bool {
         let snapshot = state.withLock { state -> (Int, [Entry])? in
             load(&state)
             guard body(&state) else { return nil }
@@ -285,7 +286,7 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         }
         guard let (generation, entries) = snapshot else { return true }
         beforeWrite.withLock { $0 }?()
-        return write(entries, generation: generation)
+        return write(entries, generation: generation, holding: holding)
     }
 
     /// Reads the file once; an unreadable one is an empty journal.
@@ -301,18 +302,22 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     }
 
     /// Writes generation `generation` of the entries. True when it is on disk: written now, or
-    /// skipped as older than the newest written while a write as new as it reached the disk
-    /// (which holds its change), whatever became of the writes after that one.
+    /// skipped as older than the newest written while a write as new as it reached the disk,
+    /// whatever became of the writes after that one, and (`holding`, a record's entry) that newer
+    /// snapshot still holds the entry: a change in between may have taken it out.
     @discardableResult
-    private func write(_ entries: [Entry], generation: Int) -> Bool {
+    private func write(_ entries: [Entry], generation: Int, holding: Entry? = nil) -> Bool {
         written.withLock { last in
-            guard generation > last.attempted else { return last.onDisk >= generation }
+            guard generation > last.attempted else {
+                return last.onDisk >= generation && holding.map(last.entries.contains) ?? true
+            }
             last.attempted = generation
             do {
                 let data = try Self.encoder.encode(Document(entries: entries))
                 try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try data.write(to: url, options: [.atomic])
                 last.onDisk = generation
+                last.entries = entries
                 return true
             } catch {
                 Self.logger.error("agent pane prompt journal write failed: \(String(describing: error), privacy: .public)")
