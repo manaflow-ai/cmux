@@ -48,7 +48,7 @@ pub(super) async fn send_to_tag(
     json_out: bool,
 ) -> Result<()> {
     let client = connect(true).await?;
-    let listed = client.request(method::MUX_SESSIONS, json!({})).await?;
+    let listed = client.whole_list(method::MUX_SESSIONS, json!({})).await?;
     let sessions = listed.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
     let own = std::env::var("ACPMUX_SESSION_ID").ok();
     let targets = tag_targets(&sessions, tag, own.as_deref());

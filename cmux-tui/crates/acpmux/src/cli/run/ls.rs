@@ -122,7 +122,7 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
     if live {
         params.set("excludeStatus", json!(["closed"]));
     }
-    let mut v = client.request(method::MUX_SESSIONS, params).await?;
+    let mut v = client.whole_list(method::MUX_SESSIONS, params).await?;
     if status.is_some() || pending || tag.is_some() || selected || rows.narrows() || named {
         let mut sessions = match v.get_mut("sessions") {
             Some(Value::Array(rows)) => std::mem::take(rows),
