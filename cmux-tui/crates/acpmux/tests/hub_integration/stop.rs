@@ -157,7 +157,10 @@ async fn after_the_persons_stop_their_prompt_runs_next_and_agents_wait_for_it() 
         p["kind"] == "turn_started" && p["msg"]["promptId"] == "p-next"
     })
     .await;
-    assert_eq!(held(&summary(&hub, &id)), [("p-agent".to_owned(), true)]);
+    let row = summary(&hub, &id);
+    assert_eq!(held(&row), [("p-agent".to_owned(), true)]);
+    // The list says the Stop holds it, so a client that attaches now says so too.
+    assert_eq!(row["queue"][0]["heldByStop"], true, "{row}");
     tokio::time::timeout(
         Duration::from_secs(20),
         c.wait_for(method::SESSION_UPDATE, |p| {

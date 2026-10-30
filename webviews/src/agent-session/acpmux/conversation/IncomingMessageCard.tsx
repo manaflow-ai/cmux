@@ -32,6 +32,7 @@ import { FindReveal } from "./chatFind";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { Bot, ChevronRight, TerminalSquare } from "./icons";
 import { Markdown } from "./Markdown";
+import { CardCopy } from "./CardCopy";
 import { AgentMark } from "../../shared/AgentMark";
 import { useSenderChat, useSenderPlace } from "../subagents/subsessions";
 import { useAgentAvatar } from "../agentAvatar";
@@ -217,6 +218,8 @@ export function IncomingMessageLine({
         </>
       }
     >
+      {/* The sender's words, as written, from the card's corner. */}
+      <CardCopy text={text} />
       {/* Find counts the message, not this header of it. */}
       <div className="cv-received__from-line" data-find-skip="">
         {t("message.fromHeader", { name: from })}

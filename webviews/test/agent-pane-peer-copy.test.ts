@@ -238,7 +238,12 @@ class Daemon {
       });
     const page = this.log.slice(-3);
     this.reply(message.id, {
-      result: { session: this.summary(), events: page, hasMore: page.length < this.log.length, lastSeq: this.log.at(-1)?.seq ?? 0 },
+      result: {
+        session: this.summary(),
+        events: page,
+        hasMore: page.length < this.log.length,
+        lastSeq: this.log.at(-1)?.seq ?? 0,
+      },
     });
   }
 

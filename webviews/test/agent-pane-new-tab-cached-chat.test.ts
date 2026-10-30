@@ -550,8 +550,8 @@ test("a host that answers something other than a tail leaves the chat to open co
     chat.host.answers = answer;
     const tab = chat.tab(chat.a, { hold: true });
     await tab.daemon.asked;
-  // The attach goes out with the chat list, before the host's tail is read: that read lands next.
-  await flush();
+    // The attach goes out with the chat list, before the host's tail is read: that read lands next.
+    await flush();
     expect(text(tab.last())).not.toContain("Retry added.");
     tab.daemon.release();
     const client = await tab.client;

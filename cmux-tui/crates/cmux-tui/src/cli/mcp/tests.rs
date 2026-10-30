@@ -209,7 +209,9 @@ impl Backend for Fake {
         if request["operation"] != "session.snapshot"
             && let Some(result) = &self.resource_result
         {
-            return Ok(result.clone());
+            // A list answers an array: the record as its one item.
+            let list = request["operation"].as_str().is_some_and(|op| op.ends_with(".list"));
+            return Ok(if list && result.is_object() { json!([result]) } else { result.clone() });
         }
         let mut live = self.live.borrow_mut();
         live.settle();
@@ -957,6 +959,31 @@ fn terminal_waits_are_bounded() {
     let exit = v2_tools::find("terminal_wait_exit").expect("terminal_wait_exit");
     let call = exit.plan(&object(json!({"terminal": terminal}))).expect("plan");
     assert_eq!(call.plan.params["timeout_ms"], "30000");
+}
+
+#[test]
+fn a_new_workspace_holds_a_terminal_unless_asked_otherwise() {
+    let create = v2_tools::find("workspace_create").expect("workspace_create");
+    let schema = create.input_schema();
+    assert!(!schema["required"].as_array().is_some_and(|r| r.contains(&json!("initial_content"))));
+    assert_eq!(schema["properties"]["initial_content"]["default"], "terminal");
+    let call = create.plan(&object(json!({"name": "eval-proj"}))).expect("plan");
+    assert_eq!(call.plan.params["initial_content"], "terminal");
+    let call = create
+        .plan(&object(json!({"name": "eval-proj", "initial_content": "empty"})))
+        .expect("plan");
+    assert_eq!(call.plan.params["initial_content"], "empty");
+}
+
+#[test]
+fn a_missing_required_field_is_named_with_its_values() {
+    let neighbor = v2_tools::find("pane_neighbor_get").expect("pane_neighbor_get");
+    let error = neighbor.plan(&object(json!({"pane": "current"}))).err().expect("an error");
+    let message = error["message"].as_str().unwrap_or_default();
+    assert!(message.contains("pane_neighbor_get needs direction"), "{error}");
+    assert!(message.contains("right"), "the values: {error}");
+    let call = neighbor.plan(&object(json!({"pane": "current", "direction": "right"})));
+    assert!(call.is_ok(), "{:?}", call.err());
 }
 
 #[test]
@@ -1817,4 +1844,123 @@ fn a_record_works_where_its_id_goes() {
     let add = sent.iter().find(|s| s["request"]["operation"] == "browser.devices.add_custom");
     let add = add.unwrap_or_else(|| panic!("{sent:?}"));
     assert_eq!(add["request"]["params"]["device"], device, "{add}");
+}
+
+/// A wait for text the command just typed also shows (`cmd; echo DONE`, then `DONE`) waits
+/// for an output line, not the typed line (tests/tool-evals r3j: GLM said "done" early).
+#[test]
+fn a_wait_for_text_the_command_echoes_waits_for_the_output_line() {
+    let fake = Fake { resource_result: Some(json!({"matched": true})), ..Fake::default() };
+    let mut server = Server::new(fake, None);
+    let terminal = "term_00000000000000000000000000000abc";
+    for (name, arguments) in [
+        ("terminal_input_write", json!({"terminal": terminal, "text": "sleep 4; echo BUILD_OK\n"})),
+        ("terminal_wait", json!({"terminal": terminal, "pattern": "BUILD_OK"})),
+        ("terminal_wait", json!({"terminal": terminal, "pattern": "Finished"})),
+        (
+            "terminal_wait",
+            json!({"terminal": "term_00000000000000000000000000000def", "pattern": "BUILD_OK"}),
+        ),
+    ] {
+        server.call(&json!({"name": name, "arguments": arguments})).expect("a tool result");
+    }
+    let sent = server.backend.sent.borrow();
+    let waits: Vec<&Value> =
+        sent.iter().filter(|s| s["request"]["operation"] == "terminal.wait").collect();
+    assert_eq!(waits.len(), 3, "{sent:?}");
+    assert_eq!(waits[0]["request"]["params"]["pattern"], "(?m)^\\s*(?:BUILD_OK)", "{}", waits[0]);
+    assert_eq!(waits[1]["request"]["params"]["pattern"], "Finished", "not typed: {}", waits[1]);
+    assert_eq!(
+        waits[2]["request"]["params"]["pattern"], "BUILD_OK",
+        "another terminal: {}",
+        waits[2]
+    );
+}
+
+/// A terminal named by its tab, through `terminal` itself: a `tab_…` id or the tab's name
+/// with no scope above it (tests/tool-evals m1: `terminal_wait({terminal: "eval-cmd"})`,
+/// `terminal_screen_read({terminal: tab.tab_id})`).
+#[test]
+fn a_terminal_named_by_its_tab_through_terminal() {
+    // tab_get answers the record; tab_list (a name lookup) the same record as one item.
+    let shown = json!({"id": "tab_1", "name": "eval-cmd", "content_id": "term_00000000000000000000000000000abc"});
+    let fake = Fake { resource_result: Some(shown), ..Fake::default() };
+    let mut server = Server::new(fake, None);
+    for terminal in ["tab_00000000000000000000000000000001", "eval-cmd"] {
+        server
+            .call(&json!({"name": "terminal_screen_read", "arguments": {"terminal": terminal}}))
+            .expect("a tool result");
+    }
+    server
+        .call(&json!({"name": "terminal_screen_read",
+                       "arguments": {"terminal": "term_00000000000000000000000000000def"}}))
+        .expect("a tool result");
+    let sent = server.backend.sent.borrow();
+    let reads: Vec<&Value> =
+        sent.iter().filter(|s| s["request"]["operation"] == "terminal.screen.read").collect();
+    assert_eq!(reads.len(), 3, "{sent:?}");
+    for read in &reads[..2] {
+        assert_eq!(
+            read["request"]["params"]["terminal"], "term_00000000000000000000000000000abc",
+            "{read}"
+        );
+    }
+    assert_eq!(
+        reads[2]["request"]["params"]["terminal"], "term_00000000000000000000000000000def",
+        "a terminal id stays: {}",
+        reads[2]
+    );
+    // A plain name is looked up in the tab list (the daemon refuses an unscoped tab name),
+    // never with tab_get.
+    let gets = sent.iter().filter(|s| s["request"]["operation"] == "tab.get").count();
+    assert_eq!(gets, 1, "only the tab_… id uses tab_get: {sent:?}");
+    assert!(sent.iter().any(|s| s["request"]["operation"] == "tab.list"), "{sent:?}");
+    drop(sent);
+
+    // A `<session>:name` lists that session's tabs.
+    server
+        .call(&json!({"name": "terminal_screen_read", "arguments": {"terminal": "s2:eval-cmd"}}))
+        .expect("a tool result");
+    let sent = server.backend.sent.borrow();
+    let list = sent.iter().rev().find(|s| s["request"]["operation"] == "tab.list");
+    let list = list.unwrap_or_else(|| panic!("{sent:?}"));
+    assert_eq!(list["session"], "s2", "{list}");
+    let lists = sent.iter().filter(|s| s["request"]["operation"] == "tab.list").count();
+    drop(sent);
+
+    // A name under a named pane is that pane's tab: tab_get finds it there, and a tab of
+    // the same name in another pane does not make it ambiguous.
+    server
+        .call(
+            &json!({"name": "terminal_screen_read", "arguments": {"tab": "zsh", "pane": "pane_x"}}),
+        )
+        .expect("a tool result");
+    let sent = server.backend.sent.borrow();
+    assert_eq!(
+        sent.iter().filter(|s| s["request"]["operation"] == "tab.list").count(),
+        lists,
+        "{sent:?}"
+    );
+    let get = sent.iter().rev().find(|s| s["request"]["operation"] == "tab.get");
+    let get = get.unwrap_or_else(|| panic!("{sent:?}"));
+    assert!(get["request"].to_string().contains("pane_x"), "the pane scopes the name: {get}");
+    drop(sent);
+
+    // A pane given as the terminal is the terminal of the tab it shows.
+    server
+        .call(&json!({"name": "terminal_process_get",
+                       "arguments": {"terminal": "pane_00000000000000000000000000000007"}}))
+        .expect("a tool result");
+    let sent = server.backend.sent.borrow();
+    let list = sent.iter().rev().find(|s| s["request"]["operation"] == "tab.list");
+    let list = list.unwrap_or_else(|| panic!("{sent:?}"));
+    assert!(
+        list["request"].to_string().contains("pane_00000000000000000000000000000007"),
+        "{list}"
+    );
+    let last = sent.last().unwrap_or_else(|| panic!("{sent:?}"));
+    assert_eq!(
+        last["request"]["params"]["terminal"], "term_00000000000000000000000000000abc",
+        "{last}"
+    );
 }
