@@ -75,7 +75,15 @@ export function useNativePopup(options: NativePopupOptions): { available: boolea
   useLayoutEffect(() => {
     if (!transport || !options.open) return;
     const anchor = latest.current.anchor();
-    if (!anchor) return;
+    if (!anchor) {
+      // A popup already on screen must not outlive its anchor at the old position.
+      if (shown.current) {
+        shown.current = false;
+        transport.hide(id, revision.current);
+        latest.current.onDismiss("anchor-gone");
+      }
+      return;
+    }
     if (!shown.current) {
       editSequences.current.clear();
       eventFence.current.reset();

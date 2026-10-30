@@ -15,7 +15,13 @@ extension NativePopupContent {
         guard row.disabled != true, owns(view) else { return }
         if let slider = view as? NativePopupSliderView { slider.slider.commitValue(true) }
         else if row.kind == .submenu { openSubmenu(row, view) }
-        else if row.kind == .toggle { emit(.change, row.id, row.checked == true ? "false" : "true") }
+        else if row.kind == .toggle {
+            // The switch is the live state; the row is the descriptor until the page echoes.
+            let control = editableControls[row.id] as? NSSwitch
+            let next = !(control.map { $0.state == .on } ?? (row.checked == true))
+            control?.state = next ? .on : .off
+            emit(.change, row.id, next ? "true" : "false")
+        }
         else if row.kind == .action { emit(.pick, row.id, nil) }
         else { window?.makeFirstResponder(editableControls[row.id] ?? view) }
     }
