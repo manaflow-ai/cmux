@@ -103,7 +103,7 @@ impl Hub {
         let cpu_class = crate::cpu_class::CpuClass::for_session(
             env.iter().map(|(k, v)| (k.as_str(), v.as_str())),
         );
-        let host_spec = agent_host::SpawnSpec {
+        let mut host_spec = agent_host::SpawnSpec {
             session_id: session_id.clone(),
             program: std_cmd.get_program().to_string_lossy().into_owned(),
             args: std_cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect(),
@@ -118,6 +118,7 @@ impl Hub {
             // Never a sub-session's checked folder: a sub-session start takes no pooled harness.
             cwd_pin: None,
             cpu_class,
+            orphan_exit: None,
         };
         // No host starts once `stop_pool` began: it could not end it.
         if self.pool.stopping.load(Ordering::SeqCst) {
@@ -134,6 +135,7 @@ impl Hub {
         let servers =
             crate::hub::LaunchServers::read(&launch, spec.draft.family.clone().unwrap_or_default())
                 .await;
+        host_spec.orphan_exit = servers.orphan_exit(self.orphan_exit());
         let record = agent_host::program_wait::spawn(&launcher, &host_spec).await?;
         lock(&self.pool.starting).insert(session_id.clone(), record.clone());
         let started =

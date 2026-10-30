@@ -68,17 +68,16 @@ await requireBrowserLane("agent-pane-scrollbar-edge.test.ts", async () => {
           expect(geometry.thumbInk).not.toBe("rgba(0, 0, 0, 0)");
           expect(Math.abs(geometry.rightInset)).toBeLessThanOrEqual(1);
           expect(geometry.columnOffset).toBeLessThanOrEqual(1);
-          // Find is sticky chrome inside the scroller: preserve its existing content shift too.
+          // Find is sticky chrome inside the scroller.
           await page.evaluate(() => window.cmuxAcpmuxActions?.["chat.find"]({ text: "Answer" }));
           await page.locator(".acpmux-find .find-pill__field").waitFor();
           await settled(page);
           const findOffset = await page.evaluate(() => {
             const scroll = document.querySelector<HTMLElement>(".acpmux-scroll")!;
             const find = document.querySelector(".acpmux-find__bar")!;
-            const shift = parseFloat(getComputedStyle(find).getPropertyValue("--acpmux-chat-shift")) || 0;
             const inset = parseFloat(getComputedStyle(find).right);
             const contentRight = scroll.getBoundingClientRect().left + scroll.clientLeft + scroll.clientWidth;
-            return Math.abs(contentRight - find.getBoundingClientRect().right - inset - shift);
+            return Math.abs(contentRight - find.getBoundingClientRect().right - inset);
           });
           console.log(`SCROLLBAR_FIND ${JSON.stringify({ width, tools, findOffset })}`);
           expect(findOffset).toBeLessThanOrEqual(1);
