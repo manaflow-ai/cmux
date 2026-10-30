@@ -199,7 +199,12 @@ pub fn settings_json(setup: &SessionSetup, paths: &Paths, deny: &[&str]) -> Valu
         // project settings are the ones a turn is sure to read.
         "autoMemoryEnabled": false,
         "disableAllHooks": true,
-        "cleanupPeriodDays": TURN_TRANSCRIPT_DAYS,
+        // No `cleanupPeriodDays` here (PROJECT_SETTINGS_RETENTION_FREE):
+        // Claude Code's retention sweep reads the merged settings and walks
+        // every project of the store it runs on, and turns and subagents run
+        // on the user's own ~/.claude, so a short value here deleted the
+        // user's other chats' transcripts. The host's TurnRetention prunes
+        // exactly the Chief's own projects instead.
     })
 }
 
@@ -520,9 +525,19 @@ fn pending_denials(dir: &Path) -> Option<Vec<String>> {
 /// calls spawn first (cx-7ssql: ToolSearch before spawn cost 2.5 s).
 pub const TURN_SETTINGS_ENV: [(&str, &str); 1] = [("ENABLE_TOOL_SEARCH", "true")];
 
-/// Days Claude Code keeps a turn session's transcript in the isolated
-/// configuration (the memory is the record; these only help debugging).
+/// Days a turn session's transcript is kept (the memory is the record;
+/// these only help debugging): Claude Code's retention in the isolated
+/// configuration, and the host's own TurnRetention of the turn project in
+/// the user's Claude home.
 pub const TURN_TRANSCRIPT_DAYS: u64 = 2;
+
+/// Settings keys no Chief project settings file (turn, subagent, compactor
+/// slot) may carry: Claude Code applies them to the whole store the
+/// session runs on, which is the user's own Claude home, so they would
+/// reach every other project in it. `cleanupPeriodDays` in a Chief turn's
+/// project settings deleted the user's other chats' transcripts after 2
+/// days (cmux#27740's investigation, 110 of 213 acpmux Claude chats).
+pub const PROJECT_SETTINGS_STORE_WIDE_KEYS: [&str; 1] = ["cleanupPeriodDays"];
 
 /// `bin/chief`: runs this executable with the host's env baked in, because
 /// the harness runs tools in the acpmux daemon's environment, not the host's.
