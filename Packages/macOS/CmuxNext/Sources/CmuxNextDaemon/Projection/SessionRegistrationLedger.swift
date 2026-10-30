@@ -76,3 +76,21 @@ extension RetryPolicy {
     /// A `put-session` with no answer: 250 ms growing to 30 s, 8 timed attempts, then an event.
     public static let sessionRegistration = RetryPolicy(initial: .milliseconds(250), maximum: .seconds(30), timedRetries: 8)
 }
+
+/// The home connection a record went to: the owner's generation counter (a `UInt64`), compared by
+/// value, so a new connection after a daemon restart is never mistaken for the old one.
+public struct SessionRegistrationConnection: Hashable, Sendable {
+    private let id: any Hashable & Sendable
+
+    public init(_ id: some Hashable & Sendable) {
+        self.id = id
+    }
+
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        AnyHashable(lhs.id) == AnyHashable(rhs.id)
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        AnyHashable(id).hash(into: &hasher)
+    }
+}
