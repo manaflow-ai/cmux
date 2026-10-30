@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextWakeups
@@ -23,8 +24,12 @@ struct QuitStateFilesTests {
     /// The app's services with `gate`'s state files, and a new chat's draft save for `directory` queued
     /// behind `gate`'s held save; `written()` says whether the draft is on disk.
     static func queuedDraft(in directory: URL, gate: DrainGate) -> (services: AppServices, written: () -> Bool) {
+        // The quit steps read `NSApp` (the key window, whether the app is active): make the app object
+        // first, as the other AppServices tests do. The root fix of those reads is
+        // fix/arch-rise-appservices-no-nsapp-trap.
+        _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]), agentPaneStateFiles: gate.files)
-        // No app object in this test process (`NSApp` is nil): the quit steps ask for the key window.
+        // No window is key in a test process.
         services.keyWindowSource = { nil }
         let url = directory.appending(path: AgentUnsentDrafts.fileName)
         let file = gate.files.at(url)
@@ -55,7 +60,8 @@ struct QuitStateFilesTests {
     /// The quit's wait (QuitCoordinator's save steps) holds no thread: the held save is let go by the
     /// main actor once the drain began, so a wait that blocked the main thread would reach its limit
     /// with the draft still queued.
-    @Test func theQuitAwaitsAQueuedDraftWithoutBlockingTheMainThread() async throws {
+    @Test(.timeLimit(.minutes(1)))
+    func theQuitAwaitsAQueuedDraftWithoutBlockingTheMainThread() async throws {
         let directory = try Self.directory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let gate = DrainGate(releasesOnDrain: false)
