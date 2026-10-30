@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileAuth
+import CmuxMobileArtifacts
 import CmuxMobileBrowserStream
 import CmuxMobileChief
 import CmuxMobileDesign
@@ -66,6 +67,7 @@ public struct RootView: View {
     /// The app's keyboard notifications, for every keyboard-pinned composer.
     @State private var keyboard = MobileKeyboardFrameTracker()
     @State private var launchFinished = false
+    @State private var previewSweepStarted = false
     /// Live data from sign-in on (setup included); nil in mock mode.
     @State private var live: LiveCoordinator?
     /// Setup's steps, fixed once the team list has loaded so a Mac appearing
@@ -162,6 +164,15 @@ public struct RootView: View {
         .environment(\.mobileKeyboardFrameTracker, keyboard)
         // Settings → Require Face ID (audit B11).
         .cmuxMobileAppLock(enabled: settings.requireFaceID)
+        .task {
+            guard !previewSweepStarted else { return }
+            previewSweepStarted = true
+            // A one-shot launch cleanup; active downloads/viewers are protected by
+            // the store's ownership registry even when startup races a preview.
+            await Task.detached(priority: .utility) {
+                ManagedPreviewFile.removeStaleCopies()
+            }.value
+        }
         .task(id: auth.isResolved) {
             guard auth.isResolved, !launchFinished else { return }
             if !auth.isSignedIn, !auth.isMock { AccountSignOut().settleLaunchSignedOut() }
