@@ -156,8 +156,10 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
              my logs\", \"beside X\" or \"on the right\" means a new tab in that pane: \
              tab_create_terminal {{pane}}, or no pane for the column right of this chat.\n\
              - terminal_input_write {{terminal, text: \"cmd\\n\"}}; terminal_wait {{terminal, \
-             pattern, timeout_ms}} waits for text (never sleep or poll); terminal_screen_read and \
-             terminal_history_read {{terminal}} read it.\n\
+             pattern, timeout_ms}} waits for a regex on the screen (never sleep or poll). The \
+             typed command is on the screen too, so match the output line: pattern \
+             \"(?m)^DONE\" for `cmd; echo DONE`. terminal_screen_read and terminal_history_read \
+             {{terminal}} read it.\n\
              - tab_rename {{tab, name}}, tab_close {{tab}}, tab_focus {{tab}}; workspace_rename \
              {{workspace, name}}.\n\
              - Groups: tab_group_create {{tabs: [ids], name}}; workspace_group_create {{name}}, \
