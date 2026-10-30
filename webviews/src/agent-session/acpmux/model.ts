@@ -943,10 +943,14 @@ const userMetaHeight = (row: AcpmuxRow) => {
       row.retryAttachments?.length ||
       row.inlineParts?.some((part) => part.kind !== "text"),
   );
-  return (
-    ((row.text || hasAttachment) && !row.failed && !row.queued && !chief ? META_GAP + META_ROW : 0) +
-    (row.steer === "waiting" && !row.text?.trim() ? META_GAP + META_ROW : 0)
-  );
+  // A waiting steer uses the same single footer slot as a delivered prompt. Include it in the
+  // shared predicate so an attachment-only steer does not reserve that slot twice.
+  const needsMeta =
+    !row.failed &&
+    !row.queued &&
+    !chief &&
+    Boolean(row.text || hasAttachment || (row.steer === "waiting" && !row.text?.trim()));
+  return needsMeta ? META_GAP + META_ROW : 0;
 };
 /// The author line over a shared chat's prompt (multiplayer/multiplayer.css `.cv-author`).
 const AUTHOR_HEIGHT = 22;
