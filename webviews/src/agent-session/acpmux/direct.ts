@@ -671,6 +671,19 @@ function listedRetry(raw: unknown): SubagentRetryNotice | undefined {
   return { ...(n ? { name: n } : {}), ...(a ? { agentId: a } : {}), ...(e ? { error: e } : {}) };
 }
 
+/// The listing's resume, keeping the name and error the pane recovered for the same agent (from the
+/// `queued` record's words) where the listing names none: a resume queued before acpmux put them
+/// in its provenance lists only the agent id.
+function withRecovered(
+  listed: SubagentRetryNotice | undefined,
+  had: SubagentRetryNotice | undefined,
+): SubagentRetryNotice | undefined {
+  if (!listed || !had || !listed.agentId || listed.agentId !== had.agentId) return listed;
+  const name = listed.name ?? had.name;
+  const error = listed.error ?? had.error;
+  return { ...listed, ...(name ? { name } : {}), ...(error ? { error } : {}) };
+}
+
 export function mergeQueue(
   current: readonly QueuedPrompt[],
   listed: readonly any[],
@@ -715,11 +728,11 @@ export function mergeQueue(
       // A resume comes from acpmux's word only: the listing's `subagentRetry` (from the prompt's
       // `subagent_retry` provenance, which an edit drops), else, from an acpmux that lists none,
       // the one its `queued` record gave while the text is the same (the preview that text or cut
-      // from it). An edit, seen or missed, drops it.
+      // from it). An edit, seen or missed, drops it; a null listing removes it.
       message || author || edited?.has(id)
         ? undefined
         : "subagentRetry" in (entry ?? {})
-          ? listedRetry(entry.subagentRetry)
+          ? withRecovered(listedRetry(entry.subagentRetry), had?.retry)
           : whole && (preview.endsWith("…") || oneLine(had.prompt) === preview)
             ? had.retry
             : undefined,

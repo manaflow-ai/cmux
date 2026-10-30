@@ -113,6 +113,39 @@ test("a listing's subagentRetry names the resume with no record read (a chat reo
   expect(edited?.retry).toBeUndefined();
 });
 
+test("an old-style resume keeps the name and error read from its words when the listing has only the id", () => {
+  // Queued before acpmux named them in its provenance: the record's words gave them, the listing
+  // gives only the agent id.
+  const recovered = subagentRetryNotice(named, marked)!;
+  expect(recovered.name).toBe("Cap the deputy context cost");
+  const had = { id: "p-9", prompt: named, retry: recovered };
+  const list = (subagentRetry: unknown) =>
+    mergeQueue(
+      [had],
+      [
+        {
+          promptId: "p-9",
+          client: "acpmux",
+          prompt: `${named.slice(0, 199)}…`,
+          fromAgent: null,
+          author: null,
+          subagentRetry,
+        },
+      ],
+    )[0];
+  expect(list({ agentId: "af0cbece62b15d0e1", name: null, error: null })?.retry).toEqual(recovered);
+  // The listing's own name and error win.
+  expect(list({ agentId: "af0cbece62b15d0e1", name: "Renamed", error: "503" })?.retry).toEqual({
+    agentId: "af0cbece62b15d0e1",
+    name: "Renamed",
+    error: "503",
+  });
+  // Another agent id is another resume: nothing carries over.
+  expect(list({ agentId: "other-id", name: null, error: null })?.retry).toEqual({ agentId: "other-id" });
+  // Null still removes it.
+  expect(list(null)?.retry).toBeUndefined();
+});
+
 test("the record's provenance names the subagent and the error over the words", () => {
   const withNames = {
     _meta: { provenance: { ...marked._meta.provenance, name: "Push relay", error: "API Error: 503" } },
