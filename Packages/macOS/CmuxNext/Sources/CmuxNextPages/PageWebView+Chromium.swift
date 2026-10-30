@@ -10,6 +10,12 @@ import Foundation
 // WebKit view stays as an unloaded, hidden subview, so a page that fails in Chromium reopens in
 // WebKit at once (``fallBackToWebKit(_:)``) and WebKit-only hosts keep compiling.
 extension PageWebView {
+    /// Re-syncs every Chromium page in a view subtree with its AppKit state.
+    public static func syncChromiumVisibility(in root: NSView) {
+        if let page = root as? PageWebView { page.setChromiumVisibility(true) }
+        for child in root.subviews { syncChromiumVisibility(in: child) }
+    }
+
     /// Synchronizes the separate Chromium child window with the page's actual visibility.
     /// AppKit does not propagate an ancestor's alpha to a child window, so paint holds call this
     /// explicitly when they make the host transparent.
