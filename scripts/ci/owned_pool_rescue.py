@@ -3602,8 +3602,8 @@ def settled_guard(api: GitHub, target: Target, sleep: Callable[[float], None], l
                   before_cancel: Callable[[], None] | None, only_job: int) -> Callable[[], None]:
     """rescue()'s before_cancel for a settled-sibling failover (open_head_failover()'s `settled`), right before the
     cancel and every re-send of it: the run must still be this attempt and unfinished, no job of it may be running
-    or held by a runner (job_running()), and `only_job` must still be its one unfinished job (the one the re-run
-    brings back). Else the cancel is dropped (OpenHeadStarted)."""
+    or held by a runner (job_running()), and `only_job` must still be listed, unfinished and its one unfinished job
+    (the one the re-run brings back). Else the cancel is dropped (OpenHeadStarted)."""
     def check() -> None:
         if before_cancel is not None:
             before_cancel()
@@ -3621,6 +3621,11 @@ def settled_guard(api: GitHub, target: Target, sleep: Callable[[float], None], l
         taken = sorted(str(job.get("name") or job.get("id")) for job in jobs if job_running(job))
         if taken:
             raise OpenHeadStarted(f"{', '.join(taken)} started before the cancel")
+        stalled = next((job for job in jobs if job.get("id") == only_job), None)
+        if stalled is None:
+            raise OpenHeadStarted(f"job {only_job} is no longer listed")
+        if stalled.get("status") == "completed":
+            raise OpenHeadStarted(f"{stalled.get('name') or only_job} finished before the cancel")
         others = sorted(str(job.get("name") or job.get("id")) for job in jobs
                         if job.get("status") != "completed" and job.get("id") != only_job)
         if others:

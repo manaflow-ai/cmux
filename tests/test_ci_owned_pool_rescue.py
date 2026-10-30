@@ -6377,6 +6377,31 @@ class OpenHeadSettledFailover(unittest.TestCase):
                 self.assertTrue(any("2 unfinished jobs" in line for line in lines), lines)
                 self.assertNotIn("::notice title=Open-head failover::", out)
 
+    def test_a_stalled_job_that_finishes_or_goes_before_the_cancel_drops_it(self):
+        # The guard right before the cancel: the stalled job finished (or left the listing) since the failover's
+        # look while the run still reads in progress, so a cancel and a re-run of it would repeat a finished job.
+        def finishes(jobs):
+            jobs[-1].update(status="completed", conclusion="success", runner_name="mini-7")
+            return jobs
+
+        def goes(jobs):
+            return jobs[:-1]
+        for change, why in ((finishes, "finished before the cancel"),
+                            (goes, f"job {self.COMPILE_ID} is no longer listed")):
+            with self.subTest(change=change.__name__):
+                state = {"looks": 0}
+
+                def jobs_at(seconds, change=change):
+                    state["looks"] += 1
+                    jobs = self.shape_27853(seconds)
+                    # the failover's look and the receipt, then the guard's read
+                    return change(jobs) if state["looks"] > 2 else jobs
+                clock, api, target = self.world(jobs_at)
+                result, _, _ = self.run_rescue(api, clock, target)
+                assert_left_at_open_head(self, api, result, number=27853)
+                self.assertFalse([call for call in api.calls if call.startswith("rerun-job")], api.calls)
+                self.assertIn(why, result)
+
     def test_a_job_that_queues_before_the_cancel_drops_it(self):
         # The guard right before the cancel: a second job queued since the failover's look would be cancelled and
         # left behind by the re-run of the stalled job alone.
