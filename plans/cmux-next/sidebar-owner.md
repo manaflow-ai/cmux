@@ -609,3 +609,7 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 ## Resize edge lights a themed band (2026-10-29)
 
 - Leo 2026-10-29, verbatim: "like the little draggy bars and whatever, I feel like, you know, when we're dragging them, you know, Claude Code has it so that, you know, it has this glowy bar thing, and I think, like, having that themed color band would be quite nice for our app as well." Before: the edge showed only a separator-colored hairline on hover and drag. Now `SidebarResizeHandle` also lights `DividerGlowBand` (dim on hover, full while dragging) on the edge; the resting look and the hit band are unchanged.
+
+## Agent and lane session row titles (2026-10-30)
+
+- Leo: “i feel like there's still a big mess of uncategorized stuff in the sidebar”, “eg a lot of these subtitles are bad”, and “im saying for my particular sidebar there's a lot of wack stuff there”. Agent and lane session rows use a readable chat title or task summary before machine-made names, while their subtitle keeps status, repository, branch or pull request metadata and never displays a truncated raw first prompt. Explicit user workspace names remain authoritative. General workspace defaults and fleet grouping are unchanged. Test: `SidebarAgentRowPresentationTests`.

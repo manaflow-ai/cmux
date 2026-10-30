@@ -205,15 +205,28 @@ public struct SidebarMapping {
         row.checklist = workspace.checklist.map(Self.checklistItem)
         row.detail = detail(tabs: tabs, indicator: indicator.state, agentTab: agentTab(tabs, harnessIcons: harnessIcons), front: front,
                             notification: row.notificationText)
-        // Agent-session workspaces use the chat's readable title when available. The daemon's
-        // lane/session id is a routing name, so it must not displace a title or task summary.
-        if let agent = agentTab(tabs, harnessIcons: harnessIcons), let ref = agent.agentSession,
-           let chatTitle = AgentTurnStateStore.shared.title(for: ref)?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !chatTitle.isEmpty, chatTitle.caseInsensitiveCompare(row.title) != .orderedSame,
-           chatTitle.caseInsensitiveCompare(ref.session ?? "") != .orderedSame {
-            row.title = chatTitle
+        // Agent-session workspaces use the chat's readable title or a short task summary before
+        // the daemon's lane/session id. The routing name is never the row's best title.
+        if let agent = agentTab(tabs, harnessIcons: harnessIcons), let ref = agent.agentSession {
+            let turns = AgentTurnStateStore.shared
+            row.title = Self.agentRowTitle(workspaceTitle: row.title, sessionName: ref.session,
+                                           chatTitle: turns.generatedTitle(for: ref),
+                                           taskSummary: row.detail.task.flatMap(AgentTurnStates.promptGist))
         }
         return row
+    }
+
+    /// Chooses a readable title for an agent-session workspace. Generated chat titles win;
+    /// otherwise the task gist is useful, while the machine-made session name remains a last resort.
+    public static func agentRowTitle(workspaceTitle: String, sessionName: String?, chatTitle: String?, taskSummary: String?) -> String {
+        let candidates = [chatTitle, taskSummary, workspaceTitle, sessionName]
+        let session = sessionName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        for candidate in candidates {
+            guard let value = candidate?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { continue }
+            if value.lowercased() == session { continue }
+            return value
+        }
+        return workspaceTitle
     }
 
     /// Nobody named `workspace` and nothing names it: no title, the daemon's default name, and
