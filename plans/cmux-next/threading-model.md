@@ -976,7 +976,6 @@ holds the allowance back while a nested run of the main run loop runs other work
 | Reason | Why the wait cannot move off the main thread |
 |---|---|
 | `terminate` | `applicationWillTerminate(_:)` runs on the main thread and the process exits right after it: a bounded final flush there cannot delay a frame (Chrome allows blocking during shutdown the same way). |
-| `surfaceTeardown` | `ghostty_surface_free` runs on the main thread in the terminal view's deinit, and its output lane must not be parsing into the surface then: the fence (`TerminalOutputLane.close`) waits for at most the one chunk in flight, since queued work is skipped once the lane closes, on a lane of the main thread's own QoS (user-interactive). Chrome allows bounded teardown waits with `ScopedAllowBaseSyncPrimitivesOutsideBlockingScope`. |
 
 Daemon: `cmux_threads::AllowReason` is the Rust friend list, 3 variants or fewer. `allow_blocking(reason, f)` is
 the only way past `disallow_blocking`.
@@ -1013,7 +1012,7 @@ not measured here. Rerun this table when the open rows change; INV-1 at any revi
 | INV-2 Apple synchronous APIs, all lines | 0 | 132 | 48 | no |
 | INV-2 by family | 0 | Security 53, NSWorkspace 51, CGWindowList 11, AX 8, SMAppService 6, getaddrinfo 2, LSCopy 1 | Security only: SecItem 30, SecCodeCopy 10, SecStaticCodeCheckValidity 6, SecTrustEvaluate 2 (21 files; the keychain stores, code-signature checkers and peer checks) | no |
 | INV-3 process launch and wait | 0 | 36: `try x.run()` 21, posix_spawn 7, waitpid(..., 0) 5, readDataToEndOfFile 2, waitUntilExit 1 | 0 | yes |
-| INV-4 Swift allowances | 3 or fewer, each with a row | 1 reason (`terminate`), 2 call sites, 0 `blocking-allow:` lines | 2 reasons with rows (`terminate`, `surfaceTeardown`); 3 call sites (QuitDeadline, RunMarkerFile, TerminalOutputLane); 6 `// blocking-allow:` lines in Sources with no row (WireGen 2, AppRunMarker 2, LaunchClock 1, CrashKeys 1), 6 more in Shared test fixtures | no |
+| INV-4 Swift allowances | 3 or fewer, each with a row | 1 reason (`terminate`), 2 call sites, 0 `blocking-allow:` lines | 1 reason with a row (`terminate`); 2 call sites (QuitDeadline, RunMarkerFile; the terminal view's close no longer waits for its output lane: the lane's last block posts the surface's free, `TerminalSurfaceTeardown`); 6 `// blocking-allow:` lines in Sources with no row (WireGen 2, AppRunMarker 2, LaunchClock 1, CrashKeys 1), 6 more in Shared test fixtures | no |
 | INV-4 arch-ratchet blocking_allow_escapes | 3 or fewer | 0 | 9 (3 allowBlocking calls, 6 escape comments) | no |
 | INV-4 Rust AllowReason | 3 or fewer variants, sites listed | 2 variants, 0 sites outside cmux-threads | 2 variants (rows above); outside cmux-threads: cmux-blocking/src/tests.rs (a `Shutdown` test) and a doc comment in cmux-tui-core echo_thread.rs | yes |
 | INV-5 global queues, nil delegate queues, runModal, raw locks | 0 except audio-tap `lock-allow` lines | 41: OSAllocatedUnfairLock 20, DispatchQueue.global 6, delegateQueue nil 6, runModal 6, NSLock 3 | 7 lines, 4 of them audio-tap `lock-allow`; 3 over: PoolContextControl.swift:125 `DispatchQueue.global` (the RUN-10 pool case, `qos-allow:`) and SpeechAnalyzerAudioInput.swift:73 and :76 (AnalyzerBufferFeed, `lock-allow: converter input block`, not the audio-tap reason) | no |

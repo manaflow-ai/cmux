@@ -5,7 +5,7 @@ import Foundation
 import Testing
 
 /// `TerminalOutputLane.close()` runs on the main thread each time a terminal surface is freed (the view's
-/// deinit): its fence before `ghostty_surface_free` is the reviewed `surfaceTeardown` wait, so the blocking
+/// deinit): it never waits for the lane (the lane's last block posts `ghostty_surface_free`), so the blocking
 /// detector records nothing and a Debug build started with `CMUX_BLOCKING_TRAP=1` does not stop
 /// (plans/cmux-next/chrome-parity/p02-threads.md, task 035). The lane's parse is a no-op recorder, so no
 /// Ghostty surface is made.

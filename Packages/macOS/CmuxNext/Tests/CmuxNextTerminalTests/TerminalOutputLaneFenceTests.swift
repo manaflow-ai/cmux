@@ -6,14 +6,14 @@ import GhosttyNextKit
 import Testing
 
 /// The output lane is a checked Sendable: its surface is a constant and work on the
-/// lane reaches it only while the lane is open, so after ``TerminalOutputLane/close()`` (the fence before
+/// lane reaches it only while the lane is open, so after ``TerminalOutputLane/close(then:)`` (whose last block posts
 /// `ghostty_surface_free`) nothing queued earlier or later touches the surface. The lane's parse is the
 /// test's recorder, so no Ghostty surface is made.
 @Suite(.timeLimit(.minutes(1))) struct TerminalOutputLaneFenceTests {
     static let surface = TerminalOutputLaneHangScopeTests.surface
 
     /// Work queued behind the chunk in flight when the lane closes, and work queued after the close,
-    /// never sees the surface; the chunk in flight finishes before close returns.
+    /// never sees the surface; the chunk in flight finishes before the close's last block runs.
     @Test func nothingReachesTheSurfaceAfterClose() async {
         let log = SurfaceLog()
         let gate = DispatchSemaphore(value: 0)
