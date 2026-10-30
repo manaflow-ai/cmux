@@ -296,6 +296,38 @@ import Testing
         #expect(store.messages.compactMap(\.seq) == Array(1...100))
     }
 
+    @Test func olderPageLandingDuringRecoveryTakesTheRecoveredRevision() async throws {
+        let backend = ScriptedBackend(total: 100)
+        let store = ConversationStore(backend: backend, pageSize: 20)
+        defer { store.stop() }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        // An older page (61-80) is asked for and held with its pre-disconnect contents.
+        let older = PreparationGate()
+        defer { older.open() }
+        backend.nextHistoryGate = older
+        store.loadOlder()
+        try await waitUntil { backend.historyCount == 2 }
+        // Message 70 was unsent while disconnected.
+        var unsent = backend.makeMessage(seq: 70, sender: "lc")
+        unsent.text = ""
+        unsent.unsentAt = Date(timeIntervalSince1970: 1_800_000_000)
+        backend.setHistoryMessage(unsent)
+        backend.total = 101
+        let newest = PreparationGate()
+        defer { newest.open() }
+        backend.nextHistoryGate = newest
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { backend.historyCount == 3 }
+        // The stale older page lands mid-recovery; recovery must still apply the unsend.
+        older.open()
+        try await waitUntil { store.message(id: "m61") != nil }
+        newest.open()
+        try await waitUntil { store.message(id: "m101") != nil }
+        #expect(store.message(id: "m70")?.unsentAt == unsent.unsentAt)
+        #expect(store.messages.compactMap(\.seq) == Array(61...101))
+    }
+
     @Test func reconnectRefreshesMissedEditsThroughoutRetainedHistory() async throws {
         let backend = ScriptedBackend(total: 100)
         let store = ConversationStore(backend: backend, pageSize: 20)

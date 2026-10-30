@@ -170,6 +170,11 @@ public final class ConversationStore {
     private var localTyping = false
     private var localTypingTask: Task<Void, Never>?
     private var bufferedLive: [ConversationMessage] = []
+    /// While a reconnect recovers: each kept row as history last gave it (the
+    /// window at reconnect, plus older pages that land meanwhile). A row whose
+    /// current value still equals it takes the recovered revision; one a live
+    /// event or local edit changed since keeps that change.
+    private var recoveryBaseline: [String: ConversationMessage]?
     /// Bumps on every list state change so a stale reply or rollback never
     /// overwrites a newer state.
     private var listStateGeneration = 0
@@ -562,6 +567,7 @@ public final class ConversationStore {
         let retained = rebase && hasLoadedNewest
             ? Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) }) : nil
         let overlap = retained?.values.compactMap(\.seq).min()
+        recoveryBaseline = retained
         newestTask = Task { [weak self] in
             var attempt = 0
             while !Task.isCancelled {
@@ -590,7 +596,7 @@ public final class ConversationStore {
                         }
                         pages.append(page)
                     }
-                    self.applyNewest(pages, retained: retained)
+                    self.applyNewest(pages, retained: retained.map { self.recoveryBaseline ?? $0 })
                     return
                 } catch {
                     guard !Task.isCancelled else { return }
@@ -653,6 +659,7 @@ public final class ConversationStore {
             older = newest.hasMore ? .idle : .exhausted
         }
         hasLoadedNewest = true
+        recoveryBaseline = nil
         let buffered = bufferedLive
         bufferedLive = []
         for message in buffered { ingestBuffered(message) }
@@ -716,6 +723,11 @@ public final class ConversationStore {
             olderMessages.append(message)
         }
         if !olderMessages.isEmpty { prependOlder(olderMessages) }
+        // A recovery in flight may fetch these rows again: history, not a live
+        // change, so its newer revision of them applies.
+        if recoveryBaseline != nil {
+            for message in olderMessages { recoveryBaseline?[message.id] = message }
+        }
         older = page.hasMore ? .idle : .exhausted
         notify(.prepended)
         refreshReadState()
