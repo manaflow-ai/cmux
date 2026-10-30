@@ -107,7 +107,9 @@ test("keeps a saved environment usable when folder browse rejects", async () => 
   expect(container.querySelector(".acpmux-env-panel")).toBeTruthy();
   expect(container.querySelector<HTMLInputElement>(".acpmux-env-input")?.value).toBe("cmux local");
 
-  await act(async () => document.querySelector<HTMLButtonElement>(".acpmux-env-footer button.acpmux-env-button")!.click());
+  await act(async () =>
+    document.querySelector<HTMLButtonElement>(".acpmux-env-footer button.acpmux-env-button")!.click(),
+  );
   expect(save.disabled).toBe(true);
   await act(async () => rejectBrowse!(new Error("Folder access was denied again.")));
   expect(container.querySelector('[role="alert"]')?.textContent).toContain("Folder access was denied again.");
@@ -171,7 +173,9 @@ test("back from Add Project cannot apply its deferred browse to the environment"
   });
   await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-location-button")!.click());
   const pick = async (label: string) => {
-    const item = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((node) => node.textContent?.includes(label));
+    const item = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((node) =>
+      node.textContent?.includes(label),
+    );
     expect(item).toBeTruthy();
     await act(async () => item!.click());
   };

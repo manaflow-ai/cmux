@@ -10667,9 +10667,7 @@ function AcpmuxPane() {
             environments={preview}
             {...(sandboxOffered ? { runMode: sandboxModeRows } : {})}
             onBrowseFolder={
-              canMove
-                ? () => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd)
-                : undefined
+              canMove ? () => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd) : undefined
             }
             // A started local chat's folder is fixed (Leo 2026-10-13): its folder menu starts a new chat
             // in a tab of its own; a Cloud chat's folder is a label.

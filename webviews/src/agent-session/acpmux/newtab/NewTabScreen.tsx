@@ -1488,11 +1488,7 @@ export function NewTabScreen(props: Props) {
         )}
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
         {browseError && browseProject && (
-          <BrowseFailure
-            error={browseError}
-            onRetry={browseProject}
-            onDismiss={() => setBrowseError(undefined)}
-          />
+          <BrowseFailure error={browseError} onRetry={browseProject} onDismiss={() => setBrowseError(undefined)} />
         )}
         {sandboxRefusal && props.runMode?.mode === "sandboxed" && (
           <output className="acpmux-switch-notice">

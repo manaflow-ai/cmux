@@ -361,13 +361,15 @@ test("classic Add Project keeps a failed browse open and applies the retried fol
     return { cwd: "/tmp/retried-project" };
   };
   await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-project-button")!.click());
-  const add = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-project-menu [role=option]")]
-    .find((row) => row.textContent?.includes("New project"));
+  const add = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-project-menu [role=option]")].find((row) =>
+    row.textContent?.includes("New project"),
+  );
   expect(add).toBeDefined();
   await act(async () => add!.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0 })));
   const choose = async (label: string) => {
-    const option = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-add-project li")]
-      .find((row) => row.textContent?.includes(label));
+    const option = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-add-project li")].find((row) =>
+      row.textContent?.includes(label),
+    );
     expect(option).toBeDefined();
     await act(async () => option!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, button: 0 })));
   };
@@ -376,8 +378,9 @@ test("classic Add Project keeps a failed browse open and applies the retried fol
   expect(dom.window.document.querySelector(".acpmux-add-project")?.textContent).toContain("Folder access was denied.");
   expect(host.querySelector("[data-plugin-folder]")?.textContent).toBe("/tmp/classic-project");
   expect(chatCalls()).toEqual([]);
-  const retry = [...dom.window.document.querySelectorAll<HTMLButtonElement>(".acpmux-add-project button")]
-    .find((button) => button.textContent === "Retry");
+  const retry = [...dom.window.document.querySelectorAll<HTMLButtonElement>(".acpmux-add-project button")].find(
+    (button) => button.textContent === "Retry",
+  );
   expect(retry).toBeDefined();
   await act(async () => retry!.click());
   expect(attempts).toBe(2);

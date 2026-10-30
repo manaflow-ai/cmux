@@ -417,11 +417,15 @@ test("keeps the project chooser open when a second Add Project browse is already
     );
   });
   await act(async () => container.querySelector<HTMLButtonElement>(".nt-env .acpmux-project-button")!.click());
-  const add = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) => row.textContent?.includes("New project"));
+  const add = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) =>
+    row.textContent?.includes("New project"),
+  );
   expect(add).toBeTruthy();
   await act(async () => add!.click());
   const pick = async (label: string) => {
-    const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) => row.textContent?.includes(label));
+    const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) =>
+      row.textContent?.includes(label),
+    );
     expect(option).toBeTruthy();
     await act(async () => option!.click());
   };
