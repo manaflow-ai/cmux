@@ -60,7 +60,7 @@ await requireBrowserLane("agent-pane-native-history-scroll.test.ts", async () =>
     [
       ["mux", "created", { harness: "claude" }],
       ["mux", "adopted", { agentSessionId: "s1" }],
-      ["mux", "native_history", { family: "claude", before: offset(firstSeeded), turns: SEEDED }],
+      ["mux", "native_history", { family: "claude", before: offset(firstSeeded), mark: `m${offset(firstSeeded)}`, turns: SEEDED }],
       ...Array.from({ length: SEEDED }, (_, i) => turn(firstSeeded + i)).flat(),
     ] as Step[]
   ).map(([dir, kind, msg], index) => ({ sessionId: CHAT, seq: index + 1, at: START + index * 1000, dir, kind, msg }));
@@ -91,6 +91,7 @@ await requireBrowserLane("agent-pane-native-history-scroll.test.ts", async () =>
         msg,
       })),
       before: first > 1 ? offset(first) : 0,
+      mark: first > 1 ? `m${offset(first)}` : null,
       turns: last - first + 1,
     };
   }
@@ -113,6 +114,8 @@ await requireBrowserLane("agent-pane-native-history-scroll.test.ts", async () =>
         return { events: [], hasMore: false, lastSeq };
       case "_acpmux/native_history":
         nativeReads.push(params.before);
+        // Each cursor comes back with the mark it was given with.
+        expect(params.mark).toBe(`m${params.before}`);
         return nativePage(params.before);
       default:
         return null;

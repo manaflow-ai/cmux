@@ -1958,7 +1958,8 @@
    "method": "_acpmux/native_history",
    "params": {
     "sessionId": "s",
-    "before": 4096
+    "before": 4096,
+    "mark": "4096-cbf29ce484222325"
    }
   },
   "mode_fields": null,

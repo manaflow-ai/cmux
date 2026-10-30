@@ -38,7 +38,7 @@ const log: Rec[] = (
   [
     ["mux", "created", { harness: "claude" }],
     ["mux", "adopted", { agentSessionId: "s1" }],
-    ["mux", "native_history", { family: "claude", before: SEEDED_BEFORE, turns: 3 }],
+    ["mux", "native_history", { family: "claude", before: SEEDED_BEFORE, mark: `m${SEEDED_BEFORE}`, turns: 3 }],
     ...[7, 8, 9].flatMap(turn),
   ] as Step[]
 ).map(([dir, kind, msg], index) => ({ sessionId: CHAT, seq: index + 1, at: START + index * 1000, dir, kind, msg }));
@@ -46,7 +46,7 @@ const lastSeq = log.length;
 
 function nativePage(before: number) {
   const page = PAGES[before];
-  if (!page) return { events: [], before: 0, turns: 0 };
+  if (!page) return { events: [], before: 0, mark: null, turns: 0 };
   const events = page.turns.flatMap(turn).map(([dir, kind, msg], k) => ({
     sessionId: CHAT,
     seq: nativeSeq(before, k),
@@ -55,12 +55,12 @@ function nativePage(before: number) {
     kind,
     msg,
   }));
-  return { events, before: page.before, turns: page.turns.length };
+  return { events, before: page.before, mark: page.before > 0 ? `m${page.before}` : null, turns: page.turns.length };
 }
 
 /// A daemon over a fake socket; `serves` says whether it lists `_acpmux/native_history`, and
 /// `unknown` makes it answer that method as one it does not serve (an older peer's daemon).
-function fakeDaemon({ serves = true, unknown = false, refused = "" } = {}) {
+function fakeDaemon({ serves = true, unknown = false, refused = "", log: held = log } = {}) {
   let socket: any;
   const nativeReads: number[] = [];
   const session = {
@@ -88,13 +88,16 @@ function fakeDaemon({ serves = true, unknown = false, refused = "" } = {}) {
       case "_acpmux/watch":
         return { result: { sessions: [session] } };
       case "_acpmux/attach":
-        return { result: { session, events: log, hasMore: false, lastSeq } };
+        return { result: { session, events: held, hasMore: false, lastSeq } };
       case "_acpmux/events":
         return { result: { events: [], hasMore: false, lastSeq } };
       case "_acpmux/native_history":
         nativeReads.push(params.before);
         if (unknown) return { error: { code: -32601, message: "Method not found" } };
         if (refused) return { error: { code: -32602, message: refused, data: { reason: refused } } };
+        // The daemon checks the cursor against its transcript by the mark it came with.
+        if (params.mark !== `m${params.before}`)
+          return { error: { code: -32602, message: "stale", data: { reason: "nativeHistory.stale" } } };
         return { result: nativePage(params.before) };
       default:
         return { result: null };
@@ -188,7 +191,7 @@ test("a peer's older daemon that answers method-not-found just stops the paging"
   client.close();
 });
 
-for (const reason of ["transcriptRead.remote", "transcriptRead.unsupported"])
+for (const reason of ["transcriptRead.remote", "transcriptRead.unsupported", "nativeHistory.stale"])
   test(`a refusal of the transcript read (${reason}) just stops the paging`, async () => {
     const daemon = fakeDaemon({ refused: reason });
     const { client, snapshot, prompts } = await open(daemon);
@@ -198,3 +201,16 @@ for (const reason of ["transcriptRead.remote", "transcriptRead.unsupported"])
     expect(snapshot().canLoadOlder).toBe(false);
     client.close();
   });
+
+test("a seeded cursor with no mark (an older daemon's) pages nothing", async () => {
+  const unmarked = log.map((record) =>
+    record.kind === "native_history" ? { ...record, msg: { family: "claude", before: SEEDED_BEFORE, turns: 3 } } : record,
+  );
+  const daemon = fakeDaemon({ log: unmarked });
+  const { client, snapshot, prompts } = await open(daemon);
+  expect(snapshot().canLoadOlder).toBe(false);
+  await client.loadOlder();
+  expect(daemon.nativeReads).toEqual([]);
+  expect(prompts()).toEqual(questions(7, 8, 9));
+  client.close();
+});

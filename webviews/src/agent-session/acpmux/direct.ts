@@ -1517,11 +1517,12 @@ export class AcpmuxDirectClient {
   /// The selection generation whose attach reply has landed; lag resync waits for it.
   private attachedGeneration = -1;
   private historyExhausted = false;
-  /// The oldest `native_history` record held (reduced): where the transcript's older turns end.
-  private nativeSeed?: { seq: number; before: number };
+  /// The oldest `native_history` record held (reduced): where the transcript's older turns end, and
+  /// the mark that ties that cursor to the transcript it was read from.
+  private nativeSeed?: { seq: number; before: number; mark: string };
   /// Where the next older native page ends, once one was read, for the held transcript
   /// (`historyEpoch`): 0 when nothing older holds a turn or the daemon serves no pages.
-  private nativeNext?: { epoch: number; before: number };
+  private nativeNext?: { epoch: number; before: number; mark?: string };
   /// Bumped when the held transcript's older end moves on its own: a kept tail dropped because the
   /// attach page did not continue it. An older page in flight from before belongs to a transcript
   /// the chat no longer holds, so it is dropped instead of merged above the new one.
@@ -4047,10 +4048,17 @@ export class AcpmuxDirectClient {
     const msg = event.msg ?? {};
     if (event.dir === "mux" && event.kind === NATIVE_HISTORY_KIND) {
       // Draws nothing: where the transcript's older turns end. The oldest one held is the seeded
-      // page's (a page of the log seq order puts first).
+      // page's (a page of the log seq order puts first). One without a mark (an older daemon's)
+      // cannot be checked against the transcript, so it pages nothing.
       const before = Number(msg.before);
-      if (event.seq >= 1 && before > 0 && (this.nativeSeed === undefined || event.seq < this.nativeSeed.seq))
-        this.nativeSeed = { seq: event.seq, before };
+      const mark = typeof msg.mark === "string" && msg.mark !== "" ? msg.mark : undefined;
+      if (
+        event.seq >= 1 &&
+        before > 0 &&
+        mark !== undefined &&
+        (this.nativeSeed === undefined || event.seq < this.nativeSeed.seq)
+      )
+        this.nativeSeed = { seq: event.seq, before, mark };
       return;
     }
     const update = sessionUpdate(event);
@@ -4937,7 +4945,7 @@ export class AcpmuxDirectClient {
       asks: this.asks.list(),
       catalog: [],
       commands: this.commands,
-      canLoadOlder: this.seqHistoryLeft() || this.nativeBefore() !== undefined,
+      canLoadOlder: this.seqHistoryLeft() || this.nativeCursor() !== undefined,
       historyFrom: this.firstSeq,
       missingSession: this.selectedSessionId ? undefined : this.missingSession,
       unavailable: this.unavailableNow(),
@@ -6879,16 +6887,18 @@ export class AcpmuxDirectClient {
     return !this.historyExhausted && (this.firstSeq ?? 1) > 1;
   }
 
-  /// Where the next older page of the chat's Claude Code transcript ends, once the log's own
-  /// history is all held; undefined when there is none to read, or the daemon serves none.
-  private nativeBefore(): number | undefined {
+  /// Where the next older page of the chat's Claude Code transcript ends, with its mark, once the
+  /// log's own history is all held; undefined when there is none to read, or the daemon serves none.
+  private nativeCursor(): { before: number; mark: string } | undefined {
     if (!this.extensions.includes("_acpmux/native_history") || this.seqHistoryLeft()) return undefined;
-    const next = this.nativeNext?.epoch === this.historyEpoch ? this.nativeNext.before : this.nativeSeed?.before;
-    return next !== undefined && next > 0 ? next : undefined;
+    const next = this.nativeNext?.epoch === this.historyEpoch ? this.nativeNext : this.nativeSeed;
+    return next !== undefined && next.before > 0 && next.mark !== undefined
+      ? { before: next.before, mark: next.mark }
+      : undefined;
   }
 
   private async fetchOlder(): Promise<void> {
-    if (this.selectedSessionId && !this.seqHistoryLeft() && this.nativeBefore() !== undefined)
+    if (this.selectedSessionId && !this.seqHistoryLeft() && this.nativeCursor() !== undefined)
       return this.fetchNativeOlder();
     if (!this.selectedSessionId || !this.firstSeq || this.firstSeq <= 1 || this.historyExhausted) return;
     const sessionId = this.selectedSessionId;
@@ -6940,7 +6950,7 @@ export class AcpmuxDirectClient {
   }
 
   /// Pages older turns in from the chat's Claude Code transcript, past the newest page its log was
-  /// seeded with (`nativeBefore`). acpmux sends them as the records adopting logs, numbered below 1
+  /// seeded with (`nativeCursor`). acpmux sends them as the records adopting logs, numbered below 1
   /// (oldest first, the same numbers for the same cursor), so they sort above every logged record
   /// and stay out of the log's own bookkeeping: `seqHistoryLeft` is false once one is held. Records
   /// the pane already holds (a kept tail drew them) are dropped, and the read goes on to an older
@@ -6950,27 +6960,32 @@ export class AcpmuxDirectClient {
     const sessionId = this.selectedSessionId!;
     const generation = this.selectionGeneration;
     const epoch = this.historyEpoch;
-    let before = this.nativeBefore();
+    let cursor = this.nativeCursor();
     // A kept tail cut inside a native turn holds that turn's end only (KEPT_EVENTS): the turn comes
     // again whole with its page, so the part held goes and the rows are drawn again.
     const cut = this.events[0] !== undefined && this.events[0].seq < 1 && this.events[0].kind !== "turn_started";
     const whole = cut ? this.events.find((event) => event.seq >= 1 || event.kind === "turn_started") : this.events[0];
     const heldFrom = whole?.seq ?? Infinity;
     let older: EventRecord[] = [];
-    for (let pages = 0; before !== undefined && before > 0 && pages < NATIVE_PAGES_PER_ASK; pages++) {
+    for (let pages = 0; cursor !== undefined && pages < NATIVE_PAGES_PER_ASK; pages++) {
       let result: any;
       try {
-        result = await this.request("_acpmux/native_history", { sessionId, before }, 15_000);
+        result = await this.request(
+          "_acpmux/native_history",
+          { sessionId, before: cursor.before, mark: cursor.mark },
+          15_000,
+        );
       } catch (error) {
         // An older daemon serves no pages, an older host relays none, a peer that serves none is
-        // never asked, and a Web client may not read the transcript: the chat stops paging, as at
-        // its first turn.
+        // never asked, a Web client may not read the transcript, and a transcript replaced since
+        // the cursor was read no longer holds its turns: the chat stops paging, as at its first turn.
         const { code, reason } = (error ?? {}) as { code?: unknown; reason?: unknown };
         const unserved =
           code === METHOD_NOT_FOUND ||
           code === "transport.method_refused" ||
           reason === "transcriptRead.unsupported" ||
-          reason === "transcriptRead.remote";
+          reason === "transcriptRead.remote" ||
+          reason === "nativeHistory.stale";
         if (!unserved) throw error;
         result = { events: [], before: 0 };
       }
@@ -6981,11 +6996,15 @@ export class AcpmuxDirectClient {
       );
       older = [...page, ...older];
       const next = Number(result?.before);
-      // A cursor moves back, or the transcript is done.
-      before = Number.isFinite(next) && next > 0 && next < before ? next : 0;
+      const mark = typeof result?.mark === "string" && result.mark !== "" ? (result.mark as string) : undefined;
+      // A cursor moves back with its mark, or the transcript is done.
+      cursor =
+        Number.isFinite(next) && next > 0 && next < cursor.before && mark !== undefined
+          ? { before: next, mark }
+          : undefined;
       if (older.some(startsTurn)) break;
     }
-    this.nativeNext = { epoch, before: before ?? 0 };
+    this.nativeNext = { epoch, before: cursor?.before ?? 0, mark: cursor?.mark };
     if (cut) this.events = this.events.filter((event) => event.seq >= heldFrom);
     if (older.length > 0) {
       this.events = mergeEventRecords(older, this.events);

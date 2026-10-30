@@ -102,7 +102,7 @@
     "_acpmux/side": {"params": ["sessionId", "chat"], "acpmux": []},
     "_acpmux/offer_respond": {"params": ["sessionId", "offerId", "outcome", "childSessionId"], "acpmux": []},
     "_acpmux/subagent_transcript": {"params": ["sessionId", "runId", "agentId", "before", "after", "limit"], "acpmux": []},
-    "_acpmux/native_history": {"params": ["sessionId", "before"], "acpmux": []},
+    "_acpmux/native_history": {"params": ["sessionId", "before", "mark"], "acpmux": []},
     "_acpmux/subagent_stop": {"params": ["sessionId", "subagentSessionId"], "acpmux": []},
     "_acpmux/agent_pair_resume": {"params": ["sessionId", "peerSessionId"], "acpmux": []},
     "_acpmux/app_reply": {"params": ["sessionId", "to", "replyTo", "threadId", "text", "replyId"], "acpmux": []},

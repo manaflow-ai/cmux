@@ -8,11 +8,16 @@
 //! record asks for the page before that cursor, then for the page before the cursor each reply
 //! gives, until it is 0. The reply goes to the caller only: no page is ever written to the log.
 //!
-//! `{sessionId, before}` → `{events, before, turns, read}`. `events` are the page's turns as
-//! adopting logs them (`turn_records`), oldest first, each with a `seq` below 1, so they sort before
-//! every logged record and never count as one of the log's (`native_seq`). `before` is the next
-//! cursor, 0 when nothing older holds a turn. A page reads at most `PAGE_MAX_BYTES` (16 MiB) and
+//! `{sessionId, before, mark}` → `{events, before, mark, turns, read}`. `events` are the page's
+//! turns as adopting logs them (`turn_records`), oldest first, each with a `seq` below 1, so they
+//! sort before every logged record and never count as one of the log's (`native_seq`). `before` is
+//! the next cursor, 0 when nothing older holds a turn. A page reads at most `PAGE_MAX_BYTES` (16 MiB) and
 //! a step, paging past pages with no turn up to `SCAN_MAX_BYTES` (`claude_page_with_turns`).
+//!
+//! A cursor is a byte offset into one version of the transcript, so it travels with a `mark`: a
+//! fingerprint of the bytes the cursor starts (`mark`). A transcript cut, rotated or replaced
+//! since no longer holds those bytes there, and its cursor is refused (`nativeHistory.stale`)
+//! instead of reading the new file's turns as older ones of the chat.
 //!
 //! Where: the chat's watched transcript, else its Claude session's `<id>.jsonl` in the store its
 //! agent runs with, found as `_acpmux/subagent_transcript` finds that store. The caller names only
@@ -24,6 +29,7 @@ use crate::rpc::RpcError;
 use crate::store::now_ms;
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
+use std::io::{Read as _, Seek as _, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -49,6 +55,50 @@ pub(super) const MAX_BEFORE: u64 = 1 << (52 - KEY_BITS);
 pub(super) fn native_seq(before: u64, k: usize) -> i64 {
     debug_assert!(before < MAX_BEFORE && k < 1 << KEY_BITS);
     (((before as i64) << KEY_BITS) | k as i64) - SEQ_SPAN
+}
+
+/// The transcript bytes a cursor's mark covers: the start of the page after the cursor.
+const MARK_BYTES: u64 = 4096;
+
+/// The mark of the cursor `before` into `file`: how many of the bytes from `before` it covers
+/// (at most [`MARK_BYTES`]) and their FNV-1a hash, as `<n>-<hash>`. `None` when no byte follows
+/// `before`. A transcript only grows, so the same bytes stay there while it is the same file.
+pub(crate) fn mark(file: &Path, before: u64) -> Option<String> {
+    let len = std::fs::metadata(file).ok()?.len();
+    let n = len.checked_sub(before)?.min(MARK_BYTES);
+    if n == 0 {
+        return None;
+    }
+    Some(format!("{n}-{:016x}", fingerprint(file, before, n)?))
+}
+
+/// Whether `file` still holds at `before` the bytes `mark` was made from.
+fn mark_holds(file: &Path, before: u64, mark: &str) -> bool {
+    let Some((n, hash)) = mark.split_once('-') else { return false };
+    let Ok(n) = n.parse::<u64>() else { return false };
+    (1..=MARK_BYTES).contains(&n)
+        && fingerprint(file, before, n).is_some_and(|got| format!("{got:016x}") == hash)
+}
+
+/// The FNV-1a hash of the `n` bytes of `file` from `at`; `None` when it has fewer.
+fn fingerprint(file: &Path, at: u64, n: u64) -> Option<u64> {
+    let mut f = std::fs::File::open(file).ok()?;
+    f.seek(SeekFrom::Start(at)).ok()?;
+    let mut buf = vec![0u8; usize::try_from(n).ok()?];
+    f.read_exact(&mut buf).ok()?;
+    Some(
+        buf.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
+            (h ^ u64::from(*b)).wrapping_mul(0x100_0000_01b3)
+        }),
+    )
+}
+
+/// The refusal of a cursor its transcript no longer matches: the pane stops paging.
+fn stale() -> RpcError {
+    RpcError::invalid_params(
+        "nativeHistory.stale: the chat's transcript changed since this cursor was read",
+    )
+    .with_data(json!({"reason": "nativeHistory.stale"}))
 }
 
 /// One record of a past turn as a chat's log holds it.
@@ -141,14 +191,22 @@ pub(crate) async fn handle(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcE
     if before >= MAX_BEFORE {
         return Err(RpcError::invalid_params("before is past the 16 GiB a cursor can name"));
     }
+    let mark = params.get("mark").and_then(Value::as_str).map(str::to_owned).ok_or_else(|| {
+        RpcError::invalid_params("mark must be the one the native_history cursor came with")
+    })?;
     let file = transcript(hub, &session)
         .await
         .ok_or_else(|| RpcError::invalid_params("the chat has no Claude Code transcript"))?;
     let _turn = READS.acquire().await.map_err(|e| RpcError::internal(e.to_string()))?;
     let session = session.clone();
-    tokio::task::spawn_blocking(move || older_page(&session, &file, before))
-        .await
-        .map_err(|e| RpcError::internal(e.to_string()))
+    tokio::task::spawn_blocking(move || {
+        if !mark_holds(&file, before, &mark) {
+            return Err(stale());
+        }
+        Ok(older_page(&session, &file, before))
+    })
+    .await
+    .map_err(|e| RpcError::internal(e.to_string()))?
 }
 
 /// The chat's Claude Code transcript: the one it watches, else its Claude session's in its store.
@@ -192,7 +250,9 @@ pub(super) fn older_page(session: &Session, file: &Path, before: u64) -> Value {
                 "dir": record.dir, "kind": record.kind, "msg": msg}));
         }
     }
-    json!({"events": events, "before": page.start, "turns": page.turns.len(), "read": page.read})
+    let mark = if page.start > 0 { mark(file, page.start) } else { None };
+    json!({"events": events, "before": page.start, "mark": mark, "turns": page.turns.len(),
+        "read": page.read})
 }
 
 #[cfg(test)]
