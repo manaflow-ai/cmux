@@ -234,6 +234,45 @@ struct WorkspaceGroupPinLiveTests {
         }
     }
 
+    /// A group made of a pinned workspace is made in Pinned (https://github.com/manaflow-ai/cmux/issues/27700:
+    /// groups read pinned right after their create). Unpin Group takes it out and it stays out; Delete Group
+    /// on it removes it.
+    @Test func aGroupOfAPinnedWorkspaceUnpinsAndDeletes() async throws {
+        try await Self.withLaunched { launched in
+            let services = launched.services
+            let workspace = try #require(services.daemon.store.workspaces.first, "no launch workspace")
+            let item = try #require(SidebarDocWiring.item(workspace: workspace.id, services.machines), "the launch workspace has no document item")
+            let row = ActionInvocation(target: ActionTargetRef(kind: .workspace, id: workspace.id), origin: .user)
+            #expect(services.registry.perform("palette.toggleWorkspacePin", invocation: row), "\(launched.refusals.reasons)")
+            await Self.wait(within: .seconds(20)) { SidebarDocStore.current?.records.items[item]?.section == SidebarDocStore.pinnedSection }
+            #expect(SidebarDocStore.current?.records.items[item]?.section == SidebarDocStore.pinnedSection, "the workspace did not pin")
+            #expect(services.registry.perform("groupSelectedWorkspaces", invocation: row), "\(launched.refusals.reasons)")
+            @MainActor func made() -> (personal: WorkspaceGroupID, shown: CmuxNextSidebar.GroupID)? {
+                guard let parent = SidebarDocStore.current?.records.items[item]?.parent,
+                      let personal = services.machines.local.store.personal.group(.init(rawValue: SidebarDocStore.personalGroupID(item: parent)))
+                else { return nil }
+                return (personal.id, CmuxNextSidebar.GroupID(parent))
+            }
+            await Self.wait(within: .seconds(20)) { made() != nil }
+            let group = try #require(made(), "the pinned workspace did not group: \(launched.refusals.reasons)")
+            await Self.expectPinned(true, group, launched, "a group of a pinned workspace")
+            let target = ActionInvocation(target: ActionTargetRef(kind: .workspaceGroup, id: group.shown.rawValue), origin: .user)
+            #expect(services.registry.perform("workspaceGroup.togglePin", invocation: target), "\(launched.refusals.reasons)")
+            await Self.expectPinned(false, group, launched, "Unpin Group")
+            #expect(services.registry.perform("toggleFocusedWorkspaceGroupCollapsed", invocation: target), "\(launched.refusals.reasons)")
+            await Self.expectPinned(false, group, launched, "a fold after Unpin Group")
+            #expect(services.registry.perform("workspaceGroup.togglePin", invocation: target), "\(launched.refusals.reasons)")
+            await Self.expectPinned(true, group, launched, "Pin Group again")
+            #expect(services.registry.perform("workspaceGroup.delete", invocation: target), "\(launched.refusals.reasons)")
+            @MainActor func gone() -> Bool {
+                SidebarDocStore.current?.records.items[group.shown.rawValue] == nil
+                    && services.machines.local.store.personal.group(group.personal) == nil
+            }
+            await Self.wait(within: .seconds(20)) { gone() }
+            #expect(gone(), "Delete Group left the pinned group: \(Self.state(group, launched)), refusals \(launched.refusals.reasons)")
+        }
+    }
+
     /// The MCP tool names the group by its own id and sets a state: the same state twice is no toggle.
     @Test func pinnedArgumentSetsTheState() async throws {
         try await Self.withLaunched { launched in
