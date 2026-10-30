@@ -29,7 +29,7 @@ import Foundation
             confirming = true
             let confirmed = await confirm()
             confirming = false
-            guard confirmed, offs[key, default: 0] == offsBefore else { throw refusal }
+            guard !Task.isCancelled, confirmed, offs[key, default: 0] == offsBefore else { throw refusal }
             return try await queued(key, on: true, after: offsBefore, refusal: refusal, write)
         }
         offs[key, default: 0] += 1
@@ -44,13 +44,18 @@ import Foundation
         // task-owner: one link of the write chain for one key; ends with its host write.
         let task = Task { @MainActor [weak self] () -> String?? in
             await previous?.value
-            guard let self else { return .none }
+            guard !Task.isCancelled, let self else { return .none }
             if on, self.offs[key, default: 0] != offsAsked { return .none }
+            guard !Task.isCancelled else { return .none }
             return .some(await write(on))
         }
         // task-owner: the chain's tail, which the next write for this key waits on; ends with `task`.
         writes[key] = Task { _ = await task.value }
-        guard let answer = await task.value else { throw refusal }
-        return answer
+        return try await withTaskCancellationHandler(operation: {
+            guard let answer = await task.value else { throw refusal }
+            return answer
+        }, onCancel: {
+            task.cancel()
+        })
     }
 }

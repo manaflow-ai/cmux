@@ -127,7 +127,7 @@ final class SettingsPageProvider: PageProvider {
         let refusal = PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
         if on {
             guard context.page == PageDescriptor.settings.id, context.userGesture, let event = context.gestureEvent,
-                  event != spentFullAccessGesture else { throw refusal }
+                  event != spentFullAccessGesture, personBacksGesture?(event) == true else { throw refusal }
             spentFullAccessGesture = event
         }
         let confirm: (@MainActor () async -> Bool)?
