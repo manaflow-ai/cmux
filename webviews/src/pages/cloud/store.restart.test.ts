@@ -82,7 +82,7 @@ test("a signed-out page that recovers keeps no error and stops loading", async (
   unsubscribe();
 });
 
-test("a terminal retry error clears the stale disconnected state", async () => {
+test("a terminal retry error keeps an explicit failed state", async () => {
   jest.useFakeTimers();
   const provider = new TerminalAfterTransportProvider(1);
   const store = new CloudStore(provider);
@@ -91,7 +91,7 @@ test("a terminal retry error clears the stale disconnected state", async () => {
   expect(store.getSnapshot().connection).toBe("disconnected");
   jest.advanceTimersByTime(CLOUD_RESTART_MIN_MS);
   await settle();
-  expect(store.getSnapshot()).toMatchObject({ connection: "connected", loading: false });
+  expect(store.getSnapshot()).toMatchObject({ connection: "failed", loading: false });
   expect(store.getSnapshot().error).toBe("the Cloud service did not answer");
   unsubscribe();
 });

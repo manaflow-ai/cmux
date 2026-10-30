@@ -19,8 +19,9 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
   // A lost link shows nothing until it lasts past the grace (a launch, a daemon restart: the store
   // reads again on its own); then the disconnected state with Retry.
   const down = snap.connection === "disconnected";
+  const failed = snap.connection === "failed";
   const downLasting = useLasting(down);
-  const signedIn = !!snap.auth?.signedIn && !down;
+  const signedIn = !!snap.auth?.signedIn && snap.connection === "connected";
   const storefront = signedIn && (snap.view === "get" || (!snap.loading && snap.rows.length === 0));
   // The header switches between the list and the storefront once the team has a machine.
   const viewSwitch =
@@ -35,6 +36,18 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
     ) : null;
   const body = () => {
     if (down && !downLasting) return null;
+    if (failed)
+      return (
+        <div className="cloud-message cloud-failed" role="alert">
+          <p>{t(L.actionFailed)}</p>
+          {snap.error && <p className="cloud-error-detail">{errorText(snap.error, snap.errorCode, t)}</p>}
+          {store.canRetry && (
+            <button type="button" className="cloud-button cloud-retry-button" onClick={() => void store.retry()}>
+              {t(L.retry)}
+            </button>
+          )}
+        </div>
+      );
     if (down)
       return (
         <div className="cloud-message cloud-disconnected">
@@ -124,7 +137,7 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
         <h1 className="cloud-title">{t(L.title)}</h1>
         {viewSwitch}
       </header>
-      {snap.error && snap.connection !== "disconnected" && (
+      {snap.error && snap.connection !== "disconnected" && snap.connection !== "failed" && (
         <div className="cloud-error" role="alert">
           <span className="cloud-error-text">
             <span>{t(L.actionFailed)}</span>

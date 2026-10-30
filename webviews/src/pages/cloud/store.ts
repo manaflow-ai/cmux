@@ -43,7 +43,7 @@ import {
   type SnapshotListResult,
 } from "./ops";
 
-export type Connection = "connecting" | "connected" | "disconnected";
+export type Connection = "connecting" | "connected" | "disconnected" | "failed";
 
 /** The first and the longest wait before the store reads auth again after the link refused it. */
 export const CLOUD_RESTART_MIN_MS = 1_000;
@@ -217,10 +217,11 @@ export class CloudStore {
       if (session !== this.session) return;
       this.started = false;
       const failed = failure(error);
-      // A retry can fail after a transport refusal with a terminal page error. Clear the stale
-      // disconnected state so CloudPage can render that error instead of hiding it as a lost link.
-      this.set({ loading: false, connection: failed.connection ?? "connected", ...failed });
-      if (failed.connection === "disconnected") this.startLater();
+      // Only a retryable transport failure can recover in the background. Other auth
+      // failures need an explicit error and Retry, never a connected page without auth.
+      const retrying = failed.connection === "disconnected" && isPageError(error) && error.retryable;
+      this.set({ ...failed, loading: false, connection: retrying ? "disconnected" : "failed" });
+      if (retrying) this.startLater();
       return;
     }
     if (session !== this.session) return;
@@ -268,13 +269,18 @@ export class CloudStore {
   /** After a disconnect: drops the old session and starts again (the localized Retry button). */
   async retry(): Promise<void> {
     this.stop();
-    this.set({ connection: this.client ? "connecting" : "disconnected", loading: true, error: undefined });
+    this.set({
+      connection: this.client ? "connecting" : "disconnected",
+      loading: true,
+      error: undefined,
+      errorCode: undefined,
+    });
     await this.start();
   }
 
   /** Sign-in is a native browser flow the host runs as origin user (cloud-app.md section 2). */
   async signIn(): Promise<void> {
-    if (!this.client || this.state.connection === "disconnected") return;
+    if (!this.client || this.state.connection !== "connected") return;
     const session = this.session;
     try {
       const result = await this.client.call<ActionRunResult | null>(ACTION_RUN, {
@@ -592,7 +598,7 @@ export class CloudStore {
       this.setMirror(machines, revision, { loading: false, connection: "connected", error: undefined });
     } catch (error) {
       buffer = null;
-      if (session === this.session) this.set({ loading: false, ...failure(error) });
+      if (session === this.session) this.set({ loading: false, connection: "failed", ...failure(error) });
       return;
     }
     await this.account.load(session);
@@ -747,7 +753,7 @@ export class CloudStore {
   }
 
   private canChange(): boolean {
-    return !!this.client && this.state.connection !== "disconnected" && !!this.state.auth?.signedIn;
+    return !!this.client && this.state.connection === "connected" && !!this.state.auth?.signedIn;
   }
 
   private key(): string {
