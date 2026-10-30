@@ -160,7 +160,7 @@ closed at or after that time, --before-ms only those closed before it, and
 --keep-newest every group but the newest n (retention by age and by count).
 ";
 
-pub(super) const SPACE_HELP: &str = "\\
+pub(super) const SPACE_HELP: &str = "\
 USAGE
   cmux space list [--json]
   cmux space new <name> [--json]
