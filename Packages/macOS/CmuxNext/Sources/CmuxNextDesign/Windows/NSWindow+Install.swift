@@ -33,7 +33,7 @@ extension NSWindow {
             standardWindowButton(.zoomButton)?.isHidden = true
         }
         scope.adopt(self)
-        let root: NSView = traits.surface == .backdrop ? WindowSurfaceView(content: content) : content
+        let root: NSView = traits.surface == .backdrop ? WindowSurfaceView(content: content, activeLook: scope.store.activeLook) : content
         (root as? any WindowSurfacePainting)?.paintWindowSurface(of: self)
         contentView = root
     }

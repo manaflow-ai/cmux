@@ -53,6 +53,10 @@ public final class ThemeStore {
     /// The Ghostty config's colors reached the windows once: later changes are color changes that
     /// animate (`ColorTransition.current` is instant until then, so launch never fades in).
     @ObservationIgnored public private(set) var hasAppliedConfig = false
+    /// The app's one ``ActiveLookScope``, made by its composition root (`AppServices`) before any
+    /// window: every window of this store's tree keeps its backdrop glass's key look through it.
+    /// Nil (a test's store) leaves the glass to the key state.
+    @ObservationIgnored public var activeLook: ActiveLookScope?
     @ObservationIgnored private let responders = NSHashTable<AnyObject>.weakObjects()
 
     public init(input: ThemeInput = .ghosttyDefault) {

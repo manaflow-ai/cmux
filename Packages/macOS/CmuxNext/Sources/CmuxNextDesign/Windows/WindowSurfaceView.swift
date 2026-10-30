@@ -11,13 +11,16 @@ public final class WindowSurfaceView: NSView, WindowSurfacePainting {
     /// The owner's content (`NSWindow.installedContent`).
     public let content: NSView
     /// The window's one material and tint.
-    public let backdropView = WindowMaterialView(frame: .zero)
+    public let backdropView: WindowMaterialView
     private let reduceTransparency: @MainActor () -> Bool
     private var displayOptionsObserver: MainActorObservation?
 
-    public init(content: NSView,
+    /// - Parameter activeLook: The app's ``ActiveLookScope`` (``ThemeStore/activeLook``): the
+    ///   backdrop's glass keeps its key look while the window is not key.
+    public init(content: NSView, activeLook: ActiveLookScope? = nil,
                 reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency }) {
         self.content = content
+        backdropView = WindowMaterialView(frame: .zero, images: .shared, activeLook: activeLook)
         self.reduceTransparency = reduceTransparency
         super.init(frame: content.frame.size == .zero ? NSRect(x: 0, y: 0, width: 480, height: 320) : NSRect(origin: .zero, size: content.frame.size))
         wantsLayer = true
