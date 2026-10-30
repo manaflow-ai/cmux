@@ -5,14 +5,36 @@
       "title": "Open New Agent Chat on a fresh home without sending",
       "cmux": [
         "agent",
-        "new-chat",
-        "--harness",
-        "unii"
+        "new-chat"
       ],
       "wait": 5
     },
     {
-      "title": "Record the selected harness before sending",
+      "title": "Record available composer models",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "models"
+        }
+      },
+      "record": "file",
+      "wait": 1
+    },
+    {
+      "title": "Pick the signed-out Unii model in the composer",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "set_model",
+          "model": "unii/default"
+        }
+      },
+      "record": "file",
+      "shot": false,
+      "wait": 2
+    },
+    {
+      "title": "Record the selected Unii harness and target auth before sending",
       "rpc": {
         "method": "debug.agent_pane",
         "params": {
