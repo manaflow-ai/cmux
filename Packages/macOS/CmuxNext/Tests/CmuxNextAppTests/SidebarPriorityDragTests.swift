@@ -52,7 +52,9 @@ struct SidebarPriorityDragTests {
     @Test func rowHitTestingTargetsTheRowForDragPresses() throws {
         let harness = Harness()
         let row = try #require(harness.panel.rows["b"])
-        #expect(row.hitTest(NSPoint(x: row.bounds.midX, y: row.bounds.midY)) === row)
+        // FlippedDocument forwards its document-space point to the row. A non-top row must
+        // convert that point before checking its local bounds.
+        #expect(row.hitTest(NSPoint(x: row.frame.midX, y: row.frame.midY)) === row)
     }
 
     @Test func draggingARowDownOneSlotPlacesItThere() throws {
