@@ -1,4 +1,5 @@
-//! A peer's session/load and session/resume replay `_acpmux/message` records.
+//! A peer's session/load replays `_acpmux/message` records. ACP's session/resume replays no
+//! history (`server/requests/session_open.rs`), messages included.
 //! The receiving peer must preserve both journal copies and redact sender hosts.
 #![cfg(unix)]
 
@@ -207,7 +208,7 @@ async fn reopen_replays_messages(with_peer_token: bool) {
         assert!(incoming[0]["sender"].get("host").is_none(), "sender host leaked: {incoming:#?}");
     }
 
-    let outgoing = client.replay_messages("session/resume", &format!("remote/{sender}")).await;
+    let outgoing = client.replay_messages("session/load", &format!("remote/{sender}")).await;
     assert_eq!(outgoing.len(), 1, "{outgoing:#?}");
     assert_eq!(outgoing[0]["sessionId"], sender);
     assert_eq!(outgoing[0]["peer"], "remote", "{outgoing:#?}");
@@ -219,7 +220,7 @@ async fn reopen_replays_messages(with_peer_token: bool) {
 
     // Reopening each mirrored chat replays the same projections.
     assert_eq!(
-        client.replay_messages("session/resume", &format!("remote/{receiver}")).await,
+        client.replay_messages("session/load", &format!("remote/{receiver}")).await,
         incoming
     );
     assert_eq!(client.replay_messages("session/load", &format!("remote/{sender}")).await, outgoing);
