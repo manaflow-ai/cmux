@@ -235,14 +235,8 @@ pub enum Command {
         /// actions only from the session that started it or gave it its first work, FYIs never.
         #[arg(long, value_name = "CLASS", value_parser = ["block", "question", "result", "fyi", "blocker", "action"])]
         class: Option<String>,
-        /// The pull request your message is about: the receiver's inbox threads it with the
-        /// others about it.
-        #[arg(long, value_name = "N")]
-        pr: Option<u64>,
-        /// The inbox thread your message goes in: a topic, or a threadId the receiver's inbox
-        /// named (default: your messages about the PR its first line names, else all yours).
-        #[arg(long, value_name = "THREAD", conflicts_with = "pr")]
-        thread: Option<String>,
+        #[command(flatten)]
+        inbox: SendThread,
         /// Send this file with the message (repeatable): an image reaches the agent and its
         /// transcript as an image, any other file as a link to its copy. Saved owner-only on the
         /// session's machine, a peer's too. Any size and number: large ones are uploaded first.
@@ -451,7 +445,7 @@ pub enum Command {
     #[command(hide = true, subcommand)]
     QueueCmd(crate::cli::session_queue::QueueCmd),
     #[command(hide = true)]
-    SessionInboxCmd { session: String, thread: Option<String>, unread: bool },
+    SessionInboxCmd(SessionInboxTarget),
     #[command(hide = true)]
     Schema,
     #[command(hide = true)]
@@ -978,18 +972,8 @@ pub enum SessionCmd {
     /// machine's person or the session's own agent may drain it.
     Inbox {
         session: String,
-        /// A threadId, as the list names it.
-        #[arg(long, value_name = "THREAD", conflicts_with_all = ["digest", "dry_run"])]
-        thread: Option<String>,
-        /// With --thread: mark its messages read, as the agent's inbox_read does.
-        #[arg(long, requires = "thread")]
-        mark_read: bool,
-        /// Drain the agent messages waiting in its queue into one digest prompt now.
-        #[arg(long)]
-        digest: bool,
-        /// Print that digest and change nothing.
-        #[arg(long)]
-        dry_run: bool,
+        #[command(flatten)]
+        opts: SessionInboxOpts,
     },
     /// One line per turn.
     History {
@@ -1000,6 +984,50 @@ pub enum SessionCmd {
     /// The prompts waiting for the running turn: list, remove PROMPT_ID..., clear --from-agents.
     #[command(subcommand)]
     Queue(crate::cli::session_queue::QueueCmd),
+}
+
+// The inbox's flags (`hub/inbox.rs`) are `Args` of their own, flattened: each builds in its own
+// frame. Inline, the derived builder's one frame for every command's flags overflowed libtest's
+// 2 MiB thread in a debug build.
+
+/// `acpmux send --pr N | --thread T`: the receiver's inbox thread.
+#[derive(Args, Default)]
+pub struct SendThread {
+    /// The pull request your message is about: the receiver's inbox threads it with the
+    /// others about it.
+    #[arg(long, value_name = "N")]
+    pub pr: Option<u64>,
+    /// The inbox thread your message goes in: a topic, or a threadId the receiver's inbox
+    /// named (default: your messages about the PR its first line names, else all yours).
+    #[arg(long, value_name = "THREAD", conflicts_with = "pr")]
+    pub thread: Option<String>,
+}
+
+/// `acpmux session inbox NAME`'s flags.
+#[derive(Args, Default)]
+pub struct SessionInboxOpts {
+    /// A threadId, as the list names it.
+    #[arg(long, value_name = "THREAD", conflicts_with_all = ["digest", "dry_run"])]
+    pub thread: Option<String>,
+    /// With --thread: mark its messages read, as the agent's inbox_read does.
+    #[arg(long, requires = "thread")]
+    pub mark_read: bool,
+    /// Drain the agent messages waiting in its queue into one digest prompt now.
+    #[arg(long)]
+    pub digest: bool,
+    /// Print that digest and change nothing.
+    #[arg(long)]
+    pub dry_run: bool,
+}
+
+/// `acpmux session inbox NAME [--thread T [--mark-read]]`, flattened (`session_inbox.rs`).
+#[derive(Args)]
+pub struct SessionInboxTarget {
+    pub session: String,
+    #[arg(long)]
+    pub thread: Option<String>,
+    #[arg(long)]
+    pub unread: bool,
 }
 
 #[derive(Args)]
@@ -1246,8 +1274,8 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Restart { session } => Command::RestartAgent { session },
             SessionCmd::Rename { session, new_name } => Command::Rename { session, new_name },
             SessionCmd::Resume { session, mesh } if !mesh.mesh => Command::ResumeQueue { session },
-            SessionCmd::Inbox { session, digest, dry_run, .. } if digest || dry_run => {
-                Command::InboxDigest { session, dry_run: dry_run || !digest }
+            SessionCmd::Inbox { session, opts } if opts.digest || opts.dry_run => {
+                Command::InboxDigest { session, dry_run: opts.dry_run || !opts.digest }
             }
             control @ (SessionCmd::Start(_)
             | SessionCmd::Receipt { .. }
@@ -1293,9 +1321,11 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::TurnCap { session, minutes, off, clear } => {
                 Command::TurnCapCmd { session, minutes, off, clear }
             }
-            SessionCmd::Inbox { session, thread, mark_read, .. } => {
-                Command::SessionInboxCmd { session, thread, unread: mark_read }
-            }
+            SessionCmd::Inbox { session, opts } => Command::SessionInboxCmd(SessionInboxTarget {
+                session,
+                thread: opts.thread,
+                unread: opts.mark_read,
+            }),
             SessionCmd::Rules { session, rules, clear } => {
                 Command::RulesCmd { session, rules, clear }
             }
@@ -1585,6 +1615,35 @@ mod help_contract_tests {
         assert!(
             Cli::try_parse_from(["acpmux", "send", "coord", "x", "--class", "urgent"]).is_err()
         );
+    }
+
+    /// `session inbox`: --thread [--mark-read] reads the inbox's threads, --digest [--dry-run]
+    /// drains the queue's agent messages, and the two never mix; `send --pr | --thread`.
+    #[test]
+    fn session_inbox_reads_threads_or_drains_the_queue() {
+        use super::{Command, SessionInboxTarget, flatten};
+        let parse = |argv: &[&str]| Cli::try_parse_from(argv).map(|c| flatten(c.command.unwrap()));
+        let threads =
+            parse(&["acpmux", "session", "inbox", "c", "--thread", "pr:1", "--mark-read"]);
+        assert!(matches!(
+            threads,
+            Ok(Command::SessionInboxCmd(SessionInboxTarget { ref thread, unread: true, .. }))
+                if thread.as_deref() == Some("pr:1")
+        ));
+        let all = parse(&["acpmux", "session", "inbox", "c"]);
+        assert!(matches!(
+            all,
+            Ok(Command::SessionInboxCmd(SessionInboxTarget { thread: None, .. }))
+        ));
+        let digest = parse(&["acpmux", "session", "inbox", "c", "--digest"]);
+        assert!(matches!(digest, Ok(Command::InboxDigest { dry_run: false, .. })));
+        let dry = parse(&["acpmux", "session", "inbox", "c", "--dry-run"]);
+        assert!(matches!(dry, Ok(Command::InboxDigest { dry_run: true, .. })));
+        assert!(parse(&["acpmux", "session", "inbox", "c", "--thread", "t", "--digest"]).is_err());
+        assert!(parse(&["acpmux", "session", "inbox", "c", "--mark-read"]).is_err());
+        assert!(parse(&["acpmux", "send", "c", "x", "--pr", "12"]).is_ok());
+        assert!(parse(&["acpmux", "send", "c", "x", "--thread", "rollout"]).is_ok());
+        assert!(parse(&["acpmux", "send", "c", "x", "--pr", "12", "--thread", "t"]).is_err());
     }
 
     /// `host vm-host [NAME] [on|off]`: the state is on or off only.
