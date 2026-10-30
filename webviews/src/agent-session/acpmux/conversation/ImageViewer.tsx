@@ -14,6 +14,7 @@ import { useT } from "../i18n";
 import { postNative } from "../native";
 import type { ChatImage } from "./chatImages";
 import { copyImage } from "./clipboard";
+import { hasDrawn } from "./imageEntries";
 import { Check, ChevronLeft, ChevronRight, Close, Copy, Folder, Globe } from "./icons";
 
 export const MIN_SCALE = 1;
@@ -314,6 +315,9 @@ export function ImageViewer({
             src={image.src}
             alt={image.alt}
             draggable={false}
+            // The image the transcript drew paints decoded in the viewer's first frame, never a
+            // blank stage under the fading dialog first.
+            decoding={hasDrawn(image.src) ? "sync" : "async"}
             style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}
           />
         </div>
