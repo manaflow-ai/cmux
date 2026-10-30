@@ -132,8 +132,8 @@ pub fn auth_check(
     argv: &[String],
     env: &BTreeMap<String, String>,
     family: &str,
-) -> Result<bool, String> {
-    run_for(argv, env, TIMEOUT, Some(family)).map(|(ok, _)| ok)
+) -> Result<(bool, String), String> {
+    run_for(argv, env, TIMEOUT, Some(family))
 }
 
 /// `codex login status` with the harness's `env`: Some(true) signed in (exit

@@ -24,14 +24,18 @@
 //!   promptAt?, answerAt?}]}`, the newest 200. A harness with no reader, or a
 //!   file too large or unreadable, answers invalid params with `data.reason`
 //!   `transcript_unsupported`, `transcript_too_large` or `transcript_unreadable`.
+//! - `_acpmux/chat_fork {harness, agentSessionId, cwd?}`: a terminal chat's fork, made by its
+//!   harness's ACP agent (`chat_fork.rs`): `{harness, agentSessionId}` of the new session.
 //! - `_acpmux/chat_roots`: the roots, refused roots with reasons, watcher errors.
 //! - `_acpmux/chat_roots_record {harness, transcriptPath}`: a hook reports
 //!   a transcript; its store root joins the index (recorded roots file).
 //! - `_acpmux/chat_settings {enabled, discovery, roots, managedRoots,
-//!   permissionMode?, permissionModeManaged?}`: the app's effective cmux.json
+//!   permissionMode?, permissionModeManaged?, allowFullAccess?,
+//!   allowFullAccessManaged?}`: the app's effective cmux.json
 //!   `agents.chats.*` values (`chats/settings.rs`) and its effective
-//!   `agents.defaultPermissionMode` with whether MDM or the team policy
-//!   forces it (`hub/start_mode_state.rs`); answers the roots view with
+//!   `agents.defaultPermissionMode` and `sessions.allowFullAccess`, each with
+//!   whether MDM or the team policy forces it (`hub/start_mode_state.rs`; a
+//!   forced full-access off is an upper bound); answers the roots view with
 //!   `applied: true`. While chats are off, `_acpmux/chats` answers
 //!   `enabled: false` and no chats.
 //!
@@ -67,6 +71,7 @@ pub(super) async fn route(
 ) -> Result<Value, RpcError> {
     // A read-only paired machine reads, nothing else (`pairing.rs`), before any dispatcher.
     let params = super::pairing::gate(conn, m, params)?;
+    hub.prepare_store_request(m, &params).await;
     if let Some(reply) = super::pairing::dispatch(hub, conn, m, &params).await {
         return reply;
     }
@@ -96,7 +101,13 @@ pub(super) async fn route(
     if let Some(reply) = super::worktrees::dispatch(hub, conn, m, &params).await {
         return reply;
     }
+    if let Some(reply) = super::worktrees::retention(hub, conn, m, &params).await {
+        return reply;
+    }
     if let Some(reply) = super::processes::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
+    if let Some(reply) = super::bg_tasks::dispatch(hub, conn, m, &params).await {
         return reply;
     }
     // Moving a chat to another daemon (`hub/transfer_out.rs`): a bundle holds the whole chat and
@@ -220,6 +231,32 @@ pub(super) async fn route(
             })
             .await
         }
+        // Fork Conversation of a terminal chat whose agent's CLI has no fork (`chat_fork.rs`).
+        "_acpmux/chat_fork" => {
+            let text = |key: &str| {
+                params.get(key).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty())
+            };
+            let harness =
+                text("harness").ok_or_else(|| RpcError::invalid_params("harness is missing"))?;
+            let id = text("agentSessionId")
+                .ok_or_else(|| RpcError::invalid_params("agentSessionId is missing"))?;
+            let cwd = text("cwd")
+                .map(PathBuf::from)
+                .or_else(dirs::home_dir)
+                .unwrap_or_else(|| PathBuf::from("/"));
+            let (family, profile) = {
+                let cfg = hub.config.read().await;
+                let (name, profile) =
+                    crate::chat_fork::profile_for(&cfg, harness).ok_or_else(|| {
+                        RpcError::invalid_params(format!(
+                            "no ACP harness runs {harness} here, so its chat cannot fork"
+                        ))
+                    })?;
+                (crate::config::derive_family(name, profile), profile.clone())
+            };
+            let forked = crate::chat_fork::fork(harness, &family, &profile, id, &cwd).await?;
+            Ok(json!({"harness": harness, "agentSessionId": forked}))
+        }
         "_acpmux/chat_roots_record" => {
             let service =
                 service.ok_or_else(|| RpcError::internal("the chat index is starting"))?;
@@ -269,6 +306,21 @@ pub(super) async fn route(
                 }
             };
             hub.apply_permission_push(mode, managed).await;
+            // `sessions.allowFullAccess` as MDM or the team policy forces it: only a forced value
+            // counts, and anything but `true` is off. No key (an older app, or nothing forced)
+            // forces nothing.
+            let full_access_managed = match params.get("allowFullAccessManaged") {
+                None | Some(Value::Null) => false,
+                Some(Value::Bool(managed)) => *managed,
+                Some(_) => {
+                    return Err(RpcError::invalid_params(
+                        "allowFullAccessManaged must be true or false",
+                    ));
+                }
+            };
+            let forced = full_access_managed
+                .then(|| params.get("allowFullAccess") == Some(&Value::Bool(true)));
+            hub.apply_full_access_push(forced).await;
             let hub = hub.clone();
             blocking(move || {
                 let running = hub.apply_chat_settings(settings).map_err(RpcError::internal)?;

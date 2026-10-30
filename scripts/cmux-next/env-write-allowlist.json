@@ -15,5 +15,15 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/CmuxNextApp+LaunchEnvironment.swift": {
   "setenv": 1,
   "reason": "applyConfigFileArgument (DEBUG only), inside ProcessEnvironmentGuard.write: the step after stripInheritedEnvironment in CmuxNextApp.prepareLaunchEnvironment, before any thread, the guard's freeze, and ghostty_init; `--config-file PATH` sets CMUX_NEXT_CONFIG_FILE so a capture slot's app, daemon and agents read the slot's own settings."
+ },
+ "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ChiefBrainWatchShutdownTests.swift": {
+  "setenv": 3,
+  "unsetenv": 3,
+  "reason": "anAskStopsTheWatchItReplaces sets CMUX_NEXT_MUX_HOST and clears ACPMUX_AGENT_LAUNCH and CMUX_AGENTS_DISABLED so HomeBrainHost.canStart() passes. Existing write in a test, allowed only so the env_write scan could cover Tests (2026-10-29): the same hazard as GhosttyImageStorageLimitTests' signal 11 if GhosttyRuntime.shared ran ghostty_init earlier in the process. Move it to an injected environment and drop this entry; never raise it."
+ },
+ "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/HomeChiefHostedSettingsTests.swift": {
+  "setenv": 2,
+  "unsetenv": 1,
+  "reason": "withChiefHome sets CMUX_NEXT_CHIEF_HOME before HomeService reads it. Existing write in a test, allowed only so the env_write scan could cover Tests (2026-10-29): the same hazard as GhosttyImageStorageLimitTests' signal 11 if GhosttyRuntime.shared ran ghostty_init earlier in the process. Pass the Chief home to HomeService instead and drop this entry; never raise it."
  }
 }

@@ -5,7 +5,7 @@
 // with an idempotency key; the owner's event is what shows them.
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { subscribePageStreams } from "../shared/pageStreams";
-import { AttachmentService } from "./attachmentService";
+import { AttachmentService, messageGroups } from "./attachmentService";
 import { AvatarService } from "./avatars";
 import { DraftBook, type HomeDraft } from "./drafts";
 import { hashLink, mergeMessages, parseConversationLink, threadOf } from "./model";
@@ -42,6 +42,10 @@ import {
 export const PAGE = 100;
 /** Most pages a link loads to reach its message (older history, or later thread replies). */
 const LINK_PAGES = 20;
+/** Timeline messages (not thread replies) an opened conversation pages back to, about a screen:
+ * a Chief answers in threads, so its newest page can be all replies the timeline does not draw,
+ * and older history loads only on a scroll the short timeline never has (#25570). */
+const FILL_TOP_LEVEL = 30;
 export const WINDOW = 1500;
 
 export type Connection = "connecting" | "online" | "offline";
@@ -66,6 +70,9 @@ export interface PendingSend {
   text: string;
   /** Files the message names, already stored by the owner. */
   attachments?: readonly HomeAttachment[];
+  /** One send past the owner's parts per message: its messages share this id and go in their
+   * order in `pending`, one after another (`HomeChannelsStore.retry`). */
+  chain?: string;
   threadRoot?: string;
   replyTo?: string;
   createdAt: number;
@@ -96,6 +103,8 @@ export interface HomeSnapshot {
   threadStats: ReadonlyMap<string, HomeThreadStats>;
   /** Participant ids typing in the open conversation. */
   typing: readonly string[];
+  /** Participant ids viewing the open conversation (ephemeral). */
+  viewing: readonly string[];
   /** What showed as new when the conversation opened: messages after my read cursor (`after`) up
    * to the newest one then (`through`). Messages that arrive while it is open are read live. */
   unseen?: { after: number; through: number };
@@ -124,22 +133,31 @@ export class HomeChannelsStore {
   private readonly listeners = new Set<() => void>();
   private stops: Array<() => void> = [];
   private starting?: Promise<void>;
+  /** Bumped by `stop`: a `begin` that a teardown overtook undoes what it set up and ends. */
+  private life = 0;
+  /** Between `begin` and `stop`: only a running page says that the person views something. */
+  private running = false;
   private generation = 0;
   private nextKey = 0;
   /** The read cursor this page last sent per conversation (one read per new seq). */
   private readonly readSeq = new Map<string, number>();
   private readonly drafts = new DraftBook();
+  /** Split sends (`PendingSend.chain`) whose messages are being delivered now. */
+  private readonly chainsInFlight = new Set<string>();
   /** Agent runs (`cmux.home.runs`, `cmux.home.run`, run events): rows read them through `useRun`. */
   readonly runs = new RunBook();
   /** A Chief's live run text (`chief-live-v1`): the run card and the typing row read it. */
   readonly live = new LiveBook();
   /** Runs whose steps are being read now (one read at a time per run). */
   private readonly loadingRuns = new Set<string>();
+  /** Serialize historical step reads, including reads requested by mounted run cards. */
+  private runReadTail: Promise<void> = Promise.resolve();
   /** Runs whose step read failed, with the run revision it failed at: read again only after the
    * run changed (a missing run or an owner without runs is not asked in a loop). */
   private readonly failedRuns = new Map<string, number>();
   /** Who types in each conversation (typing events); activity adds the running drafts. */
   private readonly typingBy = new Map<string, Set<string>>();
+  private readonly viewingBy = new Map<string, Set<string>>();
 
   /** Participants' pictures through this store's client (none without a client: initials). */
   readonly avatars: AvatarService | undefined;
@@ -175,6 +193,7 @@ export class HomeChannelsStore {
       hasOlder: false,
       loadingOlder: false,
       typing: [],
+      viewing: [],
       threadsSeen: new Set(),
       threadStats: new Map(),
       // A send still in flight on the old connection did not reach the owner as far as this
@@ -204,27 +223,56 @@ export class HomeChannelsStore {
   }
 
   private async begin(client: PageClient): Promise<void> {
+    const life = this.life;
+    const live = () => life === this.life;
+    // A teardown while a subscribe was pending: its stop runs now and the start goes no further.
+    const keep = (stop: () => void): boolean => {
+      if (live()) this.stops.push(stop);
+      else stop();
+      return live();
+    };
+    this.running = true;
     void this.attachments?.support().then((fileSupport) => this.set({ fileSupport }));
     try {
-      this.stops.push(
-        await subscribePageStreams(client, {
-          onConnection: (connected) => {
-            if (!connected) this.set({ connection: "offline" });
-            else if (this.snapshot.connection === "offline") void this.reloadInbox();
-          },
-        }),
-      );
-      this.stops.push(await client.subscribe<HomeEventBatch>(HomeOps.events, (batch) => this.apply(batch)));
+      const streams = await subscribePageStreams(client, {
+        onConnection: (connected) => {
+          if (!connected) {
+            // The daemon ends a lost connection's viewing; a new one says it again.
+            this.viewingSent = undefined;
+            this.set({ connection: "offline" });
+          } else if (this.snapshot.connection === "offline") void this.reloadInbox();
+        },
+      });
+      if (!keep(streams)) return;
+      const events = await client.subscribe<HomeEventBatch>(HomeOps.events, (batch) => this.apply(batch));
+      if (!keep(events)) return;
+      // The New and Edit Chief pages cover the conversation: not viewed while one is open.
+      let covered = this.chiefPageOpen();
+      const sheetChanged = () => {
+        if (covered === this.chiefPageOpen()) return;
+        covered = !covered;
+        this.syncViewing();
+      };
+      this.stops.push(this.sheets.subscribe(sheetChanged));
       // Replies that came while the page was hidden are read once the person sees them.
       const shown = () => {
         if (document.visibilityState === "visible") this.readOpen();
+        this.syncViewing();
       };
       document.addEventListener("visibilitychange", shown);
       this.stops.push(() => document.removeEventListener("visibilitychange", shown));
+      // A closing page stops viewing (the daemon also ends it when the connection closes).
+      if (typeof window !== "undefined") {
+        const hidden = () => this.syncViewing(false);
+        window.addEventListener("pagehide", hidden);
+        this.stops.push(() => window.removeEventListener("pagehide", hidden));
+      }
     } catch (error) {
+      if (!live()) return;
       this.set({ error: describe(error), loading: false });
     }
     await this.reloadInbox();
+    if (!live()) return;
     void this.sheets.start();
     this.followHash();
   }
@@ -345,6 +393,9 @@ export class HomeChannelsStore {
   }
 
   private stop(): void {
+    this.life++;
+    this.running = false;
+    this.syncViewing();
     for (const stop of this.stops) stop();
     this.stops = [];
     this.starting = undefined;
@@ -367,6 +418,9 @@ export class HomeChannelsStore {
         error: undefined,
         inboxState: inbox.inboxState === true,
       });
+      // The open conversation's owner is known now (a reconnect says the viewing again), and an
+      // open row the list dropped is no longer viewed (even with nothing to open instead).
+      this.syncViewing();
       if (selected && selected !== this.snapshot.selected) await this.select(selected, false);
       else if (selected) await this.reloadPage(selected);
     } catch (error) {
@@ -388,24 +442,32 @@ export class HomeChannelsStore {
       threadView: undefined,
       threadStats: new Map(),
       typing: [],
+      viewing: [...(this.viewingBy.get(id) ?? [])],
       unseen: undefined,
       threadsSeen: new Set(),
       draft: this.drafts.draft(id),
       highlight: undefined,
     });
+    this.syncViewing();
     await this.reloadPage(id);
   }
 
   private async reloadPage(id: string): Promise<void> {
     if (!this.client) return;
     const generation = ++this.generation;
+    this.failedRuns.clear();
     try {
       const page = await this.client.call<HomePage>(HomeOps.page, { conversation: id, tail: PAGE });
       if (generation !== this.generation || this.snapshot.selected !== id) return;
       const conversations = new Map(this.snapshot.conversations).set(id, page.conversation);
       // Keep what events merged while the page was in flight (and older pages already read);
-      // the snapshot wins for a message both have unless the event copy was edited later.
-      const kept = this.snapshot.messages.filter((m) => m.conversation === id);
+      // the snapshot wins for a message both have unless the event copy was edited later. Kept
+      // messages that end before the page starts (more than a page came in since, a reconnect)
+      // would leave a hole no older page fills: the window starts at the page then (#25570).
+      const kept = joining(
+        this.snapshot.messages.filter((m) => m.conversation === id),
+        page.messages[0]?.seq,
+      );
       const fresh = page.messages.map((m) => {
         const event = kept.find((k) => k.seq === m.seq);
         return event && (event.editedAt ?? 0) > (m.editedAt ?? 0) ? event : m;
@@ -435,6 +497,22 @@ export class HomeChannelsStore {
       if (this.shown) this.markRead(page.conversation, messages.at(-1)?.seq ?? 0);
     } catch (error) {
       if (generation === this.generation) this.set({ error: describe(error) });
+      return;
+    }
+    await this.fillTimeline(id, generation);
+  }
+
+  /** Pages older history (at most LINK_PAGES) until the timeline has FILL_TOP_LEVEL messages
+   * to show or the conversation's start is in. */
+  private async fillTimeline(id: string, generation: number): Promise<void> {
+    const life = this.life;
+    for (let page = 0; page < LINK_PAGES; page += 1) {
+      const { selected, messages, hasOlder } = this.snapshot;
+      if (generation !== this.generation || life !== this.life || selected !== id || !hasOlder) return;
+      if (messages.filter((m) => !threadOf(m)).length >= FILL_TOP_LEVEL) return;
+      const before = messages[0]?.seq;
+      await this.loadOlder();
+      if (this.snapshot.messages[0]?.seq === before) return;
     }
   }
 
@@ -443,14 +521,19 @@ export class HomeChannelsStore {
     const { selected, messages, hasOlder, loadingOlder } = this.snapshot;
     if (!this.client || !selected || !hasOlder || loadingOlder) return;
     const before = messages[0]?.seq ?? 1;
+    const generation = this.generation;
+    const life = this.life;
     this.set({ loadingOlder: true });
     try {
+      if (this.life !== life) return;
       const older = await this.client.call<HomeHistory>(HomeOps.history, {
         conversation: selected,
         beforeSeq: before,
         limit: PAGE,
       });
-      if (this.snapshot.selected !== selected) return;
+      // A reload since (a reconnect) may have moved the window: this page goes before the old one.
+      if (this.snapshot.selected !== selected || this.generation !== generation || this.life !== life) return;
+      if ((this.snapshot.messages[0]?.seq ?? 1) !== before) return;
       const merged = mergeMessages(this.snapshot.messages, older.messages, this.snapshot.messages.length + PAGE);
       this.set({
         messages: merged,
@@ -512,8 +595,10 @@ export class HomeChannelsStore {
 
   /** Sends text to the open conversation, or in the open thread as a reply to `parent` (the root
    * or any reply: threads nest without a limit). Optimistic: the message shows at once as pending
-   * and the composer clears; the owner's event replaces it. Resolves false only when nothing was
-   * sent (no conversation, empty text). */
+   * and the composer clears; the owner's event replaces it. Any number of files goes: past the
+   * owner's parts per message they go as several messages, in order (`messageGroups`), each its
+   * own pending row and idempotency key. Resolves false only when nothing was sent (no
+   * conversation, empty text). */
   async send(
     text: string,
     thread?: string,
@@ -523,36 +608,85 @@ export class HomeChannelsStore {
     const conversation = this.snapshot.selected;
     const trimmed = text.trim();
     if (!this.client || !conversation || (!trimmed && !attachments?.length)) return false;
-    const pending: PendingSend = {
-      key: this.key("send"),
+    const createdAt = Date.now();
+    const groups = messageGroups(trimmed, attachments ?? []);
+    const keys = groups.map(() => this.key("send"));
+    const chain = groups.length > 1 ? keys[0] : undefined;
+    const sends = groups.map((group, index): PendingSend => ({
+      key: keys[index]!,
+      ...(chain ? { chain } : {}),
       conversation,
-      text: trimmed,
-      createdAt: Date.now(),
+      text: group.text,
+      createdAt,
       failed: false,
-      ...(attachments?.length ? { attachments } : {}),
+      ...(group.files.length ? { attachments: group.files } : {}),
       ...(thread ? { threadRoot: thread } : {}),
       ...(parent ? { replyTo: parent } : {}),
-    };
-    this.set({ pending: [...this.snapshot.pending, pending] });
-    void this.deliver(pending);
+    }));
+    this.set({ pending: [...this.snapshot.pending, ...sends] });
+    void this.deliverInOrder(sends);
     return true;
   }
 
-  /** Sends a failed pending message again with its own idempotency key (never twice). */
+  /** Delivers messages of one send strictly one after another, so the owner orders them as they
+   * were sent. The first that fails stops it: it and the rest of `sends` show "Not sent" (held),
+   * and a Retry of any of them goes on from the earliest (`retry`). */
+  private async deliverInOrder(sends: readonly PendingSend[]): Promise<void> {
+    const chain = sends[0]?.chain;
+    if (chain) this.chainsInFlight.add(chain);
+    try {
+      for (const [index, pending] of sends.entries()) {
+        if (await this.deliver(pending)) continue;
+        const held = new Set(sends.slice(index + 1).map((entry) => entry.key));
+        if (held.size > 0) {
+          this.set({
+            pending: this.snapshot.pending.map((entry) => (held.has(entry.key) ? { ...entry, failed: true } : entry)),
+          });
+        }
+        return;
+      }
+    } finally {
+      if (chain) this.chainsInFlight.delete(chain);
+    }
+  }
+
+  /** Sends a failed pending message again with its own idempotency key (never twice). A message of
+   * a send split into several goes again with every other failed one of that send, from the
+   * earliest, in order (so a held one never passes the one it waits for); a chain already going
+   * is left alone. The chain id rides on the pending row, so this holds after a reconnect too. */
   retry(key: string): void {
     const pending = this.snapshot.pending.find((entry) => entry.key === key);
     if (!pending) return;
+    if (pending.chain) return this.resumeChain(pending.chain);
     const again = { ...pending, failed: false };
     this.set({ pending: this.snapshot.pending.map((entry) => (entry.key === key ? again : entry)) });
     void this.deliver(again);
   }
 
+  /** Drops a pending message. The rest of its send, if held behind it, goes on. */
   discard(key: string): void {
+    const pending = this.snapshot.pending.find((entry) => entry.key === key);
     this.set({ pending: this.snapshot.pending.filter((entry) => entry.key !== key) });
+    if (pending?.chain) this.resumeChain(pending.chain);
   }
 
-  private async deliver(pending: PendingSend): Promise<void> {
-    if (!this.client) return;
+  /** Delivers the failed messages of split send `chain` again, in their order, unless it is
+   * going already. */
+  private resumeChain(chain: string): void {
+    if (this.chainsInFlight.has(chain)) return;
+    const sends = this.snapshot.pending
+      .filter((entry) => entry.chain === chain && entry.failed)
+      .map((entry) => ({ ...entry, failed: false }));
+    if (sends.length === 0) return;
+    this.set({
+      pending: this.snapshot.pending.map((entry) => sends.find((send) => send.key === entry.key) ?? entry),
+    });
+    void this.deliverInOrder(sends);
+  }
+
+  /** Resolves true when the owner took it. */
+  private async deliver(pending: PendingSend): Promise<boolean> {
+    if (!this.client) return false;
     try {
       await this.client.call(HomeOps.send, {
         conversation: pending.conversation,
@@ -567,12 +701,15 @@ export class HomeChannelsStore {
       const held = [...this.snapshot.messages, ...(this.snapshot.threadView?.messages ?? [])];
       const left = this.settled(held);
       if (left) this.set({ pending: left });
+      return true;
     } catch (error) {
-      if (!this.snapshot.pending.some((entry) => entry.key === pending.key)) return;
+      // Gone already: the owner's event settled it (the answer was lost), or it was discarded.
+      if (!this.snapshot.pending.some((entry) => entry.key === pending.key)) return true;
       this.set({
         error: describe(error),
         pending: this.snapshot.pending.map((entry) => (entry.key === pending.key ? { ...entry, failed: true } : entry)),
       });
+      return false;
     }
   }
 
@@ -734,6 +871,43 @@ export class HomeChannelsStore {
     if (shown === this.shown) return;
     this.shown = shown;
     if (shown) this.readOpen();
+    this.syncViewing();
+  }
+
+  /** Whether the New or Edit Chief page covers the conversation. */
+  private chiefPageOpen(): boolean {
+    const route = this.sheets.getSnapshot().route?.kind;
+    return route === "newChief" || route === "editChief";
+  }
+
+  /** The Cloud conversation this page last said the person views (cmux.home.view). */
+  private viewingSent?: string;
+  /** Bumped by each change `syncViewing` sends: a late answer applies only to its own attempt. */
+  private viewAttempt = 0;
+
+  /** Tells the owner which Cloud conversation the person views: the open one while the page and
+   * its pane show it, none otherwise (a row that left the list, a page torn down). Only a change
+   * goes out; a local conversation sends nothing (its owner has no viewing presence). `active`
+   * false: the page stops viewing (it closes). */
+  private syncViewing(active = true): void {
+    const { selected } = this.snapshot;
+    const visible = typeof document === "undefined" || document.visibilityState !== "hidden";
+    const cloud = selected !== undefined && this.snapshot.conversations.get(selected)?.owner === "cloud";
+    const covered = this.chiefPageOpen();
+    const want = active && this.running && this.shown && visible && cloud && !covered ? selected : undefined;
+    const before = this.viewingSent;
+    if (want === before || !this.client) return;
+    this.viewingSent = want;
+    const attempt = ++this.viewAttempt;
+    const view = (conversation: string, viewing: boolean) =>
+      this.client?.call<{ sent?: boolean }>(HomeOps.view, { conversation, viewing }).catch(() => undefined);
+    if (before) void view(before, false);
+    if (want)
+      void view(want, true)?.then((answer) => {
+        // Not sent (the subscribe was refused): the owner never heard it, so the next show,
+        // switch or reconnect says it again.
+        if (answer?.sent === false && attempt === this.viewAttempt) this.viewingSent = undefined;
+      });
   }
 
   /** Reads the open conversation through its newest loaded message. */
@@ -761,6 +935,13 @@ export class HomeChannelsStore {
     if (batch.connection) patch.connection = batch.connection;
     // Typing is ephemeral: a reconnect or an inbox refetch ends every indicator.
     if (batch.connection || batch.inboxStale) patch.typing = [];
+    // Each presence frame is the whole set, so only lost frames make it stale: a lost connection
+    // or a stream overflow (an inbox refetch keeps it: the conversation sockets stay subscribed).
+    // Unknown shows as nobody, never as someone who left; the owner's next set brings them back.
+    if (batch.connection || batch.presenceLost) {
+      this.viewingBy.clear();
+      patch.viewing = [];
+    }
     if (batch.connection === "offline") {
       this.drafts.clear();
       this.live.clear();
@@ -812,6 +993,13 @@ export class HomeChannelsStore {
         : threadIncoming;
       patch.threadView = { ...view, messages: mergeMessages(view.messages, tail, Number.MAX_SAFE_INTEGER) };
     }
+    if (batch.presence)
+      for (const entry of batch.presence) {
+        const people = new Set(entry.participants.filter((p) => p.viewing).map((p) => p.participant));
+        if (people.size) this.viewingBy.set(entry.conversation, people);
+        else this.viewingBy.delete(entry.conversation);
+        if (entry.conversation === selected) patch.viewing = [...people];
+      }
     if (batch.typing && selected) {
       const typing = new Set(this.snapshot.typing);
       for (const entry of batch.typing) {
@@ -826,6 +1014,8 @@ export class HomeChannelsStore {
       if (draft?.text !== this.snapshot.draft?.text || draft?.turn !== this.snapshot.draft?.turn) patch.draft = draft;
     }
     this.set(patch);
+    // The open row left the list (removed, archived): the person no longer views it.
+    if (conversations) this.syncViewing();
     const open = selected ? this.snapshot.conversations.get(selected) : undefined;
     if (open && incoming.length > 0 && document.visibilityState === "visible") {
       if (this.shown) this.markRead(open, Math.max(...incoming.map((m) => m.seq)));
@@ -918,26 +1108,130 @@ export class HomeChannelsStore {
     return next;
   }
 
-  /** Reads the runs of these messages' replies (agent messages carry their run's key) and, with
-   * `newest`, the conversation's newest runs (live work that has no reply yet). A host without
-   * runs answers nothing: the page shows no run cards. */
+  /** Reads the runs of these messages' replies (agent messages carry their run's key), then pages
+   * run history far enough to include silent runs attached to the messages in this window. A host
+   * without runs answers nothing: the page shows no run cards. */
   private async loadRuns(conversation: string, messages: readonly HomeMessage[], newest: boolean): Promise<void> {
     if (!this.client) return;
+    // A newest reload with no messages still needs background-run discovery. An empty older
+    // page has no new anchors and must not start an unrelated history scan.
+    if (messages.length === 0 && !newest) return;
+    const generation = this.generation;
+    const life = this.life;
     const agents = new Set(
       (this.snapshot.conversations.get(conversation)?.participants ?? [])
         .filter((participant) => participant.kind === "agent")
         .map((participant) => participant.id),
     );
-    const turns = RunBook.turns(messages, agents);
+    const active = () => generation === this.generation && life === this.life;
+    const replyKeys = new Set(
+      messages
+        .filter((message) => message.clientMessageId && agents.has(message.author))
+        .map((message) => `${message.author}\0${message.clientMessageId}`),
+    );
+    const turns = [
+      ...new Set(
+        messages
+          .filter((message) => agents.has(message.author))
+          .flatMap((message) => (message.clientMessageId ? [message.clientMessageId] : [])),
+      ),
+    ];
+    const messageIds = new Set(messages.map((message) => message.id));
+    const unresolvedReplies = new Set(replyKeys);
+    const published = new Map<string, HomeRun>();
+    // With no messages there are no direct answer keys to resolve, but the newest-runs
+    // query still restores background activity when a conversation is reopened.
+    let answersComplete = true;
+    // Publish and hydrate each successful batch before asking for more history. A slow or failed
+    // later page must not hold back the rows already found for the visible conversation.
+    const publish = async (runs: readonly HomeRun[], direct = false) => {
+      if (!active()) return;
+      const fresh: HomeRun[] = [];
+      for (const run of runs) {
+        const reply = run.turn ? `${run.author}\0${run.turn}` : undefined;
+        if (reply) unresolvedReplies.delete(reply);
+        const key = `${run.author}\0${run.id}`;
+        const previous = published.get(key);
+        // Direct queries and history often return the same summary. Invalidate unversioned
+        // cached steps only once per load, otherwise a later duplicate undoes hydration.
+        if (
+          previous &&
+          previous.rev >= run.rev &&
+          previous.updatedAt >= run.updatedAt &&
+          previous.stepCount >= run.stepCount &&
+          previous.status === run.status
+        )
+          continue;
+        published.set(key, run);
+        fresh.push(run);
+      }
+      this.runs.setRuns(fresh);
+      for (const run of fresh) {
+        if (!active()) return;
+        const reply = run.turn ? `${run.author}\0${run.turn}` : undefined;
+        if (direct || run.answers.some((answer) => messageIds.has(answer)) || (reply && replyKeys.has(reply))) {
+          // Cloud has no increasing revision to unlock a failed read. Each fresh lookup is a
+          // retry boundary; mounted cards alone must not retry failures in a loop.
+          if (run.rev === 0) this.failedRuns.delete(`${run.conversation}\0${run.author}\0${run.id}`);
+          await this.loadRunSteps(run);
+        }
+      }
+    };
     try {
-      const reads: Promise<HomeRunList>[] = [];
-      if (turns.length > 0) reads.push(this.client.call<HomeRunList>(HomeOps.runs, { conversation, turns }));
-      if (newest) reads.push(this.client.call<HomeRunList>(HomeOps.runs, { conversation, limit: 20 }));
-      const lists = await Promise.all(reads);
-      const runs = lists.flatMap((list) => list.runs);
-      this.runs.setRuns(runs);
-      // A run that works now reads its earlier steps (events bring the rest).
-      for (const run of runs) if (run.status === "running") void this.loadRunSteps(run);
+      for (const [field, ids] of [
+        ["turns", turns],
+        ["answers", [...messageIds]],
+      ] as const) {
+        for (let offset = 0; offset < ids.length; offset += 200) {
+          if (!active()) return;
+          const list: HomeRunList = await this.client
+            .call<HomeRunList>(HomeOps.runs, {
+              conversation,
+              [field]: ids.slice(offset, offset + 200),
+            })
+            .catch(() => ({ runs: [], hasMore: false }));
+          if (!active()) return;
+          if (field === "answers" && list.answersComplete !== true) answersComplete = false;
+          await publish(list.runs, true);
+        }
+      }
+      // Local answer lookups cover silent reports regardless of their assignment's start time.
+      // Cloud lacks direct lookups: scan past the timestamp boundary until loaded reply keys
+      // resolve, while making each page visible immediately.
+      const oldestMessageAt = messages.reduce<number | undefined>(
+        (oldest, message) => (oldest === undefined ? message.createdAt : Math.min(oldest, message.createdAt)),
+        undefined,
+      );
+      let beforeStartedAt: number | undefined;
+      let page = 0;
+      for (;;) {
+        if (!active()) return;
+        const params: Record<string, unknown> = { conversation, limit: newest && page === 0 ? 20 : 50 };
+        page += 1;
+        if (beforeStartedAt !== undefined) params.beforeStartedAt = beforeStartedAt;
+        let list: HomeRunList;
+        try {
+          list = await this.client.call<HomeRunList>(HomeOps.runs, params);
+        } catch {
+          break;
+        }
+        if (!active()) return;
+        await publish(list.runs);
+        const oldestRun = list.runs.reduce<number | undefined>(
+          (oldest, run) => (oldest === undefined ? run.startedAt : Math.min(oldest, run.startedAt)),
+          undefined,
+        );
+        if (
+          !list.hasMore ||
+          oldestRun === undefined ||
+          (unresolvedReplies.size === 0 &&
+            (answersComplete || (oldestMessageAt !== undefined && oldestRun <= oldestMessageAt)))
+        )
+          break;
+        // The protocol uses a strict less-than cursor; guard malformed owners that do not move it.
+        if (beforeStartedAt !== undefined && oldestRun >= beforeStartedAt) break;
+        beforeStartedAt = oldestRun;
+      }
     } catch {
       // Runs are display only; a host or owner without them shows plain messages.
     }
@@ -946,17 +1240,30 @@ export class HomeChannelsStore {
   /** Reads every step of a run from its owner (pages of steps by revision). */
   loadRunSteps = async (run: HomeRun): Promise<void> => {
     const key = `${run.conversation}\0${run.author}\0${run.id}`;
-    if (!this.client || this.loadingRuns.has(key)) return;
+    const readKey = `${this.generation}\0${this.life}\0${key}`;
+    if (!this.client || this.loadingRuns.has(readKey)) return;
     const failed = this.failedRuns.get(key);
     if (failed !== undefined && failed >= run.rev) return;
-    this.loadingRuns.add(key);
+    const held = this.runs.get(run.conversation, run.author, run.id);
+    if (held?.complete && held.run.rev >= run.rev && held.run.stepCount >= run.stepCount) return;
+    const generation = this.generation;
+    const life = this.life;
+    const previous = this.runReadTail;
+    let release!: () => void;
+    this.runReadTail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.loadingRuns.add(readKey);
     try {
+      await previous;
+      if (generation !== this.generation || life !== this.life) return;
       // The local owner pages by revision; a Cloud brain (keyed by its Chief) by seq.
       let afterRev = 0;
       let afterSeq = 0;
       const steps: HomeRunStep[] = [];
       let latest = run;
-      for (let page = 0; page < 10; page += 1) {
+      let complete = false;
+      for (;;) {
         const read = await this.client.call<HomeRunPage>(HomeOps.run, {
           conversation: run.conversation,
           run: run.id,
@@ -964,19 +1271,31 @@ export class HomeChannelsStore {
           afterRev,
           afterSeq,
         });
+        if (generation !== this.generation || life !== this.life) return;
         latest = read.run;
         steps.push(...read.steps);
-        afterRev = Math.max(afterRev, ...read.steps.map((step) => step.rev));
-        afterSeq = Math.max(afterSeq, ...read.steps.map((step) => step.seq));
-        if (!read.hasMore || read.steps.length === 0) break;
+        const nextRev = Math.max(afterRev, ...read.steps.map((step) => step.rev));
+        const nextSeq = Math.max(afterSeq, ...read.steps.map((step) => step.seq));
+        const advanced = nextRev > afterRev || nextSeq > afterSeq;
+        afterRev = nextRev;
+        afterSeq = nextSeq;
+        if (!read.hasMore) {
+          complete = true;
+          break;
+        }
+        // An owner that claims another page but returns no new cursor must not spin forever. Keep
+        // this partial read retryable so a later event can advance the owner's revision/sequence.
+        if (read.steps.length === 0 || !advanced) break;
       }
-      this.runs.setSteps(latest, steps, true);
-      this.failedRuns.delete(key);
+      if (complete) this.failedRuns.delete(key);
+      else this.failedRuns.set(key, latest.rev);
+      this.runs.setSteps(latest, steps, complete);
     } catch {
       // Display only: the card keeps the summary and the steps events brought.
-      this.failedRuns.set(key, run.rev);
+      if (generation === this.generation && life === this.life) this.failedRuns.set(key, run.rev);
     } finally {
-      this.loadingRuns.delete(key);
+      this.loadingRuns.delete(readKey);
+      release();
     }
   };
 
@@ -985,7 +1304,13 @@ export class HomeChannelsStore {
   }
 
   private set(patch: Partial<HomeSnapshot>): void {
-    this.snapshot = { ...this.snapshot, ...patch };
+    const previous = this.snapshot;
+    this.snapshot = { ...previous, ...patch };
+    if (
+      previous.messages !== this.snapshot.messages ||
+      previous.threadView?.messages !== this.snapshot.threadView?.messages
+    )
+      this.runs.setLoadedMessages([...this.snapshot.messages, ...(this.snapshot.threadView?.messages ?? [])]);
     if (patch.pending) this.carry.entries = patch.pending;
     for (const listener of this.listeners) listener();
   }
@@ -1007,4 +1332,21 @@ function defaultSelection(conversations: readonly HomeConversation[]): string | 
   const chief = conversations.find((c) => c.kind === "chief");
   if (chief) return chief.id;
   return [...conversations].sort((a, b) => b.updatedAt - a.updatedAt)[0]?.id;
+}
+
+/** The window's messages a page starting at `first` keeps: those from `first` on (events merged
+ * while the page was read), and older ones only while they run without a gap up to the page. A
+ * window that ends before the page starts (more than a page came in, a reconnect) would leave a
+ * hole no older page fills, so the window then starts at the page (#25570). */
+function joining(window: readonly HomeMessage[], first: number | undefined): HomeMessage[] {
+  if (first === undefined) return [...window];
+  const older = window.filter((m) => m.seq < first).sort((a, b) => b.seq - a.seq);
+  const kept: HomeMessage[] = [];
+  let next = first - 1;
+  for (const message of older) {
+    if (message.seq !== next) break;
+    kept.push(message);
+    next -= 1;
+  }
+  return [...kept.reverse(), ...window.filter((m) => m.seq >= first)];
 }

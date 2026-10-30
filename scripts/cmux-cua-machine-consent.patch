@@ -1,0 +1,3466 @@
+diff --git a/libs/cmux-cua/rust/Cargo.lock b/libs/cmux-cua/rust/Cargo.lock
+index bdfbb0282..cf2b78ab7 100644
+--- a/libs/cmux-cua/rust/Cargo.lock
++++ b/libs/cmux-cua/rust/Cargo.lock
+@@ -486,6 +486,7 @@ dependencies = [
+  "async-trait",
+  "hmac",
+  "image",
++ "libc",
+  "serde",
+  "serde_json",
+  "sha2",
+diff --git a/libs/cmux-cua/rust/crates/cmux-cua-core/Cargo.toml b/libs/cmux-cua/rust/crates/cmux-cua-core/Cargo.toml
+index dea1fb8a0..f7e42668b 100644
+--- a/libs/cmux-cua/rust/crates/cmux-cua-core/Cargo.toml
++++ b/libs/cmux-cua/rust/crates/cmux-cua-core/Cargo.toml
+@@ -19,11 +19,30 @@ async-trait = "0.1"
+ # all three platforms call the same code path.
+ image = { workspace = true }
+ 
++[features]
++# The build that ships inside cmux.app: machine consent comes only from the
++# verified cmux host, never from files a caller could redirect. cmux's
++# build-cmux-cua.sh turns it on; released and standalone builds leave it off.
++cmux-host-consent = []
++
+ [dev-dependencies]
+ tempfile = "3"
+ 
++# `machine_consent` opens acpmux's consent record without following a link
++# and checks its owner against this process's uid.
++[target.'cfg(unix)'.dependencies]
++libc = "0.2"
++
+ # Used by `cursor_sampler::sample_cursor` to poll the OS mouse position
+ # during video recording. Same version as platform-windows uses to avoid
+ # a duplicate crate version.
+ [target.'cfg(windows)'.dependencies]
+-windows = { version = "0.58", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
++# Win32_Security*/Win32_System_Threading: `machine_consent` checks the owner
++# and DACL of acpmux's consent and join records on the opened handle.
++windows = { version = "0.58", features = [
++    "Win32_Foundation",
++    "Win32_UI_WindowsAndMessaging",
++    "Win32_Security",
++    "Win32_Security_Authorization",
++    "Win32_System_Threading",
++] }
+diff --git a/libs/cmux-cua/rust/crates/cmux-cua-core/src/cursor_sampler.rs b/libs/cmux-cua/rust/crates/cmux-cua-core/src/cursor_sampler.rs
+index f9ae8ca5a..d246c4a3e 100644
+--- a/libs/cmux-cua/rust/crates/cmux-cua-core/src/cursor_sampler.rs
++++ b/libs/cmux-cua/rust/crates/cmux-cua-core/src/cursor_sampler.rs
+@@ -112,9 +112,15 @@ fn sample_cursor() -> Option<(f64, f64)> {
+     // CGEventGetLocation(event) → CGPoint. The point is in points
+     // (top-left origin) so it matches the cursor-space convention the
+     // renderer uses.
++    // Link the frameworks here: the driver binary gets them from
++    // platform-macos, but this crate's own test binary links nothing else.
++    #[link(name = "CoreGraphics", kind = "framework")]
+     extern "C" {
+         fn CGEventCreate(source: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
+         fn CGEventGetLocation(event: *mut std::ffi::c_void) -> CGPoint;
++    }
++    #[link(name = "CoreFoundation", kind = "framework")]
++    extern "C" {
+         fn CFRelease(cf: *mut std::ffi::c_void);
+     }
+     #[repr(C)]
+diff --git a/libs/cmux-cua/rust/crates/cmux-cua-core/src/host_consent.rs b/libs/cmux-cua/rust/crates/cmux-cua-core/src/host_consent.rs
+new file mode 100644
+index 000000000..147014baf
+--- /dev/null
++++ b/libs/cmux-cua/rust/crates/cmux-cua-core/src/host_consent.rs
+@@ -0,0 +1,455 @@
++//! Machine consent from the verified cmux host (feature `cmux-host-consent`).
++//!
++//! The build inside cmux.app holds the person's macOS grants, so it trusts
++//! no file or environment variable a caller could redirect. The cmux app
++//! instead holds one authenticated connection to the `serve` daemon
++//! (`machine_consent_host`, checked by the daemon: host token and the
++//! peer's code signature). On that connection the daemon asks
++//!
++//!   daemon -> host: `{"type":"machine_consent","id":N}`
++//!   host -> daemon: `{"type":"machine_consent","id":N,"ok":true,"result":{...}}`
++//!   daemon -> host: `{"type":"consent_refused","surface":S}`
++//!
++//! and the host answers from its own acpmux daemon
++//! (`_acpmux/machine_consent_get`). Every [`ConsentSource::status`] asks
++//! fresh. No verified host attached is [`ConsentStatus::HOST_UNVERIFIED`]
++//! (refusals then say so); no reply within [`DEADLINE`], an error or a
++//! malformed result is [`ConsentStatus::UNKNOWN`]. Both grant nothing.
++
++use std::collections::HashMap;
++use std::sync::{Arc, Mutex, OnceLock};
++use std::time::Duration;
++
++use serde_json::{json, Value};
++use tokio::io::{AsyncBufRead, AsyncWrite, AsyncWriteExt};
++
++use crate::machine_consent::{ConsentSource, ConsentStatus, Surface};
++
++/// Below acpmux's bridge deadline (2 s); the host's own daemon query is
++/// bounded below this.
++pub const DEADLINE: Duration = Duration::from_millis(1500);
++
++/// Lines waiting for the host's connection; more fail closed.
++const QUEUE: usize = 64;
++
++type Reply = std::sync::mpsc::Sender<Option<Value>>;
++
++#[derive(Default)]
++struct State {
++    /// The connected host: its generation and the queue its writer drains.
++    host: Option<(u64, tokio::sync::mpsc::Sender<String>)>,
++    next_id: u64,
++    next_generation: u64,
++    /// Open questions by id, with the generation of the host they went to:
++    /// only that host's connection may answer one.
++    pending: HashMap<u64, (u64, Reply)>,
++}
++
++impl State {
++    /// Fails every open question not asked of `generation`'s host.
++    fn fail_pending_except(&mut self, generation: Option<u64>) {
++        self.pending.retain(|_, (asked, waiter)| {
++            let keep = Some(*asked) == generation;
++            if !keep {
++                let _ = waiter.send(None);
++            }
++            keep
++        });
++    }
++}
++
++/// The consent the verified host serves. One per process ([`shared`]);
++/// tests make their own.
++#[derive(Default)]
++pub struct HostConsent {
++    state: Mutex<State>,
++    deadline: Option<Duration>,
++}
++
++/// The process's host consent source.
++pub fn shared() -> Arc<dyn ConsentSource> {
++    shared_host().clone()
++}
++
++/// The process's host consent, for the daemon to attach a host to.
++pub fn shared_host() -> &'static Arc<HostConsent> {
++    static SHARED: OnceLock<Arc<HostConsent>> = OnceLock::new();
++    SHARED.get_or_init(|| Arc::new(HostConsent::default()))
++}
++
++impl HostConsent {
++    /// A source with its own deadline (tests).
++    pub fn with_deadline(deadline: Duration) -> Self {
++        Self {
++            state: Mutex::default(),
++            deadline: Some(deadline),
++        }
++    }
++
++    fn lock(&self) -> std::sync::MutexGuard<'_, State> {
++        self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
++    }
++
++    /// Serves one verified host connection until it closes: writes the
++    /// daemon's questions and reads the host's answers. The caller has
++    /// already checked the host. A newer host replaces this one.
++    pub async fn serve_host<R, W>(&self, lines: &mut tokio::io::Lines<R>, writer: &mut W)
++    where
++        R: AsyncBufRead + Unpin,
++        W: AsyncWrite + Unpin,
++    {
++        // Bounded: a host that stops reading fails new questions at once
++        // instead of queueing them.
++        let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(QUEUE);
++        let generation = {
++            let mut state = self.lock();
++            state.next_generation += 1;
++            let generation = state.next_generation;
++            state.host = Some((generation, tx));
++            // Questions the replaced host was asked fail now.
++            state.fail_pending_except(Some(generation));
++            generation
++        };
++        loop {
++            tokio::select! {
++                question = rx.recv() => {
++                    let Some(question) = question else { break };
++                    let write = async {
++                        writer.write_all(question.as_bytes()).await?;
++                        writer.flush().await
++                    };
++                    // A host that does not read within the deadline is gone.
++                    if !matches!(tokio::time::timeout(DEADLINE, write).await, Ok(Ok(()))) {
++                        break;
++                    }
++                }
++                line = lines.next_line() => {
++                    let Ok(Some(line)) = line else { break };
++                    self.answer(generation, &line);
++                }
++            }
++        }
++        let mut state = self.lock();
++        if state.host.as_ref().is_some_and(|(current, _)| *current == generation) {
++            state.host = None;
++            // Questions this host will never answer fail now.
++            state.fail_pending_except(None);
++        }
++    }
++
++    fn answer(&self, generation: u64, line: &str) {
++        let Ok(message) = serde_json::from_str::<Value>(line) else { return };
++        if message["type"] != "machine_consent" {
++            return;
++        }
++        let Some(id) = message["id"].as_u64() else { return };
++        let result = (message["ok"] == Value::Bool(true))
++            .then(|| message.get("result").cloned())
++            .flatten();
++        let mut state = self.lock();
++        // An answer counts only from the host the question went to.
++        if state.pending.get(&id).is_some_and(|(asked, _)| *asked == generation) {
++            if let Some((_, waiter)) = state.pending.remove(&id) {
++                let _ = waiter.send(result);
++            }
++        }
++    }
++
++    fn ask(&self) -> Option<Value> {
++        let (reply, answer) = std::sync::mpsc::channel();
++        let id = {
++            let mut state = self.lock();
++            let (generation, host) = state.host.as_ref()?;
++            let (generation, host) = (*generation, host.clone());
++            state.next_id += 1;
++            let id = state.next_id;
++            state.pending.insert(id, (generation, reply));
++            let question = json!({"type": "machine_consent", "id": id}).to_string() + "\n";
++            if host.try_send(question).is_err() {
++                state.pending.remove(&id);
++                return None;
++            }
++            id
++        };
++        let deadline = self.deadline.unwrap_or(DEADLINE);
++        let received = wait_off_runtime(|| answer.recv_timeout(deadline).ok().flatten());
++        self.lock().pending.remove(&id);
++        received
++    }
++}
++
++/// Runs a blocking wait without starving the async runtime: on a
++/// multi-thread runtime the worker hands its tasks off first. A
++/// current-thread runtime could not run the host's reader meanwhile, so
++/// there the answer is none.
++fn wait_off_runtime<T>(wait: impl FnOnce() -> Option<T>) -> Option<T> {
++    match tokio::runtime::Handle::try_current().map(|handle| handle.runtime_flavor()) {
++        Err(_) => wait(),
++        Ok(tokio::runtime::RuntimeFlavor::MultiThread) => tokio::task::block_in_place(wait),
++        Ok(_) => None,
++    }
++}
++
++/// `_acpmux/machine_consent_get`'s result, read strictly:
++/// `consentRequired` a JSON boolean and `consent.screen` and
++/// `consent.control` each "none" or "granted". Anything else is none.
++pub fn parse_status(result: &Value) -> Option<ConsentStatus> {
++    let grant = |value: &Value| match value.as_str()? {
++        "granted" => Some(true),
++        "none" => Some(false),
++        _ => None,
++    };
++    Some(ConsentStatus {
++        consent_required: result.get("consentRequired")?.as_bool()?,
++        screen: grant(result.get("consent")?.get("screen")?)?,
++        control: grant(result.get("consent")?.get("control")?)?,
++        host_unverified: false,
++    })
++}
++
++impl ConsentSource for HostConsent {
++    fn status(&self) -> ConsentStatus {
++        if self.lock().host.is_none() {
++            return ConsentStatus::HOST_UNVERIFIED;
++        }
++        self.ask()
++            .as_ref()
++            .and_then(parse_status)
++            .unwrap_or(ConsentStatus::UNKNOWN)
++    }
++
++    fn record_refusal(&self, surface: Surface) {
++        let state = self.lock();
++        if let Some((_, host)) = state.host.as_ref() {
++            let line = json!({"type": "consent_refused", "surface": surface.as_str()}).to_string();
++            let _ = host.try_send(line + "\n");
++        }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
++
++    const GRANTED: &str = r#"{"consentRequired":true,"consent":{"screen":"granted","control":"granted"}}"#;
++
++    #[test]
++    fn the_daemon_answer_is_read_strictly() {
++        let parsed = |text: &str| parse_status(&serde_json::from_str(text).unwrap());
++        assert_eq!(
++            parsed(r#"{"consentRequired":true,"consent":{"screen":"granted","control":"none"},"lastRefusal":null}"#),
++            Some(ConsentStatus { screen: true, ..ConsentStatus::UNKNOWN })
++        );
++        for bad in [
++            r#"{"consent":{"screen":"granted","control":"granted"}}"#,
++            r#"{"consentRequired":"false","consent":{"screen":"granted","control":"granted"}}"#,
++            r#"{"consentRequired":1,"consent":{"screen":"granted","control":"granted"}}"#,
++            r#"{"consentRequired":true,"consent":{"screen":"GRANTED","control":"granted"}}"#,
++            r#"{"consentRequired":true,"consent":{"screen":true,"control":true}}"#,
++            r#"{"consentRequired":false}"#,
++            r#"[]"#,
++        ] {
++            assert_eq!(parsed(bad), None, "{bad}");
++        }
++    }
++
++    #[test]
++    fn with_no_host_nothing_is_granted() {
++        let consent = HostConsent::default();
++        assert_eq!(consent.status(), ConsentStatus::HOST_UNVERIFIED);
++        consent.record_refusal(Surface::Screen);
++    }
++
++    /// A scripted host on the other end of a socket pair: answers each
++    /// question from `answers` in turn and records refusals.
++    async fn host(
++        consent: Arc<HostConsent>,
++        answers: Vec<Option<&'static str>>,
++    ) -> (tokio::task::JoinHandle<()>, tokio::task::JoinHandle<Vec<Value>>) {
++        let (daemon_end, host_end) = tokio::net::UnixStream::pair().unwrap();
++        let serving = tokio::spawn(async move {
++            let (reader, mut writer) = daemon_end.into_split();
++            consent.serve_host(&mut BufReader::new(reader).lines(), &mut writer).await;
++        });
++        let script = tokio::spawn(async move {
++            let (reader, mut writer) = host_end.into_split();
++            let mut lines = BufReader::new(reader).lines();
++            let mut answers = answers.into_iter().peekable();
++            let mut seen = Vec::new();
++            while let Ok(Some(line)) = lines.next_line().await {
++                let message: Value = serde_json::from_str(&line).unwrap();
++                seen.push(message.clone());
++                if message["type"] != "machine_consent" {
++                    continue;
++                }
++                assert_eq!(
++                    message.as_object().unwrap().keys().collect::<Vec<_>>(),
++                    ["id", "type"],
++                    "the question carries nothing the answer depends on"
++                );
++                let reply = match answers.next() {
++                    Some(Some(result)) => json!({"type": "machine_consent", "id": message["id"],
++                        "ok": true, "result": serde_json::from_str::<Value>(result).unwrap()}),
++                    Some(None) => json!({"type": "machine_consent", "id": message["id"], "ok": false}),
++                    None => return seen,
++                };
++                writer.write_all((reply.to_string() + "\n").as_bytes()).await.unwrap();
++                // Out of answers: the host goes away.
++                if answers.peek().is_none() {
++                    return seen;
++                }
++            }
++            seen
++        });
++        (serving, script)
++    }
++
++    async fn attached(consent: &HostConsent) {
++        for _ in 0..500 {
++            if consent.lock().host.is_some() {
++                return;
++            }
++            tokio::time::sleep(Duration::from_millis(10)).await;
++        }
++        panic!("the host never attached");
++    }
++
++    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++    async fn every_status_asks_the_host_and_failures_grant_nothing() {
++        let consent = Arc::new(HostConsent::with_deadline(Duration::from_secs(10)));
++        let (serving, script) = host(
++            consent.clone(),
++            vec![
++                Some(r#"{"consentRequired":true,"consent":{"screen":"none","control":"none"}}"#),
++                Some(GRANTED),
++                Some(r#"{"consentRequired":true,"consent":{"screen":"granted","control":"none"}}"#),
++                None,
++                Some(r#"{"error":"daemon unreachable"}"#),
++                Some(r#"{"consentRequired":false,"consent":{"screen":"none","control":"none"}}"#),
++            ],
++        )
++        .await;
++        attached(&consent).await;
++        // A state directory that says "not joined" (what an alternate
++        // ACPMUX_HOME would show) is never read: the host's answer is the
++        // only input.
++        let alternate = tempfile::tempdir().unwrap();
++        let files = crate::machine_consent::StateFiles::At(Some(alternate.path().to_owned()));
++        assert!(!files.status().consent_required);
++        let status = |screen, control| ConsentStatus { screen, control, ..ConsentStatus::UNKNOWN };
++        assert_eq!(consent.status(), status(false, false), "deny");
++        consent.record_refusal(Surface::Screen);
++        assert_eq!(consent.status(), status(true, true), "grant");
++        assert_eq!(consent.status(), status(true, false), "revoke control");
++        assert_eq!(consent.status(), ConsentStatus::UNKNOWN, "ok:false");
++        assert_eq!(consent.status(), ConsentStatus::UNKNOWN, "malformed");
++        assert!(!consent.status().consent_required, "unjoined, from the host");
++        let seen = script.await.unwrap();
++        serving.await.unwrap();
++        assert_eq!(consent.status(), ConsentStatus::HOST_UNVERIFIED, "the host went away");
++        assert!(seen.iter().any(|m| m["type"] == "consent_refused" && m["surface"] == "screen"));
++    }
++
++    /// With no verified host a refusal says `host_unverified`; a verified
++    /// host that denies gives the plain `consent_required` a person's
++    /// refusal gives.
++    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++    async fn refusals_tell_an_unverified_host_from_a_denial() {
++        use crate::machine_consent::{check, CONSENT_REQUIRED, HOST_UNVERIFIED};
++        let consent = Arc::new(HostConsent::with_deadline(Duration::from_secs(10)));
++        let refused = check(consent.as_ref(), "click").unwrap_err();
++        let structured = refused.structured_content.unwrap();
++        assert_eq!(structured["code"], CONSENT_REQUIRED);
++        assert_eq!(structured["reason"], HOST_UNVERIFIED);
++
++        let denied = r#"{"consentRequired":true,"consent":{"screen":"granted","control":"none"}}"#;
++        let (serving, _script) = host(consent.clone(), vec![Some(denied), Some(denied)]).await;
++        attached(&consent).await;
++        let refused = check(consent.as_ref(), "click").unwrap_err();
++        let structured = refused.structured_content.unwrap();
++        assert_eq!(structured["code"], CONSENT_REQUIRED);
++        assert_eq!(structured["surface"], "control");
++        assert!(structured.get("reason").is_none(), "{structured}");
++        serving.abort();
++    }
++
++    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++    async fn a_host_that_goes_away_grants_nothing_at_once() {
++        let consent = Arc::new(HostConsent::with_deadline(Duration::from_secs(30)));
++        let (serving, script) = host(consent.clone(), vec![Some(GRANTED)]).await;
++        attached(&consent).await;
++        assert!(consent.status().granted(Surface::Control));
++        // The script closes its end after its one answer.
++        let _ = script.await;
++        serving.await.unwrap();
++        let started = std::time::Instant::now();
++        assert_eq!(consent.status(), ConsentStatus::HOST_UNVERIFIED);
++        assert!(started.elapsed() < Duration::from_secs(5), "no wait for a host that is gone");
++    }
++
++    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++    async fn only_the_host_a_question_went_to_may_answer_it() {
++        let consent = Arc::new(HostConsent::with_deadline(Duration::from_secs(30)));
++        let (old_daemon, old_host) = tokio::net::UnixStream::pair().unwrap();
++        let old_serving = {
++            let consent = consent.clone();
++            tokio::spawn(async move {
++                let (reader, mut writer) = old_daemon.into_split();
++                consent.serve_host(&mut BufReader::new(reader).lines(), &mut writer).await;
++            })
++        };
++        attached(&consent).await;
++        // A question to the old host, which never answers in time.
++        let asking = {
++            let consent = consent.clone();
++            tokio::task::spawn_blocking(move || consent.status())
++        };
++        let (old_reader, mut old_writer) = old_host.into_split();
++        let mut old_lines = BufReader::new(old_reader).lines();
++        let question: Value = serde_json::from_str(&old_lines.next_line().await.unwrap().unwrap()).unwrap();
++        // A new host replaces it: the open question fails at once.
++        let (new_daemon, _new_host) = tokio::net::UnixStream::pair().unwrap();
++        let new_serving = {
++            let consent = consent.clone();
++            tokio::spawn(async move {
++                let (reader, mut writer) = new_daemon.into_split();
++                consent.serve_host(&mut BufReader::new(reader).lines(), &mut writer).await;
++            })
++        };
++        let started = std::time::Instant::now();
++        assert_eq!(asking.await.unwrap(), ConsentStatus::UNKNOWN);
++        assert!(started.elapsed() < Duration::from_secs(10));
++        // A late grant from the replaced host is ignored.
++        let late = json!({"type": "machine_consent", "id": question["id"], "ok": true,
++            "result": serde_json::from_str::<Value>(GRANTED).unwrap()});
++        let _ = old_writer.write_all((late.to_string() + "\n").as_bytes()).await;
++        assert!(consent.lock().pending.is_empty());
++        old_serving.abort();
++        new_serving.abort();
++    }
++
++    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++    async fn a_silent_host_times_out_closed() {
++        let consent = Arc::new(HostConsent::with_deadline(Duration::from_millis(100)));
++        let (daemon_end, _host_end) = tokio::net::UnixStream::pair().unwrap();
++        let serving = {
++            let consent = consent.clone();
++            tokio::spawn(async move {
++                let (reader, mut writer) = daemon_end.into_split();
++                consent.serve_host(&mut BufReader::new(reader).lines(), &mut writer).await;
++            })
++        };
++        attached(&consent).await;
++        assert_eq!(consent.status(), ConsentStatus::UNKNOWN);
++        serving.abort();
++    }
++
++    #[tokio::test]
++    async fn a_current_thread_runtime_never_blocks_on_the_host() {
++        let consent = HostConsent::with_deadline(Duration::from_secs(30));
++        let (tx, _rx) = tokio::sync::mpsc::channel(1);
++        consent.lock().host = Some((1, tx));
++        assert_eq!(consent.status(), ConsentStatus::UNKNOWN);
++    }
++}
+diff --git a/libs/cmux-cua/rust/crates/cmux-cua-core/src/lib.rs b/libs/cmux-cua/rust/crates/cmux-cua-core/src/lib.rs
+index 8409fa7ec..46633cf08 100644
+--- a/libs/cmux-cua/rust/crates/cmux-cua-core/src/lib.rs
++++ b/libs/cmux-cua/rust/crates/cmux-cua-core/src/lib.rs
+@@ -107,6 +107,9 @@ pub mod ffmpeg_install;
+ pub mod health_report;
+ pub mod image_utils;
+ pub mod lease;
++pub mod machine_consent;
++#[cfg(all(feature = "cmux-host-consent", unix))]
++pub mod host_consent;
+ pub mod page;
+ pub mod pip_hook;
+ pub mod protocol;
+diff --git a/libs/cmux-cua/rust/crates/cmux-cua-core/src/machine_consent.rs b/libs/cmux-cua/rust/crates/cmux-cua-core/src/machine_consent.rs
+new file mode 100644
+index 000000000..7a842bd17
+--- /dev/null
++++ b/libs/cmux-cua/rust/crates/cmux-cua-core/src/machine_consent.rs
+@@ -0,0 +1,1357 @@
++//! Machine-join consent at the cmux-cua execution boundary.
++//!
++//! A machine joined to a cmux team (acpmux `host join`) gives the team no
++//! screen and no control until the person at the machine grants them
++//! locally. acpmux keeps that state under its home (`$ACPMUX_HOME`, else
++//! `~/.acpmux`):
++//!
++//! - `machine-credential.json`: present once the machine has joined. This
++//!   module checks that it is a private file with acpmux's record shape; the
++//!   credential value inside is type-checked and dropped, never kept, logged
++//!   or returned.
++//! - `consent.json`: `{"screen": "granted"|"none", "control": ...}`, written
++//!   only by acpmux's person-proven local consent RPC.
++//! - `consent-refusal.json`: the last refusal, which the app's consent sheet
++//!   reads. This module writes it when it refuses a call.
++//!
++//! The check runs on every tool call, not at startup, so a grant or a revoke
++//! takes effect on the next call of a process that is already running.
++//! It fails closed: a joined machine whose consent record is missing,
++//! unreadable, malformed, not owned by this user or writable by others is
++//! treated as having granted nothing, and a join status that cannot be read
++//! counts as joined. A machine with no join record behaves exactly as before.
++//!
++//! Every gate and every capture site asks one [`ConsentSource`], right before
++//! it acts. Today's source, [`StateFiles`], reads the files above. The same
++//! answer is served by acpmux's `_acpmux/machine_consent_get`
++//! (`{consentRequired, consent, lastRefusal}`), which [`ConsentStatus`]
++//! mirrors; moving to that daemon query changes only [`default_source`].
++
++use std::path::{Path, PathBuf};
++use std::sync::Arc;
++
++use serde::Deserialize;
++use serde_json::json;
++
++use crate::protocol::ToolResult;
++
++/// The error code acpmux uses for the same refusal.
++pub const CONSENT_REQUIRED: &str = "consent_required";
++/// What a helper built with `cmux-host-consent` advertises (the daemon's
++/// `list` result and `cmux-cua manifest` `capabilities`): every call is
++/// gated on the verified cmux host's machine consent.
++pub const GATE_CAPABILITY: &str = "machine-consent-gate-v1";
++/// The `reason` a refusal carries when the cmux.app build has no verified
++/// cmux host to ask (see [`ConsentStatus::HOST_UNVERIFIED`]), so the app and
++/// doctor can tell it from a person's refusal, which carries no reason.
++pub const HOST_UNVERIFIED: &str = "host_unverified";
++
++const CREDENTIAL_FILE: &str = "machine-credential.json";
++const CONSENT_FILE: &str = "consent.json";
++const REFUSAL_FILE: &str = "consent-refusal.json";
++/// acpmux's records are a few hundred bytes; anything far larger is not one.
++const MAX_RECORD_BYTES: u64 = 64 * 1024;
++
++/// A consent surface, as acpmux names it.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum Surface {
++    /// Reading the screen: pixels, window lists, accessibility text.
++    Screen,
++    /// Acting on the machine: input, launching and focusing apps, settings.
++    Control,
++}
++
++impl Surface {
++    pub fn as_str(self) -> &'static str {
++        match self {
++            Surface::Screen => "screen",
++            Surface::Control => "control",
++        }
++    }
++}
++
++/// What a tool needs before it may run on a joined machine.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum Requirement {
++    /// Reads no screen content and changes nothing the person sees.
++    Nothing,
++    /// Observation only.
++    Screen,
++    /// Acts on the machine: needs `screen` and `control`, the rule acpmux's
++    /// Computer Use bridge enforces, since acting means seeing what is acted on.
++    Act,
++    /// Both surfaces: tools that read and act (`page`), and any tool this
++    /// table does not know, so a new tool is gated until it is classified.
++    Both,
++}
++
++impl Requirement {
++    pub fn surfaces(self) -> &'static [Surface] {
++        match self {
++            Requirement::Nothing => &[],
++            Requirement::Screen => &[Surface::Screen],
++            Requirement::Act => &[Surface::Screen, Surface::Control],
++            Requirement::Both => &[Surface::Screen, Surface::Control],
++        }
++    }
++}
++
++/// The surfaces a tool needs, by its resolved name.
++pub fn requirement_for(tool: &str) -> Requirement {
++    match tool {
++        // Metadata about the driver itself: no pixels, no accessibility text,
++        // no effect on the person's apps or screen.
++        "get_config"
++        | "check_permissions"
++        | "check_for_update"
++        | "health_report"
++        | "get_recording_state"
++        | "get_agent_cursor_state"
++        | "start_session"
++        | "end_session"
++        | "unsupported_platform" => Requirement::Nothing,
++
++        // Reads the screen: captures, accessibility trees, window and app
++        // lists, cursor position, display geometry, and recordings.
++        "get_window_state"
++        | "get_accessibility_tree"
++        | "get_desktop_state"
++        | "get_app_state"
++        | "zoom"
++        | "screenshot"
++        | "get_screen_size"
++        | "get_cursor_position"
++        | "list_windows"
++        | "list_apps"
++        | "debug_window_info"
++        | "start_recording"
++        | "stop_recording" => Requirement::Screen,
++
++        // Acts: pointer and keyboard input, app and window control, the
++        // agent cursor drawn over the person's screen, driver settings,
++        // installs, and replaying recorded actions.
++        "click"
++        | "double_click"
++        | "right_click"
++        | "drag"
++        | "mouse_drag"
++        | "parallel_mouse_drag"
++        | "mouse_button_down"
++        | "mouse_button_up"
++        | "scroll"
++        | "move_cursor"
++        | "type_text"
++        | "type_text_chars"
++        | "press_key"
++        | "hotkey"
++        | "set_value"
++        | "select_text"
++        | "perform_secondary_action"
++        | "launch_app"
++        | "kill_app"
++        | "bring_to_front"
++        | "set_agent_cursor_enabled"
++        | "set_agent_cursor_motion"
++        | "set_agent_cursor_style"
++        | "set_config"
++        | "install_ffmpeg"
++        | "replay_trajectory" => Requirement::Act,
++
++        // `page` both reads page content and acts on it.
++        "page" => Requirement::Both,
++
++        _ => Requirement::Both,
++    }
++}
++
++/// The consent state for one call, shaped like acpmux's
++/// `_acpmux/machine_consent_get` answer.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub struct ConsentStatus {
++    /// True when the machine is joined, or its join status cannot be read.
++    pub consent_required: bool,
++    /// Grants that count: false whenever the consent record, or the join
++    /// record it belongs to, cannot be trusted.
++    pub screen: bool,
++    pub control: bool,
++    /// No verified cmux host is attached to answer (cmux.app build only):
++    /// nothing is granted, and the refusal says why.
++    pub host_unverified: bool,
++}
++
++impl ConsentStatus {
++    /// The answer when nothing can be read: joined, nothing granted.
++    pub const UNKNOWN: ConsentStatus = ConsentStatus {
++        consent_required: true,
++        screen: false,
++        control: false,
++        host_unverified: false,
++    };
++
++    /// The cmux.app build with no verified cmux host attached: nothing is
++    /// granted, and refusals carry `reason: host_unverified`.
++    pub const HOST_UNVERIFIED: ConsentStatus = ConsentStatus {
++        host_unverified: true,
++        ..ConsentStatus::UNKNOWN
++    };
++
++    pub fn granted(&self, surface: Surface) -> bool {
++        !self.consent_required
++            || match surface {
++                Surface::Screen => self.screen,
++                Surface::Control => self.control,
++            }
++    }
++}
++
++/// Where cmux-cua learns the consent state. Callers ask [`status`] right
++/// before each gate and each capture, and never reuse an answer read before
++/// an await.
++///
++/// [`status`]: ConsentSource::status
++pub trait ConsentSource: Send + Sync {
++    /// The state as of now. Fails closed: any error is
++    /// [`ConsentStatus::UNKNOWN`], never "not joined".
++    fn status(&self) -> ConsentStatus;
++    /// Record a refused call for the app's consent sheet. Best effort.
++    fn record_refusal(&self, surface: Surface);
++}
++
++/// The consent source this process uses: the one place to change when the
++/// answer moves to the cmux app's authenticated connection.
++///
++/// The build that ships inside cmux.app (feature `cmux-host-consent`) holds
++/// the person's macOS grants, so it trusts no file a caller could redirect:
++/// it asks the verified cmux host (`host_consent`), and with no host
++/// connected the answer is "joined, nothing granted".
++/// Standalone and released builds keep acpmux's state files, which are
++/// advisory: `$ACPMUX_HOME` is chosen by whoever starts the process.
++pub fn default_source() -> Arc<dyn ConsentSource> {
++    #[cfg(all(feature = "cmux-host-consent", unix))]
++    {
++        crate::host_consent::shared()
++    }
++    #[cfg(all(feature = "cmux-host-consent", not(unix)))]
++    {
++        Arc::new(Unavailable)
++    }
++    #[cfg(not(feature = "cmux-host-consent"))]
++    {
++        Arc::new(StateFiles::FromEnv)
++    }
++}
++
++/// No trusted answer: joined, nothing granted, so everything that needs
++/// consent refuses.
++#[derive(Debug, Clone, Copy)]
++pub struct Unavailable;
++
++impl ConsentSource for Unavailable {
++    fn status(&self) -> ConsentStatus {
++        ConsentStatus::UNKNOWN
++    }
++
++    fn record_refusal(&self, _surface: Surface) {}
++}
++
++/// Consent read from acpmux's state files.
++#[derive(Debug, Clone)]
++pub enum StateFiles {
++    /// The state directory resolved on every read: `$ACPMUX_HOME`, else
++    /// `~/.acpmux`.
++    FromEnv,
++    /// A fixed state directory; `None` means none could be found.
++    At(Option<PathBuf>),
++}
++
++impl StateFiles {
++    fn home(&self) -> Option<PathBuf> {
++        match self {
++            Self::FromEnv => acpmux_home(),
++            Self::At(home) => home.clone(),
++        }
++    }
++}
++
++impl ConsentSource for StateFiles {
++    fn status(&self) -> ConsentStatus {
++        read_status(self.home().as_deref())
++    }
++
++    fn record_refusal(&self, surface: Surface) {
++        if let Some(home) = self.home() {
++            record_refusal(&home, surface);
++        }
++    }
++}
++
++/// acpmux's state directory for this process: `$ACPMUX_HOME`, else
++/// `<home>/.acpmux`, the same rule acpmux uses without a tagged-build
++/// override. `None` when no home directory can be found; callers treat that
++/// as an unreadable join status and refuse.
++fn acpmux_home() -> Option<PathBuf> {
++    if let Some(home) = std::env::var_os("ACPMUX_HOME").filter(|v| !v.is_empty()) {
++        return Some(PathBuf::from(home));
++    }
++    user_home().map(|home| home.join(".acpmux"))
++}
++
++#[cfg(unix)]
++fn user_home() -> Option<PathBuf> {
++    user_home_from(std::env::var_os("HOME"))
++}
++
++#[cfg(unix)]
++fn user_home_from(env_home: Option<std::ffi::OsString>) -> Option<PathBuf> {
++    if let Some(home) = env_home.filter(|v| !v.is_empty()) {
++        return Some(PathBuf::from(home));
++    }
++    // No $HOME: the account's home from the password database, as acpmux's
++    // `dirs::home_dir` does.
++    use std::ffi::CStr;
++    use std::os::unix::ffi::OsStrExt;
++    let mut buffer = vec![0 as libc::c_char; 16 * 1024];
++    let mut entry: libc::passwd = unsafe { std::mem::zeroed() };
++    let mut found: *mut libc::passwd = std::ptr::null_mut();
++    // SAFETY: every pointer refers to live, correctly sized storage owned by
++    // this frame; getpwuid_r writes only within `buffer` and `entry`.
++    let status = unsafe {
++        libc::getpwuid_r(
++            libc::getuid(),
++            &mut entry,
++            buffer.as_mut_ptr(),
++            buffer.len(),
++            &mut found,
++        )
++    };
++    if status != 0 || found.is_null() || entry.pw_dir.is_null() {
++        return None;
++    }
++    // SAFETY: pw_dir is a NUL-terminated string inside `buffer`.
++    let dir = unsafe { CStr::from_ptr(entry.pw_dir) }.to_bytes();
++    (!dir.is_empty()).then(|| PathBuf::from(std::ffi::OsStr::from_bytes(dir)))
++}
++
++#[cfg(not(unix))]
++fn user_home() -> Option<PathBuf> {
++    std::env::var_os("USERPROFILE")
++        .filter(|v| !v.is_empty())
++        .map(PathBuf::from)
++}
++
++/// Read the consent state under `home` (`None`: no home could be found).
++/// Never fails: every error is the answer that refuses.
++fn read_status(home: Option<&Path>) -> ConsentStatus {
++    let Some(home) = home else {
++        return ConsentStatus::UNKNOWN;
++    };
++    let credential_path = home.join(CREDENTIAL_FILE);
++    match std::fs::symlink_metadata(&credential_path) {
++        // Absent, and not because a link on the way to it dangles.
++        Err(error)
++            if error.kind() == std::io::ErrorKind::NotFound && cleanly_absent(&credential_path) =>
++        {
++            return ConsentStatus {
++                consent_required: false,
++                ..ConsentStatus::UNKNOWN
++            };
++        }
++        // Present in some form, or unreadable: joined.
++        _ => {}
++    }
++    // A join record acpmux itself would refuse (a link, another owner,
++    // writable by others, malformed) grants nothing, whatever consent says.
++    if !credential_record_is_valid(&credential_path) {
++        return ConsentStatus::UNKNOWN;
++    }
++    let (screen, control) = read_consent(&home.join(CONSENT_FILE))
++        .map(|consent| {
++            (
++                consent.screen == ConsentState::Granted,
++                consent.control == ConsentState::Granted,
++            )
++        })
++        .unwrap_or((false, false));
++    ConsentStatus {
++        screen,
++        control,
++        ..ConsentStatus::UNKNOWN
++    }
++}
++
++/// Whether `path` is missing because its nearest existing ancestor is a real
++/// directory (directly or through a link that resolves) that lacks the rest.
++/// A dangling link on the way (`$ACPMUX_HOME` or `~/.acpmux` pointing at
++/// nothing) is not "never joined": it may be a home that is unmounted or
++/// moved, so the answer is unknown.
++fn cleanly_absent(path: &Path) -> bool {
++    for ancestor in path.ancestors().skip(1) {
++        if ancestor.as_os_str().is_empty() {
++            return false;
++        }
++        match std::fs::symlink_metadata(ancestor) {
++            Ok(_) => return std::fs::metadata(ancestor).is_ok_and(|m| m.is_dir()),
++            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
++            Err(_) => return false,
++        }
++    }
++    false
++}
++
++#[derive(Deserialize, PartialEq, Eq)]
++#[serde(rename_all = "lowercase")]
++enum ConsentState {
++    None,
++    Granted,
++}
++
++#[derive(Deserialize)]
++struct ConsentRecord {
++    screen: ConsentState,
++    control: ConsentState,
++}
++
++fn read_private_bounded(path: &Path) -> Option<Vec<u8>> {
++    use std::io::Read;
++
++    let file = open_private_file(path)?;
++    let mut bytes = Vec::new();
++    file.take(MAX_RECORD_BYTES + 1)
++        .read_to_end(&mut bytes)
++        .ok()?;
++    (bytes.len() as u64 <= MAX_RECORD_BYTES).then_some(bytes)
++}
++
++fn read_consent(path: &Path) -> Option<ConsentRecord> {
++    serde_json::from_slice(&read_private_bounded(path)?).ok()
++}
++
++/// The join record has acpmux's `MachineCredential` shape. The credential
++/// value is type-checked and dropped; it is never kept, logged or returned.
++fn credential_record_is_valid(path: &Path) -> bool {
++    let Some(bytes) = read_private_bounded(path) else {
++        return false;
++    };
++    let Ok(serde_json::Value::Object(record)) = serde_json::from_slice(&bytes) else {
++        return false;
++    };
++    let string = |key: &str| record.get(key).is_some_and(serde_json::Value::is_string);
++    [
++        "credential",
++        "machine_id",
++        "team_id",
++        "name",
++        "hub_origin",
++        "wgPublicKey",
++    ]
++    .iter()
++    .all(|key| string(key))
++        && record
++            .get("revoked")
++            .is_some_and(serde_json::Value::is_boolean)
++        && record
++            .get("last_heartbeat")
++            .map_or(true, |v| v.is_null() || v.is_string())
++}
++
++/// Open a state file the way acpmux trusts one: a regular file, not a
++/// symlink, owned by this user, and not writable by group or others (so no
++/// one else can have granted consent by editing it).
++#[cfg(unix)]
++fn open_private_file(path: &Path) -> Option<std::fs::File> {
++    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
++
++    let file = std::fs::OpenOptions::new()
++        .read(true)
++        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
++        .open(path)
++        .ok()?;
++    let metadata = file.metadata().ok()?;
++    // SAFETY: getuid has no preconditions.
++    let uid = unsafe { libc::getuid() };
++    (metadata.is_file() && metadata.uid() == uid && metadata.mode() & 0o022 == 0).then_some(file)
++}
++
++/// Windows: open without following a reparse point, then trust the file only
++/// if its owner is this user and no trustee other than this user, SYSTEM or
++/// Administrators may change it or its protection (checked on the opened
++/// handle). Any failure of the check itself refuses.
++#[cfg(windows)]
++fn open_private_file(path: &Path) -> Option<std::fs::File> {
++    use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
++    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
++    const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x10;
++    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
++    const GENERIC_READ: u32 = 0x8000_0000;
++    const READ_CONTROL: u32 = 0x0002_0000;
++
++    let file = std::fs::OpenOptions::new()
++        .access_mode(GENERIC_READ | READ_CONTROL)
++        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
++        .open(path)
++        .ok()?;
++    let metadata = file.metadata().ok()?;
++    let attributes = metadata.file_attributes();
++    if !metadata.is_file()
++        || attributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT) != 0
++    {
++        return None;
++    }
++    windows_acl::handle_is_private(&file).then_some(file)
++}
++
++/// Neither Unix nor Windows: nothing is verified, so no record is trusted.
++#[cfg(not(any(unix, windows)))]
++fn open_private_file(_path: &Path) -> Option<std::fs::File> {
++    None
++}
++
++/// Who an access-control entry names, as far as this check cares.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++#[cfg_attr(not(windows), allow(dead_code))]
++enum Trustee {
++    CurrentUser,
++    System,
++    Administrators,
++    Other,
++}
++
++/// One entry of a file's DACL.
++#[derive(Debug, Clone, Copy)]
++#[cfg_attr(not(windows), allow(dead_code))]
++enum AccessEntry {
++    Allow {
++        trustee: Trustee,
++        mask: u32,
++    },
++    Deny,
++    /// Any other entry type: not understood, so not trusted.
++    Unknown,
++}
++
++/// Rights that let a trustee change a file's contents or its protection:
++/// FILE_WRITE_DATA, FILE_APPEND_DATA, FILE_WRITE_EA, FILE_WRITE_ATTRIBUTES,
++/// DELETE, WRITE_DAC, WRITE_OWNER, MAXIMUM_ALLOWED, GENERIC_ALL, GENERIC_WRITE.
++#[cfg_attr(not(windows), allow(dead_code))]
++const WRITE_LIKE_RIGHTS: u32 = 0x0000_0002
++    | 0x0000_0004
++    | 0x0000_0010
++    | 0x0000_0100
++    | 0x0001_0000
++    | 0x0004_0000
++    | 0x0008_0000
++    | 0x0200_0000
++    | 0x1000_0000
++    | 0x4000_0000;
++
++/// The Windows rule, acpmux's (`owner_only.rs`): owned by this user (or by
++/// SYSTEM or Administrators, who can rewrite any file anyway; an elevated
++/// administrator's new files are owned by Administrators), a DACL present (a
++/// null DACL lets everyone in), and no allow entry for anyone else that
++/// carries a write-like right.
++#[cfg_attr(not(windows), allow(dead_code))]
++fn dacl_is_private(owner: Trustee, dacl: Option<&[AccessEntry]>) -> bool {
++    owner != Trustee::Other
++        && dacl.is_some_and(|entries| {
++            entries.iter().all(|entry| match entry {
++                AccessEntry::Allow {
++                    trustee: Trustee::Other,
++                    mask,
++                } => mask & WRITE_LIKE_RIGHTS == 0,
++                AccessEntry::Allow { .. } | AccessEntry::Deny => true,
++                AccessEntry::Unknown => false,
++            })
++        })
++}
++
++#[cfg(windows)]
++mod windows_acl {
++    use super::{dacl_is_private, AccessEntry, Trustee};
++    use std::os::windows::io::AsRawHandle;
++    use windows::Win32::Foundation::{CloseHandle, LocalFree, HANDLE, HLOCAL};
++    use windows::Win32::Security::Authorization::{GetSecurityInfo, SE_FILE_OBJECT};
++    use windows::Win32::Security::{
++        AclSizeInformation, EqualSid, GetAce, GetAclInformation, GetTokenInformation,
++        IsWellKnownSid, TokenUser, WinBuiltinAdministratorsSid, WinLocalSystemSid,
++        ACCESS_ALLOWED_ACE, ACE_HEADER, ACL, ACL_SIZE_INFORMATION, DACL_SECURITY_INFORMATION,
++        OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, TOKEN_QUERY, TOKEN_USER,
++    };
++    use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
++
++    const ACCESS_ALLOWED_ACE_TYPE: u8 = 0x0;
++    const ACCESS_DENIED_ACE_TYPE: u8 = 0x1;
++    const ACCESS_ALLOWED_CALLBACK_ACE_TYPE: u8 = 0x9;
++    const ACCESS_DENIED_CALLBACK_ACE_TYPE: u8 = 0xA;
++    const INHERIT_ONLY_ACE: u8 = 0x08;
++
++    /// This process's user SID, kept alive in its own buffer.
++    struct CurrentUser {
++        buffer: Vec<u64>,
++    }
++
++    impl CurrentUser {
++        fn get() -> Option<Self> {
++            unsafe {
++                let mut token = HANDLE::default();
++                OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).ok()?;
++                let mut needed = 0u32;
++                let _ = GetTokenInformation(token, TokenUser, None, 0, &mut needed);
++                let mut buffer = vec![0u64; (needed as usize).div_ceil(8).max(1)];
++                let filled = GetTokenInformation(
++                    token,
++                    TokenUser,
++                    Some(buffer.as_mut_ptr().cast()),
++                    (buffer.len() * 8) as u32,
++                    &mut needed,
++                );
++                let _ = CloseHandle(token);
++                filled.ok()?;
++                Some(CurrentUser { buffer })
++            }
++        }
++
++        fn sid(&self) -> PSID {
++            // SAFETY: `buffer` holds a TOKEN_USER filled by GetTokenInformation;
++            // its SID points into the same buffer, which outlives this call.
++            unsafe { (*(self.buffer.as_ptr() as *const TOKEN_USER)).User.Sid }
++        }
++    }
++
++    fn classify(sid: PSID, user: &CurrentUser) -> Trustee {
++        unsafe {
++            if sid.is_invalid() {
++                Trustee::Other
++            } else if EqualSid(sid, user.sid()).is_ok() {
++                Trustee::CurrentUser
++            } else if IsWellKnownSid(sid, WinLocalSystemSid).0 != 0 {
++                Trustee::System
++            } else if IsWellKnownSid(sid, WinBuiltinAdministratorsSid).0 != 0 {
++                Trustee::Administrators
++            } else {
++                Trustee::Other
++            }
++        }
++    }
++
++    pub(super) fn handle_is_private(file: &std::fs::File) -> bool {
++        let Some(user) = CurrentUser::get() else {
++            return false;
++        };
++        let mut owner = PSID::default();
++        let mut dacl: *mut ACL = std::ptr::null_mut();
++        let mut descriptor = PSECURITY_DESCRIPTOR::default();
++        // SAFETY: the handle is open for READ_CONTROL for the whole call; the
++        // out pointers refer to locals; the descriptor is freed below.
++        let status = unsafe {
++            GetSecurityInfo(
++                HANDLE(file.as_raw_handle() as _),
++                SE_FILE_OBJECT,
++                OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
++                Some(&mut owner),
++                None,
++                Some(&mut dacl),
++                None,
++                Some(&mut descriptor),
++            )
++        };
++        if status.0 != 0 {
++            return false;
++        }
++        let verdict = (|| -> Option<bool> {
++            let owner = classify(owner, &user);
++            if dacl.is_null() {
++                return Some(dacl_is_private(owner, None));
++            }
++            let mut size = ACL_SIZE_INFORMATION::default();
++            // SAFETY: `dacl` points into `descriptor`, alive until LocalFree.
++            unsafe {
++                GetAclInformation(
++                    dacl,
++                    (&mut size as *mut ACL_SIZE_INFORMATION).cast(),
++                    std::mem::size_of::<ACL_SIZE_INFORMATION>() as u32,
++                    AclSizeInformation,
++                )
++                .ok()?;
++            }
++            let mut entries = Vec::with_capacity(size.AceCount as usize);
++            for index in 0..size.AceCount {
++                let mut ace: *mut core::ffi::c_void = std::ptr::null_mut();
++                // SAFETY: index < AceCount; GetAce returns a pointer into the ACL.
++                unsafe { GetAce(dacl, index, &mut ace).ok()? };
++                let header = unsafe { &*(ace as *const ACE_HEADER) };
++                entries.push(match header.AceType {
++                    // Applies only to children; grants nothing on this file.
++                    _ if header.AceFlags & INHERIT_ONLY_ACE != 0 => AccessEntry::Deny,
++                    // Plain and callback allow entries: header, mask, SID.
++                    ACCESS_ALLOWED_ACE_TYPE | ACCESS_ALLOWED_CALLBACK_ACE_TYPE => {
++                        let allowed = unsafe { &*(ace as *const ACCESS_ALLOWED_ACE) };
++                        let sid = PSID(std::ptr::addr_of!(allowed.SidStart) as *mut _);
++                        AccessEntry::Allow {
++                            trustee: classify(sid, &user),
++                            mask: allowed.Mask,
++                        }
++                    }
++                    ACCESS_DENIED_ACE_TYPE | ACCESS_DENIED_CALLBACK_ACE_TYPE => AccessEntry::Deny,
++                    _ => AccessEntry::Unknown,
++                });
++            }
++            Some(dacl_is_private(owner, Some(&entries)))
++        })()
++        .unwrap_or(false);
++        // SAFETY: GetSecurityInfo allocated the descriptor with LocalAlloc.
++        unsafe {
++            let _ = LocalFree(HLOCAL(descriptor.0));
++        }
++        verdict
++    }
++}
++
++/// The first surface `tool` needs that `status` does not grant. `also_screen`
++/// adds the screen surface for a call that will capture the screen as a side
++/// effect (an active recording or the picture-in-picture preview).
++pub fn missing_surface(status: &ConsentStatus, tool: &str, also_screen: bool) -> Option<Surface> {
++    let extra: &[Surface] = if also_screen { &[Surface::Screen] } else { &[] };
++    requirement_for(tool)
++        .surfaces()
++        .iter()
++        .chain(extra)
++        .copied()
++        .find(|surface| !status.granted(*surface))
++}
++
++/// Check `tool` against `source`. `Err` carries the MCP tool error to
++/// return in place of running the tool.
++pub fn check(source: &dyn ConsentSource, tool: &str) -> Result<(), ToolResult> {
++    if requirement_for(tool) == Requirement::Nothing {
++        return Ok(());
++    }
++    let status = source.status();
++    match missing_surface(&status, tool, false) {
++        None => Ok(()),
++        Some(surface) => Err(refuse(source, &status, tool, surface)),
++    }
++}
++
++/// Record a refusal with `source` and return the MCP tool error for it.
++pub fn refuse(
++    source: &dyn ConsentSource,
++    status: &ConsentStatus,
++    tool: &str,
++    surface: Surface,
++) -> ToolResult {
++    source.record_refusal(surface);
++    if status.host_unverified {
++        host_unverified_refusal(tool, surface)
++    } else {
++        refusal(tool, surface)
++    }
++}
++
++/// The refusal when no verified cmux host can answer: the stable code, a
++/// distinct `reason`, and what the person can do about it.
++pub fn host_unverified_refusal(tool: &str, surface: Surface) -> ToolResult {
++    ToolResult::error(format!(
++        "{CONSENT_REQUIRED} ({HOST_UNVERIFIED}): Computer Use is off: legacy Computer Use \
++         could not verify the cmux app that started it (a cmux build that isn't team-signed \
++         can't be verified). `{tool}` did not run. Use the built-in Computer Use \
++         (Settings › Computer Use › driver: upstream) or a signed cmux build."
++    ))
++    .with_structured(json!({
++        "code": CONSENT_REQUIRED,
++        "reason": HOST_UNVERIFIED,
++        "surface": surface.as_str(),
++        "tool": tool,
++    }))
++}
++
++/// The MCP tool error for a refused call. It names the tool and the surface
++/// and nothing else: no path, no credential.
++pub fn refusal(tool: &str, surface: Surface) -> ToolResult {
++    let surface = surface.as_str();
++    ToolResult::error(format!(
++        "{CONSENT_REQUIRED}: this machine is joined to a cmux team, and the person at it \
++         has not allowed {surface} access. `{tool}` did not run. Ask them to allow \
++         {surface} access on this machine."
++    ))
++    .with_structured(json!({
++        "code": CONSENT_REQUIRED,
++        "surface": surface,
++        "tool": tool,
++    }))
++}
++
++/// Record the refusal for the app's consent sheet, in acpmux's format.
++/// Best effort: a failure here never changes the refusal. Writes only into
++/// an existing state directory and never follows a link at the final path.
++fn record_refusal(home: &Path, surface: Surface) {
++    let Ok(metadata) = std::fs::symlink_metadata(home) else {
++        return;
++    };
++    if !metadata.is_dir() {
++        return;
++    }
++    let at = std::time::SystemTime::now()
++        .duration_since(std::time::UNIX_EPOCH)
++        .map(|d| d.as_millis() as u64)
++        .unwrap_or(0);
++    let Ok(body) = serde_json::to_vec(&json!({
++        "event": "consent_refused",
++        "code": CONSENT_REQUIRED,
++        "surface": surface.as_str(),
++        "at": at,
++    })) else {
++        return;
++    };
++    let _ = write_atomic(home, REFUSAL_FILE, &body);
++}
++
++fn write_atomic(dir: &Path, name: &str, body: &[u8]) -> std::io::Result<()> {
++    use std::io::Write;
++
++    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
++    let tmp = dir.join(format!(
++        ".{name}.cmux-cua.{}.{}.tmp",
++        std::process::id(),
++        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
++    ));
++    let mut options = std::fs::OpenOptions::new();
++    options.write(true).create_new(true);
++    #[cfg(unix)]
++    {
++        use std::os::unix::fs::OpenOptionsExt;
++        options.mode(0o600);
++    }
++    let result = options.open(&tmp).and_then(|mut file| {
++        file.write_all(body)?;
++        file.sync_all()
++    });
++    let result = result.and_then(|()| std::fs::rename(&tmp, dir.join(name)));
++    if result.is_err() {
++        let _ = std::fs::remove_file(&tmp);
++    }
++    result
++}
++
++/// A valid join record in acpmux's `MachineCredential` shape, for tests here
++/// and in other crates. The credential value is a fixture, not a secret.
++#[doc(hidden)]
++pub const TEST_CREDENTIAL_RECORD: &str = r#"{"credential":"cmm_test","machine_id":"m_test","team_id":"t_test","name":"test","hub_origin":"https://hub.invalid","last_heartbeat":null,"revoked":false,"wgPublicKey":"k"}"#;
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn write_private(path: &Path, body: &[u8]) {
++        std::fs::write(path, body).unwrap();
++        #[cfg(unix)]
++        {
++            use std::os::unix::fs::PermissionsExt;
++            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).unwrap();
++        }
++    }
++
++    fn joined_home() -> tempfile::TempDir {
++        let dir = tempfile::tempdir().unwrap();
++        write_private(
++            &dir.path().join(CREDENTIAL_FILE),
++            TEST_CREDENTIAL_RECORD.as_bytes(),
++        );
++        dir
++    }
++
++    fn grant(home: &Path, screen: &str, control: &str) {
++        write_private(
++            &home.join(CONSENT_FILE),
++            format!(r#"{{"screen":"{screen}","control":"{control}","grantedAt":"1"}}"#).as_bytes(),
++        );
++    }
++
++    fn refused_surface(result: Result<(), ToolResult>) -> Option<String> {
++        result.err().map(|error| {
++            let structured = error.structured_content.unwrap();
++            assert_eq!(structured["code"], CONSENT_REQUIRED);
++            structured["surface"].as_str().unwrap().to_owned()
++        })
++    }
++
++    fn check_in(home: &Path, tool: &str) -> Result<(), ToolResult> {
++        check(&StateFiles::At(Some(home.to_owned())), tool)
++    }
++
++    const NO_HOME: StateFiles = StateFiles::At(None);
++
++    #[test]
++    fn a_machine_that_is_not_joined_needs_no_consent_and_gets_no_files() {
++        let home = tempfile::tempdir().unwrap();
++        for tool in ["get_window_state", "click", "page", "some_future_tool"] {
++            assert!(check_in(home.path(), tool).is_ok(), "{tool}");
++        }
++        assert_eq!(std::fs::read_dir(home.path()).unwrap().count(), 0);
++        let missing = home.path().join("does-not-exist");
++        assert!(check_in(&missing, "click").is_ok());
++        assert!(!missing.exists());
++    }
++
++    #[test]
++    fn no_home_at_all_refuses_but_metadata_still_runs() {
++        assert_eq!(read_status(None), ConsentStatus::UNKNOWN);
++        assert_eq!(
++            refused_surface(check(&NO_HOME, "click")).as_deref(),
++            Some("screen")
++        );
++        assert_eq!(
++            refused_surface(check(&NO_HOME, "zoom")).as_deref(),
++            Some("screen")
++        );
++        assert!(check(&NO_HOME, "get_config").is_ok());
++    }
++
++    #[cfg(unix)]
++    #[test]
++    fn the_home_falls_back_to_the_password_database_without_home() {
++        assert_eq!(
++            user_home_from(Some("/explicit/home".into())),
++            Some(PathBuf::from("/explicit/home"))
++        );
++        // Unset and empty $HOME both read the password database, which on
++        // any test runner names this account's home directory.
++        for env_home in [None, Some(std::ffi::OsString::new())] {
++            let home = user_home_from(env_home).expect("password database home");
++            assert!(home.is_absolute(), "{}", home.display());
++        }
++    }
++
++    #[cfg(unix)]
++    #[test]
++    fn a_dangling_state_directory_link_is_not_unjoined() {
++        let root = tempfile::tempdir().unwrap();
++        // $ACPMUX_HOME itself is a dangling link.
++        let home = root.path().join("acpmux");
++        std::os::unix::fs::symlink(root.path().join("gone"), &home).unwrap();
++        assert_eq!(read_status(Some(&home)), ConsentStatus::UNKNOWN);
++        assert!(check_in(&home, "click").is_err());
++        // ~/.acpmux under a home whose link dangles.
++        let user = root.path().join("user");
++        std::os::unix::fs::symlink(root.path().join("unmounted"), &user).unwrap();
++        assert_eq!(
++            read_status(Some(&user.join(".acpmux"))),
++            ConsentStatus::UNKNOWN
++        );
++        // A missing ~/.acpmux in a real home, or a link that resolves, is
++        // simply not joined.
++        let real = root.path().join("real");
++        std::fs::create_dir(&real).unwrap();
++        assert!(!read_status(Some(&real.join(".acpmux"))).consent_required);
++        let linked = root.path().join("linked");
++        std::os::unix::fs::symlink(&real, &linked).unwrap();
++        assert!(!read_status(Some(&linked)).consent_required);
++    }
++
++    #[test]
++    fn a_joined_machine_without_consent_refuses_screen_and_control() {
++        let home = joined_home();
++        assert_eq!(
++            refused_surface(check_in(home.path(), "get_window_state")).as_deref(),
++            Some("screen")
++        );
++        assert_eq!(
++            refused_surface(check_in(home.path(), "click")).as_deref(),
++            Some("screen")
++        );
++        assert_eq!(
++            refused_surface(check_in(home.path(), "page")).as_deref(),
++            Some("screen")
++        );
++        assert!(check_in(home.path(), "get_config").is_ok());
++
++        let refusal: serde_json::Value =
++            serde_json::from_slice(&std::fs::read(home.path().join(REFUSAL_FILE)).unwrap())
++                .unwrap();
++        assert_eq!(refusal["event"], "consent_refused");
++        assert_eq!(refusal["code"], CONSENT_REQUIRED);
++        assert_eq!(refusal["surface"], "screen");
++        assert!(refusal["at"].as_u64().unwrap() > 0);
++        #[cfg(unix)]
++        {
++            use std::os::unix::fs::PermissionsExt;
++            let mode = std::fs::metadata(home.path().join(REFUSAL_FILE))
++                .unwrap()
++                .permissions()
++                .mode();
++            assert_eq!(mode & 0o077, 0, "the refusal record is owner-only");
++        }
++    }
++
++    #[cfg(any(unix, windows))]
++    #[test]
++    fn screen_only_allows_reads_and_refuses_actions() {
++        let home = joined_home();
++        grant(home.path(), "granted", "none");
++        assert!(check_in(home.path(), "get_window_state").is_ok());
++        assert!(check_in(home.path(), "zoom").is_ok());
++        assert_eq!(
++            refused_surface(check_in(home.path(), "click")).as_deref(),
++            Some("control")
++        );
++        assert_eq!(
++            refused_surface(check_in(home.path(), "type_text")).as_deref(),
++            Some("control")
++        );
++        assert_eq!(
++            refused_surface(check_in(home.path(), "page")).as_deref(),
++            Some("control")
++        );
++    }
++
++    #[cfg(any(unix, windows))]
++    #[test]
++    fn a_revoke_takes_effect_on_the_next_call() {
++        let home = joined_home();
++        grant(home.path(), "granted", "granted");
++        assert!(check_in(home.path(), "click").is_ok());
++        assert!(check_in(home.path(), "page").is_ok());
++        grant(home.path(), "granted", "none");
++        assert_eq!(
++            refused_surface(check_in(home.path(), "click")).as_deref(),
++            Some("control")
++        );
++    }
++
++    #[cfg(any(unix, windows))]
++    #[test]
++    fn control_alone_allows_no_action() {
++        // Acting needs screen and control, as acpmux's bridge enforces.
++        let home = joined_home();
++        grant(home.path(), "none", "granted");
++        for tool in ["click", "type_text", "launch_app", "page", "get_window_state"] {
++            assert_eq!(
++                refused_surface(check_in(home.path(), tool)).as_deref(),
++                Some("screen"),
++                "{tool}"
++            );
++        }
++        assert!(check_in(home.path(), "get_config").is_ok());
++    }
++
++    #[test]
++    fn the_unavailable_source_refuses_everything_that_needs_consent() {
++        assert_eq!(Unavailable.status(), ConsentStatus::UNKNOWN);
++        assert_eq!(
++            refused_surface(check(&Unavailable, "get_window_state")).as_deref(),
++            Some("screen")
++        );
++        assert_eq!(
++            refused_surface(check(&Unavailable, "click")).as_deref(),
++            Some("screen")
++        );
++        assert!(check(&Unavailable, "get_config").is_ok());
++    }
++
++    /// The build inside cmux.app never falls back to a file a caller could
++    /// redirect; other builds keep the advisory file reader.
++    #[test]
++    fn the_default_source_follows_the_build() {
++        let home = tempfile::tempdir().unwrap();
++        // An "unjoined" state directory the caller chose.
++        let unjoined = StateFiles::At(Some(home.path().to_owned()));
++        assert!(!unjoined.status().consent_required);
++        let default = default_source().status();
++        if cfg!(feature = "cmux-host-consent") {
++            // No host attached: joined, nothing granted (and, with the host
++            // source, refusals say the host is unverified).
++            assert!(default.consent_required && !default.screen && !default.control);
++            assert_eq!(default.host_unverified, cfg!(unix));
++        }
++    }
++
++    #[test]
++    fn a_bad_consent_record_grants_nothing() {
++        let home = joined_home();
++        for body in [
++            &b"not json"[..],
++            br#"{"screen":"granted"}"#,
++            br#"{"screen":"GRANTED","control":"granted"}"#,
++            br#"{"screen":true,"control":true}"#,
++        ] {
++            write_private(&home.path().join(CONSENT_FILE), body);
++            let shown = String::from_utf8_lossy(body);
++            assert!(
++                check_in(home.path(), "get_window_state").is_err(),
++                "{shown}"
++            );
++            assert!(check_in(home.path(), "click").is_err(), "{shown}");
++        }
++        let huge = format!(
++            r#"{{"screen":"granted","control":"granted","pad":"{}"}}"#,
++            "x".repeat(MAX_RECORD_BYTES as usize)
++        );
++        write_private(&home.path().join(CONSENT_FILE), huge.as_bytes());
++        assert!(check_in(home.path(), "click").is_err());
++    }
++
++    #[test]
++    fn a_bad_join_record_grants_nothing_even_with_consent() {
++        for credential in [
++            &b"{"[..],
++            br#"{"credential":"cmm_test"}"#,
++            br#"{"credential":1,"machine_id":"m","team_id":"t","name":"n","hub_origin":"h","revoked":false,"wgPublicKey":"k"}"#,
++            br#"[]"#,
++        ] {
++            let home = tempfile::tempdir().unwrap();
++            write_private(&home.path().join(CREDENTIAL_FILE), credential);
++            grant(home.path(), "granted", "granted");
++            assert_eq!(read_status(Some(home.path())), ConsentStatus::UNKNOWN);
++            assert!(check_in(home.path(), "click").is_err());
++            assert!(check_in(home.path(), "zoom").is_err());
++        }
++    }
++
++    #[cfg(unix)]
++    #[test]
++    fn a_record_others_could_write_or_a_link_grants_nothing() {
++        use std::os::unix::fs::PermissionsExt;
++        let home = joined_home();
++        grant(home.path(), "granted", "granted");
++        let path = home.path().join(CONSENT_FILE);
++        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o622)).unwrap();
++        assert!(check_in(home.path(), "click").is_err());
++
++        let real = home.path().join("elsewhere.json");
++        std::fs::rename(&path, &real).unwrap();
++        std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o600)).unwrap();
++        std::os::unix::fs::symlink(&real, &path).unwrap();
++        assert!(check_in(home.path(), "click").is_err());
++
++        // The same for the join record itself.
++        let home = joined_home();
++        grant(home.path(), "granted", "granted");
++        assert!(check_in(home.path(), "click").is_ok());
++        let credential = home.path().join(CREDENTIAL_FILE);
++        std::fs::set_permissions(&credential, std::fs::Permissions::from_mode(0o620)).unwrap();
++        assert!(check_in(home.path(), "click").is_err());
++        let real = home.path().join("credential-elsewhere.json");
++        std::fs::rename(&credential, &real).unwrap();
++        std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o600)).unwrap();
++        std::os::unix::fs::symlink(&real, &credential).unwrap();
++        assert!(check_in(home.path(), "click").is_err());
++    }
++
++    #[test]
++    fn an_unreadable_join_status_counts_as_joined() {
++        // A credential path that is a directory or a dangling link is not a
++        // clean "not joined": fail closed.
++        let home = tempfile::tempdir().unwrap();
++        std::fs::create_dir(home.path().join(CREDENTIAL_FILE)).unwrap();
++        grant(home.path(), "granted", "granted");
++        assert_eq!(read_status(Some(home.path())), ConsentStatus::UNKNOWN);
++        assert!(check_in(home.path(), "click").is_err());
++
++        #[cfg(unix)]
++        {
++            let home = tempfile::tempdir().unwrap();
++            std::os::unix::fs::symlink(home.path().join("gone"), home.path().join(CREDENTIAL_FILE))
++                .unwrap();
++            assert_eq!(read_status(Some(home.path())), ConsentStatus::UNKNOWN);
++        }
++    }
++
++    #[test]
++    fn the_windows_dacl_rule_trusts_only_the_owner_system_and_administrators() {
++        use AccessEntry::*;
++        use Trustee::*;
++        let owner_only = [
++            Allow {
++                trustee: CurrentUser,
++                mask: 0x001f_01ff,
++            },
++            Allow {
++                trustee: System,
++                mask: 0x001f_01ff,
++            },
++            Allow {
++                trustee: Administrators,
++                mask: 0x001f_01ff,
++            },
++        ];
++        assert!(dacl_is_private(CurrentUser, Some(&owner_only)));
++        assert!(dacl_is_private(Administrators, Some(&owner_only)));
++        assert!(dacl_is_private(System, Some(&owner_only)));
++        // Owned by another account, or no DACL at all (everyone has access).
++        assert!(!dacl_is_private(Other, Some(&owner_only)));
++        assert!(!dacl_is_private(CurrentUser, None));
++        // Another trustee may read but not write.
++        let others_read = [
++            owner_only[0],
++            Allow {
++                trustee: Other,
++                mask: 0x0012_0089,
++            },
++        ];
++        assert!(dacl_is_private(CurrentUser, Some(&others_read)));
++        for write_like in [
++            0x2,
++            0x4,
++            0x10,
++            0x100,
++            0x1_0000,
++            0x4_0000,
++            0x8_0000,
++            0x200_0000,
++            0x1000_0000,
++            0x4000_0000,
++        ] {
++            let others_write = [
++                owner_only[0],
++                Allow {
++                    trustee: Other,
++                    mask: write_like,
++                },
++            ];
++            assert!(
++                !dacl_is_private(CurrentUser, Some(&others_write)),
++                "{write_like:#x}"
++            );
++        }
++        // Deny entries only take rights away; unknown entry types are refused.
++        assert!(dacl_is_private(CurrentUser, Some(&[owner_only[0], Deny])));
++        assert!(!dacl_is_private(
++            CurrentUser,
++            Some(&[owner_only[0], Unknown])
++        ));
++    }
++
++    #[cfg(windows)]
++    #[test]
++    fn on_windows_a_record_another_account_can_write_grants_nothing() {
++        let home = joined_home();
++        grant(home.path(), "granted", "granted");
++        assert!(
++            check_in(home.path(), "click").is_ok(),
++            "an owner-only temp file is trusted"
++        );
++        // Everyone (S-1-1-0) gets write access to the consent record.
++        let status = std::process::Command::new("icacls")
++            .arg(home.path().join(CONSENT_FILE))
++            .args(["/grant", "*S-1-1-0:(W)"])
++            .stdout(std::process::Stdio::null())
++            .status()
++            .unwrap();
++        assert!(status.success());
++        assert!(check_in(home.path(), "click").is_err());
++        // The same for the join record.
++        let home = joined_home();
++        grant(home.path(), "granted", "granted");
++        let status = std::process::Command::new("icacls")
++            .arg(home.path().join(CREDENTIAL_FILE))
++            .args(["/grant", "*S-1-1-0:(W)"])
++            .stdout(std::process::Stdio::null())
++            .status()
++            .unwrap();
++        assert!(status.success());
++        assert!(check_in(home.path(), "click").is_err());
++    }
++
++    /// A person's refusal is plain `consent_required`; with no verified
++    /// cmux host it carries `reason: host_unverified` and says what to do.
++    #[test]
++    fn an_unverified_host_is_told_apart_from_a_person_refusing() {
++        struct Fixed(ConsentStatus);
++        impl ConsentSource for Fixed {
++            fn status(&self) -> ConsentStatus {
++                self.0
++            }
++            fn record_refusal(&self, _surface: Surface) {}
++        }
++        let denied = ConsentStatus { screen: true, ..ConsentStatus::UNKNOWN };
++        let error = check(&Fixed(denied), "click").unwrap_err();
++        let structured = error.structured_content.unwrap();
++        assert_eq!(structured["code"], CONSENT_REQUIRED);
++        assert_eq!(structured["surface"], "control");
++        assert!(structured.get("reason").is_none(), "{structured}");
++
++        let error = check(&Fixed(ConsentStatus::HOST_UNVERIFIED), "get_window_state").unwrap_err();
++        let structured = error.structured_content.as_ref().unwrap();
++        assert_eq!(structured["code"], CONSENT_REQUIRED);
++        assert_eq!(structured["reason"], HOST_UNVERIFIED);
++        let text = serde_json::to_string(&error).unwrap();
++        assert!(text.contains("driver: upstream"), "{text}");
++        assert!(text.contains("signed cmux build"), "{text}");
++        // Tools that need no consent still run without a host.
++        assert!(check(&Fixed(ConsentStatus::HOST_UNVERIFIED), "get_config").is_ok());
++    }
++
++    #[test]
++    fn refusal_text_never_carries_paths_or_credentials() {
++        let home = joined_home();
++        let error = check_in(home.path(), "click").unwrap_err();
++        let text = serde_json::to_string(&error).unwrap();
++        assert!(!text.contains("cmm_"));
++        assert!(!text.contains(&home.path().display().to_string()));
++    }
++
++    #[test]
++    fn every_known_tool_is_classified() {
++        // Every tool name that ships today is in an explicit arm, so only a
++        // new, unclassified tool falls through to `Both`. The Linux
++        // integration test checks the live tools/list against this too.
++        const SHIPPED: &[&str] = &[
++            "bring_to_front",
++            "check_for_update",
++            "check_permissions",
++            "click",
++            "debug_window_info",
++            "double_click",
++            "drag",
++            "end_session",
++            "get_accessibility_tree",
++            "get_agent_cursor_state",
++            "get_app_state",
++            "get_config",
++            "get_cursor_position",
++            "get_desktop_state",
++            "get_recording_state",
++            "get_screen_size",
++            "get_window_state",
++            "health_report",
++            "hotkey",
++            "install_ffmpeg",
++            "kill_app",
++            "launch_app",
++            "list_apps",
++            "list_windows",
++            "mouse_button_down",
++            "mouse_button_up",
++            "mouse_drag",
++            "move_cursor",
++            "parallel_mouse_drag",
++            "perform_secondary_action",
++            "press_key",
++            "replay_trajectory",
++            "right_click",
++            "screenshot",
++            "scroll",
++            "select_text",
++            "set_agent_cursor_enabled",
++            "set_agent_cursor_motion",
++            "set_agent_cursor_style",
++            "set_config",
++            "set_value",
++            "start_recording",
++            "start_session",
++            "stop_recording",
++            "type_text",
++            "type_text_chars",
++            "unsupported_platform",
++            "zoom",
++        ];
++        for tool in SHIPPED {
++            assert_ne!(
++                requirement_for(tool),
++                Requirement::Both,
++                "{tool} is unclassified"
++            );
++        }
++        assert_eq!(requirement_for("page"), Requirement::Both);
++        assert_eq!(requirement_for("a_tool_added_later"), Requirement::Both);
++    }
++}
+diff --git a/libs/cmux-cua/rust/crates/cmux-cua-core/src/recording.rs b/libs/cmux-cua/rust/crates/cmux-cua-core/src/recording.rs
+index 459a6dbc1..d3a4f2b62 100644
+--- a/libs/cmux-cua/rust/crates/cmux-cua-core/src/recording.rs
++++ b/libs/cmux-cua/rust/crates/cmux-cua-core/src/recording.rs
+@@ -454,6 +454,11 @@ impl RecordingSession {
+         self.start(dir, true, None)
+     }
+ 
++    /// Whether a recording is running. Cheaper than `current_state()`.
++    pub fn is_enabled(&self) -> bool {
++        self.inner.lock().unwrap().enabled
++    }
++
+     /// Return a snapshot of the current state (non-blocking).
+     pub fn current_state(&self) -> RecordingState {
+         let inner = self.inner.lock().unwrap();
+diff --git a/libs/cmux-cua/rust/crates/cmux-cua-core/src/tool.rs b/libs/cmux-cua/rust/crates/cmux-cua-core/src/tool.rs
+index 013fc39f6..379762eb0 100644
+--- a/libs/cmux-cua/rust/crates/cmux-cua-core/src/tool.rs
++++ b/libs/cmux-cua/rust/crates/cmux-cua-core/src/tool.rs
+@@ -481,6 +481,30 @@ pub struct ToolRegistry {
+     /// tool name, its args, and the trusted allow list before every call; an
+     /// `Err` is returned to the caller and the tool does not run.
+     target_policy_hook: Option<TargetPolicyHook>,
++    /// Where machine-join consent comes from. Asked on every call and right
++    /// before every capture (see [`crate::machine_consent::ConsentSource`]).
++    consent: Arc<dyn crate::machine_consent::ConsentSource>,
++    /// The thread that stops a recording when `screen` is revoked between
++    /// calls, and the sender whose drop tells it to exit (see `Drop`).
++    consent_watcher: std::sync::Mutex<Option<ConsentWatcher>>,
++    /// Test hooks: the watcher fails to start; PiP counts as enabled; and
++    /// the number of PiP captures that passed the consent gate.
++    #[cfg(test)]
++    fail_consent_watch_spawn: bool,
++    #[cfg(test)]
++    force_pip: bool,
++    #[cfg(test)]
++    force_watchable_front: bool,
++    #[cfg(test)]
++    pip_captures: std::sync::atomic::AtomicUsize,
++    /// Test hook: set when the watcher thread has exited.
++    #[cfg(test)]
++    watcher_exited: Arc<std::sync::atomic::AtomicBool>,
++}
++
++struct ConsentWatcher {
++    stop: std::sync::mpsc::Sender<()>,
++    thread: std::thread::JoinHandle<()>,
+ }
+ 
+ /// Signature of the platform target guard.
+@@ -496,9 +520,34 @@ impl ToolRegistry {
+             target_app_resolver: Some(crate::session_state::resolve_process_name),
+             target_front_hook: None,
+             target_policy_hook: None,
++            consent: crate::machine_consent::default_source(),
++            consent_watcher: std::sync::Mutex::new(None),
++            #[cfg(test)]
++            fail_consent_watch_spawn: false,
++            #[cfg(test)]
++            force_pip: false,
++            #[cfg(test)]
++            force_watchable_front: false,
++            #[cfg(test)]
++            pip_captures: std::sync::atomic::AtomicUsize::new(0),
++            #[cfg(test)]
++            watcher_exited: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+         }
+     }
+ 
++    /// Pin the acpmux state directory the consent check reads (tests). Not
++    /// in the cmux.app build, where only the verified host decides.
++    #[cfg(any(test, not(feature = "cmux-host-consent")))]
++    pub fn set_machine_consent_home(&mut self, home: std::path::PathBuf) {
++        self.consent = Arc::new(crate::machine_consent::StateFiles::At(Some(home)));
++    }
++
++    /// Replace where consent comes from (tests). Not in the cmux.app build.
++    #[cfg(any(test, not(feature = "cmux-host-consent")))]
++    pub fn set_consent_source(&mut self, source: Arc<dyn crate::machine_consent::ConsentSource>) {
++        self.consent = source;
++    }
++
+     /// Install the platform target guard. See [`crate::target_policy`].
+     pub fn set_target_policy_hook(&mut self, hook: TargetPolicyHook) {
+         self.target_policy_hook = Some(hook);
+@@ -660,6 +709,47 @@ impl ToolRegistry {
+             return ToolResult::error(format!("Unknown tool: {name}"));
+         };
+ 
++        // Machine-join consent: on a machine joined to a cmux team, a tool
++        // that reads the screen needs the person's `screen` grant and a tool
++        // that acts needs `control`. Read on every call, so a revoke stops the
++        // next call of this already-running process. A refusal is side-effect
++        // free: no target guard, recording turn, fronting or dispatch.
++        let should_record = !tool.def().read_only
++            && !matches!(
++                resolved_name,
++                "start_recording" | "stop_recording" | "get_recording_state" | "replay_trajectory"
++            );
++        let recording_on = self.recording.is_enabled();
++        let side_capture = should_record && (recording_on || self.pip_on());
++        let mut screen_granted = true;
++        if recording_on
++            || side_capture
++            || crate::machine_consent::requirement_for(resolved_name)
++                != crate::machine_consent::Requirement::Nothing
++        {
++            let status = self.consent.status();
++            screen_granted = status.granted(crate::machine_consent::Surface::Screen);
++            if recording_on && !screen_granted {
++                // A screen revoke ends a running recording (and its video) now.
++                self.consent
++                    .record_refusal(crate::machine_consent::Surface::Screen);
++                let _ = self.recording.stop_owner(None);
++            }
++            if let Some(surface) =
++                crate::machine_consent::missing_surface(&status, resolved_name, false)
++            {
++                return crate::machine_consent::refuse(
++                    self.consent.as_ref(),
++                    &status,
++                    resolved_name,
++                    surface,
++                );
++            }
++        }
++        // An action allowed by `control` alone still runs, but captures no
++        // recording turn and no preview frame without `screen`.
++        let should_record = should_record && screen_granted;
++
+         // Target guard: a refused target is side-effect free (no recording
+         // turn, no fronting, no dispatch).
+         if let Some(hook) = self.target_policy_hook {
+@@ -670,38 +760,60 @@ impl ToolRegistry {
+ 
+         // Reserve and capture the turn before dispatch so recorded evidence
+         // shows the application immediately before the action changed it.
+-        let should_record = !tool.def().read_only
+-            && !matches!(
+-                resolved_name,
+-                "start_recording" | "stop_recording" | "get_recording_state" | "replay_trajectory"
+-            );
+-        let pending_turn = should_record
+-            .then(|| self.recording.begin_turn(resolved_name, &args, start_ms))
+-            .flatten();
++        // Consent is required again right before the capture: any surface
++        // the call needs (and screen, for the capture) missing now refuses
++        // the whole call, not just the recording.
++        let pending_turn = if should_record && self.recording.is_enabled() {
++            if let Err(refusal) = self.require(resolved_name, true) {
++                return refusal;
++            }
++            self.recording.begin_turn(resolved_name, &args, start_ms)
++        } else {
++            None
++        };
+ 
+         // A rejected action must be side-effect free. In particular, explicit
+         // watchable mode must not front a target until schema + tool-specific
+         // delivery preflight has accepted the call. This is intentionally the
+         // final boundary before invoke so accepted actions remain visible.
+-        if let Err(error) = preflight_and_front_target(
+-            tool.as_ref(),
+-            resolved_name,
+-            &args,
+-            crate::watchable_front_mode(),
+-            self.target_front_hook,
+-        ) {
++        // Consent is required again, as of now, right before fronting and
++        // right before dispatch: a revoke, or a host that went away, after
++        // the first check stops the call there.
++        let fronted = self.require(resolved_name, false).and_then(|()| {
++            preflight_and_front_target(
++                tool.as_ref(),
++                resolved_name,
++                &args,
++                self.watchable_front(),
++                self.target_front_hook,
++            )
++        });
++        if let Err(error) = fronted.and_then(|()| self.require(resolved_name, false)) {
+             if let Some(pending_turn) = pending_turn {
+                 let result_text = error.content.iter().find_map(|content| match content {
+                     Content::Text { text, .. } => Some(text.as_str()),
+                     _ => None,
+                 }).unwrap_or("");
+-                self.recording.finish_turn(pending_turn, result_text);
++                self.finish_turn_if_screen_allowed(pending_turn, result_text);
+             }
+             return error;
+         }
+ 
+         let result = tool.invoke(args.clone()).await;
+ 
++        if resolved_name == "start_recording"
++            && result.is_error != Some(true)
++            && !self.watch_screen_consent_while_recording()
++        {
++            // Without a watcher a revoke could not stop the video between
++            // calls: do not record at all.
++            let _ = self.recording.stop_owner(None);
++            return ToolResult::error(
++                "start_recording: could not start the consent watcher; recording stopped.",
++            )
++            .with_structured(serde_json::json!({"code": "consent_watch_unavailable"}));
++        }
++
+         // Embedded-host process state is action-scoped: update it only after a
+         // successful call to one of the target-driving tools, and only when the
+         // call names a target pid/window. State I/O is observability-only and
+@@ -788,7 +900,9 @@ impl ToolRegistry {
+                     else { None }
+                 })
+                 .unwrap_or("");
+-            self.recording.finish_turn(pending_turn, result_text);
++            // The action may have run for a while: re-read consent before
++            // the after capture.
++            self.finish_turn_if_screen_allowed(pending_turn, result_text);
+         }
+ 
+         // Experimental PiP push — only when --experimental-pip is on argv
+@@ -797,7 +911,11 @@ impl ToolRegistry {
+         // of action tools the recording pipeline cares about (non-read-only,
+         // not the recording-control meta-tools) so the live view matches
+         // what the recorder would have captured for the turn.
+-        if pip_hook::pip_enabled() && should_record {
++        // Re-read consent after the await: a revoke during the action stops
++        // this capture.
++        if self.pip_on() && should_record && self.screen_allowed_now() {
++            #[cfg(test)]
++            self.pip_captures.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+             let window_id = args.opt_u64("window_id");
+             let pid = args.opt_i64("pid");
+             if let Some(png_bytes) = screenshot_for(window_id, pid) {
+@@ -814,6 +932,168 @@ impl ToolRegistry {
+     }
+ }
+ 
++impl ToolRegistry {
++    fn pip_on(&self) -> bool {
++        #[cfg(test)]
++        if self.force_pip {
++            return true;
++        }
++        pip_hook::pip_enabled()
++    }
++
++    /// Every surface `tool` needs (plus screen when `capture`), as of now:
++    /// the check right before each side effect on the call path. `Err` is
++    /// the refusal (already recorded) and refuses the whole call; nothing
++    /// past it may run. Only post-dispatch captures may merely skip.
++    fn require(&self, tool: &str, capture: bool) -> Result<(), ToolResult> {
++        use crate::machine_consent::{missing_surface, refuse, requirement_for, Requirement, Surface};
++        if !capture && requirement_for(tool) == Requirement::Nothing {
++            return Ok(());
++        }
++        let status = self.consent.status();
++        let Some(surface) = missing_surface(&status, tool, capture) else {
++            return Ok(());
++        };
++        if !status.granted(Surface::Screen) && self.recording.is_enabled() {
++            // A screen revoke ends a running recording (and its video) now.
++            let _ = self.recording.stop_owner(None);
++        }
++        Err(refuse(self.consent.as_ref(), &status, tool, surface))
++    }
++
++    fn watchable_front(&self) -> bool {
++        #[cfg(test)]
++        if self.force_watchable_front {
++            return true;
++        }
++        crate::watchable_front_mode()
++    }
++
++    /// The `screen` grant as of now. Called right before each capture, never
++    /// reused across an await.
++    fn screen_allowed_now(&self) -> bool {
++        self.consent
++            .status()
++            .granted(crate::machine_consent::Surface::Screen)
++    }
++
++    /// Finish a recorded turn (which captures the after frame) only if
++    /// `screen` is still granted; otherwise drop the turn uncaptured and end
++    /// the recording.
++    fn finish_turn_if_screen_allowed(
++        &self,
++        pending: crate::recording::PendingTurn,
++        result_text: &str,
++    ) {
++        if self.screen_allowed_now() {
++            self.recording.finish_turn(pending, result_text);
++            return;
++        }
++        drop(pending);
++        if self.recording.is_enabled() {
++            self.consent
++                .record_refusal(crate::machine_consent::Surface::Screen);
++            let _ = self.recording.stop_owner(None);
++        }
++    }
++
++    /// Start (once per registry) the thread that stops a running recording,
++    /// video included, after a `screen` revoke without waiting for the next
++    /// tool call: it checks every half second, and each check takes at most
++    /// the source's own deadline (1.5 s for the cmux host), so a revoke
++    /// ends the recording within about two seconds. It holds only a weak reference to the
++    /// recording. Stop condition: the registry is dropped (its `Drop` drops
++    /// the sender and joins the thread) or the recording is gone. Returns
++    /// false when no watcher runs and none could be started.
++    fn watch_screen_consent_while_recording(&self) -> bool {
++        let mut slot = self.consent_watcher.lock().unwrap();
++        if let Some(watcher) = slot.as_ref() {
++            if !watcher.thread.is_finished() {
++                return true;
++            }
++        }
++        if let Some(finished) = slot.take() {
++            let _ = finished.thread.join();
++        }
++        #[cfg(test)]
++        if self.fail_consent_watch_spawn {
++            return false;
++        }
++        let (stop, stopped) = std::sync::mpsc::channel::<()>();
++        let recording = Arc::downgrade(&self.recording);
++        let consent = self.consent.clone();
++        #[cfg(test)]
++        let exited = self.watcher_exited.clone();
++        let spawned = std::thread::Builder::new()
++            .name("cua-consent-watch".into())
++            .spawn(move || {
++                #[cfg(test)]
++                let _exited = SetOnDrop(exited);
++                watch_loop(stopped, recording, consent)
++            });
++        match spawned {
++            Ok(thread) => {
++                *slot = Some(ConsentWatcher { stop, thread });
++                true
++            }
++            Err(_) => false,
++        }
++    }
++}
++
++/// The watcher's loop: every half second, stop a running recording whose
++/// `screen` grant is gone. Exits when its sender is dropped or the recording
++/// no longer exists.
++fn watch_loop(
++    stopped: std::sync::mpsc::Receiver<()>,
++    recording: std::sync::Weak<RecordingSession>,
++    consent: Arc<dyn crate::machine_consent::ConsentSource>,
++) {
++    loop {
++        match stopped.recv_timeout(std::time::Duration::from_millis(500)) {
++            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
++            _ => return,
++        }
++        let Some(recording) = recording.upgrade() else {
++            return;
++        };
++        if !recording.is_enabled() {
++            continue;
++        }
++        if !consent
++            .status()
++            .granted(crate::machine_consent::Surface::Screen)
++        {
++            consent.record_refusal(crate::machine_consent::Surface::Screen);
++            let _ = recording.stop_owner(None);
++        }
++    }
++}
++
++#[cfg(test)]
++struct SetOnDrop(Arc<std::sync::atomic::AtomicBool>);
++
++#[cfg(test)]
++impl Drop for SetOnDrop {
++    fn drop(&mut self) {
++        self.0.store(true, std::sync::atomic::Ordering::SeqCst);
++    }
++}
++
++impl Drop for ToolRegistry {
++    fn drop(&mut self) {
++        let watcher = self
++            .consent_watcher
++            .get_mut()
++            .map(Option::take)
++            .unwrap_or_else(|poisoned| poisoned.into_inner().take());
++        if let Some(ConsentWatcher { stop, thread }) = watcher {
++            drop(stop);
++            let _ = thread.join();
++        }
++    }
++}
++
+ /// Shared watchable-action boundary: validate first, then front exactly once.
+ /// Kept separate from [`ToolRegistry::invoke`] so focus ordering can be tested
+ /// without mutating the process-wide watchable-mode environment.
+@@ -1715,3 +1995,511 @@ mod capability_tests {
+         assert_eq!(v["tools"].as_array().unwrap().len(), 0);
+     }
+ }
++
++#[cfg(test)]
++mod machine_consent_registry_tests {
++    //! The registry checks machine-join consent on every call, before the
++    //! target guard and before the tool runs.
++    use super::*;
++    use serde_json::json;
++    use std::sync::atomic::{AtomicUsize, Ordering};
++
++    struct CountingTool {
++        def: ToolDef,
++        calls: Arc<AtomicUsize>,
++    }
++
++    #[async_trait::async_trait]
++    impl Tool for CountingTool {
++        fn def(&self) -> &ToolDef {
++            &self.def
++        }
++        async fn invoke(&self, _args: Value) -> ToolResult {
++            self.calls.fetch_add(1, Ordering::SeqCst);
++            ToolResult::text("ran")
++        }
++    }
++
++    fn counting_registry(home: &std::path::Path) -> (ToolRegistry, Arc<AtomicUsize>, Arc<AtomicUsize>) {
++        let mut registry = ToolRegistry::new();
++        registry.set_machine_consent_home(home.to_owned());
++        let screen_calls = Arc::new(AtomicUsize::new(0));
++        let control_calls = Arc::new(AtomicUsize::new(0));
++        for (name, read_only, calls) in [
++            ("get_window_state", true, screen_calls.clone()),
++            ("click", false, control_calls.clone()),
++        ] {
++            registry.register(Box::new(CountingTool {
++                def: ToolDef {
++                    name: name.to_owned(),
++                    description: "test".to_owned(),
++                    input_schema: json!({"type": "object"}),
++                    read_only,
++                    destructive: !read_only,
++                    idempotent: read_only,
++                    open_world: false,
++                },
++                calls,
++            }));
++        }
++        (registry, screen_calls, control_calls)
++    }
++
++    fn write_private(path: &std::path::Path, body: &str) {
++        std::fs::write(path, body).unwrap();
++        #[cfg(unix)]
++        {
++            use std::os::unix::fs::PermissionsExt;
++            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).unwrap();
++        }
++    }
++
++    fn join(home: &std::path::Path) {
++        write_private(
++            &home.join("machine-credential.json"),
++            crate::machine_consent::TEST_CREDENTIAL_RECORD,
++        );
++    }
++
++    fn consent(home: &std::path::Path, screen: &str, control: &str) {
++        write_private(
++            &home.join("consent.json"),
++            &format!(r#"{{"screen":"{screen}","control":"{control}"}}"#),
++        );
++    }
++
++    fn refused(result: &ToolResult, surface: &str) -> bool {
++        result.is_error == Some(true)
++            && result.structured_content.as_ref().is_some_and(|structured| {
++                structured["code"] == "consent_required" && structured["surface"] == surface
++            })
++    }
++
++    #[tokio::test]
++    async fn a_machine_that_is_not_joined_runs_every_tool_as_before() {
++        let home = tempfile::tempdir().unwrap();
++        let (registry, screen, control) = counting_registry(home.path());
++        assert_eq!(registry.invoke("get_window_state", json!({})).await.is_error, None);
++        assert_eq!(registry.invoke("click", json!({})).await.is_error, None);
++        assert_eq!((screen.load(Ordering::SeqCst), control.load(Ordering::SeqCst)), (1, 1));
++    }
++
++    #[tokio::test]
++    async fn a_joined_machine_with_no_consent_runs_neither_screen_nor_control_tools() {
++        let home = tempfile::tempdir().unwrap();
++        join(home.path());
++        let (registry, screen, control) = counting_registry(home.path());
++        assert!(refused(&registry.invoke("get_window_state", json!({})).await, "screen"));
++        assert!(refused(&registry.invoke("click", json!({})).await, "screen"));
++        assert_eq!((screen.load(Ordering::SeqCst), control.load(Ordering::SeqCst)), (0, 0));
++    }
++
++    #[tokio::test]
++    async fn screen_only_runs_screenshots_and_refuses_clicks() {
++        let home = tempfile::tempdir().unwrap();
++        join(home.path());
++        consent(home.path(), "granted", "none");
++        let (registry, screen, control) = counting_registry(home.path());
++        assert_eq!(registry.invoke("get_window_state", json!({})).await.is_error, None);
++        assert!(refused(&registry.invoke("click", json!({})).await, "control"));
++        assert_eq!((screen.load(Ordering::SeqCst), control.load(Ordering::SeqCst)), (1, 0));
++    }
++
++    #[tokio::test]
++    async fn revoking_between_two_calls_refuses_the_second() {
++        let home = tempfile::tempdir().unwrap();
++        join(home.path());
++        consent(home.path(), "granted", "granted");
++        // One registry stands for one already-running server process.
++        let (registry, _screen, control) = counting_registry(home.path());
++        assert_eq!(registry.invoke("click", json!({})).await.is_error, None);
++        consent(home.path(), "granted", "none");
++        assert!(refused(&registry.invoke("click", json!({})).await, "control"));
++        assert_eq!(control.load(Ordering::SeqCst), 1);
++
++        // Joining while the process is running gates it from the next call.
++        let fresh = tempfile::tempdir().unwrap();
++        let (registry, screen, _control) = counting_registry(fresh.path());
++        assert_eq!(registry.invoke("get_window_state", json!({})).await.is_error, None);
++        join(fresh.path());
++        assert!(refused(&registry.invoke("get_window_state", json!({})).await, "screen"));
++        assert_eq!(screen.load(Ordering::SeqCst), 1);
++    }
++
++    /// A consent source with no files behind it, standing in for the
++    /// acpmux daemon query: the registry asks it and nothing else.
++    struct ScriptedSource {
++        status: std::sync::Mutex<crate::machine_consent::ConsentStatus>,
++        asked: AtomicUsize,
++        refusals: std::sync::Mutex<Vec<&'static str>>,
++    }
++
++    impl crate::machine_consent::ConsentSource for ScriptedSource {
++        fn status(&self) -> crate::machine_consent::ConsentStatus {
++            self.asked.fetch_add(1, Ordering::SeqCst);
++            *self.status.lock().unwrap()
++        }
++        fn record_refusal(&self, surface: crate::machine_consent::Surface) {
++            self.refusals.lock().unwrap().push(surface.as_str());
++        }
++    }
++
++    /// Answers each ask from a script, in order; past its end, grants.
++    struct ScriptedAnswers {
++        answers: std::sync::Mutex<std::collections::VecDeque<crate::machine_consent::ConsentStatus>>,
++        refusals: std::sync::Mutex<Vec<&'static str>>,
++    }
++
++    impl crate::machine_consent::ConsentSource for ScriptedAnswers {
++        fn status(&self) -> crate::machine_consent::ConsentStatus {
++            use crate::machine_consent::ConsentStatus;
++            self.answers.lock().unwrap().pop_front().unwrap_or(ConsentStatus {
++                screen: true,
++                control: true,
++                ..ConsentStatus::UNKNOWN
++            })
++        }
++        fn record_refusal(&self, surface: crate::machine_consent::Surface) {
++            self.refusals.lock().unwrap().push(surface.as_str());
++        }
++    }
++
++    static FRONTED: AtomicUsize = AtomicUsize::new(0);
++
++    fn count_front(_pid: i64, _session: Option<&str>) {
++        FRONTED.fetch_add(1, Ordering::SeqCst);
++    }
++
++    /// One denied, unknown or lost answer anywhere on the call path refuses
++    /// the whole call, even when every later answer grants: nothing after
++    /// it is fronted or dispatched, and the refusal is recorded. A click
++    /// with a recording on asks at four points: the first check (0), the
++    /// capture before dispatch (1), before fronting (2) and before
++    /// dispatch (3); fronting happens only between 2 and 3.
++    #[tokio::test]
++    async fn one_denial_anywhere_on_the_call_path_refuses_the_whole_call() {
++        use crate::machine_consent::ConsentStatus;
++        let granted = ConsentStatus { screen: true, control: true, ..ConsentStatus::UNKNOWN };
++        let denials = [
++            ("screen denied", ConsentStatus { control: true, ..ConsentStatus::UNKNOWN }),
++            ("control denied", ConsentStatus { screen: true, ..ConsentStatus::UNKNOWN }),
++            ("unknown", ConsentStatus::UNKNOWN),
++            ("host gone", ConsentStatus::HOST_UNVERIFIED),
++        ];
++        let invoke = |answers: Vec<ConsentStatus>| async move {
++            let home = tempfile::tempdir().unwrap();
++            let out = tempfile::tempdir().unwrap();
++            let (mut registry, _screen, control) = counting_registry(home.path());
++            let source = Arc::new(ScriptedAnswers {
++                answers: std::sync::Mutex::new(answers.into()),
++                refusals: std::sync::Mutex::new(Vec::new()),
++            });
++            registry.set_consent_source(source.clone());
++            registry.set_target_front_hook(count_front);
++            registry.force_watchable_front = true;
++            registry.recording.start(out.path().to_str().unwrap(), false, None).unwrap();
++            let fronted = FRONTED.load(Ordering::SeqCst);
++            let result = registry.invoke("click", json!({"pid": 4242})).await;
++            let fronts = FRONTED.load(Ordering::SeqCst) - fronted;
++            let refusals = source.refusals.lock().unwrap().len();
++            (result, fronts, control.load(Ordering::SeqCst), refusals)
++        };
++        for (label, denial) in denials {
++            for position in 0..4 {
++                // Granted before the denial, and granted after it.
++                let mut answers = vec![granted; position];
++                answers.push(denial);
++                answers.extend([granted; 4]);
++                let (result, fronts, ran, refusals) = invoke(answers).await;
++                let case = format!("{label} at {position}");
++                assert_eq!(result.is_error, Some(true), "{case}");
++                assert_eq!(
++                    result.structured_content.unwrap()["code"],
++                    crate::machine_consent::CONSENT_REQUIRED,
++                    "{case}"
++                );
++                assert_eq!(ran, 0, "{case}: dispatched");
++                // Only a denial before dispatch comes after the fronting.
++                assert_eq!(fronts, usize::from(position == 3), "{case}: fronted");
++                assert!(refusals > 0, "{case}: refusal recorded");
++            }
++        }
++        // Consent held throughout: fronted once, ran once.
++        let (result, fronts, ran, _) = invoke(Vec::new()).await;
++        assert_eq!((result.is_error, fronts, ran), (None, 1, 1));
++    }
++
++    #[tokio::test]
++    async fn every_check_asks_the_consent_source_and_nothing_else() {
++        use crate::machine_consent::ConsentStatus;
++        // A state directory that says "not joined"; the source must win.
++        let home = tempfile::tempdir().unwrap();
++        let (mut registry, screen, control) = counting_registry(home.path());
++        let source = Arc::new(ScriptedSource {
++            // The source cannot answer: refuse everything that needs consent.
++            status: std::sync::Mutex::new(ConsentStatus::UNKNOWN),
++            asked: AtomicUsize::new(0),
++            refusals: std::sync::Mutex::new(Vec::new()),
++        });
++        registry.set_consent_source(source.clone());
++        assert!(refused(&registry.invoke("get_window_state", json!({})).await, "screen"));
++        assert!(refused(&registry.invoke("click", json!({})).await, "screen"));
++        assert_eq!(*source.refusals.lock().unwrap(), ["screen", "screen"]);
++        assert!(std::fs::read_dir(home.path()).unwrap().next().is_none());
++
++        *source.status.lock().unwrap() = ConsentStatus {
++            screen: true,
++            ..ConsentStatus::UNKNOWN
++        };
++        assert_eq!(registry.invoke("get_window_state", json!({})).await.is_error, None);
++        assert!(refused(&registry.invoke("click", json!({})).await, "control"));
++        assert_eq!((screen.load(Ordering::SeqCst), control.load(Ordering::SeqCst)), (1, 0));
++        assert!(source.asked.load(Ordering::SeqCst) >= 4);
++    }
++
++    #[tokio::test]
++    async fn the_deprecated_alias_is_gated_as_the_tool_it_names() {
++        let home = tempfile::tempdir().unwrap();
++        join(home.path());
++        consent(home.path(), "granted", "none");
++        let mut registry = ToolRegistry::new();
++        registry.set_machine_consent_home(home.path().to_owned());
++        let calls = Arc::new(AtomicUsize::new(0));
++        registry.register(Box::new(CountingTool {
++            def: ToolDef {
++                name: "type_text".to_owned(),
++                description: "test".to_owned(),
++                input_schema: json!({"type": "object"}),
++                read_only: false,
++                destructive: true,
++                idempotent: false,
++                open_world: false,
++            },
++            calls: calls.clone(),
++        }));
++        assert!(refused(&registry.invoke("type_text_chars", json!({})).await, "control"));
++        assert_eq!(calls.load(Ordering::SeqCst), 0);
++    }
++
++    /// Completed turns: those whose after phase was captured and written.
++    fn turn_dirs(dir: &std::path::Path) -> usize {
++        std::fs::read_dir(dir)
++            .map(|entries| {
++                entries
++                    .filter_map(Result::ok)
++                    .filter(|e| e.file_name().to_string_lossy().starts_with("turn-"))
++                    .filter(|e| e.path().join("action.json").exists())
++                    .count()
++            })
++            .unwrap_or(0)
++    }
++
++    /// An action that changes the consent record while it runs, the way a
++    /// person revoking during a long action does.
++    struct RevokingTool {
++        def: ToolDef,
++        home: std::path::PathBuf,
++        screen_after: &'static str,
++        calls: Arc<AtomicUsize>,
++    }
++
++    #[async_trait::async_trait]
++    impl Tool for RevokingTool {
++        fn def(&self) -> &ToolDef {
++            &self.def
++        }
++        async fn invoke(&self, _args: Value) -> ToolResult {
++            consent(&self.home, self.screen_after, "granted");
++            self.calls.fetch_add(1, Ordering::SeqCst);
++            ToolResult::text("ran")
++        }
++    }
++
++    fn revoking_registry(
++        home: &std::path::Path,
++        screen_after: &'static str,
++    ) -> (ToolRegistry, Arc<AtomicUsize>) {
++        let mut registry = ToolRegistry::new();
++        registry.set_machine_consent_home(home.to_owned());
++        let calls = Arc::new(AtomicUsize::new(0));
++        registry.register(Box::new(RevokingTool {
++            def: ToolDef {
++                name: "click".to_owned(),
++                description: "test".to_owned(),
++                input_schema: json!({"type": "object"}),
++                read_only: false,
++                destructive: true,
++                idempotent: false,
++                open_world: false,
++            },
++            home: home.to_owned(),
++            screen_after,
++            calls: calls.clone(),
++        }));
++        (registry, calls)
++    }
++
++    #[cfg(any(unix, windows))]
++    #[tokio::test]
++    async fn a_revoke_during_the_action_stops_the_after_capture_and_the_recording() {
++        let home = tempfile::tempdir().unwrap();
++        let out = tempfile::tempdir().unwrap();
++        join(home.path());
++        consent(home.path(), "granted", "granted");
++        let (registry, calls) = revoking_registry(home.path(), "none");
++        registry
++            .recording
++            .start(out.path().to_str().unwrap(), false, None)
++            .unwrap();
++        assert_eq!(registry.invoke("click", json!({})).await.is_error, None);
++        assert_eq!(calls.load(Ordering::SeqCst), 1, "the action itself ran");
++        assert_eq!(turn_dirs(out.path()), 0, "no after capture once screen is revoked");
++        assert!(!registry.recording.is_enabled());
++
++        // Control: the same action without a revoke completes its turn.
++        let home = tempfile::tempdir().unwrap();
++        let out = tempfile::tempdir().unwrap();
++        join(home.path());
++        consent(home.path(), "granted", "granted");
++        let (registry, _calls) = revoking_registry(home.path(), "granted");
++        registry
++            .recording
++            .start(out.path().to_str().unwrap(), false, None)
++            .unwrap();
++        assert_eq!(registry.invoke("click", json!({})).await.is_error, None);
++        assert_eq!(turn_dirs(out.path()), 1);
++    }
++
++    #[cfg(any(unix, windows))]
++    #[tokio::test]
++    async fn a_revoke_during_the_action_stops_the_pip_capture() {
++        let home = tempfile::tempdir().unwrap();
++        join(home.path());
++        consent(home.path(), "granted", "granted");
++        let (mut registry, calls) = revoking_registry(home.path(), "none");
++        registry.force_pip = true;
++        assert_eq!(registry.invoke("click", json!({})).await.is_error, None);
++        assert_eq!(calls.load(Ordering::SeqCst), 1);
++        assert_eq!(registry.pip_captures.load(Ordering::SeqCst), 0);
++
++        let home = tempfile::tempdir().unwrap();
++        join(home.path());
++        consent(home.path(), "granted", "granted");
++        let (mut registry, _calls) = revoking_registry(home.path(), "granted");
++        registry.force_pip = true;
++        assert_eq!(registry.invoke("click", json!({})).await.is_error, None);
++        assert_eq!(registry.pip_captures.load(Ordering::SeqCst), 1);
++    }
++
++    #[tokio::test]
++    async fn dropping_the_registry_joins_the_watcher_and_frees_the_recording() {
++        let home = tempfile::tempdir().unwrap();
++        let out = tempfile::tempdir().unwrap();
++        let mut registry = ToolRegistry::new();
++        registry.set_machine_consent_home(home.path().to_owned());
++        registry.register_recording_tools();
++        let started = registry
++            .invoke(
++                "start_recording",
++                json!({"output_dir": out.path().to_str().unwrap()}),
++            )
++            .await;
++        assert_ne!(started.is_error, Some(true), "{started:?}");
++        let watcher_running = registry
++            .consent_watcher
++            .lock()
++            .unwrap()
++            .as_ref()
++            .is_some_and(|w| !w.thread.is_finished());
++        assert!(watcher_running);
++        assert!(registry.recording.is_enabled());
++        let recording = Arc::downgrade(&registry.recording);
++        let exited = registry.watcher_exited.clone();
++        assert!(!exited.load(Ordering::SeqCst));
++        drop(registry);
++        assert!(exited.load(Ordering::SeqCst), "the drop joined the watcher thread");
++        assert!(recording.upgrade().is_none(), "nothing keeps the recording alive");
++    }
++
++    #[cfg(any(unix, windows))]
++    #[tokio::test]
++    async fn revoking_screen_during_a_recording_refuses_the_action_and_ends_the_recording() {
++        let home = tempfile::tempdir().unwrap();
++        let out = tempfile::tempdir().unwrap();
++        join(home.path());
++        consent(home.path(), "granted", "granted");
++        let (registry, _screen, control) = counting_registry(home.path());
++        registry
++            .recording
++            .start(out.path().to_str().unwrap(), false, None)
++            .unwrap();
++
++        assert_eq!(registry.invoke("click", json!({})).await.is_error, None);
++        assert_eq!(turn_dirs(out.path()), 1, "a granted action is recorded");
++
++        consent(home.path(), "none", "granted");
++        assert!(refused(&registry.invoke("click", json!({})).await, "screen"));
++        assert_eq!(control.load(Ordering::SeqCst), 1, "acting needs screen too");
++        assert_eq!(turn_dirs(out.path()), 1, "no turn is captured after the revoke");
++        assert!(!registry.recording.is_enabled(), "the revoke ended the recording");
++
++        // Granting screen again does not resume a recording on its own.
++        consent(home.path(), "granted", "granted");
++        assert_eq!(registry.invoke("click", json!({})).await.is_error, None);
++        assert_eq!(turn_dirs(out.path()), 1);
++    }
++
++    #[cfg(any(unix, windows))]
++    #[tokio::test]
++    async fn the_watcher_stops_a_recording_when_screen_is_revoked_between_calls() {
++        let home = tempfile::tempdir().unwrap();
++        let out = tempfile::tempdir().unwrap();
++        join(home.path());
++        consent(home.path(), "granted", "granted");
++        let mut registry = ToolRegistry::new();
++        registry.set_machine_consent_home(home.path().to_owned());
++        registry.register_recording_tools();
++        let started = registry
++            .invoke(
++                "start_recording",
++                json!({"output_dir": out.path().to_str().unwrap()}),
++            )
++            .await;
++        assert_ne!(started.is_error, Some(true), "{started:?}");
++        assert!(registry.recording.is_enabled());
++
++        consent(home.path(), "none", "granted");
++        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
++        while registry.recording.is_enabled() && std::time::Instant::now() < deadline {
++            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
++        }
++        assert!(!registry.recording.is_enabled(), "no call needed to stop it");
++        let refusal: Value = serde_json::from_slice(
++            &std::fs::read(home.path().join("consent-refusal.json")).unwrap(),
++        )
++        .unwrap();
++        assert_eq!(refusal["surface"], "screen");
++    }
++
++    #[tokio::test]
++    async fn a_recording_without_a_watcher_does_not_start() {
++        let home = tempfile::tempdir().unwrap();
++        let out = tempfile::tempdir().unwrap();
++        let mut registry = ToolRegistry::new();
++        registry.set_machine_consent_home(home.path().to_owned());
++        registry.register_recording_tools();
++        registry.fail_consent_watch_spawn = true;
++        let started = registry
++            .invoke(
++                "start_recording",
++                json!({"output_dir": out.path().to_str().unwrap()}),
++            )
++            .await;
++        assert_eq!(started.is_error, Some(true));
++        assert_eq!(
++            started.structured_content.unwrap()["code"],
++            "consent_watch_unavailable"
++        );
++        assert!(!registry.recording.is_enabled());
++    }
++}
+diff --git a/libs/cmux-cua/rust/crates/cmux-cua/Cargo.toml b/libs/cmux-cua/rust/crates/cmux-cua/Cargo.toml
+index c73d49f8f..616014ab4 100644
+--- a/libs/cmux-cua/rust/crates/cmux-cua/Cargo.toml
++++ b/libs/cmux-cua/rust/crates/cmux-cua/Cargo.toml
+@@ -70,6 +70,9 @@ default = []
+ portal-input = ["platform-linux/portal-input"]
+ portal-capture = ["platform-linux/portal-capture"]
+ portal-libei = ["platform-linux/portal-libei"]
++# The build inside cmux.app: machine consent only from the verified cmux
++# host (see cmux-cua-core's feature of the same name).
++cmux-host-consent = ["cmux-cua-core/cmux-host-consent"]
+ 
+ [target.'cfg(target_os = "windows")'.build-dependencies]
+ # Embed the Windows manifest for DPI awareness (fixes coordinate mismatches
+diff --git a/libs/cmux-cua/rust/crates/cmux-cua/src/activity_daemon.rs b/libs/cmux-cua/rust/crates/cmux-cua/src/activity_daemon.rs
+index 83bf9f417..99ef6ba28 100644
+--- a/libs/cmux-cua/rust/crates/cmux-cua/src/activity_daemon.rs
++++ b/libs/cmux-cua/rust/crates/cmux-cua/src/activity_daemon.rs
+@@ -241,7 +241,14 @@ pub async fn finish(host: Arc<ActivityHost>, start: CallStart, args: &Value, res
+             use base64::Engine as _;
+             base64::engine::general_purpose::STANDARD.decode(data).ok()
+         });
++    // On a machine joined to a cmux team, the activity log keeps no pixels
++    // unless the person allows `screen` now: an action allowed by `control`
++    // alone neither takes an after frame nor keeps one from its result.
++    let screen_allowed = cmux_cua_core::machine_consent::default_source()
++        .status()
++        .granted(cmux_cua_core::machine_consent::Surface::Screen);
+     frames.after_png = match (image_in_result, start.kind) {
++        _ if !screen_allowed => None,
+         (Some(bytes), _) => Some(bytes),
+         (None, CallKind::Act) => {
+             let window_id = args.get("window_id").and_then(Value::as_u64);
+diff --git a/libs/cmux-cua/rust/crates/cmux-cua/src/cli.rs b/libs/cmux-cua/rust/crates/cmux-cua/src/cli.rs
+index 0456fb798..00f1f9ac4 100644
+--- a/libs/cmux-cua/rust/crates/cmux-cua/src/cli.rs
++++ b/libs/cmux-cua/rust/crates/cmux-cua/src/cli.rs
+@@ -1159,6 +1159,16 @@ pub fn run_manifest(pretty: bool) {
+ /// from `run_manifest` so tests can introspect the shape without going
+ /// through stdout.
+ pub fn build_manifest() -> serde_json::Value {
++    /// `machine-consent-gate-v1` only in the cmux.app build, which gates
++    /// every call on the verified cmux host's machine consent.
++    fn manifest_capabilities() -> Vec<&'static str> {
++        #[allow(unused_mut)]
++        let mut capabilities = vec![crate::serve::OWNER_PID_CAPABILITY];
++        #[cfg(feature = "cmux-host-consent")]
++        capabilities.push(cmux_cua_core::machine_consent::GATE_CAPABILITY);
++        capabilities
++    }
++
+     // Resolve the binary path the way `run_mcp_config` already does so the
+     // emitted `mcp_invocation.command` is the actually-runnable path, not
+     // a bare "cmux-cua" the caller has to resolve.
+@@ -1177,7 +1187,7 @@ pub fn build_manifest() -> serde_json::Value {
+         // Feature flags a host can check before it relies on a behavior.
+         // `serve.owner-pid`: `serve --owner-pid <pid>` exits 0 and removes
+         // its socket when that pid exits (no-op with a message on Windows).
+-        "capabilities": [crate::serve::OWNER_PID_CAPABILITY],
++        "capabilities": manifest_capabilities(),
+         "mcp_invocation": {
+             "command": binary,
+             "args": ["mcp"]
+diff --git a/libs/cmux-cua/rust/crates/cmux-cua/src/serve.rs b/libs/cmux-cua/rust/crates/cmux-cua/src/serve.rs
+index 47b3f9825..2f48c41b4 100644
+--- a/libs/cmux-cua/rust/crates/cmux-cua/src/serve.rs
++++ b/libs/cmux-cua/rust/crates/cmux-cua/src/serve.rs
+@@ -11,6 +11,8 @@
+ //!   {"method":"permissions_present"}      (private macOS operator control)
+ //!   {"method":"permissions_refresh"}      (private macOS operator control)
+ //!   {"method":"application_windows"}      (private authenticated cmux host control)
++//!   {"method":"machine_consent_host"}     (the cmux app serves machine consent on this
++//!                                          connection; cmux-host-consent builds only)
+ //!   {"method":"application_surface_start","args":{...}}
+ //!   {"method":"application_surface_stop","args":{"session":"..."}}
+ //!   {"method":"application_surface_event","args":{...}}
+@@ -539,6 +541,16 @@ type SecurityFlags = u32;
+ #[link(name = "Security", kind = "framework")]
+ extern "C" {
+     static kSecGuestAttributePid: core_foundation::string::CFStringRef;
++    #[cfg(feature = "cmux-host-consent")]
++    static kSecGuestAttributeAudit: core_foundation::string::CFStringRef;
++    #[cfg(feature = "cmux-host-consent")]
++    static kSecCodeInfoIdentifier: core_foundation::string::CFStringRef;
++    #[cfg(feature = "cmux-host-consent")]
++    fn SecCodeCopySigningInformation(
++        code: SecurityCodeRef,
++        flags: SecurityFlags,
++        information: *mut core_foundation::dictionary::CFDictionaryRef,
++    ) -> SecurityStatus;
+     fn SecCodeCopySelf(flags: SecurityFlags, code: *mut SecurityCodeRef) -> SecurityStatus;
+     fn SecCodeCopyDesignatedRequirement(
+         code: SecurityCodeRef,
+@@ -774,6 +786,144 @@ fn approval_broker_peer_is_trusted(peer_pid: libc::pid_t) -> Result<(), String>
+     validate_codex_dynamic_code(process_parent_pid(peer_pid)?)
+ }
+ 
++/// A cmux app that may serve machine consent: valid code with an
++/// Apple-anchored signature of cmux's team (this requirement), whose
++/// signing identifier is a cmux app's ([`is_cmux_app_identifier`]; a
++/// requirement's `identifier` clause only matches exactly).
++#[cfg(all(target_os = "macos", feature = "cmux-host-consent"))]
++const CMUX_TEAM_REQUIREMENT: &str = "anchor apple generic and certificate leaf[subject.OU] = \"7WLXT3NR37\"";
++
++/// The cmux main apps a consent answer may come from; never a helper.
++/// The same list as cmux's Computer Use helper v2 (`CmuxAppIdentity` in
++/// CmuxCuaHelperCore/HostVerifier.swift): stable, NIGHTLY, cmux NEXT
++/// nightly, RC, untagged DEV and staging, and tagged DEV and staging builds
++/// whose tag is `[a-z0-9]+` segments joined by single dots (`sanitize_bundle`).
++#[cfg(any(test, all(target_os = "macos", feature = "cmux-host-consent")))]
++const CMUX_APP_IDENTIFIERS: &[&str] = &[
++    "com.cmuxterm.app",
++    "com.cmuxterm.app.nightly",
++    "com.cmuxterm.app.nightly.cmux-next",
++    "com.cmuxterm.app.rc",
++    "com.cmuxterm.app.debug",
++    "com.cmuxterm.app.staging",
++];
++
++#[cfg(any(test, all(target_os = "macos", feature = "cmux-host-consent")))]
++const CMUX_APP_TAGGED_PREFIXES: &[&str] = &["com.cmuxterm.app.debug.", "com.cmuxterm.app.staging."];
++
++/// Whether `identifier` is a cmux main app's. Any id naming a helper
++/// (`cua`, `computer-use`, `helper`: com.cmuxterm.cua, the Computer Use
++/// helper apps, server helpers) is refused, whatever else matches.
++#[cfg(any(test, all(target_os = "macos", feature = "cmux-host-consent")))]
++fn is_cmux_app_identifier(identifier: &str) -> bool {
++    if ["cua", "computer-use", "helper"].iter().any(|marker| identifier.contains(marker)) {
++        return false;
++    }
++    if CMUX_APP_IDENTIFIERS.contains(&identifier) {
++        return true;
++    }
++    CMUX_APP_TAGGED_PREFIXES.iter().any(|prefix| {
++        identifier.strip_prefix(prefix).is_some_and(|tag| {
++            tag.split('.').all(|segment| {
++                !segment.is_empty()
++                    && segment.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
++            })
++        })
++    })
++}
++
++/// The connected peer's audit token (LOCAL_PEERTOKEN), so the code check
++/// names this exact process instance, not a pid that could be reused.
++#[cfg(all(target_os = "macos", feature = "cmux-host-consent"))]
++fn macos_peer_audit_token(stream: &tokio::net::UnixStream) -> Option<[u32; 8]> {
++    use std::os::fd::AsRawFd;
++    const LOCAL_PEERTOKEN: libc::c_int = 6;
++    let mut token = [0u32; 8];
++    let mut length = std::mem::size_of_val(&token) as libc::socklen_t;
++    let status = unsafe {
++        libc::getsockopt(
++            stream.as_raw_fd(),
++            libc::SOL_LOCAL,
++            LOCAL_PEERTOKEN,
++            token.as_mut_ptr().cast(),
++            &mut length,
++        )
++    };
++    (status == 0 && length as usize == std::mem::size_of_val(&token)).then_some(token)
++}
++
++/// Whether the peer with `token` runs valid code of cmux's team whose
++/// signing identifier is a cmux app's. `Err` says why not, for the log and
++/// the refused host (no secret is involved): checked in steps so an ad hoc
++/// build, another team and another app are told apart. Any error refuses.
++#[cfg(all(target_os = "macos", feature = "cmux-host-consent"))]
++fn macos_peer_cmux_app_check(token: &[u32; 8]) -> Result<(), String> {
++    use core_foundation::base::{CFRelease, CFTypeRef, TCFType};
++    use core_foundation::data::CFData;
++    use core_foundation::dictionary::{CFDictionary, CFDictionaryRef};
++    use core_foundation::string::CFString;
++
++    /// Owns a Security object and releases it once.
++    struct Owned(*const libc::c_void);
++    impl Drop for Owned {
++        fn drop(&mut self) {
++            if !self.0.is_null() {
++                unsafe { CFRelease(self.0 as CFTypeRef) };
++            }
++        }
++    }
++    let satisfies = |code: SecurityCodeRef, text: &str| -> bool {
++        let text = CFString::new(text);
++        let mut requirement: SecurityRequirementRef = std::ptr::null();
++        let created =
++            unsafe { SecRequirementCreateWithString(text.as_concrete_TypeRef(), 0, &mut requirement) } == 0;
++        let requirement = Owned(requirement);
++        created
++            && !requirement.0.is_null()
++            && unsafe { SecCodeCheckValidity(code, 0, requirement.0) } == 0
++    };
++
++    let bytes: Vec<u8> = token.iter().flat_map(|word| word.to_ne_bytes()).collect();
++    let audit_key = unsafe { CFString::wrap_under_get_rule(kSecGuestAttributeAudit) };
++    let attributes = CFDictionary::from_CFType_pairs(&[(audit_key, CFData::from_buffer(&bytes))]);
++    let mut code: SecurityCodeRef = std::ptr::null();
++    let found = unsafe {
++        SecCodeCopyGuestWithAttributes(std::ptr::null(), attributes.as_concrete_TypeRef(), 0, &mut code)
++    } == 0;
++    let code = Owned(code);
++    if !found || code.0.is_null() {
++        return Err("no code for the peer".into());
++    }
++    if unsafe { SecCodeCheckValidity(code.0, 0, std::ptr::null()) } != 0 {
++        return Err("invalid signature".into());
++    }
++    if !satisfies(code.0, "anchor apple generic") {
++        return Err("not Apple-signed (ad hoc or unsigned)".into());
++    }
++    if !satisfies(code.0, CMUX_TEAM_REQUIREMENT) {
++        return Err("not signed by cmux's team".into());
++    }
++    // The identifier of the code just validated (kSecCSSigningInformation).
++    let mut information: CFDictionaryRef = std::ptr::null();
++    let status = unsafe { SecCodeCopySigningInformation(code.0, 1 << 1, &mut information) };
++    if status != 0 || information.is_null() {
++        return Err("no signing information".into());
++    }
++    let information: CFDictionary<CFString, core_foundation::base::CFType> =
++        unsafe { CFDictionary::wrap_under_create_rule(information) };
++    let key = unsafe { CFString::wrap_under_get_rule(kSecCodeInfoIdentifier) };
++    let identifier = information
++        .find(&key)
++        .and_then(|value| value.downcast::<CFString>())
++        .map(|identifier| identifier.to_string())
++        .unwrap_or_default();
++    if is_cmux_app_identifier(&identifier) {
++        Ok(())
++    } else {
++        Err(format!("signing identifier {identifier:?} is not a cmux app"))
++    }
++}
++
+ #[cfg(all(unix, not(target_os = "macos")))]
+ fn approval_broker_peer_pid(_stream: &tokio::net::UnixStream) -> Result<libc::pid_t, String> {
+     Err("Codex Computer Use approval brokers are supported only on macOS".to_owned())
+@@ -2135,6 +2285,8 @@ pub async fn run_serve_with_owner(
+                 }
+                 #[cfg(target_os = "macos")]
+                 let peer_process_id = macos_peer_process_id(&stream);
++                #[cfg(all(target_os = "macos", feature = "cmux-host-consent"))]
++                let peer_audit_token = macos_peer_audit_token(&stream);
+                 #[cfg(target_os = "macos")]
+                 let peer_process_identity =
+                     peer_process_id.and_then(macos_process_identity);
+@@ -2239,6 +2391,74 @@ pub async fn run_serve_with_owner(
+                                 }
+                                 return;
+                             }
++                            "machine_consent_host" => {
++                                // The cmux app answers machine-consent questions on this
++                                // connection from its own acpmux daemon. Only the
++                                // authenticated host, running code signed as a cmux app,
++                                // may hold it; the connection serves nothing else after.
++                                #[cfg(all(target_os = "macos", feature = "cmux-host-consent"))]
++                                {
++                                    // The host token itself, never the authorized-root
++                                    // fallback a daemon without host authority uses.
++                                    let authenticated =
++                                        host_authority_configured && parsed.host_authenticated;
++                                    // Only an authenticated host learns why its code
++                                    // was refused; the log says it either way.
++                                    let check = authenticated.then(|| match peer_audit_token.as_ref() {
++                                        Some(token) => macos_peer_cmux_app_check(token),
++                                        None => Err("no audit token for the peer".to_owned()),
++                                    });
++                                    let verified = matches!(check, Some(Ok(())));
++                                    let resp = match check {
++                                        Some(Ok(())) => {
++                                            DaemonResponse::ok(serde_json::json!({"attached": true}))
++                                        }
++                                        Some(Err(why)) => {
++                                            eprintln!(
++                                                "cmux-cua: refused the machine consent host: \
++                                                 {}: {why}",
++                                                cmux_cua_core::machine_consent::HOST_UNVERIFIED
++                                            );
++                                            DaemonResponse::err(
++                                                format!(
++                                                    "Unauthorized host-only consent request: {} ({why})",
++                                                    cmux_cua_core::machine_consent::HOST_UNVERIFIED
++                                                ),
++                                                77,
++                                            )
++                                        }
++                                        None => {
++                                            eprintln!(
++                                                "cmux-cua: refused the machine consent host: \
++                                                 no host token"
++                                            );
++                                            DaemonResponse::err(
++                                                "Unauthorized host-only consent request",
++                                                77,
++                                            )
++                                        }
++                                    };
++                                    let sent = writer.write_all(
++                                        (serde_json::to_string(&resp).unwrap() + "\n").as_bytes()
++                                    ).await.is_ok();
++                                    if verified && sent {
++                                        cmux_cua_core::host_consent::shared_host()
++                                            .serve_host(&mut lines, &mut writer)
++                                            .await;
++                                        return;
++                                    }
++                                }
++                                #[cfg(not(all(target_os = "macos", feature = "cmux-host-consent")))]
++                                {
++                                    let resp = DaemonResponse::err(
++                                        "machine_consent_host is not in this build",
++                                        64,
++                                    );
++                                    let _ = writer.write_all(
++                                        (serde_json::to_string(&resp).unwrap() + "\n").as_bytes()
++                                    ).await;
++                                }
++                            }
+                             "permissions_status" => {
+                                 #[cfg(target_os = "macos")]
+                                 let resp = DaemonResponse::ok(daemon_permission_status(
+@@ -2778,12 +2998,22 @@ pub async fn run_serve_with_owner(
+                                 // capability_version + schema_version so MCP
+                                 // proxy callers can pass them through verbatim
+                                 // (one daemon round-trip, complete response).
+-                                let resp = DaemonResponse::ok(serde_json::json!({
++                                #[allow(unused_mut)]
++                                let mut listed = serde_json::json!({
+                                     "tools": tools,
+                                     "capability_version": cmux_cua_core::tool::CAPABILITY_VERSION,
+                                     "schema_version": "1",
+                                     "profile": profile,
+-                                }));
++                                });
++                                // The cmux.app build gates every call on the verified
++                                // host's machine consent; say so to whoever lists.
++                                #[cfg(feature = "cmux-host-consent")]
++                                {
++                                    listed["capabilities"] = serde_json::json!([
++                                        cmux_cua_core::machine_consent::GATE_CAPABILITY
++                                    ]);
++                                }
++                                let resp = DaemonResponse::ok(listed);
+                                 let _ = writer.write_all(
+                                     (serde_json::to_string(&resp).unwrap() + "\n").as_bytes()
+                                 ).await;
+@@ -5341,3 +5571,79 @@ mod session_boundary_tests {
+         ));
+     }
+ }
++
++#[cfg(test)]
++mod machine_consent_host_tests {
++    use super::*;
++
++    #[test]
++    fn only_cmux_app_identifiers_may_serve_consent() {
++        for identifier in [
++            "com.cmuxterm.app",
++            "com.cmuxterm.app.nightly",
++            "com.cmuxterm.app.nightly.cmux-next",
++            "com.cmuxterm.app.rc",
++            "com.cmuxterm.app.debug",
++            "com.cmuxterm.app.staging",
++            "com.cmuxterm.app.debug.mytag",
++            "com.cmuxterm.app.debug.next",
++            "com.cmuxterm.app.debug.split.spring2",
++            "com.cmuxterm.app.staging.mytag",
++        ] {
++            assert!(is_cmux_app_identifier(identifier), "{identifier}");
++        }
++        for identifier in [
++            // Helpers, whatever else matches.
++            "com.cmuxterm.cua",
++            "com.cmuxterm.cua.dev",
++            "com.cmuxterm.app.computer-use",
++            "com.cmuxterm.app.debug.cua",
++            "com.cmuxterm.app.nightly.server-helper",
++            "com.cmuxterm.app.debug.mytag.server-helper",
++            // Near misses.
++            "com.cmuxterm.apple",
++            "com.cmuxterm.app.",
++            "com.cmuxterm.app.next",
++            "com.cmuxterm.app.nightly.leo",
++            "com.cmuxterm.app.debug.",
++            "com.cmuxterm.app.debug.my-tag",
++            "com.cmuxterm.app.debug.MyTag",
++            "com.cmuxterm.app.debug.a..b",
++            "com.cmuxterm.app.debug.a.",
++            "com.cmuxterm.app.debugger",
++            "acpmux",
++            "cmux-cua",
++            "",
++        ] {
++            assert!(!is_cmux_app_identifier(identifier), "{identifier}");
++        }
++    }
++
++    /// The cmux.app build says it gates every call; others do not.
++    #[test]
++    fn only_the_cmux_app_build_advertises_the_consent_gate() {
++        let manifest = crate::cli::build_manifest();
++        let advertised = manifest["capabilities"]
++            .as_array()
++            .unwrap()
++            .iter()
++            .any(|c| c == cmux_cua_core::machine_consent::GATE_CAPABILITY);
++        assert_eq!(advertised, cfg!(feature = "cmux-host-consent"));
++        assert_eq!(cmux_cua_core::machine_consent::GATE_CAPABILITY, "machine-consent-gate-v1");
++    }
++
++    /// This test binary is not a signed cmux app, so as a peer it may
++    /// never serve consent.
++    #[cfg(all(target_os = "macos", feature = "cmux-host-consent"))]
++    #[tokio::test]
++    async fn a_peer_that_is_not_a_signed_cmux_app_is_refused() {
++        let (daemon_end, _host_end) = tokio::net::UnixStream::pair().unwrap();
++        let token = macos_peer_audit_token(&daemon_end).expect("the peer's audit token");
++        let why = macos_peer_cmux_app_check(&token).unwrap_err();
++        // An unsigned or ad hoc test binary is told apart from another team.
++        assert!(
++            ["not Apple-signed (ad hoc or unsigned)", "invalid signature", "no code for the peer"].contains(&why.as_str()),
++            "{why}"
++        );
++    }
++}
+diff --git a/libs/cmux-cua/rust/crates/cmux-cua/tests/machine_consent_test.rs b/libs/cmux-cua/rust/crates/cmux-cua/tests/machine_consent_test.rs
+new file mode 100644
+index 000000000..f55685d42
+--- /dev/null
++++ b/libs/cmux-cua/rust/crates/cmux-cua/tests/machine_consent_test.rs
+@@ -0,0 +1,211 @@
++//! Machine-join consent through the real `cmux-cua mcp` stdio server.
++//!
++//! One server process stays up across the whole test, the way an MCP server
++//! an agent connected before the join keeps running. Joining, granting and
++//! revoking happen on disk between calls, and each call sees the change.
++//!
++//! The tools chosen are harmless when they do run (screen geometry, and
++//! focusing a pid that does not exist); the assertions only look at whether
++//! the call was refused for consent, not at what the tool returned, so the
++//! test needs no display.
++
++#![cfg(target_os = "linux")]
++
++use std::io::{BufRead, BufReader, Write};
++use std::os::unix::fs::PermissionsExt;
++use std::path::Path;
++use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
++
++use serde_json::{json, Value};
++
++struct Server {
++    child: Child,
++    /// Dropping the sender wakes the watchdog early; it is joined before
++    /// the child is reaped, so it never signals a reused pid.
++    watchdog: Option<(std::sync::mpsc::Sender<()>, std::thread::JoinHandle<()>)>,
++    stdin: ChildStdin,
++    stdout: BufReader<ChildStdout>,
++    next_id: u64,
++}
++
++impl Server {
++    fn spawn(home: &Path, acpmux_home: &Path) -> Self {
++        let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-cua"))
++            .args(["mcp", "--no-daemon-relaunch", "--no-overlay"])
++            .env_clear()
++            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
++            .env("HOME", home)
++            .env("ACPMUX_HOME", acpmux_home)
++            .env("CMUX_CUA_TELEMETRY_ENABLED", "false")
++            .env("CMUX_CUA_UPDATE_CHECK", "false")
++            .stdin(Stdio::piped())
++            .stdout(Stdio::piped())
++            .stderr(Stdio::null())
++            .spawn()
++            .expect("spawn cmux-cua mcp");
++        // A hung server fails the test instead of hanging it: the watchdog
++        // kills the child after two minutes, so the next read sees EOF.
++        let pid = child.id() as libc::pid_t;
++        let (cancel, cancelled) = std::sync::mpsc::channel::<()>();
++        let watchdog = std::thread::spawn(move || {
++            if let Err(std::sync::mpsc::RecvTimeoutError::Timeout) =
++                cancelled.recv_timeout(std::time::Duration::from_secs(120))
++            {
++                // SAFETY: the child is not reaped until this thread is joined,
++                // so the pid still names it.
++                unsafe { libc::kill(pid, libc::SIGKILL) };
++            }
++        });
++        let stdin = child.stdin.take().unwrap();
++        let stdout = BufReader::new(child.stdout.take().unwrap());
++        let mut server = Server {
++            child,
++            watchdog: Some((cancel, watchdog)),
++            stdin,
++            stdout,
++            next_id: 1,
++        };
++        server.request("initialize", json!({}));
++        server
++    }
++
++    fn request(&mut self, method: &str, params: Value) -> Value {
++        let id = self.next_id;
++        self.next_id += 1;
++        let frame = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
++        writeln!(self.stdin, "{frame}").unwrap();
++        self.stdin.flush().unwrap();
++        let mut line = String::new();
++        let read = self.stdout.read_line(&mut line).expect("read response");
++        assert!(
++            read > 0,
++            "cmux-cua mcp exited or was killed by the watchdog"
++        );
++        let response: Value = serde_json::from_str(line.trim()).expect("parse response");
++        assert_eq!(response["id"], id, "{response}");
++        response
++    }
++
++    /// The consent surface a call was refused for, or `None` if it ran.
++    fn refused_for(&mut self, tool: &str, arguments: Value) -> Option<String> {
++        let response = self.request("tools/call", json!({"name": tool, "arguments": arguments}));
++        let result = &response["result"];
++        (result["structuredContent"]["code"] == "consent_required").then(|| {
++            assert_eq!(result["isError"], true, "{response}");
++            result["structuredContent"]["surface"]
++                .as_str()
++                .unwrap()
++                .to_owned()
++        })
++    }
++
++    fn screen(&mut self) -> Option<String> {
++        self.refused_for("get_screen_size", json!({}))
++    }
++
++    fn control(&mut self) -> Option<String> {
++        // A pid no process has: harmless if it runs.
++        self.refused_for("bring_to_front", json!({"pid": 2_147_483_000_i64}))
++    }
++}
++
++impl Drop for Server {
++    fn drop(&mut self) {
++        if let Some((cancel, watchdog)) = self.watchdog.take() {
++            drop(cancel);
++            let _ = watchdog.join();
++        }
++        let _ = self.child.kill();
++        let _ = self.child.wait();
++    }
++}
++
++fn write_private(path: &Path, body: &str) {
++    std::fs::write(path, body).unwrap();
++    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).unwrap();
++}
++
++fn consent(acpmux_home: &Path, screen: &str, control: &str) {
++    write_private(
++        &acpmux_home.join("consent.json"),
++        &format!(r#"{{"screen":"{screen}","control":"{control}"}}"#),
++    );
++}
++
++#[test]
++fn a_running_server_follows_join_grant_and_revoke_on_every_call() {
++    let root = tempfile::tempdir().unwrap();
++    let home = root.path().join("home");
++    let acpmux_home = root.path().join("acpmux");
++    std::fs::create_dir_all(&home).unwrap();
++    std::fs::create_dir_all(&acpmux_home).unwrap();
++    std::fs::set_permissions(&acpmux_home, std::fs::Permissions::from_mode(0o700)).unwrap();
++    let mut server = Server::spawn(&home, &acpmux_home);
++
++    // Not joined: unchanged, nothing gated, nothing written.
++    assert_eq!(server.screen(), None);
++    assert_eq!(server.control(), None);
++    assert!(!acpmux_home.join("consent-refusal.json").exists());
++
++    // The machine joins while the server is running: no consent yet, so
++    // both surfaces are refused from the next call on.
++    write_private(
++        &acpmux_home.join("machine-credential.json"),
++        cmux_cua_core::machine_consent::TEST_CREDENTIAL_RECORD,
++    );
++    // Acting needs screen and control, so an action is refused for screen.
++    assert_eq!(server.screen().as_deref(), Some("screen"));
++    assert_eq!(server.control().as_deref(), Some("screen"));
++    let refusal: Value =
++        serde_json::from_slice(&std::fs::read(acpmux_home.join("consent-refusal.json")).unwrap())
++            .unwrap();
++    assert_eq!(refusal["code"], "consent_required");
++    assert_eq!(refusal["surface"], "screen");
++
++    // Control alone allows no action.
++    consent(&acpmux_home, "none", "granted");
++    assert_eq!(server.control().as_deref(), Some("screen"));
++
++    // Screen only: reads run, actions are refused.
++    consent(&acpmux_home, "granted", "none");
++    assert_eq!(server.screen(), None);
++    assert_eq!(server.control().as_deref(), Some("control"));
++
++    // Both granted, then control revoked between two calls.
++    consent(&acpmux_home, "granted", "granted");
++    assert_eq!(server.control(), None);
++    consent(&acpmux_home, "granted", "none");
++    assert_eq!(server.control().as_deref(), Some("control"));
++
++    // A malformed record grants nothing.
++    write_private(&acpmux_home.join("consent.json"), "{");
++    assert_eq!(server.screen().as_deref(), Some("screen"));
++
++    // Metadata tools never need consent.
++    let response = server.request("tools/call", json!({"name": "get_config", "arguments": {}}));
++    assert_ne!(
++        response["result"]["structuredContent"]["code"],
++        "consent_required"
++    );
++}
++
++#[test]
++fn every_tool_the_server_lists_is_classified() {
++    use cmux_cua_core::machine_consent::{requirement_for, Requirement};
++    let root = tempfile::tempdir().unwrap();
++    let home = root.path().join("home");
++    let acpmux_home = root.path().join("acpmux");
++    std::fs::create_dir_all(&home).unwrap();
++    std::fs::create_dir_all(&acpmux_home).unwrap();
++    let mut server = Server::spawn(&home, &acpmux_home);
++    let listed = server.request("tools/list", json!({}));
++    let tools = listed["result"]["tools"].as_array().expect("tools/list");
++    assert!(!tools.is_empty());
++    for tool in tools {
++        let name = tool["name"].as_str().unwrap();
++        assert!(
++            name == "page" || requirement_for(name) != Requirement::Both,
++            "{name} has no consent classification in machine_consent::requirement_for"
++        );
++    }
++}

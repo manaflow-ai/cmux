@@ -74,7 +74,7 @@ interface RunState {
   /** The newest message the turn read: the host's cursor after the ack. */
   cursor: number
   answers: Array<string>
-  replyTo?: { message: string; thread_root?: string; kind: string }
+  replyTo?: { message: string; thread_root?: string; kind: string; shared?: boolean }
 }
 
 class HostError extends Schema.TaggedError<HostError>()("HostError", { method: Schema.String, message: Schema.String }) {}
@@ -237,7 +237,7 @@ export default Plugin.define({
         s.cursor = Math.max(w.cursor, ...read.messages.map((m) => m.seq))
         s.answers = fresh.map((m) => m.id)
         const last = fresh.at(-1)
-        if (last) s.replyTo = { message: last.id, kind: read.conversation.kind, ...(last.thread_root ? { thread_root: last.thread_root } : {}) }
+        if (last) s.replyTo = { message: last.id, kind: read.conversation.kind, ...(read.conversation.shared ? { shared: true } : {}), ...(last.thread_root ? { thread_root: last.thread_root } : {}) }
         yield* notify(s, "run/start", { run: runJson(s, now) })
         if (fresh.length === 0) return yield* finish(s, "done")
         yield* activity(s, "Thinking")
@@ -277,7 +277,8 @@ export default Plugin.define({
         if (status === "done" && reply && !isNoReply(reply)) {
           const posted = yield* host<{ message: string | null }>("conversation/post", {
             _turn_wake: s.wake.wake_id, conversation: s.wake.conversation, client_msg_id: `chief-reply:${s.run}`, body: reply, run: s.run,
-            ...(s.replyTo && s.replyTo.kind !== "chief" && s.replyTo.kind !== "dm" ? { reply_to: s.replyTo.message, thread_root: s.replyTo.thread_root ?? s.replyTo.message } : s.replyTo?.thread_root ? { reply_to: s.replyTo.message, thread_root: s.replyTo.thread_root } : {})
+            // A shared Chief conversation (several people): the reply quotes the message it answers, on the main timeline.
+            ...(s.replyTo && s.replyTo.kind !== "chief" && s.replyTo.kind !== "dm" ? { reply_to: s.replyTo.message, thread_root: s.replyTo.thread_root ?? s.replyTo.message } : s.replyTo?.thread_root || s.replyTo?.shared ? { reply_to: s.replyTo.message, ...(s.replyTo.thread_root ? { thread_root: s.replyTo.thread_root } : {}) } : {})
           }).pipe(attempt)
           if (!posted.ok) {
             s.status = "failed"

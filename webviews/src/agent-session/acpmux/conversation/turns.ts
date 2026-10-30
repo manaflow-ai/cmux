@@ -19,8 +19,9 @@ import { QUESTION_RECORD } from "../question/record";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
 import { shortCommand } from "./shortCommand";
-import { tailStart } from "./ToolGroupRow";
 import { awaitsPermission, isDraftCall, isRunning, toolGroups } from "./toolGroups";
+import { acpmuxSendCall } from "./acpmuxSends";
+import { subsessionCall } from "./subsessionCalls";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -72,6 +73,10 @@ export function workedLabel(t: Translate, row: AcpmuxRow): string {
 
 /// A turn summary for a turn that was stopped (Stop, Esc, or an interruption) and did not go on
 /// under a prompt sent now (`continued`).
+/// A turn that ended on an error (its card, TurnRows.tsx TurnFailure).
+export const isFailed = (row: AcpmuxRow) =>
+  row.kind === "turnSummary" && (row.status === "failed" || row.status === "error");
+
 export const isStopped = (row: AcpmuxRow) =>
   row.kind === "turnSummary" && (row.status === "cancelled" || row.status === "interrupted") && !row.continued;
 
@@ -132,6 +137,9 @@ export type TurnView = {
   lineBelow: boolean;
   working: boolean;
   sessionStatus: boolean;
+  messageBreaks: readonly number[];
+  /// The steers that wait (snapshot `waitingSteers`): a new list draws the running turn again.
+  waitingSteers?: readonly string[];
   /// Where the first prompt is: the rows before it draw as they are.
   lead: number;
   /// Each turn's prompt index in `source`, its times, whether it is dated, and how many drawn
@@ -139,13 +147,16 @@ export type TurnView = {
   starts: number[];
   times: TurnTimes[];
   dated: boolean[];
-  ends: number[];
+  /// Each boundary keeps its count and last row before the next prompt extends a fold.
+  ends: { count: number; row: AcpmuxRow | undefined }[];
   rows: AcpmuxRow[];
 };
 
 /// ``turnView``, building on `previous`: the turns before the one holding the first row that
 /// differs from `previous.source` (by object) keep their drawn rows, so a long chat's snapshot
 /// shapes only its last turns.
+const NO_MESSAGE_BREAKS: readonly number[] = [];
+
 export function turnViewFrom(
   rows: readonly AcpmuxRow[],
   expanded: ReadonlySet<string>,
@@ -156,6 +167,8 @@ export function turnViewFrom(
     liveRuns = false,
     sessionStatus = false,
     lineBelow = false,
+    waitingSteers,
+    messageBreaks = NO_MESSAGE_BREAKS,
   }: {
     now?: number;
     working?: boolean;
@@ -163,6 +176,10 @@ export function turnViewFrom(
     liveRuns?: boolean;
     sessionStatus?: boolean;
     lineBelow?: boolean;
+    /// The steers the agent has not read yet (snapshot `waitingSteers`), one array while they hold.
+    waitingSteers?: readonly string[];
+    /// Sorted insertion times of synthetic rows that must separate received message runs.
+    messageBreaks?: readonly number[];
   } = {},
   previous?: TurnView,
 ): TurnView {
@@ -173,8 +190,10 @@ export function turnViewFrom(
     previous.clockOffset === clockOffset &&
     previous.liveRuns === liveRuns &&
     previous.lineBelow === lineBelow &&
+    previous.messageBreaks === messageBreaks &&
     previous.working === working &&
     previous.sessionStatus === sessionStatus &&
+    previous.waitingSteers === waitingSteers &&
     (!previous.starts.length ||
       showsTimestamp(previous.times[0]!, undefined, now, previous.lead === 0) === previous.dated[0])
   )
@@ -188,6 +207,7 @@ export function turnViewFrom(
     previous.clockOffset === clockOffset &&
     previous.liveRuns === liveRuns &&
     previous.lineBelow === lineBelow &&
+    previous.messageBreaks === messageBreaks &&
     previous.starts.length
   ) {
     const shared = previous.source;
@@ -208,11 +228,13 @@ export function turnViewFrom(
   let starts: number[];
   let times: TurnTimes[];
   let dated: boolean[];
-  let ends: number[];
+  let ends: TurnView["ends"];
   if (reuse > 0) {
     lead = previous!.lead;
     index = previous!.starts[reuse]!;
-    out = previous!.rows.slice(0, previous!.ends[reuse - 1]);
+    const boundary = previous!.ends[reuse - 1];
+    out = previous!.rows.slice(0, boundary?.count);
+    if (boundary?.row && out.length) out[out.length - 1] = boundary.row;
     starts = previous!.starts.slice(0, reuse);
     times = previous!.times.slice(0, reuse);
     dated = previous!.dated.slice(0, reuse);
@@ -256,7 +278,7 @@ export function turnViewFrom(
     // Only the last turn can still be running.
     const last = at === starts.length - 1;
     const live = working && last;
-    for (const row of shapedTurn(
+    const shaped = shapedTurn(
       rows,
       start,
       end,
@@ -268,9 +290,11 @@ export function turnViewFrom(
       liveRuns,
       sessionStatus,
       lineBelow,
-    ))
-      out.push(row);
-    ends.push(out.length);
+    );
+    // Other sessions' messages stay each its own line where it arrived (IncomingMessageCard.tsx),
+    // never folded into one card (Leo, 2026-10-29).
+    for (const row of shaped) out.push(row);
+    ends.push({ count: out.length, row: out.at(-1) });
   }
   return {
     source: rows,
@@ -280,6 +304,8 @@ export function turnViewFrom(
     lineBelow,
     working,
     sessionStatus,
+    messageBreaks,
+    ...(waitingSteers ? { waitingSteers } : {}),
     lead,
     starts,
     times,
@@ -526,6 +552,7 @@ function shapeTurn(
     // The last "Worked for" of the turn's last part ended as the turn did ("You stopped after"),
     // whichever stretch it folds (a stretch with no work draws none).
     let lastWorked: AcpmuxRow | undefined;
+    let workedRows = 0;
     for (const segment of foldSegments(part.opener, part.rows)) {
       const said = segment.takeaway;
       const before = segment.rows;
@@ -557,6 +584,7 @@ function shapeTurn(
                   : Math.max(0, summary.at - from),
         };
         shaped.push(worked);
+        workedRows += 1;
         if (lastPart) lastWorked = worked;
         // Open, each run of its work folds into its summary line between the commentary, as in a
         // running turn (codexRuns). A run that edited folds too: its edits stay in sight between the
@@ -576,7 +604,13 @@ function shapeTurn(
       if (said) shaped.push(said);
       shaped.push(...after.filter((row) => !isEdit(row) && !later.includes(row)).map(endedPlan));
     }
-    if (lastWorked) lastWorked.status = summary.status;
+    if (lastWorked) {
+      lastWorked.status = summary.status;
+      // The turn's tokens (its `turn_result`'s) on its "Worked for" when that line is the turn's
+      // only one: an unsteered turn (its last part is its prompt's, its only part) folded into one
+      // stretch. A steered turn's, or a turn folded into several stretches, are not split by line.
+      if (lastPart && part.opener === user && workedRows === 1 && summary.tokens) lastWorked.tokens = summary.tokens;
+    }
   }
   shaped.push(...editsCard(edits));
   const preview = turnPreviewCardsOn() ? turnPreviewUrl(user, turn) : undefined;
@@ -591,11 +625,20 @@ function shapeTurn(
     if (turn[at]!.kind === "turnSummary") lastSummary = at - end - 1;
   const offers = retryable && !live;
   const resumable = offers && lastSummary < 0 && isStopped(summary);
+  // A failed last turn goes on with Continue when it did work (it keeps what the turn had done) or
+  // has no prompt to send again; one where nothing ran is sent again with Retry (errorRecovery.ts).
+  // A notice-started turn has no prompt to send again, so it goes on too; acpmux's own retry attempt
+  // (a hidden prompt row) where nothing ran stays Retry.
+  const noticeStarted = user.incoming?.kind === "notice";
+  const continuable =
+    offers && lastSummary < 0 && isFailed(summary) && (noticeStarted || body.some((row) => row.kind !== "user"));
   shaped.push({
     ...summary,
     folded,
     text: answer?.text ?? summary.text,
     ...(resumable && { resumable }),
+    ...(retryable && { retryable }),
+    ...(continuable && { continuable }),
     ...(answer && { answerId: answer.id }),
     // Retry sends the prompt as the agent got it: an incoming message with its sender. A
     // notification is the harness's, not a prompt to send again (incomingMessage.ts).
@@ -606,7 +649,8 @@ function shapeTurn(
         retryRowId: user.id,
         retryAttachments: user.retryAttachments,
       }),
-    version: version * 4 + (retryable ? 1 : 0) + (resumable ? 2 : 0),
+    // A turn is either stopped or failed, so Continue's bit serves both.
+    version: version * 4 + (retryable ? 1 : 0) + (resumable || continuable ? 2 : 0),
   });
   // Anything after the summary (late tool updates, or a turn the agent started on its own)
   // draws as it came.
@@ -619,6 +663,11 @@ function shapeTurn(
   if (offers && lastSummary >= 0 && isStopped(tail[lastSummary]!)) {
     const stopped = tail[lastSummary]!;
     tail[lastSummary] = { ...stopped, resumable: true, version: stopped.version + VERSION_SPAN };
+  }
+  // A turn the agent started on its own that failed has no prompt of its own to send again: Continue.
+  if (offers && lastSummary >= 0 && isFailed(tail[lastSummary]!)) {
+    const failed = tail[lastSummary]!;
+    tail[lastSummary] = { ...failed, continuable: true, version: failed.version + VERSION_SPAN };
   }
   if (live && liveRuns && lineBelow && tail.some((row) => row.kind === "activity"))
     shaped.push(...liveTurn(summary, tail, clockOffset, liveRuns, sessionStatus, lineBelow));
@@ -803,6 +852,7 @@ function liveTurn(
     // One running call reads once: not here while its own row names it (`ownRow`).
     if (doing && doing.row !== true) {
       status.doing = doing.title;
+      Object.assign(status, sendingTo(doing.tool));
       if (doing.row) Object.assign(status, { doingGroup: doing.row.key, doingGroupOpen: doing.row.open });
     }
     // Before any output it reads "Thinking"; a thought coming in labels itself (ThoughtRow.tsx).
@@ -826,6 +876,7 @@ function liveTurn(
     if (doing?.draft) status.doingDraft = true;
     if (doing && (liveRuns || doing.row !== true)) {
       status.doing = doing.title;
+      Object.assign(status, sendingTo(doing.tool));
       if (doing.row && doing.row !== true && !liveRuns)
         Object.assign(status, { doingGroup: doing.row.key, doingGroupOpen: doing.row.open });
     }
@@ -886,6 +937,7 @@ function codexLiveTurn(
     // A started command shows "⌃B to run in background" on the line, never on a transcript row
     // (Thinking.tsx; Leo, 2026-10-22: "this cmd b to run in background ... it should prob go down").
     if (call.kind === "execute" && !line.doingDraft) line.doingCommand = true;
+    Object.assign(line, sendingTo(call));
     line.doingAt = (call.startedAt ?? named.at) + clockOffset;
   } else if (last.kind === "assistant") line.quietKey = `${last.id}:${last.version}`;
   const answering = last.kind === "assistant";
@@ -986,7 +1038,21 @@ function activityLine(
     ...(below && { below: true }),
   };
   if (command) line.doingCommand = true;
+  if (running?.tool) Object.assign(line, sendingTo(running.tool));
   return line;
+}
+
+/// The message a call in flight sends, for the live line: "Sending message to tests", never the
+/// raw `acpmux send …` line (Leo 2026-10-24: "sending message or sent message to X or Y").
+function sendingTo(tool: NonNullable<AcpmuxActivity["tool"]>): Pick<AcpmuxRow, "doingSendTo" | "doingSendSession"> {
+  const send = acpmuxSendCall(tool);
+  // Only a send still going: one that failed in the background is not "Sending" any more.
+  if (send) return send.state === "sending" ? { doingSendTo: send.target } : {};
+  if (tool.kind === "execute" && tool.command) return {};
+  const call = subsessionCall(tool);
+  if (call?.tool !== "send") return {};
+  const id = call.sessionId;
+  return { doingSendTo: id.length > 12 ? `${id.slice(0, 8)}…` : id, doingSendSession: id };
 }
 
 /// A running call in one short line: a command as itself ("Ran …" would say it has finished), a
@@ -1000,7 +1066,11 @@ function runningLabel(tool: Parameters<typeof toolLabel>[0], text: string): stri
 
 /// The newest call still running in a live turn's latest row, by its title, and where the
 /// transcript draws its own row (`ownRow`).
-function inFlightCall(row: AcpmuxRow): { title: string; command: boolean; draft: boolean; row: OwnRow } | undefined {
+function inFlightCall(
+  row: AcpmuxRow,
+):
+  | { title: string; command: boolean; draft: boolean; row: OwnRow; tool: NonNullable<AcpmuxActivity["tool"]> }
+  | undefined {
   if (row.kind !== "activity") return undefined;
   const items = row.items ?? [];
   for (let index = items.length - 1; index >= 0; index--) {
@@ -1009,7 +1079,9 @@ function inFlightCall(row: AcpmuxRow): { title: string; command: boolean; draft:
     // The row's own label, never the call's raw JSON input; a command reads as itself.
     const title = toolLabel(tool, "", (command) => command).trim();
     const draft = isDraftCall(tool);
-    return title ? { title, command: tool.kind === "execute", draft, row: ownRow(row, items[index]!) } : undefined;
+    return title
+      ? { title, command: tool.kind === "execute", draft, row: ownRow(row, items[index]!), tool }
+      : undefined;
   }
   return undefined;
 }
@@ -1020,7 +1092,7 @@ type OwnRow = true | { key: string; open: boolean } | undefined;
 
 /// Where ToolRows draws a call (TurnRows.tsx groupNode, ToolGroupRow.tsx): a lone call, a message
 /// card, a sub-session card and a lone MCP call have their own row; a grouped call shows under its group's line while
-/// the group is open, among its latest GROUP_TAIL; a folded run (`foldRun`, codexRuns) shows none
+/// the group is open; a folded run (`foldRun`, codexRuns) shows none
 /// until opened. The key is the one groupNode gives the group's disclosure.
 function ownRow(row: AcpmuxRow, item: AcpmuxActivity): OwnRow {
   const groups = toolGroups(row.items ?? []);
@@ -1030,14 +1102,14 @@ function ownRow(row: AcpmuxRow, item: AcpmuxActivity): OwnRow {
   if (
     group.type === "item" ||
     group.type === "message" ||
+    group.type === "send" ||
     group.type === "subsession" ||
+    group.type === "subsessionGroup" ||
     group.type === "dispatch" ||
     (group.type === "mcp" && group.items.length === 1)
   )
     return true;
   const kind = group.type === "mcp" ? "mcp" : group.kind;
-  const tail = kind === "mcp" || kind === "edits" || group.items.indexOf(item) >= tailStart(group.items);
-  if (!tail) return undefined;
   const key = `group:${kind}:${group.items[0]!.tool!.id || `${row.id}:${at}`}`;
   return { key, open: kind !== "mcp" && kind !== "edits" };
 }

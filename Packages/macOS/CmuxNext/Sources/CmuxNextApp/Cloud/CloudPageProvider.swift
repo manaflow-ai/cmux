@@ -114,8 +114,9 @@ final class CloudPageProvider: PageProvider {
     }
 }
 
-/// The daemon's JSON as the page's (the two modules each define the same shape).
-private func pageJSON(_ value: CmuxNextDaemon.JSONValue) -> CmuxNextSettings.JSONValue {
+/// The daemon's JSON as the page's (the two modules each define the same shape); also
+/// `cmux cloud open-browser`'s route for ``BrowserTabOpen``.
+func pageJSON(_ value: CmuxNextDaemon.JSONValue) -> CmuxNextSettings.JSONValue {
     switch value {
     case .null: .null
     case .bool(let flag): .bool(flag)

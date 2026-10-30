@@ -30,6 +30,7 @@
 use super::{Hub, Session};
 use crate::rpc::RpcError;
 use crate::store::EventRecord;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -99,7 +100,7 @@ fn offer_record(session: &Session, params: &Value) -> Result<Value, RpcError> {
     match params.get("groupId") {
         None | Some(Value::Null) => {}
         Some(Value::String(group)) if one_line(group, MAX_GROUP_BYTES) => {
-            record["groupId"] = Value::String(group.clone());
+            record.set("groupId", Value::String(group.clone()));
         }
         Some(_) => {
             return Err(RpcError::invalid_params(format!(
@@ -183,6 +184,7 @@ impl Hub {
         // Made before the chat's lock is taken: `offer_link` reads this
         // chat's meta, and two chats never hold each other's meta locks.
         let link = child.as_ref().map(|_| self.offer_link(session, title.as_deref()));
+        let lineage = child.as_ref().map(|_| self.lineage_under(&session.meta(), None));
         if let Some(child) = &child {
             // Checked and set under the chat's lock: one parent, and only a chat
             // started for this offer.
@@ -203,9 +205,11 @@ impl Hub {
                     link.short_name = self.subsessions.claim_name(&session.id, &link.short_name);
                     link
                 });
-                if meta.status != super::SessionStatus::Closed {
-                    self.subsessions.set_open(&session.id, &child.id, true);
+                // And its place in the offering chat's tree (`lineage.rs`).
+                if meta.lineage.is_none() {
+                    meta.lineage = lineage;
                 }
+                self.subsessions.note_status(&session.id, &child.id, meta.status);
             }
         } else if !self.with_open_offers(session, |open| Ok(open.remove(offer_id).is_some()))? {
             return Err(no_offer());
@@ -213,7 +217,9 @@ impl Hub {
         let mut decision = json!({"offerId": offer_id, "outcome": outcome});
         if let Some(child) = &child {
             self.save_meta(child);
-            decision["childSessionId"] = Value::String(child.id.clone());
+            // A running chat linked as a sub-session works below its new parent.
+            self.refresh_parent_work_below(child);
+            decision.set("childSessionId", Value::String(child.id.clone()));
         }
         self.append(session, "mux", "session_offer_decision", decision.clone());
         // A chat whose first turn ended before this answer sends its result now.

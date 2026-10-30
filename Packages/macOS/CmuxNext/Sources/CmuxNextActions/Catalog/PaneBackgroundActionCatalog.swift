@@ -42,9 +42,7 @@ nonisolated enum PaneBackgroundActionCatalog: ActionCatalogGroup {
                 keywords: ["workspace", "tint", "color", "colour", "marker", "prod", "project"],
                 category: .workspace, symbol: "paintpalette", surfaces: [.palette, .contextMenu],
                 arguments: [CatalogArgument.paneTintChoice], targets: [.workspace], cliName: "workspace set-tint",
-                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [
-                    ActionSurfaceCatalog.p(.workspaceRow, .identity, 110, .choices, folder: .appearance),
-                ])
+                surfacePlan: ActionSurfacePlan(cli: .offered)
             ),
             ActionDescriptor(
                 id: "tab.setTint",

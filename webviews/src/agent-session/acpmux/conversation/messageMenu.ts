@@ -244,6 +244,14 @@ export const hasMessageMenuHost = () => menuHandler() !== undefined;
 /// More (…) on row `rowId`'s action row: asks the host for the menu a right-click on that message
 /// opens, with the same report, shown under `anchor`. False when the row is not a message or no
 /// host shows the menu.
+export function openForkMenu(throughSeq: number, anchor?: Element): boolean {
+  const handler = menuHandler();
+  if (!handler) return false;
+  const { left, top, right, bottom } = (anchor ?? document.body).getBoundingClientRect();
+  handler.postMessage({ forkDestinations: throughSeq, popUp: { left, top, right, bottom } });
+  return true;
+}
+
 export function openMessageMenu(rowId: string, anchor: Element): boolean {
   const message = source?.(rowId);
   const handler = menuHandler();

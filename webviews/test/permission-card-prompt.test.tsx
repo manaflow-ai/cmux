@@ -304,6 +304,8 @@ test("long agent labels get short buttons from their ACP kind, in one row, and t
   );
   expect(card.buttons()).toEqual(["Allow once", "Always allow", "Deny", "Always deny"]);
   expect(card.host.querySelectorAll(".acpmux-permission-buttons").length).toBe(1);
+  // Sized to their labels: no equal-width grid and no per-card answer count drives the row.
+  expect(card.host.querySelector<HTMLElement>(".acpmux-permission-buttons")!.getAttribute("style")).toBeNull();
   // The Always allow's own long name is its scope, on the line; the other's is its hover title.
   expect(card.host.querySelector(".acpmux-permission-scope")?.textContent).toBe(
     "Yes, and don't ask again for commands that start with `npm run`",
@@ -403,4 +405,21 @@ test("an ask without an Always allow option draws no such button and 2 does noth
   await card.press("2");
   expect(card.answers).toEqual([]);
   await card.unmount();
+});
+
+test("the answer row is content-width buttons, never stretched to equal cells", async () => {
+  const { readFileSync } = await import("node:fs");
+  const css = readFileSync(new URL("../src/agent-session/acpmux/styles.css", import.meta.url), "utf8");
+  const rule = (selector: string) => {
+    const at = css.indexOf(`${selector}{`);
+    expect(at).toBeGreaterThanOrEqual(0);
+    return css.slice(at, css.indexOf("}", at));
+  };
+  const row = rule(".acpmux-permission-ask .acpmux-permission-buttons");
+  expect(row).toContain("display:flex");
+  expect(row).not.toContain("grid");
+  expect(row).not.toContain("1fr");
+  const button = rule(".acpmux-permission-ask .acpmux-permission-buttons button");
+  expect(button).toContain("flex:none");
+  expect(button).toContain("align-items:baseline");
 });

@@ -75,5 +75,34 @@ class FamiliarIntentWarningTests(unittest.TestCase):
         self.assertEqual([item["owner"] for item in result["warnings"]], ["lawrence"])
 
 
+def workflow_steps() -> dict[str, str]:
+    """The warn job's steps by name, each as its YAML text."""
+    text = (ROOT / ".github/workflows/intent-familiar-review.yml").read_text()
+    steps: dict[str, str] = {}
+    for chunk in text.split("\n      - ")[1:]:
+        first = chunk.splitlines()[0]
+        if first.startswith("name: "):
+            steps[first[len("name: "):].strip()] = chunk
+    return steps
+
+
+class FamiliarIntentWorkflowTests(unittest.TestCase):
+    """The warning is advisory: a GitHub API error (the installation's rate limit failed 27 of 30 runs on
+    2026-10-26, and next-autoland read that red as the PR's own) never fails the check."""
+
+    def test_api_steps_continue_on_error_and_later_steps_need_their_input(self) -> None:
+        steps = workflow_steps()
+        read = steps["Read the pull-request patch"]
+        detect = steps["Detect familiar intent changes"]
+        warn = steps["Warn CodeRabbit and cubic reviewers"]
+        for step in (read, warn):
+            self.assertIn("continue-on-error: true", step)
+        self.assertIn("id: read", read)
+        self.assertIn("if: steps.read.outcome == 'success'", detect)
+        self.assertIn("if: steps.detect.outcome == 'success'", warn)
+        # the detector itself is this repository's code: a crash there stays a red someone sees
+        self.assertNotIn("continue-on-error", detect)
+
+
 if __name__ == "__main__":
     unittest.main()

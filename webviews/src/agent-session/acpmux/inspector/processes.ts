@@ -11,6 +11,8 @@
 // Inspector's Background tasks, the summary card, the running turn's line and the tray above the
 // composer (subagents/runningTray.ts) read. The registry wins: a transcript task whose call started a
 // listed process is that process.
+import { acpmuxSend } from "../conversation/acpmuxSends";
+import type { Translate } from "../i18n";
 import { useEffect, useState } from "react";
 import type { SummaryBackgroundTask } from "../summary/sessionSummary";
 
@@ -266,6 +268,20 @@ export function commandLabel(command: BackgroundCommand): string {
   while (skip < words.length - 1 && ASSIGNMENT.test(words[skip]!.word)) skip += 1;
   const begin = skip > 0 ? words[skip - 1]!.end : from;
   return text.slice(begin).trim() || command.command;
+}
+
+/// A background command that sends another agent a message (conversation/acpmuxSends.ts) reads as
+/// its transcript row does: "Sending message to tests", "Sent message to tests", "Couldn't send to
+/// tests". Nil for every other command.
+export function sendLabel(t: Translate, command: Pick<BackgroundCommand, "command" | "state">): string | undefined {
+  const send = acpmuxSend(command.command);
+  // Stopped or lost: whether it went is not known, so the command stays as typed. So does an ended
+  // one whose exit status is another command's (`acpmux send … | tail -1`, `… && make`).
+  if (!send || (command.state !== "running" && command.state !== "failed" && command.state !== "completed"))
+    return undefined;
+  if (command.state !== "running" && !send.ownsExit) return undefined;
+  const key = command.state === "running" ? "send.sending" : command.state === "failed" ? "send.failed" : "send.sent";
+  return t(key, { target: send.target });
 }
 
 const newestFirst = (a: BackgroundCommand, b: BackgroundCommand) =>

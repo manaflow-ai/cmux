@@ -23,10 +23,14 @@ enum DebugNativeInput {
     }
 
     /// The agent panes' gesture monitors in `window`, on `event` (each pane decides by its own
-    /// focus and bounds at this moment, as for a real event).
+    /// focus and bounds at this moment, as for a real event). `window` may also be a Chromium page
+    /// window (`debug.key {target: page}`), a child of the panes' window: each pane there judges it,
+    /// as a real key there, and only the pane whose Chromium page it covers takes it (`judgeChromium`).
     static func runPaneMonitors(_ event: NSEvent, in window: NSWindow, services: AppServices) {
-        for view in services.agentTabs.views.values where view.window === window {
-            view.debugRunGestureMonitor(event)
+        for view in services.agentTabs.views.values where view.window != nil && (view.window === window || view.window === window.parent) {
+            // As the local monitor runs for a real event, with the window it was delivered to (a synthesized
+            // event's own window can be unresolved).
+            view.judge(event, eventWindow: window)
         }
     }
 }

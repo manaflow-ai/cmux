@@ -55,7 +55,8 @@ struct WorkspaceSpawner {
         guard daemon.connection != nil else { return { throw DaemonError.notConnected } }
         let key = WorkspaceKey.generate()
         let daemon = daemon, services = windows.services, machine = MachineID(daemon.machineID)
-        let rule = spawn.slot == nil && spawn.placesBySetting ? NewWorkspacePlacements.rule(for: windowID, in: windows) : nil
+        var rule = spawn.slot == nil && spawn.placesBySetting ? NewWorkspacePlacements.rule(for: windowID, in: windows) : nil
+        if !spawn.placesFromCurrent, rule?.placement != .afterCurrent { rule?.current = nil }
         // Only a create with a row names itself here; another keeps the daemon's own numbering.
         let name = spawn.name ?? windowID.map { _ in
             SidebarMapping.nextWorkspaceName(in: daemon.store, reserved: PendingWorkspaceRows.shared.reservedNames(on: machine) { services.workspace(id: $0) != nil })
@@ -117,14 +118,20 @@ struct WorkspaceSpawner {
                         try await WorkspaceClose.close(WorkspaceKey(rawValue: id), terminals: [], on: connection)
                     }
                 }, settle: { await Self.settled(on: daemon) }) {
+                    // One late-reply budget for the pin, the create and the first tab.
+                    let giveUp = DaemonConnection.lateReplyDeadline()
                     if let room, let session = daemon.store.registryID, let home = services.machines.local.connection {
-                        try await DaemonConnection.retryingLateReplies(PinWorkspaceRequest.command) { try await home.pinWorkspace(session: session, key: key, to: room.id) }; BenchSpans.mark("cmdN.pinWorkspace.returned")
+                        try await DaemonConnection.retryingLateReplies(PinWorkspaceRequest.command, until: giveUp) {
+                            try await home.pinWorkspace(session: session, key: key, to: room.id)
+                        }
+                        BenchSpans.mark("cmdN.pinWorkspace.returned")
                     }
-                    return try await shown.confirm()
+                    return try await shown.confirm(giveUp)
                 }
             } catch {
                 shown.abandon()
                 windows.pendingPlacements[key.rawValue] = nil
+                windows.pendingPlacementOrder.removeAll { $0 == key.rawValue }
                 PendingWorkspaceRows.shared.remove(key.rawValue)
                 throw error
             }
@@ -165,7 +172,10 @@ struct WorkspaceSpawner {
         let home = services.machines.local
         let room = home.store.profile(spawn.profile ?? profile)
         if let room, let session = daemon.store.registryID, let homeConnection = home.connection {
-            try await DaemonConnection.retryingLateReplies(PinWorkspaceRequest.command) { try await homeConnection.pinWorkspace(session: session, key: key, to: room.id) }; BenchSpans.mark("cmdN.pinWorkspace.returned")
+            try await DaemonConnection.retryingLateReplies(PinWorkspaceRequest.command) {
+                try await homeConnection.pinWorkspace(session: session, key: key, to: room.id)
+            }
+            BenchSpans.mark("cmdN.pinWorkspace.returned")
         }
         if let browserProfile = spawn.browserProfile {
             let qualified = BrowserProfileService.QualifiedWorkspace(session: daemon.store.registryID ?? daemon.machineID, key: key.rawValue)

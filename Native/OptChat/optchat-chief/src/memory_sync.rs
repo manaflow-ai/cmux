@@ -400,6 +400,7 @@ pub fn cloud_append(
     items: &[Item],
     dry_run: bool,
     max_items: Option<usize>,
+    batch_id: Option<&str>,
 ) -> Result<Appended, String> {
     let mut total = Appended::default();
     let mut sent = 0usize;
@@ -420,7 +421,10 @@ pub fn cloud_append(
             i += 1;
         }
         sent += batch.len();
-        let body = json!({"mode": "append", "dry_run": dry_run, "items": batch});
+        let mut body = json!({"mode": "append", "dry_run": dry_run, "items": batch});
+        if let Some(id) = batch_id {
+            body["batch"] = json!(id);
+        }
         let mut tries = 0;
         let value = loop {
             let (status, value) = api.put_memory(chief, conversation, &body)?;
@@ -444,17 +448,47 @@ pub fn cloud_append(
 
 // ---------------------------------------------------------------- command
 
-pub const USAGE: &str = "optchat-chief memory import-from SOURCE dry-run|write [--to local|cloud[:staging|:URL]] [--chief agent_ID]
-    [--max-cost USD] [--max-items N] [--price-in USD --price-out USD] [--session-token-file F] [--mux-home DIR] [--json]
+pub const USAGE: &str = "optchat-chief memory import-from detect [--json]   what this Mac holds (Claude Code, Claude memory, Codex, claude.ai / ChatGPT export zips)
+optchat-chief memory import-from undo [--to local|cloud[:staging|:URL]] [--chief agent_ID] [--batch ID]   take the last write back
+optchat-chief memory import-from SOURCE dry-run|write [--to local|cloud[:staging|:URL]] [--chief agent_ID]
+    [--stop-host] [--max-cost USD] [--max-items N] [--price-in USD --price-out USD] [--session-token-file F] [--mux-home DIR] [--json]
   SOURCE: chief (this home's memory), chief:MUX_HOME, claude-memory, claude-code, codex, zip:FILE (claude.ai / ChatGPT export)
   --to local (default) merges into this home's memory (host stopped); --to cloud appends to the Cloud Chief --chief names.
   Incremental: a key per item, so a re-run brings only what is new. Secrets are dropped. A write backs up first.";
 
 pub fn run(flags: &crate::cli::Flags, home: &Path, json_out: bool) -> Result<String, String> {
     let words: Vec<&str> = flags.words.iter().skip(2).map(String::as_str).collect();
+    match words.as_slice() {
+        ["detect"] => {
+            let user_home = std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .unwrap_or_default();
+            let found = crate::memory_sync_state::detect(
+                &user_home,
+                std::env::var("CLAUDE_CONFIG_DIR").ok(),
+            );
+            return Ok(if json_out {
+                crate::memory_sync_state::detect_json(&found).to_string()
+            } else if found.is_empty() {
+                "nothing found on this Mac".to_owned()
+            } else {
+                found
+                    .iter()
+                    .map(|d| format!("{}: {} ({} bytes) {}", d.source, d.count, d.bytes, d.path))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            });
+        }
+        ["undo"] => return undo(flags, home, json_out),
+        _ => {}
+    }
     let [source, mode] = words.as_slice() else {
         return Err(USAGE.to_owned());
     };
+    let batch = flags
+        .value("batch")
+        .map(str::to_owned)
+        .unwrap_or_else(|| format!("b{}", chrono::Utc::now().timestamp_millis()));
     let write = match *mode {
         "write" => true,
         "dry-run" => false,
@@ -507,7 +541,35 @@ pub fn run(flags: &crate::cli::Flags, home: &Path, json_out: bool) -> Result<Str
         if let Some(m) = max_items {
             fresh.truncate(m);
         }
-        let (n, backup) = write_local(&paths, &fresh)?;
+        let (before, n, backup) = crate::memory_sync_state::with_host_stopped(
+            &paths,
+            flags.value("stop-host").is_some(),
+            || {
+                let before =
+                    crate::claude_import::existing_messages(&paths.chat, &paths.memory_db)?;
+                let (n, backup) = write_local(&paths, &fresh)?;
+                Ok((before, n, backup))
+            },
+        )?;
+        if n > 0 {
+            crate::memory_sync_state::record(
+                &paths,
+                &crate::memory_sync_state::Run {
+                    batch: batch.clone(),
+                    to: "local".into(),
+                    source: (*source).to_owned(),
+                    written: n,
+                    messages_before: before,
+                    backup: backup.clone(),
+                    chief: None,
+                    keys: fresh.iter().map(|i| i.key.clone()).collect(),
+                },
+            )?;
+        }
+        if json_out {
+            return Ok(json!({"plan": plan, "est_cost_usd": cost, "written": n, "batch": batch, "to": "local",
+                "backup": backup}).to_string());
+        }
         return Ok(format!(
             "{}\nwrote {n} items as notes (backup {})",
             render(&plan, price, json_out),
@@ -527,7 +589,7 @@ pub fn run(flags: &crate::cli::Flags, home: &Path, json_out: bool) -> Result<Str
     let api = crate::migrate_cloud::Api::new(base, token);
     let conversation = crate::migrate_cloud::chief_main_conversation(&chief);
     let (mut plan, fresh) = make_plan(source, items, &HashSet::new());
-    let dry = cloud_append(&api, &chief, &conversation, &fresh, true, None)?;
+    let dry = cloud_append(&api, &chief, &conversation, &fresh, true, None, None)?;
     plan.duplicate += dry.duplicate;
     plan.new = dry.added;
     // Cost for what the server will take: scale by the share of bytes.
@@ -544,7 +606,34 @@ pub fn run(flags: &crate::cli::Flags, home: &Path, json_out: bool) -> Result<Str
             "refused: estimated ${cost:.2} is over --max-cost {max_cost}"
         ));
     }
-    let done = cloud_append(&api, &chief, &conversation, &fresh, false, max_items)?;
+    let done = cloud_append(
+        &api,
+        &chief,
+        &conversation,
+        &fresh,
+        false,
+        max_items,
+        Some(&batch),
+    )?;
+    if done.added > 0 {
+        crate::memory_sync_state::record(
+            &paths,
+            &crate::memory_sync_state::Run {
+                batch: batch.clone(),
+                to: "cloud".into(),
+                source: (*source).to_owned(),
+                written: done.added,
+                messages_before: 0,
+                backup: None,
+                chief: Some(chief.clone()),
+                keys: Vec::new(),
+            },
+        )?;
+    }
+    if json_out {
+        return Ok(json!({"plan": plan, "est_cost_usd": cost, "written": done.added, "batch": batch, "to": "cloud",
+            "already_there": done.duplicate, "rejected": done.rejected}).to_string());
+    }
     Ok(format!(
         "{}\nwrote {} items to {chief} ({} already there, {} rejected by the server)",
         render(&plan, price, json_out),
@@ -552,6 +641,56 @@ pub fn run(flags: &crate::cli::Flags, home: &Path, json_out: bool) -> Result<Str
         done.duplicate,
         done.rejected
     ))
+}
+
+/// `import-from undo`: the last write into this memory (local), or the last append to a Cloud Chief.
+fn undo(flags: &crate::cli::Flags, home: &Path, json_out: bool) -> Result<String, String> {
+    let paths = Paths::new(home);
+    let to = flags.value("to").unwrap_or("local");
+    if to == "local" {
+        let (removed, text) = crate::memory_sync_state::with_host_stopped(
+            &paths,
+            flags.value("stop-host").is_some(),
+            || crate::memory_sync_state::undo_local(&paths, flags.value("batch")),
+        )?;
+        return Ok(if json_out {
+            json!({"removed": removed, "to": "local"}).to_string()
+        } else {
+            text
+        });
+    }
+    let chief = flags
+        .value("chief")
+        .ok_or("--to cloud needs --chief agent_ID")?;
+    let all = crate::memory_sync_state::runs(&paths);
+    let run = all
+        .iter()
+        .rev()
+        .find(|r| {
+            r.to == "cloud"
+                && r.chief.as_deref() == Some(chief)
+                && flags.value("batch").is_none_or(|b| b == r.batch)
+        })
+        .ok_or("nothing to undo: no earlier import into this Cloud Chief")?;
+    let base = crate::migrate_cloud::api_base(to)?;
+    let token =
+        crate::migrate_cloud::session_token(flags.value("session-token-file").map(Path::new))?;
+    let api = crate::migrate_cloud::Api::new(base, token);
+    let conversation = crate::migrate_cloud::chief_main_conversation(chief);
+    let (status, value) = api.put_memory(
+        chief,
+        &conversation,
+        &json!({"mode": "undo", "batch": run.batch}),
+    )?;
+    if value["ok"] != true {
+        return Err(format!("undo: HTTP {status} {}", value["error"]));
+    }
+    crate::memory_sync_state::forget(&paths, &run.batch)?;
+    let removed = value["value"]["removed"].as_u64().unwrap_or(0);
+    if json_out {
+        return Ok(json!({"removed": removed, "to": "cloud"}).to_string());
+    }
+    Ok(format!("took back {removed} imported items from {chief}"))
 }
 
 fn render(plan: &Plan, price: Price, json_out: bool) -> String {

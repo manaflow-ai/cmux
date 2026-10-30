@@ -33,12 +33,14 @@ enum AgentPanePageHost {
         events.append(.deviceChats(AgentPaneDeviceChat.shown(view.deviceChats, in: view)))
         events.append(view.recentlyClosed.event)
         events.append(AgentPaneNowPlaying.shared.event(for: view))
+        if let readAloud = view.model.readAloud { events.append(readAloud.event(for: view)) }
         events.append(.editedFiles(view.editedFiles))
         events.append(.composer(view.model.composer))
         events.append(.sidebarPreviewVariant(view.model.sidebarPreviewVariant))
         events.append(.diffColors(view.model.diffColors))
         events.append(.display(view.model.display))
         events.append(.toolCards(view.model.toolCards))
+        events.append(.computerUsePreview(view.model.computerUsePreview))
         events.append(view.model.tabRow.event)
         if !view.customization.isEmpty { events += AgentPageEvent.customization(view.customization) }
         return events

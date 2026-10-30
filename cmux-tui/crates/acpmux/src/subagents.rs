@@ -23,18 +23,20 @@
 //!   subagent's id and `index`; at the run's end, every agent whole with
 //!   `workflowAgentsFull: true`, which replaces them. An agent's fields are `label`, `state` (`queued`, `running`,
 //!   `completed`, `failed`, `skipped` or `blocked`), `phase`, `phaseIndex`,
-//!   `agentId`, `kind`, `model`, `fallbackModel`, `tokens`, `toolUses`,
+//!   `agentId`, `kind`, `model`, `effort`, `fallbackModel`, `tokens`, `toolUses`,
 //!   `elapsedMs`, `queuedAt`, `startedAt`, `lastProgressAt`, `attempt`,
 //!   `retryReason`, `cached`, `isolation`, `remoteSessionId`, `action`,
 //!   `prompt`, `result` and `error` (`claude_stdio/workflows.rs`). A
 //!   subagent's end may say why (`reason`: `paused` for a Claude workflow a
-//!   resume can pick up by its `runId`).
+//!   resume can pick up by its `runId`). A failed one may say its `error`, and a Claude
+//!   agent its `agentId` (what SendMessage resumes it by; a resume reports it `running`
+//!   again).
 //!   `background: true` marks one that outlives its parent's turn (every
 //!   Codex child, which runs in its own thread).
 
 use crate::hub::merge_mux_meta;
 use serde_json::{Map, Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Whether a `session/update` params object is a subagent's (the hub tags it
 /// `_meta.acpmux.subagent`, ``SubagentTree::annotate``). A subagent's text and
@@ -50,9 +52,22 @@ pub fn is_subagents(params: &Value) -> bool {
 #[derive(Debug, Default)]
 pub struct SubagentTree {
     parents: HashMap<String, Option<String>>,
+    /// Bounded per-child text; projected only on existing lifecycle/progress events.
+    previews: HashMap<String, ChildPreview>,
     /// The session's own agent session id (its harness thread), once known:
     /// never one of its subagents.
     own: Option<String>,
+    /// The background subagents still running: they outlive the turn that
+    /// started them, so the session works on past it (`hub/work_below.rs`).
+    background: HashSet<String>,
+}
+
+#[derive(Debug, Default)]
+struct ChildPreview {
+    text: String,
+    message_id: Option<String>,
+    streaming: bool,
+    tokens: Option<u64>,
 }
 
 impl SubagentTree {
@@ -76,16 +91,79 @@ impl SubagentTree {
     /// Writes the subagent model into one `session/update`'s params. Returns
     /// the subagent the update belongs to, or `None` for the session's own.
     pub fn annotate(&mut self, params: &mut Value) -> Option<String> {
+        self.annotate_live(params, true)
+    }
+
+    /// ``annotate``; a replayed update (`live` false: a `session/load` replays history) never
+    /// changes which background subagents run, since the replay may hold a start without its end.
+    pub fn annotate_live(&mut self, params: &mut Value, live: bool) -> Option<String> {
         let owner = params
             .get("sessionId")
             .and_then(Value::as_str)
             .filter(|sid| self.owns(sid))
             .map(str::to_owned);
-        let events =
+        if let (Some(child), Some(update)) = (owner.as_deref(), params.get("update")) {
+            let preview = self.previews.entry(child.to_owned()).or_default();
+            match update.get("sessionUpdate").and_then(Value::as_str) {
+                Some("agent_message_chunk") => {
+                    let id = update.get("messageId").and_then(Value::as_str).map(str::to_owned);
+                    if !preview.streaming || id != preview.message_id {
+                        preview.text.clear();
+                    }
+                    preview.streaming = true;
+                    preview.message_id = id;
+                    if let Some(text) = update.pointer("/content/text").and_then(Value::as_str) {
+                        // One child, bounded bytes, no sibling walk and no new event per token.
+                        let left = LAST_MESSAGE_CHARS + 1 - preview.text.chars().count();
+                        preview.text.extend(text.chars().take(left));
+                    }
+                }
+                Some("usage_update") => {
+                    // Claude's `used` is context-window occupancy, not token usage.
+                    // Only a supplied `totalTokens` is a cumulative token total; an update
+                    // without it must not erase a previously reported real total.
+                    if let Some(total) = update.get("totalTokens").and_then(Value::as_u64) {
+                        preview.tokens = Some(total);
+                    }
+                }
+                Some("agent_thought_chunk" | "config_option_update" | "session_info_update") => {}
+                _ => preview.streaming = false,
+            }
+        }
+        let mut events =
             params.get("update").map(|u| self.events(u, owner.as_deref())).unwrap_or_default();
+        for event in &mut events {
+            let Some(id) = event.get("id").and_then(Value::as_str) else { continue };
+            let preview = self.previews.entry(id.to_owned()).or_default();
+            // A progress/state event is authoritative over an earlier usage_update;
+            // retain its total for a later lifecycle event that omits tokens.
+            if let Some(tokens) = event.get("tokens").and_then(Value::as_u64) {
+                preview.tokens = Some(tokens);
+            }
+            if let Some(message) = event.get("lastMessage").and_then(Value::as_str) {
+                // Explicit lifecycle text supersedes streamed text for later events.
+                preview.text = message.to_owned();
+                preview.streaming = false;
+            }
+            if event.get("tokens").is_none()
+                && let Some(tokens) = preview.tokens
+                && let Some(object) = event.as_object_mut()
+            {
+                object.insert("tokens".into(), json!(tokens));
+            }
+            if event.get("lastMessage").is_none()
+                && !preview.text.is_empty()
+                && let Some(object) = event.as_object_mut()
+            {
+                object.insert("lastMessage".into(), json!(truncate_last_message(&preview.text)));
+            }
+        }
         let mut fields = Map::new();
         if let Some(owner) = &owner {
             fields.insert("subagent".into(), json!(owner));
+        }
+        if live {
+            self.note_background(&events);
         }
         if !events.is_empty() {
             fields.insert("subagents".into(), Value::Array(events));
@@ -94,6 +172,30 @@ impl SubagentTree {
             merge_mux_meta(params, Value::Object(fields));
         }
         owner
+    }
+
+    /// How many background subagents still run.
+    pub fn background_running(&self) -> usize {
+        self.background.len()
+    }
+
+    /// The harness is gone, and its background subagents with it.
+    pub fn end_background(&mut self) {
+        self.background.clear();
+    }
+
+    /// Follows the background subagents through one update's events: one
+    /// marked `background` that runs is added (a later event of it need not
+    /// repeat the mark), and any that ends leaves.
+    fn note_background(&mut self, events: &[Value]) {
+        for event in events {
+            let Some(id) = event.get("id").and_then(Value::as_str) else { continue };
+            if event.get("state").and_then(Value::as_str) != Some("running") {
+                self.background.remove(id);
+            } else if event.get("background") == Some(&Value::Bool(true)) {
+                self.background.insert(id.to_owned());
+            }
+        }
     }
 
     fn events(&mut self, update: &Value, owner: Option<&str>) -> Vec<Value> {
@@ -105,6 +207,21 @@ impl SubagentTree {
                 for key in ["name", "task", "prompt"] {
                     if let Some(v) = s(update, key) {
                         event.insert(key.into(), json!(v));
+                    }
+                }
+                for key in ["model", "effort", "reasoningEffort", "lastMessage", "last_message"] {
+                    if let Some(v) = s(update, key) {
+                        let key = if key == "reasoningEffort" {
+                            "effort"
+                        } else if key == "last_message" {
+                            "lastMessage"
+                        } else {
+                            key
+                        };
+                        event.insert(
+                            key.into(),
+                            json!(if key == "lastMessage" { truncate_last_message(&v) } else { v }),
+                        );
                     }
                 }
                 // The tool call that started it (Claude's Agent call), which a
@@ -135,6 +252,18 @@ impl SubagentTree {
                 if let Some(reason) = s(update, "reason") {
                     event.insert("reason".into(), json!(reason));
                 }
+                // A failed Claude agent's error, and the agent id SendMessage resumes it by.
+                for key in ["agentId", "error", "model", "effort", "lastMessage"] {
+                    if let Some(v) = s(update, key) {
+                        event.insert(
+                            key.into(),
+                            json!(if key == "lastMessage" { truncate_last_message(&v) } else { v }),
+                        );
+                    }
+                }
+                if let Some(tokens) = update.get("tokens").and_then(Value::as_u64) {
+                    event.insert("tokens".into(), json!(tokens));
+                }
                 vec![Value::Object(event)]
             }
             // A running subagent's or workflow's live numbers (claude_stdio/workflows.rs).
@@ -157,9 +286,29 @@ impl SubagentTree {
                     "workflowAgents",
                     "workflowAgentsFull",
                     "background",
+                    "model",
+                    "effort",
+                    "reasoningEffort",
+                    "lastMessage",
+                    "last_message",
                 ] {
                     if let Some(v) = update.get(key).filter(|v| !v.is_null()) {
-                        event.insert(key.into(), v.clone());
+                        let key = if key == "reasoningEffort" {
+                            "effort"
+                        } else if key == "last_message" {
+                            "lastMessage"
+                        } else {
+                            key
+                        };
+                        let value = if key == "lastMessage" {
+                            v.as_str()
+                                .map(truncate_last_message)
+                                .map(Value::String)
+                                .unwrap_or_else(|| v.clone())
+                        } else {
+                            v.clone()
+                        };
+                        event.insert(key.into(), value);
                     }
                 }
                 vec![Value::Object(event)]
@@ -199,6 +348,50 @@ impl SubagentTree {
                     if let Some(task) = task {
                         event.insert("task".into(), json!(task));
                     }
+                    for key in ["model", "effort", "reasoningEffort", "lastMessage", "last_message"]
+                    {
+                        if let Some(v) = update
+                            .get(key)
+                            .or_else(|| input.and_then(|i| i.get(key)))
+                            .and_then(Value::as_str)
+                        {
+                            let key = if key == "reasoningEffort" {
+                                "effort"
+                            } else if key == "last_message" {
+                                "lastMessage"
+                            } else {
+                                key
+                            };
+                            event.insert(
+                                key.into(),
+                                json!(if key == "lastMessage" {
+                                    truncate_last_message(v)
+                                } else {
+                                    v.to_owned()
+                                }),
+                            );
+                        }
+                    }
+                    if let Some(v) =
+                        update.pointer("/_meta/codex/subagent/model").and_then(Value::as_str)
+                    {
+                        event.insert("model".into(), json!(v));
+                    }
+                    if let Some(v) =
+                        update.pointer("/_meta/codex/subagent/effort").and_then(Value::as_str)
+                    {
+                        event.insert("effort".into(), json!(v));
+                    }
+                    if let Some(v) =
+                        update.pointer("/_meta/codex/subagent/lastMessage").and_then(Value::as_str)
+                    {
+                        event.insert("lastMessage".into(), json!(truncate_last_message(v)));
+                    }
+                    if let Some(v) =
+                        update.pointer("/_meta/codex/subagent/tokens").and_then(Value::as_u64)
+                    {
+                        event.insert("tokens".into(), json!(v));
+                    }
                     event.insert("state".into(), json!(codex_state(status)));
                     event.insert("background".into(), json!(true));
                     if let Some(call) = update.get("toolCallId") {
@@ -223,6 +416,27 @@ impl SubagentTree {
         let Some(mut event) = self.spawn(id, owner) else { return vec![] };
         if let Some(name) = name {
             event.insert("name".into(), json!(name));
+        }
+        for (from, to) in [
+            ("model", "model"),
+            ("effort", "effort"),
+            ("reasoningEffort", "effort"),
+            ("lastMessage", "lastMessage"),
+            ("last_message", "lastMessage"),
+        ] {
+            if let Some(value) = activity.get(from).and_then(Value::as_str) {
+                event.insert(
+                    to.into(),
+                    json!(if to == "lastMessage" {
+                        truncate_last_message(value)
+                    } else {
+                        value.to_owned()
+                    }),
+                );
+            }
+        }
+        if let Some(tokens) = activity.get("tokens").and_then(Value::as_u64) {
+            event.insert("tokens".into(), json!(tokens));
         }
         event.insert("state".into(), json!(state));
         event.insert("background".into(), json!(true));
@@ -267,6 +481,21 @@ fn codex_state(status: Option<&str>) -> &'static str {
         Some("interrupted") => "cancelled",
         Some("errored" | "shutdown" | "notFound") => "failed",
         _ => "running",
+    }
+}
+
+/// Keep the latest agent text bounded while respecting UTF-8 character
+/// boundaries. This is intentionally done only when a subagent event is
+/// already being emitted, never for every streamed token.
+const LAST_MESSAGE_CHARS: usize = 240;
+
+fn truncate_last_message(text: &str) -> String {
+    let mut chars = text.chars();
+    let value: String = chars.by_ref().take(LAST_MESSAGE_CHARS).collect();
+    if chars.next().is_some() {
+        format!("{}…", value.chars().take(LAST_MESSAGE_CHARS - 1).collect::<String>())
+    } else {
+        value
     }
 }
 
@@ -339,6 +568,27 @@ mod codex_tests {
         assert!(!tree.owns(chat));
     }
 
+    /// A failed Claude agent's entry says why and which agent a resume names.
+    #[test]
+    fn a_failed_subagent_carries_its_error_and_agent_id() {
+        let mut tree = SubagentTree::default();
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "s1/t1", "name": "Push relay"}),
+        );
+        let end = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": "s1/t1", "state": "failed",
+                   "agentId": "a8e1", "error": "API Error: 503"}),
+        );
+        assert_eq!(
+            end,
+            [
+                json!({"id": "s1/t1", "parent": null, "state": "failed", "agentId": "a8e1", "error": "API Error: 503"})
+            ]
+        );
+    }
+
     /// Codex runs a `spawnAgent` child in its own thread: it outlives the turn
     /// that spawned it (the model may end its turn without a `wait`), so it is
     /// background work, and a client never ends it at the turn's end.
@@ -360,5 +610,169 @@ mod codex_tests {
         );
         assert_eq!(activity[0]["state"], json!("running"));
         assert_eq!(activity[0]["background"], json!(true));
+    }
+
+    #[test]
+    fn claude_context_occupancy_is_not_reported_as_tokens() {
+        let mut tree = SubagentTree::default();
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "claude-child"}),
+        );
+        let mut usage = json!({
+            "sessionId": "claude-child",
+            "update": {"sessionUpdate": "usage_update", "used": 100, "size": 200000}
+        });
+        tree.annotate(&mut usage);
+        let completed = subagents(
+            &mut tree,
+            json!({
+                "sessionUpdate": "subagent_state_update",
+                "subagentSessionId": "claude-child",
+                "state": "completed"
+            }),
+        );
+        assert!(
+            completed[0].get("tokens").is_none(),
+            "context occupancy leaked as tokens: {completed:?}"
+        );
+    }
+
+    #[test]
+    fn claude_context_updates_do_not_erase_a_real_token_total() {
+        let mut tree = SubagentTree::default();
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "claude-child"}),
+        );
+        let mut total = json!({
+            "sessionId": "claude-child",
+            "update": {"sessionUpdate": "usage_update", "totalTokens": 42}
+        });
+        tree.annotate(&mut total);
+        let mut context = json!({
+            "sessionId": "claude-child",
+            "update": {"sessionUpdate": "usage_update", "used": 100, "size": 200000}
+        });
+        tree.annotate(&mut context);
+        let completed = subagents(
+            &mut tree,
+            json!({
+                "sessionUpdate": "subagent_state_update",
+                "subagentSessionId": "claude-child",
+                "state": "completed"
+            }),
+        );
+        assert_eq!(completed[0]["tokens"], 42);
+    }
+
+    #[test]
+    fn subagent_progress_tokens_take_precedence_over_cached_usage() {
+        let mut tree = SubagentTree::default();
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "child"}),
+        );
+        let mut usage =
+            json!({"sessionId": "child", "update": {"sessionUpdate": "usage_update", "used": 100}});
+        tree.annotate(&mut usage);
+        let events = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "child", "tokens": 200}),
+        );
+        assert_eq!(events[0]["tokens"], 200);
+        let completed = subagents(
+            &mut tree,
+            json!({
+                "sessionUpdate": "subagent_state_update",
+                "subagentSessionId": "child",
+                "state": "completed"
+            }),
+        );
+        assert_eq!(completed[0]["tokens"], 200);
+        let explicit = subagents(
+            &mut tree,
+            json!({
+                "sessionUpdate": "subagent_state_update",
+                "subagentSessionId": "child",
+                "state": "completed",
+                "tokens": 300,
+                "lastMessage": "final answer"
+            }),
+        );
+        assert_eq!(explicit[0]["tokens"], 300);
+        assert_eq!(explicit[0]["lastMessage"], "final answer");
+    }
+
+    #[test]
+    fn native_and_codex_subagents_carry_orchestration_fields() {
+        let mut tree = SubagentTree::default();
+        let native = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "claude/task",
+                "model": "claude-opus", "effort": "high", "lastMessage": "é".repeat(300)}),
+        );
+        assert_eq!(native[0]["model"], "claude-opus");
+        assert_eq!(native[0]["effort"], "high");
+        assert_eq!(native[0]["lastMessage"].as_str().unwrap().chars().count(), 240);
+
+        let codex = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "tool_call_update",
+                "_meta": {"codex": {"subagent": {"threadId": "codex/task",
+                    "activity": "working", "model": "gpt-6", "effort": "xhigh",
+                    "lastMessage": "Reviewing", "tokens": 1234}}}}),
+        );
+        assert_eq!(
+            codex[0],
+            json!({"id": "codex/task", "parent": null,
+                "model": "gpt-6", "effort": "xhigh", "lastMessage": "Reviewing", "tokens": 1234,
+                "state": "running", "background": true})
+        );
+    }
+}
+
+#[cfg(test)]
+mod background_tests {
+    use super::*;
+
+    fn annotate(tree: &mut SubagentTree, update: Value, live: bool) {
+        let mut params = json!({"sessionId": "s1", "update": update});
+        tree.annotate_live(&mut params, live);
+    }
+
+    /// manaflow-ai/cmux#25230: the background subagents a chat runs past its turn, from their
+    /// start to their end; a foreground one ends with its turn, and a replay changes nothing.
+    #[test]
+    fn background_subagents_run_from_their_start_to_their_end() {
+        let mut tree = SubagentTree::default();
+        tree.set_own(Some("s1"));
+        let spawn = |id: &str, background: bool| json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": id, "background": background});
+        let end = |id: &str| json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": id, "state": "completed"});
+        annotate(&mut tree, spawn("fg", false), true);
+        assert_eq!(tree.background_running(), 0);
+        annotate(&mut tree, spawn("replayed", true), false);
+        assert_eq!(tree.background_running(), 0, "a replay starts nothing");
+        annotate(&mut tree, spawn("bg", true), true);
+        // Moved to the background later (Claude's task_started is_backgrounded).
+        annotate(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "fg", "background": true}),
+            true,
+        );
+        assert_eq!(tree.background_running(), 2);
+        // Progress without the mark keeps it.
+        annotate(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "bg"}),
+            true,
+        );
+        assert_eq!(tree.background_running(), 2);
+        annotate(&mut tree, end("bg"), true);
+        annotate(&mut tree, end("fg"), true);
+        assert_eq!(tree.background_running(), 0);
+        annotate(&mut tree, spawn("bg2", true), true);
+        tree.end_background();
+        assert_eq!(tree.background_running(), 0, "its harness exited");
     }
 }
