@@ -1,4 +1,5 @@
 public import Foundation
+public import CmuxNextCompat
 
 /// The confirm and write order of a page's switches that widen what another machine may do on this Mac
 /// (Settings' Full access and Dedicated agent machine). The page's provider checks the person's click
@@ -25,26 +26,22 @@ public import Foundation
         claimedGestures.insert(event).inserted
     }
 
-    public final class WritePermit: @unchecked Sendable {
-        private let lock = NSLock()
-        nonisolated(unsafe) private var valid = true
-        nonisolated(unsafe) private var claimed = false
+    public final class WritePermit: Sendable {
+        private let state = Mutex<(valid: Bool, claimed: Bool)>((true, false))
 
         /// Atomically claims the write slot. Cancellation that wins before this returns prevents the
         /// host call; cancellation after it returns cannot pretend that an already-started host call did
         /// not happen.
         nonisolated func claim() -> Bool {
-            lock.lock()
-            defer { lock.unlock() }
-            guard valid, !claimed else { return false }
-            claimed = true
-            return true
+            state.withLock { state in
+                guard state.valid, !state.claimed else { return false }
+                state.claimed = true
+                return true
+            }
         }
 
         nonisolated func invalidate() {
-            lock.lock()
-            valid = false
-            lock.unlock()
+            state.withLock { $0.valid = false }
         }
     }
 

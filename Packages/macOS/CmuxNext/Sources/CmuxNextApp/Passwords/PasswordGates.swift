@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowserImport
+import CmuxNextCompat
 import LocalAuthentication
 
 /// Device owner authentication (Touch ID, Apple Watch or the login password) right before a
@@ -9,29 +10,42 @@ protocol DeviceOwnerAuthenticating: AnyObject {
     func authenticate(reason: String) async -> Bool
 }
 
-private final class AuthContextBox: @unchecked Sendable {
-    nonisolated(unsafe) let context: LAContext
-    init(_ context: LAContext) { self.context = context }
+private final class AuthContextBox: Sendable {
+    private let context: Mutex<LAContext>
+    init(_ context: LAContext) { self.context = Mutex(context) }
+
+    func evaluate(reason: String, reply: AuthReply) {
+        context.withLock { context in
+            context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { @Sendable success, _ in
+                reply.finish(success)
+            }
+        }
+    }
+
+    func invalidate() {
+        context.withLock { $0.invalidate() }
+    }
 }
 
-private final class AuthReply: @unchecked Sendable {
-    nonisolated(unsafe) private let lock = NSLock()
-    nonisolated(unsafe) private var continuation: CheckedContinuation<Bool, Never>?
-    nonisolated(unsafe) private var finished = false
+private final class AuthReply: Sendable {
+    private let state = Mutex<(continuation: CheckedContinuation<Bool, Never>?, finished: Bool)>((nil, false))
 
     nonisolated func install(_ continuation: CheckedContinuation<Bool, Never>) {
-        lock.lock()
-        defer { lock.unlock() }
-        if finished { continuation.resume(returning: false) } else { self.continuation = continuation }
+        let resume = state.withLock { state -> Bool in
+            if state.finished { return true }
+            state.continuation = continuation
+            return false
+        }
+        if resume { continuation.resume(returning: false) }
     }
 
     nonisolated func finish(_ answer: Bool) {
-        lock.lock()
-        guard !finished else { lock.unlock(); return }
-        finished = true
-        let continuation = self.continuation
-        self.continuation = nil
-        lock.unlock()
+        let continuation = state.withLock { state -> CheckedContinuation<Bool, Never>? in
+            guard !state.finished else { return nil }
+            state.finished = true
+            defer { state.continuation = nil }
+            return state.continuation
+        }
         continuation?.resume(returning: answer)
     }
 }
@@ -49,12 +63,10 @@ final class LocalDeviceOwnerAuthenticator: DeviceOwnerAuthenticating {
             await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
                 reply.install(continuation)
                 // The reply runs on a LocalAuthentication queue, never the main actor.
-                contextBox.context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { @Sendable success, _ in
-                    reply.finish(success)
-                }
+                contextBox.evaluate(reason: reason, reply: reply)
             }
         }, onCancel: {
-            contextBox.context.invalidate()
+            contextBox.invalidate()
             reply.finish(false)
         })
     }
