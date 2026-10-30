@@ -36,39 +36,13 @@ public struct AgentChatDestinations {
     /// peers it shows them (the late reply is not dropped). `peerBound` only decides what is drawn
     /// first; the peers request is never given up (rule R5), only cancelled with the stream.
     public func updates(peerBound: Duration = .seconds(2)) -> AsyncStream<[Destination]> {
-        // The newest list is all a picker needs.
         let (stream, continuation) = AsyncStream.makeStream(of: [Destination].self, bufferingPolicy: .bufferingNewest(1))
-        let peers = peers
-        let cloud = cloud
-        let title = local.title
-        // task-owner: the peers request; cancelled with the stream's consumer
-        let peersTask = Task { try await peers() }
         // task-owner: ends with the stream's consumer (onTermination cancels it)
         let task = Task {
-            // task-owner: the Cloud inventory, read at the same time as the peers; cancelled with this task
-            let cloudTask = Task { await cloud() }
-            let early = await Self.peers(of: peersTask, within: peerBound)
-            let inventory = await withTaskCancellationHandler { await cloudTask.value } onCancel: { cloudTask.cancel() }
-            guard !Task.isCancelled else { return continuation.finish() }
-            if case .late = early {
-                continuation.yield(Self.rows(localTitle: title, peers: [], cloud: inventory, notice: Self.peersPending))
-            }
-            let listed: [AgentChatPeer]?
-            switch early {
-            case .listed(let peers): listed = peers
-            case .failed: listed = nil
-            case .late: listed = try? await peersTask.value
-            }
-            guard !Task.isCancelled else { return continuation.finish() }
-            // A peers request that failed is said, never shown as a Mac with no other Macs.
-            continuation.yield(Self.rows(localTitle: title, peers: listed ?? [], cloud: inventory,
-                                         notice: listed == nil ? Self.peersFailed : nil))
+            continuation.yield(await load())
             continuation.finish()
         }
-        continuation.onTermination = { _ in
-            task.cancel()
-            peersTask.cancel()
-        }
+        continuation.onTermination = { _ in task.cancel() }
         return stream
     }
 

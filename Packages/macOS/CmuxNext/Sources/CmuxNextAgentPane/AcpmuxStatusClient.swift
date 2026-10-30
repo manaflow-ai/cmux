@@ -34,7 +34,7 @@ nonisolated enum AcpmuxStatusClient {
     /// The peers of the daemon's `_acpmux/status`. It waits for the answer however long a loaded
     /// daemon takes (#28083); the caller's cancel ends the wait (a picker that closed).
     @concurrent static func chatPeers(socketPath: String) async throws -> [AgentChatPeer] {
-        AgentChatPeer.read(try await call(socketPath: socketPath, method: "_acpmux/status", deadline: nil))
+        AgentChatPeer.read(try await call(socketPath: socketPath, method: "_acpmux/status", deadline: .seconds(2)))
     }
 
     /// `_acpmux/chat_open`: the daemon's open plan for one device-wide chat
