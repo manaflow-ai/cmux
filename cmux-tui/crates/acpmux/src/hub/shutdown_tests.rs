@@ -18,6 +18,28 @@ fn hub_in(dir: &std::path::Path) -> Arc<Hub> {
     Hub::new(cfg, store)
 }
 
+/// A hub on the stand-in agent with `env`, whose agent messages wait in the queue (no inbox).
+fn queue_hub_in(dir: &std::path::Path, env: Value) -> Arc<Hub> {
+    use crate::config::{Config, StoreMode};
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let harness = json!({"argv": ["python3", fake], "env": env});
+    let cfg = json!({"harnesses": {"fake": harness}, "defaultHarness": "fake"});
+    let mut cfg: Config = serde_json::from_value(cfg).unwrap();
+    cfg.store.mode = StoreMode::Local;
+    cfg.agent_inbox = Some(false);
+    let store = crate::store::open(&cfg.store, dir).unwrap();
+    Hub::new(cfg, store)
+}
+
+/// Waits, bounded, until `done`.
+async fn until(what: &str, done: impl Fn() -> bool) {
+    let deadline = tokio::time::Instant::now() + WAIT;
+    while !done() {
+        assert!(tokio::time::Instant::now() < deadline, "never: {what}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
 /// The `kind` records of the chat's log.
 fn records(hub: &Hub, s: &Session, kind: &str) -> Vec<Value> {
     let records = hub.events(&s.id, 0, 100_000).unwrap();
@@ -179,5 +201,44 @@ async fn a_detach_after_a_handing_off_shutdown_leaves_the_kept_agent() {
     assert!(kept.is_some_and(|c| Arc::ptr_eq(&c, &child)), "the detach took the kept agent");
     assert!(child.is_alive().await, "the detach killed the agent the shutdown kept");
     child.kill().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A turn of agent messages a restart cuts goes on in the next daemon with every message's words
+/// (its `user_message` holds all that joined it, `restart_resume.rs`): the old daemon puts none of
+/// them back in its queue, or the next one would run them twice (Sol review of #28503).
+#[tokio::test]
+async fn a_cut_turn_of_agent_messages_puts_none_of_them_back() {
+    let dir = std::env::temp_dir().join(format!("acpmux-handoff-{}", uuid::Uuid::now_v7()));
+    let hub = queue_hub_in(&dir, json!({"FAKE_UNTIL_CANCEL_IN": "hang-here"}));
+    let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    let s = hub.new_session(req).await.unwrap();
+    let send = |text: &str, opts: PromptOptions| {
+        let (hub, s) = (hub.clone(), s.clone());
+        let blocks = vec![json!({"type": "text", "text": text})];
+        tokio::spawn(async move { hub.prompt_with(&s, blocks, "test", false, opts).await })
+    };
+    let busy = send("until-cancel", PromptOptions::default());
+    until("the busy turn runs", || s.turn().is_some()).await;
+    let from = |id: &str| PromptOptions {
+        prompt_id: Some(id.to_owned()),
+        agent: Some("lane-a".to_owned()),
+        ..PromptOptions::default()
+    };
+    let a = send("from a, hang-here", from("p-a"));
+    until("a waits", || s.queued() == 1).await;
+    let b = send("from b", from("p-b"));
+    until("b waits", || s.queued() == 2).await;
+    hub.cancel(&s).await.unwrap();
+    until("a's turn takes b", || {
+        s.queued() == 0 && s.turn().is_some_and(|t| t.prompt_id == "p-a")
+    })
+    .await;
+    hub.shutdown_all().await;
+    for task in [busy, a, b] {
+        let _ = tokio::time::timeout(WAIT, task).await.unwrap().unwrap();
+    }
+    let queue: Vec<String> = s.queue.lock().unwrap().iter().map(|q| q.prompt_id.clone()).collect();
+    assert!(queue.is_empty(), "the old daemon put the cut turn's messages back: {queue:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
