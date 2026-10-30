@@ -118,8 +118,11 @@ extension SidebarListViewComponents {
     func railReach(for row: SidebarRow) -> CGFloat {
         guard case .group = row.key else { return 0 }
         let membersX = inset + indentOffset(for: row)
+        // `inside` uses Chrome's corner geometry all the way to the list edge. The general
+        // header padding would clamp that overhang and put the line back under a member row.
+        let edgePadding = SidebarStyle.groupLineLayout == .inside ? 0 : SidebarStyle.groupEdgePadding
         let barX = max(0, SidebarStyle.groupLineX(membersMinX: membersX) - SidebarStyle.groupHeaderOverhang)
-        return membersX - min(membersX, max(barX, SidebarStyle.groupEdgePadding))
+        return membersX - min(membersX, max(barX, edgePadding))
     }
     /// Whether `group` sits somewhere under `ancestor`, by the groups' parent links (cycle-safe).
     static func isNested(_ group: SidebarGroup, under ancestor: GroupID, in groups: [GroupID: SidebarGroup]) -> Bool {
@@ -202,6 +205,9 @@ extension SidebarListViewComponents {
             view.targetSize = target.size
             // A recycled view (a block's region from another time) takes its content at once, not on a spring.
             configure(view, row: row, animated: animate || (adopting && existing != nil))
+            // Reload may move an offscreen parent's title column without changing this
+            // tab's Content or frame size. Re-resolve the model-derived anchor on apply.
+            if case .tab = row.key { view.needsLayout = true }
             let opens = animate && ((existing == nil && old.row(for: row.key) == nil) || reopened.contains(row.key))
             if existing == nil || opens {
                 // The start state never animates: a recycled view shows no
@@ -302,6 +308,7 @@ extension SidebarListViewComponents {
         case let (.block(id), view as SidebarBlockRowView):
             guard let content = blockContent(id, includeGap: true) else { return }
             view.region.activeItem = activeTopItem
+            view.region.selectedWorkspaces = selectedWorkspaces
             if springsRows, animated { view.springShow(content, width: bounds.width) } else { view.show(content, width: bounds.width, animated: animated) }
         case let (.tab(workspaceID, tabID), view as SidebarTabRowView):
             guard let tab = tabs[tabID] else { return }

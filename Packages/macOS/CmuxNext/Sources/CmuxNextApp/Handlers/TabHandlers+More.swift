@@ -11,7 +11,7 @@ extension TabHandlers {
     static func bindMoreActions(into registry: ActionRegistry, context ctx: AppActionContext) {
         bindLayoutMoves(registry, ctx)
         bindTabState(registry, ctx)
-        bindIdentifiers(registry, ctx)
+        bindIdentifiers(into: registry, context: ctx)
     }
 
     private static func bindLayoutMoves(_ registry: ActionRegistry, _ ctx: AppActionContext) {
@@ -126,31 +126,6 @@ extension TabHandlers {
             try BrowserTabAudio.toggleWorkspaces(WindowMembershipHandlers.rowTargets(invocation, ctx), cache: ctx.services.cache)
         })
     }
-
-    private static func bindIdentifiers(_ registry: ActionRegistry, _ ctx: AppActionContext) {
-        registry.bind("palette.copyIdentifiers", invoke: { invocation in
-            guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
-            let workspace = ctx.services.activeDaemon.store.workspaces.first { $0.screens.contains { $0.panes.contains { $0 === pane } } }
-            var lines: [String] = []
-            if let workspace { lines.append("workspace_id=\(workspace.id)") }
-            lines.append("pane_id=\(pane.id)")
-            lines.append("surface_id=\(tab.id)")
-            copy(lines.joined(separator: "\n"))
-        })
-        registry.bind("palette.copyPaneID", invoke: { invocation in
-            guard let pane = ctx.daemonPane(invocation) else { return }
-            copy("pane_id=\(pane.id)")
-        })
-        registry.bind("palette.copySurfaceID", invoke: { invocation in
-            guard let (tab, _) = ctx.daemonTab(invocation) else { return }
-            copy("surface_id=\(tab.id)")
-        })
-    }
-
-    private static func copy(_ text: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
-    }
 }
 
 extension TabHandlers {
@@ -175,5 +150,53 @@ extension TabHandlers {
             // After the store holds the result, like a drop.
             daemon.whenApplied(.generate()) { services.applyReveal(reveal, workspaceID: workspaceID, fallback: landing) }
         }
+    }
+}
+
+/// Copy Workspace ID, Copy Pane ID, Copy Tab ID and Copy IDs (#27709, classic parity): the
+/// workspace row menu, the pane and tab menus, the terminal's right-click menu and the palette.
+/// The text is classic's (`WorkspaceSurfaceIdentifierClipboardText`: `key=value` lines, one
+/// block per workspace) with the public ids the CLI resolves (`PublicIDTargetResolver`):
+/// `ws_…`, `pane_…`, `tab_…`, never a workspace's durable key.
+extension TabHandlers {
+    /// `copy` writes the text (default the general pasteboard, `context.copy`).
+    static func bindIdentifiers(into registry: ActionRegistry, context: AppActionContext, copy: (@MainActor (String) -> Void)? = nil) {
+        let copy = copy ?? { context.copy($0) }
+        // Every selected row, as classic's Copy Workspace IDs.
+        registry.bindEffect("palette.copyWorkspaceID", requires: nil, effect: { invocation in
+            copy(workspaceIDText(try WindowMembershipHandlers.rowTargets(invocation, context), refs: false))
+            return .done
+        })
+        registry.bindEffect("palette.copyWorkspaceIDAndRef", requires: nil, effect: { invocation in
+            copy(workspaceIDText(try WindowMembershipHandlers.rowTargets(invocation, context), refs: true))
+            return .done
+        })
+        // The context helpers report a missing pane or tab themselves.
+        registry.bindEffect("palette.copyPaneID", requires: nil, effect: { invocation in
+            if let pane = context.daemonPane(invocation) { copy("pane_id=\(pane.id)") }
+            return .done
+        })
+        registry.bindEffect("palette.copySurfaceID", requires: nil, effect: { invocation in
+            if let (tab, _) = context.daemonTab(invocation) { copy("surface_id=\(tab.id)") }
+            return .done
+        })
+        registry.bindEffect("palette.copyIdentifiers", requires: nil, effect: { invocation in
+            guard let (tab, pane) = context.daemonTab(invocation) else { return .done }
+            let workspace = context.services.daemon(for: pane).store.workspace(containing: pane.handle)
+            copy(((workspace.map { ["workspace_id=\(publicID($0))"] } ?? []) + ["pane_id=\(pane.id)", "surface_id=\(tab.id)"]).joined(separator: "\n"))
+            return .done
+        })
+    }
+
+    /// The id `cmux … --workspace` and `--target workspace:` accept: the resource id on registry daemons.
+    private static func publicID(_ workspace: WorkspaceModel) -> String { workspace.resourceID?.rawValue ?? workspace.id }
+
+    /// One block per workspace, a blank line between them; with `refs`, each block leads with its `--target` form.
+    private static func workspaceIDText(_ workspaces: [WorkspaceModel], refs: Bool) -> String {
+        workspaces.map { workspace in
+            let id = publicID(workspace)
+            return ((refs ? ["workspace_ref=\(ActionTargetRef(kind: .workspace, id: id))"] : []) + ["workspace_id=\(id)"]).joined(separator: "\n")
+        }
+        .joined(separator: "\n\n")
     }
 }

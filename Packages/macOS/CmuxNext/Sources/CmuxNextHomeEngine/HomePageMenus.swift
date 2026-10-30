@@ -10,7 +10,9 @@ import CmuxNextHome
 @MainActor
 public enum HomePageMenus {
     /// The menu around the conversations: New Message, New Chief and Invite,
-    /// each its catalog action (the toolbar's compose button runs New Message).
+    /// each its catalog action (the toolbar's compose button runs New Message), then, when the
+    /// account has more than one team, Switch Active Team with each team (the active one checked):
+    /// Home lists one team's people at a time, and this switches which.
     public static func backgroundMenu(registry: ActionRegistry) -> NSMenu {
         let menu = NSMenu()
         for (id, symbol): (ActionID, String) in [("home.newMessage", "square.and.pencil"), ("home.newChief", "sparkles"), ("home.invite", "envelope")] {
@@ -19,7 +21,33 @@ public enum HomePageMenus {
                 _ = registry.perform(id, invocation: ActionInvocation(origin: .user))
             })
         }
+        if let teams = teamMenu(registry: registry) {
+            menu.addItem(.separator())
+            menu.addItem(teams)
+        }
         return menu
+    }
+
+    /// Switch Active Team (`openTeamPicker`, the palette's and the CLI's one path) as a submenu
+    /// of the account's teams, or nil with fewer than two teams or while it is unavailable.
+    static func teamMenu(registry: ActionRegistry) -> NSMenuItem? {
+        let action: ActionID = "openTeamPicker"
+        let teams = registry.argumentSuggestions?(ActionSuggestions.cloudTeams) ?? []
+        guard teams.count > 1, let descriptor = registry.descriptor(for: action), registry.unavailableReason(for: action) == nil else { return nil }
+        let active = registry.choiceState?(action, nil)
+        let submenu = NSMenu()
+        for team in teams {
+            let item = HomeMenuTarget.item(title: team.title, symbol: "person.2") {
+                _ = registry.perform(action, invocation: ActionInvocation(arguments: ["team": .string(team.value)], origin: .user))
+            }
+            item.image = nil
+            item.state = team.value == active ? .on : .off
+            submenu.addItem(item)
+        }
+        let item = NSMenuItem(title: descriptor.title, action: nil, keyEquivalent: "")
+        item.image = NSImage.menuSymbol("person.2")
+        item.submenu = submenu
+        return item
     }
 }
 
