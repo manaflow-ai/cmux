@@ -922,6 +922,11 @@
       "title" : "Glass Transparency",
       "type" : "number"
     },
+    "appearance.highlightColor" : {
+      "description" : "The color of selected text everywhere: terminals, Markdown, editors, the address bar and text fields. Unset, it is the terminal theme's selection color.",
+      "title" : "Highlight Color",
+      "type" : "string"
+    },
     "appearance.hue" : {
       "default" : 0.5,
       "description" : "Shift the tint color around the hue wheel.",
@@ -1759,6 +1764,12 @@
       "title" : "Computer Use",
       "type" : "boolean"
     },
+    "computerUse.livePreview" : {
+      "default" : true,
+      "description" : "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity.",
+      "title" : "Live Preview in Chat",
+      "type" : "boolean"
+    },
     "deviceHub.url" : {
       "default" : "",
       "description" : "Overrides the device hub this build signs its devices in to, for Mac Screen sharing between your devices. Leave it empty to use the built-in hub.",
@@ -2481,6 +2492,12 @@
       "default" : false,
       "description" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.",
       "title" : "Classic Home",
+      "type" : "boolean"
+    },
+    "labs.machineJoin" : {
+      "default" : false,
+      "description" : "Add Device shows a line to paste on any Mac or Linux computer; it joins your team's machines. Screen sharing and control stay off until that machine allows them.",
+      "title" : "Join Any Machine with One Line",
       "type" : "boolean"
     },
     "labs.previewFeatures" : {
@@ -4890,17 +4907,6 @@
         "always"
       ],
       "title" : "Titlebar Buttons",
-      "type" : "string"
-    },
-    "workspaceColors.indicatorStyle" : {
-      "default" : "dot",
-      "description" : "How a workspace's color shows in the sidebar: a dot before its name, a bar down the row's edge, or the whole row filled with the color.",
-      "enum" : [
-        "dot",
-        "leftRail",
-        "fill"
-      ],
-      "title" : "Workspace Color Style",
       "type" : "string"
     },
     "workspaces.autoArchive.idleDays" : {
