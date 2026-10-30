@@ -1604,10 +1604,6 @@ mod stop_fence_tests;
 #[path = "probe_off_tests.rs"]
 mod probe_off_tests;
 
-#[cfg(test)]
-#[path = "subsession_width_tests.rs"]
-mod subsession_width_tests;
-
 /// The agent messages of a `session/load` (or a Claude fork's prime) never reach the session's
 /// preview, so its `lastMessage` stays the chat's own newest reply, as `wait --print` reads it
 /// from the log. ACP answers a load once its history is sent, and every reader (direct, Codex

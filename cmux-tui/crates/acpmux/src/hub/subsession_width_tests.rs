@@ -1,8 +1,7 @@
-//! Which sub-sessions hold a width slot of their parent (`subsessions.rs`, Leo:
+//! Which sub-sessions hold a width slot of their parent (`subsession_index.rs`, Leo:
 //! "0 open sub-sessions and may have at most 50 open at once ... WTF IS IT COUNTING"). A child
 //! counts while its harness is alive (ready, running, waiting); a hibernated (idle), dead
-//! (disconnected) or closed one keeps its history but frees its slot. `open_count` is what a
-//! start's reservation weighs against `maxChildren`.
+//! (disconnected) or closed one keeps its history but frees its slot.
 
 use super::*;
 use crate::config::{Config, StoreMode};
@@ -43,10 +42,27 @@ fn child_events(hub: &Hub, parent: &Session, child: &Session) -> Vec<String> {
     let events = hub.events(&parent.id, 0, 10_000).unwrap();
     events
         .into_iter()
-        .filter(|e| e.dir == "mux" && e.kind == crate::hub::subsessions::RECORD_KIND)
+        .filter(|e| e.dir == "mux" && e.kind == RECORD_KIND)
         .filter(|e| e.msg["childSessionId"] == child.id.as_str())
         .map(|e| e.msg["event"].as_str().unwrap_or_default().to_owned())
         .collect()
+}
+
+#[test]
+fn width_slots_count_live_children_only() {
+    let index = Index::default();
+    index.set_live("parent", "finished", SessionStatus::Idle);
+    index.set_live("parent", "dead", SessionStatus::Disconnected);
+    index.set_live("parent", "closed", SessionStatus::Closed);
+    index.set_live("parent", "live", SessionStatus::Running);
+
+    assert_eq!(index.open_count("parent"), 1);
+    assert_eq!(index.open_children("parent"), vec!["live"]);
+    assert!(index.reserve("parent", 1).is_err(), "the live child still binds the cap");
+
+    index.set_live("parent", "live", SessionStatus::Idle);
+    assert_eq!(index.open_count("parent"), 0);
+    assert!(index.reserve("parent", 1).is_ok(), "finished children free the slot");
 }
 
 #[tokio::test]
@@ -65,10 +81,12 @@ async fn only_live_children_hold_a_width_slot() {
     // Hibernated after its turn: its harness exited, its history stays.
     hub.set_status(&child, SessionStatus::Idle);
     assert_eq!(count(), 0, "a finished, hibernated child frees its slot");
+    drop(hub.subsessions.reserve(&parent.id, 1).expect("the freed slot takes a new start"));
 
     // Woken by a prompt: it holds a slot again.
     hub.set_status(&child, SessionStatus::Running);
     assert_eq!(count(), 1, "a woken child holds its slot again");
+    assert!(hub.subsessions.reserve(&parent.id, 1).is_err(), "a running child binds the cap");
 
     // Its harness died.
     hub.set_status(&child, SessionStatus::Disconnected);
