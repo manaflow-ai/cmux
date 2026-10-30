@@ -40,13 +40,15 @@ struct NativePopupInputState {
 
     private func fields(in model: NativePopupModel) -> [String: (acknowledgment: Int, identity: [String])] {
         var result: [String: (acknowledgment: Int, identity: [String])] = [:]
-        if let search = model.search, search.disabled != true, let acknowledgment = search.editSequence {
-            result[search.id] = (acknowledgment, ["search"])
+        // A descriptor without `editSequence` has acknowledged nothing yet (0, as the web hook
+        // sends): its first native edit still gets a sequence and survives a late update.
+        if let search = model.search, search.disabled != true {
+            result[search.id] = (search.editSequence ?? 0, ["search"])
         }
         func visit(_ rows: [NativePopupRow], ancestors: [String] = []) {
             for row in rows where row.disabled != true {
-                if row.kind == .textField, let acknowledgment = row.editSequence {
-                    result[row.id] = (acknowledgment, ["row"] + ancestors)
+                if row.kind == .textField {
+                    result[row.id] = (row.editSequence ?? 0, ["row"] + ancestors)
                 }
                 if let children = row.children { visit(children, ancestors: ancestors + [row.id]) }
             }
