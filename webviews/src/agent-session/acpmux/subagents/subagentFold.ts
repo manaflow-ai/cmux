@@ -947,11 +947,15 @@ export class SubagentFold {
     this.changed.add(group);
   }
 
-  private bumpParentViews(id: string): void {
+  private bumpParentViews(id: string, seen = new Set<string>()): void {
+    // Persisted Codex records can contain a transient parent cycle before the native
+    // root is learned. Stop the revision walk at a repeated node; setRoot repairs it.
+    if (seen.has(id)) return;
+    seen.add(id);
     this.bumpViewRevision(id);
     this.bump(id);
     const parent = this.agents.get(id)?.parent;
-    if (parent !== null && parent !== undefined) this.bumpParentViews(parent);
+    if (parent !== null && parent !== undefined) this.bumpParentViews(parent, seen);
   }
 }
 
