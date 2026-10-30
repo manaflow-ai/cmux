@@ -379,10 +379,11 @@
 .acpmux-access-grant-remove:hover { color: var(--agent-text); background: var(--agent-control-hover); }
 .acpmux-access-grant-remove:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: -1px; }
 
-/* The card's corner. A question in the stack over it (the folder trust bar) takes the same token,
-   so the two always match. */
+/* The card's corner. Every part of the stack over it (the folder trust bar, the running tray, the
+   chat's opened pull requests, the recap) takes the same token from the dock, so they always match. */
 .acpmux-composer-box,
-.acpmux-asks-stack {
+.acpmux-asks-stack,
+.acpmux-dock {
   --acpmux-composer-radius: 18px;
 }
 /* The card's material is the liquid glass (.ui-glass, ui/glass/glass.css) with the composer's own
@@ -771,7 +772,8 @@
 /* A tight row (#20548's narrow step): the group gap narrows and the card reaches 10px from the
    pane's edges. Every chevron and the turn's own controls stay. The default queue and its fold
    continue the card's surface, so all joined edges take the same outset (ask-a1c7dd28ee). */
-.acpmux-composer { --acpmux-composer-narrow-outset: 8px; }
+.acpmux-composer,
+.acpmux-dock { --acpmux-composer-narrow-outset: 8px; }
 @container composer (max-width: 297px) {
   .acpmux-composer-bar { --acpmux-row-group-gap: 8px; }
   .acpmux-composer:not(.acpmux-quick .acpmux-composer) > .acpmux-composer-box,
@@ -1301,6 +1303,7 @@
 }
 /* The box's corner, which the trust bar in the stack over it shares. */
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner),
+.acpmux-dock:has(.acpmux-composer-box > .acpmux-chrome-area > .acpmux-composer-inner),
 .acpmux-dock:has(.acpmux-composer-box > .acpmux-chrome-area > .acpmux-composer-inner) > .acpmux-asks-stack {
   --acpmux-composer-radius: 11px;
 }

@@ -431,12 +431,21 @@ button.cv-subagent > :last-child {
   container-type: inline-size;
   container-name: running-tray;
   --acpmux-tray-time-width: calc(80px * var(--cmux-interface-scale, 1));
-  --acpmux-tray-status-width: 96px;
-  --acpmux-tray-stop-width: 24px;
+  /* The trailing columns end on the stack's grid (design/grid.md 5.5): every row ends 12px in, then
+     one 20px mark box whose centre is 22px from the right (the chevron), and before it a 20px box
+     whose centre is 42px from the right (Stop, or its empty column in a line that has none). The
+     status track holds the state, its 8px gap and those two boxes. The header has no Stop column at
+     all, so nothing empty pushes its chevron in (Leo, 2026-10-30: "the stupid right indent
+     misalignemnt"). */
+  --acpmux-tray-end: var(--ds-space-3, 12px);
+  --acpmux-tray-mark: 20px;
+  --acpmux-tray-status-width: 128px;
+  --acpmux-tray-stop-width: var(--acpmux-tray-mark);
   box-sizing: border-box;
   padding: 0;
   overflow: hidden;
-  border-radius: 10px;
+  /* The composer box's corner (composerLocation.css), so the tray over it shares the box's radius. */
+  border-radius: var(--acpmux-composer-radius, 12px);
   background: color-mix(in srgb, var(--agent-text) 8%, transparent);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
   color: var(--agent-text);
@@ -520,26 +529,36 @@ button.cv-subagent > :last-child {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.acpmux-running-tray__stop-slot {
-  box-sizing: border-box;
-  flex: 0 0 var(--acpmux-tray-stop-width);
-  min-width: var(--acpmux-tray-stop-width);
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-}
+/* A line's Stop sits outside its button, over the Stop column: its centre 42px from the right. */
 .acpmux-running-tray .acpmux-agent-line__stop-slot {
   box-sizing: border-box;
   position: absolute;
   top: 0;
-  right: 8px;
+  right: calc(var(--acpmux-tray-end) + var(--acpmux-tray-mark));
   bottom: 0;
   width: var(--acpmux-tray-stop-width);
   min-width: var(--acpmux-tray-stop-width);
   display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: center;
   pointer-events: none;
+}
+/* Every trailing chevron (the header's, a line's, View all's) in its 20px mark box at the row's end,
+   its centre 22px from the right. A line's chevron keeps the Stop column before it, empty or not, so
+   the state ends on one x in every line. */
+.acpmux-running-tray :is(.acpmux-running-tray__chevron, .acpmux-agent-line__chevron) {
+  flex: 0 0 var(--acpmux-tray-mark);
+  display: inline-flex;
+  justify-content: center;
+  margin-left: 0;
+  color: var(--agent-muted);
+}
+.acpmux-running-tray .acpmux-agent-line__chevron {
+  margin-left: var(--acpmux-tray-stop-width);
+}
+.acpmux-running-tray .acpmux-running-tray__head,
+.acpmux-running-tray .acpmux-running-tray__finished {
+  padding-right: var(--acpmux-tray-end);
 }
 .acpmux-running-tray .acpmux-agent-line__stop-slot > button {
   pointer-events: auto;
@@ -587,9 +606,9 @@ button.cv-subagent > :last-child {
   padding-block: 4px;
 }
 .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button {
-  /* Reserve the final track while keeping the stop control outside the button. */
+  /* The chevron's mark box ends the row; Stop stays outside the button, over its column. */
   padding-left: calc(8px + var(--acpmux-tray-indent, 0px));
-  padding-right: calc(8px + var(--acpmux-tray-stop-width) + 8px);
+  padding-right: var(--acpmux-tray-end);
 }
 .acpmux-agent-line > .acpmux-agent-line__stop-slot > .cv-subagent__stop {
   position: static;
@@ -607,12 +626,13 @@ button.cv-subagent > :last-child {
   .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button {
     position: relative;
     display: grid;
-    grid-template-columns: var(--acpmux-tray-time-width) minmax(0, 1fr) var(--acpmux-tray-stop-width);
+    /* The status track holds the Stop column and the chevron's mark box, as on one line. */
+    grid-template-columns: var(--acpmux-tray-time-width) minmax(0, 1fr);
     grid-template-rows: var(--ui-row-height, 28px) var(--ui-row-height, 28px);
     column-gap: 4px;
     row-gap: 0;
     height: calc(2 * var(--ui-row-height, 28px));
-    padding: 0 8px;
+    padding: 0 var(--acpmux-tray-end) 0 8px;
   }
   /* Progress can wrap above the controls without sharing their track. */
   .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button {
@@ -643,10 +663,6 @@ button.cv-subagent > :last-child {
     grid-row: 2;
     min-width: 0;
     gap: 4px;
-  }
-  .acpmux-running-tray__stop-slot {
-    grid-column: 3;
-    grid-row: 2;
   }
   .acpmux-running-tray .acpmux-agent-line__stop-slot {
     top: auto;
@@ -753,9 +769,12 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray__tail button:focus-visible {
   color: var(--agent-text);
 }
+/* In the transcript (a Labs placement), on the transcript column's two edges, the end one the
+   column's own (--cv-inset-end, beside the computer use preview); the transcript's gap to the bottom
+   stack is the stack's token, never a margin of its own. */
 .acpmux-running-tray[data-placement="after-latest-message"] {
   flex: none;
-  margin: 0 var(--cv-inset) 8px;
+  margin: 0 var(--cv-inset-end, var(--cv-inset)) var(--acpmux-stack-gap, 0px) var(--cv-inset);
 }
 .acpmux-agent-card__state[data-status="failed"] {
   color: var(--agent-status-failure);

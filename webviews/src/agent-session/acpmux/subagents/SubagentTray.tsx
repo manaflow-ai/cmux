@@ -290,7 +290,9 @@ export const SubagentTray = memo(function SubagentTray({
         className="acpmux-summary-text"
         text={showFinished ? t("summary.showFewer") : t("summary.viewAll", { n: finished.length })}
       />
-      <Icon name={showFinished ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
+      <span className="acpmux-running-tray__chevron" aria-hidden="true">
+        <Icon name={showFinished ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
+      </span>
     </button>
   );
   return (
@@ -319,10 +321,13 @@ export const SubagentTray = memo(function SubagentTray({
           <span className="acpmux-summary-meta acpmux-running-tray__time" aria-hidden={starts.length === 0}>
             {starts.length > 0 ? formatDuration(Math.max(0, now - Math.min(...starts))) : undefined}
           </span>
+          {/* The header has no Stop: its chevron takes the tray's last trailing column (22 from the
+              right), with no empty Stop slot pushing it in (Leo: "the stupid right indent misalignemnt"). */}
           <span className="acpmux-running-tray__status">
-            <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
+            <span className="acpmux-running-tray__chevron" aria-hidden="true">
+              <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
+            </span>
           </span>
-          <span className="acpmux-running-tray__stop-slot" aria-hidden="true" />
         </button>
       )}
       {fold.present && (

@@ -50,16 +50,51 @@
 .acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-composer > * {
   pointer-events: auto;
 }
+/* One column, one gap, nothing removed (ui-think-tank's rule on Leo's bottom-stack complaints, Leo
+   2026-10-30: "the stupid right indent misalignemnt"). Every part over the composer takes the
+   composer box's two edges: --acpmux-stack-start and --acpmux-stack-end are the composer's own
+   insets (--cv-inset, and --cv-inset-end where the pane sets it), less the box's narrow outset
+   (composerLocation.css: under 298px of column the box and its quiet row reach 8px past the column on
+   each side, so every part over it does too). The composer's container query cannot reach its
+   siblings, so the outset is the same step written out: the column is the dock's width less the two
+   insets, and the clamp turns 0 into the outset once that column is under 297.5px. Percentages in
+   these resolve where a part uses them, against the dock, as the composer's own padding does. The
+   stack owns the spacing: one token, --acpmux-stack-gap, between parts, none under the last (it sits
+   on the box), and no part keeps an outer margin or bottom padding of its own.
+   test/agent-pane-stack-edges.test.ts measures every part at 1100, 420 and 280px. */
+.acpmux-dock {
+  --acpmux-stack-outset: clamp(
+    0px,
+    calc((297.5px - (100% - var(--cv-inset) - var(--cv-inset-end, var(--cv-inset)))) * 1000),
+    var(--acpmux-composer-narrow-outset, 8px)
+  );
+  --acpmux-stack-start: calc(var(--cv-inset) - var(--acpmux-stack-outset));
+  --acpmux-stack-end: calc(var(--cv-inset-end, var(--cv-inset)) - var(--acpmux-stack-outset));
+}
 .acpmux-dock > .acpmux-agents-pill-anchor {
   position: relative;
   flex: none;
   display: flex;
-  padding: 0 var(--cv-inset-end, var(--cv-inset)) 8px var(--cv-inset);
+  padding: 0 var(--acpmux-stack-end) 0 var(--acpmux-stack-start);
 }
 /* The tray of running subagents and background commands (subagents/SubagentTray.tsx), aligned
    with the composer card; in a short pane it gives up its height like the parts below. */
 .acpmux-dock > .acpmux-running-tray {
-  margin: 0 var(--cv-inset-end, var(--cv-inset)) 0 var(--cv-inset);
+  margin: 0 var(--acpmux-stack-end) 0 var(--acpmux-stack-start);
+}
+/* The parts on the rule (the tray, the pull requests, the recap, the agents pill, the host's line,
+   the gallery's legacy bars): the stack's token under each that another part follows. */
+.acpmux-dock
+  > :is(
+    .acpmux-running-tray,
+    .acpmux-pr-stack,
+    .acpmux-pr-count-host,
+    .acpmux-recap,
+    .acpmux-agents-pill-anchor,
+    .acpmux-host-line,
+    .acpmux-pr-comparison
+  ):has(+ :not(.acpmux-composer)) {
+  margin-bottom: var(--acpmux-stack-gap);
 }
 /* The cards over the composer: the running tray and the chat's opened pull requests
    (summary/PullRequestStack.tsx) (Leo, 2026-10-30: "the stupid fucking gap at the bottom plus the
@@ -73,13 +108,12 @@
    and gaps. */
 .acpmux-dock {
   --acpmux-stack-gap: 0px;
-  --acpmux-stack-radius: 10px;
 }
 :root[data-bottom-stack="cards"] .acpmux-dock {
   --acpmux-stack-gap: var(--ds-space-1, 4px);
 }
 .acpmux-dock > .acpmux-pr-stack {
-  margin: 0 var(--cv-inset-end, var(--cv-inset)) var(--acpmux-stack-gap) var(--cv-inset);
+  margin: 0 var(--acpmux-stack-end) var(--acpmux-stack-gap) var(--acpmux-stack-start);
 }
 .acpmux-dock > .acpmux-running-tray:has(+ :is(.acpmux-pr-stack, .acpmux-composer)) {
   margin-bottom: var(--acpmux-stack-gap);
@@ -105,10 +139,24 @@
     inset calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--acpmux-composer-edge, transparent),
     inset 0 var(--cmux-hairline, 0.5px) 0 var(--acpmux-composer-edge, transparent);
 }
+/* The recap's card joins the glass the same way: square where it meets the part under it, which
+   draws the hairline there, and that part squares its top. */
+:root:not([data-bottom-stack="cards"])
+  .acpmux-dock
+  > .acpmux-recap:has(+ :is(.acpmux-running-tray, .acpmux-pr-stack, .acpmux-composer))
+  > .acpmux-recap__card {
+  border-bottom-width: 0;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+:root:not([data-bottom-stack="cards"]) .acpmux-dock > .acpmux-recap + :is(.acpmux-running-tray, .acpmux-pr-stack) {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
 /* The composer's first part (the queue, else the card) squares its top under the stack. */
 :root:not([data-bottom-stack="cards"])
   .acpmux-dock
-  > :is(.acpmux-pr-stack, .acpmux-running-tray)
+  > :is(.acpmux-pr-stack, .acpmux-running-tray, .acpmux-recap)
   + .acpmux-composer
   > :is(.acpmux-composer-queue, .acpmux-composer-box:not(.acpmux-composer-queue ~ *)) {
   border-top-left-radius: 0;
@@ -116,7 +164,7 @@
 }
 :root:not([data-bottom-stack="cards"])
   .acpmux-dock
-  > :is(.acpmux-pr-stack, .acpmux-running-tray)
+  > :is(.acpmux-pr-stack, .acpmux-running-tray, .acpmux-recap)
   + .acpmux-composer
   > .acpmux-composer-box:not(.acpmux-composer-queue ~ *)::before {
   border-radius: inherit;
@@ -170,7 +218,7 @@
 .acpmux-dock > .acpmux-pr-count-host {
   position: relative;
   flex: none;
-  margin: 0 var(--cv-inset-end, var(--cv-inset)) 0 var(--cv-inset);
+  margin: 0 var(--acpmux-stack-end) 0 var(--acpmux-stack-start);
   pointer-events: none;
 }
 .acpmux-dock > .acpmux-pr-count-host > .acpmux-pr-count {
@@ -199,7 +247,7 @@
   display: flex;
   flex-direction: column;
   overflow: clip;
-  border-radius: var(--acpmux-stack-radius, 10px);
+  border-radius: var(--acpmux-composer-radius, 12px);
   background: color-mix(in srgb, var(--agent-text) 8%, transparent);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
   color: var(--agent-text);

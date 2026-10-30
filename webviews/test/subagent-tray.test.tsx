@@ -414,7 +414,9 @@ describe("the tray", () => {
       const tray = root.querySelector<HTMLElement>(".acpmux-running-tray")!;
       expect(tray.querySelector(".acpmux-running-tray__head .acpmux-running-tray__time")).not.toBeNull();
       expect(tray.querySelector(".acpmux-running-tray__head .acpmux-running-tray__status")).not.toBeNull();
-      expect(tray.querySelector(".acpmux-running-tray__head .acpmux-running-tray__stop-slot")).not.toBeNull();
+      // The header has no Stop, so no empty Stop slot pushes its chevron in from the right edge.
+      expect(tray.querySelector(".acpmux-running-tray__head .acpmux-running-tray__stop-slot")).toBeNull();
+      expect(tray.querySelector(".acpmux-running-tray__head .acpmux-running-tray__chevron")).not.toBeNull();
       const lines = [...tray.querySelectorAll<HTMLElement>(".acpmux-agent-line")];
       expect(lines).toHaveLength(2);
       expect(lines.every((line) => line.querySelector(".acpmux-agent-line__time"))).toBe(true);
