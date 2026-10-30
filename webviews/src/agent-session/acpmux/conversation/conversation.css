@@ -3022,6 +3022,16 @@ a.cv-sha:focus-visible {
 .cv-reply-actions:focus-within {
   opacity: 1;
 }
+/* While a message is read aloud its row stays shown, its Stop in reach without the pointer on it
+   (MessageActions.tsx ReadAloudButton, user 2026-10-29), and the button reads as on. */
+.cv-reply-actions:has(.cv-read-aloud[data-reading]),
+.acpmux-turnSummary .cv-turn-actions:has(.cv-read-aloud[data-reading]) {
+  opacity: 1;
+}
+.cv-read-aloud[data-reading] {
+  color: var(--agent-accent, var(--cv-text));
+  background: color-mix(in srgb, var(--agent-accent, currentColor) 14%, transparent);
+}
 .cv-turn-summary,
 .cv-turn-time {
   flex: none;

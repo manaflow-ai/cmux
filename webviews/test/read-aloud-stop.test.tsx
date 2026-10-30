@@ -128,15 +128,14 @@ test("while it reads, the button shows Stop and keeps its row shown; a second pr
     await act(async () => first!.click());
     const reading = buttons()[0]!;
     expect(label(reading)).toBe("Stop reading");
-    // A stop glyph, not the speaker, and the row stays shown without the pointer on it.
+    // A stop glyph, not the speaker; its row stays shown without the pointer on it (conversation.css).
     expect(reading.dataset.reading).toBe("true");
     expect(reading.querySelector("[data-glyph='stop']")).not.toBeNull();
-    expect(reading.closest("[data-reading-aloud]")).not.toBeNull();
     const before = cancels;
     await act(async () => reading.click());
     expect(cancels).toBeGreaterThan(before);
     expect(label(buttons()[0])).toBe("Read aloud");
-    expect(dom.window.document.querySelector("[data-reading-aloud]")).toBeNull();
+    expect(dom.window.document.querySelector("[data-reading]")).toBeNull();
   });
 });
 
@@ -177,7 +176,10 @@ test("in the app, the app's voice reads and stops, and the palette's or CLI's st
     await withTranscript(async () => {
       await act(async () => buttons()[0]!.click());
       expect(calls).toEqual([
-        ["readAloud.speak", { id: "e1", text: "The hosted test run is still queued behind two other jobs." }],
+        [
+          "readAloud.speak",
+          { id: "e1", text: "The hosted test run is still queued behind two other jobs.", lang: "en" },
+        ],
       ]);
       // The web view's own voice stays silent: the app speaks.
       expect(spoken.length).toBe(spokenBefore);
