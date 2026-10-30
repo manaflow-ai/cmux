@@ -202,9 +202,14 @@ def run_metrics(run):
     closes = [c for c in series["closes"] if c.get("made")]
     answers = [a for w in series["waves"] for a in (w.get("answers") or [x for chat in w.get("chats") or [] for x in chat])]
     # One chat = the first answer of a one_chat attempt: session/new, or the connection that failed first.
-    chat_firsts = [a for w in series["waves"] for chat in w.get("chats") or [] for a in chat[:1]]
-    if not chat_firsts:  # runs from before the per-chat record: each session/new or failed connection is one
-        chat_firsts = [a for a in answers if a["method"] in ("session/new", "connection")]
+    # An empty chat (written by drivers before a84ddb0e414's fix) is a failed open: it never got an answer.
+    chat_firsts = [(chat[0] if chat else {"method": "connection", "error": "no answer"})
+                   for w in series["waves"] for chat in (w.get("chats") or [])
+                   if isinstance(chat, list)]
+    if not any(isinstance(w.get("chats"), list) for w in series["waves"]):
+        # Runs from before the per-chat record: one chat per session/new; their failed connections cannot be
+        # told apart from a later error of a chat, so they are not counted (an undercount, said in the README).
+        chat_firsts = [a for a in answers if a["method"] == "session/new"]
     chats_total = len(chat_firsts)
     chats_failed = sum(1 for a in chat_firsts if a.get("error"))
     pids = [p["pid"] for p in series["acpmux_pids"] if p.get("pid")]
@@ -341,7 +346,6 @@ KEY = [  # (label, path in metrics) for the text summary
     ("workspace close not done", ("workspace_close_not_done",)),
     ("acpmux restarts", ("acpmux_restarts",)),
     ("acpmux new p99 ms", ("acpmux_new_ms", "p99")),
-    ("acpmux open failures", ("acpmux_open_failures",)),
     ("acpmux open failure share", ("acpmux_open_failure_share",)),
     ("acpmux host-start 10 s time-outs", ("acpmux_host_start_timeouts",)),
     ("acpmux agent_start 90 s time-outs", ("acpmux_agent_start_timeouts",)),
@@ -487,7 +491,6 @@ METRIC_FAILURE = {
     "workspace close p99 ms": _close("workspace close p99 ms"),
     "workspace close not done": _close("workspace close p99 ms"),
     # Chat opens fail on Austin's day (pa-b10): a share or count needs a base that failed some opens.
-    "acpmux open failures": lambda m: (m.get("acpmux_open_failures") or 0) > 0,
     "acpmux open failure share": lambda m: (m.get("acpmux_open_failures") or 0) > 0,
     "acpmux host-start 10 s time-outs": lambda m: (m.get("acpmux_host_start_timeouts") or 0) > 0,
     "acpmux agent_start 90 s time-outs": lambda m: (m.get("acpmux_agent_start_timeouts") or 0) > 0,

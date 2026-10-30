@@ -318,6 +318,36 @@ class ReadTimes(unittest.TestCase):
             self.assertTrue(summary["invalid"].startswith("invalid: base is not an ancestor of head"), summary["invalid"])
 
 
+class ChatRecord(unittest.TestCase):
+    def test_a_refused_connect_is_recorded_as_a_failed_open(self):
+        """The driver's own one_chat and acpmux_call, against a socket path nobody listens on: the chat must
+        hold its failed connection (re-review of a84ddb0e414: it was stored as [] and counted nothing)."""
+        source = open(os.path.join(HERE, "driver.py")).read()
+        start = source.index("def acpmux_call(")
+        end = source.index("def waves(")
+        namespace = {"socket": __import__("socket"), "time": time, "json": json, "worktrees": lambda: ["/tmp"]}
+        with tempfile.TemporaryDirectory() as tmp:
+            namespace["ACPMUX_HOME"] = tmp  # acpmux.sock does not exist there
+            namespace["acpmux_socket_of"] = lambda home: os.path.join(home, "acpmux.sock")
+            exec(compile(source[start:end], "driver.py", "exec"), namespace)
+            out = []
+            namespace["one_chat"](1, 0, out)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0][0]["method"], "connection")
+        self.assertTrue(out[0][0]["error"])
+        # And summarize counts it: 1 chat, 1 failed open.
+        with tempfile.TemporaryDirectory() as tmp:
+            run_ = synthetic_run()
+            run_["series"]["waves"] = [{"chats": out, "answers": [a for c in out for a in c]}]
+            d = os.path.join(tmp, "run-1")
+            os.makedirs(d)
+            with open(os.path.join(d, "run.json"), "w") as f:
+                json.dump(run_, f)
+            m = summarize(os.path.join(tmp, "s.json"), [d])["runs"][0]["metrics"]
+            self.assertEqual((m["acpmux_opens"], m["acpmux_open_failures"], m["acpmux_open_failure_share"]), (1, 1, 1.0))
+            self.assertTrue(m["austin_failure"]["acpmux_open_failures"])
+
+
 class AgentFaults(unittest.TestCase):
     def test_missing_or_unhooked_agents_void_the_ab(self):
         head = run("git", "-C", REPO, "rev-parse", "HEAD").stdout.strip()

@@ -145,8 +145,11 @@ Each run directory keeps `run.json` (all samples), `driver.log`, `app-log.txt`, 
 - `acpmux_new_ms`, `acpmux_prompt_ms`, `acpmux_errors`, `acpmux_restarts` (the daemon pid changed),
   `acpmux_unresponsive_log`; `acpmux_opens`, `acpmux_open_failures`, `acpmux_open_failure_share`,
   `acpmux_host_start_timeouts` ("agent host start did not finish within 10s") and
-  `acpmux_agent_start_timeouts` ("agent_start did not finish within 90s") from the Chief waves' `session/new`
-  calls (owner of the fix: pa-b10).
+  `acpmux_agent_start_timeouts` ("agent_start did not finish within 90s") from the Chief waves (owner of
+  the fix: pa-b10). Each chat is one attempt: its `session/new`, or the connection that failed before it
+  (refused, closed, no answer), which is a failed open. Verdicts use the failure share, not the count (a
+  faster head runs more waves). Runs from before harness a84ddb0e414 do not record chats: their failed
+  connections are not counted, an undercount.
 - `memory`: RSS and footprint over time for the app, the daemon and acpmux; `growth_per_hour` (RSS,
   footprint and fds, least-squares slope); `fds` (open file descriptors, `lsof`); `load1`,
   `swap_used_mb`, `memory_level_min`.

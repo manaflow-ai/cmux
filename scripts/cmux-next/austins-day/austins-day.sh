@@ -33,7 +33,8 @@ if [ -z "${AUSTINS_DAY_COPY:-}" ]; then
 fi
 here=$AUSTINS_DAY_COPY
 # The copy is removed on every exit, from here on (usage errors and missing tools too).
-trap 'rm -rf "$here"' EXIT
+remove_copy() { case "$here" in "${TMPDIR:-/tmp}"/austins-day.*) rm -rf "$here" ;; esac; }
+trap remove_copy EXIT
 repo=$AUSTINS_DAY_REPO
 harness_sha=$AUSTINS_DAY_SHA
 export AUSTINS_DAY_REPO
@@ -96,7 +97,7 @@ on_exit() {
   if [ -n "$current_acquire" ] && jobs -pr | grep -qx "$current_acquire"; then kill "$current_acquire" 2>/dev/null || true; fi
   if [ -n "$current_host" ] && [ -n "$current_run" ]; then ssh -o BatchMode=yes "$current_host" "rm -rf '$current_run'" >/dev/null 2>&1 || true; fi
   if [ -n "$current_lease" ]; then capture-host release "$current_lease" >/dev/null 2>&1 || true; fi
-  rm -rf "$here"
+  remove_copy
 }
 trap on_exit EXIT
 trap 'exit 130' INT TERM HUP

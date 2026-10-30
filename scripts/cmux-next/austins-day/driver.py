@@ -509,7 +509,10 @@ def one_chat(wave, index, out):
     answers = acpmux_call([("session/new", {"cwd": worktrees()[index % len(worktrees())], "mcpServers": [],
                                             "_meta": {"acpmux": {"harness": "ad-fake"}}}),
                            ("session/prompt", prompt)], timeout=120)
-    out.append(answers[1:])
+    # Drop the initialize answer by its method (index 0 is a failed connection when the connect is refused or
+    # initialize never answers; that entry stays: it is this chat's failed open). Never an empty chat.
+    chat = [a for a in answers if a["method"] != "initialize"]
+    out.append(chat or [{"method": "connection", "ms": None, "error": "no answer", "result": None}])
 
 
 def waves(deadline):
@@ -556,12 +559,13 @@ def topology_ids():
 
 def closes(deadline):
     n = 0
-    # A close takes up to about 50 s (create, up to 20 s to show, up to 30 s to go): one starts only when it
-    # can end before the load's deadline, so the end of the run never cuts a close and counts it "not done"
-    # (re-review of 2b7fd104fdc, finding 1).
+    # A close takes at most about 125 s (create up to 60 s, show up to 20 s, the action up to 30 s and the
+    # watchers' 30 s bound from the same start, joined within 15 s more): one starts only when that fits
+    # before the load's deadline, so the end of the run never cuts a close (re-reviews of 2b7fd104fdc and
+    # a84ddb0e414).
     while not STOP.is_set():
         STOP.wait(opts.close_every)
-        if STOP.is_set() or time.time() + 60 > deadline:
+        if STOP.is_set() or time.time() + 125 > deadline:
             break
         n += 1
         _, parsed, code = cli("workspace", "create", "--name", f"ad-close-{n}", timeout=60)
