@@ -80,8 +80,8 @@ enum DebugHoverSweep {
             "frames": stats,
             "page_thumbnails": .object(["count": .number(Double(services.cache.pageThumbnails.count)),
                                         "bytes": .number(Double(services.cache.pageThumbnails.totalBytes)),
-                                        "refused": .number(Double(services.cache.pageCaptureRefusals)),
-                                        "failed": .number(Double(services.cache.pageCaptureFailures))]),
+                                        "refused": .number(Double(services.cache.pageThumbnails.refusedCaptures)),
+                                        "failed": .number(Double(services.cache.pageThumbnails.failedCaptures))]),
             "card_thumbnails_shown": .number(Double(cards.count)),
         ])
     }

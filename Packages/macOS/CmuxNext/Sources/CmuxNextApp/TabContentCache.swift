@@ -94,11 +94,6 @@ final class TabContentCache {
     let pageThumbnails: PreviewImageCache
     var pageThumbnailVersions: [String: Int] = [:]
     var pageCapturesInFlight: Set<String> = []
-    /// Leave and key-loss pictures the engine refused (``BrowserTabError/snapshotUnavailable``: Chromium never pictures
-    /// a page hidden or closing before its call's turn, 223988ec101) and the ones that failed otherwise (a timeout, a
-    /// closed page). The card then keeps its last picture, or its placeholder; `debug.hover_sweep` reports both counts.
-    var pageCaptureRefusals = 0
-    var pageCaptureFailures = 0
     /// How long a leave capture may take before its thumbnail is dropped (the capture runs on the
     /// main thread). Tests that do not test this deadline use the shared 30 s test configuration.
     var pageCaptureDeadline: Duration = .seconds(2)
