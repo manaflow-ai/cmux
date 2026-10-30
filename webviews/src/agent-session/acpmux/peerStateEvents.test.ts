@@ -15,12 +15,18 @@ afterAll(() => {
 });
 
 type Peer = { name: string; state: string; lastSeen?: number | null; error?: string | null };
-async function fixture(origin: string | undefined, supported = true) {
+async function fixture(origin: string | undefined, supported = true, holdPeers = false) {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   const requests: string[] = [];
   const snapshots: AcpmuxSnapshot[] = [];
   let peers: Peer[] = [{ name: "studio-mac", state: "connecting", lastSeen: null, error: null }];
+  let status: Record<string, unknown>[] = [
+    { name: "studio-mac", transport: "ssh", connected: true, state: "connected", lastSeen: 99 },
+  ];
+  // A held `_acpmux/peers` answers only once released (`releasePeers`).
+  let held: (() => void) | undefined;
+  const peersHeld = holdPeers ? new Promise<void>((resolve) => (held = resolve)) : undefined;
   let socket: InstanceType<typeof MockAcpmuxSocket>;
   let onSnapshot: ((snapshot: AcpmuxSnapshot) => void) | undefined;
   const openSocket = () => {
@@ -31,9 +37,9 @@ async function fixture(origin: string | undefined, supported = true) {
       requests.push(method);
       if (method === "initialize")
         return { protocolVersion: 1, _meta: { acpmux: { origin, features: supported ? ["peerStateEvents"] : [] } } };
-      if (method === "_acpmux/status")
-        return { peers: [{ name: "studio-mac", transport: "ssh", connected: true, state: "connected", lastSeen: 99 }] };
+      if (method === "_acpmux/status") return { peers: status };
       if (method === "_acpmux/peers") {
+        await peersHeld;
         return { peers };
       }
       return answer(method, params);
@@ -53,11 +59,12 @@ async function fixture(origin: string | undefined, supported = true) {
     socket.onmessage?.({
       data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/peer_state_changed", params: value }),
     });
-  return {
+  const f = {
     client,
     socket: () => socket,
     waitForState: (state: string | undefined) =>
       new Promise<void>((resolve) => {
+        if (snapshots.length > 0 && snapshots.at(-1)!.peerStates?.["studio-mac"] === state) return resolve();
         onSnapshot = (snapshot) => {
           if (snapshot.peerStates?.["studio-mac"] === state) {
             onSnapshot = undefined;
@@ -72,7 +79,14 @@ async function fixture(origin: string | undefined, supported = true) {
     peers: (value: Peer[]) => {
       peers = value;
     },
+    status: (value: Record<string, unknown>[]) => {
+      status = value;
+    },
+    releasePeers: () => held?.(),
   };
+  // The initial snapshot lands after the first frame: settle it, unless the test holds it.
+  if (origin === "local" && supported && !holdPeers) await f.waitForState("connecting");
+  return f;
 }
 
 const note = (state: string, extra: Record<string, unknown> = {}) => ({
@@ -117,11 +131,12 @@ test("identical lag replay is idempotent and the next state still reaches the cl
   }
 });
 
-test("a later status refresh cannot erase a newer live state and never polls the event snapshot", async () => {
+test("a status read in flight cannot erase a newer live state and never polls the event snapshot", async () => {
   const f = await fixture("local");
   try {
+    const refreshed = f.client.refreshPeers();
     f.notify(note("offline", { error: "removed" }));
-    await f.client.refreshPeers();
+    await refreshed;
     expect(f.latest().peerStates?.["studio-mac"]).toBe("offline");
     await f.client.refreshPeers();
     expect(f.requests.filter((method) => method === "_acpmux/peers")).toHaveLength(1);
@@ -200,6 +215,43 @@ test("a peer the status lists but the snapshot omits is not offered as ready", a
     const status = (f.client as unknown as { peerStatus: Record<string, unknown> }).peerStatus["studio-mac"];
     expect(status).toMatchObject({ connected: false, lastSeen: 42, error: "lost" });
     expect(status).not.toHaveProperty("state");
+  } finally {
+    f.client.close();
+  }
+});
+
+test("the first frame does not wait on the peer snapshot", async () => {
+  // A held `_acpmux/peers` would hold `connect` if the snapshot sat on the first frame's path,
+  // after the one round trip #27755 keeps it to.
+  const f = await fixture("local", true, true);
+  try {
+    expect(f.requests).toContain("_acpmux/peers");
+    expect(f.latest().peerStates?.["studio-mac"]).toBe("connected");
+    const snapshot = f.waitForState("connecting");
+    f.releasePeers();
+    await snapshot;
+  } finally {
+    f.client.close();
+  }
+});
+
+test("a later status read replaces a restarting state no note has updated since", async () => {
+  // A failed restart goes restarting -> reconnecting, both `reconnecting` on the wire, so the daemon
+  // sends no note; the next `_acpmux/status` read is what says so.
+  const f = await fixture("local");
+  try {
+    f.peers([{ name: "studio-mac", state: "restarting", lastSeen: 5, error: null }]);
+    const restarting = f.waitForState("restarting");
+    f.socket().onmessage?.({
+      data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/lagged", params: { dropped: 1 } }),
+    });
+    await restarting;
+    f.status([
+      { name: "studio-mac", transport: "ssh", connected: false, state: "reconnecting", lastSeen: 5, attempts: 1 },
+    ]);
+    await f.client.refreshPeers();
+    expect(f.latest().peerStates?.["studio-mac"]).toBe("reconnecting");
+    expect(f.latest().peerConnected?.["studio-mac"]).toBe(false);
   } finally {
     f.client.close();
   }
