@@ -189,6 +189,9 @@ struct PlacementDocumentWriteOrderTests {
                     committed: try #require(reloaded.rows(SidebarViewRequest(live: Self.live))).compactMap(\.ref?.workspaceID),
                     expected: Self.expected, original: Self.original, operations: remote.calls.map(\.ops))
             }
+            SidebarDocStore.current = nil
+            controller.sidebar.resync()
+            #expect(controller.sidebar.model.ungroupedFirst, "inactive document resync must restore legacy ungrouped-first targeting")
             await connection.close()
         } catch {
             await connection.close()
