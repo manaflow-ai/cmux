@@ -208,6 +208,25 @@ test('two queued sends with the same text keep two rows whatever order their eve
   assert.deepEqual(rows.map(r => r.promptId).sort(), [...ids].sort());
 });
 
+test('a dropped acceptance does not reopen a finished turn when the final response arrives', async () => {
+  const h = eventHarness();
+  h.context.refreshActivity = () => {};
+  // The prompt_accepted notification is lost (server queue pressure); the whole turn runs
+  // before session/prompt returns, so the final response is the first acceptance the page sees.
+  h.onPrompt(params => {
+    h.event('user_message', { text: 'keep this draft', promptId: params._meta.acpmux.promptId });
+    h.event('status', { status: 'running' });
+    h.event('status', { status: 'ready' });
+  });
+  await h.run('send(false)');
+  const t = h.run("state.transcripts.get('peer/session-1')");
+  assert.equal(t.status, 'ready', 'the finished chat shows Working forever');
+  assert.equal(t.runningSince, 0);
+  assert.equal(h.rows().length, 1);
+  assert.equal(h.rows()[0].queued, undefined);
+  assert.equal(h.run('sendingPrompt'), false);
+});
+
 test('a user_message before acceptance keeps the submitted image previews', async () => {
   const h = eventHarness();
   h.context.file = file(Buffer.from('image'));
