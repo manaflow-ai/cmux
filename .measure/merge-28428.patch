@@ -1,0 +1,180 @@
+diff --git a/cmux-tui/crates/acpmux/src/hub/inbox.rs b/cmux-tui/crates/acpmux/src/hub/inbox.rs
+index 7636ac835ab..20d1ef23d33 100644
+--- a/cmux-tui/crates/acpmux/src/hub/inbox.rs
++++ b/cmux-tui/crates/acpmux/src/hub/inbox.rs
+@@ -115,6 +115,28 @@ pub(super) struct Item {
+     answer: Option<Waiter>,
+ }
+ 
++#[cfg(test)]
++impl Item {
++    /// Message `prompt_id` from agent `from`, that a notice carries now.
++    pub(super) fn carried(prompt_id: &str, from: &str, text: &str) -> Self {
++        Self {
++            prompt_id: prompt_id.to_owned(),
++            notice: None,
++            answered: None,
++            thread: format!("from:{from}"),
++            from: from.to_owned(),
++            from_session: None,
++            class: PromptClass::Result,
++            report: false,
++            at: now_ms(),
++            text: text.to_owned(),
++            noticed: true,
++            read: false,
++            answer: None,
++        }
++    }
++}
++
+ /// The waiting `session/prompt` of an inbox message.
+ type Waiter = tokio::sync::watch::Sender<Option<super::queue::Answer>>;
+ 
+@@ -802,6 +824,11 @@ impl Hub {
+                 None
+             }
+         };
++        // Its messages wait again. The cap's timer saw them carried, and the inbox steers none
++        // into a turn past its cap: that turn gets the cap's notice (`turn_cap.rs`).
++        if answered.is_none() && !ids.is_empty() && !super::queue::closing(session) {
++            self.turn_cap_recheck(session);
++        }
+         if let Some(answer) = answered {
+             let mut msg = json!({"noticePromptId": notice_id, "promptIds": ids});
+             match answer {
+@@ -817,6 +844,18 @@ impl Hub {
+         self.inbox_review(session);
+     }
+ 
++    /// Ends notice `notice_id`, carrying `ids`, as one refused before its prompt was written.
++    #[cfg(test)]
++    pub(super) fn inbox_notice_refused(
++        self: &Arc<Self>,
++        session: &Arc<Session>,
++        notice_id: &str,
++        ids: &[String],
++    ) {
++        let refused = Err(RpcError::invalid_params("steer refused"));
++        self.notice_done(session, notice_id, ids, refused);
++    }
++
+     /// A turn started (`run_prompt_joined`): a refusal before it no longer holds the next try
+     /// back, and its wake timer is done.
+     pub(super) fn inbox_turn_started(self: &Arc<Self>, session: &Arc<Session>) {
+diff --git a/cmux-tui/crates/acpmux/src/hub/turn_cap.rs b/cmux-tui/crates/acpmux/src/hub/turn_cap.rs
+index a6e5ff698dd..091cde6a792 100644
+--- a/cmux-tui/crates/acpmux/src/hub/turn_cap.rs
++++ b/cmux-tui/crates/acpmux/src/hub/turn_cap.rs
+@@ -9,8 +9,8 @@
+ //! person's own steers still go in, and so does the queue's Send now. The hub steers one notice
+ //! into that turn, once ([`NOTICE_KIND`]; the turn it went into is saved in the session's meta, so
+ //! a turn a restart adopts gets no second), when an agent's message is waiting for it: on the
+-//! first agent message past the cap, or at the cap when one waits already ([`Hub::arm_turn_cap`]'s
+-//! timer). The notice goes only into the turn it names ([`notice_reaches`], checked again as it is
++//! first agent message past the cap, or at the cap when one waits already, queued or in the inbox
++//! with no notice carrying it ([`Hub::arm_turn_cap`]'s timer). The notice goes only into the turn it names ([`notice_reaches`], checked again as it is
+ //! written; one logged but never written leaves `steer_withdrawn`). The hub never cancels
+ //! the turn itself.
+ //!
+@@ -142,14 +142,23 @@ impl Hub {
+             tokio::time::sleep(std::time::Duration::from_millis(wait)).await;
+             let (Some(hub), Some(session)) = (hub.upgrade(), weak.upgrade()) else { return };
+             let Some((running, cap)) = capped_turn(&session, now_ms()) else { return };
+-            // Another agent's message waits (`queue.rs` keeps its sender as `run.agent`).
+-            let waiting = session
++            // Another agent's message waits: queued (`queue.rs` keeps its sender as `run.agent`),
++            // or in the inbox with no notice carrying it (`inbox.rs`), which steers none into a
++            // turn past its cap.
++            let queued = session
+                 .queue
+                 .lock()
+                 .unwrap_or_else(|e| e.into_inner())
+                 .iter()
+                 .any(|q| q.run.agent.is_some());
+-            if running == turn_id && waiting {
++            let held = session
++                .inbox
++                .lock()
++                .unwrap_or_else(|e| e.into_inner())
++                .items
++                .iter()
++                .any(|i| !i.noticed);
++            if running == turn_id && (queued || held) {
+                 hub.turn_cap_notice(&session, &running, cap);
+             }
+         });
+diff --git a/cmux-tui/crates/acpmux/src/hub/turn_cap_tests.rs b/cmux-tui/crates/acpmux/src/hub/turn_cap_tests.rs
+index 8dd146db6e1..335f98c1b6e 100644
+--- a/cmux-tui/crates/acpmux/src/hub/turn_cap_tests.rs
++++ b/cmux-tui/crates/acpmux/src/hub/turn_cap_tests.rs
+@@ -484,3 +484,51 @@ async fn an_adopted_turns_timer_counts_from_the_turns_start() {
+     f.open("g").await;
+     tokio::time::timeout(WAIT, turn).await.unwrap().unwrap().unwrap();
+ }
++
++/// Another agent's message the inbox holds under the cap (`inbox.rs`: the person's prompt waits,
++/// so no inbox notice steers in, and past the cap none does) waits for the turn too: the timer
++/// sends the notice at the cap.
++#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
++async fn an_inbox_message_held_under_the_cap_gets_the_notice_at_the_cap() {
++    let mut f = fixture().await;
++    let cap = 1_500;
++    f.hub.set_turn_cap(&f.session, Some(cap));
++    let turn = f.gated_turn("g").await;
++    let turn_id = f.session.turn().unwrap().turn_id;
++    let (person, _next) = f.send("next from the person", None, false, false).await;
++    assert_eq!(person.unwrap()["queued"], true);
++    let opts =
++        PromptOptions { agent: Some("lane-a".into()), inbox: true, ..PromptOptions::default() };
++    let (held, _held) = f.send_with("from lane a", false, opts).await;
++    held.unwrap();
++    let in_inbox = |f: &Fixture| f.session.inbox.lock().unwrap().items.iter().any(|i| !i.noticed);
++    assert!(in_inbox(&f), "held in the inbox, no notice carries it");
++    f.heard(&format!("steer: {}", notice_text(cap))).await;
++    assert_eq!(f.notices(), [turn_id]);
++    f.open("g").await;
++    tokio::time::timeout(WAIT, turn).await.unwrap().unwrap().unwrap();
++}
++
++/// An inbox notice refused as its turn crosses the cap (written to no agent) leaves its message
++/// waiting in the inbox, which steers none into a turn past its cap: the turn gets the cap's
++/// notice then. The timer, which ran while the notice carried it, saw nothing waiting.
++#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
++async fn an_inbox_notice_refused_past_the_cap_leaves_its_message_waiting_and_sends_the_notice() {
++    let mut f = fixture().await;
++    let cap = 600_000;
++    f.hub.set_turn_cap(&f.session, Some(cap));
++    let turn = f.gated_turn("g").await;
++    let turn_id = f.session.turn().unwrap().turn_id;
++    let ids = vec!["m-1".to_owned()];
++    {
++        let mut inbox = f.session.inbox.lock().unwrap();
++        inbox.items.push(super::inbox::Item::carried("m-1", "lane-a", "from lane a"));
++        inbox.in_flight = Some(("n-1".into(), ids.clone()));
++    }
++    f.age_turn(cap);
++    f.hub.inbox_notice_refused(&f.session, "n-1", &ids);
++    f.heard(&format!("steer: {}", notice_text(cap))).await;
++    assert_eq!(f.notices(), [turn_id]);
++    f.open("g").await;
++    tokio::time::timeout(WAIT, turn).await.unwrap().unwrap().unwrap();
++}
+diff --git a/cmux-tui/crates/acpmux/tests/hub_integration/carried_turns.rs b/cmux-tui/crates/acpmux/tests/hub_integration/carried_turns.rs
+index 24fc47b7cc6..ea7bf977c9b 100644
+--- a/cmux-tui/crates/acpmux/tests/hub_integration/carried_turns.rs
++++ b/cmux-tui/crates/acpmux/tests/hub_integration/carried_turns.rs
+@@ -477,10 +477,12 @@ async fn a_carried_turn_after_a_carried_turn_has_its_own_cap() {
+     gates.open(2, "end");
+     let turns = started(&hub, &id, 3).await;
+     let third = turns[2]["turnId"].clone();
+-    // An agent's message, queued under the cap: the timer sends the notice at the cap.
++    // An agent's message, queued under the cap: the timer sends the notice at the cap. A plain
++    // send would go into the inbox (`hub/inbox.rs`); a supersede-keyed one still queues.
+     let mut q = connect(&hub).await;
+     let mut queued = prompt(&id, "p-lane", "report from lane a", false);
+     queued["_meta"]["acpmux"]["fromAgent"] = json!("lane-a");
++    queued["_meta"]["acpmux"]["supersede"] = json!("lane-a-report");
+     let _held = q.send(method::SESSION_PROMPT, queued).await;
+     let accepted = q.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-lane").await;
+     assert_eq!(accepted["queued"], true, "{accepted}");

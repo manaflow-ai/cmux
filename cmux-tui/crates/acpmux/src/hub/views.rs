@@ -108,7 +108,9 @@ impl Hub {
 /// `step` is what it is doing now (hq#2509), see `lane_step`; `title` is the
 /// session's title, else its latest prompt. The lane's error, step and title
 /// are masked (`secret_scan`), so a view that reads only the lane never shows
-/// a pasted secret. The summary's other fields (`turn.prompt`, `lastPrompt`,
+/// a pasted secret. So are the running turn's `activity` and `planStep`
+/// (`hub/activity.rs`): a tool call's title is often a command with its
+/// arguments. The summary's other fields (`turn.prompt`, `lastPrompt`,
 /// `lastMessage`, `preview`, `title`) carry the raw text, masked only on the
 /// way to a peer daemon (`server/peer_text.rs`).
 ///

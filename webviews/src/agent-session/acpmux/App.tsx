@@ -9489,6 +9489,13 @@ function AcpmuxPane() {
       (text) => ignoreFailure(copyText(text)),
       t,
       () => window.cmuxAcpmuxBridge?.conversationMarkdown?.() ?? Promise.resolve(null),
+      // The same Markdown through the host's save panel; a host without one copies it instead.
+      () =>
+        void (window.cmuxAcpmuxBridge?.conversationMarkdown?.() ?? Promise.resolve(null)).then(async (markdown) => {
+          if (!markdown) return;
+          const outcome = await saveDocumentNatively(markdown, snapshot.summary?.title ?? "", "markdown");
+          if (outcome === "unavailable") ignoreFailure(copyText(markdown));
+        }),
     );
     // Fork immediately; destination choices are a separate action and Option-click shortcut.
     const fork =

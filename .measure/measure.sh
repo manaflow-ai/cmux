@@ -24,9 +24,6 @@ open(f"/tmp/hits-{tag}.txt","w").write("\n".join(sorted(set(out))))
 PY
 }
 measure TIP
-git -C "$root" apply "$root"/.measure/merge-28388.patch; echo "APPLY_28388=$?"
-measure M28388
-git -C "$root" apply -R "$root"/.measure/merge-28388.patch; echo "UNAPPLY_28388=$?"
-git -C "$root" apply "$root"/.measure/merge-28015.patch; echo "APPLY_28015=$?"
-measure M28015
-for t in M28388 M28015; do echo "== NEW hits in $t vs TIP"; comm -13 /tmp/hits-TIP.txt /tmp/hits-$t.txt | head -30; done
+git -C "$root" apply "$root"/.measure/merge-28428.patch; echo "APPLY_28428=$?"
+measure M28428
+echo "== NEW hits in M28428 vs TIP (line numbers shift in changed files)"; comm -13 /tmp/hits-TIP.txt /tmp/hits-M28428.txt | head -30
