@@ -219,8 +219,10 @@ export const environmentBuildResult = (config: CloudConfig, state: CloudState, s
   for (const name of [l.provider_name, ...(l.env_warm ? [l.env_warm] : [])]) {
     const key = `env-cleanup:${name}`
     const cleanup: LedgerRow = { transport: l.transport ?? "direct", key, op: "env_cleanup", machine: l.machine, provider_name: name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now }
+    // Ordered ledger rows need distinct positions, including multiple rows in one
+    // commit. Reserve a revision for each cleanup before any snapshot retirement.
+    s = next(s, { pending: { ...s.pending, [key]: { machine: l.machine, due_at: ctx.now } } })
     writes.push(upsertLedger(cleanup, s.rev))
-    s = { ...s, pending: { ...s.pending, [key]: { machine: l.machine, due_at: ctx.now } } }
   }
   const snap = l.snapshot ? ctx.rows?.get<SnapshotRow>(TABLE_SNAPSHOT, l.snapshot) : undefined
   const envStored = l.environment ? environmentRow(ctx.rows, l.environment) : undefined
