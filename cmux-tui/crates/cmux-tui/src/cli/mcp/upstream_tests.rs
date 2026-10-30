@@ -40,7 +40,10 @@ fn upstream_server(name: &str) -> upstream::Upstream {
     let dir = std::env::temp_dir().join(format!("cmux-mcp-upstream-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let script = dir.join("server.py");
-    std::fs::write(&script, UPSTREAM_SERVER).unwrap();
+    // Written once: a stored list keys the script, so rewriting it would be a new server.
+    if std::fs::read(&script).ok().as_deref() != Some(UPSTREAM_SERVER.as_bytes()) {
+        std::fs::write(&script, UPSTREAM_SERVER).unwrap();
+    }
     let specs = upstream::specs(Some(
         json!([{"name": name, "command": "python3", "args": [script], "env": {}}])
             .to_string()

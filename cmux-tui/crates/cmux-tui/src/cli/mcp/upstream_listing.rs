@@ -224,6 +224,9 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let binary = home.path().join("cmux-cua");
         std::fs::write(&binary, "v1").unwrap();
+        #[cfg(unix)]
+        std::fs::set_permissions(&binary, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+            .unwrap();
         let a = spec(&binary, "token-a");
         let listing = Listing {
             tools: vec![json!({"name": "look", "inputSchema": {"type": "object"}})],
