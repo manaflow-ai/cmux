@@ -121,6 +121,7 @@ impl Conn {
             media: crate::hub::media_handles::Handles::default(),
             memory_vote: std::sync::OnceLock::new(),
             fanout_progress: std::sync::OnceLock::new(),
+            chat_windows: Default::default(),
         }
     }
 }

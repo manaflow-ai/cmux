@@ -135,6 +135,9 @@ export interface AcpmuxRequests {
   "_acpmux/chat_settings": { params: unknown; result: unknown };
   "_acpmux/chat_settled": { params: unknown; result: unknown };
   "_acpmux/chat_transcript": { params: unknown; result: unknown };
+  "_acpmux/chat_projects": { params: unknown; result: unknown };
+  "_acpmux/chats_window": { params: unknown; result: unknown };
+  "_acpmux/chats_window_close": { params: unknown; result: unknown };
   "_acpmux/transfer_abort": { params: unknown; result: unknown };
   "_acpmux/transfer_begin": { params: unknown; result: unknown };
   "_acpmux/transfer_commit": { params: unknown; result: unknown };
@@ -211,6 +214,7 @@ export interface AcpmuxNotifications {
   "_acpmux/process_update": unknown;
   "_acpmux/chat_changed": unknown;
   "_acpmux/chats_lagged": unknown;
+  "_acpmux/chats_window_changed": unknown;
   "_acpmux/event": SessionEvent;
   "_acpmux/session_changed": SessionChanged;
   "_acpmux/permission_pending": PermissionPending;
@@ -372,8 +376,12 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/chat_settings", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chat_settled", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chat_transcript", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/chat_projects", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chat_changed", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/chats_lagged", kind: "notification", acp: false, typed: false },
+  { name: "_acpmux/chats_window", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/chats_window_close", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/chats_window_changed", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/transfer_abort", kind: "request", acp: false, typed: false },
   { name: "_acpmux/transfer_begin", kind: "request", acp: false, typed: false },
   { name: "_acpmux/transfer_commit", kind: "request", acp: false, typed: false },

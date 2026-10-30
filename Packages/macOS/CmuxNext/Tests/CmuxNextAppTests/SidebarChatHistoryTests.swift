@@ -220,17 +220,21 @@ import Testing
         #expect(lane("claude", nil)?.chat == nil)
     }
 
-    @Test func theFeedListsTheIndexWithoutChildChatsAndNamesUntitledOnes() {
-        var store = AcpmuxChatsStore()
-        store.reset(["chats": [
+    /// acpmux's window holds no child chat (`topLevel`); the history names an untitled chat by its
+    /// folder, else its harness, and leaves out a chat an open workspace shows until acpmux's next
+    /// window excludes it too.
+    @Test func theFeedListsTheWindowAndNamesUntitledOnes() {
+        let json: [[String: Any]] = [
             ["key": "claude-code:1", "sessionId": "1", "harness": "claude-code", "title": "Fix the build", "updatedMs": 3_000],
             ["key": "codex:2", "sessionId": "2", "harness": "codex", "cwd": "/Users/me/cmux", "updatedMs": 2_000],
-            ["key": "claude-code:3", "sessionId": "3", "harness": "claude-code", "updatedMs": 1_000, "parent": "claude-code:1"],
             ["key": "claude-code:4", "sessionId": "4", "harness": "claude-code", "updatedMs": 500]
-        ]])
-        let state = SidebarChatHistoryFeed.state(store, live: ["claude-code:1"], pinned: [], limit: 10, folded: false)
+        ]
+        let rows = json.compactMap(AcpmuxChat.init(json:))
+        let inputs = SidebarChatHistoryFeed.Inputs(live: ["claude-code:1"], pinned: [], limit: 10, folded: false)
+        #expect(inputs.earlierSpec.topLevel)
+        #expect(inputs.earlierSpec.exclude == ["claude-code:1"])
+        let state = SidebarChatHistoryFeed.state(earlier: rows, pinned: [], inputs: inputs)
         #expect(state.earlier.map(\.id) == ["codex:2", "claude-code:4"])
         #expect(state.earlier.map(\.title) == ["cmux", "claude-code"])
-        #expect(Array(store.newestFirst.map(\.id)) == ["claude-code:1", "codex:2", "claude-code:4"])
     }
 }
