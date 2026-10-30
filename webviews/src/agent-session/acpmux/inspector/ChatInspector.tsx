@@ -158,8 +158,10 @@ export const inspectorShown = ({
   covered?: boolean;
 }) => on && open && !suppressed && !covered;
 
-/// The side panel beside the chat (conversation/ArtifactPanel.tsx), a child of the pane's shell.
-const SIDE_PANEL = ":scope > .acpmux-artifact";
+/// The side panel beside the chat (conversation/ArtifactPanel.tsx), a child of the pane's shell, or
+/// the Background tasks column (backgroundTasks/BackgroundTasksPanel.tsx), which docks under it or
+/// stands in its place at the same width.
+const SIDE_PANEL = ":scope > .acpmux-artifact, :scope > .acpmux-bg";
 
 /// The Inspector starts right below the header: the pane's tab row when the header is in it.
 export function inspectorTopOffset(tabRowHeight: number): string {
