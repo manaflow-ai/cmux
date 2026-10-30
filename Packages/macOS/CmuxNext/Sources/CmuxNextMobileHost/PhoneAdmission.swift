@@ -50,6 +50,8 @@ final class PhoneAdmission {
     private var generation: UInt64
     /// Invalidates one endpoint's pending answer without invalidating other phones.
     private var admissionGenerations: [String: UInt64] = [:]
+    /// A phone that was never removed is at generation 0, not nil.
+    private func admissionGeneration(_ phoneDeviceID: String) -> UInt64 { admissionGenerations[phoneDeviceID] ?? 0 }
     var ask: (MobileHostPairRequest, String) async -> PromptResult = PhoneAdmission.askOnThisMac
     var dismissAsk: @MainActor (MobileHostPairRequest, String) -> Void = PhoneAdmission.dismissOnThisMac
     var accountName: @MainActor () -> String = { "" }
@@ -89,7 +91,7 @@ final class PhoneAdmission {
     func decide(_ phone: MobileHostPairRequest) async -> Bool {
         guard phone.transport == .iroh, let user = phones.current?.userID else { return false }
         let selectedAccountGeneration = phones.generation
-        let selectedAdmissionGeneration = admissionGenerations[phone.phoneDeviceID] ?? 0
+        let selectedAdmissionGeneration = admissionGeneration(phone.phoneDeviceID)
         if phones.trusts(phone) { return true }
         if let at = denied[phone.phoneDeviceID], at.duration(to: now()) < .seconds(600), generation == selectedAccountGeneration { return false }
         let question: Question
@@ -106,7 +108,7 @@ final class PhoneAdmission {
             let id = UUID()
             let task = Task { [self, waiter] in
                 let answer = await waiter.wait { await self.ask(phone, account) }
-                guard !Task.isCancelled, admissionGenerations[phone.phoneDeviceID] == selectedAdmissionGeneration,
+                guard !Task.isCancelled, admissionGeneration(phone.phoneDeviceID) == selectedAdmissionGeneration,
                       phones.generation == selectedAccountGeneration, phones.current?.userID == user else { return false }
                 switch answer {
                 case .unavailable: return false
@@ -115,7 +117,7 @@ final class PhoneAdmission {
                 }
                 do {
                     try await phones.change(for: user, generation: selectedAccountGeneration) { $0.approve(phone, at: Date()) }
-                    return admissionGenerations[phone.phoneDeviceID] == selectedAdmissionGeneration &&
+                    return admissionGeneration(phone.phoneDeviceID) == selectedAdmissionGeneration &&
                         phones.generation == selectedAccountGeneration && phones.trusts(phone)
                 } catch { return false }
             }
@@ -132,7 +134,7 @@ final class PhoneAdmission {
             questions[phone.phoneDeviceID] = nil
             if questions.isEmpty { quiet() }
         }
-        return allowed && admissionGenerations[phone.phoneDeviceID] == selectedAdmissionGeneration &&
+        return allowed && admissionGeneration(phone.phoneDeviceID) == selectedAdmissionGeneration &&
             phones.generation == selectedAccountGeneration && phones.trusts(phone)
     }
 
