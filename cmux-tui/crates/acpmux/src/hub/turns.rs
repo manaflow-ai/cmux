@@ -595,9 +595,10 @@ impl Hub {
             m.preview = Some(String::new());
             // The sender of a chat's first turn is its delegator (`inbox.rs`): named once the
             // turn starts, so a prompt refused before it names none, and over one a message the
-            // inbox took while this first work waited to start named.
+            // inbox took while this first work waited to start named. Its own sender, not a
+            // digest's: messages that joined its turn (`digest.rs`) name none.
             if m.turn_count == 0
-                && let Some(from) = super::inbox::sender_session(provenance.as_ref())
+                && let Some(from) = super::inbox::sender_session(run.provenance.as_ref())
                 && from != m.id
             {
                 m.delegator = Some(from);
