@@ -60,6 +60,11 @@ await requireBrowserLane("agent-pane-sent-images.test.ts", async () => {
     return page;
   }
 
+  /// A sent prompt's image thumbnail: in the band over the bubble, or at its place in the bubble's text
+  /// (a prompt whose image the composer placed inline, the default view).
+  const SENT_IMAGE = ".cv-user__images img, .cv-user__inline-image img";
+  const SENT_IMAGE_BUTTON = ".cv-user__images button, .cv-user__inline-image button";
+
   /// Pastes a small PNG screenshot into the prompt.
   const pasteImage = (page: Page) =>
     page.evaluate(async () => {
@@ -72,7 +77,7 @@ await requireBrowserLane("agent-pane-sent-images.test.ts", async () => {
       const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
       const data = new DataTransfer();
       data.items.add(new File([blob], "Screenshot.png", { type: "image/png" }));
-      const target = document.querySelector(".acpmux-composer-prompt [contenteditable]")!;
+      const target = document.querySelector('.acpmux-composer-prompt [contenteditable="true"]')!;
       target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
     });
 
@@ -80,16 +85,18 @@ await requireBrowserLane("agent-pane-sent-images.test.ts", async () => {
   const bubbles = (page: Page) =>
     page
       .locator(".cv-user")
-      .evaluateAll((rows) =>
-        rows.map((row) => [
-          row.querySelector(".cv-user__bubble")?.textContent?.trim(),
-          row.querySelectorAll(".cv-user__images img").length,
-        ]),
+      .evaluateAll(
+        (rows, image) =>
+          rows.map((row) => [
+            row.querySelector(".cv-user__bubble")?.textContent?.trim(),
+            row.querySelectorAll(image).length,
+          ]),
+        SENT_IMAGE,
       );
 
   test("a sent prompt keeps its images: thumbnails that open the viewer, and Edit sends them again", async () => {
     const page = await newChat();
-    const prompt = page.locator(".acpmux-composer-prompt [contenteditable]");
+    const prompt = page.locator('.acpmux-composer-prompt [contenteditable="true"]');
     // Edit forks through the turn before a prompt, so the image goes with the chat's second prompt.
     await prompt.click();
     await page.keyboard.type("hello");
@@ -104,15 +111,15 @@ await requireBrowserLane("agent-pane-sent-images.test.ts", async () => {
     await page.keyboard.type("what is this");
     await page.keyboard.press("Enter");
     // The composer lets the image go; the bubble shows it.
-    await page.locator(".cv-user__images img").first().waitFor({ timeout: 10_000 });
+    await page.locator(SENT_IMAGE).first().waitFor({ timeout: 10_000 });
     expect(await page.locator(".acpmux-attachment-image").count()).toBe(0);
     expect(await bubbles(page)).toEqual([
       ["hello", 0],
       ["what is this", 1],
     ]);
-    expect(await page.locator(".cv-user__images img").first().getAttribute("src")).toStartWith("data:image/png");
+    expect(await page.locator(SENT_IMAGE).first().getAttribute("src")).toStartWith("data:image/png");
 
-    await page.locator(".cv-user__images button").first().click();
+    await page.locator(SENT_IMAGE_BUTTON).first().click();
     await page.locator(".acpmux-image-viewer").waitFor();
     await page.keyboard.press("Escape");
     await page.locator(".acpmux-image-viewer").waitFor({ state: "detached" });
@@ -124,7 +131,7 @@ await requireBrowserLane("agent-pane-sent-images.test.ts", async () => {
     await editor.fill("what is this, again");
     await page.locator(".cv-user__edit").getByRole("button", { name: "Send", exact: true }).click();
     await page.locator(".cv-user__bubble", { hasText: "what is this, again" }).waitFor({ timeout: 10_000 });
-    await page.locator(".cv-user__images img").first().waitFor({ timeout: 10_000 });
+    await page.locator(SENT_IMAGE).first().waitFor({ timeout: 10_000 });
     expect(await bubbles(page)).toEqual([
       ["hello", 0],
       ["what is this, again", 1],

@@ -10,7 +10,7 @@ import { act, createRef, type RefObject } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
-import { promptBlocks, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
+import { promptBlocks, withoutInlineTokens, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 
 const scope = globalThis as Record<string, unknown>;
@@ -143,7 +143,8 @@ const field = () => host.querySelector<HTMLElement>('[role="combobox"]')!;
 const markdownField = () => host.querySelector<MarkdownFieldElement>(".acpmux-md-field")!.acpmuxMarkdownField!;
 const chips = (handle: RefObject<ComposerHandle | null>) => handle.current!.wakeState().attachments ?? [];
 /// What the prompt sends as its own text.
-const promptText = () => markdownField().agentText(markdownField().value());
+/// The prompt's words: its text without the places of the chips held in it (inline, the default view).
+const promptText = () => withoutInlineTokens(markdownField().agentText(markdownField().value()));
 
 /// Pastes plain text on the prompt field as WebKit delivers it: one ClipboardEvent with its data.
 async function paste(plain: string) {

@@ -585,7 +585,13 @@ export class MockAcpmuxSocket {
         return { sessionId: created.sessionId };
       }
       case "session/prompt": {
-        const text = String(params.prompt?.[0]?.text ?? "");
+        // Its first text block: an attachment the composer placed before the words is a block of its
+        // own, so the text need not be the first block.
+        const text = String(
+          (Array.isArray(params.prompt) ? params.prompt : []).find(
+            (block: Record<string, unknown>) => block?.type === "text" && typeof block.text === "string",
+          )?.text ?? "",
+        );
         const promptId = params._meta?.acpmux?.promptId;
         // acpmux keeps each image once and names it in the prompt's user_message.
         const images = (Array.isArray(params.prompt) ? params.prompt : [])

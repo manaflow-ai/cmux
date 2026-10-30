@@ -63,6 +63,8 @@ export function usePastedChips(
     attachments.current = attachments.current.filter((held) => held.id !== id);
     setAttachments((current) => current.filter((held) => held.id !== id));
     field.current?.focus();
+    // Its place in the text goes, and its text goes in at the caret (composer/inlineAttachments.tsx).
+    field.current?.removeInline(id);
     expanding.current = true;
     try {
       field.current?.pasteText(chip.text);

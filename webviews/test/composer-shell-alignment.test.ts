@@ -156,6 +156,9 @@ await requireBrowserLane("composer-shell-alignment.test.ts", async () => {
             setChatDisplay({ "agentPane.display.font.size": size });
           }, fontSize);
         if (attachment) {
+          // The band is Settings' attachment strip; the default inline view puts the image in the
+          // prompt's line, where the prompt is no longer empty and `!` is text.
+          await page.evaluate(() => window.cmuxAcpmuxComposer?.({ attachmentView: "strip" }));
           await pasteImage(page);
           await page.locator(".acpmux-attachments .acpmux-attachment").first().waitFor();
         }

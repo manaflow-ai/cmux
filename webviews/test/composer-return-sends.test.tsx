@@ -135,6 +135,9 @@ const PNG = Uint8Array.from([
   ...Array(504).fill(7),
 ]);
 
+/** A file still being read: its loading tile at its place in the prompt (inline, the default view). */
+const LOADING = '.acpmux-md-inline-chip[data-state="loading"]';
+
 /** Renders the composer over `snapshot`, types `typed` into it and returns its field and sends. */
 async function composer(
   snapshot: AcpmuxSnapshot,
@@ -328,7 +331,7 @@ test("active-chat /import opens synchronously despite a pending file and consume
     value: { files: [file], types: ["Files"], getData: () => "" },
   });
   await act(async () => page.field.dispatchEvent(paste));
-  expect(host.querySelector(".acpmux-attachment-pending")).not.toBeNull();
+  expect(host.querySelector(LOADING)).not.toBeNull();
   let opened = false;
   host.querySelector<HTMLInputElement>('input[aria-label="/import"]')!.click = () => {
     opened = true;
@@ -338,7 +341,7 @@ test("active-chat /import opens synchronously despite a pending file and consume
     expect(opened).toBe(true);
   });
   expect(page.field.textContent).toBe("");
-  expect(host.querySelector(".acpmux-attachment-pending")).toBeNull();
+  expect(host.querySelector(LOADING)).toBeNull();
   expect(page.sent).toEqual([]);
   await act(async () => resolve({ paths: ["/tmp/pending.txt"] }));
   // Type into the field itself: restore() would replace attachments and hide a leaked pending read.
@@ -366,12 +369,16 @@ test("an attachment-only Return waits for a pending image and sends it when read
     value: { files: [file], types: ["Files"], getData: () => "" },
   });
   await act(async () => page.field.dispatchEvent(paste));
-  expect(host.querySelector(".acpmux-attachment-pending")).not.toBeNull();
+  expect(host.querySelector(LOADING)).not.toBeNull();
   expect(page.field.textContent).toBe("");
   await dispatch(page.field, key({ key: "Enter", keyCode: 13 }));
   expect(page.sent).toEqual([]);
   await act(async () => resolve(bytes));
-  expect(page.sent).toEqual([{ text: "", steer: false }]);
+  // No words: the text is the image's place alone, its token (inlineToken, attachments.ts), where
+  // the default inline view put it.
+  expect(page.sent).toHaveLength(1);
+  expect(page.sent[0]!.steer).toBe(false);
+  expect(page.sent[0]!.text).toMatch(/^\uFFFC[^\uFFFC]+\uFFFC$/);
   expect(page.sentAttachments).toEqual([["pending.png"]]);
 });
 
@@ -391,7 +398,7 @@ test("a terminal-only spelling waits for its pending image and sends as an attac
     value: { files: [file], types: ["Files"], getData: () => "" },
   });
   await act(async () => page.field.dispatchEvent(paste));
-  expect(host.querySelector(".acpmux-attachment-pending")).not.toBeNull();
+  expect(host.querySelector(LOADING)).not.toBeNull();
   await dispatch(page.field, key({ key: "Enter", keyCode: 13 }));
   expect(page.sent).toEqual([]);
   expect(host.querySelector(".acpmux-attachment-note")).toBeNull();

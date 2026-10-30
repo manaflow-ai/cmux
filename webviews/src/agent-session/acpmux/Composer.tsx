@@ -1034,6 +1034,11 @@ export function Composer({
     const plus = plusDraft.current;
     return plus && plus.written === text ? plus.original : text;
   };
+  /// An attachment's id, staged or still being read: its token in the text is a place, not words.
+  const attachmentId = (id: string) =>
+    attachmentsRef.current.some((chip) => chip.id === id) || pendingRef.current.some((chip) => chip.id === id);
+  /// The person's words: the draft without its attachments' places, for reading a command from.
+  const typedWords = () => withoutInlineTokens(unwrapped(), attachmentId);
   /// Writes the picked chat, folder or file over the `@word` being typed.
   const pickMention = (item: MentionItem) => {
     if (!mentionAt) return;
@@ -1071,7 +1076,7 @@ export function Composer({
     });
     // A slash command reads from the words' start, wherever the attachments sit: it goes first and
     // its attachments after it, as from the strip, so the command and the host both still see it.
-    const words = withoutInlineTokens(inText.text, (id) => attachments.some((chip) => chip.id === id)).trim();
+    const words = withoutInlineTokens(inText.text, attachmentId).trim();
     const placed = words.startsWith("/")
       ? { text: words, attachments: attachments.map(({ inline: _, ...attachment }) => attachment) }
       : inText;
@@ -1476,7 +1481,7 @@ export function Composer({
       !event.ctrlKey
     ) {
       event.preventDefault();
-      const typed = unwrapped().trim() !== "";
+      const typed = typedWords().trim() !== "";
       const sendAndOpen = () => {
         const sent = submitNow.current(false, steersAlways);
         // A prompt the host refused stays in the composer, and the chat stays here.
@@ -1485,7 +1490,8 @@ export function Composer({
       };
       // Owned commands (especially /import) must open their picker immediately, even while an
       // earlier screenshot is still being read. Ordinary prompts retain Return's attachment wait.
-      const owned = composerCommand(unwrapped().trim(), snapshot.summary?.harness, attachments.length)?.kind === "cmux";
+      const owned =
+        composerCommand(typedWords().trim(), snapshot.summary?.harness, attachments.length)?.kind === "cmux";
       if (!owned && holdForAttachments(sendAndOpen)) return;
       sendAndOpen();
       return;

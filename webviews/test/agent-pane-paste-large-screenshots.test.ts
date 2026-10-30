@@ -137,7 +137,7 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
       if (!paste) return;
       const data = new DataTransfer();
       for (const file of state.screenshots) data.items.add(file);
-      const target = document.querySelector(".acpmux-composer-prompt [contenteditable]")!;
+      const target = document.querySelector(".acpmux-composer-prompt [contenteditable='true']")!;
       target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
     }, paste);
 
@@ -148,12 +148,23 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
       return state.stall;
     });
 
+  // The attachments the default inline view places in the prompt's line: one chip per attachment,
+  // a spinner while it loads, Retry when it failed (inlineAttachments.tsx).
+  const INLINE = ".acpmux-composer-prompt .acpmux-md-inline-chip";
+  const LOADING = `${INLINE}[data-state="loading"]`;
+  const FAILED = `${INLINE}[data-state="failed"]`;
+
+  /// The prompt's text, without the attachments placed in it (each an atom in the line).
   const promptText = (page: Page) =>
-    page.locator(".acpmux-composer-prompt [contenteditable]").evaluate((node) => node.textContent?.replace(/ /g, " "));
+    page.locator(".acpmux-composer-prompt [contenteditable='true']").evaluate((node) => {
+      const copy = node.cloneNode(true) as Element;
+      for (const atom of copy.querySelectorAll("[data-inline-attachment]")) atom.remove();
+      return copy.textContent?.replace(/\u00a0/g, " ");
+    });
 
   test("pasting three large Retina screenshots never blocks typing", async () => {
     const page = await newChat();
-    const prompt = page.locator(".acpmux-composer-prompt [contenteditable]");
+    const prompt = page.locator(".acpmux-composer-prompt [contenteditable='true']");
     await prompt.click();
     const sizes = await makeScreenshots(page, 3);
     expect(Math.min(...sizes)).toBeGreaterThan(2 * 1024 * 1024);
@@ -176,7 +187,7 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
 
   test("a host that never answers never leaves a pasted screenshot loading", async () => {
     const page = await newChat({ "chat.attach.dropped": "hang", "chat.upload.begin": "hang" });
-    await page.locator(".acpmux-composer-prompt [contenteditable]").click();
+    await page.locator(".acpmux-composer-prompt [contenteditable='true']").click();
     await makeScreenshots(page, 2);
     await pasteScreenshots(page);
     await page.waitForFunction(
@@ -184,7 +195,7 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
       undefined,
       { timeout: 20_000 },
     );
-    expect(await page.locator(".acpmux-attachment-pending").count()).toBe(0);
+    expect(await page.locator(LOADING).count()).toBe(0);
     // The host was asked, and its silence held nothing up.
     expect(await page.evaluate(() => (window as unknown as { calls: string[] }).calls)).toContain("chat.upload.begin");
     await page.close();
@@ -192,39 +203,41 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
 
   test("a loading tile spins and its × takes it away for good", async () => {
     const page = await newChat();
-    await page.locator(".acpmux-composer-prompt [contenteditable]").click();
+    await page.locator(".acpmux-composer-prompt [contenteditable='true']").click();
     await makeScreenshots(page, 1);
     await pasteScreenshots(page);
-    const loading = page.locator(".acpmux-attachment-pending");
+    const loading = page.locator(LOADING);
     await loading.waitFor();
-    expect(await loading.locator(".acpmux-attachment-spinner").count()).toBe(1);
-    await loading.locator(".acpmux-attachment-remove").click();
+    expect(await loading.locator(".acpmux-md-inline-spinner").count()).toBe(1);
+    await loading.locator(".acpmux-md-inline-remove").click();
     expect(await loading.count()).toBe(0);
     // Its read ending later brings nothing back: nothing on the page says when a cancelled read
     // ends, so the test gives it the time a read of this screenshot takes here.
     // fixed-wait: a cancelled read has no observable end; the assertion is that nothing appears.
     await page.waitForTimeout(3000);
     expect(await page.locator(".acpmux-attachment").count()).toBe(0);
+    expect(await page.locator(INLINE).count()).toBe(0);
     await page.close();
   });
 
   test("a file whose upload failed says why, and Retry attaches it", async () => {
     const page = await newChat({ "chat.upload.begin": "fail", "chat.upload.chunk": "ok", "chat.upload.finish": "ok" });
-    await page.locator(".acpmux-composer-prompt [contenteditable]").click();
+    await page.locator(".acpmux-composer-prompt [contenteditable='true']").click();
     await page.evaluate(() => {
       const data = new DataTransfer();
       data.items.add(new File([new Uint8Array(4096)], "notes.bin", { type: "application/octet-stream" }));
-      const target = document.querySelector(".acpmux-composer-prompt [contenteditable]")!;
+      const target = document.querySelector(".acpmux-composer-prompt [contenteditable='true']")!;
       target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
     });
-    const failed = page.locator(".acpmux-attachment-failed");
+    // The failed chip is cut to its size in the line; its tooltip has the reason.
+    const failed = page.locator(FAILED);
     await failed.waitFor();
-    expect(await failed.textContent()).toContain("The disk is full.");
+    expect(await failed.getAttribute("title")).toContain("The disk is full.");
     // The host takes it this time.
     await page.evaluate(() => {
       (window as unknown as { host: Record<string, string> }).host["chat.upload.begin"] = "ok";
     });
-    await failed.locator(".acpmux-attachment-retry").click();
+    await failed.locator(".acpmux-md-inline-retry").click();
     await page.locator(".acpmux-attachment-link").waitFor();
     expect(await failed.count()).toBe(0);
     await page.close();
@@ -235,7 +248,7 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
   // here it goes as a file; the app's WebKit decodes it in the worker.)
   test("a 5.2 MB HEIF photo never blocks typing", async () => {
     const page = await newChat();
-    await page.locator(".acpmux-composer-prompt [contenteditable]").click();
+    await page.locator(".acpmux-composer-prompt [contenteditable='true']").click();
     await page.evaluate(() => {
       const bytes = new Uint8Array(5.2 * 1024 * 1024);
       for (let at = 0; at < bytes.length; at += 65536) crypto.getRandomValues(bytes.subarray(at, at + 65536));
@@ -252,9 +265,9 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
     for (let at = 0; at < 5; at += 1) await page.keyboard.press("Backspace");
     await pasteScreenshots(page);
     // Its tile is there at once.
-    expect(await page.locator(".acpmux-attachment").count()).toBe(1);
+    expect(await page.locator(INLINE).count()).toBe(1);
     await page.keyboard.type(" a photo from my phone", { delay: 20 });
-    await page.waitForFunction(() => !document.querySelector(".acpmux-attachment-pending"));
+    await page.waitForFunction((loading) => !document.querySelector(loading), LOADING);
     const stall = await longestStall(page);
     console.log(`a 5.2 MB HEIF: longest main-thread stall ${stall.toFixed(0)} ms (${idle.toFixed(0)} ms idle)`);
     expect(await promptText(page)).toBe(" a photo from my phone");
@@ -267,7 +280,7 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
   // session's machine and the chip gets its path; removing the chip later stops it.
   test("a pasted screenshot's original uploads, and its chip's x stops the upload", async () => {
     const page = await newChat({ "chat.upload.begin": "ok", "chat.upload.chunk": "ok", "chat.upload.finish": "ok" });
-    await page.locator(".acpmux-composer-prompt [contenteditable]").click();
+    await page.locator(".acpmux-composer-prompt [contenteditable='true']").click();
     await makeScreenshots(page, 1);
     await pasteScreenshots(page);
     await page.locator(".acpmux-attachment-image img").waitFor();
