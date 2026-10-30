@@ -14,6 +14,9 @@ const SCROLL_KEYS = new Set([
   " ",
   "Spacebar",
 ]);
+/// What a press on is a click rather than the start of a drag or a scroll.
+const CONTROLS =
+  "button, a[href], input, textarea, select, summary, label, [role=button], [role=menuitem], [contenteditable=true], [contenteditable='']";
 type Listener = (event?: Event) => void;
 const states = new WeakMap<HTMLElement, ReturnType<typeof createIntent>>();
 
@@ -113,6 +116,9 @@ export function attachUserScrollIntent(node: HTMLElement): () => void {
     if (!railOwnsWheel(event)) intent.mark(event);
   };
   const down = (event: Event) => {
+    // A press on a control (Reply, a disclosure, a link) is a click, not a scroll: what it opens
+    // may still be followed into view. A press on text or the scrollbar is scroll input.
+    if ((event.target as Element | null)?.closest?.(CONTROLS)) return;
     pressed = true;
     intent.press(true);
     mark(event);
