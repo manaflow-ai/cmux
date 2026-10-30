@@ -70,10 +70,13 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
       read("agent-session/acpmux/header/header.css"),
     ].join("\n");
     await page.setContent(`<!doctype html><html><head><style>
-      html { width: 100%; height: 100%; background: rgb(10, 20, 30) !important; }
-      body { width: 100%; height: 100%; margin: 0; background: rgb(10, 20, 30); }
+      /* This models WebTheme's document-start bootstrap. The shipped tab-row rule must override
+         the normal page surface while leaving the body itself transparent for the native underlay. */
+      html { width: 100%; height: 100%; background: rgb(10, 20, 30); }
+      body { width: 100%; height: 100%; margin: 0; background: transparent; }
       ${shellCss}
     </style></head><body>
+      <div id="native-underlay" style="position:fixed;inset:0;background:rgb(10,20,30);z-index:0"></div>
       <section class="acpmux-shell" data-tab-row
         style="--acpmux-tab-row-height:40px;--agent-page-bg:rgb(200,10,20)">
         <header class="acpmux-header" data-tab-row><div id="tools"></div></header>

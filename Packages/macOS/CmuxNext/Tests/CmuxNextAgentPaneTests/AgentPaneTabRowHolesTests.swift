@@ -65,15 +65,18 @@ struct AgentPaneTabRowHolesTests {
     @Test func theToolsSliceRemainsPageOwnedBetweenNativeHoles() async throws {
         let (view, page) = try await chromiumChat()
         view.model.tabRow.report(width: 120)
-        let tools = try #require(view.model.tabRow.sharedWidth(zoom: view.webView.pageZoom))
-        let room: CGFloat = 800 - 60
-        let span = min(tools, room / 2)
 
         AgentPaneTabRow.offer(points: 36, trailingInset: 60, to: view)
 
-        // The web controls stay in this slice of the row. Native holes stop at its edges; the
-        // Chromium document must provide only transparent pixels behind the controls.
-        let toolsSlice = CGRect(x: room - span, y: 0, width: span, height: 36)
+        // The reported width is 120 points at the test page's 1x zoom. The native row has 740
+        // points of room after its trailing toolbar, so the tools own the explicit 680...740
+        // slice between the two native holes. Keep this expected geometry independent of the
+        // production `nativeHoles` calculation: a future change must not make the test tautological.
+        let toolsSlice = CGRect(x: 680, y: 0, width: 120, height: 36)
+        #expect(holes(page, in: view) == [
+            CGRect(x: 0, y: 0, width: 680, height: 36),
+            CGRect(x: 740, y: 0, width: 60, height: 36),
+        ])
         #expect(holes(page, in: view).allSatisfy { !$0.intersects(toolsSlice) })
     }
 
