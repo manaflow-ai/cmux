@@ -6764,25 +6764,39 @@ export class AcpmuxDirectClient {
   }
   /** The session an adopt on connect resumed, for the host to keep as the tab's session. */
   adopted?: string;
+  /** Called each time this client adopts a chat as the tab's (`adopted`) after the connect: a
+   *  fork or Open Anyway from the live-chat choice, or an adopt retried after Trust. The host
+   *  keeps it as the tab's session, so restoring the tab reopens it. */
+  onAdopted?: (sessionId: string) => void;
+  private markAdopted(sessionId: string): void {
+    this.adopted = sessionId;
+    this.onAdopted?.(sessionId);
+  }
   /// Resumes the outside chat the host named, once. A session that didn't adopt it (an acpmux
   /// without adopt starts a fresh one) is removed, and the pane says so instead of posing as it.
   /// A socket that drops meanwhile fails the connect, so the host reconnects and adopts again
   /// (acpmux maps one chat to one session).
   private async adoptChat(adopt: AcpmuxAdopt): Promise<void> {
     this.host = { ...this.host, adopt: undefined };
+    // A person who moved to another chat while this one adopted keeps it shown.
+    const generation = this.selectionGeneration;
     let result: any;
     try {
-      // After Trust the same chat is adopted again.
-      result = await this.newSession(
-        newSessionParams({ adopt }),
-        () => void this.adoptChat(adopt).catch(() => undefined),
-      );
+      // After Trust the same chat is adopted again, unless the person moved to another chat since.
+      result = await this.newSession(newSessionParams({ adopt }), () => {
+        if (!this.closed && generation === this.selectionGeneration) void this.adoptChat(adopt).catch(() => undefined);
+      });
     } catch (error) {
       if (this.socket?.readyState !== WebSocket.OPEN) throw error;
       // The trust route asks about the folder; this is no failure to resume.
       if (trustRefusal(error)) return;
       if (error instanceof AcpmuxRpcError && error.reason === "adopt.live" && !adopt.ifLive) {
-        this.liveAdopt = { adopt, ...liveDetails((error as { details?: unknown }).details) };
+        // The person moved to another chat while acpmux answered: nothing shows for this one.
+        if (this.closed || generation !== this.selectionGeneration) return;
+        const live = liveDetails((error as { details?: unknown }).details);
+        if (!adopt.watch && (await this.watchLive(adopt, live))) return;
+        if (this.closed || generation !== this.selectionGeneration) return;
+        this.liveAdopt = { adopt, ...live };
         this.emit();
         return;
       }
@@ -6792,19 +6806,61 @@ export class AcpmuxDirectClient {
     const sessionId = result?.sessionId ? String(result.sessionId) : undefined;
     // A fork is a new conversation: its harness session is its own, not the adopted one.
     if (sessionId && (adopt.ifLive === "fork" || adoptedBy(result, adopt))) {
-      this.adopted = sessionId;
-      await this.select(sessionId);
+      if (this.closed || generation !== this.selectionGeneration) return;
+      // The tab keeps it only once the pane shows it (a switch during the attach keeps the other).
+      if ((await this.select(sessionId)) === sessionId) this.markAdopted(sessionId);
       return;
     }
     if (sessionId) await this.request("_acpmux/kill", { sessionId, purge: true }).catch(() => undefined);
     this.adoptFailed(translate("notice.resumeUnsupported"));
+  }
+  /// The chat acpmux refused to resume because another app still runs it (`adopt.live`), shown
+  /// here View Only instead: its transcript at once, following that app, with the same Fork It and
+  /// Open Anyway over it (`takeOver`). "there's frequently nothing wrong with showing the same
+  /// session but in two different places" (Leo, 2026-10-29). False when it cannot be watched (a
+  /// daemon or harness without watching): the choice shows alone. True also when the person moved
+  /// to another chat (or the pane closed) meanwhile: then nothing more shows for this one.
+  private async watchLive(adopt: AcpmuxAdopt, live: { canFork: boolean; command?: string }): Promise<boolean> {
+    const watch: AcpmuxAdopt = { harness: adopt.harness, agentSessionId: adopt.agentSessionId, watch: true };
+    const generation = this.selectionGeneration;
+    const moved = () => this.closed || generation !== this.selectionGeneration;
+    let result: any;
+    try {
+      result = await this.request("session/new", newSessionParams({ adopt: watch }));
+    } catch {
+      return moved();
+    }
+    // A watch answered after the person moved on stays listed, as any chat opened and then left
+    // does. It is never removed here: acpmux answers with the watch it already has for this chat,
+    // which may be another pane's (the same session shown in two places).
+    if (moved()) return true;
+    const sessionId = result?.sessionId ? String(result.sessionId) : undefined;
+    if (!sessionId) return false;
+    if (!adoptedBy(result, watch)) {
+      await this.request("_acpmux/kill", { sessionId, purge: true }).catch(() => undefined);
+      return moved();
+    }
+    this.liveTakeOver = live;
+    this.liveTakeOverFor = sessionId;
+    if ((await this.select(sessionId)) === sessionId) this.markAdopted(sessionId);
+    return true;
   }
   /// Adopts the chat acpmux refused as live elsewhere anyway: `open` resumes it as it is (two
   /// processes then write one conversation), `fork` starts a new chat from it. Once; a second
   /// click while it adopts does nothing.
   async adoptLive(choice: "fork" | "open"): Promise<void> {
     const live = this.liveAdopt;
-    if (!live || (choice === "fork" && !live.canFork)) return;
+    if (!live) {
+      // The same choice over a watched chat (`watchLive`, or a Take Over refused as live): it forks
+      // or takes that chat over; `adopted` names the chat the tab keeps.
+      const sessionId = this.selectedSessionId;
+      const generation = this.selectionGeneration;
+      if (!sessionId || !(await this.takeOver(choice)) || choice !== "open") return;
+      // Taken over while the person stayed on it: the tab keeps it.
+      if (!this.closed && generation === this.selectionGeneration) this.markAdopted(sessionId);
+      return;
+    }
+    if (choice === "fork" && !live.canFork) return;
     this.liveAdopt = undefined;
     this.emit();
     await this.adoptChat({ ...live.adopt, ifLive: choice });
@@ -6859,6 +6915,16 @@ export class AcpmuxDirectClient {
     if (ifLive && (!live || (ifLive === "fork" && !live.canFork))) return false;
     this.liveTakeOver = undefined;
     this.emit();
+    // Fork It forks the watched conversation at once, from its own id (as Continue in New Chat
+    // does): a fork taken over from a watch keeps its source only in the daemon's memory until its
+    // first prompt, so a restart in between would lose it.
+    const summary = this.summary?.sessionId === sessionId ? this.summary : undefined;
+    const family = text(summary?.watching);
+    const agentSessionId = text(summary?.agentSessionId);
+    if (ifLive === "fork" && family && agentSessionId) {
+      await this.adoptChat({ harness: family, agentSessionId, ifLive: "fork" });
+      return true;
+    }
     try {
       await this.request("_acpmux/watch_take_over", { sessionId, ...(ifLive ? { ifLive } : {}) });
       return true;
