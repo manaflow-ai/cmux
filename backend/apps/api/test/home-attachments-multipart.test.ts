@@ -666,3 +666,62 @@ describe("Home attachments: a request that lost its part's claim changes nothing
     expect(sha(await downloaded(alice, id, sha(body)))).toBe(sha(body))
   })
 })
+
+describe("Home attachments: a stale part write that lands after a newer one never commits other bytes", { timeout: 120_000 }, () => {
+  afterEach(() => void vi.useRealTimers())
+
+  it("a request whose claim lapsed while the owner was unreachable writes its part last: the completion never stores those bytes, and the request is told to send again", async () => {
+    const alice = await signIn("att-stale-write-last")
+    const { id } = await group(alice)
+    const { PART_CLAIM_MS } = await import("../src/home-attachment-store.ts")
+    const { handleAttachmentMultipartPart } = await import("../src/home-attachments.ts")
+    const body = new Uint8Array(32 * 1024 * 1024 + 17).map((_, i) => (i * 9) % 211)
+    const m = await multipart(alice, id, body)
+    let reached!: () => void
+    const atR2 = new Promise<void>((r) => (reached = r))
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    const bucket = testEnv.HOME_ATTACHMENTS
+    const own = (x: object, q: string | symbol) => {
+      const v = Reflect.get(x, q)
+      return typeof v === "function" ? v.bind(x) : v
+    }
+    // The stale request's R2 write happens only after the gate: after the newer request's write and record.
+    const late = new Proxy(bucket, {
+      get(t, p) {
+        if (p !== "resumeMultipartUpload") return own(t, p)
+        return (key: string, uploadId: string) =>
+          new Proxy(t.resumeMultipartUpload(key, uploadId), {
+            get: (u, q) =>
+              q === "uploadPart"
+                ? async (n: number, value: ReadableStream) => {
+                    const bytes = new Uint8Array(await new Response(value).arrayBuffer())
+                    reached()
+                    await gate
+                    return u.uploadPart(n, bytes)
+                  }
+                : own(u, q)
+          })
+      }
+    })
+    // Its owner cannot be reached for renewals.
+    const unreachable = ownerWith({ renewMultipartPart: async () => { throw new Error("owner unreachable") } })
+    const staleBytes = new Uint8Array(m.size).fill(0x42)
+    const t0 = Date.now()
+    const stale = handleAttachmentMultipartPart(new Request(m.uploadUrl, { method: "PUT", body: staleBytes, headers: { "content-length": String(m.size), "x-cmux-part-number": "1" } }), { ...unreachable, HOME_ATTACHMENTS: late }, id, m.token)
+    await atR2
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(t0 + PART_CLAIM_MS + 1_000)
+    // The client's retry takes the lapsed claim and stores the real part 1.
+    expect((await m.putPart(1)).status).toBe(200)
+    release()
+    const res = await stale
+    const json = (await res.json()) as any
+    expect([res.status, json.error?.retryable]).toEqual([409, true])
+    vi.useRealTimers()
+    expect((await m.putPart(2)).status).toBe(200)
+    const done = await m.complete()
+    if (done.status === 200) expect(sha(await downloaded(alice, id, sha(body)))).toBe(sha(body))
+    else expect(done.status).toBeGreaterThanOrEqual(400)
+  })
+})
