@@ -73,7 +73,9 @@ enum WorkspaceSetVerbs {
         case .workspaces:
             // Section creation keeps #24374's explicit top slot. The shared setting controls Cmd-N
             // and other workspace creates, while this action remains independent of the selected row.
-            try WorkspaceVerbHandlers.create(context, invocation, anchorFree: .top(anchor: nil), fromCurrent: false)
+            let slot = NewWorkspacePlacements.home(context.services.machines).map { WorkspaceSlot.below($0) }
+                ?? .top(anchor: nil)
+            try WorkspaceVerbHandlers.create(context, invocation, anchorFree: slot, fromCurrent: false)
         case .items:
             let origin = invocation.origin, sectionID = section.id, services = context.services, end = section.items.count
             try WorkspaceVerbHandlers.create(context, invocation, anchorFree: .bottom(anchor: nil)) { id, _ in

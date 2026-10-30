@@ -92,7 +92,10 @@ extension WindowManager {
             // projection has materialized its row. Retain the pending rule so
             // the next reconcile can resolve the slot instead of silently
             // losing Bottom/legacy Top placement.
-            guard NewWorkspaceDefaultSlot.position(of: id, in: section, sections: sections) != nil else { continue }
+            // A document can list a workspace in a custom section instead of the machine section.
+            // Its row being present is enough to finish the create callback; only a row that has
+            // not reached any projection should remain pending.
+            guard sections.contains(where: { NewWorkspaceDefaultSlot.position(of: id, in: $0.id, sections: sections) != nil }) else { continue }
             // This Mac's daemon placed the workspace by the setting in its create: no second write for that
             // slot. Another machine's create writes no row in this Mac's order, so the app places it.
             let slot = pending.slot ?? (daemon.isLocal ? pending.byDefault?.move(for: id, section: section, in: sections, home: home)
