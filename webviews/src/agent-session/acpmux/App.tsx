@@ -2217,7 +2217,9 @@ export function VirtualTranscript({
       });
       scrollRef.current = { top, delta: top - scrollRef.current.top || scrollRef.current.delta };
       // Route recovery through the authoritative setter so the parent callback and synchronous
-      // intent ref agree; a stale queued atLatest must not retake a parked reader.
+      // intent ref agree; a stale queued atLatest must not retake a parked reader. The flush below
+      // commits `followingRef.current`, which `follow` has just set, never `frame.atLatest`, so
+      // React state ends this batch with the same value as the ref and the parent.
       followRef.current(atLatest);
     }
     // One commit a frame, flushed in the pacer's own frame callback: React would otherwise render an
