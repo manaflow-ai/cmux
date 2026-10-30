@@ -18,6 +18,10 @@ mkdir -p "$REPO/scripts/cmux-next"
 cp "$ROOT/scripts/cmux-next/build-web-bundles.sh" "$ROOT/scripts/cmux-next/web-bundle-key.py" "$REPO/scripts/cmux-next/"
 SCRIPT="$REPO/scripts/cmux-next/build-web-bundles.sh"
 git -C "$REPO" init -q
+# web-bundle-key.py reads the declared bun version from webviews/package.json.
+mkdir -p "$REPO/webviews"
+cp "$ROOT/webviews/package.json" "$REPO/webviews/"
+git -C "$REPO" add webviews/package.json
 
 PANE="Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane"
 PAGES="Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages"
