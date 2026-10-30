@@ -116,7 +116,8 @@ function followEscape(on: boolean) {
 const SCRIPTS = [
   { id: "kana", pattern: /^[\p{scx=Hiragana}\p{scx=Katakana}]$/u, language: "ja", family: ["ja"] },
   { id: "hangul", pattern: /^\p{scx=Hangul}$/u, language: "ko", family: ["ko"] },
-  { id: "han", pattern: /^\p{scx=Han}$/u, language: "zh-CN", family: ["zh", "yue"] },
+  // Han alone is ambiguous between Japanese and Chinese: a pane in either keeps its own voice.
+  { id: "han", pattern: /^\p{scx=Han}$/u, language: "zh-CN", family: ["zh", "yue", "ja"] },
   {
     id: "cyrillic",
     pattern: /^\p{scx=Cyrillic}$/u,
@@ -142,14 +143,16 @@ export function spokenLanguage(text: string, fallback?: string): string | undefi
     if (script) counts.set(script.id, (counts.get(script.id) ?? 0) + 1);
   }
   if (!letters) return fallback;
-  // Japanese text is mostly Han characters with a little kana: with any kana, Han counts as Japanese.
+  // Japanese mixes Han with kana, which Chinese has none of, so with enough kana among the CJK letters
+  // the Han are Japanese too. A stray quoted kana word in a Chinese sentence is too few to turn it.
   const kana = counts.get("kana") ?? 0;
   const han = counts.get("han") ?? 0;
-  if (kana) counts.set("kana", kana + han);
+  const japanese = kana > 0 && kana * 5 >= kana + han;
+  if (japanese) counts.set("kana", kana + han);
   let best: (typeof SCRIPTS)[number] | undefined;
   let bestCount = 0;
   for (const script of SCRIPTS) {
-    if (script.id === "han" && kana) continue;
+    if (script.id === "han" && japanese) continue;
     const count = counts.get(script.id) ?? 0;
     if (count > bestCount) [best, bestCount] = [script, count];
   }

@@ -22,6 +22,23 @@ test("Han text with kana is Japanese, without it Chinese", () => {
   expect(spokenLanguage("今天天气很好，我们去散步吧", "en")).toBe("zh-CN");
 });
 
+test("kanji alone keeps a Japanese or Chinese pane's voice", () => {
+  expect(spokenLanguage("確認完了", "ja")).toBe("ja");
+  expect(spokenLanguage("確認完了", "ja-JP")).toBe("ja-JP");
+  expect(spokenLanguage("确认完成", "zh-Hans")).toBe("zh-Hans");
+  // Under another pane language Han is read as Chinese, the likelier voice than an English one.
+  expect(spokenLanguage("確認完了", "en")).toBe("zh-CN");
+});
+
+test("a stray quoted kana word does not turn a Chinese message Japanese", () => {
+  const chinese = "我们昨天讨论了很多关于这个项目的问题，最后决定把那只「ねこ」的图标换掉，然后继续推进后面的工作安排";
+  expect(spokenLanguage(chinese, "en")).toBe("zh-CN");
+  expect(spokenLanguage(chinese, undefined)).toBe("zh-CN");
+  expect(spokenLanguage(chinese, "zh-Hans")).toBe("zh-Hans");
+  // Real Japanese has kana throughout, even with a Japanese pane or none.
+  expect(spokenLanguage("明日は会議があるので、資料を準備しておきます", "en")).toBe("ja");
+});
+
 test("a fallback in the script's own family is kept", () => {
   expect(spokenLanguage("今天天气很好，我们去散步吧", "zh-Hant")).toBe("zh-Hant");
   expect(spokenLanguage("Це тестове повідомлення", "uk")).toBe("uk");
