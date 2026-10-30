@@ -49,6 +49,9 @@ mod health_view;
 pub(super) mod idle;
 mod idle_census;
 pub(crate) use idle_census::LaunchServers;
+pub use idle_census::Sidecar;
+#[cfg(unix)]
+pub(crate) use idle_census::host_census;
 mod launch_roots;
 mod launchers;
 pub mod lineage;
@@ -319,7 +322,7 @@ pub struct TurnInfo {
     /// allowance: each eligible permission in it still asks.
     pub control: Control,
     /// What the turn does right now: its latest tool call's title and its
-    /// plan's step in progress, raw and masked (`activity.rs`).
+    /// plan's step in progress, masked (`activity.rs`).
     pub doing: activity::TurnActivity,
 }
 
@@ -621,8 +624,6 @@ pub struct Hub {
     /// `_acpmux/wait` requests subscribed and not yet answered (`server/wait.rs`), shown
     /// as `_acpmux/status` `openWaits`.
     pub(crate) open_waits: std::sync::atomic::AtomicUsize,
-    /// Automatic continuations waiting to fire, by chat (`auto_resume.rs`).
-    pub(super) auto_resumes: auto_resume::Pending,
     /// Failed subagents waiting to be resumed, by chat (`subagent_retry.rs`).
     pub(super) subagent_retries: subagent_retry::Retries,
     /// Fired by `set_transfer_lease`: each move's watch reads the new lease now.
@@ -801,7 +802,6 @@ impl Hub {
             admitting: Default::default(),
             subsession_runs: Default::default(),
             open_waits: Default::default(),
-            auto_resumes: Default::default(),
             subagent_retries: Default::default(),
             transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
@@ -1086,6 +1086,8 @@ impl Hub {
             caught_up: AtomicBool::new(true),
             log_load: StdMutex::new(true),
             log_loaded: AtomicBool::new(true),
+            auto_resume_restored: AtomicBool::new(false),
+            auto_resume: Default::default(),
             turn_lock: Mutex::new(()),
             input_handoff: std::sync::Arc::new(Mutex::new(())),
             turn: StdMutex::new(None),
