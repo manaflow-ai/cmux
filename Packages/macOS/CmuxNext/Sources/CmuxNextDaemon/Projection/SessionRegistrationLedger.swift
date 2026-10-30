@@ -24,14 +24,14 @@ public struct SessionRegistrationLedger<Record: Hashable & Sendable>: Sendable {
     public init(policy: RetryPolicy = .sessionRegistration) {}
 
     /// Whether `record` must be sent for `session` now; when true it counts as sent.
-    public mutating func shouldSend(session: String, record: Record, connection: AnyHashable) -> Bool {
+    public mutating func shouldSend(session: String, record: Record, connection: some Hashable & Sendable) -> Bool {
         guard sent[session] != record else { return false }
         sent[session] = record
         return true
     }
 
     /// Red stub: the token API with no token check.
-    public mutating func begin(session: String, record: Record, connection: AnyHashable) -> UInt64? {
+    public mutating func begin(session: String, record: Record, connection: some Hashable & Sendable) -> UInt64? {
         shouldSend(session: session, record: record, connection: connection) ? 0 : nil
     }
 
