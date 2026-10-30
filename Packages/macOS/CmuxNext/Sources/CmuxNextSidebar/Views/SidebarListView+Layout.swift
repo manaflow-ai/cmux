@@ -54,7 +54,13 @@ extension SidebarListViewComponents {
         // A removed workspace's card ends on the geometry check after the
         // rows apply (its anchor is gone); a kept one updates in place.
         if let shown = hoverCard.shownID { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(shown)) }
-        SidebarPerfCounters.timed { applyKeepingViewport(displayLayout(), animated: animated) }
+        let layout = displayLayout()
+        // Focus belongs to a displayed disclosure, so a structural reload clears it before
+        // row reuse can configure the same view for a later fold.
+        if let key = focusedFold, layout.row(for: key) == nil {
+            SidebarGroupKeys(list: self).setFocus(nil)
+        }
+        SidebarPerfCounters.timed { applyKeepingViewport(layout, animated: animated) }
         if let settled { landSettled(settled) } else { followLanding() }
         inlineRename.follow()
         groupEditor.follow(groups)

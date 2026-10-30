@@ -64,6 +64,7 @@ import Testing
             #expect((row.layer?.borderWidth ?? 0) > 0)
             list.model.filterText = "Workspace 0"
             list.reload(animated: false)
+            #expect(list.focusedFold == nil)
             #expect(!SidebarGroupKeys(list: list).handle(try event(code: 36), flags: []))
             #expect(list.openShowMore.isEmpty)
         }
@@ -78,6 +79,10 @@ import Testing
         case 36: "\r"
         case 48: "\t"
         case 49: " "
+        case 123: "\u{F702}" // left
+        case 124: "\u{F703}" // right
+        case 125: "\u{F701}" // down
+        case 126: "\u{F700}" // up
         default: ""
         }
         return try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags,
