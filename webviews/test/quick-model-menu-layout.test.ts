@@ -128,7 +128,7 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
   test("inline effort controls keep a narrow railed menu inside the viewport when switching harnesses", async () => {
     const page = await open("claude-many-harnesses-inline-effort", 320, 560);
     try {
-      await page.locator(".acpmux-quick-model-effort .acpmux-quick-efforts").first().waitFor({ state: "attached" });
+      await page.locator(".acpmux-quick-model-effort .acpmux-quick-effort-trigger").first().waitFor({ state: "attached" });
       const menu = await bounds(page, ".acpmux-quick-menu");
       const rail = await bounds(page, ".acpmux-quick-rail");
       await page.getByRole("button", { name: "Codex", exact: true }).click();
@@ -136,7 +136,7 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
         () =>
           document.querySelector(".acpmux-quick-rail-tab[aria-pressed=true]")?.getAttribute("aria-label") === "Codex",
       );
-      await page.locator(".acpmux-quick-model-effort .acpmux-quick-efforts").first().waitFor({ state: "attached" });
+      await page.locator(".acpmux-quick-model-effort .acpmux-quick-effort-trigger").first().waitFor({ state: "attached" });
       const switched = await bounds(page, ".acpmux-quick-menu");
       const switchedRail = await bounds(page, ".acpmux-quick-rail");
       expect(switched.width).toBeLessThanOrEqual(296);
@@ -314,7 +314,7 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
       const rail = await bounds(page, ".acpmux-quick-rail");
       expect(rail.width).toBeGreaterThanOrEqual(76);
       expect(rail.width).toBeLessThan(110);
-      expect(await page.locator(".acpmux-quick-effort-segment").count()).toBeGreaterThan(0);
+      expect(await page.locator(".acpmux-quick-effort-trigger").count()).toBeGreaterThan(0);
     } finally {
       await page.close();
     }
