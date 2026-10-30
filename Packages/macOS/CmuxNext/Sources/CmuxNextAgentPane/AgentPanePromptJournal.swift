@@ -111,13 +111,13 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
             return false
         }
         var kept = false
-        var replaced: (entry: Entry, holder: Holder?)?
+        var replaced: (entry: Entry, holder: Holder?, index: Int)?
         var dropped: [(entry: Entry, holder: Holder?)] = []
         let onDisk = change { state in
             guard !state.ended.contains(owner) else { return false }
             let key = Self.key(entry.daemon, entry.promptId)
-            if let earlier = state.entries.first(where: { Self.key($0.daemon, $0.promptId) == key }) {
-                replaced = (earlier, state.holders[key])
+            if let index = state.entries.firstIndex(where: { Self.key($0.daemon, $0.promptId) == key }) {
+                replaced = (state.entries[index], state.holders[key], index)
             }
             state.entries.removeAll { Self.key($0.daemon, $0.promptId) == key }
             state.entries.append(entry)
@@ -139,26 +139,25 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     }
 
     /// Undoes a record whose write failed, while it is still that record's: the entry it replaced
-    /// and those it pushed out are kept again, and the result is written (best effort), so a
-    /// later write never drops them or keeps the prompt that did not go.
-    private func takeBack(_ entry: Entry, owner: UUID, replaced: (entry: Entry, holder: Holder?)?,
+    /// (in its place) and those it pushed out are kept again, and the result is written (best
+    /// effort), so a later write never drops them or keeps the prompt that did not go.
+    private func takeBack(_ entry: Entry, owner: UUID, replaced: (entry: Entry, holder: Holder?, index: Int)?,
                           dropped: [(entry: Entry, holder: Holder?)]) {
         change { state in
             let key = Self.key(entry.daemon, entry.promptId)
             guard state.holders[key] == .page(owner),
                   let index = state.entries.lastIndex(where: { $0 == entry }) else { return false }
-            if let replaced {
-                state.entries[index] = replaced.entry
-                state.holders[key] = replaced.holder
-            } else {
-                state.entries.remove(at: index)
-                state.holders[key] = nil
-            }
+            state.entries.remove(at: index)
+            state.holders[key] = nil
             for out in dropped.reversed() {
                 let outKey = Self.key(out.entry.daemon, out.entry.promptId)
                 guard !state.entries.contains(where: { Self.key($0.daemon, $0.promptId) == outKey }) else { continue }
                 state.entries.insert(out.entry, at: 0)
                 state.holders[outKey] = out.holder
+            }
+            if let replaced {
+                state.entries.insert(replaced.entry, at: min(replaced.index, state.entries.count))
+                state.holders[key] = replaced.holder
             }
             return true
         }

@@ -313,7 +313,9 @@ struct AgentPaneUnsentPromptTests {
         let pane = try await Self.pane(daemon, journal: journal)
         pane.transport.gestures.record()
         #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 1, promptId: "p-7")]) == nil)
-        #expect(await daemon.wait { _ in Self.prompts(daemon, peer: 0).count == 1 })
+        pane.transport.gestures.record()
+        #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 5, promptId: "p-9")]) == nil)
+        #expect(await daemon.wait { _ in Self.prompts(daemon, peer: 0).count == 2 })
 
         // The folder can no longer be written; the Retry is refused and does not go.
         try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: folder.path)
@@ -321,16 +323,16 @@ struct AgentPaneUnsentPromptTests {
         let retry = await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 2, promptId: "p-7")])
         try #require(retry?.rawValue == "transport.prompt_not_kept", "a Retry that is not on disk went")
         await Self.barrier(pane, id: 3)
-        #expect(Self.prompts(daemon, peer: 0).count == 1)
+        #expect(Self.prompts(daemon, peer: 0).count == 2)
 
         // The disk recovers and another prompt is written: the first send's record is still there.
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
         pane.transport.gestures.record()
         #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 4, promptId: "p-8")]) == nil)
-        #expect(await daemon.wait { _ in Self.prompts(daemon, peer: 0).count == 2 })
+        #expect(await daemon.wait { _ in Self.prompts(daemon, peer: 0).count == 3 })
+        // In its place, too: the oldest record is still the first the journal's limit drops.
         let kept = AgentPanePromptJournal(url: url).entries().map(\.promptId)
-        #expect(kept.contains("p-7"), "the Retry's failed write dropped the first send's record: \(kept)")
-        #expect(kept.contains("p-8"))
+        #expect(kept == ["p-7", "p-9", "p-8"], "the Retry's failed write lost or moved the first send's record: \(kept)")
     }
 
     /// The page cannot send `resend` itself: only the host sends a prompt again, and only one it
