@@ -106,7 +106,7 @@ public final class PreviewImageCache {
         do {
             return try await capture()
         } catch {
-            if isRefusal(error) { refusedCaptures += 1 } else { failedCaptures += 1 }
+            _ = isRefusal(error) // red proof: nothing counted
             return nil
         }
     }

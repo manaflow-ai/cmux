@@ -13,15 +13,11 @@ extension CEFRuntime {
     func evaluate(_ browser: Int32, world: String, script: String, userGesture: Bool,
                   timeout: Duration = CEFRuntime.evaluateTimeout) async throws -> CEFEvaluationResult {
         guard let tabEvaluate = shim?.tabEvaluate else { throw BrowserTabError.closed }
-        let order = devToolsOrder
-        let ticket = order.take(browser)
-        await order.turn(ticket, of: browser)
-        let token = nextEvaluation
+        let token = nextEvaluation // red proof: the fork evaluate leaves at once
         nextEvaluation = nextEvaluation == .max ? 1 : nextEvaluation + 1
         evaluationBrowsers[token] = browser
         defer { evaluationBrowsers[token] = nil }
         let sent = tabEvaluate(browser, token, world, script, userGesture ? 1 : 0) == 1
-        order.leave(ticket, of: browser)
         guard sent else { throw BrowserTabError.closed }
         if let early = earlyEvaluations.removeValue(forKey: token) { return early }
         return try await evaluations.reply(for: token, timeout: timeout) { BrowserTabError.timedOut("evaluate (\(timeout))") }

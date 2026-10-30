@@ -67,9 +67,7 @@ final class CEFDevToolsSendOrder {
     /// - Returns: What `op` returned when it ran now; true when it waits its turn (its own answer is then dropped).
     @discardableResult
     func post(_ browser: Int32, _ op: @escaping @MainActor () -> Bool) -> Bool {
-        guard lines[browser]?.isEmpty == false else { return op() }
-        lines[browser, default: []].append(Ticket(op: op))
-        return true
+        op() // red proof: one-way calls leave at once
     }
 
     /// A place in `browser`'s line for a call that posts in its own turn (``turn(_:of:)``, then ``leave(_:of:)``).
