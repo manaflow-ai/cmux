@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 import CmuxNextSettings
+import CoreGraphics
 import Testing
 
 /// Lawrence 2026-10-19: "If a user opens a link or a path or whatever from a terminal or ACP or
@@ -15,12 +16,37 @@ struct LinkOpenPlacementTests {
         #expect(rule.target(source: "terminal", takesTabs: true, right: nil) == .splitRight(of: "terminal"))
     }
 
-    /// The first open made the right pane; the next one, and any pane already there, gets the tab:
-    /// repeated opens never keep splitting.
+    /// With the right column not measured, the pane on the right gets the tab.
     @Test func thePaneOnTheRightIsReused() {
         let rule = Rule(setting: .splitRight)
         #expect(rule.target(source: "terminal", takesTabs: true, right: "opened") == .pane("opened"))
         #expect(Rule(setting: .newColumn).target(source: "chat", takesTabs: true, right: "opened") == .pane("opened"))
+    }
+
+    /// Leo 2026-10-30: "anything we expect to open on "the right"... if there's already a thing on
+    /// the right, there should be logic for just putting it on the lower pane of the right. that
+    /// kinda split." With the right column measured (``LinkOpener`` does for a source that takes
+    /// tabs), the first open beside a pane already there splits below it; once the column has its
+    /// lower pane, opens are tabs there; closing that pane collapses it and the next splits again.
+    @Test(arguments: [LinkPlacement.splitRight, .newColumn])
+    func somethingAlreadyOnTheRightGetsALowerSplit(_ setting: LinkPlacement) {
+        let rule = Rule(setting: setting)
+        let wide: (String) -> CGFloat? = { _ in 700 }
+        #expect(rule.target(source: "chat", takesTabs: true, right: "diff", column: ["diff"], sourceWidth: 1400, width: wide)
+                == .splitBelow(of: "diff"))
+        #expect(rule.target(source: "chat", takesTabs: true, right: "diff", column: ["diff", "lower"], sourceWidth: 1400, width: wide)
+                == .pane("lower"), "a full column takes a tab in its lower pane, never a third split")
+        // The lower pane's last tab closed: the column is one pane again, so the next open splits below it.
+        #expect(rule.target(source: "chat", takesTabs: true, right: "diff", column: ["diff"], sourceWidth: 1400, width: wide)
+                == .splitBelow(of: "diff"))
+    }
+
+    @Test func aNarrowRightColumnTakesTheTabInsteadOfSplitting() {
+        let rule = Rule(setting: .splitRight)
+        #expect(rule.target(source: "chat", takesTabs: true, right: "diff", column: ["diff"], sourceWidth: 1400, width: { _ in 419 })
+                == .pane("diff"))
+        #expect(rule.target(source: "chat", takesTabs: true, right: "diff", column: ["diff"], sourceWidth: 479, width: { _ in 700 })
+                == .pane("diff"))
     }
 
     @Test func theSourcePaneNeverGetsTheTabByDefault() {

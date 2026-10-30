@@ -1,12 +1,17 @@
+import AppKit
+import CmuxNextAgentPane
 import CmuxNextSettings
 
 /// The one rule for where a link or path the person opens from a pane lands (``LinkOpener``):
 /// a terminal's Cmd-click, a link in an agent chat, Home, a Markdown or code page, a `cmux://`
 /// path link. The source pane never loses what it shows:
 ///
-/// - ``LinkPlacement/splitRight`` (default) and ``LinkPlacement/newColumn``: the pane right of
-///   the source on its screen gets the new tab, so repeated opens reuse one pane; with no pane
-///   there, a new split (or a new column) opens right of the source.
+/// - ``LinkPlacement/splitRight`` (default) and ``LinkPlacement/newColumn``: with no pane right of
+///   the source on its screen, a new split (or a new column) opens right of the source. With one,
+///   the right column (`column`, when the caller measured it) places it by ``RightColumnPlacement``:
+///   a split below that pane once, then tabs in the column's lower pane (Leo 2026-10-30: "if
+///   there's already a thing on the right, there should be logic for just putting it on the lower
+///   pane of the right"). Unmeasured, the pane on the right gets the tab.
 /// - ``LinkPlacement/samePane``: a tab in the source pane, unless the source takes no new tabs.
 ///
 /// A source that takes no tabs (Home's pinned dock) never holds the opened tab, whatever the
@@ -23,6 +28,8 @@ struct LinkOpenPlacement<Pane: Equatable> {
         case pane(Pane)
         /// A new pane split off the right of this pane.
         case splitRight(of: Pane)
+        /// A new pane split off the bottom of this pane, the right column's one pane.
+        case splitBelow(of: Pane)
         /// A new column right of this pane's column.
         case newColumn(rightOf: Pane)
         /// Aimed at this pane, a pinned dock that takes no tabs (Home) with no pane on its right:
@@ -37,10 +44,19 @@ struct LinkOpenPlacement<Pane: Equatable> {
     var setting: LinkPlacement
 
     /// Where an item opened from `source` lands. `takesTabs`: the source's strip takes new tabs;
-    /// `right`: the pane right of the source on its screen, if any.
-    func target(source: Pane, takesTabs: Bool, right: Pane?) -> Target {
+    /// `right`: the pane right of the source on its screen, if any; `column`: the right column it
+    /// is in, top to bottom, with `sourceWidth` and each pane's `width` (empty: not measured).
+    func target(source: Pane, takesTabs: Bool, right: Pane?, column: [Pane] = [], sourceWidth: CGFloat? = nil,
+                width: (Pane) -> CGFloat? = { _ in nil }) -> Target {
         if setting == .samePane, takesTabs { return .pane(source) }
-        if let right, right != source { return .pane(right) }
+        if let right, right != source {
+            guard !column.isEmpty else { return .pane(right) }
+            switch RightColumnPlacement.decide(sourceWidth: sourceWidth, column: column, width: width) {
+            case .splitBelow(let pane): return .splitBelow(of: pane)
+            case .tab(let pane): return .pane(pane ?? right)
+            case .splitRight: return .pane(right)
+            }
+        }
         if !takesTabs { return .besideDock(source) }
         return setting == .newColumn ? .newColumn(rightOf: source) : .splitRight(of: source)
     }

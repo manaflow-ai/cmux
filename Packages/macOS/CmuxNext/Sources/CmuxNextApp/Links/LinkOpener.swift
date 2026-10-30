@@ -81,6 +81,7 @@ final class LinkOpener {
             }
         }
         let takesTabs = source.stripModel.showsNewTabButton
+        var column: [LayoutPaneID] = []
         let right = source.workspace.flatMap { content -> LayoutPaneID? in
             let takes: (LayoutPaneID) -> Bool = { content.panes[$0]?.stripModel.showsNewTabButton == true }
             if !takesTabs, let screen = content.layoutModel.screen(containing: source.layoutPaneID),
@@ -89,9 +90,13 @@ final class LinkOpener {
                                                                      takesTabs: takes, recency: content.recentPanes) {
                 return found
             }
+            // The right column beside the source (RightColumnPlacement): a split below its one pane, else its lower pane.
+            column = RightColumn.panes(beside: source.layoutPaneID, in: content)
             return PaneHandlers.neighbor(of: source.layoutPaneID, direction: .right, in: content).flatMap { takes($0) ? $0 : nil }
         }
-        return LinkOpenPlacement(setting: placement()).target(source: source.layoutPaneID, takesTabs: takesTabs, right: right)
+        let content = source.workspace
+        return LinkOpenPlacement(setting: placement()).target(source: source.layoutPaneID, takesTabs: takesTabs, right: right, column: column,
+                                                              sourceWidth: source.view.bounds.width, width: { content?.panes[$0]?.view.bounds.width })
     }
 
     /// Opens through `make` where the rule puts it. `background`: the opened tab takes no focus.
@@ -108,6 +113,14 @@ final class LinkOpener {
             return outbound.started(make(source) { [weak self, weak source] surface in
                 guard let self, let source else { return outbound.finish(moved: false) }
                 self.move(surface, from: source, to: .split(.right), focus: !background, outbound: outbound)
+            })
+        case .splitBelow(let id):
+            // Made unselected in the pane on the right, which keeps showing what it shows, then moved below it.
+            guard let right = source.workspace?.panes[id] else { return make(source, nil) }
+            let outbound = OutboundTab.begin(in: right)
+            return outbound.started(make(right) { [weak self, weak right] surface in
+                guard let self, let right else { return outbound.finish(moved: false) }
+                self.move(surface, from: right, to: .split(.bottom), focus: !background, outbound: outbound)
             })
         case .newColumn:
             let outbound = OutboundTab.begin(in: source)
@@ -147,7 +160,7 @@ final class LinkOpener {
         // The same link clicked again (a chat's PR link or card): the pane on the right selects the
         // tab it already has for that page instead of piling up another (Austin 2026-10-25, eleven
         // tabs of one PR). A tab in the source's own pane stays Chrome's: each click is a new tab.
-        if reusesTab, !background, let from, case .pane(let id) = target(from: from), id != from.layoutPaneID,
+        if reusesTab, !background, let from, let id = Self.existingPane(of: target(from: from)), id != from.layoutPaneID,
            let pane = from.workspace?.panes[id], let shown = browserTab(showing: url, in: pane) {
             // As for a new tab clicked open there: its close, emptying that pane, gives the focus back.
             if let content = from.workspace { returnFocus(of: shown.surface, to: from.layoutPaneID, in: content) }
@@ -167,6 +180,14 @@ final class LinkOpener {
                 }
             }
             return pane.newBrowserTab(url: url, background: background || placed != nil, opener: opener, then: then)
+        }
+    }
+
+    /// The existing pane a target opens in, or below (a lower split): nil for a new split, column or dock move.
+    static func existingPane(of target: LinkOpenPlacement<LayoutPaneID>.Target) -> LayoutPaneID? {
+        switch target {
+        case .pane(let id), .splitBelow(of: let id): id
+        default: nil
         }
     }
 
@@ -232,6 +253,13 @@ final class LinkOpener {
                                               arguments: ["cwd": .string(path)], origin: .user)
             invocation.opensTerminal = true
             source.services.registry.perform("splitRight", invocation: invocation)
+        case .splitBelow(let id):
+            // The pane on the right keeps what it shows: the folder's terminal is a split below it.
+            let right = source.workspace?.panes[id] ?? source
+            var invocation = ActionInvocation(target: ActionTargetRef(kind: .pane, id: right.paneKey),
+                                              arguments: ["cwd": .string(path)], origin: .user)
+            invocation.opensTerminal = true
+            source.services.registry.perform("splitDown", invocation: invocation)
         }
     }
 
