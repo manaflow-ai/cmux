@@ -3767,8 +3767,9 @@ export function VirtualTranscript({
     heldRoom.current = dockSpaceRef.current;
     // The placement pass already has the latest estimated total and measured viewport. Reusing
     // those values avoids forcing a style/layout flush from the send effect before the new row
-    // paints; the following placement pass reconciles any drawn-height correction.
-    node.scrollTop = Math.max(0, layout.totalHeight - height);
+    // paints; the following placement pass reconciles any drawn-height correction. A fractional
+    // end is rounded up, as settleFollowBottom does, so WebKit's floor never rests a pixel short.
+    node.scrollTop = Math.max(0, Math.ceil(layout.totalHeight - height - 0.01));
     const top = node.scrollTop;
     scrolledTo.current = { top, atLatest: true };
     seenAnchor.current = null;

@@ -118,8 +118,7 @@ test("a resized chat at its latest message stays there in the same frame, withou
 test("content shrinking after downward input keeps following the next reply growth", async () => {
   const root = createRoot(dom.window.document.getElementById("root")!);
   const scroller = () => dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
-  const latest = () =>
-    parseFloat(dom.window.document.querySelector<HTMLElement>(".acpmux-spacer")!.style.height) - viewport;
+  const latest = () => scrollerEnd(scroller());
   const render = async (rows: AcpmuxRow[]) =>
     await act(async () =>
       root.render(
@@ -129,10 +128,6 @@ test("content shrinking after downward input keeps following the next reply grow
   const shorter = turns.slice(0, -3);
   try {
     await render(turns);
-    Object.defineProperty(scroller(), "scrollHeight", {
-      configurable: true,
-      get: () => parseFloat(dom.window.document.querySelector<HTMLElement>(".acpmux-spacer")!.style.height),
-    });
     // Learn the shortened boundary without input, then restore the longer followed viewport.
     await render(shorter);
     const clamped = latest();
