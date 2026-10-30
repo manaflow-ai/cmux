@@ -543,14 +543,10 @@ impl SessionMeta {
         if let Some(next) = next.as_ref() {
             self.retired_agent_session_ids.retain(|id| id != next);
         }
-        if let Some(previous) = self.agent_session_id.as_ref()
-            && next.as_ref() != Some(previous)
-            && !self.retired_agent_session_ids.contains(previous)
+        if let Some(previous) = self.agent_session_id.clone()
+            && next.as_ref() != Some(&previous)
         {
-            if self.retired_agent_session_ids.len() >= RETIRED_AGENT_SESSION_IDS {
-                self.retired_agent_session_ids.remove(0);
-            }
-            self.retired_agent_session_ids.push(previous.clone());
+            self.retire_root(previous);
         }
         if let Some(next) = next.as_ref().filter(|_| family == "claude") {
             self.previous_agent_session_ids.retain(|id| id != next);
@@ -565,6 +561,29 @@ impl SessionMeta {
         }
         self.agent_session_id = next;
         self.agent_session_family = self.agent_session_id.as_ref().map(|_| family.to_owned());
+    }
+
+    /// Drop the native id without making it transcript authority: a chat that starts its agent
+    /// fresh (a guarded move with no agent file, `transfer_guard.rs`) keeps the old root only in
+    /// `retired_agent_session_ids`, since its acpmux history still names it. Never into
+    /// `previous_agent_session_ids`, which would let a Claude transcript read follow a file that
+    /// did not come with the chat.
+    pub fn retire_agent_session_id(&mut self) {
+        if let Some(previous) = self.agent_session_id.take() {
+            self.retire_root(previous);
+        }
+        self.agent_session_family = None;
+    }
+
+    /// Record an earlier root in `retired_agent_session_ids`: once, newest last, bounded.
+    fn retire_root(&mut self, previous: String) {
+        if self.retired_agent_session_ids.contains(&previous) {
+            return;
+        }
+        if self.retired_agent_session_ids.len() >= RETIRED_AGENT_SESSION_IDS {
+            self.retired_agent_session_ids.remove(0);
+        }
+        self.retired_agent_session_ids.push(previous);
     }
 
     /// Claude ids recorded for this chat: current first, then history from newest to oldest.
@@ -1929,6 +1948,20 @@ mod agent_session_history_tests {
             m.set_agent_session_id(Some("confirmed-claude-id".into()), "claude");
             assert!(!m.claude_session_ids().any(|id| id == "unrelated-native-id"));
         }
+    }
+
+    /// Dropping the id (a fresh start) retires it once, but never makes a Claude id transcript
+    /// authority.
+    #[test]
+    fn retiring_the_native_id_keeps_it_out_of_claude_history() {
+        let mut m = meta();
+        m.set_agent_session_id(Some("claude-root".into()), "claude");
+        m.retire_agent_session_id();
+        m.retire_agent_session_id();
+        assert_eq!(m.agent_session_id, None);
+        assert_eq!(m.agent_session_family, None);
+        assert_eq!(m.retired_agent_session_ids, ["claude-root"]);
+        assert!(m.previous_agent_session_ids.is_empty());
     }
 
     #[test]
