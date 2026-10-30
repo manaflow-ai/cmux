@@ -137,8 +137,9 @@ public actor AgentSessionAttachClient {
     /// `ownerLink`: set for a Cloud machine (from the app's own record of it, never the guest's).
     /// A chat starts there only while it gives the same link id before the connection and as the
     /// start is sent (the link's attach answer said the signed-in caller owns the machine, and
-    /// that link still runs), through any daemon; anything else is refused here
-    /// (`agent_session.host_unverified`). The daemon then gets `vm_kind: "owner"` when this
+    /// that link still runs), through any daemon; a link that came up while the start connected is
+    /// asked again on the live connection (``ownedConnection(_:check:)``), and anything else is
+    /// refused here (`agent_session.host_unverified`). The daemon then gets `vm_kind: "owner"` when this
     /// connection's own `identify` lists `agent-session-start-vm-kind-v1`. The start goes over
     /// that same connection, checked before it: if it ended meanwhile the start fails, never
     /// goes out over a new one.
@@ -147,15 +148,14 @@ public actor AgentSessionAttachClient {
         guard mode == .attach else {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "a read-only agent session cannot start a chat")
         }
-        let before = await ownerLink?()
-        let (transport, served) = try await liveConnection()
-        guard served.start else {
-            throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not serve agent session start")
+        let (transport, served, callerOwnsVM) = try await ownedConnection(ownerLink) { served in
+            guard served.start else {
+                throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not serve agent session start")
+            }
+            guard model == nil || served.model else {
+                throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not support choosing a start model")
+            }
         }
-        guard model == nil || served.model else {
-            throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not support choosing a start model")
-        }
-        let callerOwnsVM = try await Self.ownerAnswer(ownerLink, before: before)
         let params = Self.startParams(cwd: cwd, harness: harness, homeConfirmed: homeConfirmed, personKey: personKey,
                                       servesKeyedReason: served.keyedReason, callerOwnsVM: callerOwnsVM, servesVMKind: served.vmKind,
                                       model: model, servesModel: served.model)
@@ -198,20 +198,49 @@ public actor AgentSessionAttachClient {
         guard mode == .attach else {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "a read-only agent session cannot change trust")
         }
-        let before = await ownerLink?()
-        let (transport, served) = try await liveConnection()
-        guard served.trust else {
-            throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not serve agent session trust")
+        let (transport, served, callerOwnsVM) = try await ownedConnection(ownerLink) { served in
+            guard served.trust else {
+                throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not serve agent session trust")
+            }
         }
         var params: [String: any Sendable] = ["cwd": cwd]
         if let level { params["level"] = level }
         if homeConfirmed { params["home_confirmed"] = true }
-        if try await Self.ownerAnswer(ownerLink, before: before), served.trustVMKind { params["vm_kind"] = "owner" }
+        if callerOwnsVM, served.trustVMKind { params["vm_kind"] = "owner" }
         // The call goes over the connection its owner answer and capabilities were checked for.
         guard !transport.isClosed else {
             throw AgentSessionAttachError(code: "agent_session.closed", message: "the connection ended before the trust call was sent")
         }
         return try await call("agent-session-trust", params, on: transport)
+    }
+
+    /// How many times ``ownedConnection(_:check:)`` reads the owner answer around a connection.
+    static let ownerAnswerReads = 3
+
+    /// The live connection, what its daemon serves (`check` refuses what it lacks) and the owner
+    /// answer of the link it goes over (``ownerAnswer(_:before:)``, read before the connection and
+    /// once it is live). When the two reads differ, the link came up or came back while the call
+    /// connected (a new Cloud machine's first start, a down machine that reconnects on use): that
+    /// connection is dropped and both reads are taken again around a new one, now over the live
+    /// link, at most ``ownerAnswerReads`` times, with no wait between. So an answer always brackets
+    /// the making of the connection it is sent on. A link that never gives one owner answer twice
+    /// in a row (no link, a team machine, a link that keeps restarting) is refused as before.
+    private func ownedConnection(_ ownerLink: OwnerLink?, check: (Served) throws -> Void) async throws
+        -> (LineTransport, Served, callerOwnsVM: Bool) {
+        func bracket() async throws -> (LineTransport, Served, Int?) {
+            let before = await ownerLink?()
+            let (transport, served) = try await liveConnection()
+            try check(served)
+            return (transport, served, before)
+        }
+        var (transport, served, before) = try await bracket()
+        for _ in 1..<Self.ownerAnswerReads {
+            if let owns = try? await Self.ownerAnswer(ownerLink, before: before) { return (transport, served, owns) }
+            if self.transport === transport { self.transport = nil }
+            transport.close()
+            (transport, served, before) = try await bracket()
+        }
+        return (transport, served, try await Self.ownerAnswer(ownerLink, before: before))
     }
 
     /// For a Cloud machine (`ownerLink` set): true when the link gives the same id now as `before`
