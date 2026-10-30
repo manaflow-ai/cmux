@@ -50,7 +50,7 @@ window.__loads = (window.__loads || 0) + 1;
 window.__keys = [];
 addEventListener('keydown', e => __keys.push([e.key, e.metaKey, e.shiftKey, e.altKey].join(',')), true);
 // A rich-text editor's Bold: with __ownsBold the page takes Cmd-B (preventDefault), as Google Docs does.
-addEventListener('keydown', e => { if (window.__ownsBold && e.metaKey && e.key === 'b') e.preventDefault(); });
+addEventListener('keydown', e => {{ if (window.__ownsBold && e.metaKey && e.key === 'b') e.preventDefault(); }});
 </script>"""
 
 
