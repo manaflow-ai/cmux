@@ -264,7 +264,8 @@ impl HttpHub {
         wait: Duration,
     ) -> Result<Value, HubError> {
         for retry in [false, true] {
-            let token = self.token(retry).await?;
+            // No token, no request: the hub saw nothing.
+            let token = self.token(retry).await.map_err(|e| HubError { unsent: true, ..e })?;
             let mut request = self
                 .http
                 .request(method.clone(), format!("{}{path}", self.origin))

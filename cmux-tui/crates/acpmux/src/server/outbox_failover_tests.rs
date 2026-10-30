@@ -184,6 +184,11 @@ async fn a_send_the_hub_may_have_taken_is_asked_again_under_its_key_and_never_ke
         let (hub, fake) = setup(&[Answer::Lost, second]);
         let reply = send_queue(&hub, text("box/lane", "prompt-0009")).await;
         assert!(reply.get("result").is_none(), "{reply}");
+        assert_eq!(
+            reply.pointer("/error/data/reason"),
+            Some(&json!("mesh.unknown_outcome")),
+            "{reply}"
+        );
         assert_eq!(fake.sent.lock().unwrap().len(), 2);
     }
     // Lost twice: an error the caller sees, never a local copy that would run it a second time.

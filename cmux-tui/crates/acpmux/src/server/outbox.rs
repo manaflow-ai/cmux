@@ -98,16 +98,17 @@ pub(super) async fn handle(
         {
             // Only a send the hub surely kept nothing of is kept here: the outbox would deliver it
             // under another id than the relay's, so the target could run it twice. A lost answer
-            // is asked once more under the same key, then is the caller's error.
-            for last in [false, true] {
-                match super::mesh_send::send(hub, conn, mesh, &request, &relayed).await {
-                    Ok(queued) => return Ok(queued),
-                    Err(e) if super::mesh_send::untaken(&e) => {
-                        tracing::info!(%target, "the mesh relay did not take it ({}); kept in the outbox", e.message);
-                        break;
-                    }
-                    Err(e) if last => return Err(e),
-                    Err(_) => {}
+            // is asked once more under the same key; whatever that second ask says, the first may
+            // be stored, so a failure is the caller's error, the first's "may have taken it".
+            match super::mesh_send::send(hub, conn, mesh, &request, &relayed).await {
+                Ok(queued) => return Ok(queued),
+                Err(e) if super::mesh_send::untaken(&e) => {
+                    tracing::info!(%target, "the mesh relay did not take it ({}); kept in the outbox", e.message);
+                }
+                Err(lost) => {
+                    return super::mesh_send::send(hub, conn, mesh, &request, &relayed)
+                        .await
+                        .map_err(|_| lost);
                 }
             }
         }
