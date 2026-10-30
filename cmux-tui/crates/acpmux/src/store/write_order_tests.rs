@@ -96,6 +96,35 @@ fn a_waiter_whose_lines_are_being_written_and_who_queued_more_waits_for_the_next
     assert!(rest.contains(&"s1".to_owned()), "s1's later line was never written: {rest:?}");
 }
 
+/// `forget` drops a session's queued lines, waits for a write of it in progress, then stops
+/// counting its lines (a `settle` of it waits no more). A line appended while it waits must not be
+/// counted as written while it is still queued: the writer would write it later, into the folder
+/// the caller deletes, and a waiter would have been told it was on disk before it was.
+#[test]
+fn a_line_appended_while_forget_waits_is_never_counted_before_it_is_written() {
+    let mut state = queued(&["s"]);
+    // The writer takes s's first line and writes it.
+    let id = state.next().unwrap();
+    let first = state.queued.remove(&id).unwrap();
+    state.writing = Some(id);
+    state.writing_ticket = first.ticket;
+    // forget begins and waits for that write; a line is appended meanwhile.
+    state.drop_queued("s");
+    state.queue("s", b"{}\n", 2);
+    let appended = state.tickets;
+    // The write ends (as `run` records it); forget ends.
+    state.writing = None;
+    if let Some(done) = state.done.get_mut("s") {
+        *done = (*done).max(first.ticket);
+    }
+    state.forgotten("s");
+    assert!(
+        !(state.written("s", appended) && state.pending("s").is_some()),
+        "a queued line of a forgotten session is counted as written"
+    );
+    assert_eq!(state.next(), None, "the writer still writes a forgotten session's line");
+}
+
 /// A request that waits on the writer raises it to the request's QoS while it waits
 /// (`cmux_threads::OwnerBoost`): the writer runs at Utility, and under CPU load a Utility thread
 /// waits behind every Default thread while the person's request waits on it.

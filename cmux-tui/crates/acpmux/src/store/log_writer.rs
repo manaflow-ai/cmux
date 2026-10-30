@@ -159,6 +159,22 @@ impl State {
         }
     }
 
+    /// Drops session `id`'s queued lines and its places in the write order (`forget`).
+    fn drop_queued(&mut self, id: &str) {
+        self.queued.remove(id);
+        self.order.retain(|o| o != id);
+        self.waiting.retain(|o| o != id);
+        self.batch.retain(|o| o != id);
+        self.close_after.remove(id);
+    }
+
+    /// The end of `forget`, once no write of session `id` is in progress: a `settle` of it
+    /// waits no more, nothing of it is written now.
+    fn forgotten(&mut self, id: &str) {
+        self.progress.remove(id);
+        self.done.remove(id);
+    }
+
     /// A request or a read waits for session `id`'s queued lines: they go in the current batch
     /// if they are in it already, else in the next one, after every session waited for before.
     /// Nothing queued (written, or being written): nothing to order.
@@ -327,17 +343,11 @@ impl LogWriter {
     /// of it in progress is waited for, its log is closed.
     pub(super) fn forget(&self, id: &str) {
         let mut state = lock(&self.shared.state);
-        state.queued.remove(id);
-        state.order.retain(|o| o != id);
-        state.waiting.retain(|o| o != id);
-        state.batch.retain(|o| o != id);
-        state.close_after.remove(id);
+        state.drop_queued(id);
         while state.writing.as_deref() == Some(id) {
             state = self.shared.done.wait(state).unwrap_or_else(|e| e.into_inner());
         }
-        state.progress.remove(id);
-        // A `settle` of it waits no more: nothing of it is written now.
-        state.done.remove(id);
+        state.forgotten(id);
         self.shared.done.notify_all();
         drop(state);
         let mut files = lock(&self.shared.files);
