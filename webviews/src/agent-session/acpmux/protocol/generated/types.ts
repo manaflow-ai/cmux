@@ -76,6 +76,12 @@ export type AttachResult = {
   /** Who has the chat open now, this attachment included (`hub/presence.rs`). */
   presence: PresenceNote;
   session: SessionDetail;
+  /**
+   * The prompt that opened the turn the page starts inside, when the page starts inside one
+   * with older records before it (`server/requests/turn_opener.rs`); null otherwise. An older
+   * acpmux leaves it out, and its client reads it with `_acpmux/events`.
+   */
+  turnOpener: (SessionEvent | null);
 } & Record<string, unknown>;
 
 /**

@@ -1776,6 +1776,17 @@
         },
         "session": {
           "$ref": "#/types/SessionDetail"
+        },
+        "turnOpener": {
+          "anyOf": [
+            {
+              "$ref": "#/types/SessionEvent"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The prompt that opened the turn the page starts inside, when the page starts inside one\nwith older records before it (`server/requests/turn_opener.rs`); null otherwise. An older\nacpmux leaves it out, and its client reads it with `_acpmux/events`."
         }
       },
       "required": [
@@ -1784,7 +1795,8 @@
         "lastSeq",
         "pageThrough",
         "presence",
-        "session"
+        "session",
+        "turnOpener"
       ],
       "type": "object"
     },
