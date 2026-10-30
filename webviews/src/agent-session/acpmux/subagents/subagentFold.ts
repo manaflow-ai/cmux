@@ -199,7 +199,7 @@ export class SubagentFold {
   setRoot(id: string | undefined): void {
     if (typeof id !== "string" || id.length === 0 || this.rootThreads.has(id)) return;
     this.rootThreads.add(id);
-    this.resolvePending(id, null);
+    this.resolvePending(id, null, true);
     // A live update can arrive before the session summary. Remove that late phantom and promote
     // anything it had already acquired so a later root seed repairs the in-memory tree too.
     const phantom = this.agents.get(id);
@@ -609,13 +609,23 @@ export class SubagentFold {
     return false;
   }
 
-  private resolvePending(sender: string, parent: string | null): void {
+  private forgetPending(child: string): void {
+    for (const [sender, pending] of this.pending) {
+      pending.delete(child);
+      if (pending.size === 0) this.pending.delete(sender);
+    }
+  }
+
+  private resolvePending(sender: string, parent: string | null, authoritative = false): void {
     const pending = this.pending.get(sender);
     if (!pending) return;
     this.pending.delete(sender);
     for (const [child, event] of pending) {
       const agent = this.agents.get(child);
-      if (agent) this.moveAgent(agent, parent, event);
+      if (agent) {
+        if (authoritative) this.forgetPending(child);
+        this.moveAgent(agent, parent, event);
+      }
     }
   }
 
@@ -851,6 +861,7 @@ export class SubagentFold {
     this.named.add(change.id);
     if (typeof change.parent === "string") this.named.add(change.parent);
     if (this.isChat(change.id)) return;
+    if (authoritative || change.__rootRepair) this.forgetPending(change.id);
     if (typeof change.toolCallId === "string") {
       this.spawnCalls.add(change.toolCallId);
       this.spawnedBy.set(change.toolCallId, change.id);

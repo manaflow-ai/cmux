@@ -498,6 +498,7 @@ impl SubagentTree {
         {
             return None;
         }
+        self.forget_pending(id);
         let parent = parent.map(str::to_owned);
         let stored = self.parents.entry(id.to_owned()).or_insert_with(|| parent.clone());
         if *stored != parent {
@@ -559,6 +560,13 @@ impl SubagentTree {
         if self.root_thread.as_deref() != Some(sender) && !self.parents.contains_key(sender) {
             self.pending.entry(sender.to_owned()).or_default().insert(child.to_owned());
         }
+    }
+
+    fn forget_pending(&mut self, child: &str) {
+        self.pending.retain(|_, children| {
+            children.remove(child);
+            !children.is_empty()
+        });
     }
 
     fn resolve_pending(&mut self, sender: &str) {
