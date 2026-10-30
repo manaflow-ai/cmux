@@ -64,6 +64,11 @@ import warm_distance  # noqa: E402
 
 WORKFLOW = "seed-derived-data.yml"
 SEED_JOB = "seed"
+# seed-derived-data.yml calls seed-derived-data-pool.yml per pool: its job
+# `seed` builds on the pool and `save` uploads the seed with SAVE_STEP. A run
+# from before that split had one job, "seed (<pool>)", doing both.
+BUILD_JOB = "seed"
+SAVE_JOB = "save"
 SAVE_STEP = "Save seed"
 # The decide job checks out this many commits of history, plus HEAD.
 ANCESTOR_LIMIT = 30
@@ -102,8 +107,23 @@ def lane(pool: str) -> dict[str, str]:
 
 def seed_job_name(pool: str) -> str:
     """GitHub names a matrix job by its entry's values: "seed (<pool>)", or
-    "seed (<pool>, <root>)" for a lane."""
+    "seed (<pool>, <root>)" for a lane. The called workflow's jobs follow it
+    after " / "."""
     return f"{SEED_JOB} ({', '.join(lane(pool).values())})"
+
+
+def lane_jobs(jobs: Sequence[dict], pool: str) -> tuple[dict | None, dict | None]:
+    """(build job, save job) of one seeder run for `pool`; the same job for a run from before the split."""
+    name = seed_job_name(pool)
+    build = save = None
+    for job in jobs:
+        if job.get("name") == name:
+            build = save = job
+        elif job.get("name") == f"{name} / {BUILD_JOB}":
+            build = job
+        elif job.get("name") == f"{name} / {SAVE_JOB}":
+            save = job
+    return build, save
 
 
 def saved(jobs: Sequence[dict], pool: str) -> bool:
@@ -112,27 +132,37 @@ def saved(jobs: Sequence[dict], pool: str) -> bool:
     A pool the run did not build has no job, a pending job may still be
     replaced, and a failed or unsaved one wrote nothing: none of them count,
     so the walk moves past that commit, which can only make a pool build,
-    never skip wrongly.
+    never skip wrongly. The save job's SAVE_STEP runs only on a seed the build
+    packed after a successful Build.
     """
-    for job in jobs:
-        if job.get("name") != seed_job_name(pool):
-            continue
-        if job.get("status") != "completed" or job.get("conclusion") != "success":
-            return False
-        save = next((step for step in job.get("steps", []) if step.get("name") == SAVE_STEP), None)
-        return save is not None and save.get("conclusion") == "success"
-    return False
+    _, job = lane_jobs(jobs, pool)
+    if job is None or job.get("status") != "completed" or job.get("conclusion") != "success":
+        return False
+    save = next((step for step in job.get("steps", []) if step.get("name") == SAVE_STEP), None)
+    return save is not None and save.get("conclusion") == "success"
 
 
 # A seed job in these states has left its concurrency group's pending slot, so no newer push replaces it:
-# running, waiting for a runner, or waiting on the ci-cache-writer environment. A job a newer push may still
-# replace is `pending`.
+# running, or waiting for a runner. A job a newer push may still replace is `pending`. `waiting` was a
+# job waiting on the ci-cache-writer environment, which only the save job enters now.
 COMMITTED = ("in_progress", "queued", "waiting")
 
 
 def running(jobs: Sequence[dict], pool: str) -> bool:
-    """Whether one seeder run's job for `pool` is committed (COMMITTED): it will save or fail, never be replaced."""
-    return any(job.get("name") == seed_job_name(pool) and job.get("status") in COMMITTED for job in jobs)
+    """Whether one seeder run's seed for `pool` is committed (COMMITTED): it will save or fail, never be replaced.
+
+    The concurrency group holds the whole call, so a build that succeeded is committed until its save ends,
+    whatever state the API shows the save job in meanwhile.
+    """
+    build, save = lane_jobs(jobs, pool)
+    if build is None:
+        return False
+    if build.get("status") in COMMITTED:
+        return True
+    if save is build:
+        return False
+    return (build.get("status") == "completed" and build.get("conclusion") == "success"
+            and (save or {}).get("status") != "completed")
 
 
 def warm_tier(ancestor: str) -> str:

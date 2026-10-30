@@ -3,11 +3,22 @@
 #
 #   r2-cache.sh restore <dir> <key> [<restore-prefix>...]
 #   r2-cache.sh save    <dir> <key>
+#   r2-cache.sh pack    <dir> <key> <out>
+#   r2-cache.sh publish <out> <key>
 #
 # Restores read a public URL and need no credentials, so any runner and any
 # pull request can use them. Saves sign with the bucket's S3 credentials and
 # run only in main-branch seed jobs. A restore never fails the job: every
 # error is a miss.
+#
+# `pack` then `publish` is `save` in two jobs, so the job that builds a cache
+# never holds the credentials (seed-derived-data-pool.yml: an owned Mac builds,
+# an ephemeral Linux runner uploads). `pack` needs no credentials: it writes
+# <out>/<key>.tar.zst (or .tar.gz) exactly as `save` would upload it, and
+# <out>/<key>.packed naming the builder's namespace. When the public URL
+# already serves the key it packs nothing, as `save` uploads nothing then.
+# `publish` uploads what `pack` left in <out> under that namespace and
+# publishes the pointers, exactly as `save` does after it packs.
 #
 # Layout under CI_CACHE_R2_PUBLIC_URL (and the same keys in the bucket):
 #   v1/<os>-<arch>/objects/<key>.tar.zst|.tar.gz   the archived directory
@@ -17,8 +28,9 @@ set -euo pipefail
 mode="${1:-}"
 dir="${2:-}"
 key="${3:-}"
-if [[ "$mode" != "restore" && "$mode" != "save" ]] || [[ -z "$dir" || -z "$key" ]]; then
-  echo "usage: r2-cache.sh restore|save <dir> <key> [<restore-prefix>...]" >&2
+case "$mode" in restore|save|pack|publish) ;; *) mode="" ;; esac
+if [[ -z "$mode" || -z "$dir" || -z "$key" ]] || [[ "$mode" == "pack" && -z "${4:-}" ]]; then
+  echo "usage: r2-cache.sh restore|save <dir> <key> [<restore-prefix>...] | pack <dir> <key> <out> | publish <out> <key>" >&2
   exit 2
 fi
 shift 3
@@ -161,21 +173,36 @@ publish_pointer() { # <prefix> <work dir> <archive generation>
   return 1
 }
 
-save() {
+credentials() { # 0 when every name a signed write needs is set
   local name
   for name in CI_CACHE_R2_ENDPOINT CI_CACHE_R2_BUCKET CI_CACHE_R2_PUBLIC_URL AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
     if [[ -z "${!name:-}" ]]; then
       echo "::warning::r2-cache: $name is not set; nothing saved"
-      return 0
+      return 1
     fi
   done
-  if [[ ! -d "$dir" ]]; then
-    echo "::warning::r2-cache: $dir does not exist; nothing saved"
-    return 0
-  fi
+}
 
-  local extension="tar.gz" work status generation url
-  command -v zstd >/dev/null 2>&1 && extension="tar.zst"
+archive_extension() { if command -v zstd >/dev/null 2>&1; then echo tar.zst; else echo tar.gz; fi; }
+
+pack_archive() { # <extension> <archive>; archives $dir
+  if [[ "$1" == "tar.zst" ]]; then
+    # --long=27: a 128 MiB match window. Seeds and compilation caches repeat
+    # content far apart; on real archives this cut seeds 27%, the compilation
+    # cache 33% and SwiftPM 12% for about 5 s more on 11 GB. 2^27 is zstd's
+    # default decompression limit, so restores need no flag.
+    tar -cf - -C "$dir" . | zstd -T0 -3 --long=27 -q -o "$2"
+  else
+    tar -cf - -C "$dir" . | gzip -1 > "$2"
+  fi
+  echo "r2-cache: archive is $(du -m "$2" | cut -f1) MB"
+}
+
+# Uploads $key's archive unless the bucket has it, then publishes its pointers.
+# ARCHIVE is the packed file; empty means pack $dir now (save), or, for a key
+# `pack` found already published, that there is nothing to upload.
+store() { # <extension> [<archive>]
+  local extension="$1" archive="${2:-}" work status generation url
   # GITHUB_RUN_ID increases across every workflow in the repository, in the
   # order runs were created. Run numbers count per workflow, and nightly.yml
   # and seed-derived-data.yml write the same prefixes.
@@ -185,18 +212,16 @@ save() {
   url="${CI_CACHE_R2_ENDPOINT%/}/$CI_CACHE_R2_BUCKET/$namespace/objects/$key.$extension"
   status="$(request --head --dump-header "$work/headers" "$url")" || status=000
   if [[ "$status" == 404 ]]; then
-    if [[ "$extension" == "tar.zst" ]]; then
-      # --long=27: a 128 MiB match window. Seeds and compilation caches repeat
-      # content far apart; on real archives this cut seeds 27%, the compilation
-      # cache 33% and SwiftPM 12% for about 5 s more on 11 GB. 2^27 is zstd's
-      # default decompression limit, so restores need no flag.
-      tar -cf - -C "$dir" . | zstd -T0 -3 --long=27 -q -o "$work/archive"
-    else
-      tar -cf - -C "$dir" . | gzip -1 > "$work/archive"
+    if [[ -z "$archive" && "$mode" == "save" ]]; then
+      archive="$work/archive"
+      pack_archive "$extension" "$archive"
+    elif [[ -z "$archive" ]]; then
+      echo "::warning::r2-cache: $key was packed as published, but the bucket does not have it; nothing saved"
+      rm -rf "$work"
+      return 0
     fi
-    echo "r2-cache: archive is $(du -m "$work/archive" | cut -f1) MB"
     status="$(request -H 'If-None-Match: *' -H "x-amz-meta-generation: $generation" \
-      -H 'content-type: application/octet-stream' -T "$work/archive" "$url")" || status=000
+      -H 'content-type: application/octet-stream' -T "$archive" "$url")" || status=000
     if [[ "$status" == 412 ]]; then
       status="$(request --head --dump-header "$work/headers" "$url")" || status=000
     elif [[ "$status" == 200 ]]; then
@@ -234,8 +259,70 @@ save() {
   echo "r2-cache: saved $key"
 }
 
-if [[ "$mode" == "restore" ]]; then
-  restore "$@" || { echo "r2-cache: restore failed; treating as a miss"; set_output cache-hit false; }
-else
-  save
-fi
+save() {
+  credentials || return 0
+  if [[ ! -d "$dir" ]]; then
+    echo "::warning::r2-cache: $dir does not exist; nothing saved"
+    return 0
+  fi
+  store "$(archive_extension)"
+}
+
+published() { # <extension>; whether the public URL serves $key's archive now
+  # A query the CDN has never seen, so a cached answer for this key (adoption
+  # probes it before the build) cannot stand in for the bucket's.
+  curl --fail --silent --location --head --connect-timeout 15 --max-time 30 -o /dev/null \
+    "${CI_CACHE_R2_PUBLIC_URL%/}/$namespace/objects/$key.$1?r2-cache-pack=${GITHUB_RUN_ID:-0}-$$" 2>/dev/null
+}
+
+pack() { # <out>
+  local out="$1" extension found=""
+  if [[ ! -d "$dir" ]]; then
+    echo "::warning::r2-cache: $dir does not exist; nothing packed"
+    return 0
+  fi
+  mkdir -p "$out"
+  rm -f "$out/$key.packed" "$out/$key.tar.zst" "$out/$key.tar.gz"
+  extension="$(archive_extension)"
+  if [[ -n "${CI_CACHE_R2_PUBLIC_URL:-}" ]]; then
+    for found in "$extension" tar.zst tar.gz; do
+      published "$found" && break
+      found=""
+    done
+  fi
+  if [[ -n "$found" ]]; then
+    # `publish` still checks the pointers, as `save` does for an existing key.
+    echo "r2-cache: $key already exists; not packing it"
+    extension="$found"
+  else
+    pack_archive "$extension" "$out/$key.$extension"
+  fi
+  printf 'namespace=%s\nextension=%s\n' "$namespace" "$extension" > "$out/$key.packed"
+}
+
+publish() {
+  local out="$dir" packed value extension archive=""
+  credentials || return 0
+  packed="$out/$key.packed"
+  if [[ ! -f "$packed" ]]; then
+    echo "::warning::r2-cache: nothing was packed for $key in $out; nothing saved"
+    return 0
+  fi
+  value="$(sed -n 's/^namespace=//p' "$packed" | head -n 1)"
+  extension="$(sed -n 's/^extension=//p' "$packed" | head -n 1)"
+  # The builder's namespace, not this runner's: a Linux job publishes a macOS cache.
+  if ! [[ "$value" =~ ^v1/[A-Za-z0-9_]+-[A-Za-z0-9_]+$ ]] || ! [[ "$extension" == "tar.zst" || "$extension" == "tar.gz" ]]; then
+    echo "::warning::r2-cache: $packed is not a pack record; nothing saved"
+    return 0
+  fi
+  namespace="$value"
+  [[ ! -f "$out/$key.$extension" ]] || archive="$out/$key.$extension"
+  store "$extension" "$archive"
+}
+
+case "$mode" in
+  restore) restore "$@" || { echo "r2-cache: restore failed; treating as a miss"; set_output cache-hit false; } ;;
+  save) save ;;
+  pack) pack "$1" ;;
+  publish) publish ;;
+esac
