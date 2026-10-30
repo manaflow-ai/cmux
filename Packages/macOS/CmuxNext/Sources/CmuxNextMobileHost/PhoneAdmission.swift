@@ -17,6 +17,7 @@ final class PhoneAdmission {
     var ask: (MobileHostPairRequest, String) async -> PromptResult = PhoneAdmission.askOnThisMac
     var accountName: @MainActor () -> String = { "" }
     var announce: @MainActor (MobileHostPairRequest) -> Void = { _ in }
+    var quiet: @MainActor () -> Void = {}
     var now: () -> ContinuousClock.Instant = { .now }
 
     init(phones: MobileHostPairedStore, disconnect: @escaping @Sendable (String) async -> Void) {
@@ -58,6 +59,7 @@ final class PhoneAdmission {
             // task-owner: one question and save per endpoint, shared by concurrent connections
             question = (UUID(), selected, Task { [self] in
                 let answer = await ask(phone, accountName().isEmpty ? user : accountName())
+                if questions.count == 1 { quiet() }
                 guard !Task.isCancelled, phones.generation == selected, phones.current?.userID == user else { return false }
                 switch answer {
                 case .unavailable: return false
@@ -119,6 +121,7 @@ extension IPhoneHostService {
         let admission = PhoneAdmission(phones: pairedStore, disconnect: disconnect)
         admission.accountName = { [weak self] in self?.account?.email ?? self?.account?.userID ?? "" }
         admission.announce = { [weak self] request in self?.announcePhoneAccess(request) }
+        admission.quiet = { [weak self] in self?.quietAttention() }
         phoneAdmission = admission
         gate.setAdmission(decide: { await admission.decide($0) }, recheck: { [pairedStore] in pairedStore.trusts($0) })
     }
