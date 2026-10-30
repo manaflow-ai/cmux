@@ -53,6 +53,7 @@ use super::mirror::{Origin, Tier};
 use super::supervisor::{ApiError, Inner, MAX_CRASHES, Out, Responder, Supervisor};
 use super::timer::TimerId;
 use crate::backoff::Backoff;
+use cmux_json::JsonSet as _;
 
 /// Longest line a server may write (a 16 MiB file read, base64 encoded).
 const MAX_LINE_BYTES: u64 = 32 << 20;
@@ -343,7 +344,7 @@ impl Supervisor {
                 let family = op.split('.').next().unwrap_or(op).to_string();
                 let mut entry = policy.entry;
                 if policy.person_only {
-                    entry["gesture"] = Value::from("required");
+                    entry.set("gesture", Value::from("required"));
                 }
                 (family, entry)
             })
@@ -423,7 +424,7 @@ impl Supervisor {
             "idempotency_key": idempotency_key,
         });
         if let Some(token) = open_token {
-            message["open_token"] = json!(token);
+            message.set("open_token", json!(token));
         }
         let message = line(&message);
         server.pending.insert(id.clone(), respond);

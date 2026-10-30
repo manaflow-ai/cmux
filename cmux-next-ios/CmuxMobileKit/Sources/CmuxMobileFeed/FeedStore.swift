@@ -43,6 +43,8 @@ public struct FeedItem: Identifiable, Hashable, Sendable {
     public var agentName: String
     public var harness: String
     public var workspaceTitle: String
+    /// The tab the agent runs in, as the Mac names it ("Fix login redirect"); empty when unknown.
+    public var tabTitle = ""
     public var markdown: String
     public var quote: Quote?
     public var createdAt: Date
@@ -89,6 +91,15 @@ public struct FeedItem: Identifiable, Hashable, Sendable {
     /// may still be working).
     public var takesReply: Bool {
         !opensTerminal || kind == .response || kind == .finished
+    }
+
+    /// Where it happened: "api-server › Fix login redirect", or the workspace alone when the tab
+    /// is unnamed or only repeats the agent's name.
+    public var place: String {
+        let tab = tabTitle.trimmingCharacters(in: .whitespaces)
+        let repeats = [agentName, harness, workspaceTitle].contains { $0.caseInsensitiveCompare(tab) == .orderedSame }
+        guard !tab.isEmpty, !repeats else { return workspaceTitle }
+        return workspaceTitle.isEmpty ? tab : "\(workspaceTitle) › \(tab)"
     }
 
     public var needsYou: Bool {
@@ -287,6 +298,15 @@ public final class FeedStore {
     }
 
     public func markRead(_ id: String) { mutate(id) { $0.isRead = true } }
+    /// Mark All Notifications as Read: every event in the Feed, in one write.
+    public func markAllRead() {
+        guard items.contains(where: { !$0.isRead }) else { return }
+        items = items.map { item in
+            var item = item
+            item.isRead = true
+            return item
+        }
+    }
     public func markUnread(_ id: String) {
         readIDs.removeAll { $0 == id }
         readMarks?.save(readIDs)

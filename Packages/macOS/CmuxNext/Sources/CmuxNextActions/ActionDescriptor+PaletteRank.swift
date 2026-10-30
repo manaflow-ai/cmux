@@ -266,8 +266,7 @@ extension ActionDescriptor {
                           "notifications.dismissal.keystroke", "notifications.dismissal.never",
                           "notifications.dismissal.timeout",
                       ]),
-        PaletteFamily("forkConversation", title: familyTitle("palette.family.forkConversation", "Fork Conversation…"),
-                      symbol: "arrow.triangle.branch", members: [
+        PaletteFamily("forkConversation", parent: "palette.forkAgentConversation", members: [
                           "palette.forkAgentConversationRight", "palette.forkAgentConversationLeft",
                           "palette.forkAgentConversationTop", "palette.forkAgentConversationBottom",
                           "palette.forkAgentConversationNewTab", "palette.forkAgentConversationNewWorkspace",

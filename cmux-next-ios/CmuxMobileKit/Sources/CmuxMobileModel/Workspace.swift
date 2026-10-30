@@ -47,6 +47,9 @@ public struct Workspace: Identifiable, Hashable, Sendable, Codable {
     /// The Mac's workspace group the workspace is in (its personal sidebar
     /// group, `list-personal`), if any.
     public var group: MacWorkspaceGroup?
+    /// The workspace's panes on its Mac, from the Mac's live tree (never saved: a snapshot
+    /// shows no Panes page until the Mac lists the workspace again).
+    public var layout: WorkspaceLayout?
     /// The workspace's screens on the Mac, in its screen bar's order (`MacScreen`). Empty when
     /// the Mac's tree has not listed them (mock data, an old saved copy).
     public var screens: [MacScreen] = []

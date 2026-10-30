@@ -45,7 +45,7 @@ import {
 import { flushSync } from "react-dom";
 import { usePresence, type Presence } from "../../../ui/presence";
 import { useChatDisplay } from "../chatDisplay";
-import { chatColumnOf, useChatWidth, type ChatColumn } from "../chatWidth";
+import { CHAT_LAYOUT_EVENT, chatColumnOf, useChatWidth, type ChatColumn } from "../chatWidth";
 import { PanelToggle } from "../header/PanelToggle";
 import { useHeaderState, type HeaderPullRequest } from "../header/headerState";
 import { useTabRow } from "../header/tabRow";
@@ -68,7 +68,9 @@ import { useChangesStatuses, useStableUrls, withHeader } from "./changesStatus";
 import { ConnectorsSection } from "./ConnectorsSection";
 import { ContextSection } from "./ContextSection";
 import { EnvironmentSection, type ProjectRowLook } from "./EnvironmentSection";
+import { InspectorGroup } from "./InspectorGroup";
 import { InspectorSection } from "./InspectorSection";
+import { SourcesSection } from "./SourcesSection";
 import { SUBAGENT_HEADER, SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
 import { subagentProcesses, subagentSummary, withChatEnds, type SubagentScope } from "./subagentScope";
 import {
@@ -76,6 +78,7 @@ import {
   INSPECTOR_WIDTH,
   setInspectorOpen,
   setInspectorSection,
+  setInspectorSourcesAll,
   setInspectorWidth,
   useInspectorOpen,
   useInspectorState,
@@ -92,7 +95,6 @@ import { WorkflowTasks, type WorkflowAgentRowVariant } from "./WorkflowTasks";
 import type { WorkflowAgent, WorkflowSummary } from "../summary/workflow";
 import type { Subagent } from "../subagents/subagentFold";
 import { subagentProgress } from "../subagents/subagentProgress";
-import { RAIL_MIN_GUTTER } from "../threadMinimap/model";
 import { useUnderInspector } from "./underInspector";
 import "./inspector.css";
 
@@ -122,9 +124,9 @@ export const pushedWidth = (paneWidth: number, width: number) =>
 /// part of the true agent pane area except in the case when both would fit if only the agent pane
 /// shifted left". When the right gutter (model.ts transcriptColumn) holds the panel and its margins,
 /// nothing moves; when the two gutters together hold it, the column moves left by what the right one
-/// lacks; otherwise nothing moves and the panel floats over the chat. The left gutter keeps the
-/// thread rail's usable gutter (threadMinimap/model.ts RAIL_MIN_GUTTER), so the column only slides
-/// as far as the rail can follow it. The rail itself moves toward the text as the gutter shrinks.
+/// lacks; otherwise nothing moves and the panel floats over the chat. The pane's left edge is
+/// independent of this shift. The thread rail is pinned to that edge and
+/// keeps its own inset, so the column can use the full left gutter when it needs to move.
 /// A handoff review's form (handoff/styles.css: 760px, 18px from each edge) is wider than the column:
 /// with `wide`, the gutter is the form's. The form takes the transcript's place, so no thread rail
 /// draws beside it: the shift keeps the form's own edge clearance instead of the rail's room.
@@ -138,7 +140,7 @@ export const inspectorChatShift = (paneWidth: number, width: number, column?: Ch
     ? Math.min(columnInset, (paneWidth - Math.min(HANDOFF_FORM_WIDTH, paneWidth - 2 * HANDOFF_FORM_EDGE)) / 2)
     : columnInset;
   const lacks = width + 2 * FLOAT_MARGIN - inset;
-  const room = inset - (wide ? HANDOFF_FORM_EDGE : RAIL_MIN_GUTTER);
+  const room = inset - (wide ? HANDOFF_FORM_EDGE : 0);
   return lacks > 0 && lacks <= room ? lacks : 0;
 };
 
@@ -285,6 +287,7 @@ export function useChatInspector({
   repository,
   shell,
   onOpenOutput,
+  onOpenSourceFile,
   onOpenUrl,
   onOpenImage,
   onOpenDocument,
@@ -328,6 +331,7 @@ export function useChatInspector({
   shell?: HTMLElement | null;
   /// Opens a file's diff (App.tsx openOutput: beside the chat, else in place).
   onOpenOutput?: (path: string) => void;
+  onOpenSourceFile?: (path: string) => unknown;
   /// Opens a web address in the browser beside the chat (a server's port, a pull request).
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string) => void;
@@ -489,6 +493,7 @@ export function useChatInspector({
         revealed={revealed}
         onRevealed={clearRevealed}
         onStopProcess={onStopProcess}
+        onOpenSourceFile={subagent?.agent.host ? undefined : onOpenSourceFile}
         onOpenOutput={openOutput}
         onOpenUrl={onOpenUrl}
         onOpenImage={onOpenImage}
@@ -538,6 +543,7 @@ function InspectorPresence({
   onRevealed,
   onStopProcess,
   onOpenOutput,
+  onOpenSourceFile,
   onOpenUrl,
   onOpenImage,
   onOpenFolder,
@@ -582,6 +588,7 @@ function InspectorPresence({
   onRevealed: () => void;
   onStopProcess?: (id: string) => Promise<unknown>;
   onOpenOutput?: (path: string) => void;
+  onOpenSourceFile?: (path: string) => unknown;
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string) => void;
   onOpenFolder?: (path: string) => void;
@@ -620,12 +627,14 @@ function InspectorPresence({
       delete shell.dataset.inspectorChatResizing;
       shell.style.removeProperty("--acpmux-chat-shift");
       shell.style.removeProperty("--acpmux-header-room");
+      shell.dispatchEvent(new (shell.ownerDocument.defaultView?.Event ?? Event)(CHAT_LAYOUT_EVENT));
       return;
     }
     shell.dataset.inspectorChatPlacement = push ? "push" : "overlay";
     if (suppressShiftTransition) shell.dataset.inspectorChatResizing = "true";
     else delete shell.dataset.inspectorChatResizing;
     shell.style.setProperty("--acpmux-chat-shift", `${chatShift}px`);
+    shell.dispatchEvent(new (shell.ownerDocument.defaultView?.Event ?? Event)(CHAT_LAYOUT_EVENT));
     // Push always narrows the transcript, not the header: native tabs reserve the tools at the
     // pane's trailing edge. Reuse the measured room (excluding an artifact beside the chat).
     if (paneWidth > 0) shell.style.setProperty("--acpmux-header-room", `${paneWidth}px`);
@@ -637,13 +646,22 @@ function InspectorPresence({
       delete shell.dataset.inspectorChatResizing;
       shell.style.removeProperty("--acpmux-chat-shift");
       shell.style.removeProperty("--acpmux-header-room");
+      shell.dispatchEvent(new (shell.ownerDocument.defaultView?.Event ?? Event)(CHAT_LAYOUT_EVENT));
     };
   }, [shell]);
   // A card under the panel (the computer use live preview) reads where it goes from the shell.
   useUnderInspector(shell, drawn, push, FLOAT_MARGIN, inspectorTop);
   // A subagent's panel reads its own rows only: its replies, thoughts and tool calls.
   const rows = scope?.rows ?? snapshot.rows;
-  const made = useMemo(() => (drawn ? sessionSummary(rows, repository ?? null) : undefined), [drawn, rows, repository]);
+  const scopedAgent = scope?.agent;
+  const summary = useMemo(
+    () => (drawn && scopedAgent ? subagentSummary(snapshot.summary, scopedAgent, rows) : snapshot.summary),
+    [drawn, scopedAgent, snapshot.summary, rows],
+  );
+  const made = useMemo(
+    () => (drawn ? sessionSummary(rows, repository ?? null, summary?.cwd) : undefined),
+    [drawn, rows, repository, summary?.cwd],
+  );
   const links = useMemo(() => (drawn ? outputLinks(rows) : []), [drawn, rows]);
   const artifacts = useMemo(() => (drawn ? chatGallery(rows).length : 0), [drawn, rows]);
   const documents = useMemo(() => (drawn ? outputArtifacts(rows) : []), [drawn, rows]);
@@ -653,11 +671,6 @@ function InspectorPresence({
   const agents = useMemo(
     () => (drawn ? (scopedAgents ?? [...subagentsIn(rows, views).values()]) : []),
     [drawn, scopedAgents, rows, views],
-  );
-  const scopedAgent = scope?.agent;
-  const summary = useMemo(
-    () => (drawn && scopedAgent ? subagentSummary(snapshot.summary, scopedAgent, rows) : snapshot.summary),
-    [drawn, scopedAgent, snapshot.summary, rows],
   );
   const chatRows = snapshot.rows;
   const transcriptTasks = useMemo(
@@ -675,8 +688,9 @@ function InspectorPresence({
   );
   // Every pull request's title, state, lines and checks from the App's cache, the folder's live
   // read over it (changesStatus.ts); asked for only while Changes is unfolded.
-  const prUrls = useStableUrls(made?.pullRequests);
-  const { statuses: cached, unsettled } = useChangesStatuses(prUrls, drawn, drawn && sections.changes);
+  const changes = useMemo(() => visibleChanges(made?.pullRequests ?? [], {}), [made?.pullRequests]);
+  const prUrls = useStableUrls(changes);
+  const { statuses: cached } = useChangesStatuses(prUrls, drawn, drawn && sections.changes);
   const statuses = useMemo(() => withHeader(cached, headerStatus(pullRequest)), [cached, pullRequest]);
   // An output's diff opens beside the chat. Pushing (Settings Push always), when that split leaves too
   // little room for a readable chat beside the Inspector, it steps aside until the toggle opens it
@@ -740,7 +754,6 @@ function InspectorPresence({
         waiting={waiting}
         onOpenSubagent={subagents?.onOpen}
         statuses={statuses}
-        changesUnsettled={unsettled}
         processes={processes}
         listed={registry?.listed}
         transcriptTasks={transcriptTasks}
@@ -756,6 +769,7 @@ function InspectorPresence({
         onStopProcess={onStopProcess}
         sections={sections}
         onSection={setInspectorSection}
+        onOpenSourceFile={onOpenSourceFile}
         onOpenOutput={onOpenOutput}
         onOpenUrl={onOpenUrl}
         onOpenImage={onOpenImage}
@@ -924,7 +938,6 @@ export function ChatInspector({
   waiting = new Set(),
   onOpenSubagent,
   statuses = {},
-  changesUnsettled = false,
   processes = [],
   listed = false,
   transcriptTasks = [],
@@ -941,6 +954,7 @@ export function ChatInspector({
   sections,
   onSection,
   onOpenOutput,
+  onOpenSourceFile,
   onOpenUrl,
   onOpenImage,
   onOpenDocument,
@@ -959,7 +973,7 @@ export function ChatInspector({
   peerKinds?: Readonly<Record<string, "ssh" | "cloud">>;
   repository?: string;
   /// What the chat produced (sessionSummary).
-  made?: Pick<SessionSummary, "outputs" | "pullRequests" | "scheduled">;
+  made?: Pick<SessionSummary, "outputs" | "pullRequests" | "scheduled"> & Partial<Pick<SessionSummary, "sources">>;
   links?: readonly OutputLink[];
   artifacts?: number;
   /// The documents the chat produced (OutputsSection `outputArtifacts`).
@@ -973,10 +987,6 @@ export function ChatInspector({
   onOpenSubagent?: (id: string) => void;
   /// What the App read of the pull requests, by URL.
   statuses?: Readonly<Record<string, InspectorPullRequestStatus>>;
-  /// A pull request the chat named has no settled answer from the App yet (none asked for while
-  /// Changes is folded, or the host still reading): Changes keeps its header, with no rows and no
-  /// count for them, so it can be opened to ask.
-  changesUnsettled?: boolean;
   /// The chat's background processes, in the order they started.
   processes?: readonly InspectorProcess[];
   /// The registry answered a listing for the chat: a transcript task it does not list no longer
@@ -1006,6 +1016,7 @@ export function ChatInspector({
   sections?: InspectorSections;
   onSection?: (id: InspectorSectionId, open: boolean) => void;
   onOpenOutput?: (path: string) => void;
+  onOpenSourceFile?: (path: string) => unknown;
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string) => void;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
@@ -1028,7 +1039,8 @@ export function ChatInspector({
 }) {
   const t = useT();
   const language = usePaneLanguage();
-  const stored = useInspectorState().sections;
+  const inspectorState = useInspectorState();
+  const stored = inspectorState.sections;
   const state = sections ?? stored;
   const fold = (id: InspectorSectionId) => (next: boolean) => (onSection ?? setInspectorSection)(id, next);
   const [gallery, setGallery] = useState(false);
@@ -1074,6 +1086,7 @@ export function ChatInspector({
   }, [revealed, onRevealed]);
   const scheduled = made?.scheduled ?? [];
   const pullRequests = visibleChanges(made?.pullRequests ?? [], statuses);
+  const sources = made?.sources ?? [];
   const outputs = (made?.outputs ?? []) as readonly TurnFile[];
   const mcp = summary?.mcpServers ?? [];
   const reconnect = mcp.filter((server) => server.status === "failed").length;
@@ -1162,8 +1175,7 @@ export function ChatInspector({
       <ConnectorsSection servers={mcp} onReconnect={onReconnectMcp} />
     </InspectorSection>
   );
-  const candidates = made?.pullRequests.length ?? 0;
-  const changes = (pullRequests.length > 0 || (changesUnsettled && candidates > 0)) && (
+  const changes = pullRequests.length > 0 && (
     <InspectorSection
       id="changes"
       title={t("header.changes")}
@@ -1174,6 +1186,24 @@ export function ChatInspector({
       {pullRequests.length > 0 && (
         <ChangesSection pullRequests={pullRequests} statuses={statuses} onOpenBeside={onOpenUrl} />
       )}
+    </InspectorSection>
+  );
+  const sourcesSection = sources.length > 0 && (
+    <InspectorSection
+      id="sources"
+      title={t("summary.sources")}
+      open={state.sources}
+      onOpenChange={fold("sources")}
+      meta={value(String(sources.length))}
+    >
+      <SourcesSection
+        sources={sources}
+        cwd={summary?.cwd}
+        onOpenFile={onOpenSourceFile}
+        onOpenBeside={onOpenUrl}
+        expanded={inspectorState.sourcesAll}
+        onExpandedChange={setInspectorSourcesAll}
+      />
     </InspectorSection>
   );
   const outputsShown = outputs.length + links.length + artifacts + (onOpenDocument ? documents.length : 0) > 0;
@@ -1209,6 +1239,7 @@ export function ChatInspector({
           onOpen={onOpenSubagent}
           sessions={sessions}
           onOpenSession={onOpenSession}
+          harness={summary?.harness}
         />
       )}
     </InspectorSection>
@@ -1249,24 +1280,14 @@ export function ChatInspector({
     <div ref={body} className="acpmux-chat-inspector__body" data-layout={layout}>
       {banner}
       {/* Where it runs. */}
-      <div className="acpmux-chat-inspector-group" data-group="about">
-        {environment}
-        {context}
-        {connectors}
-      </div>
+      <InspectorGroup group="about" sections={{ environment, context, connectors }} />
       {/* What it made. */}
-      {(changes || outputsSection) && (
-        <div className="acpmux-chat-inspector-group" data-group="made">
-          {changes}
-          {outputsSection}
-        </div>
+      {(changes || sourcesSection || outputsSection) && (
+        <InspectorGroup group="made" sections={{ changes, sources: sourcesSection, outputs: outputsSection }} />
       )}
       {/* What it runs. */}
       {(subagentsSection || tasks) && (
-        <div className="acpmux-chat-inspector-group" data-group="running">
-          {subagentsSection}
-          {tasks}
-        </div>
+        <InspectorGroup group="running" sections={{ subagents: subagentsSection, tasks }} />
       )}
       {gallery && (
         <GalleryDialog
