@@ -98,15 +98,19 @@ impl Hub {
     /// (`agent_host::OrphanExit`): it waits [`crate::agent_host::ORPHAN_IDLE`], or this daemon's
     /// own idle period when that is longer, and never ends while idle hibernation is off
     /// (`ACPMUX_IDLE_CHILD_SECS=0`): an agent this daemon would keep, its host keeps too.
-    pub(super) fn orphan_exit(&self, family: Option<&str>) -> Option<crate::agent_host::OrphanExit> {
+    pub(super) fn orphan_exit(
+        &self,
+        family: Option<&str>,
+    ) -> Option<crate::agent_host::OrphanExit> {
         let idle = (*self.idle_child.lock().unwrap_or_else(|e| e.into_inner()))?;
         #[cfg_attr(not(debug_assertions), allow(unused_mut))]
         let mut wait = idle.max(crate::agent_host::ORPHAN_IDLE);
         // Debug builds only: `ACPMUX_TEST_HOST_ORPHAN_IDLE_MS` replaces the wait, so the
         // integration tests can drive a host's own end. Release builds have no seam.
         #[cfg(debug_assertions)]
-        if let Some(ms) =
-            std::env::var("ACPMUX_TEST_HOST_ORPHAN_IDLE_MS").ok().and_then(|v| v.parse::<u64>().ok())
+        if let Some(ms) = std::env::var("ACPMUX_TEST_HOST_ORPHAN_IDLE_MS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
         {
             wait = std::time::Duration::from_millis(ms);
         }

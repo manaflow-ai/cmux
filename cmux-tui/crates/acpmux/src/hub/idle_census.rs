@@ -127,6 +127,31 @@ impl Hub {
     }
 }
 
+/// The idle pass's census for an agent host whose daemon is gone (`agent_host/host.rs`,
+/// `agent_host::OrphanExit`): true when nothing but `pid`, the harness started as `launch` for
+/// `family`, and its MCP servers runs under it. Its servers are those its configs name now and
+/// the ACP `given` ones its sessions opened with. A census that fails or is not whole says false.
+#[cfg(unix)]
+pub(crate) async fn host_census(
+    pid: u32,
+    launch: &crate::agent::Launch,
+    family: String,
+    given: Option<Value>,
+) -> bool {
+    let LaunchServers::Known { mut servers, path } = LaunchServers::read(launch, family).await
+    else {
+        return false;
+    };
+    servers.extend(resolved(from_json(given.as_ref()), &path));
+    let found = tokio::task::spawn_blocking(move || crate::agent_host::tree::under(pid));
+    match tokio::time::timeout(CENSUS_BUDGET, found).await {
+        Ok(Ok(Some((leader_args, found)))) => {
+            matches!(classify(&found, pid, &leader_args, &servers), Census::Clear)
+        }
+        _ => false,
+    }
+}
+
 /// What the idle census knows of a harness's MCP servers (`ChildAgent::launch`).
 #[derive(Debug, Clone)]
 pub(crate) enum LaunchServers {
