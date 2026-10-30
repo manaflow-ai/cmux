@@ -170,6 +170,7 @@ pub(crate) fn watch() -> impl std::future::Future<Output = bool> + Send + 'stati
 pub(crate) struct Executable(Option<std::fs::File>, bool);
 
 impl Executable {
+    #[cfg(test)]
     pub(crate) fn open(path: &Path) -> Self {
         Self(std::fs::File::open(path).ok(), false)
     }
