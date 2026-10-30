@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Security
 import Testing
 @testable import CmuxNextMobile
@@ -368,10 +369,9 @@ import Testing
         let started = seal.heldClearStarted()
         let watch = MobileHostPairedQuitWatch()
         watch.watch(file)
+        let callsBefore = seal.calls
         let cutOff = watch.markCutOffIfSaving()
-        // The held save has not cleared the seal yet: a seal without its digest now means the
-        // deadline's end called the Keychain itself.
-        let sealUntouchedAtTheEnd = seal.digest() != nil
+        let callsAtTheEnd = seal.calls - callsBefore
         // The next launch: a new file object on the same Keychain.
         let relaunched = MobileHostPairedDevicesFile(directory: directory, seal: seal)
         let list = await relaunched.loadInBackground(userID: "u")
@@ -380,9 +380,43 @@ import Testing
         await file.drained()
         #expect(started, "the removal's save never started")
         #expect(cutOff == [MobileHostPairedDevicesFile.fileName], "the quit deadline named \(cutOff)")
-        #expect(sealUntouchedAtTheEnd, "the deadline's end called the Keychain")
+        #expect(callsAtTheEnd == 0, "the deadline's end made \(callsAtTheEnd) Keychain calls")
         #expect(list.devices.isEmpty, "the list from before the removal counts after a relaunch: \(list.devices.map(\.id))")
         #expect(cleared, "the next launch did not clear the seal for the cut-off save")
+    }
+
+    /// R9 review of #28275: a cut-off removal whose marker the disk refused (a full disk) is named in the
+    /// quit's record with a note, and the next launch, told by that record, still trusts no phone and
+    /// clears the seal. No clock decides it.
+    @Test func aCutOffRemovalWithoutItsMarkerIsNotTrustedAfterARelaunch() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        struct DiskFull: Error {}
+        let seal = HeldSeal()
+        let (saved, devices) = try Self.saved(directory, seal: seal)
+        let file = MobileHostPairedDevicesFile(directory: directory, seal: seal, writeMarker: { _ in throw DiskFull() })
+        var removal = devices
+        removal.remove(Self.request.phoneDeviceID)
+        seal.holdNextClear()
+        file.saveInBackground(removal)
+        let started = seal.heldClearStarted()
+        let watch = MobileHostPairedQuitWatch()
+        watch.watch(file)
+        let cutOff = watch.markCutOffIfSaving()
+        let markerWritten = FileManager.default.fileExists(atPath: file.cutOffMarker.path)
+        // The next launch, whose quit record names the file.
+        let relaunched = MobileHostPairedDevicesFile(directory: directory, seal: seal,
+                                                     lastQuitCutOff: { cutOff.contains(MobileHostPairedDevicesFile.fileName) })
+        let list = await relaunched.loadInBackground(userID: "u")
+        let cleared = await relaunched.sealClearedForCutOff()
+        seal.gate.signal()
+        await file.drained()
+        withExtendedLifetime(saved) {}
+        #expect(started, "the removal's save never started")
+        #expect(cutOff == [MobileHostPairedDevicesFile.fileName, MobileHostPairedQuitWatch.unmarkedNote], "the quit deadline named \(cutOff)")
+        #expect(!markerWritten, "a marker is on disk although the disk refused it")
+        #expect(list.devices.isEmpty, "the list from before the removal counts after a relaunch: \(list.devices.map(\.id))")
+        #expect(cleared, "the next launch did not clear the seal for the recorded cut-off save")
     }
 
     /// Review 90 (2): a new hostd gets the newest paired list the app set, at once: a restart that
@@ -543,6 +577,11 @@ final class HeldSeal: MobileHostPairingSealStore, Sendable {
     private let inner = MobileHostMemoryPairingSeal()
     /// One token per ``holdNextClear()``: the clear that takes it waits.
     private let held = DispatchSemaphore(value: 0)
+    /// Every call of a seal method (digest, setDigest, clearDigest), counted when it begins.
+    private let callCount = OSAllocatedUnfairLock(initialState: 0)
+
+    /// How many seal calls began so far.
+    var calls: Int { callCount.withLock { $0 } }
 
     func holdNextClear() {
         held.signal()
@@ -554,9 +593,18 @@ final class HeldSeal: MobileHostPairingSealStore, Sendable {
         entered.wait(timeout: .now() + 10) == .success
     }
 
-    func digest() -> Data? { inner.digest() }
-    func setDigest(_ digest: Data) -> Bool { inner.setDigest(digest) }
+    func digest() -> Data? {
+        callCount.withLock { $0 += 1 }
+        return inner.digest()
+    }
+
+    func setDigest(_ digest: Data) -> Bool {
+        callCount.withLock { $0 += 1 }
+        return inner.setDigest(digest)
+    }
+
     func clearDigest() -> Bool {
+        callCount.withLock { $0 += 1 }
         if held.wait(timeout: .now()) == .success {
             entered.signal()
             gate.wait()

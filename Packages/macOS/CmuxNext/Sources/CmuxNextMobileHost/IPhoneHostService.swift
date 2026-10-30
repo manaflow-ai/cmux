@@ -129,12 +129,15 @@ public final class IPhoneHostService {
             guard let directory = dependencies?.stateDirectory,
                   pairedFile?.file.deletingLastPathComponent().standardizedFileURL.path != directory.standardizedFileURL.path else { return }
             pairedFile = MobileHostPairedDevicesFile(directory: directory, seal: MobileHostKeychainPairingSeal(
-                bundleID: directory.deletingLastPathComponent().lastPathComponent))
+                bundleID: directory.deletingLastPathComponent().lastPathComponent), lastQuitCutOff: pairedLastQuitCutOff)
             pairedQuitWatch.watch(pairedFile)
         }
     }
     /// The paired list's one file for the state directory: its queue keeps this host's reads and saves in order.
     @ObservationIgnored private(set) var pairedFile: MobileHostPairedDevicesFile?
+    /// Whether the last quit's record names the paired file as cut off (set by the app before `wire`;
+    /// asked off the main thread, on the file's queue).
+    @ObservationIgnored public var pairedLastQuitCutOff: @Sendable () -> Bool = { false }
     /// That file for a quit deadline's end, on its own thread: a save it cuts off is marked.
     @ObservationIgnored public let pairedQuitWatch = MobileHostPairedQuitWatch()
     @ObservationIgnored private var listing: Task<Void, Never>?

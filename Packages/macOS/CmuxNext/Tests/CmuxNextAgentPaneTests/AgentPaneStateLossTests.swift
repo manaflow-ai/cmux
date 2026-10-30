@@ -25,7 +25,8 @@ struct AgentPaneStateLossTests {
         let names = await loss.take()
         #expect(names == [AgentUnsentDrafts.fileName], "the record named \(names)")
         #expect(AgentPaneStateLoss.notices(for: names, pairedSealCleared: false).count == 1, "a lost unsent draft shows no notice")
-        #expect(await loss.take().isEmpty, "the next launch took the record twice")
+        #expect(await loss.take() == names, "a second read in one launch got other names")
+        #expect(await AgentPaneStateLoss(directory: directory).take().isEmpty, "the launch after it took the record again")
     }
 
     @Test func aQuitWithNothingStillSavingRecordsNothing() async throws {
@@ -51,6 +52,18 @@ struct AgentPaneStateLossTests {
         #expect(names == [AgentPaneStateLoss.pairedPhonesFileName], "the record named \(names)")
         #expect(AgentPaneStateLoss.notices(for: names, pairedSealCleared: true).count == 1, "a cleared paired seal shows no notice")
         #expect(AgentPaneStateLoss.notices(for: names, pairedSealCleared: false).isEmpty, "the pair-again notice shows while the seal still stands")
+    }
+
+    /// The paired list's check (on its own queue) and the notice read the record once between them, in
+    /// either order, so neither misses it.
+    @Test func thePairedCheckAndTheNoticeShareOneReadOfTheRecord() async throws {
+        let directory = try AgentPaneStateFileTests.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        AgentPaneStateLoss(directory: directory).deadlineEnd(files: AgentPaneStateFiles(), alsoCutOff: { [AgentPaneStateLoss.pairedPhonesFileName] }, end: {})()
+        let launch = AgentPaneStateLoss(directory: directory)
+        let names = await launch.take()
+        #expect(names == [AgentPaneStateLoss.pairedPhonesFileName])
+        #expect(launch.lastQuitCutOffPairedPhones(), "the paired check missed the record the notice read first")
     }
 
     @Test func aLostScrollPlaceShowsNoNotice() {

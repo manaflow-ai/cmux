@@ -184,14 +184,23 @@ public final class MobileHostPairedDevicesFile: Sendable {
     let cutOffMarker: URL
     /// Whether this file object cleared the seal for a cut-off save (``sealClearedForCutOff()``).
     private let clearedForCutOff = Mutex(false)
+    /// Writes the cut-off marker (tests inject a disk that refuses it).
+    private let writeMarker: @Sendable (URL) throws -> Void
 
     /// Before any read or save it queues (the first item on the file's queue), a save the last quit cut
-    /// off makes the stored list stop counting (``distrustIfCutOff()``).
-    public init(directory: URL, seal: any MobileHostPairingSealStore) {
+    /// off makes the stored list stop counting (``distrustIfCutOff(recorded:)``).
+    ///
+    /// - Parameters:
+    ///   - lastQuitCutOff: Whether the last quit's record names this file as cut off (asked on the
+    ///     file's queue): it fails closed also when its marker could not be written.
+    ///   - writeMarker: Writes the marker at a quit deadline (default: an atomic empty file).
+    public init(directory: URL, seal: any MobileHostPairingSealStore, lastQuitCutOff: @escaping @Sendable () -> Bool = { false },
+                writeMarker: @escaping @Sendable (URL) throws -> Void = { try Data().blockingWrite(to: $0, options: .atomic) }) {
         file = directory.appendingPathComponent(Self.fileName, isDirectory: false)
         cutOffMarker = directory.appendingPathComponent("paired-devices.cut-off", isDirectory: false)
         self.seal = seal
-        queue.async { [self] in distrustIfCutOff() }
+        self.writeMarker = writeMarker
+        queue.async { [self] in distrustIfCutOff(recorded: lastQuitCutOff()) }
     }
 
     /// One serial queue for the list's reads and writes: they leave the caller's thread (the
@@ -251,24 +260,42 @@ public final class MobileHostPairedDevicesFile: Sendable {
         saving.withLock { $0 > 0 }
     }
 
-    /// A quit deadline's end, on its own thread, while a save may be cut off (a removal among them):
-    /// when one is queued or running, it writes the cut-off marker and returns true. It never calls the
-    /// Keychain (a hung securityd must not hold the process's end): the next launch clears the seal
-    /// (``distrustIfCutOff()``).
-    public func markCutOffIfSaving() -> Bool {
-        guard isSaving else { return false }
-        try? Data().blockingWrite(to: cutOffMarker, options: .atomic)
-        return true
+    /// What a quit deadline found for this file (``markCutOffIfSaving()``).
+    public enum CutOff: Sendable, Equatable {
+        /// No save was in flight.
+        case notSaving
+        /// A save was cut off, and the marker is on disk.
+        case marked
+        /// A save was cut off, and the marker could not be written (a fault): only the quit's record
+        /// names it, which the next launch also checks.
+        case unmarked
     }
 
-    /// On the file's queue, first: when the last quit cut off a save, no stored list counts in this run,
-    /// and the seal is cleared, so after it the stored list no longer matches its seal and every phone
-    /// pairs again (the digest rule of ``load(userID:)``). A Keychain that refuses the clear keeps the
-    /// list refused for this run and the marker for the next launch (a fault).
-    private func distrustIfCutOff() {
-        guard FileManager.checked.fileExists(atPath: cutOffMarker.path) else { return }
+    /// A quit deadline's end, on its own thread, while a save may be cut off (a removal among them):
+    /// when one is queued or running, it writes the cut-off marker. It never calls the Keychain (a hung
+    /// securityd must not hold the process's end): the next launch clears the seal (``distrustIfCutOff(recorded:)``).
+    public func markCutOffIfSaving() -> CutOff {
+        guard isSaving else { return .notSaving }
+        do {
+            try writeMarker(cutOffMarker)
+            return .marked
+        } catch {
+            Self.logger.fault("iPhone pairing: a quit cut off a paired-phones save and its marker was not written (\(String(describing: error), privacy: .public)); only the quit's record names it")
+            return .unmarked
+        }
+    }
+
+    /// On the file's queue, first: when the last quit cut off a save (its marker, or its record:
+    /// `recorded`), no stored list counts in this run, and the seal is cleared, so after it the stored
+    /// list no longer matches its seal and every phone pairs again (the digest rule of ``load(userID:)``).
+    /// A Keychain that refuses the clear keeps the list refused for this run and the marker (written now
+    /// when only the record named the save) for the next launch (a fault).
+    private func distrustIfCutOff(recorded: Bool) {
+        let marked = FileManager.checked.fileExists(atPath: cutOffMarker.path)
+        guard marked || recorded else { return }
         inForce.withLock { $0 = Data() }
         guard seal.clearDigest() || seal.clearDigest() else {
+            if !marked { try? writeMarker(cutOffMarker) }
             Self.logger.fault("iPhone pairing: the last quit cut off a paired-phones save and the Keychain refuses to clear the seal; no phone is trusted in this run")
             return
         }
@@ -394,8 +421,17 @@ public final class MobileHostPairedQuitWatch: Sendable {
         self.file.withLock { $0 = file }
     }
 
-    /// At a quit deadline: the file's name when a save of it is cut off (``MobileHostPairedDevicesFile/markCutOffIfSaving()``).
+    /// At a quit deadline: the names for the quit's record when a save of the file is cut off
+    /// (``MobileHostPairedDevicesFile/markCutOffIfSaving()``): its name, and a note when its marker
+    /// could not be written.
     public func markCutOffIfSaving() -> [String] {
-        file.withLock { $0 }?.markCutOffIfSaving() == true ? [MobileHostPairedDevicesFile.fileName] : []
+        switch file.withLock({ $0 })?.markCutOffIfSaving() ?? .notSaving {
+        case .notSaving: []
+        case .marked: [MobileHostPairedDevicesFile.fileName]
+        case .unmarked: [MobileHostPairedDevicesFile.fileName, Self.unmarkedNote]
+        }
     }
+
+    /// The record's note for a cut-off save whose marker was not written.
+    public static let unmarkedNote = "paired-devices.cut-off (not written)"
 }

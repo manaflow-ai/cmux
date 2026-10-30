@@ -8,11 +8,14 @@ import os
 /// cmux#28275). A quit awaits their queued saves with no limit of its own, after its deadline is armed;
 /// when that deadline ends the process first, its end (``deadlineEnd(files:end:)``) logs a fault naming
 /// the files still queued (names only, never content) and records them in `<state>/agent-state-lost.json`.
-/// The next launch takes the record and, when a new chat's unsent text was among them, shows a notice.
-public nonisolated struct AgentPaneStateLoss: Sendable {
+/// The next launch reads the record once (``lastQuitNames()``): the paired phones' list checks it before
+/// its first read, and a new chat's lost unsent text earns a notice.
+public nonisolated final class AgentPaneStateLoss: Sendable {
     public static let fileName = "agent-state-lost.json"
     /// The record; nil keeps none (a test host).
     public let record: URL?
+    /// The last quit's names, read once from the record (which is then removed); nil until read.
+    private let lastQuit = Mutex<[String]?>(nil)
 
     /// - Parameter directory: The tag's state directory (beside the launch snapshot).
     public init(directory: URL?) {
@@ -39,16 +42,29 @@ public nonisolated struct AgentPaneStateLoss: Sendable {
         try? data.blockingWrite(to: record, options: .atomic)
     }
 
-    /// The names the last quit recorded, read and removed off the calling thread; empty when none.
-    public func take() async -> [String] {
-        guard let record else { return [] }
-        return await withCheckedContinuation { (done: CheckedContinuation<[String], Never>) in
-            DispatchQueue.global(qos: .utility).async {
-                let names = (try? Data(blockingContentsOf: record)).flatMap { try? JSONDecoder().decode([String].self, from: $0) } ?? []
-                if !names.isEmpty { try? FileManager.checked.removeItem(at: record) }
-                done.resume(returning: names)
-            }
+    /// The names the last quit recorded; empty when none. The first call (from any thread but the main
+    /// one: it reads the disk) reads the record and removes it, and every later call gets the same names.
+    public func lastQuitNames() -> [String] {
+        lastQuit.withLock { cached in
+            if let cached { return cached }
+            let names = record.flatMap { try? Data(blockingContentsOf: $0) }.flatMap { try? JSONDecoder().decode([String].self, from: $0) } ?? []
+            if !names.isEmpty, let record { try? FileManager.checked.removeItem(at: record) }
+            cached = names
+            return names
         }
+    }
+
+    /// ``lastQuitNames()`` off the calling thread.
+    public func take() async -> [String] {
+        await withCheckedContinuation { (done: CheckedContinuation<[String], Never>) in
+            DispatchQueue.global(qos: .utility).async { [self] in done.resume(returning: lastQuitNames()) }
+        }
+    }
+
+    /// Whether the last quit cut off a paired-phones save (the paired list then fails closed at launch,
+    /// also when its own marker could not be written). Off the main thread.
+    public func lastQuitCutOffPairedPhones() -> Bool {
+        lastQuitNames().contains(Self.pairedPhonesFileName)
     }
 
     /// The paired phones' list (`MobileHostPairedDevicesFile.fileName`; QuitStateFilesTests checks they match).
@@ -75,11 +91,17 @@ public nonisolated struct AgentPaneStateLoss: Sendable {
         return notices
     }
 
-    /// Takes the last quit's record and shows its notices in `window`.
+    /// Shows the last quit's notices in `window`: the unsent-draft notice at once, and the pair-again
+    /// notice once `pairedSealCleared` answers that this launch cleared the seal (a slow Keychain never
+    /// holds the draft notice back).
     @MainActor
-    public func showNotice(in window: NSWindow, pairedSealCleared: Bool) async {
-        for (index, message) in Self.notices(for: await take(), pairedSealCleared: pairedSealCleared).enumerated() {
-            _ = CmuxToastCenter.shared.show(CmuxToast(id: "state-lost-\(index)", message: message, duration: .seconds(12)), in: window)
+    public func showNotices(in window: NSWindow, pairedSealCleared: @escaping @MainActor () async -> Bool) async {
+        for message in Self.notices(for: await take(), pairedSealCleared: false) {
+            _ = CmuxToastCenter.shared.show(CmuxToast(id: "state-lost-draft", message: message, duration: .seconds(12)), in: window)
+        }
+        guard await pairedSealCleared() else { return }
+        for message in Self.notices(for: [], pairedSealCleared: true) {
+            _ = CmuxToastCenter.shared.show(CmuxToast(id: "state-lost-paired", message: message, duration: .seconds(12)), in: window)
         }
     }
 
