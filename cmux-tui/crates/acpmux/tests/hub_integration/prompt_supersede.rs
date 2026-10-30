@@ -254,7 +254,15 @@ async fn a_prompt_queued_before_a_restart_is_still_replaced() {
     c.call("session/prompt", prompt(&session, "p-after", "after", "person", None)).await;
     assert!(!c.ran(&session, "p-old").await, "a restart ran a replaced prompt");
     assert!(c.ran(&session, "p-new").await, "the replacement never ran");
-    assert!(c.ran(&session, "p-run~resume-1").await, "the cut turn did not go on");
+    if !c.ran(&session, "p-run~resume-1").await {
+        let kinds = ["queued", "dequeued", "queue_removed", "user_message", "turn_started", "turn_result", "auto_resume_scheduled", "auto_resume_skipped", "auto_resume_settled", "auto_resume_exhausted", "auto_resume_restored", "turn_stop_requested", "prompt_refused", "status"];
+        let page = c.call("_acpmux/events", json!({"sessionId": session, "kinds": kinds})).await;
+        for e in page["events"].as_array().unwrap() {
+            let m = &e["msg"];
+            eprintln!("DIAG {} {} prompt={} turn={} status={} pos={} requeued={} reason={} detail={} skipped={}", e["seq"], e["kind"], m["promptId"], m["turnId"], m["status"], m["position"], m["requeued"], m["reason"], m["detail"], m["skipped"]);
+        }
+        panic!("the cut turn did not go on");
+    }
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
