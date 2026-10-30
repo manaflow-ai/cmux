@@ -58,7 +58,7 @@ extension WindowManager {
             if pending.byDefault?.awaitsCurrentAnchor(section: section, in: sections, home: home) == true,
                let current = pending.byDefault?.current, services.machines.workspace(id: current) != nil,
                !NewWorkspacePlacements.shownInBand(current, layout: bridge.model.layout, room: bridge.model.activeProfileID?.rawValue,
-                                                   machines: services.machines) {
+                                                   legacy: services.sidebarLayout.unavailableReason != nil, machines: services.machines) {
                 pendingPlacements[id] = pending
                 continue
             }
