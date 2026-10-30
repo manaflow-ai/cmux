@@ -232,6 +232,65 @@ fn a_turn_that_ends_while_its_subagents_run_finishes_when_the_last_one_ends() {
 }
 
 #[test]
+fn a_held_agent_finish_retries_after_notification_preparation_fails() {
+    for event in ["SubagentStop", "SessionEnd", "SessionStart"] {
+        assert_held_agent_finish_retries(event);
+    }
+}
+
+fn assert_held_agent_finish_retries(release_event: &str) {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-held-finish-retry-{}", WorkspacePublicId::random().unwrap()));
+    let mux = open_persistent_test_mux("held-finish-retry", &root);
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().unwrap();
+    let ingress = |event: &str| {
+        crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            event,
+            Some(&terminal_id.to_string()),
+            serde_json::json!({"session_id": "retry-session", "agent_id": "child"}),
+        )
+        .unwrap()
+    };
+    for (sequence, event) in
+        ["SessionStart", "UserPromptSubmit", "SubagentStart", "Stop"].into_iter().enumerate()
+    {
+        mux.apply_agent_hook_record(&ingress(event), sequence as u64 + 1).unwrap();
+    }
+    assert!(mux.resource_notifications(16).is_empty());
+
+    // Fail before posting, as a transient store error can. The durable hook
+    // projector retries the same release hook after the store becomes available.
+    let database = mux.workspace_registry.lock().unwrap().session_journal_database_path().unwrap();
+    let connection = rusqlite::Connection::open(database).unwrap();
+    connection
+        .execute_batch(
+            "CREATE TRIGGER fail_held_notification BEFORE INSERT ON resource_effect_receipts
+             WHEN NEW.operation = 'notification.create'
+             BEGIN SELECT RAISE(ABORT, 'forced notification preparation failure'); END;",
+        )
+        .unwrap();
+    let release = ingress(release_event);
+    let error = mux.apply_agent_hook_record(&release, 5).unwrap_err();
+    assert!(format!("{error:#}").contains("forced notification preparation failure"));
+    assert!(mux.resource_notifications(16).is_empty());
+    connection.execute_batch("DROP TRIGGER fail_held_notification").unwrap();
+
+    mux.apply_agent_hook_record(&release, 5).unwrap();
+    let posted = mux.resource_notifications(16);
+    assert_eq!(posted.len(), 1, "{release_event} must retry the held finish");
+    assert_eq!(posted[0].title, "Claude finished");
+    assert!(mux.surface_notification(surface.id).is_some_and(|marker| marker.unread));
+    mux.apply_agent_hook_record(&release, 5).unwrap();
+    assert_eq!(mux.resource_notifications(16).len(), 1, "a replay must not post twice");
+    drop(connection);
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn notification_ack_is_per_client_and_replay_safe() {
     let mux = test_mux();
     let surface = mux.new_workspace(None, None).unwrap();
