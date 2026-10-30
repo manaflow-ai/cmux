@@ -31,6 +31,11 @@ pub fn breaks_params_rule(
     if params.keys().any(|k| !contains(&known.params, k)) {
         return true;
     }
+    if matches!(method, "acp.trust.get" | "acp.trust.set")
+        && params.get("peer").is_some_and(|peer| peer.as_str().is_none_or(str::is_empty))
+    {
+        return true;
+    }
     let setting = contains(&p.setting_methods, method);
     let empty = BTreeSet::new();
     let denied = if setting { &empty } else { mode_fields.unwrap_or(&empty) };

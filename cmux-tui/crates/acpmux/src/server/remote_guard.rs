@@ -332,9 +332,12 @@ async fn check_inner(
         }
     }
     // The pane's Trust for a chat on a peer names a folder on that peer, which this machine
-    // may not have: the set is forwarded whole (`peer_forward.rs`), and the peer, which serves
-    // it as Peer, checks the folder on its own disk. Only its spelling is checked here.
-    let peers_folder = m == method::ACP_TRUST_SET && names_a_peers_session(hub, params);
+    // may not have. A new chat can name the peer before it has a session. Forwarding strips
+    // that selector, so the peer's own guard checks the folder on its disk. An unknown peer
+    // is refused by the forwarder, never handled as a local folder.
+    let named_peer = super::peer_forward::trust_peer(m, params)?.is_some();
+    let peers_folder =
+        m == method::ACP_TRUST_SET && (named_peer || names_a_peers_session(hub, params));
     if peers_folder
         && let Some(cwd) = params.get("cwd").filter(|v| !v.is_null())
         && !cwd.as_str().is_some_and(|c| Path::new(c).is_absolute())

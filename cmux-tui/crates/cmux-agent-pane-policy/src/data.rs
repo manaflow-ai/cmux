@@ -15,7 +15,8 @@ pub const POLICY_JSON: &str = include_str!("../policy.json");
 pub enum GestureRule {
     /// Every frame of the method (the user pressed send, picked a mode or an option).
     Always,
-    /// `acp.trust.set` that trusts (`level` not one of `non_trusting_levels`).
+    /// Every peer `acp.trust.set`, or a local set that trusts
+    /// (`level` not one of `non_trusting_levels`).
     WhenTrusting,
     /// `_acpmux/permission_respond` whose option is not a known deny.
     WhenOptionAllows,
@@ -133,7 +134,7 @@ pub struct Policy {
     /// Methods that copy a session into a new one the pane controls.
     pub source_scoped: BTreeSet<String>,
     pub gesture_rules: BTreeMap<String, GestureRule>,
-    /// `acp.trust.set` levels that do not trust (no gesture).
+    /// Local `acp.trust.set` levels that do not trust (no gesture).
     pub non_trusting_levels: BTreeSet<String>,
     /// The methods that set a mode or an option (P1).
     pub setting_methods: BTreeSet<String>,

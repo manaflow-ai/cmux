@@ -271,7 +271,8 @@ fn gestures() {
 /// AGENT-TRUST-GATE (tests/cases/trust_gate.json, its description cites the
 /// sources): the pane is LocalApp-origin through the host's token only, the
 /// page writes neither the token nor a forward mark, Trust needs a gesture
-/// and Don't trust does not, and the gate's refusals pass unfiltered.
+/// and local Don't trust does not; every peer write needs a gesture, and
+/// the gate's refusals pass unfiltered.
 #[test]
 fn trust_gate() {
     let all = cases("trust_gate.json");
@@ -281,6 +282,29 @@ fn trust_gate() {
     for m in group(&all, "unfiltered") {
         let m = m.as_str().unwrap();
         assert!(!policy().reply_shapes.contains_key(m), "{m}: its reply would lose data.reason");
+    }
+}
+
+#[test]
+fn trust_peer_selector_requires_a_nonempty_string() {
+    for method in ["acp.trust.get", "acp.trust.set"] {
+        for peer in [
+            Value::Null,
+            serde_json::json!(""),
+            serde_json::json!(42),
+            serde_json::json!(true),
+            serde_json::json!({"name": "dev-box"}),
+            serde_json::json!(["dev-box"]),
+        ] {
+            let frame = serde_json::json!({
+                "jsonrpc": "2.0", "id": 1, "method": method,
+                "params": {"cwd": "/x", "peer": peer}
+            });
+            assert!(
+                breaks_params_rule(&object(&frame), None),
+                "{method} must refuse peer {peer}"
+            );
+        }
     }
 }
 
