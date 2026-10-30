@@ -5,8 +5,9 @@ import CmuxNextCompat
 /// last state-file saves (the agent panes' drafts and scroll places, the paired phones' list), awaited on
 /// the main actor under one limit. Chrome's shutdown never blocks the UI thread on a disk either.
 ///
-/// One continuation for all the queues; the limit is a ``DemandTimer`` (cancelled once every queue
-/// answered, so a quit with no backlog costs no timer fire). The clock is injected so tests do not wait.
+/// A ``FirstOutcome`` races the last queue's answer against a one-shot ``DemandTimer`` limit (cancelled
+/// once every queue answered, so a quit with no backlog costs no timer fire). The clock is injected so
+/// tests do not wait.
 public final class QueueDrain: Sendable {
     private let clock: any Clock<Duration>
 
@@ -23,44 +24,32 @@ public final class QueueDrain: Sendable {
     @discardableResult
     public func drained(_ queues: [DispatchQueue], within limit: Duration) async -> Bool {
         guard !queues.isEmpty else { return true }
-        let countdown = QueueDrainCountdown(queues.count, deadline: DemandTimer(owner: "queue-drain", clock: clock))
-        return await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
-            countdown.start(done, within: limit)
-            for queue in queues { queue.async { countdown.reached() } }
+        let outcome = FirstOutcome<Bool>()
+        let left = QueueDrainCount(queues.count)
+        let deadline = DemandTimer(owner: "queue-drain", clock: clock)
+        deadline.schedule(after: limit) { outcome.resolve(false) }
+        for queue in queues {
+            queue.async { if left.reachedLast() { outcome.resolve(true) } }
         }
+        let drained = await outcome.value()
+        deadline.cancel()
+        return drained
     }
 }
 
-/// The queues one ``QueueDrain/drained(_:within:)`` still waits for, its continuation and its deadline.
-private final class QueueDrainCountdown: Sendable {
-    private let state: Mutex<(left: Int, done: CheckedContinuation<Bool, Never>?)>
-    private let deadline: DemandTimer
+/// The queues one ``QueueDrain/drained(_:within:)`` still waits for.
+private final class QueueDrainCount: Sendable {
+    private let left: Mutex<Int>
 
-    init(_ count: Int, deadline: DemandTimer) {
-        state = Mutex((count, nil))
-        self.deadline = deadline
+    init(_ count: Int) {
+        left = Mutex(count)
     }
 
-    func start(_ done: CheckedContinuation<Bool, Never>, within limit: Duration) {
-        state.withLock { $0.done = done }
-        deadline.schedule(after: limit) { [self] in finish(false) }
-    }
-
-    func reached() {
-        let last = state.withLock { state -> Bool in
-            state.left -= 1
-            return state.left == 0
+    /// Counts one queue's answer; true for the last one.
+    func reachedLast() -> Bool {
+        left.withLock { left in
+            left -= 1
+            return left == 0
         }
-        if last { finish(true) }
-    }
-
-    private func finish(_ drained: Bool) {
-        let done = state.withLock { state -> CheckedContinuation<Bool, Never>? in
-            defer { state.done = nil }
-            return state.done
-        }
-        guard let done else { return }
-        deadline.cancel()
-        done.resume(returning: drained)
     }
 }
