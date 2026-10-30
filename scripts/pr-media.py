@@ -424,16 +424,17 @@ def redact(text: str) -> str:
 
 def remote_url(repo: str) -> str:
     """Where the media branch lives. The origin URL of a local clone of REPO when there is one (this host
-    already authenticates that way, often over ssh), else https. Never carries an http(s) credential."""
+    already authenticates that way, often over ssh), else https. It may carry an http(s) credential, which
+    MediaBranch keeps out of arguments, config files and messages (secret_url_config)."""
     explicit = os.environ.get(REMOTE_ENV)
     if explicit:
-        return without_userinfo(explicit)
+        return explicit
     for candidate in (Path.cwd(), Path.home() / "Projects" / "cmux"):
         done = subprocess.run(["git", "-C", str(candidate), "remote", "get-url", "origin"],
                               capture_output=True, text=True)
         url = done.stdout.strip()
         if done.returncode == 0 and origin_is(url, repo):
-            return without_userinfo(url)
+            return url
     return f"https://github.com/{repo}.git"
 
 
@@ -444,12 +445,25 @@ def origin_is(url: str, repo: str) -> bool:
     return bool(match) and match.group(1).lower() == repo.lower()
 
 
-def git_env() -> dict[str, str]:
+def git_env(secret_url: str | None = None, url: str | None = None) -> dict[str, str]:
     env = {**os.environ, "GIT_TERMINAL_PROMPT": "0",
            # A blob the branch already holds is never needed here; if something did ask for one, fail rather
            # than download it.
            "GIT_NO_LAZY_FETCH": "1"}
+    if secret_url and url and secret_url != url:
+        env.update(secret_url_config(env, secret_url, url))
     return env
+
+
+def secret_url_config(env: dict[str, str], secret_url: str, url: str) -> dict[str, str]:
+    """`url.SECRET_URL.insteadOf URL` as environment config (GIT_CONFIG_COUNT, git 2.31+): git rewrites the
+    clean URL to the credential-bearing one internally, so a host whose only credential is in its origin URL
+    authenticates exactly as it would with that URL, while the credential stays out of every argument list,
+    the cache clone's config and the messages pr-media prints. Appended after any config already given
+    this way."""
+    count = int(env.get("GIT_CONFIG_COUNT") or 0)
+    return {"GIT_CONFIG_COUNT": str(count + 1), f"GIT_CONFIG_KEY_{count}": f"url.{secret_url}.insteadOf",
+            f"GIT_CONFIG_VALUE_{count}": url}
 
 
 def credential_args() -> list[str]:
@@ -480,24 +494,43 @@ class MediaBranch:
 
     def __init__(self, repo: str, branch: str, url: str | None = None, root: Path | None = None):
         self.repo, self.branch = repo, safe_branch(branch)
-        self.url = without_userinfo(url or remote_url(repo))
+        given = url or remote_url(repo)
+        # The URL git is given; any credential in GIVEN reaches git only through git_env (secret_url_config).
+        self.url = without_userinfo(given)
+        self.secret_url = given if given != self.url else None
         root = root or cache_root()
         self.dir = root / (re.sub(r"[^A-Za-z0-9._-]", "_", repo) + ".git")
         self.lock_path = root / (self.dir.name + ".lock")
         self.tracking = f"refs/remotes/origin/{self.branch}"
         self.tip: str | None = None
 
+    def env(self) -> dict[str, str]:
+        return git_env(self.secret_url, self.url)
+
     def git(self, *args: str, input: str | None = None, cwd: Path | None = None, timeout: float = GIT_TIMEOUT,
             check: bool = True) -> subprocess.CompletedProcess:
         command = ["git", *credential_args(), "-C", str(cwd or self.dir), *args]
         try:
-            done = subprocess.run(command, input=input, capture_output=True, text=True, env=git_env(),
+            done = subprocess.run(command, input=input, capture_output=True, text=True, env=self.env(),
                                   timeout=timeout)
         except subprocess.TimeoutExpired as error:
             raise MediaError(f"git {args[0]} took longer than {timeout:.0f} s") from error
         if check and done.returncode != 0:
             raise MediaError(redact(f"git {args[0]} failed: {(done.stderr or done.stdout).strip()}"))
         return done
+
+    def git_bytes(self, *args: str, input: bytes | None = None) -> bytes:
+        """A local git command whose output is tree records: read and written as bytes, because text mode
+        turns a `\r` in a name into `\n` and two names would become one."""
+        try:
+            done = subprocess.run(["git", "-C", str(self.dir), *args], input=input, capture_output=True,
+                                  env=self.env(), timeout=GIT_TIMEOUT)
+        except subprocess.TimeoutExpired as error:
+            raise MediaError(f"git {args[0]} took longer than {GIT_TIMEOUT:.0f} s") from error
+        if done.returncode != 0:
+            said = (done.stderr or done.stdout).decode("utf-8", "replace").strip()
+            raise MediaError(redact(f"git {args[0]} failed: {said}"))
+        return done.stdout
 
     def ls_remote(self, ref: str) -> str | None:
         """REF's commit on the remote, or None when the remote has no such ref."""
@@ -561,39 +594,42 @@ class MediaBranch:
             with self.locked():
                 self.ensure_clone()
                 self.fetch()
-        entry = self.git("ls-tree", "-z", self.tip, "--", path).stdout.split("\0")[0]
-        meta, _, named = entry.partition("\t")
+        entry = self.git_bytes("ls-tree", "-z", self.tip, "--", path).split(b"\0")[0]
+        meta, _, named = entry.partition(b"\t")
         fields = meta.split()
-        if named != path or len(fields) != 3 or fields[1] != "blob":
+        if named != os.fsencode(path) or len(fields) != 3 or fields[1] != b"blob":
             return None
-        return fields[2]
+        return fields[2].decode("ascii")
 
     def tree_with(self, base: str | None, changes: dict[str, str]) -> str:
         """The tree BASE with CHANGES (relative path -> blob) written in, built with `mktree --missing` so
-        nothing it leaves alone is read."""
-        entries: dict[str, tuple[str, str, str]] = {}
+        nothing it leaves alone is read. Names stay bytes end to end, exactly as the branch has them."""
+        entries: dict[bytes, tuple[bytes, bytes, bytes]] = {}
         if base:
-            for line in self.git("ls-tree", "-z", base).stdout.split("\0"):
+            for line in self.git_bytes("ls-tree", "-z", base).split(b"\0"):
                 if line:
-                    meta, _, name = line.partition("\t")
+                    meta, _, name = line.partition(b"\t")
                     mode, kind, sha = meta.split()
                     entries[name] = (mode, kind, sha)
-        nested: dict[str, dict[str, str]] = {}
+        nested: dict[bytes, dict[str, str]] = {}
         for path, blob in changes.items():
-            head, slash, rest = path.partition("/")
+            head_text, slash, rest = path.partition("/")
+            head = os.fsencode(head_text)
             if slash:
                 nested.setdefault(head, {})[rest] = blob
-            elif entries.get(head, ("", "blob", ""))[1] != "blob":
-                raise MediaError(f"{head} is a folder on {self.branch}, not a file")
+            elif entries.get(head, (b"", b"blob", b""))[1] != b"blob":
+                raise MediaError(f"{head_text} is a folder on {self.branch}, not a file")
             else:
-                entries[head] = ("100644", "blob", blob)
+                entries[head] = (b"100644", b"blob", blob.encode("ascii"))
         for name, inner in nested.items():
             old = entries.get(name)
-            if old and old[1] != "tree":
-                raise MediaError(f"{name} is a file on {self.branch}, not a folder")
-            entries[name] = ("040000", "tree", self.tree_with(old[2] if old else None, inner))
-        listing = "".join(f"{mode} {kind} {sha}\t{name}\0" for name, (mode, kind, sha) in entries.items())
-        return self.git("mktree", "-z", "--missing", input=listing).stdout.strip()
+            if old and old[1] != b"tree":
+                raise MediaError(f"{os.fsdecode(name)} is a file on {self.branch}, not a folder")
+            entries[name] = (b"040000", b"tree",
+                             self.tree_with(old[2].decode("ascii") if old else None, inner).encode("ascii"))
+        listing = b"".join(mode + b" " + kind + b" " + sha + b"\t" + name + b"\0"
+                           for name, (mode, kind, sha) in entries.items())
+        return self.git_bytes("mktree", "-z", "--missing", input=listing).decode("ascii").strip()
 
     def identity(self) -> dict[str, str]:
         if self.git("config", "user.email", check=False).stdout.strip():
@@ -623,7 +659,7 @@ class MediaBranch:
                                      "(another upload got there first); nothing was written. Check what is "
                                      "there now, then rename the file or pass --force to replace it.")
                 tree = self.tree_with(f"{tip}^{{tree}}", blobs)
-                env = {**git_env(), **self.identity()}
+                env = {**self.env(), **self.identity()}
                 commit = subprocess.run(["git", "-C", str(self.dir), "commit-tree", tree, "-p", tip, "-m", message],
                                         capture_output=True, text=True, env=env, timeout=60)
                 if commit.returncode != 0:

@@ -628,6 +628,43 @@ class UploadTests(unittest.TestCase):
         self.assertNotIn("DUMMY_PAT", str(raised.exception))
         self.assertFalse([call for call in seen if "DUMMY_PAT" in call])
 
+    def test_a_credential_only_in_the_origin_url_still_authenticates(self):
+        # Review of #28265: dropping the URL's credential broke a host whose only credential was in that
+        # URL. Git still gets it, through environment config that rewrites the clean URL, never argv.
+        origin = Origin(self)
+        secret = "https://u:DUMMY_PAT@github.com/o/r.git"
+        os.environ["PR_MEDIA_REMOTE_URL"] = secret
+        store = MODULE.MediaBranch("o/r", "pr-media")
+        self.assertEqual(store.url, "https://github.com/o/r.git")
+        rewritten = subprocess.run(["git", "ls-remote", "--get-url", store.url], cwd=origin.root,
+                                   capture_output=True, text=True, env=store.env(), check=True).stdout.strip()
+        self.assertEqual(rewritten, secret)
+        store.dir.parent.mkdir(parents=True, exist_ok=True)
+        store.ensure_clone()
+        self.assertNotIn("DUMMY_PAT", (store.dir / "config").read_text())
+
+    def test_a_name_with_a_carriage_return_survives_an_unrelated_upload_byte_for_byte(self):
+        # Review of #28265: text-mode ls-tree turned "a\rb" into "a\nb", so with both on the branch an
+        # unrelated upload rewrote the tree with one of them gone.
+        origin = Origin(self)
+        for name in ("9/a\rb.png", "9/a\nb.png"):
+            (origin.writer / name).parent.mkdir(parents=True, exist_ok=True)
+            (origin.writer / name).write_bytes(name.encode())
+            git(origin.writer, "add", "--", name)
+        git(origin.writer, "commit", "-q", "-m", "odd names")
+        git(origin.writer, "push", "-q", "origin", "HEAD:refs/heads/pr-media")
+
+        def names():
+            listed = subprocess.run(["git", "-C", str(origin.bare), "ls-tree", "-z", "--name-only", "pr-media:9"],
+                                    check=True, capture_output=True).stdout
+            return sorted(filter(None, listed.split(b"\0")))
+
+        before = names()
+        self.assertEqual(len(before), 2)
+        with tempfile.TemporaryDirectory() as scratch:
+            MODULE.put_file("o/r", "pr-media", "9/new.png", written(scratch, "new.png", PNG), "m", checked=True)
+        self.assertEqual(names(), sorted([*before, b"new.png"]))
+
     def test_the_remote_is_a_local_clones_origin_when_there_is_one(self):
         for url in ("git@github.com:o/r.git", "https://github.com/O/R", "https://x-access-token@github.com/o/r.git",
                     "ssh://git@github.com/o/r.git"):
