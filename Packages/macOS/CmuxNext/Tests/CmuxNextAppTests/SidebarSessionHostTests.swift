@@ -18,17 +18,17 @@ import Testing
                                           localHost: "install:local", pullRequests: [:]).state
     }
 
-    private static func sections(parentPresent: Bool = true, crossMachine: Bool = false) -> [SidebarSection] {
+    private static func sections(parentPresent: Bool = true, crossMachine: Bool = false) -> [CmuxNextSidebar.SidebarSection] {
         let parentRow = SidebarWorkspace(id: parent, title: "Coordinator")
         let childRow = SidebarWorkspace(id: child, title: "Worker")
         let unrelated = SidebarWorkspace(id: other, title: "Shell")
         let local = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         if crossMachine {
             let remote = SidebarMachine(id: MachineID("remote"), name: "Remote", kind: .ssh)
-            return [SidebarSection(kind: .machine(local), nodes: parentPresent ? [.workspace(parentRow), .workspace(unrelated)] : [.workspace(unrelated)]),
-                    SidebarSection(kind: .machine(remote), nodes: [.workspace(childRow)])]
+            return [CmuxNextSidebar.SidebarSection(kind: .machine(local), nodes: parentPresent ? [.workspace(parentRow), .workspace(unrelated)] : [.workspace(unrelated)]),
+                    CmuxNextSidebar.SidebarSection(kind: .machine(remote), nodes: [.workspace(childRow)])]
         }
-        return [SidebarSection(kind: .machine(local), nodes:
+        return [CmuxNextSidebar.SidebarSection(kind: .machine(local), nodes:
                     (parentPresent ? [.workspace(parentRow)] : []) + [.workspace(unrelated), .workspace(childRow)])]
     }
 
@@ -104,8 +104,8 @@ import Testing
     }
 
     @Test func pinnedParentDoesNotPullFleetChildAcrossSectionBoundary() {
-        let pinned = SidebarSection(kind: .pinned, nodes: [.workspace(SidebarWorkspace(id: Self.parent, title: "Pinned"))])
-        let machine = SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)),
+        let pinned = CmuxNextSidebar.SidebarSection(kind: .pinned, nodes: [.workspace(SidebarWorkspace(id: Self.parent, title: "Pinned"))])
+        let machine = CmuxNextSidebar.SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)),
                                      nodes: [.workspace(SidebarWorkspace(id: Self.child, title: "Worker"))])
         var options = SidebarLayoutOptions(); options.sessionTree = Self.state()
         let layout = SidebarLayout.make(sections: [pinned, machine], metrics: .standard, options: options)
@@ -114,9 +114,9 @@ import Testing
     }
 
     @Test func pinnedChildKeepsPinnedPlacementWhenItsParentIsAVisibleFleetLane() {
-        let machine = SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)),
+        let machine = CmuxNextSidebar.SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)),
                                      nodes: [.workspace(SidebarWorkspace(id: Self.parent, title: "Coordinator"))])
-        let pinned = SidebarSection(kind: .pinned, nodes: [.workspace(SidebarWorkspace(id: Self.child, title: "Pinned worker"))])
+        let pinned = CmuxNextSidebar.SidebarSection(kind: .pinned, nodes: [.workspace(SidebarWorkspace(id: Self.child, title: "Pinned worker"))])
         var options = SidebarLayoutOptions(); options.sessionTree = Self.state()
         let layout = SidebarLayout.make(sections: [machine, pinned], metrics: .standard, options: options)
         #expect(layout.row(for: .workspace(Self.child))?.section == .pinned)
@@ -134,11 +134,11 @@ import Testing
     }
 
     @Test func lineageNestingRemainsInPinnedSectionWhenFleetHostsExist() {
-        let pinned = SidebarSection(kind: .pinned, nodes: [
+        let pinned = CmuxNextSidebar.SidebarSection(kind: .pinned, nodes: [
             .workspace(SidebarWorkspace(id: Self.parent, title: "Pinned coordinator")),
             .workspace(SidebarWorkspace(id: Self.child, title: "Pinned worker")),
         ])
-        let machine = SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)),
+        let machine = CmuxNextSidebar.SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)),
                                      nodes: [.workspace(SidebarWorkspace(id: Self.other, title: "Remote root"))])
         var options = SidebarLayoutOptions(); options.sessionTree = Self.state()
         let layout = SidebarLayout.make(sections: [pinned, machine], metrics: .standard, options: options)
@@ -149,8 +149,8 @@ import Testing
     @Test func hostGroupsStaySeparatedByMachineSection() {
         let first = SidebarMachine(id: MachineID("one"), name: "One", kind: .ssh)
         let second = SidebarMachine(id: MachineID("two"), name: "Two", kind: .ssh)
-        let one = SidebarSection(kind: .machine(first), nodes: [.workspace(SidebarWorkspace(id: Self.parent, title: "One root"))])
-        let two = SidebarSection(kind: .machine(second), nodes: [.workspace(SidebarWorkspace(id: Self.other, title: "Two root"))])
+        let one = CmuxNextSidebar.SidebarSection(kind: .machine(first), nodes: [.workspace(SidebarWorkspace(id: Self.parent, title: "One root"))])
+        let two = CmuxNextSidebar.SidebarSection(kind: .machine(second), nodes: [.workspace(SidebarWorkspace(id: Self.other, title: "Two root"))])
         var state = Self.state(); state.hosts[Self.other] = Self.host
         var options = SidebarLayoutOptions(); options.sessionTree = state
         let layout = SidebarLayout.make(sections: [one, two], metrics: .standard, options: options)
@@ -170,7 +170,7 @@ import Testing
 
     @Test func explicitUserGroupKeepsItsStoredPlacement() {
         let group = SidebarGroup(id: GroupID("user-group"), name: "My project", workspaces: [SidebarWorkspace(id: Self.child, title: "Worker")])
-        let section = SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)),
+        let section = CmuxNextSidebar.SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)),
                                      nodes: [.group(group)])
         var options = SidebarLayoutOptions()
         options.sessionTree = Self.state()
@@ -182,7 +182,7 @@ import Testing
     @Test func looseChildFollowsVisibleParentInsideAnExplicitUserGroup() {
         let group = SidebarGroup(id: GroupID("project"), name: "Project",
                                  workspaces: [SidebarWorkspace(id: Self.parent, title: "Coordinator")])
-        let section = SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)),
+        let section = CmuxNextSidebar.SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)),
                                      nodes: [.group(group), .workspace(SidebarWorkspace(id: Self.child, title: "Worker"))])
         var options = SidebarLayoutOptions()
         options.sessionTree = Self.state()
@@ -253,7 +253,7 @@ import Testing
     @Test func historyAndSectionGapsStayAtTheirBoundariesAfterReorderingAndFolding() throws {
         let chat = SidebarHistoryChat(id: "old", title: "Earlier chat", updatedAt: .distantPast)
         let history = SidebarChatHistoryState(pinned: [chat], earlier: [chat])
-        let tail = SidebarSection(kind: .custom(SidebarCustomSection(id: "tail")), nodes: [])
+        let tail = CmuxNextSidebar.SidebarSection(kind: .custom(SidebarCustomSection(id: "tail")), nodes: [])
         for hasTail in [false, true] {
             for folded in [false, true] {
                 var options = SidebarLayoutOptions()
@@ -285,7 +285,7 @@ import Testing
     }
 
     @Test func pinnedHistoryAfterAnExplicitSectionStaysAboveTheHostHeader() throws {
-        let pinned = SidebarSection(kind: .pinned, nodes: [.workspace(SidebarWorkspace(id: WorkspaceID("pin"), title: "Pinned"))])
+        let pinned = CmuxNextSidebar.SidebarSection(kind: .pinned, nodes: [.workspace(SidebarWorkspace(id: WorkspaceID("pin"), title: "Pinned"))])
         let history = SidebarChatHistoryState(pinned: [.init(id: "chat", title: "Chat", updatedAt: .distantPast)])
         var options = SidebarLayoutOptions()
         options.sessionTree = Self.state()

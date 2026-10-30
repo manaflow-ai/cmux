@@ -27,7 +27,7 @@ struct SidebarSessionHostIntegrationTests {
         return pass
     }
 
-    private static func withList(_ body: (SidebarListView) throws -> Void) rethrows {
+    @MainActor private static func withList(_ body: (SidebarListView) throws -> Void) rethrows {
         _ = NSApplication.shared
         let tree = SidebarSessionTree.shared
         let savedState = tree.state
@@ -43,7 +43,7 @@ struct SidebarSessionHostIntegrationTests {
         SidebarChatHistory.shared.state = nil
         let workspace = { (id: WorkspaceID) in SidebarNode.workspace(SidebarWorkspace(id: id, title: id.rawValue)) }
         let nodes = [workspace(coordinator), workspace(plain)] + workers.map(workspace) + [workspace(dragged)]
-        let section = SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: nodes)
+        let section = CmuxNextSidebar.SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: nodes)
         let model = SidebarModel(sections: [section], activeWorkspaceID: dragged)
         model.showWorkspaceTabs = false
         model.groupsByComputer = false
@@ -125,7 +125,7 @@ struct SidebarSessionHostIntegrationTests {
             let original = list.model.sections[0].workspaces.map(\.id)
             let source = SidebarRowKey.workspace(Self.dragged)
 
-            func exercise(_ point: NSPoint, document: Bool) throws {
+            @MainActor func exercise(_ point: NSPoint, document: Bool) throws {
                 if document {
                     list.model.docDrag = SidebarDocDrag(
                         item: { key in if case let .workspace(id) = key { "workspace-\(id.rawValue)" } else { nil } },
