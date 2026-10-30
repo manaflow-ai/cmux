@@ -29,15 +29,15 @@ nonisolated struct PlacementGalleryCaptured: Decodable, Sendable {
 struct PlacementStaleRowsGalleryTests {
     private nonisolated struct Seed: DaemonRequest {
         typealias Response = EmptyResponse
-        static let command = "gallery-seed"
+        static let commandName: DaemonCommandName = "gallery-seed"
     }
     private nonisolated struct WaitForWrite: DaemonRequest {
         typealias Response = EmptyResponse
-        static let command = "gallery-wait-for-write"
+        static let commandName: DaemonCommandName = "gallery-wait-for-write"
     }
     private nonisolated struct ReadCaptured: DaemonRequest {
         typealias Response = PlacementGalleryCaptured
-        static let command = "gallery-report"
+        static let commandName: DaemonCommandName = "gallery-report"
     }
 
     /// Only removes/inserts the workspace at the index production code sent.

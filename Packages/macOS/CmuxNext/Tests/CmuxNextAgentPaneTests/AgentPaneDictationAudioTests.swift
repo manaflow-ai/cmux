@@ -2,6 +2,7 @@
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
+import CmuxNextInput
 
 /// Voice input through the selected harness: when the chat's harness takes audio (ACP
 /// `promptCapabilities.audio`), the page says so with `dictation.audio`, and each session keeps its
@@ -9,6 +10,9 @@ import Testing
 @Suite
 @MainActor
 struct AgentPaneDictationAudioTests {
+    /// The sessions' and the pane's deadlines, on a main-thread scheduler of the test's own.
+    private let mainThread = AgentPaneMainThread.standalone()
+
     @Test func thePageTurnsRecordingOnAndOff() {
         #expect(AgentPaneRequest(body: ["method": "dictation.audio", "params": ["enabled": true]]) == .dictation(.recordAudio(true)))
         #expect(AgentPaneRequest(body: ["method": "dictation.audio", "params": ["enabled": false]]) == .dictation(.recordAudio(false)))
@@ -243,7 +247,7 @@ struct AgentPaneDictationAudioTests {
         defer { try? FileManager.default.removeItem(at: parent) }
         let folder = parent.appending(path: UUID().uuidString.lowercased(), directoryHint: .isDirectory)
         let engine = LongRecordingTranscriber(seconds: 140)
-        let session = DictationSession(authorizer: GrantedDictationAuthorizer(), makeTranscriber: { meter in
+        let session = DictationSession(deadlines: mainThread.deadlines, authorizer: GrantedDictationAuthorizer(), makeTranscriber: { meter in
             engine.meter = meter
             return engine
         })
@@ -300,7 +304,7 @@ struct AgentPaneDictationAudioTests {
         let folder = parent.appending(path: "blocked")
         #expect(FileManager.default.createFile(atPath: folder.path, contents: Data()))
         let engine = LongRecordingTranscriber(seconds: 3)
-        let session = DictationSession(authorizer: GrantedDictationAuthorizer(), makeTranscriber: { meter in
+        let session = DictationSession(deadlines: mainThread.deadlines, authorizer: GrantedDictationAuthorizer(), makeTranscriber: { meter in
             engine.meter = meter
             return engine
         })
@@ -326,12 +330,13 @@ struct AgentPaneDictationAudioTests {
             #expect(FileManager.default.createFile(atPath: parent.path, contents: Data()))
         }
         let engine = LongRecordingTranscriber(seconds: 1)
-        let session = DictationSession(authorizer: GrantedDictationAuthorizer(), makeTranscriber: { meter in
+        let session = DictationSession(deadlines: mainThread.deadlines, authorizer: GrantedDictationAuthorizer(), makeTranscriber: { meter in
             engine.meter = meter
             return engine
         })
         let updates = Updates()
-        let pane = AgentPaneDictation(send: { updates.all.append($0) }, microphone: DictationMicrophone(), makeSession: { session })
+        let pane = AgentPaneDictation(input: InputEventTap(), mainThread: mainThread, send: { updates.all.append($0) },
+                                      microphone: DictationMicrophone(), makeSession: { session })
         var chat = "chat-a"
         pane.chatSession = { chat }
         pane.recordingFolder = { parent }
