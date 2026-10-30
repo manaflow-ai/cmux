@@ -197,11 +197,14 @@ class GitSeedTests(unittest.TestCase):
             f"file://{self.super}", str(seeder), env=self.env)
         for name in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "CI_CACHE_R2_ENDPOINT", "CI_CACHE_R2_PUBLIC_URL"):
             self.env.pop(name, None)
-        self.env.update(RUNNER_OS="macOS", RUNNER_ARCH="ARM64")
+        outputs = self.base / "outputs"
+        self.env.update(RUNNER_OS="macOS", RUNNER_ARCH="ARM64", GITHUB_OUTPUT=str(outputs))
         out = self.base / "packed"
         self.run_seed("pack", seeder, out)
         key = f"git-seed-v1-{self.main}"
         self.assertIn("namespace=v1/macOS-ARM64", (out / f"{key}.packed").read_text())
+        # The step's sha256 output, which the save job checks before it publishes.
+        self.assertRegex(outputs.read_text(), r"(?m)^sha256=[0-9a-f]{64}$")
         archive = next(out.glob(f"{key}.tar.*"))
         stage = self.base / "unpacked"
         stage.mkdir()
@@ -273,7 +276,9 @@ class WorkflowWiringTests(unittest.TestCase):
         save = re.search(r"- name: Save git object seed\n(.*?)(?=\n      - name:|\n\n  [a-z]|\Z)", text, re.S)
         self.assertIsNotNone(save)
         self.assertIn("continue-on-error: true", save.group(1))
-        self.assertIn('r2-cache.sh publish "$RUNNER_TEMP/r2-pack/git-seed" "git-seed-v1-$GITHUB_SHA"', save.group(1))
+        # Only the bytes this lane's build packed: the save job checks their sha256.
+        self.assertIn('r2-cache.sh publish "$RUNNER_TEMP/r2-pack/git-seed" "git-seed-v1-$GITHUB_SHA" "$SHA256"', save.group(1))
+        self.assertIn("SHA256: ${{ needs.seed.outputs.git-seed-sha256 }}", save.group(1))
         self.assertIn("secrets.CI_CACHE_R2_SECRET_ACCESS_KEY", save.group(1))
         self.assertLess(text.index("\n  save:\n"), save.start())
 

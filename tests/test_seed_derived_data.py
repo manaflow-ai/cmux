@@ -1343,24 +1343,33 @@ class Wiring(unittest.TestCase):
         for step in (pack, upload):
             self.assertNotIn("continue-on-error", step)
 
-        # Every artifact the build uploads is one the save job downloads, under the attempt
-        # that uploaded it (a re-run of the save job alone keeps the build's outputs).
-        lane = "${{ inputs.pool }}${{ inputs.root && format('-root-{0}', inputs.root) || '' }}"
-        self.assertEqual(save["env"]["PACKED"], lane + "-${{ needs.seed.outputs.attempt }}")
-        self.assertEqual(build["outputs"]["attempt"], "${{ github.run_attempt }}")
-        uploads = {step["with"]["name"]: step for step in seeder if "upload-artifact" in str(step.get("uses"))
-                   and step["with"]["name"].startswith("r2-pack-")}
-        downloads = {step["with"]["name"]: step for step in save["steps"] if "download-artifact" in str(step.get("uses"))}
+        # Each archive is bound to this lane's build: the save job downloads the exact artifact
+        # the build uploaded (by its id, never by a name another job of the run could
+        # overwrite), and publish uploads it only when its sha256 is the one the build packed.
+        uploads = [step for step in seeder if "upload-artifact" in str(step.get("uses"))
+                   and step["with"]["name"].startswith("r2-pack-")]
         self.assertEqual(len(uploads), 4)
-        self.assertEqual({name.replace(lane + "-${{ github.run_attempt }}", "") for name in uploads},
-                         {name.replace("${{ env.PACKED }}", "") for name in downloads})
-        for name, step in uploads.items():
-            kind = name.replace(lane + "-${{ github.run_attempt }}", "")
-            download = downloads[kind + "${{ env.PACKED }}"]
-            self.assertEqual(download["with"]["path"], step["with"]["path"], kind)
-            output = next(key for key, value in build["outputs"].items() if value == f"${{{{ steps.{step['id']}.outcome }}}}")
-            self.assertEqual(download["if"], f"needs.seed.outputs.{output} == 'success'", kind)
-            self.assertEqual(step["with"]["retention-days"], 1)
+        outputs = {value: key for key, value in build["outputs"].items()}
+        save_steps = save["steps"]
+        for upload in uploads:
+            kind = upload["with"]["path"].rsplit("/", 1)[-1]
+            with self.subTest(kind=kind):
+                self.assertEqual(upload["with"]["retention-days"], 1)
+                artifact = outputs[f"${{{{ steps.{upload['id']}.outputs.artifact-id }}}}"]
+                packer = next(step for step in seeder
+                              if str((step.get("with") or {}).get("pack-to", "")).endswith(f"/r2-pack/{kind}")
+                              or f'"$RUNNER_TEMP/r2-pack/{kind}"' in str(step.get("run", "")) and " pack " in str(step.get("run", "")))
+                digest = outputs[f"${{{{ steps.{packer['id']}.outputs.{'packed-sha256' if 'uses' in packer else 'sha256'} }}}}"]
+                download = next(step for step in save_steps if "download-artifact" in str(step.get("uses"))
+                                and step["with"].get("path", "").endswith(f"/r2-pack/{kind}"))
+                self.assertNotIn("name", download["with"])
+                self.assertEqual(download["with"]["artifact-ids"], f"${{{{ needs.seed.outputs.{artifact} }}}}")
+                self.assertEqual(download["with"]["path"], upload["with"]["path"])
+                self.assertIn(f"needs.seed.outputs.{artifact} != ''", download["if"])
+                publish = next(step for step in save_steps if step.get("if") == f"steps.{download['id']}.outcome == 'success'")
+                self.assertEqual(publish["env"]["SHA256"], f"${{{{ needs.seed.outputs.{digest} }}}}")
+                self.assertRegex(publish["run"], rf'r2-cache\.sh publish "\$RUNNER_TEMP/r2-pack/{kind}" "[^"]+" "\$SHA256"')
+        self.assertNotIn("PACKED", save.get("env") or {})
 
         # Save seed uploads what was packed, under this commit's seed key and no other.
         download_at, download = named(save["steps"], "Download packed seed")
@@ -1380,8 +1389,40 @@ class Wiring(unittest.TestCase):
 
         good = f"admission-derived-data-v1-macOS-ARM64-6f83899097cf4b805962dc271dafa4b3-j14-{sha}"
         self.assertTrue(accepts(good))
-        for bad in (good.replace(sha, "b" * 40), "spm-" + sha, f"git-seed-v1-{sha}", good + "-x", ""):
+        self.assertTrue(accepts(good.replace("-j14-", "-j6-")))
+        # The fingerprint is compile-app-host-test-product.sh's 32 hex and the width a -j count;
+        # both need the Mac's Xcode, so they come from the build, in exactly that shape.
+        for bad in (good.replace(sha, "b" * 40), "spm-" + sha, f"git-seed-v1-{sha}", good + "-x", "",
+                    good.replace("6f83899097cf4b805962dc271dafa4b3", "6f83899097cf4b80"),
+                    good.replace("6f83899097cf4b805962dc271dafa4b3", "6f83899097cf4b805962dc271dafa4b3aa"),
+                    good.replace("-j14-", "-j0-"), good.replace("macOS-ARM64", "Linux-X64")):
             self.assertFalse(accepts(bad), bad)
+
+        # The SwiftPM manifest key's 32-hex inputs part names this commit's manifests, so the
+        # save job computes it from its own checkout; only the toolchain hash (xcodebuild
+        # -version, Mac only) comes from the build.
+        _, manifests = named(save["steps"], "Save SwiftPM manifest cache")
+        checkout = save["steps"][0]
+        self.assertTrue(checkout["uses"].startswith("actions/checkout@"))
+        # Every Package.swift and submodule pointer is in the index of a full checkout.
+        self.assertNotIn("sparse-checkout", checkout["with"])
+        self.assertIn("swiftpm-manifest-cache.sh inputs", manifests["run"])
+        inputs = subprocess.run(["bash", "scripts/ci/swiftpm-manifest-cache.sh", "inputs"], cwd=ROOT,
+                                capture_output=True, text=True, env={"PATH": "/usr/bin:/bin"})
+        self.assertEqual(inputs.returncode, 0, inputs.stderr)
+        inputs = inputs.stdout.strip()
+
+        def accepts_manifests(key):
+            script = manifests["run"].replace("scripts/ci/r2-cache.sh publish", "true")
+            env = {"PATH": "/usr/bin:/bin", "KEY": key, "SHA256": "0" * 64, "RUNNER_TEMP": "/nonexistent"}
+            return subprocess.run(["bash", "-c", script], env=env, cwd=ROOT, capture_output=True).returncode == 0
+
+        manifest_key = f"swiftpm-manifests-v1-macOS-ARM64-0123456789abcdef-{inputs}"
+        self.assertTrue(accepts_manifests(manifest_key))
+        other = "f" * 32 if inputs != "f" * 32 else "e" * 32
+        for bad in (manifest_key.replace(inputs, other), manifest_key.replace("macOS-ARM64", "Linux-X64"),
+                    manifest_key.replace("0123456789abcdef", "0123"), manifest_key + "0", ""):
+            self.assertFalse(accepts_manifests(bad), bad)
 
     def test_the_seeder_reads_and_writes_through_the_public_url_admission_reads(self):
         # r2-cache.sh restores through CI_CACHE_R2_PUBLIC_URL and refuses to

@@ -118,8 +118,15 @@ def main() -> int:
         # The save job uploads what the build packed, under the key the lockfile names.
         if publish.get("env", {}).get("KEY") != restore["with"]["key"] or 'r2-cache.sh publish "$RUNNER_TEMP/r2-pack/swift-packages" "$KEY"' not in publish.get("run", ""):
             failures.append("seed-derived-data-pool.yml save: 'Save Swift packages' must publish the packed archive under nightly.yml's exact `spm-` key")
-        if pool["jobs"]["seed"]["outputs"].get("swift-packages-packed") != f"${{{{ steps.{upload.get('id')}.outcome }}}}" or "needs.seed.outputs.swift-packages-packed == 'success'" not in str(download.get("if")) or publish.get("if") != f"steps.{download.get('id')}.outcome == 'success'":
-            failures.append("seed-derived-data-pool.yml save: 'Save Swift packages' must save exactly what the build uploaded")
+        outputs = pool["jobs"]["seed"]["outputs"]
+        if (outputs.get("swift-packages-artifact") != f"${{{{ steps.{upload.get('id')}.outputs.artifact-id }}}}"
+                or outputs.get("swift-packages-sha256") != f"${{{{ steps.{save.get('id')}.outputs.packed-sha256 }}}}"
+                or download["with"].get("artifact-ids") != "${{ needs.seed.outputs.swift-packages-artifact }}"
+                or "name" in download["with"]
+                or publish.get("if") != f"steps.{download.get('id')}.outcome == 'success'"
+                or publish.get("env", {}).get("SHA256") != "${{ needs.seed.outputs.swift-packages-sha256 }}"
+                or '"$KEY" "$SHA256"' not in publish.get("run", "")):
+            failures.append("seed-derived-data-pool.yml save: 'Save Swift packages' must save exactly the artifact the build uploaded (by id) with the sha256 it packed")
 
     # The wrappers pick one store per call. Exactly one branch may run, the
     # provider branch only on its own runners, and upstream actions stay pinned.
