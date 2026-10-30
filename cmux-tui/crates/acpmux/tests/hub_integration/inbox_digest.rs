@@ -871,3 +871,117 @@ async fn a_digest_goes_behind_a_held_prompt_of_the_persons() {
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Messages a failed turn held, drained into a digest whose agent then cannot start, come back
+/// held and still get their retry: the one scheduled when they were held found none of them.
+#[tokio::test]
+async fn held_messages_a_failed_digest_puts_back_still_get_their_retry() {
+    let root = std::env::temp_dir().join(format!("acpmux-inbox-digest-{}", uuid::Uuid::now_v7()));
+    let hub = durable_hub(&root.join("state"));
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![300]);
+    let mut c = connect(&hub).await;
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await;
+    let id = s.unwrap()["sessionId"].as_str().unwrap().to_owned();
+    c.send(method::SESSION_PROMPT, prompt(&id, "die-later: gone", Some("p-die"))).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "dying ").await;
+    let a = queue(&mut c, from_agent(&id, "p-a", "lane-a", "from a")).await;
+    let b = queue(&mut c, from_agent(&id, "p-b", "lane-b", "from b")).await;
+    record_until(&hub, &id, "queue_paused", |m| m["held"] == json!(["p-a", "p-b"])).await;
+    // From now on the agent cannot start, and takes longer to say so than the retry waits.
+    let mut config = hub.config.write().await;
+    let fake = config.harnesses.get_mut("fake").unwrap();
+    fake.env.insert("FAKE_DIE_AT_START".to_owned(), "cannot start".to_owned());
+    fake.env.insert("FAKE_INIT_DELAY_MS".to_owned(), "1500".to_owned());
+    drop(config);
+
+    let made = c.request(DIGEST, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(made["digested"], 2, "{made}");
+    // The digest fails to start; the messages go back held and are retried, so their senders
+    // hear back (each fails on its own: the agent still cannot start).
+    let answered = tokio::time::timeout(Duration::from_secs(15), async {
+        let mut left = vec![a, b];
+        while !left.is_empty() {
+            let line = c.rx.recv().await.expect("connection closed");
+            if let Message::Response { id: rid, .. } = Message::parse(&line).unwrap()
+                && let Some(rid) = rid.as_i64()
+            {
+                left.retain(|l| *l != rid);
+            }
+        }
+    })
+    .await;
+    assert!(answered.is_ok(), "the held messages the digest put back were never retried");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A digest the person edited is their prompt, and its turn still owns the messages it took: a
+/// failure after its prompt reached the agent puts them back held, as messages that joined a
+/// failed turn are.
+#[tokio::test]
+async fn an_edited_digest_whose_turn_fails_puts_its_messages_back_held() {
+    let (dir, hub, mut c, id, digest) = waiting_digest(&["p-a", "p-b"]).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![60_000]);
+    let edit = json!({"sessionId": id, "promptId": digest, "op": "update", "text": "die-later: x"});
+    c.request("_acpmux/queue_edit", edit).await.unwrap();
+    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    let held = |m: &Value| m["held"].as_array().is_some_and(|h| h.contains(&json!("p-a")));
+    record_until(&hub, &id, "queue_paused", held).await;
+    assert_eq!(queue_order(&mut c, &id).await, ["p-a", "p-b"]);
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A message a digest took that a restart gave back (the digest's prompt was logged, its turn
+/// never started) and that then ran on its own answers a later resend from its own turn.
+#[tokio::test]
+async fn a_resend_of_a_message_given_back_before_its_digests_turn_answers_from_its_own() {
+    let (dir, hub, mut c, id, digest) = waiting_digest(&["p-a"]).await;
+    let own = record_until(&hub, &id, "queued", |m| m["promptId"] == "p-a").await["turnId"].clone();
+    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    record_until(&hub, &id, "turn_result", |m| m["promptId"] == *digest).await;
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+    let started = |l: &str| l.contains("\"kind\":\"turn_started\"") && l.contains(digest.as_str());
+    assert!(truncate_from(&dir, started) > 0);
+
+    let hub = durable_hub(&dir);
+    let mut c = connect(&hub).await;
+    assert_eq!(queue_order(&mut c, &id).await, ["p-a"]);
+    hub.resume_queues();
+    record_until(&hub, &id, "turn_result", |m| m["turnId"] == own).await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "after", Some("p-after"))).await.unwrap();
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+
+    let hub = durable_hub(&dir);
+    let mut c = connect(&hub).await;
+    let mut again = from_agent(&id, "p-a", "lane-a", "text of p-a");
+    again["_meta"]["acpmux"]["resend"] = json!(true);
+    let again = c.request(method::SESSION_PROMPT, again).await.unwrap();
+    assert_eq!(again["_meta"]["acpmux"]["turnId"], own, "{again}");
+    assert_eq!(again["stopReason"], "end_turn", "{again}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Messages the person reordered before the drain come back in that order at a restart, not in
+/// the order they arrived.
+#[tokio::test]
+async fn a_restart_gives_back_a_digests_messages_in_the_queues_order() {
+    let dir = std::env::temp_dir().join(format!("acpmux-inbox-digest-{}", uuid::Uuid::now_v7()));
+    let hub = durable_hub(&dir);
+    let mut c = connect(&hub).await;
+    let (id, _) = busy(&mut c).await;
+    queue(&mut c, from_agent(&id, "p-a", "lane-a", "from a")).await;
+    queue(&mut c, from_agent(&id, "p-b", "lane-b", "from b")).await;
+    let moved = json!({"sessionId": id, "promptId": "p-b", "op": "move", "index": 0});
+    c.request("_acpmux/queue_edit", moved).await.unwrap();
+    assert_eq!(queue_order(&mut c, &id).await, ["p-b", "p-a"]);
+    c.request(DIGEST, json!({"sessionId": id})).await.unwrap();
+    let order = order_after_a_restart(hub, c, &dir, &id).await;
+    assert_eq!(order, ["p-b", "p-a"]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
