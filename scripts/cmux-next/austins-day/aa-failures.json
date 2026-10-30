@@ -24,17 +24,19 @@
    "date": "2026-10-30",
    "build": "84c705adefd6cdc900e204ca (3ecd8020cb1)",
    "host": "cmux24",
-   "harness": "8d4f9086cd9 (runs); valid through 9cfb9f54116 (no measuring change)",
+   "harness": "8d4f9086cd9 (runs); no measuring change through 9cfb9f54116; 59ea3fdb421 adds a little CPU to the sampler during the load (process command shapes from the same ps read, under 1 ms per sample), judged too small to need a new A/A",
    "method": "paired t-interval 95 %, 5 rounds, ABBA order (same build in both arms)",
    "metrics": {},
    "position_effects": {},
    "not_tested": [
     "agent CLI p99 ms (no agent CLI calls in this arm)",
-    "app request p99 ms (no probe in this build)",
-    "workspace close p95/p99/not done (base did not show the failure)"
+    "app request p99 ms (no probe in this build)"
    ],
    "notes": [
     "base round 1: one `ssh cmux24 date -u` by the harness owner at 20:22:09Z, at the start of its load (arm.json notes)"
+   ],
+   "no_verdict_in_ab": [
+    "workspace close p95/p99/not done: tested here (their intervals contain 0), but in an A/B they need a base that fails"
    ]
   }
  },

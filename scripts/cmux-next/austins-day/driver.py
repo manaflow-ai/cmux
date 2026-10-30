@@ -344,7 +344,8 @@ def connection_holders(rows, ask_daemon=True):
         if role:
             roles[role] += 1
             # The binary's name, then the command words without --socket VALUE, --json and ids.
-            rest = args[len(CLI):] if role == "cli" else args
+            # The app path has spaces ("cmux DEV <tag>.app"): replace it before splitting (review of 59ea3fdb421).
+            rest = args[len(CLI):] if role == "cli" else args.replace(opts.app + "/", "<app>/")
             words, skip = [], False
             for w in rest.split():
                 if skip:
@@ -356,8 +357,7 @@ def connection_holders(rows, ask_daemon=True):
                 if w == "--json" or re.match(r"^(term|ws|pane|tab|session|machine)_[0-9a-f]{8,}$", w):
                     continue
                 words.append(w)
-            shape = ("cmux " if role == "cli" else "") + " ".join(words[:4])
-            shape = shape.replace(opts.app + "/", "<app>/")[:120]
+            shape = (("cmux " if role == "cli" else "") + " ".join(words[:4]))[:120]
             kinds[role][shape] = kinds[role].get(shape, 0) + 1
     return {"list_code": code, "listed": len(clients) if clients is not None else None, "by_label": by_label,
             "max_age_s": {k: max((a for a in v if isinstance(a, (int, float))), default=None) for k, v in ages.items()},

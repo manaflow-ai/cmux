@@ -561,9 +561,12 @@ class ProcessKinds(unittest.TestCase):
         rows = [(1, 1, 1, app + "/Contents/Resources/bin/cmux --socket /tmp/s --json workspace list"),
                 (2, 1, 1, app + "/Contents/Resources/bin/cmux --socket /tmp/s --json workspace list"),
                 (3, 1, 1, app + "/Contents/Resources/bin/cmux __hook-append term_0123456789abcdef"),
-                (4, 1, 1, "/home/x/.local/share/cmux-tui/bin/cmux-tui-hook claude PreToolUse")]
+                (4, 1, 1, "/home/x/.local/share/cmux-tui/bin/cmux-tui-hook claude PreToolUse"),
+                # The hook helper beside the bundle binary: its path has spaces.
+                (5, 1, 1, app + "/Contents/Resources/bin/cmux-tui-hook claude Stop")]
         out = namespace["connection_holders"](rows, ask_daemon=False)
-        self.assertEqual(out["processes"], {"hook_helper": 1, "cli": 3, "other_bundle": 0})
+        self.assertEqual(out["processes"], {"hook_helper": 2, "cli": 3, "other_bundle": 0})
+        self.assertIn("<app>/Contents/Resources/bin/cmux-tui-hook claude Stop", out["process_kinds"]["hook_helper"])
         self.assertEqual(out["process_kinds"]["cli"], {"cmux workspace list": 2, "cmux __hook-append": 1})
 
 
