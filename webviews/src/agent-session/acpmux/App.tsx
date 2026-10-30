@@ -10472,10 +10472,6 @@ function AcpmuxPane() {
       connected: () => !!directClient.current,
       ask: () => retryHost.current?.(),
     });
-  const hostWaitingLine =
-    waitingSince !== undefined ? (
-      <HostWaitingLine since={waitingSince} restarting={restartingAcpmux} onRestart={restartStuck} />
-    ) : null;
   // While the host recovers nothing shows (no card, no spinner, no button) and the composer stays
   // usable; a failure past its deadline, or a refusal, is one line (HostUnavailableLine).
   const hostErrorCard = (
@@ -10503,6 +10499,19 @@ function AcpmuxPane() {
       />
     </Notice>
   );
+  // One host line at a time, the newest state winning: a long wait replaces the line of an
+  // earlier failed handshake (HostWaitingLine's `otherwise`).
+  const hostLine =
+    waitingSince !== undefined ? (
+      <HostWaitingLine
+        since={waitingSince}
+        restarting={restartingAcpmux}
+        onRestart={restartStuck}
+        otherwise={hostErrorCard}
+      />
+    ) : (
+      hostErrorCard
+    );
   // The floating chat's compact bar shows whether the chat is working or waiting on the user, and
   // the reply's last line.
   let lastReply: (typeof snapshot.rows)[number] | undefined;
@@ -10579,8 +10588,7 @@ function AcpmuxPane() {
             asks={
               <>
                 {asks}
-                {hostWaitingLine}
-                {hostErrorCard}
+                {hostLine}
               </>
             }
             composer={composer}
@@ -11157,8 +11165,7 @@ function AcpmuxPane() {
                     />
                   </div>
                 )}
-                {hostWaitingLine}
-                {hostErrorCard}
+                {hostLine}
                 <LiveTypingLine
                   sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
                   fallback={snapshot.presence}

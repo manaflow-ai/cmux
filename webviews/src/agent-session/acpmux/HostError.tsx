@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { DialogButton } from "../../ui/DialogButton";
 import { HOST_ERROR_DEADLINE_MS } from "./hostRetry";
 import { useNow } from "./subagents/SubagentGroup";
@@ -96,22 +97,26 @@ export function waitedText(ms: number): string {
 /// starts a new one. Nothing shows while a wait is short (`HOST_ERROR_DEADLINE_MS`, the pane's
 /// one rule for saying a recovery: "STOP SHOWING BULLSHIT ON LOAD"); that only decides what is
 /// drawn, never whether acpmux is restarted. `since`: when the wait began (`Date.now()` time).
+/// One host line shows at a time and the newest state wins: until this line shows, `otherwise`
+/// (the line of an earlier failed handshake) stays; once it shows, it replaces that line.
 export function HostWaitingLine({
   since,
   restarting,
   onRestart,
+  otherwise = null,
   now: fixedNow,
 }: {
   since: number;
   restarting?: boolean;
   onRestart(): void;
+  otherwise?: ReactNode;
   /// A fixed clock for the gallery; the pane passes none and the line counts each second.
   now?: number;
 }) {
   const t = useT();
   const ticking = useNow(fixedNow === undefined);
   const waited = (fixedNow ?? ticking) - since;
-  if (waited < HOST_ERROR_DEADLINE_MS && !restarting) return null;
+  if (waited < HOST_ERROR_DEADLINE_MS && !restarting) return otherwise;
   return (
     <output className="acpmux-host-line" data-host-waiting>
       <p className="acpmux-host-line-message">{t("host.waitingService", { time: waitedText(waited) })}</p>

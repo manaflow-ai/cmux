@@ -177,3 +177,18 @@ test("the wait reads as minutes and seconds", () => {
   expect(waitedText(25_400)).toBe("0:25");
   expect(waitedText(605_000)).toBe("10:05");
 });
+
+test("one host line at a time: a long wait replaces an earlier failure's line", async () => {
+  const container = installDom();
+  const earlier = <p data-earlier>acpmux did not answer in time.</p>;
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<HostWaitingLine since={0} now={3_000} onRestart={() => undefined} otherwise={earlier} />);
+  });
+  expect(container.querySelector("[data-earlier]")).not.toBeNull();
+  await act(async () => {
+    root!.render(<HostWaitingLine since={0} now={30_000} onRestart={() => undefined} otherwise={earlier} />);
+  });
+  expect(container.querySelector("[data-earlier]")).toBeNull();
+  expect(buttons(container)).toEqual(["Restart agent service"]);
+});
