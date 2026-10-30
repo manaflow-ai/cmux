@@ -9545,8 +9545,11 @@ function AcpmuxPane() {
       menuGroups(
         rename ? [{ ...rename, shortcutLabel: "R" }] : [],
         [
+          // `F` only on a Fork row that runs: a submenu row (children, no onSelect) keeps no letter.
           fork
-            ? { ...fork, shortcutLabel: "F" }
+            ? fork.onSelect
+              ? { ...fork, shortcutLabel: "F" }
+              : fork
             : {
                 key: "fork",
                 label: t("chatMenu.fork"),
