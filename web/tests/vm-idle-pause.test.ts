@@ -501,7 +501,12 @@ function machineRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
     // The cron tests below run with the kill switch on and a machine that chose 30 minutes.
     providerMetadata: overrides.providerMetadata === null
       ? null
-      : { cmuxIdlePauseMinutes: 30, ...(overrides.providerMetadata ?? { networkIpv4: "10.192.0.5" }) },
+      : {
+          cmuxIdlePauseMinutes: 30,
+          ...(overrides.providerMetadata && typeof overrides.providerMetadata === "object"
+            ? overrides.providerMetadata
+            : { networkIpv4: "10.192.0.5" }),
+        },
   };
 }
 
