@@ -35,6 +35,85 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
 
   for (const interfaceScale of [1, 1.25]) {
     for (const theme of ["Apple System Colors", "Apple System Colors Light"]) {
+      test(`narrow workflow progress stays above trailing controls at scale ${interfaceScale} (${theme})`, async () => {
+        const port = (server.httpServer!.address() as { port: number }).port;
+        const page = await browser.newPage({
+          viewport: { width: 300, height: 560 },
+          deviceScaleFactor: 2,
+          reducedMotion: "reduce",
+        });
+        try {
+          await page.goto(
+            `http://127.0.0.1:${port}${galleryFrame(entry, { variant: "workflow-progress", interfaceScale, theme })}`,
+          );
+          await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+          await page.waitForFunction(() => document.querySelector(".acpmux-running-tray[data-narrow]"));
+          await page.clock.setFixedTime(new Date(GALLERY_NOW));
+          const progress = page.locator(".acpmux-running-tray .acpmux-agent-line__progress");
+          await progress.waitFor();
+          const geometry = await progress.evaluate((node) => {
+            const row = node.closest(".acpmux-agent-line")!;
+            const box = (element: Element) => {
+              const rect = element.getBoundingClientRect();
+              return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
+            };
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            return {
+              row: box(row),
+              title: box(row.querySelector(".acpmux-summary-text")!),
+              progress: box(node),
+              lines: [...range.getClientRects()].map((rect) => ({
+                left: rect.left,
+                right: rect.right,
+                top: rect.top,
+                bottom: rect.bottom,
+              })),
+              time: box(row.querySelector(".acpmux-agent-line__time")!),
+              status: box(row.querySelector(".acpmux-agent-line__status")!),
+              stop: box(row.querySelector(".acpmux-agent-line__stop-slot > button")!),
+            };
+          });
+          // This fixture must exercise wrapping; measuring only the progress element's box
+          // misses text painted outside a fixed-height title track.
+          expect(geometry.lines.length).toBeGreaterThan(1);
+          expect(geometry.title.top).toBeGreaterThanOrEqual(geometry.row.top - 1);
+          expect(geometry.title.bottom).toBeLessThanOrEqual(geometry.row.bottom + 1);
+          for (const line of [geometry.progress, ...geometry.lines]) {
+            expect(line.top).toBeGreaterThanOrEqual(geometry.title.top - 1);
+            expect(line.bottom).toBeLessThanOrEqual(geometry.title.bottom + 1);
+            expect(line.left).toBeGreaterThanOrEqual(geometry.title.left - 1);
+            expect(line.right).toBeLessThanOrEqual(geometry.title.right + 1);
+            for (const control of [geometry.time, geometry.status, geometry.stop]) {
+              expect(line.bottom).toBeLessThanOrEqual(control.top + 1);
+            }
+          }
+          const stopCenter = (geometry.stop.top + geometry.stop.bottom) / 2;
+          for (const control of [geometry.time, geometry.status]) {
+            expect(Math.abs((control.top + control.bottom) / 2 - stopCenter)).toBeLessThanOrEqual(1);
+          }
+          expect(geometry.stop.bottom).toBeLessThanOrEqual(geometry.row.bottom + 1);
+          if (process.env.CMUX_TRAY_CAPTURE_DIR) {
+            await mkdir(process.env.CMUX_TRAY_CAPTURE_DIR, { recursive: true });
+            const clip = await page.evaluate(() => {
+              const tray = document.querySelector(".acpmux-running-tray")!.getBoundingClientRect();
+              const composer = document.querySelector(".acpmux-composer")!.getBoundingClientRect();
+              const top = Math.max(0, tray.top - 16);
+              return { x: 0, y: top, width: 300, height: Math.min(innerHeight, composer.bottom + 16) - top };
+            });
+            await page.screenshot({
+              path: path.join(
+                process.env.CMUX_TRAY_CAPTURE_DIR,
+                `tray-workflow-progress-${interfaceScale}-${theme.endsWith("Light") ? "light" : "dark"}.png`,
+              ),
+              clip,
+            });
+          }
+        } finally {
+          await page.close();
+        }
+      });
+
       test(`narrow short dock keeps header and View all reachable at scale ${interfaceScale} (${theme})`, async () => {
         const port = (server.httpServer!.address() as { port: number }).port;
         const page = await browser.newPage({
