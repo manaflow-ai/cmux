@@ -186,7 +186,7 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     expect(saved).toMatchObject({ ok: true })
     const id = saved.value.id as string
     await stub.fakeControl({ snapshot_delete_refuse: 1 } as never)
-    expect(await rpc.deleteSnapshot(c, id)).toMatchObject({ ok: false, code: "cloud.provider.unavailable" })
+    expect(await rpc.deleteSnapshot(c, id)).toMatchObject({ ok: false, code: "cloud.provider.unavailable", retryable: true })
     await inDO(stub, async (instance) => {
       expect(instance.boundEngine.rows.get(TABLE_SNAPSHOT, id).row.status).toBe("ready")
       const deletes = instance.boundEngine.rows.range(TABLE_LEDGER, { limit: 100 }).filter((l: any) => l.row.op === "snapshot_delete")
@@ -198,6 +198,23 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     const ctl = (await stub.fakeControl({})) as any
     expect(ctl.snapshot_deletes).toBe(1)
     expect(ctl.snapshots).toHaveLength(0)
+  })
+
+  it("lets a departed creator clean up its platform snapshot", async () => {
+    const c = { user: caller().user, team: SHARED_TEAM }
+    const stub = cloudStub(SHARED_TEAM)
+    await inDO(stub, async (instance) => {
+      instance.creatorIsMember = async () => true
+    })
+    const { machine } = await bootAndBind(c)
+    const saved = await rpc.snapshot(c, machine, nameOf())
+    expect(saved).toMatchObject({ ok: true, value: { id: expect.any(String) } })
+    const id = saved.value.id as string
+    await inDO(stub, async (instance) => {
+      instance.creatorIsMember = async () => false
+    })
+    expect(await rpc.deleteSnapshot(c, id)).toEqual({ ok: true, value: { deleted: true } })
+    expect(((await stub.fakeControl({})) as any).snapshot_deletes).toBe(1)
   })
 
   it("refuses a non-platform snapshot without calling its provider", async () => {

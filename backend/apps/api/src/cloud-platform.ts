@@ -78,7 +78,7 @@ const snapshotReply = (s: SnapshotRow | undefined): PlatformReply<{ id: string }
 export const platformCall = async (host: PlatformHost, user: string, call: PlatformCall): Promise<PlatformReply> => {
   // Find and delete reach only this user's own platform boots, and a delete only stops cost: both work
   // after the user lost access to the team, so a setup's cleanup always deletes its builder.
-  const cleanup = call.op === "find" || call.op === "destroy"
+  const cleanup = call.op === "find" || call.op === "destroy" || call.op === "deleteSnapshot"
   if (!cleanup && !(await host.mayUse(user).catch(() => false))) return refused("auth.forbidden", "this user may not use the team's machines", false)
   const p = platformPrincipal(host.team, user)
   const submit = (op: string, params: unknown, k: string) => host.submit(p, { t: "op", op, params, idempotency_key: k, origin: "script" }).then(replyOf)
@@ -154,7 +154,7 @@ export const platformCall = async (host: PlatformHost, user: string, call: Platf
       // starts a new intent, while concurrent requests for this revision share the same one.
       const r = await submit("cloud.snapshot.delete", { snapshot: snap.id }, key("deleteSnapshot", `${snap.id}:${snap.revision}`))
       if (!host.snapshot(snap.id)) return ok({ deleted: true })
-      return r?.t === "result" ? deleting : fromReject(r)
+      return r?.t === "result" ? deleting : r?.t === "reject" ? refused(r.code, r.message, true) : fromReject(r)
     }
   }
 }
