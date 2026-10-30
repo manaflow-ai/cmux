@@ -52,6 +52,14 @@ struct AgentPaneCaptureTests {
         #expect(!FileManager.default.fileExists(atPath: stub.file.path))
     }
 
+    /// An Esc that a macOS version reports with a nonzero status, writing and saying nothing, is
+    /// still a cancel.
+    @Test(.timeLimit(.minutes(1))) func aQuietNonzeroExitWithNoImageIsACancel() async throws {
+        let stub = try Self.stub("exit 1")
+        defer { try? FileManager.default.removeItem(at: stub.root) }
+        #expect(await AgentPaneCapture.capture(window: false, to: stub.file, executable: stub.tool) == .taken)
+    }
+
     /// A failed pick that left a partial file removes it (its bytes are the person's screen).
     @Test(.timeLimit(.minutes(1))) func aFailedPickLeavesNoFile() async throws {
         let stub = try Self.stub(#"printf partial > "$5"; exit 1"#)

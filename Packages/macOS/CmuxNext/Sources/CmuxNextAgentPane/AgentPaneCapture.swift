@@ -1,7 +1,9 @@
+import CmuxNextCompat
 import CmuxNextWakeups
 import CoreGraphics
 import Foundation
 import ImageIO
+import os
 import UniformTypeIdentifiers
 
 /// The composer's + > Attach Screenshot… and Attach Window… (cx-ncc.71, the Codex app's Attach):
@@ -9,9 +11,11 @@ import UniformTypeIdentifiers
 /// runs its own region pick (`-i`) or window pick (`-iW`), so the selection UI and the Screen
 /// Recording permission are the system's. It answers `{name, mimeType, data}` (base64) for the
 /// page to attach as an image, `{tooLarge: true, name}` for one that does not fit the page's cap,
-/// or `{cancelled: true}` when the person presses Esc.
+/// `{cancelled: true}` when the person presses Esc, or the `capture.failed` error when
+/// `screencapture` could not start or ended with an error.
 enum AgentPaneCapture {
     nonisolated static let tool = "/usr/sbin/screencapture"
+    private nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.capture")
     /// The page's cap on an attached image (attachments.ts `MAX_IMAGE_BYTES`).
     nonisolated static let maxBytes = 5 * 1024 * 1024
     /// A Retina capture over the cap is scaled to this longest side first, then sent as JPEG.
@@ -22,11 +26,14 @@ enum AgentPaneCapture {
         // The screen goes to the agent: only a click in the pane starts a capture.
         guard model.transport.gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-capture-\(UUID().uuidString).png")
-        guard await capture(window: mode == "window", to: file) == .taken else { return AgentPaneReply.success(["cancelled": true]) }
+        if case .failed(let reason) = await capture(window: mode == "window", to: file) {
+            logger.error("composer.capture: screencapture failed: \(reason, privacy: .public)")
+            return AgentPaneReply.failure(code: "capture.failed", message: AgentPaneModel.captureFailedMessage)
+        }
         let taken = Date()
         // A person waits for the attachment: the read and the scale run at userBlocking's priority.
         let value = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) { () -> [String: any Sendable] in
-            defer { try? FileManager.default.removeItem(at: file) }
+            defer { try? FileManager.checked.removeItem(at: file) }
             return Self.answer((try? Data(contentsOf: file)) ?? Data(), taken: taken)
         }.value
         return AgentPaneReply.success(value)
@@ -59,12 +66,23 @@ enum AgentPaneCapture {
     nonisolated static func capture(window: Bool, to file: URL, executable: String = tool) async -> CaptureResult {
         // -x: no shutter sound; -o: no window shadow.
         let arguments = (window ? ["-i", "-W", "-o"] : ["-i"]) + ["-x", "-t", "png", file.path]
+        let result: CaptureResult
         do {
-            _ = try await AsyncProcess().run(ProcessRequest(URL(fileURLWithPath: executable), arguments))
-            return .taken
+            let outcome = try await AsyncProcess().run(ProcessRequest(URL(fileURLWithPath: executable), arguments,
+                                                                      errorOutput: .separate))
+            let said = String(decoding: outcome.errorOutput, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            // An Esc writes no file and says nothing, whatever status the macOS version gives it; an end
+            // that says why, leaves a partial file, or comes from a signal is an error (no Screen
+            // Recording grant, a crash).
+            let quietCancel = outcome.exited && said.isEmpty && !FileManager.checked.fileExists(atPath: file.path)
+            result = outcome.succeeded || quietCancel ? .taken
+                : .failed("\(said.isEmpty ? "no message" : said) (\(outcome.exited ? "exit" : "signal") \(outcome.status))")
         } catch {
-            return .failed(String(describing: error))
+            result = .failed(String(describing: error))
         }
+        // A failed pick's partial file is the person's screen: never left in the temp folder.
+        if result != .taken { try? FileManager.checked.removeItem(at: file) }
+        return result
     }
 
     /// The capture as an image under ``maxBytes``: the PNG as written, else scaled to ``maxSide`` as
