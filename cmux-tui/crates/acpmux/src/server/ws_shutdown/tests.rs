@@ -178,3 +178,35 @@ async fn shared_restart_waits_for_each_listener_and_keeps_client_signals_local()
     let (late, _guard) = shared.listener();
     assert!(late.is_requested(), "late listener cannot admit after shutdown");
 }
+
+/// An explicit stop is a normal close, even for a writer that sees its clients' close signal
+/// before the stop itself. A normal stop sets `normal`, and the listener then closes its
+/// clients. A writer polled the `normal` arm while it was still false, and the `closing` arm
+/// after both were set, under full-test-run load. It sent close 1012 (service restart) for a
+/// stop that asked for no restart (daemon_restart_close.rs:100, jobs a22621a9cba715d64d4b1760
+/// and 4ae5159a9da0325598298bda: `restart_requested=false`, writer `closing` with `normal`
+/// true). Forced order: the writer runs between the two signals.
+#[tokio::test]
+async fn a_writer_that_sees_the_close_before_the_normal_stop_closes_normally() {
+    let (ours, theirs) = tokio::io::duplex(4096);
+    let socket = WebSocketStream::from_raw_socket(ours, Role::Server, None).await;
+    let (sink, _source) = socket.split();
+    let mut client = WebSocketStream::from_raw_socket(theirs, Role::Client, None).await;
+    let (_out, outbound) = mpsc::channel(1);
+    let (_stop, stopped) = oneshot::channel();
+    let shared = WsShutdown::default();
+    let (local, _draining) = shared.listener();
+    let task = tokio::spawn(write(sink, outbound, stopped, local.clone()));
+    tokio::task::yield_now().await;
+    // The listener's close of its clients reaches the writer first.
+    local.close_clients();
+    tokio::task::yield_now().await;
+    shared.normal_shutdown();
+    let frame = tokio::time::timeout(Duration::from_secs(5), client.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(matches!(frame, Frame::Close(None)), "an explicit stop sent {frame:?}");
+    task.await.unwrap();
+}
