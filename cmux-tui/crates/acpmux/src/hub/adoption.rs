@@ -37,8 +37,17 @@ impl Hub {
         if family.is_empty() {
             return Ok(None);
         }
+        // A profile name (`claude-sr2`) reads its store family's store, as `new_session` does.
+        let family = {
+            let cfg = self.config.read().await;
+            cfg.resolve_harness(family)
+                .ok()
+                .and_then(|name| {
+                    cfg.harnesses.get(&name).map(|p| crate::config::store_family(&name, p))
+                })
+                .unwrap_or_else(|| family.to_owned())
+        };
         let homes = self.harness_homes.lock().unwrap().clone();
-        let family = family.to_owned();
         let id = agent_session_id.to_owned();
         let index = self.chats.get().filter(|_| !remote).cloned();
         let (found, _) = tokio::task::spawn_blocking(move || {
@@ -148,7 +157,7 @@ impl Hub {
             .and_then(|own| {
                 self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&own).cloned()
             })
-            .filter(|s| session_store(&stores, &s.meta()).is_none_or(|f| f == "claude"))
+            .filter(|s| session_store(&stores, &s.meta()).is_some_and(|f| f == "claude"))
         {
             return Ok(Adoption::Existing(existing));
         }
@@ -454,7 +463,7 @@ pub(super) fn store_families(cfg: &crate::config::Config) -> StoreFamilies {
 
 /// The store a session's conversation lives in: its profile's, else its recorded family when
 /// that names a store, else unknown (a profile gone from this config, such as a refused user
-/// file: its native id alone then decides).
+/// file): such a session is never the one an adopt opens.
 fn session_store(stores: &StoreFamilies, m: &SessionMeta) -> Option<String> {
     stores.get(&m.harness).cloned().or_else(|| {
         m.family.clone().filter(|f| matches!(f.as_str(), "claude" | "codex" | "opencode"))
@@ -475,7 +484,7 @@ pub(super) fn adopted_in(
         .find(|s| {
             let m = s.meta();
             m.agent_session_id.as_deref() == Some(agent_session_id)
-                && session_store(stores, &m).is_none_or(|f| f == family)
+                && session_store(stores, &m).is_some_and(|f| f == family)
         })
         .cloned()
 }
