@@ -85,6 +85,31 @@ struct CloudLinkEndedHeaderTests {
         #expect(CloudCreationRows.machine(session, compatibility: nil).status == .disconnected)
     }
 
+    /// A list read began, then the person clicked Connect, and the read answered the machine
+    /// paused (it was, before the click's connect started it). That stale answer must not
+    /// suspend the session: the suspend would cancel the click's connect.
+    @Test func aListReadThatBeganBeforeAConnectDoesNotPauseIt() async {
+        let resolver = GateLinkResolver()
+        let id = "vm-fence-\(UUID().uuidString.prefix(8))"
+        let session = CloudMachineSession(machine: CloudMachine(id: id, status: .running, displayName: "Fenced VM"),
+                                          appLink: CloudLinkSession(key: CloudLinkKey(machine: id), resolver: resolver),
+                                          localIdentity: { nil }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        defer { session.disconnect() }
+        let atRead = session.connects
+        session.connect(origin: .user)
+        var opened = resolver.opened.makeAsyncIterator()
+        _ = await opened.next()
+        #expect(session.linkPhase == .starting)
+
+        var paused = session.machine
+        paused.status = .paused
+        paused.pauseReason = .idle
+        session.listed(paused, connectsAtRead: atRead)
+        #expect(session.linkPhase == .starting, "the click's connect still runs")
+        #expect(session.stage == .booting, "not paused by a list that began before the click")
+        await resolver.finish()
+    }
+
     /// The provider failed the machine: "Failed to start", also when its link ended too.
     @Test func aMachineTheProviderFailedStillReadsFailedToStart() async {
         let session = Self.session(status: .failed)
@@ -102,6 +127,32 @@ private struct EndedLinkResolver: CloudLinkResolver {
 
     func open(_ key: CloudLinkKey, intent: String, origin: CloudLinkOrigin) async throws -> CloudLinkSocket {
         throw error
+    }
+
+    func close(_ key: CloudLinkKey) async {}
+}
+
+/// A `cloud.machine.connect` that answers only when the test lets it, then reports the link down.
+private actor GateLinkResolver: CloudLinkResolver {
+    nonisolated let opened: AsyncStream<Void>
+    private nonisolated let openedSink: AsyncStream<Void>.Continuation
+    private var release: CheckedContinuation<Void, Never>?
+    private var finished = false
+
+    init() {
+        (opened, openedSink) = AsyncStream.makeStream(of: Void.self)
+    }
+
+    func open(_ key: CloudLinkKey, intent: String, origin: CloudLinkOrigin) async throws -> CloudLinkSocket {
+        openedSink.yield()
+        if !finished { await withCheckedContinuation { release = $0 } }
+        throw CloudLinkError.disconnected(reason: "test over")
+    }
+
+    func finish() {
+        finished = true
+        release?.resume()
+        release = nil
     }
 
     func close(_ key: CloudLinkKey) async {}

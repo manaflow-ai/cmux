@@ -45,6 +45,10 @@ final class CloudMachineSession {
     /// Counts suspends: a connect that a pause overtook opens no connection
     /// (not `isLive`: a click connects a paused machine on purpose).
     @ObservationIgnored private var suspends = 0
+    /// Counts the connects this session started. A machine list read notes it
+    /// when it begins (`CloudService.refresh`), so its answer can tell a
+    /// connect that began after the read (``listed(_:connectsAtRead:)``).
+    @ObservationIgnored private(set) var connects = 0
     @ObservationIgnored private var linkTransition: Task<Void, Never>?
     /// The app-link connect hop in flight: a pause or a disconnect cancels
     /// it instead of waiting up to `CloudAppLinks.connectTimeout`.
@@ -104,6 +108,7 @@ final class CloudMachineSession {
         } else {
             guard machine.status.isLive else { return }
         }
+        connects += 1
         // A resume that failed earlier says nothing about this connect.
         resumeFailure = nil
         let previous = linkTransition
@@ -265,6 +270,19 @@ final class CloudMachineSession {
         if case .failed = phase, let refresher {
             // task-owner: one throttled list read; the reconcile it runs updates this record
             Task { await refresher(false) }
+        }
+    }
+
+    /// A machine list read's record for this machine (`CloudService.reconcile`):
+    /// one that stopped being live suspends the session, one that turned live
+    /// connects it. `connectsAtRead` is ``connects`` when the read began.
+    func listed(_ record: CloudMachine, connectsAtRead: Int) {
+        let wasLive = machine.status.isLive
+        machine = record
+        if wasLive, !record.status.isLive {
+            suspend()
+        } else if !wasLive, record.status.isLive {
+            connect()
         }
     }
 

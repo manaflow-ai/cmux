@@ -408,6 +408,7 @@ final class CloudService {
         listGeneration += 1
         let generation = listGeneration
         let account = listAccount
+        let connectsAtRead = Dictionary(machines.cloud.map { ($0.machineID, $0.connects) }, uniquingKeysWith: { first, _ in first })
         do {
             let list: [CloudMachine]
             let limits: CloudMachineLimits?
@@ -423,7 +424,7 @@ final class CloudService {
             machines.cloudLimits = limits
             if let limits { planObserved(limits.planId) }
             lastError = nil
-            reconcile(list)
+            reconcile(list, connectsAtRead: connectsAtRead)
             hasLoadedMachines = true
             loadedAccount = account
             listLoadedAt = .now
@@ -460,19 +461,14 @@ final class CloudService {
         return loadedAt.duration(to: now) < age
     }
 
-    private func reconcile(_ list: [CloudMachine]) {
+    /// `connectsAtRead`: each session's ``CloudMachineSession/connects`` when the read began.
+    private func reconcile(_ list: [CloudMachine], connectsAtRead: [String: Int]) {
         // A list that arrives after Cloud was turned off connects nothing.
         guard !policyDisabled else { return }
         let visible = list.filter { $0.status != .destroyed }
         for machine in visible {
             if let session = machines.session(machine.id) {
-                let wasLive = session.machine.status.isLive
-                session.machine = machine
-                if wasLive, !machine.status.isLive {
-                    session.suspend()
-                } else if !wasLive, machine.status.isLive {
-                    session.connect()
-                }
+                session.listed(machine, connectsAtRead: connectsAtRead[machine.id] ?? session.connects)
             } else {
                 addSession(machine)
             }
