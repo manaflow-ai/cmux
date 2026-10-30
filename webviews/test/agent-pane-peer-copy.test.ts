@@ -250,7 +250,7 @@ class Daemon {
     const p = message.params ?? {};
     // The scripted attach (its hooks, refusals and replies below) is the one the open asks of the
     // chat as listed; one asked with the list is answered as the machine is, and changes nothing.
-    if (message.beforeList) return this.answerBeforeList(message);
+    if (message.beforeList && p.sessionId !== OTHER) return this.answerBeforeList(message);
     if (message.method === "_acpmux/attach") this.attachAnswered = true;
     else if (this.attachAnswered && this.afterAttach) {
       const hook = this.afterAttach;
