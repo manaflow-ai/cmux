@@ -11,7 +11,8 @@
 // (Leo 2026-10-21 on a tray line that showed a raw shell line: "is that a command or a
 // subagent?"), and a line that opens something ends in a chevron. A line with nothing to open is
 // a disabled button with no hover at all (subagents.css).
-import { memo, type ReactNode } from "react";
+import type { ReactNode } from "react";
+import { useAgentProgress } from "./agentProgressStore";
 import { AgentMark, knownMark } from "../../shared/AgentMark";
 import { Tooltip } from "../../../ui/Tooltip";
 import { waveProps } from "../../../ui/wave";
@@ -24,10 +25,11 @@ import { Tick } from "./trayMotion";
 
 const ROW_ICON = rowIconSize(12);
 
-export const AgentLine = memo(function AgentLine({
+export function AgentLine({
   name,
   detail,
-  progress,
+  progress: fallbackProgress,
+  progressAgent,
   status,
   state,
   time,
@@ -54,6 +56,7 @@ export const AgentLine = memo(function AgentLine({
   detail?: string;
   /// Reported agent counts, warnings and usage; separate from the current action.
   progress?: string;
+  progressAgent?: import("./subagentFold").Subagent;
   status: SubagentStatus;
   /// Its state in words ("Running", "Waiting", "Done").
   state: string;
@@ -94,6 +97,8 @@ export const AgentLine = memo(function AgentLine({
   /// Use the running tray's fixed trailing columns; other AgentLine consumers keep their flow.
   trayColumns?: boolean;
 }) {
+  const liveProgress = useAgentProgress(progressAgent);
+  const progress = liveProgress ?? fallbackProgress;
   const shimmer = waveProps(wave);
   const brand = mark ? knownMark(mark, mark.split(/[-_/]/)[0]) : undefined;
   const glyph = <TonedIcon name={icon} size={iconSize} tone={tone} row />;
@@ -131,9 +136,11 @@ export const AgentLine = memo(function AgentLine({
         {progress && <span className="acpmux-agent-line__progress">{progress}</span>}
       </span>
       {trayColumns ? (
-        <span className="acpmux-agent-line__status">
+        <>
           {/* Fixed trailing grammar: status, duration, then disclosure as sibling columns. */}
-          <Tick className="acpmux-summary-meta acpmux-summary-agent__state" text={state} />
+          <span className="acpmux-agent-line__status">
+            <Tick className="acpmux-summary-meta acpmux-summary-agent__state" text={state} />
+          </span>
           <span className="acpmux-summary-meta acpmux-agent-line__time" aria-hidden={time === undefined}>
             {time}
           </span>
@@ -142,7 +149,7 @@ export const AgentLine = memo(function AgentLine({
               <Icon name="disclosure.collapsed" size={ROW_ICON} row />
             </span>
           )}
-        </span>
+        </>
       ) : (
         <>
           {/* Keep every AgentLine family in the same status, duration, disclosure order. */}
@@ -170,26 +177,4 @@ export const AgentLine = memo(function AgentLine({
       {trayColumns ? <span className="acpmux-agent-line__stop-slot">{after}</span> : after}
     </div>
   );
-}, (a, b) =>
-  a.name === b.name &&
-  a.detail === b.detail &&
-  a.progress === b.progress &&
-  a.status === b.status &&
-  a.state === b.state &&
-  a.time === b.time &&
-  a.icon === b.icon &&
-  a.mark === b.mark &&
-  a.tone === b.tone &&
-  a.iconSize === b.iconSize &&
-  a.depth === b.depth &&
-  a.current === b.current &&
-  a.title === b.title &&
-  a.label === b.label &&
-  a.kind === b.kind &&
-  a.chevron === b.chevron &&
-  a.wave === b.wave &&
-  a.working === b.working &&
-  a.expanded === b.expanded &&
-  a.trayColumns === b.trayColumns &&
-  Boolean(a.after) === Boolean(b.after),
-);
+}

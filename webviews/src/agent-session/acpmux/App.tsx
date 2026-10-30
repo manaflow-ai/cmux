@@ -210,6 +210,7 @@ import { descendants, subagentChangesFolder, type SubagentScope } from "./inspec
 import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList";
 import { AgentsPill } from "./subagents/AgentsPill";
 import { SubagentTray } from "./subagents/SubagentTray";
+import { AgentProgressContext, AgentProgressStore } from "./subagents/agentProgressStore";
 import { settleTrayExit } from "./subagents/trayMotion";
 import { SubagentDoneLine } from "./subagents/SubagentDoneLine";
 import { configureWorkflowCardOpen, configureWorkflowCardSideTab, WorkflowCard } from "./summary/WorkflowCard";
@@ -6438,9 +6439,15 @@ function AcpmuxPane() {
   // the pill's list and the transcript's subagent rows share. A streamed chunk makes a new list of
   // the same agents: the last one stays while nothing the pill shows changed, so a snapshot that
   // streams text redraws neither the pill nor a subagent row.
-  // Keep the latest agent records; AgentLine compares its own visual props so a usage-only update
-  // redraws only the row whose progress changed.
-  const chatAgents = freshAgents;
+  const progressStore = useMemo(() => new AgentProgressStore(freshAgents), [shownSessionId]);
+  useLayoutEffect(() => progressStore.update(freshAgents), [progressStore, freshAgents]);
+  const agentsKey = freshAgents
+    .map((agent) =>
+      [agent.id, agent.name, agent.parent, agent.kind, agent.state, agent.action, agent.endedAt, agent.agentId].join("\u0000"),
+    )
+    .join("\u0001");
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- progress goes to each row's subscription
+  const chatAgents = useMemo(() => freshAgents, [agentsKey, shownSessionId]);
   // A subagent draws no tool row (subagents/subagentFold.ts swallows the call that started it), so
   // a running foreground subagent holds Ctrl-B by itself.
   const foregroundAgent =
@@ -11016,7 +11023,9 @@ function AcpmuxPane() {
     <SignInContext.Provider value={signIn}>
       <ChatAccountsContext.Provider value={chatAccounts}>
         <UpdateOfferContext.Provider value={updateOffer}>
-          <NoticeSlot>{pane}</NoticeSlot>
+          <AgentProgressContext.Provider value={progressStore}>
+            <NoticeSlot>{pane}</NoticeSlot>
+          </AgentProgressContext.Provider>
         </UpdateOfferContext.Provider>
       </ChatAccountsContext.Provider>
     </SignInContext.Provider>
