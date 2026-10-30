@@ -115,23 +115,28 @@ export default agentPaneEntry({
   area: "Agent pane",
   height: 620,
   widths: { narrow: 420, normal: 760, wide: 1100 },
-  covers: ["agent-session/acpmux/bottomStack.css"],
+  covers: ["agent-session/acpmux/bottomStack.css", "agent-session/acpmux/summary/PullRequestStack.tsx"],
   variants: {
-    collapsed: variant("The turn ended: the tray folds to its Running in background header over the composer.", false),
-    expanded: variant("The turn runs: the tray open, a line each.", true),
-    "prs-open": variant("The chat's pull requests opened from their N PRs row.", false, {
+    collapsed: variant(
+      "Selected (one glass stack): the turn ended, the tray folded to its Running in background header; the N PRs row, the tray and the composer share one rim and two edges, with no gap and no notch.",
+      false,
+    ),
+    expanded: variant("Selected, the turn running: the tray open, a line each.", true),
+    "prs-open": variant("Selected, the N PRs row opened: a chip per pull request at the card's full width.", false, {
       play: prsOpen,
     }),
-    unified: variant(
-      "Alternative: one glass under the pull requests and the tray, standing on the composer card.",
+    cards: variant(
+      "Alternative (separate cards): every part keeps its own rounded card on the composer's two edges, one 4px step apart.",
       false,
-      { documentAttributes: { "bottom-stack": "unified" } },
+      { documentAttributes: { "bottom-stack": "cards" } },
     ),
-    strip: variant("Alternative: the pull requests and the tray's header share one compact row.", false, {
-      documentAttributes: { "bottom-stack": "strip" },
-    }),
+    strip: variant(
+      "Alternative (compact strip): the one glass stack, with the pull requests' links on their count's own line.",
+      false,
+      { documentAttributes: { "bottom-stack": "strip" } },
+    ),
     "legacy-bars": variant(
-      "Before cmux#26082: the pull request bars stacked over the composer, each its own width.",
+      "Before cmux#26082 (comparison): the pull request bars stacked over the composer, each its own width.",
       false,
       { documentAttributes: { "pr-dock": "full" } },
     ),

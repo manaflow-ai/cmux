@@ -418,6 +418,7 @@ import {
   legacyPullRequestDockMode,
 } from "./summary/PullRequestDock";
 import { PullRequestHostVisibility, usePullRequestPlacement } from "./summary/pullRequestPlacement";
+import { PullRequestStack } from "./summary/PullRequestStack";
 import { pullRequestRows as prSourceRows } from "./summary/pullRequestRows";
 import { SubagentPaneFooter } from "./subagents/SubagentPaneFooter";
 import { RecapCard, useRecapCard } from "./RecapCard";
@@ -7410,6 +7411,9 @@ function AcpmuxPane() {
         </SubagentClockContext.Provider>
       </BackgroundTaskOutputContext.Provider>
     ) : null;
+  // The chat's pull requests, one "N PRs" row in the bottom stack (summary/PullRequestStack.tsx),
+  // counted from the rows the transcript's per-message pills read.
+  const stackPullRequests = useTranscriptPullRequests(snapshot.rows, githubRepository ?? undefined);
   /// The composer's prompt, which dictation writes into.
   const prompt = useRef<MarkdownFieldHandle>(null);
   /// The composer itself, which takes back prompts a harness switch held; prompts handed back
@@ -10790,6 +10794,8 @@ function AcpmuxPane() {
         </Notice>
         {/* The tray (subagents/SubagentTray.tsx): in the bottom stack, right above the composer, every
           running or recently ended subagent, background command and started chat, one card each. */}
+        {/* The chat's pull requests (summary/PullRequestStack.tsx): one "N PRs" row right over the tray. */}
+        {!quick && !freshView && <PullRequestStack key={shownSessionId} prs={stackPullRequests} />}
         {trayPlacement === "tray" && trayNode}
         {/* The agents pill (subagents/AgentsPill.tsx), with the tray off (Debug Settings): in the bottom
           stack, right above the composer, while the turn works; an agent a cancel or a reconnect left

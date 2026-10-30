@@ -30,6 +30,7 @@ type Geometry = {
   chips: { left: number; right: number }[];
   prRow: { lines: number; text: string; expanded: string | null } | null;
   foot: number | null;
+  trail: Record<string, number | null>;
 };
 
 await requireBrowserLane("agent-pane-bottom-stack-edges.test.ts", async () => {
@@ -135,10 +136,26 @@ await requireBrowserLane("agent-pane-bottom-stack-edges.test.ts", async () => {
           }
         : null,
       foot: foot ? main.bottom - foot.getBoundingClientRect().bottom : null,
+      // Where each part's last trailing mark centers, from the composer card's right edge (for the
+      // record: the tray header's chevron column is cmux#27930's).
+      trail: (() => {
+        const right = document.querySelector(".acpmux-composer-box")?.getBoundingClientRect().right ?? 0;
+        const center = (selector: string) => {
+          const icon = document.querySelector(selector);
+          if (!icon) return null;
+          const r = icon.getBoundingClientRect();
+          return Math.round((right - (r.left + r.right) / 2) * 10) / 10;
+        };
+        return {
+          prs: center(".acpmux-pr-stack__status svg"),
+          tray: center(".acpmux-running-tray__head .acpmux-running-tray__status svg"),
+          composer: center(".acpmux-composer-box button:last-of-type svg"),
+        };
+      })(),
     };
   }
 
-  const VARIANTS = ["collapsed", "expanded", "prs-open", "legacy-bars", "unified", "strip"];
+  const VARIANTS = ["collapsed", "expanded", "prs-open", "cards", "strip", "legacy-bars"];
 
   test("every bottom card shares the composer card's left and right edge, one stack gap apart", async () => {
     const offenders: string[] = [];
