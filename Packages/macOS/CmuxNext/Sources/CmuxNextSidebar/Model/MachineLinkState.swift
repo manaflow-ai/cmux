@@ -6,7 +6,8 @@ public nonisolated enum MachineLinkState: String, Hashable, Sendable {
     /// Its daemon finished the handshake (`DaemonHandshake`): a green dot. Never a bare socket or
     /// ssh connect, which reads as connecting.
     case connected
-    /// On its way: connecting, reconnecting or installing. A spinner, never a pulsing dot.
+    /// On its way: connecting, reconnecting, installing, or a Cloud machine pausing, resuming or
+    /// being deleted. A spinner, never a pulsing dot.
     case connecting
     /// Down: offline, unreachable, sign-in refused, failed, or too old to connect. A red dot.
     case offline
@@ -21,7 +22,7 @@ public nonisolated enum MachineLinkState: String, Hashable, Sendable {
         switch status {
         case .offline, .unreachable, .failed: true
         case .connected, .updateAvailable, .connecting, .reconnecting, .installing, .installRequired,
-             .authFailed, .updateRequired, .paused, .pausedIdle: false
+             .authFailed, .updateRequired, .paused, .pausedIdle, .pausing, .resuming, .deleting: false
         }
     }
 }
@@ -34,7 +35,7 @@ extension SidebarMachine.Status {
     public var linkState: MachineLinkState {
         switch self {
         case .connected, .updateAvailable: .connected
-        case .connecting, .reconnecting, .installing: .connecting
+        case .connecting, .reconnecting, .installing, .pausing, .resuming, .deleting: .connecting
         case .offline, .unreachable, .authFailed, .failed, .updateRequired: .offline
         case .paused, .pausedIdle: .paused
         case .installRequired: .attention

@@ -90,6 +90,9 @@ final class SectionHeaderRowView: SidebarRowView {
         case .failed: Strings.statusFailed
         case .paused: Strings.statusPaused
         case .pausedIdle: Strings.statusPausedIdle
+        case .pausing: Strings.statusPausing
+        case .resuming: Strings.statusResuming
+        case .deleting: Strings.statusDeleting
         }
     }
 
@@ -120,6 +123,9 @@ final class SectionHeaderRowView: SidebarRowView {
         case .failed: Strings.statusFailed
         case .paused: Strings.statusPaused
         case .pausedIdle: Strings.statusPausedIdle
+        case .pausing: Strings.statusPausing
+        case .resuming: Strings.statusResuming
+        case .deleting: Strings.statusDeleting
         }
     }
 
