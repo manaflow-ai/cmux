@@ -5,7 +5,7 @@ import Foundation
 import Testing
 
 /// A terminal made before libghostty's app starts gets its surface when the app starts, takes keys, and shows the
-/// output that came for it. Since p02-threads-129 (a649fdca30f) the app starts on its launch's config build
+/// output that came for it. Since a649fdca30f the app starts on its launch's config build
 /// (`GhosttyRuntime.start(loadingOn:)`), and `TerminalSurfaceView` made its surface only in `init`: a view made before
 /// that start had no surface for its whole life, and its keyDown sent every key nowhere, with no trace (a new terminal
 /// that takes no keys). Its session also routed the IO's output to no lane, so a fix of the view alone gave a terminal
