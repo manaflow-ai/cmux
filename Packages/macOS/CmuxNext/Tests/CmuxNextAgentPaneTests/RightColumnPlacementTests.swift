@@ -84,6 +84,28 @@ struct RightColumnPlacementTests {
         #expect(Rule.decide(.init(sourceWidth: 1400, panes: ["diff"], widths: ["diff": 419])) == .tab("diff"))
     }
 
+    /// The column is read from frames, never from which pane was focused last (review of #28044 at
+    /// 20e433f2: a recency-based neighbour walk read a two-pane column as one).
+    @Test func theRightColumnIsEveryPaneAtTheSourcesRightEdgeTopToBottom() {
+        let frames: [String: CGRect] = [
+            "chat": CGRect(x: 0, y: 0, width: 700, height: 800),
+            "lower": CGRect(x: 706, y: 404, width: 600, height: 396),
+            "upper": CGRect(x: 706, y: 0, width: 600, height: 400),
+            "far": CGRect(x: 1312, y: 0, width: 300, height: 800),
+        ]
+        #expect(Rule.column(beside: "chat", frames: frames) == ["upper", "lower"])
+        #expect(Rule.column(beside: "upper", frames: frames) == ["far"])
+        #expect(Rule.column(beside: "far", frames: frames).isEmpty)
+        // A pane beside only the lower half of a half-height source is not in its column.
+        let halves: [String: CGRect] = [
+            "top": CGRect(x: 0, y: 0, width: 700, height: 400), "bottom": CGRect(x: 0, y: 404, width: 700, height: 396),
+            "right-top": CGRect(x: 706, y: 0, width: 600, height: 400), "right-bottom": CGRect(x: 706, y: 404, width: 600, height: 396),
+        ]
+        #expect(Rule.column(beside: "top", frames: halves) == ["right-top"])
+        // A column past a wide gap is not beside the source.
+        #expect(Rule.column(beside: "chat", frames: ["chat": frames["chat"]!, "away": CGRect(x: 800, y: 0, width: 300, height: 800)]).isEmpty)
+    }
+
     @MainActor @Test func closingTheLowerPaneCollapsesTheSplitAndTheNextOpenSplitsAgain() {
         let window = RightColumnWindow()
         window.occupy("diff")

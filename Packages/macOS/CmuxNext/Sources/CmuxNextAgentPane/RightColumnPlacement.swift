@@ -56,6 +56,19 @@ public enum RightColumnPlacement {
         return fits ? .splitBelow(right) : .tab(right)
     }
 
+    /// The right column beside `source` from pane frames in one top-down (flipped) space: the panes
+    /// whose left edge is the nearest one at or past the source's right edge (within `gap`, the
+    /// layout's gutter) and that overlap the source's height, top to bottom. Geometry only, so a
+    /// column of several panes reads the same whichever of them was focused last.
+    public static func column<Pane: Hashable>(beside source: Pane, frames: [Pane: CGRect], gap: CGFloat = 24) -> [Pane] {
+        guard let origin = frames[source] else { return [] }
+        let beside = frames.filter { pane, rect in
+            pane != source && rect.minX >= origin.maxX - 1 && rect.minY < origin.maxY && rect.maxY > origin.minY
+        }
+        guard let nearest = beside.values.map(\.minX).min(), nearest - origin.maxX <= gap else { return [] }
+        return beside.filter { abs($0.value.minX - nearest) <= 1 }.sorted { $0.value.minY < $1.value.minY }.map(\.key)
+    }
+
     /// ``decide(sourceWidth:column:width:)`` for a column the app measured.
     public static func decide(_ column: Column) -> Decision<String> {
         decide(sourceWidth: column.sourceWidth, column: column.panes, width: { column.widths[$0] })
