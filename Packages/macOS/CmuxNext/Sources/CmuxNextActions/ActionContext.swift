@@ -59,6 +59,8 @@ public nonisolated struct ActionContext: OptionSet, Sendable, Hashable {
     /// A markdown page (with ``markdownFocused``) edits its file: bare keys
     /// are typing there.
     public static let markdownEditorFocused = ActionContext(rawValue: 1 << 22)
+    /// Debug Settings' Side sessions (/btw) is on; Ask a Side Question… is offered only then.
+    public static let sideSessions = ActionContext(rawValue: 1 << 23)
 
     /// Contexts whose page owns bare keys (no Command, Control or Option):
     /// only while one holds, and no text field has the keyboard, may a
