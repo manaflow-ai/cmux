@@ -208,6 +208,7 @@ import owned_warm_state  # noqa: E402
 import ui_tests_dispatch  # noqa: E402
 import starved_labels  # noqa: E402
 from delivery_workflows import REPLACEMENT_JOB_READS, attempt_jobs, build_started, is_delivery_run  # noqa: E402
+from delivery_workflows import delivers, is_delivery_event, is_delivery_workflow  # noqa: E402
 from delivery_workflows import newer_head_runs, superseded_unstarted  # noqa: E402
 
 
@@ -372,6 +373,11 @@ PROTECTED_EVENTS = frozenset({"merge_group", "release", "create", "delete", "dep
 PROTECTED_PUSH_BRANCHES = frozenset({"main", "feat-cmux-next"})
 MAIN_ONLY_EVENTS = frozenset({"schedule", "workflow_dispatch", "repository_dispatch"})
 PROTECTED_WORKFLOW = re.compile(r"release|nightly|testflight|app[-_ ]?store|appstore|publish|notar", re.IGNORECASE)
+# PROTECTED_WORKFLOW without "nightly": what still protects a pull request's run of a delivery workflow. Such a run
+# (nightly-next-canary.yml or nightly-next-launch-smoke.yml testing its own edit) publishes, signs, rolls back and
+# files nothing, so dep-fleet's ruling (#27521) does not cover it and the sweep treats it as any pull request run.
+PULL_REQUEST_PROTECTED_WORKFLOW = re.compile(r"release|testflight|app[-_ ]?store|appstore|publish|notar",
+                                             re.IGNORECASE)
 TAG_LIKE_REF = re.compile(r"^(v\d|cmux-tui-v\d|.*-v\d+\.\d+)")
 
 UTC = dt.timezone.utc
@@ -415,7 +421,8 @@ def protected_reason(run: Mapping[str, Any]) -> str | None:
         return f"{event} on main"
     if TAG_LIKE_REF.match(branch):
         return f"tag-like ref {branch}"
-    if PROTECTED_WORKFLOW.search(haystack):
+    test_run = not is_delivery_event(event) and is_delivery_workflow(str(run.get("path") or ""))
+    if (PULL_REQUEST_PROTECTED_WORKFLOW if test_run else PROTECTED_WORKFLOW).search(haystack):
         return "release/nightly/TestFlight/App Store workflow"
     return None
 
@@ -665,11 +672,28 @@ def macos_usage(jobs: Iterable[Mapping[str, Any]]) -> MacosUsage:
     return MacosUsage(queued, running, oldest, compiling, decided_by, decided_at, held_by_pool, queued_by_pool)
 
 
-# Workflows whose queued macOS jobs a pull request must not take a pool from.
+# Workflows whose queued macOS jobs a pull request must not take a pool from (`reserved_queued`): freshness
+# work, the release workflow below plus every delivery workflow (delivery_workflows.DELIVERY_GLOBS: nightly,
+# its sign, verify and notarization follow-ups, DEV and promote builds). One declared list, so a new nightly
+# or notarization workflow reserves its label without an edit here; tests/test_ci_queue_janitor.py fails on a
+# nightly, release, promote or notarization workflow with a Blacksmith macOS job that is neither reserved nor
+# exempted there. auto-resume-nightly-notarization.yml was missing from the old release|nightly regex, so on
+# 2026-10-30 12:43Z its three wait-and-staple jobs queued on blacksmith-6vcpu-macos-26 behind 22 pull request
+# overflow jobs without holding the label.
 # Match the workflow path only.  CI run names include routing metadata such as
 # ``release=arm64``; looking at the combined name and path made every ordinary
 # pull-request run look like a release reservation.
-RESERVED_POOL_WORKFLOW = re.compile(r"(?:^|/)(?:release|nightly)\.yml$", re.IGNORECASE)
+RESERVED_RELEASE_WORKFLOWS = frozenset({"release.yml"})
+
+
+def reserves_pool(path: str | None, event: str | None = None) -> bool:
+    """Whether a run of the workflow at `path` from `event` is freshness work whose queued jobs hold their pool: a
+    release run, or a delivery run (delivery_workflows.delivers()). A pull request's test run of a delivery workflow
+    holds nothing; an unread event counts as a delivery one."""
+    name = Path(str(path or "").split("@", 1)[0]).name.lower()
+    return name in RESERVED_RELEASE_WORKFLOWS or delivers(name, event)
+
+
 POOL_QUEUED_JOB_STATUSES = QUEUED_JOB_STATUSES - {"waiting"}
 POOL_LOAD_VERSION = 1
 # Environment variable -> snapshot settings key, for pr_runner_pool.py.
@@ -855,8 +879,9 @@ def pool_load_snapshot(
     every Blacksmith job, so pr_runner_pool.py can look a label up directly.
     Only jobs waiting for a runner count as queued; a `waiting` job is held
     by an environment approval and asks no pool for anything yet.
-    `reserved_queued` counts the queued jobs of release and nightly runs; it
-    is what tells a pull request to stay off a pool those runs are waiting on.
+    `reserved_queued` counts the queued jobs of release, nightly, DEV and
+    promote runs (reserves_pool()); it is what tells a pull request to stay
+    off a pool those runs are waiting on.
     `settings` carries the pool-choice repository variables, which a fork
     pull request's run cannot read itself.
 
@@ -882,7 +907,7 @@ def pool_load_snapshot(
     oldest: dict[str, dt.datetime] = {}
     committed: dict[str, int] = {}
     for run in runs:
-        reserved = bool(RESERVED_POOL_WORKFLOW.search(str(run.get("path") or "")))
+        reserved = reserves_pool(run.get("path"), run.get("event"))
         seen: dict[str, int] = {}
         for job in jobs_by_run.get(run.get("id"), ()):
             if is_macos_job(job) and owned_label(job) and job.get("status") in (
@@ -956,8 +981,43 @@ def pool_load_snapshot(
         "generated_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "pools": dict(sorted(pools.items())),
         "running": dict(sorted(running.items())),
+        LABEL_STARTED_KEY: label_started(runs, jobs_by_run),
         "settings": dict(settings or {}),
     }
+
+
+# The snapshot's map of each macOS runner label (an owned pool, a lane, a Blacksmith macOS label) to when a runner
+# last took a job that asked for exactly that label, among the in-flight runs listed (label_started()).
+LABEL_STARTED_KEY = "label_started"
+
+
+def label_started(runs: Sequence[Mapping[str, Any]],
+                  jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]]) -> dict[str, str]:
+    """When a runner last took a job on each macOS runner label: the newest `started_at` of a listed job a runner
+    took (runner_name or runner_id; a queued job's started_at is only its creation), running or finished, keyed by
+    each owned, lane or macOS label it asked for exactly (no root or capability rollup, as `pools` has).
+
+    The rescue's stall-aware failover reads it (owned_pool_rescue.label_quiet()): a label whose pool count shows a
+    job running but that started nothing while a job waited is no queue that job is moving in. Run 40993742146's
+    fast tier waited five hours on glaeda-side-std-xcode-26.6 while that label ran one job started before it queued
+    (2026-10-30). Only in-flight runs are listed, so a start in a run that has finished is not seen: the time errs
+    old, which can only offer a re-placement, never cancel a started job."""
+    newest: dict[str, dt.datetime] = {}
+    for run in runs:
+        for job in jobs_by_run.get(run.get("id"), ()):
+            if not (job.get("runner_name") or job.get("runner_id")) or job.get("conclusion") == "skipped":
+                continue
+            if job.get("status") not in RUNNING_JOB_STATUSES and job.get("status") != "completed":
+                continue
+            started = parse_time(job.get("started_at"))
+            if started is None:
+                continue
+            for label in {str(item) for item in job.get("labels") or ()}:
+                if not (owned_pool(label) or LANE_LABEL.fullmatch(label) or "macos" in label.lower()):
+                    continue
+                if label not in newest or started > newest[label]:
+                    newest[label] = started
+    return {label: moment.strftime("%Y-%m-%dT%H:%M:%SZ") for label, moment in sorted(newest.items())}
 
 
 def touches_doomed_job_inputs(paths: Iterable[str]) -> bool:
@@ -2362,12 +2422,12 @@ def orphan_protected_reason(run: Mapping[str, Any]) -> str | None:
         return f"{event} event"
     if TAG_LIKE_REF.match(branch):
         return f"tag-like ref {branch}"
-    # Match the workflow path only, as RESERVED_POOL_WORKFLOW does: ci.yml's
+    # Match the workflow path only, as reserves_pool() does: ci.yml's
     # run name carries `release=arm64`, which kept an orphaned main dispatch
     # holding CI's concurrency group (and every later main run pending).
     if ORPHAN_PROTECTED_WORKFLOW.search(str(run.get("path") or "")):
         return "release/publish workflow"
-    if is_delivery_run(run.get("path"), run.get("name"), run.get("display_title")):
+    if delivers(run.get("path"), event, run.get("name"), run.get("display_title")):
         return "nightly/DEV/promote delivery workflow; needs runner capacity, never a cancel"
     if event == "push" and branch in PROTECTED_PUSH_BRANCHES - {"main"}:
         # Listed since follows_another_copy(): a feat-cmux-next push gates the nightly-next build,

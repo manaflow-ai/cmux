@@ -3547,5 +3547,109 @@ class OpenHeadNeverCancelledTests(unittest.TestCase):
         self.assertEqual(posted & set(expected), set())
 
 
+class DeliveryRunScopeTests(unittest.TestCase):
+    """dep-fleet's ruling (#27521) protects delivery runs (any event but a pull request's), never a pull request's
+    test run of a nightly-named workflow: that run gets the normal open-head treatment and reserves no label."""
+
+    CANARY = ".github/workflows/nightly-next-canary.yml"
+    SMOKE = ".github/workflows/nightly-next-launch-smoke.yml"
+    CHECKS = ((CANARY, "nightly-next canary"), (SMOKE, "nightly-next launch smoke"))
+    LABEL = "blacksmith-6vcpu-macos-26"
+
+    def classify(self, run, pr):
+        return janitor.classify(run, janitor.macos_usage(mac_jobs(queued=2)), pr, newer_ci_run_waiting=False,
+                                pull_request_policy="compile-only", now=NOW)
+
+    def reserved(self, run):
+        job = {"labels": [self.LABEL], "status": "queued", "created_at": iso(5), "name": "smoke"}
+        return janitor.pool_load_snapshot([run], {run["id"]: [job]}, now=NOW)["pools"][self.LABEL]["reserved_queued"]
+
+    def test_a_pull_request_run_of_a_post_publish_check_is_swept_like_any_other(self):
+        for path, name in self.CHECKS:
+            with self.subTest(path=path):
+                run = make_run(path=path, name=name)
+                self.assertIsNone(janitor.protected_reason(run))
+                self.assertIsNone(janitor.orphan_protected_reason(run))
+                self.assertEqual(self.classify(run, make_pr(state="CLOSED"))[0], "stale-pr")
+                self.assertIsNone(self.classify(run, make_pr()), "its open head keeps it")
+                self.assertEqual(self.reserved(run), 0)
+
+    def test_delivery_runs_stay_protected_and_reserved(self):
+        for path, name in self.CHECKS:
+            for event, branch in (("schedule", "main"), ("workflow_dispatch", "feat-cmux-next"),
+                                  ("workflow_dispatch", "nightly-next")):
+                with self.subTest(path=path, event=event, branch=branch):
+                    run = make_run(event=event, branch=branch, path=path, name=name)
+                    self.assertIsNotNone(janitor.protected_reason(run))
+                    self.assertIsNotNone(janitor.orphan_protected_reason(run))
+                    self.assertIsNone(self.classify(run, make_pr(state="CLOSED")))
+                    self.assertEqual(self.reserved(run), 1)
+        build = make_run(event="push", branch="nightly-next", path=".github/workflows/nightly.yml",
+                         name="Nightly macOS build")
+        self.assertIsNotNone(janitor.protected_reason(build))
+        self.assertIsNotNone(janitor.orphan_protected_reason(build))
+        self.assertEqual(self.reserved(build), 1)
+
+
+class ReservedPoolWorkflowTests(unittest.TestCase):
+    """Which runs' queued macOS jobs count as `reserved_queued`, the freshness work PR overflow stays off."""
+
+    LABEL = "blacksmith-6vcpu-macos-26"
+    # A workflow named or filed as nightly, release, promote or notarization work that is no freshness work, and
+    # why. Any other such workflow with a Blacksmith macOS job must reserve its label.
+    NOT_FRESHNESS = {
+        "iroh-release-gate.yml": "a manual test gate run before an Iroh release; it builds and ships nothing",
+        "tmux-corpus.yml": "a manual terminal-corpus test titled \"terminal nightly\"; it builds and ships nothing",
+    }
+    MARKED = re.compile(r"nightly|release|promot|notari", re.IGNORECASE)
+    BLACKSMITH_MACOS = re.compile(r"blacksmith-[\w.-]*macos|MACOS_RUNNER", re.IGNORECASE)
+    PR_WORKFLOWS = ("ci.yml", "cmux-next.yml", "ci-macos.yml")
+
+    def reserved(self, path: str, name: str = "x") -> int:
+        run = {"id": 1, "name": name, "path": path, "status": "in_progress"}
+        job = {"labels": [self.LABEL], "status": "queued", "created_at": iso(5), "name": "wait-and-staple"}
+        snap = janitor.pool_load_snapshot([run], {1: [job]}, now=NOW)
+        return snap["pools"][self.LABEL]["reserved_queued"]
+
+    def test_continue_nightly_notarization_reserves_its_label(self):
+        # 2026-10-30 12:43Z: its three wait-and-staple jobs queued on blacksmith-6vcpu-macos-26 behind 22 PR
+        # overflow jobs, because the snapshot did not count them as reserved.
+        self.assertEqual(self.reserved(".github/workflows/auto-resume-nightly-notarization.yml",
+                                       "Continue nightly notarization"), 1)
+        self.assertEqual(self.reserved(".github/workflows/resume-nightly-notarization.yml"), 1)
+
+    def test_every_freshness_workflow_with_a_blacksmith_macos_job_reserves(self):
+        workflows = sorted((ROOT / ".github/workflows").glob("*.yml"))
+        self.assertTrue(workflows)
+        checked = []
+        for path in workflows:
+            doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+            jobs = doc.get("jobs") or {}
+            macos = [job_id for job_id, job in jobs.items()
+                     if isinstance(job, dict) and self.BLACKSMITH_MACOS.search(str(job.get("runs-on", "")))]
+            marked = self.MARKED.search(path.name) or self.MARKED.search(str(doc.get("name") or ""))
+            if not macos or not marked:
+                continue
+            reserved = self.reserved(f".github/workflows/{path.name}", str(doc.get("name") or ""))
+            with self.subTest(workflow=path.name, jobs=macos):
+                if path.name in self.NOT_FRESHNESS:
+                    self.assertEqual(reserved, 0, f"{path.name} is exempt: {self.NOT_FRESHNESS[path.name]}")
+                else:
+                    self.assertEqual(reserved, 1, f"{path.name} runs {macos} on Blacksmith macOS but its "
+                                                  "queued jobs do not reserve the label (queue_janitor.reserves_pool)")
+                    checked.append(path.name)
+        for name in ("release.yml", "nightly.yml", "auto-resume-nightly-notarization.yml",
+                     "resume-nightly-notarization.yml"):
+            self.assertIn(name, checked)
+        for name in self.NOT_FRESHNESS:
+            self.assertTrue((ROOT / ".github/workflows" / name).exists(), f"stale exemption {name}")
+
+    def test_pull_request_workflows_do_not_reserve(self):
+        for name in self.PR_WORKFLOWS:
+            self.assertTrue((ROOT / ".github/workflows" / name).exists(), name)
+            with self.subTest(workflow=name):
+                self.assertEqual(self.reserved(f".github/workflows/{name}", "v1;release=arm64"), 0)
+
+
 if __name__ == "__main__":
     unittest.main()
