@@ -129,6 +129,22 @@ pub fn record(meta: &mut SessionMeta, home: Option<&Path>) -> bool {
     }
 }
 
+/// `meta`'s env as its spawn builds it from `harness_env` (`Hub::harness_env`: profile, preset
+/// and chat store): each value expanded (`~/work`, `${home}/work`), then the chat's own env
+/// over it, unexpanded (`hub/spawn.rs`). Before its route.
+pub fn spawn_env(
+    meta: &SessionMeta,
+    mut harness_env: BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
+    let home = dirs::home_dir().unwrap_or_default();
+    let model = meta.model_request.clone().unwrap_or_default();
+    for value in harness_env.values_mut() {
+        *value = crate::hub::expand_env_value(value, &meta.cwd, &home, &model);
+    }
+    harness_env.extend(meta.session_env.clone());
+    harness_env
+}
+
 /// The folder `meta`'s conversation is kept in when it is not the CLI's
 /// default: its recorded store, else its own or its harness env's variable
 /// (profile and preset, `Hub::harness_env`).

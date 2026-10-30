@@ -15,6 +15,7 @@ name: nightly-next rollback
 #     -f reason="what is broken"            # pulls the newest build
 #     -f bad_build=3917159104301            # or: pull this build and everything newer
 #     -f to_build=3917061587901             # or: serve this build again
+#     -f if_newest=3917159104301            # pull nothing unless this is the newest build
 #     -f dry_run=true                       # print the plan, write nothing
 # nightly-next-canary.yml dispatches it with bad_build when the canary
 # enforces and the build it launched failed.
@@ -24,6 +25,8 @@ name: nightly-next rollback
 # newest change quarantined (nightly-next-train.yml, once it can fix forward),
 # or else one `nightly-next fix-forward needed` issue naming that change and
 # its owner. Only a higher build moves the Macs already on the pulled one.
+# Beside it, job pulled-json lists the pulled builds in pulled.json, the
+# app's pulled-build banner; the run is red until that list is written.
 #
 # GitHub registers a dispatch workflow only from the default branch, so this
 # file is on main too; a run there does nothing.
@@ -41,6 +44,11 @@ on:
         type: string
       to_build:
         description: Instead of bad_build, serve this build (digits) and pull everything above it.
+        required: false
+        default: ''
+        type: string
+      if_newest:
+        description: Pull nothing unless this build (digits) is the feed's newest. The launch smoke sets it to its bad_build.
         required: false
         default: ''
         type: string
@@ -78,6 +86,7 @@ jobs:
       changed: ${{ steps.plan.outputs.changed }}
       serving: ${{ steps.plan.outputs.serving }}
       pulled: ${{ steps.plan.outputs.pulled }}
+      record: ${{ steps.plan.outputs.record }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -88,6 +97,7 @@ jobs:
         env:
           BAD_BUILD: ${{ inputs.bad_build }}
           TO_BUILD: ${{ inputs.to_build }}
+          IF_NEWEST: ${{ inputs.if_newest }}
         run: |
           set -euo pipefail
           mkdir -p rollback
@@ -96,6 +106,7 @@ jobs:
           args=()
           [ -z "$BAD_BUILD" ] || args+=(--bad "$BAD_BUILD")
           [ -z "$TO_BUILD" ] || args+=(--to "$TO_BUILD")
+          [ -z "$IF_NEWEST" ] || args+=(--if-newest "$IF_NEWEST")
           summary="$(python3 scripts/ci/nightly_next_feed_rollback.py plan --feed rollback/live.xml \
             --out "rollback/$NIGHTLY_APPCAST" "${args[@]}")"
           echo "$summary"
@@ -106,6 +117,8 @@ jobs:
           print(f"serving={s['serving']}")
           print(f"serving_url={s['serving_url']}")
           print(f"pulled={' '.join(s['pulled'])}")
+          print(f"record={' '.join(s['record'])}")
+          print(f"record_complete={'true' if s['record_complete'] else 'false'}")
           PY
 
       - name: Check the build it falls back to
@@ -158,49 +171,6 @@ jobs:
           cmp -s "rollback/$NIGHTLY_APPCAST" rollback/after.xml || { echo "the public feed does not serve the pulled appcast yet" >&2; exit 1; }
           echo "ok: the feed serves build $SERVING"
 
-      # The app reads pulled.json next to the appcast with each update check; a Mac on a listed
-      # build offers its kept build ("Roll Back to ...") or waiting for the fix-forward build.
-      # Non-fatal: the feed is already pulled and read back, so the fix-forward must still run,
-      # and a re-run sees changed=false and would never retry this step.
-      - name: Record the pulled builds (pulled.json)
-        id: pulled_json
-        if: steps.plan.outputs.changed == 'true' && !inputs.dry_run
-        continue-on-error: true
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: auto
-          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
-          REASON: ${{ inputs.reason }}
-          PULLED: ${{ steps.plan.outputs.pulled }}
-          SERVING: ${{ steps.plan.outputs.serving }}
-        run: |
-          set -euo pipefail
-          key="${NIGHTLY_NEXT_R2_PREFIX}pulled.json"
-          python3 scripts/ci/nightly-next-guard.py r2-key "$NIGHTLY_NEXT_R2_BUCKET" "$key"
-          # 404 on the first pull: the list starts empty and the object is created write-once.
-          code="$(curl -sS --retry 3 -A "cmux-nightly-next-rollback/1" -H "Cache-Control: no-cache" \
-            -o rollback/pulled-live.json -w '%{http_code}' "${NIGHTLY_NEXT_FEED_BASE}/pulled.json?rollback=${GITHUB_RUN_ID}")"
-          mode=(--write-once)
-          if [ "$code" = 200 ]; then
-            mode=(--replace-sha256 "$(shasum -a 256 rollback/pulled-live.json | awk '{print $1}')")
-          elif [ "$code" = 404 ]; then
-            rm -f rollback/pulled-live.json
-          else
-            echo "::warning title=nightly-next rollback::pulled.json answered HTTP $code; the feed is pulled but the app banner list was not updated"
-            exit 1
-          fi
-          python3 scripts/ci/nightly_next_feed_rollback.py pulled --existing rollback/pulled-live.json \
-            --pulled "$PULLED" --serve "$SERVING" --reason "$REASON" \
-            --at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --out rollback/pulled.json
-          python3 scripts/ci/upload-r2-object.py --file rollback/pulled.json --endpoint-url "$R2_ENDPOINT" \
-            --bucket "$NIGHTLY_NEXT_R2_BUCKET" --key "$key" --content-type application/json \
-            --cache-control "no-cache, no-store, must-revalidate" "${mode[@]}" --conflict-exit-code 3 || {
-            status=$?
-            echo "::warning title=nightly-next rollback::pulled.json upload failed (exit $status; 3 is a concurrent write); the feed is pulled but the app banner list was not updated"
-            exit "$status"
-          }
-
       - name: Summary
         if: always()
         env:
@@ -208,9 +178,10 @@ jobs:
           CHANGED: ${{ steps.plan.outputs.changed }}
           SERVING: ${{ steps.plan.outputs.serving }}
           PULLED: ${{ steps.plan.outputs.pulled }}
+          RECORD: ${{ steps.plan.outputs.record }}
+          RECORD_COMPLETE: ${{ steps.plan.outputs.record_complete }}
           DRY_RUN: ${{ inputs.dry_run }}
           JOB_STATUS: ${{ job.status }}
-          PULLED_JSON: ${{ steps.pulled_json.outcome }}
         run: |
           {
             echo "### cmux NEXT feed rollback"
@@ -221,18 +192,84 @@ jobs:
               echo "Failed before a plan: nothing was written."
             elif [ "$CHANGED" != true ]; then
               echo "Nothing to pull: the feed serves build ${SERVING:-unknown}."
+              if [ -n "$RECORD" ] && [ "$DRY_RUN" != true ]; then
+                echo ""
+                echo "Build $RECORD is already off the feed; job pulled-json makes sure pulled.json lists it."
+              fi
+              if [ "$RECORD_COMPLETE" != true ]; then
+                echo ""
+                echo "If an earlier run pulled builds above ${RECORD:-the named build} and its pulled-json job failed, this run cannot name them: open that run and use Re-run failed jobs, which writes pulled.json from its own list."
+              fi
             elif [ "$DRY_RUN" = true ] && [ "$JOB_STATUS" = success ]; then
               echo "Dry run: would pull $PULLED and serve $SERVING."
             elif [ "$JOB_STATUS" = success ]; then
               echo "Pulled $PULLED. The feed serves $SERVING."
               echo ""
-              if [ "$PULLED_JSON" = success ]; then
-                echo "Macs on a pulled build keep it until a newer build is published. pulled.json lists it, so the app offers its kept build (Roll Back to Previous Version) or waiting for the fix."
-              else
-                echo "pulled.json was not updated ($PULLED_JSON): Macs on the pulled build show no banner until it is written. Write it by hand with scripts/ci/nightly_next_feed_rollback.py pulled and scripts/ci/upload-r2-object.py; a re-run sees nothing to pull."
-              fi
+              echo "Macs on a pulled build keep it until a newer build is published. Job pulled-json lists it in pulled.json, so the app offers its kept build (Roll Back to Previous Version) or waiting for the fix."
             else
               echo "Failed before the pull of $PULLED was confirmed; check the feed."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # pulled.json, the list the app reads next to the appcast with each update
+  # check: a Mac on a listed build offers its kept build ("Roll Back to ...")
+  # or waiting for the fix-forward build. Its own job, beside the fix-forward,
+  # which never waits on it. A write that still fails after the retries leaves
+  # the run red, and "Re-run failed jobs" runs only this job again, with the
+  # rollback's outputs. A run that pulls nothing because the named build is
+  # already off the feed still reconciles it: the condition reads `record`,
+  # never `changed`. A list that already has every build is not written again.
+  pulled-json:
+    needs: rollback
+    if: needs.rollback.result == 'success' && needs.rollback.outputs.record != '' && !inputs.dry_run
+    # The feed's R2 token, as in job rollback.
+    environment: release-next
+    permissions:
+      contents: read
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Record the pulled builds (pulled.json)
+        id: record
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          REASON: ${{ inputs.reason }}
+          RECORD: ${{ needs.rollback.outputs.record }}
+          SERVING: ${{ needs.rollback.outputs.serving }}
+        run: |
+          set -euo pipefail
+          key="${NIGHTLY_NEXT_R2_PREFIX}pulled.json"
+          python3 scripts/ci/nightly-next-guard.py r2-key "$NIGHTLY_NEXT_R2_BUCKET" "$key"
+          mkdir -p rollback
+          # Read straight from R2, merge, write only while the object still holds what was read;
+          # a concurrent write or an HTTP error reads again and retries (5 attempts).
+          python3 scripts/ci/nightly_next_feed_rollback.py reconcile --record "$RECORD" --serve "$SERVING" \
+            --reason "$REASON" --at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --endpoint-url "$R2_ENDPOINT" --bucket "$NIGHTLY_NEXT_R2_BUCKET" --key "$key" --work rollback
+
+      - name: Summary
+        if: always()
+        env:
+          OUTCOME: ${{ steps.record.outcome }}
+          RECORD: ${{ needs.rollback.outputs.record }}
+        run: |
+          if [ "$OUTCOME" != success ]; then
+            echo "::error title=nightly-next rollback::pulled.json does not list $RECORD; Macs on it show no pulled-build banner. Re-run failed jobs."
+          fi
+          {
+            echo "### cmux NEXT pulled.json"
+            echo ""
+            if [ "$OUTCOME" = success ]; then
+              echo "pulled.json lists $RECORD: Macs on it see the pulled-build banner."
+            else
+              echo "pulled.json was NOT written ($OUTCOME): Macs on $RECORD show no pulled-build banner. The feed pull and the fix-forward do not depend on it. Re-run failed jobs: this job reads pulled.json again and writes it."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 

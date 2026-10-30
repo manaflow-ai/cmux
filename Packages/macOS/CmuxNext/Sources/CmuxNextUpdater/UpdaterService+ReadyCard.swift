@@ -75,7 +75,7 @@ extension UpdaterService {
 
     /// DEV/NIGHTLY screenshots (`debug.updater {action: "available"}`): shows found `version`, not
     /// downloaded; `asked` shows it as a Check for Updates' result (the notice card), else as a
-    /// scheduled check's (the titlebar's Update Available). Nothing downloads.
+    /// scheduled check's (the sidebar footer's Update Available). Nothing downloads.
     public func debugShowFound(version: String, asked: Bool) {
         if asked {
             send(.checkRequested)

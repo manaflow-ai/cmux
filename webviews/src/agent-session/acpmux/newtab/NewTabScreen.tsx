@@ -1,3 +1,5 @@
+import { SignInContext, useSignIn } from "../signIn";
+import { authBlocksSend, authText, useSessionAuth } from "../sessionAuth";
 import { useWebSwapHold } from "../../../pages/shared/useWebSwapHold";
 import { WEB_SWAP_KEPT_TEXT } from "../../../pages/shared/webSwap";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -90,12 +92,13 @@ import { useMinuteClock } from "../clock";
 import { usePasteAnywhere } from "../composer/pasteAnywhere";
 import { SlashMenu } from "../SlashMenu";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand } from "../slashCommands";
+import { useNewTabCommand, type NewTabCommandActions } from "./useNewTabCommand";
 import { useHarnessesListed } from "../catalog";
 import { NewTabExtras } from "./NewTabExtras";
 import type { SuggestionOrder } from "./suggestionOrder";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
-export type NewTabScreenActions = {
+export type NewTabScreenActions = NewTabCommandActions & {
   /// Enter on a prompt: a chat with `harness` in `cwd` (the project picked on the page).
   /// `model`: the one the chip names, so the chat starts on what the page showed.
   /// `noProject`: Do not work in a project was picked, so the chat starts in no project.
@@ -388,6 +391,18 @@ export function NewTabScreen(props: Props) {
   // chat starts, so a file still streaming has no next prompt to go with. A video's read is waited
   // for a few seconds at most (composer/videoAttachments.ts).
   const holdForAttachments = useSendWhenAttached(unsettled + videoReading);
+  const command = useNewTabCommand(
+    text,
+    setText,
+    { ...props, importSandboxed: props.importSandboxed || props.runMode?.mode === "sandboxed" },
+    {
+      attachments,
+      setAttachments,
+      pending: reading,
+      cancel,
+      cancelHeldSend: holdForAttachments.cancel,
+    },
+  );
   // WEB-SWAP: a web update's reload would lose what this page holds only in its state: a typed
   // query (the location comes back with the page) and staged attachments (pages/shared/webSwap.ts).
   useWebSwapHold(
@@ -469,6 +484,8 @@ export function NewTabScreen(props: Props) {
   const [sandboxRefusal, setSandboxRefusal] = useState<string>();
   /// False only when a Sandboxed send started nothing, so the caller's one-shot guards stay open.
   const askChat = (agent: string, prompt: string, cwd?: string, model?: string): boolean | void => {
+    if (targetAuthPending || authBlocksSend(targetAuth)) return false;
+    if (command.intercept(prompt, agent, attachments.length)) return false;
     if (props.runMode?.mode === "sandboxed" && props.onSandbox) {
       const started = props.onSandbox(agent, prompt, attachments);
       setSandboxRefusal(typeof started === "string" ? started : undefined);
@@ -498,6 +515,31 @@ export function NewTabScreen(props: Props) {
     [snapshot, agents, lastAgent, chatFolder, remembered, harnessesListed],
   );
   const chipModel = useNewTabChipModel(chipSnapshot);
+  const parentSignIn = useSignIn();
+  // Auth must follow the same target precedence as askChat: a saved environment wins over a
+  // previously picked machine, so an old machine verdict cannot block this environment's prompt.
+  const targetHost = environment
+    ? environment.kind === "ssh" && environment.host && snapshot.peers?.includes(environment.host)
+      ? environment.host
+      : undefined
+    : machine?.peer;
+  const remoteTarget = environment ? environment.kind === "ssh" : Boolean(machine?.peer);
+  const authQuery =
+    harness && (!remoteTarget || targetHost)
+      ? { target: { harness, ...(targetHost ? { host: targetHost } : {}) } }
+      : undefined;
+  const {
+    auth: targetAuth,
+    pending: targetAuthPending,
+    recheck: recheckTarget,
+  } = useSessionAuth(
+    authQuery,
+    parentSignIn?.readSessionAuth,
+    parentSignIn?.authEpoch,
+    parentSignIn?.authRefresh,
+    parentSignIn?.authObservation,
+  );
+
   // The Ask row names the agent Return asks and the model on its chip.
   const ask = useMemo(() => {
     const entry = snapshot.catalog.find((agent) => agent.id === harness);
@@ -563,23 +605,21 @@ export function NewTabScreen(props: Props) {
     setSelected(row ? rowKey(row) : NO_ROW);
   };
   const t = useT();
+  const targetAuthText = authText(targetAuth, t);
   const chrome = useComposerChrome();
   // The chat composer's footer look (composerSettings.ts plainFooter): the New Tab row draws the
   // same plain chips, so the two composers never disagree (composerLocation.css).
   const { plainFooter, spellChecking } = useComposerSettings();
   // The quiet row's labels step down with the composer's width, as the chat's (composerRowFit.ts).
   const foot = useRef<HTMLDivElement>(null);
-  // Claude Code's split (Leo 2026-10-19, "the claude code style composer on the first dot ... the
-  // existing composer on the second one"): with the plain footer on, every template but Default
-  // (the page's second dot) draws the chat composer's split, the mode, model and effort in a quiet
-  // row under the box. Default keeps the chips in the box, as before the split.
-  // Codex's look (the page's second dot, composerLook.ts) keeps them in the box's row too.
+  // The model picker uses one footer position in every New Tab template and composer look.
   const look = useComposerLook();
-  // Either look draws the chat composer's box (Cards too, its strip Codex's tray); only the plain
-  // footer off keeps Cards' pill.
-  const chatBox = plainFooter && props.chips !== undefined && template !== "default";
-  const split = chatBox && look === "claude";
-  useRowFit(foot, split);
+  const split = props.chips !== undefined;
+  // Folder/computer keep their look-specific placement: Claude's one row, Codex's tray. The footer
+  // row exists only with the chips, so without them the strip stays above the box.
+  const locationInFooter = split && plainFooter && look === "claude" && template !== "default";
+  // Footer look and template can change while this screen stays mounted.
+  useRowFit(foot, `${split}:${plainFooter}:${look}`);
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
   useMenuPressGuard();
   const pushed = useDeviceChats();
@@ -801,11 +841,14 @@ export function NewTabScreen(props: Props) {
     );
   };
   const submit = () => {
+    const prompt = text.trim();
+    if (command.intercept(prompt, harness, attachments.length, true)) return;
     // A pairing link (its room secret) is never searched, asked or opened: the host refuses it
     // with the address bar's word, and the page keeps the text.
     if (!shell && pairingLinkRefused(text)) return props.onOpen(text.trim());
     // A screenshot pasted a moment ago is still being read: Return goes once its chip is ready.
     if (holdForAttachments(() => submitNow.current())) return;
+    if (command.intercept(prompt, harness, attachments.length)) return;
     // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com). So does an
     // address with no row selected (↑ from the top row): there is no prompt to send.
     const list = rows.length ? rows : suggested;
@@ -815,7 +858,6 @@ export function NewTabScreen(props: Props) {
     const keeps =
       !row || attachments.length === 0 || row.type === "ask" || (row.type === "create" && row.kind === "chat");
     if (row && keeps) return activate(row);
-    const prompt = text.trim();
     // Pasted or dropped attachments alone are a prompt, as in a chat's composer.
     if (attachments.length === 0 && (!prompt || isAddress(prompt, home))) return;
     // No agent to ask: the composer's chip says Add harness (ComposerPickers), so Return adds no note.
@@ -837,8 +879,9 @@ export function NewTabScreen(props: Props) {
     touch();
     if (!harness) return;
     if (created.current) return;
-    created.current = true;
     const prompt = shell ? "" : text.trim();
+    if (command.intercept(prompt, harness, attachments.length)) return;
+    created.current = true;
     const asked = askChat(
       harness,
       prompt && !isAddress(prompt, home) && !pairingLinkRefused(prompt) ? prompt : "",
@@ -1113,7 +1156,7 @@ export function NewTabScreen(props: Props) {
   const chooser = useRef<HTMLInputElement>(null);
   /// The Cards template (u2851): the field is a pill of its own and the chips sit under it. The
   /// split draws the chat composer's box instead.
-  const pill = template === "cards" && !chatBox;
+  const pill = template === "cards" && !split;
 
   const attachmentPicker = (
     <>
@@ -1180,7 +1223,7 @@ export function NewTabScreen(props: Props) {
         {...(browseProject ? { onBrowseProject: browseProject } : {})}
         {...(props.environments ? { environments: true } : {})}
         {...(newWorktreeHere ? { onNewWorktree: newWorktreeHere } : {})}
-        {...(props.environments && props.onConnect ? { onConnect: props.onConnect } : {})}
+        {...(props.onConnect ? { onConnect: props.onConnect, connectOnlyWhenEmpty: !props.environments } : {})}
         {...(props.environments && props.runMode ? { runMode: props.runMode } : {})}
         {...(saved.on
           ? {
@@ -1288,6 +1331,7 @@ export function NewTabScreen(props: Props) {
       {sections.chats !== "none" && !allChats && widgets.has("chats") && (
         <ChatCards
           cards={cards}
+          pending={props.chatsPending}
           variant={sections.chats}
           onOpen={openCard}
           {...(props.onOpenChatInTerminal ? { onOpenInTerminal: openCardInTerminal } : {})}
@@ -1327,6 +1371,11 @@ export function NewTabScreen(props: Props) {
           chat starts in heads it, as text over the card (ComposerContext, the composer's own; hq#1957
           composer location strip; newtab/screen.css). */}
       <div ref={setComposer} className="nt-composer" data-composer-look={look === "codex" ? "codex" : undefined}>
+        {authBlocksSend(targetAuth) && (
+          <p className="acpmux-composer-remote-note" role="alert">
+            {targetAuthText}
+          </p>
+        )}
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
         {sandboxRefusal && props.runMode?.mode === "sandboxed" && (
           <output className="acpmux-switch-notice">
@@ -1334,7 +1383,7 @@ export function NewTabScreen(props: Props) {
           </output>
         )}
         {/* Above the box: the project strip (Cards draws it under the field). */}
-        {!pill && !split && <div className="nt-above">{folderStrip}</div>}
+        {!pill && !locationInFooter && <div className="nt-above">{folderStrip}</div>}
         <div ref={setBox} className="ui-glass ui-glass-floats nt-box">
           {commandsOpen && (
             <SlashMenu
@@ -1351,47 +1400,48 @@ export function NewTabScreen(props: Props) {
           {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the input inside is the control and takes the keyboard itself. */}
           <div className="nt-input" onMouseDown={focusFromRow}>
             {split && attachmentPicker}
-            {shell ? (
-              <span className="nt-shell-glyph" aria-hidden="true">
-                !
-              </span>
-            ) : (
-              sections.prompt && (
-                <span className="nt-prompt-glyph" aria-hidden="true">
-                  &gt;
+            <div className="nt-field-slot">
+              {(shell || sections.prompt) && (
+                <span
+                  className={shell ? "nt-input-glyph nt-shell-glyph" : "nt-input-glyph nt-prompt-glyph"}
+                  aria-hidden="true"
+                >
+                  {shell ? "!" : ">"}
                 </span>
-              )
-            )}
-            {/* A textarea, not a one-line input (Austin: a typed draft was cut to its first line): a long
+              )}
+              {/* A textarea, not a one-line input (Austin: a typed draft was cut to its first line): a long
               draft wraps and the field grows with it up to its cap (screen.css), then scrolls. Return
               still sends; every line break is one the draft brought in (a paste). */}
-            <textarea
-              ref={field}
-              className="nt-field"
-              {...{ [WEB_SWAP_KEPT_TEXT]: "" }}
-              rows={1}
-              data-focus-ring="none"
-              aria-label={shell ? t("composer.shell") : placeholder}
-              placeholder={shell ? t("composer.shellPlaceholder") : dictating ? t("dictation.listening") : placeholder}
-              data-dictation-listening={dictating && !shell ? "" : undefined}
-              value={text}
-              aria-controls={commandsOpen ? "acpmux-slash-menu" : "nt-rows"}
-              aria-activedescendant={
-                commandsOpen ? `acpmux-slash-${commandIndex}` : rows[current] ? `nt-row-${current}` : undefined
-              }
-              spellCheck={spellChecking && !shell}
-              autoCapitalize="off"
-              autoCorrect="off"
-              onChange={(event) => edit(event.target.value)}
-              onKeyDown={keyDown}
-              onMouseDown={() => setDismissed(undefined)}
-              onCompositionStart={() => {
-                composing.current = true;
-              }}
-              onCompositionEnd={() => {
-                composing.current = false;
-              }}
-            />
+              <textarea
+                ref={field}
+                className="nt-field"
+                {...{ [WEB_SWAP_KEPT_TEXT]: "" }}
+                rows={1}
+                data-focus-ring="none"
+                aria-label={shell ? t("composer.shell") : placeholder}
+                placeholder={
+                  shell ? t("composer.shellPlaceholder") : dictating ? t("dictation.listening") : placeholder
+                }
+                data-dictation-listening={dictating && !shell ? "" : undefined}
+                value={text}
+                aria-controls={commandsOpen ? "acpmux-slash-menu" : "nt-rows"}
+                aria-activedescendant={
+                  commandsOpen ? `acpmux-slash-${commandIndex}` : rows[current] ? `nt-row-${current}` : undefined
+                }
+                spellCheck={spellChecking && !shell}
+                autoCapitalize="off"
+                autoCorrect="off"
+                onChange={(event) => edit(event.target.value)}
+                onKeyDown={keyDown}
+                onMouseDown={() => setDismissed(undefined)}
+                onCompositionStart={() => {
+                  composing.current = true;
+                }}
+                onCompositionEnd={() => {
+                  composing.current = false;
+                }}
+              />
+            </div>
             {/* Claude Code's split: the mode, model and effort went to the quiet row under the box, so
               the mic and Send end the field's row and the empty box is one line tall, as the chat
               composer's (Leo 2026-10-22: "it's also 2 lines tall for some reason"). */}
@@ -1406,7 +1456,7 @@ export function NewTabScreen(props: Props) {
           <AttachmentStrip
             attachments={attachments}
             pending={reading}
-            {...(attachError ? { error: attachError } : {})}
+            {...(command.error || attachError ? { error: command.error ?? attachError } : {})}
             codex={harness === "codex"}
             onRemove={(id) => {
               setAttachments((current) => current.filter((item) => item.id !== id));
@@ -1419,14 +1469,15 @@ export function NewTabScreen(props: Props) {
             onRetry={retry}
             onReorder={(id, index) => setAttachments((current) => reordered(current, id, index))}
           />
+          {command.input}
           {!pill && !split && pickers}
         </div>
         {/* Claude Code's one quiet row: folder and computer lead the mode, model and effort;
             the box keeps the prompt, the mic and Send (Leo: "one single row"). */}
         {split && Chips && (
           <div className="nt-foot" onPointerDownCapture={touch}>
-            <ComposerFoot ref={foot}>
-              {folderStrip}
+            <ComposerFoot ref={foot} plain={plainFooter}>
+              {locationInFooter && folderStrip}
               <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />
             </ComposerFoot>
           </div>
@@ -1685,6 +1736,7 @@ export function NewTabScreen(props: Props) {
                       <div
                         key={rowKey(row)}
                         id={`nt-row-${index}`}
+                        ref={index === current ? keepInView : undefined}
                         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
                         role="option"
                         tabIndex={-1}
@@ -1714,7 +1766,21 @@ export function NewTabScreen(props: Props) {
     </ContextMenu>
   );
   // The chips' menus open down and drop their key hints here (newTabComposer.ts).
-  return <OnNewTab.Provider value={true}>{page}</OnNewTab.Provider>;
+  return (
+    <SignInContext.Provider
+      value={
+        parentSignIn && {
+          ...parentSignIn,
+          signedOut: targetHost ? {} : parentSignIn.signedOut,
+          sessionAuth: targetAuth,
+          recheckSession: recheckTarget,
+          loginSession: () => parentSignIn.loginSession?.(targetAuth),
+        }
+      }
+    >
+      <OnNewTab.Provider value={true}>{page}</OnNewTab.Provider>
+    </SignInContext.Provider>
+  );
 }
 
 /// The stage's widgets in runs: next to each other, Projects and Quick Actions share a cards

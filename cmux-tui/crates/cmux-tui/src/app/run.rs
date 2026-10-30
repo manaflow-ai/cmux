@@ -417,6 +417,7 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
         pane_focus_history: PaneFocusHistory::default(),
         reported_focus: None,
         client_focus_id: client_focus_identity(),
+        docks: Default::default(),
         rendered_terminal_bounds: HashMap::new(),
         rendered_kitty_graphics: HashMap::new(),
         visible_size_surfaces: HashSet::new(),

@@ -302,6 +302,7 @@ export class SandboxTab {
       const value = (await Promise.race([
         this.call("sandbox.state", params),
         new Promise<never>((_, reject) => {
+          // l10n-allow: caught below as an unknown state; never shown.
           timer = setTimeout(() => reject(new Error("sandbox.state timed out")), bound);
         }),
       ])) as { task?: unknown; key?: unknown; running?: unknown; reply?: unknown } | null;

@@ -19,7 +19,6 @@ import { QUESTION_RECORD } from "../question/record";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
 import { shortCommand } from "./shortCommand";
-import { tailStart } from "./ToolGroupRow";
 import { awaitsPermission, isDraftCall, isRunning, toolGroups } from "./toolGroups";
 import { acpmuxSendCall } from "./acpmuxSends";
 import { subsessionCall } from "./subsessionCalls";
@@ -134,6 +133,9 @@ export type TurnView = {
   lineBelow: boolean;
   working: boolean;
   sessionStatus: boolean;
+  messageBreaks: readonly number[];
+  /// The steers that wait (snapshot `waitingSteers`): a new list draws the running turn again.
+  waitingSteers?: readonly string[];
   /// Where the first prompt is: the rows before it draw as they are.
   lead: number;
   /// Each turn's prompt index in `source`, its times, whether it is dated, and how many drawn
@@ -141,13 +143,16 @@ export type TurnView = {
   starts: number[];
   times: TurnTimes[];
   dated: boolean[];
-  ends: number[];
+  /// Each boundary keeps its count and last row before the next prompt extends a fold.
+  ends: { count: number; row: AcpmuxRow | undefined }[];
   rows: AcpmuxRow[];
 };
 
 /// ``turnView``, building on `previous`: the turns before the one holding the first row that
 /// differs from `previous.source` (by object) keep their drawn rows, so a long chat's snapshot
 /// shapes only its last turns.
+const NO_MESSAGE_BREAKS: readonly number[] = [];
+
 export function turnViewFrom(
   rows: readonly AcpmuxRow[],
   expanded: ReadonlySet<string>,
@@ -158,6 +163,8 @@ export function turnViewFrom(
     liveRuns = false,
     sessionStatus = false,
     lineBelow = false,
+    waitingSteers,
+    messageBreaks = NO_MESSAGE_BREAKS,
   }: {
     now?: number;
     working?: boolean;
@@ -165,6 +172,10 @@ export function turnViewFrom(
     liveRuns?: boolean;
     sessionStatus?: boolean;
     lineBelow?: boolean;
+    /// The steers the agent has not read yet (snapshot `waitingSteers`), one array while they hold.
+    waitingSteers?: readonly string[];
+    /// Sorted insertion times of synthetic rows that must separate received message runs.
+    messageBreaks?: readonly number[];
   } = {},
   previous?: TurnView,
 ): TurnView {
@@ -175,8 +186,10 @@ export function turnViewFrom(
     previous.clockOffset === clockOffset &&
     previous.liveRuns === liveRuns &&
     previous.lineBelow === lineBelow &&
+    previous.messageBreaks === messageBreaks &&
     previous.working === working &&
     previous.sessionStatus === sessionStatus &&
+    previous.waitingSteers === waitingSteers &&
     (!previous.starts.length ||
       showsTimestamp(previous.times[0]!, undefined, now, previous.lead === 0) === previous.dated[0])
   )
@@ -190,6 +203,7 @@ export function turnViewFrom(
     previous.clockOffset === clockOffset &&
     previous.liveRuns === liveRuns &&
     previous.lineBelow === lineBelow &&
+    previous.messageBreaks === messageBreaks &&
     previous.starts.length
   ) {
     const shared = previous.source;
@@ -210,11 +224,13 @@ export function turnViewFrom(
   let starts: number[];
   let times: TurnTimes[];
   let dated: boolean[];
-  let ends: number[];
+  let ends: TurnView["ends"];
   if (reuse > 0) {
     lead = previous!.lead;
     index = previous!.starts[reuse]!;
-    out = previous!.rows.slice(0, previous!.ends[reuse - 1]);
+    const boundary = previous!.ends[reuse - 1];
+    out = previous!.rows.slice(0, boundary?.count);
+    if (boundary?.row && out.length) out[out.length - 1] = boundary.row;
     starts = previous!.starts.slice(0, reuse);
     times = previous!.times.slice(0, reuse);
     dated = previous!.dated.slice(0, reuse);
@@ -258,7 +274,7 @@ export function turnViewFrom(
     // Only the last turn can still be running.
     const last = at === starts.length - 1;
     const live = working && last;
-    for (const row of shapedTurn(
+    const shaped = shapedTurn(
       rows,
       start,
       end,
@@ -270,9 +286,11 @@ export function turnViewFrom(
       liveRuns,
       sessionStatus,
       lineBelow,
-    ))
-      out.push(row);
-    ends.push(out.length);
+    );
+    // Other sessions' messages stay each its own line where it arrived (IncomingMessageCard.tsx),
+    // never folded into one card (Leo, 2026-10-29).
+    for (const row of shaped) out.push(row);
+    ends.push({ count: out.length, row: out.at(-1) });
   }
   return {
     source: rows,
@@ -282,6 +300,8 @@ export function turnViewFrom(
     lineBelow,
     working,
     sessionStatus,
+    messageBreaks,
+    ...(waitingSteers ? { waitingSteers } : {}),
     lead,
     starts,
     times,
@@ -1053,7 +1073,7 @@ type OwnRow = true | { key: string; open: boolean } | undefined;
 
 /// Where ToolRows draws a call (TurnRows.tsx groupNode, ToolGroupRow.tsx): a lone call, a message
 /// card, a sub-session card and a lone MCP call have their own row; a grouped call shows under its group's line while
-/// the group is open, among its latest GROUP_TAIL; a folded run (`foldRun`, codexRuns) shows none
+/// the group is open; a folded run (`foldRun`, codexRuns) shows none
 /// until opened. The key is the one groupNode gives the group's disclosure.
 function ownRow(row: AcpmuxRow, item: AcpmuxActivity): OwnRow {
   const groups = toolGroups(row.items ?? []);
@@ -1065,13 +1085,12 @@ function ownRow(row: AcpmuxRow, item: AcpmuxActivity): OwnRow {
     group.type === "message" ||
     group.type === "send" ||
     group.type === "subsession" ||
+    group.type === "subsessionGroup" ||
     group.type === "dispatch" ||
     (group.type === "mcp" && group.items.length === 1)
   )
     return true;
   const kind = group.type === "mcp" ? "mcp" : group.kind;
-  const tail = kind === "mcp" || kind === "edits" || group.items.indexOf(item) >= tailStart(group.items);
-  if (!tail) return undefined;
   const key = `group:${kind}:${group.items[0]!.tool!.id || `${row.id}:${at}`}`;
   return { key, open: kind !== "mcp" && kind !== "edits" };
 }

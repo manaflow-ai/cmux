@@ -1,13 +1,14 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextPalette
+import CmuxNextTestSupport
 import Testing
 
 /// The Settings scope (cx-9ce.20): every way in shows the same Settings page, titled as a page
 /// (not "Toggle Setting", the action's argument step), and its rows follow each keystroke as soon
 /// as that keystroke's search lands, with no fixed wait in between.
 @MainActor
-@Suite(.paletteRanker)
+@Suite(.paletteRanker, .closesItsWindows)
 struct PaletteSettingsScopeTests {
     @MainActor private final class Source: PaletteSettingsSource {
         var rows: [PaletteSettingRow] = [
@@ -51,7 +52,7 @@ struct PaletteSettingsScopeTests {
     /// submit row whatever was typed. It opens the Settings page, as the palette row does.
     @Test func runningToggleSettingWithoutASettingOpensTheSettingsPage() async {
         let palette = Self.palette()
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
 
         #expect(palette.registry.perform("palette.toggleSetting", invocation: ActionInvocation()))
         await palette.model.settle()
@@ -85,7 +86,7 @@ struct PaletteSettingsScopeTests {
     /// before ranking or showing them. The per-keystroke latency is printed as the timing probe.
     @Test func settingsRowsFollowEachKeystrokeWithoutAFixedWait() async {
         let palette = Self.palette()
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         palette.show(.commands)
         palette.model.send(.setQuery(","))
         await palette.model.settle()

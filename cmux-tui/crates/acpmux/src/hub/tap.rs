@@ -129,8 +129,14 @@ impl Hub {
                     if method == crate::agent::HOST_EXIT =>
                 {
                     let code = params.as_ref().and_then(|p| p.get("code")).cloned();
-                    let intentional =
-                        matches!(tap_session.status(), SessionStatus::Idle | SessionStatus::Closed);
+                    // The idle exit marked it before it ended the harness (`idle.rs`); a stop clears the mark.
+                    let hibernating = tap_session.hibernated_at.load(Ordering::SeqCst) != 0
+                        && tap_session.status() != SessionStatus::Closed;
+                    let intentional = hibernating
+                        || matches!(
+                            tap_session.status(),
+                            SessionStatus::Idle | SessionStatus::Closed
+                        );
                     tap_session.harness_turn.store(false, Ordering::SeqCst);
                     // Its workflows ran in the agent's process: they end with it.
                     tap_hub.workflow_index.end_session(&tap_session.id, crate::store::now_ms());
@@ -139,7 +145,11 @@ impl Hub {
                             &tap_session,
                             "mux",
                             if intentional { "stopped" } else { "exited" },
-                            json!({"code": code}),
+                            if hibernating {
+                                json!({"code": code, "hibernated": true})
+                            } else {
+                                json!({"code": code})
+                            },
                             host_seq,
                         )
                         .1;

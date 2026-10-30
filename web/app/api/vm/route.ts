@@ -50,7 +50,7 @@ import {
   vmFreeAccessWindowDays,
 } from "../../../services/vms/entitlements";
 import { vcpusByMemoryMb } from "../../../services/vms/images/sizes";
-import { parseAutosizeRequest, pickMachineSize, type AutosizePick } from "../../../services/vms/autosize";
+import { autosizeTag, parseAutosizeRequest, pickMachineSize, type AutosizePick, type AutosizeTag } from "../../../services/vms/autosize";
 import {
   findVmImageManifestEntry,
   inferVmProviderForImage,
@@ -90,7 +90,9 @@ import { annotateVmRequestBilling } from "../../../services/vms/requestContext";
 import {
   createVm,
   listUserVms,
+  runVmWorkflow,
 } from "../../../services/vms/workflows";
+import { listMeasuredRuns, tagMeasuredRun } from "../../../services/vms/autosizeRuns";
 import { recordSpanError, setSpanAttributes } from "../../../services/telemetry";
 import {
   measureVmAsync,
@@ -406,7 +408,7 @@ export async function POST(request: Request): Promise<Response> {
       // provider-specific image ids without a provider field, and the
       // deployment default must not reroute them under the wrong provider.
       const provider = body.provider ?? inferVmProviderForImage(body.image) ?? defaultProviderId();
-      const memory = await resolveCreateSize(span, entitlements.planId, candidate, provider, request, !!idempotencyKey);
+      const memory = await resolveCreateSize(span, user.id, entitlements.planId, candidate, provider, request, !!idempotencyKey);
       if (!memory.ok) return memory.response;
       const memoryMb = memory.memoryMb;
       const machineOptions = parseCreateMachineOptions(candidate);
@@ -483,6 +485,7 @@ export async function POST(request: Request): Promise<Response> {
       if (!run.ok) return run.response;
       const created = run.value;
       setSpanAttributes(span, { "cmux.vm.id": created.providerVmId });
+      const sizePick = settleSizePick(memory, imageSelection.size, created, user.id);
       const attach = createAttachBlock({
         entry: created,
         manifestEntry: findVmImageManifestEntry(created.provider, created.image, imageSelection.kind),
@@ -515,7 +518,7 @@ export async function POST(request: Request): Promise<Response> {
         // resize shape are separate contracts even when they currently match.
         ...createResourceFields(created.resourceReservation),
         ...(attach ? { attach } : {}),
-        ...sizePickFields(memory.pick, imageSelection.size, created.resourceReservation),
+        ...sizePick,
       });
     },
   );
@@ -524,26 +527,29 @@ export async function POST(request: Request): Promise<Response> {
 /**
  * The size of a machine for a handed-off task (`autosize`), when the caller
  * sent no `memoryMb` or `image` (which stay the override) and the provider
- * sizes its machines. Measured runs are not recorded yet, so a pick reads the task and
- * the repo only.
+ * sizes its machines. With a repo key, the pick reads the owner's measured runs
+ * of that repo and task kind (autosizeRuns.ts), and the new machine becomes one.
  */
-function resolveCreateAutosize(
+async function resolveCreateAutosize(
   span: Span,
+  userId: string,
   candidate: Record<string, unknown>,
   provider: ProviderId,
   planId: string,
-): { readonly ok: true; readonly pick: AutosizePick | null } | { readonly ok: false; readonly response: Response } {
+): Promise<{ readonly ok: true; readonly pick: AutosizePick | null; readonly tag: AutosizeTag | null } | { readonly ok: false; readonly response: Response }> {
   const request = parseAutosizeRequest(candidate.autosize);
-  if (request === null || typeof request === "string") return { ok: true, pick: null };
+  if (request === null || typeof request === "string") return { ok: true, pick: null, tag: null };
   // A GPU is refused whatever else the request says: no machine would have one.
   if (request.gpu) return { ok: false, response: autosizeRefusalResponse("gpu_unavailable", "No cloud machine has a GPU yet.") };
   // An explicit size or image is the caller's shape (an image boots at its own snapshot's size).
-  if (candidate.memoryMb !== undefined || candidate.image !== undefined || !vmCapabilitiesFor(provider).sizing) return { ok: true, pick: null };
+  if (candidate.memoryMb !== undefined || candidate.image !== undefined || !vmCapabilitiesFor(provider).sizing) return { ok: true, pick: null, tag: null };
+  const repoKey = request.repo?.key;
+  const measuredRuns = repoKey ? await runVmWorkflow(listMeasuredRuns({ userId, repoKey, taskKind: request.taskKind })).catch(() => []) : [];
   const result = pickMachineSize({
     taskKind: request.taskKind,
     repo: request.repo,
     gpu: request.gpu,
-    measuredRuns: [],
+    measuredRuns,
     planMemoryOptionsMb: memoryOptionsMbForPlan(planId, process.env),
   });
   if (!result.ok) return { ok: false, response: autosizeRefusalResponse(result.code, result.message) };
@@ -551,8 +557,9 @@ function resolveCreateAutosize(
     "cmux.vm.autosize_task": request.taskKind,
     "cmux.vm.autosize_pick": result.pick,
     "cmux.vm.autosize_capped": result.capped,
+    "cmux.vm.autosize_runs": measuredRuns.length,
   });
-  return { ok: true, pick: result };
+  return { ok: true, pick: result, tag: repoKey ? autosizeTag(repoKey, request.taskKind, result) : null };
 }
 
 function autosizeRefusalResponse(code: "gpu_unavailable" | "no_plan_sizes", message: string): Response {
@@ -567,31 +574,55 @@ function autosizeRefusalResponse(code: "gpu_unavailable" | "no_plan_sizes", mess
 /** The machine's memory: the caller's `memoryMb` (the override), else the auto-size pick, else the plan default. */
 async function resolveCreateSize(
   span: Span,
+  userId: string,
   planId: string,
   candidate: Record<string, unknown>,
   provider: ProviderId,
   request: Request,
   deferLockedPlanCheck: boolean,
-): Promise<{ readonly ok: true; readonly memoryMb: number; readonly pick: AutosizePick | null } | { readonly ok: false; readonly response: Response }> {
-  const autosize = resolveCreateAutosize(span, candidate, provider, planId);
+): Promise<{ readonly ok: true; readonly memoryMb: number; readonly pick: AutosizePick | null; readonly tag: AutosizeTag | null } | { readonly ok: false; readonly response: Response }> {
+  const autosize = await resolveCreateAutosize(span, userId, candidate, provider, planId);
   if (!autosize.ok) return autosize;
   const requestedMemoryMb = (candidate.memoryMb as number | undefined) ?? autosize.pick?.size.memoryMb;
   const memory = await resolveCreateMemory(span, planId, requestedMemoryMb, request, deferLockedPlanCheck);
-  return memory.ok ? { ...memory, pick: autosize.pick } : memory;
+  return memory.ok ? { ...memory, pick: autosize.pick, tag: autosize.tag } : memory;
 }
 
 /**
- * The auto-size pick in the hand-off's size fields; only when the machine
- * boots at the picked shape's snapshot and the machine answered has that
- * shape (an idempotent retry answers the machine the first request made).
+ * Tags the new machine as a measured run of its pick after the answer, so its
+ * peaks count for the next pick.
  */
-function sizePickFields(
+function recordMeasuredRun(tag: AutosizeTag | null, userId: string, vm: { readonly provider: string; readonly providerVmId: string }): void {
+  if (!tag) return;
+  runAfterResponse(() => runVmWorkflow(tagMeasuredRun({ userId, provider: vm.provider, providerVmId: vm.providerVmId, tag })).then(() => undefined));
+}
+
+/**
+ * The auto-size pick, when the machine answered has its shape: it boots at the
+ * picked shape's snapshot and holds that shape (an idempotent retry answers
+ * the machine the first request made). Only then is it the answer's
+ * `sizePick` (the hand-off's size fields) and a measured run of the pick.
+ */
+/** The answer's `sizePick` for the machine created, and its measured-run tag (after the answer) when it holds the pick. */
+function settleSizePick(
+  sized: { readonly pick: AutosizePick | null; readonly tag: AutosizeTag | null },
+  booted: { readonly name: string } | null | undefined,
+  created: { readonly provider: string; readonly providerVmId: string; readonly resourceReservation?: { readonly vcpus: number; readonly memoryMb: number } | null },
+  userId: string,
+) {
+  const pick = pickedShapeOf(sized.pick, booted, created.resourceReservation);
+  if (!pick) return {};
+  recordMeasuredRun(sized.tag, userId, created);
+  return { sizePick: { vcpus: pick.vcpus, memoryGb: pick.memoryGb, pick: pick.pick, reason: pick.reason } };
+}
+
+function pickedShapeOf(
   pick: AutosizePick | null,
   booted: { readonly name: string } | null | undefined,
   machine: { readonly vcpus: number; readonly memoryMb: number } | null | undefined,
-) {
-  if (!pick || booted?.name !== pick.pick || machine?.vcpus !== pick.size.cpu || machine.memoryMb !== pick.size.memoryMb) return {};
-  return { sizePick: { vcpus: pick.vcpus, memoryGb: pick.memoryGb, pick: pick.pick, reason: pick.reason } };
+): AutosizePick | null {
+  if (!pick || booted?.name !== pick.pick || machine?.vcpus !== pick.size.cpu || machine.memoryMb !== pick.size.memoryMb) return null;
+  return pick;
 }
 
 /**

@@ -68,8 +68,10 @@ fn unhex(s: &str) -> Option<String> {
     if s.is_empty() || !s.len().is_multiple_of(2) || !s.bytes().all(lower) {
         return None;
     }
-    let bytes: Option<Vec<u8>> =
-        (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok()).collect();
+    let bytes: Option<Vec<u8>> = (0..s.len())
+        .step_by(2)
+        .map(|i| s.get(i..i + 2).and_then(|h| u8::from_str_radix(h, 16).ok()))
+        .collect();
     String::from_utf8(bytes?).ok().filter(|id| id.len() <= ID_BYTES)
 }
 
