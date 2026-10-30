@@ -193,6 +193,9 @@ enum Event {
     DrainOver(u64),
     /// [`POOLED_OWNER_WAIT`] passed since the host started serving.
     OwnerWaitOver,
+    /// The output held after a carry (its hold's number) is read now, its prompt or not
+    /// (`claude_stdio/carry.rs`).
+    HoldOver(u64),
 }
 
 /// How long a pooled host waits for its first controller. A daemon that
@@ -274,6 +277,11 @@ struct State {
     last_owner: Option<u64>,
     /// Never answer `Hello` (debug builds' test seam, [`claim_hello_stall`]).
     stall_hello: bool,
+    /// Claude's output lines after a carry, read once the next turn's prompt came
+    /// (`claude_stdio/carry.rs` `holding`), oldest first.
+    held: VecDeque<String>,
+    /// The current hold's number, and whether its bound passed.
+    hold: (u64, bool),
 }
 
 /// The debug builds' hello-stall seam's variable ([`claim_hello_stall`]):
@@ -480,6 +488,8 @@ impl Started {
             under: Vec::new(),
             last_owner: None,
             stall_hello: claim_hello_stall(),
+            held: VecDeque::new(),
+            hold: (0, false),
         };
         // The app-server's initialize goes out at spawn, before the hub's.
         if let Some(cx) = state.codex.clone() {
@@ -511,10 +521,20 @@ impl Started {
                     permit_out = false;
                     drain_gen += 1;
                     drain_armed = false;
-                    state.on_stdout(line).await;
+                    state.held.push_back(line);
+                    state.read_held(&events_tx).await;
+                }
+                Event::HoldOver(hold) => {
+                    if state.hold.0 == hold {
+                        state.hold.1 = true;
+                    }
+                    state.read_held(&events_tx).await;
                 }
                 Event::Stdout(None) => {
                     permit_out = false;
+                    // What a carry held is read before the output's end.
+                    state.hold.1 = true;
+                    state.read_held(&events_tx).await;
                     if state.exit_h.is_none() {
                         state.end_background_shells().await;
                         state.codex_closed();
@@ -597,7 +617,11 @@ impl Started {
                     });
                     state.pending_conns.push((id, tx));
                 }
-                Event::Frame(id, frame) => state.on_frame(id, frame).await,
+                Event::Frame(id, frame) => {
+                    state.on_frame(id, frame).await;
+                    // The next turn's prompt may have come: what a carry held is read.
+                    state.read_held(&events_tx).await;
+                }
                 Event::Written(receipt, written) => state.receipt(receipt, written),
             }
             if state.unadoptable {
@@ -614,7 +638,10 @@ impl Started {
             if state.finished() {
                 break;
             }
-            let wanted = !state.stdout_done && state.weight <= state.spec.buffer_cap;
+            // Nothing more is read while a carry holds what was read (`read_held`).
+            let wanted = !state.stdout_done
+                && state.weight <= state.spec.buffer_cap
+                && state.held.is_empty();
             if wanted && !permit_out && pace_tx.try_send(()).is_ok() {
                 permit_out = true;
             }
@@ -723,6 +750,31 @@ impl State {
     /// The harness ended and the controller logged its exit.
     fn finished(&self) -> bool {
         self.exit_h.is_some_and(|h| self.acked_h >= h)
+    }
+
+    /// Reads the held output lines in order, until a carry holds the rest (`claude_stdio/carry.rs`
+    /// `holding`): a hold starts its bound ([`crate::claude_stdio::CARRY_HOLD_MAX`]).
+    async fn read_held(&mut self, events: &mpsc::Sender<Event>) {
+        loop {
+            let holding = self.translator.as_ref().is_some_and(|tr| tr.holding());
+            if !holding {
+                self.hold.1 = false;
+            } else if !self.hold.1 {
+                return;
+            }
+            let Some(line) = self.held.pop_front() else { return };
+            self.on_stdout(line).await;
+            let held_now = self.translator.as_ref().is_some_and(|tr| tr.holding());
+            if held_now && !holding {
+                self.hold = (self.hold.0 + 1, false);
+                let (events, hold) = (events.clone(), self.hold.0);
+                // task-owner: one bounded wait; the runtime ends it with the host.
+                tokio::spawn(async move {
+                    tokio::time::sleep(crate::claude_stdio::CARRY_HOLD_MAX).await;
+                    let _ = events.send(Event::HoldOver(hold)).await;
+                });
+            }
+        }
     }
 
     async fn on_stdout(&mut self, line: String) {
