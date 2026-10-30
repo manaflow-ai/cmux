@@ -140,8 +140,9 @@ nonisolated extension SidebarLayout {
             let count = members.reduce(0) { total, member in
                 total + 1 + (ids[member].map { Self.treeDescendants(of: $0, ids, children: children).count } ?? 0)
             }
-            let collapsed = tree.collapsedHosts.contains(host)
-            append(SidebarRow(key: .sessionHost(host), y: y, height: m.groupHeaderHeight, section: row.section,
+            let collapsed = tree.collapsedHosts.contains(host.host)
+            let hostKey = SidebarSessionTree.hostKey(host.host, section: host.section)
+            append(SidebarRow(key: .sessionHost(hostKey), y: y, height: m.groupHeaderHeight, section: row.section,
                               group: nil, siblingIndex: row.siblingIndex, parentIndex: nil, isLastInGroup: false,
                               isCollapsed: collapsed, childCount: count, groupColor: nil), spacing: m.rowSpacing)
             if !collapsed { for member in members { family(member, depth: 1) } }
@@ -180,5 +181,50 @@ nonisolated extension SidebarLayout {
         layout.pinnedChatsY = movedPinnedY
         layout.earlierChatsY = movedEarlierY
         return layout
+    }
+}
+
+
+nonisolated extension SidebarLayout {
+    /// The host family containing a drawn row, if any. Synthetic headers are
+    /// stable per host and machine section, so they also provide the drag family.
+    func sessionHost(for key: SidebarRowKey) -> String? {
+        guard let index = position(of: key) else { return nil }
+        return sessionHost(around: index)
+    }
+
+    private func sessionHost(around index: Int) -> String? {
+        guard !rows.isEmpty else { return nil }
+        for i in stride(from: min(index, rows.count - 1), through: 0, by: -1) {
+            if case let .sessionHost(host) = rows[i].key { return SidebarSessionTree.hostID(from: host) }
+            if case .workspace = rows[i].key, rows[i].content?.treeDepth == 0 { return nil }
+            if case .section = rows[i].key { return nil }
+        }
+        return nil
+    }
+
+    /// Resolve a projected row's upper/lower half to the next drawn sibling.
+    /// `.none` means the ordinary ungrouped resolver should run; `.some(nil)`
+    /// refuses a slot outside the dragged row's family.
+    func groupedDropTarget(row: SidebarRow, after: Bool, sourceHost: String?) -> DropTarget?? {
+        guard rows.contains(where: { if case .sessionHost = $0.key { true } else { false } }) else { return nil }
+        guard case .workspace = row.key else { return .some(nil) }
+        let targetHost = sessionHost(for: row.key)
+        if targetHost != nil && targetHost != sourceHost { return .some(nil) }
+        let index = position(of: row.key) ?? 0
+        let next = rows[(index + 1)..<rows.count].first { candidate in
+            guard case .workspace = candidate.key else { return false }
+            return candidate.section == row.section && candidate.group == row.group
+        }
+        let insertion: Int
+        if after {
+            insertion = next?.siblingIndex ?? rows[(0..<rows.count)].filter {
+                if case .workspace = $0.key { return $0.section == row.section && $0.group == row.group }
+                return false
+            }.map(\.siblingIndex).max().map { $0 + 1 } ?? row.siblingIndex + 1
+        } else {
+            insertion = row.siblingIndex
+        }
+        return .some(.position(DropPosition(section: row.section, group: row.group, index: insertion)))
     }
 }

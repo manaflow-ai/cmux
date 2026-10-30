@@ -72,16 +72,16 @@ struct SidebarSessionHostIntegrationTests {
             SidebarSessionTreeFeed.publish(Self.pass(enabled: defaults.sessionTree), to: .shared)
             list.reload(animated: false)
             #expect(list.options(includeGap: false).sessionTree == nil)
-            #expect(list.displayed.row(for: .sessionHost(Self.host)) == nil)
+            #expect(list.displayed.row(for: .sessionHost(SidebarSessionTree.hostKey(Self.host, section: .machine(.local)))) == nil)
             let originalOrder = [Self.coordinator, Self.plain] + Self.workers + [Self.dragged]
             #expect(list.displayed.rows.map(\.key) == originalOrder.map(SidebarRowKey.workspace))
 
             SidebarSessionTreeFeed.publish(Self.pass(enabled: true), to: .shared)
             list.reload(animated: false)
-            let header = try #require(list.displayed.row(for: .sessionHost(Self.host)))
+            let header = try #require(list.displayed.row(for: .sessionHost(SidebarSessionTree.hostKey(Self.host, section: .machine(.local)))))
             #expect(header.childCount == Self.workers.count + 1)
             #expect(list.options(includeGap: false).sessionTree?.parents[Self.workers[0]] == Self.coordinator)
-            #expect(list.displayed.rows.map(\.key) == [.sessionHost(Self.host), .workspace(Self.coordinator)]
+            #expect(list.displayed.rows.map(\.key) == [.sessionHost(SidebarSessionTree.hostKey(Self.host, section: .machine(.local))), .workspace(Self.coordinator)]
                     + Self.workers.map(SidebarRowKey.workspace) + [.workspace(Self.plain), .workspace(Self.dragged)])
 
             SidebarSessionTreeFeed.publish(Self.pass(enabled: defaults.sessionTree), to: .shared)
@@ -96,7 +96,7 @@ struct SidebarSessionHostIntegrationTests {
         try Self.withList { list in
             SidebarSessionTreeFeed.publish(Self.pass(enabled: true), to: .shared)
             list.reload(animated: false)
-            let hostKey = SidebarRowKey.sessionHost(Self.host)
+            let hostKey = SidebarRowKey.sessionHost(SidebarSessionTree.hostKey(Self.host, section: .machine(.local)))
             let before = try #require(list.displayed.row(for: hostKey))
             let key = SidebarRowKey.workspace(Self.dragged)
             let row = try #require(list.displayed.row(for: key))

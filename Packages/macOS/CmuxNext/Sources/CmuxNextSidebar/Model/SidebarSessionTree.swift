@@ -187,7 +187,8 @@ public final class SidebarSessionTree {
     }
 
     public func toggleHost(_ host: String) {
-        if collapsedHosts.remove(host) == nil { collapsedHosts.insert(host) }
+        let stable = Self.hostID(from: host)
+        if collapsedHosts.remove(stable) == nil { collapsedHosts.insert(stable) }
         defaults.set(collapsedHosts.sorted(), forKey: Self.collapsedHostsKey)
     }
 
@@ -228,6 +229,16 @@ public final class SidebarSessionTree {
             collapsed = collapsed.filter(live.contains)
         }
         defaults.set(collapsed.map(\.rawValue).sorted(), forKey: Self.collapsedKey)
+    }
+
+    /// Ephemeral row identity for a host in one machine section. The host id
+    /// remains the fold key, while the section suffix prevents pool/key collisions.
+    public static func hostKey(_ host: String, section: SectionID) -> String {
+        "\(host)\u{1f}\(section.rawValue)"
+    }
+
+    public static func hostID(from key: String) -> String {
+        key.split(separator: "\u{1f}", maxSplits: 1).first.map(String.init) ?? key
     }
 
     static let collapsedKey = "sidebar.sessionTree.collapsed"
