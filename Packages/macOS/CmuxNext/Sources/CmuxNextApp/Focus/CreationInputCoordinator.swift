@@ -27,9 +27,13 @@ final class CreationInputCoordinator {
     /// and the focus it asked for holds, with a responder that takes the keys. `limitReached`: the hold's 2 s bound ended
     /// it first, so the keys typed for the new terminal went on up to that late; logged, as a person feels it.
     /// `focusLeft`: a key went to a field outside the content (a sidebar or bar field), which ends any hold. `windowClosed`.
+    /// `creationFailed`: a creation of the hold failed (the daemon refused it, or the connection ended); no focus landed.
     enum HoldEnd: Equatable, Sendable {
-        case focusLanded, limitReached, focusLeft, windowClosed
+        case focusLanded, limitReached, focusLeft, windowClosed, creationFailed
     }
+
+    /// Windows whose current hold had a creation that failed: its unforced end is ``HoldEnd/creationFailed``.
+    private var failedCreation: Set<Int> = []
 
     /// How the last creation hold of each window ended, by window number (tests, `debug.focus`).
     private(set) var lastHoldEnd: [Int: HoldEnd] = [:]
@@ -84,6 +88,7 @@ final class CreationInputCoordinator {
     /// and after the focus events the reply queued.
     func resolve(_ ticket: CreationInputBuffer.Ticket?, landed: Bool, in window: NSWindow?) {
         guard let ticket, let window, let buffer = buffers[window.windowNumber] else { return }
+        if !landed { failedCreation.insert(window.windowNumber) }
         buffer.resolve(ticket, awaitsFocus: landed)
         scheduleFlush(in: window)
         // The focus it asked for may never land (a split from a page tab shows a New Tab page):
@@ -194,6 +199,7 @@ final class CreationInputCoordinator {
         guard let router, let controller = router.focus(for: window).0 else {
             // The window is gone: its keys go with it.
             buffers[window.windowNumber] = nil
+            failedCreation.remove(window.windowNumber)
             lastHoldEnd[window.windowNumber] = .windowClosed
             return
         }
@@ -203,7 +209,8 @@ final class CreationInputCoordinator {
             guard Self.responderTakesKeys(controller, window: window) else { return }
         }
         buffers[window.windowNumber] = nil
-        let end = force ? forcedEnd : .focusLanded
+        let failed = failedCreation.remove(window.windowNumber) != nil
+        let end = force ? forcedEnd : failed ? .creationFailed : .focusLanded
         lastHoldEnd[window.windowNumber] = end
         let pending = buffer.take()
         if end == .limitReached {
