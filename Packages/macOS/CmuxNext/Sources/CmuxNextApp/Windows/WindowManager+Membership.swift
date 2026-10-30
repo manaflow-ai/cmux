@@ -372,17 +372,14 @@ extension WindowManager {
             let ids = Self.orderedIDs(of: daemon, machines: services.machines)
             for id in ids {
                 live.append(id)
-                if let known = seenMachine[id], known != daemon.machineID,
-                   services.machines.daemon(machine: known) == nil {
-                    // A persisted owner may have disappeared; allow a new machine to claim a
-                    // legitimately moved workspace key while retaining provenance for live clones.
+                // Preserve recorded provenance when a snapshot clone reports the same key.
+                // A removed machine no longer owns it; the first remaining daemon can take it.
+                if seenMachine[id].flatMap({ services.machines.anyDaemon(machine: $0) }) == nil {
                     seenMachine[id] = daemon.machineID
-                } else {
-                    seenMachine[id, default: daemon.machineID] = daemon.machineID
                 }
             }
-            // Only the ids that resolve to this machine: a VM made from another's snapshot keeps its
-            // workspace keys, and a window holding the other machine's copy does not open this one.
+            // Use recorded machine provenance, not the first daemon in the current list:
+            // a snapshot clone can arrive before the machine the person actually opened.
             if services.machines.session(daemon.machineID) != nil {
                 cloud.append(ids.filter { seenMachine[$0] == daemon.machineID })
             }

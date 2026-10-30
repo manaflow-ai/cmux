@@ -64,7 +64,7 @@ struct UnopenedCloudMachinesTests {
         let services = Self.services()
         defer { Self.closeWindows(services) }
         Self.machine(services, id: "vm-agent-copy", workspaces: ["ws-shared", "ws-agent-own"])
-        Self.machine(services, id: "vm-mine", workspaces: ["ws-shared"])
+        Self.machine(services, id: "vm-mine", workspaces: ["ws-shared", "ws-mine-new"])
         _ = services.windows.registry.apply { $0.openWindow(id: "w-person", workspaceIDs: ["ws-shared"]) }
         services.windows.seenMachine["ws-shared"] = "vm-mine"
 
@@ -72,6 +72,21 @@ struct UnopenedCloudMachinesTests {
 
         #expect(services.windows.registry.value.owner(of: "ws-agent-own") == nil)
         #expect(services.windows.registry.value.owner(of: "ws-shared") == "w-person")
+        #expect(services.windows.registry.value.owner(of: "ws-mine-new") == "w-person")
+        #expect(services.windows.seenMachine["ws-shared"] == "vm-mine")
+    }
+
+    @Test func aRemovedMachineDoesNotKeepOwnershipOfAMovedWorkspace() throws {
+        let services = Self.services()
+        defer { Self.closeWindows(services) }
+        Self.machine(services, id: "vm-replacement", workspaces: ["ws-moved", "ws-new"])
+        services.windows.seenMachine["ws-moved"] = "vm-removed"
+        _ = services.windows.registry.apply { $0.openWindow(id: "w-person", workspaceIDs: ["ws-moved"]) }
+
+        services.windows.reconcileMembership()
+
+        #expect(services.windows.seenMachine["ws-moved"] == "vm-replacement")
+        #expect(services.windows.registry.value.owner(of: "ws-new") == "w-person")
     }
 
     /// An ephemeral workspace on a machine nobody opened here opens no incognito window, and is

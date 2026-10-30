@@ -264,7 +264,7 @@ extension CaptureSceneRegistry {
     /// it saw: a still that missed them would prove nothing. Then the machines go away again.
     func renderAgentCloudMachines(_ params: [String: CmuxNextSettings.JSONValue], definition: CaptureSceneDefinition,
                                   windowID: String) async -> CmuxNextSettings.JSONValue {
-        guard let controller = services.windows.controller(for: targetWindowID), let window = controller.window else {
+        guard let sourceController = services.windows.controller(for: windowID), let window = sourceController.window else {
             return .object(["error": .string("no window"), "scene": .string(definition.name)])
         }
         for id in Self.agentMachineIDs { services.machines.remove(id)?.disconnect() }
@@ -276,11 +276,11 @@ extension CaptureSceneRegistry {
         // The window that took them (the most recent one), else the scene's.
         let registry = services.windows.registry.value
         let targetWindowID = Self.agentMachineIDs.lazy.compactMap { registry.owner(of: "ws-\($0)") }.first ?? windowID
-        guard let controller = services.windows.controller(for: targetWindowID) else {
+        guard let targetController = services.windows.controller(for: targetWindowID) else {
             removeAgentCloudMachines()
             return .object(["error": .string("the window that took the machines has no controller"), "scene": .string(definition.name)])
         }
-        let sidebar = controller.sidebar.container.sidebarView
+        let sidebar = targetController.sidebar.container.sidebarView
         let shown = await CloudMove.holds(within: .seconds(10)) { [self] in
             sidebar.renderNow()
             sidebar.layoutSubtreeIfNeeded()
@@ -531,7 +531,7 @@ extension CaptureSceneRegistry {
             report["expected_name"] = .string(finalExpectedName)
             report["frames"] = finalFrameStats
             var snapshotParams = params
-            snapshotParams["window"] = .string(targetWindowID)
+            snapshotParams["window"] = .string(windowID)
             let snapshot = await DebugWindowSnapshot.captureAsync(snapshotParams, services: services)
             guard case .object(var result) = snapshot else {
                 await cleanup()
