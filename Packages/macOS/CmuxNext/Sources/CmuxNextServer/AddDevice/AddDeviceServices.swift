@@ -10,6 +10,7 @@ public struct AddDeviceServices {
     public var enterCode: () -> Void
     /// The app's New Cloud Machine flow (sign-in first when signed out).
     public var newCloudMachine: () -> Void
+    public var installTailscale: () -> Void
     public var copy: (String) -> Void
     /// The one-line join's calls, nil while Labs `labs.machineJoin` is off (the way does not show).
     public var machineJoin: () -> MachineJoinService?
@@ -20,7 +21,8 @@ public struct AddDeviceServices {
 
     public init(list: @escaping () async -> DeviceListing?, addComputer: @escaping (String, String) -> Void,
                 addByName: @escaping () -> Void, enterCode: @escaping () -> Void, newCloudMachine: @escaping () -> Void = {},
-                copy: @escaping (String) -> Void, machineJoin: @escaping () -> MachineJoinService? = { nil },
+                copy: @escaping (String) -> Void, installTailscale: @escaping () -> Void = {},
+                machineJoin: @escaping () -> MachineJoinService? = { nil },
                 copyConcealed: @escaping (String) -> Void = { _ in }, showMachines: @escaping () -> Void = {}) {
         self.list = list
         self.addComputer = addComputer
@@ -28,6 +30,7 @@ public struct AddDeviceServices {
         self.enterCode = enterCode
         self.newCloudMachine = newCloudMachine
         self.copy = copy
+        self.installTailscale = installTailscale
         self.machineJoin = machineJoin
         self.copyConcealed = copyConcealed
         self.showMachines = showMachines
