@@ -12,7 +12,9 @@ import QuartzCore
 /// Ghostty's Metal renderer installs its own `IOSurfaceLayer` as this view's
 /// layer (ghostty/src/renderer/Metal.zig); never replace the layer. The
 /// surface is created in `init`, like Ghostty.app does, so output that
-/// arrives before the view joins a window is not lost, and freed in `deinit`.
+/// arrives before the view joins a window is not lost. `deinit` hands it to
+/// ``TerminalSurfaceTeardown``, which frees it on the main thread once the
+/// output lane's chunk in flight returns (``TerminalOutputLane/close(then:)``).
 ///
 /// Created and owned by ``TerminalSession``; embed ``TerminalSession/view``,
 /// not this view directly.

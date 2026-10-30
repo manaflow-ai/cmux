@@ -161,7 +161,7 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     }
 
     /// Runs `body` on the lane with the live surface, or not at all after
-    /// ``close()``.
+    /// ``close(then:)``.
     func perform(_ body: @escaping @Sendable (ghostty_surface_t) -> Void) {
         queue.async { [self] in
             guard let surface, !closing.load(ordering: .relaxed) else { return }
