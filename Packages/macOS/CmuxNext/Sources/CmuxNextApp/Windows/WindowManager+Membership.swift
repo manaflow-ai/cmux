@@ -463,9 +463,11 @@ extension WindowManager {
     }
 
     /// Every Cloud machine that could still report workspaces has loaded.
+    /// The list must be this user's and team's (`hasLoadedCurrentMachines`): during a team switch the new
+    /// team's machines are not listed yet.
     private var cloudSettled: Bool {
         guard case let list = cloudList(services.cloud), list.isSignedIn || list.isRestoring else { return true }
-        guard list.hasLoadedMachines else { return false }
+        guard list.hasLoadedCurrentMachines else { return false }
         return services.machines.cloud.allSatisfy { !$0.machine.status.isLive || $0.daemon.store.isLoaded }
     }
 
