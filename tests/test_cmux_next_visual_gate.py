@@ -834,6 +834,19 @@ class AwaitGateTests(unittest.TestCase):
         (verdict, blocks, why), _ = run(lambda wall: [late], wall_start=dmg_done + 12 * 60)
         self.assertEqual((verdict, blocks), ("unavailable", False))
         self.assertIn("after the 10 min budget", why)
+        # A slow read near the budget is not counted twice: a gate that finished with a hold inside
+        # the budget still holds when the read that sees it takes 20 s.
+        inside = dict(early, completed_at=stamp(dmg_done + 595))
+        now = [0.0]
+        wall_start = dmg_done + 580
+
+        def slow_read():
+            now[0] += 20
+            return self.OTHERS + [dmg, inside]
+        verdict, blocks, _ = self.mode.await_gate(slow_read, "visual-gate-nightly", queue, hold,
+                                                  since="Verify final nightly DMG", clock=lambda: now[0],
+                                                  wall=lambda: wall_start + now[0], sleep=lambda s: None)
+        self.assertEqual((verdict, blocks), ("fail", True))
         # The DMG check still running (a re-run's view) or absent: the budget runs from now.
         (verdict, blocks, _), looks = run(lambda wall: [], wall_start=dmg_done)
         self.assertEqual(self.mode.all_finished_at([dict(dmg, status="in_progress")], "Verify final"), None)

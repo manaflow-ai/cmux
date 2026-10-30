@@ -346,7 +346,8 @@ def await_gate(fetch: Callable[[], list[Mapping[str, Any]]], job_name: str, queu
             anchored = True
             done_at = all_finished_at(jobs, since)
             if done_at is not None:
-                start -= max(0.0, wall() - done_at)
+                # Both clocks read together, after the read: the anchor is when the jobs finished.
+                start = clock() - max(0.0, wall() - done_at)
         # When the answer arrived, not when it was asked for: a read can take a while.
         elapsed = clock() - start
         action, verdict, blocks, why = gate_action(jobs, job_name, elapsed, queue_budget_s, run_budget_s)
