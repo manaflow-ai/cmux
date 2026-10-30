@@ -82,8 +82,12 @@ private nonisolated final class MediaRedirectProtocol: URLProtocol, @unchecked S
         if url.path == "/manaflow-ai/cmux/pr-media/image.png" {
             let target = URL(string: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/file.png")!
             let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1",
-                                           headerFields: ["Location": target.absoluteString])!
+                                           headerFields: ["Location": target.absoluteString, "Content-Length": "0"])!
             client?.urlProtocol(self, wasRedirectedTo: URLRequest(url: target), redirectResponse: response)
+            // Refusing a redirect continues the original response. Complete its empty body
+            // instead of leaving the data task waiting for this protocol until its deadline.
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocolDidFinishLoading(self)
         } else {
             let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
