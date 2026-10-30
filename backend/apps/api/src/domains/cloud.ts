@@ -96,7 +96,7 @@ export interface LedgerRow {
   readonly capture_protocol?: 1
   readonly transport?: import("../cloud-vm-api-config.ts").CloudTransport
   readonly key: string
-  readonly op: "create" | "delete" | "pause" | "start" | "resize" | "snapshot" | "snapshot_delete" | "env_build"
+  readonly op: "create" | "delete" | "pause" | "start" | "resize" | "snapshot" | "snapshot_delete" | "env_build" | "env_cleanup"
   /** env_build: the environment, the build digest, and the warm-boot machine's provider name (cloud-environment.ts). */
   readonly environment?: string
   readonly env_digest?: string
@@ -389,7 +389,8 @@ const driverResult = (config: CloudConfig, state: CloudState, params: unknown, c
   // Disabling a platform resume must retain the compensation beyond MAX_ATTEMPTS: an unknown
   // start outcome can still be running. Only a confirmed pause (or gone VM) settles its ledger.
   const retainedPlatformPause = !r.ok && l.op === "start" && r.error?.code === "cloud.platform.pause_pending" && machine?.row.platform === true && l.key.startsWith(ledgerKey(`${PLATFORM_IDENTITY_PREFIX}${machine.row.creator}`, ""))
-  if (retainedCapture || retainedPlatformPause) {
+  // Cleanup only stops cost. A refusal or exhausted retry budget must never forget a running builder.
+  if (retainedCapture || retainedPlatformPause || (l.op === "env_cleanup" && !r.ok)) {
     const attempts = l.attempts + 1
     const error = { code: r.error?.code ?? "cloud.provider.unavailable", message: r.error?.message ?? "snapshot capture is still being confirmed" }
     return { ok: true, state: next(state, { pending: { ...state.pending, [r.key]: { machine: l.machine, due_at: ctx.now + retryDelayMs(attempts) } } }),
