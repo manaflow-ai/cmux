@@ -226,9 +226,11 @@ struct SandboxRunNoticeTests {
     @Test func aBodyThatIsNoRunSnapshotIsNeverAnEnd() {
         func read(_ body: String) -> String {
             switch SandboxRunFollower.read(Data(body.utf8)) {
-            case .running: "running"
+            case .going: "running"
             case .unreadable: "unreadable"
             case .ended(let outcome, _): outcome.rawValue
+            // A Run's read never closes (only a hand-off does).
+            case .closed: "closed"
             }
         }
         #expect(read(#"{"run":{}}"#) == "unreadable")
@@ -350,7 +352,7 @@ struct SandboxRunNoticeTests {
 }
 
 /// A clock whose sleeps end at once (the follower's Backoff after a failed wait).
-private struct ImmediateRunClock: Clock {
+struct ImmediateRunClock: Clock {
     struct Instant: InstantProtocol {
         var offset: Duration = .zero
         func advanced(by duration: Duration) -> Instant { Instant(offset: offset + duration) }

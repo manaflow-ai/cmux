@@ -69,6 +69,26 @@ class PublishWindowsTests(unittest.TestCase):
                          ["shots/01-open-the-pet--w7.png", "shots/01-open-the-pet--w9.png"])
         self.assertEqual(step["windows"][0]["kind"], "chiefPet")
 
+    def test_an_ok_shot_no_expect_checked_shows_as_unchecked(self):
+        steps = [
+            {"index": 1, "title": "Launch", "status": "ok", "checked": False},
+            {"index": 2, "title": "Unchecked", "status": "ok", "checked": False, "shot": "shots/02-unchecked.png"},
+            {"index": 3, "title": "Checked", "status": "ok", "checked": True, "shot": "shots/03-checked.png"},
+            # A manifest from before tour.py wrote `checked` keeps its plain "ok".
+            {"index": 4, "title": "Older", "status": "ok", "shot": "shots/04-older.png"},
+            {"index": 5, "title": "Failed", "status": "failed", "checked": False, "shot": "shots/05-failed.png"},
+        ]
+        cleaned = [publish.clean_step(step) for step in steps]
+        self.assertNotIn("checked", cleaned[3])
+        rows = [publish.step_row(step) for step in cleaned]
+        self.assertIn("| ok |", rows[0])
+        self.assertIn(f"| {publish.UNCHECKED_TEXT} |", rows[1])
+        self.assertIn("| ok |", rows[2])
+        self.assertIn("| ok |", rows[3])
+        self.assertIn("**failed**", rows[4])
+        section = publish.tour_section({"title": "Demo", "result": "failed", "steps": cleaned}, {})
+        self.assertIn("3 ok, 1 failed, 1 unchecked", section.splitlines()[0])
+
     def test_window_shots_are_uploaded_and_shown_beside_the_step(self):
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp) / "agent-pane"

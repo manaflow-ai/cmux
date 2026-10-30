@@ -76,46 +76,70 @@ pub(super) const MAX_TERMINAL_CONNECTIONS: usize = MAX_SERVER_CONNECTIONS * 3 / 
 
 #[derive(Clone)]
 pub(super) struct ConnectionPermit {
-    pub(super) _lease: Arc<ConnectionPermitLease>,
-    _terminal: Option<Arc<TerminalPermitLease>>,
-}
-
-pub(super) struct ConnectionPermitLease(Arc<crate::diagnostics::ConnectionStats>);
-
-impl Drop for ConnectionPermitLease {
-    fn drop(&mut self) {
-        self.0.release();
-    }
-}
-
-struct TerminalPermitLease(Arc<crate::diagnostics::ConnectionStats>);
-
-impl Drop for TerminalPermitLease {
-    fn drop(&mut self) {
-        self.0.release_terminal();
-    }
-}
-
-impl ConnectionPermit {
-    /// This connection, from a process inside one of the session's
-    /// terminals, also takes a terminal slot; `None` (and its slot released)
-    /// when terminals already hold `MAX_TERMINAL_CONNECTIONS`.
-    pub(super) fn into_terminal(self) -> Option<Self> {
-        let connections = self._lease.0.clone();
-        if !connections.try_claim_terminal(MAX_TERMINAL_CONNECTIONS as u64) {
-            return None;
-        }
-        let terminal = Arc::new(TerminalPermitLease(connections));
-        Some(Self { _lease: self._lease, _terminal: Some(terminal) })
-    }
+    pub(super) _lease: Arc<crate::diagnostics::ConnectionLease>,
 }
 
 pub(super) fn claim_connection(
     connections: &Arc<crate::diagnostics::ConnectionStats>,
 ) -> Option<ConnectionPermit> {
-    connections.try_claim(MAX_SERVER_CONNECTIONS as u64).then(|| ConnectionPermit {
-        _lease: Arc::new(ConnectionPermitLease(connections.clone())),
-        _terminal: None,
+    claim_connection_watching(connections, None, false)
+}
+
+/// A slot for a local client, taken back if the client hangs up while its
+/// thread is still parked (`diagnostics::ConnectionLease`, #27669).
+pub(super) fn claim_watched_connection(
+    connections: &Arc<crate::diagnostics::ConnectionStats>,
+    stream: &dyn transport::Stream,
+) -> Option<ConnectionPermit> {
+    claim_connection_watching(connections, watch_peer(stream), false)
+}
+
+/// A slot for a process inside one of the session's terminals: it also takes
+/// a terminal slot, and is refused (its slot given back) when terminals
+/// already hold `MAX_TERMINAL_CONNECTIONS` (#27698). Watched like
+/// `claim_watched_connection`; a hang-up gives back both slots.
+pub(super) fn claim_watched_terminal_connection(
+    connections: &Arc<crate::diagnostics::ConnectionStats>,
+    stream: &dyn transport::Stream,
+) -> Option<ConnectionPermit> {
+    claim_connection_watching(connections, watch_peer(stream), true)
+}
+
+#[cfg(test)]
+pub(super) fn claim_terminal_connection(
+    connections: &Arc<crate::diagnostics::ConnectionStats>,
+) -> Option<ConnectionPermit> {
+    claim_connection_watching(connections, None, true)
+}
+
+fn watch_peer(stream: &dyn transport::Stream) -> Option<crate::diagnostics::PeerClosed> {
+    match stream.try_clone_box() {
+        Ok(peer) => Some(Box::new(move || peer.peer_closed())),
+        Err(_) => None,
+    }
+}
+
+fn claim_connection_watching(
+    connections: &Arc<crate::diagnostics::ConnectionStats>,
+    peer_closed: Option<crate::diagnostics::PeerClosed>,
+    terminal: bool,
+) -> Option<ConnectionPermit> {
+    if !connections.try_claim(MAX_SERVER_CONNECTIONS as u64) {
+        return None;
+    }
+    if terminal
+        && !connections
+            .try_claim_terminal(MAX_TERMINAL_CONNECTIONS as u64, MAX_SERVER_CONNECTIONS as u64)
+    {
+        connections.release();
+        return None;
+    }
+    Some(ConnectionPermit {
+        _lease: crate::diagnostics::ConnectionLease::new(
+            connections.clone(),
+            peer_closed,
+            terminal,
+        ),
     })
 }
 

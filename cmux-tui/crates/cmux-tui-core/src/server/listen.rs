@@ -12,8 +12,9 @@ use std::time::{Duration, Instant};
 #[cfg(unix)]
 use super::start_apps_when_ready;
 use super::{
-    ACCEPT_RETRY_INITIAL, ACCEPT_RETRY_MAX, RenderService, claim_connection, cleanup,
-    handle_connection_with_permit, try_default_socket_path,
+    ACCEPT_RETRY_INITIAL, ACCEPT_RETRY_MAX, RenderService, claim_watched_connection,
+    claim_watched_terminal_connection, cleanup, handle_connection_with_permit,
+    try_default_socket_path,
 };
 use crate::mux::Mux;
 use crate::platform::{self, transport};
@@ -413,14 +414,13 @@ impl ServedSession {
         // a burst of agents cannot lock the app out of its own daemon (#27698).
         // Decided here, before the connection's thread, without waiting on the
         // state lock (`TerminalSessions`).
-        let permit = claim_connection(self.mux.connection_stats()).and_then(|permit| {
-            let key = stream.peer_process_key();
-            if self.terminal_sessions.contains_peer(&self.mux, key.as_deref()) {
-                permit.into_terminal()
-            } else {
-                Some(permit)
-            }
-        });
+        let key = stream.peer_process_key();
+        let connections = self.mux.connection_stats();
+        let permit = if self.terminal_sessions.contains_peer(&self.mux, key.as_deref()) {
+            claim_watched_terminal_connection(connections, &*stream)
+        } else {
+            claim_watched_connection(connections, &*stream)
+        };
         let Some(permit) = permit else {
             refuse_busy(stream);
             return;

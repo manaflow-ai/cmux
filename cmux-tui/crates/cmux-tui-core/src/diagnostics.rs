@@ -22,6 +22,8 @@ mod resource_projection;
 pub use resource_projection::{
     CommitSpans, ProjectionSpans, ResourceProjectionSnapshot, ResourceProjectionStats,
 };
+mod connection_leases;
+pub use connection_leases::{ConnectionLease, PeerClosed};
 mod write_path;
 pub(crate) use write_path::writer_took_registry_lock;
 pub use write_path::{WritePathSnapshot, WritePathStats};
@@ -482,8 +484,18 @@ pub struct ConnectionStats {
     peak: AtomicU64,
     refused: AtomicU64,
     accepted: AtomicU64,
+    /// Connections whose client hung up while their thread still runs (most
+    /// often parked on the registry lock): their slot went back to `active`'s
+    /// limit (`connection_leases`), bounded by that same limit.
+    hung_up: AtomicU64,
+    /// Slots taken back from hung-up clients since start.
+    reclaimed: AtomicU64,
+    /// The admitted connections whose client can be watched for a hang-up.
+    leases: Mutex<Vec<std::sync::Weak<ConnectionLease>>>,
     /// Of `active`, the connections from processes inside this session's
-    /// terminals (agents, their hooks, `cmux` run in a pane).
+    /// terminals (agents, their hooks, `cmux` run in a pane). A hung-up
+    /// terminal connection gives this slot back with its main one
+    /// (`connection_leases`).
     terminal_active: AtomicU64,
 }
 
@@ -492,13 +504,18 @@ impl ConnectionStats {
     /// fewer than `limit` terminal-bound connections are active. A refusal
     /// moves the connection from `accepted` to `refused`; the caller gives
     /// the slot back.
-    pub fn try_claim_terminal(&self, limit: u64) -> bool {
-        let claimed = self
-            .terminal_active
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
-                (count < limit).then_some(count + 1)
-            })
-            .is_ok();
+    /// At `limit` it first takes back the slots of clients that hung up
+    /// (`reclaim_hung_up`, pool bounded by `pool_limit`), as `try_claim` does.
+    pub fn try_claim_terminal(&self, limit: u64, pool_limit: u64) -> bool {
+        let claim = |count: u64| (count < limit).then_some(count + 1);
+        let mut claimed =
+            self.terminal_active.fetch_update(Ordering::AcqRel, Ordering::Acquire, claim).is_ok();
+        if !claimed && self.reclaim_hung_up(pool_limit) > 0 {
+            claimed = self
+                .terminal_active
+                .fetch_update(Ordering::AcqRel, Ordering::Acquire, claim)
+                .is_ok();
+        }
         if !claimed {
             self.accepted.fetch_sub(1, Ordering::Relaxed);
             self.refused.fetch_add(1, Ordering::Relaxed);
@@ -511,10 +528,17 @@ impl ConnectionStats {
     }
 
     /// Claims a slot if fewer than `limit` connections are active.
+    /// At the limit it first takes back the slots of clients that hung up
+    /// (`reclaim_hung_up`): a connection thread parked on the registry lock
+    /// outlives its client, and those threads held every slot while the app
+    /// was refused (#27669).
     pub fn try_claim(&self, limit: u64) -> bool {
-        match self.active.fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
-            (count < limit).then_some(count + 1)
-        }) {
+        let claim = |count: u64| (count < limit).then_some(count + 1);
+        let mut claimed = self.active.fetch_update(Ordering::AcqRel, Ordering::Acquire, claim);
+        if claimed.is_err() && self.reclaim_hung_up(limit) > 0 {
+            claimed = self.active.fetch_update(Ordering::AcqRel, Ordering::Acquire, claim);
+        }
+        match claimed {
             Ok(previous) => {
                 // Use the count this claim produced, not a later reload: a
                 // release in between would under-report the peak.
@@ -544,6 +568,8 @@ impl ConnectionStats {
             limit,
             accepted: self.accepted.load(Ordering::Relaxed),
             refused: self.refused.load(Ordering::Relaxed),
+            hung_up: self.hung_up.load(Ordering::Acquire),
+            reclaimed: self.reclaimed.load(Ordering::Relaxed),
         }
     }
 }
@@ -557,6 +583,11 @@ pub struct ConnectionSnapshot {
     /// Connections dropped because `limit` was reached. Any non-zero value
     /// means a client saw a failed connect, which for hooks is a lost event.
     pub refused: u64,
+    /// Connections whose client hung up before their thread ended; they hold
+    /// no slot of `limit`.
+    pub hung_up: u64,
+    /// Slots taken back from hung-up clients since start.
+    pub reclaimed: u64,
 }
 
 /// Everything `server-stats` returns.
