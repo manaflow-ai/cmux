@@ -170,8 +170,10 @@ enum CloudHandlers {
     }
 
     /// Shows `workspaceID` in the active window (or a new one).
-    static func show(_ workspaceID: String, _ context: AppActionContext) {
+    static func show(_ workspaceID: String, on machineID: String? = nil, _ context: AppActionContext) {
+        guard ActionRunScope.viewChangeAllowed() else { return }
         let windows = context.services.windows
+        if let machineID { windows.seenMachine[workspaceID] = machineID }
         if let state = windows.active?.state { windows.show(workspaceID: workspaceID, in: state) } else { windows.openWindow(workspaces: [workspaceID]) }
     }
 

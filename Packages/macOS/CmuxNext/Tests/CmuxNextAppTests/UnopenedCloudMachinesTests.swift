@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextCloud
 @testable import CmuxNextDaemon
@@ -87,6 +88,36 @@ struct UnopenedCloudMachinesTests {
 
         #expect(services.windows.seenMachine["ws-moved"] == "vm-replacement")
         #expect(services.windows.registry.value.owner(of: "ws-new") == "w-person")
+    }
+
+    @Test func openingTheRealMachineAfterItsCloneClaimsOnlyTheOpenedWorkspace() {
+        let services = Self.services()
+        defer { Self.closeWindows(services) }
+        Self.machine(services, id: "vm-copy", workspaces: ["ws-shared", "ws-copy-only"])
+        Self.machine(services, id: "vm-real", workspaces: ["ws-shared", "ws-real-only"])
+        services.windows.reconcileMembership()
+        #expect(services.windows.seenMachine["ws-shared"] == "vm-copy")
+
+        CloudHandlers.show("ws-shared", on: "vm-real", AppActionContext(services: services))
+        services.windows.reconcileMembership()
+
+        #expect(services.windows.seenMachine["ws-shared"] == "vm-real")
+        #expect(services.windows.registry.value.owner(of: "ws-real-only") != nil)
+        #expect(services.windows.registry.value.owner(of: "ws-copy-only") == nil)
+    }
+
+    @Test func aBackgroundMachineOpenDoesNotStealSharedWorkspaceProvenance() {
+        let services = Self.services()
+        defer { Self.closeWindows(services) }
+        Self.machine(services, id: "vm-real", workspaces: ["ws-shared"])
+        Self.machine(services, id: "vm-copy", workspaces: ["ws-shared", "ws-copy-only"])
+        services.windows.reconcileMembership()
+
+        ActionRunScope.$current.withValue(ActionRunScope(origin: .cli, allowsViewChange: false)) {
+            CloudHandlers.show("ws-shared", on: "vm-copy", AppActionContext(services: services))
+        }
+        #expect(services.windows.seenMachine["ws-shared"] == "vm-real")
+        #expect(services.windows.registry.value.windows.isEmpty)
     }
 
     /// An ephemeral workspace on a machine nobody opened here opens no incognito window, and is

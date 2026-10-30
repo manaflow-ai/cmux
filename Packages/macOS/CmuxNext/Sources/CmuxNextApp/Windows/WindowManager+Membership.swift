@@ -112,7 +112,7 @@ extension WindowManager {
     /// Sets the window's shown workspace (its own state); see `WindowState.showWorkspace(_:keepsCreation:)`.
     func select(_ workspaceID: String?, in state: WindowState, keepsCreation: Bool = false) {
         if let workspaceID { enterProfile(of: workspaceID, in: state) }
-        if let workspaceID, let machine = services.machines.daemon(forWorkspace: workspaceID)?.machineID { state.machineID = machine }
+        if let workspaceID, let machine = seenMachine[workspaceID] ?? services.machines.daemon(forWorkspace: workspaceID)?.machineID { state.machineID = machine }
         state.showWorkspace(workspaceID, keepsCreation: keepsCreation || services.cloud.creations.opens(workspaceID, shownIn: state))
         recordSaver.stateDidChange(state)
     }
@@ -148,16 +148,6 @@ extension WindowManager {
     func show(workspaceID: String, inWindow windowID: String) {
         guard let state = states[windowID] else { return }
         show(workspaceID: workspaceID, in: state, from: .thisWindow)
-    }
-
-    /// Records that a person explicitly opened a Cloud machine. A workspace key can be
-    /// shared by a snapshot clone, so inferring ownership from the first daemon that reports
-    /// the key is not sufficient; the explicit machine action is authoritative.
-    func markMachineOpened(_ machineID: String) {
-        guard let daemon = services.machines.daemon(machine: machineID) else { return }
-        for workspaceID in Self.orderedIDs(of: daemon, machines: services.machines) {
-            seenMachine[workspaceID] = machineID
-        }
     }
 
     /// Each registered window's workspaces, by window id.

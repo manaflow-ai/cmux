@@ -28,7 +28,7 @@ extension CloudHandlers {
                 // now. An ended app link connects again on this gesture, and
                 // a paused machine resumes (idle auto-pause).
                 target?.attach(origin: connectOrigin(for: invocation))
-                creationFlow(context, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession,
+                creationFlow(context, startedByPerson: origin(of: invocation) == .user, askedBy: invocation.callerAgentSession,
                              reveals: CloudHandlers.viewChange(invocation)).start(in: window, existing: target)
                 // A CLI or agent hears that the workspace comes later: its machine is starting or connecting.
                 result("new cloud workspace", context) {
@@ -42,7 +42,7 @@ extension CloudHandlers {
                 let id = await context.services.windows.createWorkspace(on: session.daemon, into: window?.id)
                 RemoteGroupHandlers.mark(session: session.daemon.store.registryID) // one group per Cloud machine
                 guard let id else { throw ActionFailure(message: CloudStrings.notConnected) }
-                if invocation.allowsViewChange { show(id, context) }
+                if viewChange(invocation) { show(id, on: session.machineID, context) }
                 return machineFields(session.machineID, ["workspace_id": .string(id)])
             }
         }
@@ -366,17 +366,18 @@ extension CloudHandlers {
             show: { id, creation in
                 let after = creation.readyAfter.map { String(format: "%.1f s", Double($0.components.seconds) + Double($0.components.attoseconds) / 1e18) } ?? "?"
                 cloud.logger.info("new cloud workspace \(id, privacy: .public) on \(creation.session?.machineID ?? "?", privacy: .public) ready after \(after, privacy: .public)")
-                if (startedByPerson || reveals), let machineID = creation.session?.machineID {
-                    windows.markMachineOpened(machineID)
-                }
                 // The window that still shows the creation shows its
                 // workspace; one that moved on gets it filed quietly. A
                 // machine an agent or the CLI made without focus stays out
                 // of the sidebar until the person opens it (`unopenedCloudWorkspaces`).
                 guard let windowID = creation.windowID, let state = windows.controller(for: windowID)?.state else {
-                    if startedByPerson || reveals { windows.reveal(workspaceID: id) }
+                    if startedByPerson || reveals {
+                        if let machineID = creation.session?.machineID { windows.seenMachine[id] = machineID }
+                        windows.reveal(workspaceID: id)
+                    }
                     return
                 }
+                if let machineID = creation.session?.machineID { windows.seenMachine[id] = machineID }
                 if state.cloudCreation == creation.id {
                     windows.show(workspaceID: id, in: state)
                 } else {
