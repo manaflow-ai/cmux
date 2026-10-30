@@ -344,7 +344,7 @@ impl Translator {
                         self.pending.lock().await.insert(id.to_string(), Pending::SideQuestion);
                         let mut request = json!({"subtype": "side_question", "question": question});
                         if !history.is_null() {
-                            request["history"] = history;
+                            request.set("history", history);
                         }
                         Outbound::Lines(vec![json!({
                             "type": "control_request",

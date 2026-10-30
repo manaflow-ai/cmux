@@ -52,9 +52,11 @@ nonisolated extension ActionSurfaceCatalog {
         "reconnectWorkspace": [p(.workspaceRow, .connection, 401, folder: .options)],
         "disconnectWorkspace": [p(.workspaceRow, .connection, 402, folder: .options)],
         "clearWorkspaceNotifications": [p(.workspaceRow, .identity, 114, folder: .options)],
-        // Classic's row menu has Copy Workspace ID(s) and Copy Workspace Link (#27709); in More > Copy.
-        "palette.copyWorkspaceID": [p(.workspaceRow, .inspect, 405, folder: .copy)],
-        "palette.copyWorkspaceLink": [p(.workspaceRow, .inspect, 406, folder: .copy)],
+        // Classic's row menu has Copy Workspace ID(s) and Copy Workspace Link (#27709); in More > Copy, the link
+        // first, as on the tab and pane menus. Leo 2026-10-29: "there's no link to workspace, which is, I mean,
+        // that seems pretty important, doesn't it?"
+        "palette.copyWorkspaceLink": [p(.workspaceRow, .inspect, 405, folder: .copy)],
+        "palette.copyWorkspaceID": [p(.workspaceRow, .inspect, 406, folder: .copy)],
         "workspaceGroup.newWorkspace": [p(.workspaceGroup, .create, 0)],
         // In Options ▸: the group menu keeps 12 top-level rows (ActionSurfaceParityTests).
         "workspaceGroup.newSubgroup": [p(.workspaceGroup, .identity, 109, folder: .options)],
