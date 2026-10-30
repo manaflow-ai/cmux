@@ -141,6 +141,28 @@ struct HomeSearchGlassTests {
         window.makeFirstResponder(nil)
     }
 
+    /// https://github.com/manaflow-ai/cmux/issues/27967: once the field took the keyboard, "Search"
+    /// and the caret slid left over the magnifier (the edit frame handed to AppKit was already cut
+    /// to one line, so the search button's slot came out of a 16 pt rect). The field editor starts
+    /// where the placeholder does at rest, right of the magnifier, at every width.
+    @Test(arguments: [180, 320, 480] as [CGFloat])
+    func theTypedTextStaysRightOfTheMagnifier(_ width: CGFloat) throws {
+        let home = Self.home(width: width)
+        let window = NSWindow(contentRect: home.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = home
+        home.layoutSubtreeIfNeeded()
+        let field = home.list.searchField
+        let cell = try #require(field.cell as? NSSearchFieldCell)
+        let icon = cell.searchButtonRect(forBounds: field.bounds)
+        let rest = cell.searchTextRect(forBounds: field.bounds)
+        #expect(window.makeFirstResponder(field))
+        let editor = try #require(field.currentEditor() as? NSTextView)
+        let box = field.convert(editor.convert(editor.bounds, to: nil), from: nil)
+        #expect(box.minX >= icon.maxX, "the field editor starts \(icon.maxX - box.minX) pt over the magnifier at \(width)")
+        #expect(abs(box.minX - rest.minX) <= 1, "the field editor starts at \(box.minX), the placeholder at rest at \(rest.minX) (\(width))")
+        window.makeFirstResponder(nil)
+    }
+
     /// The middle (in pixel rows) of the drawn ink between columns `x0` and `x1`; nil when none.
     private static func inkRows(_ rep: NSBitmapImageRep, from x0: Int, to x1: Int) -> CGFloat? {
         var low = Int.max, high = Int.min
