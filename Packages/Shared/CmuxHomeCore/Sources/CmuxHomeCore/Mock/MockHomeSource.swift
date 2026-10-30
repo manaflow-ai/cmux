@@ -583,8 +583,8 @@ public actor MockHomeSource: HomeSource {
             let id = createConversation(title: "", participants: [me, agent])
             _ = try? commitMessage(in: id, author: agent.id, parts: [.text(MockHomeSeed.chiefGreeting(trimmed))], key: .make())
             return HomeOpResult(rev: inboxRev, conversation: id)
-        case .createGroup(let title, let ids):
-            let participants = [me] + ids.compactMap { people[$0] }
+        case .createGroup(let title, let ids, let invites):
+            let participants = [me] + ids.compactMap { people[$0] } + invites.map { personFor($0).0 }
             guard participants.count >= 3 else { throw HomeRejection.invalid("group_needs_three") }
             let id = createConversation(title: title, participants: participants)
             return HomeOpResult(rev: inboxRev, conversation: id)

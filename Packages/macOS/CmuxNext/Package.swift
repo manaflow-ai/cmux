@@ -270,6 +270,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextActions",
                 "CmuxNextDaemon",
                 "CmuxNextDesign",
+                "CmuxNextDesignTokens",
                 "CmuxNextIcons",
                 "CmuxNextTerminal",
                 "CmuxNextTerminalGeometry",
@@ -359,7 +360,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextFloatingTests",
-            dependencies: ["CmuxNextFloating", "CmuxNextTestSupport"],
+            dependencies: ["CmuxNextDesign", "CmuxNextFloating", "CmuxNextTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         // Archive and Unarchive of sidebar items (plans/cmux-next/archiving-DESIGN.md): the actions
@@ -1057,7 +1058,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // feed owner; the App supplies the source.
         .target(
             name: "CmuxNextFeed",
-            dependencies: ["CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],

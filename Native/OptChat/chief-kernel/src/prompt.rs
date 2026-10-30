@@ -295,8 +295,10 @@ a closing text: the turn ends at once and posts nothing more. Any text you end a
 message, in the thread of the message it answers when others came after it.
 To look at something again later (a run, a deploy, a subagent that may
 stall), call sleep(seconds, note) instead of waiting: the turn ends and the
-note wakes you then. The id is the message's line id in the view or after
-</chat>.
+note wakes you then. To wait for something outside (a sign-in, a run, a
+file, a page), call watch(command, until, note) instead of promising to
+watch: the host runs the command off your turn and wakes you once. The id is
+the message's line id in the view or after </chat>.
 
 Follow-through: every task you start or hand off stays yours until it is
 done. When a report or alert says something is still open (not landed,
@@ -942,6 +944,9 @@ pub const STOP_DESCRIPTION: &str = "End your turn now, when everything is said (
 /// The `sleep` tool's description.
 pub const REMEMBER_DESCRIPTION: &str = "Keep a lasting preference or correction of the user in their profile (optchat/person.md), dated, as one short rule: it holds from now on and in every later turn. Call it at once when the user says how they want things done from now on; a rule the profile already holds is a noop. Never a secret or a one-off task.";
 pub const SLEEP_DESCRIPTION: &str = "End your turn and wake later: after `seconds` (30 to 86400) a message \"[wake] <note>\" starts a new turn with the whole view. Use it to look at a run, deploy or subagent again instead of waiting or polling. until: event lets a user message or subagent report that comes first replace the wake. seconds 0 clears every pending wake. Never call it to wait for a subagent's report alone: reports always wake you.";
+
+/// The `watch` tool's description (optchat-chief brain/watches.rs).
+pub const WATCH_DESCRIPTION: &str = "Wait for something outside your turn: the host runs `command` (sh -c) on this machine in the background and wakes you once with a message \"[watch w<N>] <note>: <what happened>\" and its last output lines, when an output line matches the regex `until`, when the command exits (no `until`), or at `timeout_seconds` (default 1800). A short check that exits without a match runs again every 15 s, so `aws sts get-caller-identity && echo SIGNED_IN` with until SIGNED_IN waits for a sign-in, and `gh run watch ID --exit-status` with no until waits for a run. Your turn goes on: tell the user what you wait for, then end it. Use it whenever you would say you are watching or will continue when something finishes. cancel: a watch id or all. No arguments: lists the pending watches. At most 8 at once.";
 
 /// The `control` tool's description.
 pub const CONTROL_DESCRIPTION: &str = "Control your subagents; every answer starts with its outcome (done, queued, noop, refused). status [id]: state, elapsed, last output, pending prompt with its options. interrupt id [message]: stop its turn now, keep its context, then send message. answer id deny: deny its pending prompt; only the user can allow one, with the Allow button in its workspace (an allow from you is refused: the user is told where to allow, or, when the app shows no Allow button for it, the prompt is denied). pause id / resume id [message]. cancel id: stop for good. restart id [message]: stop and continue in the same session. priority id: a queued one starts next. cap n: subagents at work at once (0: no cap). There is no cap by default; set one only when the user asks for one, and say how to lift it. cloud [peer[,peer...]|off]: the acpmux peers new subagents run on by default (each goes to the least busy; an idle VM pauses and resumes when needed), or off (here); without peer, shows it. Cloud subagents take no local slot. Never poll: reports, stuck notes and prompts come to you as messages.";
