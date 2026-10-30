@@ -34,9 +34,44 @@ struct AgentPaneColdChatRevealTests {
         return mark.superview != nil && !mark.isHidden
     }
 
+    /// How long a wait here may take before it reports. Not a timing these tests check: each wait
+    /// ends on its condition, and in the full parallel CmuxNextAppTests run a starved main actor
+    /// (tests there report 100 to 500 s) held a 120 ms fade's completion past the 2 s this was.
+    /// It only keeps a condition that never comes from holding the run.
+    private static let hangBound: Duration = .seconds(60)
+
     private static func settle(until done: () -> Bool) async throws {
-        let deadline = ContinuousClock.now + .seconds(2)
+        let deadline = ContinuousClock.now + hangBound
         while !done(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+    }
+
+    /// Waits for the loading state to leave the pane: the fade's own completion
+    /// (``AgentPaneLoadingView/whenRevealed(_:)``), or at once when it shows in one frame. False
+    /// when it has not left by ``hangBound``.
+    private static func revealed(_ view: AgentPaneView) async -> Bool {
+        let once = Once()
+        return await withCheckedContinuation { continuation in
+            once.continuation = continuation
+            // Armed before the reveal can answer, so its answer cancels it; it stops either way.
+            once.deadline = Task { @MainActor in
+                try? await Task.sleep(for: hangBound)
+                once.finish(false)
+            }
+            view.loadingView.whenRevealed { once.finish(true) }
+        }
+    }
+
+    /// One answer for `revealed`: the reveal or the bound, whichever comes first; the other does nothing.
+    @MainActor private final class Once {
+        var continuation: CheckedContinuation<Bool, Never>?
+        var deadline: Task<Void, Never>?
+
+        func finish(_ value: Bool) {
+            guard let continuation else { return }
+            self.continuation = nil
+            deadline?.cancel()
+            continuation.resume(returning: value)
+        }
     }
 
     @Test func aColdChatHoldsItsBackgroundWithoutAMarkThenFadesIn() async throws {
@@ -50,7 +85,7 @@ struct AgentPaneColdChatRevealTests {
         if Motion.canAnimate(in: view), Motion.home.duration(.fadeIn) > 0 {
             #expect(view.loadingView.superview != nil, "the chat's page replaced its loading state in one frame, with no fade")
         }
-        try await Self.settle { view.loadingView.superview == nil }
+        #expect(await Self.revealed(view))
         #expect(view.loadingView.superview == nil, "the fade never ended")
     }
 
@@ -71,7 +106,7 @@ struct AgentPaneColdChatRevealTests {
         defer { window.close() }
         view.loadingView.paintCheckInterval = .milliseconds(100)
         #expect(view.showsLoadingState)
-        try await Self.settle { view.loadingView.superview == nil }
+        #expect(await Self.revealed(view))
         #expect(view.loadingView.superview == nil, "a page that never painted kept its loading state")
         #expect(view.pageContent.alphaValue == 1, "the page stayed clear after the loading state gave up")
         #expect(view.model.hasPainted, "the pane still waits on a paint it gave up on")
@@ -105,7 +140,7 @@ struct AgentPaneColdChatRevealTests {
         defer { window.close() }
         view.model.hasHandshake = true
         view.loadingView.paintCheckInterval = .milliseconds(60)
-        try await Self.settle { view.loadingView.superview == nil }
+        #expect(await Self.revealed(view))
         #expect(view.loadingView.superview == nil, "a handshaked page that never painted waited for good")
         #expect(view.model.hasPainted)
     }
@@ -161,7 +196,7 @@ struct AgentPaneColdChatRevealTests {
         defer { window.close() }
         _ = await view.model.respond(to: AgentPaneRequest(body: ["method": "pane.painted"]))
         #expect(view.loadingView.leftFading == true, "a chat read cold showed in one frame, with no fade")
-        try await Self.settle { view.loadingView.superview == nil }
+        #expect(await Self.revealed(view))
         #expect(view.loadingView.superview == nil, "the fade never ended")
     }
 }

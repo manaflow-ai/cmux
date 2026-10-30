@@ -92,14 +92,27 @@ extension AgentPaneTransport {
             frame.withLock { (($0["params"] as? [String: Any])?[key] as? String) }
         }
 
-        /// Adds the person's decision proof (`_meta.acpmux`) of a relayed allow.
-        func setDecision(nonce: String, proof: String) {
+        /// Adds the decision proof (`_meta.acpmux`) of a relayed allow: the person's
+        /// (`personDecision`), or this Mac's signed one-time allow for a peer's prompt
+        /// (`approverDecision`, acpmux `hub/mac_approvers.rs`).
+        func setDecision(nonce: String, proof: some Sendable, field: String = "personDecision") {
+            setAcpmuxMeta(["decisionNonce": nonce, field: proof])
+        }
+
+        /// Whether the frame's `_meta.acpmux` has `key`.
+        func hasAcpmuxMeta(_ key: String) -> Bool {
+            frame.withLock { ((($0["params"] as? [String: Any])?["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?[key] != nil }
+        }
+
+        /// Sets `key` of the frame's `_meta.acpmux`.
+        func setAcpmuxMeta(_ key: String, _ value: some Sendable) { setAcpmuxMeta([key: value]) }
+
+        private func setAcpmuxMeta(_ values: [String: any Sendable]) {
             frame.withLock { object in
                 var params = object["params"] as? [String: Any] ?? [:]
                 var meta = params["_meta"] as? [String: Any] ?? [:]
                 var acpmux = meta["acpmux"] as? [String: Any] ?? [:]
-                acpmux["decisionNonce"] = nonce
-                acpmux["personDecision"] = proof
+                for (key, value) in values { acpmux[key] = value }
                 meta["acpmux"] = acpmux
                 params["_meta"] = meta
                 object["params"] = params
@@ -340,7 +353,9 @@ extension AgentPaneTransport {
                 // The start's credit is spent by the first prompt, whatever grants it.
                 let credit = facts.method == "session/prompt"
                     && startCredit.take(connection: id, now: gestures.uptime, lifetime: Self.startCreditLifetime) == true
-                granted = !facts.needsGesture || (AcpmuxPaneMethods.answerAllowed(facts.method, gestures) && gestures.consume()) || credit
+                // A prompt spends the person's gesture however old it is (``AgentPaneUserGestures/consumeForSend()``).
+                granted = !facts.needsGesture || (AcpmuxPaneMethods.answerAllowed(facts.method, gestures)
+                    && (facts.method == "session/prompt" ? gestures.consumeForSend() : gestures.consume())) || credit
                 // A new chat on this Mac needs no gesture, but its send's (or the folder pick's) goes with its first
                 // prompt however long the start takes, past ``AgentPaneUserGestures/lifetime`` (hq#2569 item 5).
                 // A folder pick that took the Send's gesture (``grantPicked(_:)``) gives it to this start.
@@ -382,7 +397,13 @@ extension AgentPaneTransport {
         // Only an allow that redeemed a ticket for this very prompt and option is signed.
         if !facts.isFirst, facts.needsGesture, facts.method == "_acpmux/permission_respond" {
             // The frame's own session: `facts.sessionId` is set only for a frame with a ticket.
-            signRelayedAllow(box, sessionId: box.param("sessionId"), ticketPick: ticketPick)
+            await signRelayedAllow(box, sessionId: box.param("sessionId"), ticketPick: ticketPick)
+            guard id == current, self.socket === socket else { return .stop(.staleConnection) }
+        }
+        // Peer-route approvals: a group's Allow once the person's click granted, for a peer's prompts.
+        if !facts.isFirst, facts.needsGesture, facts.method == "_acpmux/permission_group_respond" {
+            await signPeerGroupAllow(box)
+            guard id == current, self.socket === socket else { return .stop(.staleConnection) }
         }
         // A Trust answer on another machine for the folder the person chose there by Use Home
         // Folder (a root of this pane): that machine's daemon trusts its home folder only with
@@ -430,8 +451,17 @@ extension AgentPaneTransport {
                 gestures.clearTickets(); gestures.dropSeedTicket(); startCredit.clear(); pickCredit.clear()
             }
         }
+        // Whether this answer carries this Mac's signed allow, by its page id (one request at a
+        // time, `ids.begin` above): its reply is read against it (`AcpmuxDecisionContexts.sent`),
+        // so an unsigned one's refusal never offers to enroll.
+        let answer = !facts.isFirst
+            && (facts.method == "_acpmux/permission_respond" || facts.method == "_acpmux/permission_group_respond")
+        if answer, let pageID = facts.pageID {
+            decisions.sent(pageID: pageID, proved: box.hasAcpmuxMeta("approverDecision") || box.hasAcpmuxMeta("approverDecisions"))
+        }
         if let error = await Self.encodeAndSend(box, relayID: relayID, socket: socket) {
             socket.pageFrameNotSent(method: facts.method)
+            if answer, let pageID = facts.pageID { decisions.notSent(pageID: pageID) }
             if let relayID { ids.cancel(relayID) }
             await relay?.withdraw(journaled, relayID: nil, ids: ids)
             if error == .outboundOverflow { socket.close(code: 1008, reason: "outbound overflow", error: error) }

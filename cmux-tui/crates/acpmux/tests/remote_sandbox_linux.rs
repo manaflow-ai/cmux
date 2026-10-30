@@ -1,5 +1,12 @@
 #![cfg(target_os = "linux")]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// The canary starts the keeper with a stand-in harness (`/bin/true`). CI sets
+// `ACPMUX_REQUIRE_BWRAP` so a missing bwrap fails instead of skipping.
+const HERMETIC: daemon_env::Process =
+    daemon_env::Process::stand_in().keep(&["ACPMUX_REQUIRE_BWRAP"]);
+
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use serde_json::json;
@@ -30,10 +37,7 @@ async fn linux_remote_sandbox_canary_passes_with_real_bwrap() {
     let root = fixture();
     let hub = hub(&root);
     let result = hub
-        .linux_sandbox_canary_for_tests(
-            root.join("project"),
-            PathBuf::from(env!("CARGO_BIN_EXE_acpmux")),
-        )
+        .linux_sandbox_canary_for_tests(root.join("project"), PathBuf::from(daemon_env::bin()))
         .await;
     if std::env::var_os("ACPMUX_REQUIRE_BWRAP").is_none()
         && result.as_ref().is_err_and(|e| e.contains("bwrap unavailable"))

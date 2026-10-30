@@ -1,3 +1,5 @@
+import { isDefaultChoice } from "./defaultChoice";
+import { isModelRouterKind } from "./routerKinds";
 import bundledCatalog from "../../../../web/data/model-catalog/snapshot.json";
 import { agentName } from "./agents";
 import type { AcpmuxSnapshot } from "./model";
@@ -85,6 +87,9 @@ export type PickerModel = {
   family?: string;
   providerName?: string;
   efforts: EffortValue[];
+  /** Whether the catalog/profile explicitly declared this model's effort capability.
+   * An empty array is meaningful only when this is true; omitted capabilities may use live session options. */
+  effortsDeclared?: boolean;
   defaultEffort?: EffortValue;
   fast: boolean;
   inlineFast?: boolean;
@@ -105,8 +110,12 @@ export type PickerModel = {
 type Own = { efforts?: true; fast?: true };
 
 export type PickerHarness = {
+  /** The installed harness's own model-menu order, separate from the full catalog. */
+  topModels?: string[];
   id: string;
   name: string;
+  /** acpmux family, when this profile was reported (for family-specific picker behavior). */
+  family?: string;
   /** AgentMark brand id; null = no brand (use `iconUrl`, else the generic glyph). */
   brand: string | null;
   /** A host-served icon an acpmux profile declared (`_acpmux/harnesses` `icon` that is not a brand). */
@@ -274,7 +283,9 @@ export function buildPickerCatalog({
 }: PickerInputs): PickerCatalog {
   // A chat folder's own profiles stay out of the join: the picker lists them on their own, and a
   // folder profile must never stand in for a catalog harness of its family.
-  acpmux = acpmux.filter((entry) => !entry.folder);
+  // A router can report the same family as a real launcher. Exclude it before choosing that
+  // family's representative, so it cannot replace or hide the actual harness.
+  acpmux = acpmux.filter((entry) => !entry.folder && !isModelRouterKind(entry.kind));
   const layered = applyUserLayer(catalog, user);
   const join: Join = {
     catalog: layered,
@@ -399,6 +410,7 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
   return {
     id: harness.id,
     name: harness.name,
+    ...(chosen?.family ? { family: chosen.family } : {}),
     brand: harness.brand,
     acpmuxHarness: chosen?.id ?? null,
     installed: chosen !== undefined,
@@ -406,11 +418,13 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
       harness.pickable !== false &&
       harness.kind !== "terminal" &&
       harness.kind !== "unknown" &&
+      !isModelRouterKind(harness.kind) &&
       (chosen === undefined || entryPickable(chosen)),
     ...(chosen?.unavailable ? { unavailable: chosen.unavailable } : {}),
     ...(chosen?.probeFailed ? { probeFailed: true } : {}),
     ...(harness.defaultModel ? { defaultModel: harness.defaultModel } : {}),
     ...(harness.docsUrl ? { docsUrl: harness.docsUrl } : {}),
+    topModels: menuModels(chosen?.topModels, live, offered, reported, join),
     models: live ? offered.map((model) => withLiveOptions(model, live)) : offered,
   };
 }
@@ -448,6 +462,7 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
   return {
     id: entry.id,
     name: agentName(entry.id, entry.name),
+    ...(entry.family ? { family: entry.family } : {}),
     brand: declaredBrand ?? agentBrand(entry.id) ?? null,
     ...(iconUrl ? { iconUrl } : {}),
     acpmuxHarness: entry.id,
@@ -456,8 +471,32 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
     ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
     ...(entry.probeFailed ? { probeFailed: true } : {}),
     ...(kin ? { kin: kin.id } : {}),
+    topModels: menuModels(entry.topModels, live, offered, reported, join),
     models: live ? offered.map((model) => withLiveOptions(model, live)) : offered,
   };
+}
+
+/** Keep the harness menu's order after aliases fold into their catalog releases. */
+function menuModels(
+  top: readonly string[] | undefined,
+  options: ConfigOptions | undefined,
+  models: PickerModel[],
+  reported: Map<string, string>,
+  join: Join,
+): string[] | undefined {
+  const option = options?.find((choice) => choice.category === "model" || choice.id === "model");
+  const ids = top ?? option?.options?.map((choice) => choice.value);
+  if (!ids) return undefined;
+  return [
+    ...new Set(
+      ids.flatMap((id) => {
+        const model =
+          models.find((choice) => choice.id === id || choice.release === id) ??
+          models.find((choice) => namesRelease(reported.get(id), { ...choice, id: choice.release ?? choice.id }, join));
+        return model && !isDefaultChoice(model) ? [model.id] : [];
+      }),
+    ),
+  ];
 }
 
 /**
@@ -649,6 +688,8 @@ function pickerModel(model: HarnessModel & { own?: Own }, catalog: ModelCatalog,
     ...(model.family ? { family: model.family } : {}),
     ...(providerName ? { providerName } : {}),
     efforts: model.efforts ?? [],
+    // Keep provenance when the normalized picker model materializes an omitted capability as [].
+    effortsDeclared: model.efforts !== undefined || Boolean(model.own?.efforts),
     ...(model.defaultEffort ? { defaultEffort: model.defaultEffort } : {}),
     fast: model.fast === true,
     ...(model.inlineFast === true ? { inlineFast: true } : {}),
@@ -759,7 +800,9 @@ function isCatalogHarness(value: unknown): value is CatalogHarness {
 
 function entryPickable(entry: AcpmuxHarness): boolean {
   const value = entry as AcpmuxHarness & { pickable?: unknown; kind?: unknown };
-  return value.pickable !== false && value.kind !== "terminal" && value.kind !== "unknown";
+  return (
+    value.pickable !== false && value.kind !== "terminal" && value.kind !== "unknown" && !isModelRouterKind(value.kind)
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
