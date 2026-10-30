@@ -110,7 +110,7 @@ extension PaneContentView {
         parked.removeAll { entry in
             guard let view = entry.view else { return true }
             guard view.superview === contentHost else {
-                (view as? AgentPaneView)?.onNativeToolOwnerChange = nil
+                if view.superview == nil { (view as? AgentPaneView)?.onNativeToolOwnerChange = nil }
                 return true
             }
             guard view !== content else { return true }

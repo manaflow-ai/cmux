@@ -54,6 +54,7 @@ struct AgentPaneNativeToolsHostTests {
         defer { view.close() }
         #expect(view.pageEvents != nil)
         #expect(view.model.tabRow.nativeToolsEnabled)
+        AgentPaneTabRow.offer(points: 36, trailingInset: 40, to: view)
         _ = await view.model.respond(to: .tabRowToolsSet([tool]))
         #expect(view.model.tabRowTools == [tool])
         let replay = try #require(AgentPanePageHost.currentEvents(view).first { $0.kind == "tabRow" })

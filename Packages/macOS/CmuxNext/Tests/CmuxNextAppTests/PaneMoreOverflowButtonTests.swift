@@ -44,7 +44,7 @@ import Testing
 
 
     @Test func overflowValidationPreservesDisabledToolsAndAncestors() throws {
-        let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 200, height: 30))
+        let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 1, height: 30))
         let child = PaneTabRowMenuItem(id: "child", label: "Child")
         view.show(more: true, lit: false, nativeItems: [
             PaneTabRowTool(id: "disabled", symbol: "checkmark", label: "Disabled", enabled: false),
@@ -59,15 +59,18 @@ import Testing
         let menu = NSMenu()
         // Registry-built overflow menus enable this; AppKit must still honor page declarations.
         menu.autoenablesItems = true
+        view.layoutSubtreeIfNeeded()
         view.nativeOverflowItems().forEach { menu.addItem($0) }
         menu.update()
-        let disabled = try #require(menu.item(at: 0))
+        let rows = menu.items
+        try #require(rows.count == 4, "all four native tools must overflow before indexing menu rows")
+        let disabled = rows[0]
         #expect(!disabled.isEnabled)
-        let disabledMenu = try #require(menu.item(at: 1))
+        let disabledMenu = rows[1]
         let disabledChild = try #require(disabledMenu.submenu?.items.first)
         #expect(!disabledMenu.isEnabled)
         #expect(!disabledChild.isEnabled)
-        let nestedParent = try #require(menu.item(at: 2)?.submenu?.items.first)
+        let nestedParent = try #require(rows[2].submenu?.items.first)
         let nestedChild = try #require(nestedParent.submenu?.items.first)
         #expect(!nestedParent.isEnabled)
         #expect(!nestedChild.isEnabled)
@@ -77,23 +80,25 @@ import Testing
             #expect(NSApplication.shared.sendAction(action, to: row.target, from: row))
         }
         #expect(invoked.isEmpty)
-        let enabled = try #require(menu.item(at: 3))
+        let enabled = rows[3]
         #expect(enabled.isEnabled)
         #expect(NSApplication.shared.sendAction(try #require(enabled.action), to: enabled.target, from: enabled))
         #expect(invoked == ["enabled"])
     }
 
     @Test func retainedOverflowRowsCannotInvokeReplacedTools() throws {
-        let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 200, height: 30))
+        let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 1, height: 30))
         view.show(more: true, lit: false, nativeItems: [
             PaneTabRowTool(id: "review", symbol: "checkmark", label: "Review"),
         ])
-        let row = try #require(view.nativeOverflowItems().first)
+        view.layoutSubtreeIfNeeded()
         var invoked = false
         view.onNativeTool = { _, _ in invoked = true }
+        let row = try #require(view.nativeOverflowItems().first)
         view.show(more: true, lit: false, nativeItems: [
             PaneTabRowTool(id: "review", symbol: "checkmark", label: "Review", enabled: false),
         ])
+        view.layoutSubtreeIfNeeded()
         let menu = NSMenu()
         menu.addItem(row)
         menu.update()

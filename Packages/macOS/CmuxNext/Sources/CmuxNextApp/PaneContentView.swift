@@ -216,7 +216,7 @@ final class PaneContentView: NSView, PaneContentChrome {
 
     /// The controls and their callback follow the selected page, including an outgoing first-paint hold.
     func refreshNativeToolOwner() {
-        if let agent = content as? AgentPaneView, !hostsContent {
+        if let agent = content as? AgentPaneView, !hostsContent, agent.superview == nil {
             // Reparenting invokes this refresh on the old pane before the new pane binds its callback.
             agent.onNativeToolOwnerChange = nil
         }

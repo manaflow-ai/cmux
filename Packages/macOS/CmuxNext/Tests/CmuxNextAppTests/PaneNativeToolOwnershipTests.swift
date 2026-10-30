@@ -12,6 +12,37 @@ import Testing
 
 /// The tools follow the page on screen, including the end of a first-paint hold without a tab-store update.
 @MainActor @Suite(.serialized) struct PaneNativeToolOwnershipTests {
+    private nonisolated struct UpdateTimedOut: Error, CustomStringConvertible {
+        let label: String
+        var description: String { "Timed out after 2 seconds waiting for \(label)" }
+    }
+
+    @MainActor private final class UpdateIterator {
+        var iterator: ObservationStream<PaneToolbar.State>.Iterator
+
+        init(_ iterator: ObservationStream<PaneToolbar.State>.Iterator) { self.iterator = iterator }
+
+        func next() async -> PaneToolbar.State? {
+            var pending = iterator
+            let value = await pending.next()
+            iterator = pending
+            return value
+        }
+    }
+
+    private func nextUpdate(_ updates: UpdateIterator, label: String) async throws -> PaneToolbar.State {
+        try await withThrowingTaskGroup(of: PaneToolbar.State?.self) { group in
+            group.addTask { await updates.next() }
+            group.addTask {
+                try await Task.sleep(for: .seconds(2))
+                throw UpdateTimedOut(label: label)
+            }
+            defer { group.cancelAll() }
+            guard let value = try await group.next(), let value else { throw UpdateTimedOut(label: label) }
+            return value
+        }
+    }
+
     private actor NoHost: AgentPaneHostProviding {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
     }
@@ -52,9 +83,9 @@ import Testing
         pane.toolbar = toolbar
         pane.show(first)
         let owner = pane.nativeToolOwner
-        #expect(owner.model === first, "the initially shown page owns the tools")
+        #expect(owner.model === first.model, "the initially shown page owns the tools")
         let current = ObservationStream.current { snapshot(owner) }
-        var updates = current.later.makeAsyncIterator()
+        let updates = UpdateIterator(current.later.makeAsyncIterator())
         toolbar.apply(current.value, owner: owner)
         let oldInvocation = try #require(toolbar.view.onNativeTool)
         oldInvocation("review", nil)
@@ -62,27 +93,28 @@ import Testing
 
         pane.show(second)
         try #require(pane.paintHold.kept === first)
-        #expect(owner.model === second, "the selected incoming page owns tools during the paint hold")
+        let switched = try await nextUpdate(updates, label: "selected page ownership")
+        #expect(switched.nativeOwnerID == ObjectIdentifier(second.model), "owner observation follows the selected page")
+        #expect(owner.model === second.model, "the selected incoming page owns tools during the paint hold")
+        toolbar.apply(switched, owner: owner)
         let incomingInvocation = try #require(toolbar.view.onNativeTool)
         incomingInvocation("review", nil)
         #expect(firstCalls == 1 && secondCalls == 1, "a fresh callback during the hold reaches the incoming page")
         oldInvocation("review", nil)
-        #expect(firstCalls == 2 && secondCalls == 1, "the retained outgoing callback stays bound to the old page")
+        #expect(firstCalls == 1 && secondCalls == 1, "the retained outgoing callback is rejected after ownership changes; it cannot retarget")
 
         second.model.markPainted()
-        let next = try #require(await updates.next())
-        #expect(next != current.value, "identical tools still change their owner")
-        toolbar.apply(next, owner: owner)
+        #expect(owner.model === second.model, "releasing the hold does not change the selected owner")
         toolbar.view.onNativeTool?("review", nil)
-        #expect(firstCalls == 2 && secondCalls == 2, "the current callback remains on the incoming page")
+        #expect(firstCalls == 1 && secondCalls == 2, "the current callback remains on the incoming page")
 
         second.model.setTabRowTools([])
-        let changed = try #require(await updates.next())
+        let changed = try await nextUpdate(updates, label: "incoming page tools")
         #expect(changed.nativeItems.isEmpty, "observation must now subscribe to the incoming model")
         toolbar.apply(changed, owner: owner)
         #expect(toolbar.view.nativeButtons.isEmpty)
         pane.detachContent()
-        let detached = try #require(await updates.next())
+        let detached = try await nextUpdate(updates, label: "detached ownership")
         #expect(detached.nativeOwnerID == nil && detached.nativeItems.isEmpty)
         toolbar.apply(detached, owner: owner)
         #expect(toolbar.view.nativeButtons.isEmpty)
@@ -91,6 +123,33 @@ import Testing
         try #require(second.superview === pane.contentHost)
         second.removeFromSuperview()
         #expect(owner.model == nil, "reparenting content away clears native tool ownership")
+    }
+
+    @Test func pruningParkedViewAdoptedByAnotherPanePreservesItsNewHook() throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "adopted-native-tool-owner-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: "index.html")
+        try Data("<html><body>Chat</body></html>".utf8).write(to: file)
+        let page = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file)))
+        defer { page.close() }
+        page.model.markPainted()
+        let firstPane = PaneContentView(stripModel: TabStripModel(tabs: []), reveal: LaunchReveal(deadline: .zero))
+        let replacement = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file)))
+        replacement.model.markPainted()
+        defer { replacement.close() }
+        firstPane.show(page)
+        firstPane.show(replacement)
+        #expect(firstPane.parked.contains { $0.view === page })
+
+        let secondPane = PaneContentView(stripModel: TabStripModel(tabs: []), reveal: LaunchReveal(deadline: .zero))
+        secondPane.show(page)
+        try #require(page.onNativeToolOwnerChange != nil)
+        firstPane.prunePark()
+
+        #expect(page.onNativeToolOwnerChange != nil, "pruning the old pane must not clear the adopted pane's hook")
+        page.removeFromSuperview()
+        #expect(secondPane.nativeToolOwner.model == nil, "the preserved hook clears the adopting pane when the page leaves")
     }
 
     @Test func closingShownViewClearsOwnerHookWithoutRebindingPane() throws {
