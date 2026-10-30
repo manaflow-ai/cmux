@@ -55,7 +55,10 @@ to explore, and say so next to any number you cite.
   those hooks: on each tool call it runs the PreToolUse and PostToolUse hook commands
   (`$CMUX_TUI_HOOK claude <event>`) and on each turn end the Stop hook, with Claude Code's payload.
   It waits for sync hooks and lets `async` hooks run on. Each tool call is real git or file work in
-  the agent's worktree, and every third call is also one `cmux` CLI call. Between tool calls it
+  the agent's worktree, and every third call is also one `cmux` CLI call. **That CLI rate is assumed, not
+  from Austin's data:** one `cmux workspace list` per 3 tool calls. It fills the 64-slot pool with CLI
+  calls, so hook-path fixes cannot show in refused connections (lead decision 2026-10-30: kept for
+  comparability until Austin's real client mix is measured; the scenario then changes, with a new A/A). Between tool calls it
   draws to its terminal as Claude Code's TUI does (a spinner rewritten 10 times a second and about
   300 characters a second of streamed text) and keeps 15 % of a core busy.
 - **The shared repo**: `packs.py` builds a `--filter=blob:none` partial clone with 8 worktrees and

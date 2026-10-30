@@ -375,6 +375,7 @@ def pick(metrics, path):
 
 
 HARNESS_DIR = "scripts/cmux-next/austins-day"
+AGENT_CLI_RATE_NOTE = ("assumed, not from Austin's data: one cmux workspace list per 3 tool calls; it fills the 64-slot pool with CLI calls, so hook-path fixes cannot show in refused connections")
 CONFIDENCE = 0.95
 
 
@@ -589,7 +590,7 @@ def main():
     for r in runs:
         if "metrics" in r:
             arms.setdefault(r["arm"], []).append(r)
-    summary = {"schema": 2, "runs": runs, "arms": {}}
+    summary = {"schema": 2, "runs": runs, "arms": {}, "scenario_note": "agent CLI rate: " + AGENT_CLI_RATE_NOTE}
     for name, members in arms.items():
         medians = {}
         for label, path in KEY:
@@ -629,6 +630,7 @@ def main():
     names = list(summary["arms"])
     lines = [f"Austin's day: {len(runs)} runs; arms {', '.join(f'{n} ({summary['arms'][n]['sha'] or '?'}, {summary['arms'][n]['runs']} runs)' for n in names)}"]
     lines.append(f"same host per round: {summary['same_host_per_round']}")
+    lines.append("scenario note: the agent CLI rate is " + AGENT_CLI_RATE_NOTE)
     if summary.get("measured_commits") is not None:
         commits = summary["measured_commits"]
         lines.append(f"measured commits (base..head): {len(commits)}; check they are the PR's own (base = the PR's parent)")
