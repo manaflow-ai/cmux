@@ -66,7 +66,7 @@ enum TabLifecycle {
             let placed = target.flatMap { HomeDockOpens.placing($0.pane, services: ctx.services, focus: true,
                                                                 then: NewTabSlot.placing(slot, services: ctx.services, then: nil)) }
             target?.newTerminalTab(cwd: target === controller ? tabCwd : chatStart, keep: keep, fromSelectedTab: true, daemonResolvesCwd: target !== controller,
-                                   then: placed, placementOwner: placed != nil)
+                                   placementOwner: placed != nil, then: placed)
             return
         }
         let handle = pane.handle
@@ -279,14 +279,14 @@ enum TabLifecycle {
         case .cascade: break
         case .explicit(let id):
             return openInProfile(ctx, pane: pane, url: url, engine: engine, profile: id, background: background,
-                                  then: agentTab, placementOwner: homePlacement)
+                                  placementOwner: homePlacement, then: agentTab)
         case .agent:
             let profiles = ctx.services.browserProfiles
             ctx.registry.track(Task { @MainActor in
                 do {
                     let id = try await AgentBrowserProfile.ensure(profiles)
                     openInProfile(ctx, pane: pane, url: url, engine: engine, profile: id, background: background,
-                                  then: agentTab, placementOwner: homePlacement)
+                                  placementOwner: homePlacement, then: agentTab)
                     return nil
                 } catch {
                     return "agent-browser-profile: \(error)"
@@ -314,11 +314,9 @@ enum TabLifecycle {
         if let controller = ctx.services.paneController(for: opener) {
             // No URL given: what the selected tab works on (#16620), the chat's from the chat dock.
             if url == nil {
-                (context ?? controller).newBrowserTabFromSelectedTab(engine: engine, in: controller, then: then,
-                                                                      placementOwner: homePlacement)
+                (context ?? controller).newBrowserTabFromSelectedTab(engine: engine, in: controller, placementOwner: homePlacement, then: then)
             } else {
-                controller.newBrowserTab(url: url, engine: engine, background: background, then: then,
-                                         placementOwner: homePlacement)
+                controller.newBrowserTab(url: url, engine: engine, background: background, placementOwner: homePlacement, then: then)
             }
             return
         }
@@ -341,11 +339,11 @@ enum TabLifecycle {
     /// `profile` argument). Without a URL it opens the new tab page rather
     /// than copying the selected tab, whose page belongs to another profile.
     private static func openInProfile(_ ctx: AppActionContext, pane: PaneModel, url: URL?, engine: String?, profile: String,
-                                      background: Bool = false, then agentTab: (@MainActor (SurfaceID) -> Void)?,
-                                      placementOwner: Bool = false) {
+                                      background: Bool = false, placementOwner: Bool = false,
+                                      then agentTab: (@MainActor (SurfaceID) -> Void)?) {
         if let controller = ctx.services.paneController(for: pane) {
-            controller.newBrowserTab(url: url, engine: engine, background: background, profile: profile, then: agentTab,
-                                     placementOwner: placementOwner)
+            controller.newBrowserTab(url: url, engine: engine, background: background, profile: profile,
+                                     placementOwner: placementOwner, then: agentTab)
             return
         }
         openOffscreen(ctx, pane: pane, url: url, engine: engine, profile: profile, then: agentTab)

@@ -120,7 +120,7 @@ struct HomeDockOpensTests {
                 Issue.record("Home did not provide a browser placement callback")
                 return
             }
-            #expect(dock.newBrowserTab(url: URL(string: "https://example.com/"), then: placed, placementOwner: true))
+            #expect(dock.newBrowserTab(url: URL(string: "https://example.com/"), placementOwner: true, then: placed))
             let right = try await Self.untilBeside(home, dock.pane, "browser placement callback")
             #expect(callbackSawHiddenStrip)
             #expect(right.tabs.contains { $0.kind == .browser })
@@ -157,7 +157,7 @@ struct HomeDockOpensTests {
                 #expect(services.pages.openStoreTab(.inbox, in: dock, window: window, focus: true, created: placed) != nil)
             } else {
                 // A non-nil typing value uses the asynchronous path, without an optimistic tab.
-                dock.newTerminalTab(typing: kind == "typed terminal" ? ":\r" : nil, then: placed, placementOwner: true)
+                dock.newTerminalTab(typing: kind == "typed terminal" ? ":\r" : nil, placementOwner: true, then: placed)
             }
             dock.syncStripFromStore()
             #expect(dock.stripModel.tabs.map(\.id) == [homeTab], "the provisional tab appeared in Home")

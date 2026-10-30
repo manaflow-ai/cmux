@@ -215,8 +215,7 @@ extension PaneController {
                        notice: String? = nil, opener: SurfaceID? = nil, placementOwner: Bool = false,
                        then: (@MainActor (SurfaceID) -> Void)? = nil) -> Bool {
         PaneBrowserTabOpener(controller: self).open(url: url, engine: requested, inherited: inherited, adopting: child, background: background,
-                                                    profile: profile, notice: notice, opener: opener, then: then,
-                                                    placementOwner: placementOwner)
+                                                    profile: profile, notice: notice, opener: opener, placementOwner: placementOwner, then: then)
     }
 
     /// Several tabs (close others, to the left, to the right) close in one
