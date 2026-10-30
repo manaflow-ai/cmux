@@ -376,7 +376,7 @@ mod tests {
 
     #[test]
     fn a_link_to_a_moved_chat_leads_to_where_it_runs_now() {
-        // m1 ran on big-red and moved to gcp-1, keeping its ids (`transfer_in.rs`).
+        // m1 ran on desk-mac and moved to gcp-1, keeping its ids (`transfer_in.rs`).
         let rows = vec![
             json!({"sessionId": "m1", "agentSessionId": "a1", "name": "fix", "family": "codex",
                    "harness": "codex", "status": "closed",
@@ -384,19 +384,19 @@ mod tests {
             json!({"sessionId": "m1", "agentSessionId": "a1", "name": "gcp-1/fix",
                    "family": "codex", "harness": "codex", "peer": "gcp-1", "status": "idle"}),
         ];
-        let footer = link("https://cmux.com/deeplink/agent?harness=codex&session=a1&host=big-red");
-        let found = follow_moves(by_link(&rows, &footer, "big-red"), &rows, "big-red");
+        let footer = link("https://cmux.com/deeplink/agent?harness=codex&session=a1&host=desk-mac");
+        let found = follow_moves(by_link(&rows, &footer, "desk-mac"), &rows, "desk-mac");
         assert_eq!(found[0]["peer"], "gcp-1", "the live copy first: {found:?}");
         assert!(found[1]["movedTo"].is_object());
         // By id or name too, and the target joins even when only the moved copy matched.
-        let found = follow_moves(by_key(&rows, "big-red/fix", "big-red"), &rows, "big-red");
+        let found = follow_moves(by_key(&rows, "desk-mac/fix", "desk-mac"), &rows, "desk-mac");
         assert_eq!(found.len(), 2, "{found:?}");
         assert_eq!(found[0]["peer"], "gcp-1");
         // A target not listed (its peer is gone): the moved copy answers, saying where it went.
         let alone = &rows[..1];
-        let found = follow_moves(by_key(alone, "m1", "big-red"), alone, "big-red");
+        let found = follow_moves(by_key(alone, "m1", "desk-mac"), alone, "desk-mac");
         assert_eq!(found.len(), 1);
-        assert_eq!(card(found[0], Some("big-red"))["movedTo"]["host"], "gcp-1");
+        assert_eq!(card(found[0], Some("desk-mac"))["movedTo"]["host"], "gcp-1");
     }
 
     #[test]
