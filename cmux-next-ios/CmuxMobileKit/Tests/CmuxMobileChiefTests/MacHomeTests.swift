@@ -162,12 +162,21 @@ final class FakeHomeOwner: @unchecked Sendable {
         await eventually(condition)
     }
 
-    /// A wait wakes on the change it watches, not on a timer: with a tick past its
-    /// watchdog, only the observed change can end it in time.
+    /// A wait wakes on the change it watches, not on a timer: its only other wake-up is
+    /// at the watchdog (the tick is longer), so ending well before that is the change.
     @Test func aWaitWakesOnTheChangeItWatches() async {
         let flag = WaitFlag()
+        let start = ContinuousClock.now
         Task { flag.done = true }
-        #expect(await eventually(watchdog: .seconds(10), tick: .seconds(30)) { flag.done })
+        #expect(await eventually(watchdog: .seconds(60), tick: .seconds(120)) { flag.done })
+        #expect(ContinuousClock.now - start < .seconds(30))
+    }
+
+    /// The watchdog holds whatever the tick: a condition that never holds ends at it.
+    @Test func theWatchdogEndsAWaitWhateverTheTick() async {
+        let start = ContinuousClock.now
+        #expect(await !eventually(watchdog: .milliseconds(100), tick: .seconds(30)) { false })
+        #expect(ContinuousClock.now - start < .seconds(20))
     }
 
     /// Many short holds of the main actor (other suites' work) before the change

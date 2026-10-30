@@ -391,8 +391,10 @@ let waitWatchdog: Duration = .seconds(60)
         }
         if met { return true }
         if Task.isCancelled || ContinuousClock.now >= deadline { return false }
+        // Never past the deadline, however long the tick.
+        let nap = min(tick, deadline - ContinuousClock.now)
         let ticker = Task { @MainActor in
-            try? await Task.sleep(for: tick)
+            try? await Task.sleep(for: nap)
             wake.fire()
         }
         await withTaskCancellationHandler {
