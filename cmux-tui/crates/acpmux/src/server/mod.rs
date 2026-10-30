@@ -2046,6 +2046,30 @@ mod request_admission_tests {
 mod key_route_tests;
 
 #[cfg(test)]
+mod accept_retry_tests {
+    use super::accept_retry_delay;
+    use std::io::{Error, ErrorKind};
+    use std::time::Duration;
+
+    #[test]
+    fn running_out_of_descriptors_pauses_before_the_next_accept() {
+        // The queued connection stays queued on EMFILE, so an immediate retry spins a core.
+        #[cfg(unix)]
+        assert!(accept_retry_delay(&Error::from_raw_os_error(libc::EMFILE)) > Duration::ZERO);
+        #[cfg(unix)]
+        assert!(accept_retry_delay(&Error::from_raw_os_error(libc::ENFILE)) > Duration::ZERO);
+        assert!(accept_retry_delay(&Error::other("no buffers")) > Duration::ZERO);
+    }
+
+    #[test]
+    fn a_connection_that_died_in_the_queue_retries_at_once() {
+        assert_eq!(accept_retry_delay(&Error::from(ErrorKind::ConnectionAborted)), Duration::ZERO);
+        assert_eq!(accept_retry_delay(&Error::from(ErrorKind::ConnectionReset)), Duration::ZERO);
+        assert_eq!(accept_retry_delay(&Error::from(ErrorKind::Interrupted)), Duration::ZERO);
+    }
+}
+
+#[cfg(test)]
 mod nodelay_tests {
     use super::tune_ws_socket;
 
