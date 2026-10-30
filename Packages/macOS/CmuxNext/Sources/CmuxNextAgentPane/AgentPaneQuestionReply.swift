@@ -57,10 +57,13 @@ public nonisolated struct AgentPaneQuestionReply: Sendable, Equatable {
               let harness = normalized["harness"] as? String, ["claude", "chief", "codex"].contains(harness),
               let items = normalized["items"] as? [[String: Any]],
               (1...AcpmuxPaneMethods.maximumAnswerItems).contains(items.count) else { throw .question }
-        guard let options = request["options"] as? [[String: Any]], !options.isEmpty else { throw .question }
-        // The one allow-once option, as AcpmuxPermissionPrompt.onceOption reads it: a request
-        // offering two is ambiguous, so no reply to it is valid.
-        guard let once = AcpmuxPermissionPrompt.onceOption(allow: true, offered: options),
+        // Entries that are not objects are skipped, as acpmux and the question card skip them.
+        guard let options = (request["options"] as? [Any])?.compactMap({ $0 as? [String: Any] }),
+              !options.isEmpty else { throw .question }
+        // The allow-once option the question card answers with (webviews question/model.ts
+        // `answerOption`): the first of kind allow_once. Any other option, a lasting one or a
+        // later allow-once, is refused.
+        guard let once = options.first(where: { $0["kind"] as? String == "allow_once" })?["optionId"] as? String,
               Self.equalBytes(once, option) else { throw .option }
         guard let answers = reply["answers"] as? [String: Any],
               Self.validAnswers(answers, items: items, codex: harness == "codex") else { throw .answers }
@@ -126,7 +129,10 @@ public nonisolated struct AgentPaneQuestionReply: Sendable, Equatable {
         let tool = request["toolCall"] as? [String: Any]
         let meta = tool?["_meta"] as? [String: Any]
         let asks = harness == "claude" && (meta?["claude"] as? [String: Any])?["tool"] as? String == "AskUserQuestion"
-        guard asks, let originals = (tool?["rawInput"] as? [String: Any])?["questions"] as? [[String: Any]] else { return true }
+        // acpmux finds a question by its text among the entries that are objects; a request with
+        // no question list has its annotations dropped unread.
+        guard asks, let entries = (tool?["rawInput"] as? [String: Any])?["questions"] as? [Any] else { return true }
+        let originals = entries.compactMap { $0 as? [String: Any] }
         guard let annotations = raw as? [String: Any],
               (1...AcpmuxPaneMethods.maximumAnswerItems).contains(annotations.count) else { return false }
         for (key, value) in annotations {
@@ -136,7 +142,7 @@ public nonisolated struct AgentPaneQuestionReply: Sendable, Equatable {
                   Set(note.keys).isSubset(of: ["preview", "notes"]) else { return false }
             if let rawPreview = note["preview"] {
                 guard let preview = rawPreview as? String, preview.utf8.count <= AcpmuxPaneMethods.maximumAnnotationBytes,
-                      let options = original["options"] as? [[String: Any]],
+                      let options = (original["options"] as? [Any])?.compactMap({ $0 as? [String: Any] }),
                       options.contains(where: { option in
                           guard let text = option["preview"] as? String else { return false }
                           let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)

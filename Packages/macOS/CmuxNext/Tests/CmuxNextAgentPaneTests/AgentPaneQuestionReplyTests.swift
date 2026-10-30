@@ -190,12 +190,27 @@ struct AgentPaneQuestionReplyTests {
                                  "annotations": ["Choose?": ["preview": "<b>old</b>"]]], question: next) == .annotations)
     }
 
-    @Test func twoAllowOnceOptionsAreAmbiguous() throws {
+    @Test func theFirstAllowOnceOptionAnswersAsTheQuestionCardSendsIt() throws {
         var request = try #require(Self.prompt()["request"] as? [String: Any])
         request["options"] = [["optionId": "yes", "kind": "allow_once"], ["optionId": "also", "kind": "allow_once"],
-                              ["optionId": "no", "kind": "reject_once"]]
+                              ["optionId": "no", "kind": "reject_once"], 7]
         let question = try Self.fixture(["request": request])
-        #expect(try Self.failure(["optionId": "yes", "answers": ["Choose?": "Other"]], question: question) == .option)
+        #expect(try Self.failure(["optionId": "yes", "answers": ["Choose?": "Other"]], question: question) == nil)
+        #expect(try Self.failure(["optionId": "also", "answers": ["Choose?": "Other"]], question: question) == .option)
+    }
+
+    @Test func malformedNativeQuestionEntriesAreSkippedNotTrusted() throws {
+        var request = try #require(Self.prompt()["request"] as? [String: Any])
+        var tool = try #require(request["toolCall"] as? [String: Any])
+        // A stray entry beside the real question, and one beside its option: acpmux skips both.
+        tool["rawInput"] = ["questions": [["question": "Choose?",
+                                           "options": [["label": "Glass", "preview": "<b>preview</b>"], 7]], 7]]
+        request["toolCall"] = tool
+        let question = try Self.fixture(["request": request])
+        #expect(try Self.failure(["optionId": "yes", "answers": ["Choose?": "Glass"],
+                                 "annotations": ["Choose?": ["preview": "<b>preview</b>"]]], question: question) == nil)
+        #expect(try Self.failure(["optionId": "yes", "answers": ["Choose?": "Glass"],
+                                 "annotations": ["Choose?": ["preview": "<b>forged</b>"]]], question: question) == .annotations)
     }
 
     @Test func digestMustMatchTheImmutableRequest() throws {
