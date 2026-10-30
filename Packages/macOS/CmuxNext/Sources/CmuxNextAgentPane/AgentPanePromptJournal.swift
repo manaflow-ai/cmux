@@ -51,9 +51,26 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         var at: Date
     }
 
+    nonisolated struct PendingTrust: Codable, Sendable, Equatable {
+        var daemon: String
+        var folder: String
+    }
+
     private nonisolated struct Document: Codable {
-        var version = 1
+        var version = 2
         var entries: [Entry]
+        var pendingTrust: [PendingTrust]
+
+        init(entries: [Entry], pendingTrust: [PendingTrust]) {
+            self.entries = entries
+            self.pendingTrust = pendingTrust
+        }
+
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            entries = try values.decode([Entry].self, forKey: .entries)
+            pendingTrust = try values.decodeIfPresent([PendingTrust].self, forKey: .pendingTrust) ?? []
+        }
     }
 
     /// Who holds an entry in this run: the connection (its relay's token) whose page sent it, or
@@ -72,6 +89,7 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     private nonisolated struct State {
         var loaded = false
         var entries: [Entry] = []
+        var pendingTrust: [PendingTrust] = []
         var holders: [String: Holder] = [:]
         /// Connections that ended: they record and claim nothing more.
         var ended: Set<UUID> = []
@@ -87,7 +105,7 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     let url: URL
     let now: @Sendable () -> Date
     private let state = Mutex(State())
-    /// The newest generation written; a write of an older one is skipped (it would put back what a
+    /// The newest generation on disk; a write of an older one is skipped (it would put back what a
     /// newer change took out). Held for a whole record, so records write one at a time.
     private let written = Mutex(0)
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.prompt-journal", qos: .utility)
@@ -117,26 +135,29 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         }
         return try written.withLock { last throws(NotWritten) -> Bool in
             // What the journal would hold with the record; the state is not changed yet.
-            let proposed = state.withLock { state -> [Entry]? in
+            let proposed = state.withLock { state -> (entries: [Entry], pendingTrust: [PendingTrust])? in
                 load(&state)
                 guard !state.ended.contains(owner) else { return nil }
                 var with = state
                 Self.apply(entry, owner: owner, to: &with)
-                return with.entries
+                return (with.entries, with.pendingTrust)
             }
             guard let proposed else { return false }
             whileRecordWrites.withLock { $0 }?()
-            guard writeFile(proposed) else { throw NotWritten() }
+            guard writeFile(proposed.entries, pendingTrust: proposed.pendingTrust) else { throw NotWritten() }
             // On disk: it goes into the state as it is now (other changes may have come in
             // meanwhile), and that is written too when it differs from what was.
-            let (generation, entries, kept) = state.withLock { state -> (Int, [Entry], Bool) in
+            let (generation, entries, pendingTrust, kept) = state.withLock { state in
                 let kept = !state.ended.contains(owner)
                 if kept { Self.apply(entry, owner: owner, to: &state) }
                 state.generation += 1
-                return (state.generation, state.entries, kept)
+                return (state.generation, state.entries, state.pendingTrust, kept)
             }
+            // Older writes queued meanwhile are skipped: they would drop the record from the file.
             last = generation
-            if entries != proposed { writeFile(entries) }
+            if entries != proposed.entries || pendingTrust != proposed.pendingTrust {
+                writeFile(entries, pendingTrust: pendingTrust)
+            }
             return kept
         }
     }
@@ -151,6 +172,54 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         while state.entries.count > maximumEntries {
             let dropped = state.entries.removeFirst()
             state.holders[Self.key(dropped.daemon, dropped.promptId)] = nil
+        }
+    }
+
+    /// Trust I/O uses the journal's file queue, never the main actor or cooperative task pool.
+    func trustIO<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
+        await withCheckedContinuation { done in queue.async { done.resume(returning: work()) } }
+    }
+
+    /// Persists a folder whose trust write must complete before journal replay. An empty daemon is
+    /// used when a native picker completed before this pane had opened its socket; the next local
+    /// connection adopts that barrier.
+    func recordPendingTrust(daemon: String?, folder: String) -> Bool {
+        let key = daemon ?? ""
+        return change { state in
+            if !key.isEmpty { state.pendingTrust.removeAll { $0.daemon.isEmpty && $0.folder == folder } }
+            if !state.pendingTrust.contains(where: { $0.daemon == key && $0.folder == folder }) {
+                state.pendingTrust.append(PendingTrust(daemon: key, folder: folder))
+            }
+            return true // Retry persistence even if a previous write failed.
+        }
+    }
+
+    /// The first local connection claims picks made before a daemon was known, durably.
+    func bindPreOpenTrust(daemon: String) -> Bool {
+        change { state in
+            guard !state.pendingTrust.isEmpty else { return false }
+            for index in state.pendingTrust.indices where state.pendingTrust[index].daemon.isEmpty {
+                state.pendingTrust[index].daemon = daemon
+            }
+            return true
+        }
+    }
+
+    /// Pending trust barriers for a local daemon, including a pre-open native pick.
+    func pendingTrustFolders(daemon: String) -> [String] {
+        state.withLock { state in
+            load(&state)
+            return state.pendingTrust.filter { $0.daemon.isEmpty || $0.daemon == daemon }.map(\.folder)
+        }
+    }
+
+    /// Clears a barrier only after acpmux acknowledged the trust write.
+    func clearPendingTrust(daemon: String?, folder: String) {
+        let key = daemon ?? ""
+        change { state in
+            let before = state.pendingTrust.count
+            state.pendingTrust.removeAll { $0.folder == folder && $0.daemon == key }
+            return state.pendingTrust.count != before
         }
     }
 
@@ -221,7 +290,7 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     /// so the prompts that page sent are the page's again (Retry); the rest are left over. The
     /// change is made at once (no file read on the caller's thread) and written off it.
     func connectionEnded(owner: UUID, byDaemon: Bool) {
-        let snapshot = state.withLock { state -> (Int, [Entry])? in
+        let snapshot = state.withLock { state -> (Int, [Entry], [PendingTrust])? in
             state.ended.insert(owner)
             guard state.loaded else { return nil }
             var changed = false
@@ -234,10 +303,10 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
             }
             guard changed else { return nil }
             state.generation += 1
-            return (state.generation, state.entries)
+            return (state.generation, state.entries, state.pendingTrust)
         }
-        guard let (generation, entries) = snapshot else { return }
-        queue.async { [self] in write(entries, generation: generation) }
+        guard let (generation, entries, pendingTrust) = snapshot else { return }
+        queue.async { [self] in write(entries, pendingTrust: pendingTrust, generation: generation) }
     }
 
     /// The prompts kept now (tests).
@@ -253,16 +322,18 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in queue.async { done.resume() } }
     }
 
-    /// Applies `body` (true when the entries changed) and writes the result when they did.
-    private func change(_ body: (inout State) -> Bool) {
-        let snapshot = state.withLock { state -> (Int, [Entry])? in
+    /// `body` reports mutation; the return value reports persistence success. No mutation is a
+    /// successful no-op, so opening an empty journal never fails its trust barrier.
+    @discardableResult
+    private func change(_ body: (inout State) -> Bool) -> Bool {
+        let snapshot = state.withLock { state -> (Int, [Entry], [PendingTrust])? in
             load(&state)
             guard body(&state) else { return nil }
             state.generation += 1
-            return (state.generation, state.entries)
+            return (state.generation, state.entries, state.pendingTrust)
         }
-        guard let (generation, entries) = snapshot else { return }
-        write(entries, generation: generation)
+        guard let (generation, entries, pendingTrust) = snapshot else { return true }
+        return write(entries, pendingTrust: pendingTrust, generation: generation)
     }
 
     /// Reads the file once; an unreadable one is an empty journal.
@@ -275,28 +346,31 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
             return
         }
         state.entries = Array(document.entries.suffix(Self.maximumEntries))
+        state.pendingTrust = document.pendingTrust
     }
 
-    /// Writes generation `generation` of the entries, unless a newer one was written.
-    private func write(_ entries: [Entry], generation: Int) {
-        written.withLock { last in
-            guard generation > last else { return }
-            last = generation
-            writeFile(entries)
-        }
-    }
-
-    /// Writes the file; false when it could not be written. Called with `written` held.
+    /// Writes the file with `entries` and `pendingTrust`; false when it could not be written.
+    /// Called with `written` held.
     @discardableResult
-    private func writeFile(_ entries: [Entry]) -> Bool {
+    private func writeFile(_ entries: [Entry], pendingTrust: [PendingTrust]) -> Bool {
         do {
-            let data = try Self.encoder.encode(Document(entries: entries))
+            let data = try Self.encoder.encode(Document(entries: entries, pendingTrust: pendingTrust))
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try data.write(to: url, options: [.atomic])
             return true
         } catch {
             Self.logger.error("agent pane prompt journal write failed: \(String(describing: error), privacy: .public)")
             return false
+        }
+    }
+
+    @discardableResult
+    private func write(_ entries: [Entry], pendingTrust: [PendingTrust], generation: Int) -> Bool {
+        written.withLock { last in
+            guard generation > last else { return true }
+            guard writeFile(entries, pendingTrust: pendingTrust) else { return false }
+            last = generation
+            return true
         }
     }
 
