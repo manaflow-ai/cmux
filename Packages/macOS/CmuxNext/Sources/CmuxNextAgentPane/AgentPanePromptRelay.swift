@@ -7,11 +7,6 @@ import os
 /// frame and person proof. Only a connection to this Mac's acpmux has one; its daemon is named by
 /// its unix socket, which outlives a daemon restart.
 nonisolated struct AgentPanePromptRelay: Sendable {
-    enum RecordResult: Sendable {
-        case recorded(String)
-        case notJournaled
-        case writeFailed
-    }
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.prompt-journal")
     let journal: AgentPanePromptJournal
     let daemon: String
@@ -41,8 +36,8 @@ nonisolated struct AgentPanePromptRelay: Sendable {
     /// `relayID`. A promptId this daemon got from the relay before is the pane's Retry: it goes
     /// marked `resend` (which the page may not send), so acpmux also finds a first copy in the
     /// chat's log, which outlives a daemon restart, and runs it at most once. Returns its
-    /// promptId, or nil when it is not kept.
-    @concurrent func record(_ box: AgentPaneTransport.FrameBox, ids: AcpmuxRequestIds, relayID: Int?) async -> RecordResult {
+    /// promptId when durable, or the reason it was not recorded.
+    @concurrent func record(_ box: AgentPaneTransport.FrameBox, ids: AcpmuxRequestIds, relayID: Int?) async -> AgentPanePromptJournal.RecordResult {
         guard let text = box.encoded(id: nil),
               var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
               var params = object["params"] as? [String: Any], let session = params["sessionId"] as? String else { return .notJournaled }
@@ -62,15 +57,12 @@ nonisolated struct AgentPanePromptRelay: Sendable {
             object["params"] = params
             guard let rewritten = AcpmuxRequestIds.encode(object), box.replace(withJSON: rewritten) else { return .notJournaled }
         }
-        guard let paramsText = AcpmuxRequestIds.encode(params),
-              let result = journal.record(AgentPanePromptJournal.Entry(daemon: daemon, sessionId: session, promptId: promptId,
-                                                                       params: paramsText, at: journal.now()), owner: owner) else { return .notJournaled }
+        guard let paramsText = AcpmuxRequestIds.encode(params) else { return .notJournaled }
+        let result = journal.record(AgentPanePromptJournal.Entry(daemon: daemon, sessionId: session, promptId: promptId,
+                                                                params: paramsText, at: journal.now()), owner: owner)
         guard case .recorded = result else {
-            if case .writeFailed = result {
-                journal.undoSend(daemon: daemon, promptId: promptId)
-                return .writeFailed
-            }
-            return .notJournaled
+            if case .writeFailed = result { journal.undoSend(daemon: daemon, promptId: promptId) }
+            return result
         }
         let forget = forget
         if let relayID { ids.whenAnswered(relayID) { forget(promptId) } }

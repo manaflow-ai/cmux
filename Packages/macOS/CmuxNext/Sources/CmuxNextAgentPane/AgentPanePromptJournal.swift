@@ -94,21 +94,16 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     /// The newest generation on disk; a write of an older one is skipped.
     private let written = Mutex(0)
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.prompt-journal", qos: .utility)
-    private let writer: @Sendable (Data, URL) throws -> Void
 
-    public init(url: URL, now: @escaping @Sendable () -> Date = { Date() },
-                writer: @escaping @Sendable (Data, URL) throws -> Void = { data, url in
-                    try data.write(to: url, options: [.atomic])
-                }) {
+    public init(url: URL, now: @escaping @Sendable () -> Date = { Date() }) {
         self.url = url
         self.now = now
-        self.writer = writer
     }
 
     private static func key(_ daemon: String, _ promptId: String) -> String { daemon + "\u{0}" + promptId }
 
     /// Records a prompt the page sent on connection `owner`, on disk before it returns. Call off
-    /// the main thread. False when it is not kept (too large, or the connection ended).
+    /// the main thread. Distinguishes an intentional omission from a failed durable write.
     func record(_ entry: Entry, owner: UUID) -> RecordResult {
         guard entry.params.utf8.count <= Self.maximumParamsBytes else {
             Self.logger.info("agent pane prompt not journaled: too large")
@@ -117,6 +112,7 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         var kept = false
         let durable = change { state in
             guard !state.ended.contains(owner) else { return false }
+            let key = Self.key(entry.daemon, entry.promptId)
             state.entries.removeAll { Self.key($0.daemon, $0.promptId) == key }
             state.entries.append(entry)
             state.holders[key] = .page(owner)
@@ -128,7 +124,12 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
             return true
         }
         guard kept else { return .notJournaled }
-        return durable ? .recorded(entry.promptId) : .writeFailed
+        guard durable else {
+            // The page owns Retry. Do not let a later write or connection replay this failed send.
+            forget(daemon: entry.daemon, promptId: entry.promptId)
+            return .writeFailed
+        }
+        return .recorded(entry.promptId)
     }
 
     /// Notes that the relay sends prompt `promptId` to `daemon`. True when it sent that id there
@@ -203,11 +204,7 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
             return (state.generation, state.entries)
         }
         guard let (generation, entries) = snapshot else { return }
-        queue.async { [self] in
-            if write(entries, generation: generation) {
-                state.withLock { $0.generation = max($0.generation, generation) }
-            }
-        }
+        queue.async { [self] in write(entries, generation: generation) }
     }
 
     /// The prompts kept now (tests).
@@ -233,8 +230,7 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
             return (state.generation, state.entries)
         }
         guard let (generation, entries) = snapshot else { return true }
-        let succeeded = write(entries, generation: generation)
-        return succeeded
+        return write(entries, generation: generation)
     }
 
     /// Reads the file once; an unreadable one is an empty journal.
@@ -256,7 +252,7 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
             do {
                 let data = try Self.encoder.encode(Document(entries: entries))
                 try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try writer(data, url)
+                try data.write(to: url, options: [.atomic])
                 last = generation
                 return true
             } catch {
