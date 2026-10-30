@@ -142,8 +142,8 @@ impl Hub {
                 return Err(RpcError::invalid_params(e));
             }
         };
-        // The reply says the change holds (`queue_change_logged`).
-        self.queue_change_logged(session).await?;
+        // The reply says the change holds: it goes once the change's record is written
+        // (`request_writes.rs`), so a restart restores the queue with it.
         reply.set("ok", ok);
         Ok(reply)
     }

@@ -139,7 +139,7 @@ pub(crate) fn note_kept() {
 }
 
 /// Runs `bookkeeping` with what it appends not noted for the request on this task: a record that
-/// tells the clients, not what the answer acknowledges (the seen and unread marks, `seen.rs`).
+/// tells the clients, not what the answer acknowledges (the seen mark, `seen.rs`).
 pub(crate) fn unnoted<R>(bookkeeping: impl FnOnce() -> R) -> R {
     WRITES.sync_scope(RefCell::new(Writes::default()), bookkeeping)
 }

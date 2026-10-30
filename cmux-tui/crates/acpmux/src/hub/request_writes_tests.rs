@@ -360,7 +360,7 @@ impl QueueChange {
                     hub.queue_edit(session, &params, crate::hub::Control::Local, false, None).await
                 }),
                 Self::Remove => Box::pin(async move {
-                    let removed = hub.withdraw_queued(session, "p1").await?;
+                    let removed = hub.withdraw_queued(session, "p1")?;
                     Ok(json!({"removed": removed}))
                 }),
                 Self::Withdraw => Box::pin(async move {
