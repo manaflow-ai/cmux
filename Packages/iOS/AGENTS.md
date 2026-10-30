@@ -18,5 +18,6 @@ PR instead of guessing.
 
 ## macOS and iOS parity
 
-Every new feature or capability built on cmux-next macOS, however small or
-big, must also be supported on cmux-next iOS.
+The cmux-next parity rule is in the root `CLAUDE.md` ("macOS and iOS parity"). It applies
+to the cmux-next iPhone app (`cmux-next-ios/`) and the packages it uses here, not to classic
+`ios/`.
