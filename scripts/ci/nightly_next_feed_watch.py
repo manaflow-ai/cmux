@@ -226,10 +226,11 @@ def starvation_dispatch(gh: GitHub, now: dt.datetime, *, feed: dt.datetime | Non
         if name == "nightly.yml" and run_branch == "nightly-next":
             run_sha = run.get("head_sha")
             return not run_sha or run_sha == tip
-        if name == "nightly.yml" and run_branch == "main":
+        if name == "nightly.yml" and run_branch == "main" and workflow != name:
             # Main's nightly workflow also owns the promotion job. Only its
-            # explicitly named promotion dispatch blocks a new request; an
-            # ordinary main build is unrelated to the NEXT feed.
+            # explicitly named promotion dispatch blocks a new NEXT request; an
+            # ordinary main build is unrelated to the NEXT feed. Classic's own
+            # guard (workflow == nightly.yml) still waits for every publishing run.
             title = run.get("display_title") or run.get("name") or ""
             return run.get("event") == "workflow_dispatch" and "Promote nightly-next to" in title
         return True

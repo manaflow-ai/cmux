@@ -233,6 +233,18 @@ class StarvationGuardTests(unittest.TestCase):
         self.assertIn("dispatched", result)
         self.assertEqual(len(gh.dispatched), 1)
 
+    def test_active_classic_publication_blocks_classic_starvation(self):
+        class Main(self.GitHub):
+            def ref_sha(self, branch):
+                return "b" * 40
+        gh = Main([{"id": 9, "status": "in_progress", "event": "schedule",
+                    "display_title": "Nightly macOS build · 47 8 * * *", "html_url": "run/9"}])
+        result = watch.starvation_dispatch(
+            gh, NOW, feed=NOW - dt.timedelta(minutes=26), published_sha="a" * 40,
+            branch="main", workflow="nightly.yml", ref="main", inputs={"force": "false"})
+        self.assertIn("running", result)
+        self.assertEqual(gh.dispatched, [])
+
     def test_a_six_hour_cache_seed_does_not_block_classic_starvation(self):
         cache_seed = {"id": 9, "status": "in_progress", "event": "schedule",
                       "created_at": "2026-10-23T23:17:00Z", "display_title": "Nightly macOS build · 17 */6 * * *", "html_url": "run/9"}
