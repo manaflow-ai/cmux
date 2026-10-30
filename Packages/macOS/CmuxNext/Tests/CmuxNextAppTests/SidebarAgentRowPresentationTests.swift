@@ -17,6 +17,11 @@ struct SidebarAgentRowPresentationTests {
         #expect(SidebarMapping.agentRowTitle(workspaceTitle: "lane-1", sessionName: "lane-1", chatTitle: nil, taskSummary: "Implement the adapter") == "Implement the adapter")
     }
 
+    @Test func aRenamedAgentWorkspaceKeepsTheUserName() {
+        #expect(SidebarMapping.agentRowTitle(workspaceTitle: "My review", sessionName: "lane-1",
+                                             chatTitle: "Review the release", taskSummary: "Implement the adapter") == "My review")
+    }
+
     @Test func statusAndRepositoryFactsRemainSeparateFromTitle() {
         let row = SidebarWorkspace(id: WorkspaceID("row"), title: "Review the release", directory: "~/work/repo", branch: "main", status: "Waiting")
         let content = WorkspaceRowContent(row, preferences: .defaults)

@@ -209,7 +209,8 @@ public struct SidebarMapping {
         // the daemon's lane/session id. The routing name is never the row's best title.
         if let agent = agentTab(tabs, harnessIcons: harnessIcons), let ref = agent.agentSession {
             let turns = AgentTurnStateStore.shared
-            row.title = Self.agentRowTitle(workspaceTitle: row.title, sessionName: ref.session,
+            row.title = Self.agentRowTitle(workspaceTitle: row.title, workspaceNameSource: workspace.nameSource,
+                                           sessionName: ref.session,
                                            chatTitle: turns.generatedTitle(for: ref),
                                            taskSummary: row.detail.task.flatMap(AgentTurnStates.promptGist))
         }
@@ -218,9 +219,18 @@ public struct SidebarMapping {
 
     /// Chooses a readable title for an agent-session workspace. Generated chat titles win;
     /// otherwise the task gist is useful, while the machine-made session name remains a last resort.
-    public static func agentRowTitle(workspaceTitle: String, sessionName: String?, chatTitle: String?, taskSummary: String?) -> String {
+    public static func agentRowTitle(workspaceTitle: String, workspaceNameSource: WorkspaceNameSource = .user,
+                                    sessionName: String?, chatTitle: String?, taskSummary: String?) -> String {
+        // A person's explicit workspace name is authoritative. Agent sessions may replace only
+        // the daemon's generated default, an automatic name, or the machine-made session name
+        // used when the chat opened its workspace.
+        let normalizedWorkspace = workspaceTitle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalizedSession = sessionName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let machineNamed = workspaceNameSource == .auto || WorkspaceModel.isDefaultName(workspaceTitle)
+            || (normalizedSession != nil && normalizedWorkspace == normalizedSession)
+        guard machineNamed else { return workspaceTitle }
         let candidates = [chatTitle, taskSummary, workspaceTitle, sessionName]
-        let session = sessionName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let session = normalizedSession
         for candidate in candidates {
             guard let value = candidate?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { continue }
             if value.lowercased() == session { continue }
