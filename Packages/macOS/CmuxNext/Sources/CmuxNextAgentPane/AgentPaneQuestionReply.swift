@@ -7,8 +7,9 @@ public import Foundation
 /// Never looser than acpmux's own check (hub/questions.rs check_answers, check_annotations). Where
 /// it is stricter, it holds the reply to what the pane's question card itself sends
 /// (webviews question/model.ts answerProblems and reply): one choice on a single-select item and
-/// no Other on a choice-only one, for Codex too, and annotations only for Claude Code's
-/// AskUserQuestion. So it refuses no reply the pane builds, only one shaped some other way.
+/// no Other on a choice-only one, for Codex too. So it refuses no reply the pane builds, only one
+/// shaped some other way. It covers question cards only (a request with a normalized question);
+/// a plain permission card's option-only reply goes through AgentPaneAskAnswer instead.
 public nonisolated struct AgentPaneQuestionReply: Sendable, Equatable {
     public enum Failure: String, Error, Sendable, Equatable {
         case malformed, question, option, answers, annotations
@@ -117,13 +118,14 @@ public nonisolated struct AgentPaneQuestionReply: Sendable, Equatable {
     /// acpmux hub/questions.rs check_annotations: only the real Claude AskUserQuestion reads
     /// these. Previews match its original native tool input after trimming; notes are bounded.
     /// As there, a preview is any of the question's option previews, not only the answered one's:
-    /// an Other answer can still name the mockup it was written against.
+    /// an Other answer can still name the mockup it was written against. Any other question's
+    /// annotations pass unchecked, as acpmux drops them unread.
     private static func validAnnotations(_ raw: Any, request: [String: Any], items: [[String: Any]], harness: String) -> Bool {
-        guard harness == "claude", let tool = request["toolCall"] as? [String: Any],
-              let meta = tool["_meta"] as? [String: Any],
-              (meta["claude"] as? [String: Any])?["tool"] as? String == "AskUserQuestion",
-              let originals = (tool["rawInput"] as? [String: Any])?["questions"] as? [[String: Any]],
-              let annotations = raw as? [String: Any],
+        let tool = request["toolCall"] as? [String: Any]
+        let meta = tool?["_meta"] as? [String: Any]
+        let asks = harness == "claude" && (meta?["claude"] as? [String: Any])?["tool"] as? String == "AskUserQuestion"
+        guard asks, let originals = (tool?["rawInput"] as? [String: Any])?["questions"] as? [[String: Any]] else { return true }
+        guard let annotations = raw as? [String: Any],
               (1...AcpmuxPaneMethods.maximumAnswerItems).contains(annotations.count) else { return false }
         for (key, value) in annotations {
             guard items.contains(where: { ($0["prompt"] as? String).map { equalBytes($0, key) } == true }),

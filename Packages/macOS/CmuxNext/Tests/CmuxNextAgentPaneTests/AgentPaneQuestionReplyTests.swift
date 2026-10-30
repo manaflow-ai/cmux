@@ -152,9 +152,10 @@ struct AgentPaneQuestionReplyTests {
             #expect(try Self.failure(["optionId": "yes", "answers": answers, "annotations": annotation],
                                     question: question) == .annotations)
         }
+        // acpmux reads annotations only for Claude Code's AskUserQuestion and drops any others.
         let codex = try Self.fixture(Self.prompt(harness: "codex"))
         #expect(try Self.failure(["optionId": "yes", "answers": ["q": ["answers": ["Glass"]]],
-                                 "annotations": ["Choose?": ["notes": "x"]]], question: codex) == .annotations)
+                                 "annotations": ["Choose?": ["notes": "x"]]], question: codex) == nil)
     }
 
     @Test func previewValidationReadsOriginalNativeInputNotOnlyNormalizedItems() throws {
