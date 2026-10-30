@@ -377,7 +377,9 @@ final class ScrollReportingClipView: NSClipView {
     var onScroll: (() -> Void)?
 
     override func scroll(to newOrigin: NSPoint) {
-        super.scroll(to: newOrigin)
+        if NSClipView.instancesRespond(to: #selector(NSClipView.scroll(to:))) {
+            super.scroll(to: newOrigin)
+        }
         onScroll?()
     }
 }
