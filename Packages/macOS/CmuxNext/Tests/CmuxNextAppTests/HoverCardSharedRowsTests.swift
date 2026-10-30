@@ -38,6 +38,7 @@ import Testing
         let machine = SidebarMachine(id: CmuxNextSidebar.MachineID("air-blue"), name: "air-blue", kind: .ssh, status: .offline)
         let card = WorkspaceHoverCardView()
         card.configure(.make(workspace(), machine: machine, now: Date()))
+        card.detailsToggle.performClick(nil)
         #expect(card.lines.contains("air-blue"))
         #expect(card.lines.contains(CmuxNextSidebar.Strings.statusOffline))
         #expect(Self.rows(in: card).count >= 3)

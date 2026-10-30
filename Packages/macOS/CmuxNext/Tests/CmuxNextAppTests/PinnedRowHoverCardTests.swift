@@ -94,6 +94,8 @@ import Testing
         let body = try #require(harness.list.hoverCard.hoverCardBody(for: shown.id)?.view as? WorkspaceHoverCardView)
         let expected = WorkspaceHoverCardView()
         expected.configure(.make(Self.pinned, machine: nil, now: Date()))
+        body.detailsToggle.performClick(nil)
+        expected.detailsToggle.performClick(nil)
         #expect(body.lines.first == expected.lines.first, "\(body.lines)")
         #expect(body.lines.contains { $0.contains("Durable runner for the cloud Chief") }, "\(body.lines)")
     }

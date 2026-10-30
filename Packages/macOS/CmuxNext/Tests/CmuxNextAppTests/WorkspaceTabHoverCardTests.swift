@@ -64,6 +64,7 @@ struct WorkspaceTabHoverCardTests {
         window.contentView = list
         list.reload(animated: false)
         let card = try #require(list.hoverCard.hoverCardBody(for: WorkspaceHoverCardController.targetID(target))?.view as? WorkspaceHoverCardView)
+        card.detailsToggle.performClick(nil)
         #expect(card.lines.contains { $0.contains("Keep the existing workspace description") })
         #expect(card.lines.contains { $0.contains("Review") })
         window.contentView = card
@@ -89,6 +90,7 @@ struct WorkspaceTabHoverCardTests {
                        facts: [.init(icon: .folder, text: "Keep this detail", kind: "folder")]))
         card.tabList.configure(title: "project", tabs: [SidebarTab(id: TabID("tab"), title: "Tab")])
         #expect(card.lines.contains("Tab"))
+        #expect(!card.lines.contains("Keep this detail"))
         #expect(!card.isDetailsExpanded)
         card.detailsToggle.performClick(nil)
         #expect(card.isDetailsExpanded)
@@ -105,6 +107,7 @@ struct WorkspaceTabHoverCardTests {
         let more = try #require(card.tabList.subviews.first?.subviews.compactMap { $0 as? NSButton }.first)
         more.performClick(nil)
         #expect(card.tabList.reportedLines.count == 7)
+        card.detailsToggle.performClick(nil)
         #expect(card.lines.contains("Keep this detail"))
         card.tabList.configure(title: "other-workspace", tabs: tabs)
         #expect(card.tabList.reportedLines.count == 5)

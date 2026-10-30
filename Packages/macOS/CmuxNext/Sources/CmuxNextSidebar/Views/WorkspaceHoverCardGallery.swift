@@ -59,6 +59,7 @@ public struct WorkspaceHoverCardGallery {
         let richCards = states.map { name, content, cpu in
             let card = WorkspaceHoverCardView()
             card.configure(content, now: now)
+            card.detailsToggle.performClick(nil)
             for value in cpu {
                 card.setResources(ResourceReport(total: ResourceUsage(cpu: value, memoryBytes: 2_300 << 20), processCount: 6))
             }
@@ -70,16 +71,17 @@ public struct WorkspaceHoverCardGallery {
         let overflow = mixedTabs + (1...4).map {
             SidebarTab(id: TabID("docs-\($0)"), title: "Documentation \($0)", kind: .browser, state: .success)
         }
-        let variants: [(String, WorkspaceHoverCardView.TabPlacement, Int, Bool)] = [
-            ("Tabs after status · 4 + more", .afterStatus, 4, true),
-            ("Tabs below title · 3 + more", .afterTitle, 3, true),
-            ("Tabs below details · 6 compact + more", .afterDetails, 6, false),
-            ("Tabs first · details collapsed · chosen", .afterTitle, 4, true),
+        let variants: [(String, WorkspaceHoverCardView.TabPlacement, Int, Bool, Bool)] = [
+            ("Tabs after status · 4 + more", .afterStatus, 4, true, true),
+            ("Tabs below title · 3 + more", .afterTitle, 3, true, true),
+            ("Tabs below details · 6 compact + more", .afterDetails, 6, false, true),
+            ("Tabs first · details collapsed · chosen", .afterTitle, 4, true, false),
         ]
-        let tabCards = variants.map { name, placement, limit, details in
+        let tabCards = variants.map { name, placement, limit, details, expanded in
             let card = WorkspaceHoverCardView(tabPlacement: placement, tabLimit: limit, tabDetails: details)
             card.configure(content, now: now)
             card.tabList.configure(title: content.title, tabs: overflow)
+            if expanded { card.detailsToggle.performClick(nil) }
             return (name, HoverCardGalleryHost(body: card) { [weak card] in card?.applyColors() })
         }
         return tabCards + richCards

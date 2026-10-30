@@ -93,6 +93,7 @@ import CmuxNextWakeupsTestSupport
         let card = try await Self.showCard(list, coordinator, clock, row: try #require(rows.first))
         let shown = try #require(coordinator.machine.shownTarget)
         let body = try #require(coordinator.panel?.glass.contentView.subviews.compactMap { $0 as? WorkspaceHoverCardView }.first)
+        body.detailsToggle.performClick(nil)
         try #require(!body.timeline.isHidden, "the card shows no history")
         #expect(body.timeline.scrollOffset == 0)
         let history = body.timeline.scrollView

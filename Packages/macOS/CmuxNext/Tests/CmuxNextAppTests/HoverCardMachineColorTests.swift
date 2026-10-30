@@ -17,6 +17,7 @@ import Testing
         workspace.directory = "~/code"
         let card = WorkspaceHoverCardView()
         card.configure(.make(workspace, machine: machine, now: Date()))
+        card.detailsToggle.performClick(nil)
         let row = try #require(rows(in: card).first { !$0.isHidden && $0.textLabel.stringValue == "big-red" })
         let icon = try #require(row.icon.contentTintColor?.usingColorSpace(.sRGB))
         let secondary = try #require(row.performWithTheme { Palette.textSecondary }.usingColorSpace(.sRGB))
