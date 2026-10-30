@@ -29,17 +29,19 @@ const button = ".nt-headline .acpmux-project-button";
 /// Picks `name` from the headline's picker, as a click on the project's name and then on its row.
 const pick = async (ctx: PlayContext, name: string) => {
   await ctx.waitFor(() => ctx.document.querySelector(button) !== null);
-  const stable = [
-    ".nt-composer",
-    '.nt-foot .acpmux-location-picker[data-kind="computer"]',
-    ".nt-foot .acpmux-access-trigger",
+  // The computer pill sits beside the folder pill above the box, so a project name of another
+  // width moves it sideways; only its row and size must hold.
+  const stable: [selector: string, keepsX: boolean][] = [
+    [".nt-composer", true],
+    ['.nt-above .acpmux-location-picker[data-kind="computer"]', false],
+    [".nt-foot .acpmux-access-trigger", true],
   ];
   const rects = () =>
-    stable.map((selector) => {
+    stable.map(([selector, keepsX]) => {
       const element = ctx.document.querySelector(selector);
       if (!element) throw new Error(`missing stable New Tab control: ${selector}`);
       const { x, y, width, height } = element.getBoundingClientRect();
-      return [x, y, width, height];
+      return [keepsX ? x : 0, y, width, height];
     });
   const before = rects();
   await ctx.click({ selector: button });
