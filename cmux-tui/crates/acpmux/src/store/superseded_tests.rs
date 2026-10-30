@@ -90,7 +90,7 @@ pub(super) fn read_back(log: &[EventRecord]) -> Vec<EventRecord> {
     let mut slots: Vec<Option<EventRecord>> = Vec::new();
     for rec in log.iter().rev() {
         let mut rec = rec.clone();
-        if let Some(slot) = superseded.read(&mut rec, slots.len()) {
+        if let Some(slot) = superseded.read(&mut rec, slots.len(), |_| true) {
             slots[slot] = None;
         }
         slots.push(Some(rec));
@@ -191,4 +191,46 @@ fn a_call_id_a_later_prompt_reuses_supersedes_nothing_before_that_prompt() {
     assert_eq!(kept.iter().map(|r| r.seq).collect::<Vec<_>>(), [1, 2, 3, 4, 5]);
     assert_eq!(kept[2], log[2], "the first prompt's newest output is its own");
     assert_eq!(content_of(&kept[1]), None);
+}
+
+/// An update that clears its call's output (`content: null`) is a field of its own: a newer one
+/// that names no content leaves it in the page.
+#[test]
+fn an_update_that_clears_the_output_stays() {
+    let log = vec![
+        output(1, "c", "stale"),
+        update(
+            2,
+            "tool_call_update",
+            json!({"sessionUpdate": "tool_call_update", "toolCallId": "c", "content": null}),
+        ),
+        update(
+            3,
+            "tool_call_update",
+            json!({"sessionUpdate": "tool_call_update", "toolCallId": "c", "status": "completed"}),
+        ),
+    ];
+    assert_eq!(read_back(&log), log);
+}
+
+/// A native subagent numbers its calls apart from its chat's (`params._meta.acpmux.subagent`):
+/// its call `c` supersedes nothing of the chat's call `c`.
+#[test]
+fn a_subagents_call_supersedes_nothing_of_its_chats_call_of_the_same_id() {
+    let mut child = output(2, "c", "child's output");
+    child.msg["params"]["_meta"] = json!({"acpmux": {"subagent": "toolu_task"}});
+    let log = vec![output(1, "c", "chat's output"), child];
+    assert_eq!(read_back(&log), log);
+}
+
+/// A record a page sends as a stub (too big for a message) carries none of its output: it
+/// supersedes nothing older.
+#[test]
+fn an_update_too_big_to_send_supersedes_nothing() {
+    let log = vec![output(1, "c", "small"), output(2, "c", "too big")];
+    let mut superseded = Superseded::default();
+    let (mut newest, mut older) = (log[1].clone(), log[0].clone());
+    assert_eq!(superseded.read(&mut newest, 0, |_| false), None);
+    assert_eq!(superseded.read(&mut older, 1, |_| true), None);
+    assert_eq!(older, log[0], "the older output is the one the reader gets");
 }

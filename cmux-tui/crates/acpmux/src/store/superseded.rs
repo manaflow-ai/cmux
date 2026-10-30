@@ -52,13 +52,33 @@ fn update_of(rec: &mut EventRecord) -> Option<&mut Map<String, Value>> {
     is_update.then_some(update)
 }
 
-/// The fields of an update a reader folds, `_meta` ones as `_meta.<key>` (and `_meta.acpmux.<key>`).
+/// The call a `tool_call` or `tool_call_update` record is of: its id within its owner (a native
+/// subagent's calls, `params._meta.acpmux.subagent`, are numbered apart from the chat's), and
+/// whether the record carries nothing at its `params` but that owner.
+fn call_of(rec: &EventRecord) -> Option<(String, bool)> {
+    let params = rec.msg.get("params")?;
+    let id = params.pointer("/update/toolCallId")?.as_str()?;
+    let owner = params.pointer("/_meta/acpmux/subagent");
+    let plain = match params.get("_meta").and_then(Value::as_object) {
+        None => true,
+        Some(meta) => {
+            meta.len() == 1
+                && meta
+                    .get("acpmux")
+                    .and_then(Value::as_object)
+                    .is_some_and(|m| m.len() == 1 && owner.is_some())
+        }
+    };
+    Some((format!("{}\u{0}{id}", owner.map(Value::to_string).unwrap_or_default()), plain))
+}
+
+/// The fields of an update a reader folds (an explicit `content: null` clears the call's output),
+/// `_meta` ones as `_meta.<key>` (and `_meta.acpmux.<key>`).
 fn fields(update: &Map<String, Value>) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     for (key, value) in update {
         match (key.as_str(), value.as_object()) {
             ("toolCallId" | "sessionUpdate", _) => {}
-            ("content", _) if value.is_null() => {}
             ("_meta", Some(meta)) => {
                 for (k, v) in meta {
                     match (k.as_str(), v.as_object()) {
@@ -129,30 +149,48 @@ impl Superseded {
     /// content goes when a newer update of its call replaces it. Returns the slot of a newer
     /// record that `rec` makes moot: an update of the same call newer ones cover, kept only while
     /// it was the oldest of its call.
-    pub fn read(&mut self, rec: &mut EventRecord, slot: usize) -> Option<usize> {
+    ///
+    /// `delivered` says whether a record goes out whole (a page stubs one too big for a message,
+    /// `hub/paging.rs` `fit`): a newer record that does not supersedes nothing older.
+    pub fn read(
+        &mut self,
+        rec: &mut EventRecord,
+        slot: usize,
+        delivered: impl FnOnce(&EventRecord) -> bool,
+    ) -> Option<usize> {
         // Older than a prompt: no newer update of this read is of the same call.
         if starts_prompt(rec.dir.as_bytes(), rec.kind.as_bytes()) {
             self.calls.clear();
             return None;
         }
+        if rec.kind != "tool_call" && rec.kind != "tool_call_update" {
+            return None;
+        }
+        let (key, plain) = call_of(rec)?;
         if rec.kind == "tool_call" {
             // The call's start: older than every update of it.
-            let id = rec.msg.pointer("/params/update/toolCallId").and_then(Value::as_str)?;
-            return self.calls.remove(id).and_then(|call| call.held);
+            return if delivered(rec) {
+                self.calls.remove(&key).and_then(|call| call.held)
+            } else {
+                None
+            };
         }
+        let newer = self.calls.get(&key).map(|call| call.fields.contains("content"));
         let update = update_of(rec)?;
-        let id = update.get("toolCallId").and_then(Value::as_str)?.to_owned();
         let fields = fields(update);
-        let Some(call) = self.calls.get_mut(&id) else {
-            self.calls.insert(id, Call { fields, held: None });
-            return None;
-        };
-        let output = only_output(update, &fields);
-        if output && call.fields.contains("content") {
+        let output = plain && only_output(update, &fields);
+        if output && newer == Some(true) {
             leave_out_content(update);
         }
         let ends =
             matches!(update.get("status").and_then(Value::as_str), Some("completed" | "failed"));
+        if !delivered(rec) {
+            return None;
+        }
+        let Some(call) = self.calls.get_mut(&key) else {
+            self.calls.insert(key, Call { fields, held: None });
+            return None;
+        };
         if output && !ends && fields.is_subset(&call.fields) {
             return call.held.replace(slot);
         }

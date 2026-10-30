@@ -206,8 +206,13 @@ pub const MAX_RECORD_BYTES: usize = crate::rpc::MAX_MESSAGE_BYTES - (1 << 20);
 
 /// A record no message can carry goes as a stub with its kind and seq: what it left out, and how
 /// much. Also returns what the record adds to the page.
-fn fit(mut rec: EventRecord, bounded: bool) -> (EventRecord, usize) {
+fn fit(rec: EventRecord, bounded: bool) -> (EventRecord, usize) {
     let bytes = record_bytes(&rec);
+    fit_sized(rec, bytes, bounded)
+}
+
+/// [`fit`] for a record whose bytes are known.
+fn fit_sized(mut rec: EventRecord, bytes: usize, bounded: bool) -> (EventRecord, usize) {
     if !bounded || bytes <= MAX_RECORD_BYTES {
         return (rec, bytes);
     }
@@ -291,20 +296,31 @@ impl Hub {
         self.store.scan_back(id, after, before, &skip, &mut |rec| {
             let matches = filter.matches(&rec);
             let mut rec = rec;
+            if matches {
+                self.display_logged(session.as_deref(), &mut rec);
+            }
+            // Its bytes, once its superseded content is out: whether it goes out whole.
+            let mut sized = None;
             let moot = match superseded.as_mut() {
                 Some(superseded)
                     if matches
                         || crate::store::starts_prompt(rec.dir.as_bytes(), rec.kind.as_bytes()) =>
                 {
-                    superseded.read(&mut rec, found.len())
+                    superseded.read(&mut rec, found.len(), |rec| {
+                        let bytes = record_bytes(rec);
+                        sized = Some(bytes);
+                        !bounded || bytes <= MAX_RECORD_BYTES
+                    })
                 }
                 _ => None,
             };
             if !matches {
                 return true;
             }
-            self.display_logged(session.as_deref(), &mut rec);
-            let (rec, rec_bytes) = fit(rec, bounded);
+            let (rec, rec_bytes) = match sized {
+                Some(bytes) => fit_sized(rec, bytes, bounded),
+                None => fit(rec, bounded),
+            };
             let moot_bytes = moot.and_then(|slot| found[slot].as_ref()).map_or(0, |(_, b)| *b);
             let kept = held + 1 - usize::from(moot.is_some());
             let size = bytes + rec_bytes - moot_bytes;
