@@ -1,14 +1,10 @@
-import AppKit
 import CmuxNextCompat
-import CmuxNextComputerUse
-import CmuxNextDaemon
-import CmuxNextDaemonService
-import CmuxNextDevices
-import CmuxNextSettings
+public import CmuxNextComputerUse
+public import CmuxNextDaemon
+public import CmuxNextDevices
 import CmuxNextWakeups
-import CryptoKit
 import Darwin
-import Foundation
+public import Foundation
 import os
 
 private let remoteLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "cmux-remote")
@@ -19,35 +15,33 @@ private let remoteLogger = Logger(subsystem: "com.cmuxterm.app.next", category: 
 /// Screen Sharing worker's device keys (this Mac is one device), reads hub pushes from the
 /// worker's one User DO socket, and anchors the worker's device-key renewal while signed in.
 @MainActor
-final class CmuxRemoteService {
-    /// This build embeds cmux Remote (``AppServices/startCmuxRemote(_:)`` started it).
-    private(set) var started = false
-    private weak var daemon: DaemonService?
+public final class CmuxRemoteService {
+    /// This build embeds cmux Remote (``start(_:)`` ran).
+    public private(set) var started = false
+    /// This app's local daemon connection when it serves `remote-host-v1`, else nil.
+    private let connectionSource: @MainActor () -> DaemonConnection?
     /// The app socket's credentials, until the host restarts (a refusal asks again).
     private var grant: RemoteHostAppRequest.Response?
     /// Whether the daemon runs cmux Remote (`remote-host-v1` and an embedded bundle).
-    private(set) var available = false
+    public private(set) var available = false
     private var lastConfig: (computerUse: Bool, screenSharing: Bool, headless: Bool)?
     /// The anchor's hourly refresh (PROTOCOL.md, Device renewal).
     private let anchorTimer = DemandTimer(owner: "cmux-remote.anchor")
     /// The person's switches now (the App sets it): Computer Use on with cmux Remote, signed in, headless.
-    var currentConfig: (@MainActor () -> (computerUse: Bool, screenSharing: Bool, headless: Bool))?
+    public var currentConfig: (@MainActor () -> (computerUse: Bool, screenSharing: Bool, headless: Bool))?
 
-    init(daemon: DaemonService) {
-        self.daemon = daemon
+    public init(connection: @escaping @MainActor () -> DaemonConnection?) {
+        connectionSource = connection
     }
 
     func markStarted() { started = true }
 
     // MARK: Daemon
 
-    private var connection: DaemonConnection? {
-        guard let daemon, daemon.supports(DaemonCapability.remoteHost.rawValue) else { return nil }
-        return daemon.connection
-    }
+    private var connection: DaemonConnection? { connectionSource() }
 
     /// The person's switches to the daemon (it saves them and starts or stops the host).
-    func apply(computerUse: Bool, screenSharing: Bool, headless: Bool) async {
+    public func apply(computerUse: Bool, screenSharing: Bool, headless: Bool) async {
         let next = (computerUse, screenSharing, headless)
         if let lastConfig, lastConfig == next { return }
         guard let connection else {
@@ -60,13 +54,13 @@ final class CmuxRemoteService {
             lastConfig = next
             available = true
         } catch {
-            remoteLogger.notice("cmux Remote config refused: \(AppProviderCredentials.code(of: error), privacy: .public)")
+            remoteLogger.notice("cmux Remote config refused: \(String(describing: error), privacy: .public)")
             available = false
         }
     }
 
     /// Applies the current switches once when none were sent yet; whether the daemon runs cmux Remote.
-    func waitAvailable() async -> Bool {
+    public func waitAvailable() async -> Bool {
         if lastConfig == nil, let config = currentConfig?() {
             await apply(computerUse: config.computerUse, screenSharing: config.screenSharing, headless: config.headless)
         }
@@ -74,12 +68,12 @@ final class CmuxRemoteService {
     }
 
     /// One host request over the daemon (status, refresh, request, restart, screen.*).
-    func call(_ method: String, _ params: CmuxNextDaemon.JSONValue = .object([:])) async throws -> CmuxNextDaemon.JSONValue {
+    public func call(_ method: String, _ params: CmuxNextDaemon.JSONValue = .object([:])) async throws -> CmuxNextDaemon.JSONValue {
         guard let connection else { throw CmuxRemoteError.unavailable }
         return try await connection.request(RemoteHostCallRequest(method: method, params: params), timeout: .seconds(25))
     }
 
-    func status() async throws -> CmuxNextDaemon.JSONValue {
+    public func status() async throws -> CmuxNextDaemon.JSONValue {
         guard let connection else { throw CmuxRemoteError.unavailable }
         return try await connection.request(RemoteHostStatusRequest())
     }
@@ -125,7 +119,7 @@ final class CmuxRemoteService {
     }
 
     /// Opens `channel`, asking for a fresh grant once when the host refuses this one.
-    func openChannel(_ channel: String, extra: [String: String] = [:]) async throws -> (socket: Int32, pid: pid_t, grant: RemoteHostAppRequest.Response) {
+    public func openChannel(_ channel: String, extra: [String: String] = [:]) async throws -> (socket: Int32, pid: pid_t, grant: RemoteHostAppRequest.Response) {
         var grant = try await appGrant()
         let opened: (socket: Int32, pid: pid_t)
         do {
@@ -142,7 +136,7 @@ final class CmuxRemoteService {
 
     /// While signed in: anchor the worker's device-key renewal now and every hour, and tell the
     /// worker the account and hub it serves. Stops on sign-out.
-    func followHub(_ hub: DeviceHub?, userID: String?, hubURL: URL?, devices: CmuxRemoteDevices) {
+    public func followHub(_ hub: DeviceHub?, userID: String?, hubURL: URL?, devices: CmuxRemoteDevices) {
         anchorTimer.cancel()
         guard let hub, let userID, !userID.isEmpty, let hubURL else {
             // task-owner: one sign-out line to the worker; nothing waits on it.
@@ -166,21 +160,5 @@ final class CmuxRemoteService {
         anchorTimer.schedule(after: .seconds(3600)) { @MainActor [weak self] in
             self?.anchor(hub, userID: userID, hubURL: hubURL, devices: devices)
         }
-    }
-}
-
-/// Computer Use through cmux Remote: the host starts a worker for each channel.
-nonisolated struct CmuxRemoteComputerUse: ComputerUseRemoteSpawning {
-    let open: @Sendable () async throws -> ComputerUseRemoteChannel
-
-    func openComputerUse() async throws -> ComputerUseRemoteChannel { try await open() }
-
-    /// cmux Remote's executable, from the embedded bundle (the worker runs it).
-    static func executable(bundle: Bundle = .main) -> URL? {
-        for name in ["cmux Remote.app", "cmux Remote (dev).app"] {
-            let url = bundle.bundleURL.appending(path: "Contents/Library/\(name)/Contents/MacOS/cmux-remote")
-            if FileManager.default.isExecutableFile(atPath: url.path) { return url }
-        }
-        return nil
     }
 }

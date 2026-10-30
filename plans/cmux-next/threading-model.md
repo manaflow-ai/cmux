@@ -144,7 +144,9 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   queue per wait: a dispatch source wakes it, nothing blocks it; it ends at readiness, the daemon's close or the
   caller's cancel),
   `cmux.agent-activity.socket`, `com.cmuxterm.app.next.chief-settle`, `com.cmuxterm.app.next.tasks.socket`,
-  `cua-helper-v2-reap`, `cua-helper-v2-stdout`
+  `cua-helper-v2-reap`, `cua-helper-v2-stdout`, `cmux-remote-device` (one per open channel to cmux Remote's Screen
+  Sharing worker: a blocking read(2) that ends at the channel's EOF; answers and hub pushes go to their waiters, pushes
+  bounded at 256, docs/cmux-remote.md)
 - Diagnostics: `cmux-next.hang-episodes`, `cmux-next.hang-episodes.symbols`, `com.cmuxterm.app.next.run-marker`,
   `com.cmuxterm.app.next.crash-forwarder`, `com.cmuxterm.app.next.owner-panic-forwarder`,
   `com.cmuxterm.next.typing-probe`, `com.cmuxterm.app.next.blocking-drain`, `com.cmux.host-pressure`,

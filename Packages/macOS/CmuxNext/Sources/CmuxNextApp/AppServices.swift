@@ -16,6 +16,7 @@ import CmuxNextDesign
 import CmuxNextMobileHost
 import CmuxNextDaemon
 import CmuxNextDaemonService
+import CmuxNextMacScreen
 import CmuxNextDaemonRecovery
 import CmuxNextFeed
 import CmuxNextFloating
@@ -282,7 +283,9 @@ final class AppServices {
     /// The device hub (built in; `deviceHub.url` overrides it in DEV builds): the user's devices for Mac Screen and Settings > Devices.
     private(set) lazy var deviceHub = AppServices.makeDeviceHub(self)
     /// cmux Remote: the daemon's signed host for Computer Use and Screen Sharing (docs/cmux-remote.md).
-    private(set) lazy var cmuxRemote = CmuxRemoteService(daemon: daemon)
+    private(set) lazy var cmuxRemote = CmuxRemoteService { [weak daemon] in
+        daemon?.supports(DaemonCapability.remoteHost.rawValue) == true ? daemon?.connection : nil
+    }
     /// Bookmarks of every browser profile (plans/cmux-next/bookmarks.md).
     private(set) lazy var bookmarks = BookmarkService(services: self)
     /// The user's keybindings.json, owned by the home daemon, as the binding table's user layer.

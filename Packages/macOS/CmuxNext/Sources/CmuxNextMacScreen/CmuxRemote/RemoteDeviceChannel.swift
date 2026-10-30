@@ -130,8 +130,7 @@ nonisolated final class RemoteDeviceChannel: Sendable {
             box.withLock { $0 = boxed }
             semaphore.signal()
         }
-        // concurrency-allow: a key operation's one IPC answer, bounded; DeviceKeyMaterial is synchronous and is never called on the main thread.
-        guard semaphore.wait(timeout: .now() + Self.timeout) == .success, let result = box.withLock({ $0 }) else {
+        guard semaphore.blockingWait(timeout: .now() + Self.timeout) == .success, let result = box.withLock({ $0 }) else {
             throw DeviceHubError.transport("cmux Remote did not answer \(method)")
         }
         return try result.get().value

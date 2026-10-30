@@ -1098,7 +1098,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // Share This Mac. Input capture comes from CmuxNextRemoteView.
         .target(
             name: "CmuxNextMacScreen",
-            dependencies: ["CmuxNextCompat", "CmuxNextSettings", "CmuxNextWakeups", "CmuxNextActions", "CmuxNextControl", "CmuxNextDesign", "CmuxNextRemoteView", "CmuxNextDevices", .product(name: "CmuxScreenKit", package: "CmuxScreenKit")],
+            dependencies: ["CmuxNextCompat", "CmuxNextSettings", "CmuxNextWakeups", "CmuxNextActions", "CmuxNextControl", "CmuxNextDesign", "CmuxNextRemoteView", "CmuxNextDevices", "CmuxNextDaemon", "CmuxNextComputerUse", .product(name: "CmuxScreenKit", package: "CmuxScreenKit")],
             resources: [
                 .process("Resources"),
             ],

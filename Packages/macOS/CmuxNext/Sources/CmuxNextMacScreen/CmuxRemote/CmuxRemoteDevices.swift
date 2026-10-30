@@ -1,5 +1,5 @@
 import CmuxNextCompat
-import CmuxNextDevices
+public import CmuxNextDevices
 import CryptoKit
 import Darwin
 import Foundation
@@ -9,7 +9,7 @@ import Foundation
 /// device. This app signs its own (viewer) requests through the worker, so the Mac is one
 /// device, and reads the hub's pushes from the worker's socket (a second socket of the same
 /// device would replace the first).
-nonisolated final class CmuxRemoteDevices: Sendable {
+public nonisolated final class CmuxRemoteDevices: Sendable {
     /// Opens a Screen Sharing channel through the host (the App's ``CmuxRemoteService``).
     let open: @Sendable () async throws -> Int32
     private let control = Mutex<RemoteDeviceChannel?>(nil)
@@ -50,7 +50,7 @@ nonisolated final class CmuxRemoteDevices: Sendable {
     }
 
     /// This Mac's join consent for Mac Screen, as the worker serves it with the app quit.
-    func consent(enabled: Bool, view: Bool, full: Bool) async {
+    public func consent(enabled: Bool, view: Bool, full: Bool) async {
         _ = try? await channel().call("consent", ["enabled": enabled, "view": view, "full": full])
     }
 
