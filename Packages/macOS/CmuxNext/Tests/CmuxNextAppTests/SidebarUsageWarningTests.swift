@@ -71,6 +71,26 @@ import Testing
         #expect(Self.warnings.allSatisfy(label.contains))
     }
 
+    /// Hovering the row shows its ⋯ and × over the row's end; the badge stays, left of them, so a
+    /// person can still point at it and read its tooltip (the first capture showed the controls in
+    /// its place).
+    @Test func theBadgeStaysBesideTheHoverControls() throws {
+        var ws = SidebarWorkspace(id: WorkspaceID("ws-runaway"), title: "runaway", lastActivity: Date(), agentWorking: true,
+                                  kind: .harness, activity: .working)
+        ws.usageWarnings = Self.warnings
+        let row = try Self.rowView(ws)
+        row.isHovered = true
+        row.layoutSubtreeIfNeeded()
+        let controls: [NSView] = [row.closeButton, row.moreButton].filter { !$0.isHidden }
+        #expect(!controls.isEmpty, "the hover controls show")
+        let mark = row.usageWarningMark
+        #expect(!mark.isHidden && mark.alphaValue == 1, "the badge shows on hover, not covered (alpha \(mark.alphaValue))")
+        for control in controls {
+            #expect(mark.frame.maxX <= control.frame.minX, "badge \(mark.frame) clear of control \(control.frame)")
+        }
+        #expect(mark.themedToolTip == Self.warnings.joined(separator: "\n"))
+    }
+
     @Test func noWarningNoBadge() throws {
         let row = try Self.rowView(SidebarWorkspace(id: WorkspaceID("ws-calm"), title: "lane", lastActivity: Date(), kind: .harness))
         #expect(row.usageWarningMark.isHidden)
