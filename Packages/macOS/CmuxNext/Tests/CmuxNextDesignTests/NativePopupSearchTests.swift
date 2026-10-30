@@ -161,6 +161,21 @@ import Testing
         #expect(search.stringValue == "AB")
     }
 
+    @Test func firstEditWithoutADescriptorSequenceSurvivesADelayedEcho() throws {
+        let content = NativePopupContent()
+        var next = try model(policy: "none")
+        next.search?.editSequence = nil
+        content.update(next)
+        let search = try #require(content.subviews.compactMap { $0 as? NSSearchField }.first)
+        search.stringValue = "ab"
+        content.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: search))
+        #expect(content.lastEditSequence != nil)
+        next.revision += 1
+        next.search?.value = "a"
+        content.update(next)
+        #expect(search.stringValue == "ab")
+    }
+
     @Test(arguments: [false, true])
     func pendingEditsCannotCrossFieldKinds(_ startsAsSearch: Bool) throws {
         let content = NativePopupContent()

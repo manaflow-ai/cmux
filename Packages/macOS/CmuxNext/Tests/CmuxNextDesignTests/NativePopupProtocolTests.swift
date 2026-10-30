@@ -66,6 +66,20 @@ import Testing
         #expect(!model.isValid)
     }
 
+    @Test func hugeAnchorsAndNonNumericPlainSliderValuesAreRejected() {
+        var model = Self.model()
+        model.anchor = NativePopupAnchor(left: -Double.greatestFiniteMagnitude, top: 0,
+                                         right: Double.greatestFiniteMagnitude, bottom: 10)
+        #expect(!model.isValid, "right - left overflows to infinity in the host")
+        model = Self.model()
+        model.rows = [NativePopupRow(id: "volume", kind: .slider, label: "Volume", value: "0.5", minimum: 0, maximum: 1)]
+        #expect(model.isValid)
+        for bad in ["nan", "inf", "-infinity", "loud"] {
+            model.rows[0].value = bad
+            #expect(!model.isValid, "\(bad) would reach NSSlider")
+        }
+    }
+
     private static func model() -> NativePopupModel {
         NativePopupModel(schemaVersion: 1, id: "model-picker", revision: 2,
                          anchor: NativePopupAnchor(left: 20, top: 30, right: 120, bottom: 60),

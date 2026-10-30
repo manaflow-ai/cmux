@@ -13,7 +13,8 @@ extension NativePopupModel {
     public var isValid: Bool {
         guard schemaVersion == 1, !id.isEmpty, id.count <= 128, revision >= 0,
               width.isFinite, width >= 120, width <= 1200,
-              [anchor.left, anchor.top, anchor.right, anchor.bottom].allSatisfy(\.isFinite),
+              // Bounded so the host's anchor width/height and zoom scaling stay finite in AppKit.
+              [anchor.left, anchor.top, anchor.right, anchor.bottom].allSatisfy({ $0.isFinite && abs($0) <= 1_000_000 }),
               anchor.right >= anchor.left, anchor.bottom >= anchor.top else { return false }
         var identifiers = Set<String>()
         if let search {
@@ -41,6 +42,10 @@ extension NativePopupModel {
                 guard let minimum = row.minimum, let maximum = row.maximum,
                       minimum.isFinite, maximum.isFinite, (minimum < maximum || (row.slider?.stops.count == 1 && minimum == 0 && maximum == 0)),
                       row.step.map({ $0.isFinite && $0 > 0 }) ?? true else { return false }
+                // A plain slider's value goes straight into NSSlider: it must be a finite number.
+                if row.slider == nil, let value = row.value {
+                    guard let number = Double(value), number.isFinite else { return false }
+                }
             }
             if let slider = row.slider {
                 let values = slider.stops.map(\.value)
