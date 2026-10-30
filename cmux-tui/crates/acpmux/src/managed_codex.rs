@@ -30,9 +30,24 @@ fn target() -> (&'static str, &'static str) {
     }
 }
 
+/// True only when the binary exists and the readiness marker, written last by
+/// `install`, records this build's pinned version and archive hash.
+fn is_ready() -> bool {
+    is_ready_at(&managed_path(), &ready_path(), target().1)
+}
+
+fn is_ready_at(binary: &Path, marker: &Path, expected_sha256: &str) -> bool {
+    if expected_sha256.is_empty() || !binary.is_file() {
+        return false;
+    }
+    std::fs::read(marker)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        .is_some_and(|ready| ready["version"] == VERSION && ready["sha256"] == expected_sha256)
+}
+
 pub fn status() -> serde_json::Value {
-    let path = managed_path();
-    serde_json::json!({"version": VERSION, "path": path, "ready": path.is_file() && ready_path().is_file()})
+    serde_json::json!({"version": VERSION, "path": managed_path(), "ready": is_ready()})
 }
 
 pub async fn install() -> Result<serde_json::Value> {
@@ -66,6 +81,11 @@ pub async fn install() -> Result<serde_json::Value> {
                     .is_some_and(|n| n == "codex" || n.starts_with("codex-"))
         })
         .ok_or_else(|| anyhow::anyhow!("Codex archive did not contain a target codex binary"))?;
+    // Drop the marker first so an interrupted install is never reported ready.
+    match std::fs::remove_file(ready_path()) {
+        Err(err) if err.kind() != std::io::ErrorKind::NotFound => return Err(err.into()),
+        _ => {}
+    }
     let final_dir = root();
     if final_dir.exists() {
         std::fs::remove_dir_all(&final_dir)?;
@@ -79,5 +99,30 @@ pub async fn install() -> Result<serde_json::Value> {
 }
 
 pub fn configured_path() -> Option<PathBuf> {
-    managed_path().is_file().then(managed_path)
+    is_ready().then(managed_path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn binary_without_a_matching_ready_marker_is_not_ready() {
+        let dir = tempfile::tempdir().unwrap();
+        let binary = dir.path().join("codex");
+        let marker = dir.path().join("ready.json");
+        std::fs::write(&binary, b"partial").unwrap();
+        assert!(!is_ready_at(&binary, &marker, "abc"), "no marker");
+        std::fs::write(&marker, b"not json").unwrap();
+        assert!(!is_ready_at(&binary, &marker, "abc"), "corrupt marker");
+        std::fs::write(&marker, br#"{"version":"0.0.1","sha256":"abc"}"#).unwrap();
+        assert!(!is_ready_at(&binary, &marker, "abc"), "other version");
+        std::fs::write(&marker, format!(r#"{{"version":"{VERSION}","sha256":"zzz"}}"#)).unwrap();
+        assert!(!is_ready_at(&binary, &marker, "abc"), "other hash");
+        std::fs::write(&marker, format!(r#"{{"version":"{VERSION}","sha256":"abc"}}"#)).unwrap();
+        assert!(is_ready_at(&binary, &marker, "abc"));
+        std::fs::remove_file(&binary).unwrap();
+        assert!(!is_ready_at(&binary, &marker, "abc"), "marker without binary");
+        assert!(!is_ready_at(&binary, &marker, ""), "unsupported platform");
+    }
 }
