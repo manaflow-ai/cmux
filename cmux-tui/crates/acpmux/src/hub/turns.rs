@@ -579,16 +579,17 @@ impl Hub {
             (blocks, text)
         };
         let mut blocks = blocks;
-        {
+        let draft_cleared = {
             let mut m = session.meta.lock().unwrap();
             // Another agent's message leaves its sender and words, not its envelope (`prompt_line.rs`).
             let line = super::prompt_line::prompt_line(&text, client, provenance.as_ref());
             m.last_prompt = Some(short_text(&line, 200));
-            drafts::clear_sent_draft(&mut m, &text);
+            let draft_cleared = drafts::clear_sent_draft(&mut m, &text);
             super::titles::set_fallback_title(&mut m, &text);
             m.preview = Some(String::new());
             m.turn_count += 1;
-        }
+            draft_cleared
+        };
         // A turn on lane reports only reports nothing (`lane_reports.rs`).
         self.lane_turn_started(session, provenance.as_ref());
         // A family prompt (`subsessions.rs`) never clears the floor a Web
@@ -605,6 +606,15 @@ impl Hub {
         let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id});
         let msg = crate::prompt_provenance::marked(msg, provenance.as_ref());
         self.append_prompt(session, msg, &blocks, display_parts.as_ref());
+        // The accepted prompt may run for hours or outlive this daemon. Save its clear
+        // outside the metadata lock, before acknowledgement/dispatch, rather than waiting
+        // for turn completion. A failed save must not dispatch an undurable clear.
+        if draft_cleared && let Err(error) = self.save_meta_result(session) {
+            let e = RpcError::internal(format!("save sent composer draft failed: {error}"));
+            self.fail_unstarted_turn(session, &prompt_id, &turn_id, &e, joined);
+            drop(guard);
+            return Err(e);
+        }
         if !waiting {
             // Started at once: only prompts a failed turn holds can wait under its key.
             if let Some(key) = supersede.as_deref() {

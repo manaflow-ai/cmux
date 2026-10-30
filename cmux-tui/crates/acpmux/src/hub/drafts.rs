@@ -59,12 +59,15 @@ impl Hub {
 /// The unsent draft went out as `text`, from whichever client sent it: it is no longer the
 /// chat's draft. Any other prompt leaves the draft as it is. If the web client already
 /// cleared it, there is nothing to advance; its explicit clear may arrive before or after us.
-pub(super) fn clear_sent_draft(meta: &mut SessionMeta, text: &str) {
+/// Returns whether the caller must persist a new tombstone before dispatching the prompt.
+pub(super) fn clear_sent_draft(meta: &mut SessionMeta, text: &str) -> bool {
     if meta.composer_draft.as_deref().is_some_and(|d| d.trim() == text.trim()) {
         meta.composer_draft = None;
         meta.composer_draft_generation = meta
             .composer_draft_generation
             .saturating_add(1)
             .min(Hub::MAX_COMPOSER_DRAFT_GENERATION);
+        return true;
     }
+    false
 }
