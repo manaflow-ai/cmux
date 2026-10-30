@@ -330,7 +330,11 @@ test("classic New Tab keeps Add project open while a native browse is pending", 
     );
   };
   const openNativeBrowse = async () => {
-    await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-context-chip.acpmux-project-button")!.click());
+    const trigger = host.querySelector<HTMLButtonElement>(".acpmux-context-chip.acpmux-project-button")!;
+    await act(async () => {
+      trigger.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true }));
+      trigger.click();
+    });
     await pressOption("New project");
     await pressOption("This Mac");
     await pressOption("Local folder");
