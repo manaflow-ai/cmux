@@ -159,20 +159,85 @@ class VerdictDurabilityTests(unittest.TestCase):
             result = subprocess.run(["bash", "-c", script], env=full, capture_output=True, text=True, timeout=60)
             return result, output.read_text()
 
-    def record(self, app: str) -> str:
+    def record(self, app: str, app_class: str = "") -> str:
         result, output = self.run_step("canary", "Record the static artifact verdict",
-                                       {"BUILD": "4100", "APP_OUTCOME": app}, {"app": app})
+                                       {"BUILD": "4100", "APP_OUTCOME": app, "APP_CLASS": app_class}, {"app": app})
         self.assertEqual(result.returncode, 0, result.stderr)
         return output
 
     def test_only_the_artifact_check_decides_the_verdict(self):
         self.assertIn("verdict=pass", self.record("success"))
-        self.assertIn("verdict=fail", self.record("failure"))
+        self.assertIn("verdict=fail", self.record("failure", "invalid"))
+        # A failure the step did not class as an artifact rejection is none.
+        self.assertNotIn("verdict=", self.record("failure"))
 
     def test_a_runner_or_download_error_records_no_verdict(self):
         # Select Xcode or the download failed, so the artifact step never ran.
         for outcome in ("skipped", "cancelled"):
             self.assertNotIn("verdict=", self.record(outcome), outcome)
+
+    def artifact(self, tools: dict[str, str], length: str = "5") -> tuple[str, str]:
+        """Run "Check Gatekeeper and the notary tickets" against stub Apple tools
+        (name -> bash body; a missing name is a tool that is not installed) and
+        a 5-byte DMG, then feed its outcome to the recorder. Returns the
+        artifact step's outcome and the recorder's GITHUB_OUTPUT."""
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            (Path(tmp) / "canary.dmg").write_bytes(b"12345")
+            stubs = {"stat": 'echo "$(wc -c < "${@: -1}" | tr -d " ")"', **tools}
+            for name, body in stubs.items():
+                (bin_dir / name).write_text(f"#!/bin/bash\n{body}\n")
+                (bin_dir / name).chmod(0o755)
+            result, output = self.run_step("canary", "Check Gatekeeper and the notary tickets",
+                                           {"BUILD": "4100", "DMG_LENGTH": length, "RUNNER_TEMP": tmp}, path=bin_dir)
+            outcome = "success" if result.returncode == 0 else "failure"
+            app_class = next((l.split("=", 1)[1] for l in output.splitlines() if l.startswith("class=")), "")
+            recorded, verdict_output = self.run_step("canary", "Record the static artifact verdict",
+                                                     {"BUILD": "4100", "APP_OUTCOME": outcome, "APP_CLASS": app_class},
+                                                     {"app": outcome})
+            self.assertEqual(recorded.returncode, 0, recorded.stderr)
+            return outcome, verdict_output
+
+    # hdiutil attach that mounts a DMG holding one app at the -mountpoint.
+    ATTACH = 'while [ $# -gt 0 ]; do [ "$1" = -mountpoint ] && mkdir -p "$2/cmux NEXT.app"; shift; done'
+
+    def assert_no_verdict(self, tools: dict[str, str], why: str) -> None:
+        outcome, output = self.artifact(tools)
+        self.assertEqual(outcome, "failure", why)
+        self.assertNotIn("verdict=", output, why)
+        # No verdict: the verdict job (dispatch and checked marker) never runs.
+        self.assertIn("needs.canary.outputs.verdict != ''", self.jobs["verdict"]["if"])
+
+    def assert_fail(self, tools: dict[str, str], why: str, length: str = "5") -> None:
+        outcome, output = self.artifact(tools, length)
+        self.assertEqual(outcome, "failure", why)
+        self.assertIn("verdict=fail", output, why)
+
+    def test_a_tooling_error_in_the_artifact_step_records_no_verdict(self):
+        # A runner or download error is none: the next scheduled tick retries it.
+        self.assert_no_verdict({"xcrun": 'echo "xcrun: error: unable to find utility \\"stapler\\", not a developer tool or in PATH" >&2; exit 72'},
+                               "missing Apple tooling")
+        self.assert_no_verdict({"xcrun": "exit 0", "hdiutil": 'echo "hdiutil: attach failed - Resource busy" >&2; exit 1'},
+                               "hdiutil attach")
+        self.assert_no_verdict({"xcrun": 'echo "Error Domain=NSURLErrorDomain Code=-1009 \\"The Internet connection appears to be offline.\\"" >&2; exit 65'},
+                               "stapler could not reach Apple")
+        self.assert_no_verdict({"xcrun": "exit 0", "hdiutil": self.ATTACH,
+                                "spctl": 'echo "spctl: assessment could not complete: a network error occurred" >&2; exit 3'},
+                               "spctl could not reach Apple")
+        self.assert_no_verdict({"xcrun": "exit 0", "hdiutil": self.ATTACH, "spctl": "exit 1"},
+                               "an spctl failure with no definite rejection")
+
+    def test_only_a_definite_artifact_rejection_records_fail(self):
+        self.assert_fail({"xcrun": 'echo "canary.dmg does not have a ticket stapled to it." >&2; exit 65'},
+                         "no stapled ticket")
+        self.assert_fail({"xcrun": 'echo "The validate action failed! Error 65." >&2; exit 65'},
+                         "a stapled ticket that does not validate")
+        self.assert_fail({"xcrun": "exit 0", "hdiutil": self.ATTACH,
+                          "spctl": 'echo "${@: -1}: rejected" >&2; echo "source=Unnotarized Developer ID" >&2; exit 3'},
+                         "Gatekeeper rejected the app")
+        self.assert_fail({"xcrun": "exit 0"}, "a length mismatch", length="6")
+        self.assert_fail({"xcrun": "exit 0", "hdiutil": "exit 0"}, "no app in the DMG")
 
     def test_a_length_mismatch_is_an_artifact_failure(self):
         self.assertNotIn("DMG_LENGTH", self.step("canary", "Download the feed's DMG")["run"])
