@@ -92,6 +92,97 @@ test("a failed upload fails each file it held, with the host's reason", async ()
   expect(failed).toEqual([[0, { text: "The disk is full." }]]);
 });
 
+/// An image engine whose decoding waits for `decoded()`, as a slow preview does.
+function slowImageEngine() {
+  imageEngine();
+  let decoded = () => {};
+  const done = new Promise<void>((resolve) => (decoded = resolve));
+  g.createImageBitmap = async () => {
+    await done;
+    return { width: 40, height: 30, close() {} };
+  };
+  return () => decoded();
+}
+
+/// A promise and the call that settles it.
+function signal() {
+  let fire = () => {};
+  const fired = new Promise<void>((resolve) => (fire = resolve));
+  return { fire, fired };
+}
+
+// An ordinary file's upload never waits for a sibling image's preview: the batch's one ordered
+// upload starts while the preview is still being made, and the image's original keeps its place.
+// Before the fix the upload never starts while the preview hangs, and the test times out.
+test("a file's upload starts while a sibling image's preview is still being made", async () => {
+  const decoded = slowImageEngine();
+  const fileChip = signal();
+  const uploaded: string[][] = [];
+  const events: string[] = [];
+  const taken = intakeFiles(
+    [png("shot.png"), zip("notes.zip")],
+    {
+      allowImages: true,
+      upload: async (files) => {
+        uploaded.push(files.map((file) => file.name));
+        return { paths: files.map((file) => `/tmp/${file.name}`) };
+      },
+    },
+    {
+      ready: (index, chip) => {
+        events.push(`ready ${index} ${chip.kind}`);
+        if (index === 1) fileChip.fire();
+      },
+      uploading: (index) => events.push(`uploading ${index}`),
+      original: (index, path) => events.push(`original ${index} ${path}`),
+    },
+  );
+  // The file is its chip once its upload is done, while the image's preview is still being made.
+  await fileChip.fired;
+  expect(uploaded).toEqual([["shot.png", "notes.zip"]]);
+  expect(events).toContain("ready 1 link");
+  // The image is not yet a chip, and its tile still holds a send until it is.
+  expect(events).not.toContain("ready 0 image");
+  expect(events).not.toContain("uploading 0");
+  decoded();
+  const result = await taken;
+  // The image's original pairs with its preview once that is made.
+  expect(events.indexOf("original 0 /tmp/shot.png")).toBeGreaterThan(events.indexOf("ready 0 image"));
+  expect(result.attachments.find((chip) => chip.kind === "image")?.originalPath).toBe("/tmp/shot.png");
+});
+
+test("a file with a known path is its link at once, and a cancelled one stays out, while an image decodes", async () => {
+  const decoded = slowImageEngine();
+  const uploadedChip = signal();
+  const uploaded: string[][] = [];
+  const ready: number[] = [];
+  const taken = intakeFiles(
+    [png("shot.png"), zip("local.zip"), zip("gone.zip"), zip("sent.zip")],
+    {
+      allowImages: true,
+      localPaths: async (files) =>
+        files.map((file, index) => (index === 1 ? { path: `/Users/me/${file.name}` } : undefined)) as never,
+      cancelled: (index) => index === 2,
+      upload: async (files) => {
+        uploaded.push(files.map((file) => file.name));
+        return { paths: files.map((file) => `/tmp/${file.name}`) };
+      },
+    },
+    {
+      ready: (index) => {
+        ready.push(index);
+        if (index === 3) uploadedChip.fire();
+      },
+    },
+  );
+  await uploadedChip.fired;
+  expect(uploaded).toEqual([["shot.png", "sent.zip"]]);
+  expect(ready).toEqual([1, 3]);
+  decoded();
+  await taken;
+  expect([...ready].sort((a, b) => a - b)).toEqual([0, 1, 3]);
+});
+
 // Review (Codex): an image is a chip as soon as its preview is made, while its original still
 // uploads; removing that chip stops the upload (the intake's `cancelled` asks per file).
 test("an image whose chip is gone stops its original's upload", async () => {
@@ -129,7 +220,14 @@ test("an image whose chip is gone stops its original's upload", async () => {
 // removed, while B is shown, so A's image keeps uploading its original.
 test("an image's chip counts as removed only from the strip of the chat it was pasted in", async () => {
   const { chipRemoved } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
-  const base = { chip: "img", stagedHere: true, everDrawn: true, pastedIn: "A", showing: "A", strip: [] };
+  const base = {
+    chip: "img",
+    stagedHere: true,
+    everDrawn: true,
+    pastedIn: "A",
+    showing: "A",
+    strip: [],
+  };
   expect(chipRemoved(base)).toBe(true);
   expect(chipRemoved({ ...base, showing: "B" })).toBe(false);
   expect(chipRemoved({ ...base, everDrawn: false })).toBe(false);
