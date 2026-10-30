@@ -1,18 +1,172 @@
 {
-  "title": "A link from an agent chat with a page already docked on its right (cmux#28544): base docks the chat and opens a second right pane; after, the link is a tab in the pane already on the right.",
-  "launch_args": ["--showcase"],
-  "steps": [
-    {"title": "Launch", "wait": 3},
-    {"title": "A workspace", "cmux": ["action", "run", "newTab", "--name", "Right pane", "--focus", "--cwd", "/tmp"], "wait": 1},
-    {"title": "Build the layout without main pane layout routing", "cmux": ["settings", "set", "layout.mainPane", "off"], "shot": false, "wait": 1},
-    {"title": "An agent chat", "cmux": ["agent", "new-chat", "--cwd", "/tmp"], "wait": 3},
-    {"title": "Wait for the chat page", "rpc": {"method": "debug.agent_pane", "params": {"action": "chat_state"}}, "shot": false},
-    {"title": "The chat's turn (the showcase mock answers with a pull request link)", "rpc": {"method": "debug.agent_pane", "params": {"action": "send_prompt", "text": "Open the pull request"}}, "wait": 4, "shot": false},
-    {"title": "A github.com page in the chat's pane", "cmux": ["tab", "new-browser", "--url", "https://github.com/manaflow-ai/cmux/pulls"], "wait": 4, "shot": false},
-    {"title": "The page docked on the chat's right", "cmux": ["action", "run", "tab.moveToNewDockColumn", "--arg", "edge=right"], "wait": 2},
-    {"title": "Main pane layout back on (the default)", "cmux": ["settings", "set", "layout.mainPane", "agent-chats"], "shot": false, "wait": 1},
-    {"title": "Click the pull request link in the chat", "rpc": {"method": "debug.agent_pane", "params": {"action": "click", "selector": "a[href*=\"github.com\"]"}}, "wait": 0.3},
-    {"title": "Mid-open", "wait": 0.3},
-    {"title": "Where the link landed", "wait": 2}
-  ]
+ "title": "An agent chat opens another chat while a github.com page is already open in a split on its right (cmux#28544, Leo's layout: three panes after base, chat | new | page). Base makes the tab in the chat's pane, then moves it to a new split; after, the chat is a tab in the page's pane, made there.",
+ "launch_args": [
+  "--showcase"
+ ],
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3
+  },
+  {
+   "title": "A workspace",
+   "cmux": [
+    "action",
+    "run",
+    "newTab",
+    "--name",
+    "Right pane",
+    "--focus",
+    "--cwd",
+    "/tmp"
+   ],
+   "wait": 1
+  },
+  {
+   "title": "An agent chat",
+   "cmux": [
+    "agent",
+    "new-chat",
+    "--cwd",
+    "/tmp"
+   ],
+   "wait": 3
+  },
+  {
+   "title": "Wait for the chat page",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "chat_state"
+    }
+   },
+   "shot": false
+  },
+  {
+   "title": "The chat's turn (the showcase mock answers)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "send_prompt",
+     "text": "Look at the pull request"
+    }
+   },
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "A message from another agent's chat",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "seed_rows",
+     "fixture": "incoming"
+    }
+   },
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "Build the layout outside main pane routing",
+   "cmux": [
+    "settings",
+    "set",
+    "layout.mainPane",
+    "off"
+   ],
+   "shot": false,
+   "wait": 1
+  },
+  {
+   "title": "A github.com page in the chat's pane",
+   "cmux": [
+    "tab",
+    "create",
+    "browser",
+    "--url",
+    "https://github.com/manaflow-ai/cmux/pulls",
+    "--name",
+    "GitHub"
+   ],
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "The page moved to a split on the chat's right",
+   "cmux": [
+    "action",
+    "run",
+    "tab.moveToNewSplit",
+    "--arg",
+    "direction=right"
+   ],
+   "wait": 2
+  },
+  {
+   "title": "Main pane layout back on (the default)",
+   "cmux": [
+    "settings",
+    "set",
+    "layout.mainPane",
+    "agent-chats"
+   ],
+   "shot": false,
+   "wait": 1
+  },
+  {
+   "title": "Back to the chat",
+   "cmux": [
+    "action",
+    "run",
+    "focusLeft"
+   ],
+   "shot": false,
+   "wait": 1
+  },
+  {
+   "title": "Open the sending agent's chat from the transcript (chat.offer.open)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "click",
+     "selector": ".cv-received:last-of-type .cv-disclosure__open"
+    }
+   },
+   "wait": 0.3
+  },
+  {
+   "title": "Mid-open",
+   "wait": 0.3
+  },
+  {
+   "title": "Where the chat landed",
+   "wait": 2
+  },
+  {
+   "title": "Back to the chat for a link",
+   "cmux": [
+    "action",
+    "run",
+    "focusLeft"
+   ],
+   "shot": false,
+   "wait": 1
+  },
+  {
+   "title": "Click a github.com link in the chat",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "click",
+     "selector": "a[href*=\"github.com\"]"
+    }
+   },
+   "wait": 0.3,
+   "optional": "the mock reply may carry no github.com link"
+  },
+  {
+   "title": "Where the link landed",
+   "wait": 2
+  }
+ ]
 }
