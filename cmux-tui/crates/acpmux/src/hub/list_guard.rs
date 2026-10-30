@@ -203,8 +203,9 @@ impl Snapshot {
             };
         }
         let picked = super::session_pages::session_list_reply(keys.clone(), &filters)?;
-        let rows = picked["sessions"].as_array().map(Vec::as_slice).unwrap_or_default();
-        let at = |key: &Value| key["at"].as_u64().unwrap_or_default() as usize;
+        let rows =
+            picked.get("sessions").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+        let at = |key: &Value| key.get("at").and_then(Value::as_u64).unwrap_or_default() as usize;
         let row = |key: &Value| -> std::borrow::Cow<'_, str> {
             let text = spans.get(at(key)).and_then(|span| text.get(span.clone()));
             match text {
@@ -224,7 +225,7 @@ impl Snapshot {
                 rows,
                 cursor,
                 budget,
-                |n| row(&rows[n]),
+                |n| rows.get(n).map_or_else(|| "null".into(), row),
                 |r| r.len(),
             )?;
             (page, next.map(|next| after.map_or_else(|| next.clone(), |k| format!("{next}~{k}"))))
@@ -311,7 +312,7 @@ fn too_large_stub(key: &Value, bytes: usize) -> String {
     });
     for k in ["peer", "status"] {
         if let Some(v) = key.get(k).filter(|v| !v.is_null()) {
-            stub[k] = v.clone();
+            stub.set(k, v.clone());
         }
     }
     stub.to_string()
