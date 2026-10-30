@@ -609,8 +609,17 @@ async fn a_failed_policy_replay_refuses_with_its_kind_and_recovery() {
     assert_eq!(data["errorKind"], "policy.replay_failed");
     let recovery = data["recovery"].as_str().expect("no recovery");
     assert!(recovery.starts_with("Send the message again to start a fresh agent."), "{recovery}");
-    let cause = s.tail_error.lock().unwrap().clone().expect("the I/O error was not kept");
-    assert!(cause.contains("the log segments could not be read"), "{cause}");
+    // The I/O error is logged with the refusal and then dropped: a later refusal or log line never
+    // tells a failure that did not happen (a stale text, R2).
+    assert!(s.tail_error.lock().unwrap().is_none(), "the I/O error text outlived its refusal");
+    // Before the refusal it was kept for its log line: a fresh hub's chat holds the read's error.
+    let (hub, s) = tail_unreadable_hub();
+    assert!(hub.ends_before_adoption(&s, false).await, "adoption reached the host");
+    let kept =
+        s.tail_error.lock().unwrap().clone().expect("the I/O error was not kept for the log");
+    assert!(kept.contains("the log segments could not be read"), "{kept}");
+    let _ = hub.refuse_cleared_host(&s).await;
+    assert!(s.tail_error.lock().unwrap().is_none(), "the I/O error text outlived its refusal");
     // As the unstarted turn's failure records it (`turns.rs` `fail_unstarted_turn`).
     crate::recovery::annotate(&mut e, None);
     let typed = crate::recovery::fields(&e);

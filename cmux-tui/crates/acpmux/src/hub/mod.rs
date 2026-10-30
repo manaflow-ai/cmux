@@ -1083,6 +1083,10 @@ impl Hub {
             *session.tail_error.lock_or_recover() = Some(format!("{e:#}"));
         }
         session.tail_failed.store(tail.is_err(), Ordering::SeqCst);
+        if tail.is_ok() {
+            // A later read that worked: no failure is told from an older one (R2).
+            *session.tail_error.lock_or_recover() = None;
+        }
         let mut cleared = false;
         if let Ok((extra, last)) = tail
             && extra > 0

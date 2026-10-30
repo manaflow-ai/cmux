@@ -273,6 +273,8 @@ impl Hub {
             self.end_unadopted_host(session).await;
             if Self::host_record_gone(&session.id) {
                 session.tail_failed.store(false, Ordering::SeqCst);
+                // The failure is spent (no host of it runs): its text goes with the flag, once the
+                // refusal below has logged it (`Session::tail_error` is taken there).
             }
             self.mark_unadoptable(session, json!({"reason": "grant_replay_failed"}));
             return ClearedHostEnd::ReplayFailed;
@@ -322,7 +324,8 @@ impl Hub {
                 "this chat's agent host ran under an approve-all that is now cleared and is not proven ended; the chat starts again once it is",
             )),
             ClearedHostEnd::ReplayFailed => {
-                let cause = session.tail_error.lock_or_recover().clone();
+                // Taken, not cloned: logged once here, never shown again for a failure that did not happen.
+                let cause = session.tail_error.lock_or_recover().take();
                 tracing::warn!(
                     session = %session.id,
                     error = cause.as_deref().unwrap_or("unknown"),
