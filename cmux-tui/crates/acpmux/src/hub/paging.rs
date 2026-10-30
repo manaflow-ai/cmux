@@ -325,7 +325,7 @@ impl Hub {
                 Some(bytes) => fit_sized(rec, bytes, bounded),
                 None => fit(rec, bounded),
             };
-            let moot_bytes = moot.and_then(|slot| found[slot].as_ref()).map_or(0, |(_, b)| *b);
+            let moot_bytes = moot.and_then(|slot| found.get(slot)?.as_ref()).map_or(0, |(_, b)| *b);
             let kept = held + 1 - usize::from(moot.is_some());
             let size = bytes + rec_bytes - moot_bytes;
             // Full by count, or by size once it holds another record.
@@ -333,8 +333,8 @@ impl Hub {
                 page.has_more = true;
                 return false;
             }
-            if let Some(slot) = moot {
-                found[slot] = None;
+            if let Some(entry) = moot.and_then(|slot| found.get_mut(slot)) {
+                *entry = None;
             }
             (held, bytes) = (kept, size);
             found.push(Some((rec, rec_bytes)));

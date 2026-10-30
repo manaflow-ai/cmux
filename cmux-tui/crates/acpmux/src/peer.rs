@@ -19,6 +19,8 @@ use std::time::Duration;
 use tokio::sync::{Mutex, Notify, mpsc, oneshot};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
+#[path = "peer_features.rs"]
+mod features;
 #[path = "peer_health.rs"]
 mod health;
 
@@ -176,6 +178,9 @@ pub struct Peer {
     session_auth: AtomicBool,
     /// The features the peer listed at its last handshake (`lists`).
     features: StdMutex<Vec<String>>,
+    /// One more than the link epoch whose handshake listed `sessionResume`
+    /// (`server/requests/session_open.rs`); 0 when the last handshake did not.
+    session_resume_link: AtomicU64,
     /// The peer lists `session-messages-v1`: its prompt acceptances name the message they kept.
     session_messages: AtomicBool,
     /// The peer lists `personStop` (`server/requests/person_stop.rs`).
@@ -265,6 +270,7 @@ impl Peer {
             subagent_transcript: AtomicBool::new(false),
             session_auth: AtomicBool::new(false),
             features: StdMutex::new(Vec::new()),
+            session_resume_link: AtomicU64::new(0),
             session_messages: AtomicBool::new(false),
             person_stop: AtomicBool::new(false),
             withheld: AtomicBool::new(false),
@@ -688,25 +694,6 @@ impl Peer {
         });
     }
 
-    pub fn supports_trust_gate(&self) -> bool {
-        self.trust_gate.load(Ordering::SeqCst)
-    }
-
-    /// Whether the peer said at its last handshake that it takes `_acpmux/file_put`.
-    pub fn supports_file_put(&self) -> bool {
-        self.file_put.load(Ordering::SeqCst)
-    }
-
-    /// Whether the peer takes uploads in chunks (`file_put_begin`/`_chunk`/`_finish`/`_cancel`).
-    pub fn supports_file_put_chunks(&self) -> bool {
-        self.file_put_chunks.load(Ordering::SeqCst)
-    }
-
-    /// Whether the peer said at its last handshake that it serves the media reader.
-    pub fn supports_media_read(&self) -> bool {
-        self.media_read.load(Ordering::SeqCst)
-    }
-
     /// Which connection to the peer this is: it changes when a connection ends or the peer stops.
     pub fn link_epoch(&self) -> u64 {
         self.link_epoch.load(Ordering::SeqCst)
@@ -717,45 +704,6 @@ impl Peer {
         self.features.lock_or_recover().clear();
         self.link_epoch.fetch_add(1, Ordering::SeqCst);
         self.github_revoked.notify_waiters();
-    }
-
-    /// Whether the peer said at its last handshake that it serves subagent transcripts.
-    pub fn supports_subagent_transcript(&self) -> bool {
-        self.subagent_transcript.load(Ordering::SeqCst)
-    }
-
-    /// Whether the peer listed `feature` at its last handshake (none before it answered): it
-    /// saves a message's attachments (`attach::FEATURE`), reads uploaded files a message names
-    /// (`prompt_uploads::FEATURE`), answers upload status (`file_uploads::RESUME_FEATURE`), or
-    /// holds a prompt for the owner (`author::QUEUE_APPROVAL_FEATURE`).
-    pub fn lists(&self, feature: &str) -> bool {
-        self.features.lock_or_recover().iter().any(|f| f == feature)
-    }
-
-    /// Whether the peer said at its last handshake that it answers `_acpmux/session/auth`.
-    pub fn supports_session_auth(&self) -> bool {
-        self.session_auth.load(Ordering::SeqCst)
-    }
-
-    /// The link that listed `feature` (`lists`), for a request that may go only to a peer that
-    /// listed it: sent on that link (`request_on`), it never reaches a reconnected one. The epoch
-    /// is read first and a link's end clears the list first (`link_ended`).
-    pub fn lists_on(&self, feature: &str) -> Option<u64> {
-        let epoch = self.link_epoch();
-        self.lists(feature).then_some(epoch)
-    }
-
-    /// Whether the peer said at its last handshake that its prompt acceptances name the message
-    /// they kept (`capabilities::SESSION_MESSAGES`).
-    pub fn supports_session_messages(&self) -> bool {
-        self.session_messages.load(Ordering::SeqCst)
-    }
-
-    /// Integration-test stand-in for a peer from before `session-messages-v1`: until the next
-    /// handshake, as though it had not listed it.
-    #[doc(hidden)]
-    pub fn forget_session_messages_for_tests(&self) {
-        self.session_messages.store(false, Ordering::SeqCst);
     }
 
     /// The WebSocket is open and the handshake has not finished.
@@ -1250,6 +1198,8 @@ impl Peer {
             let listed = init.pointer("/_meta/acpmux/features").and_then(Value::as_array);
             let listed = listed.into_iter().flatten().filter_map(Value::as_str);
             *me.features.lock_or_recover() = listed.map(str::to_owned).collect();
+            let resumes = lists(crate::server::SESSION_RESUME_FEATURE);
+            me.session_resume_link.store(if resumes { link + 1 } else { 0 }, Ordering::SeqCst);
             let messages = init
                 .pointer("/_meta/acpmux/capabilities")
                 .and_then(Value::as_array)
