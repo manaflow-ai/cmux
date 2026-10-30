@@ -383,7 +383,15 @@ for (const classic of [false, true]) {
       input.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
     });
     expect(input.value).toBe("kept before failure!");
+    await act(async () => dom!.window.dispatchEvent(new dom!.window.Event("acpmux-focus-location")));
+    expect(input.selectionStart).toBe(0);
+    expect(input.selectionEnd).toBe(input.value.length);
     const prototype = classic ? dom!.window.HTMLInputElement.prototype : dom!.window.HTMLTextAreaElement.prototype;
+    await act(async () => {
+      setValue.call(input, "replaced");
+      input.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+    });
+    expect(input.value).toBe("replaced");
     await act(async () => {
       Object.getOwnPropertyDescriptor(prototype, "value")!.set!.call(input, "");
       input.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));

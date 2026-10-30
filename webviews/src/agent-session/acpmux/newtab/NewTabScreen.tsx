@@ -300,6 +300,7 @@ export function NewTabScreen(props: Props) {
   const editing = useWidgetEditing(onEditWidgets);
   const order = shownMovable(widgets);
   const [carried] = useState(() => props.takeDraft?.());
+  const restoreFocusPending = useRef(Boolean(carried?.text));
   const [text, setText] = useState(carried?.text || (location ?? ""));
   const [commandActive, setCommandActive] = useState(0);
   const [commandDismissed, setCommandDismissed] = useState<string>();
@@ -792,22 +793,24 @@ export function NewTabScreen(props: Props) {
   // field has focus before the next key) and on Cmd-L (FOCUS_LOCATION_EVENT); only then, so an
   // update or a click into the field never moves its caret or restarts its blink.
   useLayoutEffect(() => {
-    const focus = () => {
+    const focus = (initialRestore = false) => {
       field.current?.focus();
-      if (carried?.text) {
+      if (initialRestore && restoreFocusPending.current) {
+        restoreFocusPending.current = false;
         const end = field.current?.value.length ?? 0;
         field.current?.setSelectionRange(end, end);
       } else {
         field.current?.select();
       }
     };
-    if (focusOnShow) focus();
+    if (focusOnShow) focus(true);
     if (inputToken && inputReadyReported.current !== inputToken) {
       inputReadyReported.current = inputToken;
       onInputReady.current?.(inputToken);
     }
     const view = field.current?.ownerDocument.defaultView;
-    view?.addEventListener(FOCUS_LOCATION_EVENT, focus);
+    const focusLocation = () => focus();
+    view?.addEventListener(FOCUS_LOCATION_EVENT, focusLocation);
     // The page got the keyboard back (a tab or pane switch back: WebKit focuses the window as its
     // web view becomes first responder) with nothing in it focused, as after a press on the page's
     // background: the field takes it, as the chat composer does (composerFocus.ts), keeping its
@@ -818,7 +821,7 @@ export function NewTabScreen(props: Props) {
     };
     if (focusOnShow) view?.addEventListener("focus", reclaim);
     return () => {
-      view?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
+      view?.removeEventListener(FOCUS_LOCATION_EVENT, focusLocation);
       view?.removeEventListener("focus", reclaim);
     };
   }, [inputToken, focusOnShow]);

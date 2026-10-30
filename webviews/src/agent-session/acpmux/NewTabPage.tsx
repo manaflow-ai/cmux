@@ -391,6 +391,7 @@ export function NewTabPage({
   );
   const chipModel = useNewTabChipModel(chipSnapshot);
   const [carried] = useState(() => takeDraft?.());
+  const restoreFocusPending = useRef(Boolean(carried?.text));
   const [text, setText] = useState(carried?.text || (location ?? ""));
   /// The last open was refused (the host made no tab): a note under the field until the next edit.
   const [openFailed, setOpenFailed] = useState(false);
@@ -556,9 +557,10 @@ export function NewTabPage({
   const inputReady = useRef(onInputReady);
   inputReady.current = onInputReady;
   useEffect(() => {
-    const focus = () => {
+    const focus = (initialRestore = false) => {
       field.current?.focus();
-      if (carried?.text) {
+      if (initialRestore && restoreFocusPending.current) {
+        restoreFocusPending.current = false;
         const end = field.current?.value.length ?? 0;
         field.current?.setSelectionRange(end, end);
       } else {
@@ -567,11 +569,12 @@ export function NewTabPage({
       // A page shown in a window that is not key yet gets no focus event until it is.
       setFocused(field.current === document.activeElement);
     };
-    focus();
+    focus(true);
     if (inputToken) inputReady.current?.(inputToken);
     const host = field.current?.ownerDocument.defaultView;
-    host?.addEventListener(FOCUS_LOCATION_EVENT, focus);
-    return () => host?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
+    const focusLocation = () => focus();
+    host?.addEventListener(FOCUS_LOCATION_EVENT, focusLocation);
+    return () => host?.removeEventListener(FOCUS_LOCATION_EVENT, focusLocation);
   }, [inputToken]);
   const choose = (next: TabKind) => {
     changeKind(next);
