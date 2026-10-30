@@ -165,6 +165,9 @@ struct AgentPaneMemoryConsumerTests {
     @Test func chatTailsReleaseTheLeastRecentlyRememberedAndAReleasedChatIsAskedAgain() {
         let cache = AgentPaneTailCache.shared
         cache.clear()
+        // The shared cache keeps as many chats as the last limit it was given: a memory coordinator
+        // of another test in this process (or one under real pressure on the host) may have lowered it.
+        cache.updateMemoryLimit(.default)
         defer {
             cache.updateMemoryLimit(.default)
             cache.clear()

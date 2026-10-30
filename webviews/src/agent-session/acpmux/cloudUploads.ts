@@ -2,6 +2,7 @@
 // time. The native host binds the token to the session/gesture and enforces its storage quota.
 // Older hosts keep the legacy upload call; only a missing staging method selects that path.
 import { base64 } from "./attachments";
+import { translate } from "./i18n";
 
 export type UploadResult = { paths: string[] } | { error: string } | undefined;
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
@@ -47,7 +48,7 @@ export async function uploadToMachine(files: File[], call: Call): Promise<Upload
         // An old host can only accept one complete JSON frame. Refuse oversized files
         // explicitly instead of rebuilding the removed composer cap as a connection reset.
         if (files.some((entry) => entry.size > LEGACY_FRAME_SAFE_BYTES))
-          return { error: "This host cannot stream an attachment this large." };
+          return { error: translate("upload.hostTooLarge") };
         return legacyUpload(files, call);
       }
       return { error: error instanceof Error ? error.message : String(error) };
@@ -55,21 +56,21 @@ export async function uploadToMachine(files: File[], call: Call): Promise<Upload
     const begin = object(started);
     if (!paths.length && typeof begin.batchToken === "string" && begin.batchToken) batchToken = begin.batchToken;
     const token = begin.token;
-    if (typeof token !== "string" || !token) return { error: "The upload could not be started." };
+    if (typeof token !== "string" || !token) return { error: translate("upload.notStarted") };
     try {
       if (begin.size !== file.size || !Number.isSafeInteger(begin.chunkSize) || Number(begin.chunkSize) <= 0)
-        throw new Error("The upload could not be started.");
+        throw new Error(translate("upload.notStarted"));
       const chunkSize = Math.min(Number(begin.chunkSize), CHUNK_BYTES);
       for (let offset = 0; offset < file.size;) {
         const end = Math.min(file.size, offset + chunkSize);
         const bytes = new Uint8Array(await file.slice(offset, end).arrayBuffer());
-        if (bytes.length !== end - offset) throw new Error("The file could not be read.");
+        if (bytes.length !== end - offset) throw new Error(translate("upload.notRead"));
         const answer = object(await call("chat.upload.chunk", { token, offset, data: base64(bytes) }));
-        if (answer.offset !== end) throw new Error("The upload could not be completed.");
+        if (answer.offset !== end) throw new Error(translate("upload.notCompleted"));
         offset = end;
       }
       const [path, extra] = uploadedPaths(await call("chat.upload.finish", { token }));
-      if (!path || extra) throw new Error("The upload could not be completed.");
+      if (!path || extra) throw new Error(translate("upload.notCompleted"));
       paths.push(path);
     } catch (error) {
       await call("chat.upload.cancel", { token }).catch(() => undefined);

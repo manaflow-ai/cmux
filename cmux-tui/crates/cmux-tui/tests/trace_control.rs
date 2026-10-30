@@ -1,9 +1,11 @@
 //! `trace-start`, `trace-status` and `trace-stop` on a real daemon:
-//! the daemon records into its state root and
-//! forwards to its terminal hosts, which record next to their discovery
-//! records, or to its holder (`CMUX_TUI_TERMINAL_HOST_MODEL=holder`), which
-//! records in its holder-lifetime directory. Every ring is on disk, decodes,
-//! and names its role and process.
+//! the daemon records into its black box ring in the app's trace folder
+//! (`cmux_trace::process_dir`, the folder its terminal hosts share) and
+//! forwards to its terminal hosts, which record there too, or to its holder
+//! (`CMUX_TUI_TERMINAL_HOST_MODEL=holder`), which records in its
+//! holder-lifetime directory. Every ring is on disk, decodes, and names its
+//! role and process. The test gives the daemon its own home and state
+//! folders, so no ring lands in the folders of the user running it.
 
 #![cfg(unix)]
 
@@ -44,11 +46,14 @@ impl Client {
     }
 }
 
-/// A daemon of this test, with the terminal host model `model` (`None`:
-/// the default, a host process per terminal).
+/// A daemon of this test, with the terminal host model `model`: `hosts`, a
+/// terminal host process per terminal, or `holder`, the default since the
+/// `terminalHolder` feature (holder_runtime.rs).
 struct Daemon {
     child: Child,
     dir: PathBuf,
+    /// The trace folder the daemon and its terminal hosts record in.
+    trace: PathBuf,
     client: Client,
     /// Processes the test made that outlive the daemon (the holder).
     cleanup: Vec<i32>,
@@ -57,12 +62,20 @@ struct Daemon {
 }
 
 impl Daemon {
-    fn start(model: Option<&str>) -> Self {
+    fn start(model: &str) -> Self {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let dir =
             PathBuf::from("/tmp").join(format!("cmux-trace-ctl-{}-{stamp}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let socket = dir.join("mux.sock");
+        // The trace folder follows HOME (macOS) or XDG_STATE_HOME (other unix).
+        let home = dir.join("home");
+        let xdg_state = dir.join("xdg-state");
+        fs::create_dir_all(&home).unwrap();
+        let trace = cmux_trace::process_dir_with(
+            |key| (key == "XDG_STATE_HOME").then(|| xdg_state.clone().into_os_string()),
+            Some(home.clone()),
+        );
         let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
         command
             .args(["--headless", "--socket"])
@@ -71,15 +84,18 @@ impl Daemon {
             .arg(dir.join("state"))
             .env("CMUX_TUI_CONFIG", dir.join("config.json"))
             .env("SHELL", "/bin/sh")
-            .env_remove("CMUX_TUI_TERMINAL_HOST_MODEL")
+            .env("HOME", &home)
+            .env("XDG_STATE_HOME", &xdg_state)
+            .env_remove("CMUX_TRACE_FLOWS")
+            .env_remove("CMUX_BUNDLE_ID")
+            .env("CMUX_TUI_TERMINAL_HOST_MODEL", model)
+            .env_remove("CMUX_ENABLE_FEATURES")
+            .env_remove("CMUX_DISABLE_FEATURES")
             .env_remove("SSH_CONNECTION")
             .env_remove("SSH_CLIENT")
             .env_remove("SSH_TTY")
             .stdout(Stdio::null())
             .stderr(Stdio::null());
-        if let Some(model) = model {
-            command.env("CMUX_TUI_TERMINAL_HOST_MODEL", model);
-        }
         let child = command.spawn().unwrap();
         let deadline = Instant::now() + Duration::from_secs(60);
         let stream = loop {
@@ -92,7 +108,7 @@ impl Daemon {
         stream.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
         let client =
             Client { writer: stream.try_clone().unwrap(), reader: BufReader::new(stream), next: 0 };
-        Self { child, dir, client, cleanup: Vec::new(), cleanup_dirs: Vec::new() }
+        Self { child, dir, trace, client, cleanup: Vec::new(), cleanup_dirs: Vec::new() }
     }
 
     /// A new workspace running `cat`; its surface.
@@ -185,7 +201,7 @@ fn start_and_check_the_daemon(daemon: &mut Daemon) -> Value {
     assert_eq!(daemon_report.len(), 1, "{started}");
     assert_eq!(daemon_report[0]["state"], "recording", "{started}");
     let daemon_ring = PathBuf::from(daemon_report[0]["recording_path"].as_str().unwrap());
-    assert!(daemon_ring.starts_with(daemon.dir.join("state")), "{}", daemon_ring.display());
+    assert!(daemon_ring.starts_with(&daemon.trace), "{}", daemon_ring.display());
     assert_ring(&daemon_ring, Role::Daemon, daemon_report[0]["pid"].as_u64().unwrap());
     let total = started["total_bytes"].as_u64().unwrap();
     assert!(total <= started["total_cap_bytes"].as_u64().unwrap(), "{started}");
@@ -194,7 +210,7 @@ fn start_and_check_the_daemon(daemon: &mut Daemon) -> Value {
 
 #[test]
 fn trace_control_records_the_daemon_and_its_terminal_host() {
-    let mut daemon = Daemon::start(None);
+    let mut daemon = Daemon::start("hosts");
     daemon.new_terminal();
     let started = start_and_check_the_daemon(&mut daemon);
 
@@ -203,7 +219,7 @@ fn trace_control_records_the_daemon_and_its_terminal_host() {
     for host in &hosts {
         assert_eq!(host["state"], "recording", "{started}");
         let ring = PathBuf::from(host["recording_path"].as_str().unwrap());
-        assert!(ring.starts_with(daemon.dir.join("state")), "{}", ring.display());
+        assert!(ring.starts_with(&daemon.trace), "{}", ring.display());
         assert_ring(&ring, Role::TerminalHost, host["pid"].as_u64().unwrap());
     }
     assert_eq!(
@@ -229,7 +245,7 @@ fn trace_control_records_the_daemon_and_its_terminal_host() {
 
 #[test]
 fn trace_control_records_the_daemon_and_its_holder() {
-    let mut daemon = Daemon::start(Some("holder"));
+    let mut daemon = Daemon::start("holder");
     let surface = daemon.new_terminal();
     let holder_pid = parent_of(daemon.shell_pid(surface));
     daemon.cleanup.push(holder_pid);

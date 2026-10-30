@@ -123,7 +123,10 @@ impl PtyTerminalRuntime {
         replayed: bool,
     ) -> Vec<crate::terminal_metadata::TerminalNotification> {
         let mut metadata = self.terminal_metadata.lock().recover_poison();
-        if !bytes.is_empty() {
+        // `last_output` is printed text: a repaint of escape sequences only
+        // (an idle TUI's cursor) is not output a person sees, and must not
+        // push a terminal revision every interval (terminal_activity.rs).
+        if metadata.output_prints(bytes) {
             metadata.activity.note_output(crate::workspace_registry::unix_epoch_ms().unwrap_or(0));
         }
         metadata.observe_output(bytes);

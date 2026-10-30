@@ -485,14 +485,20 @@ mod provider_listener_tests {
         std::thread::spawn(move || {
             serve_providers(listener, thread_secret, thread_slot, Arc::from("agent"))
         });
-        assert!(!dial_relay(&path, secret.relay_credential()), "no provider: nothing to relay");
+        assert!(
+            !dial_relay(&path, secret.relay_credential().expect("the relay credential")),
+            "no provider: nothing to relay"
+        );
         let _provider = dial(&path, &"s".repeat(40)).expect("the provider connects");
         // hello.ack comes once the slot serves the provider: the relay finds it at once.
         assert!(slot.lock().unwrap().is_some());
         assert!(!dial_relay(&path, secret.clone()), "the secret is not the relay credential");
         // macOS also checks the peer's code signature (provider_link/relay_peer.rs):
         // this test binary is not signed as cmux, so its own relay link is refused.
-        assert_eq!(dial_relay(&path, secret.relay_credential()), !cfg!(target_os = "macos"));
+        assert_eq!(
+            dial_relay(&path, secret.relay_credential().expect("the relay credential")),
+            !cfg!(target_os = "macos")
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

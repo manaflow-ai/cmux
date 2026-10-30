@@ -182,6 +182,15 @@ impl Hub {
         };
         session.seq.store(last, Ordering::SeqCst);
         session.meta.lock_or_recover().last_seq = last;
+        // Saved now, before any client sees the chat: a restart replays the log records past the
+        // saved `lastSeq` (`meta_replay.rs`), and with the bundle's own `lastSeq` saved those
+        // would be the bundle's policy, rules, tags and name records, over what this import set
+        // (a guard's policy, cleared tags, a unique name). A crash during the copy above still
+        // finds the first record; that chat is a partial import either way.
+        if let Err(e) = self.store.save(&session.meta()) {
+            let _ = self.store.delete(&meta.id);
+            return Err(RpcError::internal(e.to_string()));
+        }
         if live {
             self.restore_queue(&session);
             // Its log holds the source's move (`transfer_out`), not one of this daemon's.

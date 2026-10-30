@@ -31,10 +31,10 @@ public nonisolated struct PageChromiumDocumentScripts: Sendable, Equatable {
     }
 
     /// The scripts every page view installs with the same source (input readiness, the theme
-    /// bootstrap, paint probe, console capture, links and drops). On renderer paths every
-    /// `cmux-page:` main frame runs them at document start
+    /// bootstrap, paint probe, console capture, links and drops): a constant list, not an instance. On renderer
+    /// paths every `cmux-page:` main frame runs them at document start
     /// (``ChromiumPageHostBridge/rendererScript(handlers:documentScripts:channelEvent:)``).
-    @MainActor public static let shared: [String] = [
+    @MainActor public static let everyPage: [String] = [
         (source: PageInputReadiness.script, atDocumentEnd: false, mainFrameOnly: true),
         (source: WebTheme.bootstrapScript, atDocumentEnd: false, mainFrameOnly: true),
         (source: PagePaintProbe.script, atDocumentEnd: true, mainFrameOnly: true),
@@ -42,8 +42,8 @@ public nonisolated struct PageChromiumDocumentScripts: Sendable, Equatable {
     ].map(PageChromiumDocumentScripts.chromiumSource)
         + [PageChromiumDocumentScripts.navigationScript, PageChromiumDocumentScripts.hostDropScript]
 
-    /// ``sources`` without the ``shared`` ones: what only this view has (its theme, `data-*` attributes).
-    @MainActor public var perView: [String] { sources.filter { !Self.shared.contains($0) } }
+    /// ``sources`` without the ``everyPage`` ones: what only this view has (its theme, `data-*` attributes).
+    @MainActor public var perView: [String] { sources.filter { !Self.everyPage.contains($0) } }
 
     /// Chromium runs a new-document script in every frame, before the document parses: a main-frame
     /// script returns in subframes, and a document-end script waits for `DOMContentLoaded`.

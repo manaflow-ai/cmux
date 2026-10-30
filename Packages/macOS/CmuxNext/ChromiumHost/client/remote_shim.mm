@@ -178,7 +178,7 @@ std::optional<uint64_t> StateKeyFor(uint16_t op, const std::vector<Field>& field
     case kOpSetZoomLevel:
     case kOpSetAccessibility:
     case kOpDevtoolsSetPlacement:
-    case cmux_host::kOpPageResize:  // per page view; a fenced one has a token and is never replaced
+    case cmux_host::kOpPageResize:  // per page view
       if (fields.empty()) return std::nullopt;
       return cmux_host::control::StateKey(op, static_cast<int32_t>(fields[0].integer));
     default:
@@ -216,19 +216,6 @@ bool IsOrderedOp(uint16_t op) {
 // Each is a coalescing boundary: a state op never replaces a waiting one across it.
 bool IsControlInputOp(uint16_t op) {
   return op == kOpTabSendClick;
-}
-
-// A copy of the send right `fence` to the host's fence inbox (host_resize.h, SendFence); false
-// when it was not sent, and always where there is no Mach (the tests on Linux).
-bool SendFenceRight(uint32_t channel, uint32_t fence, uint64_t seq) {
-#if defined(__APPLE__)
-  return cmux_host::SendFence(channel, fence, seq);
-#else
-  (void)channel;
-  (void)fence;
-  (void)seq;
-  return false;
-#endif
 }
 
 // The name the host's HELLO lists when it takes `op`: an optional op's symbol (kOptionalExports)
@@ -391,41 +378,18 @@ class Runtime {
     host_watch_ctx_ = ctx;
   }
 
-  // Takes the send right to the attached host's fence inbox (0: none); the one held goes.
-  int SetFenceChannel(uint32_t port) {
-    CMUX_REMOTE_ASSERT_MAIN();
-    ReleaseFenceChannel();
-    fence_channel_ = port;
-    if (link_ == Link::kAttached) return 1;
-    ReleaseFenceChannel();  // no host to send to: the port names a host that is gone
-    return 0;
-  }
-
-  // kOpPageResize (host_resize.h). With `fence` and a fence channel, the fence right goes to the
-  // host's inbox first and the op waits for the host's answer (last_reply_token_). A
-  // cmux_remote_page_resize_result.
-  int PageResize(uint64_t view, int32_t browser, int32_t width, int32_t height, uint32_t fence,
-                 uint32_t deadline_frames) {
+  // kOpPageResize (host_resize.h): 1 when sent.
+  int PageResize(uint64_t view, int32_t width, int32_t height) {
     CMUX_REMOTE_ASSERT_MAIN();
     last_reply_token_ = 0;
-    if (link_ != Link::kAttached || view == 0) return CMUX_REMOTE_RESIZE_NOT_SENT;
+    if (link_ != Link::kAttached || view == 0) return 0;
     cmux_host::PageResize resize;
     resize.view = view;
-    resize.browser = browser;
     resize.width = width;
     resize.height = height;
-    resize.deadline_frames = deadline_frames;
-    if (fence != 0 && fence_channel_ != 0 && SendFence(fence, fence_seq_ + 1)) {
-      resize.fence_seq = ++fence_seq_;
-    }
     TlvWriter args;
     cmux_host::WritePageResize(resize, &args);
-    if (resize.fence_seq == 0) {
-      return Post(cmux_host::kOpPageResize, 0, args) ? CMUX_REMOTE_RESIZE_UNFENCED : CMUX_REMOTE_RESIZE_NOT_SENT;
-    }
-    // Not sent: the host's book drops the fence when a later seq comes.
-    return PostForReply(cmux_host::kOpPageResize, NextToken(), args) ? CMUX_REMOTE_RESIZE_FENCED
-                                                                     : CMUX_REMOTE_RESIZE_NOT_SENT;
+    return Post(cmux_host::kOpPageResize, 0, args) ? 1 : 0;
   }
 
   // cmux_shim_set_energy_saver: kept for every host of the session, posted to the attached one,
@@ -478,15 +442,6 @@ class Runtime {
     cmux_host::WriteLockHandler(locks_.installed(), &args);
     const bool sent = Post(kOpSetLockHandler, 0, args);
     return known && sent ? 1 : 0;
-  }
-
-  void SetFenceSender(cmux_remote_fence_send_fn send) {
-    CMUX_REMOTE_ASSERT_MAIN();
-    fence_send_ = send;
-  }
-
-  bool SendFence(uint32_t fence, uint64_t seq) {
-    return fence_send_ ? fence_send_(fence_channel_, fence, seq) == 1 : SendFenceRight(fence_channel_, fence, seq);
   }
 
   bool PostForReply(uint16_t op, uint32_t token, const TlvWriter& args) {
@@ -801,18 +756,10 @@ class Runtime {
     dropped_reveals_.insert(dropped_reveals_.end(), reveals_.begin(), reveals_.end());
     reveals_.clear();
     host_exports_.clear();
-    ReleaseFenceChannel();  // the inbox was this host's
     // Last: cmux's lock fn frees its cursor and keys, and may call back into a detached shim.
     locks_.HostGone();
     // After the lock fn: a reveal's sink may post, attach or detach (AnswerDroppedReveals).
     AnswerDroppedReveals();
-  }
-
-  void ReleaseFenceChannel() {
-#if defined(__APPLE__)
-    if (fence_channel_ != 0) mach_port_deallocate(mach_task_self(), fence_channel_);
-#endif
-    fence_channel_ = 0;
   }
 
   void Deliver(uint64_t generation, std::vector<Message> batch) {
@@ -1061,12 +1008,6 @@ class Runtime {
   void* host_watch_ctx_ = nullptr;
   // Input written so far, on the ring or the control channel: the coalescing boundary.
   uint32_t boundary_ = 0;
-  // A send right to the attached host's fence inbox (task 052), 0 while none; and the last
-  // fence seq, which only grows (a new host's inbox starts empty).
-  uint32_t fence_channel_ = 0;
-  uint64_t fence_seq_ = 0;
-  // nullptr: SendFenceRight (cmux_remote_shim_set_fence_sender).
-  cmux_remote_fence_send_fn fence_send_ = nullptr;
   int32_t next_browser_id_ = kFirstMintedBrowserID;
   int32_t next_devtools_id_ = kFirstMintedDevToolsID;
   cmux_remote_shim_stats stats_ = {};
@@ -1179,17 +1120,8 @@ void cmux_remote_shim_set_ended(void* ctx, cmux_remote_ended_fn ended) {
   R().SetEnded(ctx, ended);
 }
 
-int cmux_remote_shim_set_resize_fence_channel(unsigned int port) {
-  return R().SetFenceChannel(port);
-}
-
-int cmux_remote_shim_page_resize(uint64_t view_token, int browser_id, int width, int height, unsigned int fence_port,
-                                 unsigned int deadline_frames) {
-  return R().PageResize(view_token, browser_id, width, height, fence_port, deadline_frames);
-}
-
-void cmux_remote_shim_set_fence_sender(cmux_remote_fence_send_fn send) {
-  R().SetFenceSender(send);
+int cmux_remote_shim_page_resize(uint64_t view_token, int width, int height) {
+  return R().PageResize(view_token, width, height);
 }
 
 uint32_t cmux_remote_shim_order_input(uint32_t* ctl_seq) {
@@ -1321,8 +1253,7 @@ CMUX_SHIM_EXPORT int cmux_shim_password_entry_size(void) {
 }
 
 // A Mach port name is this process's: in the host it would name nothing, or another right.
-// So nothing is sent and the result is a fork's without the call; host mode's fence goes with the
-// page's resize, as a right in a Mach message (cmux_remote_shim_page_resize, task 052).
+// So nothing is sent and the result is a fork's without the call.
 CMUX_SHIM_EXPORT int cmux_shim_browser_set_resize_fence(int browser_id, unsigned int fence_port,
                                                         unsigned int deadline_frames) {
   (void)browser_id;

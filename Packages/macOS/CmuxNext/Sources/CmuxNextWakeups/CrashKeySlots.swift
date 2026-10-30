@@ -296,16 +296,22 @@ public final class CrashKeySlots: Sendable {
     @discardableResult
     public func noteHung(_ thread: HungThread) -> Bool {
         guard thread.port != 0 else { return false }
-        for index in 0..<Self.hungThreadCapacity {
+        // Index loops, as in ``Snapshot/hungThreadCount``: a `for` over a range runs libswiftCore's unspecialized
+        // `IndexingIterator` in a Debug build, whose read coroutine heap-allocates its frame.
+        var index = 0
+        while index < Self.hungThreadCapacity {
             let slot = hungSlot(index)
             let current = slot.load(ordering: .relaxed)
             if HungThread(packed: current)?.port == thread.port {
                 slot.store(thread.packed, ordering: .relaxed)
                 return true
             }
+            index += 1
         }
-        for index in 0..<Self.hungThreadCapacity {
+        index = 0
+        while index < Self.hungThreadCapacity {
             if hungSlot(index).compareExchange(expected: 0, desired: thread.packed, ordering: .relaxed).exchanged { return true }
+            index += 1
         }
         return false
     }
@@ -313,12 +319,14 @@ public final class CrashKeySlots: Sendable {
     /// Takes the thread on `port` off the hung threads (its scope ended).
     public func clearHung(port: UInt32) {
         guard port != 0 else { return }
-        for index in 0..<Self.hungThreadCapacity {
+        var index = 0  // an index loop: see noteHung(_:)
+        while index < Self.hungThreadCapacity {
             let slot = hungSlot(index)
             let current = slot.load(ordering: .relaxed)
             if HungThread(packed: current)?.port == port {
                 _ = slot.compareExchange(expected: current, desired: 0, ordering: .relaxed)
             }
+            index += 1
         }
     }
 

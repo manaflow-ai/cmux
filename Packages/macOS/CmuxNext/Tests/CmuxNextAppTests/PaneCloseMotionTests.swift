@@ -5,6 +5,7 @@ import CmuxNextDesign
 @testable import CmuxNextLayout
 import CmuxNextWakeups
 import Testing
+import CmuxNextTestSupport
 
 /// Closing a pane's last tab (or the pane) and closing a window
 /// (plans/cmux-next/close-animation/DESIGN.md). The pane leaves its window in the key's turn with
@@ -13,7 +14,7 @@ import Testing
 /// resize their PTYs once, at rest. A window fades out as a whole, then closes once. Reduce Motion
 /// closes at once. Frames step at a fixed 120 Hz dt. Serialized: the window tests arm RenderStats,
 /// whose hooks are process-wide.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .renderHooks)
 struct PaneCloseMotionTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }

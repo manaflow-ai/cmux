@@ -66,6 +66,17 @@ import Testing
         #expect(entry == CmxManualPairingEntry(host: "100.64.0.5", port: 58465))
     }
 
+    @Test func zoneScopedIPv6LiteralStillCountsAsAnIPLiteral() throws {
+        // The strict literal parser refuses a `%zone` suffix; the preference
+        // signal keeps counting a scoped IPv6 route as numeric, as the raw
+        // Darwin inet_pton it replaced did.
+        let entry = CmxManualPairingEntry.best(in: [
+            try route(id: "tailscale", host: "my-mac.tail1234.ts.net", priority: 10),
+            try route(id: "tailscale_2", host: "fd7a:115c:a1e0::5%utun4", priority: 20),
+        ])
+        #expect(entry == CmxManualPairingEntry(host: "fd7a:115c:a1e0::5%utun4", port: 58465))
+    }
+
     @Test func emptyRoutesYieldNothing() {
         #expect(CmxManualPairingEntry.best(in: []) == nil)
     }
