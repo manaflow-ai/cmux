@@ -4,12 +4,12 @@ import CmuxNextPages
 /// The agent page host's pieces that need no view state of their own: making the page and the
 /// events a new page subscriber gets. Kept off ``AgentPaneView``, whose type is at its size limit.
 enum AgentPanePageHost {
-    /// The page view for the bundled page in `root`, nil when the page host refuses that root.
-    static func makePage(root: URL, provider: AgentPageProvider, renderRate: AgentPaneRenderRate,
+    /// The page view for the bundled page in `root` (`testRoot`: a test's fixture), nil when the page host refuses that root.
+    static func makePage(root: URL, testRoot: Bool = false, provider: AgentPageProvider, renderRate: AgentPaneRenderRate,
                          chromium: (any PageChromiumHosting)?) -> PageWebView? {
         // The agent page's files live in this module's bundle, not the page host's.
         PageID.registerBundledRoot(root, for: PageDescriptor.agent.id)
-        let page = PageWebView(descriptor: .agent, root: root,
+        let page = PageWebView(descriptor: .agent, root: root, testRoot: testRoot,
                                routes: [PageRoute(prefix: AgentPageOps.namespace, provider: provider)],
                                documentAttributes: AgentPaneTunables.documentAttributes,
                                options: PageEngineOptions(fullFrameRate: renderRate != .capped,

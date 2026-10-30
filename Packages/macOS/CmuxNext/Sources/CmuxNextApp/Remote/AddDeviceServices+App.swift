@@ -17,7 +17,7 @@ extension AddDeviceServices {
         AddDeviceServices(
             list: { [weak services] in
                 #if DEBUG
-                if let fixture = DebugAddDevice.listing { return fixture.devices }
+                if let fixture = services?.debugFixtures.addDevice { return fixture.devices }
                 #endif
                 return await services?.devices.read()
             },
@@ -43,7 +43,7 @@ extension AddDeviceServices {
             machineJoin: { [weak services] in
                 guard let services, services.settings?.snapshot.machineJoin == true else { return nil }
                 #if DEBUG
-                if let fixture = DebugAddDevice.listing?.join { return fixture }
+                if let fixture = services.debugFixtures.addDevice?.join { return fixture }
                 #endif
                 return MachineJoinService.app(services)
             },

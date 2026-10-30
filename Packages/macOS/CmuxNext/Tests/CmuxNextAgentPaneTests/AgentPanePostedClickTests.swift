@@ -63,7 +63,7 @@ struct AgentPanePostedClickTests {
         let file = try #require(AgentPageTestRoot.page)
         let hosting = FakeChromiumHosting()
         let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file),
-                                              pageHost: true, chromium: hosting))
+                                              pageHost: true, testRoot: true, chromium: hosting))
         view.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
         let paneWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],
                                   backing: .buffered, defer: false)

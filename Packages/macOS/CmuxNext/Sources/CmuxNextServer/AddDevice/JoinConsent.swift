@@ -235,6 +235,9 @@ public final class JoinConsentModel {
     @ObservationIgnored public var redraw: @MainActor () -> Void = {}
     /// After each change applied: the app stops a Mac Screen session the consent no longer allows.
     @ObservationIgnored public var changed: @MainActor () -> Void = {}
+    /// SECURITY: a capture fixture stands in for this Mac's join (the app's DEBUG `debug.join_consent`), so the
+    /// app's Mac Screen gate never authorizes a live session. Always false in a Release build.
+    @ObservationIgnored public var fixtureActive: @MainActor () -> Bool = { false }
     @ObservationIgnored private let services: JoinConsentServices
     /// Invalidated by ``featureSwitched()`` and, in the app, by every settings load as it happens.
     public nonisolated let grantGate = JoinConsentGrantGate()
