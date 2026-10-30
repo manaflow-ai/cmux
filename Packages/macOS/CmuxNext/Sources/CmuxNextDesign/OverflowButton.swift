@@ -5,7 +5,7 @@ public import CmuxNextIcons
 /// like Chrome's menu button (Leo 2026-10-20). Every more button uses it, so the glyph, its size and
 /// the chrome's hover and pressed look are the same in the sidebar, pane toolbars and cards; the host
 /// gives it the frame of its row of buttons and says what a press does.
-public final class OverflowButton: NSButton {
+public final class OverflowButton: ClickableButton {
     /// The glyph every more button draws.
     public static let glyph: IconName = .actionMoreVertical
     /// The glyph's point size, read at layout time so density changes apply live.
