@@ -238,9 +238,11 @@ describe("Cloud port action boundaries", () => {
       const request = f.hold(action === "forward" ? CloudOps.portForward : CloudOps.portClose);
       const running = action === "forward" ? f.reader.forwardPort("a", 4000) : f.reader.closePort("a", 3000);
       await f.reader.load("b");
-      await f.reader.load("a");
-      // This load predates the remote mutation, which is still waiting for its link.
-      expect(f.get().ports).toEqual([forward()]);
+      // The port list arrives before the mutation, but the overall load still
+      // waits for snapshots. Its old list must not overwrite reconciliation.
+      const snapshots = f.hold(CloudOps.snapshotList);
+      const loading = f.reader.load("a");
+      await snapshots.started;
       const after = action === "forward" ? [forward(), forward("a", 4000)] : [];
       const reconciliation = f.hold(CloudOps.portList);
       reconciliation.resolve({ forwards: after });
@@ -248,6 +250,9 @@ describe("Cloud port action boundaries", () => {
       expect(await running).toBe(false);
       expect(f.get().ports).toEqual(after);
       expect(f.pending()).toEqual([]);
+      snapshots.resolve({ snapshots: [] });
+      await loading;
+      expect(f.get().ports).toEqual(after);
     });
   }
 

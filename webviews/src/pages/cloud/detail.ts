@@ -114,7 +114,7 @@ export class DetailReader {
     if (failed !== undefined) this.host.fail(failed);
   }
 
-  async reload(section: DetailSection): Promise<void> {
+  async reload(section: DetailSection, changedPort?: number): Promise<void> {
     const current = this.host.get();
     if (!current || !this.client) return;
     const generation = this.generation;
@@ -123,10 +123,14 @@ export class DetailReader {
       const value = await this.read(section, current.machine);
       const latest = this.host.get();
       if (generation !== this.generation || !latest) return;
-      this.host.set({
-        ...latest,
-        [section]: section === "ports" ? this.mergePorts(value as PortForward[], portRevision) : value,
-      });
+      const resolved = section === "ports" ? this.mergePorts(value as PortForward[], portRevision) : value;
+      if (section === "ports" && changedPort !== undefined) {
+        // A selection load can still be waiting on another section with an
+        // older port list; preserve this authoritative mutation reconciliation.
+        const forward = (resolved as PortForward[]).find((item) => item.port === changedPort) ?? null;
+        this.portChanges.set(changedPort, { revision: ++this.portRevision, forward });
+      }
+      this.host.set({ ...latest, [section]: resolved });
     } catch (error) {
       if (generation === this.generation) this.reject(SECTION_OPS[section], error);
     }
@@ -247,7 +251,7 @@ export class DetailReader {
       // the effect. Its old answer is discarded, but the current selection must
       // reconcile with the host before the pending guard is released.
       if (generation !== this.generation && action !== "browser" && this.host.get()?.machine === machine)
-        await this.reload("ports");
+        await this.reload("ports", port);
       return accepted && generation === this.generation;
     } finally {
       // A session reset can start a new action at the same key before the old call settles.
