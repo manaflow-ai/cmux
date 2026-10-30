@@ -70,7 +70,9 @@ impl HookQueueSnapshot {
         let reset_dropped_events = open_for_reading(&directory.join(HOOK_SPOOL_DROPPED_EVENTS))
             .ok()
             .and_then(|file| {
-                file.lock_shared().ok()?;
+                // Never wait on a request thread: a writer holds this lock
+                // for microseconds, and a busy moment reports 0.
+                file.try_lock_shared().ok()?;
                 read_count(&file)
             })
             .unwrap_or(0);
@@ -82,6 +84,7 @@ impl HookQueueSnapshot {
 /// private: the socket's directory and the queue directory are owned by
 /// this user and nobody else may write them. An error otherwise.
 pub fn hook_spool_dir(socket: &Path) -> io::Result<PathBuf> {
+    require_file_identity()?;
     let parent =
         socket.parent().filter(|parent| !parent.as_os_str().is_empty()).ok_or_else(|| {
             io::Error::new(io::ErrorKind::InvalidInput, "the session socket has no directory")
@@ -104,6 +107,9 @@ pub fn hook_spool_dir(socket: &Path) -> io::Result<PathBuf> {
 /// makes nothing: reset-state and server-stats read and delete only in a
 /// directory that this user owns.
 fn existing_hook_spool_dir(socket: &Path) -> io::Result<Option<PathBuf>> {
+    if require_file_identity().is_err() {
+        return Ok(None);
+    }
     let Some(parent) = socket.parent().filter(|parent| !parent.as_os_str().is_empty()) else {
         return Ok(None);
     };
@@ -253,11 +259,24 @@ pub fn names_this_file(path: &Path, file: &File) -> io::Result<bool> {
     }
 }
 
-/// No inode to compare elsewhere: the path is taken as the file. The session
-/// socket, and so the hook queue, is a Unix feature in practice.
+/// Elsewhere there is no inode to tell a deleted queue file from its
+/// replacement, and there is no queue ([`require_file_identity`]): the
+/// answer only matters to callers that got a queue directory.
 #[cfg(not(unix))]
 pub fn names_this_file(_path: &Path, _file: &File) -> io::Result<bool> {
-    Ok(true)
+    Err(io::Error::from(io::ErrorKind::Unsupported))
+}
+
+/// The queue needs file identity (`names_this_file`): a hook could otherwise
+/// append to a queue file a sender just unlinked, after its provider was
+/// released. Windows has a session socket and hooks, but this check only
+/// on Unix, so its hooks send directly (the busy-line retry still applies).
+fn require_file_identity() -> io::Result<()> {
+    if cfg!(unix) {
+        Ok(())
+    } else {
+        Err(io::Error::new(io::ErrorKind::Unsupported, "the hook queue needs file identity"))
+    }
 }
 
 fn add_dropped_events(directory: &Path, events: u64) -> io::Result<()> {
