@@ -269,3 +269,26 @@ async fn a_hub_that_refuses_the_retry_of_a_lost_post_holds_nothing_and_the_peer_
     assert!(no_relay_post(&d), "the peer's link may take it back: {d:?}");
     assert!(d.error.as_deref().is_some_and(|e| e.contains("mesh relay did not take it")), "{d:?}");
 }
+
+#[test]
+fn an_attempt_on_the_peer_link_is_saved_as_maybe_sent_until_the_link_refuses_it() {
+    let now = crate::store::now_ms();
+    let mut d = Delivery {
+        id: "d-running".into(),
+        target: "huge-blue/lane".into(),
+        request: request("huge-blue/lane", "prompt-running")["request"].clone(),
+        caller: None,
+        state: State::Queued,
+        attempts: 0,
+        never_sent: true,
+        relay_post: None,
+        error: None,
+        accepted: None,
+        created_at: now,
+        updated_at: now,
+    };
+    // A restart that finds it Delivering cannot know whether the frame went out: never relayed.
+    start_attempt(&mut d, 1);
+    assert_eq!(d.state, State::Delivering);
+    assert!(!d.never_sent, "a crash mid-attempt could relay what the peer may run: {d:?}");
+}

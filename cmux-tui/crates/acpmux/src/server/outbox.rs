@@ -249,10 +249,7 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
             return;
         }
         let attempt = delivery.attempts + 1;
-        hub.outbox.update(id, |d| {
-            d.state = State::Delivering;
-            d.attempts = attempt;
-        });
+        hub.outbox.update(id, |d| start_attempt(d, attempt));
         let mut request = delivery.request.clone();
         // A later attempt asks for the first one's outcome when the target took it already.
         if attempt > 1
@@ -350,6 +347,12 @@ async fn relay_attempt(
         };
         (format!("the mesh relay did not take it: {e}"), next)
     }))
+}
+
+/// What delivery `d` is saved as while its attempt `attempt` runs: the record a restart resumes.
+fn start_attempt(d: &mut Delivery, attempt: u32) {
+    d.state = State::Delivering;
+    d.attempts = attempt;
 }
 
 /// Deletes a settled delivery's kept attachments.
