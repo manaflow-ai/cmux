@@ -212,7 +212,9 @@ static BETWEEN_UNLINKS: std::sync::Mutex<Vec<BetweenUnlinks>> = std::sync::Mutex
 /// queue. Only the Unix tests use it (there is no queue elsewhere).
 #[cfg(all(test, unix))]
 pub(super) fn between_unlinks_for_test(hook: Box<dyn FnOnce() + Send>) {
-    BETWEEN_UNLINKS.lock().unwrap().push(hook);
+    // A test that panicked while it held the seam leaves the list whole; the
+    // next test still queues its hook.
+    BETWEEN_UNLINKS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(hook);
 }
 
 #[cfg(test)]
@@ -223,7 +225,7 @@ fn run_between_unlinks(lines: &Path) {
     if !racing {
         return;
     }
-    let hook = BETWEEN_UNLINKS.lock().unwrap().pop();
+    let hook = BETWEEN_UNLINKS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).pop();
     if let Some(hook) = hook {
         hook();
     }
