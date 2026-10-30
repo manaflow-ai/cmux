@@ -512,7 +512,7 @@ export const handleAttachmentMultipartComplete = async (request: Request, env: E
   const open = (await conv.uploadSlot(conversation, body.slot, "multipart", false, caller.actor)) ?? (await conv.uploadSlot(conversation, body.slot, "direct", false, caller.actor))
   // A completion of this caller's slot that already started (R2 may have joined the parts while the owner commit
   // failed) is completed again: the join below finds the object by its size and sha256 and the commit is idempotent.
-  const resumed = open ? null : await conv.completingSlot(conversation, body.slot, "multipart", caller.actor)
+  const resumed = open ? null : ((await conv.completingSlot(conversation, body.slot, "multipart", caller.actor)) ?? (await conv.completingSlot(conversation, body.slot, "direct", caller.actor)))
   const peek = open ?? resumed
   if (!peek?.multipart_upload_id) return invalid
   const missing = derivedMissing(peek)
@@ -626,11 +626,14 @@ const completeDirect = async (env: Env, conversation: string, slot: UploadSlot, 
     // The S3 API's ETag header is quoted; the binding names parts by the bare etag.
     try {
       size = (await bucket.resumeMultipartUpload(slot.object_key, slot.multipart_upload_id!).complete(listed.map((p) => ({ partNumber: p.part_number, etag: p.etag.replace(/^"(.*)"$/, "$1") })))).size
-    } catch {
-      // A join whose answer was lost left the object (only this upload writes its key); otherwise the parts are wrong and the upload stays.
-      const joined = await bucket.head(slot.object_key)
-      if (!joined) return failure({ status: 409, code: "attachment.part_missing", message: "the parts do not match the stored parts" })
-      size = joined.size
+    } catch (error) {
+      // A join whose answer was lost left the object (only this upload writes its key).
+      const joined = await bucket.head(slot.object_key).catch(() => undefined)
+      if (joined) size = joined.size
+      // Parts R2 refused (wrong etags, order or size): the upload stays, and the client completes with the right parts.
+      else if (joined === null && completionFailure(error) === "integrity") return failure({ status: 409, code: "attachment.part_missing", message: "the parts do not match the stored parts" })
+      // Not known to have happened (a transient error, or the object could not be read): the client completes again.
+      else return failure({ status: 503, code: "attachment.complete_unavailable", message: "the upload could not be completed right now; complete it again", extra: { retryable: true } })
     }
     if (size !== slot.byte_count) {
       const used = await conv.uploadSlot(conversation, slot.id, "direct", true, slot.actor)
@@ -652,7 +655,8 @@ const completeDirect = async (env: Env, conversation: string, slot: UploadSlot, 
     return verifying((await conv.advanceDirect(conversation, slot.id, state, sha.state())) ? sha.bytes : offset)
   }
   const matched = sha.digest() === slot.hash
-  const used = await conv.uploadSlot(conversation, slot.id, "direct", true, slot.actor)
+  // A completion whose owner commit failed or lost its answer comes back with the slot already uploading (completingSlot).
+  const used = slot.state === "uploading" ? slot : await conv.uploadSlot(conversation, slot.id, "direct", true, slot.actor)
   if (!used) return invalid
   if (!matched) {
     await bucket.delete(slotKeys(used))

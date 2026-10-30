@@ -663,7 +663,7 @@ export class ConversationDO extends OwnerDO<Head> {
   async dropUploadSlot(entity: string, id: string): Promise<void> {
     if (!this.existingState(entity)) return
     const slot = store.slotIn(this.sqlStore, id, "open")
-    if (slot?.mode === "multipart") store.removeSlot(this.sqlStore, id)
+    if (slot?.mode === "multipart" || slot?.mode === "direct") store.removeSlot(this.sqlStore, id)
   }
 
   async settleSlot(entity: string, id: string): Promise<void> {
