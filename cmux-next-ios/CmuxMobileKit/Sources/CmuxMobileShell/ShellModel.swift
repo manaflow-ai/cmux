@@ -66,6 +66,19 @@ final class ShellModel {
     var toast: CmuxMobileToast?
     var editingTeam: Team?
     /// Live data (signed in for real with a `cmux-mobile-api` base URL); nil in mock mode.
+    /// The same load is retried from Workspaces; mock recovery reloads its fixture.
+    func retryWorkspaces() async {
+        if let live { live.retry(); return }
+        #if DEBUG
+        if mockMode {
+            let loaded = AppStore.mock()
+            store.teams = loaded.teams
+            store.workspaces = loaded.workspaces
+            store.teamDataState = .loaded
+        }
+        #endif
+    }
+
     var live: LiveCoordinator?
     /// Settings → Connection's device list and account deletion (live mode).
     private(set) var deviceDirectory: (any SettingsDeviceDirectory)?
@@ -109,6 +122,7 @@ final class ShellModel {
         self.auth = auth
         self.settings = settings
         self.sidebar = sidebar
+        terminalTabs.accountUserIDProvider = { [weak auth] in auth?.user?.id }
         // Mock content only in DEBUG mock mode (mock auth); a live account
         // never falls back to it.
         let mockMode = TerminalSessionChoice.mockCompiledIn && auth.isMock
@@ -191,6 +205,7 @@ final class ShellModel {
         if let live {
             // Tab ids repeat across Macs: every call names the tab's Mac, and
             // its session uses that Mac's link only.
+            terminalTabs.reconnect = { [weak live] macID in live?.retry(macID: macID) }
             terminalTabs.sessionProvider = { [weak live] tab, macID in
                 live?.terminalSession(tabID: tab.id, programName: tab.title, macID: macID)
             }
@@ -236,6 +251,7 @@ final class ShellModel {
             FeedRouting.shared.clearAllNotifications = nil
             FeedRouting.shared.markAllNotificationsRead = nil
             FeedRouting.shared.replyToTerminal = nil
+            terminalTabs.reconnect = nil
             terminalTabs.sessionProvider = nil
             terminalTabs.showConnectedDevices = nil
             terminalTabs.hasLiveSession = nil
