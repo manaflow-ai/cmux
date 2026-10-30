@@ -626,9 +626,6 @@ export function NewTabScreen(props: Props) {
   // The model picker uses one footer position in every New Tab template and composer look.
   const look = useComposerLook();
   const split = props.chips !== undefined;
-  // Folder/computer keep their look-specific placement: Claude's one row, Codex's tray. The footer
-  // row exists only with the chips, so without them the strip stays above the box.
-  const locationInFooter = split && plainFooter && look === "claude" && template !== "default";
   // Footer look and template can change while this screen stays mounted.
   useRowFit(foot, `${split}:${plainFooter}:${look}`);
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
@@ -1282,6 +1279,7 @@ export function NewTabScreen(props: Props) {
         {...(snapshot.peerKinds ? { peerKinds: snapshot.peerKinds } : {})}
         {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
         {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
+        {...(snapshot.peerResources ? { peerResources: snapshot.peerResources } : {})}
         {...(props.onRefreshMachines ? { onRefreshMachines: props.onRefreshMachines } : {})}
         onComputer={(computer) => pickMachine(computer === "local" ? undefined : { peer: computer })}
         {...(props.machineName ? { localName: props.machineName } : {})}
@@ -1453,8 +1451,10 @@ export function NewTabScreen(props: Props) {
             <span role="alert">{t(sandboxFailureKey(sandboxRefusal) ?? "sandbox.error.failed")}</span>
           </output>
         )}
-        {/* Above the box: the project strip (Cards draws it under the field). */}
-        {!pill && !locationInFooter && <div className="nt-above">{folderStrip}</div>}
+        {/* Above the box: the project and machine strip, in every look (Cards draws it under the
+            field). Leo 2026-10-29: "project and cloudness at the top ... and stop making them take
+            up so much space"; the quiet row under the box keeps the mode and the model. */}
+        {!pill && <div className="nt-above">{folderStrip}</div>}
         <div ref={setBox} className="ui-glass ui-glass-floats nt-box">
           {commandsOpen && (
             <SlashMenu
@@ -1543,12 +1543,11 @@ export function NewTabScreen(props: Props) {
           {command.input}
           {!pill && !split && pickers}
         </div>
-        {/* Claude Code's one quiet row: folder and computer lead the mode, model and effort;
-            the box keeps the prompt, the mic and Send (Leo: "one single row"). */}
+        {/* Claude Code's quiet row: the mode, model and effort; the box keeps the prompt, the mic
+            and Send. Folder and computer head the box (above). */}
         {split && Chips && (
           <div className="nt-foot" onPointerDownCapture={touch}>
             <ComposerFoot ref={foot} plain={plainFooter}>
-              {locationInFooter && folderStrip}
               <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} onAddAgent={openSetup} />
             </ComposerFoot>
           </div>

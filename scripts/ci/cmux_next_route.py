@@ -19,6 +19,13 @@ runs the tiers its changed files reach (docs/ci/cmux-next-tiers.md):
               target graph (Packages/macOS/CmuxNext/ci-target-graph.json)
   daemon      the daemon, Rust core, FFI or control paths: the same-tree
               cmux-tui fetch and the live-daemon suites
+  fast_tier   the Mac half of the PR fast tier (scripts/cmux-next/fast-tier.json
+              `swift` entries): one `swift build --build-tests` of the CmuxNext
+              package and a few of its suites. Only a change to what that build
+              or those suites read can change its result: a package target, a
+              file a test reads, a job script, the toolchain or the tier's own
+              registry. A daemon-only or app-host-only route (cmux-tui Rust, App/)
+              leaves it off; the daemon and scheme tiers carry those.
 
 Pushes, dispatches and pull requests labeled `full-ci` run every tier. The
 workflow runs the tiers picked here on every same-repository pull request; a
@@ -33,7 +40,10 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import functools
+import importlib.util
 import json
+import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -90,6 +100,15 @@ DAEMON_PATHS = (
     PACKAGE + "Tests/CmuxNextAppTests/ClassicUpgradeSimulator.swift",
     PACKAGE + "Sources/CmuxNextApp/Onboarding/AppOnboardingServices+ClassicSessions.swift",
     PACKAGE + "Sources/CmuxNextApp/Onboarding/AppOnboardingServices+ClassicMigration.swift",
+)
+
+# The Mac fast tier's own registry and runner (fast-tier.py reads fast-tier.json and quarantine.json).
+NO_FAST_TIER_REASON = "(no Mac fast tier)"
+FAST_TIER_INPUTS = (
+    "scripts/cmux-next/fast-tier.py",
+    "scripts/cmux-next/fast-tier.json",
+    "scripts/cmux-next/quarantine.json",
+    "scripts/cmux-next/fast-tier-cache-key.sh",
 )
 
 # Scripts the swift test job runs before the package tests.
@@ -257,12 +276,88 @@ def linux_only_test(path: str, linux_tests: frozenset[str]) -> bool:
     return path in linux_tests or (path == REGISTRY and bool(linux_tests))
 
 
+# A test target's "reads" (ci-target-graph.py) are the repository paths its sources name in string
+# literals. A literal built by interpolation counts up to its first `\(`, so a helper such as
+# `planURL(_ name:)` returning "plans/cmux-next/\(name)" makes the whole of plans/cmux-next/ a read,
+# and every design note there then ran swift test and the generated files job (#28326: one
+# sidebar-owner.md edit queued both Mac jobs). A doc under such a directory read is read only when a
+# string literal in the target names it, or names the directory itself (a test that lists it).
+UNREAD_DOC_REASON = "(no Mac tier)"
+DOC_SUFFIXES = (".md", ".mdx", ".html", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg")
+STRING_LITERAL = re.compile(r'"((?:[^"\\\n]|\\.)*)"')
+GENERATED_OUTPUTS = "scripts/cmux-next/generated_outputs.py"
+
+
+@functools.lru_cache(maxsize=None)
+def source_literals(directory: Path) -> frozenset[str] | None:
+    """The string literals of a target's Swift sources, comment lines left out; None when unreadable."""
+    try:
+        sources = sorted(directory.rglob("*.swift"))
+        if not sources:
+            return None
+        found: set[str] = set()
+        for source in sources:
+            for line in source.read_text(encoding="utf-8").splitlines():
+                if line.lstrip().startswith(("//", "/*", "*")):
+                    continue
+                found.update(STRING_LITERAL.findall(line))
+        return frozenset(found)
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+@functools.lru_cache(maxsize=None)
+def generated_output(root: Path, path: str) -> bool:
+    """Whether a generator writes `path` (generated_outputs.py OUTPUTS); True when that cannot be read."""
+    try:
+        spec = importlib.util.spec_from_file_location("cmux_next_generated_outputs", root / GENERATED_OUTPUTS)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module.output_of(path) is not None
+    except (OSError, ImportError, AttributeError, SyntaxError, SystemExit):
+        return True
+
+
+def names(literal: str, name: str) -> bool:
+    return literal == name or literal.endswith("/" + name)
+
+
+def unread_doc(root: Path, graph: dict, path: str, tree_inputs: list[str]) -> bool:
+    """A doc (web_fast, a DOC_SUFFIXES file outside Packages/) that test targets read only through a
+    directory read whose sources never name it: no Mac tier reads it. A doc no directory read covers
+    routes as before."""
+    if not path.endswith(DOC_SUFFIXES) or not web_fast(path) or path.startswith("Packages/"):
+        return False
+    if path in FULL_INPUTS or path in DAEMON_PATHS or path in VENDORED_PINS:
+        return False
+    if any(matches(path, p) for p in SWIFT_JOB_INPUTS + tuple(tree_inputs)):
+        return False
+    if any(matches(path, p) for p in GENERATED_INPUTS if not p.endswith("/")) or generated_output(root, path):
+        return False
+    covered = False
+    for target in graph["targets"].values():
+        for read in target.get("reads", []):
+            if read == path:
+                return False
+            if not (read.endswith("/") and under(path, read)):
+                continue
+            covered = True
+            literals = source_literals(root / target["path"]) if target.get("path") else None
+            if literals is None:
+                return False
+            directory = read.rstrip("/")
+            relative, base = path[len(read):], path.rsplit("/", 1)[-1]
+            if any(names(lit, relative) or names(lit, base) or names(lit.rstrip("/"), directory) for lit in literals):
+                return False
+    return covered
+
+
 def consumed(path: str, tree_inputs: list[str], read) -> bool:
     """A Mac tier reads this file (a toolchain pin, a job script, a daemon or tree input, a
     generated-file input or a test fixture), whatever its name looks like."""
     if path in FULL_INPUTS and path not in CI_SELF:
         return True
-    if path in DAEMON_PATHS or any(matches(path, p) for p in SWIFT_JOB_INPUTS + tuple(tree_inputs)):
+    if path in DAEMON_PATHS or path in FAST_TIER_INPUTS or any(matches(path, p) for p in SWIFT_JOB_INPUTS + tuple(tree_inputs)):
         return True
     if any(matches(path, p) for p in GENERATED_INPUTS) and not any(fnmatch.fnmatch(path, b) for b in CHECKED_WEB_BUNDLES):
         return True
@@ -284,6 +379,11 @@ class Route:
     generated: bool = False
     swift: bool = False
     daemon: bool = False
+    # A CmuxNext package target (or a local package or web bundle it ships) changed: the package
+    # build the Mac fast tier runs can break.
+    package_build: bool = False
+    # The fast tier's own registry or runner changed.
+    fast_registry: bool = False
     vendored_pin: bool = False
     tests: set[str] = field(default_factory=set)
     # Suites named by changed Swift files get a first, narrow invocation so a
@@ -296,6 +396,16 @@ class Route:
         self.full = self.native = self.scheme = self.generated = self.swift = self.daemon = True
         self.mac_release = True
         self.reasons.append(reason)
+
+    def macos(self) -> bool:
+        """Any tier that needs a Mac: the placement job places these runs."""
+        return self.native or self.webview or self.swift or self.generated or self.daemon
+
+    def fast_tier(self) -> bool:
+        """The Mac fast tier's package build or suites can change (FAST_TIER_INPUTS, a package target,
+        a file a test reads, an input of every tier)."""
+        return (self.full or self.swift or self.generated or self.package_build or self.mac_release
+                or self.swift_canary or self.fast_registry)
 
 
 def load_graph(root: Path) -> dict:
@@ -311,6 +421,85 @@ def tree_input_paths(root: Path) -> list[str]:
             continue
         paths.append(parts[1] + ("/" if parts[0] == "tree" else ""))
     return paths
+
+
+import re  # noqa: E402 - the Cargo and Xcode project readers below
+
+CMUX_TUI = "cmux-tui/"
+# The routing replay (cmux_next_route_replay.py) accepts dropped native and scheme tiers with this reason.
+NO_SWIFT_COMPILE_REASON = "(no Swift compile reads it)"
+APP_FFI_CRATE = "cmux-tui/crates/cmux-app-ffi"
+APP_PROJECT = "cmux.xcodeproj/project.pbxproj"
+CARGO_PATH = re.compile(r'path\s*=\s*"([^"]+)"')
+CARGO_WORKSPACE_DEP = re.compile(r'^\s*([A-Za-z0-9_-]+)\s*(?:\.workspace\s*=\s*true|=\s*\{[^}\n]*\bworkspace\s*=\s*true)', re.M)
+PHASE_INPUT = re.compile(r'"\$\(SRCROOT\)/(cmux-tui/[^"]+)"')
+
+
+_READ: dict = {}  # (reader, root) -> its paths, read once a run
+
+
+def app_ffi_inputs(root: Path) -> list[str]:
+    if ("ffi", root) not in _READ:
+        _READ["ffi", root] = _app_ffi_inputs(root)
+    return _READ["ffi", root]
+
+
+def scheme_phase_rust_inputs(root: Path) -> list[str]:
+    if ("scheme", root) not in _READ:
+        _READ["scheme", root] = _scheme_phase_rust_inputs(root)
+    return _READ["scheme", root]
+
+
+def _app_ffi_inputs(root: Path) -> list[str]:
+    """The CCmuxAppFFI sources, the only Rust the Swift compiles link: cmux-app-ffi and every crate it
+    reaches through Cargo path dependencies (its own or the workspace's), the toolchain and the build
+    script, as scripts/cmux-next/check-app-ffi-pin.sh derives them, plus the swift test job's crates. A
+    change to one also needs a new pin (Package.swift, which runs every tier)."""
+    workspace: dict[str, str] = {}
+    try:
+        manifest = (root / "cmux-tui/Cargo.toml").read_text(encoding="utf-8")
+        for line in manifest.splitlines():
+            named = re.match(r'\s*([A-Za-z0-9_-]+)\s*=\s*\{[^}]*\bpath\s*=\s*"([^"]+)"', line)
+            if named:
+                workspace[named.group(1)] = "cmux-tui/" + named.group(2).strip("/")
+    except OSError:
+        pass
+    seen: set[str] = set()
+    pending = [APP_FFI_CRATE]
+    while pending:
+        crate = pending.pop()
+        if crate in seen or not (root / crate / "Cargo.toml").is_file():
+            continue
+        seen.add(crate)
+        text = (root / crate / "Cargo.toml").read_text(encoding="utf-8")
+        found = [(Path(crate) / dep).as_posix() for dep in CARGO_PATH.findall(text)]
+        found += [workspace[name] for name in CARGO_WORKSPACE_DEP.findall(text) if name in workspace]
+        for dep in found:
+            resolved = (root / dep).resolve()
+            try:
+                relative = resolved.relative_to(root.resolve()).as_posix()
+            except ValueError:
+                continue
+            if (resolved / "Cargo.toml").is_file():
+                pending.append(relative)
+    prefixes = {crate + "/" for crate in seen}
+    prefixes |= {p for p in SWIFT_JOB_INPUTS if p.startswith(CMUX_TUI)}
+    prefixes |= {"cmux-tui/rust-toolchain.toml", "scripts/cmux-next/build-app-ffi.sh"}
+    return sorted(prefixes)
+
+
+def _scheme_phase_rust_inputs(root: Path) -> list[str]:
+    """The cmux-tui files and directories the app scheme's build phases name as inputs (the diff sidecar,
+    the mobile host, the CLI resources). The Bundle cmux-tui phase names the whole tree: it bundles the
+    same-tree build the daemon tier makes, so that entry adds nothing here."""
+    try:
+        text = (root / APP_PROJECT).read_text(encoding="utf-8")
+    except OSError:
+        return [CMUX_TUI]
+    found = set()
+    for entry in PHASE_INPUT.findall(text):
+        found.add(entry + "/" if (root / entry).is_dir() else entry)
+    return sorted(found)
 
 
 def matches(path: str, pattern: str) -> bool:
@@ -405,9 +594,12 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -
     # tier reads keeps its tier, and a dev-build PR still compiles its dogfood app.
     tree_inputs_early = tree_input_paths(root)
     linux_tests = linux_guard_tests(root)
+    unread = {path for path in changed if unread_doc(root, graph, path, tree_inputs_early)}
+    for path in sorted(unread):
+        result.reasons.append(f"{path} is a doc no test or generator names {UNREAD_DOC_REASON}")
     if "dev-build" not in labels and all(
         (web_fast(path) or ci_only(path) or linux_only_test(path, linux_tests))
-        and not consumed(path, tree_inputs_early, read) for path in changed
+        and (path in unread or not consumed(path, tree_inputs_early, read)) for path in changed
     ):
         kinds = sorted({"CI" if ci_only(path) else "Linux-lane test" if linux_only_test(path, linux_tests) else "web"
                         for path in changed})
@@ -419,10 +611,25 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -
     changed_targets: set[str] = set()
 
     for path in changed:
+        if path in unread:
+            continue
         if any(fnmatch.fnmatch(path, pattern) for pattern in WEBVIEW):
             result.webview = True
         elif any(fnmatch.fnmatch(path, pattern) for pattern in WEB_ONLY) and not path.startswith(PACKAGE):
             pass
+        elif path.startswith(CMUX_TUI):
+            # Rust: the daemon tier (tree inputs, below) builds and tests it. Only the
+            # CCmuxAppFFI sources reach the Swift compiles, and only the app scheme's build
+            # phases read the rest of what they name; nothing else needs a Mac compile.
+            if any(matches(path, prefix) for prefix in app_ffi_inputs(root)):
+                result.native = result.scheme = True
+                result.reasons.append(f"{path} is a CCmuxAppFFI source: the Swift compiles run")
+            elif "dev-build" in labels or any(matches(path, prefix) for prefix in scheme_phase_rust_inputs(root)):
+                # A dev-build PR's dogfood app is the scheme compile's, with this tree bundled.
+                result.scheme = True
+                result.reasons.append(f"{path} is bundled by the app scheme's build phases {NO_SWIFT_COMPILE_REASON}")
+            else:
+                result.reasons.append(f"{path} is Rust the daemon tier builds {NO_SWIFT_COMPILE_REASON}")
         elif not path.startswith("Packages/"):
             # App host, Xcode project, CLI, resources and build scripts: only
             # the app scheme compiles them.
@@ -443,6 +650,9 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -
         if any(matches(path, prefix) for prefix in SWIFT_JOB_INPUTS):
             result.swift = True
             result.reasons.append(f"{path} is a swift test job script")
+        if path in FAST_TIER_INPUTS:
+            result.fast_registry = True
+            result.reasons.append(f"{path} is the Mac fast tier's registry or runner")
 
         if any(fnmatch.fnmatch(path, pattern) for pattern in BUNDLE_INPUTS):
             shipped = {name for name in BUNDLE_TARGETS if name in graph["targets"]}
@@ -474,6 +684,7 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -
 
     if result.full:
         return result
+    result.package_build = bool(changed_targets)
     for name in tests:
         if name in changed_targets or closure(graph, {name}) & changed_targets:
             result.tests.add(name)
@@ -499,6 +710,8 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -
         # The dogfood artifact a dev-build PR publishes is the scheme compile's app.
         result.scheme = True
         result.reasons.append("labeled dev-build: the scheme compile builds the dogfood app")
+    if result.macos() and not result.fast_tier():
+        result.reasons.append(f"the Mac fast tier's package build reads none of these files {NO_FAST_TIER_REASON}")
     return result
 
 
@@ -539,14 +752,15 @@ def canary_targets(graph: dict, changed_targets: set[str]) -> set[str]:
 
 def outputs(result: Route) -> dict[str, str]:
     flag = lambda value: "true" if value else "false"  # noqa: E731
-    # Any tier that needs a Mac: the placement job places these runs.
-    macos = result.native or result.webview or result.swift or result.generated or result.daemon
+    macos = result.macos()
+    fast_tier = result.fast_tier()
     return {
         "native": flag(result.native),
         "swift_canary": flag(result.swift_canary),
         "cmuxnext_swift": flag(result.cmuxnext_swift),
         "mac_release": flag(result.mac_release),
         "macos": flag(macos),
+        "fast_tier": flag(fast_tier),
         "scheme": flag(result.scheme or result.webview or result.full),
         "generated": flag(result.generated),
         "swift": flag(result.swift),
@@ -584,7 +798,7 @@ def main(argv: list[str]) -> int:
     if args.summary:
         with args.summary.open("a", encoding="utf-8") as stream:
             stream.write("### cmux-next tiers\n\n| tier | runs |\n| --- | --- |\n")
-            for key in ("generated", "native", "swift_canary", "cmuxnext_swift", "mac_release", "scheme", "swift", "daemon", "full"):
+            for key in ("generated", "native", "swift_canary", "cmuxnext_swift", "mac_release", "scheme", "swift", "daemon", "fast_tier", "full"):
                 stream.write(f"| {key} | {values[key]} |\n")
             stream.write(f"\nSwift test targets: {values['swift_targets'] or 'none'}\n\n")
             stream.write(f"Swift canary targets: {values['swift_canary_targets'] or 'none'}\n\n")
