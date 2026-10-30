@@ -123,7 +123,7 @@ struct TaskManagerMemorySavedTests {
     // MARK: The app
 
     /// Services whose features turn `names` on and `disabled` off over the DEV defaults (where
-    /// `taskManagerMemorySaved` is on by default: feature-switch-policy.md).
+    /// `taskManagerMemorySaved` is off by default: each test names the state it needs).
     static func services(enabling names: Set<String> = [], disabling disabled: Set<String> = []) -> AppServices {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))

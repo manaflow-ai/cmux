@@ -81,6 +81,14 @@ struct FeatureDogfoodSetTests {
         #expect(unknown.isEmpty, "not declared in this build's registry: \(unknown)")
     }
 
+    /// The PTY holder is off by default again in every channel (slice 1 turns on no switch that feat-cmux-next lacks,
+    /// cmux-ad 2026-10-30), so the chrome-parity dogfood builds turn it on through their set, as before it was on by
+    /// default.
+    @Test func theChromeParitySetTurnsOnTheHolder() {
+        #expect(FeatureDogfoodSet.chromeParity.names.contains("terminalHolder"))
+        #expect(!Feature.terminalHolder.defaults.dev, "the holder is on in DEV: the set entry is redundant")
+    }
+
     /// The chrome-parity dogfood builds keep the built-in ad blocker: with chromiumAdBlockerAtFirstTab on, a fork without
     /// the first-tab load (fork API 41; no pinned fork has it, 2026-10-28) runs no ad blocker, a regression Lawrence
     /// would see. The feature joins the set when a fork with API 41 is pinned.

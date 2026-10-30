@@ -106,11 +106,11 @@ mod model_tests {
     }
 
     #[test]
-    fn the_default_is_the_holder_on_every_channel() {
+    fn the_default_is_the_terminal_hosts_on_every_channel() {
         for channel in [Channel::Dev, Channel::Nightly, Channel::Release] {
-            assert!(resolve(&Snapshot::defaults(channel), None), "{channel:?}");
-            assert!(resolve(&lists(channel, None, None), None), "{channel:?}");
-            assert!(!resolve(&Snapshot::defaults(channel), Some("hosts")), "{channel:?} opt-out");
+            assert!(!resolve(&Snapshot::defaults(channel), None), "{channel:?}");
+            assert!(!resolve(&lists(channel, None, None), None), "{channel:?}");
+            assert!(resolve(&Snapshot::defaults(channel), Some("holder")), "{channel:?} opt-in");
         }
     }
 
@@ -133,8 +133,8 @@ mod model_tests {
         assert!(resolve(&defaults, Some(" holder\n")));
         assert!(!resolve(&defaults, Some("hosts")));
         assert!(!resolve(&defaults, Some(" hosts\n")));
-        assert!(resolve(&defaults, Some("Hosts")), "values are case-sensitive");
-        assert!(resolve(&defaults, Some("")));
+        assert!(!resolve(&defaults, Some("Holder")), "values are case-sensitive");
+        assert!(!resolve(&defaults, Some("")));
         let on = lists(Channel::Release, Some("terminalHolder"), None);
         assert!(!resolve(&on, Some("hosts")), "the alias's disable wins over an enable");
         assert!(resolve(&on, Some("anything else")), "an unknown value is ignored");
