@@ -906,6 +906,12 @@ impl Mux {
         f(&self.state.lock().unwrap())
     }
 
+    /// Run `f` with the session state if its lock is free now; `None`
+    /// instead of waiting while another thread holds it.
+    pub(crate) fn try_with_state<R>(&self, f: impl FnOnce(&State) -> R) -> Option<R> {
+        self.state.try_lock().ok().map(|state| f(&state))
+    }
+
     pub fn surface_count(&self) -> usize {
         self.state.lock().unwrap().surfaces.len()
     }

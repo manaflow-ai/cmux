@@ -401,20 +401,26 @@ pub fn bind_session_socket(session: &str, path: Option<PathBuf>) -> anyhow::Resu
 pub(super) struct ServedSession {
     pub(super) mux: Arc<Mux>,
     pub(super) render_service: Arc<RenderService>,
+    pub(super) terminal_sessions: Arc<super::terminal_sessions::TerminalSessions>,
 }
 
 impl ServedSession {
     /// Serve one accepted connection on its own thread (bounded by the
     /// session's connection permits).
     pub(super) fn serve(&self, stream: Box<dyn transport::Stream>) {
-        // A process inside a cmux terminal (an agent, its hooks, `cmux` run in
-        // a pane) may hold only its share of the connections, so a burst of
-        // agents cannot lock the app out of its own daemon (#27698). Read from
-        // the peer itself, before a slot is taken and without a daemon lock.
-        let in_terminal =
-            stream.peer_process_key().is_some_and(|key| platform::peer_runs_in_terminal(&key));
-        let permit = claim_connection(self.mux.connection_stats())
-            .and_then(|permit| if in_terminal { permit.into_terminal() } else { Some(permit) });
+        // A process in one of the session's terminals (an agent, its hooks,
+        // `cmux` run in a pane) may hold only its share of the connections, so
+        // a burst of agents cannot lock the app out of its own daemon (#27698).
+        // Decided here, before the connection's thread, without waiting on the
+        // state lock (`TerminalSessions`).
+        let permit = claim_connection(self.mux.connection_stats()).and_then(|permit| {
+            let key = stream.peer_process_key();
+            if self.terminal_sessions.contains_peer(&self.mux, key.as_deref()) {
+                permit.into_terminal()
+            } else {
+                Some(permit)
+            }
+        });
         let Some(permit) = permit else {
             refuse_busy(stream);
             return;

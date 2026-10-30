@@ -33,19 +33,6 @@ pub fn peer_executable(peer_key: &str) -> Option<PathBuf> {
     peer_process::executable(peer_key)
 }
 
-/// Whether the connected socket peer a peer key names
-/// (`Stream::peer_process_key`) runs inside a cmux terminal (an agent, its
-/// hooks, `cmux` run in a pane). Reads one peer, no daemon lock.
-#[cfg(unix)]
-pub fn peer_runs_in_terminal(peer_key: &str) -> bool {
-    peer_process::runs_in_terminal(peer_key)
-}
-
-#[cfg(not(unix))]
-pub fn peer_runs_in_terminal(_peer_key: &str) -> bool {
-    false
-}
-
 /// Refuses a connected Unix socket whose peer is not `expected_uid`. Call it
 /// before writing anything to a socket found at a path the caller derived.
 #[cfg(unix)]

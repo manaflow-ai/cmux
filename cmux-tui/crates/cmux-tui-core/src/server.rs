@@ -2653,6 +2653,7 @@ pub use listen::{
     connect_session_socket, prepare_socket_parent, serve, serve_bound, serve_paused,
 };
 mod restoring;
+mod terminal_sessions;
 #[cfg(test)]
 use listen::{prepare_runtime_socket_directory, socket_start_lock_retry_delay};
 pub use restoring::RestoringServer;
