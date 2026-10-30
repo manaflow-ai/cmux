@@ -47,6 +47,11 @@ SMALL = "blacksmith-16vcpu-ubuntu-2404"
 BLACKSMITH_SET = {BIG, SMALL}
 # A non-Blacksmith Linux pool LINUX_RUNNER may name (the GCP pool, say).
 POOL = "gcp-linux-pool"
+# The overflow switch writes GitHub-hosted Ubuntu into LINUX_RUNNER when it fails over.
+HOSTED = "ubuntu-24.04"
+# The one job with its own override: the Darwin cross-compile shadow.
+DARWIN_CROSS_JOB = "macos-cross-shadow"
+DARWIN_CROSS = "darwin-cross-pool"
 OVERFLOW_RECORD = '{"probe":"blacksmith-4vcpu-ubuntu-2404"}'
 # The short jobs that sat queued on 2026-10-30; each must stay in the set.
 SHORT_JOBS = (
@@ -69,6 +74,7 @@ LINUX_RUNNER_VALUES = (
     SMALL,
     BIG,
     POOL,
+    HOSTED,
 )
 TRUSTED_RUNNER_VALUES = ("", "ubuntu-24.04", "blacksmith-4vcpu-ubuntu-2404")
 
@@ -82,7 +88,7 @@ def linux_routes() -> dict[str, str]:
     }
 
 
-def context(owner: str, linux_runner: str, overflow: str, trusted: str) -> dict:
+def context(owner: str, linux_runner: str, overflow: str, trusted: str, darwin_cross: str = "") -> dict:
     return {
         "github.repository_owner": owner,
         "github.repository": f"{owner}/cmux",
@@ -92,7 +98,7 @@ def context(owner: str, linux_runner: str, overflow: str, trusted: str) -> dict:
         "vars.LINUX_RUNNER": linux_runner,
         "vars.CI_CLOUD_OVERFLOW_SAVED": overflow,
         "vars.CI_TRUSTED_RUNNER": trusted,
-        "vars.LINUX_RUNNER_DARWIN_CROSS": "",
+        "vars.LINUX_RUNNER_DARWIN_CROSS": darwin_cross,
     }
 
 
@@ -109,8 +115,9 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
             routes.items(), LINUX_RUNNER_VALUES, ("", OVERFLOW_RECORD), TRUSTED_RUNNER_VALUES
         ):
             label = route(runs_on, context("manaflow-ai", linux_runner, overflow, trusted))
-            # A job that does not read LINUX_RUNNER (the daemon tests) stays on Blacksmith.
-            allowed = BLACKSMITH_SET | ({POOL} if linux_runner == POOL else set())
+            # A non-Blacksmith LINUX_RUNNER wins; a job that does not read it (the daemon
+            # tests) stays on Blacksmith.
+            allowed = BLACKSMITH_SET | ({linux_runner} if linux_runner in (POOL, HOSTED) else set())
             with self.subTest(job=name, linux_runner=linux_runner, overflow=bool(overflow), trusted=trusted):
                 self.assertIn(label, allowed)
 
@@ -120,6 +127,16 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
                 with self.subTest(job=name, linux_runner=linux_runner):
                     self.assertEqual(route(runs_on, context("manaflow-ai", linux_runner, "", "")), BIG)
                     self.assertEqual(route(runs_on, context("manaflow-ai", linux_runner, OVERFLOW_RECORD, "")), SMALL)
+
+    def test_only_the_darwin_cross_shadow_reads_its_override(self) -> None:
+        for name, runs_on in linux_routes().items():
+            for linux_runner in ("", POOL):
+                with self.subTest(job=name, linux_runner=linux_runner):
+                    label = route(runs_on, context("manaflow-ai", linux_runner, "", "", DARWIN_CROSS))
+                    if name == DARWIN_CROSS_JOB:
+                        self.assertEqual(label, DARWIN_CROSS)
+                    else:
+                        self.assertNotEqual(label, DARWIN_CROSS)
 
     def test_a_fork_keeps_github_hosted_ubuntu(self) -> None:
         for name, runs_on in linux_routes().items():
