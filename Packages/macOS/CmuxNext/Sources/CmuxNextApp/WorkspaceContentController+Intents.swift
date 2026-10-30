@@ -172,6 +172,7 @@ extension WorkspaceContentController {
             keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window)
             // [services, state]: the task pins this controller's owners until it ends (cx-6so P1b).
             withExtendedLifetime((services, state)) {}
+            return nil // the failure is logged here; the next create only waits for this one to end
         }
     }
 

@@ -165,7 +165,7 @@ enum PaneHandlers {
                 return "split: \(error)"
             }
         }
-        if intended != nil { content?.pendingCreate = Task { _ = await work.value } }
+        if intended != nil { content?.pendingCreate = work }
         ctx.registry.track(work)
     }
 
