@@ -111,9 +111,9 @@ extension PaneController {
     /// (NEW-TERMINAL-INHERITS-CWD).
     func newTerminalTab(cwd: String? = nil, typing text: String? = nil, typingAhead page: String? = nil, keep: Bool? = nil,
                         fromSelectedTab: Bool = false, daemonResolvesCwd: Bool = false,
-                        then: (@MainActor (SurfaceID) -> Void)? = nil) {
+                        outbound suppliedOutbound: OutboundTab? = nil, then: (@MainActor (SurfaceID) -> Void)? = nil) {
         // Nothing opens in Home's dock: without a placement of the caller's, the tab moves beside it.
-        guard let connection = daemon.connection else { return }
+        guard let connection = daemon.connection else { suppliedOutbound?.finish(moved: false); return }
         let handle = pane.handle
         // From an agent tab, the agent's cwd (#16620), asked when the tab is made.
         let agent = cwd == nil && fromSelectedTab && !daemonResolvesCwd ? selectedAgentView : nil
@@ -122,8 +122,8 @@ extension PaneController {
         let cwd = daemonResolvesCwd ? cwd : cwd ?? (fromSelectedTab ? NewTerminalStart.inherited(besides: selectedTab, in: pane, services: services) : nil) ?? selectedTab?.cwd
         // From another machine's terminal (an SSH tab in a mixed pane), a terminal on that machine (cx-2s5t).
         if fromSelectedTab, text == nil, page == nil,
-           services.remoteTerminals.openTerminal(besides: selectedTab, in: pane, home: daemon, cwd: cwd) { return }
-        var outbound: OutboundTab?
+           services.remoteTerminals.openTerminal(besides: selectedTab, in: pane, home: daemon, cwd: cwd) { suppliedOutbound?.finish(moved: false); return }
+        var outbound = suppliedOutbound
         let then = then ?? HomeDockOpens.placing(pane, services: services, focus: true, then: nil) { outbound = $0 }
         let workspace = services.workspaceKey(of: pane)
         let intent = self.workspace?.beginFocusIntent()
@@ -148,6 +148,7 @@ extension PaneController {
                 if let page {
                     try await services.newTabTypeAhead.drain(page) { try await connection.send(created.surface, text: $0) }
                 }
+                outbound?.made(created.surface)
                 selectWhenReported(surface: created.surface)
                 self.workspace?.expectFocus(on: created.surface, generation: intent)
                 landed = true
@@ -176,12 +177,14 @@ extension PaneController {
             }
         }
         let pending = BenchSpans.measure("newTerminal.intend") { command.intendNow(on: daemon, cwd: agentCwd) }
+        outbound?.made(key: pending.tab)
         selectWhenReported(surface: pending.surface)
         services.registry.track(Task { [services] in
             var landed = false
             defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
             do {
                 let created = try await pending.send(); BenchSpans.mark("daemon.newTab.returned")
+                outbound?.made(created.surface)
                 // The swap moved the selection already (NewTabSuccession); a pane still on the stand-in follows it.
                 if stripModel.selectedID?.rawValue == pending.tab { selectWhenReported(surface: created.surface) }
                 self.workspace?.expectFocus(on: created.surface, generation: intent)
@@ -204,9 +207,9 @@ extension PaneController {
     @discardableResult
     func newBrowserTab(url: URL? = nil, engine requested: String? = nil, inherited: String? = nil,
                        adopting child: (any BrowserTab)? = nil, background: Bool = false, profile: String? = nil,
-                       notice: String? = nil, opener: SurfaceID? = nil, then: (@MainActor (SurfaceID) -> Void)? = nil) -> Bool {
+                       notice: String? = nil, opener: SurfaceID? = nil, outbound: OutboundTab? = nil, then: (@MainActor (SurfaceID) -> Void)? = nil) -> Bool {
         PaneBrowserTabOpener(controller: self).open(url: url, engine: requested, inherited: inherited, adopting: child, background: background,
-                                                    profile: profile, notice: notice, opener: opener, then: then)
+                                                    profile: profile, notice: notice, opener: opener, outbound: outbound, then: then)
     }
 
     /// Several tabs (close others, to the left, to the right) close in one

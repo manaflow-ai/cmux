@@ -39,20 +39,21 @@ extension PaneController {
     /// no other URLs), a terminal's
     /// dev server, else a blank tab. `opener` opens it (the strip pane, for
     /// a browser asked for from the docked agent chat); nil is this pane.
-    func newBrowserTabFromSelectedTab(engine: String?, in opener: PaneController? = nil,
+    func newBrowserTabFromSelectedTab(engine: String?, in opener: PaneController? = nil, outbound: OutboundTab? = nil,
                                       then: (@MainActor (SurfaceID) -> Void)? = nil) {
         let opener = opener ?? self
         switch currentContent {
         case .agent(let view):
             services.registry.track(Task { [weak opener] in
                 let url = await view.workingContext()?.urls.first
-                opener?.newBrowserTab(url: url, engine: engine, then: then)
+                guard let opener else { outbound?.finish(moved: false); return nil }
+                opener.newBrowserTab(url: url, engine: engine, outbound: outbound, then: then)
                 return nil
             })
         case .terminal(let entry):
-            opener.newBrowserTab(url: WorkingURL.devServer(in: entry.session.surfaceView.viewportText()), engine: engine, then: then)
+            opener.newBrowserTab(url: WorkingURL.devServer(in: entry.session.surfaceView.viewportText()), engine: engine, outbound: outbound, then: then)
         case .browser, .page, .placeholder, .notice, .conversation, nil:
-            opener.newBrowserTab(url: nil, engine: engine, then: then)
+            opener.newBrowserTab(url: nil, engine: engine, outbound: outbound, then: then)
         }
     }
 

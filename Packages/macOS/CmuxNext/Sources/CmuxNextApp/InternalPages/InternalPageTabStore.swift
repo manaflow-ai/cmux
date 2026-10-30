@@ -242,6 +242,7 @@ final class InternalPageTabStore {
             self?.storeTabCreated(provisional, as: tab.id, surface: tab.surface)
         }
         let transaction = ClientTransactionID.generate()
+        outbound?.made(key: provisional.id)
         store.intend(.createTab(pane: model.handle, provisional: snapshot), transaction: transaction)
         if let pane {
             if focus {
@@ -283,6 +284,7 @@ final class InternalPageTabStore {
     /// and the selection move to it.
     func storeTabCreated(_ provisional: String, as real: String, surface: SurfaceID) {
         guard provisional != real, let key = storeKeys[provisional] else { return }
+        OutboundTab.rekeyed(provisional, to: real)
         storeKeys[real] = key
         storeTabStores[real] = storeTabStores[provisional]
         // The provisional id resolves until the tree drops it.

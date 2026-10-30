@@ -56,6 +56,7 @@ final class OutboundTab {
     private var answering = true
     /// The move landed: the hold ends once the pane no longer lists the tab.
     private var landed = false
+    private var ended = false
     private let timer = DemandTimer(owner: "OutboundTab")
 
     private init(pane: PaneController, holdSelectionUntilLanded: Bool) {
@@ -116,7 +117,7 @@ final class OutboundTab {
             // Home's creator selects its new tab before the move callback. Keep that tab hidden
             // even after the move reports success; the source snapshot is the authority that it
             // has left the dock. Other tabs selected by the person are still released normally.
-            if !landed || tab.surface == surface { return false }
+            if tab.surface == surface || own.contains(tab.id) || names.contains(tab.id) { return false }
         }
         return tab.surface == pane.pendingSelectSurface || tab.id == pane.pendingSelectTab || tab.id == pane.stripModel.selectedID?.rawValue
     }
@@ -140,12 +141,14 @@ final class OutboundTab {
 
     /// The open named its tab: only that one stays out.
     func made(_ surface: SurfaceID) {
+        guard !ended else { return }
         self.surface = surface
         didName()
     }
 
     /// Same, by tab id: an agent tab's stand-in, then the store's tab that replaces it.
     func made(key: String) {
+        guard !ended else { return }
         names.insert(key)
         if let real = pane?.services.agentTabs.aliases[key] { names.insert(real) }
         didName()
@@ -172,6 +175,7 @@ final class OutboundTab {
     /// The move is over. Landed: the tab stays out until the pane no longer lists it (``prune(_:)``),
     /// at most ``landLimit``. Failed or never made: the strip lists it now, so it never stays hidden.
     func finish(moved: Bool) {
+        guard !ended else { return }
         answering = false
         guard moved else { return end() }
         landed = true
@@ -186,6 +190,8 @@ final class OutboundTab {
 
     /// Stops holding: the timer stops and the open leaves its pane's list.
     private func drop() {
+        ended = true
+        answering = false
         timer.cancel()
         Self.open[key]?.removeAll { $0 === self }
         if Self.open[key]?.isEmpty == true { Self.open[key] = nil }

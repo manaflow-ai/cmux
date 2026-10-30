@@ -33,8 +33,10 @@ struct PaneBrowserTabOpener {
     /// `LocalFileHandoff` shows it (a tab's first load is not guarded): Markdown opens the markdown
     /// page unless the caller waits for the tab, and media Chromium cannot play opens in WebKit.
     func open(url: URL?, engine requested: String?, inherited: String?, adopting child: (any BrowserTab)?, // perf-hot: 10ms new-tab (the key's turn of every new browser tab)
-              background: Bool, profile: String?, notice: String?, opener: SurfaceID?,
+              background: Bool, profile: String?, notice: String?, opener: SurfaceID?, outbound suppliedOutbound: OutboundTab?,
               then: (@MainActor (SurfaceID) -> Void)?) -> Bool {
+        var transferredHold = false
+        defer { if !transferredHold { suppliedOutbound?.finish(moved: false) } }
         let services = controller.services
         var target = url
         // chrome://history and chrome://bookmarks open cmux's pages; chrome://settings opens Settings
@@ -99,17 +101,18 @@ struct PaneBrowserTabOpener {
             // A direct browser open aimed at Home's pinned dock has no caller placement callback.
             // Hold its tab out of Home's strip until the daemon move completes, just like the
             // terminal and page creators do through HomeDockOpens.
-            let outbound = beside ? OutboundTab.begin(in: controller, holdSelectionUntilLanded: true) : nil
+            let outbound = suppliedOutbound ?? (beside ? OutboundTab.begin(in: controller, holdSelectionUntilLanded: true) : nil)
             // A person's foreground tab: shown with its page in this turn (openStandIn). Not one aimed
             // at Home: the stand-in selects it in Home's dock, and its strip would come back (Lawrence
             // 2026-10-29: "chief in home should not have horizontal tabbar").
-            if !beside, standInApplies(child: child, opener: opener, background: background) {
+            if !beside, suppliedOutbound == nil, standInApplies(child: child, opener: opener, background: background) {
                 openStandIn(choice, address: url?.absoluteString ?? newTabAddress, focusesAddressBar: url == nil,
                             profile: profile, notice: notice, then: then)
                 return true
             }
             let linkOpener = services.linkOpener
             let intent = background || beside ? nil : controller.workspace?.beginFocusIntent()
+            transferredHold = true
             services.registry.track(Task {
                 do {
                     // A new tab the user asked for opens the New Tab page; an
@@ -120,6 +123,7 @@ struct PaneBrowserTabOpener {
                         try await browserTabs.open(choice, in: model, url: address, profile: profile, notice: notice,
                                                    activate: !background, after: after)
                     }
+                    outbound?.made(surface)
                     if let child { pageRequests.adopt(child, surface: surface) }
                     if beside {
                         linkOpener.moveBeside(surface, from: controller, focus: !background,

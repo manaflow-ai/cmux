@@ -15,6 +15,7 @@ import Testing
 @MainActor @Suite(.serialized) struct SideOpenStripTests {
     private static let left = PaneID(rawValue: 1), right = PaneID(rawValue: 2)
     private static let home = SurfaceID(rawValue: 1), link = SurfaceID(rawValue: 2)
+    private static let other = SurfaceID(rawValue: 3)
 
     private static func tabID(for surface: SurfaceID) -> String { "surface:\(surface.rawValue)" }
 
@@ -202,6 +203,18 @@ import Testing
         #expect(Self.listed(pane) == [Self.home], "concurrent opens exposed the failed tab while the other hold was active")
         second.finish(moved: false)
         #expect(OutboundTab.count(in: pane) == 0, "concurrent opens left a hold behind")
+    }
+
+    @Test func homeOutboundHoldDoesNotHideAUserSelectedTab() throws {
+        let (services, pane, state) = try Self.pane(Self.homeDock([Self.home]))
+        defer { withExtendedLifetime(state) { pane.teardown() } }
+        let outbound = OutboundTab.begin(in: pane, holdSelectionUntilLanded: true)
+        pane.selectWhenReported(surface: Self.link)
+        services.daemon.store.apply(snapshot: Self.homeDock([Self.home, Self.link, Self.other]))
+        pane.selectWhenReported(surface: Self.other)
+        #expect(Self.listed(pane) == [Self.home, Self.other], "Home hold hid a tab the person selected")
+        outbound.finish(moved: false)
+        #expect(Self.listed(pane) == [Self.home, Self.link, Self.other])
     }
 
     /// A lone chat's link (Leo: "it plays the opening animation on the main window and then opens the
