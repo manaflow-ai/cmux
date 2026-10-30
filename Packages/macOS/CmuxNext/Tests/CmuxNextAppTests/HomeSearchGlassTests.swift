@@ -131,6 +131,8 @@ struct HomeSearchGlassTests {
     @Test func theTypedTextIsCentredInTheCapsule() throws {
         let home = Self.home()
         let window = NSWindow(contentRect: home.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
         window.contentView = home
         home.layoutSubtreeIfNeeded()
         let field = home.list.searchField
@@ -138,17 +140,18 @@ struct HomeSearchGlassTests {
         let editor = try #require(field.currentEditor() as? NSTextView)
         let box = field.convert(editor.convert(editor.bounds, to: nil), from: nil)
         #expect(abs(box.midY - field.bounds.midY) <= 1, "the field editor is \(box.midY - field.bounds.midY) pt off centre")
-        window.makeFirstResponder(nil)
     }
 
     /// https://github.com/manaflow-ai/cmux/issues/27967: once the field took the keyboard, "Search"
-    /// and the caret slid left over the magnifier (the edit frame handed to AppKit was already cut
-    /// to one line, so the search button's slot came out of a 16 pt rect). The field editor starts
-    /// where the placeholder does at rest, right of the magnifier, at every width.
+    /// and the caret slid left over the magnifier (AppKit puts an unbezeled field's editor in the
+    /// frame the cell is handed, the field's whole width). The field editor starts where the
+    /// placeholder does at rest, right of the magnifier, at every width.
     @Test(arguments: [180, 320, 480] as [CGFloat])
     func theTypedTextStaysRightOfTheMagnifier(_ width: CGFloat) throws {
         let home = Self.home(width: width)
         let window = NSWindow(contentRect: home.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
         window.contentView = home
         home.layoutSubtreeIfNeeded()
         let field = home.list.searchField
@@ -160,7 +163,6 @@ struct HomeSearchGlassTests {
         let box = field.convert(editor.convert(editor.bounds, to: nil), from: nil)
         #expect(box.minX >= icon.maxX, "the field editor starts \(icon.maxX - box.minX) pt over the magnifier at \(width)")
         #expect(abs(box.minX - rest.minX) <= 1, "the field editor starts at \(box.minX), the placeholder at rest at \(rest.minX) (\(width))")
-        window.makeFirstResponder(nil)
     }
 
     /// The middle (in pixel rows) of the drawn ink between columns `x0` and `x1`; nil when none.
