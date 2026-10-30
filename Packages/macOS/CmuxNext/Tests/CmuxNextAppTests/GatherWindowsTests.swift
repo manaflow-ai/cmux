@@ -110,6 +110,22 @@ struct GatherWindowsTests {
         #expect(there.state.workspaceID == "k1")
     }
 
+    /// A workspace no session reports yet (a remote machine still connecting or paused) has no
+    /// known space, so `visible` shows it in every space. It is not moved with the space: it stays
+    /// in its window, which therefore stays open.
+    @Test func anUnresolvedWorkspaceStaysInItsWindow() throws {
+        let services = try Self.services()
+        defer { Self.closeAll(services) }
+        let here = try Self.open(["k0"], services), there = try Self.open(["k2", "remote-unresolved"], services)
+
+        try services.windows.bringSpace(Self.rooms[1], into: here.state)
+
+        let registry = services.windows.registry.value
+        #expect(registry.window(there.state.id)?.workspaceIDs == ["remote-unresolved"], "an unresolved workspace moved with the space")
+        #expect(registry.window(here.state.id)?.workspaceIDs.sorted() == ["k0", "k2"])
+        #expect(here.state.profileID == Self.rooms[1])
+    }
+
     /// An incognito space, or an incognito window, takes part in no move (rule 2).
     @Test func incognitoIsRefused() throws {
         let services = try Self.services()
