@@ -83,10 +83,10 @@ struct ClassicUpgradeHeldDocumentTests {
         #expect(launch.failure == nil, "\(String(describing: launch.failure))")
         await sim.settle()
         // Read in the turn settle() returned in: nothing may still be held or unanswered.
-        let stillHeld = remote.holding, settled = document.isSettled
+        let stillHeld = remote.holding, settled = document.isSettled, pending = document.pendingDescription
         remote.release()
         #expect(remote.everHeld > 0, "no document change was held: the run did not place through the sidebar document")
-        #expect(stillHeld == 0 && settled, "settle() returned with \(stillHeld) sidebar document changes still held (settled: \(settled))")
+        #expect(stillHeld == 0 && settled, "settle() returned with \(stillHeld) sidebar document changes still held (settled: \(settled); \(pending))")
         if stillHeld == 0 { try sim.verify(profile, classicBefore: before) }
         document.onSettledWait = nil
         await sim.shutdown()

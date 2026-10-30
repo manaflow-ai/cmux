@@ -37,8 +37,8 @@ extension AppServices {
             while !done(), clock.now < deadline { try? await Task.sleep(for: .milliseconds(20)) }
         }
         await wait { personalPlacements.isIdle }
-        // The document's own completion signal (each reply resumes it), not a poll; the suites' time limits guard a hang.
-        await document?.settled()
+        // The document's own completion signal (each reply resumes it), not a poll; the deadline is a hang guard only.
+        if let document, await !Self.settled(document, before: deadline) { return document.pendingDescription }
         // Taken after the replies: every echo and write-back event of the changes above is before it.
         if let barrier = await daemon.connection?.eventSequence() {
             await wait { daemon.store.appliedSequence >= barrier }
@@ -46,8 +46,8 @@ extension AppServices {
         }
         await wait { awaitingPlacement().isEmpty }
         await wait { document.map { !$0.isActive || $0.shownVersion == $0.version } ?? true }
-        if !personalPlacements.isIdle { return "the personal placement queue" }
-        if document?.isSettled == false { return "a sidebar document change, adopt or load" }
+        if !personalPlacements.isIdle { return "a personal placement queued or running" }
+        if let document, !document.isSettled { return document.pendingDescription }
         // Not the barrier again: a later event (a shell's output) is no placement's, and new placement
         // work since would show in the queue or the document above.
         let awaiting = awaitingPlacement()
@@ -56,6 +56,34 @@ extension AppServices {
             return "the sidebar projection (shown \(document.shownVersion), document \(document.version))"
         }
         return nil
+    }
+
+    /// Whether `document` settled (``SidebarDocStore/settled()``, event-driven) before `deadline`; false
+    /// leaves the wait behind so the caller can report what is pending instead of hanging past the test's limit.
+    @MainActor private static func settled(_ document: SidebarDocStore, before deadline: ContinuousClock.Instant) async -> Bool {
+        if document.isSettled { return true }
+        @MainActor final class First {
+            var continuation: CheckedContinuation<Bool, Never>?
+            func resolve(_ value: Bool) {
+                continuation?.resume(returning: value)
+                continuation = nil
+            }
+        }
+        let first = First()
+        return await withCheckedContinuation { continuation in
+            first.continuation = continuation
+            // task-owner: the hang guard of one test wait; cancelled once the store settles
+            let guardTask = Task { @MainActor in
+                try? await Task.sleep(until: deadline)
+                if !Task.isCancelled { first.resolve(false) }
+            }
+            // task-owner: one test wait; ends with the store's settle, or stays behind it after the hang guard
+            Task { @MainActor in
+                await document.settled()
+                guardTask.cancel()
+                first.resolve(true)
+            }
+        }
     }
 
     /// Live workspaces whose new-workspace placement has not run yet (one for a workspace that never

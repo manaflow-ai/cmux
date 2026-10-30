@@ -89,6 +89,7 @@ public final class SidebarDocStore {
     /// echo may have gone to a closed connection). They stay pending until the next document load, which says where
     /// the rows really are: the load drops them (cx-ml98q).
     @ObservationIgnored private var unanswered: Set<String> = []
+    var unansweredCount: Int { unanswered.count }
     /// Loads failed in a row while unanswered changes wait (a `sidebar.get` that timed out under the same load).
     @ObservationIgnored private var failedLoads = 0
     /// Refs already sent to `sidebar.adopt` this session.

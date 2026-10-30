@@ -20,6 +20,13 @@ extension SidebarDocStore {
         }
     }
 
+    /// What keeps ``isSettled`` false, for a test's hang report: the changes and adopts in flight, a
+    /// running load, the changes a load must settle, and who waits.
+    var pendingDescription: String {
+        "\(inFlight) sidebar document changes or adopts unanswered, load running: \(loading), "
+            + "settled by the next load: \(unansweredCount), waiting in settled(): \(settledWaiters.count)"
+    }
+
     /// Someone waits in ``settled()`` (a test seam: a live-daemon test releases the replies it holds).
     var waitsForSettled: Bool { !settledWaiters.isEmpty }
 
