@@ -255,7 +255,7 @@ def _candidate_description(text):
     text = text.strip()
     text = re.sub(r"^[-*+]\s+", "", text)
     text = DESCRIPTION_LABEL.sub("", text).strip()
-    if not text or DESCRIPTION_PLACEHOLDER.fullmatch(text):
+    if not text or DESCRIPTION_PLACEHOLDER.fullmatch(text) or not _safe_description(text):
         return ""
     return _plain_line(text)
 
@@ -302,7 +302,7 @@ def pr_description(body, fallback=""):
             candidates.append(line)
     for candidate in candidates:
         text = _candidate_description(candidate)
-        if text and not text.lower().startswith(("none", "generated with", "agent session")):
+        if text and _safe_description(text) and not text.lower().startswith(("none", "generated with", "agent session")):
             return text
     return fallback
 
