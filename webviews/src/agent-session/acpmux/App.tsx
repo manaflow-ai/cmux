@@ -7098,6 +7098,7 @@ function AcpmuxPane() {
     attach: async (audio) => {
       const session = sessionIdRef.current;
       const composer = composerHandle.current;
+      if (!composer) return false;
       const moved = () => session !== sessionIdRef.current || composer !== composerHandle.current;
       try {
         const recording = await recordingAttachment(
@@ -7111,7 +7112,7 @@ function AcpmuxPane() {
           },
         );
         if (moved()) return false;
-        if (recording) composer?.attach(recording);
+        if (recording) composer.attach(recording);
         else directClient.current?.notice(translate(recordingLeftOutNotice(audio.path ? "elsewhere" : "writeFailed")));
         return recording !== undefined;
       } catch (error) {

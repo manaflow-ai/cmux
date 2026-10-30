@@ -55,11 +55,16 @@ async function mount(accepts: boolean, chat?: () => string | undefined, save?: (
   const omitted: string[] = [];
   let elsewhere = 0;
   let submitted = 0;
+  let submittedNow!: () => void;
+  const whenSubmitted = new Promise<void>((resolve) => {
+    submittedNow = resolve;
+  });
   let text = "";
   const field: DictationField = {
     focus() {},
     submit() {
       submitted += 1;
+      submittedNow();
     },
     focused: () => true,
     text: () => ({ value: text, selectionStart: text.length, selectionEnd: text.length }),
@@ -97,6 +102,7 @@ async function mount(accepts: boolean, chat?: () => string | undefined, save?: (
     calls,
     elsewhere: () => elsewhere,
     submitted: () => submitted,
+    whenSubmitted,
     attached,
     omitted,
     text: () => text,
@@ -327,12 +333,11 @@ test("auto-send waits for the recording upload before submitting its words", asy
       cancelled: false,
       audio: clip,
     });
-    await new Promise((resolve) => setTimeout(resolve, 10));
   });
   expect(pane.submitted()).toBe(0);
   await act(async () => {
     finish();
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await pane.whenSubmitted;
   });
   expect(pane.submitted()).toBe(1);
   configureDictation(undefined);
