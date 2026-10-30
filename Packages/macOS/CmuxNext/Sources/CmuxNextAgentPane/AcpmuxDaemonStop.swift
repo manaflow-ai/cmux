@@ -4,20 +4,23 @@ import Foundation
 import os
 
 /// The person's "Restart agent service" (the pane's waiting line, ``AcpmuxHost/restartStuckAcpmux(sessionId:)``):
-/// stops this app's own acpmux daemon so the pane's next handshake starts a new one, which adopts
-/// the agent hosts and loads every session from disk. A person decides it, never a timer (rule
-/// R5): a daemon that answers late is not stopped by the app on its own. SIGTERM (a daemon whose
-/// runtime still runs detaches its agent hosts), then SIGKILL after the grace.
+/// asks this app's own acpmux daemon to stop (SIGTERM) so the pane's next handshake starts a new
+/// one, which adopts the agent hosts and loads every session from disk. A person decides it, never
+/// a timer (rule R5): a daemon that answers late is not stopped by the app on its own.
+///
+/// SIGTERM only, never SIGKILL. acpmux appends each session's event records with a plain write
+/// (store.rs `append`) and repairs no torn last line when it reopens the log (`open_writer`), so a
+/// SIGKILL in the middle of a write could tear a record, and the next record would be glued onto it
+/// and lost too. On SIGTERM acpmux ends its own way. The waiting lookup ends at that exit (its
+/// connection closes); a daemon that does not exit keeps running, and the person can press again.
 ///
 /// Only a pid that is this home's (`daemon.pid` in the home), runs `acpmux` (or the bundle's `cmux`)
-/// and is the process listening on the home's socket (`LOCAL_PEERPID`) is ever signalled, and one
-/// stop of a pid at a time (a second click while one runs does nothing). That process is known by
-/// its pid and start time and its audit token (``Daemon``), read before those checks and again after
-/// them and before each signal: a pid the kernel gave to another process meanwhile is never
-/// signalled (``signal(_:_:process:)`` puts a kernel exit watch on the process before that check,
-/// and the signal goes by audit token, so the kernel refuses it once the pid names another process),
-/// and the exit wait is on the process before its SIGTERM, so it never follows the pid to a successor.
-/// This is the stop path of the removed AcpmuxUnresponsiveWatch (#25379), now asked for by a person.
+/// and is the process listening on the home's socket (`LOCAL_PEERPID`) is ever signalled. That
+/// process is known by its pid and start time and its audit token (``Daemon``), read before those
+/// checks and again after them and before the signal: a pid the kernel gave to another process
+/// meanwhile is never signalled (``signal(_:_:process:)`` puts a kernel exit watch on the process
+/// before that check, and the signal goes by audit token, so the kernel refuses it once the pid
+/// names another process). This is the identity check of the removed AcpmuxUnresponsiveWatch (#25379).
 nonisolated final class AcpmuxDaemonStop: Sendable {
     /// One process: its pid, its start time (`proc_bsdinfo`) and its audit token (`TASK_AUDIT_TOKEN`).
     /// A pid the kernel gives to another process later has another start time and another pid
@@ -37,49 +40,30 @@ nonisolated final class AcpmuxDaemonStop: Sendable {
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.acpmux")
 
-    /// How long the daemon has after SIGTERM before SIGKILL.
-    let termGrace: Duration
     /// The process `pid` names now, nil when none (``kernelProcess(pid:)``; a stand-in in tests).
     private let process: @Sendable (Int32) -> Daemon?
-    /// Pids whose stop runs now.
-    private let stopping = Mutex<Set<Int32>>([])
 
-    init(termGrace: Duration = .seconds(10),
-         process: @escaping @Sendable (Int32) -> Daemon? = AcpmuxDaemonStop.kernelProcess(pid:)) {
-        self.termGrace = termGrace
+    init(process: @escaping @Sendable (Int32) -> Daemon? = AcpmuxDaemonStop.kernelProcess(pid:)) {
         self.process = process
     }
 
-    /// Stops `environment`'s own daemon for a person who asked. True when it exited (the next
-    /// handshake starts a new one); false when no daemon of this home runs, it is not this home's
-    /// by every check above, or a stop of it already runs.
+    /// Asks `environment`'s own daemon to stop for a person who asked. True when SIGTERM went to it
+    /// (the waiting lookup ends at its exit, and the next handshake starts a new one); false when no
+    /// daemon of this home runs or it is not this home's by every check above.
     @concurrent func restart(_ environment: AcpmuxEnvironment) async -> Bool {
         guard let daemon = await daemon(environment) else { return false }
         let pid = daemon.pid
-        guard stopping.withLock({ $0.insert(pid).inserted }) else { return false }
-        defer { _ = stopping.withLock { $0.remove(pid) } }
         let home = environment.home.standardizedFileURL.path
-        Self.logger.error("acpmux \(pid) of home=\(home, privacy: .public): a person asked to restart it")
+        guard terminate(daemon) else { return false }
+        Self.logger.error("acpmux \(pid) of home=\(home, privacy: .public): a person asked to restart it; sent SIGTERM")
         AcpmuxFailureLog(logPath: environment.logPath).record(.personRestart, detail: "pid \(pid)")
-        return await stop(daemon, grace: termGrace)
+        return true
     }
 
-    /// SIGTERM, then SIGKILL when `daemon` outlives `grace`. True once it exited. Each signal goes
-    /// only to the process `daemon` names, checked right before it with the exit watch already on
-    /// that process; a pid that names another process now means `daemon` exited.
-    @concurrent func stop(_ daemon: Daemon, grace: Duration) async -> Bool {
-        let pid = daemon.pid
-        let process = process
-        func send(_ signal: Int32) -> Bool? { Self.signal(daemon, signal, process: process) }
-        var unsent = false
-        let exited = await AgentPaneProcessExit(pid: pid).event(within: grace) {
-            let answer = send(SIGTERM)
-            unsent = answer != nil
-            return answer
-        }
-        if exited || unsent { return exited }
-        Self.logger.error("acpmux \(pid) outlived SIGTERM by \(grace, privacy: .public); sending SIGKILL")
-        return await AgentPaneProcessExit(pid: pid).event(within: .seconds(5)) { send(SIGKILL) }
+    /// SIGTERM to the process `daemon` names, checked right before it with the exit watch already on
+    /// that process. True when sent; false when that process is gone or could not be signalled.
+    func terminate(_ daemon: Daemon) -> Bool {
+        Self.signal(daemon, SIGTERM, process: process) == nil
     }
 
     /// Sends `signal` to `daemon`: nil when sent (wait for the exit), else whether it is gone.

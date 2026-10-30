@@ -8,8 +8,7 @@ import Testing
 /// kernel gave to another process (another start time) gets no signal. The "other process" is a
 /// stand-in identity; the signalled process is a `sleep` this test starts.
 ///
-/// No suite time limit: every wait here is bounded (the child's `exec`, the grace, the SIGKILL's
-/// exit), and in the full parallel run on a loaded 6-vCPU runner a whole test process stalls for
+/// No suite time limit: every wait here is bounded (the child's `exec`, its exit), and in the full parallel run on a loaded 6-vCPU runner a whole test process stalls for
 /// a minute or more (job 122473154125: a suite that only advanced a manual clock took 170 s), so a
 /// one-minute limit failed tests that checked nothing about time.
 @Suite(.serialized)
@@ -63,19 +62,8 @@ struct AcpmuxDaemonStopIdentityTests {
         let found = try #require(AcpmuxDaemonStop.kernelProcess(pid: child.processIdentifier))
         let stopper = AcpmuxDaemonStop(process: reused(after: 0))
 
-        #expect(await stopper.stop(found, grace: .milliseconds(300)), "the daemon it found is gone")
+        #expect(!stopper.terminate(found), "a signal went to a pid that names another process now")
         #expect(agentPaneProcessIsRunning(child.processIdentifier), "the process that has the pid now was signalled")
-    }
-
-    @Test func aPidReusedAfterItsSigtermGetsNoSigkill() async throws {
-        let child = try await child(ignoresTerm: true)
-        defer { kill(child.processIdentifier, SIGKILL) }
-        let found = try #require(AcpmuxDaemonStop.kernelProcess(pid: child.processIdentifier))
-        // The first read is the check before SIGTERM; every later one sees another process.
-        let stopper = AcpmuxDaemonStop(process: reused(after: 1))
-
-        #expect(await stopper.stop(found, grace: .milliseconds(300)))
-        #expect(agentPaneProcessIsRunning(child.processIdentifier), "the process that has the pid now got SIGKILL")
     }
 
     /// Review of #23199: the check and the signal were apart, so a daemon that exited between
@@ -120,14 +108,29 @@ struct AcpmuxDaemonStopIdentityTests {
         #expect(agentPaneProcessIsRunning(child.processIdentifier), "the process that has the pid now was signalled")
     }
 
-    @Test func theProcessItFoundGetsSigtermThenSigkill() async throws {
+    /// The process it found gets SIGTERM and ends its own way.
+    @Test func theProcessItFoundGetsSigterm() async throws {
+        let child = try await child(ignoresTerm: false)
+        defer { kill(child.processIdentifier, SIGKILL) }
+        let found = try #require(AcpmuxDaemonStop.kernelProcess(pid: child.processIdentifier))
+        let exit = AgentPaneProcessExit(pid: child.processIdentifier)
+
+        #expect(AcpmuxDaemonStop().terminate(found))
+        #expect(await exit.event(within: nil), "the daemon did not exit at SIGTERM")
+    }
+
+    /// A daemon that does not end at SIGTERM is never killed: a SIGKILL during an event-log write
+    /// could tear a session record (acpmux store.rs `append`). It keeps running, and the person may
+    /// press again.
+    @Test func aDaemonThatIgnoresSigtermIsNeverKilled() async throws {
         let child = try await child(ignoresTerm: true)
         defer { kill(child.processIdentifier, SIGKILL) }
         let found = try #require(AcpmuxDaemonStop.kernelProcess(pid: child.processIdentifier))
         let stopper = AcpmuxDaemonStop()
 
-        #expect(await stopper.stop(found, grace: .milliseconds(300)))
-        #expect(!agentPaneProcessIsRunning(child.processIdentifier))
+        #expect(stopper.terminate(found))
+        #expect(stopper.terminate(found), "a second press did not signal again")
+        #expect(agentPaneProcessIsRunning(child.processIdentifier))
     }
 }
 
