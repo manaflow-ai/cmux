@@ -54,7 +54,13 @@ public final class TerminalOutputMarker: Sendable, Hashable {
 /// queued: it is behind the marker and ahead of nothing, so the acknowledgement hands it to the sink
 /// and opens the route. The route therefore opens one round trip after the last record, however
 /// fast output keeps coming. A record that comes while output is held takes that output onto the
-/// stream ahead of itself. This is how Mojo's MultiplexRouter keeps one pipe's order across
+/// stream ahead of itself.
+///
+/// On a stream of the shared connection the reader must never wait for one view (``TerminalEventQueue/parksReader``
+/// is false), so a full lane and a full hold do not hold it: a chunk the lane took above its capacity shuts the route
+/// until the lane wakes it (``laneFilling()``, ``laneDrained(_:)``), and the output meanwhile goes onto the stream,
+/// whose bounded queue drops and resyncs; held output past the hold limit goes onto the stream behind its marker
+/// (``spillHeld()``). This is how Mojo's MultiplexRouter keeps one pipe's order across
 /// endpoints on different threads: a message waits in the router while an earlier one is not yet
 /// dispatched (mojo/public/cpp/bindings/lib/multiplex_router.cc, ProcessIncomingMessage).
 struct TerminalEchoRoute: Sendable {
@@ -95,6 +101,10 @@ struct TerminalEchoRoute: Sendable {
     private var closed = false
     private var held: [Held] = []
     private var heldBytes = 0
+    /// Chunks the lane took whose wake has not come (shared stream only): while any is out, the route stays shut.
+    private var laneFills = 0
+    /// Counts the sinks installed: a wake of an older sink changes nothing.
+    private var sinkGeneration: UInt64 = 0
 
     init(holdLimit: Int) {
         self.holdLimit = holdLimit
@@ -102,7 +112,7 @@ struct TerminalEchoRoute: Sendable {
 
     /// Output may go to ``sink`` now: nothing on the stream is unapplied.
     var isOpen: Bool {
-        sink != nil && !closed && !markerInFlight && !recordAfterMarker
+        sink != nil && !closed && !markerInFlight && !recordAfterMarker && laneFills == 0
     }
 
     private var markerInFlight: Bool { markerAcknowledged != markerSent }
@@ -111,10 +121,33 @@ struct TerminalEchoRoute: Sendable {
     /// calls ``recordQueued()``.
     mutating func route(_ data: Data, colors: TerminalColors?, flow: UInt64?) -> OutputRoute {
         if isOpen, let sink { return .lane(sink) }
-        guard sink != nil, !closed, markerInFlight, !recordAfterMarker else { return .stream }
+        guard sink != nil, !closed, markerInFlight, !recordAfterMarker, laneFills == 0 else { return .stream }
         held.append(Held(data: data, colors: colors, flow: flow))
         heldBytes += data.count
         return .held(full: heldBytes > holdLimit)
+    }
+
+    /// Shared stream: the caller hands one chunk to the lane now. Until the lane's wake for it comes
+    /// (``laneDrained(_:)``, also when the lane did not fill), the route stays shut and output goes onto the stream.
+    /// Returns the generation to pass back.
+    mutating func laneFilling() -> UInt64 {
+        laneFills += 1
+        return sinkGeneration
+    }
+
+    /// Shared stream: the lane drained below its capacity (or never went above it) for one chunk of
+    /// ``laneFilling()``'s `generation`. The route opens once none is out and nothing on the stream is unapplied.
+    mutating func laneDrained(_ generation: UInt64) {
+        guard generation == sinkGeneration, laneFills > 0 else { return }
+        laneFills -= 1
+    }
+
+    /// Shared stream: the output held behind the marker in flight is past the hold limit. It goes onto the
+    /// stream now, behind that marker and ahead of everything later, which goes the stream's way too until the
+    /// marker after it is acknowledged.
+    mutating func spillHeld() -> [Held] {
+        recordAfterMarker = true
+        return takeHeld()
     }
 
     /// The output held so far, which must go onto the stream before the record the caller queues next.
@@ -139,6 +172,8 @@ struct TerminalEchoRoute: Sendable {
     mutating func install(_ sink: TerminalEchoSink?) -> (held: [Held], marker: UInt64?) {
         let held = takeHeld()
         self.sink = sink
+        sinkGeneration += 1
+        laneFills = 0
         guard sink != nil, !closed else { return (held, nil) }
         return (held, requestMarker())
     }
@@ -152,8 +187,9 @@ struct TerminalEchoRoute: Sendable {
             guard sink != nil, !closed, let next = requestMarker() else { return .nothing }
             return .marker(next)
         }
-        // Only output came after the marker, and it is held here (install and close take it first).
-        guard let sink, !closed else { return .nothing }
+        // Only output came after the marker, and it is held here (install and close take it first). While the
+        // lane is full nothing is held (the output goes onto the stream): the lane's wake opens the route.
+        guard let sink, !closed, laneFills == 0 else { return .nothing }
         return .open(sink, held: takeHeld())
     }
 
@@ -162,6 +198,8 @@ struct TerminalEchoRoute: Sendable {
     mutating func close() -> [Held] {
         closed = true
         sink = nil
+        sinkGeneration += 1
+        laneFills = 0
         return takeHeld()
     }
 

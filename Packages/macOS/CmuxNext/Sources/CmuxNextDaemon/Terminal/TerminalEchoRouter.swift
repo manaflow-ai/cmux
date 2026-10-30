@@ -15,7 +15,12 @@ import Foundation
 /// and the hold limit while output waits for a marker, both waited for on the reader thread after the line
 /// (``TerminalEventQueue/enqueueOnLane(_:)``, ``TerminalEventQueue/waitWhileFull()``), so a slow parser
 /// stops the socket and the daemon's bounded mailbox ends a stalled view with `overflow`, as the
-/// stream's own high water does.
+/// stream's own high water does. That wait is only for a view on a connection of its own
+/// (``TerminalEventQueue/parksReader``). A stream on the shared connection never waits for its view: its reader
+/// carries every other view and every control reply, and one stopped view parked it for the whole 3 s of Lawrence's
+/// "no new terminals" stall (2026-10-30). There a full lane shuts the route until the lane wakes it, and output past
+/// it, or held past the hold limit, goes onto the stream, whose bounded queue drops and resyncs (one READY): Mojo's
+/// MultiplexRouter never blocks its IO thread on one endpoint either.
 ///
 /// Records, markers and held output are queued under one lock, so a marker is always behind the
 /// record that asked for it and held output reaches the lane before any later chunk; the hold limit
@@ -27,6 +32,8 @@ final class TerminalEchoRouter: Sendable {
         case drop
         case sizeState(TerminalSizeState, participant: String?)
         case lane(TerminalEchoSink, Data, flow: UInt64?)
+        /// Shared stream: hand the chunk to the lane without waiting; `generation` comes back with its wake.
+        case laneWithoutWaiting(TerminalEchoSink, Data, flow: UInt64?, generation: UInt64)
         case queued
     }
 
@@ -73,9 +80,12 @@ final class TerminalEchoRouter: Sendable {
             case .output(let data, let colors):
                 probe.outputDecoded(flow: decoded.flow)
                 switch state.route.route(data, colors: colors, flow: decoded.flow) {
-                case .lane(let sink): return .lane(sink, data, flow: decoded.flow)
+                case .lane(let sink):
+                    guard !queue.parksReader else { return .lane(sink, data, flow: decoded.flow) }
+                    return .laneWithoutWaiting(sink, data, flow: decoded.flow, generation: state.route.laneFilling())
                 case .held(let full):
-                    if full { queue.holdForMarker() }
+                    guard full else { return .queued }
+                    if queue.parksReader { queue.holdForMarker() } else { queueHeld(state.route.spillHeld()) }
                     return .queued
                 case .stream: queueOutput(TerminalEchoRoute.Held(data: data, colors: colors, flow: decoded.flow))
                 }
@@ -90,6 +100,8 @@ final class TerminalEchoRouter: Sendable {
         case .drop: break
         case .sizeState(let size, let participant): sizeState(size, participant)
         case .lane(let sink, let data, let flow): queue.enqueueOnLane { wake in sink.enqueueEcho(data, flow: flow, wake: wake) }
+        case .laneWithoutWaiting(let sink, let data, let flow, let generation):
+            hand(data, flow: flow, to: sink, generation: generation)
         case .queued: break
         }
     }
@@ -132,11 +144,35 @@ final class TerminalEchoRouter: Sendable {
             case .nothing: break
             case .marker(let next): queue.pushWithoutWaiting(.outputResume(self.marker(next)))
             case .open(let sink, let held):
-                // The reader's next chunk goes by the open route and waits on the lane if it is still full.
-                for chunk in held { _ = sink.enqueueEcho(chunk.data, flow: chunk.flow, wake: {}) }
+                // The reader's next chunk goes by the open route and waits on the lane if it is still full; on a
+                // shared stream a lane these fill shuts the route until it wakes.
+                for chunk in held {
+                    guard !queue.parksReader else {
+                        _ = sink.enqueueEcho(chunk.data, flow: chunk.flow, wake: {})
+                        continue
+                    }
+                    let generation = state.route.laneFilling()
+                    let wake: @Sendable () -> Void = { [weak self] in self?.laneDrained(generation) }
+                    if !sink.enqueueEcho(chunk.data, flow: chunk.flow, wake: wake) {
+                        state.route.laneDrained(generation)
+                    }
+                }
                 queue.releaseMarkerHold()
             }
         }
+    }
+
+    /// Shared stream, outside the lock: one live chunk to the lane, which never holds the reader. A lane now above its
+    /// capacity keeps the route shut until it wakes (it never calls the wake inline); one that is not opens it now.
+    private func hand(_ data: Data, flow: UInt64?, to sink: TerminalEchoSink, generation: UInt64) {
+        let wake: @Sendable () -> Void = { [weak self] in self?.laneDrained(generation) }
+        if !sink.enqueueEcho(data, flow: flow, wake: wake) { laneDrained(generation) }
+    }
+
+    /// Any thread: the lane drained for one chunk of `generation` (or never filled); live output may go to it
+    /// again once nothing on the stream is unapplied.
+    private func laneDrained(_ generation: UInt64) {
+        state.withLock { $0.route.laneDrained(generation) }
     }
 
     /// Under the lock: output held behind a marker goes onto the stream, in order, ahead of the record queued
