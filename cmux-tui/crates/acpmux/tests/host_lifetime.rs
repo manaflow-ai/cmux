@@ -198,6 +198,33 @@ async fn a_kept_host_ends_when_its_home_is_deleted() {
     assert!(gone_within(harness, Duration::from_secs(10)), "harness {harness} outlived its host");
 }
 
+/// A kept host whose daemon never comes back, in a home that stays: once its agent is idle and
+/// no daemon attached for its wait (`agent_host::OrphanExit`, shortened here), it ends its
+/// harness and its record. Before, it ran until a daemon of that home started again, which for
+/// a tagged build's home was never.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_kept_idle_host_ends_once_no_daemon_came_back_for_its_wait() {
+    let home = scratch("orphan");
+    let daemon = start_daemon_with(&home, &[("ACPMUX_TEST_HOST_ORPHAN_IDLE_MS", "1500".as_ref())]);
+    let mut rpc = Rpc::connect(&home).await;
+    let session = rpc.new_session(&home, "fake").await;
+    rpc.call(
+        "session/prompt",
+        json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]}),
+    )
+    .await;
+    let (host, harness) = pids(&record(&home.join("hosts"), &session));
+    drop(rpc);
+    // The daemon acknowledges the turn's last entries a moment after it answers the prompt.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    sigkill(daemon);
+    assert!(alive(host) && alive(harness), "the kept host ended with its daemon");
+    assert!(gone_within(host, Duration::from_secs(15)), "host {host} outlived its wait");
+    assert!(gone_within(harness, Duration::from_secs(5)), "harness {harness} outlived its host");
+    assert!(!home.join("hosts").join(format!("{session}.json")).exists(), "record left behind");
+    std::fs::remove_dir_all(&home).unwrap();
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_pooled_host_ends_with_its_daemon_and_a_taken_one_stays() {
     let home = scratch("pool");

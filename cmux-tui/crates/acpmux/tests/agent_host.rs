@@ -6,6 +6,8 @@
 
 #[path = "agent_host/carried_hold.rs"]
 mod carried_hold;
+#[path = "agent_host/orphan_exit.rs"]
+mod orphan_exit;
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 // This process runs stand-in agents (the fake agents under tests/).
@@ -52,6 +54,7 @@ fn spec(dir: &Path, session: &str) -> SpawnSpec {
         router_owner_fifo: None,
         cwd_pin: None,
         cpu_class: Default::default(),
+        orphan_exit: None,
     }
 }
 
