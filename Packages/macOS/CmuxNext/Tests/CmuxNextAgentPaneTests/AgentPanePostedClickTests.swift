@@ -107,9 +107,16 @@ struct AgentPanePostedClickTests {
         event.setIntegerValueField(.keyboardEventAutorepeat, value: 0)
         view.judge(try #require(NSEvent(cgEvent: event)), eventWindow: childWindow)
         let next = try #require(gestures.questionReturnWitness)
+        // The numeric keypad's Enter is a distinct native key (76), but it is still Return
+        // for the isolated question-key listener.
+        event.setIntegerValueField(.keyboardEventKeycode, value: 76)
+        view.judge(try #require(NSEvent(cgEvent: event)), eventWindow: childWindow)
+        let keypad = try #require(gestures.questionReturnWitness)
+        #expect(!gestures.consumeQuestionReturn(next), "keypad Enter revived the previous Return proof")
+        #expect(gestures.consumeQuestionReturn(keypad), "keypad Enter did not mint a Return proof")
         event.setIntegerValueField(.eventSourceUnixProcessID, value: Int64(getpid()) + 1)
         view.judge(try #require(NSEvent(cgEvent: event)), eventWindow: childWindow)
-        #expect(!gestures.consumeQuestionReturn(next), "new posted page input left the old Return witness usable")
+        #expect(!gestures.consumeQuestionReturn(keypad), "new posted page input left the keypad proof usable")
     }
 
     /// While the person types, a click another process posts on Allow must not spend the typing's

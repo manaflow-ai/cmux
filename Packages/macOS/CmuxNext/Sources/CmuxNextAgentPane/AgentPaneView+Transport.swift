@@ -149,7 +149,7 @@ extension AgentPaneView {
         model.transport.gestures.recordQuestionReturn(false)
         guard AgentPanePersonInput.isPerson(event) else { return }
         model.transport.gestures.record(click: event.type != .keyDown)
-        if event.type == .keyDown { model.transport.gestures.recordQuestionReturn(event.keyCode == 36) }
+        if event.type == .keyDown { model.transport.gestures.recordQuestionReturn(Self.isReturnKey(event)) }
     }
 
     /// The same for an event in the Chromium page's own window (a child of the pane's window): a key
@@ -170,6 +170,11 @@ extension AgentPaneView {
         model.transport.gestures.recordQuestionReturn(false)
         guard AgentPanePersonInput.isPerson(event) else { return }
         model.transport.gestures.record(click: event.type != .keyDown)
-        if event.type == .keyDown { model.transport.gestures.recordQuestionReturn(event.keyCode == 36) }
+        if event.type == .keyDown { model.transport.gestures.recordQuestionReturn(Self.isReturnKey(event)) }
+    }
+
+    /// Return on the main keyboard is key code 36; the numeric keypad's Enter is 76.
+    private static func isReturnKey(_ event: NSEvent) -> Bool {
+        event.keyCode == 36 || event.keyCode == 76
     }
 }
