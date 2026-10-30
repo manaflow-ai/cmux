@@ -463,6 +463,9 @@ pub enum Command {
         session: String,
         #[arg(long)]
         purge: bool,
+        /// Set from `session stop --if-idle`; the hidden spelling takes no condition.
+        #[arg(skip)]
+        condition: StopIf,
     },
     #[command(hide = true)]
     RestartAgent { session: String },
@@ -809,6 +812,8 @@ pub enum SessionCmd {
         /// Also delete the log.
         #[arg(long)]
         purge: bool,
+        #[command(flatten)]
+        condition: StopIf,
     },
     /// Restart the agent process in the same conversation: now when the
     /// session is between turns, else when its turn ends (never cancelled).
@@ -818,7 +823,9 @@ pub enum SessionCmd {
     /// Rename a session.
     Rename { session: String, new_name: String },
     /// Run the queued prompts a failed turn held. An agent or a script may resume a
-    /// queue; only answering a permission or a question needs the cmux app.
+    /// queue; only answering a permission or a question needs the cmux app. On a machine a
+    /// person works at, a stopped chat first moves to a fleet host, as `session move --host
+    /// auto` does; when none takes it, it resumes here and says why.
     Resume {
         session: String,
         #[command(flatten)]
@@ -1276,14 +1283,30 @@ pub struct NewArgs {
     pub force_admit: bool,
 }
 
+/// `session stop`'s condition (`hub/stop_if_idle.rs`). Not with `--mesh`: the mesh hub's stop
+/// cannot carry it.
+#[derive(Args, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct StopIf {
+    /// Stop only when the session is idle: no turn (one admitted but not started yet included),
+    /// queued prompt, pending permission, agent request, background subagent or process. Checked
+    /// under the lock that admits turns, so none starts between the check and the stop. Refused:
+    /// exit 6, error `busy`, with `busyWith` and the session's revision.
+    #[arg(long, conflicts_with = "mesh")]
+    pub if_idle: bool,
+    /// With --if-idle: stop only while the session's revision (its `lastSeq` in `acpmux ls
+    /// --json` or `session info --json`) is still REV. Refused: exit 6, error `revision_moved`.
+    #[arg(long, value_name = "REV", requires = "if_idle")]
+    pub expect_revision: Option<u64>,
+}
+
 /// Map the grouped spellings onto the flat handlers.
 pub fn flatten(c: Command) -> Command {
     match c {
         Command::Session(sc) => match sc {
             SessionCmd::Info { session, fields } => Command::Info { session, fields },
             SessionCmd::Cancel { session } => Command::Cancel { session },
-            SessionCmd::Stop { session, purge, mesh } if !mesh.mesh => {
-                Command::Kill { session, purge }
+            SessionCmd::Stop { session, purge, mesh, condition } if !mesh.mesh => {
+                Command::Kill { session, purge, condition }
             }
             SessionCmd::Restart { session } => Command::RestartAgent { session },
             SessionCmd::Rename { session, new_name } => Command::Rename { session, new_name },

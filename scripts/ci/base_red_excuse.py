@@ -41,14 +41,39 @@ _spec.loader.exec_module(_evidence)
 Refused, job_for, latest_checks = _evidence.Refused, _evidence.job_for, _evidence.latest_checks
 
 
+# gh 2.6x and later refuse `gh api` output holding terminal escape sequences (a job log's ANSI colours)
+# unless given ESCAPE_FLAG. A gh too old to know the flag (Ubuntu 24.04's 2.45) refuses the flag itself,
+# reads nothing, and says exactly UNKNOWN_ESCAPE_FLAG on its first stderr line; that gh also prints escape
+# sequences unasked, so that one answer, and no other, is asked again without the flag. Any other failure
+# (HTTP, auth, quota, timeout, a different unknown flag) still refuses: 2026-10-30, every job log read on
+# a gh 2.45 host failed after #28397 added the flag, so no red there could be compared with the base.
+ESCAPE_FLAG = "--allow-escape-sequences"
+UNKNOWN_ESCAPE_FLAG = f"unknown flag: {ESCAPE_FLAG}"
+REQUEST_FAILED = "GitHub evidence request failed: "  # main_fix_evidence.GitHub.run's prefix to gh's stderr
+
+
+def escape_flag_unknown(stderr: str) -> bool:
+    """True only when gh's STDERR is an old gh's refusal of ESCAPE_FLAG itself (its first line, exactly)."""
+    lines = (stderr or "").strip().splitlines()
+    return bool(lines) and lines[0].strip() == UNKNOWN_ESCAPE_FLAG
+
+
 class GitHub(_evidence.GitHub):
     """GitHub client for red attribution, including logs of finished jobs in live runs."""
 
     def log(self, repo: str, job: dict) -> str:
         # `gh run view --log` waits for every job in the run. The Actions job
         # endpoint serves a finished job while sibling jobs remain queued.
-        # gh refuses to print a log holding escape sequences (ANSI colours) unless asked.
-        return self.run(["api", "--allow-escape-sequences", f"repos/{repo}/actions/jobs/{job['id']}/logs"])
+        # gh refuses to print a log holding escape sequences (ANSI colours) unless asked;
+        # a gh too old to know the flag is asked again without it (escape_flag_unknown).
+        route = f"repos/{repo}/actions/jobs/{job['id']}/logs"
+        try:
+            return self.run(["api", ESCAPE_FLAG, route])
+        except Refused as error:
+            said = str(error)
+            if not (said.startswith(REQUEST_FAILED) and escape_flag_unknown(said[len(REQUEST_FAILED):])):
+                raise
+        return self.run(["api", route])
 
     def json(self, route: str, *, paginate: bool = False, per_page: int = 100):
         # A run's job list carries every job's steps; see JOBS_PAGE.
