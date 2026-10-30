@@ -53,12 +53,14 @@ async function open(
     watchGate,
     answerGate,
     attachGate,
+    adoptGate,
     adoptOnConnect = true,
     saved = false,
   }: {
     watchGate?: Promise<void>;
     answerGate?: Promise<void>;
     attachGate?: Promise<void>;
+    adoptGate?: Promise<void>;
     adoptOnConnect?: boolean;
     saved?: boolean;
   } = {},
@@ -100,6 +102,7 @@ async function open(
           created("fork-1");
           return { sessionId: "fork-1" };
         }
+        if (!asking.watch && !asking.ifLive) await adoptGate;
         if (!asking.watch || !watches)
           throw Object.assign(new Error("claude session is open in another process"), {
             data: { reason: "adopt.live", details: { signal: "registry", pid: 4242, canFork: true } },
@@ -281,3 +284,24 @@ test("an adopt is kept as the tab's only once the pane shows it", async () => {
     client.close?.();
   }
 });
+
+for (const watches of [true, false])
+  test(`an adopt refused as live after the person moved on shows nothing for it (${watches ? "watchable" : "not watchable"})`, async () => {
+    let release = () => undefined as void;
+    const adoptGate = new Promise<void>((resolve) => (release = resolve));
+    const { client, asked, other, now } = await open(watches, { adoptGate, adoptOnConnect: false });
+    try {
+      const resumed = client.resume(adopt);
+      await settle(() => asked.length === 1);
+      await client.select(other());
+      release();
+      await resumed;
+      await settle(() => false);
+      expect(asked).toEqual([adopt]);
+      expect(now().sessionId).toBe(other());
+      expect(now().liveChat).toBeUndefined();
+      expect(now().liveTakeOver).toBeUndefined();
+    } finally {
+      client.close?.();
+    }
+  });
