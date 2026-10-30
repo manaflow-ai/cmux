@@ -50,6 +50,9 @@ concurrency:
 
 env:
   NIGHTLY_NEXT_FEED: https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml
+  # The canary's runner picker (scripts/ci/nightly_build_runner.py) lives on feat-cmux-next, like the launch smoke's
+  # placement tooling; a pull request into feat-cmux-next tests its own head.
+  TOOLING_REF: ${{ github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next' && github.sha || 'feat-cmux-next' }}
   # Bumping it canaries every feed build again.
   CANARY_CACHE_PREFIX: nightly-next-canary-v1-
 
@@ -126,15 +129,75 @@ jobs:
           key: ${{ env.CANARY_CACHE_PREFIX }}${{ steps.feed.outputs.build }}
           lookup-only: true
 
+  # The canary's route, picked on Linux right before it queues (scripts/ci/nightly_build_runner.py, the picker the
+  # nightly-next app build and the train compile use): an owned label while a runner carrying it is idle now, the
+  # nightly slot first (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER: glaeda's one runner per mini that takes only nightly jobs
+  # and listens on a full mini; its hook ranks main's canary as a nightly job), then the side label; else the
+  # Blacksmith macOS 26 label whose queue moves. So the canary never waits on a label with no idle runner: on
+  # 2026-10-29 the canary of build 4095550219401 (run 40959228667) sat on the side label from 21:46Z behind 43 PR
+  # jobs with no side job running. A busy fleet, unread runners or a failed pick leave `owned` empty.
+  pick-canary-runner:
+    name: Pick the canary's runner
+    needs: pick
+    if: needs.pick.result == 'success' && needs.pick.outputs.checked != 'true' && github.event_name != 'pull_request'
+    continue-on-error: true
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # The routing App's read-only key, in the environment the launch smoke's and the train's pickers use.
+    environment: ci-routing-agent
+    timeout-minutes: 5
+    permissions:
+      # The queue janitor's pool snapshot (an artifact).
+      actions: read
+      contents: read
+    outputs:
+      owned: ${{ steps.place.outputs.owned }}
+      blacksmith: ${{ steps.place.outputs.blacksmith }}
+      # The attempt the pick was made for: a re-run of the canary alone keeps this job's outputs, so it reads
+      # `blacksmith` and leaves the owned label it was refused on or stuck at.
+      attempt: ${{ steps.place.outputs.attempt }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.TOOLING_REF }}
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+          sparse-checkout-cone-mode: false
+
+      - name: Mint the owned-pool routing token
+        id: route-token
+        if: vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      - name: Pick an idle owned Mac, else a moving Blacksmith label
+        id: place
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+          SNAPSHOT_TOKEN: ${{ github.token }}
+          # The job never runs for a pull request or outside manaflow-ai; the owner and fork branches keep the
+          # routing guards' shape.
+          OWNED_LABELS: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || format('{0} {1}', vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, vars.CI_SIDE_LANE_RUNNER) }}
+          CANDIDATE: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 }}
+        run: python3 scripts/ci/nightly_build_runner.py
+
   canary:
     name: canary ${{ needs.pick.outputs.build }}
-    needs: pick
-    if: needs.pick.result == 'success' && needs.pick.outputs.checked != 'true'
-    # No secrets: this job runs the published app. An owned Mac's side label on
-    # attempt 1 (a side lane: owned_pool_rescue.SIDE_WORKFLOW_PATHS re-runs a refused
-    # job), Blacksmith macOS 26 from attempt 2 on. Never a GitHub-hosted Mac
-    # (tests/test_ci_no_github_hosted_macos.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}
+    needs: [pick, pick-canary-runner]
+    if: ${{ !cancelled() && needs.pick.result == 'success' && needs.pick.outputs.checked != 'true' }}
+    # No secrets: this job runs the published app. A schedule or dispatch takes the pick: on the pick's own attempt
+    # its idle owned Mac (the nightly slot, else the side label), else the moving Blacksmith label; a re-run reads
+    # the moving Blacksmith label. A same-repository pull request keeps the side label on attempt 1. A failed pick
+    # falls back to vars.MACOS_RUNNER_26, then Blacksmith macOS 26. A refused owned job is re-run by
+    # owned_pool_rescue.SIDE_WORKFLOW_PATHS. Never a GitHub-hosted Mac (tests/test_ci_no_github_hosted_macos.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && github.event_name != 'pull_request' && needs.pick-canary-runner.outputs.attempt == format('{0}', github.run_attempt) && needs.pick-canary-runner.outputs.owned || github.event_name != 'pull_request' && needs.pick-canary-runner.outputs.blacksmith || vars.CI_PR_POOL_OWNED == '1' && github.event_name == 'pull_request' && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 25
     permissions:
       contents: read
