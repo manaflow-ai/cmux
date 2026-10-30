@@ -6862,7 +6862,10 @@ export class AcpmuxDirectClient {
     const generation = this.selectionGeneration;
     const trustCancellation = this.trustCancellation;
     try {
-      return await this.request("session/new", params);
+      const result = await this.request("session/new", params);
+      // A canceled start owns neither the next Trust question nor one-shot startup defaults.
+      if (generation !== this.selectionGeneration || trustCancellation !== this.trustCancellation) return undefined;
+      return result;
     } catch (error) {
       if (generation === this.selectionGeneration && trustCancellation === this.trustCancellation)
         this.routeTrustRefusal(error, again, declined);
@@ -6901,7 +6904,13 @@ export class AcpmuxDirectClient {
                 if (error) reject(error);
                 else resolve(id);
               };
-              const cancel = () => finish();
+              const cancel = () => {
+                if (settled) return;
+                // The request can still reply after this promise settles. Fence its refusal
+                // before a newer start installs the retry it would otherwise overwrite.
+                this.cancelTrustRefusals();
+                finish();
+              };
               this.cancelTrustStart = cancel;
               const run = () => {
                 if (this.closed || generation !== this.selectionGeneration) return cancel();
