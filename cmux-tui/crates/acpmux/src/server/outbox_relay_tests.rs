@@ -19,7 +19,7 @@ const LANE: &str = "0190f2a4-7c1e-7d3a-9f00-0123456789ab";
 struct FakeHub {
     sent: Mutex<Vec<OutMessage>>,
     /// Every send is refused as a name the hub does not know.
-    unknown: bool,
+    unknown: std::sync::atomic::AtomicBool,
     /// How many more sends the hub keeps but whose answer is lost on the way back.
     lose: std::sync::atomic::AtomicUsize,
 }
@@ -43,7 +43,7 @@ impl MeshHub for FakeHub {
     fn send<'a>(&'a self, message: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
         self.sent.lock().unwrap().push(message.clone());
         Box::pin(async move {
-            if self.unknown {
+            if self.unknown.load(SeqCst) {
                 let mut e = HubError::refused("no such recipient");
                 e.code = Some("mesh.unknown_recipient".into());
                 return Err(e);
@@ -133,6 +133,11 @@ async fn after_attempt(hub: &Arc<Hub>, id: &str, n: u32) -> Delivery {
     }
 }
 
+/// Whether `d` records no relay post the hub may hold.
+fn no_relay_post(d: &Delivery) -> bool {
+    d.relay_to.is_none()
+}
+
 async fn queue(hub: &Arc<Hub>, params: Value) -> String {
     let queued = call(hub, method::MUX_SEND_QUEUE, params).await.unwrap();
     let id = queued["deliveryId"].as_str().unwrap().to_owned();
@@ -193,7 +198,7 @@ async fn what_the_relay_cannot_carry_or_the_hub_does_not_take_stays_queued_for_t
     assert!(fake.sent.lock().unwrap().is_empty(), "the relay was asked to carry them");
 
     // A hub that does not take it: kept, and the error says both.
-    let (hub, fake) = setup(FakeHub { unknown: true, ..FakeHub::default() });
+    let (hub, fake) = setup(FakeHub { unknown: true.into(), ..FakeHub::default() });
     let id = queue(&hub, request("huge-blue/lane", "prompt-keep-unknown")).await;
     let d = after_attempt(&hub, &id, 1).await;
     assert_eq!(d.state, State::Queued, "{d:?}");
@@ -245,4 +250,21 @@ async fn a_relay_post_whose_answer_was_lost_is_tried_again_only_through_the_rela
     assert_eq!(sent.len(), 2, "{sent:?}");
     assert_eq!(sent[0].idempotency_key, sent[1].idempotency_key, "the same message again");
     assert_eq!(sent[1].to, sent[0].to, "{sent:?}");
+}
+
+#[tokio::test]
+async fn a_hub_that_refuses_the_retry_of_a_lost_post_holds_nothing_and_the_peer_link_takes_it_back()
+{
+    let fake = FakeHub { lose: 1.into(), ..FakeHub::default() };
+    let (hub, fake) = setup(fake);
+    let id = queue(&hub, request("huge-blue/lane", "prompt-lost-refused")).await;
+    let d = after_attempt(&hub, &id, 1).await;
+    assert_eq!(d.state, State::Queued, "{d:?}");
+    // The hub checks the key before the recipient: a refusal of the same key means it kept none.
+    fake.unknown.store(true, SeqCst);
+    let d = after_attempt(&hub, &id, 2).await;
+    assert_eq!(d.state, State::Queued, "the peer is tried again: {d:?}");
+    assert!(d.never_sent, "{d:?}");
+    assert!(no_relay_post(&d), "the peer's link may take it back: {d:?}");
+    assert!(d.error.as_deref().is_some_and(|e| e.contains("mesh relay did not take it")), "{d:?}");
 }
