@@ -356,12 +356,13 @@ export class CloudDO extends CloudIdle {
       snapshot: (id) => rows()?.get<SnapshotRow>(TABLE_SNAPSHOT, id)?.row,
       platformSnapshot: (u, id) => {
         const reader = rows()
-        if (!reader) return false
+        if (!reader) return undefined
         let after: number | undefined
         for (;;) {
           const page = reader.range<LedgerRow>(TABLE_LEDGER, { after, limit: 1000 })
-          if (page.some((l) => l.row.op === "snapshot" && l.row.snapshot === id && l.row.key.startsWith(`${PLATFORM_IDENTITY_PREFIX}${u}|platform-env:snapshot:`))) return true
-          if (page.length < 1000) return false
+          const creation = page.find((l) => l.row.op === "snapshot" && l.row.snapshot === id)
+          if (creation) return creation.row.key.startsWith(`${PLATFORM_IDENTITY_PREFIX}${u}|platform-env:snapshot:`)
+          if (page.length < 1000) return undefined
           after = page[page.length - 1]!.n!
         }
       },

@@ -228,14 +228,20 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
       const snap = rows.get(TABLE_SNAPSHOT, id)
       const { platform: _platform, ...unmarked } = snap.row
       const created = rows.range(TABLE_LEDGER, { limit: 1000 }).find((entry: any) => entry.row.op === "snapshot" && entry.row.snapshot === id)
+      expect(created).toBeDefined()
       rows.apply([
         { table: TABLE_SNAPSHOT, op: "upsert", key: id, n: snap.n, row: unmarked },
         { table: TABLE_LEDGER, op: "delete", key: created.key },
       ])
+      expect(rows.get(TABLE_SNAPSHOT, id).row.platform).toBeUndefined()
+      expect(rows.get(TABLE_LEDGER, created.key)).toBeUndefined()
     })
     const before = (await stub.fakeControl({})) as any
+    expect(before.snapshots).toHaveLength(1)
     expect(await rpc.deleteSnapshot(c, id)).toMatchObject({ ok: false, code: "cloud.snapshot.ownership_unknown", retryable: true })
-    expect(((await stub.fakeControl({})) as any).snapshot_deletes).toBe(before.snapshot_deletes)
+    const after = (await stub.fakeControl({})) as any
+    expect(after.snapshot_deletes).toBe(before.snapshot_deletes)
+    expect(after.snapshots).toEqual(before.snapshots)
   })
 
   it("refuses a non-platform snapshot without calling its provider", async () => {
